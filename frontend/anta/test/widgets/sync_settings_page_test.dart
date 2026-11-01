@@ -85,13 +85,17 @@ void main() {
   final l10n = AppLocalizationsEn();
 
   /// Binds the account, the pairing singleton and the two bloc factories;
-  /// [paired] plants an active pair with Ana, which the first load adopts.
+  /// [paired] plants an active pair with Ana, which the first load adopts;
+  /// [available] false is a build without sync, the QA build's state.
   Future<void> boot({
     AppUser? user,
     bool paired = false,
     bool offline = false,
+    bool available = true,
   }) async {
-    auth = offline ? _OfflineAuthService() : FakeAuthService(user: user);
+    auth = offline
+        ? _OfflineAuthService()
+        : FakeAuthService(available: available, user: user);
     gateway = FakePairingGateway();
     if (paired) {
       gateway.seedPair(
@@ -188,6 +192,39 @@ void main() {
     expect(find.text(l10n.signOut), findsNothing);
     expect(find.bySemanticsIdentifier(SemanticsIds.sharingSignIn), findsOne);
     expect(find.bySemanticsIdentifier(SemanticsIds.sharingList), findsOne);
+    expect(tester.takeException(), isNull);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('without sync, it opens on the disabled unavailable row, '
+      'identified, and no pairing section', (tester) async {
+    await boot(available: false);
+    await pumpPage(tester);
+
+    expect(syncBloc!.state, const SyncUnavailable());
+    expect(find.text(l10n.syncUnavailablePlatform), findsOneWidget);
+    expect(
+      tester
+          .widget<ListTile>(
+            find.ancestor(
+              of: find.text(l10n.syncUnavailablePlatform),
+              matching: find.byType(ListTile),
+            ),
+          )
+          .enabled,
+      isFalse,
+    );
+    expect(
+      find.bySemanticsIdentifier(SemanticsIds.sharingUnavailable),
+      findsOne,
+    );
+    expect(
+      find.bySemanticsIdentifier(SemanticsIds.sharingSignIn),
+      findsNothing,
+    );
+    expect(pairingBloc!.state, const PairingUnavailable());
+    expect(find.bySemanticsIdentifier(SemanticsIds.sharingPair), findsNothing);
     expect(tester.takeException(), isNull);
 
     await tester.pumpWidget(const SizedBox.shrink());

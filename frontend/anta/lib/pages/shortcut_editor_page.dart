@@ -1429,7 +1429,6 @@ class _ShortcutEditorPageState extends State<ShortcutEditorPage> {
       backgroundColor: Theme.of(context).colorScheme.pageGround,
       appBar: SettingsAppBar(
         title: widget.shortcut == null ? l10n.newShortcut : l10n.editShortcut,
-        showMenuButton: false,
         actions: [
           TextButton.icon(
             onPressed: _save,

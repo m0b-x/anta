@@ -174,7 +174,6 @@ class _CalendarAppearancePageState extends State<CalendarAppearancePage> {
       appBar: SettingsAppBar(
         title: l10n.calendarAppearanceSection,
         identifier: SemanticsIds.settingsBarAppearance,
-        showMenuButton: false,
       ),
       body: SafeArea(
         top: false,

@@ -138,7 +138,7 @@ class _VocabulariesPageState extends State<VocabulariesPage> {
 
     return Scaffold(
       backgroundColor: Theme.of(context).colorScheme.pageGround,
-      appBar: SettingsAppBar(title: l10n.vocabularies, showMenuButton: false),
+      appBar: SettingsAppBar(title: l10n.vocabularies),
       floatingActionButton: AutomationId(
         identifier: SemanticsIds.vocabulariesAdd,
         child: FloatingActionButton.extended(

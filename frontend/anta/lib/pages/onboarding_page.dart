@@ -172,11 +172,9 @@ class _OnboardingPageState extends State<OnboardingPage> {
       final validation = await backupService.validateBackup(jsonString);
 
       if (!validation.isValid) {
+        debugPrint('[Onboarding] invalid backup: ${validation.error}');
         if (mounted) {
-          CustomSnackbar.showError(
-            context,
-            validation.error ?? l10n.invalidBackupFile,
-          );
+          CustomSnackbar.showError(context, l10n.invalidBackupFile);
         }
         setState(() => _isImporting = false);
         return;
@@ -206,15 +204,14 @@ class _OnboardingPageState extends State<OnboardingPage> {
           await settings.setOnboardingCompleted(true);
           widget.onComplete();
         } else {
-          CustomSnackbar.showError(
-            context,
-            importResult.error ?? l10n.importFailed,
-          );
+          debugPrint('[Onboarding] import failed: ${importResult.error}');
+          CustomSnackbar.showError(context, l10n.importFailed);
         }
       }
-    } catch (e) {
+    } catch (e, st) {
+      debugPrint('[Onboarding] import failed: $e\n$st');
       if (mounted) {
-        CustomSnackbar.showError(context, '${l10n.importFailed}: $e');
+        CustomSnackbar.showError(context, l10n.importFailed);
       }
     } finally {
       if (mounted) {
@@ -248,9 +245,10 @@ class _OnboardingPageState extends State<OnboardingPage> {
         icon: Icons.restart_alt_rounded,
         onAction: () => SystemNavigator.pop(),
       );
-    } catch (e) {
+    } catch (e, st) {
+      debugPrint('[Onboarding] restore from file failed: $e\n$st');
       if (mounted) {
-        CustomSnackbar.showError(context, '${l10n.importFailed}: $e');
+        CustomSnackbar.showError(context, l10n.importFailed);
       }
     }
   }

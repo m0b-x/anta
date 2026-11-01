@@ -334,7 +334,12 @@ enum CalendarGuideTopic {
           l10n.save,
         ),
       ),
-      GuideCoachStep('hidden', (l10n) => l10n.calendarGuideCoachCategoriesHide),
+      // Still 'hidden': the coach's progression is keyed on it, and hiding
+      // a category is archiving it (B1).
+      GuideCoachStep(
+        'hidden',
+        (l10n) => l10n.calendarGuideCoachCategoriesHide(l10n.categoryArchive),
+      ),
       GuideCoachStep(
         'deleted',
         (l10n) => l10n.calendarGuideCoachCategoriesDelete(
@@ -586,6 +591,12 @@ enum CalendarGuideTopic {
     ],
     categories => [
       CalendarGuideRow(
+        'categories-where',
+        Icons.settings_outlined,
+        l10n.calendarGuideCategoriesWhereTitle,
+        l10n.calendarGuideCategoriesWhereBody(l10n.calendarCategories),
+      ),
+      CalendarGuideRow(
         'category',
         Icons.category_rounded,
         l10n.calendarGuideCategoryTitle,
@@ -630,7 +641,31 @@ enum CalendarGuideTopic {
         'settings',
         Icons.settings_outlined,
         l10n.calendarGuideSettingsTitle,
-        l10n.calendarGuideSettingsBody(l10n.calendarSettings, l10n.save),
+        l10n.calendarGuideSettingsBody(
+          l10n.settingsHubTitle,
+          l10n.calendarSettings,
+          l10n.save,
+        ),
+      ),
+      CalendarGuideRow(
+        'setup-fasting',
+        Icons.restaurant_menu_rounded,
+        l10n.fastingSettingsTitle,
+        l10n.calendarGuideSetupFastingBody(
+          l10n.settingsHubTitle,
+          l10n.fastingSettingsTitle,
+          l10n.calendarSettings,
+        ),
+      ),
+      CalendarGuideRow(
+        'setup-alerts',
+        Icons.alarm_rounded,
+        l10n.alertSettingsTitle,
+        l10n.calendarGuideSetupAlertsBody(
+          l10n.settingsHubTitle,
+          l10n.alertSettingsTitle,
+          l10n.alertsTitle,
+        ),
       ),
       CalendarGuideRow(
         'language',

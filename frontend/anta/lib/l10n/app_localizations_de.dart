@@ -414,7 +414,7 @@ class AppLocalizationsDe extends AppLocalizations {
       locale: localeName,
       other: '$count Ereignisse',
       one: '1 Ereignis',
-      zero: 'Keine Ereignisse',
+      zero: 'Keine Ereignisse',
     );
     return '$_temp0';
   }
@@ -1683,10 +1683,6 @@ class AppLocalizationsDe extends AppLocalizations {
   String get markdownShortcuts => 'Markdown-Verknüpfungen';
 
   @override
-  String get markdownShortcutsDesc =>
-      'Symbolleisten-Schaltflächen und Aktionen anpassen';
-
-  @override
   String get removeAllCustom => 'Alle benutzerdefinierten entfernen';
 
   @override
@@ -2200,9 +2196,6 @@ class AppLocalizationsDe extends AppLocalizations {
   String get databaseSettings => 'Datenbank';
 
   @override
-  String get databaseSettingsDesc => 'Datenbankspeicherort und -verwaltung';
-
-  @override
   String get about => 'Über';
 
   @override
@@ -2608,6 +2601,26 @@ class AppLocalizationsDe extends AppLocalizations {
   @override
   String get databasePathError =>
       'Der Speicherpfad konnte nicht gelesen werden';
+
+  @override
+  String get databaseCreateFailed =>
+      'Die Datenbank konnte nicht erstellt werden';
+
+  @override
+  String get databaseRenameFailed =>
+      'Die Datenbank konnte nicht umbenannt werden';
+
+  @override
+  String get databaseDeleteFailed =>
+      'Die Datenbank konnte nicht gelöscht werden';
+
+  @override
+  String get databaseSwitchFailed =>
+      'Die Datenbank konnte nicht gewechselt werden';
+
+  @override
+  String get databaseOptimizeFailed =>
+      'Die Datenbank konnte nicht optimiert werden';
 
   @override
   String deleteDatabaseConfirm(String name) {
@@ -3729,10 +3742,6 @@ class AppLocalizationsDe extends AppLocalizations {
   String get counterSettings => 'Zähler';
 
   @override
-  String get counterSettingsDesc =>
-      'Auto-Inkrement-Zähler erstellen und verwalten';
-
-  @override
   String counterCurrentValue(int value) {
     return 'Aktuell: $value';
   }
@@ -4491,9 +4500,6 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get sharingSettings => 'Teilen';
-
-  @override
-  String get sharingSettingsDesc => 'Anmelden, um mit jemandem zu teilen';
 
   @override
   String get accountSection => 'Konto';
@@ -6362,6 +6368,14 @@ class AppLocalizationsDe extends AppLocalizations {
   }
 
   @override
+  String get calendarGuideCategoriesWhereTitle => 'Wo sie verwaltet werden';
+
+  @override
+  String calendarGuideCategoriesWhereBody(String categories) {
+    return 'Öffne das Menü (☰) und tippe auf „$categories“, oder tippe auf ⋮ im Kalender, dann „$categories“.';
+  }
+
+  @override
   String get calendarGuideCategoryTitle => 'Kategorien';
 
   @override
@@ -6454,8 +6468,30 @@ class AppLocalizationsDe extends AppLocalizations {
   String get calendarGuideSettingsTitle => 'Wo die Einstellungen sind';
 
   @override
-  String calendarGuideSettingsBody(String settingsRow, String save) {
-    return 'Tippe oben rechts auf die drei Punkte und dann auf „$settingsRow“. Alles dort gilt sofort – es gibt keine Taste „$save“.';
+  String calendarGuideSettingsBody(
+    String settings,
+    String calendarSettings,
+    String save,
+  ) {
+    return 'Öffne das Menü (☰), tippe auf „$settings“, dann auf „$calendarSettings“ – oder tippe auf ⋮ im Kalender, dann auf „$calendarSettings“. Alles dort gilt sofort – es gibt keine Taste „$save“.';
+  }
+
+  @override
+  String calendarGuideSetupFastingBody(
+    String settings,
+    String fasting,
+    String calendarSettings,
+  ) {
+    return 'Unter „$settings“ → „$fasting“ oder aus „$calendarSettings“: die Traditionen, wie jede aussieht, deine eigene Praxis.';
+  }
+
+  @override
+  String calendarGuideSetupAlertsBody(
+    String settings,
+    String alerts,
+    String alertsPage,
+  ) {
+    return 'Unter „$settings“ → „$alerts“ oder über ⚙ auf der Seite $alertsPage: die Standard-Erinnerungen, der Weckton, das Schlummern und der Hinweis.';
   }
 
   @override
@@ -6891,12 +6927,13 @@ class AppLocalizationsDe extends AppLocalizations {
   }
 
   @override
-  String get calendarGuideCoachCategoriesHide =>
-      'Tippe auf das Auge einer Kategorie, um sie zu verstecken; noch einmal zeigt sie wieder.';
+  String calendarGuideCoachCategoriesHide(String archive) {
+    return 'Tippe auf die drei Punkte einer Kategorie, dann „$archive“: sie verschwindet aus den Auswahllisten; ihre Ereignisse und Erinnerungen bleiben.';
+  }
 
   @override
   String calendarGuideCoachCategoriesDelete(String delete, String other) {
-    return 'Tippe auf die drei Punkte deiner Kategorie, dann „$delete“: ihre Ereignisse gehen zu „$other“.';
+    return 'Tippe auf die drei Punkte deiner Kategorie, dann „$delete“: ihre Ereignisse gehen zu „$other“ – oder wähle, wohin sie gehen.';
   }
 
   @override

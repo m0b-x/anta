@@ -16,7 +16,6 @@ import 'package:anta/models/label_style.dart';
 import 'package:anta/models/restore_location_mode.dart';
 import 'package:anta/pages/settings_page.dart';
 import 'package:anta/services/auth_service.dart';
-import 'package:anta/services/drawer_host_registry.dart';
 import 'package:anta/services/label_appearance_service.dart';
 import 'package:anta/services/settings_service.dart';
 import 'package:anta/widgets/settings_section_list.dart';
@@ -96,7 +95,6 @@ void main() {
     writes = _FailingWrites();
     db = await openTestDatabase(interceptor: writes);
     settings = SettingsService.forTesting(db);
-    DrawerHostRegistry.clear();
     GetIt.I.registerSingleton<AuthService>(NoOpAuthService());
 
     // Every value the reset writes, away from its default — as [moved] lists.
@@ -142,7 +140,6 @@ void main() {
   });
 
   tearDown(() async {
-    DrawerHostRegistry.clear();
     await GetIt.I.reset();
     LabelAppearanceService.reset();
     SettingsService.reset();

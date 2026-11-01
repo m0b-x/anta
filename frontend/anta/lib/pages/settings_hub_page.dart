@@ -55,7 +55,6 @@ class _SettingsHubPageState extends State<SettingsHubPage> {
       backgroundColor: colorScheme.pageGround,
       appBar: SettingsAppBar(
         title: l10n.settingsHubTitle,
-        showMenuButton: false,
         identifier: SemanticsIds.settingsBarHub,
       ),
       body: SafeArea(

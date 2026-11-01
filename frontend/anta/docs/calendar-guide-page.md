@@ -1017,10 +1017,16 @@ so they never overlap an implementer or a `qa` build.
   custom demo category named after the Book club; eye and ⋮ per row, the
   menu a `showMenu` + `PopupMenuItem(enabled:)` as the saved-filters ⋮
   because `showFormMenu`'s items cannot be disabled, the ⋮ tooltip
-  Material's; no "Built-in" line — it broke mid-word beside two buttons at
-  2.0 on 360, a built-in shows by its disabled Delete; the list sized for
-  three rows, extra rows scroll, Create disabled at six; ids `row-<i>`,
-  `eye-<i>`, `more-<i>`, `edit` / `delete`, `add`), `_try_finding.dart`
+  Material's; since the categories rework's S4 (2026-11-01) the row mirrors
+  the rebuilt page — a 48 dp handle (inert, no index), the avatar or the
+  22 px glyph from text-scale factor 1.6, the name, the caption "No events ·
+  Built in" on a built-in, a ⋮ opening a `showFormMenu` with Move to top ·
+  Edit · Archive / Restore · Delete… disabled where the page disables them, an
+  Archived header (`try-categories-archived`) while a row is archived, only
+  the leading dimmed; the eye is gone; the list sized for the seed with its
+  last row archived so archive and restore move nothing, extra rows scroll,
+  Create disabled at six; ids `row-<i>`, `more-<i>`,
+  `try-categories-move-to-top` / `-edit` / `-archive` / `-delete`, `add`), `_try_finding.dart`
   (`FormSearchRow` with the hint `search` — `upcomingSearchHint` cut off at
   2.0 inside the stage; `EventSearchQuery.parse` + `EventQueryMatcher`
   over the six seeds from the 1st of this month to a year ahead so the
@@ -1656,9 +1662,9 @@ row of the page is deleted from the catalogue, its keys retired):
 | alerts | `alert-kinds`, `permissions`, `ring`, `open-often` | `add-alert`, `quick-alarm`, `hub` |
 | attendance | `assume`, `rail`, `per-day` | `attendance`, `count` |
 | report | `report-open`, `report-categories`, `report-missed`, `report-digest` (added 2026-10-31 with the Report page; no card: its practice is the real page) | — |
-| categories | `category`, `cat-change`, `cat-alerts` | `cat-create`, `cat-hide`, `cat-delete` |
+| categories | `categories-where` (2026-11-01: the drawer's Categories row or the calendar's ⋮), `category`, `cat-change`, `cat-alerts` | `cat-create`, `cat-hide` (its coach line names Archive through the ⋮ since 2026-11-01, F1), `cat-delete` (… "or choose where they go", C1) |
 | finding | `filters`, `overview` | `search` |
-| setup | `settings`, `language` | `holidays`, `week-start` |
+| setup | `settings` (the hub's path since 2026-11-01: ☰ → Settings → Calendar settings, or the calendar's ⋮), `setup-fasting`, `setup-alerts` (where the two new pages are — D12 of the settings rework), `language` | `holidays`, `week-start` (their coach lines keep pointing at the card's own controls, which sit in the try card itself; the settings record's §4.8 asked that "the coach line names the hub" — the hub's path lives in the three where rows and the card's "Open Calendar settings" row instead, a decision of 2026-11-01: a coach line that sent the learner away from the control in front of them would mislead) |
 | good | `opening`, `back`, `notes` (bodies cut) | — |
 
 The `26_guide` flow's `calendar-guide-add-event` step moves to
@@ -2382,6 +2388,10 @@ fix pass; F4's device pass is the `qa-runner`.
 
 
 ## 6. Deferred
+
+- **The finding card's Missed-only filter is empty in a month's first week** (found 2026-11-01 while gating the settings rework, confirmed with `now: 2026-11-03`): the demo lists days from the 1st of the month (`calendar_guide_try_finding.dart:68-86`) while its one missed mark is Yoga at `_offset(-7)` (`calendar_guide_demo.dart:563`), so from the 1st to the 7th the mark sits in the previous month and the list is empty — a learner following the "Missed only" step sees nothing. The suite now pins the finding topic to 2026-10-14 (`fixedNowFor`) so it no longer fails on the real clock; the demo itself is the owner's call: start the window a fortnight before today, or place the missed mark inside the current month.
+- **The categories sandbox row duplicates the page's `_CategoryRow`** (2026-11-01): the try card's row copies the page's anatomy by hand; extracting one shared row widget means touching the page under the one-copy rule — a candidate for the next categories pass.
+- **The delete coach line quotes "Delete"** (`l10n.delete`) while the menu item reads "Delete…" (`categoryDeleteEllipsis`); harmless, worth aligning when the lesson's strings are next touched.
 
 - **From the second review (2026-10-30, D59):** the guide's grid wiring
   (`GuideCalendarGrid`) is one copy and `_CalendarTable`'s

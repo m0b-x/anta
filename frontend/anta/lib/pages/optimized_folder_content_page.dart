@@ -55,7 +55,6 @@ import '../utils/bloc_helpers.dart';
 import '../utils/custom_snackbar.dart';
 import '../widgets/app_dialogs.dart';
 import '../services/app_navigator.dart';
-import '../services/drawer_host_registry.dart';
 import '../widgets/move_history_sheet.dart';
 
 /// One row of the browser's list: either a section label or a content item.
@@ -181,8 +180,9 @@ class OptimizedFolderContentPage extends StatefulWidget {
 
 class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
     with RouteAware {
-  /// Lets a restored settings page raise this page's drawer when it is popped
-  /// — see [DrawerHostRegistry].
+  /// The bar's ⋮ Settings item opens the drawer through this key: its tap
+  /// runs once the menu route is gone, from a context under no Scaffold of
+  /// this page, so `Scaffold.of` cannot reach it.
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   final ScrollController _scrollController = ScrollController();
   NotesSortOrder _notesSortOrder = NotesSortOrder.updatedDesc;
@@ -328,7 +328,6 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
   @override
   void initState() {
     super.initState();
-    DrawerHostRegistry.register(_scaffoldKey);
     _selectionSub = _selection.changes.listen((_) {
       if (mounted) {
         // Drop optimistic state when leaving selection mode so the next
@@ -625,7 +624,6 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
   @override
   void dispose() {
     AppNavigator.routeObserver.unsubscribe(this);
-    DrawerHostRegistry.unregister(_scaffoldKey);
     _selectionSub?.cancel();
     _folderChangesSub?.cancel();
     _noteChangesSub?.cancel();

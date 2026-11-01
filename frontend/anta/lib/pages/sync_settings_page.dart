@@ -153,6 +153,7 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
             description: _descriptionFor(l10n, state),
             keywords: _keywords(l10n.sharingKeywords),
             identifier: switch (state) {
+              SyncUnavailable() => SemanticsIds.sharingUnavailable,
               SyncInitial() || SyncSignedOut() => SemanticsIds.sharingSignIn,
               SyncSignedIn() => SemanticsIds.sharingSignOut,
               SyncFailure() => SemanticsIds.sharingRetry,

@@ -398,10 +398,6 @@ class SettingsAppBar extends StatelessWidget implements PreferredSizeWidget {
   final String title;
   final List<Widget>? actions;
 
-  /// Off by default: a settings-family page carries no drawer and draws the
-  /// arrow alone, so back always lands on the route beneath (D3).
-  final bool showMenuButton;
-
   /// The page's own ground, for a page that paints one; null puts the bar
   /// on `pageGround`, the settings kit's ground ([UnifiedAppBar.settings]).
   final Color? backgroundColor;
@@ -414,7 +410,6 @@ class SettingsAppBar extends StatelessWidget implements PreferredSizeWidget {
     super.key,
     required this.title,
     this.actions,
-    this.showMenuButton = false,
     this.backgroundColor,
     this.identifier,
   });
@@ -425,7 +420,6 @@ class SettingsAppBar extends StatelessWidget implements PreferredSizeWidget {
   @override
   Widget build(BuildContext context) {
     final scaffold = Scaffold.maybeOf(context);
-    final drawsPair = showMenuButton && (scaffold?.hasDrawer ?? false);
     final Widget titleText = Text(
       title,
       maxLines: 1,
@@ -439,10 +433,7 @@ class SettingsAppBar extends StatelessWidget implements PreferredSizeWidget {
     return UnifiedAppBar.settings(
       backgroundColor: backgroundColor,
       toolbarHeight: AppBarMetrics.toolbarHeight,
-      leadingWidth: drawsPair ? LeadingNavPair.width : null,
-      leading: showMenuButton
-          ? _buildLeading(context, scaffold)
-          : _impliedBack(context, scaffold),
+      leading: _impliedBack(context, scaffold),
       title: id == null ? titleText : _identifiedTitle(id, titleText),
       excludeHeaderSemantics: id != null,
       actions: actions,
@@ -471,23 +462,8 @@ class SettingsAppBar extends StatelessWidget implements PreferredSizeWidget {
     );
   }
 
-  /// The pair needs a drawer to open. A settings-family page pushed onto a
-  /// `Scaffold` without one — the per-note pages are the four — draws the
-  /// arrow alone rather than a button that does nothing.
-  Widget _buildLeading(BuildContext context, ScaffoldState? scaffold) {
-    void back() => AppNavigator.pop(context);
-    if (scaffold == null || !scaffold.hasDrawer) {
-      return IconButton(
-        icon: const BackButtonIcon(),
-        iconSize: AppBarMetrics.glyphSize,
-        tooltip: MaterialLocalizations.of(context).backButtonTooltip,
-        onPressed: back,
-      );
-    }
-    return LeadingNavPair(onBack: back, onMenu: scaffold.openDrawer);
-  }
-
-  /// The arrow `AppBar` would imply for a page without the menu button, drawn
+  /// The arrow `AppBar` would imply, the only leading a settings bar draws
+  /// (D3: back lands on the route beneath, never on a drawer), drawn
   /// here so it carries [SemanticsIds.navBack] — a device script then leaves
   /// every settings page by one id. Only where `AppBar` would draw a back
   /// arrow (a drawer implies its menu button, a full-screen dialog its close

@@ -639,13 +639,14 @@ class _DatabaseSettingsPageState extends State<DatabaseSettingsPage> {
         this.context,
         AppLocalizations.of(this.context)!.databaseCreated,
       );
-    } catch (e) {
+    } catch (e, st) {
+      debugPrint('[DatabaseSettings] create failed: $e\n$st');
       if (!mounted) return;
       AppNavigator.pop(this.context);
 
       CustomSnackbar.showError(
         this.context,
-        '${AppLocalizations.of(this.context)!.error}: $e',
+        AppLocalizations.of(this.context)!.databaseCreateFailed,
       );
     }
   }
@@ -707,14 +708,12 @@ class _DatabaseSettingsPageState extends State<DatabaseSettingsPage> {
 
       if (!mounted) return;
       CustomSnackbar.showSuccess(this.context, l10n.databaseImported);
-    } catch (e) {
+    } catch (e, st) {
+      debugPrint('[DatabaseSettings] import failed: $e\n$st');
       if (!mounted) return;
       AppNavigator.pop(this.context);
 
-      CustomSnackbar.showError(
-        this.context,
-        '${AppLocalizations.of(this.context)!.error}: $e',
-      );
+      CustomSnackbar.showError(this.context, l10n.importFailed);
     }
   }
 
@@ -777,13 +776,14 @@ class _DatabaseSettingsPageState extends State<DatabaseSettingsPage> {
         this.context,
         AppLocalizations.of(this.context)!.databaseRenamed,
       );
-    } catch (e) {
+    } catch (e, st) {
+      debugPrint('[DatabaseSettings] rename failed: $e\n$st');
       if (!mounted) return;
       AppNavigator.pop(this.context);
 
       CustomSnackbar.showError(
         this.context,
-        '${AppLocalizations.of(this.context)!.error}: $e',
+        AppLocalizations.of(this.context)!.databaseRenameFailed,
       );
     }
   }
@@ -816,11 +816,12 @@ class _DatabaseSettingsPageState extends State<DatabaseSettingsPage> {
         this.context,
         AppLocalizations.of(this.context)!.databaseDeleted,
       );
-    } catch (e) {
+    } catch (e, st) {
+      debugPrint('[DatabaseSettings] delete failed: $e\n$st');
       if (!mounted) return;
       CustomSnackbar.showError(
         this.context,
-        '${AppLocalizations.of(this.context)!.error}: $e',
+        AppLocalizations.of(this.context)!.databaseDeleteFailed,
       );
     }
   }
@@ -866,13 +867,14 @@ class _DatabaseSettingsPageState extends State<DatabaseSettingsPage> {
         icon: Icons.restart_alt_rounded,
         onAction: () => SystemNavigator.pop(),
       );
-    } catch (e) {
+    } catch (e, st) {
+      debugPrint('[DatabaseSettings] switch failed: $e\n$st');
       if (!mounted) return;
       AppNavigator.pop(this.context);
 
       CustomSnackbar.showError(
         this.context,
-        '${AppLocalizations.of(this.context)!.error}: $e',
+        AppLocalizations.of(this.context)!.databaseSwitchFailed,
       );
     }
   }
@@ -999,11 +1001,12 @@ class _DatabaseSettingsPageState extends State<DatabaseSettingsPage> {
           AppLocalizations.of(context)!.notSupportedOnPlatform,
         );
       }
-    } catch (e) {
+    } catch (e, st) {
+      debugPrint('[DatabaseSettings] open folder failed: $e\n$st');
       if (!mounted) return;
       CustomSnackbar.showError(
         this.context,
-        '${AppLocalizations.of(this.context)!.errorOpeningFolder}: $e',
+        AppLocalizations.of(this.context)!.errorOpeningFolder,
       );
     }
   }
@@ -1036,11 +1039,12 @@ class _DatabaseSettingsPageState extends State<DatabaseSettingsPage> {
       await getIt<ImportExportService>().shareExport(
         ExportResult.file(_databasePath!),
       );
-    } catch (e) {
+    } catch (e, st) {
+      debugPrint('[DatabaseSettings] share failed: $e\n$st');
       if (!mounted) return;
       CustomSnackbar.showError(
         this.context,
-        '${AppLocalizations.of(this.context)!.shareError}: $e',
+        AppLocalizations.of(this.context)!.shareError,
       );
     }
   }
@@ -1085,13 +1089,14 @@ class _DatabaseSettingsPageState extends State<DatabaseSettingsPage> {
       }
 
       CustomSnackbar.showSuccess(this.context, message);
-    } catch (e) {
+    } catch (e, st) {
+      debugPrint('[DatabaseSettings] optimize failed: $e\n$st');
       if (!mounted) return;
       AppNavigator.pop(this.context);
 
       CustomSnackbar.showError(
         this.context,
-        '${AppLocalizations.of(this.context)!.error}: $e',
+        AppLocalizations.of(this.context)!.databaseOptimizeFailed,
       );
     }
   }
@@ -1132,13 +1137,14 @@ class _DatabaseSettingsPageState extends State<DatabaseSettingsPage> {
         iconColor: Theme.of(context).colorScheme.primary,
         onAction: () => SystemNavigator.pop(),
       );
-    } catch (e) {
+    } catch (e, st) {
+      debugPrint('[DatabaseSettings] delete all data failed: $e\n$st');
       if (!mounted) return;
       AppNavigator.pop(context); // Close loading dialog
 
       CustomSnackbar.showError(
         context,
-        '${AppLocalizations.of(context)!.errorDeletingData}: $e',
+        AppLocalizations.of(context)!.errorDeletingData,
       );
     }
   }

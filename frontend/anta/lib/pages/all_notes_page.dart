@@ -18,7 +18,6 @@ import '../models/note_change.dart';
 import '../models/note_metadata.dart';
 import '../models/search_scope.dart';
 import '../services/app_navigator.dart';
-import '../services/drawer_host_registry.dart';
 import '../services/folder_search_service.dart';
 import '../services/folder_storage_service.dart';
 import '../services/note_storage_service.dart';
@@ -71,8 +70,9 @@ class AllNotesPage extends StatefulWidget {
 }
 
 class _AllNotesPageState extends State<AllNotesPage> with RouteAware {
-  /// Lets a restored settings page raise this page's drawer when it is popped
-  /// — see [DrawerHostRegistry].
+  /// The bar's ⋮ Settings item opens the drawer through this key: its tap
+  /// runs once the menu route is gone, from a context under no Scaffold of
+  /// this page, so `Scaffold.of` cannot reach it.
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   final ScrollController _scrollController = ScrollController();
 
@@ -126,7 +126,6 @@ class _AllNotesPageState extends State<AllNotesPage> with RouteAware {
   @override
   void initState() {
     super.initState();
-    DrawerHostRegistry.register(_scaffoldKey);
     _noteChangesSub = GetIt.I<NoteStorageService>().changes.listen(
       (_) => _scheduleReload(),
     );
@@ -162,7 +161,6 @@ class _AllNotesPageState extends State<AllNotesPage> with RouteAware {
   @override
   void dispose() {
     AppNavigator.routeObserver.unsubscribe(this);
-    DrawerHostRegistry.unregister(_scaffoldKey);
     _noteChangesSub?.cancel();
     _reloadDebounce?.cancel();
     _search.dispose();

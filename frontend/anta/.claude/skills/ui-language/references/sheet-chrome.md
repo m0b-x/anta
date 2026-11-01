@@ -14,7 +14,7 @@ Reference, not rules — moved verbatim from the ui-language SKILL.md on 2026-10
 
 |File|Holds|
 |---|---|
-| `lib/widgets/form_sheet_frame.dart` | `FormSheetFrame` — the form sheet's shell (2026-09-27): `PopScope(canPop: false)` → `onLeave`, the finger-following drag over `chrome`, the snap-back, the dismiss threshold (`FormMetrics.sheetDismissVelocity` / a quarter of the height), `onDismiss` for a clean fling; the editor and the description sheet ride on it |
+| `lib/widgets/form_sheet_frame.dart` | `FormSheetFrame` — the form sheet's shell (2026-09-27): `PopScope(canPop: false)` → `onLeave`, the finger-following drag over `chrome`, the snap-back, the dismiss threshold (`FormMetrics.sheetDismissVelocity` / a quarter of the height), `onDismiss` for a clean fling; the editor, the description sheet, the template editor and the digest editor ride on it; since the categories rework's S3 (2026-10-31) `mainAxisSize: MainAxisSize.min` makes it **content-tall** for a guarded sheet of a few rows (the category editor — a guarded form that is not a 0.92 form sheet: the handle still drags, a clean fling dismisses, a dirty one snaps back and asks), its route then `backgroundColor: Colors.transparent, elevation: 0` so the translated frame uncovers nothing; `isClean` should also refuse while a save is in flight, and `onLeave` ignore a leave while saving, or the save's own pop lands on the discard dialog (a `TypeError` in the navigator) |
 
 ## Sheet chrome — the long rules for both shapes
 

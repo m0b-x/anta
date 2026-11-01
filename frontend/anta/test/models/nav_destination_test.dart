@@ -180,13 +180,6 @@ void main() {
   });
 
   group('kind properties', () {
-    test('no kind reopens the drawer: back lands beneath (D3)', () {
-      expect(
-        NavDestinationKind.values.where((kind) => kind.reopensDrawerOnPop),
-        isEmpty,
-      );
-    });
-
     test('the note lists are substrate', () {
       for (final kind in [
         NavDestinationKind.allNotes,

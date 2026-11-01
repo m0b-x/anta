@@ -91,7 +91,7 @@ class _EventTemplatesPageState extends State<EventTemplatesPage> {
 
     return Scaffold(
       backgroundColor: Theme.of(context).colorScheme.pageGround,
-      appBar: SettingsAppBar(title: l10n.eventTemplates, showMenuButton: false),
+      appBar: SettingsAppBar(title: l10n.eventTemplates),
       floatingActionButton: AutomationId(
         identifier: SemanticsIds.templatesCreate,
         child: FloatingActionButton.extended(

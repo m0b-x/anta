@@ -130,9 +130,19 @@ const Map<CalendarGuideTopic, List<String>> _slugs = {
     'report-missed',
     'report-digest',
   ],
-  CalendarGuideTopic.categories: ['category', 'cat-change', 'cat-alerts'],
+  CalendarGuideTopic.categories: [
+    'categories-where',
+    'category',
+    'cat-change',
+    'cat-alerts',
+  ],
   CalendarGuideTopic.finding: ['filters', 'overview'],
-  CalendarGuideTopic.setup: ['settings', 'language'],
+  CalendarGuideTopic.setup: [
+    'settings',
+    'setup-fasting',
+    'setup-alerts',
+    'language',
+  ],
   // D64, the second review's: where, what the row says, her practice, hiding.
   CalendarGuideTopic.fasting: [
     'fasting-where',
@@ -343,6 +353,80 @@ void main() {
           contains(contains('$open${l10n.reportSendWeekly}$close')),
         );
       });
+
+      // A1: the Categories page's own row, in the drawer and the ⋮.
+      testWidgets('${locale.languageCode}: categories', (tester) async {
+        await tester.pumpWidget(
+          _host(CalendarGuideTopic.categories, locale: locale),
+        );
+        await tester.pumpAndSettle();
+
+        await _scrollTo(tester, _row('categories-where'));
+        final texts = _textsUnder(tester, _row('categories-where'));
+        expect(texts, contains(l10n.calendarGuideCategoriesWhereTitle));
+        expect(
+          texts,
+          contains(
+            l10n.calendarGuideCategoriesWhereBody(l10n.calendarCategories),
+          ),
+        );
+        expect(
+          texts,
+          contains(contains('$open${l10n.calendarCategories}$close')),
+        );
+      });
+
+      // D12: the hub's path to Calendar settings, and the two pages that
+      // left it, each by the name its hub row carries.
+      testWidgets('${locale.languageCode}: setup', (tester) async {
+        await tester.pumpWidget(
+          _host(CalendarGuideTopic.setup, locale: locale),
+        );
+        await tester.pumpAndSettle();
+
+        await _scrollTo(tester, _row('settings'));
+        final settings = _textsUnder(tester, _row('settings'));
+        expect(
+          settings,
+          contains(
+            l10n.calendarGuideSettingsBody(
+              l10n.settingsHubTitle,
+              l10n.calendarSettings,
+              l10n.save,
+            ),
+          ),
+        );
+        expect(
+          settings,
+          contains(contains('$open${l10n.settingsHubTitle}$close')),
+        );
+        await _scrollTo(tester, _row('setup-fasting'));
+        final fasting = _textsUnder(tester, _row('setup-fasting'));
+        expect(fasting, contains(l10n.fastingSettingsTitle));
+        expect(
+          fasting,
+          contains(
+            l10n.calendarGuideSetupFastingBody(
+              l10n.settingsHubTitle,
+              l10n.fastingSettingsTitle,
+              l10n.calendarSettings,
+            ),
+          ),
+        );
+        await _scrollTo(tester, _row('setup-alerts'));
+        final alerts = _textsUnder(tester, _row('setup-alerts'));
+        expect(alerts, contains(l10n.alertSettingsTitle));
+        expect(
+          alerts,
+          contains(
+            l10n.calendarGuideSetupAlertsBody(
+              l10n.settingsHubTitle,
+              l10n.alertSettingsTitle,
+              l10n.alertsTitle,
+            ),
+          ),
+        );
+      });
     }
   });
 
@@ -470,9 +554,7 @@ void main() {
   ]) {
     testWidgets('${locale.languageCode}: the report lead quotes the page\'s '
         'name', (tester) async {
-      await tester.pumpWidget(
-        _host(CalendarGuideTopic.report, locale: locale),
-      );
+      await tester.pumpWidget(_host(CalendarGuideTopic.report, locale: locale));
       await tester.pumpAndSettle();
 
       final lead = CalendarGuideTopic.report.lead(l10n)!;

@@ -42,7 +42,6 @@ import 'package:anta/pages/sync_settings_page.dart';
 import 'package:anta/services/auth_service.dart';
 import 'package:anta/services/calendar_event_service.dart';
 import 'package:anta/services/calendar_palette_service.dart';
-import 'package:anta/services/drawer_host_registry.dart';
 import 'package:anta/services/label_appearance_service.dart';
 import 'package:anta/services/markdown_bar_service.dart';
 import 'package:anta/services/pairing_service.dart';
@@ -114,12 +113,10 @@ void main() {
     // Warmed in the real async zone: the service opens the file-backed
     // database, which never completes under a test body's `FakeAsync`.
     await PublicHolidayService.getInstance();
-    DrawerHostRegistry.clear();
     GetIt.I.registerSingleton<AuthService>(NoOpAuthService());
   });
 
   tearDown(() async {
-    DrawerHostRegistry.clear();
     await GetIt.I.reset();
     CalendarEventService.reset();
     PublicHolidayService.reset();

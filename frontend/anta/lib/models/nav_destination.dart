@@ -48,11 +48,6 @@ enum NavDestinationKind {
   alertSettings,
   fastingSettings;
 
-  /// Whether popping this page should raise the drawer beneath it — never,
-  /// since back always lands on the route beneath (D3). Nothing reads it any
-  /// more; it goes with the settings rework's S7 sweep.
-  bool get reopensDrawerOnPop => false;
-
   /// Whether this destination belongs to the folder/note substrate rather
   /// than to the calendar or settings layered on top. Backs the "folders and
   /// notes" restore mode.

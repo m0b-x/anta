@@ -167,7 +167,6 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage>
       backgroundColor: Theme.of(context).colorScheme.pageGround,
       appBar: SettingsAppBar(
         title: l10n.calendarSettings,
-        showMenuButton: false,
         identifier: SemanticsIds.settingsBarCalendar,
       ),
       body: SafeArea(

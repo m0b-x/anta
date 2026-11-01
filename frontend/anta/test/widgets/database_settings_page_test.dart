@@ -157,6 +157,39 @@ void main() {
       await tester.pumpWidget(const SizedBox.shrink());
     });
 
+    testWidgets('a create the manager fails shows the sentence alone and logs '
+        'the stack', (tester) async {
+      // A folder where the file goes: the name reads free, the create throws.
+      final blocked = await pathOf('travel');
+      await tester.runAsync(() => Directory(blocked).create(recursive: true));
+      final robot = DatabaseSettingsRobot(tester);
+      await robot.pump();
+
+      await robot.tapButton(l10n.createNewDatabase);
+      await robot.enterName('travel');
+      // Restored inside the body: the binding checks the foundation
+      // variables before any tear-down runs.
+      final logs = <String>[];
+      final print = debugPrint;
+      debugPrint = (message, {wrapWidth}) => logs.add(message ?? '');
+      try {
+        await robot.confirmDialog();
+        await robot.settleUntil(() => robot.shows(l10n.databaseCreateFailed));
+      } finally {
+        debugPrint = print;
+      }
+
+      expect(find.text(l10n.databaseCreateFailed), findsOneWidget);
+      expect(robot.showsLoading, isFalse);
+      final logged = logs.singleWhere(
+        (line) => line.startsWith('[DatabaseSettings] create failed: '),
+      );
+      expect(logged, contains('#0'), reason: 'the stack, not just the error');
+      expect(await filesOnDisk(tester), {'gym_notes', 'work'});
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
     testWidgets('an invalid or taken name is refused before anything is '
         'written', (tester) async {
       final robot = DatabaseSettingsRobot(tester);
@@ -505,6 +538,8 @@ void main() {
       await robot.tapButton(l10n.shareDatabase);
       await robot.settleUntil(() => robot.shows(l10n.shareError));
 
+      // The sentence alone: the exception is logged, never appended.
+      expect(find.text(l10n.shareError), findsOneWidget);
       expect(robot.showsLoading, isFalse);
       expect(robot.showsPage, isTrue);
       expect(robot.shows(DatabaseSettingsRobot.baseText), isFalse);

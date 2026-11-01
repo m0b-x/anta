@@ -862,10 +862,10 @@ abstract class AppLocalizations {
   /// **'Couldn\'t save the change'**
   String get categoryChangeFailed;
 
-  /// Number of events using a category, shown in the category row subtitle and the delete sheet's counts. Keep the no-break spaces between the words so the segment never splits across lines
+  /// Number of events using a category, shown in the category row subtitle and the delete sheet's counts. Keep the no-break spaces in the counted arms so a number never strands from its noun; the =0 arm has no number and takes a plain space so a narrow column can wrap it
   ///
   /// In en, this message translates to:
-  /// **'{count, plural, =0{No events} =1{1 event} other{{count} events}}'**
+  /// **'{count, plural, =0{No events} =1{1 event} other{{count} events}}'**
   String categoryEventCount(int count);
 
   /// Placeholder for the category search field
@@ -2872,12 +2872,6 @@ abstract class AppLocalizations {
   /// **'Markdown Shortcuts'**
   String get markdownShortcuts;
 
-  /// Markdown shortcuts settings description
-  ///
-  /// In en, this message translates to:
-  /// **'Customize toolbar buttons and actions'**
-  String get markdownShortcutsDesc;
-
   /// Remove all custom shortcuts button text
   ///
   /// In en, this message translates to:
@@ -3754,12 +3748,6 @@ abstract class AppLocalizations {
   /// **'Database'**
   String get databaseSettings;
 
-  /// Database settings description
-  ///
-  /// In en, this message translates to:
-  /// **'Manage database location and storage'**
-  String get databaseSettingsDesc;
-
   /// About menu item
   ///
   /// In en, this message translates to:
@@ -4479,6 +4467,36 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Could not read the storage path'**
   String get databasePathError;
+
+  /// Snackbar on the Databases page when creating a database throws
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t create the database'**
+  String get databaseCreateFailed;
+
+  /// Snackbar on the Databases page when renaming a database throws
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t rename the database'**
+  String get databaseRenameFailed;
+
+  /// Snackbar on the Databases page when deleting a database throws
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t delete the database'**
+  String get databaseDeleteFailed;
+
+  /// Snackbar on the Databases page when switching the active database throws
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t switch the database'**
+  String get databaseSwitchFailed;
+
+  /// Snackbar on the Databases page when optimizing the database throws
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t optimize the database'**
+  String get databaseOptimizeFailed;
 
   /// Confirmation message for database deletion
   ///
@@ -5752,7 +5770,7 @@ abstract class AppLocalizations {
   /// **'Developer options'**
   String get developerOptions;
 
-  /// Description for developer options in drawer
+  /// Subtitle of the settings hub's Developer options row
   ///
   /// In en, this message translates to:
   /// **'Debug tools and diagnostics'**
@@ -6369,12 +6387,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Counters'**
   String get counterSettings;
-
-  /// Drawer menu subtitle for counter management
-  ///
-  /// In en, this message translates to:
-  /// **'Create and manage auto-increment counters'**
-  String get counterSettingsDesc;
 
   /// Shows the current value of a counter
   ///
@@ -7623,12 +7635,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Sharing'**
   String get sharingSettings;
-
-  /// Sharing settings description
-  ///
-  /// In en, this message translates to:
-  /// **'Sign in to share with someone'**
-  String get sharingSettingsDesc;
 
   /// Section heading for the cloud account rows
   ///
@@ -10564,6 +10570,18 @@ abstract class AppLocalizations {
   /// **'If the days shrink to one or two rows, the title menu was switched: pick “{month}” there again.'**
   String calendarGuideViewsBody(String month);
 
+  /// Calendar guide read row title on the categories page: where the Categories page is
+  ///
+  /// In en, this message translates to:
+  /// **'Where they are managed'**
+  String get calendarGuideCategoriesWhereTitle;
+
+  /// Calendar guide read row body; categories is the Categories row's label in the drawer and in the calendar's three-dot menu
+  ///
+  /// In en, this message translates to:
+  /// **'Open the menu (☰) and tap “{categories}”, or tap ⋮ on the calendar, then “{categories}”.'**
+  String calendarGuideCategoriesWhereBody(String categories);
+
   /// Calendar guide row title about an event's category
   ///
   /// In en, this message translates to:
@@ -10698,11 +10716,35 @@ abstract class AppLocalizations {
   /// **'Where the settings are'**
   String get calendarGuideSettingsTitle;
 
-  /// Calendar guide paragraph about the calendar settings; settingsRow is the three-dot menu's label, save the editor's Save label
+  /// Calendar guide paragraph about the calendar settings; settings is the drawer's Settings row label, calendarSettings the Calendar settings row's label (on the settings hub and in the calendar's three-dot menu), save the editor's Save label
   ///
   /// In en, this message translates to:
-  /// **'Tap the three-dot button at the top right, then “{settingsRow}”. Everything there applies at once — there is no “{save}” button.'**
-  String calendarGuideSettingsBody(String settingsRow, String save);
+  /// **'Open the menu (☰), tap “{settings}”, then “{calendarSettings}” — or tap ⋮ on the calendar, then “{calendarSettings}”. Everything there applies at once — there is no “{save}” button.'**
+  String calendarGuideSettingsBody(
+    String settings,
+    String calendarSettings,
+    String save,
+  );
+
+  /// Calendar guide read row body on the setup page, under the Fasting page's title; settings is the settings hub's title, fasting the Fasting page's row label, calendarSettings the Calendar settings row's label
+  ///
+  /// In en, this message translates to:
+  /// **'Under “{settings}” → “{fasting}”, or from “{calendarSettings}”: the traditions, how each looks, your own practice.'**
+  String calendarGuideSetupFastingBody(
+    String settings,
+    String fasting,
+    String calendarSettings,
+  );
+
+  /// Calendar guide read row body on the setup page, under the Alert settings page's title; settings is the settings hub's title, alerts the Alert settings row's label, alertsPage the Alerts page's title; ⚙ is the gear button on the Alerts page's bar
+  ///
+  /// In en, this message translates to:
+  /// **'Under “{settings}” → “{alerts}”, or the ⚙ on the {alertsPage} page: the default alerts, the sound, snooze and the notice.'**
+  String calendarGuideSetupAlertsBody(
+    String settings,
+    String alerts,
+    String alertsPage,
+  );
 
   /// Calendar guide row title about language, theme and text size
   ///
@@ -11142,7 +11184,7 @@ abstract class AppLocalizations {
   /// **'{count, plural, =1{One public holiday in {year}} other{{count} public holidays in {year}}}'**
   String calendarGuideDemoHolidays(int count, String year);
 
-  /// Calendar guide action row that opens the permissions page; permissions is the drawer's Permissions label
+  /// Calendar guide action row that opens the permissions page; permissions is the settings hub's Permissions row label
   ///
   /// In en, this message translates to:
   /// **'Open “{permissions}”'**
@@ -11306,16 +11348,16 @@ abstract class AppLocalizations {
   /// **'Tap “{createCategory}”: a name, an icon, a colour, then “{save}”.'**
   String calendarGuideCoachCategoriesCreate(String createCategory, String save);
 
-  /// Calendar guide coach instruction
+  /// Calendar guide coach instruction; archive is the category row menu's Archive label
   ///
   /// In en, this message translates to:
-  /// **'Tap the eye on a category to hide it; tap it again to show it.'**
-  String get calendarGuideCoachCategoriesHide;
+  /// **'Tap the three dots on a category, then “{archive}”: it leaves the pickers; its events and alerts stay.'**
+  String calendarGuideCoachCategoriesHide(String archive);
 
   /// Calendar guide coach instruction; delete is the menu's Delete label, other the built-in Other category's name
   ///
   /// In en, this message translates to:
-  /// **'Tap the three dots on your category, then “{delete}”: its events go to “{other}”.'**
+  /// **'Tap the three dots on your category, then “{delete}”: its events go to “{other}” — or choose where they go.'**
   String calendarGuideCoachCategoriesDelete(String delete, String other);
 
   /// Calendar guide coach instruction

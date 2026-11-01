@@ -272,8 +272,13 @@ void main() {
       await robot.pump();
 
       await robot.restoreFromBackup();
-      await robot.settleUntil(() => robot.showsChoices);
+      await robot.settleUntil(() => robot.shows(l10n.invalidBackupFile));
 
+      // The localized sentence alone: the service's English reason is log
+      // text, never appended to the message.
+      expect(find.text(l10n.invalidBackupFile), findsOneWidget);
+      expect(robot.shows('Invalid backup format'), isFalse);
+      expect(robot.showsChoices, isTrue);
       expect(robot.showsDialog, isFalse);
       expect(await onboardingDone(tester), isFalse);
       expect(robot.completions, 0);

@@ -415,7 +415,7 @@ class AppLocalizationsRo extends AppLocalizations {
       other: '$count de evenimente',
       few: '$count evenimente',
       one: '1 eveniment',
-      zero: 'Niciun eveniment',
+      zero: 'Niciun eveniment',
     );
     return '$_temp0';
   }
@@ -1703,10 +1703,6 @@ class AppLocalizationsRo extends AppLocalizations {
   String get markdownShortcuts => 'Comenzi Rapide Markdown';
 
   @override
-  String get markdownShortcutsDesc =>
-      'Personalizează butoanele și acțiunile din bara de instrumente';
-
-  @override
   String get removeAllCustom => 'Elimină Toate Personalizate';
 
   @override
@@ -2223,10 +2219,6 @@ class AppLocalizationsRo extends AppLocalizations {
   String get databaseSettings => 'Bază de Date';
 
   @override
-  String get databaseSettingsDesc =>
-      'Gestionează locația și stocarea bazei de date';
-
-  @override
   String get about => 'Despre';
 
   @override
@@ -2633,6 +2625,21 @@ class AppLocalizationsRo extends AppLocalizations {
 
   @override
   String get databasePathError => 'Calea de stocare nu a putut fi citită';
+
+  @override
+  String get databaseCreateFailed => 'Baza de date nu a putut fi creată';
+
+  @override
+  String get databaseRenameFailed => 'Baza de date nu a putut fi redenumită';
+
+  @override
+  String get databaseDeleteFailed => 'Baza de date nu a putut fi ștearsă';
+
+  @override
+  String get databaseSwitchFailed => 'Baza de date nu a putut fi schimbată';
+
+  @override
+  String get databaseOptimizeFailed => 'Baza de date nu a putut fi optimizată';
 
   @override
   String deleteDatabaseConfirm(String name) {
@@ -3764,10 +3771,6 @@ class AppLocalizationsRo extends AppLocalizations {
   String get counterSettings => 'Contoare';
 
   @override
-  String get counterSettingsDesc =>
-      'Creează și gestionează contoare cu auto-incrementare';
-
-  @override
   String counterCurrentValue(int value) {
     return 'Curent: $value';
   }
@@ -4536,9 +4539,6 @@ class AppLocalizationsRo extends AppLocalizations {
 
   @override
   String get sharingSettings => 'Partajare';
-
-  @override
-  String get sharingSettingsDesc => 'Conectează-te pentru a partaja cu cineva';
 
   @override
   String get accountSection => 'Cont';
@@ -6421,6 +6421,14 @@ class AppLocalizationsRo extends AppLocalizations {
   }
 
   @override
+  String get calendarGuideCategoriesWhereTitle => 'Unde sunt gestionate';
+
+  @override
+  String calendarGuideCategoriesWhereBody(String categories) {
+    return 'Deschide meniul (☰) și atinge „$categories”, sau atinge ⋮ în calendar, apoi „$categories”.';
+  }
+
+  @override
   String get calendarGuideCategoryTitle => 'Categorii';
 
   @override
@@ -6511,8 +6519,30 @@ class AppLocalizationsRo extends AppLocalizations {
   String get calendarGuideSettingsTitle => 'Unde sunt setările';
 
   @override
-  String calendarGuideSettingsBody(String settingsRow, String save) {
-    return 'Atinge butonul cu trei puncte din dreapta sus, apoi „$settingsRow”. Tot ce este acolo se aplică imediat – nu există un buton „$save”.';
+  String calendarGuideSettingsBody(
+    String settings,
+    String calendarSettings,
+    String save,
+  ) {
+    return 'Deschide meniul (☰), atinge „$settings”, apoi „$calendarSettings” – sau atinge ⋮ în calendar, apoi „$calendarSettings”. Tot ce este acolo se aplică imediat – nu există un buton „$save”.';
+  }
+
+  @override
+  String calendarGuideSetupFastingBody(
+    String settings,
+    String fasting,
+    String calendarSettings,
+  ) {
+    return 'În „$settings” → „$fasting” sau din „$calendarSettings”: tradițiile, cum arată fiecare, rânduiala ta.';
+  }
+
+  @override
+  String calendarGuideSetupAlertsBody(
+    String settings,
+    String alerts,
+    String alertsPage,
+  ) {
+    return 'În „$settings” → „$alerts” sau din ⚙ de pe pagina $alertsPage: alertele implicite, sunetul, amânarea și anunțul.';
   }
 
   @override
@@ -6949,12 +6979,13 @@ class AppLocalizationsRo extends AppLocalizations {
   }
 
   @override
-  String get calendarGuideCoachCategoriesHide =>
-      'Atinge ochiul unei categorii ca s-o ascunzi; atinge-l din nou ca s-o arăți.';
+  String calendarGuideCoachCategoriesHide(String archive) {
+    return 'Atinge cele trei puncte ale unei categorii, apoi „$archive”: dispare din liste; evenimentele și alertele ei rămân.';
+  }
 
   @override
   String calendarGuideCoachCategoriesDelete(String delete, String other) {
-    return 'Atinge cele trei puncte ale categoriei tale, apoi „$delete”: evenimentele ei trec la „$other”.';
+    return 'Atinge cele trei puncte ale categoriei tale, apoi „$delete”: evenimentele ei trec la „$other” – sau alege unde să ajungă.';
   }
 
   @override

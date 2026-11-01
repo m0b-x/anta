@@ -388,7 +388,6 @@ class _AlertsPageState extends State<AlertsPage> {
       backgroundColor: ground,
       appBar: SettingsAppBar(
         title: l10n.alertsTitle,
-        showMenuButton: false,
         backgroundColor: ground,
         identifier: SemanticsIds.settingsBarAlerts,
         actions: [

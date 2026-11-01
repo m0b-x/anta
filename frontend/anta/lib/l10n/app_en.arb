@@ -542,9 +542,9 @@
   "@categoryChangeFailed": {
     "description": "Snackbar on the categories page when hiding, deleting or reordering a category fails"
   },
-  "categoryEventCount": "{count, plural, =0{No events} =1{1 event} other{{count} events}}",
+  "categoryEventCount": "{count, plural, =0{No events} =1{1 event} other{{count} events}}",
   "@categoryEventCount": {
-    "description": "Number of events using a category, shown in the category row subtitle and the delete sheet's counts. Keep the no-break spaces between the words so the segment never splits across lines",
+    "description": "Number of events using a category, shown in the category row subtitle and the delete sheet's counts. Keep the no-break spaces in the counted arms so a number never strands from its noun; the =0 arm has no number and takes a plain space so a narrow column can wrap it",
     "placeholders": {
       "count": { "type": "int", "example": "12" }
     }
@@ -2023,10 +2023,6 @@
   "@markdownShortcuts": {
     "description": "Markdown shortcuts page title"
   },
-  "markdownShortcutsDesc": "Customize toolbar buttons and actions",
-  "@markdownShortcutsDesc": {
-    "description": "Markdown shortcuts settings description"
-  },
   "removeAllCustom": "Remove All Custom",
   "@removeAllCustom": {
     "description": "Remove all custom shortcuts button text"
@@ -2663,10 +2659,6 @@
   "@databaseSettings": {
     "description": "Database settings menu item"
   },
-  "databaseSettingsDesc": "Manage database location and storage",
-  "@databaseSettingsDesc": {
-    "description": "Database settings description"
-  },
   "about": "About",
   "@about": {
     "description": "About menu item"
@@ -3185,6 +3177,26 @@
   "databasePathError": "Could not read the storage path",
   "@databasePathError": {
     "description": "Shown in place of the database path when reading it failed"
+  },
+  "databaseCreateFailed": "Couldn't create the database",
+  "@databaseCreateFailed": {
+    "description": "Snackbar on the Databases page when creating a database throws"
+  },
+  "databaseRenameFailed": "Couldn't rename the database",
+  "@databaseRenameFailed": {
+    "description": "Snackbar on the Databases page when renaming a database throws"
+  },
+  "databaseDeleteFailed": "Couldn't delete the database",
+  "@databaseDeleteFailed": {
+    "description": "Snackbar on the Databases page when deleting a database throws"
+  },
+  "databaseSwitchFailed": "Couldn't switch the database",
+  "@databaseSwitchFailed": {
+    "description": "Snackbar on the Databases page when switching the active database throws"
+  },
+  "databaseOptimizeFailed": "Couldn't optimize the database",
+  "@databaseOptimizeFailed": {
+    "description": "Snackbar on the Databases page when optimizing the database throws"
   },
   "deleteDatabaseConfirm": "Are you sure you want to delete the database \"{name}\"? This action cannot be undone.",
   "@deleteDatabaseConfirm": {
@@ -4167,7 +4179,7 @@
   },
   "developerOptionsDesc": "Debug tools and diagnostics",
   "@developerOptionsDesc": {
-    "description": "Description for developer options in drawer"
+    "description": "Subtitle of the settings hub's Developer options row"
   },
   "developerOptionsWarning": "These options are for debugging only. Enabling them may affect app performance.",
   "@developerOptionsWarning": {
@@ -4581,10 +4593,6 @@
   "counterSettings": "Counters",
   "@counterSettings": {
     "description": "Drawer menu title for the counter management page"
-  },
-  "counterSettingsDesc": "Create and manage auto-increment counters",
-  "@counterSettingsDesc": {
-    "description": "Drawer menu subtitle for counter management"
   },
   "counterCurrentValue": "Current: {value}",
   "@counterCurrentValue": {
@@ -5560,10 +5568,6 @@
   "sharingSettings": "Sharing",
   "@sharingSettings": {
     "description": "Sharing settings menu item"
-  },
-  "sharingSettingsDesc": "Sign in to share with someone",
-  "@sharingSettingsDesc": {
-    "description": "Sharing settings description"
   },
   "accountSection": "Account",
   "@accountSection": {
@@ -8037,6 +8041,19 @@
       }
     }
   },
+  "calendarGuideCategoriesWhereTitle": "Where they are managed",
+  "@calendarGuideCategoriesWhereTitle": {
+    "description": "Calendar guide read row title on the categories page: where the Categories page is"
+  },
+  "calendarGuideCategoriesWhereBody": "Open the menu (☰) and tap “{categories}”, or tap ⋮ on the calendar, then “{categories}”.",
+  "@calendarGuideCategoriesWhereBody": {
+    "description": "Calendar guide read row body; categories is the Categories row's label in the drawer and in the calendar's three-dot menu",
+    "placeholders": {
+      "categories": {
+        "type": "String"
+      }
+    }
+  },
   "calendarGuideCategoryTitle": "Categories",
   "@calendarGuideCategoryTitle": {
     "description": "Calendar guide row title about an event's category"
@@ -8188,14 +8205,47 @@
   "@calendarGuideSettingsTitle": {
     "description": "Calendar guide row title about finding the calendar settings"
   },
-  "calendarGuideSettingsBody": "Tap the three-dot button at the top right, then “{settingsRow}”. Everything there applies at once — there is no “{save}” button.",
+  "calendarGuideSettingsBody": "Open the menu (☰), tap “{settings}”, then “{calendarSettings}” — or tap ⋮ on the calendar, then “{calendarSettings}”. Everything there applies at once — there is no “{save}” button.",
   "@calendarGuideSettingsBody": {
-    "description": "Calendar guide paragraph about the calendar settings; settingsRow is the three-dot menu's label, save the editor's Save label",
+    "description": "Calendar guide paragraph about the calendar settings; settings is the drawer's Settings row label, calendarSettings the Calendar settings row's label (on the settings hub and in the calendar's three-dot menu), save the editor's Save label",
     "placeholders": {
-      "settingsRow": {
+      "settings": {
+        "type": "String"
+      },
+      "calendarSettings": {
         "type": "String"
       },
       "save": {
+        "type": "String"
+      }
+    }
+  },
+  "calendarGuideSetupFastingBody": "Under “{settings}” → “{fasting}”, or from “{calendarSettings}”: the traditions, how each looks, your own practice.",
+  "@calendarGuideSetupFastingBody": {
+    "description": "Calendar guide read row body on the setup page, under the Fasting page's title; settings is the settings hub's title, fasting the Fasting page's row label, calendarSettings the Calendar settings row's label",
+    "placeholders": {
+      "settings": {
+        "type": "String"
+      },
+      "fasting": {
+        "type": "String"
+      },
+      "calendarSettings": {
+        "type": "String"
+      }
+    }
+  },
+  "calendarGuideSetupAlertsBody": "Under “{settings}” → “{alerts}”, or the ⚙ on the {alertsPage} page: the default alerts, the sound, snooze and the notice.",
+  "@calendarGuideSetupAlertsBody": {
+    "description": "Calendar guide read row body on the setup page, under the Alert settings page's title; settings is the settings hub's title, alerts the Alert settings row's label, alertsPage the Alerts page's title; ⚙ is the gear button on the Alerts page's bar",
+    "placeholders": {
+      "settings": {
+        "type": "String"
+      },
+      "alerts": {
+        "type": "String"
+      },
+      "alertsPage": {
         "type": "String"
       }
     }
@@ -8636,7 +8686,7 @@
   },
   "calendarGuideOpenPermissions": "Open “{permissions}”",
   "@calendarGuideOpenPermissions": {
-    "description": "Calendar guide action row that opens the permissions page; permissions is the drawer's Permissions label",
+    "description": "Calendar guide action row that opens the permissions page; permissions is the settings hub's Permissions row label",
     "placeholders": {
       "permissions": {
         "type": "String"
@@ -8854,11 +8904,16 @@
       }
     }
   },
-  "calendarGuideCoachCategoriesHide": "Tap the eye on a category to hide it; tap it again to show it.",
+  "calendarGuideCoachCategoriesHide": "Tap the three dots on a category, then “{archive}”: it leaves the pickers; its events and alerts stay.",
   "@calendarGuideCoachCategoriesHide": {
-    "description": "Calendar guide coach instruction"
+    "description": "Calendar guide coach instruction; archive is the category row menu's Archive label",
+    "placeholders": {
+      "archive": {
+        "type": "String"
+      }
+    }
   },
-  "calendarGuideCoachCategoriesDelete": "Tap the three dots on your category, then “{delete}”: its events go to “{other}”.",
+  "calendarGuideCoachCategoriesDelete": "Tap the three dots on your category, then “{delete}”: its events go to “{other}” — or choose where they go.",
   "@calendarGuideCoachCategoriesDelete": {
     "description": "Calendar guide coach instruction; delete is the menu's Delete label, other the built-in Other category's name",
     "placeholders": {

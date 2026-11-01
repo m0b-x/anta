@@ -84,10 +84,7 @@ class _CalendarGuidePageState extends State<CalendarGuidePage> {
 
     return Scaffold(
       backgroundColor: Theme.of(context).colorScheme.pageGround,
-      appBar: SettingsAppBar(
-        title: l10n.calendarGuideTitle,
-        showMenuButton: false,
-      ),
+      appBar: SettingsAppBar(title: l10n.calendarGuideTitle),
       body: SafeArea(
         top: false,
         child: Column(

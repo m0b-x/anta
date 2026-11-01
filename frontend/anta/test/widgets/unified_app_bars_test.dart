@@ -21,14 +21,13 @@ import 'package:anta/widgets/unified_app_bars.dart';
 void main() {
   final l10n = AppLocalizations.supportedLocales;
 
-  Widget host(Widget bar, {Widget? drawer, ThemeData? theme}) {
+  Widget host(Widget bar, {ThemeData? theme}) {
     return MaterialApp(
       localizationsDelegates: AppLocalizations.localizationsDelegates,
       supportedLocales: l10n,
       theme: theme,
       home: Scaffold(
         appBar: bar as PreferredSizeWidget,
-        drawer: drawer,
         body: const SizedBox.shrink(),
       ),
     );
@@ -219,12 +218,7 @@ void main() {
     testWidgets('the title is 17 px at weight 500 in a 48 dp bar', (
       tester,
     ) async {
-      await tester.pumpWidget(
-        host(
-          const SettingsAppBar(title: 'Settings', showMenuButton: true),
-          drawer: const Drawer(child: SizedBox.shrink()),
-        ),
-      );
+      await tester.pumpWidget(host(const SettingsAppBar(title: 'Settings')));
 
       final text = tester.widget<Text>(find.text('Settings'));
       expect(text.style!.fontSize, AppBarMetrics.titleFontSize);
@@ -233,68 +227,95 @@ void main() {
         tester.getSize(find.byType(AppBar)).height,
         AppBarMetrics.toolbarHeight,
       );
-      expect(
-        tester.getSize(find.byType(LeadingNavPair)).width,
-        LeadingNavPair.width,
-      );
     });
 
-    testWidgets('the menu half is not drawn over a Scaffold without a drawer', (
-      tester,
-    ) async {
-      await tester.pumpWidget(
-        host(const SettingsAppBar(title: 'Counters', showMenuButton: true)),
-      );
-
-      expect(find.byType(LeadingNavPair), findsNothing);
-      expect(find.byIcon(Icons.menu_rounded), findsNothing);
-      expect(find.byType(BackButtonIcon), findsOneWidget);
-    });
-
-    testWidgets('the arrow pops null to the route beneath, with or without '
-        'the menu half (D3)', (tester) async {
-      Future<Object?> pushAndPop({required bool showMenuButton}) async {
-        Object? result = #unset;
+    // A pushed page either way, so the route implies a dismissal: the drawer
+    // alone decides between Material's own drawer button and the arrow.
+    for (final (withDrawer, leading) in const [
+      (true, 'over a drawer, the stock drawer button'),
+      (false, 'without one, the identified arrow'),
+    ]) {
+      testWidgets('a settings bar never draws the back-and-menu pair: '
+          '$leading (D3)', (tester) async {
         await tester.pumpWidget(
           MaterialApp(
             localizationsDelegates: AppLocalizations.localizationsDelegates,
             supportedLocales: l10n,
             home: Builder(
-              builder: (context) => Scaffold(
-                body: Center(
-                  child: ElevatedButton(
-                    onPressed: () async {
-                      result = await AppNavigator.push<Object?>(
-                        context,
-                        Scaffold(
-                          appBar: SettingsAppBar(
-                            title: 'Settings',
-                            showMenuButton: showMenuButton,
-                          ),
-                          drawer: showMenuButton
-                              ? const Drawer(child: SizedBox.shrink())
-                              : null,
-                          body: const SizedBox.shrink(),
-                        ),
-                      );
-                    },
-                    child: const Text('open'),
+              builder: (context) => ElevatedButton(
+                onPressed: () => AppNavigator.push<void>(
+                  context,
+                  Scaffold(
+                    appBar: const SettingsAppBar(title: 'Settings'),
+                    drawer: withDrawer
+                        ? const Drawer(child: SizedBox.shrink())
+                        : null,
+                    body: const SizedBox.shrink(),
                   ),
                 ),
+                child: const Text('open'),
               ),
             ),
           ),
         );
         await tester.tap(find.text('open'));
         await tester.pumpAndSettle();
-        await tester.tap(find.byType(BackButtonIcon));
-        await tester.pumpAndSettle();
-        expect(find.text('open'), findsOneWidget);
-        return result;
-      }
 
-      expect(await pushAndPop(showMenuButton: true), isNull);
-      expect(await pushAndPop(showMenuButton: false), isNull);
+        expect(find.byType(LeadingNavPair), findsNothing);
+        expect(find.byIcon(Icons.menu_rounded), findsNothing);
+        expect(
+          find.byType(DrawerButton),
+          withDrawer ? findsOneWidget : findsNothing,
+        );
+        expect(
+          find.descendant(
+            of: find.bySemanticsIdentifier(SemanticsIds.navBack),
+            matching: find.byType(BackButton),
+          ),
+          withDrawer ? findsNothing : findsOneWidget,
+        );
+        expect(
+          find.byType(BackButton),
+          withDrawer ? findsNothing : findsOneWidget,
+        );
+      });
+    }
+
+    testWidgets('the arrow pops null to the route beneath (D3)', (
+      tester,
+    ) async {
+      Object? result = #unset;
+      await tester.pumpWidget(
+        MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: l10n,
+          home: Builder(
+            builder: (context) => Scaffold(
+              body: Center(
+                child: ElevatedButton(
+                  onPressed: () async {
+                    result = await AppNavigator.push<Object?>(
+                      context,
+                      const Scaffold(
+                        appBar: SettingsAppBar(title: 'Settings'),
+                        body: SizedBox.shrink(),
+                      ),
+                    );
+                  },
+                  child: const Text('open'),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byType(BackButtonIcon));
+      await tester.pumpAndSettle();
+
+      expect(find.text('open'), findsOneWidget);
+      expect(result, isNull);
     });
 
     testWidgets('by default a page draws the identified arrow alone', (

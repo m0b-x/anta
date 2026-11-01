@@ -1,7 +1,10 @@
 # Sharing through the hub, left by the bar's arrow and then by system back,
 # each landing on the hub and then on the folder root (D2, D3). The QA build
-# is cut off from Firebase, so the page opens signed out: on the first visit
-# its list shows the account row under the signed-out id (S6).
+# runs without cloud (SyncAvailability.resolve is false for a QA build that
+# does not allow it), so the page reads SyncUnavailable and opens on Not
+# available on this platform: on the first visit its list shows that
+# disabled row under its own id (S7). A QA build with cloud allowed would
+# open signed out, on sharing-sign-in.
 tap id:nav-menu
 wait id:drawer-calendar
 scroll-to id:drawer-settings --in id:drawer-list
@@ -9,7 +12,7 @@ tap id:drawer-settings
 wait id:settings-bar-hub
 tap id:settings-hub-row-syncSettings
 wait id:settings-bar-sharing
-expect id:sharing-list id:sharing-sign-in
+expect id:sharing-list id:sharing-unavailable
 tap id:nav-back
 wait id:settings-bar-hub
 expect --absent id:settings-bar-sharing

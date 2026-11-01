@@ -28,6 +28,7 @@ import 'package:anta/constants/fasting_calendar.dart';
 import 'package:anta/constants/guide_metrics.dart';
 import 'package:anta/constants/occurrence_descriptions.dart';
 import 'package:anta/constants/public_holidays.dart';
+import 'package:anta/constants/row_metrics.dart';
 import 'package:anta/constants/semantics_ids.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/l10n/app_localizations.dart';
@@ -89,7 +90,9 @@ import 'package:anta/widgets/event_editor_sheet.dart';
 import 'package:anta/widgets/event_repeat_sheet.dart';
 import 'package:anta/widgets/form_rows.dart';
 import 'package:anta/widgets/quick_alarm_sheet.dart';
+import 'package:anta/widgets/settings_reorder.dart';
 import 'package:anta/widgets/settings_section_list.dart';
+import 'package:anta/widgets/value_change_highlight.dart';
 import 'package:anta/widgets/year_month_tile.dart';
 
 import '../database/support/db_test_support.dart';
@@ -288,11 +291,14 @@ void main() {
 
   /// The clock a generic case opens [topic]'s card on: the fasting card's
   /// fast days depend on the date, so its cases stand in Great Lent 2027
-  /// whatever day the suite runs; the other cards read today.
-  DateTime Function() fixedNowFor(CalendarGuideTopic topic) =>
-      topic == CalendarGuideTopic.fasting
-      ? () => DateTime(2027, 3, 17, 10)
-      : DateTime.now;
+  /// whatever day the suite runs; the finding card lists days from the first
+  /// of the month, so its cases stand mid-month, where Yoga's missed week
+  /// (a week back) is inside it; the other cards read today.
+  DateTime Function() fixedNowFor(CalendarGuideTopic topic) => switch (topic) {
+    CalendarGuideTopic.fasting => () => DateTime(2027, 3, 17, 10),
+    CalendarGuideTopic.finding => () => DateTime(2026, 10, 14, 10),
+    _ => DateTime.now,
+  };
 
   /// [topic]'s instructions in English, in step order.
   List<String> stepsOf(CalendarGuideTopic topic) => [
@@ -743,7 +749,10 @@ void main() {
             .selectedDay,
         today,
       );
-      expect(title(), AgendaListView.monthLabel('en', thisMonth, withYear: true));
+      expect(
+        title(),
+        AgendaListView.monthLabel('en', thisMonth, withYear: true),
+      );
       expect(
         tester
             .widget<IconButton>(
@@ -1929,38 +1938,149 @@ void main() {
   group('categories', () {
     final steps = stepsOf(CalendarGuideTopic.categories);
 
-    testWidgets('idle: three rows, the first step, Delete disabled on a '
-        'built-in', (tester) async {
+    /// The open menu's [name] item, for its words and whether it answers.
+    PopupMenuItem<dynamic> menuItem(
+      WidgetTester tester,
+      GuideTryCardRobot robot,
+      String name,
+    ) => tester.widget<PopupMenuItem<dynamic>>(
+      find.ancestor(
+        of: robot.control(name),
+        matching: find.byWidgetPredicate((w) => w is PopupMenuItem),
+      ),
+    );
+
+    /// Row [index]'s one node: name, caption and state, in that order.
+    String rowLabel(WidgetTester tester, GuideTryCardRobot robot, int index) =>
+        tester.getSemantics(robot.control('row-$index')).label;
+
+    Future<void> closeMenu(WidgetTester tester) async {
+      await tester.tapAt(const Offset(4, 4));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('idle: three rows on the page\'s anatomy, the first step, the '
+        'page\'s four items disabled where the page disables them', (
+      tester,
+    ) async {
       final robot = await open(tester, CalendarGuideTopic.categories);
+      final gym = en.eventCategoryGym;
+      final club = en.calendarGuideDemoEventBookClub;
+      final builtIn = [
+        en.categoryEventCount(0),
+        en.categoryCaptionBuiltIn,
+      ].join(' · ');
 
       expect(robot.line, steps[0]);
       for (var i = 0; i < 3; i++) {
         expect(robot.control('row-$i'), findsOneWidget, reason: 'row-$i');
       }
-      expect(robot.shows(en.eventCategoryGym), isTrue);
-      expect(robot.shows(en.calendarGuideDemoEventBookClub), isTrue);
-
-      await robot.tap('more-0');
-      final delete = tester.widget<PopupMenuItem<dynamic>>(
-        find.ancestor(
-          of: robot.control('delete'),
-          matching: find.byWidgetPredicate((w) => w is PopupMenuItem),
-        ),
+      // The page's caption with no events: a built-in says so, hers counts.
+      expect(rowLabel(tester, robot, 0), '$gym\n$builtIn');
+      expect(rowLabel(tester, robot, 2), '$club\n${en.categoryEventCount(0)}');
+      // A handle per row, drawn as the page draws it while reorder is on —
+      // full strength, no drag listener, no name to promise a reorder.
+      final handles = find.descendant(
+        of: robot.control('row-0'),
+        matching: find.byType(ReorderHandle),
       );
-      expect(delete.enabled, isFalse);
+      expect(handles, findsOneWidget);
+      expect(tester.widget<ReorderHandle>(handles).enabled, isTrue);
+      expect(tester.widget<ReorderHandle>(handles).index, isNull);
+      expect(
+        find.descendant(
+          of: robot.card,
+          matching: find.byType(ReorderableDragStartListener),
+        ),
+        findsNothing,
+      );
+      expect(robot.control('archived'), findsNothing);
+      // The unseen copy that sizes the list is not hit-testable.
+      expect(
+        find.byTooltip(en.categoryActions).hitTestable(),
+        findsNWidgets(3),
+      );
+
+      // A built-in at the top: Move to top and Delete disabled in place.
+      await robot.tap('more-0');
+      expect(
+        [
+          for (final name in ['move-to-top', 'edit', 'archive', 'delete'])
+            (menuItem(tester, robot, name).enabled, name),
+        ],
+        [
+          (false, 'move-to-top'),
+          (true, 'edit'),
+          (true, 'archive'),
+          (false, 'delete'),
+        ],
+      );
+      for (final words in [
+        en.moveToTop,
+        en.edit,
+        en.categoryArchive,
+        en.categoryDeleteEllipsis,
+      ]) {
+        expect(find.text(words), findsOneWidget, reason: words);
+      }
       await robot.tap('delete');
       // Still open, nothing deleted.
       expect(robot.control('edit'), findsOneWidget);
-      await tester.tapAt(const Offset(4, 4));
-      await tester.pumpAndSettle();
+      await closeMenu(tester);
       expect(robot.control('row-0'), findsOneWidget);
+
+      // Hers, at the bottom: every item answers.
+      await robot.tap('more-2');
+      for (final name in ['move-to-top', 'edit', 'archive', 'delete']) {
+        expect(menuItem(tester, robot, name).enabled, isTrue, reason: name);
+      }
+      await closeMenu(tester);
       expect(robot.line, steps[0]);
       await expectNothingSaved();
     });
 
-    testWidgets('create, edit, hide, show and delete — in this list only', (
-      tester,
-    ) async {
+    testWidgets('a created row flashes once, as the page\'s does after its '
+        'reveal (K20), and no other row does', (tester) async {
+      final robot = await open(tester, CalendarGuideTopic.categories);
+      final sheet = CategoryEditorRobot(tester);
+      bool flashing(int index) {
+        final box = tester.widget<DecoratedBox>(
+          find
+              .descendant(
+                of: find.ancestor(
+                  of: robot.control('row-$index'),
+                  matching: find.byType(ValueChangeHighlight),
+                ),
+                matching: find.byType(DecoratedBox),
+              )
+              .first,
+        );
+        return (box.decoration as BoxDecoration).border != null;
+      }
+
+      await robot.tap('add');
+      await sheet.typeName('Chess');
+      await tester.tap(
+        find.bySemanticsIdentifier(SemanticsIds.categoryEditorSave),
+      );
+      final seen = <int>{};
+      for (var i = 0; i < 12; i++) {
+        await tester.pump(const Duration(milliseconds: 50));
+        if (robot.control('row-3').evaluate().isEmpty) continue;
+        for (var row = 0; row < 4; row++) {
+          if (flashing(row)) seen.add(row);
+        }
+      }
+      expect(seen, {3});
+      await tester.pumpAndSettle();
+      expect([
+        for (var row = 0; row < 4; row++) flashing(row),
+      ], everyElement(isFalse));
+      await expectNothingSaved();
+    });
+
+    testWidgets('create, edit, archive, restore, move to top and delete — in '
+        'this list only', (tester) async {
       final robot = await open(tester, CalendarGuideTopic.categories);
       final sheet = CategoryEditorRobot(tester);
       final stage = robot.stageSize;
@@ -1982,13 +2102,69 @@ void main() {
       expect(robot.shows('Reading'), isTrue);
       note(robot);
 
-      await robot.tap('eye-0');
+      // Archive moves the row under the Archived header, last.
+      await robot.tap('more-0');
+      await robot.tap('archive');
       expect(robot.line, steps[2]);
+      expect(steps[1], contains(en.categoryArchive));
       expect(steps[2], contains(en.eventCategoryOther));
+      expect(robot.control('archived'), findsOneWidget);
+      expect(rowLabel(tester, robot, 3), startsWith('$gym\n'));
+      expect(rowLabel(tester, robot, 3), endsWith(en.categoryRowArchived));
+      expect(rowLabel(tester, robot, 0), isNot(startsWith('$gym\n')));
+      final header = tester.getRect(robot.control('archived'));
+      expect(
+        header.top,
+        greaterThan(tester.getRect(robot.control('row-2')).bottom),
+      );
+      expect(
+        header.bottom,
+        lessThanOrEqualTo(tester.getRect(robot.control('row-3')).top),
+      );
+      // Only the leading dims; the name keeps its role at full strength.
+      final archivedRow = robot.control('row-3');
+      expect(
+        tester
+            .widget<Opacity>(
+              find
+                  .ancestor(
+                    of: find.descendant(
+                      of: archivedRow,
+                      matching: find.byType(EventAvatar),
+                    ),
+                    matching: find.byType(Opacity),
+                  )
+                  .first,
+            )
+            .opacity,
+        FormMetrics.disabledOpacity,
+      );
+      expect(
+        find.ancestor(
+          of: find.descendant(of: archivedRow, matching: find.text(gym)),
+          matching: find.descendant(
+            of: archivedRow,
+            matching: find.byType(Opacity),
+          ),
+        ),
+        findsNothing,
+      );
       note(robot);
-      await robot.tap('eye-0');
+
+      // Restore brings it back to its slot, and the header goes.
+      await robot.tap('more-3');
+      expect(find.text(en.categoryRestore), findsOneWidget);
+      await robot.tap('archive');
       expect(robot.line, steps[2]);
-      expect(robot.shows(gym), isTrue);
+      expect(robot.control('archived'), findsNothing);
+      expect(rowLabel(tester, robot, 0), startsWith('$gym\n'));
+
+      // Move to top, in memory.
+      await robot.tap('more-2');
+      await robot.tap('move-to-top');
+      expect(rowLabel(tester, robot, 0), startsWith('Reading\n'));
+      expect(rowLabel(tester, robot, 1), startsWith('$gym\n'));
+      expect(robot.line, steps[2]);
 
       await robot.tap('more-1');
       await robot.tap('edit');
@@ -1996,7 +2172,7 @@ void main() {
       await sheet.save();
       expect(robot.line, steps[2]);
 
-      await robot.tap('more-2');
+      await robot.tap('more-0');
       await robot.tap('delete');
       expect(robot.control('row-3'), findsNothing);
       expect(robot.shows('Reading'), isFalse);
@@ -2005,6 +2181,107 @@ void main() {
       expect(robot.stageSize, stage);
       expect(pushes.pushed, isEmpty);
       expectOneSlotHeight();
+      await expectNothingSaved();
+    });
+
+    testWidgets('the last category in use cannot be archived; Move to top '
+        'stays within the Archived section', (tester) async {
+      final robot = await open(tester, CalendarGuideTopic.categories);
+      final stage = robot.stageSize;
+      final gym = en.eventCategoryGym;
+
+      // Archive both built-ins: hers is the one left in use.
+      await robot.tap('more-0');
+      await robot.tap('archive');
+      await robot.tap('more-0');
+      await robot.tap('archive');
+      expect(
+        rowLabel(tester, robot, 0),
+        startsWith('${en.calendarGuideDemoEventBookClub}\n'),
+      );
+      // The seed's three rows and the header fit the list's box whole.
+      expect(
+        tester.getRect(robot.control('row-2')).bottom,
+        lessThanOrEqualTo(tester.getRect(robot.control('add')).top),
+      );
+      await robot.tap('more-0');
+      expect(menuItem(tester, robot, 'archive').enabled, isFalse);
+      expect(menuItem(tester, robot, 'move-to-top').enabled, isFalse);
+      await closeMenu(tester);
+
+      // The archived keep their slots: the first built-in first.
+      expect(rowLabel(tester, robot, 1), startsWith('$gym\n'));
+      await robot.tap('more-1');
+      expect(menuItem(tester, robot, 'move-to-top').enabled, isFalse);
+      await closeMenu(tester);
+      await robot.tap('more-2');
+      expect(menuItem(tester, robot, 'move-to-top').enabled, isTrue);
+      await robot.tap('move-to-top');
+      expect(rowLabel(tester, robot, 2), startsWith('$gym\n'));
+      expect(
+        rowLabel(tester, robot, 0),
+        startsWith('${en.calendarGuideDemoEventBookClub}\n'),
+      );
+      expect(robot.stageSize, stage);
+      await expectNothingSaved();
+    });
+
+    // The composed captions and the Archived header at the longest words:
+    // nothing overflows, the stage keeps its height, the coach its slot.
+    testWidgets('de 2.0 on 360: archive and restore move nothing and '
+        'overflow nothing', (tester) async {
+      final de = AppLocalizationsDe();
+      final robot = await open(
+        tester,
+        CalendarGuideTopic.categories,
+        locale: const Locale('de'),
+        size: const Size(360, 780),
+        textScaler: const TextScaler.linear(2.0),
+      );
+      final stage = robot.stageSize;
+      final slot = robot.slotSize;
+      expect(tester.takeException(), isNull);
+
+      await robot.tap('more-2');
+      await robot.tap('archive');
+      expect(tester.takeException(), isNull);
+      expect(robot.control('archived'), findsOneWidget);
+      expect(
+        find.descendant(
+          of: robot.control('archived'),
+          matching: find.text(de.categorySectionArchived.toUpperCase()),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        tester.getRect(robot.control('row-2')).bottom,
+        lessThanOrEqualTo(tester.getRect(robot.control('add')).top),
+      );
+      expect(robot.slotSize, slot);
+
+      await robot.tap('more-2');
+      await robot.tap('archive');
+      expect(tester.takeException(), isNull);
+      expect(robot.control('archived'), findsNothing);
+      expect(robot.stageSize, stage);
+      expect(robot.slotSize, slot);
+      // The caption's column is the categories page's on the same phone:
+      // the page's 16 dp side insets are the stage's card edges here.
+      final caption = tester.renderObject<RenderParagraph>(
+        find
+            .descendant(
+              of: robot.control('row-0'),
+              matching: find.byType(RichText),
+            )
+            .last,
+      );
+      expect(
+        caption.constraints.maxWidth,
+        360 -
+            2 * RowMetrics.groupInset -
+            RowMetrics.reorderGlyphTextInset -
+            kMinInteractiveDimension,
+      );
       await expectNothingSaved();
     });
 
@@ -2133,7 +2410,11 @@ void main() {
     });
 
     testWidgets('Missed only reads the demo\'s own marks', (tester) async {
-      final robot = await open(tester, CalendarGuideTopic.finding);
+      final robot = await open(
+        tester,
+        CalendarGuideTopic.finding,
+        now: fixedNowFor(CalendarGuideTopic.finding),
+      );
 
       await robot.tap('filter');
       await robot.tapId(SemanticsIds.filterOnlyShow);
@@ -2569,8 +2850,7 @@ void main() {
           'fasting',
           find.byType(CalendarDayCell),
         ).evaluate())
-          if (element.renderObject case final RenderBox box
-              when !_unseen(box))
+          if (element.renderObject case final RenderBox box when !_unseen(box))
             box.localToGlobal(Offset.zero) & box.size,
       ];
       final rowHeight = cells.first.height;
@@ -2581,9 +2861,10 @@ void main() {
           if (rect.top >= viewport.top && rect.bottom <= chipTop)
             rect.top.round(),
       };
-      expect(chipTop - math.max(firstRowTop, viewport.top), greaterThanOrEqualTo(
-        2 * rowHeight,
-      ));
+      expect(
+        chipTop - math.max(firstRowTop, viewport.top),
+        greaterThanOrEqualTo(2 * rowHeight),
+      );
       expect(shownRows.length, greaterThanOrEqualTo(2), reason: '$shownRows');
       await expectNothingSaved();
     });
@@ -3477,7 +3758,7 @@ void main() {
         ['alert-0', 'add', 'show-alarm', 'quick', 'permissions'],
       ),
       (CalendarGuideTopic.attendance, ['today', 'day-0', 'count']),
-      (CalendarGuideTopic.categories, ['row-0', 'eye-0', 'more-0', 'add']),
+      (CalendarGuideTopic.categories, ['row-0', 'more-0', 'row-2', 'add']),
       (CalendarGuideTopic.finding, ['search', 'match-yoga', 'filter']),
       (CalendarGuideTopic.setup, ['holidays', 'week-sunday', 'settings']),
       (
@@ -3783,7 +4064,8 @@ void main() {
     // page's cards are the card's cost too, not the widgets': edge to edge
     // in the card they are still 40 dp narrower than the screen, so the
     // weekday row's "Mon" needs 49.5 dp of its column and gets 45.7 ("Wed"
-    // the same) under both grids — the overview's mini month included. (A
+    // the same, and Romanian's "mar.", "mie.", "sâm.", "dum.") under both
+    // grids — the overview's mini month included. (A
     // Day panel row's "Wöchentlich" broke there too while the inert rows
     // drew a chevron; without it the caption fits, D69.)
     // Pinned per state where they differ, so any other break fails.
@@ -3795,11 +4077,16 @@ void main() {
       'overview en 2.0 changed': <String>[],
       // The fasting card's grid, the screen card's cost again.
       'fasting en 2.0': ['Mon', 'Wed'],
+      'screen ro 2.0': ['mar.', 'mie.', 'sâm.', 'dum.'],
+      'overview ro 2.0 idle': ['mar.', 'mie.', 'sâm.', 'dum.'],
+      'overview ro 2.0 changed': <String>[],
+      'fasting ro 2.0': ['mar.', 'mie.', 'sâm.', 'dum.'],
     };
     for (final (locale, scale) in const [
       (Locale('de'), 2.0),
       (Locale('de'), 1.3),
       (Locale('en'), 2.0),
+      (Locale('ro'), 2.0),
     ]) {
       for (final (topic, card) in stageCards) {
         final name = '$card ${locale.languageCode} $scale';
@@ -3929,11 +4216,7 @@ Future<void> _tapCell(WidgetTester tester, String slug, DateTime day) =>
 
 /// Taps [target] in the card [slug], the page scrolled only as far as it
 /// needs ([GuideTryCardRobot.showOnPage]).
-Future<void> _tapOnPage(
-  WidgetTester tester,
-  String slug,
-  Finder target,
-) async {
+Future<void> _tapOnPage(WidgetTester tester, String slug, Finder target) async {
   await GuideTryCardRobot(tester, slug).showOnPage(target);
   await tester.tap(target);
   await tester.pumpAndSettle();

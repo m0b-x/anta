@@ -218,9 +218,11 @@ abstract final class SemanticsIds {
 
   /// The Sharing page's list, and its rows by the action their tap performs.
   /// The account row and the pairing row each carry the id of the state they
-  /// are in — signed out it is [sharingSignIn], signed in [sharingSignOut] —
-  /// so a flow waits on the id of the state it expects.
+  /// are in — signed out it is [sharingSignIn], signed in [sharingSignOut],
+  /// on a build without sync (the QA build has no Firebase) the disabled
+  /// [sharingUnavailable] — so a flow waits on the id of the state it expects.
   static const String sharingList = 'sharing-list';
+  static const String sharingUnavailable = 'sharing-unavailable';
   static const String sharingSignIn = 'sharing-sign-in';
   static const String sharingSignOut = 'sharing-sign-out';
   static const String sharingRetry = 'sharing-retry';

@@ -5,6 +5,7 @@ import 'dart:ui' show SemanticsRole, Tristate;
 import 'package:drift/drift.dart' show Value;
 import 'package:flutter/gestures.dart' show kLongPressTimeout;
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show RenderParagraph;
 import 'package:flutter/semantics.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -42,6 +43,7 @@ import 'package:anta/widgets/value_change_highlight.dart';
 import '../database/support/db_test_support.dart';
 import '../goldens/support/golden_fonts.dart';
 import 'support/category_editor_robot.dart';
+import 'support/settings_page_whole.dart' show expectBreaksBetweenWords;
 
 /// The page carries its slices at once — two sections, reorder inside a
 /// section, archive, search, the FAB's create and the usage counts — so what
@@ -1742,6 +1744,47 @@ void main() {
         }
         if (locale.languageCode == 'ro') {
           await expectOneLine(tester, sample.name, 2.0);
+        }
+        expect(tester.takeException(), isNull);
+      });
+
+      // The zero count has no number to hold to its noun, so it wraps in the
+      // caption's column at 2.0 rather than breaking inside the noun.
+      testWidgets('every caption breaks only between words at 2.0 on '
+          '360 × 780, ${locale.languageCode}', (tester) async {
+        EventAlerts.updateCategoryCache(
+          byCategory: {
+            'birthday': const [
+              CategoryAlert(id: 'c1', categoryId: 'birthday', daysBefore: 1),
+            ],
+          },
+        );
+        await addEvents('gym', 2);
+        await pumpPage(
+          tester,
+          width: 360,
+          height: 780,
+          textScale: 2.0,
+          locale: locale,
+        );
+        final list = find.descendant(
+          of: find.byType(CustomScrollView),
+          matching: find.byType(Scrollable),
+        );
+        final captions = find.descendant(
+          of: find.byType(ContentRowShell),
+          matching: find.byType(RichText),
+        );
+        for (var i = 0; i < 60; i++) {
+          for (final element in captions.evaluate()) {
+            final paragraph = element.renderObject;
+            if (paragraph is! RenderParagraph || !paragraph.hasSize) continue;
+            expectBreaksBetweenWords(paragraph);
+          }
+          final position = tester.state<ScrollableState>(list).position;
+          if (position.pixels >= position.maxScrollExtent) break;
+          await tester.drag(list, const Offset(0, -300));
+          await tester.pumpAndSettle();
         }
         expect(tester.takeException(), isNull);
       });

@@ -134,7 +134,7 @@
   "categoryDeleted": "Kategorie gelöscht",
   "categorySaveFailed": "Kategorie konnte nicht gespeichert werden",
   "categoryChangeFailed": "Die Änderung konnte nicht gespeichert werden",
-  "categoryEventCount": "{count, plural, =0{Keine Ereignisse} =1{1 Ereignis} other{{count} Ereignisse}}",
+  "categoryEventCount": "{count, plural, =0{Keine Ereignisse} =1{1 Ereignis} other{{count} Ereignisse}}",
   "searchCategories": "Kategorien suchen",
   "noCategoriesMatch": "Keine passenden Kategorien",
   "createCategoryNamed": "„{name}“ erstellen",
@@ -656,10 +656,6 @@
   "markdownShortcuts": "Markdown-Verknüpfungen",
   "@markdownShortcuts": {
     "description": "Markdown shortcuts page title"
-  },
-  "markdownShortcutsDesc": "Symbolleisten-Schaltflächen und Aktionen anpassen",
-  "@markdownShortcutsDesc": {
-    "description": "Markdown shortcuts settings description"
   },
   "removeAllCustom": "Alle benutzerdefinierten entfernen",
   "@removeAllCustom": {
@@ -1319,10 +1315,6 @@
   "@databaseSettings": {
     "description": "Database settings menu item"
   },
-  "databaseSettingsDesc": "Datenbankspeicherort und -verwaltung",
-  "@databaseSettingsDesc": {
-    "description": "Database settings description"
-  },
   "about": "Über",
   "@about": {
     "description": "About menu item"
@@ -1698,6 +1690,11 @@
   },
   "unknownValue": "Unbekannt",
   "databasePathError": "Der Speicherpfad konnte nicht gelesen werden",
+  "databaseCreateFailed": "Die Datenbank konnte nicht erstellt werden",
+  "databaseRenameFailed": "Die Datenbank konnte nicht umbenannt werden",
+  "databaseDeleteFailed": "Die Datenbank konnte nicht gelöscht werden",
+  "databaseSwitchFailed": "Die Datenbank konnte nicht gewechselt werden",
+  "databaseOptimizeFailed": "Die Datenbank konnte nicht optimiert werden",
   "deleteDatabaseConfirm": "Möchten Sie die Datenbank \"{name}\" wirklich löschen? Diese Aktion kann nicht rückgängig gemacht werden.",
   "@deleteDatabaseConfirm": {
     "description": "Confirmation message for database deletion",
@@ -2237,7 +2234,6 @@
   "resetCounterConfirm": "Diesen Zähler auf den Startwert zurücksetzen?",
   "counters": "Zähler",
   "counterSettings": "Zähler",
-  "counterSettingsDesc": "Auto-Inkrement-Zähler erstellen und verwalten",
   "counterCurrentValue": "Aktuell: {value}",
   "counterStepLabel": "Schritt: {step}",
   "counterEmptyState": "Noch keine Zähler. Tippe +, um einen zu erstellen.",
@@ -2488,7 +2484,6 @@
   "cursorKeywords": "Einfügemarke, aktuelle Zeile",
   "keyboardKeywords": "Tippen, Eingabe",
   "sharingSettings": "Teilen",
-  "sharingSettingsDesc": "Anmelden, um mit jemandem zu teilen",
   "accountSection": "Konto",
   "signInWithGoogle": "Mit Google anmelden",
   "signOut": "Abmelden",
@@ -3136,6 +3131,8 @@
   "calendarGuideMarksBody": "Ein Balken unter einem Tag bedeutet, dass dort etwas geplant ist – in der Farbe seiner Kategorie. Feiertage und Wochenenden haben eigene Balken.",
   "calendarGuideViewsTitle": "Monat, zwei Wochen oder eine Woche",
   "calendarGuideViewsBody": "Wenn die Tage auf ein oder zwei Reihen schrumpfen, wurde im Titelmenü umgeschaltet: Wähle dort wieder „{month}“.",
+  "calendarGuideCategoriesWhereTitle": "Wo sie verwaltet werden",
+  "calendarGuideCategoriesWhereBody": "Öffne das Menü (☰) und tippe auf „{categories}“, oder tippe auf ⋮ im Kalender, dann „{categories}“.",
   "calendarGuideCategoryTitle": "Kategorien",
   "calendarGuideCategoryBody": "Jedes Ereignis hat eine Kategorie – die Zeile „{category}“ unter seinem Namen –, die ihm Farbe und Symbol gibt. Eigene legst du ganz unten in dieser Liste an.",
   "calendarGuideDescriptionTitle": "Notizen zu einem Ereignis",
@@ -3157,7 +3154,9 @@
   "calendarGuideFiltersTitle": "Filter verstecken, sie löschen nichts",
   "calendarGuideFiltersBody": "Ein Filter versteckt, er löscht nie. Scheinen Ereignisse zu fehlen, öffne den Trichter und tippe auf „{reset}“ und dann auf „{apply}“.",
   "calendarGuideSettingsTitle": "Wo die Einstellungen sind",
-  "calendarGuideSettingsBody": "Tippe oben rechts auf die drei Punkte und dann auf „{settingsRow}“. Alles dort gilt sofort – es gibt keine Taste „{save}“.",
+  "calendarGuideSettingsBody": "Öffne das Menü (☰), tippe auf „{settings}“, dann auf „{calendarSettings}“ – oder tippe auf ⋮ im Kalender, dann auf „{calendarSettings}“. Alles dort gilt sofort – es gibt keine Taste „{save}“.",
+  "calendarGuideSetupFastingBody": "Unter „{settings}“ → „{fasting}“ oder aus „{calendarSettings}“: die Traditionen, wie jede aussieht, deine eigene Praxis.",
+  "calendarGuideSetupAlertsBody": "Unter „{settings}“ → „{alerts}“ oder über ⚙ auf der Seite {alertsPage}: die Standard-Erinnerungen, der Weckton, das Schlummern und der Hinweis.",
   "calendarGuideLanguageTitle": "Sprache, dunkles Design und Schriftgröße",
   "calendarGuideLanguageBody": "Im Hauptmenü (drei Striche, oben links) „{settings}“ öffnen: „{language}“ wechselt die Sprache und „{theme}“ wählt hell oder dunkel. Die Schriftgröße folgt der deines Telefons.",
   "calendarGuideSectionGood": "Gut zu wissen",
@@ -3253,8 +3252,8 @@
   "calendarGuideCoachAttendanceMark": "Tippe auf einen Tag unten: er gilt als verpasst. Noch einmal: anwesend.",
   "calendarGuideCoachAttendanceCount": "Schalte „{countOccurrences}“ ein und wähle, wie gezählt wird.",
   "calendarGuideCoachCategoriesCreate": "Tippe auf „{createCategory}“: Name, Symbol, Farbe, dann „{save}“.",
-  "calendarGuideCoachCategoriesHide": "Tippe auf das Auge einer Kategorie, um sie zu verstecken; noch einmal zeigt sie wieder.",
-  "calendarGuideCoachCategoriesDelete": "Tippe auf die drei Punkte deiner Kategorie, dann „{delete}“: ihre Ereignisse gehen zu „{other}“.",
+  "calendarGuideCoachCategoriesHide": "Tippe auf die drei Punkte einer Kategorie, dann „{archive}“: sie verschwindet aus den Auswahllisten; ihre Ereignisse und Erinnerungen bleiben.",
+  "calendarGuideCoachCategoriesDelete": "Tippe auf die drei Punkte deiner Kategorie, dann „{delete}“: ihre Ereignisse gehen zu „{other}“ – oder wähle, wohin sie gehen.",
   "calendarGuideCoachFindingSearch": "Gib ein Wort, eine Kategorie oder ein Datum ein: die Liste behält nur die Treffer.",
   "calendarGuideCoachFindingFilter": "Tippe auf den Trichter, verstecke eine Kategorie, dann „{apply}“.",
   "calendarGuideCoachSetupHolidays": "Tippe auf „{holidaySet}“ und wähle dein Land.",

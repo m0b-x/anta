@@ -59,7 +59,6 @@ import 'package:anta/services/calendar_event_service.dart';
 import 'package:anta/services/calendar_palette_service.dart';
 import 'package:anta/services/counter_service.dart';
 import 'package:anta/services/dev_options_service.dart';
-import 'package:anta/services/drawer_host_registry.dart';
 import 'package:anta/services/folder_storage_service.dart';
 import 'package:anta/services/import_export_service.dart';
 import 'package:anta/services/markdown_bar_service.dart';
@@ -205,10 +204,7 @@ void main() {
     } catch (_) {}
   });
 
-  setUp(DrawerHostRegistry.clear);
-
   tearDown(() {
-    DrawerHostRegistry.clear();
     DevOptions.instance.lockDeveloperMode();
   });
 
@@ -868,9 +864,8 @@ void main() {
       });
     }
 
-    /// The host is registered with [DrawerHostRegistry] the way the browser
-    /// beneath a restored chain registers itself; its drawer is a stand-in,
-    /// since what is asserted is only whether it opens.
+    /// The host stands in for the browser beneath a restored chain; its
+    /// drawer is a stand-in, since what is asserted is only whether it opens.
     Future<void> pumpApp(WidgetTester tester) async {
       await tester.pumpWidget(
         MaterialApp(
@@ -962,7 +957,6 @@ void main() {
     for (final kind in _restorable.keys) {
       testWidgets('a restored ${kind.name} popped lands beneath with no '
           'drawer raised (D3)', (tester) async {
-        expect(kind.reopensDrawerOnPop, isFalse);
         DevOptions.instance.developerModeUnlocked = true;
         await saveStack(tester, [destinationOf(kind)]);
         await pumpApp(tester);
@@ -1522,34 +1516,16 @@ class _RecordingSettingsBloc extends AppSettingsBloc {
   }
 }
 
-/// Stands in for the folder page: a scaffold that hosts the drawer and
-/// registers itself the way every full-page screen does.
-class _DrawerHost extends StatefulWidget {
+/// Stands in for the folder page: a scaffold that hosts the drawer.
+class _DrawerHost extends StatelessWidget {
   const _DrawerHost({required this.scaffoldKey});
 
   final GlobalKey<ScaffoldState> scaffoldKey;
 
   @override
-  State<_DrawerHost> createState() => _DrawerHostState();
-}
-
-class _DrawerHostState extends State<_DrawerHost> {
-  @override
-  void initState() {
-    super.initState();
-    DrawerHostRegistry.register(widget.scaffoldKey);
-  }
-
-  @override
-  void dispose() {
-    DrawerHostRegistry.unregister(widget.scaffoldKey);
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
     return Scaffold(
-      key: widget.scaffoldKey,
+      key: scaffoldKey,
       drawer: const AppDrawer(),
       body: const Center(child: Text('host')),
     );
@@ -1567,34 +1543,17 @@ class _Opener extends StatelessWidget {
   }
 }
 
-/// The restore suite's host: registered like [_DrawerHost], with a drawer
-/// that needs nothing bound.
-class _RestoreHost extends StatefulWidget {
+/// The restore suite's host: a scaffold like [_DrawerHost]'s, its drawer a
+/// stand-in for [AppDrawer] that needs nothing bound.
+class _RestoreHost extends StatelessWidget {
   const _RestoreHost({required this.scaffoldKey});
 
   final GlobalKey<ScaffoldState> scaffoldKey;
 
   @override
-  State<_RestoreHost> createState() => _RestoreHostState();
-}
-
-class _RestoreHostState extends State<_RestoreHost> {
-  @override
-  void initState() {
-    super.initState();
-    DrawerHostRegistry.register(widget.scaffoldKey);
-  }
-
-  @override
-  void dispose() {
-    DrawerHostRegistry.unregister(widget.scaffoldKey);
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
     return Scaffold(
-      key: widget.scaffoldKey,
+      key: scaffoldKey,
       drawer: const Drawer(child: Text('drawer')),
       body: const Text('root'),
     );

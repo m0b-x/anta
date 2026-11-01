@@ -16,7 +16,6 @@ import 'package:anta/models/dev_options.dart';
 import 'package:anta/pages/settings_hub_page.dart';
 import 'package:anta/pages/settings_page.dart';
 import 'package:anta/services/auth_service.dart';
-import 'package:anta/services/drawer_host_registry.dart';
 import 'package:anta/services/permission_service.dart';
 import 'package:anta/services/settings_service.dart';
 import 'package:anta/widgets/app_drawer.dart';
@@ -33,10 +32,10 @@ import '../services/permission_support.dart';
 /// About dialog that reads `kAppVersion`.
 ///
 /// A plain host stands in for the folder page: a `Scaffold` with the drawer,
-/// registered with [DrawerHostRegistry] the way the browser, the note lists
-/// and the editor register. Every row's page and back are the navigation
-/// contract's (`settings_navigation_contract_test.dart`), which also taps the
-/// header icon's developer unlock over the file-backed database it needs.
+/// as the browser, the note lists and the editor carry it. Every row's page
+/// and back are the navigation contract's
+/// (`settings_navigation_contract_test.dart`), which also taps the header
+/// icon's developer unlock over the file-backed database it needs.
 void main() {
   late AppDatabase db;
   late SettingsService settings;
@@ -78,13 +77,11 @@ void main() {
     db = await openTestDatabase();
     settings = SettingsService.forTesting(db);
     appSettingsBloc = AppSettingsBloc();
-    DrawerHostRegistry.clear();
     GetIt.I.registerSingleton<AuthService>(NoOpAuthService());
   });
 
   tearDown(() async {
     DevOptions.instance.lockDeveloperMode();
-    DrawerHostRegistry.clear();
     await appSettingsBloc.close();
     await GetIt.I.reset();
     SettingsService.reset();
@@ -521,36 +518,15 @@ void main() {
   });
 }
 
-/// Stands in for the folder page: a scaffold that hosts the drawer and
-/// registers itself the way every full-page screen does.
-class _DrawerHost extends StatefulWidget {
+/// Stands in for the folder page: a scaffold that hosts the drawer.
+class _DrawerHost extends StatelessWidget {
   const _DrawerHost();
 
   @override
-  State<_DrawerHost> createState() => _DrawerHostState();
-}
-
-class _DrawerHostState extends State<_DrawerHost> {
-  final _scaffoldKey = GlobalKey<ScaffoldState>();
-
-  @override
-  void initState() {
-    super.initState();
-    DrawerHostRegistry.register(_scaffoldKey);
-  }
-
-  @override
-  void dispose() {
-    DrawerHostRegistry.unregister(_scaffoldKey);
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      key: _scaffoldKey,
-      drawer: const AppDrawer(),
-      body: const Center(child: Text('host')),
+    return const Scaffold(
+      drawer: AppDrawer(),
+      body: Center(child: Text('host')),
     );
   }
 }

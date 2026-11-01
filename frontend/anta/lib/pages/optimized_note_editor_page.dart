@@ -43,7 +43,6 @@ import '../models/checkbox_toggle_info.dart';
 import '../widgets/note_search_bar.dart';
 import '../widgets/app_drawer.dart';
 import '../services/app_navigator.dart';
-import '../services/drawer_host_registry.dart';
 import '../services/folder_storage_service.dart';
 import '../services/move_coordinator.dart';
 import '../services/duplicate_name_exception.dart';
@@ -111,8 +110,10 @@ class OptimizedNoteEditorPage extends StatefulWidget {
 
 class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     with WidgetsBindingObserver, RouteAware {
-  /// Lets a restored settings page raise this page's drawer when it is popped
-  /// — see [DrawerHostRegistry].
+  /// The bar's menu button and its ⋮ Settings item open the drawer through
+  /// this key: the item's tap runs once the menu route is gone, from a
+  /// context under no Scaffold of this page, so `Scaffold.of` cannot reach
+  /// it.
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
 
   /// Reaches the mounted find bar so the app-bar toggle can leave through
@@ -322,7 +323,6 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    DrawerHostRegistry.register(_scaffoldKey);
     OpenNoteRegistry.register(_claimsConflictFiling);
     _initDevOptions();
 
@@ -1956,7 +1956,6 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     _counterBloc.add(const SetNoteContext());
     ShortcutHandlerFactory.counterHandler.setActiveNoteId(null);
     WidgetsBinding.instance.removeObserver(this);
-    DrawerHostRegistry.unregister(_scaffoldKey);
     OpenNoteRegistry.unregister(_claimsConflictFiling);
     DevOptions.instance.removeListener(_onDevOptionsChanged);
     // Cancels the restore-scroll and position-save timers.
