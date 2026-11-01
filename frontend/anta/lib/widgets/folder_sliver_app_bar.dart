@@ -7,6 +7,7 @@ import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
 import '../models/folder.dart';
 import '../services/app_navigator.dart';
+import 'app_bar_heading.dart';
 import 'automation_id.dart';
 import 'leading_nav_pair.dart';
 
@@ -199,13 +200,20 @@ class FolderSliverAppBar extends StatelessWidget {
       ),
       leadingWidth: isRootPage ? null : LeadingNavPair.width,
       leading: isRootPage ? _menuButton() : _leadingPair(),
-      title: Text(
-        title,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: const TextStyle(
-          fontSize: AppBarMetrics.titleFontSize,
-          fontWeight: AppBarMetrics.titleFontWeight,
+      // The toolbar copy sits at opacity 0 until the bar collapses, and
+      // `AppBar`'s own heading around it was then left with no label; each
+      // copy is the level-1 heading while it is the one on screen, over the
+      // list's level-2 FOLDERS / NOTES.
+      excludeHeaderSemantics: true,
+      title: AppBarHeading(
+        child: Text(
+          title,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(
+            fontSize: AppBarMetrics.titleFontSize,
+            fontWeight: AppBarMetrics.titleFontWeight,
+          ),
         ),
       ),
       actions: actions,
@@ -308,16 +316,19 @@ class _FolderFlexibleSpace extends StatelessWidget {
                         AppBarMetrics.largeTitlePadding,
                         AppBarMetrics.largeTitleBottomPadding,
                       ),
-                      child: Text(
-                        title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: colorScheme.onSurface,
-                          fontSize: AppBarMetrics.largeTitleFontSize,
-                          fontWeight: FontWeight.w500,
-                          height: AppBarMetrics.largeTitleHeight,
-                          letterSpacing: AppBarMetrics.largeTitleLetterSpacing,
+                      child: AppBarHeading(
+                        child: Text(
+                          title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: colorScheme.onSurface,
+                            fontSize: AppBarMetrics.largeTitleFontSize,
+                            fontWeight: FontWeight.w500,
+                            height: AppBarMetrics.largeTitleHeight,
+                            letterSpacing:
+                                AppBarMetrics.largeTitleLetterSpacing,
+                          ),
                         ),
                       ),
                     ),

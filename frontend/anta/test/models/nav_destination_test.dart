@@ -20,8 +20,10 @@ void main() {
         const NavDestination(NavDestinationKind.syncSettings),
       ];
 
-      expect(NavDestination.decodeStack(NavDestination.encodeStack(stack)),
-          stack);
+      expect(
+        NavDestination.decodeStack(NavDestination.encodeStack(stack)),
+        stack,
+      );
     });
 
     test('an empty stack round-trips as empty, not as absent', () {
@@ -37,8 +39,10 @@ void main() {
         NavDestination.note(noteId: 'n1', folderId: 'f1'),
       ];
 
-      expect(NavDestination.decodeStack(NavDestination.encodeStack(stack)),
-          stack);
+      expect(
+        NavDestination.decodeStack(NavDestination.encodeStack(stack)),
+        stack,
+      );
     });
 
     test('the two note lists carry no params and need none', () {
@@ -56,12 +60,14 @@ void main() {
       }
     });
 
-    test('counter management keeps an optional note id, and omits an empty one',
-        () {
-      expect(NavDestination.counterManagement(noteId: 'n1').noteId, 'n1');
-      expect(NavDestination.counterManagement().noteId, isNull);
-      expect(NavDestination.counterManagement(noteId: '').params, isEmpty);
-    });
+    test(
+      'counter management keeps an optional note id, and omits an empty one',
+      () {
+        expect(NavDestination.counterManagement(noteId: 'n1').noteId, 'n1');
+        expect(NavDestination.counterManagement().noteId, isNull);
+        expect(NavDestination.counterManagement(noteId: '').params, isEmpty);
+      },
+    );
 
     test('a counter\'s per-note page round-trips with its counter id', () {
       final stack = [
@@ -100,9 +106,18 @@ void main() {
       final raw = jsonEncode({
         'v': NavDestination.stackVersion,
         'stack': [
-          {'k': 'folder', 'p': {'folderId': 'f1', 'title': 'Training'}},
-          {'k': 'timeMachine', 'p': {'era': 'future'}},
-          {'k': 'note', 'p': {'noteId': 'n1', 'folderId': 'f1'}},
+          {
+            'k': 'folder',
+            'p': {'folderId': 'f1', 'title': 'Training'},
+          },
+          {
+            'k': 'timeMachine',
+            'p': {'era': 'future'},
+          },
+          {
+            'k': 'note',
+            'p': {'noteId': 'n1', 'folderId': 'f1'},
+          },
           {'k': 'calendar'},
         ],
       });
@@ -119,7 +134,9 @@ void main() {
         'v': NavDestination.stackVersion,
         'stack': [
           {'k': 'calendar'},
-          {'p': {'folderId': 'f1'}},
+          {
+            'p': {'folderId': 'f1'},
+          },
           'not an entry',
           {'k': 'alerts'},
         ],
@@ -155,20 +172,25 @@ void main() {
       expect(NavDestination.decodeStack(raw), isEmpty);
     });
 
-    test('an entry missing its required params truncates rather than throws',
-        () {
-      final raw = jsonEncode({
-        'v': NavDestination.stackVersion,
-        'stack': [
-          {'k': 'calendar'},
-          {'k': 'note', 'p': {'noteId': 'n1'}},
-        ],
-      });
+    test(
+      'an entry missing its required params truncates rather than throws',
+      () {
+        final raw = jsonEncode({
+          'v': NavDestination.stackVersion,
+          'stack': [
+            {'k': 'calendar'},
+            {
+              'k': 'note',
+              'p': {'noteId': 'n1'},
+            },
+          ],
+        });
 
-      expect(NavDestination.decodeStack(raw), [
-        const NavDestination(NavDestinationKind.calendar),
-      ]);
-    });
+        expect(NavDestination.decodeStack(raw), [
+          const NavDestination(NavDestinationKind.calendar),
+        ]);
+      },
+    );
 
     test('garbage never throws', () {
       expect(NavDestination.decodeStack(null), isEmpty);
@@ -189,16 +211,15 @@ void main() {
       }
     });
 
-    test('the persisted names of the kinds that already shipped are unchanged',
-        () {
-      // Renaming any of these drops that entry from every existing install's
-      // stored stack. *Position* is not persisted — the codec writes
-      // `kind.name` and reads it back through `fromName` — so inserting a new
-      // member beside its neighbours (`calendarAppearance`, 2026-09-07) is
-      // safe and the list simply grows to match.
-      expect(
-        NavDestinationKind.values.take(12).map((kind) => kind.name),
-        [
+    test(
+      'the persisted names of the kinds that already shipped are unchanged',
+      () {
+        // Renaming any of these drops that entry from every existing install's
+        // stored stack. *Position* is not persisted — the codec writes
+        // `kind.name` and reads it back through `fromName` — so inserting a new
+        // member beside its neighbours (`calendarAppearance`, 2026-09-07) is
+        // safe and the list simply grows to match.
+        expect(NavDestinationKind.values.take(12).map((kind) => kind.name), [
           'folder',
           'note',
           'calendar',
@@ -211,11 +232,8 @@ void main() {
           'settings',
           'syncSettings',
           'counterManagement',
-        ],
-      );
-      expect(
-        NavDestinationKind.values.skip(12).map((kind) => kind.name),
-        [
+        ]);
+        expect(NavDestinationKind.values.skip(12).map((kind) => kind.name), [
           'allNotes',
           'recentNotes',
           'alerts',
@@ -232,9 +250,9 @@ void main() {
           'developerOptions',
           'alertSettings',
           'fastingSettings',
-        ],
-      );
-    });
+        ]);
+      },
+    );
 
     test('a new kind needs no envelope bump — unknown kinds are already '
         'skipped', () {
@@ -258,10 +276,12 @@ void main() {
       expect(RestoreLocationMode.off.apply(stack), isEmpty);
     });
 
-    test('notes takes a prefix, so the Back path it leaves is one that existed',
-        () {
-      expect(RestoreLocationMode.notes.apply(stack), stack.take(2));
-    });
+    test(
+      'notes takes a prefix, so the Back path it leaves is one that existed',
+      () {
+        expect(RestoreLocationMode.notes.apply(stack), stack.take(2));
+      },
+    );
 
     test('notes keeps a note reached through All notes', () {
       final chain = [
@@ -283,10 +303,14 @@ void main() {
     });
 
     test('an unknown stored mode reads as everything', () {
-      expect(RestoreLocationMode.fromName('turbo'),
-          RestoreLocationMode.everything);
-      expect(RestoreLocationMode.fromName(null),
-          RestoreLocationMode.everything);
+      expect(
+        RestoreLocationMode.fromName('turbo'),
+        RestoreLocationMode.everything,
+      );
+      expect(
+        RestoreLocationMode.fromName(null),
+        RestoreLocationMode.everything,
+      );
     });
   });
 }

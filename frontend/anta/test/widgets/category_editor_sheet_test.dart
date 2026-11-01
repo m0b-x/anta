@@ -27,6 +27,8 @@ import 'package:anta/services/category_service.dart';
 import 'package:anta/services/event_alert_service.dart';
 import 'package:anta/services/permission_service.dart';
 import 'package:anta/services/settings_service.dart';
+import 'package:anta/widgets/form_sheet_frame.dart'
+    show FormSheetSemanticsRefresh;
 
 import '../database/support/db_test_support.dart';
 import '../services/permission_support.dart';
@@ -587,9 +589,12 @@ void main() {
       expect(writes.held, isTrue, reason: 'create reads MAX(sort_order)');
       expect(robot.closeEnabled, isFalse);
       await robot.close();
+      // Read after each one: a question back opened would be dismissed by
+      // the barrier tap that follows it.
       await robot.systemBack();
+      expect(robot.discardAsked, isFalse, reason: 'back');
       await robot.tapBarrier();
-      expect(robot.discardAsked, isFalse);
+      expect(robot.discardAsked, isFalse, reason: 'the barrier');
       expect(robot.isOpen, isTrue);
       expect(outcome.returned, isFalse);
 
@@ -603,6 +608,13 @@ void main() {
       expect(outcome.result?.name, 'Yoga');
       expect(names(), contains('Yoga'));
     });
+  });
+
+  testWidgets('the content-tall sheet refreshes its semantics, since a '
+      "sub-sheet's answer resizes it while that route leaves", (tester) async {
+    final robot = CategoryEditorRobot(tester);
+    await robot.show();
+    expect(find.byType(FormSheetSemanticsRefresh), findsOneWidget);
   });
 
   testWidgets('the name is focused on create and not on edit', (tester) async {

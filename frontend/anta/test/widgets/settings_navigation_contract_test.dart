@@ -386,8 +386,10 @@ void main() {
           await openFromDrawer(tester, row);
           // The page carries no drawer: the arrow is the only leading
           // control, and there is no edge drag to open one.
-          expect(Scaffold.of(tester.element(find.byType(AppBar))).hasDrawer,
-              isFalse);
+          expect(
+            Scaffold.of(tester.element(find.byType(AppBar))).hasDrawer,
+            isFalse,
+          );
           expect(find.byIcon(Icons.menu_rounded), findsNothing);
 
           await tapArrow(tester);
@@ -558,9 +560,7 @@ void main() {
     });
 
     testWidgets('five taps on the header icon unlock developer mode, close '
-        'the drawer, and the hub then lists Developer options', (
-      tester,
-    ) async {
+        'the drawer, and the hub then lists Developer options', (tester) async {
       await pumpHost(tester);
       await openDrawer(tester);
       expect(DevOptions.instance.developerModeUnlocked, isFalse);
@@ -624,7 +624,10 @@ void main() {
       testWidgets('toSettings over App settings pushes nothing (S15, D3)', (
         tester,
       ) async {
-        await openFromHub(tester, _row(SemanticsIds.settingsHubRow('settings')));
+        await openFromHub(
+          tester,
+          _row(SemanticsIds.settingsHubRow('settings')),
+        );
         observer.clear();
 
         await AppNavigator.toSettings(
@@ -633,10 +636,7 @@ void main() {
         await settle(tester);
 
         expect(observer.pageRoutes, isEmpty);
-        expect(
-          find.byType(SettingsPage, skipOffstage: false),
-          findsOneWidget,
-        );
+        expect(find.byType(SettingsPage, skipOffstage: false), findsOneWidget);
 
         await teardownApp(tester);
       });
@@ -830,6 +830,42 @@ void main() {
 
       await teardownApp(tester);
       await store(const {}, const []);
+    });
+
+    // A review probe: the page's fold set predates the child's fold, and a
+    // fold tapped before `didPopNext`'s reload landed wrote that copy back.
+    testWidgets('a fold tapped on Calendar settings right after Fasting '
+        'settings pops keeps the fold that page stored', (tester) async {
+      Future<Set<String>?> folds() => tester.runAsync(
+        () async => (await SettingsService.getInstance())
+            .getCalendarSettingsCollapsedSections(),
+      );
+      await openFromHub(
+        tester,
+        _hubRows.firstWhere((row) => row.pageType == CalendarSettingsPage),
+      );
+      await tapRow(tester, SemanticsIds.calendarSettingsFastingOpen);
+      expect(find.byType(FastingSettingsPage), findsOneWidget);
+      await tester.tap(find.text(l10n.fastingSectionTraditions.toUpperCase()));
+      await settle(tester);
+      expect(await folds(), {'fasting_traditions'});
+
+      AppNavigator.navigatorKey.currentState!.pop();
+      // Frames only: the reload's reads need real async and stay pending.
+      for (var i = 0; i < 6; i++) {
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+      expect(find.byType(FastingSettingsPage), findsNothing);
+      await tester.tap(find.text(l10n.calendarFilteringSection.toUpperCase()));
+      await settle(tester);
+
+      expect(await folds(), {'fasting_traditions', 'filtering'});
+
+      await teardownApp(tester);
+      await tester.runAsync(
+        () async => (await SettingsService.getInstance())
+            .setCalendarSettingsCollapsedSections(const {}),
+      );
     });
   });
 

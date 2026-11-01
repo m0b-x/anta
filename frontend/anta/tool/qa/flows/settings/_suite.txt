@@ -17,8 +17,9 @@
 #   stops the app and starts it again on the same QA database, so the
 #   stored stack ([settingsHub, page]) is replayed as on a cold launch.
 # - Developer options is reached by the unlock: five taps on the drawer
-#   header's icon (drawer-header-icon) draw its hub row (17). Locking it is
-#   left to the widget suites: the page's Lock button carries no id. The
+#   header's icon (drawer-header-icon) draw its hub row (17), which the flow
+#   visits; locking (developer-options-lock) stays with the widget suites,
+#   since every flow reseeds locked anyway. The
 #   shortcut editor (the one unstamped settings page) is skipped: no id
 #   reaches it inside Markdown settings.
 fixture=tool/qa/fixtures/basic.json

@@ -17,6 +17,7 @@ import 'package:anta/widgets/permission_tile.dart';
 import '../goldens/support/golden_fonts.dart';
 import '../services/permission_support.dart';
 import 'support/layout_errors.dart';
+import 'support/settings_page_whole.dart';
 
 void main() {
   final notificationsRow = SemanticsIds.permissionTile(
@@ -326,9 +327,9 @@ void main() {
             ),
           ),
         );
-        // The title holds its longest word, or — "Benachrichtigungen" at 2.0
-        // is wider than the phone's whole text column — the whole column,
-        // the value moved under it rather than beside.
+        // The title holds its longest word, or — a word wider than the
+        // phone's whole text column — the whole column, the value moved
+        // under it rather than beside.
         final column =
             tester
                 .getSize(
@@ -347,6 +348,12 @@ void main() {
         );
         expect(tester.getSize(row).height, lessThan(780));
       }
+      // "Benachrichtigunge|n" and "Systemeinstellung|en" broke before the
+      // copy said "Mitteilungen" and "System-Einstellungen".
+      // Back to the top, for the sweep to walk down.
+      await tester.drag(find.byType(ListView), const Offset(0, 20000));
+      await tester.pumpAndSettle();
+      await expectPageWhole(tester);
     });
   });
 }

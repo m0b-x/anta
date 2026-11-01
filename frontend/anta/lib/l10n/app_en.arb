@@ -8915,7 +8915,7 @@
   },
   "calendarGuideCoachCategoriesDelete": "Tap the three dots on your category, then “{delete}”: its events go to “{other}” — or choose where they go.",
   "@calendarGuideCoachCategoriesDelete": {
-    "description": "Calendar guide coach instruction; delete is the menu's Delete label, other the built-in Other category's name",
+    "description": "Calendar guide coach instruction; delete is the category menu's Delete… item (categoryDeleteEllipsis), other the built-in Other category's name",
     "placeholders": {
       "delete": {
         "type": "String"

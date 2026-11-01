@@ -2356,7 +2356,7 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get confirmDeleteDesc =>
-      'Bestätigungsdialog vor dem Löschen von Notizen oder Ordnern anzeigen';
+      'Vor dem Löschen von Notizen oder Ordnern nachfragen';
 
   @override
   String get autoSaveSection => 'Automatisches Speichern';
@@ -2770,7 +2770,7 @@ class AppLocalizationsDe extends AppLocalizations {
   String get romanian => 'Rumänisch';
 
   @override
-  String get systemDefault => 'Systemstandard';
+  String get systemDefault => 'System-Standard';
 
   @override
   String get themeSettings => 'Erscheinungsbild';
@@ -2887,7 +2887,7 @@ class AppLocalizationsDe extends AppLocalizations {
       'Bleiben für alle erhalten, die sie bereits nutzen. Standardmäßig aus und in einer künftigen Version möglicherweise entfernt.';
 
   @override
-  String get previewModeEnabled => 'Vorschaumodus';
+  String get previewModeEnabled => 'Vorschau-Modus';
 
   @override
   String get previewModeEnabledDesc =>
@@ -3040,18 +3040,18 @@ class AppLocalizationsDe extends AppLocalizations {
   String get dayRailBasePositionBottom => 'Unten';
 
   @override
-  String get calendarHighlightWeekends => 'Wochenenden einfärben';
+  String get calendarHighlightWeekends => 'Wochenende färben';
 
   @override
   String get calendarHighlightWeekendsDesc =>
       'Samstag und Sonntag in eigener Farbe anzeigen';
 
   @override
-  String get calendarShowWeekNumbers => 'Kalenderwochen';
+  String get calendarShowWeekNumbers => 'Kalender-Wochen';
 
   @override
   String get calendarShowWeekNumbersDesc =>
-      'Wochennummern am linken Rand anzeigen';
+      'Wochen-Nummern am linken Rand anzeigen';
 
   @override
   String get calendarFilteringSection => 'Filterung';
@@ -3069,11 +3069,11 @@ class AppLocalizationsDe extends AppLocalizations {
   }
 
   @override
-  String get calendarShowRecurrenceLabels => 'Wiederholung in Zeilen';
+  String get calendarShowRecurrenceLabels => 'Rhythmus in Zeilen';
 
   @override
   String get calendarShowRecurrenceLabelsDesc =>
-      'Wiederholungsmuster (Täglich, Wöchentlich…) in Ereigniszeilen anzeigen';
+      'Rhythmus (Täglich, Wöchentlich…) in Ereigniszeilen anzeigen';
 
   @override
   String get calendarMissedDisplayTitle => 'Verpasste Tage';
@@ -3479,7 +3479,7 @@ class AppLocalizationsDe extends AppLocalizations {
   String get showFpsCounter => 'FPS-Zähler anzeigen';
 
   @override
-  String get showFpsCounterDesc => 'Scroll- und Animationsleistung überwachen';
+  String get showFpsCounterDesc => 'Scroll- und Animations-Leistung überwachen';
 
   @override
   String get showChunkIndicators => 'Chunk-Indikatoren anzeigen';
@@ -3528,7 +3528,7 @@ class AppLocalizationsDe extends AppLocalizations {
   String get showNoteSizeDesc => 'Inhaltsgröße in Bytes anzeigen';
 
   @override
-  String get showDatabaseStats => 'Datenbankstatistik anzeigen';
+  String get showDatabaseStats => 'Datenbank-Statistik anzeigen';
 
   @override
   String get showDatabaseStatsDesc => 'Abfrageanzahl und Cache-Informationen';
@@ -4454,7 +4454,7 @@ class AppLocalizationsDe extends AppLocalizations {
   String get noMatchesFound => 'Keine Treffer';
 
   @override
-  String get searchSettings => 'Einstellungen suchen';
+  String get searchSettings => 'Suchen';
 
   @override
   String settingsSectionCollapsedCount(int count) {
@@ -5194,7 +5194,7 @@ class AppLocalizationsDe extends AppLocalizations {
   String get calendarAlertsSection => 'Erinnerungen';
 
   @override
-  String get alertsNotifications => 'Benachrichtigungen';
+  String get alertsNotifications => 'Mitteilungen';
 
   @override
   String get alertsNotificationsDesc =>
@@ -5955,7 +5955,7 @@ class AppLocalizationsDe extends AppLocalizations {
   String get calendarReportRowDesc => 'Wie eine Woche oder ein Monat lief';
 
   @override
-  String get settingsHubSearchHint => 'Einstellungen suchen';
+  String get settingsHubSearchHint => 'Suchen';
 
   @override
   String get settingsSectionCalendar => 'Kalender';
@@ -6063,7 +6063,7 @@ class AppLocalizationsDe extends AppLocalizations {
       'Einmal nachfragen, wenn etwas Notwendiges aus ist';
 
   @override
-  String get permissionsSystemSettings => 'Systemeinstellungen';
+  String get permissionsSystemSettings => 'System-Einstellungen';
 
   @override
   String get permissionsSystemSettingsDesc =>

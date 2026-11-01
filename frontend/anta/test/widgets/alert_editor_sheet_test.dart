@@ -186,22 +186,24 @@ void main() {
     expect((result.value as AlertEditorSaved).alert.mode, AlertMode.ring);
   });
 
-  testWidgets('the remove switch is offered for an alarm and rides the result',
-      (tester) async {
-    final sheet = AlertSheetRobot(tester);
-    final result = await openSheet(tester, showRemoveAfter: true);
+  testWidgets(
+    'the remove switch is offered for an alarm and rides the result',
+    (tester) async {
+      final sheet = AlertSheetRobot(tester);
+      final result = await openSheet(tester, showRemoveAfter: true);
 
-    // A reminder cannot be what deletes an event, so until the tier is Alarm
-    // the switch stands in its place and cannot be flipped.
-    expect(sheet.removeAfterVisible, isTrue);
-    expect(sheet.removeAfterEnabled, isFalse);
-    await sheet.chooseTier(AlertMode.ring);
-    await sheet.toggleRemoveAfter();
-    await sheet.save();
+      // A reminder cannot be what deletes an event, so until the tier is Alarm
+      // the switch stands in its place and cannot be flipped.
+      expect(sheet.removeAfterVisible, isTrue);
+      expect(sheet.removeAfterEnabled, isFalse);
+      await sheet.chooseTier(AlertMode.ring);
+      await sheet.toggleRemoveAfter();
+      await sheet.save();
 
-    final saved = result.value as AlertEditorSaved;
-    expect(saved.removeAfterAlert, isTrue);
-  });
+      final saved = result.value as AlertEditorSaved;
+      expect(saved.removeAfterAlert, isTrue);
+    },
+  );
 
   testWidgets('going back to a reminder disarms the removal', (tester) async {
     final sheet = AlertSheetRobot(tester);
@@ -1678,9 +1680,7 @@ void main() {
       expect(await touchedAfter(tester, (_) async {}), isFalse);
     });
 
-    testWidgets('false after a Custom sub-sheet backed out of', (
-      tester,
-    ) async {
+    testWidgets('false after a Custom sub-sheet backed out of', (tester) async {
       expect(
         await touchedAfter(tester, (sheet) async {
           await sheet.openCustom();
@@ -1690,9 +1690,7 @@ void main() {
       );
     });
 
-    testWidgets('false after a sound sheet left through its ✕', (
-      tester,
-    ) async {
+    testWidgets('false after a sound sheet left through its ✕', (tester) async {
       expect(
         await touchedAfter(tester, (sheet) async {
           await sheet.tapSoundRow();
@@ -1707,10 +1705,7 @@ void main() {
       tester,
     ) async {
       expect(
-        await touchedAfter(
-          tester,
-          (sheet) => sheet.chooseTier(AlertMode.ring),
-        ),
+        await touchedAfter(tester, (sheet) => sheet.chooseTier(AlertMode.ring)),
         isTrue,
       );
       expect(
@@ -1758,8 +1753,7 @@ void main() {
       expect(
         await touchedAfter(
           tester,
-          (sheet) =>
-              sheet.pickTimeOfDay(const TimeOfDay(hour: 7, minute: 15)),
+          (sheet) => sheet.pickTimeOfDay(const TimeOfDay(hour: 7, minute: 15)),
           allDay: true,
         ),
         isTrue,

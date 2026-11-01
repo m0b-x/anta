@@ -1959,6 +1959,20 @@ void main() {
       await tester.pumpAndSettle();
     }
 
+    test('the delete step quotes the row menu\'s item as it reads, '
+        'ellipsis and all', () {
+      final step = [
+        for (final card in CalendarGuideTopic.categories.cards) ...card.steps,
+      ].singleWhere((step) => step.action == 'deleted');
+      for (final l10n in <AppLocalizations>[en, AppLocalizationsDe()]) {
+        expect(
+          step.line(l10n),
+          contains(l10n.categoryDeleteEllipsis),
+          reason: l10n.localeName,
+        );
+      }
+    });
+
     testWidgets('idle: three rows on the page\'s anatomy, the first step, the '
         'page\'s four items disabled where the page disables them', (
       tester,

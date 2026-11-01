@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/material.dart';
 
 import '../constants/row_metrics.dart';
@@ -119,10 +118,19 @@ class _SliderSettingRowState extends State<SliderSettingRow> {
     super.dispose();
   }
 
-  /// The step whose reading is tallest, and the readings, style and width it
-  /// was measured for: laid out again only when one of them changes, never
-  /// on a drag tick.
-  ({List<String> readings, TextStyle style, TextScaler scaler, double width})?
+  /// The step whose reading is tallest, and the range, locale, style and
+  /// width it was measured for: the readings are built and laid out again
+  /// only when one of them changes, never on a drag tick — each reading is a
+  /// [SliderSettingRow.draftCaption] call, a plural lookup in the real rows.
+  ({
+    int min,
+    int max,
+    int divisions,
+    Locale? locale,
+    TextStyle style,
+    TextScaler scaler,
+    double width,
+  })?
   _measuredFor;
   int? _tallestStep;
 
@@ -142,25 +150,28 @@ class _SliderSettingRowState extends State<SliderSettingRow> {
         !width.isFinite) {
       return [widget.min, widget.max];
     }
-    final span = widget.max - widget.min;
-    final values = [
-      for (var i = 0; i < steps; i++)
-        widget.min + (span * i / widget.divisions).round(),
-    ];
-    final readings = [for (final value in values) widget.draftCaption(value)];
     var effective = DefaultTextStyle.of(context).style.merge(style);
     if (MediaQuery.boldTextOf(context)) {
       effective = effective.merge(const TextStyle(fontWeight: FontWeight.bold));
     }
     final scaler = MediaQuery.textScalerOf(context);
+    final locale = Localizations.maybeLocaleOf(context);
     final measured = _measuredFor;
     if (measured == null ||
+        measured.min != widget.min ||
+        measured.max != widget.max ||
+        measured.divisions != widget.divisions ||
+        measured.locale != locale ||
         measured.style != effective ||
         measured.scaler != scaler ||
-        measured.width != width ||
-        !listEquals(measured.readings, readings)) {
+        measured.width != width) {
+      final span = widget.max - widget.min;
+      final values = [
+        for (var i = 0; i < steps; i++)
+          widget.min + (span * i / widget.divisions).round(),
+      ];
+      final readings = [for (final value in values) widget.draftCaption(value)];
       final direction = Directionality.of(context);
-      final locale = Localizations.maybeLocaleOf(context);
       var tallest = 0;
       var tallestHeight = -1.0;
       for (var i = 0; i < readings.length; i++) {
@@ -177,7 +188,10 @@ class _SliderSettingRowState extends State<SliderSettingRow> {
         painter.dispose();
       }
       _measuredFor = (
-        readings: readings,
+        min: widget.min,
+        max: widget.max,
+        divisions: widget.divisions,
+        locale: locale,
         style: effective,
         scaler: scaler,
         width: width,

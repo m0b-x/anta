@@ -1120,8 +1120,7 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
   /// The page's own text is newer than the row: an edit auto-save has not
   /// written yet, or a write still in flight.
   bool get _hasUnsavedText =>
-      _saves.hasChanges.value ||
-      _saves.saveStatus.value == SaveStatus.saving;
+      _saves.hasChanges.value || _saves.saveStatus.value == SaveStatus.saving;
 
   /// The page's body differs from the text it last loaded or saved. The body
   /// alone, never the title: a pending title edit leaves nothing to defend,
@@ -1493,8 +1492,9 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
   Future<void> _keepTextAsNewNote(NoteChange change) async {
     final storage = GetIt.I<NoteStorageService>();
     // The tombstone, read past the cache the merge announcement dropped.
-    final deleted = (await storage.loadNoteWithContent(change.noteId))
-        ?.metadata;
+    final deleted = (await storage.loadNoteWithContent(
+      change.noteId,
+    ))?.metadata;
     final folderId = await GetIt.I<FolderStorageService>().nearestLiveFolderId(
       deleted?.folderId ?? change.folderId ?? _folderId,
     );

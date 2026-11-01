@@ -113,10 +113,8 @@ void main() {
       );
       await open(tester, title);
 
-      Finder checkIn(Finder row) => find.descendant(
-        of: row,
-        matching: find.byIcon(Icons.check_rounded),
-      );
+      Finder checkIn(Finder row) =>
+          find.descendant(of: row, matching: find.byIcon(Icons.check_rounded));
       expect(find.byIcon(Icons.check_rounded), findsNWidgets(2));
       expect(checkIn(calendarRow), findsOneWidget);
       expect(
@@ -224,9 +222,7 @@ void main() {
     testWidgets('picking another format calls back; the current one does '
         'not', (tester) async {
       final picked = <CalendarFormat>[];
-      await tester.pumpWidget(
-        host(title: calendarTitle(onFormat: picked.add)),
-      );
+      await tester.pumpWidget(host(title: calendarTitle(onFormat: picked.add)));
 
       await open(tester, title);
       await tester.tap(monthRow);
@@ -247,7 +243,10 @@ void main() {
       await open(tester, title);
 
       expect(find.text('Week'), findsOneWidget);
-      expect(dataOf(tester, weekRow).flagsCollection.isEnabled, Tristate.isFalse);
+      expect(
+        dataOf(tester, weekRow).flagsCollection.isEnabled,
+        Tristate.isFalse,
+      );
       expect(
         tester.widget<Text>(find.text('Week')).style?.color,
         colorScheme.onSurface.withValues(alpha: FormMetrics.disabledOpacity),
@@ -479,7 +478,10 @@ void main() {
       );
       await open(tester, more);
       final export = find.bySemanticsIdentifier(SemanticsIds.calendarExport);
-      expect(dataOf(tester, export).flagsCollection.isEnabled, Tristate.isFalse);
+      expect(
+        dataOf(tester, export).flagsCollection.isEnabled,
+        Tristate.isFalse,
+      );
       await tester.tap(export, warnIfMissed: false);
       await tester.pumpAndSettle();
       expect(exports, 0);
@@ -624,11 +626,7 @@ void main() {
       await open(tester, more);
       expect(tester.takeException(), isNull);
       final width = tester
-          .getSize(
-            find
-                .byWidgetPredicate((w) => w is PopupMenuItem)
-                .first,
-          )
+          .getSize(find.byWidgetPredicate((w) => w is PopupMenuItem).first)
           .width;
       expect(width, greaterThan(AppTheme.menuWidth));
       expect(width, lessThanOrEqualTo(AppTheme.menuMaxWidth));

@@ -164,6 +164,9 @@ void main() {
     Finder? list,
     List<_Offender> offenders = const [],
   }) async {
+    // The settings bars' 42 dp pair left in S7; one coming back is a tap
+    // target to judge, not an exception to excuse.
+    expect(find.byType(LeadingNavPair), findsNothing);
     // With [only], the guideline judges that offender's nodes and no other.
     AccessibilityGuideline guideline(_Guideline which, {_Offender? only}) {
       final named = only != null
@@ -186,7 +189,7 @@ void main() {
       bool skipNode(SemanticsNode node) =>
           skip(_within(areas, _logicalRect(node, ratio)));
       return switch (which) {
-        _Guideline.tapTargets => _KitTapTargetGuideline.of(tester, skipNode),
+        _Guideline.tapTargets => _KitTapTargetGuideline(skipNode),
         _Guideline.labels => _KitLabelGuideline(skipNode),
         _Guideline.contrast => _KitContrastGuideline(
           (data) => skip(
@@ -599,35 +602,55 @@ void main() {
     });
   }
 
-  // With no clear-button slot while empty the German hint is whole on the
-  // large phone. On the small one it needs about 293 dp beside the glyph and
-  // the field has 260 — known, cut until the field's insets or the copy
-  // change.
-  for (final (size, whole) in const [
-    (Size(412, 915), true),
-    (Size(360, 780), false),
-  ]) {
-    testWidgets('the search hint in German at 2.0 on '
-        '${size.width.round()} dp is ${whole ? 'whole' : 'cut — known'}', (
-      tester,
-    ) async {
-      final cell = GoldenCell(
-        dark: true,
-        locale: const Locale('de'),
-        textScale: 2.0,
-        size: size,
-      );
-      setGoldenSurface(tester, cell);
-      await tester.pumpWidget(goldenApp(cell, home: const SettingsPage()));
-      await settle(tester);
+  // The field has 260 dp beside the glyph on the small phone: "Einstellungen
+  // suchen" needed about 293 and was cut, so the German hint says "Suchen".
+  for (final (page, home, hintOf)
+      in <(String, Widget, String Function(AppLocalizations))>[
+        ('App settings', const SettingsPage(), (l10n) => l10n.searchSettings),
+        (
+          'Calendar settings',
+          const CalendarSettingsPage(),
+          (l10n) => l10n.searchSettings,
+        ),
+        (
+          'the settings hub',
+          const SettingsHubPage(),
+          (l10n) => l10n.settingsHubSearchHint,
+        ),
+      ]) {
+    for (final size in const [Size(412, 915), Size(360, 780)]) {
+      testWidgets('$page: the search hint in German at 2.0 on '
+          '${size.width.round()} dp is whole', (tester) async {
+        final cell = GoldenCell(
+          dark: true,
+          locale: const Locale('de'),
+          textScale: 2.0,
+          size: size,
+        );
+        final appSettings = AppSettingsBloc();
+        addTearDown(appSettings.close);
+        setGoldenSurface(tester, cell);
+        await tester.pumpWidget(
+          goldenApp(
+            cell,
+            home: BlocProvider<AppSettingsBloc>.value(
+              value: appSettings,
+              child: home,
+            ),
+          ),
+        );
+        await settle(tester);
 
-      final hint = lookupAppLocalizations(cell.locale).searchSettings;
-      expect(
-        tester.renderObject<RenderParagraph>(find.text(hint)).didExceedMaxLines,
-        !whole,
-      );
-      await tester.pumpWidget(const SizedBox.shrink());
-    });
+        final hint = hintOf(lookupAppLocalizations(cell.locale));
+        expect(
+          tester
+              .renderObject<RenderParagraph>(find.text(hint))
+              .didExceedMaxLines,
+          isFalse,
+        );
+        await tester.pumpWidget(const SizedBox.shrink());
+      });
+    }
   }
 
   testWidgets('Permissions in German at 2.0 keeps every row shorter than '
@@ -1094,6 +1117,18 @@ void main() {
           alpha: FormMetrics.disabledOpacity,
         ),
       );
+      // The label keeps its role over the wash, dimmed the same way: the
+      // stock disabled grey on it read as a fourth state.
+      expect(
+        tester
+            .renderObject<RenderParagraph>(find.text('Fasting'))
+            .text
+            .style
+            ?.color,
+        colors.onSecondaryContainer.withValues(
+          alpha: FormMetrics.disabledOpacity,
+        ),
+      );
       for (final label in ['Event', 'Both']) {
         expect(background(label), isNot(background('Fasting')), reason: label);
         expect(
@@ -1150,7 +1185,7 @@ class _Offender {
 /// Markdown settings' pre-existing failures, all restyled by §9 of
 /// `docs/settings-rework-roadmap.md` (its cards, menus and FAB): the section
 /// headers' 26 dp strips, the bar profile selector's 32 dp row and the
-/// compact bar buttons under 48 dp; the switches shrunk to 0.8, too short and
+/// compact add-bar button under 48 dp; the switches shrunk to 0.8, too short and
 /// unlabelled beside their own text; the add-shortcut FAB, unlabelled, and in
 /// German at 2.0 drawn over the heading at the screen's foot; the vocabulary
 /// trigger's one-glyph segments, whose anti-aliasing reads under 4.5:1; and,
@@ -1158,11 +1193,44 @@ class _Offender {
 /// caption (2.10:1).
 List<_Offender> _markdownOffenders(GoldenCell cell) {
   final l10n = lookupAppLocalizations(cell.locale);
-  final shrunkSwitches = find.byWidgetPredicate(
-    (widget) =>
-        widget is Transform &&
-        widget.child is Switch &&
-        widget.transform.entry(0, 0) < 1,
+  // The five shrunk today, each named by the label of the row it sits in, so
+  // a sixth is judged rather than excused.
+  final switchLabels = {
+    l10n.splitToolbar,
+    l10n.pinUndoRedo,
+    l10n.vocabularySuggestionsLabel,
+    l10n.moneyLedgerEnabledLabel,
+    l10n.moneyCurrencySuffixLabel,
+  };
+  bool inNamedRow(Element element) {
+    Element? row;
+    element.visitAncestorElements((ancestor) {
+      if (ancestor.widget is! Row) return true;
+      row = ancestor;
+      return false;
+    });
+    var named = false;
+    void visit(Element child) {
+      if (child.widget case Text(
+        :final data?,
+      ) when switchLabels.contains(data)) {
+        named = true;
+      }
+      if (!named) child.visitChildren(visit);
+    }
+
+    row?.visitChildren(visit);
+    return named;
+  }
+
+  final shrunkSwitches = find.byElementPredicate(
+    (element) => switch (element.widget) {
+      final Transform transform =>
+        transform.child is Switch &&
+            transform.transform.entry(0, 0) < 1 &&
+            inNamedRow(element),
+      _ => false,
+    },
   );
   final fab = find.byType(FloatingActionButton);
   return [
@@ -1187,11 +1255,12 @@ List<_Offender> _markdownOffenders(GoldenCell cell) {
     ],
     _Offender(
       _Guideline.tapTargets,
-      'the compact bar buttons',
+      'the compact add-bar button',
       find.byWidgetPredicate(
         (widget) =>
             widget is IconButton &&
-            widget.visualDensity == VisualDensity.compact,
+            widget.visualDensity == VisualDensity.compact &&
+            widget.tooltip == l10n.addBar,
       ),
     ),
     _Offender(_Guideline.tapTargets, 'the 0.8 switches', shrunkSwitches),
@@ -1281,44 +1350,20 @@ bool _within(List<Rect> areas, Rect rect) => areas.any((area) {
   return room.contains(rect.topLeft) && room.contains(rect.bottomRight);
 });
 
-/// Android's 48 dp tap-target guideline with one accepted exception taken out
-/// by name rather than the check skipped: the bar's [LeadingNavPair], whose
-/// two 42 dp halves are an app-wide decision of their own (the pair's
-/// `halfSize`), drawn on App settings because it has a drawer. Every other
-/// node is judged as the stock guideline judges it, but those [_skip] names
-/// (the walk's offenders).
+/// Android's 48 dp tap-target guideline, judged node for node as the stock
+/// one judges it but for the nodes [_skip] names (the walk's offenders).
 class _KitTapTargetGuideline extends MinimumTapTargetGuideline {
-  _KitTapTargetGuideline._(this._ratio, this._pairs, this._skip)
+  _KitTapTargetGuideline(this._skip)
     : super(size: _android.size, link: _android.link);
 
   static final MinimumTapTargetGuideline _android =
       androidTapTargetGuideline as MinimumTapTargetGuideline;
 
-  factory _KitTapTargetGuideline.of(
-    WidgetTester tester,
-    bool Function(SemanticsNode node) skip,
-  ) => _KitTapTargetGuideline._(tester.view.devicePixelRatio, [
-    for (final element in find.byType(LeadingNavPair).evaluate())
-      if (element.renderObject case final RenderBox box when box.hasSize)
-        box.localToGlobal(Offset.zero) & box.size,
-  ], skip);
-
-  final double _ratio;
-
-  /// Logical pixels, as the widgets measure.
-  final List<Rect> _pairs;
-
   final bool Function(SemanticsNode node) _skip;
 
   @override
   bool shouldSkipNode(SemanticsNode node) =>
-      super.shouldSkipNode(node) ||
-      _within(_pairs, _logicalRect(node, _ratio)) ||
-      _skip(node);
-
-  @override
-  String get description =>
-      '${super.description}, the bar\'s leading pair aside';
+      super.shouldSkipNode(node) || _skip(node);
 }
 
 /// Flutter's labelled-tap-target guideline, judged node for node as the
@@ -1347,14 +1392,15 @@ class _KitLabelGuideline extends AccessibilityGuideline {
       result += _traverse(child);
       return true;
     });
-    if (node.isMergedIntoParent ||
-        node.isInvisible ||
-        node.flagsCollection.isHidden ||
-        node.flagsCollection.isTextField ||
+    if (node.isMergedIntoParent || node.isInvisible) return result;
+    // The merged data's flags: under `AutomationId`'s `MergeSemantics` a
+    // field's text-field flag is its child's, never the node's own.
+    final data = node.getSemanticsData();
+    if (node.flagsCollection.isHidden ||
+        data.flagsCollection.isTextField ||
         _skip(node)) {
       return result;
     }
-    final data = node.getSemanticsData();
     if (!data.hasAction(SemanticsAction.longPress) &&
         !data.hasAction(SemanticsAction.tap)) {
       return result;

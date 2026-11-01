@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart' show CustomSemanticsAction;
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -431,10 +432,19 @@ class _CalendarCategoriesPageState extends State<CalendarCategoriesPage> {
       target = target.clamp(lower, upper + 1);
     }
     remaining.insert(target, moved);
-    _persistSection(archived, [
+    final section = [
       for (final entry in remaining)
         if (ownRow(entry)) (entry as _RowEntry).category,
-    ]);
+    ];
+    // A drop clamped back into the row's own slot (the first row on its own
+    // header, an edge row on the neighbouring one) changes nothing, and the
+    // write would only tick the clock and republish the catalogue.
+    final current = [
+      for (final entry in entries)
+        if (ownRow(entry)) (entry as _RowEntry).category.id,
+    ];
+    if (listEquals(current, [for (final c in section) c.id])) return;
+    _persistSection(archived, section);
   }
 
   /// One tap for the case a long drag exists to serve: promoting a category

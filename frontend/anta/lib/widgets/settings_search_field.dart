@@ -101,49 +101,63 @@ class _SettingsSearchFieldState extends State<SettingsSearchField> {
               Expanded(
                 child: AutomationId(
                   identifier: widget.identifier,
-                  child: TextField(
-                    controller: widget.controller,
-                    focusNode: _focusNode,
-                    onTapOutside: (_) => _focusNode.unfocus(),
-                    style: textStyle,
-                    decoration: InputDecoration(
-                      isCollapsed: true,
-                      border: InputBorder.none,
-                      contentPadding: FormMetrics.searchFieldPadding,
-                      hintText: widget.hint,
-                      // `onSurfaceVariant` at full strength: the old 60 %
-                      // read 3.05:1 in light, under AA.
-                      hintStyle: textStyle.copyWith(
-                        color: colors.onSurfaceVariant,
+                  // The hint is the merged node's only label and leaves when
+                  // text replaces it, so the field keeps it as a label while
+                  // it holds text — only then: while empty the visible hint
+                  // already labels it, and TalkBack would say it twice. Always
+                  // wrapped, so the field's subtree never remounts on the
+                  // first letter.
+                  child: Semantics(
+                    label: hasText ? widget.hint : null,
+                    child: TextField(
+                      controller: widget.controller,
+                      focusNode: _focusNode,
+                      onTapOutside: (_) => _focusNode.unfocus(),
+                      style: textStyle,
+                      decoration: InputDecoration(
+                        isCollapsed: true,
+                        border: InputBorder.none,
+                        contentPadding: FormMetrics.searchFieldPadding,
+                        hintText: widget.hint,
+                        // `onSurfaceVariant` at full strength: the old 60 %
+                        // read 3.05:1 in light, under AA.
+                        hintStyle: textStyle.copyWith(
+                          color: colors.onSurfaceVariant,
+                        ),
                       ),
+                      onChanged: (value) {
+                        setState(() {});
+                        widget.onChanged(value);
+                      },
+                      textInputAction: TextInputAction.search,
+                      autocorrect: false,
+                      enableSuggestions: false,
+                      smartDashesType: SmartDashesType.disabled,
+                      smartQuotesType: SmartQuotesType.disabled,
                     ),
-                    onChanged: (value) {
-                      setState(() {});
-                      widget.onChanged(value);
-                    },
-                    textInputAction: TextInputAction.search,
-                    autocorrect: false,
-                    enableSuggestions: false,
-                    smartDashesType: SmartDashesType.disabled,
-                    smartQuotesType: SmartQuotesType.disabled,
                   ),
                 ),
               ),
-              // No slot while empty: the hint takes the whole width, which
-              // "Einstellungen suchen" needs at 2.0 on a small phone. The
+              // No slot while empty: the hint takes the whole width to the
+              // end inset, so a longer hint at 2.0 on a small phone is not
+              // cut short by a button with nothing to clear. The
               // first letter shrinks the field from its end, away from the
-              // caret, so nothing typed moves.
+              // caret, so nothing typed moves. Inside the field's tap region,
+              // or `onTapOutside` would drop the focus and the keyboard on a
+              // clear.
               if (hasText)
-                FormTrailingButton(
-                  icon: Icons.close_rounded,
-                  tooltip: AppLocalizations.of(context)!.clearSearch,
-                  color: colors.onSurfaceVariant,
-                  identifier: SemanticsIds.settingsSearchClear,
-                  onPressed: () {
-                    widget.controller.clear();
-                    setState(() {});
-                    widget.onChanged('');
-                  },
+                TextFieldTapRegion(
+                  child: FormTrailingButton(
+                    icon: Icons.close_rounded,
+                    tooltip: AppLocalizations.of(context)!.clearSearch,
+                    color: colors.onSurfaceVariant,
+                    identifier: SemanticsIds.settingsSearchClear,
+                    onPressed: () {
+                      widget.controller.clear();
+                      setState(() {});
+                      widget.onChanged('');
+                    },
+                  ),
                 ),
             ],
           ),

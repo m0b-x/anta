@@ -94,6 +94,7 @@ class _FastingSettingsPageState extends State<FastingSettingsPage> {
   SettingsService? _settings;
   bool _isLoading = true;
   Set<String> _collapsedSections = const {};
+  int _foldEdits = 0;
   bool _hapticFeedback = true;
 
   /// Handed to the schedule sheet, whose preview draws the grid as the
@@ -143,12 +144,23 @@ class _FastingSettingsPageState extends State<FastingSettingsPage> {
 
   /// Optimistic like every other row on this page: the fold is a view
   /// preference, so a failed write costs nothing worth blocking the tap for.
+  /// The write edits the stored row, which the other calendar pages share,
+  /// and the last tap's answer is adopted (`CalendarSettingsPage`'s toggle
+  /// says why).
   Future<void> _toggleSection(String id) async {
     _onHapticFeedback();
     final next = {..._collapsedSections};
-    if (!next.remove(id)) next.add(id);
+    final collapsed = !next.remove(id);
+    if (collapsed) next.add(id);
+    final edit = ++_foldEdits;
     setState(() => _collapsedSections = next);
-    await _settings?.setCalendarSettingsCollapsedSections(next);
+    final stored = await _settings?.setCalendarSettingsSectionCollapsed(
+      id,
+      collapsed: collapsed,
+    );
+    if (stored != null && mounted && edit == _foldEdits) {
+      setState(() => _collapsedSections = stored);
+    }
   }
 
   Future<void> _toggleFastingTradition(

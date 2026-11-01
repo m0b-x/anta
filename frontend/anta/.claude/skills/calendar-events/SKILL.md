@@ -76,6 +76,7 @@ Chain: `references/schema-lineage.md`. Rules for every version:
 
 - Calendar settings load in **one statement** (`getCalendarPageSettings()`), one pure decoder per setting; keys in `_calendarAppearanceKeys` / `_calendarPageKeys`; never `getAllSettings()`.
 - Keep absent-vs-empty in `getFastingSchedule` / `getFastingAppearance`. Enums parse forward-compatibly (`fromName`).
+- The fold set is one key shared by Calendar settings, Appearance, Alert settings and Fasting: a toggle goes through `SettingsService.setCalendarSettingsSectionCollapsed(id, collapsed:)` (read, edit, write on one chained future; the page adopts the written set), never a page's in-memory copy written back — that dropped a child page's folds in the reload window (2026-11-01).
 - `CalendarAppearance` and the palette are **passed down from `CalendarPage`**, never re-read in a leaf. Weekday labels from `intl`, never an ARB matrix.
 - New setting: a `SettingsEntry` on the page that owns the subject — `CalendarSettingsPage` (Holidays · More settings · Filtering · Events), `AlertSettingsPage`, `FastingSettingsPage` or `CalendarAppearancePage` (the only one with a reset since S5, 2026-11-01) — + `SettingsService` getter/setter + `SettingsKeys`; count sliders bare, time with the unit through an ARB key, never `'${v}s'`.
 

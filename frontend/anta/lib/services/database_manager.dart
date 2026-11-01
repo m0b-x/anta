@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -177,7 +178,12 @@ class DatabaseManager {
     return name;
   }
 
-  /// Rename a database file
+  /// Rename a database file.
+  ///
+  /// Checkpointed first, so no `-wal` is left to move: a kill between the
+  /// `.db`'s rename and the sidecar's would otherwise leave the renamed file
+  /// without its last writes and an orphan `-wal` that nothing applies. A
+  /// blocked checkpoint fails the rename before any file has moved.
   Future<void> renameDatabase(String oldName, String newName) async {
     if (!await databaseExists(oldName)) {
       throw Exception('Database "$oldName" does not exist');
@@ -186,6 +192,8 @@ class DatabaseManager {
     if (await databaseExists(newName)) {
       throw Exception('Database "$newName" already exists');
     }
+
+    await checkpoint(oldName);
 
     final oldPath = await getDatabasePath(oldName);
     final newPath = await getDatabasePath(newName);
@@ -210,10 +218,21 @@ class DatabaseManager {
     }
   }
 
-  /// Delete a database file
+  /// Delete a database file.
+  ///
+  /// Checkpointed first only to tidy — a kill mid-delete then leaves no
+  /// orphan `-wal` beside the name — so a checkpoint that fails (a file that
+  /// is not SQLite) is logged and the delete goes on: the files are going
+  /// either way, and the database a user most wants gone must stay deletable.
   Future<void> deleteDatabase(String name) async {
     if (!await databaseExists(name)) {
       throw Exception('Database "$name" does not exist');
+    }
+
+    try {
+      await checkpoint(name);
+    } catch (e, st) {
+      debugPrint('[DatabaseManager] checkpoint before delete failed: $e\n$st');
     }
 
     final path = await getDatabasePath(name);

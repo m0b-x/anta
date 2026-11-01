@@ -54,6 +54,7 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage>
   SettingsService? _settings;
   bool _isLoading = true;
   Set<String> _collapsedSections = const {};
+  int _foldEdits = 0;
 
   final TextEditingController _searchController = TextEditingController();
   SettingsQuery _query = SettingsQuery.empty;
@@ -141,14 +142,24 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage>
 
   /// Optimistic like every other row on this page: the fold is a view
   /// preference, so a failed write costs nothing worth blocking the tap for.
-  /// The stored set also holds [CalendarAppearancePage]'s `appearance_` folds,
-  /// so a toggle edits the whole set it read, never this page's ids alone.
+  /// The stored set also holds the child pages' folds, which this copy may
+  /// not have read yet, so the write edits the stored row and the page adopts
+  /// what it wrote — only the last tap's answer, which holds every earlier
+  /// one, so a quick second fold never flicks back open.
   Future<void> _toggleSection(String id) async {
     _onHapticFeedback();
     final next = {..._collapsedSections};
-    if (!next.remove(id)) next.add(id);
+    final collapsed = !next.remove(id);
+    if (collapsed) next.add(id);
+    final edit = ++_foldEdits;
     setState(() => _collapsedSections = next);
-    await _settings?.setCalendarSettingsCollapsedSections(next);
+    final stored = await _settings?.setCalendarSettingsSectionCollapsed(
+      id,
+      collapsed: collapsed,
+    );
+    if (stored != null && mounted && edit == _foldEdits) {
+      setState(() => _collapsedSections = stored);
+    }
   }
 
   void _onHapticFeedback() {

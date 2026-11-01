@@ -149,10 +149,9 @@ class _AgendaFiltersSheetState extends State<AgendaFiltersSheet> {
   void initState() {
     super.initState();
     assert(
-      listEquals(
-        [for (final choice in _PeriodChoice.values) ?choice.days],
-        UpcomingAgendaFilters.rangePresets,
-      ),
+      listEquals([
+        for (final choice in _PeriodChoice.values) ?choice.days,
+      ], UpcomingAgendaFilters.rangePresets),
       'The Period menu must offer UpcomingAgendaFilters.rangePresets in order',
     );
     _bodyScroll.addListener(_onBodyScroll);
@@ -251,9 +250,7 @@ class _AgendaFiltersSheetState extends State<AgendaFiltersSheet> {
     );
     if (picked == null || !mounted) return;
     _update(
-      _draft.copyWith(
-        priorities: {for (final id in picked) ?int.tryParse(id)},
-      ),
+      _draft.copyWith(priorities: {for (final id in picked) ?int.tryParse(id)}),
     );
   });
 
@@ -381,10 +378,9 @@ class _AgendaFiltersSheetState extends State<AgendaFiltersSheet> {
   String _priorityValue(AppLocalizations l10n) {
     if (_draft.priorities.isEmpty) return l10n.upcomingPriorityAny;
     final ascending = _draft.priorities.toList()..sort();
-    return CalendarFilterSummary.namesReadBack(
-      [for (final p in ascending) EventPriorities.labelOf(p, l10n)],
-      l10n,
-    );
+    return CalendarFilterSummary.namesReadBack([
+      for (final p in ascending) EventPriorities.labelOf(p, l10n),
+    ], l10n);
   }
 
   /// Its own keys rather than the fasting/holiday ones, even where the English
@@ -433,15 +429,14 @@ class _AgendaFiltersSheetState extends State<AgendaFiltersSheet> {
         AgendaFastingDisplay.summary => Icons.summarize_outlined,
       };
 
-  static String _fastingDisplayId(AgendaFastingDisplay display) =>
-      switch (display) {
-        AgendaFastingDisplay.everyDay =>
-          SemanticsIds.agendaFilterFastingRowsEveryDay,
-        AgendaFastingDisplay.periods =>
-          SemanticsIds.agendaFilterFastingRowsPeriods,
-        AgendaFastingDisplay.summary =>
-          SemanticsIds.agendaFilterFastingRowsSummary,
-      };
+  static String _fastingDisplayId(
+    AgendaFastingDisplay display,
+  ) => switch (display) {
+    AgendaFastingDisplay.everyDay =>
+      SemanticsIds.agendaFilterFastingRowsEveryDay,
+    AgendaFastingDisplay.periods => SemanticsIds.agendaFilterFastingRowsPeriods,
+    AgendaFastingDisplay.summary => SemanticsIds.agendaFilterFastingRowsSummary,
+  };
 
   /// Its own keys rather than the fasting ones, even though the English words
   /// coincide: sharing strings across two axes means rewording one silently

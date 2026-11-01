@@ -1,6 +1,7 @@
 import 'dart:async';
 
-import 'package:drift/drift.dart' show QueryExecutor, QueryInterceptor, Value;
+import 'package:drift/drift.dart'
+    show QueryExecutor, QueryInterceptor, TransactionExecutor, Value;
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:anta/constants/calendar_categories.dart';
@@ -528,7 +529,8 @@ void main() {
       expect(
         stored[mine.id],
         kFallbackCategoryId,
-        reason: 'a template left on the dead id stamps it onto every event '
+        reason:
+            'a template left on the dead id stamps it onto every event '
             '`buildEvent` creates, with no editor pass to repair it',
       );
       expect(
@@ -567,7 +569,8 @@ void main() {
       expect(
         events.events.map((e) => e.categoryId),
         [kFallbackCategoryId],
-        reason: 'the cascade rewrote the column in SQL; an event left holding '
+        reason:
+            'the cascade rewrote the column in SQL; an event left holding '
             'the dead id in memory is written back over the reassignment by '
             'the next save of it',
       );
@@ -586,7 +589,8 @@ void main() {
       expect(
         CalendarEventService.externalRevision,
         greaterThan(before),
-        reason: 'the page\'s `CategoryAlertsChanged` bumps `occurrenceRevision` '
+        reason:
+            'the page\'s `CategoryAlertsChanged` bumps `occurrenceRevision` '
             'alone and re-reads no events, so without this signal the moved '
             'events only reach the grid after a restart',
       );
@@ -663,6 +667,11 @@ void main() {
 
       expect(await categoriesOf(), {'e1': custom.id});
       expect(CalendarEventService.externalRevision, before);
+      expect(
+        CalendarCategories.byId(custom.id),
+        isNotNull,
+        reason: 'the false path reloads nothing',
+      );
     });
 
     test('moves the events and templates to the target', () async {
@@ -718,6 +727,184 @@ void main() {
       expect(await second, isTrue);
 
       expect(await categoriesOf(), {'e1': kFallbackCategoryId});
+    });
+
+    test('an archived target is honoured', () async {
+      final archived = await service.create(
+        name: 'Archived',
+        colorValue: 0xFF00AAFF,
+        iconKey: 'event',
+      );
+      await service.setHidden(archived.id, true);
+      final custom = await dentist();
+      await addEvent('e1', custom.id);
+
+      expect(
+        await service.deleteCategory(custom.id, reassignTo: archived.id),
+        isTrue,
+      );
+
+      expect(await categoriesOf(), {'e1': archived.id});
+    });
+
+    /// The cascade is one act on the table: one stamp over every row it
+    /// touches, all of it or none of it, and a failure after it committed
+    /// still reported as the delete it was.
+    group('as one act', () {
+      late _CategoryStatementFaults faults;
+
+      setUp(() async {
+        CategoryService.reset();
+        await db.close();
+        faults = _CategoryStatementFaults();
+        db = await openTestDatabase(interceptor: faults);
+        service = await CategoryService.forTesting(db);
+      });
+
+      /// Every row the cascade can touch, keyed `table|id`.
+      Future<Map<String, Map<String, Object?>>> rows() async {
+        final result = <String, Map<String, Object?>>{};
+        for (final table in [
+          'calendar_events',
+          'calendar_event_templates',
+          'calendar_category_alerts',
+          'calendar_categories',
+        ]) {
+          final selected = await db
+              .customSelect(
+                'SELECT id, hlc_timestamp, device_id, version, is_deleted '
+                'FROM $table',
+              )
+              .get();
+          for (final row in selected) {
+            result['$table|${row.data['id']}'] = row.data;
+          }
+        }
+        return result;
+      }
+
+      /// The outbox's queued HLC per `table|row_key`.
+      Future<Map<String, String>> queued() async {
+        final selected = await db
+            .customSelect('SELECT table_name, row_key, hlc FROM sync_outbox')
+            .get();
+        return {
+          for (final row in selected)
+            '${row.data['table_name']}|${row.data['row_key']}':
+                row.data['hlc'] as String,
+        };
+      }
+
+      test('a target tombstoned behind the cache sends everything to Other, '
+          'and every touched row carries one stamp', () async {
+        final alerts = await EventAlertService.forTesting(db);
+        final custom = await dentist();
+        final target = await service.create(
+          name: 'Ortho',
+          colorValue: 0xFF00AAFF,
+          iconKey: 'event',
+        );
+        await addEvent('e1', custom.id);
+        await addEvent('e2', target.id);
+        await addTemplate('t1', custom.id);
+        await alerts.replaceForCategory(custom.id, [
+          CategoryAlert(id: 'c1', categoryId: custom.id),
+        ]);
+        final before = await rows();
+        // A pull tombstoned the target; the cached catalogue still lists it.
+        await db.calendarCategoryDao.softDeleteById(target.id);
+        expect(CalendarCategories.byId(target.id), isNotNull);
+
+        expect(
+          await service.deleteCategory(custom.id, reassignTo: target.id),
+          isTrue,
+        );
+
+        expect(await categoriesOf(), {
+          'e1': kFallbackCategoryId,
+          'e2': target.id,
+          't1': kFallbackCategoryId,
+        });
+        final after = await rows();
+        expect(after['calendar_category_alerts|c1']!['is_deleted'], 1);
+        expect(after['calendar_categories|${custom.id}']!['is_deleted'], 1);
+        final touched = [
+          'calendar_events|e1',
+          'calendar_event_templates|t1',
+          'calendar_category_alerts|c1',
+          'calendar_categories|${custom.id}',
+        ];
+        final stamp = after[touched.first]!['hlc_timestamp'];
+        final device = after[touched.first]!['device_id'];
+        final outbox = await queued();
+        for (final key in touched) {
+          expect(after[key]!['hlc_timestamp'], stamp, reason: key);
+          expect(after[key]!['device_id'], device, reason: key);
+          expect(
+            after[key]!['version'],
+            (before[key]!['version'] as int) + 1,
+            reason: key,
+          );
+          expect(outbox[key], stamp, reason: 'queued under the stamp: $key');
+        }
+        expect(
+          after['calendar_events|e2']!['version'],
+          before['calendar_events|e2']!['version'],
+          reason: "the target's own event is not part of the act",
+        );
+      });
+
+      test('a refused tombstone rolls the moves back and queues nothing, '
+          'and the chain serves the next delete', () async {
+        final alerts = await EventAlertService.forTesting(db);
+        final custom = await dentist();
+        await addEvent('e1', custom.id);
+        await addTemplate('t1', custom.id);
+        await alerts.replaceForCategory(custom.id, [
+          CategoryAlert(id: 'c1', categoryId: custom.id),
+        ]);
+        final queuedBefore = await queued();
+
+        faults.refuseCategoryTombstone = true;
+        await expectLater(
+          service.deleteCategory(custom.id, reassignTo: 'gym'),
+          throwsStateError,
+        );
+        faults.refuseCategoryTombstone = false;
+        expect(faults.refused, 1);
+
+        expect(await categoriesOf(), {'e1': custom.id, 't1': custom.id});
+        final after = await rows();
+        expect(after['calendar_category_alerts|c1']!['is_deleted'], 0);
+        expect(after['calendar_categories|${custom.id}']!['is_deleted'], 0);
+        expect(await queued(), queuedBefore);
+        expect(CalendarCategories.byId(custom.id), isNotNull);
+
+        expect(
+          await service.deleteCategory(custom.id, reassignTo: 'gym'),
+          isTrue,
+        );
+        expect(await categoriesOf(), {'e1': 'gym', 't1': 'gym'});
+      });
+
+      test('a reload that fails after the cascade committed still reports '
+          'the delete', () async {
+        final custom = await dentist();
+        await addEvent('e1', custom.id);
+
+        faults.failCategoryReadAfterCommit();
+        expect(
+          await service.deleteCategory(custom.id, reassignTo: 'gym'),
+          isTrue,
+        );
+        expect(faults.failedReads, 1);
+
+        expect(
+          (await rows())['calendar_categories|${custom.id}']!['is_deleted'],
+          1,
+        );
+        expect(await categoriesOf(), {'e1': 'gym'});
+      });
     });
 
     test('deleteImpact counts the live events, alerts and templates', () async {
@@ -803,24 +990,26 @@ void main() {
       await db.syncDao.setValue(SyncDao.keyBindFloor, spaceHlc);
     }
 
-    test('the first touch during a bind leaves the space its built-ins',
-        () async {
-      await bindPending();
+    test(
+      'the first touch during a bind leaves the space its built-ins',
+      () async {
+        await bindPending();
 
-      // Today's defect: the seed runs above the floor, so the space's older
-      // custom built-in loses the merge and is overwritten there too (R76).
-      await CategoryService.forTesting(db);
-      await db.calendarCategoryDao.mergeRemoteCategory(
-        fromSpace('gym', 'Beast mode', spaceHlc),
-        floor: spaceHlc,
-      );
+        // Today's defect: the seed runs above the floor, so the space's older
+        // custom built-in loses the merge and is overwritten there too (R76).
+        await CategoryService.forTesting(db);
+        await db.calendarCategoryDao.mergeRemoteCategory(
+          fromSpace('gym', 'Beast mode', spaceHlc),
+          floor: spaceHlc,
+        );
 
-      expect((await storedGym()).name, 'Beast mode');
-      expect(
-        await db.syncOutboxDao.pendingForTable('calendar_categories'),
-        isEmpty,
-      );
-    });
+        expect((await storedGym()).name, 'Beast mode');
+        expect(
+          await db.syncOutboxDao.pendingForTable('calendar_categories'),
+          isEmpty,
+        );
+      },
+    );
 
     test('the seed runs on the reload that follows the merge', () async {
       await bindPending();
@@ -962,5 +1151,58 @@ class _HeldCategoryRead extends QueryInterceptor {
       await hold.future;
     }
     return rows;
+  }
+}
+
+/// Fails one statement of the category cascade on demand: the category's own
+/// tombstone `UPDATE` — the cascade's last step, so the earlier ones must
+/// roll back with it — or the first read of `calendar_categories` after a
+/// transaction has committed, which is the reload a committed delete runs.
+class _CategoryStatementFaults extends QueryInterceptor {
+  bool refuseCategoryTombstone = false;
+  int refused = 0;
+
+  bool _failReadAfterCommit = false;
+  bool _failNextRead = false;
+  int failedReads = 0;
+
+  void failCategoryReadAfterCommit() => _failReadAfterCommit = true;
+
+  @override
+  Future<void> commitTransaction(TransactionExecutor inner) async {
+    await super.commitTransaction(inner);
+    if (_failReadAfterCommit) {
+      _failReadAfterCommit = false;
+      _failNextRead = true;
+    }
+  }
+
+  @override
+  Future<int> runUpdate(
+    QueryExecutor executor,
+    String statement,
+    List<Object?> args,
+  ) {
+    if (refuseCategoryTombstone &&
+        statement.contains('calendar_categories') &&
+        statement.contains('is_deleted')) {
+      refused++;
+      throw StateError('category tombstone refused');
+    }
+    return super.runUpdate(executor, statement, args);
+  }
+
+  @override
+  Future<List<Map<String, Object?>>> runSelect(
+    QueryExecutor executor,
+    String statement,
+    List<Object?> args,
+  ) {
+    if (_failNextRead && statement.contains('calendar_categories')) {
+      _failNextRead = false;
+      failedReads++;
+      throw StateError('category read refused');
+    }
+    return super.runSelect(executor, statement, args);
   }
 }

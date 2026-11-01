@@ -341,9 +341,7 @@ class _CalendarFilterSheetState extends State<CalendarFilterSheet> {
     );
     if (picked == null || !mounted) return;
     _update(
-      _draft.copyWith(
-        priorities: {for (final id in picked) ?int.tryParse(id)},
-      ),
+      _draft.copyWith(priorities: {for (final id in picked) ?int.tryParse(id)}),
     );
   });
 
@@ -448,10 +446,9 @@ class _CalendarFilterSheetState extends State<CalendarFilterSheet> {
   String _priorityValue(AppLocalizations l10n) {
     if (_draft.priorities.isEmpty) return l10n.upcomingPriorityAny;
     final ascending = _draft.priorities.toList()..sort();
-    return CalendarFilterSummary.namesReadBack(
-      [for (final p in ascending) EventPriorities.labelOf(p, l10n)],
-      l10n,
-    );
+    return CalendarFilterSummary.namesReadBack([
+      for (final p in ascending) EventPriorities.labelOf(p, l10n),
+    ], l10n);
   }
 
   String _traitsValue(AppLocalizations l10n) {

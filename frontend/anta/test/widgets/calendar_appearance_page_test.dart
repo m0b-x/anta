@@ -25,9 +25,12 @@ import 'package:anta/widgets/calendar_day_cell.dart';
 import 'package:anta/widgets/form_menu_item.dart';
 import 'package:anta/widgets/settings_search_field.dart';
 import 'package:anta/widgets/settings_section_list.dart';
+import 'package:anta/widgets/unified_app_bars.dart';
 import 'package:anta/widgets/value_change_highlight.dart';
 
 import '../database/support/db_test_support.dart';
+import '../goldens/support/golden_fonts.dart';
+import 'support/settings_page_whole.dart';
 
 /// The appearance rows moved off `CalendarSettingsPage` for exactly one
 /// reason: the live preview sat in the section's `intro:` and scrolled away
@@ -427,7 +430,9 @@ void main() {
         matching: find.byType(ValueChangeHighlight),
       );
       final wash = tester.widget<DecoratedBox>(
-        find.descendant(of: highlight, matching: find.byType(DecoratedBox)).first,
+        find
+            .descendant(of: highlight, matching: find.byType(DecoratedBox))
+            .first,
       );
       expect((wash.decoration as BoxDecoration).color, isNull);
       await tester.pumpAndSettle();
@@ -763,6 +768,136 @@ void main() {
         'calendar',
       });
     });
+  });
+
+  // Last in the file: the real fonts stay registered once loaded, and every
+  // case above was written against the test font.
+  group('large text with real fonts', () {
+    setUpAll(loadGoldenFonts);
+
+    /// Every row on the page drawn: the cell-style pair and the conflict
+    /// enabled, the rail's base row revealed (it takes `line`, the tint and
+    /// `both`).
+    Future<void> pumpEveryRow(WidgetTester tester, Locale locale) async {
+      await settings.setCalendarEventTint(true);
+      await settings.setCalendarDayRailStyle(DayRailStyle.line);
+      await settings.setCalendarTintConflict(CalendarTintConflict.both);
+      await pumpAppearancePage(
+        tester,
+        size: const Size(360, 780),
+        locale: locale,
+        textScale: 2.0,
+      );
+    }
+
+    final choiceRows = <(Finder, int)>[
+      (find.byType(SegmentedButton<CalendarTodayStyle>), 1),
+      (find.byType(SegmentedButton<CalendarCellStyle>), 2),
+      (find.byType(SegmentedButton<CalendarTintConflict>), 1),
+      (find.byType(SegmentedButton<CalendarMarkerStyle>), 1),
+      (find.byType(SegmentedButton<CalendarMissedDisplay>), 1),
+      (find.byType(SegmentedButton<DayRailStyle>), 1),
+      (find.byType(SegmentedButton<DayRailBasePosition>), 1),
+    ];
+
+    // Flow 25 taps these; through the kit's row the ids still merge into
+    // each segment's node.
+    testWidgets('the missed-display segments keep their flow ids', (
+      tester,
+    ) async {
+      final handle = tester.ensureSemantics();
+      await pumpAppearancePage(tester);
+      final hidden = find.bySemanticsIdentifier(
+        SemanticsIds.missedDisplayHidden,
+      );
+      await tester.scrollUntilVisible(
+        hidden,
+        200,
+        scrollable: find
+            .descendant(
+              of: find.byType(SettingsSectionList),
+              matching: find.byType(Scrollable),
+            )
+            .first,
+      );
+      expect(
+        find.bySemanticsIdentifier(SemanticsIds.missedDisplayFaded),
+        findsOneWidget,
+      );
+      await tester.tap(hidden);
+      await tester.pump();
+      await settleWrites(tester);
+      expect(
+        await tester.runAsync(settings.getCalendarMissedDisplay),
+        CalendarMissedDisplay.hidden,
+      );
+      handle.dispose();
+    });
+
+    for (final locale in const [Locale('de'), Locale('ro')]) {
+      testWidgets('${locale.languageCode} at 2.0 on a 360 × 780 phone: every '
+          'choice row holds its labels whole, stacking where a word would '
+          'not fit its segment', (tester) async {
+        await pumpEveryRow(tester, locale);
+        final list = find
+            .descendant(
+              of: find.byType(SettingsSectionList),
+              matching: find.byType(Scrollable),
+            )
+            .first;
+
+        for (final (row, count) in choiceRows) {
+          await tester.scrollUntilVisible(row.first, 200, scrollable: list);
+          await tester.pumpAndSettle();
+          expect(row, findsNWidgets(count));
+          // "Dezent" does not fit a third of the row: the today style
+          // stacks.
+          if (locale.languageCode == 'de' && row == choiceRows.first.$1) {
+            expect(
+              tester.widget<SegmentedButton<CalendarTodayStyle>>(row).direction,
+              Axis.vertical,
+            );
+          }
+          for (final element
+              in find
+                  .descendant(of: row, matching: find.byType(RichText))
+                  .evaluate()) {
+            final paragraph = element.renderObject! as RenderParagraph;
+            final text = paragraph.text.toPlainText();
+            expect(
+              paragraph.size.width,
+              greaterThanOrEqualTo(paragraph.textSize.width - 0.01),
+              reason: '"$text" is clipped at the side',
+            );
+            expect(
+              paragraph.size.width,
+              greaterThanOrEqualTo(
+                paragraph.getMinIntrinsicWidth(double.infinity) - 0.01,
+              ),
+              reason: '"$text" breaks inside a word',
+            );
+            expectBreaksBetweenWords(paragraph);
+          }
+        }
+        expect(tester.takeException(), isNull);
+      });
+
+      // Everything but the preview, whose weekday header cuts a long day
+      // name to one line on purpose ("mar." in Romanian).
+      testWidgets('${locale.languageCode} at 2.0 on a 360 × 780 phone breaks '
+          'no text on the page inside a word', (tester) async {
+        await pumpEveryRow(tester, locale);
+        await expectPageWhole(
+          tester,
+          within: find.byWidgetPredicate(
+            (widget) =>
+                widget is SettingsAppBar ||
+                widget is SettingsSearchField ||
+                widget is SettingsSectionList,
+          ),
+        );
+      });
+    }
   });
 }
 

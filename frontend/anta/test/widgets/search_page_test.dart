@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:anta/constants/app_bar_metrics.dart';
 import 'package:anta/constants/row_metrics.dart';
+import 'package:anta/constants/semantics_ids.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/l10n/app_localizations_en.dart';
@@ -194,6 +195,38 @@ void main() {
   });
 
   group('idle', () {
+    // A review probe: RECENT / TITLES / IN TEXT were level 2 under `AppBar`'s
+    // heading, which had no level and no label.
+    testWidgets('the field is the one labelled level-1 heading over the '
+        'level-2 sections, with a query too', (tester) async {
+      final semantics = tester.ensureSemantics();
+      for (final query in [null, 'squat']) {
+        await pumpPage(tester, initialQuery: query);
+        final headings = find.semantics
+            .byPredicate((node) {
+              final data = node.getSemanticsData();
+              return !node.isMergedIntoParent &&
+                  (data.flagsCollection.isHeader || data.headingLevel > 0);
+            })
+            .evaluate()
+            .map((node) => node.getSemanticsData())
+            .toList();
+        final title = headings.singleWhere((h) => h.headingLevel == 1);
+        expect(title.identifier, SemanticsIds.searchField, reason: query);
+        expect(title.flagsCollection.isTextField, isTrue, reason: query);
+        expect(title.label, isNotEmpty, reason: query);
+        expect(title.value, query ?? '', reason: query);
+        expect(
+          headings.where((h) => h != title).map((h) => h.headingLevel),
+          everyElement(2),
+          reason: query,
+        );
+        expect(headings.length, greaterThan(1), reason: query);
+        await teardownPage(tester);
+      }
+      semantics.dispose();
+    });
+
     testWidgets('shows recents with the folder each one lives in', (
       tester,
     ) async {

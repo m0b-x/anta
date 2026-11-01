@@ -13,6 +13,9 @@ void main() {
   const flowsDir = 'tool/qa/flows';
   final suites = Directory(flowsDir).listSync().whereType<Directory>().toList()
     ..sort((a, b) => a.path.compareTo(b.path));
+  final semanticsIds = _KnownIds.parse(
+    File('lib/constants/semantics_ids.dart').readAsStringSync(),
+  );
 
   test('there are suites to lint', () {
     expect(
@@ -92,6 +95,29 @@ void main() {
               '${nth.isEmpty ? '(none)' : nth.join('\n')}',
         );
       });
+
+      // An `--absent id:` naming no id at all passes on every screen, so
+      // the check proves nothing; the id has to exist in the app.
+      test('every id: target names a SemanticsIds entry', () {
+        final unknown = <String>[];
+        for (final file in dir.listSync().whereType<File>()) {
+          final name = _nameOf(file);
+          if (!isFlowFileName(name) && name != '_prelude.txt') continue;
+          for (final line in parseStepLines(file.readAsStringSync())) {
+            final words = splitShellWords(line);
+            for (final target in [
+              ...actingTargets(words),
+              ...expectTargets(words),
+            ]) {
+              if (target.startsWith('id:') &&
+                  !semanticsIds.knows(target.substring(3))) {
+                unknown.add('$name: $target');
+              }
+            }
+          }
+        }
+        expect(unknown, isEmpty, reason: unknown.join('\n'));
+      });
     });
   }
 
@@ -139,18 +165,15 @@ void main() {
         actingTargets(splitShellWords('scroll-to id:row --in "List" --up')),
         ['id:row', 'List'],
       );
-      expect(
-        actingTargets(splitShellWords('key back --wait-gone "Dialog"')),
-        ['Dialog'],
-      );
+      expect(actingTargets(splitShellWords('key back --wait-gone "Dialog"')), [
+        'Dialog',
+      ]);
       expect(isAllowedTarget('Sheet', const {}), isFalse);
     });
 
     test('a leading global option does not hide the verb', () {
       expect(
-        actingTargets(
-          splitShellWords('--via native tap "Day" --wait id:x'),
-        ),
+        actingTargets(splitShellWords('--via native tap "Day" --wait id:x')),
         ['Day', 'id:x'],
       );
       expect(
@@ -235,7 +258,9 @@ List<String> _withoutGlobals(List<String> words) {
   var i = 0;
   while (i < words.length) {
     final word = words[i];
-    final name = word.contains('=') ? word.substring(0, word.indexOf('=')) : word;
+    final name = word.contains('=')
+        ? word.substring(0, word.indexOf('='))
+        : word;
     final takesValue = _globalOptions[name];
     if (takesValue == null) break;
     i += takesValue && !word.contains('=') ? 2 : 1;
@@ -284,7 +309,14 @@ List<String> expectTargets(List<String> words) {
 }
 
 /// The flags a flow's step may carry that take no value.
-const Set<String> _bareFlags = {'--gone', '--up', '--dump', '--ordered', '--enter', '--replace'};
+const Set<String> _bareFlags = {
+  '--gone',
+  '--up',
+  '--dump',
+  '--ordered',
+  '--enter',
+  '--replace',
+};
 
 /// The values of [_targetOptions] in [step], `--wait=X` and `--wait X` alike.
 List<String> _targetOptionValues(List<String> step) {
@@ -331,6 +363,38 @@ Set<String> _readLabels(File file) {
           when line.isNotEmpty && line != '#' && !line.startsWith('# '))
         line,
   };
+}
+
+/// The ids `SemanticsIds` can produce: its string literals, and for a
+/// function-built id such as `'category-row-$id'` the prefix before the
+/// first `$`, which a flow's spelled-out id must start with.
+class _KnownIds {
+  _KnownIds(this.literals, this.prefixes);
+
+  factory _KnownIds.parse(String source) {
+    final literals = <String>{};
+    final prefixes = <String>{};
+    final code = source
+        .split('\n')
+        .where((line) => !line.trimLeft().startsWith('//'))
+        .join('\n');
+    for (final match in RegExp(r"'([^'\n]*)'").allMatches(code)) {
+      final value = match.group(1)!;
+      final dollar = value.indexOf(r'$');
+      if (dollar < 0) {
+        literals.add(value);
+      } else if (dollar > 0) {
+        prefixes.add(value.substring(0, dollar));
+      }
+    }
+    return _KnownIds(literals, prefixes);
+  }
+
+  final Set<String> literals;
+  final Set<String> prefixes;
+
+  bool knows(String id) =>
+      literals.contains(id) || prefixes.any((p) => id.startsWith(p));
 }
 
 String _nameOf(FileSystemEntity entity) =>

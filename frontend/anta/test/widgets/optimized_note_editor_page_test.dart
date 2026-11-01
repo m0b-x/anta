@@ -1449,10 +1449,9 @@ void main() {
       await tester.pump(const Duration(milliseconds: 500));
       await settle(tester);
 
-      expect(
-        barBloc.events.whereType<ResolveBarForNote>().toList(),
-        const [ResolveBarForNote(noteId: noteId)],
-      );
+      expect(barBloc.events.whereType<ResolveBarForNote>().toList(), const [
+        ResolveBarForNote(noteId: noteId),
+      ]);
       await teardownPage(tester);
     });
 
@@ -4149,15 +4148,16 @@ void main() {
         announce: false,
       );
       final hookCopy = await tester.runAsync(
-        () => AppSyncApplyHooks(
-          notes: () => noteRepository,
-          folders: () => FolderRepository(database: db),
-          noteStorage: () => storageService,
-          strings: () async => AppLocalizationsEn(),
-          now: () => DateTime(2026, 10, 27, 9, 30),
-        ).fileConflictCopy(
-          SyncNoteConflict(loser: loser, loserContent: losingText),
-        ),
+        () =>
+            AppSyncApplyHooks(
+              notes: () => noteRepository,
+              folders: () => FolderRepository(database: db),
+              noteStorage: () => storageService,
+              strings: () async => AppLocalizationsEn(),
+              now: () => DateTime(2026, 10, 27, 9, 30),
+            ).fileConflictCopy(
+              SyncNoteConflict(loser: loser, loserContent: losingText),
+            ),
       );
       await announceMerge(tester, synced.id, mergedBody: 'theirs');
 
@@ -4206,15 +4206,16 @@ void main() {
       Note loser,
       String loserContent,
     ) async => (await tester.runAsync<String?>(
-      () => AppSyncApplyHooks(
-        notes: () => noteRepository,
-        folders: () => FolderRepository(database: db),
-        noteStorage: () => storageService,
-        strings: () async => AppLocalizationsEn(),
-        now: () => DateTime(2026, 10, 27, 9, 30),
-      ).fileConflictCopy(
-        SyncNoteConflict(loser: loser, loserContent: loserContent),
-      ),
+      () =>
+          AppSyncApplyHooks(
+            notes: () => noteRepository,
+            folders: () => FolderRepository(database: db),
+            noteStorage: () => storageService,
+            strings: () async => AppLocalizationsEn(),
+            now: () => DateTime(2026, 10, 27, 9, 30),
+          ).fileConflictCopy(
+            SyncNoteConflict(loser: loser, loserContent: loserContent),
+          ),
     ));
 
     testWidgets('a pending title edit claims no copy: the engine files the '
@@ -5082,10 +5083,10 @@ void main() {
       // The writes themselves, not only what they left behind: R1's whole
       // subject is an extra identical write — and its push and its outbox
       // row — which a body assertion cannot see (A6 review R120).
-      expect(
-        noteBloc.updates.map((u) => u.content).toList(),
-        ['mine $body', 'more mine $body'],
-      );
+      expect(noteBloc.updates.map((u) => u.content).toList(), [
+        'mine $body',
+        'more mine $body',
+      ]);
       OverlaySnackbar.hide();
       await teardownPage(tester);
     });

@@ -823,8 +823,7 @@ class SettingsYieldingTile extends StatelessWidget {
                 listTileTrailingCap(context) +
                     FormMetrics.settingsValueCapTolerance &&
             (value == null ||
-                (textColumn >=
-                        column * RowMetrics.settingsValueMinTextShare &&
+                (textColumn >= column * RowMetrics.settingsValueMinTextShare &&
                     _titleLineWidth(context) <= textColumn))) {
           return ListTile(
             contentPadding: contentPadding,
@@ -925,6 +924,10 @@ const double _denseTileHeight = 48;
 /// [T] is any value with equality, not only an enum: Markdown settings'
 /// vocabulary trigger chooses among characters. [padding] is for a page
 /// still off the kit whose own section already insets its rows.
+///
+/// [icons] keeps a glyph beside a segment's label (Appearance's markers),
+/// and the word-fit measures the label beside it. [identifiers] gives a
+/// segment the id a device flow taps; it merges into the segment's node.
 Widget settingsChoiceRow<T extends Object>({
   required Widget title,
   required Widget? description,
@@ -933,6 +936,8 @@ Widget settingsChoiceRow<T extends Object>({
   required ValueChanged<T> onChanged,
   bool enabled = true,
   EdgeInsetsGeometry padding = FormMetrics.settingsControlRowPadding,
+  Map<T, IconData>? icons,
+  Map<T, String>? identifiers,
 }) {
   return Padding(
     padding: padding,
@@ -952,6 +957,7 @@ Widget settingsChoiceRow<T extends Object>({
               context,
               labels.values,
               constraints.maxWidth / labels.length,
+              withIcon: icons != null,
             );
             return SizedBox(
               width: double.infinity,
@@ -974,7 +980,10 @@ Widget settingsChoiceRow<T extends Object>({
                   for (final entry in labels.entries)
                     ButtonSegment<T>(
                       value: entry.key,
-                      label: Text(entry.value, textAlign: TextAlign.center),
+                      icon: icons?[entry.key] == null
+                          ? null
+                          : Icon(icons![entry.key]),
+                      label: _choiceLabel(entry.value, identifiers?[entry.key]),
                     ),
                 ],
                 selected: {value},
@@ -988,6 +997,13 @@ Widget settingsChoiceRow<T extends Object>({
       ],
     ),
   );
+}
+
+Widget _choiceLabel(String label, String? identifier) {
+  final text = Text(label, textAlign: TextAlign.center);
+  return identifier == null
+      ? text
+      : Semantics(identifier: identifier, child: text);
 }
 
 /// The style of a settings row's `SegmentedButton`. Material paints a
@@ -1038,28 +1054,57 @@ const EdgeInsets _segmentPadding2x = EdgeInsets.symmetric(horizontal: 8);
 const EdgeInsets _segmentPadding3x = EdgeInsets.symmetric(horizontal: 4);
 const double _segmentLabelSize = 14;
 
+/// What a segment with an icon draws instead (`SegmentedButton`'s copy of
+/// `TextButton.icon`): its padding at 1× and from 2× up, the icon at
+/// Material's unscaled 18, and the gap beside it, 8 at 1× narrowing to 4 at
+/// 2×.
+const EdgeInsetsDirectional _iconSegmentPadding1x =
+    EdgeInsetsDirectional.fromSTEB(12, 8, 16, 8);
+const EdgeInsets _iconSegmentPadding2x = EdgeInsets.symmetric(horizontal: 4);
+const double _segmentIconSize = 18;
+const double _segmentIconGap1x = 8;
+const double _segmentIconGap2x = 4;
+
 /// An exact fit can still wrap in the engine, so a word needs this much to
 /// spare.
 const double _wordFitTolerance = 0.5;
 
 /// Whether every word of [labels] fits a segment [segmentWidth] wide on one
-/// line, measured as a label-only segment draws it: the theme's `labelLarge`
-/// inside the text button padding Material scales with the text size.
+/// line, measured as a segment draws it: the theme's `labelLarge` inside the
+/// text button padding Material scales with the text size, and [withIcon]
+/// beside the icon and its gap.
 bool _choiceWordsFit(
   BuildContext context,
   Iterable<String> labels,
-  double segmentWidth,
-) {
+  double segmentWidth, {
+  bool withIcon = false,
+}) {
   final style = Theme.of(context).textTheme.labelLarge;
   final textScaler = MediaQuery.textScalerOf(context);
   final fontSize = style?.fontSize ?? _segmentLabelSize;
-  final padding = ButtonStyleButton.scaledPadding(
-    _segmentPadding1x,
-    _segmentPadding2x,
-    _segmentPadding3x,
-    textScaler.scale(fontSize) / _segmentLabelSize,
-  ).resolve(Directionality.of(context));
-  final room = segmentWidth - padding.horizontal;
+  final scale = textScaler.scale(fontSize) / _segmentLabelSize;
+  final padding =
+      (withIcon
+              ? ButtonStyleButton.scaledPadding(
+                  _iconSegmentPadding1x,
+                  _iconSegmentPadding2x,
+                  _iconSegmentPadding2x,
+                  scale,
+                )
+              : ButtonStyleButton.scaledPadding(
+                  _segmentPadding1x,
+                  _segmentPadding2x,
+                  _segmentPadding3x,
+                  scale,
+                ))
+          .resolve(Directionality.of(context));
+  final icon = withIcon
+      ? _segmentIconSize +
+            _segmentIconGap1x +
+            (_segmentIconGap2x - _segmentIconGap1x) *
+                (scale.clamp(1.0, 2.0) - 1)
+      : 0.0;
+  final room = segmentWidth - padding.horizontal - icon;
   final painter = TextPainter(
     textDirection: Directionality.of(context),
     textScaler: textScaler,

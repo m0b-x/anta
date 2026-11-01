@@ -18,6 +18,7 @@ import 'package:anta/widgets/settings_section_list.dart';
 
 import '../goldens/support/golden_fonts.dart';
 import 'support/layout_errors.dart';
+import 'support/settings_page_whole.dart';
 
 /// The developer options page's smoke suite (D14 of
 /// `docs/settings-rework-roadmap.md`), pinned before a slice of the settings
@@ -221,6 +222,63 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
+  // A probe popped the hub too: both taps resumed after the pending save.
+  testWidgets('a double tap on Lock while the save is pending pops one route '
+      'and shows one snackbar', (tester) async {
+    tester.view.physicalSize = const Size(412, 915);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final observer = _PopCounter();
+    final navigatorKey = GlobalKey<NavigatorState>();
+    await tester.pumpWidget(
+      MaterialApp(
+        navigatorKey: navigatorKey,
+        navigatorObservers: [observer],
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: const Scaffold(body: Text('root')),
+      ),
+    );
+    navigatorKey.currentState!.push(
+      MaterialPageRoute<void>(
+        builder: (_) => const Scaffold(body: Text('hub')),
+      ),
+    );
+    navigatorKey.currentState!.push(
+      MaterialPageRoute<void>(builder: (_) => const DeveloperOptionsPage()),
+    );
+    await settle(tester);
+    final lock = find.bySemanticsIdentifier(SemanticsIds.developerOptionsLock);
+    await scrollTo(tester, lock);
+    await tester.ensureVisible(lock);
+    await tester.pump();
+
+    // No real async between the taps: the file-backed save stays pending.
+    await tester.tap(lock);
+    await tester.pump(const Duration(milliseconds: 80));
+    expect(observer.pops, 0, reason: 'the save is still pending');
+    await tester.tap(lock);
+    await tester.pump(const Duration(milliseconds: 1));
+    // Distinct bars, not nodes: while the route leaves, the messenger shows
+    // the one bar on both the leaving and the revealed scaffold.
+    final snackbars = Set<Widget>.identity();
+    for (var i = 0; i < 14; i++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 5)),
+      );
+      await tester.pump(const Duration(milliseconds: 20));
+      snackbars.addAll(find.byType(SnackBar).evaluate().map((e) => e.widget));
+    }
+    await settle(tester);
+
+    expect(observer.pops, 1);
+    expect(snackbars, hasLength(1));
+    expect(find.text('hub'), findsOneWidget);
+    expect(DevOptions.instance.developerModeUnlocked, isFalse);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
   testWidgets('de 2.0 on 360 × 780 fits with no exception', (tester) async {
     final errors = await layoutErrorsDuring(() async {
       await pumpPage(
@@ -236,6 +294,19 @@ void main() {
     expect(tester.takeException(), isNull);
     expect(await stored(tester), isNotNull);
 
+    // Whole words too: "Datenbankstati|stik" and "Animati|onsleistung"
+    // broke before the copy hyphenated them. Back to the top for the sweep.
+    await tester.drag(find.byType(ListView), const Offset(0, 20000));
+    await tester.pumpAndSettle();
+    await expectPageWhole(tester);
+
     await tester.pumpWidget(const SizedBox.shrink());
   });
+}
+
+class _PopCounter extends NavigatorObserver {
+  int pops = 0;
+
+  @override
+  void didPop(Route<dynamic> route, Route<dynamic>? previousRoute) => pops++;
 }

@@ -496,10 +496,17 @@ class CategoryService {
           ? reassignTo
           : kFallbackCategoryId;
       if (!await _dao.tombstoneCascade(id, reassignTo: target)) return false;
-      await _load();
-      await EventAlertService.refreshAfterCategoryRemoval();
-      await CalendarEventService.refreshAfterCategoryRemoval();
-      await EventTemplateService.refreshAfterCategoryRemoval();
+      // The delete has committed: a refresh that throws past here must not
+      // read as "not deleted", or the sheet stays open on an error for a
+      // row already gone and a retry finds nothing live to delete.
+      try {
+        await _load();
+        await EventAlertService.refreshAfterCategoryRemoval();
+        await CalendarEventService.refreshAfterCategoryRemoval();
+        await EventTemplateService.refreshAfterCategoryRemoval();
+      } catch (e, st) {
+        debugPrint('[CategoryService] Refresh after delete error: $e\n$st');
+      }
       return true;
     });
     if (deleted) {

@@ -6,6 +6,7 @@ import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
 import '../services/auto_save_service.dart';
 import '../services/app_navigator.dart';
+import 'app_bar_heading.dart';
 import 'automation_id.dart';
 import 'leading_nav_pair.dart';
 import 'search_field_app_bar.dart';
@@ -429,36 +430,18 @@ class SettingsAppBar extends StatelessWidget implements PreferredSizeWidget {
         fontWeight: AppBarMetrics.titleFontWeight,
       ),
     );
-    final id = identifier;
     return UnifiedAppBar.settings(
       backgroundColor: backgroundColor,
       toolbarHeight: AppBarMetrics.toolbarHeight,
       leading: _impliedBack(context, scaffold),
-      title: id == null ? titleText : _identifiedTitle(id, titleText),
-      excludeHeaderSemantics: id != null,
+      // An identifier always starts a node of its own, so the label would
+      // leave the node `AppBar` marks as the heading; the title's own node is
+      // the heading instead, with or without an id — a page without one (the
+      // categories page, the guide) would otherwise hold its level-2 section
+      // headers under a heading of no level.
+      title: AppBarHeading(identifier: identifier, child: titleText),
+      excludeHeaderSemantics: true,
       actions: actions,
-    );
-  }
-
-  /// An identifier always starts a semantics node of its own, so the label
-  /// would leave the node `AppBar` marks as the heading that names the route;
-  /// this node carries both flags instead, and the bar drops its own wrapper
-  /// (`excludeHeaderSemantics`) so no unlabelled heading is left beside it.
-  /// `AppBar` names routes everywhere but on Apple platforms, and so does
-  /// this. The level is what Android reads (its bridge marks a heading from
-  /// `headingLevel` alone) and the flag what VoiceOver reads; level 1 puts
-  /// the kit's level-2 section headers under the page's name.
-  static Widget _identifiedTitle(String id, Widget text) {
-    final namesRoute = switch (defaultTargetPlatform) {
-      TargetPlatform.iOS || TargetPlatform.macOS => null,
-      _ => true,
-    };
-    return Semantics(
-      identifier: id,
-      header: true,
-      headingLevel: 1,
-      namesRoute: namesRoute,
-      child: text,
     );
   }
 
@@ -520,6 +503,8 @@ class SearchAppBar extends StatelessWidget implements PreferredSizeWidget {
         size: AppBarMetrics.glyphSize,
         color: colorScheme.onSurface,
       ),
+      // [SearchBarField] is the heading itself.
+      excludeHeaderSemantics: true,
       title: SearchBarField(
         controller: controller,
         focusNode: focusNode,

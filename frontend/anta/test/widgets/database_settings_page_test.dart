@@ -2,17 +2,21 @@ import 'dart:io';
 
 import 'package:drift/drift.dart' show driftRuntimeOptions;
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show RenderParagraph;
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get_it/get_it.dart';
 import 'package:intl/intl.dart';
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:sqlite3/sqlite3.dart' show OpenMode, sqlite3;
 
 import 'package:anta/constants/semantics_ids.dart';
 import 'package:anta/database/database.dart';
+import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/l10n/app_localizations_de.dart';
 import 'package:anta/l10n/app_localizations_en.dart';
+import 'package:anta/l10n/app_localizations_ro.dart';
 import 'package:anta/repositories/folder_repository.dart';
 import 'package:anta/repositories/note_repository.dart';
 import 'package:anta/services/database_manager.dart';
@@ -25,6 +29,7 @@ import '../database/support/db_test_support.dart';
 import '../goldens/support/golden_fonts.dart';
 import 'support/database_settings_robot.dart';
 import 'support/layout_errors.dart';
+import 'support/settings_page_whole.dart';
 import 'support/settings_platform_fakes.dart';
 
 /// The Databases page's destructive paths, pinned against today's behaviour
@@ -547,6 +552,84 @@ void main() {
 
       await tester.pumpWidget(const SizedBox.shrink());
     });
+
+    // The live file is shared where it lives, never as a temporary export.
+    // The file here is closed: on Windows an open one cannot be deleted at
+    // all, which would hide a share that tried.
+    for (final (outcome, handler)
+        in <(String, Future<Object?>? Function(MethodCall)?)>[
+          ('succeeds', (call) async => null),
+          (
+            'throws',
+            (call) async => throw PlatformException(code: 'share_failed'),
+          ),
+          ('is missing', null),
+        ]) {
+      testWidgets('a share whose channel $outcome leaves the database file '
+          'byte for byte', (tester) async {
+        final path = await pathOf('gym_notes');
+        final bytes = await tester.runAsync(() async {
+          await writeSqliteHeaderFile(path);
+          return File(path).readAsBytes();
+        });
+        var shared = false;
+        final messenger =
+            TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+        messenger.setMockMethodCallHandler(
+          shareChannel,
+          handler == null
+              ? null
+              : (call) {
+                  shared = true;
+                  return handler(call);
+                },
+        );
+        addTearDown(
+          () => messenger.setMockMethodCallHandler(shareChannel, null),
+        );
+        final robot = DatabaseSettingsRobot(tester);
+        await robot.pump();
+
+        await robot.tapButton(l10n.shareDatabase);
+        await robot.settleUntil(
+          () => (shared && !robot.showsLoading) || robot.shows(l10n.shareError),
+        );
+        await robot.settle();
+
+        expect(robot.shows(l10n.shareError), outcome != 'succeeds');
+        expect(robot.showsPage, isTrue);
+        expect(File(path).readAsBytesSync(), bytes);
+
+        await tester.pumpWidget(const SizedBox.shrink());
+      });
+    }
+
+    testWidgets('a blocked checkpoint shows the error and never reaches the '
+        'share sheet', (tester) async {
+      final shares = recordMethodCalls(shareChannel);
+      final path = await pathOf('gym_notes');
+      await tester.runAsync(() async {
+        final db = await AppDatabase.getInstance();
+        await db.folderDao.createFolder(name: 'In the WAL');
+      });
+      // A foreign reader holding a snapshot keeps the WAL from truncating.
+      final reader = sqlite3.open(path, mode: OpenMode.readWrite);
+      addTearDown(reader.close);
+      reader.execute('BEGIN');
+      reader.select('SELECT count(*) FROM folders');
+
+      final robot = DatabaseSettingsRobot(tester);
+      await robot.pump();
+      await robot.tapButton(l10n.shareDatabase);
+      await robot.settleUntil(() => robot.shows(l10n.shareError));
+      reader.execute('COMMIT');
+
+      expect(shares, isEmpty);
+      expect(robot.showsLoading, isFalse);
+      expect(robot.showsPage, isTrue);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
   });
 
   group('optimize', () {
@@ -660,10 +743,18 @@ void main() {
       await robot.settleUntil(() => robot.shows(l10n.dataDeleted));
 
       expect(robot.showsLoading, isFalse);
-      final directoryLeft = await tester.runAsync(
-        () async => Directory(await manager.getDatabaseDirectory()).exists(),
-      );
-      expect(directoryLeft, isFalse);
+      // No database file is left. The directory itself may be back: the next
+      // database or settings read recreates it, and an open handle would
+      // have made the delete throw instead.
+      final databasesLeft = await tester.runAsync(() async {
+        final directory = Directory(await manager.getDatabaseDirectory());
+        if (!await directory.exists()) return const <String>[];
+        return [
+          await for (final entity in directory.list())
+            if (entity.path.endsWith('.db')) entity.path,
+        ];
+      });
+      expect(databasesLeft, isEmpty);
 
       await robot.tapOutsideDialog();
       expect(robot.shows(l10n.dataDeleted), isTrue);
@@ -730,6 +821,54 @@ void main() {
 
       await tester.pumpWidget(const SizedBox.shrink());
     });
+
+    // At ro 2.0 the danger header overflowed by 14 dp, "Ultima Modificare"
+    // got 28 dp beside its value, and the two path buttons broke their
+    // words in half a card. Database names are the user's text and may
+    // break anywhere, so they are left out.
+    for (final (locale, l10n) in <(Locale, AppLocalizations)>[
+      (const Locale('de'), de),
+      (const Locale('ro'), AppLocalizationsRo()),
+    ]) {
+      testWidgets('${locale.languageCode} at 2.0: the stat labels, the danger '
+          'header and the path buttons hold their words, with no overflow', (
+        tester,
+      ) async {
+        final robot = DatabaseSettingsRobot(tester);
+        final errors = await layoutErrorsDuring(() async {
+          await robot.pump(
+            size: const Size(360, 780),
+            locale: locale,
+            textScale: 2.0,
+          );
+          for (final text in [
+            l10n.size,
+            l10n.lastModified,
+            l10n.copyPath,
+            l10n.openInFinder,
+            l10n.dangerZone,
+          ]) {
+            await robot.scrollTo(text);
+            final paragraph = tester.renderObject<RenderParagraph>(
+              find.text(text),
+            );
+            expect(
+              paragraph.size.width,
+              greaterThanOrEqualTo(
+                paragraph.getMinIntrinsicWidth(double.infinity) - 0.01,
+              ),
+              reason: '"$text" breaks inside a word',
+            );
+            expectBreaksBetweenWords(paragraph);
+          }
+        });
+
+        expect(errors.map((e) => e.exceptionAsString()), isEmpty);
+        expect(tester.takeException(), isNull);
+
+        await tester.pumpWidget(const SizedBox.shrink());
+      });
+    }
   });
 
   group('localized values', () {

@@ -847,10 +847,8 @@ void main() {
     sizeSurfaceWithNavBar(tester);
     await openFrom(
       tester,
-      (context) => CalendarFilterSheet.show(
-        context,
-        filters: CalendarGridFilters.none,
-      ),
+      (context) =>
+          CalendarFilterSheet.show(context, filters: CalendarGridFilters.none),
     );
 
     // Reset filters is the last row in the scroll view, and exactly what a
@@ -890,10 +888,8 @@ void main() {
     sizeSurfaceWithNavBar(tester);
     await openFrom(
       tester,
-      (context) => FilterPresetSheet.show(
-        context,
-        current: CalendarGridFilters.none,
-      ),
+      (context) =>
+          FilterPresetSheet.show(context, current: CalendarGridFilters.none),
     );
 
     // The save row is the last thing in the list, and short lists never
@@ -1099,7 +1095,8 @@ void main() {
     expect(
       tester.getRect(find.byType(ListView)).top,
       greaterThanOrEqualTo(
-        tester.getRect(find.bySemanticsIdentifier(SemanticsIds.iconPickSearch))
+        tester
+            .getRect(find.bySemanticsIdentifier(SemanticsIds.iconPickSearch))
             .bottom,
       ),
     );

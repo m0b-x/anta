@@ -381,4 +381,43 @@ void main() {
     );
     expect(slot.height, tester.getSize(shown(reading(7))).height);
   });
+
+  testWidgets('a drag tick reads only the readings it draws, never every '
+      "step's again: the templates are built once per layout", (tester) async {
+    var calls = 0;
+    String reading(int draft) {
+      calls++;
+      return '$draft minutes before';
+    }
+
+    // 97 steps, the notice row's shape: one reading per step is built for
+    // the slot's templates on the first layout.
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SliderSettingRow(
+            title: const Text('Notice'),
+            description: const Text('idle'),
+            value: 0,
+            min: 0,
+            max: 96,
+            divisions: 96,
+            captionStyle: captionStyle,
+            draftCaption: reading,
+            onCommit: (_) {},
+          ),
+        ),
+      ),
+    );
+    expect(calls, greaterThanOrEqualTo(97));
+
+    for (final step in [10, 40, 70, 90]) {
+      final before = calls;
+      slider(tester).onChanged!(step.toDouble());
+      await tester.pump();
+      // The shown draft, the slot's few templates and the slider's spoken
+      // value, not 97 readings again.
+      expect(calls - before, lessThan(20), reason: 'tick to $step');
+    }
+  });
 }

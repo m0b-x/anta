@@ -65,7 +65,8 @@ void main() {
 
   /// The picker's own Done — by id, since the host sheet under it may carry
   /// the same word.
-  Finder pickerApply() => find.bySemanticsIdentifier(SemanticsIds.categoryPickDone);
+  Finder pickerApply() =>
+      find.bySemanticsIdentifier(SemanticsIds.categoryPickDone);
 
   /// The check row carrying [label], read for its state.
   FormCheckRow rowNamed(WidgetTester tester, String label) =>
@@ -320,7 +321,9 @@ void main() {
     expect(find.byType(TextField), findsOneWidget);
 
     // The row opens the editor with the typed name filled in.
-    await tester.tap(find.bySemanticsIdentifier(SemanticsIds.categoryPickCreate));
+    await tester.tap(
+      find.bySemanticsIdentifier(SemanticsIds.categoryPickCreate),
+    );
     await tester.pumpAndSettle();
 
     final editor = CategoryEditorRobot(tester);
@@ -343,7 +346,9 @@ void main() {
       greaterThan(tester.getTopLeft(find.text('Cat3')).dy),
     );
 
-    await tester.tap(find.bySemanticsIdentifier(SemanticsIds.categoryPickCreate));
+    await tester.tap(
+      find.bySemanticsIdentifier(SemanticsIds.categoryPickCreate),
+    );
     await tester.pumpAndSettle();
 
     expect(CategoryEditorRobot(tester).isOpen, isTrue);
@@ -362,7 +367,9 @@ void main() {
 
     await tester.tap(find.text('Cat0'));
     await tester.pumpAndSettle();
-    await tester.tap(find.bySemanticsIdentifier(SemanticsIds.categoryPickClose));
+    await tester.tap(
+      find.bySemanticsIdentifier(SemanticsIds.categoryPickClose),
+    );
     await tester.pumpAndSettle();
 
     expect(applied, isNull);
@@ -402,9 +409,14 @@ void main() {
       actionRow(tester, SemanticsIds.categoryPickSelectAll).onTap,
       isNotNull,
     );
-    expect(actionRow(tester, SemanticsIds.categoryPickSelectNone).onTap, isNull);
+    expect(
+      actionRow(tester, SemanticsIds.categoryPickSelectNone).onTap,
+      isNull,
+    );
 
-    await tester.tap(find.bySemanticsIdentifier(SemanticsIds.categoryPickSelectAll));
+    await tester.tap(
+      find.bySemanticsIdentifier(SemanticsIds.categoryPickSelectAll),
+    );
     await tester.pumpAndSettle();
 
     expect(actionRow(tester, SemanticsIds.categoryPickSelectAll).onTap, isNull);
@@ -413,9 +425,9 @@ void main() {
       isNotNull,
     );
     expect(
-      tester.widgetList<FormCheckRow>(find.byType(FormCheckRow)).every(
-        (row) => row.checked,
-      ),
+      tester
+          .widgetList<FormCheckRow>(find.byType(FormCheckRow))
+          .every((row) => row.checked),
       isTrue,
     );
   });

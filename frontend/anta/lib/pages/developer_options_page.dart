@@ -26,6 +26,7 @@ class DeveloperOptionsPage extends StatefulWidget {
 class _DeveloperOptionsPageState extends State<DeveloperOptionsPage> {
   DevOptionsService? _service;
   bool _isLoading = true;
+  bool _locking = false;
 
   final TextEditingController _searchController = TextEditingController();
   SettingsQuery _query = SettingsQuery.empty;
@@ -79,6 +80,26 @@ class _DeveloperOptionsPageState extends State<DeveloperOptionsPage> {
     await _service?.resetOptions();
     if (context.mounted) {
       CustomSnackbar.showSuccess(context, l10n.developerOptionsReset);
+    }
+  }
+
+  /// Every tap resumes after the save, so a second tap while it is pending
+  /// would pop the route under this page too — the guard keeps it to one.
+  Future<void> _lock(BuildContext context, AppLocalizations l10n) async {
+    if (_locking) return;
+    _locking = true;
+    try {
+      _onHapticFeedback();
+      DevOptions.instance.lockDeveloperMode();
+      await _service?.saveOptions();
+      if (context.mounted) {
+        CustomSnackbar.showSuccess(context, l10n.developerModeLocked);
+        // `true` tells an awaiting opener the mode was locked; the hub
+        // needs no answer, it hides its row through `DevOptions`.
+        AppNavigator.pop(context, true);
+      }
+    } finally {
+      _locking = false;
     }
   }
 
@@ -139,22 +160,7 @@ class _DeveloperOptionsPageState extends State<DeveloperOptionsPage> {
                             AutomationId(
                               identifier: SemanticsIds.developerOptionsLock,
                               child: FilledButton.icon(
-                                onPressed: () async {
-                                  _onHapticFeedback();
-                                  devOptions.lockDeveloperMode();
-                                  await _service?.saveOptions();
-                                  if (context.mounted) {
-                                    CustomSnackbar.showSuccess(
-                                      context,
-                                      l10n.developerModeLocked,
-                                    );
-                                    // `true` tells an awaiting opener the
-                                    // mode was locked; the hub needs no
-                                    // answer, it hides its row through
-                                    // `DevOptions`.
-                                    AppNavigator.pop(context, true);
-                                  }
-                                },
+                                onPressed: () => _lock(context, l10n),
                                 icon: const Icon(Icons.lock_rounded),
                                 label: Text(l10n.lockDeveloperMode),
                                 style: FilledButton.styleFrom(

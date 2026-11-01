@@ -119,9 +119,7 @@ void main() {
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
         locale: locale,
-        theme: density == null
-            ? theme
-            : theme.copyWith(visualDensity: density),
+        theme: density == null ? theme : theme.copyWith(visualDensity: density),
         navigatorObservers: observers,
         builder: (context, child) => MediaQuery(
           data: MediaQuery.of(
@@ -467,13 +465,18 @@ void main() {
       expect((await stored(tester)).sound, SettingsKeys.defaultAlertSound);
 
       await robot.tapRow(SemanticsIds.alertSettingsSound);
-      await tester.tap(find.bySemanticsIdentifier(SemanticsIds.soundPhoneDefault));
+      await tester.tap(
+        find.bySemanticsIdentifier(SemanticsIds.soundPhoneDefault),
+      );
       await robot.settle();
 
       expect(find.byType(AlertSoundSheet), findsNothing);
       expect((await stored(tester)).sound, AlertSound.systemDefaultValue);
       expect(reconciles, [AlertReconcileReason.eventChanged]);
-      expectRowSays(SemanticsIds.alertSettingsSound, l10n.alertSoundPhoneDefault);
+      expectRowSays(
+        SemanticsIds.alertSettingsSound,
+        l10n.alertSoundPhoneDefault,
+      );
 
       await teardownApp(tester);
     });

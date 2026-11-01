@@ -205,8 +205,8 @@ class _AlertsPageState extends State<AlertsPage> {
   /// section rather than a scheduler lookup.
   Future<List<AlertHistoryEntry>> _defaultRecent() =>
       widget._loadEntries == null
-          ? AlertScheduler.recentEntriesOrEmpty()
-          : Future.value(const []);
+      ? AlertScheduler.recentEntriesOrEmpty()
+      : Future.value(const []);
 
   /// [_defaultRecent]'s rule for the digests' fires.
   Future<List<DigestHubEntry>> _defaultDigests() => widget._loadEntries == null

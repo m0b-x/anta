@@ -96,15 +96,20 @@ class CategoryEditorSheet extends StatefulWidget {
       enableDrag: false,
       backgroundColor: Colors.transparent,
       elevation: 0,
-      builder: (context) => ConstrainedBox(
-        constraints: BoxConstraints(
-          maxHeight:
-              MediaQuery.sizeOf(context).height * FormMetrics.sheetHeightFactor,
-        ),
-        child: CategoryEditorSheet(
-          initial: initial,
-          initialName: initialName,
-          sandbox: sandbox,
+      // Content-tall: a sub-sheet's answer resizes the sheet while that
+      // route is still leaving.
+      builder: (context) => FormSheetSemanticsRefresh(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight:
+                MediaQuery.sizeOf(context).height *
+                FormMetrics.sheetHeightFactor,
+          ),
+          child: CategoryEditorSheet(
+            initial: initial,
+            initialName: initialName,
+            sandbox: sandbox,
+          ),
         ),
       ),
     );

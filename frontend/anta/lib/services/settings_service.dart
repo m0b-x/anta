@@ -1528,6 +1528,35 @@ class SettingsService {
     );
   }
 
+  /// The tail of the fold edits, so each one reads the set the previous one
+  /// wrote.
+  Future<void> _collapsedSectionEdits = Future<void>.value();
+
+  /// Folds or unfolds [id] in the stored set and returns the set written.
+  ///
+  /// Four pages share the one row, each holding its own copy of it; a page
+  /// that wrote its copy back would drop the folds a child page stored since
+  /// that copy was read (a toggle landing before `didPopNext`'s reload). The
+  /// edit reads the row instead, and the edits run one after another so two
+  /// pages cannot interleave a read and a write.
+  Future<Set<String>> setCalendarSettingsSectionCollapsed(
+    String id, {
+    required bool collapsed,
+  }) {
+    final edit = _collapsedSectionEdits.then((_) async {
+      final ids = {...await getCalendarSettingsCollapsedSections()};
+      if (collapsed) {
+        ids.add(id);
+      } else {
+        ids.remove(id);
+      }
+      await setCalendarSettingsCollapsedSections(ids);
+      return ids;
+    });
+    _collapsedSectionEdits = edit.then<void>((_) {}, onError: (_) {});
+    return edit;
+  }
+
   Future<Set<String>> getAppSettingsCollapsedSections() async {
     return _decodeCollapsedSections(
       await _db.userSettingsDao.getValue(

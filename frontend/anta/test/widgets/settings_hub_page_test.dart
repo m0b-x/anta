@@ -29,6 +29,7 @@ import '../goldens/support/golden_fonts.dart';
 import '../goldens/support/golden_matrix.dart';
 import '../services/permission_support.dart';
 import 'support/layout_errors.dart';
+import 'support/settings_page_whole.dart';
 
 /// The settings hub (`docs/settings-rework-roadmap.md` §4.2): a row per
 /// settings page, in four sections, each opening its page — asserted
@@ -845,6 +846,65 @@ void main() {
         await teardownApp(tester);
       });
     }
+
+    // "Systemstand|ard" broke at 200 dp before the copy said
+    // "System-Standard".
+    testWidgets('${cells.first.label}: the Language dialog breaks no option '
+        'inside a word', (tester) async {
+      DevOptions.instance.developerModeUnlocked = true;
+      final service = permissionServiceOver(
+        FakePermissionGateway(statuses: allGranted),
+      );
+      GetIt.I.registerSingleton<PermissionService>(service);
+      await tester.runAsync(service.refresh);
+      setGoldenSurface(tester, cells.first);
+      await tester.pumpWidget(app(cell: cells.first));
+      await tester.pump();
+
+      await tester.scrollUntilVisible(
+        row('language'),
+        200,
+        scrollable: find
+            .descendant(
+              of: find.byType(SettingsSectionList),
+              matching: find.byType(Scrollable),
+            )
+            .first,
+      );
+      await tester.ensureVisible(row('language'));
+      await tester.pumpAndSettle();
+      await tester.tap(row('language'));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.bySemanticsIdentifier(SemanticsIds.languageDialog),
+        findsOneWidget,
+      );
+      final paragraphs = find.descendant(
+        of: find.byType(AlertDialog),
+        matching: find.byType(RichText),
+      );
+      expect(
+        find.descendant(
+          of: find.byType(AlertDialog),
+          matching: find.text(
+            lookupAppLocalizations(cells.first.locale).systemDefault,
+          ),
+        ),
+        findsOneWidget,
+      );
+      for (final element in paragraphs.evaluate()) {
+        final paragraph = element.renderObject! as RenderParagraph;
+        expect(
+          paragraph.didExceedMaxLines,
+          isFalse,
+          reason: paragraph.text.toPlainText(),
+        );
+        expectBreaksBetweenWords(paragraph);
+      }
+      expect(tester.takeException(), isNull);
+      await teardownApp(tester);
+    });
   });
 }
 

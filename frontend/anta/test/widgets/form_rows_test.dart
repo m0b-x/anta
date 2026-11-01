@@ -1791,6 +1791,22 @@ void main() {
           FormMetrics.disabledOpacity,
         );
       });
+
+      // An API trap a review found: every live caller passed `index: null`
+      // when disabled, and a caller that did not got a handle that dragged.
+      testWidgets('disabled with an index, it still lifts nothing', (
+        tester,
+      ) async {
+        await pumpHandle(
+          tester,
+          const ReorderHandle(index: 0, enabled: false, label: 'Reorder Gym'),
+        );
+        expect(find.byType(ReorderableDragStartListener), findsNothing);
+        expect(
+          tester.widget<Opacity>(dimmer()).opacity,
+          FormMetrics.disabledOpacity,
+        );
+      });
     });
 
     testWidgets('a row shell rounds the ends only and draws a hairline under '
@@ -4507,20 +4523,19 @@ void main() {
       ),
     );
 
-    Color trackColor(WidgetTester tester) =>
-        Theme.of(tester.element(find.byType(FormMeterRow))).colorScheme
-            .rowDivider;
+    Color trackColor(WidgetTester tester) => Theme.of(
+      tester.element(find.byType(FormMeterRow)),
+    ).colorScheme.rowDivider;
 
     testWidgets('one node carries the label, the expanded flag, the id and '
         'the tap', (tester) async {
       final handle = tester.ensureSemantics();
       var taps = 0;
       for (final expanded in [false, true]) {
-        await pump(
-          tester,
-          meterRow(expanded: expanded, onTap: () => taps++),
+        await pump(tester, meterRow(expanded: expanded, onTap: () => taps++));
+        final node = tester.getSemantics(
+          find.bySemanticsIdentifier('meter-row'),
         );
-        final node = tester.getSemantics(find.bySemanticsIdentifier('meter-row'));
         final data = node.getSemanticsData();
         expect(node.childrenCount, 0, reason: 'the row is one node');
         expect(data.identifier, 'meter-row');
@@ -4560,7 +4575,8 @@ void main() {
     testWidgets('the caption shrinks inside one caption line at German 2.0', (
       tester,
     ) async {
-      const caption = '14 Ereignisse · 13,2 Std. · 2 verpasst · eine lange Zeile';
+      const caption =
+          '14 Ereignisse · 13,2 Std. · 2 verpasst · eine lange Zeile';
       await pump(tester, meterRow(caption: caption), textScale: 2.0);
       final box = find
           .ancestor(of: find.text(caption), matching: find.byType(SizedBox))

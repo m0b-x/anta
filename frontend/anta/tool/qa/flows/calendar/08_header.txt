@@ -1,6 +1,7 @@
 # The calendar's header (docs/calendar-header-roadmap.md): the title's view
 # menu with the grid formats, a format applied from it, then every row of the
-# ⋮ menu — Calendar settings and Alerts each open their page and back returns.
+# ⋮ menu — Categories, Calendar settings and Alerts each open their page and
+# back returns (Categories by its bar's arrow, nav-back).
 tap id:calendar-view-menu
 wait id:calendar-format-week
 expect id:calendar-view-calendar id:calendar-overview-open id:calendar-format-month id:calendar-format-two-weeks
@@ -14,8 +15,14 @@ tap id:calendar-format-month
 wait id:calendar-add-event
 tap id:calendar-more
 wait id:calendar-settings-open
-expect id:calendar-alerts-open id:calendar-export id:calendar-guide-open
+expect id:calendar-menu-categories id:calendar-alerts-open id:calendar-export id:calendar-guide-open
 shot 08_more
+tap id:calendar-menu-categories
+wait id:category-add
+tap id:nav-back
+wait id:calendar-add-event
+tap id:calendar-more
+wait id:calendar-settings-open
 tap id:calendar-settings-open
 wait id:calendar-add-event --gone
 shot 08_settings

@@ -1209,7 +1209,7 @@
   "@confirmDelete": {
     "description": "Confirm delete setting"
   },
-  "confirmDeleteDesc": "Bestätigungsdialog vor dem Löschen von Notizen oder Ordnern anzeigen",
+  "confirmDeleteDesc": "Vor dem Löschen von Notizen oder Ordnern nachfragen",
   "@confirmDeleteDesc": {
     "description": "Confirm delete description"
   },
@@ -1822,7 +1822,7 @@
   "@romanian": {
     "description": "Romanian language option"
   },
-  "systemDefault": "Systemstandard",
+  "systemDefault": "System-Standard",
   "@systemDefault": {
     "description": "System default language option"
   },
@@ -1920,7 +1920,7 @@
   },
   "deprecatedSection": "Veraltete Funktionen",
   "deprecatedSectionIntro": "Bleiben für alle erhalten, die sie bereits nutzen. Standardmäßig aus und in einer künftigen Version möglicherweise entfernt.",
-  "previewModeEnabled": "Vorschaumodus",
+  "previewModeEnabled": "Vorschau-Modus",
   "previewModeEnabledDesc": "Holt die separate gerenderte Vorschau und ihre Augen-Schaltfläche zurück. Der Editor stellt Markdown bereits beim Tippen dar.",
   "previewModeKeywords": "vorschau, rendern, auge, veraltet",
   "showPreviewScrollbar": "Vorschau-Bildlaufleiste",
@@ -1995,10 +1995,10 @@
   "calendarDayRailBasePositionDesc": "An einem Tag mit beidem teilt sich die Leiste in zwei gleiche Hälften — deine Marken und das Fasten. Hier wählst du, welches Ende das Fasten bekommt.",
   "dayRailBasePositionTop": "Oben",
   "dayRailBasePositionBottom": "Unten",
-  "calendarHighlightWeekends": "Wochenenden einfärben",
+  "calendarHighlightWeekends": "Wochenende färben",
   "calendarHighlightWeekendsDesc": "Samstag und Sonntag in eigener Farbe anzeigen",
-  "calendarShowWeekNumbers": "Kalenderwochen",
-  "calendarShowWeekNumbersDesc": "Wochennummern am linken Rand anzeigen",
+  "calendarShowWeekNumbers": "Kalender-Wochen",
+  "calendarShowWeekNumbersDesc": "Wochen-Nummern am linken Rand anzeigen",
   "calendarFilteringSection": "Filterung",
   "calendarShowFilterChips": "Filter-Chips",
   "calendarShowFilterChipsDesc": "Aktive Filter als Zeile über dem Raster anzeigen",
@@ -2008,8 +2008,8 @@
       "name": { "type": "String" }
     }
   },
-  "calendarShowRecurrenceLabels": "Wiederholung in Zeilen",
-  "calendarShowRecurrenceLabelsDesc": "Wiederholungsmuster (Täglich, Wöchentlich…) in Ereigniszeilen anzeigen",
+  "calendarShowRecurrenceLabels": "Rhythmus in Zeilen",
+  "calendarShowRecurrenceLabelsDesc": "Rhythmus (Täglich, Wöchentlich…) in Ereigniszeilen anzeigen",
   "calendarMissedDisplayTitle": "Verpasste Tage",
   "calendarMissedDisplayDesc": "Wie verpasste Tage eines erfassten Termins im Kalender erscheinen",
   "calendarMissedDisplayFaded": "Abgeblendet",
@@ -2471,7 +2471,7 @@
   "expandAll": "Alle ausklappen",
   "searchUtilityButtons": "Schaltflächen suchen",
   "noMatchesFound": "Keine Treffer",
-  "searchSettings": "Einstellungen suchen",
+  "searchSettings": "Suchen",
   "settingsSectionCollapsedCount": "{count, plural, =1{1 Option} other{{count} Optionen}}",
   "hapticFeedbackKeywords": "Vibration, Summen, Rütteln",
   "autoSaveKeywords": "Sicherung, Speichern, Backup",
@@ -2588,7 +2588,7 @@
   "showRenderTime": "Renderzeit anzeigen",
   "showRenderTimeDesc": "Anzeigen, wie lange die Vorschau zum Rendern braucht",
   "showFpsCounter": "FPS-Zähler anzeigen",
-  "showFpsCounterDesc": "Scroll- und Animationsleistung überwachen",
+  "showFpsCounterDesc": "Scroll- und Animations-Leistung überwachen",
   "showChunkIndicators": "Chunk-Indikatoren anzeigen",
   "showChunkIndicatorsDesc": "Hervorheben, welche Chunks in der Vorschau geladen sind",
   "showRepaintRainbow": "Repaint-Rainbow anzeigen",
@@ -2603,7 +2603,7 @@
   "storageData": "Speicher / Daten",
   "showNoteSize": "Notizgröße anzeigen",
   "showNoteSizeDesc": "Inhaltsgröße in Bytes anzeigen",
-  "showDatabaseStats": "Datenbankstatistik anzeigen",
+  "showDatabaseStats": "Datenbank-Statistik anzeigen",
   "showDatabaseStatsDesc": "Abfrageanzahl und Cache-Informationen",
   "folderNameAlreadyExists": "Ein Ordner mit dem Namen \"{name}\" existiert hier bereits",
   "noteTitleAlreadyExists": "Eine Notiz mit dem Titel \"{title}\" existiert hier bereits",
@@ -2831,7 +2831,7 @@
   "alarmDatabaseSwitchedTitle": "Zu {name} gewechselt",
   "alarmDatabaseSwitchedBody": "Beende ANTA und öffne es erneut, um diesen Termin zu sehen. Der Alarm klingelt weiter, bis du ihn stoppst.",
   "calendarAlertsSection": "Erinnerungen",
-  "alertsNotifications": "Benachrichtigungen",
+  "alertsNotifications": "Mitteilungen",
   "alertsNotificationsDesc": "Nötig, damit Mitteilungen und Alarme erscheinen",
   "alertsFullScreenAlarms": "Vollbild-Alarme",
   "alertsFullScreenAlarmsDesc": "Lässt einen Alarm den gesperrten Bildschirm übernehmen",
@@ -3023,7 +3023,7 @@
   "settingsHubRowDesc": "Alles, was du ändern kannst",
   "howToUseAnta": "So nutzt du ANTA",
   "calendarReportRowDesc": "Wie eine Woche oder ein Monat lief",
-  "settingsHubSearchHint": "Einstellungen suchen",
+  "settingsHubSearchHint": "Suchen",
   "settingsSectionCalendar": "Kalender",
   "settingsSectionNotes": "Notizen",
   "settingsSectionApp": "App",
@@ -3055,7 +3055,7 @@
   "permissionExactAlarmsDesc": "Lässt Erinnerungen genau zur eingestellten Zeit auslösen",
   "permissionsLaunchCheck": "Beim Start prüfen",
   "permissionsLaunchCheckDesc": "Einmal nachfragen, wenn etwas Notwendiges aus ist",
-  "permissionsSystemSettings": "Systemeinstellungen",
+  "permissionsSystemSettings": "System-Einstellungen",
   "permissionsSystemSettingsDesc": "ANTA in den Systemeinstellungen öffnen",
   "permissionsNoneNeeded": "Nichts zu erlauben",
   "permissionsNoneNeededDesc": "ANTA braucht auf diesem Gerät keine Systemberechtigungen. Alarme und Mitteilungen klingeln vorerst nur auf Android.",

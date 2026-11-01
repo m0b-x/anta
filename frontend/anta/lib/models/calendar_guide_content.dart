@@ -342,8 +342,10 @@ enum CalendarGuideTopic {
       ),
       GuideCoachStep(
         'deleted',
+        // The row menu's own words, ellipsis and all: the line quotes what
+        // she taps.
         (l10n) => l10n.calendarGuideCoachCategoriesDelete(
-          l10n.delete,
+          l10n.categoryDeleteEllipsis,
           l10n.eventCategoryOther,
         ),
       ),

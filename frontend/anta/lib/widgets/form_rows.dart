@@ -1573,10 +1573,8 @@ class _FormTitleRowBodyState extends State<_FormTitleRowBody> {
     // while the field holds text: beside a drawn hint it would be said twice.
     field = ListenableBuilder(
       listenable: controller,
-      builder: (context, child) => Semantics(
-        label: controller.text.isEmpty ? null : hint,
-        child: child,
-      ),
+      builder: (context, child) =>
+          Semantics(label: controller.text.isEmpty ? null : hint, child: child),
       child: field,
     );
     if (row.identifier case final id?) {

@@ -206,7 +206,8 @@ class _CalendarGuideTopicPageState extends State<CalendarGuideTopicPage> {
                   maxScaleFactor: GuideMetrics.headingMaxTextScale,
                   child: Semantics(
                     header: true,
-                    headingLevel: 1,
+                    // Under the bar's title, the route's one level-1 heading.
+                    headingLevel: 2,
                     child: Text(
                       topic.title(l10n),
                       style: TextStyle(

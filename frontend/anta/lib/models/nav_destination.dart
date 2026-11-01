@@ -96,7 +96,9 @@ class NavDestination extends Equatable {
 
   NavDestination.counterManagement({String? noteId})
     : kind = NavDestinationKind.counterManagement,
-      params = noteId == null || noteId.isEmpty ? const {} : {_noteIdKey: noteId};
+      params = noteId == null || noteId.isEmpty
+          ? const {}
+          : {_noteIdKey: noteId};
 
   NavDestination.counterPerNote({required String counterId})
     : kind = NavDestinationKind.counterPerNote,
@@ -122,17 +124,13 @@ class NavDestination extends Equatable {
 
   /// A copy carrying a freshly resolved [title] — restore refreshes folder
   /// titles from the database rather than trusting a name stored days ago.
-  NavDestination withTitle(String title) => NavDestination(kind, {
-    ...params,
-    _titleKey: title,
-  });
+  NavDestination withTitle(String title) =>
+      NavDestination(kind, {...params, _titleKey: title});
 
   /// A copy pointing at [folderId] — restore follows a note that was moved
   /// to another folder since it was recorded.
-  NavDestination withFolderId(String folderId) => NavDestination(kind, {
-    ...params,
-    _folderIdKey: folderId,
-  });
+  NavDestination withFolderId(String folderId) =>
+      NavDestination(kind, {...params, _folderIdKey: folderId});
 
   Map<String, dynamic> toJson() => {
     'k': kind.name,
@@ -229,6 +227,7 @@ class NavDestination extends Equatable {
   List<Object?> get props => [kind, params];
 
   @override
-  String toString() =>
-      params.isEmpty ? 'NavDestination(${kind.name})' : 'NavDestination(${kind.name}, $params)';
+  String toString() => params.isEmpty
+      ? 'NavDestination(${kind.name})'
+      : 'NavDestination(${kind.name}, $params)';
 }

@@ -470,7 +470,11 @@ void main() {
     await robot.pickFormat(SemanticsIds.calendarFormatWeek);
     expect(robot.format, CalendarFormat.week);
     expect(robot.cellCount, 7);
-    expect(robot.caption, en.calendarGuideTourPick, reason: 'the grid shows it');
+    expect(
+      robot.caption,
+      en.calendarGuideTourPick,
+      reason: 'the grid shows it',
+    );
 
     await robot.pickFormat(SemanticsIds.calendarFormatTwoWeeks);
     expect(robot.format, CalendarFormat.twoWeeks);

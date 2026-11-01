@@ -39,12 +39,15 @@ void main() {
     });
   });
 
-  test('an empty set clears the fold rather than leaving the last one', () async {
-    await settings.setAppSettingsCollapsedSections({'editor'});
-    await settings.setAppSettingsCollapsedSections(const {});
+  test(
+    'an empty set clears the fold rather than leaving the last one',
+    () async {
+      await settings.setAppSettingsCollapsedSections({'editor'});
+      await settings.setAppSettingsCollapsedSections(const {});
 
-    expect(await settings.getAppSettingsCollapsedSections(), isEmpty);
-  });
+      expect(await settings.getAppSettingsCollapsedSections(), isEmpty);
+    },
+  );
 
   test('the app and calendar pages fold independently', () async {
     await settings.setAppSettingsCollapsedSections({'editor'});
@@ -65,6 +68,43 @@ void main() {
     expect(await settings.getAppSettingsCollapsedSections(), {
       'editor',
       'preview',
+    });
+  });
+
+  // A review probe: a page whose copy predates a child page's write wrote
+  // its copy back, and the child's fold was lost.
+  test('a fold edits the stored set, not the copy a page holds', () async {
+    await settings.setCalendarSettingsCollapsedSections({'appearance_cell'});
+    // The calendar settings page still holds `{}`, read before the push.
+    final written = await settings.setCalendarSettingsSectionCollapsed(
+      'filtering',
+      collapsed: true,
+    );
+
+    expect(written, {'appearance_cell', 'filtering'});
+    expect(await settings.getCalendarSettingsCollapsedSections(), {
+      'appearance_cell',
+      'filtering',
+    });
+
+    expect(
+      await settings.setCalendarSettingsSectionCollapsed(
+        'appearance_cell',
+        collapsed: false,
+      ),
+      {'filtering'},
+    );
+  });
+
+  test('two folds started together both land', () async {
+    await Future.wait([
+      settings.setCalendarSettingsSectionCollapsed('alerts', collapsed: true),
+      settings.setCalendarSettingsSectionCollapsed('fasting', collapsed: true),
+    ]);
+
+    expect(await settings.getCalendarSettingsCollapsedSections(), {
+      'alerts',
+      'fasting',
     });
   });
 

@@ -5,6 +5,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:path/path.dart' as p;
 import '../constants/app_colors.dart';
+import '../constants/row_metrics.dart';
 import '../constants/semantics_ids.dart';
 import '../core/di/injection.dart';
 import '../database/database.dart';
@@ -371,25 +372,7 @@ class _DatabaseSettingsPageState extends State<DatabaseSettingsPage> {
             const SizedBox(height: 12),
 
             // Action buttons
-            Row(
-              children: [
-                Expanded(
-                  child: FilledButton.tonalIcon(
-                    onPressed: () => _copyPath(context),
-                    icon: const Icon(Icons.copy_rounded, size: 18),
-                    label: Text(AppLocalizations.of(context)!.copyPath),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: FilledButton.tonalIcon(
-                    onPressed: () => _openInFinder(context),
-                    icon: const Icon(Icons.folder_open_rounded, size: 18),
-                    label: Text(AppLocalizations.of(context)!.openInFinder),
-                  ),
-                ),
-              ],
-            ),
+            _buildPathActions(context),
           ],
         ),
       ),
@@ -879,6 +862,40 @@ class _DatabaseSettingsPageState extends State<DatabaseSettingsPage> {
     }
   }
 
+  /// Side by side at ordinary sizes; stacked, each the card's width, from
+  /// the scale where half a card no longer holds "Copiază Calea" whole.
+  /// Decided by the scale, so the pair never changes shape with a locale.
+  Widget _buildPathActions(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final copy = FilledButton.tonalIcon(
+      onPressed: () => _copyPath(context),
+      icon: const Icon(Icons.copy_rounded, size: 18),
+      label: Text(l10n.copyPath),
+    );
+    final open = FilledButton.tonalIcon(
+      onPressed: () => _openInFinder(context),
+      icon: const Icon(Icons.folder_open_rounded, size: 18),
+      label: Text(l10n.openInFinder),
+    );
+    final scaler = MediaQuery.textScalerOf(context);
+    final stacked =
+        scaler.scale(RowMetrics.titleFontSize) / RowMetrics.titleFontSize >=
+        RowMetrics.compactLeadingTextScale;
+    if (stacked) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [copy, const SizedBox(height: 12), open],
+      );
+    }
+    return Row(
+      children: [
+        Expanded(child: copy),
+        const SizedBox(width: 12),
+        Expanded(child: open),
+      ],
+    );
+  }
+
   Widget _buildStatRow({
     required BuildContext context,
     required ColorScheme colorScheme,
@@ -886,26 +903,67 @@ class _DatabaseSettingsPageState extends State<DatabaseSettingsPage> {
     required String label,
     required String value,
   }) {
-    return Row(
-      children: [
-        Icon(icon, size: 20, color: colorScheme.onSurfaceVariant),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Text(
-            label,
-            style: TextStyle(fontSize: 14, color: colorScheme.onSurfaceVariant),
-          ),
-        ),
-        Text(
-          value,
-          style: TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w600,
-            color: colorScheme.onSurface,
-          ),
-        ),
-      ],
+    final labelStyle = TextStyle(
+      fontSize: 14,
+      color: colorScheme.onSurfaceVariant,
     );
+    final valueStyle = TextStyle(
+      fontSize: 14,
+      fontWeight: FontWeight.w600,
+      color: colorScheme.onSurface,
+    );
+    // The value beside its label only while both fit one line: beside an
+    // unbounded value, "Ultima Modificare" at 2.0 got 28 dp and one letter
+    // a line. Measured, because a value's length is data.
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final room = constraints.maxWidth - 20 - 12;
+        final besides =
+            _singleLineWidth(context, label, labelStyle) +
+                12 +
+                _singleLineWidth(context, value, valueStyle) <=
+            room;
+        final labelText = Text(label, style: labelStyle);
+        final valueText = Text(value, style: valueStyle);
+        return Row(
+          crossAxisAlignment: besides
+              ? CrossAxisAlignment.center
+              : CrossAxisAlignment.start,
+          children: [
+            Icon(icon, size: 20, color: colorScheme.onSurfaceVariant),
+            const SizedBox(width: 12),
+            Expanded(
+              child: besides
+                  ? Row(
+                      children: [
+                        Expanded(child: labelText),
+                        valueText,
+                      ],
+                    )
+                  : Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [labelText, valueText],
+                    ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  double _singleLineWidth(BuildContext context, String text, TextStyle style) {
+    final painter = TextPainter(
+      text: TextSpan(
+        text: text,
+        style: DefaultTextStyle.of(context).style.merge(style),
+      ),
+      textDirection: Directionality.of(context),
+      textScaler: MediaQuery.textScalerOf(context),
+      maxLines: 1,
+    )..layout();
+    final width = painter.width;
+    painter.dispose();
+    return width;
   }
 
   Widget _buildDangerCard(BuildContext context, ColorScheme colorScheme) {
@@ -936,12 +994,14 @@ class _DatabaseSettingsPageState extends State<DatabaseSettingsPage> {
                   ),
                 ),
                 const SizedBox(width: 12),
-                Text(
-                  AppLocalizations.of(context)!.dangerZone,
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                    color: colorScheme.error,
+                Flexible(
+                  child: Text(
+                    AppLocalizations.of(context)!.dangerZone,
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: colorScheme.error,
+                    ),
                   ),
                 ),
               ],

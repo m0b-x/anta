@@ -440,9 +440,7 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
     // A warm alert tap collapses onto this page instead of pushing a second
     // one, so the request arrives through the notifier rather than through
     // the constructor. Unlike `initialDay` it can arrive any number of times.
-    AppNavigator.pendingCalendarOccurrence.addListener(
-      _serveOccurrenceRequest,
-    );
+    AppNavigator.pendingCalendarOccurrence.addListener(_serveOccurrenceRequest);
     if (AppNavigator.pendingCalendarOccurrence.value != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _serveOccurrenceRequest();
@@ -1060,9 +1058,7 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
                           // state: this buildWhen tracks only the count, so
                           // a set swapped for another of the same size
                           // would reach the sheet stale.
-                          final current = context
-                              .read<CalendarBloc>()
-                              .state;
+                          final current = context.read<CalendarBloc>().state;
                           if (current is! CalendarPageLoaded) return;
                           _openFilterSheet(context, current);
                         },

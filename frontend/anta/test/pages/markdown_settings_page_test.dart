@@ -346,4 +346,68 @@ void main() {
     );
     await tester.pumpWidget(const SizedBox.shrink());
   });
+
+  testWidgets('with suggestions off the trigger row is disabled, a tap '
+      'writes nothing, and the current trigger stays selected', (tester) async {
+    final settings = await SettingsService.getInstance();
+    await tester.runAsync(
+      () => settings.setVocabularySuggestionsEnabled(false),
+    );
+    addTearDown(
+      () => tester.runAsync(
+        () => settings.setVocabularySuggestionsEnabled(
+          SettingsKeys.defaultVocabularySuggestionsEnabled,
+        ),
+      ),
+    );
+    await pumpPage(tester);
+    final row = find.byWidgetPredicate(
+      (widget) =>
+          widget is Semantics &&
+          widget.properties.identifier ==
+              SemanticsIds.markdownVocabularyTrigger,
+    );
+    final segments = find.descendant(
+      of: row,
+      matching: find.byType(SegmentedButton<String>),
+    );
+    final button = tester.widget<SegmentedButton<String>>(segments);
+    expect(button.onSelectionChanged, isNull);
+    expect(button.selected, {SettingsKeys.defaultVocabularyTriggerChar});
+    // The kit's disabled state, never a hand-made fade over the row: that
+    // one took the selected segment's wash with it.
+    expect(
+      find.ancestor(
+        of: segments,
+        matching: find.byWidgetPredicate(
+          (widget) => widget is Opacity && widget.opacity < 1,
+        ),
+      ),
+      findsNothing,
+    );
+    expect(
+      find.ancestor(
+        of: segments,
+        matching: find.byWidgetPredicate(
+          (widget) => widget is IgnorePointer && widget.ignoring,
+        ),
+      ),
+      findsNothing,
+    );
+
+    final colon = find.descendant(of: row, matching: find.text(':'));
+    await tester.ensureVisible(colon);
+    await tester.pump();
+    await tester.tap(colon, warnIfMissed: false);
+    await settle(tester);
+
+    expect(tester.widget<SegmentedButton<String>>(segments).selected, {
+      SettingsKeys.defaultVocabularyTriggerChar,
+    });
+    expect(
+      await tester.runAsync(settings.getVocabularyTriggerChar),
+      SettingsKeys.defaultVocabularyTriggerChar,
+    );
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
 }

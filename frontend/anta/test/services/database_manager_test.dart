@@ -65,6 +65,42 @@ void main() {
   int count(Database db, String sql) =>
       db.select(sql).single.values.first as int;
 
+  /// Leaves [name] as an app quit before folding leaves it: a `.db` and a
+  /// `-wal` holding 300 items the main file does not, copied in from a
+  /// writer elsewhere while it still held them open.
+  Future<String> leaveInSidecar(String name) async {
+    final sourcePath = p.join(tempDir.path, 'writer', '$name.db');
+    await Directory(p.dirname(sourcePath)).create(recursive: true);
+    final targetPath = await manager.getDatabasePath(name);
+    await Directory(p.dirname(targetPath)).create(recursive: true);
+    final writer = sqlite3.open(sourcePath);
+    try {
+      writer.execute('PRAGMA journal_mode = WAL');
+      writer.execute('PRAGMA wal_autocheckpoint = 0');
+      writer.execute('CREATE TABLE items (v TEXT)');
+      writer.execute(
+        'WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM n '
+        'WHERE x < 300) INSERT INTO items SELECT hex(randomblob(100)) FROM n',
+      );
+      File(sourcePath).copySync(targetPath);
+      File('$sourcePath-wal').copySync('$targetPath-wal');
+    } finally {
+      writer.close();
+      for (final suffix in ['', '-wal', '-shm']) {
+        final file = File('$sourcePath$suffix');
+        if (file.existsSync()) file.deleteSync();
+      }
+    }
+    expect(File('$targetPath-wal').lengthSync(), greaterThan(0));
+    return targetPath;
+  }
+
+  /// Whether [path]'s `-wal` still holds frames.
+  bool walHasContent(String path) {
+    final wal = File('$path-wal');
+    return wal.existsSync() && wal.lengthSync() > 0;
+  }
+
   test('the open database folds its WAL into the main file on its own '
       'connection', () async {
     final db = await AppDatabase.getInstance();
@@ -183,5 +219,119 @@ void main() {
       (await manager.listDatabases()).map((db) => db.name),
       isNot(contains('orphan')),
     );
+  });
+
+  test('renaming a database with writes left in its sidecar folds them into '
+      'the renamed file first', () async {
+    await leaveInSidecar('work');
+    final oldPath = await manager.getDatabasePath('work');
+
+    await manager.renameDatabase('work', 'office');
+
+    final newPath = await manager.getDatabasePath('office');
+    expect(File(oldPath).existsSync(), isFalse);
+    expect(walHasContent(oldPath), isFalse);
+    expect(
+      walHasContent(newPath),
+      isFalse,
+      reason: 'nothing a kill between the renames could strand',
+    );
+    expect(
+      readMainFileAlone(
+        newPath,
+        (copy) => count(copy, 'SELECT count(*) FROM items'),
+      ),
+      300,
+    );
+    expect(AppDatabase.openInstanceOf('office'), isNull);
+  });
+
+  group('a blocked checkpoint throws', () {
+    test('on the live connection, which stays writable and folds once the '
+        'reader is gone', () async {
+      final db = await AppDatabase.getInstance();
+      final name = manager.getActiveDatabaseName();
+      final path = await manager.getDatabasePath(name);
+      await db.folderDao.createFolder(name: 'In the WAL');
+      expect(File('$path-wal').lengthSync(), greaterThan(0));
+
+      // A foreign reader holding a snapshot of the WAL.
+      final reader = sqlite3.open(path, mode: OpenMode.readWrite);
+      Object? error;
+      try {
+        reader.execute('BEGIN');
+        reader.select('SELECT count(*) FROM folders');
+        try {
+          await manager.checkpoint(name);
+        } catch (e) {
+          error = e;
+        }
+        reader.execute('COMMIT');
+      } finally {
+        reader.close();
+      }
+      expect(error, isA<StateError>());
+
+      await db.folderDao.createFolder(name: 'Still writable');
+      await manager.checkpoint(name);
+      expect(File('$path-wal').lengthSync(), 0);
+      expect(
+        readMainFileAlone(
+          path,
+          (copy) => count(copy, 'SELECT count(*) FROM folders'),
+        ),
+        2,
+      );
+    });
+
+    test('on the short-lived connection, which it still closes', () async {
+      final path = await manager.getDatabasePath('work');
+      await Directory(p.dirname(path)).create(recursive: true);
+      final writer = sqlite3.open(path);
+      Object? error;
+      try {
+        writer.execute('PRAGMA journal_mode = WAL');
+        writer.execute('PRAGMA wal_autocheckpoint = 0');
+        writer.execute('CREATE TABLE t (v)');
+        writer.execute('INSERT INTO t VALUES (1)');
+        writer.execute('BEGIN');
+        writer.select('SELECT * FROM t');
+        try {
+          await manager.checkpoint('work');
+        } catch (e) {
+          error = e;
+        }
+        writer.execute('COMMIT');
+      } finally {
+        writer.close();
+      }
+      expect(error, isA<StateError>());
+      expect(AppDatabase.openInstanceOf('work'), isNull);
+      // SQLite folds and removes the sidecar only as the last connection
+      // closes: had the checkpoint's own connection stayed open, the
+      // writer's close would not have been the last.
+      expect(File('$path-wal').existsSync(), isFalse);
+      expect(File(path).existsSync(), isTrue);
+    });
+  });
+
+  test('a name stored as active but not yet open takes the file branch and '
+      'opens nothing', () async {
+    final path = await leaveInSidecar('later');
+    await manager.setActiveDatabaseName('later');
+    addTearDown(() => manager.setActiveDatabaseName('gym_notes'));
+    expect(AppDatabase.openInstanceOf('later'), isNull);
+
+    await manager.checkpoint('later');
+
+    expect(walHasContent(path), isFalse);
+    expect(
+      readMainFileAlone(
+        path,
+        (copy) => count(copy, 'SELECT count(*) FROM items'),
+      ),
+      300,
+    );
+    expect(AppDatabase.openInstanceOf('later'), isNull);
   });
 }

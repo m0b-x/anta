@@ -365,20 +365,9 @@ void main() {
       );
       expect(find.text(name), findsOneWidget);
       expectUnclipped(tester, name);
-      // The search hint, the one text cut on purpose, sits above the list.
-      final listed = find.byElementPredicate((element) {
-        if (element.widget is! Text) return false;
-        var inList = false;
-        element.visitAncestorElements((ancestor) {
-          if (ancestor.widget is SettingsSectionList) {
-            inList = true;
-            return false;
-          }
-          return true;
-        });
-        return inList;
-      });
-      await expectPageWhole(tester, within: listed);
+      // The whole page, the bar's title and the search hint with it: the
+      // German hint was cut until it said "Suchen".
+      await expectPageWhole(tester);
     });
   }
 

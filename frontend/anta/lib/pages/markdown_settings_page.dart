@@ -1330,57 +1330,57 @@ class _MarkdownSettingsPageState extends State<MarkdownSettingsPage>
                     ),
                   ],
                 ),
-                IgnorePointer(
-                  ignoring: !_vocabularyEnabled,
-                  child: Opacity(
-                    opacity: _vocabularyEnabled ? 1.0 : 0.45,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        // The five triggers under the title, not beside it:
-                        // beside, they took the row in German at 2.0 (S5).
-                        Semantics(
-                          container: true,
-                          identifier: SemanticsIds.markdownVocabularyTrigger,
-                          child: settingsChoiceRow<String>(
-                            padding: const EdgeInsets.symmetric(
-                              vertical: FormMetrics.settingsRowVerticalPadding,
-                            ),
-                            title: Text(
-                              l10n.vocabularyTriggerLabel,
-                              style: theme.textTheme.bodyLarge,
-                            ),
-                            description: Text(
-                              l10n.vocabularyTriggerDesc,
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                color: theme.colorScheme.onSurface.withValues(
-                                  alpha: 0.6,
-                                ),
+                // The five triggers under the title, not beside it: beside,
+                // they took the row in German at 2.0 (S5). Disabled rather
+                // than dimmed by hand while suggestions are off, so the
+                // trigger the user would get back keeps its selected wash.
+                Semantics(
+                  container: true,
+                  identifier: SemanticsIds.markdownVocabularyTrigger,
+                  child: settingsChoiceRow<String>(
+                    padding: const EdgeInsets.symmetric(
+                      vertical: FormMetrics.settingsRowVerticalPadding,
+                    ),
+                    title: Text(
+                      l10n.vocabularyTriggerLabel,
+                      style: _vocabularyEnabled
+                          ? theme.textTheme.bodyLarge
+                          : theme.textTheme.bodyLarge?.copyWith(
+                              color: theme.colorScheme.onSurface.withValues(
+                                alpha: FormMetrics.disabledOpacity,
                               ),
                             ),
-                            value: _vocabularyTrigger,
-                            labels: {
-                              for (final trigger
-                                  in VocabularyTrigger.availableTriggers)
-                                trigger: trigger,
-                            },
-                            onChanged: (value) {
-                              setState(() => _vocabularyTrigger = value);
-                              _saveVocabularyTrigger(value);
-                            },
-                          ),
-                        ),
-                        Align(
-                          alignment: Alignment.centerLeft,
-                          child: OutlinedButton.icon(
-                            onPressed: () =>
-                                AppNavigator.toVocabularies(context),
-                            icon: const Icon(Icons.chevron_right, size: 18),
-                            label: Text(l10n.manageVocabularies),
-                          ),
-                        ),
-                      ],
                     ),
+                    description: Text(
+                      l10n.vocabularyTriggerDesc,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurface.withValues(
+                          alpha: _vocabularyEnabled
+                              ? 0.6
+                              : FormMetrics.disabledOpacity,
+                        ),
+                      ),
+                    ),
+                    value: _vocabularyTrigger,
+                    labels: {
+                      for (final trigger in VocabularyTrigger.availableTriggers)
+                        trigger: trigger,
+                    },
+                    enabled: _vocabularyEnabled,
+                    onChanged: (value) {
+                      setState(() => _vocabularyTrigger = value);
+                      _saveVocabularyTrigger(value);
+                    },
+                  ),
+                ),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: OutlinedButton.icon(
+                    onPressed: _vocabularyEnabled
+                        ? () => AppNavigator.toVocabularies(context)
+                        : null,
+                    icon: const Icon(Icons.chevron_right, size: 18),
+                    label: Text(l10n.manageVocabularies),
                   ),
                 ),
               ],

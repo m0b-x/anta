@@ -141,10 +141,7 @@ void main() {
         await tester.pump(const Duration(milliseconds: 300));
         expect(
           tester.getSemantics(find.bySemanticsLabel(label)),
-          isSemantics(
-            label: label,
-            isLiveRegion: next == SaveStatus.error,
-          ),
+          isSemantics(label: label, isLiveRegion: next == SaveStatus.error),
           reason: next.name,
         );
       }
@@ -228,6 +225,35 @@ void main() {
         AppBarMetrics.toolbarHeight,
       );
     });
+
+    // A review probe: without an id the title was `AppBar`'s heading of no
+    // level, and the kit's level-2 section headers sat under nothing.
+    for (final identifier in [null, SemanticsIds.settingsBarCalendar]) {
+      testWidgets('the title is the bar\'s one labelled level-1 heading, '
+          '${identifier == null ? 'without' : 'with'} an id', (tester) async {
+        final semantics = tester.ensureSemantics();
+        await tester.pumpWidget(
+          host(SettingsAppBar(title: 'Settings', identifier: identifier)),
+        );
+
+        final headings = find.semantics
+            .byPredicate((node) {
+              final data = node.getSemanticsData();
+              return data.flagsCollection.isHeader || data.headingLevel > 0;
+            })
+            .evaluate()
+            .map((node) => node.getSemanticsData())
+            .toList();
+        expect(headings, hasLength(1));
+        final title = headings.single;
+        expect(title.label, 'Settings');
+        expect(title.headingLevel, 1);
+        expect(title.flagsCollection.isHeader, isTrue);
+        expect(title.flagsCollection.namesRoute, isTrue);
+        expect(title.identifier, identifier ?? '');
+        semantics.dispose();
+      });
+    }
 
     // A pushed page either way, so the route implies a dismissal: the drawer
     // alone decides between Material's own drawer button and the arrow.

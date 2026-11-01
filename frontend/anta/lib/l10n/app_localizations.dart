@@ -11354,7 +11354,7 @@ abstract class AppLocalizations {
   /// **'Tap the three dots on a category, then “{archive}”: it leaves the pickers; its events and alerts stay.'**
   String calendarGuideCoachCategoriesHide(String archive);
 
-  /// Calendar guide coach instruction; delete is the menu's Delete label, other the built-in Other category's name
+  /// Calendar guide coach instruction; delete is the category menu's Delete… item (categoryDeleteEllipsis), other the built-in Other category's name
   ///
   /// In en, this message translates to:
   /// **'Tap the three dots on your category, then “{delete}”: its events go to “{other}” — or choose where they go.'**

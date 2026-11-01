@@ -221,7 +221,14 @@ void main() {
           .getSemantics(find.text(topic.title(en)))
           .getSemanticsData();
       expect(heading.flagsCollection.isHeader, isTrue);
-      expect(heading.headingLevel, 1);
+      // The bar's title is the route's one level-1 heading; the page's own
+      // name sits under it.
+      expect(heading.headingLevel, 2);
+      final levelOne = find.semantics.byPredicate(
+        (node) => node.getSemanticsData().headingLevel == 1,
+      );
+      expect(levelOne, findsOne);
+      expect(levelOne.evaluate().single.label, en.calendarGuideTitle);
       final lead = topic.lead(en);
       if (lead != null) expect(find.text(lead), findsOneWidget);
       // A page with something to try opens on its "Try it" card; "How it

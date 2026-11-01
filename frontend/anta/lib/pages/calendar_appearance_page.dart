@@ -60,6 +60,7 @@ class _CalendarAppearancePageState extends State<CalendarAppearancePage> {
   SettingsService? _settings;
   bool _isLoading = true;
   Set<String> _collapsedSections = const {};
+  int _foldEdits = 0;
 
   final TextEditingController _searchController = TextEditingController();
   SettingsQuery _query = SettingsQuery.empty;
@@ -102,12 +103,23 @@ class _CalendarAppearancePageState extends State<CalendarAppearancePage> {
 
   /// Optimistic like every other row on this page: the fold is a view
   /// preference, so a failed write costs nothing worth blocking the tap for.
+  /// The write edits the stored row, which the other calendar pages share,
+  /// and the last tap's answer is adopted (`CalendarSettingsPage`'s toggle
+  /// says why).
   Future<void> _toggleSection(String id) async {
     _onHapticFeedback();
     final next = {..._collapsedSections};
-    if (!next.remove(id)) next.add(id);
+    final collapsed = !next.remove(id);
+    if (collapsed) next.add(id);
+    final edit = ++_foldEdits;
     setState(() => _collapsedSections = next);
-    await _settings?.setCalendarSettingsCollapsedSections(next);
+    final stored = await _settings?.setCalendarSettingsSectionCollapsed(
+      id,
+      collapsed: collapsed,
+    );
+    if (stored != null && mounted && edit == _foldEdits) {
+      setState(() => _collapsedSections = stored);
+    }
   }
 
   void _onHapticFeedback() {
@@ -256,42 +268,22 @@ class _CalendarAppearancePageState extends State<CalendarAppearancePage> {
         SettingsEntry(
           title: l10n.calendarTodayStyleTitle,
           identifier: SemanticsIds.appearanceTodayStyle,
-          builder: (context, title, description) => Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                title,
-                const SizedBox(height: 8),
-                SegmentedButton<CalendarTodayStyle>(
-                  segments: [
-                    ButtonSegment(
-                      value: CalendarTodayStyle.tonal,
-                      label: Text(l10n.todayStyleTonal),
-                    ),
-                    ButtonSegment(
-                      value: CalendarTodayStyle.ring,
-                      label: Text(l10n.todayStyleRing),
-                    ),
-                    ButtonSegment(
-                      value: CalendarTodayStyle.filled,
-                      label: Text(l10n.todayStyleFilled),
-                    ),
-                  ],
-                  selected: {_appearance.todayStyle},
-                  showSelectedIcon: false,
-                  onSelectionChanged: (sel) async {
-                    _onHapticFeedback();
-                    setState(
-                      () => _appearance = _appearance.copyWith(
-                        todayStyle: sel.first,
-                      ),
-                    );
-                    await _settings?.setCalendarTodayStyle(sel.first);
-                  },
-                ),
-              ],
-            ),
+          builder: (context, title, description) => settingsChoiceRow(
+            title: title,
+            description: description,
+            value: _appearance.todayStyle,
+            labels: {
+              CalendarTodayStyle.tonal: l10n.todayStyleTonal,
+              CalendarTodayStyle.ring: l10n.todayStyleRing,
+              CalendarTodayStyle.filled: l10n.todayStyleFilled,
+            },
+            onChanged: (value) async {
+              _onHapticFeedback();
+              setState(
+                () => _appearance = _appearance.copyWith(todayStyle: value),
+              );
+              await _settings?.setCalendarTodayStyle(value);
+            },
           ),
         ),
         SettingsEntry(
@@ -348,93 +340,71 @@ class _CalendarAppearancePageState extends State<CalendarAppearancePage> {
           keywords: [l10n.eventPriority, l10n.themeSettings],
           titleStyle: tintOffStyle,
           descriptionStyle: tintOffStyle,
-          builder: (context, title, description) => Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                title,
-                const SizedBox(height: 4),
-                ?description,
-                const SizedBox(height: 8),
-                Text(
-                  l10n.calendarCellStyleLight,
-                  style: Theme.of(
-                    context,
-                  ).textTheme.labelMedium?.merge(tintOffStyle),
-                ),
-                const SizedBox(height: 4),
-                SegmentedButton<CalendarCellStyle>(
-                  segments: [
-                    ButtonSegment(
-                      value: CalendarCellStyle.solid,
-                      label: Text(l10n.calendarCellStyleSolid),
+          builder: (context, title, description) {
+            final cellStyles = {
+              CalendarCellStyle.solid: l10n.calendarCellStyleSolid,
+              CalendarCellStyle.fade: l10n.calendarCellStyleFade,
+              CalendarCellStyle.outline: l10n.calendarCellStyleOutline,
+            };
+            final themeLabelStyle = Theme.of(
+              context,
+            ).textTheme.labelMedium?.merge(tintOffStyle);
+            // One entry, two choices: the light and the dark ground are
+            // searched and read as one setting, so the kit's choice row is
+            // nested under the entry's own text, padded once.
+            return Padding(
+              padding: FormMetrics.settingsControlRowPadding,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  title,
+                  ?description,
+                  const SizedBox(height: FormMetrics.settingsControlGap),
+                  settingsChoiceRow(
+                    title: Text(
+                      l10n.calendarCellStyleLight,
+                      style: themeLabelStyle,
                     ),
-                    ButtonSegment(
-                      value: CalendarCellStyle.fade,
-                      label: Text(l10n.calendarCellStyleFade),
+                    description: null,
+                    value: _appearance.cellStyleLight,
+                    labels: cellStyles,
+                    enabled: _appearance.eventTint,
+                    padding: EdgeInsets.zero,
+                    onChanged: (value) async {
+                      _onHapticFeedback();
+                      setState(
+                        () => _appearance = _appearance.copyWith(
+                          cellStyleLight: value,
+                        ),
+                      );
+                      await _settings?.setCalendarCellStyleLight(value);
+                    },
+                  ),
+                  const SizedBox(height: FormMetrics.settingsControlGap),
+                  settingsChoiceRow(
+                    title: Text(
+                      l10n.calendarCellStyleDark,
+                      style: themeLabelStyle,
                     ),
-                    ButtonSegment(
-                      value: CalendarCellStyle.outline,
-                      label: Text(l10n.calendarCellStyleOutline),
-                    ),
-                  ],
-                  selected: {_appearance.cellStyleLight},
-                  style: settingsSegmentedStyle(colorScheme),
-                  showSelectedIcon: false,
-                  onSelectionChanged: _appearance.eventTint
-                      ? (sel) async {
-                          _onHapticFeedback();
-                          setState(
-                            () => _appearance = _appearance.copyWith(
-                              cellStyleLight: sel.first,
-                            ),
-                          );
-                          await _settings?.setCalendarCellStyleLight(sel.first);
-                        }
-                      : null,
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  l10n.calendarCellStyleDark,
-                  style: Theme.of(
-                    context,
-                  ).textTheme.labelMedium?.merge(tintOffStyle),
-                ),
-                const SizedBox(height: 4),
-                SegmentedButton<CalendarCellStyle>(
-                  segments: [
-                    ButtonSegment(
-                      value: CalendarCellStyle.solid,
-                      label: Text(l10n.calendarCellStyleSolid),
-                    ),
-                    ButtonSegment(
-                      value: CalendarCellStyle.fade,
-                      label: Text(l10n.calendarCellStyleFade),
-                    ),
-                    ButtonSegment(
-                      value: CalendarCellStyle.outline,
-                      label: Text(l10n.calendarCellStyleOutline),
-                    ),
-                  ],
-                  selected: {_appearance.cellStyleDark},
-                  style: settingsSegmentedStyle(colorScheme),
-                  showSelectedIcon: false,
-                  onSelectionChanged: _appearance.eventTint
-                      ? (sel) async {
-                          _onHapticFeedback();
-                          setState(
-                            () => _appearance = _appearance.copyWith(
-                              cellStyleDark: sel.first,
-                            ),
-                          );
-                          await _settings?.setCalendarCellStyleDark(sel.first);
-                        }
-                      : null,
-                ),
-              ],
-            ),
-          ),
+                    description: null,
+                    value: _appearance.cellStyleDark,
+                    labels: cellStyles,
+                    enabled: _appearance.eventTint,
+                    padding: EdgeInsets.zero,
+                    onChanged: (value) async {
+                      _onHapticFeedback();
+                      setState(
+                        () => _appearance = _appearance.copyWith(
+                          cellStyleDark: value,
+                        ),
+                      );
+                      await _settings?.setCalendarCellStyleDark(value);
+                    },
+                  ),
+                ],
+              ),
+            );
+          },
         ),
         // Only meaningful with the tint on — with it off there is exactly one
         // wash source, so nothing to resolve — and disabled rather than
@@ -481,40 +451,25 @@ class _CalendarAppearancePageState extends State<CalendarAppearancePage> {
       entries: [
         SettingsEntry(
           title: l10n.calendarMarkerStyleTitle,
-          builder: (context, title, description) => Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                title,
-                const SizedBox(height: 8),
-                SegmentedButton<CalendarMarkerStyle>(
-                  segments: [
-                    ButtonSegment(
-                      value: CalendarMarkerStyle.bars,
-                      icon: const Icon(Icons.view_agenda_outlined),
-                      label: Text(l10n.markerStyleBars),
-                    ),
-                    ButtonSegment(
-                      value: CalendarMarkerStyle.dots,
-                      icon: const Icon(Icons.more_horiz_rounded),
-                      label: Text(l10n.markerStyleDots),
-                    ),
-                  ],
-                  selected: {_appearance.markerStyle},
-                  showSelectedIcon: false,
-                  onSelectionChanged: (sel) async {
-                    _onHapticFeedback();
-                    setState(
-                      () => _appearance = _appearance.copyWith(
-                        markerStyle: sel.first,
-                      ),
-                    );
-                    await _settings?.setCalendarMarkerStyle(sel.first);
-                  },
-                ),
-              ],
-            ),
+          builder: (context, title, description) => settingsChoiceRow(
+            title: title,
+            description: description,
+            value: _appearance.markerStyle,
+            labels: {
+              CalendarMarkerStyle.bars: l10n.markerStyleBars,
+              CalendarMarkerStyle.dots: l10n.markerStyleDots,
+            },
+            icons: const {
+              CalendarMarkerStyle.bars: Icons.view_agenda_outlined,
+              CalendarMarkerStyle.dots: Icons.more_horiz_rounded,
+            },
+            onChanged: (value) async {
+              _onHapticFeedback();
+              setState(
+                () => _appearance = _appearance.copyWith(markerStyle: value),
+              );
+              await _settings?.setCalendarMarkerStyle(value);
+            },
           ),
         ),
         SettingsEntry(
@@ -552,50 +507,29 @@ class _CalendarAppearancePageState extends State<CalendarAppearancePage> {
           // The visible title says nothing about presence, so the words the
           // user would actually search for are declared here.
           keywords: [l10n.eventTrackPresence, l10n.eventPresenceMissed],
-          builder: (context, title, description) => Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                title,
-                const SizedBox(height: 4),
-                ?description,
-                const SizedBox(height: 8),
-                SegmentedButton<CalendarMissedDisplay>(
-                  segments: [
-                    // A segment takes no id of its own; the label's merges
-                    // into the segment's node.
-                    ButtonSegment(
-                      value: CalendarMissedDisplay.faded,
-                      icon: const Icon(Icons.opacity_rounded),
-                      label: Semantics(
-                        identifier: SemanticsIds.missedDisplayFaded,
-                        child: Text(l10n.calendarMissedDisplayFaded),
-                      ),
-                    ),
-                    ButtonSegment(
-                      value: CalendarMissedDisplay.hidden,
-                      icon: const Icon(Icons.visibility_off_outlined),
-                      label: Semantics(
-                        identifier: SemanticsIds.missedDisplayHidden,
-                        child: Text(l10n.calendarMissedDisplayHidden),
-                      ),
-                    ),
-                  ],
-                  selected: {_appearance.missedDisplay},
-                  showSelectedIcon: false,
-                  onSelectionChanged: (sel) async {
-                    _onHapticFeedback();
-                    setState(
-                      () => _appearance = _appearance.copyWith(
-                        missedDisplay: sel.first,
-                      ),
-                    );
-                    await _settings?.setCalendarMissedDisplay(sel.first);
-                  },
-                ),
-              ],
-            ),
+          builder: (context, title, description) => settingsChoiceRow(
+            title: title,
+            description: description,
+            value: _appearance.missedDisplay,
+            labels: {
+              CalendarMissedDisplay.faded: l10n.calendarMissedDisplayFaded,
+              CalendarMissedDisplay.hidden: l10n.calendarMissedDisplayHidden,
+            },
+            icons: const {
+              CalendarMissedDisplay.faded: Icons.opacity_rounded,
+              CalendarMissedDisplay.hidden: Icons.visibility_off_outlined,
+            },
+            identifiers: const {
+              CalendarMissedDisplay.faded: SemanticsIds.missedDisplayFaded,
+              CalendarMissedDisplay.hidden: SemanticsIds.missedDisplayHidden,
+            },
+            onChanged: (value) async {
+              _onHapticFeedback();
+              setState(
+                () => _appearance = _appearance.copyWith(missedDisplay: value),
+              );
+              await _settings?.setCalendarMissedDisplay(value);
+            },
           ),
         ),
       ],
@@ -618,44 +552,22 @@ class _CalendarAppearancePageState extends State<CalendarAppearancePage> {
           // "several tracked events on one day" and that is what someone
           // looking for it would type.
           keywords: [l10n.eventTrackPresence, l10n.eventPresenceMissed],
-          builder: (context, title, description) => Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                title,
-                const SizedBox(height: 4),
-                ?description,
-                const SizedBox(height: 8),
-                SegmentedButton<DayRailStyle>(
-                  segments: [
-                    ButtonSegment(
-                      value: DayRailStyle.none,
-                      label: Text(l10n.dayRailStyleNone),
-                    ),
-                    ButtonSegment(
-                      value: DayRailStyle.line,
-                      label: Text(l10n.dayRailStyleLine),
-                    ),
-                    ButtonSegment(
-                      value: DayRailStyle.dot,
-                      label: Text(l10n.dayRailStyleDot),
-                    ),
-                  ],
-                  selected: {_appearance.dayRailStyle},
-                  showSelectedIcon: false,
-                  onSelectionChanged: (sel) async {
-                    _onHapticFeedback();
-                    setState(
-                      () => _appearance = _appearance.copyWith(
-                        dayRailStyle: sel.first,
-                      ),
-                    );
-                    await _settings?.setCalendarDayRailStyle(sel.first);
-                  },
-                ),
-              ],
-            ),
+          builder: (context, title, description) => settingsChoiceRow(
+            title: title,
+            description: description,
+            value: _appearance.dayRailStyle,
+            labels: {
+              DayRailStyle.none: l10n.dayRailStyleNone,
+              DayRailStyle.line: l10n.dayRailStyleLine,
+              DayRailStyle.dot: l10n.dayRailStyleDot,
+            },
+            onChanged: (value) async {
+              _onHapticFeedback();
+              setState(
+                () => _appearance = _appearance.copyWith(dayRailStyle: value),
+              );
+              await _settings?.setCalendarDayRailStyle(value);
+            },
           ),
         ),
         // Only reachable with the rail on, like the tint-conflict row: there
@@ -708,42 +620,23 @@ class _CalendarAppearancePageState extends State<CalendarAppearancePage> {
             title: l10n.calendarDayRailBasePositionTitle,
             description: l10n.calendarDayRailBasePositionDesc,
             keywords: [l10n.calendarTintConflictFasting],
-            builder: (context, title, description) => Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  title,
-                  const SizedBox(height: 4),
-                  ?description,
-                  const SizedBox(height: 8),
-                  SegmentedButton<DayRailBasePosition>(
-                    segments: [
-                      ButtonSegment(
-                        value: DayRailBasePosition.top,
-                        label: Text(l10n.dayRailBasePositionTop),
-                      ),
-                      ButtonSegment(
-                        value: DayRailBasePosition.bottom,
-                        label: Text(l10n.dayRailBasePositionBottom),
-                      ),
-                    ],
-                    selected: {_appearance.dayRailBasePosition},
-                    showSelectedIcon: false,
-                    onSelectionChanged: (sel) async {
-                      _onHapticFeedback();
-                      setState(
-                        () => _appearance = _appearance.copyWith(
-                          dayRailBasePosition: sel.first,
-                        ),
-                      );
-                      await _settings?.setCalendarDayRailBasePosition(
-                        sel.first,
-                      );
-                    },
+            builder: (context, title, description) => settingsChoiceRow(
+              title: title,
+              description: description,
+              value: _appearance.dayRailBasePosition,
+              labels: {
+                DayRailBasePosition.top: l10n.dayRailBasePositionTop,
+                DayRailBasePosition.bottom: l10n.dayRailBasePositionBottom,
+              },
+              onChanged: (value) async {
+                _onHapticFeedback();
+                setState(
+                  () => _appearance = _appearance.copyWith(
+                    dayRailBasePosition: value,
                   ),
-                ],
-              ),
+                );
+                await _settings?.setCalendarDayRailBasePosition(value);
+              },
             ),
           ),
       ],
@@ -893,6 +786,8 @@ class _CalendarAppearancePageState extends State<CalendarAppearancePage> {
         SettingsEntry(
           title: l10n.calendarShowRecurrenceLabels,
           description: l10n.calendarShowRecurrenceLabelsDesc,
+          // The editor's word for it: the German row says "Rhythmus".
+          keywords: [l10n.eventRepeat],
           builder: (context, title, description) => SwitchListTile(
             value: _appearance.showRecurrenceLabels,
             secondary: Icon(Icons.repeat_rounded, color: colorScheme.primary),

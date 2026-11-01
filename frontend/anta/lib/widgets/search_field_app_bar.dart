@@ -7,6 +7,7 @@ import '../controllers/in_place_search_controller.dart';
 import '../l10n/app_localizations.dart';
 import '../models/item_label.dart';
 import '../models/search_scope.dart';
+import 'app_bar_heading.dart';
 import 'search_surface.dart';
 
 /// The bar a page wears while it is searching in place: a field where its
@@ -71,6 +72,7 @@ class SearchFieldAppBar extends StatelessWidget {
         tooltip: MaterialLocalizations.of(context).backButtonTooltip,
         onPressed: onLeave,
       ),
+      excludeHeaderSemantics: true,
       title: SearchBarField(
         controller: search.textController,
         focusNode: search.focusNode,
@@ -126,8 +128,23 @@ class SearchBarField extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    return Semantics(
-      identifier: SemanticsIds.searchField,
+    // The field is the bar's title, so it is the page's level-1 heading over
+    // the results' level-2 sections: `AppBar`'s own heading around it had no
+    // label (the field is a node of its own), so the bars exclude it and the
+    // field's node, merged, carries the heading. The hint names it, and once
+    // a query replaces the hint the label keeps it — only then, or TalkBack
+    // would say it twice.
+    return ListenableBuilder(
+      listenable: controller,
+      builder: (context, field) => MergeSemantics(
+        child: AppBarHeading(
+          identifier: SemanticsIds.searchField,
+          child: Semantics(
+            label: controller.text.isEmpty ? null : hintText,
+            child: field,
+          ),
+        ),
+      ),
       child: TextField(
         controller: controller,
         focusNode: focusNode,

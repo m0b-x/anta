@@ -232,8 +232,9 @@ class CategoryEditorRobot {
   }
 
   /// The read-only name a built-in shows, or null for a custom category.
-  String? get builtInNameText =>
-      _shown(_builtInRow) ? tester.widget<FormPickerRow>(_builtInRow).label : null;
+  String? get builtInNameText => _shown(_builtInRow)
+      ? tester.widget<FormPickerRow>(_builtInRow).label
+      : null;
 
   bool get builtInCaptionShown => _shown(_in(find.text(_l10n.categoryDefault)));
 
@@ -247,12 +248,15 @@ class CategoryEditorRobot {
       tester.getSemantics(_builtInRow).childrenCount == 0;
 
   /// The duplicate warning under the name, or null while there is none.
-  String? get warningText =>
-      _shown(_warningLine) ? tester.widget<FormCaption>(_warningLine).text : null;
+  String? get warningText => _shown(_warningLine)
+      ? tester.widget<FormCaption>(_warningLine).text
+      : null;
 
   /// The colour the warning is drawn in.
   Color? get warningColor => tester
-      .widget<Text>(find.descendant(of: _warningLine, matching: find.byType(Text)))
+      .widget<Text>(
+        find.descendant(of: _warningLine, matching: find.byType(Text)),
+      )
       .style
       ?.color;
 
@@ -285,7 +289,9 @@ class CategoryEditorRobot {
       name,
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.descendant(of: _picker, matching: find.byTooltip(name)));
+    await tester.tap(
+      find.descendant(of: _picker, matching: find.byTooltip(name)),
+    );
     await tester.pumpAndSettle();
   }
 

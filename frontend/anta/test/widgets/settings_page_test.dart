@@ -21,6 +21,8 @@ import 'package:anta/widgets/settings_search_field.dart';
 import 'package:anta/widgets/settings_section_list.dart';
 
 import '../database/support/db_test_support.dart';
+import '../goldens/support/golden_fonts.dart';
+import 'support/settings_page_whole.dart';
 
 /// The label-style row on the settings page, against a real in-memory
 /// database.
@@ -393,5 +395,26 @@ void main() {
 
       await tester.pumpWidget(const SizedBox.shrink());
     });
+  });
+
+  // Last in the file: the real fonts stay registered once loaded, and the
+  // cases above were written against the test font.
+  group('large text with real fonts', () {
+    setUpAll(loadGoldenFonts);
+
+    for (final locale in const [Locale('de'), Locale('ro')]) {
+      testWidgets('${locale.languageCode} at 2.0 on a 360 × 780 phone breaks '
+          'no text on the page inside a word', (tester) async {
+        await pumpPage(
+          tester,
+          size: const Size(360, 780),
+          locale: locale,
+          textScale: 2.0,
+        );
+        await expectPageWhole(tester);
+
+        await tester.pumpWidget(const SizedBox.shrink());
+      });
+    }
   });
 }

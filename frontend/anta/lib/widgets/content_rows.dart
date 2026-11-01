@@ -106,9 +106,7 @@ class ContentRowShell extends StatelessWidget {
                           width: 1,
                         ),
                         borderRadius: const BorderRadius.horizontal(
-                          right: Radius.circular(
-                            RowMetrics.labelStripeRadius,
-                          ),
+                          right: Radius.circular(RowMetrics.labelStripeRadius),
                         ),
                       ),
                     ),
@@ -202,13 +200,16 @@ class ContentSectionHeader extends StatelessWidget {
       ),
     );
     // A heading with a level, as the settings kit's section labels are: the
-    // level is what reaches TalkBack's heading navigation.
+    // level is what reaches TalkBack's heading navigation. It speaks the
+    // label as written, as the kit's does: TalkBack can spell a short word
+    // in capitals letter by letter.
     return Semantics(
       container: true,
       header: true,
       headingLevel: 2,
       identifier: identifier,
-      child: header,
+      label: label,
+      child: ExcludeSemantics(child: header),
     );
   }
 }
@@ -231,9 +232,7 @@ class RowCountChevron extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       children: [
         ConstrainedBox(
-          constraints: const BoxConstraints(
-            minWidth: RowMetrics.countMinWidth,
-          ),
+          constraints: const BoxConstraints(minWidth: RowMetrics.countMinWidth),
           child: Text(
             value == null ? '' : '$value',
             textAlign: TextAlign.end,

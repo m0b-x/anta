@@ -81,13 +81,12 @@ void main() {
   // hand the next one a browser it never asked for.
   tearDown(() => LabelAppearance.style.value = LabelStyle.dot);
 
-  Folder folderNamed(String name, {ItemLabel label = ItemLabel.none}) =>
-      Folder(
-        id: 'f-$name',
-        name: name,
-        createdAt: DateTime(2026, 1, 1),
-        label: label,
-      );
+  Folder folderNamed(String name, {ItemLabel label = ItemLabel.none}) => Folder(
+    id: 'f-$name',
+    name: name,
+    createdAt: DateTime(2026, 1, 1),
+    label: label,
+  );
 
   NoteMetadata noteNamed(
     String title, {
@@ -112,9 +111,7 @@ void main() {
         theme: AppTheme.light(),
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
-        home: Scaffold(
-          body: ListView(children: [child]),
-        ),
+        home: Scaffold(body: ListView(children: [child])),
       ),
     );
     await tester.pump();
@@ -227,15 +224,15 @@ void main() {
       expect(text.style!.fontSize, 11);
       expect(text.style!.fontWeight, FontWeight.w500);
       expect(text.style!.letterSpacing, 0.88);
-      expect(
-        text.style!.color,
-        AppTheme.lightScheme.onSurfaceVariant,
-      );
+      expect(text.style!.color, AppTheme.lightScheme.onSurfaceVariant);
       expect(tester.getTopLeft(find.byType(Text)).dx, 20);
     });
 
-    testWidgets('a section label is one level-2 heading node with its words, '
-        'carrying its id when it has one', (tester) async {
+    // Spoken as written, not in the capitals it is drawn in: TalkBack can
+    // spell a short all-caps word letter by letter (a review probe heard
+    // "IN USE", "ARCHIVED").
+    testWidgets('a section label is one level-2 heading node with its words '
+        'as written, carrying its id when it has one', (tester) async {
       await pump(
         tester,
         ContentSectionHeader(label: l10n.folders, identifier: 'section-x'),
@@ -243,7 +240,7 @@ void main() {
       final data = tester
           .getSemantics(find.bySemanticsIdentifier('section-x'))
           .getSemanticsData();
-      expect(data.label, l10n.folders.toUpperCase());
+      expect(data.label, l10n.folders);
       expect(data.flagsCollection.isHeader, isTrue);
       expect(data.headingLevel, 2);
 
@@ -251,7 +248,7 @@ void main() {
       final plain = tester
           .getSemantics(find.text(l10n.folders.toUpperCase()))
           .getSemanticsData();
-      expect(plain.label, l10n.folders.toUpperCase());
+      expect(plain.label, l10n.folders);
       expect(plain.flagsCollection.isHeader, isTrue);
       expect(plain.headingLevel, 2);
     });
@@ -462,7 +459,9 @@ void main() {
       await pumpFolder(tester);
       final withoutCount = tester.getSize(find.byType(InkWell));
       final nameLeft = tester.getTopLeft(find.text('Training')).dx;
-      final chevronLeft = tester.getTopLeft(find.byIcon(Icons.chevron_right)).dx;
+      final chevronLeft = tester
+          .getTopLeft(find.byIcon(Icons.chevron_right))
+          .dx;
 
       await pumpFolder(tester, count: 123);
 
@@ -975,10 +974,7 @@ void main() {
         ),
       );
 
-      expect(
-        find.byType(ValueListenableBuilder<LabelStyle>),
-        findsNWidgets(2),
-      );
+      expect(find.byType(ValueListenableBuilder<LabelStyle>), findsNWidgets(2));
     });
 
     testWidgets('in the stripe style a labelled note row trades its dot for '
@@ -1219,10 +1215,7 @@ void main() {
       required ItemLabel value,
       required ValueChanged<ItemLabel> onChanged,
     }) {
-      return pump(
-        tester,
-        LabelSwatchStrip(value: value, onChanged: onChanged),
-      );
+      return pump(tester, LabelSwatchStrip(value: value, onChanged: onChanged));
     }
 
     testWidgets('draws a clear swatch plus the seven colours', (tester) async {
@@ -1242,7 +1235,10 @@ void main() {
         Center(
           child: SizedBox(
             width: 360,
-            child: LabelSwatchStrip(value: ItemLabel.none, onChanged: picked.add),
+            child: LabelSwatchStrip(
+              value: ItemLabel.none,
+              onChanged: picked.add,
+            ),
           ),
         ),
       );

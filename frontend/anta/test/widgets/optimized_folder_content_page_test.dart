@@ -809,6 +809,41 @@ void main() {
       await teardownPage(tester);
     });
 
+    // A review probe: FOLDERS / NOTES were level 2 under `AppBar`'s heading,
+    // which had no level, and no label while the bar was expanded.
+    testWidgets('the folder\'s name is the one level-1 heading, expanded and '
+        'collapsed, over the level-2 sections', (tester) async {
+      final semantics = tester.ensureSemantics();
+      List<SemanticsData> headings() => find.semantics
+          .byPredicate((node) {
+            final data = node.getSemanticsData();
+            return !node.isMergedIntoParent &&
+                (data.flagsCollection.isHeader || data.headingLevel > 0);
+          })
+          .evaluate()
+          .map((node) => node.getSemanticsData())
+          .toList();
+      await pumpPage(tester, folderId: child.id, title: 'Winter block');
+
+      final expanded = headings();
+      expect(expanded.map((h) => (h.label, h.headingLevel)).first, (
+        'Winter block',
+        1,
+      ));
+      expect(expanded.where((h) => h.headingLevel == 1), hasLength(1));
+      expect(expanded.skip(1).map((h) => h.headingLevel), [2, 2]);
+      expect(expanded.where((h) => h.label.isEmpty), isEmpty);
+
+      final position = scrollPosition(tester);
+      position.jumpTo(position.maxScrollExtent);
+      await tester.pumpAndSettle();
+      final collapsed = headings().where((h) => h.headingLevel == 1);
+      expect(collapsed.map((h) => h.label), ['Winter block']);
+
+      await teardownPage(tester);
+      semantics.dispose();
+    });
+
     testWidgets('scrolling past the threshold hands the title to the toolbar', (
       tester,
     ) async {

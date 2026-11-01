@@ -1010,6 +1010,53 @@ void main() {
       );
     });
 
+    testWidgets('a drop in the frame between a catalogue change and the '
+        'rebuild writes nothing: the dropped list and the catalogue '
+        'disagree', (tester) async {
+      final gone = await custom('Pilates');
+      await custom('Fitness');
+      await pumpPage(tester);
+      final inUse = CalendarCategories.all.where((c) => !c.isHidden).length;
+
+      // The pull lands under the page and its signal is delivered — the
+      // page takes the new catalogue — but no frame has rebuilt the list,
+      // so the sliver still carries the drop handler over the old entries.
+      // Drained as `settleWrites` does, with `idle` for the frames: it
+      // flushes the fake zone's microtasks and draws nothing.
+      var landed = false;
+      unawaited(
+        db.calendarCategoryDao
+            .softDeleteById(gone.id)
+            .then((_) => service.reload())
+            .then((_) => landed = true),
+      );
+      for (var i = 0; i < 20 && !landed; i++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 10)),
+        );
+        await tester.idle();
+      }
+      expect(landed, isTrue);
+      final before = await stored(tester);
+      CalendarEventService.notifyExternalChange();
+      await tester.idle();
+      expect(find.text('Pilates'), findsOneWidget, reason: 'not rebuilt yet');
+
+      // The first in-use row (entry 1, under its header) to the end of its
+      // section: past the tombstone, so a write of the old list would hand
+      // `reorder` the dead id and drop a live one.
+      tester
+          .widget<SliverReorderableList>(find.byType(SliverReorderableList))
+          .onReorderItem!(1, inUse);
+      await settleWrites(tester);
+
+      expect(tester.takeException(), isNull);
+      // Neither the dead id nor a live one in a slot the drop never meant:
+      // the next build lists what is stored, and the next drop writes it.
+      expect(await stored(tester), before, reason: 'nothing written');
+      expect(find.text('Pilates'), findsNothing);
+    });
+
     testWidgets('a write that fails says so', (tester) async {
       await pumpPage(tester);
       // What a multi-database switch leaves behind a page that stayed open.
@@ -1479,6 +1526,61 @@ void main() {
       expect(rows.map((r) => r.id).toList(), ids, reason: 'persisted');
     });
 
+    // A review probe: such a drop is clamped back where it was, and the
+    // reorder still ran, republishing the catalogue under a new stamp.
+    testWidgets('a drop clamped back into the row\'s own slot writes nothing '
+        'and republishes nothing', (tester) async {
+      final pilates = await custom('Pilates');
+      final yoga = await custom('Yoga');
+      await service.setHidden(pilates.id, true);
+      await service.setHidden(yoga.id, true);
+      await pumpPage(tester);
+      final before = await stored(tester);
+      final revision = CalendarCategories.revision;
+      final order = CalendarCategories.all.map((c) => c.id).toList();
+      Rect rowRect(String id) => tester.getRect(
+        find.ancestor(
+          of: byId(SemanticsIds.categoryRow(id)),
+          matching: find.byType(ContentRowShell),
+        ),
+      );
+      Future<void> dragBy(String id, double dy) async {
+        final from = tester.getCenter(handleOf(id));
+        await dragFromTo(tester, from, from + Offset(0, dy));
+      }
+
+      void expectNothingWritten(String drop) {
+        expect(
+          CalendarCategories.all.map((c) => c.id).toList(),
+          order,
+          reason: drop,
+        );
+        expect(
+          CalendarCategories.revision,
+          revision,
+          reason: '$drop: no reorder reached the service',
+        );
+      }
+
+      // In use's first row carried well past its own header, the list's top:
+      // the drop reads index 0 and is clamped back to slot 1.
+      final inUse = tester.getRect(
+        byId(SemanticsIds.categorySectionInUseHeader),
+      );
+      await dragBy('gym', -2 * (rowRect('gym').height + inUse.height));
+      expectNothingWritten('In use\'s first row on its header');
+
+      // In use's last row carried just past the Archived header: clamped
+      // back to In use's last slot.
+      final archived = tester.getRect(
+        byId(SemanticsIds.categorySectionArchivedHeader),
+      );
+      await dragBy('other', archived.height + rowRect('other').height / 3);
+      expectNothingWritten('In use\'s last row on the Archived header');
+
+      expect(await stored(tester), before);
+    });
+
     testWidgets('a short tap on the handle opens nothing; a tap on the texts '
         'opens the editor', (tester) async {
       final fitness = await custom('Fitness');
@@ -1838,6 +1940,32 @@ void main() {
     });
   });
 
+  // A review probe: IN USE and ARCHIVED were level 2 under a bar title of
+  // no level.
+  testWidgets('the bar\'s title is the one level-1 heading, over the two '
+      'level-2 section headers spoken as written', (tester) async {
+    final semantics = tester.ensureSemantics();
+    await service.setHidden('rest', true);
+    await pumpPage(tester);
+    final l10n = l10nOf(tester);
+
+    final headings = find.semantics
+        .byPredicate((node) {
+          final data = node.getSemanticsData();
+          return data.flagsCollection.isHeader || data.headingLevel > 0;
+        })
+        .evaluate()
+        .map((node) => node.getSemanticsData())
+        .map((data) => (data.label, data.headingLevel))
+        .toList();
+    expect(headings, [
+      (l10n.calendarCategories, 1),
+      (l10n.categorySectionInUse, 2),
+      (l10n.categorySectionArchived, 2),
+    ]);
+    semantics.dispose();
+  });
+
   group('accessibility guidelines', () {
     // The query runs put the reorder hint on screen; the last one raises the
     // keyboard over it as well.
@@ -1888,14 +2016,7 @@ void main() {
             await tester.pump();
           }
           await expectLater(tester, meetsGuideline(androidTapTargetGuideline));
-          await expectLater(
-            tester,
-            meetsGuideline(
-              query
-                  ? const _MergedTextFieldsAsideLabelGuideline()
-                  : labeledTapTargetGuideline,
-            ),
-          );
+          await expectLater(tester, meetsGuideline(labeledTapTargetGuideline));
           await expectLater(
             tester,
             meetsGuideline(const _HeadersAsideContrastGuideline()),
@@ -1915,53 +2036,6 @@ void main() {
       });
     }
   });
-}
-
-/// Flutter's labelled-tap-target guideline with the text-field flag read
-/// from the node's merged data. The stock check means to skip text fields
-/// but reads the node's own flags, and the search field sits under an
-/// `AutomationId`'s `MergeSemantics`: once a query replaces the hint the
-/// field has no label and the stock check reports it. Every other node is
-/// judged as the stock guideline judges it.
-class _MergedTextFieldsAsideLabelGuideline extends AccessibilityGuideline {
-  const _MergedTextFieldsAsideLabelGuideline();
-
-  @override
-  String get description =>
-      '${labeledTapTargetGuideline.description}, merged text fields aside';
-
-  @override
-  FutureOr<Evaluation> evaluate(WidgetTester tester) {
-    var result = const Evaluation.pass();
-    for (final view in tester.binding.renderViews) {
-      result += _traverse(view.owner!.semanticsOwner!.rootSemanticsNode!);
-    }
-    return result;
-  }
-
-  Evaluation _traverse(SemanticsNode node) {
-    var result = const Evaluation.pass();
-    node.visitChildren((child) {
-      result += _traverse(child);
-      return true;
-    });
-    if (node.isMergedIntoParent || node.isInvisible) return result;
-    final data = node.getSemanticsData();
-    if (data.flagsCollection.isHidden || data.flagsCollection.isTextField) {
-      return result;
-    }
-    if (!data.hasAction(SemanticsAction.longPress) &&
-        !data.hasAction(SemanticsAction.tap)) {
-      return result;
-    }
-    if (data.label.isEmpty && data.tooltip.isEmpty) {
-      result += Evaluation.fail(
-        '$node: expected tappable node to have semantic label, '
-        'but none was found.',
-      );
-    }
-    return result;
-  }
 }
 
 /// Android's text-contrast guideline with the section headers taken out by

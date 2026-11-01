@@ -36,7 +36,7 @@ wait id:settings-bar-hub
 tap id:settings-hub-search
 type "Developer"
 wait id:settings-hub-row-developerOptions
-expect --absent id:settings-hub-row-permissions
+expect --absent id:settings-hub-row-calendarSettings
 tap id:settings-hub-row-developerOptions
 wait id:settings-bar-developer
 expect id:developer-options-list

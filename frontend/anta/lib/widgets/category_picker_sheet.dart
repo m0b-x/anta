@@ -395,4 +395,3 @@ class _CategoryPickerSheetState extends State<CategoryPickerSheet> {
     );
   }
 }
-

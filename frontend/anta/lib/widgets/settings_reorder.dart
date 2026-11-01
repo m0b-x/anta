@@ -53,7 +53,8 @@ class ReorderHandle extends StatelessWidget {
       handle = Semantics(label: name, child: handle);
     }
     final at = index;
-    if (at == null) return handle;
+    // A disabled handle never drags, whatever index it was handed.
+    if (at == null || !enabled) return handle;
     return ReorderableDragStartListener(index: at, child: handle);
   }
 }
