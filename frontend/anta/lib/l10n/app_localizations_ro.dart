@@ -6878,11 +6878,6 @@ class AppLocalizationsRo extends AppLocalizations {
   String get calendarGuideStepDone => 'Făcut';
 
   @override
-  String calendarGuideCoachScreenTitle(String calendar) {
-    return 'Atinge „$calendar” sus: titlul este un meniu cu moduri de afișare.';
-  }
-
-  @override
   String get calendarGuideCoachScreenMore =>
       'Acum atinge cele trei puncte din dreapta sus: meniul calendarului.';
 
@@ -6896,26 +6891,29 @@ class AppLocalizationsRo extends AppLocalizations {
   }
 
   @override
-  String get calendarGuideCardGrid => 'Grila lunii';
+  String calendarGuideCoachScreenOverview(String overview) {
+    return 'Atinge titlul de sus și alege „$overview”: titlul e un meniu de vederi.';
+  }
 
   @override
-  String get calendarGuideCardPanel => 'Panoul de sub ea';
-
-  @override
-  String get calendarGuideCardOverview => 'Sumarul';
+  String calendarGuideCoachScreenReport(String report) {
+    return 'Atinge titlul de sus și alege „$report”: numără ce s-a întâmplat.';
+  }
 
   @override
   String calendarGuideCoachOverviewMode(
+    String overview,
     String year,
     String month,
     String list,
   ) {
-    return 'Atinge „$year”, „$month” sau „$list”: trei feluri de a vedea aceleași evenimente.';
+    return 'În „$overview”, atinge „$year”, „$month” sau „$list”: trei feluri de a vedea aceleași evenimente.';
   }
 
   @override
-  String get calendarGuideCoachOverviewPeriod =>
-      'Săgețile dau înainte și înapoi; butonul dintre ele te aduce la azi.';
+  String calendarGuideCoachOverviewPeriod(String overview) {
+    return 'În „$overview”, săgețile dau înainte și înapoi; butonul dintre ele te aduce la azi.';
+  }
 
   @override
   String calendarGuideCoachEventsAdd(String save) {

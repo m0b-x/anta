@@ -159,24 +159,23 @@ abstract final class GuideMetrics {
   /// draws them.
   static const double practiceMarkerInset = 4;
 
-  /// The screen page's panel card: the mode bar and the slot under it that
-  /// each of the three bodies scrolls inside — about three of the Day
-  /// panel's rows at 1.0 — so a mode switch changes what the slot holds and
-  /// never the card's height. Under half a 732 dp viewport, so the page
-  /// around it stays in reach.
-  static const double panelStageHeight = 300;
+  /// The screen page's one stage (D77): the view's bar over the Calendar's
+  /// grid and panel, the Overview or the Report, at one height whichever
+  /// view, format or month is shown, so a switch through the title menu
+  /// never moves the page. At 1.0 the month grid leaves the panel's mode
+  /// bar and about one Day row under it, and the coach line and that mode
+  /// bar share a 780 dp screen.
+  static const double screenStageHeight = 668;
 
-  /// The panel slot grows with the text up to this scale, 390 dp, and no
-  /// further (D69): the mode bar is the real one and grows with the text,
-  /// and at 2.0 a fixed 300 left the Day body about 200 dp under it — not
-  /// one whole row. 390 still sits under half a 732 dp viewport.
-  static const double panelStageMaxTextScale = 1.3;
+  /// The part of [screenStageHeight] that grows with the text: the panel's,
+  /// whose mode bar and rows are the real ones. The bar and the grid above
+  /// it keep their place, so only this share scales.
+  static const double screenStagePanelShare = 128;
 
-  /// The overview card's slot under its nav, one for Year, Month and List,
-  /// each body scrolling inside it: at 1.0 about a mini month, the picked
-  /// day's rows a scroll below it, or three rows of tiles — under half a
-  /// 732 dp viewport, as the panel card's.
-  static const double overviewStageBodyHeight = 360;
+  /// The panel's share grows with the text up to this scale, 706 dp in all,
+  /// and no further (D69's clamp): past it a taller stage would no longer
+  /// leave the page around it in reach.
+  static const double screenStageMaxTextScale = 1.3;
 
   /// The fasting card's day panel under its grid: the date and two rows at
   /// 1.0 — a fast with its rule and the weekend, the most a day here says

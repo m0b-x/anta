@@ -4,14 +4,12 @@ import 'package:flutter/material.dart';
 
 import '../constants/app_colors.dart';
 import '../constants/calendar_bounds.dart';
-import '../constants/guide_metrics.dart';
 import '../constants/row_metrics.dart';
 import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
 import '../models/agenda_day_list.dart';
 import '../models/agenda_day_list_mode.dart';
 import '../models/calendar_appearance.dart';
-import '../models/calendar_guide_content.dart';
 import '../models/calendar_guide_demo.dart';
 import '../models/overview_period.dart';
 import '../utils/agenda_month_store.dart';
@@ -21,45 +19,51 @@ import 'agenda_list_view.dart';
 import 'agenda_month_grid.dart';
 import 'agenda_period_nav.dart';
 import 'agenda_year_grid.dart';
-import 'calendar_guide_stage_slot.dart';
-import 'calendar_guide_try_card.dart';
 import 'calendar_guide_try_screen.dart';
 import 'form_rows.dart';
 import 'overview_mode_chips.dart';
 import 'year_month_tile.dart';
 
-/// The screen page's third card: the overview over the screen page's demo —
-/// its chip row, its period nav and the mode's body in one slot — drawn by
-/// the overview's own widgets over a real [AgendaMonthStore] whose resolvers
-/// scan the demo, so the tiles, the mini month and the rows are the ones the
-/// overview would draw for these events (D59). Nothing opens: the rows have
-/// no tap and no presence button, the search is drawn disabled (D57).
+/// The screen stage's Overview view (D73): its chip row, its period nav and
+/// the mode's body, drawn by the overview's own widgets over a real
+/// [AgendaMonthStore] whose resolvers scan the screen page's demo, so the
+/// tiles, the mini month and the rows are the ones the overview would draw
+/// for these events (D59). Nothing opens: the rows have no tap and no
+/// presence button, the search is drawn disabled (D57).
+///
+/// Owned by [GuideScreenDemo], whose coach it reports its steps to; it keeps
+/// what she did here — the mode, the month or year, the whole month — while
+/// the stage shows another view (D83). It hears the shared demo through the
+/// screen demo ([syncWorld]), never on its own, so one pick is one redraw.
 ///
 /// Year mode draws one year at a time in [AgendaYearGrid], the day list's
 /// own year grid, ◄ ► stepping it. The overview page scrolls its years
 /// continuously through `AgendaYearScroll`, with its scrubber, its landings
-/// and its runs between frames; a card's slot cannot hold that, and a
-/// scroll of years inside a scroll of a page would be the hardest of the
-/// three modes to read on a phone. Month and List show one month, ◄ ►
-/// stepping it (D68): a year of rows in a 360 dp slot held the page
-/// mid-screen under a finger that only meant to scroll past it.
-class GuideOverviewDemo extends GuideCardDemo {
-  GuideOverviewDemo(this.world)
-    : super(CalendarGuideTopic.screen.card(GuideCardSpec.screenOverview)) {
-    world.addListener(_onWorld);
-    _onWorld();
+/// and its runs between frames; a stage cannot hold that, and a scroll of
+/// years inside a scroll of a page would be the hardest of the three modes
+/// to read on a phone. Month and List show one month, ◄ ► stepping it
+/// (D68): a year of rows in a stage held the page mid-screen under a finger
+/// that only meant to scroll past it.
+class GuideOverviewView extends ChangeNotifier {
+  GuideOverviewView(this.world, {required this.onStep, required this.onPick}) {
+    syncWorld();
   }
 
-  static const String slug = GuideCardSpec.screenOverview;
+  /// The ids' slug: the overview card's, which the view's controls kept when
+  /// the card became a view of the screen stage (D86).
+  static const String slug = 'overview';
 
   final GuideScreenWorld world;
 
-  @override
-  bool get stageFullBleed => true;
+  /// A coach step done here — `mode` or `period`.
+  final ValueChanged<String> onStep;
+
+  /// A day of the mini month picked as the shared day, which the screen demo
+  /// sets on the shared demo for the grid and the panel too.
+  final ValueChanged<DateTime> onPick;
 
   /// Month, on the shared day's month (D68): the page opens on the tiles,
-  /// but a card's slot showed nine of them with the seeded month below its
-  /// fold.
+  /// but a stage showed nine of them with the seeded month below its fold.
   AgendaDayListMode _mode = AgendaDayListMode.month;
   int _year = 0;
   DateTime _month = DateTime.utc(0);
@@ -73,9 +77,14 @@ class GuideOverviewDemo extends GuideCardDemo {
 
   /// Month mode lists the whole month while set, the picked day's rows
   /// otherwise — the overview's toggle, a second tap on the picked day. The
-  /// shared day itself stays picked: the panel card shows it.
+  /// shared day itself stays picked: the Calendar's panel shows it.
   bool _wholeMonth = false;
   DateTime? _seenPick;
+
+  /// The shared day when the stage last left this view: a different one on
+  /// [enter] means she picked a day on the grid, and the view opens on its
+  /// month (D83).
+  DateTime? _pickWhenLeft;
 
   /// Each resolved month's days with any occurrence, missed or kept, folded
   /// in [_resolve] before the hidden display drops anything: what makes a
@@ -103,15 +112,12 @@ class GuideOverviewDemo extends GuideCardDemo {
   List<String> _titleTemplates = const [];
   Object? _templatesKey;
 
-  @override
-  void dispose() {
-    world.removeListener(_onWorld);
-    super.dispose();
-  }
-
   GuideDemoCalendar get _calendar => world.calendar!;
 
-  void _onWorld() {
+  /// The shared demo changed — her look, her categories, a pick on the grid:
+  /// the store follows the demo, and Month lists a new pick. The screen
+  /// demo redraws after it.
+  void syncWorld() {
     final calendar = world.calendar;
     final l10n = world.l10n;
     if (calendar == null || l10n == null) return;
@@ -120,6 +126,7 @@ class GuideOverviewDemo extends GuideCardDemo {
       if (_storeKey == null) {
         _year = calendar.selectedDay.year;
         _month = AgendaMonthStore.monthOf(calendar.selectedDay);
+        _pickWhenLeft = calendar.selectedDay;
       }
       _storeKey = key;
       _occurrenceMask.clear();
@@ -131,13 +138,28 @@ class GuideOverviewDemo extends GuideCardDemo {
       _seenPick = calendar.selectedDay;
       _resolveShown();
     } else if (calendar.selectedDay != _seenPick) {
-      // A new pick, here or on another card: Month lists that day.
+      // A new pick, here or on the grid: Month lists that day.
       _seenPick = calendar.selectedDay;
       _wholeMonth = false;
       if (_mode == AgendaDayListMode.month) _foldMonthRows();
     }
-    notifyListeners();
   }
+
+  /// The stage switched to this view. A day picked on the grid since it
+  /// left moves the month and the year to that day's (D83); otherwise the
+  /// view is as she left it.
+  void enter() {
+    final picked = _calendar.selectedDay;
+    if (picked == _pickWhenLeft) return;
+    _pickWhenLeft = picked;
+    _month = AgendaMonthStore.monthOf(picked);
+    _year = picked.year;
+    _navigation++;
+    _resolveShown();
+  }
+
+  /// The stage switched away from this view.
+  void leave() => _pickWhenLeft = _calendar.selectedDay;
 
   /// Every occurrence of the demo from [start] to [end], in the order the
   /// panels list a day — its rules less its skips, as the grid shows them.
@@ -322,7 +344,7 @@ class GuideOverviewDemo extends GuideCardDemo {
     _mode = mode;
     _navigation++;
     _resolveShown();
-    did('mode');
+    onStep('mode');
   }
 
   /// A year tile opens its month, as the overview's do.
@@ -331,7 +353,7 @@ class GuideOverviewDemo extends GuideCardDemo {
     _month = AgendaMonthStore.monthOf(month);
     _navigation++;
     _resolveShown();
-    changed();
+    notifyListeners();
   }
 
   /// Month and List step a month, Year a year.
@@ -358,7 +380,7 @@ class GuideOverviewDemo extends GuideCardDemo {
     }
     _navigation++;
     _resolveShown();
-    did('period');
+    onStep('period');
   }
 
   bool get _atToday {
@@ -374,32 +396,29 @@ class GuideOverviewDemo extends GuideCardDemo {
     _year = today.year;
     _navigation++;
     _resolveShown();
-    did('period');
+    onStep('period');
   }
 
   /// A swipe on the mini month: its page, not a step of the nav.
   void _turnMonth(DateTime month) {
     _month = month;
     _resolveShown();
-    changed();
+    notifyListeners();
   }
 
   /// A day of the mini month picks the demo's day, so the grid and the
-  /// panel above show it too — one notification, the shared demo's, which
-  /// this card hears as well. The picked day tapped again lists the whole
-  /// month, and once more the day again; the shared day stays as it is.
+  /// panel show it too — one notification, the shared demo's, which this
+  /// view hears through the screen demo. The picked day tapped again lists
+  /// the whole month, and once more the day again; the shared day stays as
+  /// it is.
   void _pickDay(DateTime day) {
-    final calendar = _calendar;
-    if (day == calendar.selectedDay) {
+    if (day == _calendar.selectedDay) {
       _wholeMonth = !_wholeMonth;
       _foldMonthRows();
-      changed();
+      notifyListeners();
       return;
     }
-    calendar.selectedDay = day;
-    calendar.focus(day);
-    dropReport();
-    world.touch();
+    onPick(day);
   }
 
   List<String> _templates(AppLocalizations l10n) {
@@ -425,25 +444,29 @@ class GuideOverviewDemo extends GuideCardDemo {
   String _control(String name) =>
       SemanticsIds.calendarGuideTryControl(slug, name);
 
-  @override
-  Widget buildStage(BuildContext context) {
+  /// The view under its bar: the chips, the nav and the mode's body, which
+  /// takes the rest of the stage and scrolls inside it.
+  Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final colorScheme = Theme.of(context).colorScheme;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        OverviewModeChips(
-          mode: _mode,
-          onSelected: _selectMode,
-          modeIdentifier: (mode) => _control('mode-${mode.name}'),
-          // Disabled, never hidden: the demo has nothing to search.
-          onSearch: null,
-          searchActive: false,
-          searchIdentifier: _control('search'),
+        // The overview page's air between its bar and its chips.
+        Padding(
+          padding: const EdgeInsets.only(top: FormMetrics.bodyTop),
+          child: OverviewModeChips(
+            mode: _mode,
+            onSelected: _selectMode,
+            modeIdentifier: (mode) => _control('mode-${mode.name}'),
+            // Disabled, never hidden: the demo has nothing to search.
+            onSearch: null,
+            searchActive: false,
+            searchIdentifier: _control('search'),
+          ),
         ),
         _nav(l10n),
-        GuideStageSlot(
-          height: GuideMetrics.overviewStageBodyHeight,
+        Expanded(
           child: switch (_mode) {
             AgendaDayListMode.year => _yearBody(colorScheme),
             AgendaDayListMode.month => _monthBody(l10n),

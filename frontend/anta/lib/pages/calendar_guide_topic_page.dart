@@ -20,7 +20,6 @@ import '../widgets/calendar_guide_try_card.dart';
 import '../widgets/calendar_guide_try_events.dart';
 import '../widgets/calendar_guide_try_fasting.dart';
 import '../widgets/calendar_guide_try_kinds.dart';
-import '../widgets/calendar_guide_try_overview.dart';
 import '../widgets/calendar_guide_try_screen.dart';
 import '../widgets/settings_section_list.dart';
 import '../widgets/unified_app_bars.dart';
@@ -52,17 +51,13 @@ class CalendarGuideTopicPage extends StatefulWidget {
 }
 
 /// The demos of [topic]'s cards by card slug; none for a page without one.
-/// The screen page's three share [world].
+/// The screen page's stage draws [world].
 Map<String, GuideCardDemo> _demosFor(
   CalendarGuideTopic topic,
   DateTime Function() now,
   GuideScreenWorld? world,
 ) => switch (topic) {
-  CalendarGuideTopic.screen => {
-    GuideCardSpec.screenGrid: GuideScreenDemo(world!),
-    GuideCardSpec.screenPanel: GuidePanelDemo(world),
-    GuideCardSpec.screenOverview: GuideOverviewDemo(world),
-  },
+  CalendarGuideTopic.screen => {topic.slug: GuideScreenDemo(world!)},
   CalendarGuideTopic.events => {topic.slug: GuideEventsDemo(now: now)},
   CalendarGuideTopic.kinds => {topic.slug: GuideKindsDemo(now: now)},
   CalendarGuideTopic.alerts => {topic.slug: GuideAlertsDemo(now: now)},
@@ -75,7 +70,7 @@ Map<String, GuideCardDemo> _demosFor(
 };
 
 class _CalendarGuideTopicPageState extends State<CalendarGuideTopicPage> {
-  /// The screen page's demo calendar, which its three cards share.
+  /// The screen page's demo calendar, which its stage's views share.
   late final GuideScreenWorld? _world =
       widget.topic == CalendarGuideTopic.screen
       ? GuideScreenWorld(now: widget.now)

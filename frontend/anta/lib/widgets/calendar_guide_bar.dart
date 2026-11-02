@@ -5,38 +5,45 @@ import '../constants/app_bar_metrics.dart';
 import 'automation_id.dart';
 import 'calendar_header_menus.dart';
 
-/// The calendar page's bar over a guide demo: the title as the view menu,
-/// then three action slots — the saved filters' place, the funnel, the ⋮ —
-/// in the calendar page's sizes and colours.
+/// A calendar view's bar over a guide demo: the title as the view menu, then
+/// the view's actions, in the real bars' sizes and colours.
 ///
-/// The one copy of that bar in the guide: the practice page draws it as its
-/// own bar with its controls live, and the screen page's grid card draws it
-/// on its stage, so a change to how the calendar's bar is built reaches both
-/// (the owner's rule, D59). The callers fill the slots; [filterButton] is the
-/// funnel both draw.
+/// The one copy of those bars in the guide: the practice page draws it as
+/// its own bar with its controls live, and the screen page's stage draws
+/// each view's on its stage, so a change to how the calendar's bar is built
+/// reaches both (the owner's rule, D59). The callers fill the actions;
+/// [filterButton] is the funnel both draw.
 class GuideCalendarBar extends StatelessWidget implements PreferredSizeWidget {
   const GuideCalendarBar({
     super.key,
-    required this.format,
-    required this.onFormatSelected,
+    required this.page,
     required this.onPageSelected,
-    required this.savedFiltersSlot,
-    required this.filterSlot,
-    required this.moreSlot,
+    required this.actions,
+    required this.backgroundColor,
+    this.format,
+    this.onFormatSelected,
     this.primary = true,
     this.automaticallyImplyLeading = true,
   });
 
-  final CalendarFormat format;
+  /// The view the bar sits on: the title names it and the menu checks it.
+  final CalendarViewPage page;
+
+  final ValueChanged<CalendarViewPage> onPageSelected;
+
+  /// Null leaves the menu's formats out, as the overview's and the report's
+  /// bars do: only the calendar has a grid to reshape.
+  final CalendarFormat? format;
 
   /// Null draws the formats disabled: the practice page before its demo has
   /// loaded.
   final ValueChanged<CalendarFormat>? onFormatSelected;
-  final ValueChanged<CalendarViewPage> onPageSelected;
 
-  final Widget savedFiltersSlot;
-  final Widget filterSlot;
-  final Widget moreSlot;
+  final List<Widget> actions;
+
+  /// The view's own page's: `surface` over the calendar, `pageGround` over
+  /// the overview and the report (D79).
+  final Color backgroundColor;
 
   /// False on a card: a bar drawn inside a stage has no status bar above it
   /// and no route behind it to go back to.
@@ -90,7 +97,7 @@ class GuideCalendarBar extends StatelessWidget implements PreferredSizeWidget {
       titleSpacing: CalendarViewMenu.titleSpacing,
       excludeHeaderSemantics: true,
       title: CalendarViewMenu(
-        page: CalendarViewPage.calendar,
+        page: page,
         onPageSelected: onPageSelected,
         format: format,
         onFormatSelected: onFormatSelected,
@@ -98,13 +105,12 @@ class GuideCalendarBar extends StatelessWidget implements PreferredSizeWidget {
         // the real calendar's.
         namesRoute: false,
       ),
-      // The calendar page's bar, so the demo reads as the real thing.
-      backgroundColor: colorScheme.surface,
+      backgroundColor: backgroundColor,
       scrolledUnderElevation: 0,
       toolbarHeight: AppBarMetrics.toolbarHeight,
       iconTheme: glyphs,
       actionsIconTheme: glyphs,
-      actions: [savedFiltersSlot, filterSlot, moreSlot],
+      actions: actions,
     );
   }
 }

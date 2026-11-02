@@ -2387,7 +2387,7 @@ with the files named, then one `reviewer`, then the same implementer's
 fix pass; F4's device pass is the `qa-runner`.
 
 
-### 7.7 The owner's third review (2026-11-01) — the coach reads back, no instruction ends at a door, one screen stage, a Dentist she can see, a month she can tap — status: **PLANNED 2026-11-01, G1 dispatched**
+### 7.7 The owner's third review (2026-11-01) — the coach reads back, no instruction ends at a door, one screen stage, a Dentist she can see, a month she can tap — status: **IN PROGRESS 2026-11-02 — G1 COMMITTED by the owner as `ee319f0f`; G2, G3, G5a built, reviewed and COMMITTED as `05008ff0` (suite 12,409 green beside the Windows-only case); G4 (the screen stage) building; G5b and G6 to follow**
 
 **The owner's letter (2026-11-01), after `bfdab39c`:** "we should have a
 backwards and also forwards buttons for the text to maybe read that
@@ -2804,7 +2804,70 @@ scratch goldens never meet the implementer's gate):
   card's wiring moved under the switch, `GuideMetrics.screenStageHeight`,
   §8.5.3's lines, the retired card titles, the try-cards suite (every
   switch, the one picked day, no sheet from any tap, the height at 2.0),
-  `26_guide`'s ids.
+  `26_guide`'s ids. Split in the run: **G4a** the structure, **G4b** the
+  review's fixes and the deeper tests.
+  *G4a as built 2026-11-02 (one `implementer`):* one
+  `GuideCardSpec('screen', …)` through the sole-card path, steps `panel`,
+  `more`, `overview`, `mode`, `period`, `report`; `screenStageHeight` 668,
+  `screenStagePanelShare` 128, `screenStageMaxTextScale` 1.3, the three
+  card constants retired; `GuideCardDemo.stageFlush`;
+  `GuideCalendarBar(page:, format?, onFormatSelected?, actions:,
+  backgroundColor:)` (the practice page's call mechanical, same look);
+  one `GuideScreenDemo` owning the shown view (Calendar on every open,
+  D84) and a `GuideOverviewView` — the old card demo as a plain
+  `ChangeNotifier` helper reporting `mode` / `period` through `onStep`,
+  a mini-month pick through `onPick`, `enter()` / `leave()` for D83;
+  picking Report says "would open" and stays until G5b, so the tour ends
+  by skipping its last step for now; `calendarGuideScreenView(view)` =
+  `try-screen-view-<view>`; `26_guide` walks Calendar → Overview → back
+  through the real menu's ids. Measured: the slot 668 at 1.0 and 706.4
+  from 1.3 in every view and format; the panel under its mode bar 128 /
+  376 / 438 at 1.0 (month / 2 weeks / week), 166 / 414 / 476 at 1.3,
+  118 / 366 / 428 at de 2.0 — the 184 dp Day row at 2.0 scrolls inside
+  it. Lead's decisions taken as the implementer's: the Overview keeps the
+  real page's `bodyTop` above its chips; a format change is a plain
+  `changed()`; `CalendarGuideTopic.card(slug)` removed as unread; the D68
+  Year-row case pins the scroll at de 2.0 since the whole year fits at
+  1.0. Suites: try cards 290 (34 three-card cases gone), topic 47, hub
+  27, practice 84, flows lint 29; the whole suite +12375 ~11 −1.
+  *Reviewed 2026-11-02 (one `reviewer`; the overview wiring diffed
+  method by method against HEAD — unchanged; one notification per tap;
+  the stage pixel-probed; the grid's chevron proven not to mark
+  `period`):* no behaviour bug; two visible defects and a coverage loss,
+  closed in G4b — (1) CONFIRMED the flush stage paints its hairlines
+  under the bar and the panel (a bare `DecoratedBox` does not inset its
+  child), against D80 and the dark-theme risk of D79; (2) the hub's
+  search keys each card on its first line only, so "Year" / "List" no
+  longer find the screen page; (3) the test helper's one "changed" state
+  dropped Week, Upcoming and the Overview's Year from the clipped-word /
+  contrast / target loops; (4) the D83 case picks a day in the month
+  already shown. Noted for G6: `calendar-ui/SKILL.md` and the feature
+  doc still describe three cards. Accepted: the `report` step waits on
+  G5b; the working copies are a mix of LF and CRLF files, normalized on
+  add.
+  *G4b as built 2026-11-02 (one `implementer`):* the flush stage's
+  hairlines drawn in front (`DecorationPosition.foreground`, flush stages
+  only — the bar's top and the view's bottom 1 dp sit under the lines,
+  the box stays exactly `heightFor`), pinned by a pixel case reading the
+  stage's top and bottom rows in both views; the hub's keywords take
+  every step line of every card ("Year" finds the screen page, "again"
+  the kinds page); the test helper `_eachChange` runs the screen card
+  through Week + Upcoming, Overview Month, Year and List in the
+  clipped-word, word-break and coach-slot loops (targets and contrast for
+  the screen card only — the finding card fails contrast after a query is
+  typed, 1.09:1 at 360 light, a pre-existing miss handed to G6); the D83
+  case picks 14 July from an Overview left on May; the first Day row
+  inside the slot at en/de 1.0 / 1.3 in a five- and a six-row month (ends
+  656 dp below the stage's top at 1.0, 689 of 706 at 1.3); de 2.0 five-
+  and six-row months equal in height across both views; the grounds in
+  light read from the widgets; six bars a day (the most) grow the grid,
+  shrink the panel by the same and move the stage by nothing; the view
+  ids present only in their view. One clip found and exempted with a
+  comment: the Overview's List period title ("1. Nov. – 30. Nov. 2026")
+  needs a third line in the stage's 328 dp at de 2.0 and `AgendaPeriodNav`
+  cuts it at two — a design call for G6 (the real page at 360 may do the
+  same). Suites: try cards 303 in 45 s, hub 29, topic 47, practice 84;
+  the whole suite +12390 ~11 −1; analyze, format and untranslated clean.
 - **G5 — the Report view.** D74: `ReportBody` lifted out of
   `calendar_report_page.dart` with the page drawing it unchanged (its
   suite green before and after), the stage's Report over the demo, the

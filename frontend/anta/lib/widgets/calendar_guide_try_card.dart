@@ -70,6 +70,11 @@ abstract class GuideCardDemo extends ChangeNotifier {
   /// go edge to edge only from [GuideMetrics.stageFullBleedTextScale] up.
   bool get stageFullBleed => false;
 
+  /// The stage starts and ends at its hairlines, with no padding above or
+  /// below (D80): a stage drawn as a screen — the screen page's, whose bar
+  /// sits at its top edge as the real bar sits under the status bar.
+  bool get stageFlush => false;
+
   /// The coach line now: one clause (D49) — the next instruction, or the
   /// report of an action the stage cannot show.
   String line(AppLocalizations l10n) => _coach.line(l10n);
@@ -258,6 +263,12 @@ class CalendarGuideTryCard extends StatelessWidget {
           );
         }
 
+        final border = fullBleed
+            ? Border(top: line, bottom: line)
+            : Border.fromBorderSide(line);
+        final radius = fullBleed
+            ? null
+            : BorderRadius.circular(GuideMetrics.stageRadius);
         final reading = demo.reading;
         final ink = colorScheme.onSurfaceVariant;
         final disabledInk = ink.withValues(alpha: FormMetrics.disabledOpacity);
@@ -346,21 +357,32 @@ class CalendarGuideTryCard extends StatelessWidget {
                     child: DecoratedBox(
                       decoration: BoxDecoration(
                         color: colorScheme.pageGround,
-                        border: fullBleed
-                            ? Border(top: line, bottom: line)
-                            : Border.fromBorderSide(line),
-                        borderRadius: fullBleed
-                            ? null
-                            : BorderRadius.circular(GuideMetrics.stageRadius),
+                        border: demo.stageFlush ? null : border,
+                        borderRadius: radius,
                       ),
-                      child: Padding(
-                        padding: fullBleed
-                            ? const EdgeInsets.symmetric(
-                                vertical: GuideMetrics.stagePadding,
-                              )
-                            : const EdgeInsets.all(GuideMetrics.stagePadding),
-                        child: demo.buildStage(context),
-                      ),
+                      // A flush stage's bar and views reach its edges and
+                      // would paint over its hairlines (D80): there they are
+                      // drawn over the stage, inside its height, never
+                      // around it.
+                      child: demo.stageFlush
+                          ? DecoratedBox(
+                              position: DecorationPosition.foreground,
+                              decoration: BoxDecoration(
+                                border: border,
+                                borderRadius: radius,
+                              ),
+                              child: demo.buildStage(context),
+                            )
+                          : Padding(
+                              padding: fullBleed
+                                  ? const EdgeInsets.symmetric(
+                                      vertical: GuideMetrics.stagePadding,
+                                    )
+                                  : const EdgeInsets.all(
+                                      GuideMetrics.stagePadding,
+                                    ),
+                              child: demo.buildStage(context),
+                            ),
                     ),
                   ),
                 ),

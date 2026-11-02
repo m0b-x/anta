@@ -294,47 +294,52 @@ class _CalendarGuidePracticePageState extends State<CalendarGuidePracticePage> {
     return Scaffold(
       resizeToAvoidBottomInset: false,
       appBar: GuideCalendarBar(
+        page: CalendarViewPage.calendar,
         format: demo?.format ?? CalendarFormat.month,
         onFormatSelected: demo == null ? null : (format) => _setFormat(format),
         onPageSelected: _openPage,
-        // In the saved filters' slot, which the demo has no use for;
-        // disabled, never hidden, until there is something to undo — a
-        // change to the demo or a step of the tour.
-        savedFiltersSlot: ValueListenableBuilder<int>(
-          valueListenable: _coachRevision,
-          builder: (context, _, _) => AutomationId(
-            identifier: SemanticsIds.practiceReset,
-            child: IconButton(
-              tooltip: l10n.calendarGuideDemoReset,
-              iconSize: AppBarMetrics.glyphSize,
-              icon: const Icon(Icons.restart_alt_rounded),
-              onPressed: demo == null || !(demo.isDirty || _coach.advanced)
-                  ? null
-                  : _reset,
+        // The calendar page's bar, so the demo reads as the real thing.
+        backgroundColor: Theme.of(context).colorScheme.surface,
+        actions: [
+          // In the saved filters' place, which the demo has no use for;
+          // disabled, never hidden, until there is something to undo — a
+          // change to the demo or a step of the tour.
+          ValueListenableBuilder<int>(
+            valueListenable: _coachRevision,
+            builder: (context, _, _) => AutomationId(
+              identifier: SemanticsIds.practiceReset,
+              child: IconButton(
+                tooltip: l10n.calendarGuideDemoReset,
+                iconSize: AppBarMetrics.glyphSize,
+                icon: const Icon(Icons.restart_alt_rounded),
+                onPressed: demo == null || !(demo.isDirty || _coach.advanced)
+                    ? null
+                    : _reset,
+              ),
             ),
           ),
-        ),
-        filterSlot: GuideCalendarBar.filterButton(
-          identifier: SemanticsIds.practiceFilterOpen,
-          tooltip: l10n.filterCalendar,
-          activeCount: active,
-          onPressed: demo == null ? null : _openFilters,
-        ),
-        moreSlot: CalendarOverflowMenu(
-          identifier: SemanticsIds.practiceMore,
-          onAlerts: () =>
-              _say((l10n) => l10n.calendarGuideWouldOpen(l10n.alertsTitle)),
-          onCategories: () => _say(
-            (l10n) => l10n.calendarGuideWouldOpen(l10n.calendarCategories),
+          GuideCalendarBar.filterButton(
+            identifier: SemanticsIds.practiceFilterOpen,
+            tooltip: l10n.filterCalendar,
+            activeCount: active,
+            onPressed: demo == null ? null : _openFilters,
           ),
-          onExport: demo == null || demo.events.isEmpty
-              ? null
-              : () => _say((l10n) => l10n.calendarGuideWouldShare),
-          onGuide: () => _say((l10n) => l10n.calendarGuideYouAreHere),
-          onSettings: () => _say(
-            (l10n) => l10n.calendarGuideWouldOpen(l10n.calendarSettings),
+          CalendarOverflowMenu(
+            identifier: SemanticsIds.practiceMore,
+            onAlerts: () =>
+                _say((l10n) => l10n.calendarGuideWouldOpen(l10n.alertsTitle)),
+            onCategories: () => _say(
+              (l10n) => l10n.calendarGuideWouldOpen(l10n.calendarCategories),
+            ),
+            onExport: demo == null || demo.events.isEmpty
+                ? null
+                : () => _say((l10n) => l10n.calendarGuideWouldShare),
+            onGuide: () => _say((l10n) => l10n.calendarGuideYouAreHere),
+            onSettings: () => _say(
+              (l10n) => l10n.calendarGuideWouldOpen(l10n.calendarSettings),
+            ),
           ),
-        ),
+        ],
       ),
       body: Column(
         children: [

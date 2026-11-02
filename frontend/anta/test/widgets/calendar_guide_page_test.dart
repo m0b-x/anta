@@ -511,21 +511,40 @@ void main() {
     }
   });
 
-  testWidgets('every card\'s first instruction finds its page\'s row: the '
-      'screen page\'s panel and overview cards too (D58)', (tester) async {
+  testWidgets('every instruction of every card finds its page\'s row (D58): '
+      'the screen page\'s one stage too (D73)', (tester) async {
     await tester.pumpWidget(_host());
     await tester.pumpAndSettle();
 
-    for (final card in CalendarGuideTopic.screen.cards) {
-      await tester.enterText(find.byType(TextField), card.steps.first.line(en));
-      await tester.pumpAndSettle();
-      expect(
-        _page(CalendarGuideTopic.screen),
-        findsOneWidget,
-        reason: card.slug,
-      );
+    for (final topic in CalendarGuideTopic.values) {
+      for (final card in topic.cards) {
+        for (final step in card.steps) {
+          await tester.enterText(find.byType(TextField), step.line(en));
+          await tester.pumpAndSettle();
+          expect(
+            _page(topic),
+            findsOneWidget,
+            reason: '${card.slug} ${step.action}',
+          );
+        }
+      }
     }
   });
+
+  for (final (topic, query, from) in const [
+    (CalendarGuideTopic.screen, 'Year', 'the Overview\'s modes, its fourth'),
+    (CalendarGuideTopic.kinds, 'again', 'its third'),
+  ]) {
+    testWidgets('"$query", a word of ${topic.slug}\'s later step ($from), '
+        'finds its page', (tester) async {
+      await tester.pumpWidget(_host());
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.byType(TextField), query);
+      await tester.pumpAndSettle();
+      expect(_page(topic), findsOneWidget);
+    });
+  }
 
   testWidgets("a search hit's page row opens that page", (tester) async {
     await tester.pumpWidget(_host());

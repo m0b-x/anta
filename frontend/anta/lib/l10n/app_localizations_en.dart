@@ -6767,11 +6767,6 @@ class AppLocalizationsEn extends AppLocalizations {
   String get calendarGuideStepDone => 'Done';
 
   @override
-  String calendarGuideCoachScreenTitle(String calendar) {
-    return 'Tap “$calendar” at the top: that title is a menu of views.';
-  }
-
-  @override
   String get calendarGuideCoachScreenMore =>
       'Now tap the three dots at the top right: the calendar\'s menu.';
 
@@ -6785,26 +6780,29 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
-  String get calendarGuideCardGrid => 'The month grid';
+  String calendarGuideCoachScreenOverview(String overview) {
+    return 'Tap the title at the top and choose “$overview”: the title is a menu of views.';
+  }
 
   @override
-  String get calendarGuideCardPanel => 'The panel under it';
-
-  @override
-  String get calendarGuideCardOverview => 'The overview';
+  String calendarGuideCoachScreenReport(String report) {
+    return 'Tap the title at the top and choose “$report”: it counts what happened.';
+  }
 
   @override
   String calendarGuideCoachOverviewMode(
+    String overview,
     String year,
     String month,
     String list,
   ) {
-    return 'Tap “$year”, “$month” or “$list”: three ways to see the same events.';
+    return 'In “$overview”, tap “$year”, “$month” or “$list”: three ways to see the same events.';
   }
 
   @override
-  String get calendarGuideCoachOverviewPeriod =>
-      'The arrows step back and forward; the button between them returns to today.';
+  String calendarGuideCoachOverviewPeriod(String overview) {
+    return 'In “$overview”, the arrows step back and forward; the button between them returns to today.';
+  }
 
   @override
   String calendarGuideCoachEventsAdd(String save) {

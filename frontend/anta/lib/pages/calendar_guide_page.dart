@@ -208,10 +208,12 @@ class _CalendarGuidePageState extends State<CalendarGuidePage> {
     return SettingsEntry(
       title: topic.title(l10n),
       description: topic.caption(l10n),
-      // Every card's lead-in too: what the page lets her try is a reason to
-      // open it.
+      // Every instruction of every card too (D58): what the page lets her
+      // try is a reason to open it, and one stage's tour names several
+      // controls — "Year" is the screen page's fourth step.
       keywords: [
-        for (final card in topic.cards) card.steps.first.line(l10n),
+        for (final card in topic.cards)
+          for (final step in card.steps) step.line(l10n),
         for (final row in rows) ...[row.title, row.body],
       ],
       identifier: SemanticsIds.calendarGuidePage(topic.slug),

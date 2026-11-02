@@ -6826,11 +6826,6 @@ class AppLocalizationsDe extends AppLocalizations {
   String get calendarGuideStepDone => 'Erledigt';
 
   @override
-  String calendarGuideCoachScreenTitle(String calendar) {
-    return 'Tippe oben auf „$calendar“: dieser Titel ist ein Menü mit Ansichten.';
-  }
-
-  @override
   String get calendarGuideCoachScreenMore =>
       'Tippe jetzt oben rechts auf die drei Punkte: das Menü des Kalenders.';
 
@@ -6844,26 +6839,29 @@ class AppLocalizationsDe extends AppLocalizations {
   }
 
   @override
-  String get calendarGuideCardGrid => 'Das Monatsraster';
+  String calendarGuideCoachScreenOverview(String overview) {
+    return 'Tippe oben auf den Titel und wähle „$overview“: Der Titel ist ein Menü der Ansichten.';
+  }
 
   @override
-  String get calendarGuideCardPanel => 'Der Bereich darunter';
-
-  @override
-  String get calendarGuideCardOverview => 'Die Übersicht';
+  String calendarGuideCoachScreenReport(String report) {
+    return 'Tippe oben auf den Titel und wähle „$report“: Er zählt, was war.';
+  }
 
   @override
   String calendarGuideCoachOverviewMode(
+    String overview,
     String year,
     String month,
     String list,
   ) {
-    return 'Tippe auf „$year“, „$month“ oder „$list“: drei Arten, dieselben Ereignisse zu sehen.';
+    return 'In „$overview“ tippe auf „$year“, „$month“ oder „$list“: drei Arten, dieselben Ereignisse zu sehen.';
   }
 
   @override
-  String get calendarGuideCoachOverviewPeriod =>
-      'Die Pfeile blättern vor und zurück; die Taste dazwischen führt zu heute zurück.';
+  String calendarGuideCoachOverviewPeriod(String overview) {
+    return 'In „$overview“ blättern die Pfeile vor und zurück; die Taste dazwischen führt zu heute zurück.';
+  }
 
   @override
   String calendarGuideCoachEventsAdd(String save) {

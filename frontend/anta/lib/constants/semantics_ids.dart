@@ -405,8 +405,20 @@ abstract final class SemanticsIds {
   /// `calendar-view-menu` with its rows — because the real calendar and a
   /// card never share a screen, so a flow cannot land on the wrong one; the
   /// controls the cards add are `try-*`.
+  ///
+  /// The screen stage's (D86): `try-screen-saved-filters` and
+  /// `try-screen-filter` on the Calendar's bar, `try-screen-overview-options`
+  /// and `try-screen-overview-views` on the Overview's — each disabled, never
+  /// hidden — and `try-screen-more`, the ⋮ of every view; the Overview's
+  /// body keeps the `try-overview-*` ids of the card it was.
   static String calendarGuideTryControl(String slug, String control) =>
       'try-$slug-$control';
+
+  /// The screen stage's view body — `calendar`, `overview` or `report`, a
+  /// `CalendarViewPage`'s name (`try-screen-view-calendar` …): a container
+  /// node, so a flow can wait for the view the title menu switched to.
+  static String calendarGuideScreenView(String view) =>
+      calendarGuideTryControl('screen', 'view-$view');
 
   /// Calendar settings' rows that open a page or a sheet, and the two
   /// default-alert rows (on Alert settings since D5): a section header shares

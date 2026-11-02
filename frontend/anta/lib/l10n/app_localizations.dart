@@ -11232,12 +11232,6 @@ abstract class AppLocalizations {
   /// **'Done'**
   String get calendarGuideStepDone;
 
-  /// Calendar guide coach instruction; calendar is the calendar page's title
-  ///
-  /// In en, this message translates to:
-  /// **'Tap “{calendar}” at the top: that title is a menu of views.'**
-  String calendarGuideCoachScreenTitle(String calendar);
-
   /// Calendar guide coach instruction
   ///
   /// In en, this message translates to:
@@ -11254,35 +11248,34 @@ abstract class AppLocalizations {
     String upcoming,
   );
 
-  /// Calendar guide: the title of the screen page's card that shows the calendar's bar over its month grid
+  /// Calendar guide coach instruction; overview is the overview page's title in the calendar's title menu
   ///
   /// In en, this message translates to:
-  /// **'The month grid'**
-  String get calendarGuideCardGrid;
+  /// **'Tap the title at the top and choose “{overview}”: the title is a menu of views.'**
+  String calendarGuideCoachScreenOverview(String overview);
 
-  /// Calendar guide: the title of the screen page's card that shows the panel under the grid
+  /// Calendar guide coach instruction; report is the report page's title in the calendar's title menu
   ///
   /// In en, this message translates to:
-  /// **'The panel under it'**
-  String get calendarGuideCardPanel;
+  /// **'Tap the title at the top and choose “{report}”: it counts what happened.'**
+  String calendarGuideCoachScreenReport(String report);
 
-  /// Calendar guide: the title of the screen page's card that shows the overview's three modes
+  /// Calendar guide coach instruction; overview is the overview page's title; year, month and list are the overview's mode chips' labels
   ///
   /// In en, this message translates to:
-  /// **'The overview'**
-  String get calendarGuideCardOverview;
+  /// **'In “{overview}”, tap “{year}”, “{month}” or “{list}”: three ways to see the same events.'**
+  String calendarGuideCoachOverviewMode(
+    String overview,
+    String year,
+    String month,
+    String list,
+  );
 
-  /// Calendar guide coach instruction; year, month and list are the overview's mode chips' labels
+  /// Calendar guide coach instruction about the overview's period arrows and its Today button; overview is the overview page's title
   ///
   /// In en, this message translates to:
-  /// **'Tap “{year}”, “{month}” or “{list}”: three ways to see the same events.'**
-  String calendarGuideCoachOverviewMode(String year, String month, String list);
-
-  /// Calendar guide coach instruction about the overview's period arrows and its Today button
-  ///
-  /// In en, this message translates to:
-  /// **'The arrows step back and forward; the button between them returns to today.'**
-  String get calendarGuideCoachOverviewPeriod;
+  /// **'In “{overview}”, the arrows step back and forward; the button between them returns to today.'**
+  String calendarGuideCoachOverviewPeriod(String overview);
 
   /// Calendar guide coach instruction; save is the editor's Save label
   ///

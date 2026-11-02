@@ -32,12 +32,6 @@ class GuideCardSpec {
   final String slug;
   final List<GuideCoachStep> steps;
   final GuideLine title;
-
-  /// The screen page's three (D58). The grid card kept the page's slug, so
-  /// the ids it shipped with still find it.
-  static const String screenGrid = 'screen';
-  static const String screenPanel = 'panel';
-  static const String screenOverview = 'overview';
 }
 
 /// The practice calendar's glyph, and the one mark of "tap here, nothing is
@@ -206,44 +200,12 @@ enum CalendarGuideTopic {
   /// language: a demo's coach is built before the page has a language and
   /// outlives a change of it, so each line is written when it is drawn.
   ///
-  /// The screen page has three (D58): the grid, the panel and the overview
-  /// each under their own title, over one demo calendar. A single stage
-  /// holding all three would stand some 900 px tall and reach the overview
-  /// only through the title menu.
+  /// The screen page has one (D73), its stage shaped like the screen: the
+  /// title menu switches it between the Calendar, the Overview and the
+  /// Report as the app's does, so one view's height holds all three — the
+  /// three cards stacked before stood some 900 px tall and their title menu
+  /// only said where it would lead.
   List<GuideCardSpec> get cards => switch (this) {
-    screen => [
-      GuideCardSpec(GuideCardSpec.screenGrid, [
-        GuideCoachStep(
-          'title',
-          (l10n) => l10n.calendarGuideCoachScreenTitle(l10n.calendar),
-        ),
-        GuideCoachStep('more', (l10n) => l10n.calendarGuideCoachScreenMore),
-      ], (l10n) => l10n.calendarGuideCardGrid),
-      GuideCardSpec(GuideCardSpec.screenPanel, [
-        GuideCoachStep(
-          'panel',
-          (l10n) => l10n.calendarGuideCoachScreenPanel(
-            l10n.panelModeDay,
-            l10n.panelModeTimeline,
-            l10n.upcomingEvents,
-          ),
-        ),
-      ], (l10n) => l10n.calendarGuideCardPanel),
-      GuideCardSpec(GuideCardSpec.screenOverview, [
-        GuideCoachStep(
-          'mode',
-          (l10n) => l10n.calendarGuideCoachOverviewMode(
-            l10n.dayListModeYear,
-            l10n.dayListModeMonth,
-            l10n.dayListModeList,
-          ),
-        ),
-        GuideCoachStep(
-          'period',
-          (l10n) => l10n.calendarGuideCoachOverviewPeriod,
-        ),
-      ], (l10n) => l10n.calendarGuideCardOverview),
-    ],
     // The report has no stage: a fold over her own calendar is what it
     // shows, and a demo calendar's numbers would teach nothing.
     report || good => const [],
@@ -255,7 +217,41 @@ enum CalendarGuideTopic {
   /// The single card's steps of a page that has one, in the order she is
   /// asked for them.
   List<GuideCoachStep> get _soleCardSteps => switch (this) {
-    screen || report || good => const [],
+    report || good => const [],
+    // The Overview's two lines name it (D85): forward and back can leave
+    // her on one while the stage shows another view.
+    screen => [
+      GuideCoachStep(
+        'panel',
+        (l10n) => l10n.calendarGuideCoachScreenPanel(
+          l10n.panelModeDay,
+          l10n.panelModeTimeline,
+          l10n.upcomingEvents,
+        ),
+      ),
+      GuideCoachStep('more', (l10n) => l10n.calendarGuideCoachScreenMore),
+      GuideCoachStep(
+        'overview',
+        (l10n) => l10n.calendarGuideCoachScreenOverview(l10n.calendarOverview),
+      ),
+      GuideCoachStep(
+        'mode',
+        (l10n) => l10n.calendarGuideCoachOverviewMode(
+          l10n.calendarOverview,
+          l10n.dayListModeYear,
+          l10n.dayListModeMonth,
+          l10n.dayListModeList,
+        ),
+      ),
+      GuideCoachStep(
+        'period',
+        (l10n) => l10n.calendarGuideCoachOverviewPeriod(l10n.calendarOverview),
+      ),
+      GuideCoachStep(
+        'report',
+        (l10n) => l10n.calendarGuideCoachScreenReport(l10n.reportTitle),
+      ),
+    ],
     events => [
       GuideCoachStep(
         'added',
@@ -379,11 +375,6 @@ enum CalendarGuideTopic {
       ),
     ],
   };
-
-  /// The card [slug] names — a page's demos are built per card by slug,
-  /// never by place, so a card moved in [cards] keeps its demo.
-  GuideCardSpec card(String slug) =>
-      cards.firstWhere((card) => card.slug == slug);
 
   /// The page's read rows, in page order.
   List<CalendarGuideRow> rows(AppLocalizations l10n) => switch (this) {

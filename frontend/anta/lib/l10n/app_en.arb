@@ -8726,15 +8726,6 @@
   "@calendarGuideStepDone": {
     "description": "Spoken before a calendar guide coach line shown again for a step already done; a state, not a button"
   },
-  "calendarGuideCoachScreenTitle": "Tap “{calendar}” at the top: that title is a menu of views.",
-  "@calendarGuideCoachScreenTitle": {
-    "description": "Calendar guide coach instruction; calendar is the calendar page's title",
-    "placeholders": {
-      "calendar": {
-        "type": "String"
-      }
-    }
-  },
   "calendarGuideCoachScreenMore": "Now tap the three dots at the top right: the calendar's menu.",
   "@calendarGuideCoachScreenMore": {
     "description": "Calendar guide coach instruction"
@@ -8754,22 +8745,31 @@
       }
     }
   },
-  "calendarGuideCardGrid": "The month grid",
-  "@calendarGuideCardGrid": {
-    "description": "Calendar guide: the title of the screen page's card that shows the calendar's bar over its month grid"
-  },
-  "calendarGuideCardPanel": "The panel under it",
-  "@calendarGuideCardPanel": {
-    "description": "Calendar guide: the title of the screen page's card that shows the panel under the grid"
-  },
-  "calendarGuideCardOverview": "The overview",
-  "@calendarGuideCardOverview": {
-    "description": "Calendar guide: the title of the screen page's card that shows the overview's three modes"
-  },
-  "calendarGuideCoachOverviewMode": "Tap “{year}”, “{month}” or “{list}”: three ways to see the same events.",
-  "@calendarGuideCoachOverviewMode": {
-    "description": "Calendar guide coach instruction; year, month and list are the overview's mode chips' labels",
+  "calendarGuideCoachScreenOverview": "Tap the title at the top and choose “{overview}”: the title is a menu of views.",
+  "@calendarGuideCoachScreenOverview": {
+    "description": "Calendar guide coach instruction; overview is the overview page's title in the calendar's title menu",
     "placeholders": {
+      "overview": {
+        "type": "String"
+      }
+    }
+  },
+  "calendarGuideCoachScreenReport": "Tap the title at the top and choose “{report}”: it counts what happened.",
+  "@calendarGuideCoachScreenReport": {
+    "description": "Calendar guide coach instruction; report is the report page's title in the calendar's title menu",
+    "placeholders": {
+      "report": {
+        "type": "String"
+      }
+    }
+  },
+  "calendarGuideCoachOverviewMode": "In “{overview}”, tap “{year}”, “{month}” or “{list}”: three ways to see the same events.",
+  "@calendarGuideCoachOverviewMode": {
+    "description": "Calendar guide coach instruction; overview is the overview page's title; year, month and list are the overview's mode chips' labels",
+    "placeholders": {
+      "overview": {
+        "type": "String"
+      },
       "year": {
         "type": "String"
       },
@@ -8781,9 +8781,14 @@
       }
     }
   },
-  "calendarGuideCoachOverviewPeriod": "The arrows step back and forward; the button between them returns to today.",
+  "calendarGuideCoachOverviewPeriod": "In “{overview}”, the arrows step back and forward; the button between them returns to today.",
   "@calendarGuideCoachOverviewPeriod": {
-    "description": "Calendar guide coach instruction about the overview's period arrows and its Today button"
+    "description": "Calendar guide coach instruction about the overview's period arrows and its Today button; overview is the overview page's title",
+    "placeholders": {
+      "overview": {
+        "type": "String"
+      }
+    }
   },
   "calendarGuideCoachEventsAdd": "Tap + to add an event. Give it a name, then tap “{save}”.",
   "@calendarGuideCoachEventsAdd": {

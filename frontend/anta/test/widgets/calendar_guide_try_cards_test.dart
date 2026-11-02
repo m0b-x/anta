@@ -17,6 +17,7 @@ import 'package:table_calendar/table_calendar.dart';
 
 import 'package:anta/bloc/markdown_bar/markdown_bar_bloc.dart';
 import 'package:anta/bloc/permissions/permissions_bloc.dart';
+import 'package:anta/constants/app_colors.dart';
 import 'package:anta/constants/app_theme.dart';
 import 'package:anta/constants/calendar_categories.dart';
 import 'package:anta/constants/calendar_icons.dart';
@@ -30,6 +31,7 @@ import 'package:anta/constants/occurrence_descriptions.dart';
 import 'package:anta/constants/public_holidays.dart';
 import 'package:anta/constants/row_metrics.dart';
 import 'package:anta/constants/semantics_ids.dart';
+import 'package:anta/constants/settings_keys.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/l10n/app_localizations_de.dart';
@@ -65,7 +67,6 @@ import 'package:anta/services/recurrence_formatter.dart';
 import 'package:anta/services/settings_service.dart';
 import 'package:anta/utils/agenda_month_store.dart';
 import 'package:anta/utils/alert_labels.dart';
-import 'package:anta/widgets/agenda_day_list_rows.dart';
 import 'package:anta/widgets/agenda_list_view.dart';
 import 'package:anta/widgets/agenda_month_grid.dart';
 import 'package:anta/widgets/agenda_period_nav.dart';
@@ -77,11 +78,14 @@ import 'package:anta/widgets/calendar_day_cell.dart';
 import 'package:anta/widgets/calendar_appearance_preview.dart';
 import 'package:anta/widgets/calendar_date_picker_sheet.dart';
 import 'package:anta/widgets/calendar_filter_sheet.dart';
+import 'package:anta/widgets/calendar_guide_bar.dart';
 import 'package:anta/widgets/calendar_guide_demo_panel.dart';
+import 'package:anta/widgets/calendar_guide_grid.dart';
 import 'package:anta/widgets/calendar_guide_stage_slot.dart';
 import 'package:anta/widgets/calendar_guide_try_card.dart';
 import 'package:anta/widgets/calendar_guide_try_kinds.dart';
 import 'package:anta/widgets/calendar_guide_try_screen.dart';
+import 'package:anta/widgets/calendar_header_menus.dart';
 import 'package:anta/widgets/category_editor_sheet.dart';
 import 'package:anta/widgets/day_summary_panel.dart';
 import 'package:anta/widgets/day_timeline_view.dart';
@@ -274,11 +278,6 @@ void main() {
   List<String> stepsOfCard(GuideCardSpec card) => [
     for (final step in card.steps) step.line(en),
   ];
-
-  /// The screen page's three cards (D58), by slug.
-  final screenCards = {
-    for (final card in CalendarGuideTopic.screen.cards) card.slug: card,
-  };
 
   final now = DateTime.now();
   final today = DateTime.utc(now.year, now.month, now.day);
@@ -787,158 +786,460 @@ void main() {
   });
 
   group('screen', () {
-    final steps = stepsOfCard(screenCards['screen']!);
+    final steps = stepsOf(CalendarGuideTopic.screen);
     final yoga = en.calendarGuideDemoEventYoga;
 
-    testWidgets('three cards under their own titles, the grid first, all '
-        'above How it works', (tester) async {
+    /// The Overview view's controls, which keep the overview card's ids
+    /// (D86); the card, its coach and its stage are the screen card's.
+    GuideTryCardRobot overviewOf(WidgetTester tester) =>
+        GuideTryCardRobot(tester, 'overview');
+
+    Finder viewBody(CalendarViewPage view) => find.bySemanticsIdentifier(
+      SemanticsIds.calendarGuideScreenView(view.name),
+    );
+
+    /// Picks [row] in the stage's title menu.
+    Future<void> pick(GuideTryCardRobot robot, String row) async {
+      await robot.tapId(SemanticsIds.calendarViewMenu);
+      await robot.tapId(row);
+    }
+
+    Future<void> showOverview(GuideTryCardRobot robot) =>
+        pick(robot, SemanticsIds.calendarOverviewOpen);
+
+    Future<void> showCalendar(GuideTryCardRobot robot) =>
+        pick(robot, SemanticsIds.calendarViewCalendar);
+
+    CalendarViewPage shownView(WidgetTester tester) =>
+        tester.widget<GuideCalendarBar>(find.byType(GuideCalendarBar)).page;
+
+    DaySummaryPanel dayPanel(WidgetTester tester) =>
+        tester.widget<DaySummaryPanel>(find.byType(DaySummaryPanel));
+
+    AgendaMonthGrid miniMonth(WidgetTester tester) =>
+        tester.widget<AgendaMonthGrid>(
+          _inCard('screen', find.byType(AgendaMonthGrid)),
+        );
+
+    /// The stage's one slot: the bar and the view under it.
+    Finder stageSlot() => _inCard('screen', find.byType(GuideStageSlot)).first;
+
+    testWidgets('one card under "Try it", above How it works; its tour in '
+        'the order the stage asks for it (D73)', (tester) async {
       await open(tester, CalendarGuideTopic.screen);
       final list = tester.widget<SettingsSectionList>(
         find.byType(SettingsSectionList),
       );
-      final cards = CalendarGuideTopic.screen.cards;
+      final card = CalendarGuideTopic.screen.cards.single;
+      expect(card.slug, 'screen');
       expect(
-        [for (final card in cards) card.slug],
-        ['screen', 'panel', 'overview'],
+        [for (final step in card.steps) step.action],
+        ['panel', 'more', 'overview', 'mode', 'period', 'report'],
       );
-      expect(
-        [for (final section in list.sections.take(3)) section.title],
-        [
-          en.calendarGuideCardGrid,
-          en.calendarGuideCardPanel,
-          en.calendarGuideCardOverview,
-        ],
-      );
-      expect(
-        [
-          for (final section in list.sections.take(3))
-            section.entries.single.title,
-        ],
-        [for (final card in cards) stepsOfCard(card).first],
-      );
-      expect(list.sections[3].title, en.calendarGuideHowItWorks);
-      expect(find.text(en.calendarGuideTryIt.toUpperCase()), findsNothing);
+      expect(list.sections.first.title, en.calendarGuideTryIt);
+      expect(list.sections.first.entries.single.title, steps.first);
+      expect(list.sections[1].title, en.calendarGuideHowItWorks);
+      // It opens on the Calendar (D84).
+      expect(shownView(tester), CalendarViewPage.calendar);
+      expect(viewBody(CalendarViewPage.calendar), findsOneWidget);
       await expectNothingSaved();
     });
 
-    testWidgets('the grid card: the title menu reshapes the grid in one '
-        'height, the Overview and Report rows report, the ⋮ moves the line '
-        'on; nothing opens', (tester) async {
+    testWidgets('the title menu switches the stage Calendar → Overview → '
+        'Calendar at one height; the view shown only closes the menu', (
+      tester,
+    ) async {
       final robot = await open(tester, CalendarGuideTopic.screen);
       final stage = robot.stageSize;
+      expect(viewBody(CalendarViewPage.overview), findsNothing);
+
+      await showOverview(robot);
+      expect(shownView(tester), CalendarViewPage.overview);
+      expect(viewBody(CalendarViewPage.overview), findsOneWidget);
+      expect(viewBody(CalendarViewPage.calendar), findsNothing);
+      expect(find.byType(GuideCalendarGrid), findsNothing);
+      expect(robot.stageSize, stage);
+
+      // The Overview's own row: the menu closes, nothing else moves.
+      final line = robot.line;
+      await pick(robot, SemanticsIds.calendarOverviewOpen);
+      expect(shownView(tester), CalendarViewPage.overview);
+      expect(robot.line, line);
+
+      await showCalendar(robot);
+      expect(shownView(tester), CalendarViewPage.calendar);
+      expect(viewBody(CalendarViewPage.calendar), findsOneWidget);
+      expect(find.byType(GuideCalendarGrid), findsOneWidget);
+      expect(robot.stageSize, stage);
+
+      await pick(robot, SemanticsIds.calendarViewCalendar);
+      expect(shownView(tester), CalendarViewPage.calendar);
+      expect(find.byType(PopupMenuItem<CalendarViewPage>), findsNothing);
+      expect(pushes.pushed, isEmpty);
+      await expectNothingSaved();
+    });
+
+    // D77: the stage is 668 at 1.0 and grows with the panel's share to 1.3,
+    // 706.4, and no further; one height in every view and format.
+    for (final (locale, size, scale, height) in const [
+      (Locale('en'), Size(412, 915), 1.0, 668.0),
+      (Locale('en'), Size(412, 915), 1.3, 706.4),
+      (Locale('de'), Size(360, 780), 2.0, 706.4),
+    ]) {
+      testWidgets('the stage is $height at $scale in both views and every '
+          'format', (tester) async {
+        final robot = await open(
+          tester,
+          CalendarGuideTopic.screen,
+          locale: locale,
+          size: size,
+          textScaler: TextScaler.linear(scale),
+        );
+        expect(
+          GuideScreenDemo.heightFor(TextScaler.linear(scale)),
+          moreOrLessEquals(height),
+        );
+        expect(tester.getSize(stageSlot()).height, moreOrLessEquals(height));
+        // The stage's box, its hairlines included, is the slot (D80).
+        expect(robot.stageSize.height, moreOrLessEquals(height));
+        final stage = robot.stageSize;
+        for (final (id, format) in const [
+          (SemanticsIds.calendarFormatTwoWeeks, CalendarFormat.twoWeeks),
+          (SemanticsIds.calendarFormatWeek, CalendarFormat.week),
+          (SemanticsIds.calendarFormatMonth, CalendarFormat.month),
+        ]) {
+          await pick(robot, id);
+          expect(_gridOf(tester, 'screen').calendarFormat, format);
+          expect(
+            robot.stageSize.height,
+            moreOrLessEquals(stage.height, epsilon: 1),
+            reason: format.name,
+          );
+          await showOverview(robot);
+          expect(
+            robot.stageSize.height,
+            moreOrLessEquals(stage.height, epsilon: 1),
+            reason: 'overview after ${format.name}',
+          );
+          await showCalendar(robot);
+        }
+        expect(tester.takeException(), isNull);
+        await expectNothingSaved();
+      });
+    }
+
+    // D77's risk: the coach line names the panel, so its mode bar and the
+    // Day panel's first row stand inside the stage in the month format — in
+    // May 2027, six rows, the row ends 656 dp under the stage's top at 1.0
+    // (689 of 706.4 at 1.3); in September 2027, five rows, 62 dp higher.
+    for (final locale in const ['en', 'de']) {
+      for (final scale in const [1.0, 1.3]) {
+        for (final (month, rows) in const [(5, 6), (9, 5)]) {
+          testWidgets('$locale at $scale, a $rows-row month: the mode bar and '
+              'the first Day row whole inside the stage', (tester) async {
+            await open(
+              tester,
+              CalendarGuideTopic.screen,
+              locale: Locale(locale),
+              size: const Size(360, 780),
+              textScaler: TextScaler.linear(scale),
+              now: () => DateTime(2027, month, 12, 10),
+            );
+            expect(
+              _gridOf(tester, 'screen').calendarFormat,
+              CalendarFormat.month,
+            );
+            final slot = tester.getRect(stageSlot());
+            final modeBar = tester.getRect(find.byType(PanelModeBar));
+            final row = tester.getRect(
+              find
+                  .descendant(
+                    of: find.byType(DaySummaryPanel),
+                    matching: find.byType(Card),
+                  )
+                  .first,
+            );
+            expect(
+              slot.height,
+              moreOrLessEquals(
+                GuideScreenDemo.heightFor(TextScaler.linear(scale)),
+              ),
+            );
+            expect(modeBar.top, greaterThan(slot.top));
+            expect(row.top, greaterThan(modeBar.bottom));
+            expect(row.bottom, lessThanOrEqualTo(slot.bottom));
+            if (scale == 1.0 && rows == 6) {
+              expect(row.bottom - slot.top, moreOrLessEquals(656, epsilon: 1));
+            }
+            await expectNothingSaved();
+          });
+        }
+      }
+    }
+
+    testWidgets('de at 2.0: a six-row and a five-row month, each in the '
+        'Calendar and in the Overview, at one stage height', (tester) async {
+      final robot = await open(
+        tester,
+        CalendarGuideTopic.screen,
+        locale: const Locale('de'),
+        size: const Size(360, 780),
+        textScaler: const TextScaler.linear(2.0),
+        now: () => DateTime(2027, 5, 12, 10),
+      );
+      final overview = overviewOf(tester);
+      final height = GuideScreenDemo.heightFor(const TextScaler.linear(2.0));
+      void expectStage(String what) {
+        expect(tester.takeException(), isNull, reason: what);
+        expect(
+          robot.stageSize.height,
+          moreOrLessEquals(height, epsilon: 1),
+          reason: what,
+        );
+      }
+
+      Future<void> toSeptember() async {
+        for (var i = 0; i < 4; i++) {
+          await tester.tap(
+            _inCard('screen', find.byIcon(Icons.chevron_right_rounded)),
+          );
+          await tester.pumpAndSettle();
+        }
+      }
+
+      double gridHeight() => tester
+          .getSize(_inCard('screen', find.byType(GuideCalendarGrid)))
+          .height;
+
+      // May 2027 starts on a Saturday: six rows from either first weekday;
+      // September 2027 on a Wednesday: five.
+      expectStage('May in the Calendar');
+      final sixRows = gridHeight();
+      await toSeptember();
+      expect(_gridOf(tester, 'screen').focusedDay.month, 9);
+      expect(gridHeight(), lessThan(sixRows));
+      expectStage('September in the Calendar');
+
+      await showOverview(robot);
+      // No pick since: the Overview opens on the picked day's May.
+      expect(miniMonth(tester).month, DateTime.utc(2027, 5));
+      expectStage('May in the Overview');
+      for (var i = 0; i < 4; i++) {
+        await overview.tap('next');
+      }
+      expect(miniMonth(tester).month, DateTime.utc(2027, 9));
+      expectStage('September in the Overview');
+      await expectNothingSaved();
+    });
+
+    testWidgets('the grounds in light: the Calendar\'s bar and grid on '
+        '`surface`, its panel on `pageGround`; the Overview\'s bar on '
+        '`pageGround` (D79)', (tester) async {
+      final robot = await open(tester, CalendarGuideTopic.screen);
+      final scheme = AppTheme.light().colorScheme;
+      Color barGround() => tester
+          .widget<GuideCalendarBar>(find.byType(GuideCalendarBar))
+          .backgroundColor;
+      // The nearest ground a widget is drawn on.
+      Color groundOf(Type type) => tester
+          .widget<ColoredBox>(
+            find
+                .ancestor(
+                  of: _inCard('screen', find.byType(type)).first,
+                  matching: find.byType(ColoredBox),
+                )
+                .first,
+          )
+          .color;
+
+      expect(barGround(), scheme.surface);
+      expect(groundOf(GuideCalendarGrid), scheme.surface);
+      expect(groundOf(PanelModeBar), scheme.pageGround);
+      await showOverview(robot);
+      expect(barGround(), scheme.pageGround);
+      await expectNothingSaved();
+    });
+
+    // D77's risk: her look with the most bars a day can carry raises the
+    // grid's rows; the panel's share gives way (`Expanded`), the stage
+    // does not.
+    for (final scale in const [1.0, 2.0]) {
+      testWidgets('the most bars a day can carry at $scale: a taller grid, '
+          'the same stage, nothing overflows', (tester) async {
+        Future<(double, double, double)> measure() async {
+          final robot = await open(
+            tester,
+            CalendarGuideTopic.screen,
+            locale: const Locale('de'),
+            size: const Size(360, 780),
+            textScaler: TextScaler.linear(scale),
+            now: () => DateTime(2027, 5, 12, 10),
+          );
+          expect(tester.takeException(), isNull);
+          return (
+            robot.stageSize.height,
+            tester
+                .getSize(_inCard('screen', find.byType(GuideCalendarGrid)))
+                .height,
+            tester.getSize(find.byType(GuideDemoPanel)).height,
+          );
+        }
+
+        final (stage, grid, panel) = await measure();
+        await (await SettingsService.getInstance()).setCalendarMaxDayBars(
+          SettingsKeys.maxCalendarMaxDayBars,
+        );
+        writes.statements.clear();
+        // A fresh page reads her look again.
+        await tester.pumpWidget(const SizedBox.shrink());
+        final (fullStage, fullGrid, fullPanel) = await measure();
+        expect(fullGrid, greaterThan(grid));
+        expect(fullStage, moreOrLessEquals(stage, epsilon: 1));
+        expect(fullPanel, moreOrLessEquals(panel - (fullGrid - grid)));
+        expect(writes.statements, isEmpty);
+        expect(staticRevisions(), revisions);
+      });
+    }
+
+    // D80: the bar and the views reach the stage's edges, so its hairlines
+    // are drawn over them — in the dark, where the page's ground is the
+    // bar's, they are what tells the stage's bar from the page's.
+    testWidgets('the stage\'s hairlines show above the bar and below the '
+        'view in both views', (tester) async {
+      final robot = await open(tester, CalendarGuideTopic.screen);
+      final outline = AppTheme.light().colorScheme.outlineVariant.toARGB32();
+      final stage = find
+          .descendant(of: robot.card, matching: find.byType(RepaintBoundary))
+          .first;
+      Future<void> expectHairlines(String view) async {
+        await tester.ensureVisible(stage);
+        await tester.pumpAndSettle();
+        final boundary = tester.renderObject<RenderRepaintBoundary>(stage);
+        final (width, height, pixels) = (await tester.runAsync(() async {
+          final image = await boundary.toImage();
+          final bytes = await image.toByteData();
+          final shot = (image.width, image.height, bytes!);
+          image.dispose();
+          return shot;
+        }))!;
+        expect(
+          height,
+          GuideScreenDemo.heightFor(TextScaler.noScaling).round(),
+          reason: view,
+        );
+        int argbAt(int x, int y) {
+          final i = (y * width + x) * 4;
+          return Color.fromARGB(
+            pixels.getUint8(i + 3),
+            pixels.getUint8(i),
+            pixels.getUint8(i + 1),
+            pixels.getUint8(i + 2),
+          ).toARGB32();
+        }
+
+        for (final (edge, y) in [('top', 0), ('bottom', height - 1)]) {
+          for (final x in [width ~/ 8, width ~/ 2, width * 7 ~/ 8]) {
+            expect(argbAt(x, y), outline, reason: '$view $edge at $x');
+          }
+        }
+      }
+
+      await expectHairlines('calendar');
+      await showOverview(robot);
+      await expectHairlines('overview');
+      await expectNothingSaved();
+    });
+
+    testWidgets('the tour: the panel, the ⋮, the Overview through the title, '
+        'its chips, its arrows; the Report says where it would lead and the '
+        'view stays', (tester) async {
+      final robot = await open(tester, CalendarGuideTopic.screen);
       expect(robot.line, steps[0]);
       note(robot);
 
-      for (final (id, format) in const [
-        (SemanticsIds.calendarFormatTwoWeeks, CalendarFormat.twoWeeks),
-        (SemanticsIds.calendarFormatWeek, CalendarFormat.week),
-        (SemanticsIds.calendarFormatMonth, CalendarFormat.month),
-      ]) {
-        await robot.tapId(SemanticsIds.calendarViewMenu);
-        await robot.tapId(id);
-        expect(_gridOf(tester, 'screen').calendarFormat, format);
-        expect(robot.stageSize, stage, reason: format.name);
-        expect(robot.line, steps[1]);
-      }
+      await robot.tapId(SemanticsIds.panelMode('timeline'));
+      expect(robot.line, steps[1]);
       note(robot);
 
-      await robot.tapId(SemanticsIds.calendarViewMenu);
-      await robot.tapId(SemanticsIds.calendarReportOpen);
+      await robot.tap('more');
+      await robot.tapId(SemanticsIds.calendarSettingsOpen);
+      expect(robot.line, steps[2]);
+      note(robot);
+
+      await showOverview(robot);
+      expect(robot.line, steps[3]);
+      note(robot);
+
+      final overview = overviewOf(tester);
+      await overview.tap('mode-list');
+      expect(robot.line, steps[4]);
+      note(robot);
+
+      await overview.tap('next');
+      expect(robot.line, steps[5]);
+      note(robot);
+
+      await pick(robot, SemanticsIds.calendarReportOpen);
       expect(robot.line, en.calendarGuideWouldOpen(en.reportTitle));
+      expect(shownView(tester), CalendarViewPage.overview);
       note(robot);
 
-      await robot.tapId(SemanticsIds.calendarViewMenu);
-      await robot.tapId(SemanticsIds.calendarOverviewOpen);
-      expect(robot.line, en.calendarGuideWouldOpen(en.calendarOverview));
-      note(robot);
-
-      for (final row in [
-        SemanticsIds.calendarAlertsOpen,
-        SemanticsIds.calendarExport,
-        SemanticsIds.calendarGuideOpen,
-        SemanticsIds.calendarSettingsOpen,
-      ]) {
-        await robot.tap('more');
-        await robot.tapId(row);
-        expect(robot.line, en.calendarGuideCoachDone);
-        note(robot);
-      }
+      // The skip under a standing report only clears it (D46); the Report
+      // step waits for its view.
+      await robot.skip();
+      expect(robot.line, steps[5]);
+      await robot.skip();
+      expect(robot.line, en.calendarGuideCoachDone);
+      expect(robot.canSkip, isFalse);
       expect(pushes.pushed, isEmpty);
       expectOneSlotHeight();
       await expectNothingSaved();
     });
 
-    testWidgets('the grid card: a step done early is not asked again', (
-      tester,
-    ) async {
+    testWidgets('a step done early is not asked again', (tester) async {
       final robot = await open(tester, CalendarGuideTopic.screen);
 
       await robot.tap('more');
-      await robot.tapId(SemanticsIds.calendarSettingsOpen);
+      await robot.tapId(SemanticsIds.calendarExport);
       expect(robot.line, steps[0]);
-
-      await robot.tapId(SemanticsIds.calendarViewMenu);
-      await robot.tapId(SemanticsIds.calendarFormatWeek);
-      expect(robot.line, en.calendarGuideCoachDone);
-      expect(robot.canSkip, isFalse);
+      await robot.tapId(SemanticsIds.panelMode('upcoming'));
+      expect(robot.line, steps[2]);
       await expectNothingSaved();
     });
 
-    testWidgets('the grid card: Report as the first pick does the title step; '
-        'once its report clears, the line moves on', (tester) async {
+    testWidgets('the Calendar: the formats reshape the grid; the saved '
+        'filters and the funnel drawn disabled; the panel offers no expand '
+        'and no presence button', (tester) async {
       final robot = await open(tester, CalendarGuideTopic.screen);
-      final format = _gridOf(tester, 'screen').calendarFormat;
-      expect(robot.line, steps[0]);
-
-      await robot.tapId(SemanticsIds.calendarViewMenu);
-      await robot.tapId(SemanticsIds.calendarReportOpen);
-      expect(robot.line, en.calendarGuideWouldOpen(en.reportTitle));
-      expect(_gridOf(tester, 'screen').calendarFormat, format);
-
-      // The skip under a standing report only clears it (D46).
-      await robot.skip();
-      expect(robot.line, steps[1]);
-      expect(pushes.pushed, isEmpty);
-      await expectNothingSaved();
-    });
-
-    testWidgets('the panel card: every mode moves the line on in one height; '
-        'the expand button and the presence button are not offered', (
-      tester,
-    ) async {
-      final robot = await open(
-        tester,
-        CalendarGuideTopic.screen,
-        card: 'panel',
-      );
-      final stage = robot.stageSize;
-      expect(robot.line, stepsOfCard(screenCards['panel']!).single);
-      note(robot);
-      expect(
-        tester.widget<DaySummaryPanel>(find.byType(DaySummaryPanel)).day,
-        today,
-      );
-      expect(
-        tester
-            .widget<DaySummaryPanel>(find.byType(DaySummaryPanel))
-            .onToggleMissed,
-        isNull,
-      );
-
-      for (final (mode, body) in [
-        ('timeline', DayTimelineView),
-        ('upcoming', AgendaDayListRowBuilder),
-        ('day', DaySummaryPanel),
+      for (final (id, format) in const [
+        (SemanticsIds.calendarFormatTwoWeeks, CalendarFormat.twoWeeks),
+        (SemanticsIds.calendarFormatWeek, CalendarFormat.week),
+        (SemanticsIds.calendarFormatMonth, CalendarFormat.month),
       ]) {
-        await robot.tapId(SemanticsIds.panelMode(mode));
-        expect(robot.line, en.calendarGuideCoachDone, reason: mode);
-        expect(robot.stageSize, stage, reason: mode);
-        if (body != AgendaDayListRowBuilder) {
-          expect(_inCard('panel', find.byType(body)), findsOneWidget);
-        }
-        note(robot);
+        await pick(robot, id);
+        expect(_gridOf(tester, 'screen').calendarFormat, format);
+        expect(robot.line, steps[0]);
       }
-      // Disabled, never hidden: the card has no grid to cover.
+      final bar = tester.widget<GuideCalendarBar>(
+        find.byType(GuideCalendarBar),
+      );
+      expect(bar.backgroundColor, AppTheme.light().colorScheme.surface);
+      for (final name in const ['saved-filters', 'filter']) {
+        expect(
+          tester
+              .widget<IconButton>(
+                find.descendant(
+                  of: robot.control(name),
+                  matching: find.byType(IconButton),
+                ),
+              )
+              .onPressed,
+          isNull,
+          reason: name,
+        );
+      }
+      expect(dayPanel(tester).day, today);
+      expect(dayPanel(tester).onToggleMissed, isNull);
       final expand = tester.widget<IconButton>(
         find.descendant(
           of: find.byType(PanelModeBar),
@@ -946,44 +1247,78 @@ void main() {
         ),
       );
       expect(expand.onPressed, isNull);
-      expect(pushes.pushed, isEmpty);
-      expectOneSlotHeight();
+      for (final (mode, body) in [
+        ('timeline', DayTimelineView),
+        ('day', DaySummaryPanel),
+      ]) {
+        await robot.tapId(SemanticsIds.panelMode(mode));
+        expect(_inCard('screen', find.byType(body)), findsOneWidget);
+      }
       await expectNothingSaved();
     });
 
-    testWidgets('the overview card: the chips switch modes in one slot, the '
+    testWidgets('the Overview\'s bar: its options and saved views drawn '
+        'disabled, the ⋮ live, no formats in the title menu', (tester) async {
+      final robot = await open(tester, CalendarGuideTopic.screen);
+      await showOverview(robot);
+      final bar = tester.widget<GuideCalendarBar>(
+        find.byType(GuideCalendarBar),
+      );
+      expect(bar.backgroundColor, AppTheme.light().colorScheme.pageGround);
+      expect(bar.format, isNull);
+      for (final name in const ['overview-options', 'overview-views']) {
+        expect(
+          tester
+              .widget<IconButton>(
+                find.descendant(
+                  of: robot.control(name),
+                  matching: find.byType(IconButton),
+                ),
+              )
+              .onPressed,
+          isNull,
+          reason: name,
+        );
+      }
+      expect(robot.control('saved-filters'), findsNothing);
+
+      await robot.tapId(SemanticsIds.calendarViewMenu);
+      expect(
+        find.bySemanticsIdentifier(SemanticsIds.calendarFormatWeek),
+        findsNothing,
+      );
+      await robot.tapId(SemanticsIds.calendarOverviewOpen);
+
+      // The ⋮ is the tour's step in every view: done here — with the
+      // Overview's own step, done by coming here — the panel's step leads
+      // past both.
+      await robot.tap('more');
+      await robot.tapId(SemanticsIds.calendarGuideOpen);
+      expect(robot.line, steps[0]);
+      await showCalendar(robot);
+      await robot.tapId(SemanticsIds.panelMode('upcoming'));
+      expect(robot.line, steps[3]);
+      expect(pushes.pushed, isEmpty);
+      await expectNothingSaved();
+    });
+
+    testWidgets('the Overview: the chips switch modes in one height, the '
         'arrows and Today step the period, a tile opens its month', (
       tester,
     ) async {
-      final robot = await open(
-        tester,
-        CalendarGuideTopic.screen,
-        card: 'overview',
-      );
-      final steps = stepsOfCard(screenCards['overview']!);
+      final robot = await open(tester, CalendarGuideTopic.screen);
+      await showOverview(robot);
+      final overview = overviewOf(tester);
       final stage = robot.stageSize;
       String title() => _navOf(tester).title;
-      DateTime gridMonth() => tester
-          .widget<AgendaMonthGrid>(
-            _inCard('overview', find.byType(AgendaMonthGrid)),
-          )
-          .month;
-      expect(robot.line, steps[0]);
-      note(robot);
+      DateTime gridMonth() => miniMonth(tester).month;
 
       // D68: Month, on the shared day's month, the day picked; the search
       // drawn disabled.
-      expect(robot.chip('mode-month').selected, isTrue);
+      expect(overview.chip('mode-month').selected, isTrue);
       final thisMonth = DateTime.utc(today.year, today.month);
       expect(gridMonth(), thisMonth);
-      expect(
-        tester
-            .widget<AgendaMonthGrid>(
-              _inCard('overview', find.byType(AgendaMonthGrid)),
-            )
-            .selectedDay,
-        today,
-      );
+      expect(miniMonth(tester).selectedDay, today);
       expect(
         title(),
         AgendaListView.monthLabel('en', thisMonth, withYear: true),
@@ -992,7 +1327,7 @@ void main() {
         tester
             .widget<IconButton>(
               find.descendant(
-                of: robot.control('search'),
+                of: overview.control('search'),
                 matching: find.byType(IconButton),
               ),
             )
@@ -1000,73 +1335,76 @@ void main() {
         isNull,
       );
 
-      await robot.tap('mode-year');
-      expect(robot.line, steps[1]);
+      await overview.tap('mode-year');
       expect(robot.stageSize, stage, reason: 'year');
       // Year: the year's twelve tiles.
       expect(
         tester
             .widget<AgendaYearGrid>(
-              _inCard('overview', find.byType(AgendaYearGrid)),
+              _inCard('screen', find.byType(AgendaYearGrid)),
             )
             .tiles
             .map((tile) => tile.month),
         AgendaMonthStore.monthsOfYear(today.year),
       );
       expect(title(), '${today.year}');
-      note(robot);
 
-      await robot.tap('next');
-      expect(robot.line, en.calendarGuideCoachDone);
+      await overview.tap('next');
+      // The panel's step is still first: the Overview's marks wait behind
+      // it.
+      expect(robot.line, steps[0]);
       expect(title(), '${today.year + 1}');
-      await robot.tap('today');
+      await overview.tap('today');
       expect(title(), '${today.year}');
 
-      await robot.tap('mode-list');
+      await overview.tap('mode-list');
       expect(robot.stageSize, stage, reason: 'list');
       expect(title(), _monthSpanLabel(thisMonth));
 
-      await robot.tap('mode-month');
+      await overview.tap('mode-month');
       expect(robot.stageSize, stage, reason: 'month');
-      await robot.tap('previous');
+      await overview.tap('previous');
       expect(gridMonth(), DateTime.utc(today.year, today.month - 1));
 
       // A tile opens its month, as the overview's do: here the month she
       // was on, whose row Year opens on.
-      await robot.tap('mode-year');
+      await overview.tap('mode-year');
       expect(robot.stageSize, stage, reason: 'year');
       final lastMonth = DateTime.utc(today.year, today.month - 1);
-      await _tapOnPage(tester, 'overview', _yearTile(lastMonth));
-      expect(robot.chip('mode-month').selected, isTrue);
+      await _tapOnPage(tester, 'screen', _yearTile(lastMonth));
+      expect(overview.chip('mode-month').selected, isTrue);
       expect(gridMonth(), lastMonth);
       expect(pushes.pushed, isEmpty);
-      expectOneSlotHeight();
       await expectNothingSaved();
     });
 
-    // D68: three rows of four fit the slot, so Year opens scrolled to the
-    // row of the month she was on — from its own scroll offset, laid out by
-    // the grid's delegate.
-    for (final (shown, size) in [
-      (DateTime.utc(2027, 5), const Size(412, 915)),
-      (DateTime.utc(2027, 5), const Size(360, 780)),
-      (DateTime.utc(2027, 12), const Size(360, 780)),
+    // D68: Year opens with the row of the month she was on in view — at its
+    // top when the year is taller than the view, from its own scroll offset
+    // laid out by the grid's delegate; at 1.0 the stage's view holds the
+    // whole year.
+    for (final (shown, size, scale) in [
+      (DateTime.utc(2027, 5), const Size(412, 915), 1.0),
+      (DateTime.utc(2027, 5), const Size(360, 780), 1.0),
+      (DateTime.utc(2027, 12), const Size(360, 780), 1.0),
+      (DateTime.utc(2027, 8), const Size(360, 780), 2.0),
     ]) {
-      testWidgets('the overview card: Year opens on the row that holds the '
-          'month shown, ${shown.month} on ${size.width.toInt()}', (
+      testWidgets('the Overview: Year opens on the row that holds the month '
+          'shown, ${shown.month} on ${size.width.toInt()} at $scale', (
         tester,
       ) async {
         final robot = await open(
           tester,
           CalendarGuideTopic.screen,
-          card: 'overview',
           size: size,
+          textScaler: TextScaler.linear(scale),
           now: () => DateTime(shown.year, shown.month, 12, 10),
         );
-        await robot.tap('mode-year');
+        await showOverview(robot);
+        final overview = overviewOf(tester);
+        await overview.tap('mode-year');
         final grid = find
             .descendant(
-              of: _inCard('overview', find.byType(AgendaYearGrid)),
+              of: _inCard('screen', find.byType(AgendaYearGrid)),
               matching: find.byType(Scrollable),
             )
             .first;
@@ -1088,31 +1426,30 @@ void main() {
         expect(tile.bottom, lessThanOrEqualTo(viewport.height + 0.5));
         final columns = YearMonthTile.columnsFor(viewport.width);
         final row = (shown.month - 1) ~/ columns;
+        // Its row the slot's first, the row above scrolled off — unless the
+        // grid stops at its end first (a last row, or a year that fits).
         if (position.pixels < position.maxScrollExtent - 0.5) {
-          // Its row the slot's first: the row above is scrolled off.
           expect(row, greaterThan(0));
           expect(tile.top, moreOrLessEquals(0, epsilon: 0.5));
-        } else {
-          // A last row cannot reach the top: the grid stops at its end, the
-          // row in view.
-          expect(position.maxScrollExtent, greaterThan(0));
         }
+        if (scale > 1) expect(position.maxScrollExtent, greaterThan(0));
         // Stepped away and back, the year opens on that row again.
-        await robot.tap('next');
-        await robot.tap('previous');
+        await overview.tap('next');
+        await overview.tap('previous');
         expect(measure().$1, rectMoreOrLessEquals(tile, epsilon: 0.01));
         await expectNothingSaved();
       });
     }
 
-    testWidgets('the overview card: List lists the shown month; ◄ ► step a '
-        'month in Month and List and a year in Year', (tester) async {
+    testWidgets('the Overview: List lists the shown month; ◄ ► step a month '
+        'in Month and List and a year in Year', (tester) async {
       final robot = await open(
         tester,
         CalendarGuideTopic.screen,
-        card: 'overview',
         now: () => DateTime(2027, 5, 12, 10),
       );
+      await showOverview(robot);
+      final overview = overviewOf(tester);
       String title() => _navOf(tester).title;
       final may = DateTime.utc(2027, 5);
       final june = DateTime.utc(2027, 6);
@@ -1121,7 +1458,7 @@ void main() {
         final labels = {
           for (final label in tester.widgetList<FormSectionLabel>(
             _inCard(
-              'overview',
+              'screen',
               find.descendant(
                 of: find.byType(ListView),
                 matching: find.byType(FormSectionLabel),
@@ -1143,67 +1480,52 @@ void main() {
         };
       }
 
-      await robot.tap('mode-list');
+      await overview.tap('mode-list');
       expect(title(), _monthSpanLabel(may));
       expect(listedMonths(), {may});
-      await robot.tap('next');
+      await overview.tap('next');
       expect(title(), _monthSpanLabel(june));
       expect(listedMonths(), {june});
 
-      await robot.tap('mode-month');
+      await overview.tap('mode-month');
       expect(title(), AgendaListView.monthLabel('en', june, withYear: true));
-      await robot.tap('next');
+      await overview.tap('next');
       expect(
         title(),
         AgendaListView.monthLabel('en', DateTime.utc(2027, 7), withYear: true),
       );
 
-      await robot.tap('mode-year');
+      await overview.tap('mode-year');
       expect(title(), '2027');
-      await robot.tap('next');
+      await overview.tap('next');
       expect(title(), '2028');
-      await robot.tap('today');
+      await overview.tap('today');
       expect(title(), '2027');
-      await robot.tap('mode-list');
+      await overview.tap('mode-list');
       expect(title(), _monthSpanLabel(may));
       await expectNothingSaved();
     });
 
     testWidgets('one picked day: the grid\'s pick is the panel\'s day and '
-        'the overview month\'s, and a day picked there is the grid\'s', (
+        'the Overview month\'s, and a day picked there is the grid\'s', (
       tester,
     ) async {
-      final screen = await open(tester, CalendarGuideTopic.screen);
+      final robot = await open(tester, CalendarGuideTopic.screen);
       // Yoga's day a week away, inside today's month either way.
       final picked = today.day > 7 ? day(-7) : day(7);
       await _tapCell(tester, 'screen', picked);
       expect(_cellOf(tester, 'screen', picked).isSelected, isTrue);
+      expect(dayPanel(tester).day, picked);
 
-      final panel = GuideTryCardRobot(tester, 'panel');
-      await panel.reveal();
-      expect(
-        tester.widget<DaySummaryPanel>(find.byType(DaySummaryPanel)).day,
-        picked,
-      );
-
-      final overview = GuideTryCardRobot(tester, 'overview');
-      await overview.reveal();
-      await overview.tap('mode-month');
-      expect(
-        tester
-            .widget<AgendaMonthGrid>(
-              _inCard('overview', find.byType(AgendaMonthGrid)),
-            )
-            .selectedDay,
-        picked,
-      );
-      // The picked day's rows sit under the mini month, in the slot's own
+      await showOverview(robot);
+      expect(miniMonth(tester).selectedDay, picked);
+      // The picked day's rows sit under the mini month, in the view's own
       // scroll.
-      final slot = _inCard('overview', find.byType(CustomScrollView));
+      final slot = _inCard('screen', find.byType(CustomScrollView));
       await tester.drag(slot, const Offset(0, -300));
       await tester.pumpAndSettle();
       expect(
-        _inCard('overview', find.text(yoga, findRichText: true)),
+        _inCard('screen', find.text(yoga, findRichText: true)),
         findsWidgets,
       );
       await tester.drag(slot, const Offset(0, 300));
@@ -1211,39 +1533,83 @@ void main() {
 
       // The first of the month carries the rent: a day to pick there.
       final first = DateTime.utc(today.year, today.month, 1);
-      await _tapCell(tester, 'overview', first);
-      expect(
-        tester
-            .widget<AgendaMonthGrid>(
-              _inCard('overview', find.byType(AgendaMonthGrid)),
-            )
-            .selectedDay,
-        first,
-      );
+      await _tapCell(tester, 'screen', first);
+      expect(miniMonth(tester).selectedDay, first);
       await tester.drag(slot, const Offset(0, -300));
       await tester.pumpAndSettle();
       expect(
         _inCard(
-          'overview',
+          'screen',
           find.text(en.calendarGuideDemoEventRent, findRichText: true),
         ),
         findsWidgets,
       );
-      await panel.reveal();
-      expect(
-        tester.widget<DaySummaryPanel>(find.byType(DaySummaryPanel)).day,
-        first,
-      );
-      await screen.reveal();
+
+      await showCalendar(robot);
+      expect(dayPanel(tester).day, first);
       expect(_cellOf(tester, 'screen', first).isSelected, isTrue);
       expect(pushes.pushed, isEmpty);
       await expectNothingSaved();
     });
 
-    testWidgets('no tap on a stage opens a page or a sheet: a grid day, a '
+    testWidgets('D83: the Overview opens on the month of a day picked on the '
+        'grid since it was left; with no new pick it is as she left it', (
+      tester,
+    ) async {
+      final robot = await open(
+        tester,
+        CalendarGuideTopic.screen,
+        now: () => DateTime(2027, 5, 12, 10),
+      );
+      await showOverview(robot);
+      final overview = overviewOf(tester);
+      expect(miniMonth(tester).month, DateTime.utc(2027, 5));
+      await overview.tap('next');
+      expect(miniMonth(tester).month, DateTime.utc(2027, 6));
+
+      // Away and back with no new pick: June, as she left it.
+      await showCalendar(robot);
+      await showOverview(robot);
+      expect(overview.chip('mode-month').selected, isTrue);
+      expect(miniMonth(tester).month, DateTime.utc(2027, 6));
+
+      // Left on May, a day of July picked on the grid: the Overview opens
+      // on July — a month neither view was on — with the day picked.
+      await overview.tap('previous');
+      expect(miniMonth(tester).month, DateTime.utc(2027, 5));
+      await showCalendar(robot);
+      for (var i = 0; i < 2; i++) {
+        await tester.tap(
+          _inCard('screen', find.byIcon(Icons.chevron_right_rounded)),
+        );
+        await tester.pumpAndSettle();
+      }
+      final picked = DateTime.utc(2027, 7, 14);
+      await _tapCell(tester, 'screen', picked);
+      await showOverview(robot);
+      expect(miniMonth(tester).month, DateTime.utc(2027, 7));
+      expect(miniMonth(tester).selectedDay, picked);
+
+      // In Year, a pick in another year moves the year.
+      await overview.tap('mode-year');
+      await showCalendar(robot);
+      for (var i = 0; i < 6; i++) {
+        await tester.tap(
+          _inCard('screen', find.byIcon(Icons.chevron_right_rounded)),
+        );
+        await tester.pumpAndSettle();
+      }
+      final nextYear = DateTime.utc(2028, 1, 12);
+      await _tapCell(tester, 'screen', nextYear);
+      await showOverview(robot);
+      expect(_navOf(tester).title, '2028');
+      await expectNothingSaved();
+    });
+
+    testWidgets('no tap on the stage opens a page or a sheet: a grid day, a '
         'panel row, a timeline block, an upcoming row, a year tile, a '
         'month-grid day, a list row', (tester) async {
-      await open(tester, CalendarGuideTopic.screen);
+      final robot = await open(tester, CalendarGuideTopic.screen);
       void expectNothingOpened(String what) {
         expect(pushes.pushed, isEmpty, reason: what);
         expect(find.byType(BottomSheet), findsNothing, reason: what);
@@ -1257,12 +1623,16 @@ void main() {
       await tester.longPress(_cellTarget('screen', today));
       await tester.pumpAndSettle();
       expectNothingOpened('a grid day held');
-
-      final panel = GuideTryCardRobot(tester, 'panel');
-      await panel.reveal();
-      await panel.tapId(SemanticsIds.eventRow('guide-demo-yoga'));
+      await robot.tapId(SemanticsIds.eventRow('guide-demo-yoga'));
       expectNothingOpened('a panel row');
-      await panel.tapId(SemanticsIds.panelMode('timeline'));
+      await robot.tapId(SemanticsIds.panelMode('timeline'));
+      await tester.ensureVisible(
+        find.descendant(
+          of: find.byType(DayTimelineView),
+          matching: find.text(yoga),
+        ),
+      );
+      await tester.pumpAndSettle();
       await tester.tap(
         find.descendant(
           of: find.byType(DayTimelineView),
@@ -1271,33 +1641,40 @@ void main() {
       );
       await tester.pumpAndSettle();
       expectNothingOpened('a timeline block');
-      await panel.tapId(SemanticsIds.panelMode('upcoming'));
-      await tester.tap(
-        _inCard('panel', find.text(yoga, findRichText: true)).first,
-      );
+      await robot.tapId(SemanticsIds.panelMode('upcoming'));
+      final upcoming = _inCard(
+        'screen',
+        find.descendant(
+          of: find.byType(GuideDemoPanel),
+          matching: find.text(yoga, findRichText: true),
+        ),
+      ).first;
+      await tester.ensureVisible(upcoming);
+      await tester.pumpAndSettle();
+      await tester.tap(upcoming);
       await tester.pumpAndSettle();
       expectNothingOpened('an upcoming row');
 
-      final overview = GuideTryCardRobot(tester, 'overview');
-      await overview.reveal();
+      await showOverview(robot);
+      final overview = overviewOf(tester);
       await overview.tap('mode-year');
       // This month's tile, in the row Year opens on; it opens this month.
       await _tapOnPage(
         tester,
-        'overview',
+        'screen',
         _yearTile(DateTime.utc(today.year, today.month)),
       );
       expectNothingOpened('a year tile');
-      await _tapCell(tester, 'overview', DateTime.utc(today.year, today.month));
+      await _tapCell(tester, 'screen', DateTime.utc(today.year, today.month));
       expectNothingOpened('a month-grid day');
       await tester.drag(
-        _inCard('overview', find.byType(CustomScrollView)),
+        _inCard('screen', find.byType(CustomScrollView)),
         const Offset(0, -300),
       );
       await tester.pumpAndSettle();
       await tester.tap(
         _inCard(
-          'overview',
+          'screen',
           find.text(en.calendarGuideDemoEventRent, findRichText: true),
         ).first,
       );
@@ -1307,7 +1684,7 @@ void main() {
       await overview.tap('mode-list');
       await tester.tap(
         _inCard(
-          'overview',
+          'screen',
           find.text(en.calendarGuideDemoEventRent, findRichText: true),
         ).first,
       );
@@ -1327,41 +1704,41 @@ void main() {
         )
         .position;
 
-    testWidgets('a slot\'s end hands a drag on to the page; a slot with '
-        'more to show scrolls itself and not the page', (tester) async {
-      final panel = await open(
-        tester,
-        CalendarGuideTopic.screen,
-        card: 'panel',
-      );
-      await panel.tapId(SemanticsIds.panelMode('upcoming'));
-      final slot = tester
-          .state<ScrollableState>(
-            _inCard('panel', find.byType(Scrollable)).first,
-          )
-          .position;
+    Finder panelList() => find
+        .descendant(
+          of: find.byType(GuideDemoPanel),
+          matching: find.byType(Scrollable),
+        )
+        .first;
+
+    testWidgets('the panel\'s end hands a drag on to the page; a panel with '
+        'more to show scrolls itself and not the page; a drag on the grid '
+        'scrolls the page', (tester) async {
+      final robot = await open(tester, CalendarGuideTopic.screen);
+      await robot.tapId(SemanticsIds.panelMode('upcoming'));
+      await tester.ensureVisible(find.byType(GuideDemoPanel));
+      await tester.pumpAndSettle();
+      final slot = tester.state<ScrollableState>(panelList()).position;
       final page = pageOf(tester);
       expect(page.pixels, greaterThan(100));
       expect(slot.pixels, 0);
-      final start = tester.getCenter(
-        _inCard('panel', find.byType(Scrollable)).first,
-      );
+      final start = tester.getCenter(panelList());
 
-      // Up the slot: the list has more below, so it scrolls and the page
+      // Up the panel: the list has more below, so it scrolls and the page
       // stays.
       var gesture = await tester.startGesture(start);
       await gesture.moveBy(const Offset(0, -kTouchSlop - 2));
       await tester.pump();
       final pageBefore = page.pixels;
       final slotBefore = slot.pixels;
-      await gesture.moveBy(const Offset(0, -60));
+      await gesture.moveBy(const Offset(0, -30));
       await tester.pump();
-      expect(slot.pixels, moreOrLessEquals(slotBefore + 60));
+      expect(slot.pixels, moreOrLessEquals(slotBefore + 30));
       expect(page.pixels, pageBefore);
       await gesture.up();
       await tester.pumpAndSettle();
 
-      // Back to the slot's top, then on down: past its end the finger moves
+      // Back to the panel's top, then on down: past its end the finger moves
       // the page by the same distance.
       slot.jumpTo(0);
       await tester.pump();
@@ -1379,21 +1756,36 @@ void main() {
       await gesture.up();
       await tester.pumpAndSettle();
       expect(page.pixels, pageAtLift);
+
+      // The grid takes only taps and sideways swipes (D77): a vertical drag
+      // there is the page's.
+      final grid = tester.getCenter(
+        _inCard('screen', find.byType(GuideCalendarGrid)),
+      );
+      final pageBeforeGrid = page.pixels;
+      gesture = await tester.startGesture(grid);
+      await gesture.moveBy(const Offset(0, kTouchSlop + 2));
+      await tester.pump();
+      final pageAtGrid = page.pixels;
+      await gesture.moveBy(const Offset(0, 40));
+      await tester.pump();
+      expect(page.pixels, moreOrLessEquals(pageAtGrid - 40));
+      expect(page.pixels, lessThan(pageBeforeGrid));
+      await gesture.up();
+      await tester.pumpAndSettle();
       await expectNothingSaved();
     });
 
     testWidgets('the mini month: a swipe to half-way and back keeps its '
         'month and its grid', (tester) async {
-      final overview = await open(
-        tester,
-        CalendarGuideTopic.screen,
-        card: 'overview',
-      );
-      await overview.tap('mode-month');
+      final robot = await open(tester, CalendarGuideTopic.screen);
+      await showOverview(robot);
       final grid = _inCard(
-        'overview',
+        'screen',
         find.byWidgetPredicate((widget) => widget is TableCalendar),
       );
+      await tester.ensureVisible(grid);
+      await tester.pumpAndSettle();
       final element = tester.element(grid);
       final month = DateTime.utc(today.year, today.month);
       final width = tester.getSize(grid).width;
@@ -1410,74 +1802,49 @@ void main() {
       await gesture.up();
       await tester.pumpAndSettle();
 
-      expect(
-        tester
-            .widget<AgendaMonthGrid>(
-              _inCard('overview', find.byType(AgendaMonthGrid)),
-            )
-            .month,
-        month,
-      );
+      expect(miniMonth(tester).month, month);
       expect(identical(tester.element(grid), element), isTrue);
       await expectNothingSaved();
     });
 
     testWidgets('the mini month: the picked day tapped again lists the whole '
         'month, the shared day kept; again, the day', (tester) async {
-      final overview = await open(
-        tester,
-        CalendarGuideTopic.screen,
-        card: 'overview',
-      );
-      await overview.tap('mode-month');
-      AgendaMonthGrid grid() => tester.widget<AgendaMonthGrid>(
-        _inCard('overview', find.byType(AgendaMonthGrid)),
-      );
-      expect(grid().selectedDay, today);
+      final robot = await open(tester, CalendarGuideTopic.screen);
+      await showOverview(robot);
+      expect(miniMonth(tester).selectedDay, today);
 
-      await _tapCell(tester, 'overview', today);
-      expect(grid().selectedDay, isNull);
-      await overview.reveal();
-      final panel = GuideTryCardRobot(tester, 'panel');
-      await panel.reveal();
-      expect(
-        tester.widget<DaySummaryPanel>(find.byType(DaySummaryPanel)).day,
-        today,
-      );
+      await _tapCell(tester, 'screen', today);
+      expect(miniMonth(tester).selectedDay, isNull);
+      await showCalendar(robot);
+      expect(dayPanel(tester).day, today);
 
-      await overview.reveal();
-      await _tapCell(tester, 'overview', today);
-      expect(grid().selectedDay, today);
+      await showOverview(robot);
+      expect(miniMonth(tester).selectedDay, isNull);
+      await _tapCell(tester, 'screen', today);
+      expect(miniMonth(tester).selectedDay, today);
       await expectNothingSaved();
     });
 
     testWidgets('a language change writes the demo again in it', (
       tester,
     ) async {
-      await open(tester, CalendarGuideTopic.screen, card: 'panel');
-      await open(
+      await open(tester, CalendarGuideTopic.screen);
+      final robot = await open(
         tester,
         CalendarGuideTopic.screen,
-        card: 'panel',
         locale: const Locale('de'),
       );
-      await GuideTryCardRobot(
-        tester,
-        'panel',
-      ).tapId(SemanticsIds.panelMode('upcoming'));
-      // The dentist is two days out: down the slot's list until it is built.
+      await robot.tapId(SemanticsIds.panelMode('upcoming'));
+      // The dentist is two days out: down the panel's list until it is
+      // built.
       final dentist = _inCard(
-        'panel',
+        'screen',
         find.text(
           AppLocalizationsDe().calendarGuideDemoEventDentist,
           findRichText: true,
         ),
       );
-      final slot = tester
-          .state<ScrollableState>(
-            _inCard('panel', find.byType(Scrollable)).first,
-          )
-          .position;
+      final slot = tester.state<ScrollableState>(panelList()).position;
       for (var i = 0; i < 20 && dentist.evaluate().isEmpty; i++) {
         slot.jumpTo((slot.pixels + 100).clamp(0.0, slot.maxScrollExtent));
         await tester.pump();
@@ -1485,7 +1852,7 @@ void main() {
       expect(dentist, findsWidgets);
       expect(
         _inCard(
-          'panel',
+          'screen',
           find.text(en.calendarGuideDemoEventDentist, findRichText: true),
         ),
         findsNothing,
@@ -3952,18 +4319,16 @@ void main() {
       await expectNothingSaved();
     });
 
-    Future<GuideTryCardRobot> openTall(WidgetTester tester, String card) =>
-        open(
-          tester,
-          CalendarGuideTopic.screen,
-          locale: const Locale('de'),
-          size: const Size(360, 780),
-          textScaler: const TextScaler.linear(2.0),
-          card: card,
-        );
+    Future<GuideTryCardRobot> openTall(WidgetTester tester) => open(
+      tester,
+      CalendarGuideTopic.screen,
+      locale: const Locale('de'),
+      size: const Size(360, 780),
+      textScaler: const TextScaler.linear(2.0),
+    );
 
     testWidgets('screen: every format and six pages of months', (tester) async {
-      final robot = await openTall(tester, 'screen');
+      final robot = await openTall(tester);
       final stage = robot.stageSize;
       for (final id in const [
         SemanticsIds.calendarFormatWeek,
@@ -3986,8 +4351,8 @@ void main() {
       await expectNothingSaved();
     });
 
-    testWidgets('panel: every mode', (tester) async {
-      final robot = await openTall(tester, 'panel');
+    testWidgets('screen: every panel mode', (tester) async {
+      final robot = await openTall(tester);
       final stage = robot.stageSize;
       for (final mode in const ['timeline', 'upcoming', 'day']) {
         await robot.tapId(SemanticsIds.panelMode(mode));
@@ -4010,47 +4375,14 @@ void main() {
       await expectNothingSaved();
     });
 
-    // D69: the slot grows with the text to 1.3 and stops there, so the Day
-    // body under the grown mode bar still holds a whole row.
-    testWidgets('panel: the slot is 390 at 1.3 and at 2.0, and holds one '
-        'whole Day row at 2.0', (tester) async {
-      final height = const TextScaler.linear(
-        GuideMetrics.panelStageMaxTextScale,
-      ).scale(GuideMetrics.panelStageHeight);
-      expect(height, moreOrLessEquals(390));
-      Finder slot() => _inCard('panel', find.byType(GuideStageSlot));
-
-      await open(
-        tester,
-        CalendarGuideTopic.screen,
-        locale: const Locale('de'),
-        size: const Size(360, 780),
-        textScaler: const TextScaler.linear(1.3),
-        card: 'panel',
-      );
-      expect(tester.getSize(slot()).height, moreOrLessEquals(height));
-
-      await openTall(tester, 'panel');
-      final slotRect = tester.getRect(slot());
-      expect(slotRect.height, moreOrLessEquals(height));
-      final row = tester.getRect(
-        find
-            .descendant(
-              of: _inCard('panel', find.byType(DaySummaryPanel)),
-              matching: find.byType(Card),
-            )
-            .first,
-      );
-      expect(row.top, greaterThanOrEqualTo(slotRect.top));
-      expect(row.bottom, lessThanOrEqualTo(slotRect.bottom));
-      await expectNothingSaved();
-    });
-
-    testWidgets('overview: every mode, a step, today and a tile', (
-      tester,
-    ) async {
-      final robot = await openTall(tester, 'overview');
+    testWidgets('screen: the Overview\'s every mode, a step, today and a '
+        'tile', (tester) async {
+      final robot = await openTall(tester);
       final stage = robot.stageSize;
+      await robot.tapId(SemanticsIds.calendarViewMenu);
+      await robot.tapId(SemanticsIds.calendarOverviewOpen);
+      expect(robot.stageSize, stage, reason: 'the Overview');
+      final overview = GuideTryCardRobot(tester, 'overview');
       for (final control in const [
         'mode-month',
         'next',
@@ -4060,12 +4392,12 @@ void main() {
         'next',
         'today',
       ]) {
-        await robot.tap(control);
+        await overview.tap(control);
         expect(robot.stageSize, stage, reason: control);
       }
       await _tapOnPage(
         tester,
-        'overview',
+        'screen',
         _yearTile(DateTime.utc(today.year, today.month), locale: 'de'),
       );
       expect(robot.stageSize, stage, reason: 'a tile');
@@ -4134,9 +4466,10 @@ void main() {
           final gap = moreOrLessEquals(offset(), epsilon: 1e-6);
           note(robot);
 
-          await _changeOnce(tester, robot, topic);
-          note(robot);
-          expect(offset(), gap, reason: 'after a report');
+          await _eachChange(tester, robot, topic, (state) async {
+            note(robot);
+            expect(offset(), gap, reason: state);
+          });
           while (robot.canSkip) {
             await robot.skip();
             note(robot);
@@ -4151,32 +4484,30 @@ void main() {
   });
 
   group('the stage\'s controls are nodes of their own under the entry', () {
-    // The screen page's cards: the real widgets keep their own ids, the
-    // card's additions are `try-*`; a disabled control is a node all the
-    // same, with no tap.
+    // The screen stage's views: the real widgets keep their own ids, the
+    // card's additions are `try-*` — the Overview's the overview card's
+    // (D86); a disabled control is a node all the same, with no tap; each
+    // view's body is a container of its own.
     String screenControl(String slug, String control) =>
         SemanticsIds.calendarGuideTryControl(slug, control);
-    for (final (slug, live, disabled) in [
+    const slug = 'screen';
+    for (final (view, live, disabled) in [
       (
-        'screen',
-        [SemanticsIds.calendarViewMenu, screenControl('screen', 'more')],
+        CalendarViewPage.calendar,
         [
-          screenControl('screen', 'saved-filters'),
-          screenControl('screen', 'filter'),
-        ],
-      ),
-      (
-        'panel',
-        [
+          SemanticsIds.calendarViewMenu,
+          screenControl(slug, 'more'),
           SemanticsIds.panelMode('day'),
           SemanticsIds.panelMode('timeline'),
           SemanticsIds.panelMode('upcoming'),
         ],
-        <String>[],
+        [screenControl(slug, 'saved-filters'), screenControl(slug, 'filter')],
       ),
       (
-        'overview',
+        CalendarViewPage.overview,
         [
+          SemanticsIds.calendarViewMenu,
+          screenControl(slug, 'more'),
           for (final control in const [
             'mode-year',
             'mode-month',
@@ -4187,14 +4518,20 @@ void main() {
             screenControl('overview', control),
         ],
         [
+          screenControl(slug, 'overview-options'),
+          screenControl(slug, 'overview-views'),
           screenControl('overview', 'search'),
           screenControl('overview', 'today'),
         ],
       ),
     ]) {
-      testWidgets(slug, (tester) async {
+      testWidgets('screen: ${view.name}', (tester) async {
         final handle = tester.ensureSemantics();
-        final robot = await open(tester, CalendarGuideTopic.screen, card: slug);
+        final robot = await open(tester, CalendarGuideTopic.screen);
+        if (view == CalendarViewPage.overview) {
+          await robot.tapId(SemanticsIds.calendarViewMenu);
+          await robot.tapId(SemanticsIds.calendarOverviewOpen);
+        }
         final entry = tester.getSemantics(robot.card);
         bool under(SemanticsNode node) {
           for (var p = node.parent; p != null; p = p.parent) {
@@ -4209,6 +4546,7 @@ void main() {
           ...disabled,
           SemanticsIds.calendarGuideTrySkip(slug),
           SemanticsIds.calendarGuideTryCaption(slug),
+          SemanticsIds.calendarGuideScreenView(view.name),
         ]) {
           final node = tester.getSemantics(find.bySemanticsIdentifier(name));
           expect(under(node), isTrue, reason: name);
@@ -4224,6 +4562,21 @@ void main() {
         expect(
           entry.getSemanticsData().hasAction(SemanticsAction.tap),
           isFalse,
+        );
+        // One view's container at a time; the ⋮'s one id in each (D86).
+        for (final other in CalendarViewPage.values) {
+          if (other == view) continue;
+          expect(
+            find.bySemanticsIdentifier(
+              SemanticsIds.calendarGuideScreenView(other.name),
+            ),
+            findsNothing,
+            reason: other.name,
+          );
+        }
+        expect(
+          find.bySemanticsIdentifier(screenControl(slug, 'more')),
+          findsOneWidget,
         );
         handle.dispose();
       });
@@ -4293,7 +4646,7 @@ void main() {
     }
   });
 
-  /// Every card of every page, the screen page's three included.
+  /// Every card of every page, the screen page's one stage included.
   final stageCards = [
     for (final topic in CalendarGuideTopic.values)
       for (final card in topic.cards) (topic, card.slug),
@@ -4395,11 +4748,27 @@ void main() {
                       ))
                     if (paragraph.maxLines != null) paragraph,
                 };
+                // The Overview's List title in the screen stage, a span
+                // ("1. Nov. – 30. Nov. 2026"), needs a third line at de 2.0
+                // in the stage's 328 dp on 360; the period nav ellipsises
+                // past its two lines by design
+                // (`FormMetrics.periodTitleMaxLines`). That title, in that
+                // state, and nothing else.
+                final listTitle = <RenderParagraph>{
+                  if (state == 'list')
+                    ...tester.renderObjectList<RenderParagraph>(
+                      find.descendant(
+                        of: find.byType(AgendaPeriodNav),
+                        matching: find.text(_navOf(tester).title),
+                      ),
+                    ),
+                };
                 for (final paragraph in paragraphs) {
                   if (unseen(paragraph) ||
                       tileLabels.contains(paragraph) ||
                       panelLabels.contains(paragraph) ||
-                      rowCaptions.contains(paragraph)) {
+                      rowCaptions.contains(paragraph) ||
+                      listTitle.contains(paragraph)) {
                     continue;
                   }
                   expect(
@@ -4411,9 +4780,9 @@ void main() {
               }
 
               await expectClean('idle');
-              // One changed state: what she does first on the card.
-              await _changeOnce(tester, robot, topic);
-              await expectClean('changed');
+              // What she does first on the card; on the screen stage, each
+              // view and format.
+              await _eachChange(tester, robot, topic, expectClean);
               await expectNothingSaved();
             });
           }
@@ -4422,7 +4791,9 @@ void main() {
     }
   });
 
-  // Every card idle and on its closing line, on both phones in both themes:
+  // Every card idle and on its closing line — the screen stage in each of its
+  // changed views and formats ([_eachChange]) between — on both phones in
+  // both themes:
   // Android's 48 dp targets — the two accepted exceptions taken out by name
   // in `GuideTapTargetGuideline`, the stage's narrowed day cells and the
   // real panel's mode segments — and WCAG's text contrast, which leaves
@@ -4488,6 +4859,9 @@ void main() {
             }
 
             await meetsBoth('idle');
+            if (topic == CalendarGuideTopic.screen) {
+              await _eachChange(tester, robot, topic, meetsBoth);
+            }
             while (robot.canSkip) {
               await robot.skip();
             }
@@ -4503,19 +4877,14 @@ void main() {
   // The two exceptions are load-bearing, and no wider than named: the stock
   // guideline fails on the narrowed grid's cells and on the mode segments,
   // and the guide's passes the same screen.
-  for (final (card, size, what) in const [
-    ('screen', Size(360, 780), 'the grid card\'s day cells at 360'),
+  for (final (size, what) in const [
+    (Size(360, 780), 'the screen stage\'s day cells at 360'),
     // Labelled, where they fit: on 360 they are 48 dp icons.
-    ('panel', Size(412, 915), 'the panel card\'s mode segments at 412'),
+    (Size(412, 915), 'the screen stage\'s mode segments at 412'),
   ]) {
     testWidgets('the tap-target exceptions: $what', (tester) async {
       final handle = tester.ensureSemantics();
-      final robot = await open(
-        tester,
-        CalendarGuideTopic.screen,
-        size: size,
-        card: card,
-      );
+      final robot = await open(tester, CalendarGuideTopic.screen, size: size);
       await tester.ensureVisible(robot.card);
       await tester.pumpAndSettle();
       await expectLater(
@@ -4547,21 +4916,22 @@ void main() {
     // in the card they are still 40 dp narrower than the screen, so the
     // weekday row's "Mon" needs 49.5 dp of its column and gets 45.7 ("Wed"
     // the same, and Romanian's "mar.", "mie.", "sâm.", "dum.") under both
-    // grids — the overview's mini month included. (A
+    // grids — the Calendar's in Month and Week and the Overview's mini month
+    // (it opens on Month, D68). (A
     // Day panel row's "Wöchentlich" broke there too while the inert rows
     // drew a chevron; without it the caption fits, D69.)
     // Pinned per state where they differ, so any other break fails.
     const unavoidable = {
       'attendance de 2.0': ['Wiederholungen'],
       'screen en 2.0': ['Mon', 'Wed'],
-      // The card opens on Month (D68); its change is Year's tiles.
-      'overview en 2.0 idle': ['Mon', 'Wed'],
-      'overview en 2.0 changed': <String>[],
+      // Year's tiles and List's rows draw no weekday row.
+      'screen en 2.0 year': <String>[],
+      'screen en 2.0 list': <String>[],
       // The fasting card's grid, the screen card's cost again.
       'fasting en 2.0': ['Mon', 'Wed'],
       'screen ro 2.0': ['mar.', 'mie.', 'sâm.', 'dum.'],
-      'overview ro 2.0 idle': ['mar.', 'mie.', 'sâm.', 'dum.'],
-      'overview ro 2.0 changed': <String>[],
+      'screen ro 2.0 year': <String>[],
+      'screen ro 2.0 list': <String>[],
       'fasting ro 2.0': ['mar.', 'mie.', 'sâm.', 'dum.'],
     };
     for (final (locale, scale) in const [
@@ -4605,8 +4975,7 @@ void main() {
           }
 
           await expectWholeWords('idle');
-          await _changeOnce(tester, robot, topic);
-          await expectWholeWords('changed');
+          await _eachChange(tester, robot, topic, expectWholeWords);
           await expectNothingSaved();
         });
       }
@@ -4636,8 +5005,8 @@ class _SheetProbeDemo extends GuideCardDemo {
   Widget buildStage(BuildContext context) => const SizedBox.shrink();
 }
 
-/// [matching] inside the card [slug] — the screen page draws two grids and
-/// two lists, one each on two of its cards.
+/// [matching] inside the card [slug] — the fasting card draws a grid as the
+/// screen stage does.
 Finder _inCard(String slug, Finder matching) => find.descendant(
   of: find.bySemanticsIdentifier(SemanticsIds.calendarGuideTry(slug)),
   matching: matching,
@@ -4651,13 +5020,14 @@ TableCalendar<dynamic> _gridOf(WidgetTester tester, String slug) =>
       ),
     );
 
-/// The overview card's period nav.
+/// The screen stage's Overview's period nav.
 AgendaPeriodNav _navOf(WidgetTester tester) =>
-    tester.widget(_inCard('overview', find.byType(AgendaPeriodNav)));
+    tester.widget(_inCard('screen', find.byType(AgendaPeriodNav)));
 
-/// The overview card's year tile for [month], by the label it draws.
+/// The screen stage's Overview's year tile for [month], by the label it
+/// draws.
 Finder _yearTile(DateTime month, {String locale = 'en'}) => _inCard(
-  'overview',
+  'screen',
   find.byWidgetPredicate(
     (widget) =>
         widget is YearMonthTile &&
@@ -4765,23 +5135,33 @@ List<String> _brokenWords(RenderParagraph paragraph) {
   ];
 }
 
-/// The first thing she would do on [topic]'s card — on the screen page, on
-/// the card [robot] drives: a view, a panel mode, a mode, the quick alarm
-/// (the events and alerts cards' report), a rule, a mark, a category, a
-/// query, a holiday set.
-Future<void> _changeOnce(
+/// What she would do first on [topic]'s card, [check]ed after each state it
+/// leaves — `changed` — and on the screen stage every view and format the
+/// three cards it replaced were checked in: the Calendar in Week over
+/// Upcoming (`week`), then the Overview as it opens, in Month (`month`), in
+/// Year (`year`) and in List (`list`). Elsewhere: the quick alarm (the
+/// events and alerts cards'
+/// report), a rule, a mark, a category, a query, a holiday set.
+Future<void> _eachChange(
   WidgetTester tester,
   GuideTryCardRobot robot,
   CalendarGuideTopic topic,
+  Future<void> Function(String state) check,
 ) async {
   switch (topic) {
-    case CalendarGuideTopic.screen when robot.slug == 'panel':
-      await robot.tapId(SemanticsIds.panelMode('upcoming'));
-    case CalendarGuideTopic.screen when robot.slug == 'overview':
-      await robot.tap('mode-year');
     case CalendarGuideTopic.screen:
+      final overview = GuideTryCardRobot(tester, 'overview');
       await robot.tapId(SemanticsIds.calendarViewMenu);
       await robot.tapId(SemanticsIds.calendarFormatWeek);
+      await robot.tapId(SemanticsIds.panelMode('upcoming'));
+      await check('week');
+      await robot.tapId(SemanticsIds.calendarViewMenu);
+      await robot.tapId(SemanticsIds.calendarOverviewOpen);
+      await check('month');
+      await overview.tap('mode-year');
+      await check('year');
+      await overview.tap('mode-list');
+      await check('list');
     // The two cards with a report: the report alone is the line.
     case CalendarGuideTopic.events:
       await robot.longPress('add');
@@ -4825,6 +5205,7 @@ Future<void> _changeOnce(
   // The line moved off the first instruction it rested on — the first line
   // its slot is sized for: to the next one, or to the card's report.
   expect(robot.line, isNot(robot.lineCandidates.first), reason: topic.slug);
+  if (topic != CalendarGuideTopic.screen) await check('changed');
 }
 
 /// Taps [target] in the open sheet, scrolled into view first.
