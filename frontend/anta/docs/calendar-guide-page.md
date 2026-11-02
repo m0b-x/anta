@@ -2387,7 +2387,7 @@ with the files named, then one `reviewer`, then the same implementer's
 fix pass; F4's device pass is the `qa-runner`.
 
 
-### 7.7 The owner's third review (2026-11-01) — the coach reads back, no instruction ends at a door, one screen stage, a Dentist she can see, a month she can tap — status: **IN PROGRESS 2026-11-02 — G1 COMMITTED by the owner as `ee319f0f`; G2, G3, G5a built, reviewed and COMMITTED as `05008ff0` (suite 12,409 green beside the Windows-only case); G4 (the screen stage) building; G5b and G6 to follow**
+### 7.7 The owner's third review (2026-11-01) — the coach reads back, no instruction ends at a door, one screen stage, a Dentist she can see, a month she can tap — status: **COMPLETE 2026-11-02 — G1 COMMITTED by the owner as `ee319f0f`; G2, G3, G5a as `05008ff0`; G4 as `7d299a5e`; G5b as `eab6269e`; G6 (the design review's fix pass, this record, the skills and the feature doc) in the commit that carries this line, on the owner's "commit and push"; suite 12,410 green beside the Windows-only case, `qa pass calendar -d emulator-5556` 30 / 30 at `eab6269e` and repeated after the fix pass (G6 note)**
 
 **The owner's letter (2026-11-01), after `bfdab39c`:** "we should have a
 backwards and also forwards buttons for the text to maybe read that
@@ -2976,6 +2976,97 @@ scratch goldens never meet the implementer's gate):
   and the screen stage; `qa pass calendar -d emulator-5556`; the skill
   bullet, `references/subsystems.md`'s guide paragraph, the feature doc's
   addendum, this section's status and as-built notes.
+  *Device pass 2026-11-02 (one `qa-runner`, at `eab6269e`):* the fleet
+  guest `anta_qa_1` booted cold in 19 s, the driver APK built and
+  installed in 33 s, `qa pass calendar -d emulator-5556` **30 / 30 green
+  in 562 s**, no rerun needed — `26_guide` 24.0 s (the hub, the practice
+  lesson's band with its back button, the screen stage Calendar →
+  Overview → Report → back through the real menu's ids), `27_guide_lessons`
+  19.5 s, `28_report` 18.5 s, `29_categories_page` 25.6 s; `qa errors`
+  empty in `run.log`, logcat and the app's own buffer; the guest left
+  booted and quiet, no alarm armed. The pass's first line warned that
+  `app_localizations.dart` was newer than the APK: `flutter build`
+  regenerates it during the build, and the tree stayed clean against the
+  commit, so the APK was the commit's. `references/subsystems.md` turned
+  out to hold no guide paragraph (its guide facts live in the skill
+  bullet), so nothing to update there; `.claude/rules/calendar.md`'s
+  flow count stays 30.
+  *Design review 2026-11-02 (one `design-reviewer`, in a detached
+  worktree at `eab6269e`; 76 render and measure cases, the three suites
+  green; every pinned value of D77–D79, D87–D97 and D100 confirmed —
+  the band 72 / 111 / 111 and its 248 dp line, the card slots, the pair's
+  rects fixed across states, the read-back colours, the mark, the
+  semantics in both modes, the Dentist's blue, the ring's geometry and
+  14.85 / 14.35 contrast, the one-pitch tiles, the year tiles unchanged,
+  the stage 668 / 706.4 in every view, format, locale, scale and width,
+  the panel's 128 / 376 / 438, the first Day row at 656 / 664 / 689, the
+  grounds, the Report band 74 / 93 / 142, no overflow at de 2.0):* eleven
+  findings. Closed in a fix pass (one `implementer`): **(1) sev 2** —
+  `FormSearchRow` loses its accessible name once text is typed (label
+  empty, value the text; WCAG 4.1.2; every search row in the app) — the
+  hint stays the field's label; **(2) sev 2** — the stage's Overview List
+  title ("Nov 1 – Nov 30, 2026") clips at 360 × 2.0 in en and de where
+  the real page titles a month period "November 2026" (`menuValue`) and
+  shows a span only for a custom period — the stage titles months as the
+  page does and G4b's exemption goes; **(3) sev 2** — after Skip the ring
+  left the day and the fade alone (1.16:1 light, 1.32 dark against an
+  unmarked square) carried "faded, never gone" — the picked day keeps its
+  ring, Skip disables; **(4) sev 1** — the finding card's 1.09:1 was the
+  sampler reading `surface` against `pageGround` through a node half
+  under the pinned bar — the loops judge only nodes inside the viewport
+  and the finding card's check is on again; **(10)** the guideline loops
+  now run in a read-back state too and the forward rect is pinned at 1.3
+  and 2.0. Accepted and recorded: **(5)** the cards' read-back muting is
+  1.32:1 against the live text in dark, the mark (9.56:1) carries "done";
+  **(6)** today's `primary` ring inside a blue square is 1.75:1 light /
+  2.16 dark, the year tiles' pre-existing design (D96); **(7)** in dark
+  the stage's bar and the page's bar share a ground once the coach row
+  scrolls under the page bar, told apart by the hairline and their
+  titles (a device check); **(8)** at 2.0 the first Day row sits 796 /
+  836 dp below the stage's top and scrolls inside the panel — the spec
+  asks for 1.0 and 1.3; **(9) sev 2, pre-existing, out of scope** — the
+  Overview's Year tiles at de 2.0 shorten month names to "Ma…", "Ju…"
+  (June and July alike) on the real page too, noted in §6; **(11)** at
+  1.3 / 2.0 and on the fasting card the stage goes full-bleed, forward's
+  rect identical throughout. Device bucket for the next pass: the slot
+  hand-off under a thumb with 3-button navigation on the grid, the panel
+  and the Report body; TalkBack on back (nothing announced, "Done, …"
+  read) and on forward to the live line (announced once); the disabled
+  back button present in the dump at the first step; the search field's
+  name with text; the two bars in dark; the List title and the Year
+  tiles at the system's 200 %.
+  *Fix pass as built 2026-11-02 (one `implementer`):* `FormSearchRow`
+  wraps its field in `ListenableBuilder` → `MergeSemantics` →
+  `Semantics(label: text.isEmpty ? null : hint)` — `SearchBarField`'s
+  precedent, the label taking over only once the hint is hidden so
+  TalkBack never reads it twice; nothing painted, the row's width and
+  height pins unchanged; the callers' suites green (`overview_view_sheet`
+  17, `icon_picker_sheet` 15, `filter_preset_sheet` 45,
+  `category_picker_sheet` 19, `category_filter_sheets` 36,
+  `calendar_overview_page` 209). The stage's Overview titles a month as
+  `OverviewMonthPeriod(y, m)`, so the List reads "November 2026" like the
+  page, pinned unclipped at 360 × 2.0 in en and de for a five- and a
+  six-row month; the G4b exemption is gone. The kinds card keeps the
+  picked day through Skip (the ring on the faded square, Skip disabled
+  through `canSkip`), clearing it only when a new rule moves the event
+  off the day (`occursOnUtcDay`), not when the day is merely skipped — a
+  small widening of item 3, taken. `GuideTextContrastGuideline` takes a
+  viewport and leaves out a text whose sampled box crosses its edge (the
+  1.09:1 artefact), so the finding card's changed-state check is on
+  again; a `GuideLabeledTapTargetGuideline` with one named exception —
+  `AgendaMonthGrid`'s twelve empty out-of-month slots that
+  `table_calendar` keeps tappable with no label (on the real overview
+  page too, noted in §6); the loops run every card's changed states and a
+  read-back state, the band's loop runs live and after skip-then-back in
+  both lessons; the forward rect pinned at 1.0 / 1.3 / 2.0 (to the card's
+  inset at every scale, to the stage's edge at 1.0 — full-bleed from
+  1.3). Each new case was shown red against the old code. Suites: form
+  rows 150, try cards 314, practice 84, topic 47, kit guidelines 42; the
+  whole suite +12410 ~11 −1, analyze, format and untranslated clean.
+  Two notes for the house: the stock `labeledTapTargetGuideline` skips
+  text fields, so the label assertion is the real check; with a label on
+  the field the stock contrast check samples the hidden hint rather than
+  the typed value.
 
 How to run it: the lead session is this one (Fable 5.1); designers A
 (the stepper and the kinds mark) and B (the screen stage) run first, in
@@ -2988,6 +3079,9 @@ overview slice.
 
 ## 6. Deferred
 
+- **The Overview's Year tiles shorten month names to "Ma…", "Ju…" at de 2.0** (the third review's design review, 2026-11-02, finding 9, severity 2, pre-existing): `YearMonthTile`'s label cuts with an ellipsis at German 2.0 on 360, so June and July read alike — on the real overview page as on the guide's stage, which draws the same tiles. Out of the guide's scope; the fix is the tile's (a narrower date format at large scales, or two lines), with the overview page's suite.
+- **The kinds month's missed state on the stage is hue only** (the same review, finding 3's optional half, not taken): a skipped day fades to `missedEventAlpha` 0.35 of the category colour — 1.16:1 against an unmarked square in light, 1.32 in dark. The ring now stays on the skipped day (the fix pass), which carries the lesson; raising the fade on the stage alone would be a stage-only alpha and was left.
+- **Today's `primary` ring inside a blue marked square is 1.75:1 light / 2.16 dark** (finding 6): the year tiles' pre-existing design, kept by D96; a stronger today mark is the tiles' decision, app-wide.
 - **The finding card's Missed-only filter is empty in a month's first week** (found 2026-11-01 while gating the settings rework, confirmed with `now: 2026-11-03`): the demo lists days from the 1st of the month (`calendar_guide_try_finding.dart:68-86`) while its one missed mark is Yoga at `_offset(-7)` (`calendar_guide_demo.dart:563`), so from the 1st to the 7th the mark sits in the previous month and the list is empty — a learner following the "Missed only" step sees nothing. The suite now pins the finding topic to 2026-10-14 (`fixedNowFor`) so it no longer fails on the real clock; the demo itself is the owner's call: start the window a fortnight before today, or place the missed mark inside the current month.
 - **The categories sandbox row duplicates the page's `_CategoryRow`** (2026-11-01): the try card's row copies the page's anatomy by hand; extracting one shared row widget means touching the page under the one-copy rule — a candidate for the next categories pass.
 - **The delete coach line quotes "Delete"** (`l10n.delete`) while the menu item reads "Delete…" (`categoryDeleteEllipsis`); harmless, worth aligning when the lesson's strings are next touched.

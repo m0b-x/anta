@@ -1796,28 +1796,44 @@ void main() {
   });
 
   // Android's 48 dp targets — `PanelModeBar`'s 32 dp segments, the real
-  // calendar's chrome, taken out by name — and WCAG's text contrast, on both
-  // lessons, both phones, both themes.
+  // calendar's chrome, taken out by name — every target labelled, and WCAG's
+  // text contrast, on both lessons, both phones, both themes: at the live
+  // line and reading a step back.
   for (final lesson in GuidePracticeLesson.values) {
     for (final size in const [Size(360, 780), Size(412, 915)]) {
       for (final brightness in Brightness.values) {
         testWidgets('${lesson.name} ${size.width.toInt()} ${brightness.name}: '
             'the tap-target and text-contrast guidelines', (tester) async {
           final handle = tester.ensureSemantics();
-          await open(
+          final robot = await open(
             tester,
             lesson: lesson,
             brightness: brightness,
             size: size,
           );
-          await expectLater(
-            tester,
-            meetsGuideline(GuideTapTargetGuideline.of(tester)),
-          );
-          await expectLater(
-            tester,
-            meetsGuideline(const GuideTextContrastGuideline()),
-          );
+          Future<void> meetsAll(String state) async {
+            await expectLater(
+              tester,
+              meetsGuideline(GuideTapTargetGuideline.of(tester)),
+              reason: state,
+            );
+            await expectLater(
+              tester,
+              meetsGuideline(labeledTapTargetGuideline),
+              reason: state,
+            );
+            await expectLater(
+              tester,
+              meetsGuideline(const GuideTextContrastGuideline()),
+              reason: state,
+            );
+          }
+
+          await meetsAll('live');
+          await robot.skip();
+          await robot.back();
+          expect(robot.reading, isTrue);
+          await meetsAll('read-back');
           handle.dispose();
           await expectNothingSaved();
         });

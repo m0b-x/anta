@@ -707,23 +707,44 @@ void main() {
       handle.dispose();
     });
 
-    testWidgets('forward sits where the skip sat: trailing on the card\'s '
-        'inset, 48 square, back touching it on its left', (tester) async {
-      final robot = await open(tester, CalendarGuideTopic.events);
-      final forward = tester.getRect(robot.skipButton);
-      final back = tester.getRect(robot.backButton);
+    for (final scale in const [1.0, 1.3, 2.0]) {
+      testWidgets('forward sits where the skip sat at $scale: trailing on the '
+          'card\'s inset, 48 square, back touching it on its left', (
+        tester,
+      ) async {
+        final robot = await open(
+          tester,
+          CalendarGuideTopic.events,
+          textScaler: TextScaler.linear(scale),
+        );
+        final forward = tester.getRect(robot.skipButton);
+        final back = tester.getRect(robot.backButton);
 
-      expect(forward.size, const Size.square(FormMetrics.trailingButtonSize));
-      expect(back.size, const Size.square(FormMetrics.trailingButtonSize));
-      // The stage's inset patch ends where the coach row ends.
-      expect(
-        forward.right,
-        moreOrLessEquals(robot.stageRect.right, epsilon: 1),
-      );
-      expect(back.right, moreOrLessEquals(forward.left, epsilon: 0.01));
-      expect(back.top, forward.top);
-      expect(robot.slotRect.right, moreOrLessEquals(back.left, epsilon: 0.01));
-    });
+        expect(forward.size, const Size.square(FormMetrics.trailingButtonSize));
+        expect(back.size, const Size.square(FormMetrics.trailingButtonSize));
+        // On the card's inset at every size; at 1.0 the stage's inset patch
+        // ends there too — at 1.3 and 2.0 the stage goes full-bleed.
+        expect(
+          forward.right,
+          moreOrLessEquals(
+            tester.getRect(robot.card).right - RowMetrics.groupInset,
+            epsilon: 1,
+          ),
+        );
+        if (scale == 1.0) {
+          expect(
+            forward.right,
+            moreOrLessEquals(robot.stageRect.right, epsilon: 1),
+          );
+        }
+        expect(back.right, moreOrLessEquals(forward.left, epsilon: 0.01));
+        expect(back.top, forward.top);
+        expect(
+          robot.slotRect.right,
+          moreOrLessEquals(back.left, epsilon: 0.01),
+        );
+      });
+    }
 
     testWidgets('fasting: with every tradition off back waits — the line '
         'asks for a tradition in place of the step (D44), and the step before '
@@ -1367,7 +1388,7 @@ void main() {
 
       await overview.tap('mode-list');
       expect(robot.stageSize, stage, reason: 'list');
-      expect(title(), _monthSpanLabel(thisMonth));
+      expect(title(), _monthPeriodLabel(thisMonth));
 
       await overview.tap('mode-month');
       expect(robot.stageSize, stage, reason: 'month');
@@ -1489,10 +1510,10 @@ void main() {
       }
 
       await overview.tap('mode-list');
-      expect(title(), _monthSpanLabel(may));
+      expect(title(), _monthPeriodLabel(may));
       expect(listedMonths(), {may});
       await overview.tap('next');
-      expect(title(), _monthSpanLabel(june));
+      expect(title(), _monthPeriodLabel(june));
       expect(listedMonths(), {june});
 
       await overview.tap('mode-month');
@@ -1510,7 +1531,7 @@ void main() {
       await overview.tap('today');
       expect(title(), '2027');
       await overview.tap('mode-list');
-      expect(title(), _monthSpanLabel(may));
+      expect(title(), _monthPeriodLabel(may));
       await expectNothingSaved();
     });
 
@@ -2707,13 +2728,36 @@ void main() {
       expect(_matrixPainter(tester, matrix()).selectedIndex, bare.day - 1);
       expect(robot.enabled('skip'), isFalse);
 
+      // Skipped, the day stays picked: the ring stays on its faded square,
+      // the Date row keeps it, and Skip disables — the event no longer falls
+      // there.
       await tapSquare(robot, today);
       await robot.tap('skip');
       expect(robot.line, steps[2]);
-      expect(robot.pickerRow('day').value, isNull);
+      expect(robot.pickerRow('day').value, dayRowDates.format(today));
       final painter = _matrixPainter(tester, matrix());
-      expect(painter.selectedIndex, isNull);
+      expect(painter.selectedIndex, today.day - 1);
       expect(painter.missedMask >> (today.day - 1) & 1, 1);
+      expect(painter.markedMask >> (today.day - 1) & 1, 0);
+      expect(robot.enabled('skip'), isFalse);
+
+      // A rule that still holds the skipped day keeps it picked, faded.
+      await robot.tap('repeat');
+      await robot.tapId(SemanticsIds.repeatKind('daily'));
+      await robot.tapId(SemanticsIds.repeatDone);
+      expect(robot.pickerRow('day').value, dayRowDates.format(today));
+      expect(_matrixPainter(tester, matrix()).selectedIndex, today.day - 1);
+      expect(robot.enabled('skip'), isFalse);
+
+      // A rule that moves the event off the picked day clears it.
+      final weekend = today.weekday >= DateTime.saturday;
+      await robot.tap('repeat');
+      await robot.tapId(
+        SemanticsIds.repeatKind(weekend ? 'workdays' : 'weekends'),
+      );
+      await robot.tapId(SemanticsIds.repeatDone);
+      expect(robot.pickerRow('day').value, isNull);
+      expect(_matrixPainter(tester, matrix()).selectedIndex, isNull);
       expect(robot.enabled('skip'), isFalse);
 
       // The Date row's picker stays the other way to the same pick.
@@ -5051,27 +5095,11 @@ void main() {
                       ))
                     if (paragraph.maxLines != null) paragraph,
                 };
-                // The Overview's List title in the screen stage, a span
-                // ("1. Nov. – 30. Nov. 2026"), needs a third line at de 2.0
-                // in the stage's 328 dp on 360; the period nav ellipsises
-                // past its two lines by design
-                // (`FormMetrics.periodTitleMaxLines`). That title, in that
-                // state, and nothing else.
-                final listTitle = <RenderParagraph>{
-                  if (state == 'list')
-                    ...tester.renderObjectList<RenderParagraph>(
-                      find.descendant(
-                        of: find.byType(AgendaPeriodNav),
-                        matching: find.text(_navOf(tester).title),
-                      ),
-                    ),
-                };
                 for (final paragraph in paragraphs) {
                   if (unseen(paragraph) ||
                       tileLabels.contains(paragraph) ||
                       panelLabels.contains(paragraph) ||
-                      rowCaptions.contains(paragraph) ||
-                      listTitle.contains(paragraph)) {
+                      rowCaptions.contains(paragraph)) {
                     continue;
                   }
                   expect(
@@ -5094,13 +5122,56 @@ void main() {
     }
   });
 
-  // Every card idle and on its closing line — the screen stage in each of its
-  // changed views and formats ([_eachChange]) between — on both phones in
-  // both themes:
+  // The stage's List titles its month as the overview page titles a month
+  // period, never as a span ("1. Nov. – 30. Nov. 2026" needed a third line
+  // in the stage's 328 dp): whole at 360 × 2.0, September the longest name.
+  for (final locale in const [Locale('en'), Locale('de')]) {
+    for (final month in [DateTime(2026, 9), DateTime(2026, 11)]) {
+      testWidgets('the Overview List title ${locale.languageCode} '
+          '${month.month}/${month.year} is whole at 360 × 2.0', (tester) async {
+        final robot = await open(
+          tester,
+          CalendarGuideTopic.screen,
+          locale: locale,
+          textScaler: const TextScaler.linear(2.0),
+          size: const Size(360, 780),
+          now: () => DateTime(month.year, month.month, 14, 10),
+        );
+        await robot.tapId(SemanticsIds.calendarViewMenu);
+        await robot.tapId(SemanticsIds.calendarOverviewOpen);
+        await GuideTryCardRobot(tester, 'overview').tap('mode-list');
+        final title = DateFormat.yMMMM(locale.languageCode).format(month);
+        expect(_navOf(tester).title, title);
+        // The drawn title, not the unseen templates that size its slot.
+        final drawn = [
+          for (final paragraph in tester.renderObjectList<RenderParagraph>(
+            find.descendant(
+              of: _inCard('screen', find.byType(AgendaPeriodNav)),
+              matching: find.byType(RichText),
+            ),
+          ))
+            if (!_unseen(paragraph) && paragraph.text.toPlainText() == title)
+              paragraph,
+        ];
+        expect(drawn, hasLength(1));
+        expect(drawn.single.didExceedMaxLines, isFalse);
+        expect(tester.takeException(), isNull);
+        await expectNothingSaved();
+      });
+    }
+  }
+
+  // Every card idle, changed ([_eachChange]; the screen stage in each of its
+  // views and formats), on its closing line and reading its last step back,
+  // on both phones in both themes:
   // Android's 48 dp targets — the two accepted exceptions taken out by name
   // in `GuideTapTargetGuideline`, the stage's narrowed day cells and the
-  // real panel's mode segments — and WCAG's text contrast, which leaves
-  // disabled controls out (the fasting rows at 38 % while nothing is on).
+  // real panel's mode segments — every target labelled (the Overview
+  // month grid's blank slots aside, `GuideLabeledTapTargetGuideline`), and
+  // WCAG's text contrast, which leaves disabled controls out (the fasting
+  // rows at 38 % while nothing is on) and judges a text only on one ground:
+  // one across the list's edge, half under the page's pinned bar, is not
+  // sampled.
   group('the tap-target and text-contrast guidelines', () {
     for (final (topic, card) in stageCards) {
       for (final size in const [Size(360, 780), Size(412, 915)]) {
@@ -5155,20 +5226,29 @@ void main() {
                 );
                 await expectLater(
                   tester,
-                  meetsGuideline(const GuideTextContrastGuideline()),
+                  meetsGuideline(GuideLabeledTapTargetGuideline.of(tester)),
+                  reason: where,
+                );
+                await expectLater(
+                  tester,
+                  meetsGuideline(
+                    GuideTextContrastGuideline(viewport: tester.getRect(list)),
+                  ),
                   reason: where,
                 );
               }
             }
 
             await meetsBoth('idle');
-            if (topic == CalendarGuideTopic.screen) {
-              await _eachChange(tester, robot, topic, meetsBoth);
-            }
+            await _eachChange(tester, robot, topic, meetsBoth);
             while (robot.canSkip) {
               await robot.skip();
             }
             await meetsBoth('closing');
+            expect(robot.canBack, isTrue);
+            await robot.back();
+            expect(robot.reading, isTrue);
+            await meetsBoth('read-back');
             handle.dispose();
             await expectNothingSaved();
           });
@@ -5340,11 +5420,11 @@ Finder _yearTile(DateTime month, {String locale = 'en'}) => _inCard(
   ),
 );
 
-/// [month] as the overview's nav titles a custom span, in English: the
-/// overview card's List mode lists one month (D68).
-String _monthSpanLabel(DateTime month) => OverviewCustomPeriod(
-  DateTime.utc(month.year, month.month),
-  DateTime.utc(month.year, month.month + 1, 0),
+/// [month] as the overview's nav titles a month period, in English: the
+/// stage's List mode lists one month (D68), named as the page names it.
+String _monthPeriodLabel(DateTime month) => OverviewMonthPeriod(
+  month.year,
+  month.month,
 ).menuValue(AppLocalizationsEn());
 
 Finder _cell(String slug, DateTime day) => _inCard(

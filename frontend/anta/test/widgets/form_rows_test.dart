@@ -2028,6 +2028,43 @@ void main() {
       );
     });
 
+    // With an id the field's node is the id's merged one, which the labelled
+    // guideline judges; without, the guideline leaves a text field out and
+    // the label is the pin.
+    for (final identifier in const [null, 'category-pick-search']) {
+      testWidgets("a search row's field keeps its hint as its name once text "
+          'is typed (id: $identifier)', (tester) async {
+        final semantics = tester.ensureSemantics();
+        final controller = TextEditingController();
+        addTearDown(controller.dispose);
+        await tester.pumpWidget(
+          host(
+            FormSearchRow(
+              controller: controller,
+              hint: 'Search categories',
+              clearTooltip: 'Clear search',
+              identifier: identifier,
+              onChanged: (_) {},
+            ),
+          ),
+        );
+        SemanticsData field() =>
+            tester.getSemantics(find.byType(EditableText)).getSemanticsData();
+        expect(field().flagsCollection.isTextField, isTrue);
+        expect(field().label, 'Search categories');
+        await expectLater(tester, meetsGuideline(labeledTapTargetGuideline));
+
+        await tester.enterText(find.byType(TextField), 'yoga');
+        // Past the hint's fade, after which it leaves the tree's semantics.
+        await tester.pumpAndSettle();
+
+        expect(field().label, 'Search categories');
+        expect(field().value, 'yoga');
+        await expectLater(tester, meetsGuideline(labeledTapTargetGuideline));
+        semantics.dispose();
+      });
+    }
+
     testWidgets('a search row never autofocuses', (tester) async {
       final controller = TextEditingController();
       addTearDown(controller.dispose);

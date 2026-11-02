@@ -429,17 +429,16 @@ class GuideOverviewView extends ChangeNotifier {
       for (final year in {_year, _month.year})
         for (final month in AgendaMonthStore.monthsOfYear(year)) ...[
           AgendaListView.monthLabel(l10n.localeName, month, withYear: true),
-          _monthSpan(month).menuValue(l10n),
+          _monthPeriod(month).menuValue(l10n),
         ],
     ]);
   }
 
-  /// [month] as the period List mode lists, written as the overview writes
-  /// a custom span in its nav.
-  static OverviewPeriod _monthSpan(DateTime month) => OverviewCustomPeriod(
-    DateTime.utc(month.year, month.month),
-    DateTime.utc(month.year, month.month + 1, 0),
-  );
+  /// [month] as the period List mode lists — a month period, which the
+  /// overview's nav names as "November 2026"; a span ("Nov 1 – Nov 30,
+  /// 2026") is its name for a custom period only, and clipped at 360 × 2.0.
+  static OverviewPeriod _monthPeriod(DateTime month) =>
+      OverviewMonthPeriod(month.year, month.month);
 
   String _control(String name) =>
       SemanticsIds.calendarGuideTryControl(slug, name);
@@ -478,7 +477,7 @@ class GuideOverviewView extends ChangeNotifier {
   }
 
   /// The title per mode as the overview writes it: the year, the month, the
-  /// listed period — here always the shown month, as a span. No period menu
+  /// listed period — here always the shown month. No period menu
   /// on the title.
   Widget _nav(AppLocalizations l10n) {
     final templates = _templates(l10n);
@@ -530,9 +529,9 @@ class GuideOverviewView extends ChangeNotifier {
           todayIdentifier: todayId,
         );
       case AgendaDayListMode.list:
-        final home = _monthSpan(_calendar.today);
+        final home = _monthPeriod(_calendar.today);
         return AgendaPeriodNav(
-          title: _monthSpan(_month).menuValue(l10n),
+          title: _monthPeriod(_month).menuValue(l10n),
           titleTemplates: templates,
           subtitle: agendaDayListCountLabel(l10n, _listKept, _listMissed),
           previousTooltip: l10n.overviewPeriodPrevious,

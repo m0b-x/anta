@@ -295,11 +295,12 @@ class GuideKindsDemo extends GuideCardDemo {
 
   /// A change of rule leaves a picked day the event no longer falls on
   /// unpicked: Skip would have nothing to skip there, and the Date row
-  /// would name a day the month no longer marks.
+  /// would name a day the month no longer marks. A skipped day the rule
+  /// still holds stays picked: the month still draws it, faded.
   void _update(CalendarEvent event) {
     _event = event;
     final picked = _picked;
-    if (picked != null && !_occurs(event, picked)) _picked = null;
+    if (picked != null && !event.occursOnUtcDay(picked)) _picked = null;
     _didShape(event);
   }
 
@@ -403,9 +404,11 @@ class GuideKindsDemo extends GuideCardDemo {
   (CalendarEvent, int)? _masksKey;
   ({int marked, int missed}) _masks = (marked: 0, missed: 0);
 
+  /// The skipped day stays picked: the ring on its now-faded square is what
+  /// shows the skip — the fade alone is too faint against an unmarked one —
+  /// and Skip disables, the event no longer falling there.
   void _skip(DateTime day) {
     _skips.add(day);
-    _picked = null;
     did('skipped');
   }
 

@@ -7618,3 +7618,75 @@ the matrix. Deferred (§9 of the record): a midnight re-plan for report
 digests, a signed slack, `FormRowShell`'s conditional gap padding (an
 app-wide primitive change), the day list sheet's double activation, and
 the four Saturday tests.
+
+## Addendum (2026-11-01 → 02): the guide's third review — the coach reads back, no instruction ends at a door, one screen stage with the real Report, a Dentist she can see, a month she can tap
+
+The owner's third review of the coached guide (record §7.7, D70–D101;
+the owner's letter, the lead's arguments and the two designers' lettered
+defaults are there) changed five things, each its own slice with an
+implementer and a reviewer, committed at its boundary (`ee319f0f`,
+`05008ff0`, `7d299a5e`, `eab6269e`):
+
+- **The coach is a stepper (D70, D87–D94, D101).** Every "Try it" card's
+  line and the practice band's carry a back and a forward button: back
+  shows an earlier step's line muted with a check mark, forward returns
+  toward the live line and at the live line is the old skip. The done set
+  of `GuideCoach` is untouched; `back` / `forward` / `reading` are a cursor
+  over the steps before the live one, and every mutator snaps it live.
+  The card's pair is two 48 dp `FormTrailingButton`s where the skip sat;
+  the band's is 40 × 48 in place of its decorative glyph, so the band
+  keeps 72 / 111 / 111 dp and its 248 dp line (a named exception in the
+  guide's tap-target guideline). One semantics node per line: a live
+  region at the live line, "Done" then the line while reading back.
+  `FormTrailingButton` gained `width`.
+- **No instruction ends at a door (D71, D72).** The filtering tour's
+  first step was marked when the funnel's sheet *closed*, and the band
+  sits under the sheet's modal barrier, so "tap Categories, untick one"
+  could only be read after she had left — the owner's "do I just open
+  and close it randomly?". The `funnel` step and the events tour's and
+  card's `opened` steps are gone; their words moved into the next line,
+  which carries her through the sheet to its Apply or Save. A dismissed
+  or unchanged sheet clears a standing report and advances nothing.
+- **The calendar screen is one stage (D73, D74, D77–D86).** The three
+  cards became one `GuideCardSpec('screen')` whose stage is shaped like
+  the screen: each view's real bar on top (`GuideCalendarBar` with
+  `page`, optional formats, `actions`, a ground) switching the body
+  through the real `CalendarViewMenu` between the Calendar (the month
+  grid pinned on `surface`, the mode bar and the panel taking the rest —
+  128 / 376 / 438 dp under the bar across month / two weeks / week at
+  1.0), the Overview (`GuideOverviewView`, the old card's wiring as a
+  helper the demo owns, reopening on the picked day's month) and the
+  Report (`GuideReportView`), inside a flush 668 dp `GuideStageSlot`
+  whose only growing part is the panel's 128 dp share up to 1.3; the
+  hairlines are painted in front. The tour is `panel`, `more`,
+  `overview`, `mode`, `period`, `report`. The Report is real over the
+  demo's events: `ReportRequest` gained four optional readers
+  (`isMissed`, `marksFor`, `skipsFor`, `descriptionsFor`; null = today's
+  static read; the samples drop a reader's skipped days; `report()`
+  refuses readers by assert because its memo keys on the calendar's
+  revisions — a demo folds through `sampleInput`), `spansOf` and
+  `yearsOf` moved from the bloc into the service, and the report page's
+  band and body were lifted into `ReportBand` / `ReportBody`
+  (`lib/widgets/report_body.dart`) with nullable callbacks (null = an
+  inert row, a disabled-not-hidden control) that the page and the stage
+  both draw. The hub's search keys every page on every coach line of
+  every card.
+- **The kinds card (D75, D76, D95–D100).** The Dentist wears the first
+  visible category instead of `Other`'s grey, and the month of squares
+  answers a tap: `MonthDotMatrix.onDayTap` and `selectedIndex` /
+  `selectedColor` (a detached `onSurface` ring outside the square) exist
+  only when passed, so the year tiles paint as before; the stage runs the
+  matrix at a 3× floor so a hit tile is at least 30 dp; a tap picks the
+  day, Skip enables when the event falls on it, the Date row and the real
+  picker stay the accessible path. `GuideCardDemo.needsCategories` /
+  `adoptCategories` feed a sole-card demo the owner's categories after a
+  cold relaunch onto the guide.
+
+The flow `26_guide` walks the stage Calendar → Overview → Report → back
+through the real menu's ids and expects the stepper's back button beside
+every skip; `27_guide_lessons` is unchanged in its ids. Gate at
+`eab6269e`: analyze clean, suite +12402 ~11 −1 (the Windows-only
+`host_devices_test` case), format and `untranslated.txt` clean. The
+device pass and the design review are recorded in §7.7's G6 note. No
+data semantics changed; nothing a demo does writes. The strings are
+`calendarGuide*` keys in the three ARBs (§8.5 of the record).

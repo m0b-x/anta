@@ -3241,6 +3241,19 @@ class FormSearchRow extends FormDividedRow {
       onTapOutside: (_) => FocusManager.instance.primaryFocus?.unfocus(),
       onChanged: onChanged,
     );
+    // The visible hint names the field only while it is empty; once a query
+    // replaces it the label keeps the name — only then, or TalkBack would say
+    // it twice.
+    field = ListenableBuilder(
+      listenable: controller,
+      builder: (context, field) => MergeSemantics(
+        child: Semantics(
+          label: controller.text.isEmpty ? null : hint,
+          child: field,
+        ),
+      ),
+      child: field,
+    );
     if (identifier case final id?) {
       field = AutomationId(identifier: id, child: field);
     }
