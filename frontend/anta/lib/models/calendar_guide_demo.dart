@@ -1,3 +1,5 @@
+import 'dart:collection';
+
 import 'package:flutter/foundation.dart' show listEquals;
 import 'package:table_calendar/table_calendar.dart' show CalendarFormat;
 
@@ -283,10 +285,22 @@ class GuideDemoCalendar {
     return event.assumesAbsentOn(utcDay);
   }
 
+  /// `EventPresence.marksFor` over the demo's own marks: the explicit ones
+  /// only, which is how a report tells today unmarked — still to come — from
+  /// today marked.
+  Map<DateTime, PresenceStatus> marksFor(String id) =>
+      UnmodifiableMapView(_presence[id] ?? const {});
+
   /// This day's own row, when the event keeps one per day — what the editor
   /// takes as its pending override.
   String? overrideFor(String id, DateTime day) =>
       _descriptions[id]?[_dayOf(day)];
+
+  /// `OccurrenceDescriptions.overridesFor` over the demo's rows: every day's
+  /// own text of [id], copied, since the demo edits its rows in place and a
+  /// report holds what it was folded from.
+  Map<DateTime, String> overridesFor(String id) =>
+      Map.unmodifiable(_descriptions[id] ?? const <DateTime, String>{});
 
   /// `OccurrenceDescriptions.descriptionFor` over the demo's rows: the day's
   /// own text while the event keeps one per day (an empty row included),

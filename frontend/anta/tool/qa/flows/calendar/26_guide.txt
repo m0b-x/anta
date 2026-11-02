@@ -4,9 +4,10 @@
 # row is in the panel, a seeded row opens its detail sheet, the funnel opens
 # the sandboxed filter sheet, and the ⋮'s guide row only says so in the
 # band; back to the hub, the screen page's one stage switches to the
-# Overview through its title menu and back to the Calendar, each view's body
-# and bar by id, then the Events page's "Try it" card, and back returns to
-# the calendar.
+# Overview and the Report through its title menu — the Report's month
+# stepped and returned — and back to the Calendar, each view's body and bar
+# by id, then the Events page's "Try it" card, and back returns to the
+# calendar.
 # - Everything on the practice page is a demo: nothing it does reaches the
 #   seed, so the flows after it see the calendar as the seed left it.
 # - The demo's Yoga repeats weekly on today's weekday, so today has its row
@@ -60,6 +61,14 @@ tap id:calendar-overview-open
 wait id:try-screen-view-overview
 expect id:try-overview-mode-year id:try-overview-mode-month id:try-overview-mode-list id:try-screen-overview-options id:try-screen-overview-views id:try-screen-more
 shot 26_guide_screen_overview
+tap id:calendar-view-menu
+wait id:calendar-report-open
+tap id:calendar-report-open
+wait id:try-screen-view-report
+expect id:try-screen-report-previous id:try-screen-report-next id:try-screen-report-today id:try-screen-report-categories id:try-screen-more
+tap id:try-screen-report-next
+tap id:try-screen-report-today
+shot 26_guide_screen_report
 tap id:calendar-view-menu
 wait id:calendar-view-calendar
 tap id:calendar-view-calendar

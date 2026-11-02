@@ -12,6 +12,7 @@ import 'package:anta/models/calendar_report.dart';
 import 'package:anta/models/date_range.dart';
 import 'package:anta/models/recurrence_rule.dart';
 import 'package:anta/services/calendar_report_service.dart';
+import 'package:anta/utils/calendar_report_builder.dart';
 
 /// The service is the boundary between the live facades and the pure fold,
 /// so the risks are what crosses it — one sample per occurrence, the missed
@@ -394,8 +395,151 @@ void main() {
     });
   });
 
+  group('the readers (the guide\'s seam)', () {
+    // October 2026: Mondays 5, 12, 19, 26.
+    final today = day(2026, 10, 19);
+    final october = span(day(2026, 10, 1), day(2026, 10, 31));
+    final yoga = ev(
+      'guide-demo-yoga',
+      'gym',
+      day(2026, 9, 1),
+      rule: const WeeklyRecurrence(weekdays: {DateTime.monday}),
+      tracked: true,
+    );
+
+    test('with none, the facades are read', () {
+      EventPresence.updateCache(
+        byEvent: {
+          yoga.id: {day(2026, 10, 5): PresenceStatus.missed},
+        },
+      );
+      EventSkips.updateCache(
+        byEvent: {
+          yoga.id: {day(2026, 10, 12)},
+        },
+      );
+      final input = CalendarReportService.sampleInput(
+        request(span: october, events: [yoga], today: today),
+      );
+      expect(
+        [
+          for (final s in input.samples)
+            if (s.missed) s.day,
+        ],
+        [day(2026, 10, 5)],
+      );
+      expect(input.skippedDays, 1);
+    });
+
+    test('a demo\'s missed day reaches the report through its readers '
+        'alone', () {
+      // Nothing in the facades: a demo keeps its marks in memory.
+      final marks = {
+        day(2026, 10, 12): PresenceStatus.missed,
+        today: PresenceStatus.present,
+      };
+      final report = CalendarReportBuilder.fold(
+        CalendarReportService.sampleInput(
+          ReportRequest(
+            span: october,
+            events: [yoga],
+            today: today,
+            weekStart: CalendarWeekStart.monday,
+            isMissed: (event, dayUtc) => marks[dayUtc] == PresenceStatus.missed,
+            marksFor: (id) => id == yoga.id ? marks : const {},
+          ),
+        ),
+      );
+      final missed = [
+        for (final group in report.missed)
+          for (final row in group.rows)
+            if (row case ReportDatedRow(missed: true, :final day)) day,
+      ];
+      expect(missed, [day(2026, 10, 12)]);
+      // The 5th kept, and today kept: marked present through the reader,
+      // so not pending.
+      expect(tile(report, ReportTile.events).value, 2);
+      expect(EventPresence.marksFor(yoga.id), isEmpty);
+    });
+
+    test('a demo\'s skipped day is neither sampled nor shown, and counted '
+        'skipped once', () {
+      final request = ReportRequest(
+        span: october,
+        events: [yoga],
+        today: today,
+        weekStart: CalendarWeekStart.monday,
+        // Every past day missed: a sampled 5th would be a Missed row.
+        isMissed: (_, _) => true,
+        skipsFor: (id) => id == yoga.id ? {day(2026, 10, 5)} : const {},
+      );
+      final input = CalendarReportService.sampleInput(request);
+      expect(input.samples.map((s) => s.day), [
+        day(2026, 10, 12),
+        day(2026, 10, 19),
+        day(2026, 10, 26),
+      ]);
+      expect(input.skippedDays, 1);
+      final report = CalendarReportBuilder.fold(input);
+      expect(
+        [
+          for (final group in report.missed)
+            for (final row in group.rows)
+              if (row case ReportDatedRow(:final day)) day,
+        ],
+        // Today unmarked is pending, never missed (D31).
+        [day(2026, 10, 12)],
+      );
+      expect(EventSkips.daysFor(yoga.id), isEmpty);
+    });
+
+    test('a demo\'s per-day texts reach the input through its reader', () {
+      final walk = ev(
+        'guide-demo-walk',
+        'cardio',
+        day(2026, 9, 1),
+        rule: const WeeklyRecurrence(weekdays: {DateTime.wednesday}),
+        perDay: true,
+      );
+      final input = CalendarReportService.sampleInput(
+        ReportRequest(
+          span: october,
+          events: [walk],
+          today: today,
+          weekStart: CalendarWeekStart.monday,
+          descriptionsFor: (id) =>
+              id == walk.id ? {day(2026, 10, 7): '- [x] stretch'} : const {},
+        ),
+      );
+      expect(input.overrides, {
+        walk.id: {day(2026, 10, 7): '- [x] stretch'},
+      });
+      expect(OccurrenceDescriptions.overridesFor(walk.id), isEmpty);
+    });
+
+    test('the memo refuses a request with readers', () {
+      expect(
+        () => CalendarReportService().report(
+          ReportRequest(
+            span: october,
+            events: [yoga],
+            today: today,
+            weekStart: CalendarWeekStart.monday,
+            isMissed: (_, _) => false,
+          ),
+        ),
+        throwsAssertionError,
+      );
+    });
+  });
+
   group('the clamp', () {
-    final daily = ev('d', 'gym', day(2024, 1, 1), rule: const DailyRecurrence());
+    final daily = ev(
+      'd',
+      'gym',
+      day(2024, 1, 1),
+      rule: const DailyRecurrence(),
+    );
 
     test('a 400-day span keeps its last 366 days, today and ahead', () {
       final report = CalendarReportService().report(

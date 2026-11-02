@@ -25,6 +25,7 @@ import 'calendar_guide_grid.dart';
 import 'calendar_guide_stage_slot.dart';
 import 'calendar_guide_try_card.dart';
 import 'calendar_guide_try_overview.dart';
+import 'calendar_guide_try_report.dart';
 import 'calendar_header_menus.dart';
 
 /// The screen page's one demo calendar, which the stage's views share: the
@@ -178,14 +179,14 @@ class GuideScreenWorld extends ChangeNotifier {
 /// The screen page's one stage (D73), shaped like the screen: a view's own
 /// bar — the title menu live and switching the body, as in the app — over
 /// the Calendar (the grid in its formats over the panel), the Overview
-/// ([GuideOverviewView]) or, once it is built, the Report, all at one
+/// ([GuideOverviewView]) or the Report ([GuideReportView]), all at one
 /// height ([GuideMetrics.screenStageHeight]). The real widgets each; no add
 /// button, no sheet, no long press: nothing here edits (D57).
 ///
 /// What she did stays for the page's life (D83): the picked day, the month,
 /// the format and the panel mode in [world], the Overview's mode and period
-/// in its view. The stage opens on the Calendar every time the page opens
-/// (D84).
+/// and the Report's month and folds in their views. The stage opens on the
+/// Calendar every time the page opens (D84).
 class GuideScreenDemo extends GuideCardDemo {
   GuideScreenDemo(this.world) : super(CalendarGuideTopic.screen.cards.single) {
     _overview = GuideOverviewView(
@@ -193,6 +194,7 @@ class GuideScreenDemo extends GuideCardDemo {
       onStep: did,
       onPick: (day) => _pick(day, day),
     )..addListener(changed);
+    _report = GuideReportView(world, control: _control)..addListener(changed);
     world.addListener(_onWorld);
   }
 
@@ -201,6 +203,7 @@ class GuideScreenDemo extends GuideCardDemo {
   final GuideScreenWorld world;
 
   late final GuideOverviewView _overview;
+  late final GuideReportView _report;
 
   /// The view the stage shows, as the title names it.
   CalendarViewPage _view = CalendarViewPage.calendar;
@@ -215,19 +218,15 @@ class GuideScreenDemo extends GuideCardDemo {
   void dispose() {
     world.removeListener(_onWorld);
     _overview.dispose();
+    _report.dispose();
     super.dispose();
   }
 
   void _onWorld() {
     _overview.syncWorld();
+    _report.syncWorld();
     notifyListeners();
   }
-
-  static String _wouldOpenReport(AppLocalizations l10n) =>
-      l10n.calendarGuideWouldOpen(l10n.reportTitle);
-
-  @override
-  List<String> reports(AppLocalizations l10n) => [_wouldOpenReport(l10n)];
 
   void _setFormat(CalendarFormat format) {
     world.calendar!.format = format;
@@ -235,20 +234,26 @@ class GuideScreenDemo extends GuideCardDemo {
   }
 
   /// The title menu switches the body in one frame, as the app's does; the
-  /// menu never hands back the view shown. The Report says where it would
-  /// lead until its view is built, and the stage stays where it is.
+  /// menu never hands back the view shown.
   void _openPage(CalendarViewPage page) {
-    if (page == CalendarViewPage.report) {
-      say(_wouldOpenReport);
-      return;
+    switch (_view) {
+      case CalendarViewPage.overview:
+        _overview.leave();
+      case CalendarViewPage.report:
+        _report.leave();
+      case CalendarViewPage.calendar:
+        break;
     }
-    if (_view == CalendarViewPage.overview) _overview.leave();
     _view = page;
-    if (page == CalendarViewPage.overview) {
-      _overview.enter();
-      did('overview');
-    } else {
-      changed();
+    switch (page) {
+      case CalendarViewPage.overview:
+        _overview.enter();
+        did('overview');
+      case CalendarViewPage.report:
+        _report.enter();
+        did('report');
+      case CalendarViewPage.calendar:
+        changed();
     }
   }
 
@@ -298,9 +303,9 @@ class GuideScreenDemo extends GuideCardDemo {
               container: true,
               identifier: SemanticsIds.calendarGuideScreenView(view.name),
               child: switch (view) {
+                CalendarViewPage.calendar => _calendarBody(l10n, colorScheme),
                 CalendarViewPage.overview => _overview.build(context),
-                CalendarViewPage.calendar ||
-                CalendarViewPage.report => _calendarBody(l10n, colorScheme),
+                CalendarViewPage.report => _report.build(context),
               },
             ),
           ),
@@ -310,9 +315,9 @@ class GuideScreenDemo extends GuideCardDemo {
   }
 
   /// Each view's own bar (D81): the Calendar's on `surface` with its
-  /// formats, the Overview's on the page's ground without them. Their
-  /// buttons other than the ⋮ are drawn disabled, never hidden: the stage
-  /// shows where they live; the lessons are where they work.
+  /// formats, the Overview's and the Report's on the page's ground without
+  /// them. Their buttons other than the ⋮ are drawn disabled, never hidden:
+  /// the stage shows where they live; the lessons are where they work.
   Widget _bar(
     AppLocalizations l10n,
     ColorScheme colorScheme,
@@ -336,34 +341,44 @@ class GuideScreenDemo extends GuideCardDemo {
       onFormatSelected: calendar ? _setFormat : null,
       onPageSelected: _openPage,
       backgroundColor: calendar ? colorScheme.surface : colorScheme.pageGround,
-      actions: calendar
-          ? [
-              _disabledAction(
-                identifier: _control('saved-filters'),
-                tooltip: l10n.filterPresetsTitle,
-                icon: Icons.bookmarks_outlined,
-              ),
-              GuideCalendarBar.filterButton(
-                identifier: _control('filter'),
-                tooltip: l10n.filterCalendar,
-                activeCount: 0,
-                onPressed: null,
-              ),
-              more,
-            ]
-          : [
-              _disabledAction(
-                identifier: _control('overview-options'),
-                tooltip: l10n.overviewListOptions,
-                icon: Icons.tune_rounded,
-              ),
-              _disabledAction(
-                identifier: _control('overview-views'),
-                tooltip: l10n.overviewViewsTitle,
-                icon: Icons.bookmarks_outlined,
-              ),
-              more,
-            ],
+      actions: switch (view) {
+        CalendarViewPage.calendar => [
+          _disabledAction(
+            identifier: _control('saved-filters'),
+            tooltip: l10n.filterPresetsTitle,
+            icon: Icons.bookmarks_outlined,
+          ),
+          GuideCalendarBar.filterButton(
+            identifier: _control('filter'),
+            tooltip: l10n.filterCalendar,
+            activeCount: 0,
+            onPressed: null,
+          ),
+          more,
+        ],
+        CalendarViewPage.overview => [
+          _disabledAction(
+            identifier: _control('overview-options'),
+            tooltip: l10n.overviewListOptions,
+            icon: Icons.tune_rounded,
+          ),
+          _disabledAction(
+            identifier: _control('overview-views'),
+            tooltip: l10n.overviewViewsTitle,
+            icon: Icons.bookmarks_outlined,
+          ),
+          more,
+        ],
+        // The report page's categories funnel, every category chosen.
+        CalendarViewPage.report => [
+          _disabledAction(
+            identifier: _control('report-categories'),
+            tooltip: l10n.calendarCategories,
+            icon: Icons.filter_alt_outlined,
+          ),
+          more,
+        ],
+      },
     );
   }
 

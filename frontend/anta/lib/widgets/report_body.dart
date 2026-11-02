@@ -49,7 +49,13 @@ class ReportBand extends StatefulWidget {
     this.onTitleTap,
     this.onStep,
     this.onHome,
+    this.navIdentifier,
   });
+
+  /// The nav's ids, handed `previous`, `next`, `today` or `title`; null
+  /// keeps the report page's own (`report-nav-*`). The guide's stage gives
+  /// its own, so a flow never finds the page's ids on the guide (D86).
+  final String Function(String control)? navIdentifier;
 
   /// The period titled — the pick, while a refold runs too; null until the
   /// settings have loaded.
@@ -173,10 +179,15 @@ class _ReportBandState extends State<ReportBand> {
         home == null ? '' : labels.periodName(home),
       ),
       titleTooltip: l10n.overviewPeriod,
-      previousIdentifier: SemanticsIds.reportNavPrevious,
-      nextIdentifier: SemanticsIds.reportNavNext,
-      todayIdentifier: SemanticsIds.reportNavToday,
-      titleIdentifier: SemanticsIds.reportNavTitle,
+      previousIdentifier:
+          widget.navIdentifier?.call('previous') ??
+          SemanticsIds.reportNavPrevious,
+      nextIdentifier:
+          widget.navIdentifier?.call('next') ?? SemanticsIds.reportNavNext,
+      todayIdentifier:
+          widget.navIdentifier?.call('today') ?? SemanticsIds.reportNavToday,
+      titleIdentifier:
+          widget.navIdentifier?.call('title') ?? SemanticsIds.reportNavTitle,
       onTitleTap: widget.onTitleTap,
       onPrevious: onStep != null && canStep(-1) ? () => onStep(-1) : null,
       onNext: onStep != null && canStep(1) ? () => onStep(1) : null,

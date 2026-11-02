@@ -41,6 +41,7 @@ import 'package:anta/models/calendar_event.dart';
 import 'package:anta/models/calendar_guide_coach.dart';
 import 'package:anta/models/calendar_guide_content.dart';
 import 'package:anta/models/calendar_panel_mode.dart';
+import 'package:anta/models/calendar_report.dart';
 import 'package:anta/models/event_template.dart';
 import 'package:anta/models/fasting_appearance.dart';
 import 'package:anta/models/fasting_schedule.dart';
@@ -67,6 +68,7 @@ import 'package:anta/services/recurrence_formatter.dart';
 import 'package:anta/services/settings_service.dart';
 import 'package:anta/utils/agenda_month_store.dart';
 import 'package:anta/utils/alert_labels.dart';
+import 'package:anta/utils/report_labels.dart';
 import 'package:anta/widgets/agenda_list_view.dart';
 import 'package:anta/widgets/agenda_month_grid.dart';
 import 'package:anta/widgets/agenda_period_nav.dart';
@@ -96,6 +98,8 @@ import 'package:anta/widgets/event_repeat_sheet.dart';
 import 'package:anta/widgets/form_rows.dart';
 import 'package:anta/widgets/month_dot_matrix.dart';
 import 'package:anta/widgets/quick_alarm_sheet.dart';
+import 'package:anta/widgets/report_body.dart';
+import 'package:anta/widgets/report_totals_card.dart';
 import 'package:anta/widgets/settings_reorder.dart';
 import 'package:anta/widgets/settings_section_list.dart';
 import 'package:anta/widgets/value_change_highlight.dart';
@@ -810,6 +814,9 @@ void main() {
     Future<void> showCalendar(GuideTryCardRobot robot) =>
         pick(robot, SemanticsIds.calendarViewCalendar);
 
+    Future<void> showReport(GuideTryCardRobot robot) =>
+        pick(robot, SemanticsIds.calendarReportOpen);
+
     CalendarViewPage shownView(WidgetTester tester) =>
         tester.widget<GuideCalendarBar>(find.byType(GuideCalendarBar)).page;
 
@@ -886,7 +893,7 @@ void main() {
       (Locale('en'), Size(412, 915), 1.3, 706.4),
       (Locale('de'), Size(360, 780), 2.0, 706.4),
     ]) {
-      testWidgets('the stage is $height at $scale in both views and every '
+      testWidgets('the stage is $height at $scale in every view and every '
           'format', (tester) async {
         final robot = await open(
           tester,
@@ -920,6 +927,12 @@ void main() {
             robot.stageSize.height,
             moreOrLessEquals(stage.height, epsilon: 1),
             reason: 'overview after ${format.name}',
+          );
+          await showReport(robot);
+          expect(
+            robot.stageSize.height,
+            moreOrLessEquals(stage.height, epsilon: 1),
+            reason: 'report after ${format.name}',
           );
           await showCalendar(robot);
         }
@@ -1033,8 +1046,8 @@ void main() {
     });
 
     testWidgets('the grounds in light: the Calendar\'s bar and grid on '
-        '`surface`, its panel on `pageGround`; the Overview\'s bar on '
-        '`pageGround` (D79)', (tester) async {
+        '`surface`, its panel on `pageGround`; the Overview\'s and the '
+        'Report\'s bars on `pageGround` (D79)', (tester) async {
       final robot = await open(tester, CalendarGuideTopic.screen);
       final scheme = AppTheme.light().colorScheme;
       Color barGround() => tester
@@ -1056,6 +1069,8 @@ void main() {
       expect(groundOf(GuideCalendarGrid), scheme.surface);
       expect(groundOf(PanelModeBar), scheme.pageGround);
       await showOverview(robot);
+      expect(barGround(), scheme.pageGround);
+      await showReport(robot);
       expect(barGround(), scheme.pageGround);
       await expectNothingSaved();
     });
@@ -1151,8 +1166,7 @@ void main() {
     });
 
     testWidgets('the tour: the panel, the ⋮, the Overview through the title, '
-        'its chips, its arrows; the Report says where it would lead and the '
-        'view stays', (tester) async {
+        'its chips, its arrows, the Report through the title', (tester) async {
       final robot = await open(tester, CalendarGuideTopic.screen);
       expect(robot.line, steps[0]);
       note(robot);
@@ -1179,18 +1193,12 @@ void main() {
       expect(robot.line, steps[5]);
       note(robot);
 
-      await pick(robot, SemanticsIds.calendarReportOpen);
-      expect(robot.line, en.calendarGuideWouldOpen(en.reportTitle));
-      expect(shownView(tester), CalendarViewPage.overview);
-      note(robot);
-
-      // The skip under a standing report only clears it (D46); the Report
-      // step waits for its view.
-      await robot.skip();
-      expect(robot.line, steps[5]);
-      await robot.skip();
+      await showReport(robot);
+      expect(shownView(tester), CalendarViewPage.report);
+      expect(viewBody(CalendarViewPage.report), findsOneWidget);
       expect(robot.line, en.calendarGuideCoachDone);
       expect(robot.canSkip, isFalse);
+      note(robot);
       expect(pushes.pushed, isEmpty);
       expectOneSlotHeight();
       await expectNothingSaved();
@@ -1690,6 +1698,221 @@ void main() {
       );
       await tester.pumpAndSettle();
       expectNothingOpened('a list row');
+      await expectNothingSaved();
+    });
+
+    ReportBody reportBody(WidgetTester tester) =>
+        tester.widget<ReportBody>(_inCard('screen', find.byType(ReportBody)));
+
+    /// The Report's body rows, as many as are built.
+    int reportRows(WidgetTester tester) => _inCard(
+      'screen',
+      find.descendant(
+        of: find.byType(ReportBody),
+        matching: find.byType(FormPickerRow),
+      ),
+    ).evaluate().length;
+
+    testWidgets('the Report: its funnel drawn disabled; ◄ ► step a month and '
+        'Today returns; a fold toggles; its month and folds kept across a '
+        'switch away and back (D82, D83)', (tester) async {
+      final robot = await open(
+        tester,
+        CalendarGuideTopic.screen,
+        now: () => DateTime(2026, 10, 14, 10),
+      );
+      await showReport(robot);
+      final stage = robot.stageSize;
+      final labels = ReportLabels(en);
+      const october = OverviewMonthPeriod(2026, 10);
+      const november = OverviewMonthPeriod(2026, 11);
+      final bar = tester.widget<GuideCalendarBar>(
+        find.byType(GuideCalendarBar),
+      );
+      expect(bar.format, isNull);
+      expect(
+        tester
+            .widget<IconButton>(
+              find.descendant(
+                of: robot.control('report-categories'),
+                matching: find.byType(IconButton),
+              ),
+            )
+            .onPressed,
+        isNull,
+      );
+      // A plain title, no period menu; Today at home is disabled.
+      expect(_navOf(tester).onTitleTap, isNull);
+      expect(_navOf(tester).title, labels.periodName(october));
+      expect(_navOf(tester).onToday, isNull);
+      expect(reportBody(tester).report!.span, (
+        start: DateTime.utc(2026, 10, 1),
+        end: DateTime.utc(2026, 10, 31),
+      ));
+
+      // A fold, the body's own.
+      final group = reportBody(tester).report!.categories.first.categoryId;
+      final header = find.bySemanticsIdentifier(
+        SemanticsIds.reportGroup('categories', group),
+      );
+      final opened = reportRows(tester);
+      await tester.tap(header);
+      await tester.pumpAndSettle();
+      final folded = reportRows(tester);
+      expect(folded, lessThan(opened));
+
+      await robot.tap('report-next');
+      expect(_navOf(tester).title, labels.periodName(november));
+      expect(reportBody(tester).period, november);
+      expect(reportBody(tester).report!.span.start, DateTime.utc(2026, 11));
+      expect(_navOf(tester).onToday, isNotNull);
+      expect(robot.stageSize, stage);
+      // A step back onto the home month is the home: Today disables.
+      await robot.tap('report-previous');
+      expect(_navOf(tester).title, labels.periodName(october));
+      expect(_navOf(tester).onToday, isNull);
+      await robot.tap('report-next');
+
+      // Away and back: November, as she left it.
+      await showCalendar(robot);
+      await showReport(robot);
+      expect(_navOf(tester).title, labels.periodName(november));
+      await robot.tap('report-today');
+      expect(_navOf(tester).title, labels.periodName(october));
+      expect(_navOf(tester).onToday, isNull);
+      expect(reportRows(tester), folded);
+      await tester.tap(header);
+      await tester.pumpAndSettle();
+      expect(reportRows(tester), opened);
+
+      await robot.tap('report-previous');
+      expect(
+        _navOf(tester).title,
+        labels.periodName(const OverviewMonthPeriod(2026, 9)),
+      );
+      expect(robot.stageSize, stage);
+      expect(pushes.pushed, isEmpty);
+      await expectNothingSaved();
+    });
+
+    testWidgets('the Report over the demo draws the missed day its marks '
+        'hold: Yoga a week back, through the demo\'s readers', (tester) async {
+      final robot = await open(
+        tester,
+        CalendarGuideTopic.screen,
+        now: () => DateTime(2026, 10, 14, 10),
+      );
+      await showReport(robot);
+      final report = reportBody(tester).report!;
+      // The seed's marks: Yoga missed a week back (the 7th), present the
+      // three weeks before; today's is still to come.
+      final missed = [
+        for (final group in report.missed)
+          for (final row in group.rows)
+            if (row case ReportDatedRow(
+              missed: true,
+              :final eventId,
+              :final day,
+            ))
+              (eventId, day),
+      ];
+      expect(missed, [('guide-demo-yoga', DateTime.utc(2026, 10, 7))]);
+      final row = find.bySemanticsIdentifier(
+        SemanticsIds.reportRow('guide-demo-yoga', DateTime.utc(2026, 10, 7)),
+      );
+      await tester.scrollUntilVisible(
+        row,
+        200,
+        scrollable: _inCard(
+          'screen',
+          find.descendant(
+            of: find.byType(ReportBody),
+            matching: find.byType(Scrollable),
+          ),
+        ).first,
+      );
+      await tester.pumpAndSettle();
+      expect(_inCard('screen', row), findsOneWidget);
+      // No presence button on the stage (D57).
+      expect(
+        find.bySemanticsIdentifier(
+          SemanticsIds.reportRowPresence(
+            'guide-demo-yoga',
+            DateTime.utc(2026, 10, 7),
+          ),
+        ),
+        findsNothing,
+      );
+      expect(robot.stageSize.height, moreOrLessEquals(668));
+      await expectNothingSaved();
+    });
+
+    testWidgets('no tap on the Report opens a page or a sheet: its funnel, '
+        'its tiles, its rows, its footer', (tester) async {
+      final robot = await open(
+        tester,
+        CalendarGuideTopic.screen,
+        now: () => DateTime(2026, 10, 14, 10),
+      );
+      await showReport(robot);
+      await robot.tap('report-categories');
+      final scrollable = _inCard(
+        'screen',
+        find.descendant(
+          of: find.byType(ReportBody),
+          matching: find.byType(Scrollable),
+        ),
+      ).first;
+      final slot = tester.getRect(stageSlot());
+      var tapped = 0;
+      for (var i = 0; i < 20; i++) {
+        final rows = [
+          ..._inCard('screen', find.byType(FormPickerRow)).evaluate(),
+          ..._inCard('screen', find.byType(FormActionRow)).evaluate(),
+          ..._inCard('screen', find.byType(ReportTotalsCard)).evaluate(),
+        ];
+        for (final row in rows) {
+          if (!row.mounted) continue;
+          final box = row.renderObject;
+          if (box is! RenderBox || !box.hasSize || !box.attached) continue;
+          final centre = box.localToGlobal(box.size.center(Offset.zero));
+          if (!slot.contains(centre)) continue;
+          await tester.tapAt(centre);
+          await tester.pumpAndSettle();
+          tapped++;
+        }
+        final position = tester.state<ScrollableState>(scrollable).position;
+        if (position.pixels >= position.maxScrollExtent) break;
+        position.jumpTo(
+          math.min(position.pixels + 300, position.maxScrollExtent),
+        );
+        await tester.pumpAndSettle();
+      }
+      expect(tapped, greaterThan(3));
+      expect(pushes.pushed, isEmpty);
+      expect(find.byType(BottomSheet), findsNothing);
+      expect(find.byType(EventDetailSheet), findsNothing);
+      for (final id in const [
+        SemanticsIds.reportShowList,
+        SemanticsIds.reportShare,
+        SemanticsIds.reportSend,
+      ]) {
+        expect(
+          tester
+              .widget<FormActionRow>(
+                find
+                    .ancestor(
+                      of: find.bySemanticsIdentifier(id),
+                      matching: find.byType(FormActionRow),
+                    )
+                    .first,
+              )
+              .onTap,
+          isNull,
+          reason: id,
+        );
+      }
+      expect(tester.takeException(), isNull);
       await expectNothingSaved();
     });
 
@@ -4405,6 +4628,44 @@ void main() {
       await expectNothingSaved();
     });
 
+    testWidgets('screen: the Report, a step, today and its body to the end', (
+      tester,
+    ) async {
+      final robot = await openTall(tester);
+      final stage = robot.stageSize;
+      await robot.tapId(SemanticsIds.calendarViewMenu);
+      await robot.tapId(SemanticsIds.calendarReportOpen);
+      expect(robot.stageSize, stage, reason: 'the Report');
+      for (final control in const [
+        'report-next',
+        'report-previous',
+        'report-previous',
+        'report-today',
+      ]) {
+        await robot.tap(control);
+        expect(robot.stageSize, stage, reason: control);
+      }
+      final scrollable = _inCard(
+        'screen',
+        find.descendant(
+          of: find.byType(ReportBody),
+          matching: find.byType(Scrollable),
+        ),
+      ).first;
+      for (var i = 0; i < 40; i++) {
+        final position = tester.state<ScrollableState>(scrollable).position;
+        if (position.pixels >= position.maxScrollExtent) break;
+        position.jumpTo(
+          math.min(position.pixels + 200, position.maxScrollExtent),
+        );
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull, reason: 'at ${position.pixels}');
+      }
+      expect(robot.stageSize, stage);
+      expect(tester.takeException(), isNull);
+      await expectNothingSaved();
+    });
+
     // D66: the coach line stops growing at 1.3, as the practice band does,
     // so at 2.0 its slot is the slot it is at 1.3.
     for (final topic in CalendarGuideTopic.values) {
@@ -4524,13 +4785,32 @@ void main() {
           screenControl('overview', 'today'),
         ],
       ),
+      (
+        CalendarViewPage.report,
+        [
+          SemanticsIds.calendarViewMenu,
+          screenControl(slug, 'more'),
+          screenControl(slug, 'report-previous'),
+          screenControl(slug, 'report-next'),
+        ],
+        [
+          screenControl(slug, 'report-categories'),
+          screenControl(slug, 'report-today'),
+        ],
+      ),
     ]) {
       testWidgets('screen: ${view.name}', (tester) async {
         final handle = tester.ensureSemantics();
         final robot = await open(tester, CalendarGuideTopic.screen);
-        if (view == CalendarViewPage.overview) {
-          await robot.tapId(SemanticsIds.calendarViewMenu);
-          await robot.tapId(SemanticsIds.calendarOverviewOpen);
+        switch (view) {
+          case CalendarViewPage.overview:
+            await robot.tapId(SemanticsIds.calendarViewMenu);
+            await robot.tapId(SemanticsIds.calendarOverviewOpen);
+          case CalendarViewPage.report:
+            await robot.tapId(SemanticsIds.calendarViewMenu);
+            await robot.tapId(SemanticsIds.calendarReportOpen);
+          case CalendarViewPage.calendar:
+            break;
         }
         final entry = tester.getSemantics(robot.card);
         bool under(SemanticsNode node) {
@@ -4578,6 +4858,29 @@ void main() {
           find.bySemanticsIdentifier(screenControl(slug, 'more')),
           findsOneWidget,
         );
+        // The Report's ids only in the Report; the report page's own nav ids
+        // never on the guide (D86).
+        for (final name in const [
+          'report-categories',
+          'report-previous',
+          'report-next',
+          'report-today',
+          'report-title',
+        ]) {
+          expect(
+            find.bySemanticsIdentifier(screenControl(slug, name)),
+            view == CalendarViewPage.report ? findsOneWidget : findsNothing,
+            reason: name,
+          );
+        }
+        for (final id in const [
+          SemanticsIds.reportNavPrevious,
+          SemanticsIds.reportNavNext,
+          SemanticsIds.reportNavToday,
+          SemanticsIds.reportNavTitle,
+        ]) {
+          expect(find.bySemanticsIdentifier(id), findsNothing, reason: id);
+        }
         handle.dispose();
       });
     }
@@ -4924,14 +5227,16 @@ void main() {
     const unavoidable = {
       'attendance de 2.0': ['Wiederholungen'],
       'screen en 2.0': ['Mon', 'Wed'],
-      // Year's tiles and List's rows draw no weekday row.
+      // Year's tiles, List's rows and the Report draw no weekday row.
       'screen en 2.0 year': <String>[],
       'screen en 2.0 list': <String>[],
+      'screen en 2.0 report': <String>[],
       // The fasting card's grid, the screen card's cost again.
       'fasting en 2.0': ['Mon', 'Wed'],
       'screen ro 2.0': ['mar.', 'mie.', 'sâm.', 'dum.'],
       'screen ro 2.0 year': <String>[],
       'screen ro 2.0 list': <String>[],
+      'screen ro 2.0 report': <String>[],
       'fasting ro 2.0': ['mar.', 'mie.', 'sâm.', 'dum.'],
     };
     for (final (locale, scale) in const [
@@ -5139,7 +5444,8 @@ List<String> _brokenWords(RenderParagraph paragraph) {
 /// leaves — `changed` — and on the screen stage every view and format the
 /// three cards it replaced were checked in: the Calendar in Week over
 /// Upcoming (`week`), then the Overview as it opens, in Month (`month`), in
-/// Year (`year`) and in List (`list`). Elsewhere: the quick alarm (the
+/// Year (`year`) and in List (`list`), then the Report (`report`).
+/// Elsewhere: the quick alarm (the
 /// events and alerts cards'
 /// report), a rule, a mark, a category, a query, a holiday set.
 Future<void> _eachChange(
@@ -5162,6 +5468,9 @@ Future<void> _eachChange(
       await check('year');
       await overview.tap('mode-list');
       await check('list');
+      await robot.tapId(SemanticsIds.calendarViewMenu);
+      await robot.tapId(SemanticsIds.calendarReportOpen);
+      await check('report');
     // The two cards with a report: the report alone is the line.
     case CalendarGuideTopic.events:
       await robot.longPress('add');

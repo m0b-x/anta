@@ -2,16 +2,19 @@ import 'dart:collection';
 
 import 'package:equatable/equatable.dart';
 
+import '../constants/calendar_bounds.dart';
 import '../constants/calendar_categories.dart';
 import '../constants/event_presence.dart';
 import '../constants/event_skips.dart';
 import '../constants/occurrence_descriptions.dart';
 import '../constants/public_holidays.dart';
 import '../constants/report_metrics.dart';
+import '../models/agenda_day_list.dart';
 import '../models/calendar_appearance.dart';
 import '../models/calendar_event.dart';
 import '../models/calendar_report.dart';
 import '../models/date_range.dart';
+import '../models/overview_period.dart';
 import '../utils/calendar_report_builder.dart';
 import '../utils/event_agenda.dart';
 import '../utils/lru_cache.dart';
@@ -58,6 +61,27 @@ final class ReportRequest {
   /// memo key only, never bumped here.
   final int presenceRevision;
 
+  /// Whether an occurrence was missed; null reads `EventPresence.isMissed`.
+  ///
+  /// This and the three readers below are the guide's seam: its demo keeps
+  /// its marks, skips and texts in memory, under ids no facade holds, and
+  /// folds through [CalendarReportService.sampleInput] with its own — never
+  /// through [CalendarReportService.report], whose memo keys on the
+  /// calendar's revisions and not on these (it asserts none is passed).
+  final bool Function(CalendarEvent event, DateTime dayUtc)? isMissed;
+
+  /// An event's explicit marks, which tell today unmarked — still to come —
+  /// from today marked; null reads `EventPresence.marksFor`.
+  final Map<DateTime, PresenceStatus> Function(String eventId)? marksFor;
+
+  /// An event's cancelled days, which the sampling drops and the caption
+  /// counts; null reads `EventSkips.daysFor`.
+  final Set<DateTime> Function(String eventId)? skipsFor;
+
+  /// An event's per-day texts, which the Tasks tile and the rows read; null
+  /// reads `OccurrenceDescriptions.overridesFor`.
+  final Map<DateTime, String> Function(String eventId)? descriptionsFor;
+
   const ReportRequest({
     required this.span,
     this.previousSpan,
@@ -68,6 +92,10 @@ final class ReportRequest {
     this.occurrenceRevision = 0,
     this.membershipRevision = 0,
     this.presenceRevision = 0,
+    this.isMissed,
+    this.marksFor,
+    this.skipsFor,
+    this.descriptionsFor,
   });
 }
 
@@ -100,6 +128,14 @@ class CalendarReportService {
   /// moved. A miss costs one sampling and one fold of the span, and one
   /// sampling and one totals fold of the previous span's counted part.
   CalendarReport report(ReportRequest request) {
+    assert(
+      request.isMissed == null &&
+          request.marksFor == null &&
+          request.skipsFor == null &&
+          request.descriptionsFor == null,
+      'the memo keys on the calendar\'s revisions, not on readers: a request '
+      'with readers folds through sampleInput',
+    );
     final window = _Window.of(request);
     final key = _ReportKey(
       window.scope,
@@ -120,6 +156,34 @@ class CalendarReportService {
   /// span from it — and for tests.
   static ReportInput sampleInput(ReportRequest request) =>
       _input(request, _Window.of(request));
+
+  /// The spans a report of [period] folds: its own, and the one a step back
+  /// that the deltas compare against (D28), or null where the period has no
+  /// step back. One rule for the report page's bloc and the guide's stage.
+  static ({DateRange span, DateRange? previousSpan}) spansOf(
+    OverviewPeriod period, {
+    required DateTime today,
+    required AgendaYearBounds years,
+  }) => (
+    span: period.resolve(today: today, yearBounds: years),
+    previousSpan: period
+        .stepped(direction: -1, today: today, yearBounds: years)
+        ?.resolve(today: today, yearBounds: years),
+  );
+
+  /// The years a report's steps may reach: those [events] occur in under
+  /// the allowlist [categoryIds], and today's, inside [CalendarBounds].
+  static AgendaYearBounds yearsOf(
+    List<CalendarEvent> events, {
+    Set<String> categoryIds = const {},
+    required DateTime today,
+  }) => EventAgenda.yearBoundsOf(
+    events,
+    categoryIds: categoryIds,
+    todayYear: today.year,
+    earliestYear: CalendarBounds.earliest.year,
+    latestYear: CalendarBounds.latest.year,
+  );
 
   static ReportInput _input(ReportRequest request, _Window window) {
     final scoped = _Scoped.of(request);
@@ -169,9 +233,12 @@ class CalendarReportService {
     );
   }
 
-  /// One sample per occurrence in [range], skips already subtracted by
-  /// `occursOn`. The allowlist goes to the scan as the digest planner hands
-  /// it, so the report counts what the overview lists (D32).
+  /// One sample per occurrence in [range]. The scan's `occursOn` subtracts
+  /// the static skips; the reader's are subtracted here too — the same days
+  /// when there is no reader, so the drop is a no-op then, and a demo's
+  /// cancelled day is never both sampled and counted as skipped. The
+  /// allowlist goes to the scan as the digest planner hands it, so the
+  /// report counts what the overview lists (D32).
   static List<ReportSample> _samples(
     _Scoped scoped,
     DateRange range,
@@ -183,12 +250,20 @@ class CalendarReportService {
       to: range.end,
       categoryIds: scoped.categoryIds,
     );
+    final skips = <String, Set<DateTime>>{};
+    bool kept(EventOccurrence occurrence) {
+      final event = occurrence.event;
+      return !EventSkips.appliesTo(event) ||
+          !(skips[event.id] ??= scoped.skipsFor(
+            event.id,
+          )).contains(occurrence.day);
+    }
+
     return [
-      for (final EventOccurrence(:event, :day) in occurrences)
+      for (final EventOccurrence(:event, :day) in occurrences.where(kept))
         if (!EventPresence.appliesTo(event) || day.isAfter(today))
           ReportSample(eventId: event.id, day: day)
-        else if (day == today &&
-            EventPresence.marksFor(event.id)[today] == null)
+        else if (day == today && scoped.marksFor(event.id)[today] == null)
           // Today unmarked is still to come (D31), whatever an assume-absent
           // default would say of a past day.
           ReportSample(eventId: event.id, day: day, pending: true)
@@ -196,7 +271,7 @@ class CalendarReportService {
           ReportSample(
             eventId: event.id,
             day: day,
-            missed: EventPresence.isMissed(event, day),
+            missed: scoped.isMissed(event, day),
           ),
     ];
   }
@@ -212,7 +287,7 @@ class CalendarReportService {
     var skipped = 0;
     for (final event in scoped.byId.values) {
       if (!EventSkips.appliesTo(event)) continue;
-      for (final day in EventSkips.daysFor(event.id)) {
+      for (final day in scoped.skipsFor(event.id)) {
         if (!day.isBefore(counted.start) &&
             !day.isAfter(end) &&
             event.wouldOccurOnUtcDay(day)) {
@@ -331,8 +406,14 @@ final class _Scoped {
   /// Every per-day text of the events in scope, on every day: the Tasks tile
   /// is decided by the selection (D15), and the builder looks texts up by
   /// day. Views, not copies — the facade replaces its map wholesale on
-  /// publish, so a view cannot change under a report.
+  /// publish, so a view cannot change under a report; a reader hands maps
+  /// that hold still the same way (the guide's demo hands copies).
   final Map<String, Map<DateTime, String>> overrides;
+
+  /// The request's readers, each the static facade's where it passed none.
+  final bool Function(CalendarEvent event, DateTime dayUtc) isMissed;
+  final Map<DateTime, PresenceStatus> Function(String eventId) marksFor;
+  final Set<DateTime> Function(String eventId) skipsFor;
 
   const _Scoped({
     required this.all,
@@ -340,6 +421,9 @@ final class _Scoped {
     required this.byId,
     required this.categoryOf,
     required this.overrides,
+    required this.isMissed,
+    required this.marksFor,
+    required this.skipsFor,
   });
 
   factory _Scoped.of(ReportRequest request) {
@@ -347,12 +431,14 @@ final class _Scoped {
     final byId = <String, CalendarEvent>{};
     final categoryOf = <String, String>{};
     final overrides = <String, Map<DateTime, String>>{};
+    final textsFor =
+        request.descriptionsFor ?? OccurrenceDescriptions.overridesFor;
     for (final event in request.events) {
       if (!EventAgenda.passesEventFilters(event, categoryIds: ids)) continue;
       byId[event.id] = event;
       categoryOf[event.id] = CalendarCategories.resolve(event.categoryId).id;
       if (OccurrenceDescriptions.appliesTo(event)) {
-        final texts = OccurrenceDescriptions.overridesFor(event.id);
+        final texts = textsFor(event.id);
         if (texts.isNotEmpty) {
           overrides[event.id] = UnmodifiableMapView(texts);
         }
@@ -364,6 +450,9 @@ final class _Scoped {
       byId: byId,
       categoryOf: categoryOf,
       overrides: overrides,
+      isMissed: request.isMissed ?? EventPresence.isMissed,
+      marksFor: request.marksFor ?? EventPresence.marksFor,
+      skipsFor: request.skipsFor ?? EventSkips.daysFor,
     );
   }
 }

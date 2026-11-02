@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:anta/constants/app_theme.dart';
 import 'package:anta/constants/calendar_categories.dart';
 import 'package:anta/constants/event_presence.dart';
+import 'package:anta/constants/report_metrics.dart';
 import 'package:anta/constants/semantics_ids.dart';
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/models/calendar_appearance.dart';
@@ -125,11 +127,16 @@ void main() {
 
   Finder byId(String id) => find.bySemanticsIdentifier(id);
 
+  /// [shown] over [period] in place of the October fixture; [bandPeriod] the
+  /// band's title alone, its home staying [period].
   Future<void> pumpBody(
     WidgetTester tester, {
     Locale locale = const Locale('en'),
     double textScale = 1,
     Size surface = const Size(360, 780),
+    CalendarReport? shown,
+    OverviewPeriod period = october,
+    OverviewPeriod? bandPeriod,
   }) async {
     addTearDown(tester.view.reset);
     tester.view.devicePixelRatio = 1.0;
@@ -155,17 +162,17 @@ void main() {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   ReportBand(
-                    period: october,
-                    home: october,
-                    report: report,
+                    period: bandPeriod ?? period,
+                    home: period,
+                    report: shown ?? report,
                     today: today,
                     years: years,
                     labels: labels,
                   ),
                   Expanded(
                     child: ReportBody(
-                      report: report,
-                      period: october,
+                      report: shown ?? report,
+                      period: period,
                       today: today,
                       years: years,
                       weekStart: CalendarWeekStart.monday,
@@ -238,6 +245,24 @@ void main() {
   testWidgets('with every callback null no tap opens a route or leaves the '
       'body, and the Missed row has no presence button', (tester) async {
     await pumpBody(tester);
+    // An inert row is no button and offers no tap: a routine aggregate and a
+    // dated row (the reviewer's probe read `tap=false button=false`). The
+    // handle goes in a `finally`: flutter_test checks for a live one before
+    // any `addTearDown` runs.
+    final handle = tester.ensureSemantics();
+    try {
+      await tester.pump();
+      for (final id in [
+        SemanticsIds.reportRoutine(gym.id),
+        SemanticsIds.reportRow(dentist.id, DateTime.utc(2026, 10, 9)),
+      ]) {
+        final data = tester.getSemantics(byId(id).first).getSemanticsData();
+        expect(data.hasAction(SemanticsAction.tap), isFalse, reason: id);
+        expect(data.flagsCollection.isButton, isFalse, reason: id);
+      }
+    } finally {
+      handle.dispose();
+    }
     final scrollable = find.descendant(
       of: byId(SemanticsIds.reportBody),
       matching: find.byType(Scrollable),
@@ -317,7 +342,15 @@ void main() {
   testWidgets('the band with no callbacks draws every control disabled', (
     tester,
   ) async {
-    await pumpBody(tester);
+    // Away from the home, so only the missing `onHome` can null Today.
+    await pumpBody(
+      tester,
+      bandPeriod: october.stepped(
+        direction: -1,
+        today: today,
+        yearBounds: years,
+      ),
+    );
     final nav = tester.widget<AgendaPeriodNav>(find.byType(AgendaPeriodNav));
     expect(nav.onTitleTap, isNull);
     expect(nav.onPrevious, isNull);
@@ -325,5 +358,111 @@ void main() {
     expect(nav.onToday, isNull);
     expect(byId(SemanticsIds.reportNavPrevious), findsOneWidget);
     expect(byId(SemanticsIds.reportNavNext), findsOneWidget);
+    expect(byId(SemanticsIds.reportNavToday), findsOneWidget);
+  });
+
+  group('a wide year', () {
+    // Every built-in category with an event, so the card caps at seven; a
+    // daily routine assumed absent, so its Missed group runs past the
+    // expansion's cap.
+    const year = OverviewYearPeriod(2026);
+    late CalendarReport wide;
+    late String dailyCategory;
+
+    setUp(() {
+      final seeds = CalendarCategories.builtInSeeds;
+      dailyCategory = seeds.first.id;
+      final daily = CalendarEvent(
+        id: 'e-daily',
+        title: 'Stretch',
+        categoryId: dailyCategory,
+        startDate: DateTime.utc(2025, 1, 1),
+        rule: const DailyRecurrence(),
+        tracksPresence: true,
+        assumeAbsent: true,
+      );
+      wide = CalendarReportBuilder.fold(
+        CalendarReportService.sampleInput(
+          ReportRequest(
+            span: year.resolve(today: today, yearBounds: years),
+            events: [
+              for (final (index, seed) in seeds.indexed)
+                CalendarEvent(
+                  id: 'e-$index',
+                  title: 'Event $index',
+                  categoryId: seed.id,
+                  startDate: DateTime.utc(2026, 3, 1 + index),
+                ),
+              daily,
+            ],
+            today: today,
+            weekStart: CalendarWeekStart.monday,
+          ),
+        ),
+      );
+    });
+
+    test('the fold holds what the cases read', () {
+      expect(
+        wide.categories.length,
+        greaterThan(ReportMetrics.maxCategoryRows),
+      );
+      expect(
+        wide.missed.first.rows.length,
+        greaterThan(ReportMetrics.maxListRows),
+      );
+    });
+
+    testWidgets('"n more categories" and a capped group\'s Show as list are '
+        'drawn disabled, never hidden', (tester) async {
+      await pumpBody(tester, shown: wide, period: year);
+      final scrollable = find
+          .descendant(
+            of: byId(SemanticsIds.reportBody),
+            matching: find.byType(Scrollable),
+          )
+          .first;
+      // The handle in a `finally`, as in the no-tap case.
+      Future<void> expectDisabled(String id) async {
+        final row = tester.widget<FormActionRow>(
+          find
+              .ancestor(of: byId(id), matching: find.byType(FormActionRow))
+              .first,
+        );
+        expect(row.onTap, isNull, reason: id);
+        final handle = tester.ensureSemantics();
+        try {
+          await tester.pump();
+          final data = tester.getSemantics(byId(id).first).getSemanticsData();
+          expect(data.hasAction(SemanticsAction.tap), isFalse, reason: id);
+        } finally {
+          handle.dispose();
+        }
+      }
+
+      await tester.scrollUntilVisible(
+        byId(SemanticsIds.reportCategoriesMore),
+        300,
+        scrollable: scrollable,
+      );
+      await tester.pumpAndSettle();
+      await expectDisabled(SemanticsIds.reportCategoriesMore);
+
+      // The Missed group's "n more" is the body's own: it opens in place.
+      final more = byId(SemanticsIds.reportGroupMore('missed', dailyCategory));
+      await tester.scrollUntilVisible(more, 300, scrollable: scrollable);
+      await tester.pumpAndSettle();
+      await tester.tap(more);
+      await tester.pumpAndSettle();
+      expect(folds.isExpanded(ReportCard.missed, dailyCategory), isTrue);
+      final list = byId(SemanticsIds.reportGroupList('missed', dailyCategory));
+      await tester.scrollUntilVisible(list, 600, scrollable: scrollable);
+      await tester.pumpAndSettle();
+      await expectDisabled(
+        SemanticsIds.reportGroupList('missed', dailyCategory),
+      );
+      expect(pushes.pushes, 0);
+      expect(tester.takeException(), isNull);
+    });
   });
 }

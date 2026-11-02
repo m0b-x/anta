@@ -4,7 +4,6 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
-import '../../constants/calendar_bounds.dart';
 import '../../models/agenda_day_list.dart';
 import '../../models/calendar_appearance.dart';
 import '../../models/calendar_event.dart';
@@ -390,10 +389,11 @@ class CalendarReportBloc extends Bloc<ReportEvent, ReportState> {
     final period = _period;
     if (!_settingsLoaded || calendar == null || period == null) return null;
     final years = _yearsFor(calendar);
-    final span = period.resolve(today: _today, yearBounds: years);
-    final previousSpan = period
-        .stepped(direction: -1, today: _today, yearBounds: years)
-        ?.resolve(today: _today, yearBounds: years);
+    final (:span, :previousSpan) = CalendarReportService.spansOf(
+      period,
+      today: _today,
+      years: years,
+    );
     final request = ReportRequest(
       span: span,
       previousSpan: previousSpan,
@@ -426,12 +426,10 @@ class CalendarReportBloc extends Bloc<ReportEvent, ReportState> {
       _yearsEvents = calendar.allEvents;
       _yearsCategories = _categoryIds;
       _yearsToday = _today.year;
-      _years = EventAgenda.yearBoundsOf(
+      _years = CalendarReportService.yearsOf(
         calendar.allEvents,
         categoryIds: _categoryIds,
-        todayYear: _today.year,
-        earliestYear: CalendarBounds.earliest.year,
-        latestYear: CalendarBounds.latest.year,
+        today: _today,
       );
     }
     return _years;

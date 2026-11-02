@@ -2914,6 +2914,64 @@ scratch goldens never meet the implementer's gate):
   event id, so a demo report lies for a demo id unless the sampler gets a
   read seam whose default is today's static read — the §7.2 lesson again
   (`isMissed` on the bars resolver is the precedent).
+  *G5b as built 2026-11-02 (one `implementer`):* `ReportRequest` gained
+  three optional readers — `isMissed`, `marksFor`, `skipsFor`, null = the
+  static facade — riding on `_Scoped` into `_samples` and
+  `_skippedDays`; the `OccurrenceDescriptions` reads stay static (the
+  demo holds no per-day overrides); a caller with readers folds through
+  `sampleInput`, never `report()`, whose memo keys on the calendar's
+  revisions. `spansOf(period, today:, years:)` and `yearsOf(events,
+  categoryIds:, today:)` lifted out of the bloc into the service, the
+  bloc calling them (one copy). `GuideDemoCalendar.marksFor(id)` in
+  `EventPresence.marksFor`'s shape. `ReportBand.navIdentifier(control)`
+  for `previous` / `next` / `today` / `title` (null keeps the page's
+  `reportNav*` ids). `GuideReportView` (`lib/widgets/calendar_guide_try_report.dart`,
+  the overview helper's pattern) owns the home and shown period
+  (`OverviewPeriod.thisMonth` over the demo's today), its folds and the
+  folded report, refolding on every world notify while shown and on each
+  step; the stage's Report bar is a disabled `filter_alt_outlined` funnel
+  (`try-screen-report-categories`) and the ⋮ on `pageGround`; picking
+  Report switches and marks `report`, so the tour completes in order;
+  `26_guide` opens the Report, steps next and Today, and returns. The
+  page's `use24Hour` read once at build (G5a note 4), the `years:` comment
+  reworded (6); `report_body_test` gained the `home != period` Today
+  case with `reportNavToday` pinned (1), a "wide year" fixture drawing
+  "n more categories" and a capped group's Show as list disabled (2), and
+  the inert rows' semantics asserted (3). Measured inside the stage: the
+  band 74 / 93 / 142 dp at 1.0 / 1.3 / de 2.0 (the designer wrote 52 at
+  1.0 from the nav alone; the band is the page's own), the body 546 /
+  565 / 516. Suites: service +33 (readers default to the facades;
+  through readers alone a tracked weekly event folds to its one missed
+  day), report body +8, report page +105 unchanged, bloc +27, try cards
+  +308 (Yoga's missed 7 October is the body's only missed row — red with
+  the `isMissed` reader removed), topic 47, hub 29, flows lint 29; the
+  whole suite +12399 ~11 −1; analyze and format clean. Known and
+  accepted: `CalendarEvent.occursOn` still reads the static `EventSkips`,
+  so a demo-skipped day would be sampled — nothing on the screen stage
+  skips; the builder resolves categories through the static
+  `CalendarCategories` cache, which on a cold relaunch is empty at the
+  first fold and heals on the world's next notify after
+  `adopt(categories:)`.
+  *Reviewed 2026-11-02 (one `reviewer`; the bloc lift compared term by
+  term — identical; the readers' fallbacks read exactly the facades they
+  replace; the band measured 74 / 93 / 142 in the page's own harness —
+  the 22 dp over the designer's 52 is the nav's subtitle line, which the
+  band never leaves blank, so the real page's band is 74 too; the cold
+  relaunch heals because `CategoryService.getInstance()` publishes the
+  cache before `adopt` notifies):* no reachable bug; six items, closed in
+  the same implementer's fix pass — (1) CONFIRMED, latent: a
+  reader-skipped day was both sampled (`occursOnUtcDay` reads the static
+  `EventSkips`) and counted as skipped — the samples now drop the days
+  the reader holds, a no-op without readers; (2) CONFIRMED, latent: the
+  `report()` memo keyed on nothing about the readers, so a request with
+  readers over the same events got the plain cached report — an assert
+  now refuses readers on `report()`; (3) the third facade,
+  `OccurrenceDescriptions.overridesFor`, seamed too (`descriptionsFor`);
+  (4) the ids loop pins `try-screen-report-title` present and the page's
+  `reportNavTitle` absent, and Today disables after a step back onto the
+  home month; (5) `addTearDown(handle.dispose)` in two body cases; (6)
+  `///` on each reader, an unrelated reformat reverted, the flow's shot
+  kept as the witness after Today.
 - **G6 — close.** The `design-reviewer` over the stepper, the kinds card
   and the screen stage; `qa pass calendar -d emulator-5556`; the skill
   bullet, `references/subsystems.md`'s guide paragraph, the feature doc's

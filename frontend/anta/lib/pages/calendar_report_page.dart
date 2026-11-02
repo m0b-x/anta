@@ -661,12 +661,14 @@ class _ReportViewState extends State<_ReportView>
     final folded = shown == null ? null : _foldedFor(shown);
     final report = folded == null ? null : shown?.shown;
     final today = shown?.today ?? EventAgenda.dateOnly(widget.clock());
+    final use24Hour = MediaQuery.alwaysUse24HourFormatOf(context);
     return ReportBody(
       report: report,
       period: folded?.period,
       categoryIds: folded?.categoryIds ?? const {},
+      // Today, the years and the week start are read only beside a report,
+      // which comes with a shown state: the fallbacks are never drawn.
       today: today,
-      // Read only beside a report, which comes with a shown state.
       years: shown?.years ?? (first: today.year, last: today.year),
       weekStart: shown?.weekStart ?? const CalendarAppearance().weekStart,
       labels: labels,
@@ -674,7 +676,7 @@ class _ReportViewState extends State<_ReportView>
       scroll: _scroll,
       slack: _slack,
       bottomClearance: _bottomClearance,
-      use24Hour: MediaQuery.alwaysUse24HourFormatOf(context),
+      use24Hour: use24Hour,
       onDatedTap: _openDated,
       onRoutineTap: _openRoutine,
       onPresence: _markPresence,
@@ -688,7 +690,7 @@ class _ReportViewState extends State<_ReportView>
                   shown,
                   largest: largest,
                   spansMonths: spansMonths,
-                  use24Hour: MediaQuery.alwaysUse24HourFormatOf(context),
+                  use24Hour: use24Hour,
                 ),
       onShare: (report, {required periodName, required against}) =>
           _shareReport(
