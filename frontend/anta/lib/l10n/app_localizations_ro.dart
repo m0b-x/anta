@@ -6869,6 +6869,15 @@ class AppLocalizationsRo extends AppLocalizations {
   String get calendarGuideSkipStep => 'Sari peste acest pas';
 
   @override
+  String get calendarGuideStepBack => 'Pasul anterior';
+
+  @override
+  String get calendarGuideStepForward => 'Pasul următor';
+
+  @override
+  String get calendarGuideStepDone => 'Făcut';
+
+  @override
   String calendarGuideCoachScreenTitle(String calendar) {
     return 'Atinge „$calendar” sus: titlul este un meniu cu moduri de afișare.';
   }
@@ -6933,8 +6942,8 @@ class AppLocalizationsRo extends AppLocalizations {
   }
 
   @override
-  String calendarGuideCoachKindsSkip(String date, String skip) {
-    return 'Atinge „$date”, alege o zi cu punct, apoi „$skip”.';
+  String calendarGuideCoachKindsSkip(String skip) {
+    return 'Atinge o zi cu punct, apoi „$skip”.';
   }
 
   @override

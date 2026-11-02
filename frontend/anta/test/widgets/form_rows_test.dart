@@ -244,6 +244,44 @@ void main() {
         isSameColorAs(onSurface.withValues(alpha: 0.38)),
       );
     });
+
+    testWidgets('width narrows the target and never its 48 dp height', (
+      tester,
+    ) async {
+      Widget button({double? width}) => host(
+        Align(
+          alignment: Alignment.topLeft,
+          child: width == null
+              ? FormTrailingButton(
+                  icon: Icons.chevron_left_rounded,
+                  tooltip: 'Back',
+                  onPressed: () {},
+                )
+              : FormTrailingButton(
+                  icon: Icons.chevron_left_rounded,
+                  tooltip: 'Back',
+                  width: width,
+                  onPressed: () {},
+                ),
+        ),
+      );
+
+      await tester.pumpWidget(button());
+      expect(
+        tester.getSize(find.byType(FormTrailingButton)),
+        const Size.square(FormMetrics.trailingButtonSize),
+      );
+
+      await tester.pumpWidget(button(width: 40));
+      expect(
+        tester.getSize(find.byType(FormTrailingButton)),
+        const Size(40, FormMetrics.trailingButtonSize),
+      );
+      expect(
+        tester.getSize(find.byType(Icon)),
+        const Size.square(FormMetrics.trailingIconSize),
+      );
+    });
   });
 
   group('identifiers', () {

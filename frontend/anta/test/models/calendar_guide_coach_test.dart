@@ -161,4 +161,140 @@ void main() {
       'B.',
     ]);
   });
+
+  group('reading back (D70)', () {
+    Set<String> doneOf(GuideCoach c) => {
+      for (final step in c.steps)
+        if (c.hasDone(step.action)) step.action,
+    };
+
+    test('back from the live line after two done steps shows step 1, then '
+        'step 0, and stops there', () {
+      final c = coach()
+        ..did('add')
+        ..did('open');
+      expect(c.reading, isFalse);
+      expect(c.viewed, isNull);
+      expect(c.canBack, isTrue);
+
+      c.back();
+      expect(c.reading, isTrue);
+      expect(c.viewed?.action, 'open');
+      expect(c.line(en), 'Open it.');
+      expect(c.canBack, isTrue);
+
+      c.back();
+      expect(c.viewed?.action, 'add');
+      expect(c.line(en), 'Add one.');
+      expect(c.canBack, isFalse);
+
+      c.back();
+      expect(c.viewed?.action, 'add', reason: 'nothing before the first');
+    });
+
+    test('canBack is off at the live line with nothing done, and back there '
+        'is a no-op', () {
+      final c = coach();
+      expect(c.canBack, isFalse);
+      c.back();
+      expect(c.reading, isFalse);
+      expect(c.line(en), 'Add one.');
+    });
+
+    test('only the steps before the live line read back: one done out of '
+        'order past it is not reachable', () {
+      final c = coach()..did('open');
+      expect(c.current?.action, 'add');
+      expect(c.canBack, isFalse);
+    });
+
+    test('forward walks back to the live line and then skips', () {
+      final c = coach()
+        ..did('add')
+        ..did('open')
+        ..back()
+        ..back();
+      expect(c.canForward, isTrue);
+
+      c.forward();
+      expect(c.viewed?.action, 'open');
+      c.forward();
+      expect(c.reading, isFalse, reason: 'past the last done step: live');
+      expect(c.line(en), 'Delete it.');
+      expect(doneOf(c), {'add', 'open'}, reason: 'returning skipped nothing');
+
+      c.forward();
+      expect(c.finished, isTrue, reason: 'at the live line forward skips');
+      expect(c.canForward, isFalse);
+      expect(c.line(en), en.calendarGuideCoachDone);
+    });
+
+    test('a finished tour reads back every step; forward is on while reading '
+        'and the closing line is the live one', () {
+      final c = coach()
+        ..did('add')
+        ..did('open')
+        ..did('delete');
+      expect(c.canForward, isFalse);
+      c.back();
+      expect(c.viewed?.action, 'delete');
+      expect(c.canForward, isTrue);
+      c.forward();
+      expect(c.reading, isFalse);
+      expect(c.line(en), en.calendarGuideCoachDone);
+    });
+
+    test('a standing report is never read back and returns with the live '
+        'line', () {
+      final c = coach()
+        ..did('add')
+        ..say((_) => 'Said.');
+      c.back();
+      expect(c.line(en), 'Add one.');
+      c.forward();
+      expect(c.line(en), 'Said.');
+    });
+
+    test('did, say, clearReport, skip and reset each snap back to the live '
+        'line', () {
+      GuideCoach reading() => coach()
+        ..did('add')
+        ..did('open')
+        ..back();
+
+      final viaDid = reading()..did('delete');
+      expect(viaDid.reading, isFalse);
+      expect(viaDid.line(en), en.calendarGuideCoachDone);
+
+      final viaSay = reading()..say((_) => 'Said.');
+      expect(viaSay.reading, isFalse);
+      expect(viaSay.line(en), 'Said.');
+
+      final viaClear = reading()..clearReport();
+      expect(viaClear.reading, isFalse);
+      expect(viaClear.line(en), 'Delete it.');
+
+      final viaSkip = reading()..skip();
+      expect(viaSkip.reading, isFalse);
+      expect(viaSkip.finished, isTrue);
+
+      final viaReset = reading()..reset();
+      expect(viaReset.reading, isFalse);
+      expect(viaReset.line(en), 'Add one.');
+    });
+
+    test('reading never changes the done set', () {
+      final c = coach()
+        ..did('add')
+        ..did('open');
+      c
+        ..back()
+        ..back()
+        ..back()
+        ..forward();
+      expect(doneOf(c), {'add', 'open'});
+      expect(c.current?.action, 'delete');
+      expect(c.advanced, isTrue);
+    });
+  });
 }

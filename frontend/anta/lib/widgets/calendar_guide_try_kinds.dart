@@ -5,8 +5,10 @@ import 'package:intl/intl.dart';
 import '../constants/app_colors.dart';
 import '../constants/calendar_categories.dart';
 import '../constants/calendar_colors.dart';
+import '../constants/guide_metrics.dart';
 import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
+import '../models/calendar_category.dart';
 import '../models/calendar_event.dart';
 import '../models/calendar_guide_content.dart';
 import '../models/calendar_guide_demo.dart';
@@ -24,8 +26,8 @@ import 'month_dot_matrix.dart';
 
 /// The kinds page's card: one demo event, its Repeat row through the real
 /// repeat sheet, Add date through the real multi-date picker, Skip this day
-/// for a day picked through the real date picker, over this month's dots
-/// showing where it falls. One event turned every way the editor can turn
+/// for a day picked on this month's dots, which show where it falls, or
+/// through the real date picker. One event turned every way the editor can turn
 /// it, so she sees what each kind does to the month.
 ///
 /// The month is the year tiles' dot matrix, not the overview's month grid:
@@ -49,11 +51,43 @@ class GuideKindsDemo extends GuideCardDemo {
   CalendarEvent? _event;
   final Set<DateTime> _skips = {};
 
-  /// The day picked through the Date row: what Skip this day skips.
+  /// The day picked on the month or through the Date row: what Skip this
+  /// day skips.
   DateTime? _picked;
 
   @override
   bool get needsAppearance => true;
+
+  @override
+  bool get needsCategories => true;
+
+  /// The owner's categories once the page has read them; the cached ones
+  /// until then.
+  List<CalendarCategory>? _categories;
+
+  /// The Dentist's category: the first visible one, as the practice seed's
+  /// Dentist takes, so the month is the owner's colour over the neutral
+  /// squares; `Other`, a grey on grey, only when nothing is visible.
+  String _categoryId() {
+    for (final category in _categories ?? CalendarCategories.visible) {
+      if (!category.isHidden) return category.id;
+    }
+    return CalendarCategories.fallback.id;
+  }
+
+  /// A relaunch onto the guide builds the card before the categories are
+  /// cached: the event takes the first of them when they arrive, keeping
+  /// its rule, its skips and the picked day.
+  @override
+  void adoptCategories(List<CalendarCategory> categories) {
+    _categories = categories;
+    final event = _event;
+    if (event == null) return;
+    final id = _categoryId();
+    if (id == event.categoryId) return;
+    _event = event.copyWith(categoryId: id);
+    notifyListeners();
+  }
 
   /// The month the dots show, and the one the pickers open on: Add date may
   /// reach a year either side, the day to skip only this month, where she
@@ -124,7 +158,7 @@ class GuideKindsDemo extends GuideCardDemo {
   CalendarEvent _seed(AppLocalizations l10n) => CalendarEvent(
     id: '${GuideDemoCalendar.idPrefix}kinds-dentist',
     title: l10n.calendarGuideDemoEventDentist,
-    categoryId: CalendarCategories.fallback.id,
+    categoryId: _categoryId(),
     iconKey: 'medical_services',
     startDate: _today,
     time: const EventTime(startMinute: 9 * 60, durationMinutes: 45),
@@ -260,7 +294,8 @@ class GuideKindsDemo extends GuideCardDemo {
   }
 
   /// A change of rule leaves a picked day the event no longer falls on
-  /// unpicked: the grid would no longer let her pick it.
+  /// unpicked: Skip would have nothing to skip there, and the Date row
+  /// would name a day the month no longer marks.
   void _update(CalendarEvent event) {
     _event = event;
     final picked = _picked;
@@ -323,6 +358,16 @@ class GuideKindsDemo extends GuideCardDemo {
     );
     if (picked == null) return;
     _picked = DateTime.utc(picked.year, picked.month, picked.day);
+    changed();
+  }
+
+  /// A tap on the month's square [index] (`day - 1`) picks that day, as the
+  /// Date row does: any day of the month, so Skip this day answers whether
+  /// the event falls on it; the picked day tapped again stays picked.
+  void _tapDay(int index) {
+    final day = DateTime.utc(_today.year, _today.month, index + 1);
+    if (day == _picked) return;
+    _picked = day;
     changed();
   }
 
@@ -468,6 +513,7 @@ class GuideKindsDemo extends GuideCardDemo {
           ],
         ),
         CalendarGuideStageMatrix(
+          minScale: GuideMetrics.stageMatrixTapMinScale,
           matrix: MonthDotMatrix(
             daysInMonth: _monthEnd.day,
             firstWeekdayColumn: weekdayColumnOf(
@@ -491,6 +537,9 @@ class GuideKindsDemo extends GuideCardDemo {
             todayColor: appearance.accentOr(colorScheme.primary),
             backgroundColor: colorScheme.pageGround,
             outlineColor: colorScheme.outline,
+            selectedIndex: picked == null ? null : picked.day - 1,
+            selectedColor: colorScheme.onSurface,
+            onDayTap: _tapDay,
           ),
         ),
       ],

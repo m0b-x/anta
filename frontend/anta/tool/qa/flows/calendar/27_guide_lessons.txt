@@ -19,7 +19,7 @@ wait id:calendar-guide
 scroll-to id:calendar-guide-page-practice-filtering --in id:calendar-guide --max 40
 tap id:calendar-guide-page-practice-filtering
 wait id:calendar-guide-practice-filtering
-expect id:calendar-guide-practice-banner id:practice-filter-open id:practice-reset id:practice-skip
+expect id:calendar-guide-practice-banner id:practice-filter-open id:practice-reset id:practice-step-back id:practice-skip
 shot 27_guide_lessons_filtering
 tap id:practice-filter-open
 wait id:filter-apply
@@ -45,7 +45,7 @@ wait id:calendar-guide
 scroll-to id:calendar-guide-page-fasting --in id:calendar-guide --max 40
 tap id:calendar-guide-page-fasting
 wait id:calendar-guide-topic-fasting
-expect id:calendar-guide-try-fasting id:try-fasting-appearance id:try-fasting-skip-step
+expect id:calendar-guide-try-fasting id:try-fasting-appearance id:try-fasting-step-back id:try-fasting-skip-step
 scroll-to id:try-fasting-tradition-orthodox --in id:calendar-guide-topic-fasting --max 10
 tap id:try-fasting-tradition-orthodox
 expect "Tap “Look on the calendar” to show them as a tint, a bar or a bold day number."

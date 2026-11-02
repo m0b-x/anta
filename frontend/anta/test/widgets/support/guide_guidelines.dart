@@ -5,9 +5,12 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:table_calendar/table_calendar.dart';
 
+import 'package:anta/constants/guide_metrics.dart';
+import 'package:anta/constants/semantics_ids.dart';
 import 'package:anta/widgets/calendar_bottom_panel.dart';
+import 'package:anta/widgets/form_rows.dart';
 
-/// Android's 48 dp tap-target guideline with the calendar guide's two
+/// Android's 48 dp tap-target guideline with the calendar guide's three
 /// accepted exceptions taken out by name rather than the check skipped:
 ///
 /// * a day cell of a grid inside [GuideTapTargetGuideline.of]'s `gridsOf` —
@@ -15,21 +18,25 @@ import 'package:anta/widgets/calendar_bottom_panel.dart';
 ///   its cells are about 45 dp wide where the real grid's are 51.4; a node
 ///   there is let off only when its width alone falls short;
 /// * `PanelModeBar`'s 32 dp segments — the real calendar's own chrome, drawn
-///   here as it is there (record §6 c).
+///   here as it is there (record §6 c);
+/// * the practice band's back and forward, 40 wide × 48 tall (D87): two
+///   full targets wrapped the band's line and broke its pinned height
+///   (D39); a node there is let off only at that width and the full height.
 ///
 /// Every other node is judged as the stock guideline judges it.
 class GuideTapTargetGuideline extends MinimumTapTargetGuideline {
-  GuideTapTargetGuideline._(this._ratio, this._grids, this._segments)
-    : super(size: _android.size, link: _android.link);
+  GuideTapTargetGuideline._(
+    this._ratio,
+    this._grids,
+    this._segments,
+    this._bandPair,
+  ) : super(size: _android.size, link: _android.link);
 
   static final MinimumTapTargetGuideline _android =
       androidTapTargetGuideline as MinimumTapTargetGuideline;
 
   /// The exceptions where they stand now.
-  factory GuideTapTargetGuideline.of(
-    WidgetTester tester, {
-    Finder? gridsOf,
-  }) {
+  factory GuideTapTargetGuideline.of(WidgetTester tester, {Finder? gridsOf}) {
     List<Rect> areas(Finder finder) => [
       for (final element in finder.evaluate())
         if (element.renderObject case final RenderBox box when box.hasSize)
@@ -55,6 +62,14 @@ class GuideTapTargetGuideline extends MinimumTapTargetGuideline {
           ),
         ),
       ),
+      areas(
+        find.byWidgetPredicate(
+          (widget) =>
+              widget is FormTrailingButton &&
+              (widget.identifier == SemanticsIds.practiceStepBack ||
+                  widget.identifier == SemanticsIds.practiceSkip),
+        ),
+      ),
     );
   }
 
@@ -63,6 +78,7 @@ class GuideTapTargetGuideline extends MinimumTapTargetGuideline {
   /// Logical pixels, as the widgets measure.
   final List<Rect> _grids;
   final List<Rect> _segments;
+  final List<Rect> _bandPair;
 
   @override
   bool shouldSkipNode(SemanticsNode node) {
@@ -86,14 +102,18 @@ class GuideTapTargetGuideline extends MinimumTapTargetGuideline {
       return room.contains(rect.topLeft) && room.contains(rect.bottomRight);
     }
 
-    final narrowCell =
-        rect.width < size.width && rect.height >= size.height;
-    return _segments.any(inside) || (narrowCell && _grids.any(inside));
+    final narrowCell = rect.width < size.width && rect.height >= size.height;
+    final bandButton =
+        rect.width >= GuideMetrics.bannerButtonWidth - 0.5 &&
+        rect.height >= size.height;
+    return _segments.any(inside) ||
+        (narrowCell && _grids.any(inside)) ||
+        (bandButton && _bandPair.any(inside));
   }
 
   @override
   String get description =>
-      '${super.description}, the guide\'s two named exceptions aside';
+      '${super.description}, the guide\'s three named exceptions aside';
 }
 
 /// WCAG's text contrast as the stock guideline checks it, completed for a

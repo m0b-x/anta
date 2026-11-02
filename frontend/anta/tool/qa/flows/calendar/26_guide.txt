@@ -19,7 +19,7 @@ wait id:calendar-guide
 scroll-to id:calendar-guide-page-practice --in id:calendar-guide --max 40
 tap id:calendar-guide-page-practice
 wait id:calendar-guide-practice
-expect id:calendar-guide-practice-banner id:practice-add-event id:practice-filter-open id:practice-more id:practice-skip
+expect id:calendar-guide-practice-banner id:practice-add-event id:practice-filter-open id:practice-more id:practice-step-back id:practice-skip
 shot 26_guide_practice
 tap "{{longdate+1}}"
 tap id:practice-add-event
@@ -51,18 +51,18 @@ wait id:calendar-guide
 scroll-to id:calendar-guide-page-screen --in id:calendar-guide --max 40
 tap id:calendar-guide-page-screen
 wait id:calendar-guide-topic-screen
-expect id:calendar-guide-try-screen id:try-screen-more id:try-screen-skip-step
+expect id:calendar-guide-try-screen id:try-screen-more id:try-screen-step-back id:try-screen-skip-step
 scroll-to id:calendar-guide-try-panel --in id:calendar-guide-topic-screen --max 40
-expect id:calendar-guide-try-panel id:try-panel-skip-step
+expect id:calendar-guide-try-panel id:try-panel-step-back id:try-panel-skip-step
 scroll-to id:calendar-guide-try-overview --in id:calendar-guide-topic-screen --max 40
-expect id:calendar-guide-try-overview id:try-overview-mode-year id:try-overview-skip-step
+expect id:calendar-guide-try-overview id:try-overview-mode-year id:try-overview-step-back id:try-overview-skip-step
 shot 26_guide_screen
 key back
 wait id:calendar-guide
 scroll-to id:calendar-guide-page-events --in id:calendar-guide --max 40
 tap id:calendar-guide-page-events
 wait id:calendar-guide-topic-events
-expect id:calendar-guide-try-events id:try-events-add id:try-events-skip-step
+expect id:calendar-guide-try-events id:try-events-add id:try-events-step-back id:try-events-skip-step
 scroll-to id:calendar-guide-templates --in id:calendar-guide-topic-events --max 40
 expect id:calendar-guide-templates
 shot 26_guide_card

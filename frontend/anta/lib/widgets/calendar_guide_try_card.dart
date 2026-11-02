@@ -8,6 +8,7 @@ import '../constants/guide_metrics.dart';
 import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
 import '../models/calendar_appearance.dart';
+import '../models/calendar_category.dart';
 import '../models/calendar_guide_coach.dart';
 import '../models/calendar_guide_content.dart';
 import 'calendar_guide_rows.dart';
@@ -31,9 +32,16 @@ abstract class GuideCardDemo extends ChangeNotifier {
 
   List<GuideCoachStep> get steps => _coach.steps;
 
-  /// Every step is done: the line reads the closing line and the skip
-  /// button is disabled.
+  /// Every step is done: the line reads the closing line and, at the live
+  /// line, the forward button is disabled.
   bool get finished => _coach.finished;
+
+  /// The line is an earlier step's, read back (D70).
+  bool get reading => _coach.reading;
+
+  bool get canBack => _coach.canBack;
+
+  bool get canForward => _coach.canForward;
 
   /// The owner's calendar look, for the pickers and the add button a stage
   /// draws. The defaults until the page has read it, and only read for a
@@ -46,6 +54,14 @@ abstract class GuideCardDemo extends ChangeNotifier {
   }
 
   bool get needsAppearance => false;
+
+  /// The owner's categories, handed over once `CategoryService` has
+  /// answered, for a demo that asks ([needsCategories]): the cache a stage
+  /// reads at its first build is still empty when the app relaunches onto
+  /// the guide.
+  void adoptCategories(List<CalendarCategory> categories) {}
+
+  bool get needsCategories => false;
 
   /// The stage runs edge to edge inside the card at every text scale, its
   /// hairline only above and below — for a stage of the real calendar's
@@ -66,9 +82,16 @@ abstract class GuideCardDemo extends ChangeNotifier {
   List<String> candidates(AppLocalizations l10n) =>
       _coach.candidates(l10n, reports(l10n));
 
-  /// Steps past the current instruction without her doing it.
-  void skip() {
-    _coach.skip();
+  /// Shows the line of the step before the one shown, to read it again.
+  void back() {
+    _coach.back();
+    notifyListeners();
+  }
+
+  /// One step toward the live line; at the live line, steps past the
+  /// current instruction without her doing it.
+  void forward() {
+    _coach.forward();
     notifyListeners();
   }
 
@@ -181,11 +204,12 @@ SettingsSectionData calendarGuideTrySection({
   );
 }
 
-/// The body of a "Try it" card: the coach line with its skip button, then
-/// the stage.
+/// The body of a "Try it" card: the coach line with its back and forward
+/// buttons, then the stage.
 ///
 /// No ink, no chevron, no tap of its own — the card is a place to try
-/// things, and only the stage's real controls and the skip answer a finger.
+/// things, and only the stage's real controls and the two step buttons
+/// answer a finger.
 /// Stateless over [demo], which outlives it.
 class CalendarGuideTryCard extends StatelessWidget {
   const CalendarGuideTryCard({
@@ -220,6 +244,23 @@ class CalendarGuideTryCard extends StatelessWidget {
         final style = calendarGuideParagraphStyle.copyWith(
           color: colorScheme.onSurface,
         );
+        // One builder for the line and its candidates (D93), so the slot is
+        // sized for every line exactly as it can be drawn.
+        Widget coachText(String text, {required bool readBack}) {
+          if (!readBack) return Text(text, style: style);
+          return CalendarGuideReadBackText(
+            text,
+            style: calendarGuideParagraphStyle.copyWith(
+              color: colorScheme.onSurfaceVariant,
+            ),
+            markSize: GuideMetrics.coachDoneMarkSize,
+            markColor: colorScheme.primary,
+          );
+        }
+
+        final reading = demo.reading;
+        final ink = colorScheme.onSurfaceVariant;
+        final disabledInk = ink.withValues(alpha: FormMetrics.disabledOpacity);
         return Padding(
           padding: const EdgeInsets.only(bottom: GuideMetrics.cardInset),
           child: Column(
@@ -242,33 +283,52 @@ class CalendarGuideTryCard extends StatelessWidget {
                             ),
                             child: FormCaptionSlot(
                               key: demo.captionSlotKey,
-                              // Level with the skip; a short line leaves its
+                              // Level with the pair; a short line leaves its
                               // blank below, never above.
                               alignment: AlignmentDirectional.topStart,
                               candidates: [
                                 for (final text in candidates)
-                                  Text(text, style: style),
+                                  coachText(text, readBack: false),
+                                for (final step in demo.steps)
+                                  coachText(step.line(l10n), readBack: true),
                               ],
-                              child: Semantics(
-                                container: true,
-                                liveRegion: true,
+                              child: CalendarGuideCoachSemantics(
                                 identifier:
                                     SemanticsIds.calendarGuideTryCaption(slug),
-                                child: Text(demo.line(l10n), style: style),
+                                reading: reading,
+                                child: coachText(
+                                  demo.line(l10n),
+                                  readBack: reading,
+                                ),
                               ),
                             ),
                           ),
                         ),
-                        const SizedBox(width: GuideMetrics.coachGap),
+                        // No gap: the targets' own inset keeps the glyphs
+                        // off the text (D87). Forward sits where the skip
+                        // sat, so nothing moves under the finger.
                         FormTrailingButton(
-                          icon: Icons.skip_next_rounded,
-                          tooltip: l10n.calendarGuideSkipStep,
+                          icon: Icons.chevron_left_rounded,
+                          tooltip: l10n.calendarGuideStepBack,
+                          identifier: SemanticsIds.calendarGuideTryStepBack(
+                            slug,
+                          ),
+                          color: ink,
+                          disabledColor: disabledInk,
+                          onPressed: demo.canBack ? demo.back : null,
+                        ),
+                        FormTrailingButton(
+                          icon: reading
+                              ? Icons.chevron_right_rounded
+                              : Icons.skip_next_rounded,
+                          tooltip: reading
+                              ? l10n.calendarGuideStepForward
+                              : l10n.calendarGuideSkipStep,
                           identifier: SemanticsIds.calendarGuideTrySkip(slug),
-                          color: colorScheme.onSurfaceVariant,
-                          disabledColor: colorScheme.onSurfaceVariant
-                              .withValues(alpha: FormMetrics.disabledOpacity),
+                          color: ink,
+                          disabledColor: disabledInk,
                           // Disabled, never hidden, once every step is done.
-                          onPressed: demo.finished ? null : demo.skip,
+                          onPressed: demo.canForward ? demo.forward : null,
                         ),
                       ],
                     ),
@@ -313,7 +373,7 @@ class CalendarGuideTryCard extends StatelessWidget {
   }
 
   /// The line sits this far down: its first row, and so the instruction,
-  /// centred on the skip's 48 dp target and its glyph, as the band's skip
+  /// centred on the pair's 48 dp targets and their glyphs, as the band's pair
   /// sits on its line. It is the same for every line at a [scaler], so
   /// nothing moves when the line changes; the row stays the taller of the
   /// target and the inset slot.
@@ -325,28 +385,116 @@ class CalendarGuideTryCard extends StatelessWidget {
   }
 }
 
+/// An earlier step's coach line read back (D90), on a card or the band: led
+/// by a done mark so it reads as behind her, its later rows wrapping under
+/// the mark. [markSize] is given at 1.0 — the paragraph scales an inline
+/// widget with its text, so the mark and its gap grow with the words.
+class CalendarGuideReadBackText extends StatelessWidget {
+  const CalendarGuideReadBackText(
+    this.text, {
+    super.key,
+    required this.style,
+    required this.markSize,
+    required this.markColor,
+  });
+
+  final String text;
+  final TextStyle style;
+  final double markSize;
+  final Color markColor;
+
+  @override
+  Widget build(BuildContext context) {
+    return Text.rich(
+      TextSpan(
+        children: [
+          WidgetSpan(
+            alignment: PlaceholderAlignment.middle,
+            // The node's label says "Done" (D91): the glyph alone says
+            // nothing to a screen reader.
+            child: ExcludeSemantics(
+              child: Padding(
+                padding: const EdgeInsetsDirectional.only(
+                  end: GuideMetrics.coachDoneMarkGap,
+                ),
+                child: Icon(
+                  Icons.check_rounded,
+                  size: markSize,
+                  color: markColor,
+                ),
+              ),
+            ),
+          ),
+          TextSpan(text: text),
+        ],
+      ),
+      style: style,
+    );
+  }
+}
+
+/// The coach line's one node (D91), on a card and on the band: a live region
+/// at the live line, so each new instruction or report is announced; off
+/// while an earlier line is read back, which she asked for, and then read as
+/// "Done" before the line.
+class CalendarGuideCoachSemantics extends StatelessWidget {
+  const CalendarGuideCoachSemantics({
+    super.key,
+    required this.reading,
+    required this.child,
+    this.identifier,
+  });
+
+  final bool reading;
+  final String? identifier;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      container: true,
+      liveRegion: !reading,
+      identifier: identifier,
+      label: reading
+          ? AppLocalizations.of(context)!.calendarGuideStepDone
+          : null,
+      child: child,
+    );
+  }
+}
+
 /// A stage's month of dots, drawn as the year tiles draw it at the largest
-/// whole multiple of their size the stage's width holds, between
-/// [GuideMetrics.stageMatrixMinScale] and [GuideMetrics.stageMatrixMaxScale].
-/// What it shows, the stage's own rows say, so it is left out of the
-/// semantics tree.
+/// whole multiple of their size the stage's width holds, between [minScale]
+/// and [GuideMetrics.stageMatrixMaxScale]. What it shows, the stage's own
+/// rows say, so it is left out of the semantics tree — a matrix that takes
+/// taps included: the rows stay the accessible path to the same days.
 class CalendarGuideStageMatrix extends StatelessWidget {
-  const CalendarGuideStageMatrix({super.key, required this.matrix});
+  const CalendarGuideStageMatrix({
+    super.key,
+    required this.matrix,
+    this.minScale = GuideMetrics.stageMatrixMinScale,
+  });
 
   final MonthDotMatrix matrix;
 
-  static double scaleFor(double width) =>
-      (width / MonthDotMatrix.width).floorToDouble().clamp(
-        GuideMetrics.stageMatrixMinScale,
-        GuideMetrics.stageMatrixMaxScale,
-      );
+  /// [GuideMetrics.stageMatrixTapMinScale] for a matrix she taps, so a
+  /// day's hit tile never falls under a touch target.
+  final double minScale;
+
+  static double scaleFor(
+    double width, {
+    double minScale = GuideMetrics.stageMatrixMinScale,
+  }) => (width / MonthDotMatrix.width).floorToDouble().clamp(
+    minScale,
+    GuideMetrics.stageMatrixMaxScale,
+  );
 
   @override
   Widget build(BuildContext context) {
     return ExcludeSemantics(
       child: LayoutBuilder(
         builder: (context, constraints) {
-          final scale = scaleFor(constraints.maxWidth);
+          final scale = scaleFor(constraints.maxWidth, minScale: minScale);
           return Center(
             child: SizedBox(
               width: MonthDotMatrix.width * scale,

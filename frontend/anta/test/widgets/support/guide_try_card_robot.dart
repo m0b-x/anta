@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:anta/constants/semantics_ids.dart';
+import 'package:anta/widgets/calendar_guide_try_card.dart';
 import 'package:anta/widgets/form_rows.dart';
 import 'package:anta/widgets/settings_section_list.dart';
 
@@ -26,32 +27,54 @@ class GuideTryCardRobot {
   Finder get _slot =>
       find.descendant(of: card, matching: find.byType(FormCaptionSlot)).first;
 
-  /// The coach line as it reads now.
-  String get line {
-    final slot = tester.widget<FormCaptionSlot>(_slot);
-    return ((slot.child as Semantics).child! as Text).data!;
-  }
+  CalendarGuideCoachSemantics get _lineNode =>
+      tester.widget<FormCaptionSlot>(_slot).child
+          as CalendarGuideCoachSemantics;
 
-  /// Every line the coach slot is sized for.
+  static String _textOf(Widget widget) => switch (widget) {
+    Text(:final data?) => data,
+    CalendarGuideReadBackText(:final text) => text,
+    _ => throw StateError('not a coach line: $widget'),
+  };
+
+  /// The coach line as it reads now, live or read back.
+  String get line => _textOf(_lineNode.child);
+
+  /// An earlier step's line is shown, read back (D70).
+  bool get reading => _lineNode.reading;
+
+  /// Every line the coach slot is sized for, the read-back ones included.
   List<String> get lineCandidates => [
     for (final candidate in tester.widget<FormCaptionSlot>(_slot).candidates)
-      (candidate as Text).data!,
+      _textOf(candidate),
   ];
 
-  /// The coach's skip; the kinds stage's own `skip` is its Skip this day.
+  /// The read-back lines the slot is sized for, each with its mark (D93).
+  List<String> get readBackCandidates => [
+    for (final candidate in tester.widget<FormCaptionSlot>(_slot).candidates)
+      if (candidate case CalendarGuideReadBackText(:final text)) text,
+  ];
+
+  /// The coach's forward, which skips at the live line and so keeps the
+  /// skip's id (D89); the kinds stage's own `skip` is its Skip this day.
   Finder get skipButton => _byId(SemanticsIds.calendarGuideTrySkip(slug));
 
-  /// Whether the skip button answers a tap: disabled, never hidden, once
-  /// every step is done.
-  bool get canSkip =>
-      tester
-          .widget<IconButton>(
-            find.descendant(of: skipButton, matching: find.byType(IconButton)),
-          )
-          .onPressed !=
-      null;
+  Finder get backButton => _byId(SemanticsIds.calendarGuideTryStepBack(slug));
 
+  IconButton _button(Finder button) => tester.widget<IconButton>(
+    find.descendant(of: button, matching: find.byType(IconButton)),
+  );
+
+  /// Whether forward answers a tap: disabled, never hidden, once every step
+  /// is done and the live line is shown.
+  bool get canSkip => _button(skipButton).onPressed != null;
+
+  bool get canBack => _button(backButton).onPressed != null;
+
+  /// Forward: a skip at the live line, a step toward it while reading back.
   Future<void> skip() => _tap(skipButton);
+
+  Future<void> back() => _tap(backButton);
 
   /// What the stage's own caption slots show, top to bottom — every slot of
   /// the card that holds a caption, past the coach line's — rather than the

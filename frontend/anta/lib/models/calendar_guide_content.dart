@@ -282,10 +282,7 @@ enum CalendarGuideTopic {
       ),
       GuideCoachStep(
         'skipped',
-        (l10n) => l10n.calendarGuideCoachKindsSkip(
-          l10n.eventDateLabel,
-          l10n.eventSkipOccurrence,
-        ),
+        (l10n) => l10n.calendarGuideCoachKindsSkip(l10n.eventSkipOccurrence),
       ),
       GuideCoachStep(
         'once',

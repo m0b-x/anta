@@ -11214,6 +11214,24 @@ abstract class AppLocalizations {
   /// **'Skip this step'**
   String get calendarGuideSkipStep;
 
+  /// Tooltip of the calendar guide's button that shows the coach line of the step before the one shown again
+  ///
+  /// In en, this message translates to:
+  /// **'Previous step'**
+  String get calendarGuideStepBack;
+
+  /// Tooltip of the calendar guide's button that, while an earlier step is shown again, moves one step toward the current instruction
+  ///
+  /// In en, this message translates to:
+  /// **'Next step'**
+  String get calendarGuideStepForward;
+
+  /// Spoken before a calendar guide coach line shown again for a step already done; a state, not a button
+  ///
+  /// In en, this message translates to:
+  /// **'Done'**
+  String get calendarGuideStepDone;
+
   /// Calendar guide coach instruction; calendar is the calendar page's title
   ///
   /// In en, this message translates to:
@@ -11294,11 +11312,11 @@ abstract class AppLocalizations {
     String done,
   );
 
-  /// Calendar guide coach instruction; date and skip are the card's row labels
+  /// Calendar guide coach instruction; skip is the card's row label
   ///
   /// In en, this message translates to:
-  /// **'Tap “{date}”, pick a day with a dot, then “{skip}”.'**
-  String calendarGuideCoachKindsSkip(String date, String skip);
+  /// **'Tap a day with a dot, then “{skip}”.'**
+  String calendarGuideCoachKindsSkip(String skip);
 
   /// Calendar guide coach instruction; repeat and doesNotRepeat are the editor's and the repeat sheet's labels
   ///

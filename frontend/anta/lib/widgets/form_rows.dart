@@ -1033,6 +1033,11 @@ class FormTrailingButton extends StatelessWidget {
   /// with the locale and, for the bookmark, with the state.
   final String? identifier;
 
+  /// Narrower than the square for a pair that has to fit a pinned row — the
+  /// practice band's back and forward (D87) — where two full targets would
+  /// wrap the line beside them; the height stays the 48 dp target.
+  final double width;
+
   const FormTrailingButton({
     super.key,
     required this.icon,
@@ -1041,12 +1046,14 @@ class FormTrailingButton extends StatelessWidget {
     this.color,
     this.disabledColor,
     this.identifier,
+    this.width = FormMetrics.trailingButtonSize,
   });
 
   @override
   Widget build(BuildContext context) {
-    final button = SizedBox.square(
-      dimension: FormMetrics.trailingButtonSize,
+    final button = SizedBox(
+      width: width,
+      height: FormMetrics.trailingButtonSize,
       child: IconButton(
         tooltip: tooltip,
         iconSize: FormMetrics.trailingIconSize,

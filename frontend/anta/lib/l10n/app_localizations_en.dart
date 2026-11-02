@@ -6758,6 +6758,15 @@ class AppLocalizationsEn extends AppLocalizations {
   String get calendarGuideSkipStep => 'Skip this step';
 
   @override
+  String get calendarGuideStepBack => 'Previous step';
+
+  @override
+  String get calendarGuideStepForward => 'Next step';
+
+  @override
+  String get calendarGuideStepDone => 'Done';
+
+  @override
   String calendarGuideCoachScreenTitle(String calendar) {
     return 'Tap “$calendar” at the top: that title is a menu of views.';
   }
@@ -6822,8 +6831,8 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
-  String calendarGuideCoachKindsSkip(String date, String skip) {
-    return 'Tap “$date”, pick a day with a dot, then “$skip”.';
+  String calendarGuideCoachKindsSkip(String skip) {
+    return 'Tap a day with a dot, then “$skip”.';
   }
 
   @override

@@ -34,6 +34,7 @@ import '../widgets/calendar_filter_sheet.dart';
 import '../widgets/calendar_guide_bar.dart';
 import '../widgets/calendar_guide_demo_panel.dart';
 import '../widgets/calendar_guide_grid.dart';
+import '../widgets/calendar_guide_try_card.dart';
 import '../widgets/calendar_header_menus.dart';
 import '../widgets/event_description_sheet.dart';
 import '../widgets/event_detail_sheet.dart';
@@ -227,8 +228,15 @@ class _CalendarGuidePracticePageState extends State<CalendarGuidePracticePage> {
     _coachRevision.value++;
   }
 
-  void _skip() {
-    _coach.skip();
+  /// The band's back: an earlier step's line, read again (D70).
+  void _back() {
+    _coach.back();
+    _coachRevision.value++;
+  }
+
+  /// The band's forward: toward the live line, and at it a skip.
+  void _forward() {
+    _coach.forward();
     _coachRevision.value++;
   }
 
@@ -334,7 +342,8 @@ class _CalendarGuidePracticePageState extends State<CalendarGuidePracticePage> {
             coach: _coach,
             revision: _coachRevision,
             candidates: _candidates,
-            onSkip: _skip,
+            onBack: _back,
+            onForward: _forward,
           ),
           Expanded(
             child: Semantics(
@@ -688,15 +697,17 @@ class _CalendarGuidePracticePageState extends State<CalendarGuidePracticePage> {
 }
 
 /// The band under the bar: "Nothing here is saved." that never changes, and
-/// under it the tour's line — the next tap, or what an action that shows
-/// nothing would have done — with the skip at the row's end. Its height is
-/// the tallest line's, so a line changes words, never the layout.
+/// under it the tour's line — the next tap, an earlier step's read back, or
+/// what an action that shows nothing would have done — with back and
+/// forward at the row's end. Its height is the tallest line's, so a line
+/// changes words, never the layout.
 class _PracticeBand extends StatelessWidget {
   const _PracticeBand({
     required this.coach,
     required this.revision,
     required this.candidates,
-    required this.onSkip,
+    required this.onBack,
+    required this.onForward,
   });
 
   final GuideCoach coach;
@@ -704,18 +715,33 @@ class _PracticeBand extends StatelessWidget {
   /// Bumped on every change to [coach].
   final ValueListenable<int> revision;
   final List<String> candidates;
-  final VoidCallback onSkip;
+  final VoidCallback onBack;
+  final VoidCallback onForward;
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final colorScheme = Theme.of(context).colorScheme;
     final ink = colorScheme.onPrimaryContainer;
+    final disabledInk = ink.withValues(alpha: FormMetrics.disabledOpacity);
     final captionStyle = TextStyle(
       fontSize: FormMetrics.captionSize,
       height: FormMetrics.captionLineHeight / FormMetrics.captionSize,
       color: ink,
     );
+    // One builder for the line and its candidates (D93), as on a card.
+    Widget coachText(String text, {required bool readBack}) {
+      if (!readBack) return Text(text, style: captionStyle);
+      return CalendarGuideReadBackText(
+        text,
+        style: captionStyle.copyWith(
+          color: ink.withValues(alpha: GuideMetrics.bannerReadBackAlpha),
+        ),
+        markSize: FormMetrics.captionSize,
+        markColor: ink,
+      );
+    }
+
     return MediaQuery.withClampedTextScaling(
       maxScaleFactor: GuideMetrics.bannerMaxTextScale,
       child: Semantics(
@@ -733,14 +759,6 @@ class _PracticeBand extends StatelessWidget {
               builder: (context, _, _) => Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  ExcludeSemantics(
-                    child: Icon(
-                      calendarGuidePracticeIcon,
-                      size: GuideMetrics.bannerGlyphSize,
-                      color: ink,
-                    ),
-                  ),
-                  const SizedBox(width: GuideMetrics.bannerGap),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -760,38 +778,59 @@ class _PracticeBand extends StatelessWidget {
                         FormCaptionSlot(
                           candidates: [
                             for (final candidate in candidates)
-                              Text(candidate, style: captionStyle),
+                              coachText(candidate, readBack: false),
+                            for (final step in coach.steps)
+                              coachText(step.line(l10n), readBack: true),
                           ],
                           // A node of its own: merged into the band, the
                           // live region was the band, and every line
                           // re-read "Nothing here is saved." first.
-                          child: Semantics(
-                            container: true,
-                            liveRegion: true,
-                            child: Text(coach.line(l10n), style: captionStyle),
+                          child: CalendarGuideCoachSemantics(
+                            reading: coach.reading,
+                            child: coachText(
+                              coach.line(l10n),
+                              readBack: coach.reading,
+                            ),
                           ),
                         ),
                       ],
                     ),
                   ),
-                  // No coachGap, unlike a card's line: the target's own
-                  // inset keeps the glyph off the text, and the gap's 8 dp
-                  // wrapped the German line to a fifth row at 1.3 (137 dp,
-                  // past D39).
+                  // No gap, as on a card: the targets' own inset keeps the
+                  // glyphs off the text. The pair's two 40 dp take the
+                  // retired glyph's room and the old skip's (D87), so the
+                  // line keeps its width and the band its height.
                   Padding(
                     padding: EdgeInsetsDirectional.only(
                       top: _skipInset(MediaQuery.textScalerOf(context)),
                     ),
-                    child: FormTrailingButton(
-                      icon: Icons.skip_next_rounded,
-                      tooltip: l10n.calendarGuideSkipStep,
-                      identifier: SemanticsIds.practiceSkip,
-                      color: ink,
-                      disabledColor: ink.withValues(
-                        alpha: FormMetrics.disabledOpacity,
-                      ),
-                      // Disabled, never hidden, once the tour is done.
-                      onPressed: coach.finished ? null : onSkip,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        FormTrailingButton(
+                          icon: Icons.chevron_left_rounded,
+                          tooltip: l10n.calendarGuideStepBack,
+                          identifier: SemanticsIds.practiceStepBack,
+                          width: GuideMetrics.bannerButtonWidth,
+                          color: ink,
+                          disabledColor: disabledInk,
+                          onPressed: coach.canBack ? onBack : null,
+                        ),
+                        FormTrailingButton(
+                          icon: coach.reading
+                              ? Icons.chevron_right_rounded
+                              : Icons.skip_next_rounded,
+                          tooltip: coach.reading
+                              ? l10n.calendarGuideStepForward
+                              : l10n.calendarGuideSkipStep,
+                          identifier: SemanticsIds.practiceSkip,
+                          width: GuideMetrics.bannerButtonWidth,
+                          color: ink,
+                          disabledColor: disabledInk,
+                          // Disabled, never hidden, once the tour is done.
+                          onPressed: coach.canForward ? onForward : null,
+                        ),
+                      ],
                     ),
                   ),
                 ],
@@ -803,8 +842,8 @@ class _PracticeBand extends StatelessWidget {
     );
   }
 
-  /// The band's skip sits this far down: its 48 dp target, and so its
-  /// glyph, centred on the first row of the tour's line under the title,
+  /// The band's step buttons sit this far down: their 48 dp targets, and so
+  /// their glyphs, centred on the first row of the tour's line under the title,
   /// not across the two. It never adds height — the inset plus the target
   /// stays under the title plus the line's two-row slot at every [scaler]
   /// the band's clamp allows.

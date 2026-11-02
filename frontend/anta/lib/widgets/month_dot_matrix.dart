@@ -34,6 +34,14 @@ class MonthDotMatrix extends StatelessWidget {
   /// two states stay tellable apart while the faint one still registers.
   static const double outsideAlpha = 0.22;
 
+  /// How far outside its square the picked day's ring sits, and how wide it
+  /// is, in the cell's 8-unit scale: detached from the square, so it never
+  /// reads as today's ring, which is drawn inside it, and both show on
+  /// today; its centre line at half the gap and its outer edge 0.625 units
+  /// short of the next square, so it never touches a neighbour.
+  static const double selectedRingOutset = 1.0;
+  static const double selectedRingWidth = 0.75;
+
   final int daysInMonth;
   final int firstWeekdayColumn;
   final int markedMask;
@@ -65,6 +73,15 @@ class MonthDotMatrix extends StatelessWidget {
 
   final double dayMissedAlpha;
 
+  /// The day picked on a matrix she taps (index `day - 1`), ringed in
+  /// [selectedColor]. Null — and so on every year tile — draws no ring.
+  final int? selectedIndex;
+  final Color? selectedColor;
+
+  /// Called with a day's index (`day - 1`) when its square is tapped. Null
+  /// adds no gesture, so a tile's own tap still reaches the tile.
+  final ValueChanged<int>? onDayTap;
+
   const MonthDotMatrix({
     super.key,
     required this.daysInMonth,
@@ -82,36 +99,67 @@ class MonthDotMatrix extends StatelessWidget {
     required this.outlineColor,
     this.dayColors,
     this.dayMissedAlpha = CalendarColors.missedEventAlpha,
+    this.selectedIndex,
+    this.selectedColor,
+    this.onDayTap,
   });
+
+  /// The day whose square [position] (in the matrix's own unscaled units)
+  /// falls on, or null for a slot outside the month or the window. Each
+  /// square's hit tile is one full pitch centred on it, so the tiles touch
+  /// and a tap in a gap goes to the nearer square.
+  int? dayAt(Offset position) {
+    const pitch = cellSize + gap;
+    final column = ((position.dx + gap / 2) / pitch).floor();
+    final row = ((position.dy + gap / 2) / pitch).floor();
+    if (column < 0 || column >= columns || row < 0 || row >= rows) {
+      return null;
+    }
+    final index = row * columns + column - firstWeekdayColumn;
+    if (index < 0 || index >= daysInMonth) return null;
+    if (windowMask & (1 << index) == 0) return null;
+    return index;
+  }
 
   @override
   Widget build(BuildContext context) {
+    final onDayTap = this.onDayTap;
+    Widget paint = CustomPaint(
+      painter: MonthDotMatrixPainter(
+        daysInMonth: daysInMonth,
+        firstWeekdayColumn: firstWeekdayColumn,
+        markedMask: markedMask,
+        missedMask: missedMask,
+        windowMask: windowMask,
+        todayIndex: todayIndex,
+        markedColor: markedColor,
+        missedColor: missedColor,
+        unmarkedColor: unmarkedColor,
+        outsideColor: outsideColor,
+        todayColor: todayColor,
+        backgroundColor: backgroundColor,
+        outlineColor: outlineColor,
+        dayColors: dayColors,
+        dayMissedAlpha: dayMissedAlpha,
+        selectedIndex: selectedIndex,
+        selectedColor: selectedColor,
+      ),
+    );
+    // No ink: the ring appearing on the square is the feedback.
+    if (onDayTap != null) {
+      paint = GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTapUp: (details) {
+          final index = dayAt(details.localPosition);
+          if (index != null) onDayTap(index);
+        },
+        child: paint,
+      );
+    }
     return FittedBox(
       fit: BoxFit.scaleDown,
       alignment: AlignmentDirectional.centerStart,
-      child: SizedBox(
-        width: width,
-        height: height,
-        child: CustomPaint(
-          painter: MonthDotMatrixPainter(
-            daysInMonth: daysInMonth,
-            firstWeekdayColumn: firstWeekdayColumn,
-            markedMask: markedMask,
-            missedMask: missedMask,
-            windowMask: windowMask,
-            todayIndex: todayIndex,
-            markedColor: markedColor,
-            missedColor: missedColor,
-            unmarkedColor: unmarkedColor,
-            outsideColor: outsideColor,
-            todayColor: todayColor,
-            backgroundColor: backgroundColor,
-            outlineColor: outlineColor,
-            dayColors: dayColors,
-            dayMissedAlpha: dayMissedAlpha,
-          ),
-        ),
-      ),
+      child: SizedBox(width: width, height: height, child: paint),
     );
   }
 }
@@ -132,6 +180,8 @@ class MonthDotMatrixPainter extends CustomPainter {
   final Color outlineColor;
   final List<Color?>? dayColors;
   final double dayMissedAlpha;
+  final int? selectedIndex;
+  final Color? selectedColor;
 
   const MonthDotMatrixPainter({
     required this.daysInMonth,
@@ -149,6 +199,8 @@ class MonthDotMatrixPainter extends CustomPainter {
     required this.outlineColor,
     this.dayColors,
     this.dayMissedAlpha = CalendarColors.missedEventAlpha,
+    this.selectedIndex,
+    this.selectedColor,
   });
 
   static const Radius _radius = Radius.circular(1.5);
@@ -231,6 +283,16 @@ class MonthDotMatrixPainter extends CustomPainter {
       if (todayIndex == index) {
         canvas.drawRRect(rect.deflate(0.5), ring);
       }
+      if (selectedIndex == index && selectedColor != null) {
+        // Inflating the rounded rect grows its corners by the outset too.
+        canvas.drawRRect(
+          rect.inflate(MonthDotMatrix.selectedRingOutset),
+          Paint()
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = MonthDotMatrix.selectedRingWidth
+            ..color = selectedColor!,
+        );
+      }
     }
   }
 
@@ -250,6 +312,8 @@ class MonthDotMatrixPainter extends CustomPainter {
         oldDelegate.backgroundColor != backgroundColor ||
         oldDelegate.outlineColor != outlineColor ||
         oldDelegate.dayMissedAlpha != dayMissedAlpha ||
+        oldDelegate.selectedIndex != selectedIndex ||
+        oldDelegate.selectedColor != selectedColor ||
         !listEquals(oldDelegate.dayColors, dayColors);
   }
 }

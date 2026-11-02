@@ -50,11 +50,19 @@ abstract final class GuideMetrics {
   static const FontWeight hubTitleFontWeight = FontWeight.w400;
 
   /// The practice page's band under its bar: as tight as a banner can sit
-  /// while its two lines still read as one block, the glyph a size under the
-  /// bar's so the band never competes with the controls above it.
+  /// while its two lines still read as one block.
   static const double bannerVerticalPadding = 8;
-  static const double bannerGlyphSize = 20;
-  static const double bannerGap = 12;
+
+  /// Each of the band's back and forward buttons: a step under the card's
+  /// 48, still 48 tall (D87). The pair's 80 dp take the 32 the retired glyph
+  /// and its gap held plus the 48 of the old skip, so the line keeps its
+  /// width and the band its pinned height (D38 / D39).
+  static const double bannerButtonWidth = 40;
+
+  /// The band's read-back line: the ink a step back from the live line's, so
+  /// an earlier step reads as already behind her (D90) — 7.88:1 light and
+  /// 5.10:1 dark on `primaryContainer`, still past 4.5:1.
+  static const double bannerReadBackAlpha = 0.78;
 
   /// The band's first line, "Nothing here is saved.": the kit's row title
   /// weight at the paragraph size, on a 20 px line so the two lines keep
@@ -82,11 +90,14 @@ abstract final class GuideMetrics {
   /// to tap on it.
   static const double coachToStage = 12;
 
-  /// Between the coach line and its skip button: the button's own 48 dp
-  /// target already carries air round its glyph, so the gap stays small.
-  static const double coachGap = 8;
+  /// The done mark that leads a line read back (D90): a step under the
+  /// paragraph's 14 px line so it reads as a mark on the sentence rather
+  /// than a control, and a gap that keeps it off the first word. Both scale
+  /// with the text, so the mark keeps its place beside the words.
+  static const double coachDoneMarkSize = 14;
+  static const double coachDoneMarkGap = 4;
 
-  /// Where a card's coach line and its skip stop growing (D66), as the
+  /// Where a card's coach line and its step buttons stop growing (D66), as the
   /// practice band's [bannerMaxTextScale] (D39): at 2.0 the German fasting
   /// line took seven lines, a 273 dp slot, and the line and the stage it
   /// points at never shared the screen. The stage below keeps the full
@@ -119,6 +130,11 @@ abstract final class GuideMetrics {
   /// times it, where a dot would outgrow the rows around it.
   static const double stageMatrixMinScale = 2;
   static const double stageMatrixMaxScale = 4;
+
+  /// The floor for a month of dots she taps (the kinds card): a day's hit
+  /// tile is one pitch of the matrix, and at twice the tiles' size that is
+  /// 20 dp, under WCAG 2.5.8's 24; three times is 30.
+  static const double stageMatrixTapMinScale = 3;
 
   /// The alerts card's limit, under the editor's: two shows a notification
   /// beside an alarm, and the stage reserves a row for each alert it can

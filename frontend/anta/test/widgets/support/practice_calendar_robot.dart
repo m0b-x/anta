@@ -10,6 +10,7 @@ import 'package:anta/models/day_summary_entry.dart';
 import 'package:anta/pages/calendar_guide_practice_page.dart';
 import 'package:anta/widgets/calendar_bottom_panel.dart';
 import 'package:anta/widgets/calendar_date_picker_sheet.dart';
+import 'package:anta/widgets/calendar_guide_try_card.dart';
 import 'package:anta/widgets/calendar_day_bars.dart';
 import 'package:anta/widgets/calendar_day_cell.dart';
 import 'package:anta/widgets/day_summary_panel.dart';
@@ -41,29 +42,56 @@ class PracticeCalendarRobot {
     await tester.pumpAndSettle();
   }
 
-  /// The band's tour line as it reads now.
-  String get caption {
-    final slot = tester.widget<FormCaptionSlot>(
-      find.descendant(of: _band, matching: find.byType(FormCaptionSlot)),
-    );
-    return ((slot.child as Semantics).child! as Text).data!;
-  }
+  FormCaptionSlot get _lineSlot => tester.widget<FormCaptionSlot>(
+    find.descendant(of: _band, matching: find.byType(FormCaptionSlot)),
+  );
+
+  CalendarGuideCoachSemantics get _lineNode =>
+      _lineSlot.child as CalendarGuideCoachSemantics;
+
+  static String _textOf(Widget widget) => switch (widget) {
+    Text(:final data?) => data,
+    CalendarGuideReadBackText(:final text) => text,
+    _ => throw StateError('not a band line: $widget'),
+  };
+
+  /// The band's tour line as it reads now, live or read back.
+  String get caption => _textOf(_lineNode.child);
+
+  /// An earlier step's line is shown, read back (D70).
+  bool get reading => _lineNode.reading;
+
+  /// The read-back lines the band's slot is sized for (D93).
+  List<String> get readBackCandidates => [
+    for (final candidate in _lineSlot.candidates)
+      if (candidate case CalendarGuideReadBackText(:final text)) text,
+  ];
+
+  Finder get lineSlot =>
+      find.descendant(of: _band, matching: find.byType(FormCaptionSlot));
 
   Size get bandSize => tester.getSize(_band);
 
-  bool get canSkip =>
+  bool _enabled(String id) =>
       tester
           .widget<IconButton>(
-            find.descendant(
-              of: _byId(SemanticsIds.practiceSkip),
-              matching: find.byType(IconButton),
-            ),
+            find.descendant(of: _byId(id), matching: find.byType(IconButton)),
           )
           .onPressed !=
       null;
 
-  /// The band's skip past the tour's current step.
+  /// Whether the band's forward answers a tap: off once the tour is done
+  /// and its closing line is shown.
+  bool get canSkip => _enabled(SemanticsIds.practiceSkip);
+
+  bool get canBack => _enabled(SemanticsIds.practiceStepBack);
+
+  /// The band's forward, which keeps the skip's id (D89): past the tour's
+  /// current step at the live line, a step toward it while reading back.
   Future<void> skip() => _tap(_byId(SemanticsIds.practiceSkip));
+
+  /// The band's back, to the step before the line shown.
+  Future<void> back() => _tap(_byId(SemanticsIds.practiceStepBack));
 
   // The grid.
 

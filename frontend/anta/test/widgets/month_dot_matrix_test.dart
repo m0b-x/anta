@@ -27,6 +27,8 @@ MonthDotMatrixPainter _painter({
   Color todayColor = _today,
   Color backgroundColor = _background,
   Color outlineColor = _outline,
+  int? selectedIndex,
+  Color? selectedColor,
 }) {
   return MonthDotMatrixPainter(
     daysInMonth: daysInMonth,
@@ -42,7 +44,49 @@ MonthDotMatrixPainter _painter({
     todayColor: todayColor,
     backgroundColor: backgroundColor,
     outlineColor: outlineColor,
+    selectedIndex: selectedIndex,
+    selectedColor: selectedColor,
   );
+}
+
+const _selected = Color(0xFFE6E1E5);
+
+/// A 30-day month from the third column, its last day outside the window.
+MonthDotMatrix _matrix({ValueChanged<int>? onDayTap}) => MonthDotMatrix(
+  daysInMonth: 30,
+  firstWeekdayColumn: 2,
+  markedMask: 0x5,
+  missedMask: 0,
+  windowMask: 0x1FFFFFFF,
+  todayIndex: 4,
+  markedColor: _marked,
+  missedColor: _missed,
+  unmarkedColor: _unmarked,
+  outsideColor: _outside,
+  todayColor: _today,
+  backgroundColor: _background,
+  outlineColor: _outline,
+  onDayTap: onDayTap,
+);
+
+/// The centre of the square in [slot] of the 7 × 6 grid, in the matrix's
+/// own units.
+Offset _centreOf(int slot) {
+  const pitch = MonthDotMatrix.cellSize + MonthDotMatrix.gap;
+  return Offset(
+    slot % MonthDotMatrix.columns * pitch + MonthDotMatrix.cellSize / 2,
+    slot ~/ MonthDotMatrix.columns * pitch + MonthDotMatrix.cellSize / 2,
+  );
+}
+
+/// What [painter] draws on a matrix-sized canvas, call by call.
+List<String> _recorded(MonthDotMatrixPainter painter) {
+  final canvas = TestRecordingCanvas();
+  painter.paint(
+    canvas,
+    const Size(MonthDotMatrix.width, MonthDotMatrix.height),
+  );
+  return [for (final call in canvas.invocations) '$call'];
 }
 
 extension _PainterCopy on MonthDotMatrixPainter {
@@ -62,6 +106,8 @@ extension _PainterCopy on MonthDotMatrixPainter {
       backgroundColor: backgroundColor,
       outlineColor: outlineColor,
       dayColors: dayColors ?? this.dayColors,
+      selectedIndex: selectedIndex,
+      selectedColor: selectedColor,
     );
   }
 }
@@ -202,6 +248,28 @@ void main() {
 
       expect(a.shouldRepaint(b), isTrue);
     });
+
+    test('is true when selectedIndex changes, null to a day included', () {
+      final a = _painter(selectedIndex: 3, selectedColor: _selected);
+
+      expect(
+        a.shouldRepaint(_painter(selectedIndex: 4, selectedColor: _selected)),
+        isTrue,
+      );
+      expect(_painter(selectedColor: _selected).shouldRepaint(a), isTrue);
+      expect(
+        a.shouldRepaint(_painter(selectedIndex: 3, selectedColor: _selected)),
+        isFalse,
+      );
+    });
+
+    test('is true when selectedColor changes', () {
+      final a = _painter(selectedIndex: 3, selectedColor: _selected);
+      final b = _painter(selectedIndex: 3, selectedColor: _marked);
+
+      expect(a.shouldRepaint(b), isTrue);
+      expect(a.shouldRepaint(_painter(selectedIndex: 3)), isTrue);
+    });
   });
 
   group('MonthDotMatrixPainter.paint', () {
@@ -300,6 +368,66 @@ void main() {
           ..rrect(color: _marked)
           ..rrect(color: _unmarked)
           ..rrect(color: _today, style: PaintingStyle.stroke, strokeWidth: 1),
+      );
+    });
+
+    testWidgets('the picked day is ringed outside its square, after today\'s '
+        'ring', (tester) async {
+      await pumpPainter(
+        tester,
+        _painter(
+          daysInMonth: 2,
+          firstWeekdayColumn: 0,
+          markedMask: 0x1,
+          missedMask: 0,
+          windowMask: 0x3,
+          todayIndex: 1,
+          selectedIndex: 1,
+          selectedColor: _selected,
+        ),
+      );
+
+      // Day 2's square is 10..18 × 0..8; its ring one unit out, its corners
+      // grown by the same unit.
+      expect(
+        find.byType(CustomPaint),
+        paints
+          ..rrect(color: _marked)
+          ..rrect(color: _unmarked)
+          ..rrect(color: _today, style: PaintingStyle.stroke, strokeWidth: 1)
+          ..rrect(
+            rrect: RRect.fromRectAndRadius(
+              const Rect.fromLTWH(9, -1, 10, 10),
+              const Radius.circular(2.5),
+            ),
+            color: _selected,
+            style: PaintingStyle.stroke,
+            strokeWidth: MonthDotMatrix.selectedRingWidth,
+          ),
+      );
+    });
+
+    test('with no day picked the drawing is the year tile\'s, call for '
+        'call', () {
+      final plain = _recorded(_painter());
+      final selectedOnly = _recorded(_painter(selectedIndex: 7));
+      final colourOnly = _recorded(_painter(selectedColor: _selected));
+      final picked = _recorded(
+        _painter(selectedIndex: 7, selectedColor: _selected),
+      );
+
+      // One fill per day and today's ring, nothing else.
+      expect(plain, hasLength(31));
+      expect(selectedOnly, plain);
+      expect(colourOnly, plain);
+      // A picked day adds its ring, and only its ring.
+      expect(picked, hasLength(plain.length + 1));
+      expect(picked.sublist(0, 9), plain.sublist(0, 9));
+      expect(picked.sublist(10), plain.sublist(9));
+      // Day 8, slot 9: its square 20..28 × 10..18, one unit out.
+      expect(
+        picked[9],
+        contains('RRect.fromLTRBR(19.0, 9.0, 29.0, 19.0, 2.5)'),
       );
     });
 
@@ -496,6 +624,89 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('without onDayTap the matrix adds no gesture', (tester) async {
+      await tester.pumpWidget(
+        Directionality(textDirection: TextDirection.ltr, child: _matrix()),
+      );
+
+      expect(
+        find.descendant(
+          of: find.byType(MonthDotMatrix),
+          matching: find.byType(GestureDetector),
+        ),
+        findsNothing,
+      );
+    });
+
+    testWidgets('a tap on the scaled matrix reports the day under it', (
+      tester,
+    ) async {
+      final taps = <int>[];
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: Center(
+            child: SizedBox(
+              width: MonthDotMatrix.width * 4,
+              height: MonthDotMatrix.height * 4,
+              child: FittedBox(child: _matrix(onDayTap: taps.add)),
+            ),
+          ),
+        ),
+      );
+      final origin = tester.getTopLeft(find.byType(MonthDotMatrix));
+      expect(
+        tester.getRect(find.byType(MonthDotMatrix)).size,
+        const Size(MonthDotMatrix.width * 4, MonthDotMatrix.height * 4),
+      );
+
+      // The first day and the window's last.
+      await tester.tapAt(origin + _centreOf(2) * 4);
+      await tester.tapAt(origin + _centreOf(30) * 4);
+      // Before the first day, the last day outside the window, after it.
+      await tester.tapAt(origin + _centreOf(1) * 4);
+      await tester.tapAt(origin + _centreOf(31) * 4);
+      await tester.tapAt(origin + _centreOf(32) * 4);
+
+      expect(taps, [0, 28]);
+    });
+  });
+
+  group('MonthDotMatrix.dayAt', () {
+    final matrix = _matrix();
+    const pitch = MonthDotMatrix.cellSize + MonthDotMatrix.gap;
+
+    test('the first and the last day of the window', () {
+      expect(matrix.dayAt(_centreOf(2)), 0);
+      expect(matrix.dayAt(_centreOf(30)), 28);
+    });
+
+    test('a square\'s tile is one pitch centred on it', () {
+      // Day 1 is slot 2: its square spans 20..28, its tile 19..29.
+      expect(matrix.dayAt(const Offset(2 * pitch - 1, 0)), 0);
+      expect(matrix.dayAt(const Offset(2 * pitch - 1.01, 0)), isNull);
+      expect(matrix.dayAt(const Offset(3 * pitch - 1.01, 4)), 0);
+      // The gap between day 1 and day 2: each half goes to its square.
+      expect(matrix.dayAt(const Offset(3 * pitch - 1, 4)), 1);
+      // The gap between two rows.
+      expect(matrix.dayAt(const Offset(24, pitch - 1.01)), 0);
+      expect(matrix.dayAt(const Offset(24, pitch - 1)), 7);
+    });
+
+    test('a slot outside the month or the window is no day', () {
+      // Before the first day.
+      expect(matrix.dayAt(_centreOf(0)), isNull);
+      expect(matrix.dayAt(_centreOf(1)), isNull);
+      // Day 30, outside the window, and the slots after the month.
+      expect(matrix.dayAt(_centreOf(31)), isNull);
+      expect(matrix.dayAt(_centreOf(32)), isNull);
+      expect(matrix.dayAt(_centreOf(41)), isNull);
+      // Past the grid's edges.
+      expect(matrix.dayAt(const Offset(-2, 4)), isNull);
+      expect(matrix.dayAt(const Offset(MonthDotMatrix.width + 2, 4)), isNull);
+      expect(matrix.dayAt(const Offset(24, MonthDotMatrix.height + 2)), isNull);
     });
   });
 }

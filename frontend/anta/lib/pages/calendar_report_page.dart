@@ -10,14 +10,11 @@ import '../bloc/calendar/calendar_bloc.dart';
 import '../bloc/calendar_report/calendar_report_bloc.dart';
 import '../bloc/import_export/import_export_bloc.dart';
 import '../bloc/import_export/import_export_state.dart';
-import '../constants/alert_constants.dart';
 import '../constants/app_bar_metrics.dart';
 import '../constants/app_colors.dart';
 import '../constants/calendar_categories.dart';
 import '../constants/event_alerts.dart';
-import '../constants/event_digests.dart';
 import '../constants/report_metrics.dart';
-import '../constants/row_metrics.dart';
 import '../constants/semantics_ids.dart';
 import '../controllers/alert_permission_check.dart';
 import '../controllers/calendar_export_controller.dart';
@@ -35,13 +32,11 @@ import '../services/alert_keep_notice.dart';
 import '../services/app_navigator.dart';
 import '../services/calendar_report_service.dart';
 import '../services/settings_service.dart';
-import '../utils/date_span_label.dart';
 import '../utils/event_agenda.dart';
 import '../utils/markdown_color_syntax.dart';
 import '../utils/report_labels.dart';
 import '../utils/report_markdown.dart';
 import '../utils/sheet_guard.dart';
-import '../widgets/agenda_period_nav.dart';
 import '../widgets/automation_id.dart';
 import '../widgets/calendar_date_picker_sheet.dart';
 import '../widgets/calendar_header_menus.dart';
@@ -49,10 +44,9 @@ import '../widgets/category_picker_sheet.dart';
 import '../widgets/digest_editor_sheet.dart';
 import '../widgets/form_menu_item.dart';
 import '../widgets/form_rows.dart';
+import '../widgets/report_body.dart';
 import '../widgets/report_group_stack.dart';
 import '../widgets/report_more_categories_sheet.dart';
-import '../widgets/report_totals_card.dart';
-import '../widgets/report_trend_chart.dart';
 
 /// The calendar's third view (A): what happened and what is planned over a
 /// period, folded from the app-wide calendar into one `CalendarReport` by the
@@ -128,9 +122,6 @@ class _ReportViewState extends State<_ReportView>
   /// Whether a page covers this one: a resume underneath asks nothing, and
   /// [didPopNext] asks once on the way back (the overview's rule).
   bool _covered = false;
-
-  String? _templatesKey;
-  List<String> _templates = const [];
 
   /// The body's scroll: "Show less" moves it so "n more" stays under the
   /// finger (S), and a presence mark's refold rebuilds around the same
@@ -356,21 +347,6 @@ class _ReportViewState extends State<_ReportView>
     }
   }
 
-  static String _choiceLabel(AppLocalizations l10n, ReportPeriodChoice c) {
-    return switch (c) {
-      ReportPeriodChoice.thisWeek => l10n.overviewPeriodThisWeek,
-      ReportPeriodChoice.lastWeek => l10n.reportPeriodLastWeek,
-      ReportPeriodChoice.nextWeek => l10n.reportPeriodNextWeek,
-      ReportPeriodChoice.thisMonth => l10n.overviewPeriodThisMonth,
-      ReportPeriodChoice.lastMonth => l10n.reportPeriodLastMonth,
-      ReportPeriodChoice.nextMonth => l10n.reportPeriodNextMonth,
-      ReportPeriodChoice.thisYear => l10n.upcomingPeriodWholeYear,
-      ReportPeriodChoice.last12Months => l10n.overviewPeriodLast12Months,
-      ReportPeriodChoice.last90Days => l10n.overviewPeriodLast90Days,
-      ReportPeriodChoice.custom => l10n.upcomingPeriodCustom,
-    };
-  }
-
   static IconData _choiceIcon(ReportPeriodChoice c) {
     return switch (c) {
       ReportPeriodChoice.thisWeek ||
@@ -416,7 +392,7 @@ class _ReportViewState extends State<_ReportView>
         for (final choice in ReportPeriodChoice.values)
           FormMenuItem(
             value: choice,
-            label: _choiceLabel(l10n, choice),
+            label: ReportBand.choiceLabel(l10n, choice),
             icon: _choiceIcon(choice),
             identifier: _choiceId(choice),
           ),
@@ -474,35 +450,6 @@ class _ReportViewState extends State<_ReportView>
     }
   }
 
-  /// Every title the band may show — the menu's labels, the year, the twelve
-  /// month names, and for every month a same-year and a cross-year span with
-  /// two-digit days, which a week is titled with too — so a step never moves
-  /// the body (the overview's list nav rule). Built once per locale and year.
-  List<String> _titleTemplates(AppLocalizations l10n, DateTime today) {
-    final year = today.year;
-    final key = '${l10n.localeName} $year';
-    if (key == _templatesKey) return _templates;
-    _templatesKey = key;
-    return _templates = List.unmodifiable([
-      for (final choice in ReportPeriodChoice.values)
-        _choiceLabel(l10n, choice),
-      '$year',
-      for (var m = DateTime.january; m <= DateTime.december; m++) ...[
-        OverviewMonthPeriod(year, m).menuValue(l10n),
-        dateSpanLabel(
-          l10n,
-          DateTime.utc(year, m, 10),
-          DateTime.utc(year, m, 28),
-        ),
-        dateSpanLabel(
-          l10n,
-          DateTime.utc(year - 1, m, 28),
-          DateTime.utc(year, m, 28),
-        ),
-      ],
-    ]);
-  }
-
   /// The period and allowlist the report [state] draws was folded for: the
   /// pick itself once Ready, the one before it while a refold runs — so the
   /// caption and Show as list never pair the new pick with the old numbers
@@ -520,22 +467,6 @@ class _ReportViewState extends State<_ReportView>
     ),
     ReportFolding() => null,
   };
-
-  /// What the caption and the spoken deltas compare [report] against: the
-  /// previous period's name, or the span of its days counted (D36.3).
-  static String? _againstName(
-    ReportShown state,
-    CalendarReport report,
-    OverviewPeriod period,
-    ReportLabels labels,
-  ) {
-    final previous = period.stepped(
-      direction: -1,
-      today: state.today,
-      yearBounds: state.years,
-    );
-    return labels.comparisonName(report, previous: previous);
-  }
 
   /// The bloc's [state], heard before it is drawn — every arm and release
   /// of the slack is set here or in a handler, never in a build (D40).
@@ -625,11 +556,11 @@ class _ReportViewState extends State<_ReportView>
             body: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                _buildBand(l10n, labels, state),
+                _buildBand(labels, state),
                 Expanded(
                   child: _RefoldDim(
                     folding: state is ReportFolding && state.previous != null,
-                    child: _buildBody(l10n, labels, state),
+                    child: _buildBody(labels, state),
                   ),
                 ),
               ],
@@ -702,302 +633,73 @@ class _ReportViewState extends State<_ReportView>
     );
   }
 
-  Widget _buildBand(
-    AppLocalizations l10n,
-    ReportLabels labels,
-    ReportState state,
-  ) {
+  Widget _buildBand(ReportLabels labels, ReportState state) {
     final shown = state is ReportShown ? state : null;
     final period = switch (state) {
       ReportShown(:final period) => period,
       ReportLoading(:final period) => period,
     };
-    final report = shown?.shown;
     final bloc = context.read<CalendarReportBloc>();
-    bool canStep(int direction) =>
-        shown != null &&
-        shown.period.stepped(
-              direction: direction,
-              today: shown.today,
-              yearBounds: shown.years,
-            ) !=
-            null;
-    return AgendaPeriodNav(
-      title: period == null ? '' : labels.periodName(period),
-      titleTemplates: _titleTemplates(
-        l10n,
-        shown?.today ?? EventAgenda.dateOnly(widget.clock()),
-      ),
-      // Never null: a null subtitle drops the count's line, and the band
-      // would grow under the finger when the first report lands. Blank
-      // while a refold runs, so the new title never reads the old counts —
-      // a no-break space, whose line is a word's height at every scale
-      // where an empty string's fell a pixel short at 1.3.
-      subtitle: report == null || state is ReportFolding
-          ? ' '
-          : labels.subtitle(report),
-      previousTooltip: l10n.overviewPeriodPrevious,
-      nextTooltip: l10n.overviewPeriodNext,
-      todayTooltip: l10n.overviewPeriodHome(
-        shown == null ? '' : labels.periodName(shown.home),
-      ),
-      titleTooltip: l10n.overviewPeriod,
-      previousIdentifier: SemanticsIds.reportNavPrevious,
-      nextIdentifier: SemanticsIds.reportNavNext,
-      todayIdentifier: SemanticsIds.reportNavToday,
-      titleIdentifier: SemanticsIds.reportNavTitle,
+    return ReportBand(
+      period: period,
+      home: shown?.home,
+      report: shown?.shown,
+      folding: state is ReportFolding,
+      today: shown?.today ?? EventAgenda.dateOnly(widget.clock()),
+      years: shown?.years,
+      labels: labels,
       onTitleTap: shown == null ? null : _openPeriodMenu,
-      onPrevious: canStep(-1) ? () => bloc.add(const ReportStepped(-1)) : null,
-      onNext: canStep(1) ? () => bloc.add(const ReportStepped(1)) : null,
-      onToday: shown == null || shown.period == shown.home
+      onStep: shown == null
           ? null
-          : () => bloc.add(const ReportHomePressed()),
+          : (direction) => bloc.add(ReportStepped(direction)),
+      onHome: shown == null ? null : () => bloc.add(const ReportHomePressed()),
     );
   }
 
-  /// Before the first report: the Totals frame with dashes, so the page
-  /// never opens on a spinner.
-  static const List<ReportTileValue> _placeholderTiles = [
-    ReportTileValue(tile: ReportTile.events, value: 0),
-    ReportTileValue(tile: ReportTile.hours, value: 0),
-  ];
-
-  Widget _buildBody(
-    AppLocalizations l10n,
-    ReportLabels labels,
-    ReportState state,
-  ) {
+  Widget _buildBody(ReportLabels labels, ReportState state) {
     final shown = state is ReportShown ? state : null;
     final folded = shown == null ? null : _foldedFor(shown);
     final report = folded == null ? null : shown?.shown;
-    final against = shown == null || report == null || folded == null
-        ? null
-        : _againstName(shown, report, folded.period, labels);
-    final caption = report == null || folded == null
-        ? null
-        : labels.caption(
+    final today = shown?.today ?? EventAgenda.dateOnly(widget.clock());
+    return ReportBody(
+      report: report,
+      period: folded?.period,
+      categoryIds: folded?.categoryIds ?? const {},
+      today: today,
+      // Read only beside a report, which comes with a shown state.
+      years: shown?.years ?? (first: today.year, last: today.year),
+      weekStart: shown?.weekStart ?? const CalendarAppearance().weekStart,
+      labels: labels,
+      folds: _folds,
+      scroll: _scroll,
+      slack: _slack,
+      bottomClearance: _bottomClearance,
+      use24Hour: MediaQuery.alwaysUse24HourFormatOf(context),
+      onDatedTap: _openDated,
+      onRoutineTap: _openRoutine,
+      onPresence: _markPresence,
+      onShowAsList: AppNavigator.toCalendarOverviewLook,
+      onMoreCategories: shown == null
+          ? null
+          : (report, {required largest, required spansMonths}) =>
+                _openMoreCategories(
+                  labels,
+                  report,
+                  shown,
+                  largest: largest,
+                  spansMonths: spansMonths,
+                  use24Hour: MediaQuery.alwaysUse24HourFormatOf(context),
+                ),
+      onShare: (report, {required periodName, required against}) =>
+          _shareReport(
             report,
-            periodName: labels.periodName(folded.period),
-            against: against,
-          );
-    final clearance = _bottomClearance;
-    return Semantics(
-      container: true,
-      identifier: SemanticsIds.reportBody,
-      child: CustomScrollView(
-        controller: _scroll,
-        slivers: [
-          SliverPadding(
-            padding: EdgeInsets.fromLTRB(
-              RowMetrics.groupInset,
-              FormMetrics.bodyTop,
-              RowMetrics.groupInset,
-              FormMetrics.bodyBottom + clearance,
-            ),
-            sliver: SliverMainAxisGroup(
-              slivers: [
-                SliverToBoxAdapter(
-                  child: FormSectionLabel(text: l10n.reportSectionTotals),
-                ),
-                SliverToBoxAdapter(
-                  child: RepaintBoundary(
-                    child: ReportTotalsCard(
-                      tiles: report?.tiles ?? _placeholderTiles,
-                      labels: labels,
-                      against: against,
-                      muted: report?.isEmpty ?? false,
-                    ),
-                  ),
-                ),
-                if (caption != null)
-                  SliverToBoxAdapter(
-                    child: FormCaption(
-                      text: caption,
-                      padding: FormMetrics.groupCaptionPadding,
-                    ),
-                  ),
-                if (report != null && shown != null)
-                  ..._buildCard(
-                    ReportCard.categories,
-                    l10n.reportSectionCategories,
-                    report,
-                    shown,
-                    labels,
-                  ),
-                // The builder already left the trend out below the
-                // threshold and for a plan (Q, T).
-                if (report case CalendarReport(:final trend?, :final span))
-                  if (shown != null) ...[
-                    const SliverToBoxAdapter(
-                      child: SizedBox(height: RowMetrics.groupGap),
-                    ),
-                    SliverToBoxAdapter(
-                      child: FormSectionLabel(text: l10n.reportSectionOverTime),
-                    ),
-                    SliverToBoxAdapter(
-                      child: RepaintBoundary(
-                        child: ReportTrendChart(
-                          trend: trend,
-                          labels: labels,
-                          weekStart: shown.weekStart,
-                          span: span,
-                        ),
-                      ),
-                    ),
-                  ],
-                // A plan has no Missed and no Ahead (T): the builder leaves
-                // both empty, and an empty card is not drawn (H).
-                if (report != null && shown != null) ...[
-                  ..._buildCard(
-                    ReportCard.missed,
-                    l10n.reportSectionMissed,
-                    report,
-                    shown,
-                    labels,
-                  ),
-                  ..._buildCard(
-                    ReportCard.ahead,
-                    l10n.reportSectionAhead,
-                    report,
-                    shown,
-                    labels,
-                  ),
-                ],
-                if (folded != null && report != null) ...[
-                  const SliverToBoxAdapter(
-                    child: SizedBox(height: RowMetrics.groupGap),
-                  ),
-                  SliverToBoxAdapter(
-                    child: RepaintBoundary(
-                      child: _buildFooter(
-                        l10n,
-                        labels,
-                        report,
-                        period: folded.period,
-                        categoryIds: folded.categoryIds,
-                        against: against,
-                      ),
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-          ValueListenableBuilder(
-            valueListenable: _slack,
-            builder: (_, slack, _) => EndSlackSliver(
-              arms: slack.arms,
-              releases: slack.releases,
-              clearance: clearance,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// [card]'s groups under their [label], after the gap between cards;
-  /// nothing when the card has no group (H). Categories shows its first
-  /// [ReportMetrics.maxCategoryRows] groups and a row for the rest (V). The
-  /// groups are a [ReportGroupStack], keyed by card so a card leaving never
-  /// hands its fold machinery to the next one.
-  List<Widget> _buildCard(
-    ReportCard card,
-    String label,
-    CalendarReport report,
-    ReportShown shown,
-    ReportLabels labels,
-  ) {
-    final all = switch (card) {
-      ReportCard.categories => report.categories,
-      ReportCard.missed => report.missed,
-      ReportCard.ahead => report.ahead,
-    };
-    if (all.isEmpty) return const [];
-    final capped =
-        card == ReportCard.categories &&
-        all.length > ReportMetrics.maxCategoryRows;
-    final groups = capped ? all.sublist(0, ReportMetrics.maxCategoryRows) : all;
-    final span = report.span;
-    final spansMonths =
-        span.start.year != span.end.year || span.start.month != span.end.month;
-    // Ahead's rows are the days after the counted end, so its list starts
-    // there; Categories and Missed list the folded span.
-    final counted = report.countedTo;
-    final listStart = card == ReportCard.ahead
-        ? DateTime.utc(counted.year, counted.month, counted.day + 1)
-        : span.start;
-    final use24Hour = MediaQuery.alwaysUse24HourFormatOf(context);
-    return [
-      const SliverToBoxAdapter(child: SizedBox(height: RowMetrics.groupGap)),
-      SliverToBoxAdapter(child: FormSectionLabel(text: label)),
-      ReportGroupStack(
-        key: ValueKey(card),
-        scroll: _scroll,
-        folds: _folds,
-        card: card,
-        groups: groups,
-        events: report.events,
-        labels: labels,
-        onDatedTap: _openDated,
-        onRoutineTap: _openRoutine,
-        onPresence: card == ReportCard.missed ? _markPresence : null,
-        onShowAsList: (group) => AppNavigator.toCalendarOverviewLook(
-          start: listStart,
-          end: span.end,
-          categoryIds: {group.categoryId},
-        ),
-        today: shown.today,
-        spansMonths: spansMonths,
-        use24Hour: use24Hour,
-        // The page's gap follows the card; the cap's row is a card of its
-        // own and keeps the air above it.
-        trailingGap: capped,
-        onShrink: _armSlack,
-      ),
-      if (capped)
-        SliverToBoxAdapter(
-          child: _moreCategories(
             labels,
-            report,
-            shown,
-            groups: groups,
-            spansMonths: spansMonths,
-            use24Hour: use24Hour,
+            periodName: periodName,
+            against: against,
           ),
-        ),
-    ];
-  }
-
-  /// "n more categories ›" under the Categories card's last group (V): the
-  /// rest of [report]'s categories, past the [groups] the card shows.
-  Widget _moreCategories(
-    ReportLabels labels,
-    CalendarReport report,
-    ReportShown shown, {
-    required List<ReportCategoryGroup> groups,
-    required bool spansMonths,
-    required bool use24Hour,
-  }) {
-    return FormRowShell(
-      first: true,
-      last: true,
-      trailingGap: false,
-      child: FormActionRow.disclosure(
-        glyph: Icons.chevron_right_rounded,
-        label: labels.l10n.reportMoreCategories(
-          report.categories.length - groups.length,
-        ),
-        identifier: SemanticsIds.reportCategoriesMore,
-        onTap: () => _openMoreCategories(
-          labels,
-          report,
-          shown,
-          largest: groups.first.count,
-          spansMonths: spansMonths,
-          use24Hour: use24Hour,
-        ),
-      ),
+      onSend: (period, categoryIds) =>
+          unawaited(_sendReport(period, categoryIds)),
+      onShrink: _armSlack,
     );
   }
 
@@ -1095,62 +797,6 @@ class _ReportViewState extends State<_ReportView>
       row.eventId,
       row.day,
       missed,
-    );
-  }
-
-  /// The footer of [report], folded over [period] and [categoryIds]: Show
-  /// as list hands the overview the span the service folded — clamped past
-  /// 366 days (D33) — not the period's own; Share writes the report shown,
-  /// with [against] as the caption names it.
-  Widget _buildFooter(
-    AppLocalizations l10n,
-    ReportLabels labels,
-    CalendarReport report, {
-    required OverviewPeriod period,
-    required Set<String> categoryIds,
-    required String? against,
-  }) {
-    return FormRowGroup(
-      trailingGap: false,
-      children: [
-        FormActionRow(
-          glyph: Icons.view_list_rounded,
-          label: l10n.reportShowAsList,
-          identifier: SemanticsIds.reportShowList,
-          onTap: () => AppNavigator.toCalendarOverviewLook(
-            start: report.span.start,
-            end: report.span.end,
-            categoryIds: categoryIds,
-          ),
-        ),
-        // An empty period has nothing to share: disabled at 38 %, never
-        // hidden.
-        FormActionRow(
-          glyph: Icons.share_rounded,
-          label: l10n.reportShare,
-          identifier: SemanticsIds.reportShare,
-          onTap: report.isEmpty
-              ? null
-              : () => _shareReport(
-                  report,
-                  labels,
-                  periodName: labels.periodName(period),
-                  against: against,
-                ),
-        ),
-        // At the digest cap there is nothing to send to: disabled, as the
-        // hub hides its Add row there, rather than a sheet that refuses.
-        FormActionRow(
-          glyph: Icons.notifications_rounded,
-          label: period is OverviewWeekPeriod
-              ? l10n.reportSendWeekly
-              : l10n.reportSendMonthly,
-          identifier: SemanticsIds.reportSend,
-          onTap: EventDigests.all.length >= kDigestHorizon.maxDigests
-              ? null
-              : () => unawaited(_sendReport(period, categoryIds)),
-        ),
-      ],
     );
   }
 

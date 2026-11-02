@@ -59,15 +59,15 @@ class ReportGroupStack extends StatefulWidget {
     required this.events,
     required this.labels,
     this.largest,
-    required this.onDatedTap,
-    required this.onRoutineTap,
+    this.onDatedTap,
+    this.onRoutineTap,
     this.onPresence,
-    required this.onShowAsList,
+    this.onShowAsList,
     required this.today,
     required this.spansMonths,
     required this.use24Hour,
     this.trailingGap = false,
-    required this.onShrink,
+    this.onShrink,
   });
 
   /// The surface's one scroll, which "Show less" moves so "n more" stays
@@ -89,14 +89,17 @@ class ReportGroupStack extends StatefulWidget {
   /// meters compare with the card's rather than restart at full.
   final int? largest;
 
-  final void Function(ReportDatedRow row) onDatedTap;
-  final void Function(ReportRoutineRow row) onRoutineTap;
+  /// A row's tap; null leaves the rows inert, as the guide's stage draws
+  /// them.
+  final void Function(ReportDatedRow row)? onDatedTap;
+  final void Function(ReportRoutineRow row)? onRoutineTap;
 
   /// The Missed card's presence button; null everywhere else.
   final void Function(ReportDatedRow row, bool missed)? onPresence;
 
-  /// A capped group's "Show as list", handed the group it closes.
-  final void Function(ReportCategoryGroup group) onShowAsList;
+  /// A capped group's "Show as list", handed the group it closes; null
+  /// draws it disabled.
+  final void Function(ReportCategoryGroup group)? onShowAsList;
 
   final DateTime today;
   final bool spansMonths;
@@ -105,8 +108,9 @@ class ReportGroupStack extends StatefulWidget {
   /// The air below the last group; the groups before it always carry it.
   final bool trailingGap;
 
-  /// Called before a frame that may shrink the content under the finger.
-  final VoidCallback onShrink;
+  /// Called before a frame that may shrink the content under the finger;
+  /// null for a surface with no slack to arm.
+  final VoidCallback? onShrink;
 
   @override
   State<ReportGroupStack> createState() => _ReportGroupStackState();
@@ -123,6 +127,7 @@ class _ReportGroupStackState extends State<ReportGroupStack> {
     final card = widget.card;
     final groups = widget.groups;
     final folds = widget.folds;
+    final onShowAsList = widget.onShowAsList;
     final largest = card != ReportCard.categories
         ? 0
         : widget.largest ??
@@ -144,7 +149,9 @@ class _ReportGroupStackState extends State<ReportGroupStack> {
               onDatedTap: widget.onDatedTap,
               onRoutineTap: widget.onRoutineTap,
               onPresence: widget.onPresence,
-              onShowAsList: () => widget.onShowAsList(group),
+              onShowAsList: onShowAsList == null
+                  ? null
+                  : () => onShowAsList(group),
               today: widget.today,
               spansMonths: widget.spansMonths,
               use24Hour: widget.use24Hour,
@@ -181,7 +188,7 @@ class _ReportGroupStackState extends State<ReportGroupStack> {
     final open = widget.folds.isOpen(card, group.categoryId);
     // A long group closed near the scroll's end would let the viewport clamp
     // its offset, and the header would slide down under the finger.
-    if (open) widget.onShrink();
+    if (open) widget.onShrink?.call();
     setState(() => widget.folds.setOpen(card, group.categoryId, !open));
   }
 
@@ -207,7 +214,7 @@ class _ReportGroupStackState extends State<ReportGroupStack> {
   /// built, nothing moves. The fold also calls [ReportGroupStack.onShrink],
   /// for a group folded at the scroll's end.
   void _keepMoreInPlace(ReportCategoryGroup group) {
-    widget.onShrink();
+    widget.onShrink?.call();
     final scroll = widget.scroll;
     final sliver = _lists[group.categoryId]?.currentContext?.findRenderObject();
     if (sliver is! RenderSliverMultiBoxAdaptor || !scroll.hasClients) return;

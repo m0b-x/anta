@@ -80,6 +80,7 @@ import 'package:anta/widgets/calendar_filter_sheet.dart';
 import 'package:anta/widgets/calendar_guide_demo_panel.dart';
 import 'package:anta/widgets/calendar_guide_stage_slot.dart';
 import 'package:anta/widgets/calendar_guide_try_card.dart';
+import 'package:anta/widgets/calendar_guide_try_kinds.dart';
 import 'package:anta/widgets/calendar_guide_try_screen.dart';
 import 'package:anta/widgets/category_editor_sheet.dart';
 import 'package:anta/widgets/day_summary_panel.dart';
@@ -89,6 +90,7 @@ import 'package:anta/widgets/event_detail_sheet.dart';
 import 'package:anta/widgets/event_editor_sheet.dart';
 import 'package:anta/widgets/event_repeat_sheet.dart';
 import 'package:anta/widgets/form_rows.dart';
+import 'package:anta/widgets/month_dot_matrix.dart';
 import 'package:anta/widgets/quick_alarm_sheet.dart';
 import 'package:anta/widgets/settings_reorder.dart';
 import 'package:anta/widgets/settings_section_list.dart';
@@ -548,6 +550,239 @@ void main() {
           await expectNothingSaved();
         });
       }
+    }
+  });
+
+  group('the stepper (D70)', () {
+    Finder captionOf(String slug) =>
+        find.bySemanticsIdentifier(SemanticsIds.calendarGuideTryCaption(slug));
+
+    testWidgets('back and forward: ids, glyphs and tooltips at the live line '
+        'and reading back; back off on the first step', (tester) async {
+      final robot = await open(tester, CalendarGuideTopic.events);
+      final steps = stepsOfCard(CalendarGuideTopic.events.cards.first);
+      IconButton button(Finder f) => tester.widget<IconButton>(
+        find.descendant(of: f, matching: find.byType(IconButton)),
+      );
+      IconData glyph(Finder f) => (button(f).icon as Icon).icon!;
+
+      expect(robot.backButton, findsOneWidget);
+      expect(robot.canBack, isFalse, reason: 'nothing done before the first');
+      expect(robot.canSkip, isTrue);
+      expect(glyph(robot.backButton), Icons.chevron_left_rounded);
+      expect(button(robot.backButton).tooltip, en.calendarGuideStepBack);
+      expect(glyph(robot.skipButton), Icons.skip_next_rounded);
+      expect(button(robot.skipButton).tooltip, en.calendarGuideSkipStep);
+
+      await robot.skip();
+      await robot.skip();
+      expect(robot.line, steps[2]);
+      expect(robot.canBack, isTrue);
+
+      await robot.back();
+      expect(robot.reading, isTrue);
+      expect(robot.line, steps[1]);
+      expect(glyph(robot.skipButton), Icons.chevron_right_rounded);
+      expect(button(robot.skipButton).tooltip, en.calendarGuideStepForward);
+      expect(robot.canSkip, isTrue);
+
+      await robot.back();
+      expect(robot.line, steps[0]);
+      expect(robot.canBack, isFalse);
+
+      await robot.skip();
+      expect(robot.line, steps[1]);
+      await robot.skip();
+      expect(robot.reading, isFalse, reason: 'forward returned to the live');
+      expect(robot.line, steps[2]);
+      expect(glyph(robot.skipButton), Icons.skip_next_rounded);
+
+      // At the live line forward is today's skip.
+      await robot.skip();
+      expect(robot.line, en.calendarGuideCoachDone);
+      expect(robot.canSkip, isFalse);
+      expect(robot.canBack, isTrue);
+      await robot.back();
+      expect(robot.line, steps[2]);
+      expect(robot.canSkip, isTrue, reason: 'forward is on while reading');
+      await expectNothingSaved();
+    });
+
+    testWidgets('a step done on the stage snaps a read-back view to the live '
+        'line', (tester) async {
+      final robot = await open(tester, CalendarGuideTopic.alerts);
+      final steps = stepsOfCard(CalendarGuideTopic.alerts.cards.first);
+      await robot.tap('add');
+      await robot.tapId(SemanticsIds.alertSheetSave);
+      final live = robot.line;
+      expect(live, isNot(steps.first));
+
+      await robot.back();
+      expect(robot.reading, isTrue);
+      expect(robot.line, steps.first);
+
+      await robot.tap('add');
+      await robot.tapId(SemanticsIds.alertSheetSave);
+      expect(robot.reading, isFalse);
+      await expectNothingSaved();
+    });
+
+    testWidgets('the read-back line: muted paragraph text led by a primary '
+        'done mark that scales with the text', (tester) async {
+      final robot = await open(
+        tester,
+        CalendarGuideTopic.events,
+        textScaler: const TextScaler.linear(1.3),
+      );
+      final colorScheme = Theme.of(tester.element(robot.card)).colorScheme;
+      final caption = captionOf(CalendarGuideTopic.events.slug);
+      // The paragraph's own: the first, above the mark's glyph.
+      Color lineColor() =>
+          (tester
+                      .widget<RichText>(
+                        find
+                            .descendant(
+                              of: caption,
+                              matching: find.byType(RichText),
+                            )
+                            .first,
+                      )
+                      .text
+                  as TextSpan)
+              .style!
+              .color!;
+      final mark = find.descendant(
+        of: caption,
+        matching: find.byIcon(Icons.check_rounded),
+      );
+
+      expect(lineColor(), isSameColorAs(colorScheme.onSurface));
+      expect(mark, findsNothing);
+
+      await robot.skip();
+      await robot.back();
+      expect(lineColor(), isSameColorAs(colorScheme.onSurfaceVariant));
+      expect(mark, findsOneWidget);
+      expect(
+        tester.widget<Icon>(mark).color,
+        isSameColorAs(colorScheme.primary),
+      );
+      // The paragraph scales its inline mark with the text (D90).
+      expect(
+        tester.getRect(mark).height,
+        moreOrLessEquals(GuideMetrics.coachDoneMarkSize * 1.3, epsilon: 0.01),
+      );
+      expect(
+        robot.readBackCandidates,
+        stepsOfCard(CalendarGuideTopic.events.cards.first),
+      );
+      await expectNothingSaved();
+    });
+
+    testWidgets('semantics: a live region at the live line; reading back it '
+        'is off and the node reads Done before the line', (tester) async {
+      final handle = tester.ensureSemantics();
+      final robot = await open(tester, CalendarGuideTopic.events);
+      final steps = stepsOfCard(CalendarGuideTopic.events.cards.first);
+      SemanticsData node() => tester
+          .getSemantics(captionOf(CalendarGuideTopic.events.slug))
+          .getSemanticsData();
+
+      expect(node().label, steps[0]);
+      expect(node().flagsCollection.isLiveRegion, isTrue);
+
+      await robot.skip();
+      await robot.back();
+      expect(node().label, '${en.calendarGuideStepDone}\n${steps[0]}');
+      expect(node().flagsCollection.isLiveRegion, isFalse);
+      final back = tester.getSemantics(robot.backButton).getSemanticsData();
+      expect(back.tooltip, en.calendarGuideStepBack);
+
+      await robot.skip();
+      expect(node().label, steps[1]);
+      expect(node().flagsCollection.isLiveRegion, isTrue);
+      handle.dispose();
+    });
+
+    testWidgets('forward sits where the skip sat: trailing on the card\'s '
+        'inset, 48 square, back touching it on its left', (tester) async {
+      final robot = await open(tester, CalendarGuideTopic.events);
+      final forward = tester.getRect(robot.skipButton);
+      final back = tester.getRect(robot.backButton);
+
+      expect(forward.size, const Size.square(FormMetrics.trailingButtonSize));
+      expect(back.size, const Size.square(FormMetrics.trailingButtonSize));
+      // The stage's inset patch ends where the coach row ends.
+      expect(
+        forward.right,
+        moreOrLessEquals(robot.stageRect.right, epsilon: 1),
+      );
+      expect(back.right, moreOrLessEquals(forward.left, epsilon: 0.01));
+      expect(back.top, forward.top);
+      expect(robot.slotRect.right, moreOrLessEquals(back.left, epsilon: 0.01));
+    });
+
+    testWidgets('fasting: with every tradition off back waits — the line '
+        'asks for a tradition in place of the step (D44), and the step before '
+        'would read back in the same words; a tradition on brings back and '
+        'the read-back lines', (tester) async {
+      final robot = await open(
+        tester,
+        CalendarGuideTopic.fasting,
+        now: fixedNowFor(CalendarGuideTopic.fasting),
+      );
+      final steps = stepsOfCard(CalendarGuideTopic.fasting.cards.first);
+      await robot.skip();
+      await robot.skip();
+      expect(robot.line, steps.first, reason: 'D44 asks for a tradition');
+      expect(
+        robot.canBack,
+        isFalse,
+        reason: 'back would show the same words, muted',
+      );
+
+      // A tradition on: the real next step speaks again, and back works.
+      await robot.tapChip('tradition-orthodox');
+      expect(robot.line, steps[2]);
+      expect(robot.canBack, isTrue);
+      await robot.back();
+      expect(robot.reading, isTrue);
+      expect(robot.line, steps[1]);
+      await robot.back();
+      expect(robot.line, steps[0]);
+      await robot.skip();
+      await robot.skip();
+      expect(robot.reading, isFalse);
+      expect(robot.line, steps[2]);
+      await expectNothingSaved();
+    });
+
+    // D93: the slot also holds every step line read back with its mark, beside
+    // the pair's 96 dp; the designer's numbers, as built.
+    // 2.0 stays clamped to 1.3 (D66).
+    for (final (topic, at10, at13) in const [
+      (CalendarGuideTopic.kinds, 80.0, 100.0),
+      (CalendarGuideTopic.alerts, 60.0, 125.0),
+      (CalendarGuideTopic.fasting, 80.0, 150.0),
+    ]) {
+      testWidgets('${topic.slug}: the slot at de 1.0 / 1.3 / 2.0 is '
+          '$at10 / $at13 / $at13', (tester) async {
+        Future<double> slotAt(double scale) async {
+          final robot = await open(
+            tester,
+            topic,
+            locale: const Locale('de'),
+            size: const Size(360, 780),
+            textScaler: TextScaler.linear(scale),
+            now: fixedNowFor(topic),
+          );
+          return robot.slotSize.height;
+        }
+
+        expect(await slotAt(1.0), moreOrLessEquals(at10, epsilon: 0.5));
+        expect(await slotAt(1.3), moreOrLessEquals(at13, epsilon: 0.5));
+        expect(await slotAt(2.0), moreOrLessEquals(at13, epsilon: 0.5));
+      });
     }
   });
 
@@ -1833,6 +2068,240 @@ void main() {
       // Two days now: one of them can be skipped once picked.
       expect(robot.enabled('add-date'), isTrue);
       await expectNothingSaved();
+    });
+
+    // The Date row's value.
+    late final dayRowDates = DateFormat.yMMMEd('en');
+    // A function: a semantics finder is made inside a test, where the tree
+    // exists.
+    Finder matrix() => _inCard('kinds', find.byType(MonthDotMatrix));
+
+    /// Taps [day]'s square on the kinds card's month, the page scrolled
+    /// only as far as the month needs.
+    Future<void> tapSquare(GuideTryCardRobot robot, DateTime day) async {
+      await robot.showOnPage(matrix());
+      await _tapSquare(robot.tester, matrix(), day);
+    }
+
+    testWidgets('a tap on the month picks the day; Skip asks that the event '
+        'falls on it', (tester) async {
+      final robot = await open(tester, CalendarGuideTopic.kinds);
+      // Weekly on today's weekday: today has a dot, the day beside it none.
+      await robot.tap('repeat');
+      await robot.tapId(SemanticsIds.repeatKind('weekly'));
+      await robot.tapId(SemanticsIds.repeatDone);
+      expect(robot.line, steps[1]);
+      final bare = today.day > 1 ? day(-1) : day(1);
+      expect(
+        _matrixPainter(tester, matrix()).markedMask >> (bare.day - 1) & 1,
+        0,
+      );
+
+      await tapSquare(robot, today);
+      expect(robot.pickerRow('day').value, dayRowDates.format(today));
+      expect(_matrixPainter(tester, matrix()).selectedIndex, today.day - 1);
+      expect(
+        _matrixPainter(tester, matrix()).selectedColor,
+        AppTheme.light().colorScheme.onSurface,
+      );
+      expect(robot.enabled('skip'), isTrue);
+
+      // The picked day tapped again stays picked.
+      await tapSquare(robot, today);
+      expect(robot.pickerRow('day').value, dayRowDates.format(today));
+      expect(_matrixPainter(tester, matrix()).selectedIndex, today.day - 1);
+
+      // Any day can be picked; Skip only for one the event falls on.
+      await tapSquare(robot, bare);
+      expect(robot.pickerRow('day').value, dayRowDates.format(bare));
+      expect(_matrixPainter(tester, matrix()).selectedIndex, bare.day - 1);
+      expect(robot.enabled('skip'), isFalse);
+
+      await tapSquare(robot, today);
+      await robot.tap('skip');
+      expect(robot.line, steps[2]);
+      expect(robot.pickerRow('day').value, isNull);
+      final painter = _matrixPainter(tester, matrix());
+      expect(painter.selectedIndex, isNull);
+      expect(painter.missedMask >> (today.day - 1) & 1, 1);
+      expect(robot.enabled('skip'), isFalse);
+
+      // The Date row's picker stays the other way to the same pick.
+      await robot.tap('day');
+      await PracticeCalendarRobot(tester).pickInDatePicker(bare);
+      expect(robot.pickerRow('day').value, dayRowDates.format(bare));
+      expect(_matrixPainter(tester, matrix()).selectedIndex, bare.day - 1);
+      await expectNothingSaved();
+    });
+
+    testWidgets('the Dentist wears the first visible category, never '
+        'Other\'s grey', (tester) async {
+      await open(tester, CalendarGuideTopic.kinds);
+      final first = CalendarCategories.visible.first;
+      final avatar = tester.widget<EventAvatar>(
+        _inCard('kinds', find.byType(EventAvatar)).first,
+      );
+
+      expect(first.color, isNot(const Color(0xFF757575)));
+      expect(avatar.color, first.color);
+      expect(_matrixPainter(tester, matrix()).markedColor, first.color);
+      await expectNothingSaved();
+    });
+
+    testWidgets('a relaunch onto the guide: the categories arriving after the '
+        'first build recolour the Dentist', (tester) async {
+      final categories = CalendarCategories.all;
+      // A cold start: the cache is empty when the card first builds. The
+      // teardown restores it even if the open throws, so a failure here
+      // cannot cascade through every later case on an empty cache.
+      addTearDown(() => CalendarCategories.updateCache(categories));
+      CalendarCategories.updateCache(const []);
+      final robot = await open(tester, CalendarGuideTopic.kinds);
+      // The page has handed the service's categories to the card; with
+      // the cache back, the avatar resolves the one it took.
+      CalendarCategories.updateCache(categories);
+      await tapSquare(robot, today);
+
+      final avatar = tester.widget<EventAvatar>(
+        _inCard('kinds', find.byType(EventAvatar)).first,
+      );
+      expect(avatar.color, CalendarCategories.visible.first.color);
+      expect(avatar.color, isNot(CalendarCategories.fallback.color));
+      expect(writes.statements, isEmpty);
+    });
+
+    testWidgets('the categories arriving keep the rule, the skips and the '
+        'picked day', (tester) async {
+      addTearDown(tester.view.reset);
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(412, 915);
+      final demo = GuideKindsDemo();
+      addTearDown(demo.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light(),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: ListenableBuilder(
+                listenable: demo,
+                builder: (context, _) => demo.buildStage(context),
+              ),
+            ),
+          ),
+        ),
+      );
+      final stageMatrix = find.byType(MonthDotMatrix);
+      Future<void> tapControl(String name) async {
+        await tester.tap(
+          find.bySemanticsIdentifier(
+            SemanticsIds.calendarGuideTryControl(GuideKindsDemo.slug, name),
+          ),
+        );
+        await tester.pumpAndSettle();
+      }
+
+      await tapControl('repeat');
+      await tester.tap(
+        find.bySemanticsIdentifier(SemanticsIds.repeatKind('weekly')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.bySemanticsIdentifier(SemanticsIds.repeatDone));
+      await tester.pumpAndSettle();
+      await _tapSquare(tester, stageMatrix, today);
+      await tapControl('skip');
+      final bare = today.day > 1 ? day(-1) : day(1);
+      await _tapSquare(tester, stageMatrix, bare);
+      final before = _matrixPainter(tester, stageMatrix);
+
+      final visible = CalendarCategories.visible;
+      demo.adoptCategories([visible[1], visible[0]]);
+      await tester.pumpAndSettle();
+
+      final after = _matrixPainter(tester, stageMatrix);
+      expect(after.markedColor, visible[1].color);
+      expect(after.markedColor, isNot(before.markedColor));
+      expect(after.markedMask, before.markedMask);
+      expect(after.missedMask, before.missedMask);
+      expect(after.missedMask >> (today.day - 1) & 1, 1);
+      expect(after.selectedIndex, bare.day - 1);
+      expect(
+        find.text(
+          RecurrenceFormatter.format(
+            WeeklyRecurrence(weekdays: {today.weekday}),
+            en,
+            'en',
+          ),
+        ),
+        findsWidgets,
+      );
+      expect(writes.statements, isEmpty);
+    });
+
+    testWidgets('the month she taps is three times the tiles\' size at '
+        'least, and fits 360', (tester) async {
+      expect(
+        CalendarGuideStageMatrix.scaleFor(
+          150,
+          minScale: GuideMetrics.stageMatrixTapMinScale,
+        ),
+        GuideMetrics.stageMatrixTapMinScale,
+      );
+      expect(
+        CalendarGuideStageMatrix.scaleFor(150),
+        GuideMetrics.stageMatrixMinScale,
+      );
+      for (final scaler in const [TextScaler.noScaling, TextScaler.linear(2)]) {
+        final robot = await open(
+          tester,
+          CalendarGuideTopic.kinds,
+          size: const Size(360, 780),
+          textScaler: scaler,
+        );
+        final stage = tester.widget<CalendarGuideStageMatrix>(
+          _inCard('kinds', find.byType(CalendarGuideStageMatrix)),
+        );
+        expect(stage.minScale, GuideMetrics.stageMatrixTapMinScale);
+        final rect = tester.getRect(matrix());
+        expect(
+          rect.width / MonthDotMatrix.width,
+          greaterThanOrEqualTo(GuideMetrics.stageMatrixTapMinScale),
+        );
+        final stageRect = robot.stageRect;
+        expect(
+          rect.left,
+          greaterThanOrEqualTo(stageRect.left),
+          reason: '$scaler',
+        );
+        expect(
+          rect.right,
+          lessThanOrEqualTo(stageRect.right),
+          reason: '$scaler',
+        );
+        expect(tester.takeException(), isNull);
+      }
+    });
+
+    testWidgets('the finding card\'s month takes no tap and keeps the floor '
+        'of two', (tester) async {
+      await open(
+        tester,
+        CalendarGuideTopic.finding,
+        now: fixedNowFor(CalendarGuideTopic.finding),
+      );
+      final stage = tester.widget<CalendarGuideStageMatrix>(
+        _inCard('finding', find.byType(CalendarGuideStageMatrix)),
+      );
+      expect(stage.minScale, GuideMetrics.stageMatrixMinScale);
+      expect(stage.matrix.onDayTap, isNull);
+      expect(
+        find.descendant(
+          of: _inCard('finding', find.byType(MonthDotMatrix)),
+          matching: find.byType(GestureDetector),
+        ),
+        findsNothing,
+      );
     });
   });
 
@@ -4234,6 +4703,39 @@ Future<void> _tapOnPage(WidgetTester tester, String slug, Finder target) async {
   await tester.tap(target);
   await tester.pumpAndSettle();
 }
+
+/// Taps [day]'s square on [matrix] where it stands: the squares carry no
+/// semantics (D98), so the tap goes to the point the square is drawn at.
+Future<void> _tapSquare(
+  WidgetTester tester,
+  Finder matrix,
+  DateTime day,
+) async {
+  final widget = tester.widget<MonthDotMatrix>(matrix);
+  final rect = tester.getRect(matrix);
+  final scale = rect.width / MonthDotMatrix.width;
+  final slot = widget.firstWeekdayColumn + day.day - 1;
+  const pitch = MonthDotMatrix.cellSize + MonthDotMatrix.gap;
+  const half = MonthDotMatrix.cellSize / 2;
+  await tester.tapAt(
+    rect.topLeft +
+        Offset(
+              slot % MonthDotMatrix.columns * pitch + half,
+              slot ~/ MonthDotMatrix.columns * pitch + half,
+            ) *
+            scale,
+  );
+  await tester.pumpAndSettle();
+}
+
+/// [matrix]'s painter, for the day it rings and the colours it paints.
+MonthDotMatrixPainter _matrixPainter(WidgetTester tester, Finder matrix) =>
+    tester
+            .widget<CustomPaint>(
+              find.descendant(of: matrix, matching: find.byType(CustomPaint)),
+            )
+            .painter!
+        as MonthDotMatrixPainter;
 
 /// Whether [paragraph] is one of the unseen copies that size a slot.
 bool _unseen(RenderObject paragraph) {

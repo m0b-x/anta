@@ -18,8 +18,11 @@ import 'package:anta/constants/calendar_templates.dart';
 import 'package:anta/constants/event_alerts.dart';
 import 'package:anta/constants/event_presence.dart';
 import 'package:anta/constants/event_skips.dart';
+import 'package:anta/constants/form_metrics.dart';
+import 'package:anta/constants/guide_metrics.dart';
 import 'package:anta/constants/occurrence_descriptions.dart';
 import 'package:anta/constants/public_holidays.dart';
+import 'package:anta/constants/row_metrics.dart';
 import 'package:anta/constants/semantics_ids.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/l10n/app_localizations.dart';
@@ -47,6 +50,7 @@ import 'package:anta/services/public_holiday_service.dart';
 import 'package:anta/services/settings_service.dart';
 import 'package:anta/utils/presence_stats.dart';
 import 'package:anta/widgets/calendar_guide_grid.dart';
+import 'package:anta/widgets/calendar_guide_try_card.dart';
 import 'package:anta/widgets/event_detail_sheet.dart';
 import 'package:anta/widgets/event_editor_sheet.dart';
 
@@ -741,7 +745,8 @@ void main() {
 
   // The band's slot is as tall as its tallest line; past 1.3 the clamp
   // (D39) holds it, so 2.0 draws as 1.3. Pinned, so a line that grows the
-  // band fails here: 72 / 134 / 134 before the tour, never to rise.
+  // band fails here: 72 / 111 / 111 since the coach rework — the step
+  // buttons' 40 dp width (D87) kept them — never to rise.
   for (final (scale, height) in const [
     (1.0, 72.0),
     (1.3, 111.0),
@@ -760,7 +765,9 @@ void main() {
   }
 
   testWidgets('the band reads its first line once: only the tour line is a '
-      'live region, and the skip is a node of its own', (tester) async {
+      'live region, and back and forward are nodes of their own', (
+    tester,
+  ) async {
     final handle = tester.ensureSemantics();
     await open(tester);
     final band = tester.getSemantics(
@@ -774,11 +781,14 @@ void main() {
       children.add(child);
       return true;
     });
-    expect(children, hasLength(2));
-    final (line, skip) = (children.first, children.last);
+    expect(children, hasLength(3));
+    final (line, back, skip) = (children[0], children[1], children[2]);
     expect(line.getSemanticsData().flagsCollection.isLiveRegion, isTrue);
     expect(line.label, en.calendarGuideTourPick);
     expect(line.label, isNot(contains(en.calendarGuidePracticeBanner)));
+    expect(back.getSemanticsData().identifier, SemanticsIds.practiceStepBack);
+    expect(back.getSemanticsData().tooltip, en.calendarGuideStepBack);
+    expect(back.getSemanticsData().flagsCollection.isLiveRegion, isFalse);
     expect(skip.getSemanticsData().identifier, SemanticsIds.practiceSkip);
     expect(skip.getSemanticsData().tooltip, en.calendarGuideSkipStep);
     expect(skip.getSemanticsData().flagsCollection.isLiveRegion, isFalse);
@@ -870,6 +880,192 @@ void main() {
     expect(robot.caption, en.calendarGuideWouldOpen(en.quickAlarmTitle));
     expect(robot.canReset, isFalse);
     await expectNothingSaved();
+  });
+
+  group('the band\'s stepper (D70)', () {
+    Finder byId(String id) => find.bySemanticsIdentifier(id);
+    IconButton button(WidgetTester tester, String id) =>
+        tester.widget<IconButton>(
+          find.descendant(of: byId(id), matching: find.byType(IconButton)),
+        );
+    IconData glyph(WidgetTester tester, String id) =>
+        (button(tester, id).icon as Icon).icon!;
+
+    for (final lesson in GuidePracticeLesson.values) {
+      final steps = [for (final step in lesson.steps) step.line(en)];
+
+      testWidgets('${lesson.name}: back and forward in both modes; back off '
+          'on the first step; forward at the live line skips', (tester) async {
+        final robot = await open(tester, lesson: lesson);
+        const back = SemanticsIds.practiceStepBack;
+        const forward = SemanticsIds.practiceSkip;
+
+        expect(robot.canBack, isFalse);
+        expect(robot.canSkip, isTrue);
+        expect(glyph(tester, back), Icons.chevron_left_rounded);
+        expect(button(tester, back).tooltip, en.calendarGuideStepBack);
+        expect(glyph(tester, forward), Icons.skip_next_rounded);
+        expect(button(tester, forward).tooltip, en.calendarGuideSkipStep);
+        expect(robot.readBackCandidates, steps);
+
+        await robot.skip();
+        await robot.skip();
+        expect(robot.caption, steps[2]);
+
+        await robot.back();
+        expect(robot.reading, isTrue);
+        expect(robot.caption, steps[1]);
+        expect(glyph(tester, forward), Icons.chevron_right_rounded);
+        expect(button(tester, forward).tooltip, en.calendarGuideStepForward);
+        await robot.back();
+        expect(robot.caption, steps[0]);
+        expect(robot.canBack, isFalse);
+        expect(robot.canReset, isTrue, reason: 'reading undid nothing');
+
+        await robot.skip();
+        await robot.skip();
+        expect(robot.reading, isFalse);
+        expect(robot.caption, steps[2]);
+        expect(glyph(tester, forward), Icons.skip_next_rounded);
+
+        while (robot.canSkip) {
+          await robot.skip();
+        }
+        expect(robot.caption, lesson.closing(en));
+        expect(robot.canBack, isTrue);
+        await robot.back();
+        expect(robot.caption, steps.last);
+        expect(robot.canSkip, isTrue, reason: 'forward is on while reading');
+        await expectNothingSaved();
+      });
+
+      testWidgets('${lesson.name}: an action on the page snaps a read-back '
+          'band to the live line', (tester) async {
+        final robot = await open(tester, lesson: lesson);
+        await robot.skip();
+        await robot.back();
+        expect(robot.reading, isTrue);
+
+        await robot.pickMore(SemanticsIds.calendarAlertsOpen);
+        expect(robot.reading, isFalse);
+        expect(robot.caption, en.calendarGuideWouldOpen(en.alertsTitle));
+
+        await robot.back();
+        expect(robot.caption, steps[0], reason: 'a report is never read back');
+        await robot.reset();
+        expect(robot.reading, isFalse);
+        expect(robot.caption, steps[0]);
+        await expectNothingSaved();
+      });
+
+      testWidgets('${lesson.name}: the read-back line in the caption at ink × '
+          '0.78, its mark in full ink; semantics read Done first, off the '
+          'live region', (tester) async {
+        final handle = tester.ensureSemantics();
+        final robot = await open(
+          tester,
+          lesson: lesson,
+          textScaler: const TextScaler.linear(1.3),
+        );
+        final ink = Theme.of(
+          tester.element(robot.lineSlot),
+        ).colorScheme.onPrimaryContainer;
+        SemanticsNode node() {
+          final band = tester.getSemantics(
+            byId(SemanticsIds.calendarGuidePracticeBanner),
+          );
+          late SemanticsNode first;
+          var seen = false;
+          band.visitChildren((child) {
+            if (!seen) first = child;
+            seen = true;
+            return true;
+          });
+          return first;
+        }
+
+        // The line shown, past the unseen candidates laid out under it.
+        final shownLine = find.descendant(
+          of: robot.lineSlot,
+          matching: find.byType(CalendarGuideCoachSemantics),
+        );
+        // The paragraph's own: the first, above the mark's glyph.
+        Color lineColor() =>
+            (tester
+                        .widget<RichText>(
+                          find
+                              .descendant(
+                                of: shownLine,
+                                matching: find.byType(RichText),
+                              )
+                              .first,
+                        )
+                        .text
+                    as TextSpan)
+                .style!
+                .color!;
+        final mark = find.descendant(
+          of: shownLine,
+          matching: find.byIcon(Icons.check_rounded),
+        );
+
+        expect(lineColor(), isSameColorAs(ink));
+        expect(mark, findsNothing);
+        expect(node().label, steps[0]);
+        expect(node().getSemanticsData().flagsCollection.isLiveRegion, isTrue);
+
+        await robot.skip();
+        await robot.back();
+        expect(
+          lineColor(),
+          isSameColorAs(
+            ink.withValues(alpha: GuideMetrics.bannerReadBackAlpha),
+          ),
+        );
+        expect(tester.widget<Icon>(mark).color, isSameColorAs(ink));
+        expect(
+          tester.getRect(mark).height,
+          moreOrLessEquals(FormMetrics.captionSize * 1.3, epsilon: 0.01),
+        );
+        expect(node().label, '${en.calendarGuideStepDone}\n${steps[0]}');
+        expect(node().getSemanticsData().flagsCollection.isLiveRegion, isFalse);
+
+        await robot.skip();
+        expect(node().label, steps[1]);
+        expect(node().getSemanticsData().flagsCollection.isLiveRegion, isTrue);
+        handle.dispose();
+        await expectNothingSaved();
+      });
+
+      testWidgets('${lesson.name}: de 1.0 on 360, the pair is two 40 × 48 '
+          'targets on the band\'s inset and the line stays 248 dp', (
+        tester,
+      ) async {
+        final robot = await open(
+          tester,
+          lesson: lesson,
+          locale: const Locale('de'),
+          size: const Size(360, 780),
+        );
+        final back = tester.getRect(byId(SemanticsIds.practiceStepBack));
+        final forward = tester.getRect(byId(SemanticsIds.practiceSkip));
+        const pair = Size(
+          GuideMetrics.bannerButtonWidth,
+          FormMetrics.trailingButtonSize,
+        );
+        // The literal, pinned once: the exception in the tap-target
+        // guideline and this case both read the constant, so lowering it
+        // would otherwise pass everywhere (D87, D101).
+        expect(GuideMetrics.bannerButtonWidth, 40);
+        expect(back.size, pair);
+        expect(forward.size, pair);
+        expect(forward.right, 360 - RowMetrics.groupInset);
+        expect(back.right, forward.left);
+        expect(tester.getSize(robot.lineSlot).width, 248);
+        expect(tester.getRect(robot.lineSlot).left, RowMetrics.groupInset);
+        await expectNothingSaved();
+      });
+    }
   });
 
   group("the demo's presence reaches every shared widget", () {

@@ -6817,6 +6817,15 @@ class AppLocalizationsDe extends AppLocalizations {
   String get calendarGuideSkipStep => 'Diesen Schritt überspringen';
 
   @override
+  String get calendarGuideStepBack => 'Vorheriger Schritt';
+
+  @override
+  String get calendarGuideStepForward => 'Nächster Schritt';
+
+  @override
+  String get calendarGuideStepDone => 'Erledigt';
+
+  @override
   String calendarGuideCoachScreenTitle(String calendar) {
     return 'Tippe oben auf „$calendar“: dieser Titel ist ein Menü mit Ansichten.';
   }
@@ -6881,8 +6890,8 @@ class AppLocalizationsDe extends AppLocalizations {
   }
 
   @override
-  String calendarGuideCoachKindsSkip(String date, String skip) {
-    return 'Tippe auf „$date“, wähle einen Tag mit Punkt, dann „$skip“.';
+  String calendarGuideCoachKindsSkip(String skip) {
+    return 'Tippe auf einen Tag mit Punkt, dann „$skip“.';
   }
 
   @override
@@ -6966,7 +6975,7 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String calendarGuideTourFilter(String apply) {
-    return 'Der Trichter oben versteckt Kategorien. Probier es, dann „$apply“.';
+    return 'Der Trichter versteckt Kategorien. Probier es, dann „$apply“.';
   }
 
   @override

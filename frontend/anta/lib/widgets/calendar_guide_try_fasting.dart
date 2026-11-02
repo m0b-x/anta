@@ -86,11 +86,20 @@ class GuideFastingDemo extends GuideCardDemo {
 
   /// With every tradition off the other rows are disabled, so the line asks
   /// for a tradition again (D44: a line says where, and never at a row she
-  /// cannot tap). The steps she did stay done; the closing line stands.
+  /// cannot tap). The steps she did stay done; the closing line stands, and
+  /// so does a step she reads back (D70).
   @override
-  String line(AppLocalizations l10n) => _traditions.isEmpty && !finished
+  String line(AppLocalizations l10n) =>
+      _traditions.isEmpty && !finished && !reading
       ? steps.first.line(l10n)
       : super.line(l10n);
+
+  /// While the line asks for a tradition in place of the real next step,
+  /// the step before the live one would read back in the same words, only
+  /// muted — back would seem to change the colour and add a mark. So back
+  /// waits until a tradition is on again.
+  @override
+  bool get canBack => _traditions.isEmpty && !finished ? false : super.canBack;
 
   /// The first tradition that is on, in declaration order — whose look the
   /// Appearance row opens, as the grid colours a day only one marks.

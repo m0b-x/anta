@@ -8714,6 +8714,18 @@
   "@calendarGuideSkipStep": {
     "description": "Tooltip of the calendar guide's button that skips the coach line's current step"
   },
+  "calendarGuideStepBack": "Previous step",
+  "@calendarGuideStepBack": {
+    "description": "Tooltip of the calendar guide's button that shows the coach line of the step before the one shown again"
+  },
+  "calendarGuideStepForward": "Next step",
+  "@calendarGuideStepForward": {
+    "description": "Tooltip of the calendar guide's button that, while an earlier step is shown again, moves one step toward the current instruction"
+  },
+  "calendarGuideStepDone": "Done",
+  "@calendarGuideStepDone": {
+    "description": "Spoken before a calendar guide coach line shown again for a step already done; a state, not a button"
+  },
   "calendarGuideCoachScreenTitle": "Tap “{calendar}” at the top: that title is a menu of views.",
   "@calendarGuideCoachScreenTitle": {
     "description": "Calendar guide coach instruction; calendar is the calendar page's title",
@@ -8821,13 +8833,10 @@
       }
     }
   },
-  "calendarGuideCoachKindsSkip": "Tap “{date}”, pick a day with a dot, then “{skip}”.",
+  "calendarGuideCoachKindsSkip": "Tap a day with a dot, then “{skip}”.",
   "@calendarGuideCoachKindsSkip": {
-    "description": "Calendar guide coach instruction; date and skip are the card's row labels",
+    "description": "Calendar guide coach instruction; skip is the card's row label",
     "placeholders": {
-      "date": {
-        "type": "String"
-      },
       "skip": {
         "type": "String"
       }

@@ -2658,6 +2658,12 @@ glyph gone keeps 72 / 111 / 111 and the 248 dp line.
   again keeps it; Skip enables only on a day the event falls on (D76).
 - **D100 (Dn)** Painting with no tap and no selection passed is identical
   to today's, so the year tiles do not change.
+- **D101 (lead, from G3's build)** The band's 40 × 48 pair is a third
+  named exception in `GuideTapTargetGuideline`
+  (`test/widgets/support/guide_guidelines.dart`), scoped to those two
+  nodes at 40 × 48 or larger and nothing else: the width is D87's stated
+  price for D39's pinned band, under Android's 48 and Apple's 44; the
+  height keeps 48.
 
 Risks the designer named for the `design-reviewer` (G6): the card in
 German, light and dark, 1.0 / 1.3 / 2.0, kinds, alerts and fasting, in
@@ -2716,12 +2722,82 @@ scratch goldens never meet the implementer's gate):
   the tap wired in `calendar_guide_try_kinds.dart`, the `skipped` line's
   new placeholders, the try-cards suite (a tap picks, Skip enables only on
   a marked day, the picker still works, the year tiles unchanged).
+  *As built 2026-11-01 (one `implementer`):* `MonthDotMatrix.selectedIndex`
+  / `selectedColor` (the ring `rect.inflate(1.0)`, stroke 0.75, after
+  today's ring, only when both are set) and `onDayTap` with a public
+  `dayAt(Offset)` (edge tiles 9 units — the half-gap outside the box takes
+  no hits, 27 dp at 3×); the detector `onTapUp` only, opaque, only when
+  the callback is passed; `CalendarGuideStageMatrix.minScale`,
+  `GuideMetrics.stageMatrixTapMinScale` 3; the Dentist's category through
+  a new `GuideCardDemo.needsCategories` / `adoptCategories` hook fed by
+  the topic page's one `CategoryService` read (no hook reached single-card
+  demos; `adoptCategories` calls `notifyListeners`, not `changed`, so
+  arriving categories do not clear a report), re-seeding the category
+  only; `calendarGuideCoachKindsSkip` without `{date}`. Try-cards +315,
+  `month_dot_matrix_test` +39, the picker, overview, year scroll, day
+  list, upcoming and overview golden suites unchanged; the whole suite
+  +12383 ~11 −1.
+  *Reviewed 2026-11-01 (one `reviewer`; the paint diffed against HEAD —
+  only the guarded ring block appended; a 150 dp drag on the matrix
+  scrolled the page; the relaunch case went red with the hook disabled):*
+  no bug; seven low items — closed by the lead after G3 freed the tree:
+  (1) `_update`'s comment still says the grid would not let her pick the
+  day; (2) the matrix comment says the ring sits "inside half the gap"
+  (its centre line is at half the gap, its outer edge at 1.375 units,
+  0.625 clear of the next square); (3) the cold-relaunch case restores
+  the category cache by hand, no `addTearDown`. Accepted: (4) the case
+  cannot reproduce a real cold start's ordering (`_load` publishes the
+  cache before `getInstance` resolves — reasoned right); (5) the
+  `skipped` line now names only the squares, which TalkBack cannot reach
+  (D98) — the Date row stays the accessible path, noted for G6; (6) a
+  stage under 204 dp wide drops the scale below 3 (no phone); (7) a
+  failed categories load publishes `[]` and the Dentist falls back to
+  Other, as the whole calendar would.
 - **G3 — the stepper.** D70 to designer A's spec: a reading cursor on
   `GuideCoach` (never touching the done set), the back / forward pair on
   `CalendarGuideTryCard` and `_PracticeBand`, the tooltips (§8.5.2), the
   candidates list sized for the read-back lines, the suites (back shows
   the earlier line with its mark, forward returns, forward at the live
   line skips, an action snaps back, the band's height at de 1.3).
+  *As built 2026-11-01 (one `implementer`):* `GuideCoach` gained a reading
+  cursor — `reading`, `viewed` (null at live), `canBack`
+  (`(cursor ?? live) > 0`), `canForward` (`reading || !finished`),
+  `back()`, `forward()` (cursor + 1, live again at the live position; at
+  live it is `skip()`); every mutator nulls the cursor; `line` reads
+  viewed → report → next. `FormTrailingButton.width` (default 48);
+  `coachGap`, `bannerGlyphSize`, `bannerGap` retired; `bannerButtonWidth`
+  40, `bannerReadBackAlpha` 0.78, `coachDoneMarkSize` 14,
+  `coachDoneMarkGap` 4; `practiceStepBack`, `calendarGuideTryStepBack`.
+  Two shared widgets in the card file, `CalendarGuideReadBackText` (the
+  `WidgetSpan` mark — sized at 1.0, since `WidgetSpan` scales inline
+  widgets itself; the drawn mark is 14 × 1.3 at 1.3) and
+  `CalendarGuideCoachSemantics` (one node, `liveRegion: !reading`, the
+  label "Done\n<line>" while reading); `GuideCardDemo.skip()` replaced by
+  `forward()`; the fasting card's D44 override gated by `!reading`. Back
+  and forward leave a standing report alone (it belongs to the live
+  line); forward at live clears it as skip did. The band's heights
+  72 / 111 / 111 and the 248 dp line pinned; the card slots at de
+  1.0 / 1.3 / 2.0: kinds 80 / 100 / 100, alerts 60 / 125 / 125, fasting
+  80 / 150 / 150; forward's right edge on the stage's right edge, back
+  touching it. D101's exception. Suites: coach 21, try cards 324,
+  practice 84, topic 47, form rows 148, flows lint 29, hub 27.
+  *Reviewed 2026-11-01 (one `reviewer`; a probe showed identical row
+  heights and baselines live against read-back at 1.0 and 1.3; format
+  clean on the 14 files; +606 across the five suites):* no bug; seven
+  low items, closed by the lead before G4 — (1) with the fasting card's
+  override showing `steps.first` while no tradition is on, back from
+  live shows the same words muted: `canBack` is false while the override
+  speaks (the fasting read-back case rewritten: a tradition on brings back
+  and the read-back lines); (3) five comments still describe a single
+  skip — reworded; (4) nothing pins the literal 40 — pinned once in the
+  band geometry case. Accepted: (5) forward at live under a standing
+  report — the band case "a skip under a standing report only clears it"
+  already drives the forward button (`practiceSkip`), so it is covered at
+  the widget level on the band; (2) a cross-card redraw does not snap
+  a reading card (only the card's own actions do, by design); (6) the
+  card geometry case pins the events card's right edge and `back.top`
+  only; (7) the read-back candidates are rebuilt per notify (static
+  closures, the slot never changes size).
 - **G4 — the screen stage.** D73 to designer B's spec: one
   `GuideCardSpec` for the screen page, the view switch in
   `calendar_guide_try_screen.dart` over `GuideScreenWorld`, the overview
@@ -2732,7 +2808,49 @@ scratch goldens never meet the implementer's gate):
 - **G5 — the Report view.** D74: `ReportBody` lifted out of
   `calendar_report_page.dart` with the page drawing it unchanged (its
   suite green before and after), the stage's Report over the demo, the
-  `report` step live.
+  `report` step live. Split in the run: **G5a** the lift, **G5b** the
+  stage's Report view (after G4).
+  *G5a as built 2026-11-01 (one `implementer`):* `lib/widgets/report_body.dart`
+  — `ReportBand` (the band with its title-template cache per locale and
+  year, `choiceLabel` public static for the page's Period menu; null
+  `onTitleTap` / `onStep` / `onHome` disables that control where it
+  stands) and `ReportBody` (the slivers, `_buildCard`, `_moreCategories`,
+  `_buildFooter`, `_placeholderTiles`, `_againstName` reading `today` and
+  `years` from inputs); the page maps the bloc state to both (1288 → 940
+  lines); `ReportGroupStack`'s `onDatedTap` / `onRoutineTap` /
+  `onShowAsList` / `onShrink` and `ReportGroupRows`'s two taps nullable —
+  null is a row drawn in full with no tap target and no chevron, a
+  disabled-not-hidden footer row or cap row, no presence button, no slack
+  arming (`EndSlackSliver(arms: 0)`), the body's own scroll controller
+  when none is passed. Callbacks hand back what the body computed
+  (`onShare(report, periodName:, against:)`, `onSend(period,
+  categoryIds)`, `onMoreCategories(report, largest:, spansMonths:)`, one
+  `ReportShowAsList({start, end, categoryIds})`). The report's category
+  filter lives in the bar's actions, not the band — the stage draws its
+  own bar (D81), so nothing more to lift. Suites unchanged +105 / +28 /
+  +10 / +30, `report_body_test.dart` +6 (the no-tap case proven
+  non-vacuous by a reverted probe); the whole suite +12368 ~11 −1.
+  *Reviewed 2026-11-01 (one `reviewer`, the moved bodies line-diffed
+  against HEAD — no difference beyond `shown.*` → `widget.*` and the null
+  guards; nothing writes; ids, paddings, keys, `RepaintBoundary`s and doc
+  comments kept):* no bug; six low items, closed in G5b rather than a fix
+  pass of their own — (1) the band case's `onToday` null check is vacuous
+  because `period == home` already nulls it: pump `home != period` and
+  pin `reportNavToday`; (2) the "n more categories" row and a capped
+  group's Show as list are never drawn by the fixture (3 categories,
+  short groups) — add a fixture that draws both disabled; (3) the no-tap
+  case proves no route, not "no tap target" — assert the inert rows'
+  semantics (`tap=false button=false`, as the reviewer's probe read); (4)
+  the page's `onMoreCategories` closure reads `alwaysUse24HourFormatOf` at
+  tap time — pass the build-time local; (5) `ReportBand.years` nullable
+  against `ReportBody.years` required, the page inventing a one-year
+  range before the first report — accepted; (6) a comment above `years:`
+  that covers `today` and `weekStart` too — reword.
+  **For G5b:** `CalendarReportService.sampleInput` reads the static
+  facades (`EventPresence`, `EventSkips`, `OccurrenceDescriptions`) by
+  event id, so a demo report lies for a demo id unless the sampler gets a
+  read seam whose default is today's static read — the §7.2 lesson again
+  (`isMissed` on the bars resolver is the precedent).
 - **G6 — close.** The `design-reviewer` over the stepper, the kinds card
   and the screen stage; `qa pass calendar -d emulator-5556`; the skill
   bullet, `references/subsystems.md`'s guide paragraph, the feature doc's

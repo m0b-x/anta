@@ -71,11 +71,13 @@ class ReportGroupRows {
   final VoidCallback onMore;
 
   /// A dated row's tap: the page opens the detail sheet on the row's day.
-  final void Function(ReportDatedRow row) onDatedTap;
+  /// Null leaves the row inert, as the guide's stage draws it.
+  final void Function(ReportDatedRow row)? onDatedTap;
 
   /// A routine aggregate's tap: the page opens the detail sheet on
   /// [ReportRoutineRow.latestDay], the one day the aggregate stands for.
-  final void Function(ReportRoutineRow row) onRoutineTap;
+  /// Null leaves the row inert.
+  final void Function(ReportRoutineRow row)? onRoutineTap;
 
   /// The presence button's press on a Missed row, handed the status to
   /// write; read on the Missed card only — nothing in Categories or Ahead
@@ -112,8 +114,8 @@ class ReportGroupRows {
     required this.expanded,
     required this.onToggle,
     required this.onMore,
-    required this.onDatedTap,
-    required this.onRoutineTap,
+    this.onDatedTap,
+    this.onRoutineTap,
     this.onPresence,
     this.onShowAsList,
     required this.today,
@@ -252,6 +254,7 @@ class ReportGroupRows {
   /// §4.8's aggregate row: the dated rows' shape, the attended count as the
   /// value so the column sums to the header (K, D26).
   Widget _routineRow(ReportRoutineRow row, CalendarEvent event) {
+    final onTap = onRoutineTap;
     return FormPickerRow(
       leading: const SizedBox.shrink(),
       label: event.title,
@@ -260,7 +263,7 @@ class ReportGroupRows {
       captionMaxLines: 1,
       singleLine: true,
       showChevron: false,
-      onTap: () => onRoutineTap(row),
+      onTap: onTap == null ? null : () => onTap(row),
       identifier: SemanticsIds.reportRoutine(row.eventId),
     );
   }
@@ -290,6 +293,7 @@ class ReportGroupRows {
       presenceTracked: EventPresence.appliesTo(event),
     );
     final mark = card == ReportCard.missed ? onPresence : null;
+    final onTap = onDatedTap;
     return AgendaDayListRowBuilder(
       rows: const [],
       today: today,
@@ -297,7 +301,7 @@ class ReportGroupRows {
       singleLineTitles: true,
       avatars: false,
       fadeMissed: false,
-      onEntryTap: (_) => onDatedTap(row),
+      onEntryTap: onTap == null ? null : (_) => onTap(row),
       onEntryPresence: mark == null ? null : (_, missed) => mark(row, missed),
       presenceIdentifier: mark == null
           ? null

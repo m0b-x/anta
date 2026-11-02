@@ -100,7 +100,23 @@ class _CalendarGuideTopicPageState extends State<CalendarGuideTopicPage> {
     for (final demo in _demos.values) {
       if (demo.needsAppearance) _loadAppearance(demo);
     }
+    if (_demos.values.any((demo) => demo.needsCategories)) _loadCategories();
     if (_world case final world?) _loadWorld(world);
+  }
+
+  /// The owner's categories for the cards that seed from them, read once,
+  /// as [_loadWorld] reads them for the screen page; the cached ones stand
+  /// until then.
+  Future<void> _loadCategories() async {
+    try {
+      final categories = (await CategoryService.getInstance()).categories;
+      if (!mounted) return;
+      for (final demo in _demos.values) {
+        if (demo.needsCategories) demo.adoptCategories(categories);
+      }
+    } catch (e, st) {
+      debugPrint('[CalendarGuideTopicPage] Categories load failed: $e\n$st');
+    }
   }
 
   /// The screen page's look, palette and categories, read once, as the
