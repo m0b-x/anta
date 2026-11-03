@@ -386,6 +386,11 @@ class OverviewRobot {
     await tester.pumpAndSettle();
   }
 
+  /// The bar's own ← — the default [BackButton], which asks the route
+  /// through `maybePop` as the system gesture does.
+  Future<void> tapBarBack() =>
+      _tap(find.descendant(of: _page, matching: find.byType(BackButton)));
+
   // --- The mode --------------------------------------------------------------
 
   static String _modeId(AgendaDayListMode mode) => switch (mode) {
@@ -590,6 +595,18 @@ class OverviewRobot {
       (w) => w is YearMonthTile && w.label.endsWith('$year'),
     ),
   );
+
+  /// Taps [month]'s tile in the year scroll, as a finger would — the drill
+  /// into that month, which persists nothing (D34).
+  Future<void> tapYearTile(DateTime month) =>
+      _tap(yearTiles(month.year).at(month.month - 1));
+
+  /// Whether [year]'s twelve tiles are built with their counts, not as the
+  /// placeholders a year still unresolved draws.
+  bool yearTilesResolved(int year) {
+    final tiles = tester.widgetList<YearMonthTile>(yearTiles(year));
+    return tiles.length == 12 && tiles.every((tile) => tile.count.isNotEmpty);
+  }
 
   /// [year]'s tiles' dot matrices, January first.
   List<MonthDotMatrix> yearMatrices(int year) => [
@@ -864,8 +881,7 @@ class OverviewRobot {
   /// The label of the tune button's merged semantics node — empty while the
   /// tooltip alone names it, which is what keeps Android 9+ announcing the
   /// name rather than the badge's number. Needs `tester.ensureSemantics()`.
-  String get optionsSemanticsLabel =>
-      tester.getSemantics(_optionsButton).label;
+  String get optionsSemanticsLabel => tester.getSemantics(_optionsButton).label;
 
   // --- The saved views (slice 9c) --------------------------------------------
 

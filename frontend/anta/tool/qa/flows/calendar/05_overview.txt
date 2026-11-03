@@ -12,6 +12,10 @@
 #   lane (slice 12).
 # - Month is waited on by the list leaving: List's nav carries the same title
 #   id, so the nav alone passes at once and the shot catches the cross-fade.
+# - D34: a tile's drill into its month is undone by one back, which returns
+#   to the tiles and never to the calendar beneath; and back closes an open
+#   Search row before it leaves the page. The tile is tapped by its label
+#   (its semantics label starts "Jan <year>," — tiles carry no id).
 tap id:calendar-view-menu
 wait id:calendar-overview-open
 tap id:calendar-overview-open
@@ -22,6 +26,22 @@ wait id:overview-year-{{year}}
 wait "Jan {{year}}"
 expect id:overview-scrubber
 shot 05_overview_year
+# D34: a tile drills into its month; one back returns to the tiles, never
+# to the calendar beneath.
+tap "Jan {{year}}"
+wait id:overview-years --gone
+wait "January {{year}}"
+shot 05_overview_drill
+key back
+wait id:overview-years
+wait id:overview-year-{{year}}
+wait "Jan {{year}}"
+# D34: back closes an open Search row before it leaves the page.
+tap id:overview-search-open
+wait id:overview-search
+key back
+wait id:overview-search --gone
+wait id:overview-view-year
 tap id:overview-view-list
 wait id:overview-list
 expect "Lifting session"

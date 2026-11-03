@@ -1,6 +1,6 @@
 # Calendar overview — the List mode rework (2026-10-11)
 
-**Status: COMMITTED `f3e0bc8` (2026-10-18, 51 files) — D32 (§2.8, §3.16), the snackbar surface (decision 9 of `docs/ui-language-adoption-roadmap.md` §3) and D33 (§2.9, §3.17); on top of it §2.9 item 17 IMPLEMENTED 2026-10-18, uncommitted — five files: the tune badge inside the glyph on the overview's and the calendar page's bar buttons, which the owner's phone had shown clipped by the 48 dp bar; its gate `dart analyze lib test tool test_driver` clean, `flutter test` `+8077 ~10 -1` (the one failure the known Windows-only `host_devices_test` case); no device pass of its own — the geometry tests pin the painted pill inside the bar on both pages, at text scales 1.0 and 2.0 on the overview, and the count out of the buttons' spoken name (the code review's catch: `ExcludeSemantics`); the owner commits.** The slices' own gate before `f3e0bc8`: `dart analyze lib test tool test_driver` clean, `flutter test` `+8074 ~10 -1`, no ARB touched; one review over both slices (eleven findings, none above low: nine fixed in one pass, two of them record wording); the device pass on the Pixel_9_Pro with the two-theme screenshot set retaken (`ovw2_*`, `ovw3_*`): flows 05, 17, 23 and 25 green, 24 red on its own pre-existing step (a label tap while the "Saved as …" message is still up) and green on the re-run after the fix pass taught it to wait (05 and 23 green again beside it); `qa errors` clean three times.** In the same commit, before it: **D32 (§2.8, §3.16): under the hidden missed display the picked day in Month mode lists its missed occurrences faded with the presence button, and every day with an occurrence is a day to pick; gate on the final tree `dart analyze lib test tool test_driver` clean, `flutter test` `+8044 ~10 -1` (the one failure the known Windows-only `host_devices_test` case), no ARB touched; the review's seven low findings fixed or accepted (§9 ledger); the device pass on the Pixel_9_Pro green — flow 25 72/72 on the agent transport, flows 23 and 05 green from a fresh seed, the owner's scenario by hand on 22 Oct and 10 Nov under Hidden, the de · dark · 2.0 matrix, `qa errors` clean; 12 files, in `f3e0bc8`.** Before it: **COMMITTED `ca3a5e3` (2026-10-17) — D31 (§2.7, §3.15): the day panel's presence button on the overview's day rows, the Mark presence switch retired; gate `dart analyze lib test tool test_driver` clean, `flutter test` `+8036 ~10`, `untranslated.txt` `{}`; the review clean on the code; the device pass green by hand and on flow 05, flows 23 and 24 red on two pre-existing harness items and green past them (§8, §9).** On top of: **IMPLEMENTED 2026-10-14, uncommitted — the third follow-up (§2.5 D19–D25, §3.13, slices 10a–10c) on top of both follow-ups IMPLEMENTED 2026-10-13, uncommitted (§2.3 D12–D14, slices 8a–8c; §2.4 D15–D18, slices 9a–9d), on top of the rework COMMITTED `c4f5697` (2026-10-12).** Together 73 uncommitted files. The third follow-up's gate on the final tree: `dart analyze lib test tool test_driver` clean, `flutter test` `+7654 ~9 -1` (the known Windows-only `host_devices_test` case; the one new skip is the reproduction of the page's stale-semantics case, §8), no ARB touched; `qa flows calendar` on the Pixel_9_Pro: 00–18 green, 19 red as before, 20–24 green run one by one after it (19 leaves its dialog open, so in a one-shot directory run every flow after it fails at its first step — a harness hazard that predates this slice), 23 green from a fresh seed (its first two runs, on data the earlier flows had mutated, read Gym 5 · Strength 9 against the seed's Gym 4 · Strength 8; a six-point bisect of its own steps from a fresh seed read 13 entries at every point); the matrix: en 1.0 light — twelve tiles on screen at 427 and at 360 wide, the nav one line, the title's menu on screen, Categories the sheet's first row, the search row summoned and dismissed; de 2.0 dark — both title menus whole with the ✓, "Kategorien" whole beside "Alle", "Jahr · Monat · Liste" and the search button on one row (the tiles' truncated names at 2.0 are Tier 3's §8 item; what looked like the count clipping the title at 360 is the harness overlay's tag drawn above the count's rect — the two rects abut); the behaviour check (Last 90 days from Year lands in List, Today disabled as the home); `qa errors` clean after the flows and the matrix. Not verified on a device: TalkBack's geometry after a title-menu pick that switches mode (§8, the observer) and the keyboard fold with the Search row open under a real keyboard. The owner reviews and commits; the next session that opens this record corrects this line from `git log`. Together 71 uncommitted files (new: `lib/controllers/event_sheets_flow.dart`, `lib/utils/sheet_guard.dart`, `lib/models/overview_view.dart`, `lib/database/tables/overview_views_table.dart`, `lib/database/daos/overview_view_dao.dart` + `.g.dart`, `lib/services/overview_view_service.dart`, `lib/widgets/overview_view_sheet.dart`, four test suites, two robots, a test helper, flow 24). The lead's own final gate on the final tree: `dart analyze lib test tool test_driver` clean, the whole `flutter test` `+7638 ~8 -1` (7536 after the first follow-up; the one failure the known Windows-only `host_devices_test` case), `untranslated.txt` `{}`, the schema at v41 and the upgrade run on the emulator's real v40 database with nothing in `qa errors`, `qa flows calendar` 24 / 25 (`19_fasting_schedule` red as before; `23_overview_list` and `24_overview_views` green end to end on the final tree), `qa errors` clean after every run. Not verified on a device: the chip row's fold under a real keyboard, TalkBack's reading of the marking hint, the long press on Android, 412 × 915 (the wrapper offers 360 × 800 and the default only). The owner reviews and commits; the next session that opens this record corrects this line from `git log`. The first follow-up: 19 files (17 changed, 2 new), `dart analyze lib test tool test_driver` clean, the whole `flutter test` `+7536 ~8 -1` on the lead's own run (the one failure the known Windows-only `host_devices_test` case), `untranslated.txt` `{}` (no ARB changed), `qa flows calendar` 23 / 24 on the Pixel_9_Pro emulator (`19_fasting_schedule` red as before; `05_overview` and `23_overview_list` green), `qa errors` clean after the flows and after the matrix; the chip row's fold under a real keyboard rests on widget tests (the harness cannot raise one). The owner reviews and commits; the next session that opens this record corrects this line from `git log`. The rework: slices 0–7 and the fix pass, 64 files: `dart analyze lib test tool test_driver` clean, the whole `flutter test` `+7524 ~8 -1` (7317 before the rework; the one failure the known Windows-only `host_devices_test` case), `untranslated.txt` `{}`, the benchmark green under `--tags benchmark --run-skipped`, `qa flows calendar` 23 / 24 with `23_overview_list` green end to end on the Pixel_9_Pro emulator (the one red, `19_fasting_schedule`, predates this rework), `qa errors` clean. D1–D11 were delegated to the lead by the owner on 2026-10-11 ("take any decisions using fable and implement using whatever you see fit"); the recommended option (A) stands for each. The owner committed it as `c4f5697` on 2026-10-12; their first use on the phone (2026-10-13) raised three points, answered in §2.3 (D12–D14, A each) and built as §6's slices 8a–8c against §3.11. 2026-10-15 — §2.6 D26–D30 decided (the years scroll, §3.14); slices 11–12 and the 12b fix pass IMPLEMENTED 2026-10-15, uncommitted; device pass 2026-10-15 green for the rework (24/25 flows, 19 red as before; Year mode by hand green; 360-wide not run), owner commit owed.
+**Status: COMMITTED `f3e0bc8` (2026-10-18, 51 files) — D32 (§2.8, §3.16), the snackbar surface (decision 9 of `docs/ui-language-adoption-roadmap.md` §3) and D33 (§2.9, §3.17); on top of it §2.9 item 17 COMMITTED `667aab96` (2026-10-19) — five files: the tune badge inside the glyph on the overview's and the calendar page's bar buttons, which the owner's phone had shown clipped by the 48 dp bar; its gate `dart analyze lib test tool test_driver` clean, `flutter test` `+8077 ~10 -1` (the one failure the known Windows-only `host_devices_test` case); no device pass of its own — the geometry tests pin the painted pill inside the bar on both pages, at text scales 1.0 and 2.0 on the overview, and the count out of the buttons' spoken name (the code review's catch: `ExcludeSemantics`); the owner commits.** The slices' own gate before `f3e0bc8`: `dart analyze lib test tool test_driver` clean, `flutter test` `+8074 ~10 -1`, no ARB touched; one review over both slices (eleven findings, none above low: nine fixed in one pass, two of them record wording); the device pass on the Pixel_9_Pro with the two-theme screenshot set retaken (`ovw2_*`, `ovw3_*`): flows 05, 17, 23 and 25 green, 24 red on its own pre-existing step (a label tap while the "Saved as …" message is still up) and green on the re-run after the fix pass taught it to wait (05 and 23 green again beside it); `qa errors` clean three times.** In the same commit, before it: **D32 (§2.8, §3.16): under the hidden missed display the picked day in Month mode lists its missed occurrences faded with the presence button, and every day with an occurrence is a day to pick; gate on the final tree `dart analyze lib test tool test_driver` clean, `flutter test` `+8044 ~10 -1` (the one failure the known Windows-only `host_devices_test` case), no ARB touched; the review's seven low findings fixed or accepted (§9 ledger); the device pass on the Pixel_9_Pro green — flow 25 72/72 on the agent transport, flows 23 and 05 green from a fresh seed, the owner's scenario by hand on 22 Oct and 10 Nov under Hidden, the de · dark · 2.0 matrix, `qa errors` clean; 12 files, in `f3e0bc8`.** Before it: **COMMITTED `ca3a5e3` (2026-10-17) — D31 (§2.7, §3.15): the day panel's presence button on the overview's day rows, the Mark presence switch retired; gate `dart analyze lib test tool test_driver` clean, `flutter test` `+8036 ~10`, `untranslated.txt` `{}`; the review clean on the code; the device pass green by hand and on flow 05, flows 23 and 24 red on two pre-existing harness items and green past them (§8, §9).** On top of: **IMPLEMENTED 2026-10-14, uncommitted — the third follow-up (§2.5 D19–D25, §3.13, slices 10a–10c) on top of both follow-ups IMPLEMENTED 2026-10-13, uncommitted (§2.3 D12–D14, slices 8a–8c; §2.4 D15–D18, slices 9a–9d), on top of the rework COMMITTED `c4f5697` (2026-10-12).** Together 73 uncommitted files. The third follow-up's gate on the final tree: `dart analyze lib test tool test_driver` clean, `flutter test` `+7654 ~9 -1` (the known Windows-only `host_devices_test` case; the one new skip is the reproduction of the page's stale-semantics case, §8), no ARB touched; `qa flows calendar` on the Pixel_9_Pro: 00–18 green, 19 red as before, 20–24 green run one by one after it (19 leaves its dialog open, so in a one-shot directory run every flow after it fails at its first step — a harness hazard that predates this slice), 23 green from a fresh seed (its first two runs, on data the earlier flows had mutated, read Gym 5 · Strength 9 against the seed's Gym 4 · Strength 8; a six-point bisect of its own steps from a fresh seed read 13 entries at every point); the matrix: en 1.0 light — twelve tiles on screen at 427 and at 360 wide, the nav one line, the title's menu on screen, Categories the sheet's first row, the search row summoned and dismissed; de 2.0 dark — both title menus whole with the ✓, "Kategorien" whole beside "Alle", "Jahr · Monat · Liste" and the search button on one row (the tiles' truncated names at 2.0 are Tier 3's §8 item; what looked like the count clipping the title at 360 is the harness overlay's tag drawn above the count's rect — the two rects abut); the behaviour check (Last 90 days from Year lands in List, Today disabled as the home); `qa errors` clean after the flows and the matrix. Not verified on a device: TalkBack's geometry after a title-menu pick that switches mode (§8, the observer) and the keyboard fold with the Search row open under a real keyboard. The owner reviews and commits; the next session that opens this record corrects this line from `git log`. Together 71 uncommitted files (new: `lib/controllers/event_sheets_flow.dart`, `lib/utils/sheet_guard.dart`, `lib/models/overview_view.dart`, `lib/database/tables/overview_views_table.dart`, `lib/database/daos/overview_view_dao.dart` + `.g.dart`, `lib/services/overview_view_service.dart`, `lib/widgets/overview_view_sheet.dart`, four test suites, two robots, a test helper, flow 24). The lead's own final gate on the final tree: `dart analyze lib test tool test_driver` clean, the whole `flutter test` `+7638 ~8 -1` (7536 after the first follow-up; the one failure the known Windows-only `host_devices_test` case), `untranslated.txt` `{}`, the schema at v41 and the upgrade run on the emulator's real v40 database with nothing in `qa errors`, `qa flows calendar` 24 / 25 (`19_fasting_schedule` red as before; `23_overview_list` and `24_overview_views` green end to end on the final tree), `qa errors` clean after every run. Not verified on a device: the chip row's fold under a real keyboard, TalkBack's reading of the marking hint, the long press on Android, 412 × 915 (the wrapper offers 360 × 800 and the default only). The owner reviews and commits; the next session that opens this record corrects this line from `git log`. The first follow-up: 19 files (17 changed, 2 new), `dart analyze lib test tool test_driver` clean, the whole `flutter test` `+7536 ~8 -1` on the lead's own run (the one failure the known Windows-only `host_devices_test` case), `untranslated.txt` `{}` (no ARB changed), `qa flows calendar` 23 / 24 on the Pixel_9_Pro emulator (`19_fasting_schedule` red as before; `05_overview` and `23_overview_list` green), `qa errors` clean after the flows and after the matrix; the chip row's fold under a real keyboard rests on widget tests (the harness cannot raise one). The owner reviews and commits; the next session that opens this record corrects this line from `git log`. The rework: slices 0–7 and the fix pass, 64 files: `dart analyze lib test tool test_driver` clean, the whole `flutter test` `+7524 ~8 -1` (7317 before the rework; the one failure the known Windows-only `host_devices_test` case), `untranslated.txt` `{}`, the benchmark green under `--tags benchmark --run-skipped`, `qa flows calendar` 23 / 24 with `23_overview_list` green end to end on the Pixel_9_Pro emulator (the one red, `19_fasting_schedule`, predates this rework), `qa errors` clean. D1–D11 were delegated to the lead by the owner on 2026-10-11 ("take any decisions using fable and implement using whatever you see fit"); the recommended option (A) stands for each. The owner committed it as `c4f5697` on 2026-10-12; their first use on the phone (2026-10-13) raised three points, answered in §2.3 (D12–D14, A each) and built as §6's slices 8a–8c against §3.11. 2026-10-15 — §2.6 D26–D30 decided (the years scroll, §3.14); slices 11–12 and the 12b fix pass IMPLEMENTED 2026-10-15, uncommitted; device pass 2026-10-15 green for the rework (24/25 flows, 19 red as before; Year mode by hand green; 360-wide not run), owner commit owed; D34 (§2.10, §3.18) built on 2026-11-02, uncommitted.
 Written on a clean tree at `a4f783a` from a read of the overview page, the
 store, the index, the rows, the Tier 3 day list and the scan, plus one
 independent read-only review of the list mode's performance and behaviour
@@ -392,6 +392,44 @@ owner's "correct them".
 17. (2026-10-18, the owner's phone the morning after) The tune button's count badge was clipped at the top: `Badge.count` wrapped the whole 48 dp button and Material places a labelled badge 4 dp above its child, which the 56 dp bar had absorbed and the 48 dp bar clips → the badge rides the glyph inside the button (`IconButton(icon: ExcludeSemantics(child: Badge.count(child: Icon)))`, Material's own placement), on the overview's tune button and the calendar page's filter button alike. The `ExcludeSemantics` is the code review's catch (2026-10-18, ten angles over this diff): inside the button's merged node the count became its label, and Android 9+ announces a label instead of the tooltip, so TalkBack would have read the button as a bare "1" — the count stays silent, since a spoken count needs words of its own (three strings, the owner's call). The overview's page suite measures the painted pill, not its text, inside the 48 dp bar at text scale 1.0 (9 dp of slack) and 2.0 (about 1 dp — the pill grows with the label, and past about 2.1× linear it would clip again, which Android's non-linear 200 % never reaches), and pins that the button's semantics label is not the count. The calendar page's header suite pins the same for its filter button (a hidden category through `ChangeCalendarFilters`, the pill inside the bar, the node's label not the count). The agenda search row's count badge (`upcoming_agenda_view.dart`) still wraps its button: in no bar, so unclipped, though at 2.0 its pill runs past the panel's edge.
 
 **Left for the owner** (a recorded decision or a judgement call): the scrubber lane over the rows' presence button since D31 (TalkBack finds the lane first over 32 of the button's 48 dp, and a vertical drag that starts on the button scrubs — record §8's lane item; the choices are a lane narrowed to the gutter and the thumb, or the presence slot inset in List mode); the totals caption left-aligned under a centred nav (D23 set the slot, not its alignment); the views sheet's row menu and the bar's overflow on `showMenu` + `PopupMenuItem` (the language has no action-menu primitive; header D7); the Period menu's 220 floor beside the 236 header menus; the Dates sheet's Month | Year `SegmentedButton` (Tier 1 D11 kept it unchanged — the one stock control left on the overview's path); "Nothing in this period" under a live search, the search button's tooltip while it is open, and the overlay bar covering a one-row sheet (master record §8); the dialog layer's own field — `AppDialogs.textInput` draws an outlined `TextField` under a floating label, so the name dialog now looks like every other text prompt in the app, and the layer's look is the master record's inventory item beside its decision 2; inside an `AppBar` a bar button's `isSelected` has no visible effect (the ambient `IconTheme` colour overrides the selected state — pre-existing, the views and tune buttons included; the tune badge is what shows). Seen on the emulator only: a light system navigation bar in the dark theme (the owner's phone draws it dark; app-wide, not the overview's). From the code review of item 17, pre-existing and outside this pass: the browser bar's overflow badge (`folder_overflow_menu.dart`, the bar's last action) reaches 7–8 dp past the bar's right edge at text scale 2.0 and is clipped there — a trailing gutter on every bar (an `actionsPadding` end inset named in `AppBarMetrics`) or a cap on the badge label's text scale would settle it app-wide; the agenda search row's badge (above) would take the glyph placement with care for its `selectedIcon`; a spoken count on the badged buttons needs three strings.
+
+### 2.10 The owner's ask on 2026-11-01 — back on the overview: D34 (answered "can you please implement that": A)
+
+The owner's words: "Let's say that I'm navigating to overview mode from the
+calendar in yearly mode and then press on a month to go see that month:
+when I go back I expect to go to overview calendar mode, not into the
+normal calendar, but it happened anyways. Can we find similar navigation
+bugs in the calendar? Also, if I switch between month and year like 50
+times in overview modes and I click back I don't expect to have to click
+back 50 times."
+
+What the tree said: the three calendar views are routes that collapse onto
+one another (`AppNavigator.switchCalendarView`), a row tap opens the detail
+sheet in place (D14), and the overview's modes are page state — so a tile
+tap's `_openMonth` is in-page, and with no `PopScope` on the page back pops
+the route onto the calendar beneath. The tile tap is the one mode change
+that persists nothing: the tree already treats it as a drill-down, as the
+day list sheet does with `_cameFromYear` and its ← "Back to months" — only
+nothing on the page let the user climb out. §2.3 recorded the same
+complaint on 2026-10-13 ("dropped into Month by a tile tap, shows no way
+back to the tiles"); the chips answered it visually and back itself was
+never wired. The same absence lets back pop the page while the Search row
+is open, where the browser and All notes close their search first (one
+`PopScope` each: `optimized_folder_content_page.dart`, `all_notes_page.dart`).
+Siblings found and left for the owner: the day list sheet, whose system
+back dismisses the sheet while drilled by the Tier 3 filler rule (it has
+its own ←), and the calendar page's expanded panel, a toggle rather than a
+drill. Not bugs: chip picks, Period-menu picks, saved views and digest
+looks persist what they set — they are mode changes, never drills, and must
+never add back steps; that is the owner's second point.
+
+| # | Question | Options · **decision** |
+| --- | --- | --- |
+| D34 | What back means on the overview | **A** one `PopScope` on the page, always present; back is a ladder of three — close the open Search row (dropping its query, the search button's close path), else return to Year while the shown month was opened from a year tile (`_cameFromYear`: set by the tile tap alone, kept while ◄ ► page months or a day is picked, cleared by a chip pick, a Period-menu pick, a saved view or a digest look), else let the route pop; the bar's ← is the default `BackButton`, so `maybePop` runs the same ladder under the platform's "Back" · B a history of mode switches, each one a back step · C leave it |
+
+A: the tile tap is the one unpersisted mode change, so it is the one drill,
+and one flag can never cost more than one extra press however many chips
+were tapped; B is exactly the fifty backs.
 
 ## 3. The spec
 
@@ -1508,6 +1546,67 @@ surface. Flows: ids unchanged; flow 24 waits for the "Saved as …" message
 to go before it taps a view by label; the screenshot set in both themes is
 retaken for the device pass, with flows 05, 17, 23, 24 and 25.
 
+### 3.18 Back on the overview (D34, built 2026-11-02)
+
+**The page** (`lib/pages/calendar_overview_page.dart`). `_cameFromYear`
+(:148, beside `_mode`) is set inside `_openMonth`'s `setState` (:1686) and
+cleared inside the `setState` of `_selectMode` (:1607), `_listPeriod`
+(:2086) and `_listLook` (:2290) — every persisted mode change ends the
+drill; `_goToMonth` and `_toggleSelectedDay` leave it, and `_openMonth`
+still persists nothing. `_backIsHandled` (:2719) is `_searchOpen ||
+(_mode == month && _cameFromYear)`. `_onBackIntercepted` (:2727) closes the
+Search row through `_closeSearch` (:2706 — the search button's close
+branch factored out, `_toggleSearch` :2695 calls it, so the two are one
+code path: blur, clear the controller and the query when either is set,
+`_searchOpen = false`), else returns to Year through `_selectMode(year)`
+(which clears the flag, resolves the year before its frame and jumps the
+scroll; back takes the chip's path on purpose — the Year it writes is the
+mode this page entered Month from, so the stored mode reads as it did
+before the drill), else pops through `AppNavigator.pop(context)` (:2739),
+as the browser's handler does: a back that arrives between a state change
+and its rebuild (the search closed by the button, the key pressed before
+the frame) finds `canPop` still false and neither rung up, and would
+otherwise be lost; no haptic. The page's comments name "the overview
+record's D34", since the page also cites the report record's D35 and
+D36.8. The one `PopScope` (:2538) wraps the `Scaffold` inside the keyboard
+`Builder`, always present, `canPop: !_backIsHandled`,
+`onPopInvokedWithResult` calling `_onBackIntercepted` when the pop was
+refused — the browser's one-`PopScope` rule. The `AppBar` keeps its default
+leading: its `BackButton` calls `maybePop`, which runs the same ladder. No
+string, no id, no geometry changes.
+
+**Tests** (`test/widgets/calendar_overview_page_test.dart`, the group "back
+on the overview (D34)", :559, each opened through
+`OverviewRobot.openAboveCalendar(mode: year)` over the stand-in calendar):
+"back from a month a tile opened returns to the tiles, and only the next
+back leaves for the calendar" (which also pins the year's twelve tiles
+drawn with their counts, not placeholders); "the bar's ← runs the same
+ladder: the tiles first, then the calendar"; "a day picked inside the
+drill keeps the way back"; "chip switches never stack back steps";
+"a chip pick after a tile tap ends the drill"; "paging months inside the
+drill keeps the way back"; "back closes the Search row first and drops its
+query"; "over a drill, back closes the search, then returns to the tiles,
+then leaves"; "the stored mode stays Year through a drill and its back".
+The robot gained `tapYearTile(month)`, `yearTilesResolved(year)` and
+`tapBarBack()` (`overview_robot.dart` :601, :606, :391). With `canPop`
+forced true five of the first seven went red (a scratch run before the
+fix pass, reverted). The fall-through pop has no case of its own: the
+frame it guards cannot be reached through the robot.
+
+**The flow** (`tool/qa/flows/calendar/05_overview.txt`, after `shot
+05_overview_year`): `tap "Jan {{year}}"` (the tile's semantics label is
+"Jan <year>, n entries" — matched by the harness's substring pass; tiles
+carry no id), `wait id:overview-years --gone`, `wait "January {{year}}"`,
+`shot 05_overview_drill`, `key back`, then the years, the year's header and
+the tile again; `tap id:overview-search-open`, `wait id:overview-search`,
+`key back`, `wait id:overview-search --gone`, `wait id:overview-view-year`.
+The harness's `key back` is the agent's `maybePop` on the root navigator,
+never `KEYCODE_BACK`, so an IME's own first back is not exercised.
+
+**Skills.** `calendar-events` SKILL.md § Overview, drill-down, years: the
+ladder bullet; `references/subsystems.md`: the Back sentence at the end of
+the overview bullet.
+
 ## 4. Behaviour
 
 ### 4.1 Must not change
@@ -2067,6 +2166,18 @@ calendar`, the matrix (dark, `de`, 2.0, both sizes), `qa errors`; then the
 feature doc's addendum, `references/subsystems.md` § Overview, the
 `calendar-events` rule lines, the `calendar-ui` file table and device
 pass, this record's status line and ledger.
+
+### Slice 13 — Back on the overview (implementer, D34)
+
+§3.18: `lib/pages/calendar_overview_page.dart` (the flag, `_backIsHandled`,
+`_onBackIntercepted`, `_closeSearch`, the one `PopScope`),
+`test/widgets/calendar_overview_page_test.dart` (the D34 group),
+`test/widgets/support/overview_robot.dart` (`tapYearTile`),
+`tool/qa/flows/calendar/05_overview.txt` (the drill and the Search row
+under back), this record, `.claude/skills/calendar-events/SKILL.md` and
+`references/subsystems.md`. No ARB, no id. Gate: `dart analyze lib`, the
+page suite, the whole `flutter test` in the lead; then a qa-runner on flow
+05.
 
 ## 7. Definition of done
 
@@ -3140,3 +3251,26 @@ pass, this record's status line and ledger.
   Dialogs, `sheet-chrome.md`, `row-primitives.md`, `calendar-ui` (the nav,
   the tiles), `calendar-events` (the rule line, `subsystems.md` § Overview,
   the context log).
+- **2026-11-02 — D34, back on the overview (the owner's ask of 2026-11-01),
+  IMPLEMENTED, uncommitted** (slice 13, implementer). One `PopScope` around
+  the page's `Scaffold`, always present: back closes the Search row first,
+  then returns to Year from a month a tile opened (`_cameFromYear`, set by
+  the tile tap alone, cleared by every persisted mode change), then lets
+  the route pop; chip, Period-menu, view and look picks never add a back
+  step (§2.10, §3.18); a back that falls through both rungs pops through
+  `AppNavigator.pop`, as the browser's does. The page suite's group green
+  (nine cases after the fix pass; the suite `+218 ~1`); flow 05 gains the
+  drill and the Search row under back. The review: eleven findings, none
+  above low — the comment naming (the page also cites the report record's
+  D35 and D36.8, so its comments say "the overview record's D34"), the
+  fall-through pop, the comment wording over the Year write, this status
+  line (§2.9 item 17 shipped as `667aab96`) and the unpinned tests (the
+  bar's ←, a picked day inside the drill, the tiles resolved after the
+  back) fixed in the fix pass; accepted as designed: back lands on the
+  shown month's year through the chip's own path, and the flow's tile tap
+  by label, which the flow's existing `wait "Jan {{year}}"` already relies
+  on — an id per tile is the owner's call. The device pass: flow 05 green
+  1/1 on emulator-5556 on 2026-11-02, the tile tap by label resolved,
+  `key back` returned to the tiles, the Search row closed by back. Left
+  for the owner: the day list sheet's system back while drilled (the Tier
+  3 filler rule) and the calendar page's expanded panel.

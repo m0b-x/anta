@@ -139,6 +139,13 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
 
   Set<String> _categoryIds = const {};
   AgendaDayListMode _mode = AgendaDayListMode.year;
+
+  /// Whether the shown month was opened from a year tile (the overview
+  /// record's D34; the day list sheet's flag). The tile tap is the one mode
+  /// change that persists nothing, so it is the one drill back undoes; every
+  /// persisted mode change ends it, and paging months or picking a day
+  /// inside it keeps it.
+  bool _cameFromYear = false;
   bool _hapticFeedback = false;
   bool _settingsLoaded = false;
 
@@ -1597,6 +1604,7 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
     if (mode == _mode) return;
     setState(() {
       _mode = mode;
+      _cameFromYear = false;
       _selectedDay = null;
       if (mode == AgendaDayListMode.year && _period is! OverviewYearPeriod) {
         _year = _firstYearOf(_period);
@@ -1675,6 +1683,7 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
   void _openMonth(DateTime month) {
     setState(() {
       _mode = AgendaDayListMode.month;
+      _cameFromYear = true;
       _month = month;
       _year = month.year;
       _period = OverviewYearPeriod(month.year);
@@ -2074,6 +2083,7 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
   void _listPeriod(OverviewPeriod period) {
     setState(() {
       _mode = AgendaDayListMode.list;
+      _cameFromYear = false;
       _period = _home = period;
       _year = _firstYearOf(period);
       _selectedDay = null;
@@ -2277,6 +2287,7 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
     final categoriesChanged = !setEquals(categoryIds, _categoryIds);
     setState(() {
       _mode = AgendaDayListMode.list;
+      _cameFromYear = false;
       _period = _home = period;
       _year = _firstYearOf(period);
       _selectedDay = null;
@@ -2524,50 +2535,57 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
           final factor = current
               ? 1 - (inset / _chipRowHeight).clamp(0.0, 1.0)
               : 1.0;
-          return Scaffold(
-            // The language's ground, which the rows' groups are drawn against.
-            backgroundColor: colorScheme.pageGround,
-            appBar: appBar,
-            body: SafeArea(
-              top: false,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  // Folded away, the chips leave semantics and hit testing,
-                  // so a flow's wait for a chip holds until the keyboard is
-                  // down.
-                  Visibility(
-                    visible: factor > 0,
-                    child: ClipRect(
-                      child: Align(
-                        alignment: Alignment.topCenter,
-                        heightFactor: factor,
-                        child: chips,
-                      ),
-                    ),
-                  ),
-                  if (_searchOpen) ...[
-                    _buildSearchGroup(l10n),
-                    const SizedBox(height: FormMetrics.bodyTop),
-                  ],
-                  // The period band folds with the chips: at 200 % on a
-                  // small phone the nav's two-line title and the totals'
-                  // line alone are taller than what the keyboard
-                  // leaves the list, and while a query is typed the list's
-                  // rows are what is read.
-                  if (band != null)
+          return PopScope(
+            canPop: !_backIsHandled,
+            onPopInvokedWithResult: (didPop, _) {
+              if (!didPop) _onBackIntercepted();
+            },
+            child: Scaffold(
+              // The language's ground, which the rows' groups are drawn
+              // against.
+              backgroundColor: colorScheme.pageGround,
+              appBar: appBar,
+              body: SafeArea(
+                top: false,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    // Folded away, the chips leave semantics and hit testing,
+                    // so a flow's wait for a chip holds until the keyboard is
+                    // down.
                     Visibility(
                       visible: factor > 0,
                       child: ClipRect(
                         child: Align(
                           alignment: Alignment.topCenter,
                           heightFactor: factor,
-                          child: band,
+                          child: chips,
                         ),
                       ),
                     ),
-                  body,
-                ],
+                    if (_searchOpen) ...[
+                      _buildSearchGroup(l10n),
+                      const SizedBox(height: FormMetrics.bodyTop),
+                    ],
+                    // The period band folds with the chips: at 200 % on a
+                    // small phone the nav's two-line title and the totals'
+                    // line alone are taller than what the keyboard
+                    // leaves the list, and while a query is typed the list's
+                    // rows are what is read.
+                    if (band != null)
+                      Visibility(
+                        visible: factor > 0,
+                        child: ClipRect(
+                          child: Align(
+                            alignment: Alignment.topCenter,
+                            heightFactor: factor,
+                            child: band,
+                          ),
+                        ),
+                      ),
+                    body,
+                  ],
+                ),
               ),
             ),
           );
@@ -2682,12 +2700,43 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
       });
       return;
     }
+    _closeSearch();
+  }
+
+  void _closeSearch() {
     _blur();
     if (_searchController.text.isNotEmpty || _query.isNotEmpty) {
       _searchController.clear();
       _onQueryChanged('');
     }
     setState(() => _searchOpen = false);
+  }
+
+  /// Whether Back means something on this page before it means leaving it
+  /// (the overview record's D34). One [PopScope] serves the page, never one
+  /// per mode — the browser's rule: swapping them would rebuild the
+  /// [Scaffold] and lose the scroll.
+  bool get _backIsHandled =>
+      _searchOpen || (_mode == AgendaDayListMode.month && _cameFromYear);
+
+  /// The ladder of the overview record's D34: the open Search row closes
+  /// first, then a month opened from a year tile returns to the tiles; mode
+  /// switches never stack steps. A back that arrives between a state change
+  /// and its rebuild finds `canPop` still false and neither rung up, so it
+  /// pops here rather than being lost, as the browser's does.
+  void _onBackIntercepted() {
+    if (_searchOpen) {
+      _closeSearch();
+      return;
+    }
+    // Back takes the chip's path on purpose: the Year it writes is the mode
+    // this page entered Month from, so the stored mode reads as it did
+    // before the drill.
+    if (_mode == AgendaDayListMode.month && _cameFromYear) {
+      _selectMode(AgendaDayListMode.year);
+      return;
+    }
+    AppNavigator.pop(context);
   }
 
   /// The chip row's height at the default text scale — its gap under the bar

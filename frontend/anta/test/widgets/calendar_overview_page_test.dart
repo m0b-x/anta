@@ -556,6 +556,187 @@ void main() {
     expect(sheet.day, DateTime.utc(year, 3, 9));
   });
 
+  group('back on the overview (D34)', () {
+    final march = DateTime.utc(year, 3, 1);
+    String monthTitle(DateTime month) =>
+        AgendaListView.monthLabel('en', month, withYear: true);
+
+    Future<OverviewRobot> openOverYear(WidgetTester tester) async {
+      final robot = OverviewRobot(tester);
+      await robot.openAboveCalendar(
+        bloc: bloc,
+        importExport: importExport,
+        mode: AgendaDayListMode.year,
+      );
+      expect(robot.currentMode, AgendaDayListMode.year);
+      return robot;
+    }
+
+    testWidgets('back from a month a tile opened returns to the tiles, and '
+        'only the next back leaves for the calendar', (tester) async {
+      final robot = await openOverYear(tester);
+
+      await robot.tapYearTile(march);
+      expect(robot.currentMode, AgendaDayListMode.month);
+      expect(robot.navTitle, monthTitle(march));
+
+      await robot.back();
+
+      expect(robot.currentMode, AgendaDayListMode.year);
+      expect(robot.isOpen, isTrue);
+      expect(robot.calendarBeneathVisible, isFalse);
+      expect(robot.yearHeader(year), findsOneWidget);
+      expect(robot.yearTilesResolved(year), isTrue);
+
+      await robot.back();
+
+      expect(robot.isOpen, isFalse);
+      expect(robot.calendarBeneathVisible, isTrue);
+    });
+
+    testWidgets('the bar\'s ← runs the same ladder: the tiles first, then the '
+        'calendar', (tester) async {
+      final robot = await openOverYear(tester);
+
+      await robot.tapYearTile(march);
+      await robot.tapBarBack();
+
+      expect(robot.currentMode, AgendaDayListMode.year);
+      expect(robot.isOpen, isTrue);
+
+      await robot.tapBarBack();
+
+      expect(robot.isOpen, isFalse);
+      expect(robot.calendarBeneathVisible, isTrue);
+    });
+
+    testWidgets('a day picked inside the drill keeps the way back', (
+      tester,
+    ) async {
+      final robot = await openOverYear(tester);
+
+      await robot.tapYearTile(march);
+      await robot.tapGridDay(DateTime.utc(year, 3, 9));
+      expect(robot.dayPicked, isTrue);
+
+      await robot.back();
+
+      expect(robot.currentMode, AgendaDayListMode.year);
+      expect(robot.isOpen, isTrue);
+    });
+
+    testWidgets('chip switches never stack back steps', (tester) async {
+      final robot = await openOverYear(tester);
+
+      for (final mode in [
+        AgendaDayListMode.month,
+        AgendaDayListMode.list,
+        AgendaDayListMode.month,
+        AgendaDayListMode.year,
+        AgendaDayListMode.month,
+      ]) {
+        await robot.selectMode(mode);
+      }
+      await robot.back();
+
+      expect(robot.isOpen, isFalse);
+      expect(robot.calendarBeneathVisible, isTrue);
+    });
+
+    testWidgets('a chip pick after a tile tap ends the drill', (tester) async {
+      final robot = await openOverYear(tester);
+
+      await robot.tapYearTile(march);
+      await robot.selectMode(AgendaDayListMode.list);
+      await robot.selectMode(AgendaDayListMode.month);
+      await robot.back();
+
+      expect(robot.isOpen, isFalse);
+      expect(robot.calendarBeneathVisible, isTrue);
+    });
+
+    testWidgets('paging months inside the drill keeps the way back', (
+      tester,
+    ) async {
+      final robot = await openOverYear(tester);
+
+      await robot.tapYearTile(march);
+      await robot.next();
+      expect(robot.navTitle, monthTitle(DateTime.utc(year, 4, 1)));
+
+      await robot.back();
+
+      expect(robot.currentMode, AgendaDayListMode.year);
+      expect(robot.isOpen, isTrue);
+      expect(robot.calendarBeneathVisible, isFalse);
+    });
+
+    testWidgets('back closes the Search row first and drops its query', (
+      tester,
+    ) async {
+      final robot = await openOverYear(tester);
+      final unfiltered = robot.navCount;
+
+      await robot.typeQuery('stretch');
+      expect(robot.navCount, isNot(unfiltered));
+
+      await robot.back();
+
+      expect(robot.searchOpen, isFalse);
+      expect(robot.searchSelected, isFalse);
+      expect(robot.navCount, unfiltered);
+      expect(robot.isOpen, isTrue);
+      expect(robot.currentMode, AgendaDayListMode.year);
+
+      await robot.back();
+
+      expect(robot.isOpen, isFalse);
+      expect(robot.calendarBeneathVisible, isTrue);
+    });
+
+    testWidgets('over a drill, back closes the search, then returns to the '
+        'tiles, then leaves', (tester) async {
+      final robot = await openOverYear(tester);
+
+      await robot.tapYearTile(march);
+      await robot.openSearch();
+
+      await robot.back();
+      expect(robot.searchOpen, isFalse);
+      expect(robot.currentMode, AgendaDayListMode.month);
+
+      await robot.back();
+      expect(robot.currentMode, AgendaDayListMode.year);
+      expect(robot.isOpen, isTrue);
+
+      await robot.back();
+      expect(robot.isOpen, isFalse);
+      expect(robot.calendarBeneathVisible, isTrue);
+    });
+
+    testWidgets('the stored mode stays Year through a drill and its back', (
+      tester,
+    ) async {
+      final robot = await openOverYear(tester);
+      final settings = await SettingsService.getInstance();
+
+      await robot.tapYearTile(march);
+      expect(
+        (await settings.getCalendarOverviewSettings()).mode,
+        AgendaDayListMode.year,
+        reason: 'a tile tap persists nothing',
+      );
+
+      await robot.back();
+
+      expect(robot.currentMode, AgendaDayListMode.year);
+      expect(
+        (await settings.getCalendarOverviewSettings()).mode,
+        AgendaDayListMode.year,
+      );
+    });
+  });
+
   testWidgets('the nav ids sit on the year nav in Year mode and on the month '
       'nav in Month mode, never on both', (tester) async {
     List<AgendaPeriodNav> navsWearing(String id) => [
