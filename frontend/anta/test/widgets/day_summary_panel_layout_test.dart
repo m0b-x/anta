@@ -1,8 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:anta/constants/calendar_categories.dart';
+import 'package:anta/constants/category_kinds.dart';
+import 'package:anta/constants/category_profiles.dart';
 import 'package:anta/l10n/app_localizations.dart';
+import 'package:anta/models/calendar_category.dart';
 import 'package:anta/models/calendar_event.dart';
+import 'package:anta/models/category_profile.dart';
 import 'package:anta/models/day_summary_entry.dart';
 import 'package:anta/widgets/day_summary_panel.dart';
 
@@ -181,5 +186,77 @@ void main() {
 
     await pump(onEventTap: (_) {});
     expect(chevron, findsOneWidget);
+  });
+
+  // Decision B of the analytics record: the button that returns a missed
+  // occurrence speaks the category's verb, as the overview's rows do.
+  testWidgets('a missed row\'s button reads "Mark as attended" under Workout '
+      'and "Mark as present" without a profile', (tester) async {
+    CalendarCategories.updateCache([
+      for (final (i, id) in const ['gym', 'plain'].indexed)
+        CalendarCategory(
+          id: id,
+          name: id,
+          colorValue: 0xFF1E88E5,
+          iconKey: 'event',
+          sortOrder: i,
+          isBuiltIn: false,
+        ),
+    ]);
+    CategoryProfiles.updateCache({
+      'gym': const CategoryProfile(
+        id: 'p1',
+        categoryId: 'gym',
+        kind: CategoryKind.workout,
+      ),
+    });
+    addTearDown(() {
+      CategoryProfiles.resetCache();
+      CalendarCategories.updateCache(const []);
+    });
+    DaySummaryEntry missed(String id, String categoryId) => DaySummaryEntry(
+      key: 'event:$id',
+      icon: Icons.event,
+      color: Colors.blue,
+      title: id,
+      priority: 0,
+      event: CalendarEvent(
+        id: id,
+        title: id,
+        categoryId: categoryId,
+        startDate: DateTime.utc(2026, 8, 24),
+        tracksPresence: true,
+      ),
+      presenceTracked: true,
+      missed: true,
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        locale: const Locale('en'),
+        home: Scaffold(
+          body: SizedBox(
+            width: 360,
+            child: DaySummaryPanel(
+              day: DateTime.utc(2026, 8, 24),
+              entries: [missed('Lift', 'gym'), missed('Walk', 'plain')],
+              onToggleMissed: (_, _) {},
+            ),
+          ),
+        ),
+      ),
+    );
+    String tooltip(String id) => tester
+        .widget<IconButton>(
+          find.descendant(
+            of: find.byKey(ValueKey('event:$id')),
+            matching: find.byType(IconButton),
+          ),
+        )
+        .tooltip!;
+
+    expect(tooltip('Lift'), 'Mark as attended');
+    expect(tooltip('Walk'), 'Mark as present');
   });
 }

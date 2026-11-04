@@ -291,6 +291,7 @@ class ReportGroupRows {
       missed: row.missed,
       eventId: event.id,
       presenceTracked: EventPresence.appliesTo(event),
+      categoryId: event.categoryId,
     );
     final mark = card == ReportCard.missed ? onPresence : null;
     final onTap = onDatedTap;

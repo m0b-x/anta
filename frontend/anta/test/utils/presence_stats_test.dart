@@ -63,13 +63,28 @@ void main() {
     });
 
     test('a one-time event has no stats even when it opted in', () {
-      expect(
-        PresenceAdherence.compute(
-          event(rule: const OneTimeRecurrence()),
-          today: today,
-        ),
-        isNull,
+      // Presence applies to it since decision B, but a single occasion has
+      // no adherence or streak: the gate here keeps the old rule on purpose.
+      final once = event(
+        rule: const OneTimeRecurrence(),
+        startDate: today.subtract(const Duration(days: 2)),
       );
+      expect(EventPresence.appliesTo(once), isTrue);
+      expect(PresenceAdherence.compute(once, today: today), isNull);
+    });
+
+    test('a tracked set of explicit dates still has stats', () {
+      final dates = event(
+        rule: SpecificDatesRecurrence(
+          dates: {
+            today.subtract(const Duration(days: 3)),
+            today.subtract(const Duration(days: 1)),
+          },
+        ),
+        startDate: today.subtract(const Duration(days: 3)),
+      );
+      final stats = PresenceAdherence.compute(dates, today: today)!;
+      expect((stats.attended, stats.total), (2, 2));
     });
 
     test('an event with no occurrence in the lookback has no stats', () {

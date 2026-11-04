@@ -286,7 +286,7 @@ void main() {
       expect(EventPresence.isMissed(eventOf('e1'), day), isTrue);
     });
 
-    test('appliesTo needs the opt-in and more than one occurrence', () {
+    test('appliesTo needs the opt-in alone, whatever the shape', () {
       final tracked = CalendarEvent(
         id: 'e1',
         title: 'Leg day',
@@ -301,11 +301,11 @@ void main() {
         EventPresence.appliesTo(tracked.copyWith(tracksPresence: false)),
         isFalse,
       );
-      // An event that fires on exactly one day has no attendance to keep.
+      // Decision B: a one-off is done or overdue like a routine is attended.
+      final once = tracked.copyWith(rule: const OneTimeRecurrence());
+      expect(EventPresence.appliesTo(once), isTrue);
       expect(
-        EventPresence.appliesTo(
-          tracked.copyWith(rule: const OneTimeRecurrence()),
-        ),
+        EventPresence.appliesTo(once.copyWith(tracksPresence: false)),
         isFalse,
       );
       // A specific-dates rule is a list of distinct occasions and does
@@ -319,6 +319,52 @@ void main() {
         ),
         isTrue,
       );
+    });
+
+    test(
+      'a tracked one-off under assume-absent is missed until marked',
+      () async {
+        // Overdue: its day passed unmarked. The facade reads no clock, so what
+        // keeps a day still ahead out of the missed count is the reader (the
+        // report's sampler plain-samples a future day).
+        final once = CalendarEvent(
+          id: 'e1',
+          title: 'Dentist',
+          categoryId: 'health',
+          startDate: day,
+          rule: const OneTimeRecurrence(),
+          tracksPresence: true,
+          assumeAbsent: true,
+          assumeAbsentFrom: day,
+        );
+
+        expect(EventPresence.isMissed(once, day), isTrue);
+        // A day before the assume-absent bound reads as the classic default.
+        expect(
+          EventPresence.isMissed(once, day.subtract(const Duration(days: 1))),
+          isFalse,
+        );
+
+        await service.setStatus('e1', day, PresenceStatus.present);
+        expect(EventPresence.isMissed(once, day), isFalse);
+      },
+    );
+
+    test('an explicit missed mark on a one-off reads missed without '
+        'assume-absent', () async {
+      final once = CalendarEvent(
+        id: 'e1',
+        title: 'Dentist',
+        categoryId: 'health',
+        startDate: day,
+        rule: const OneTimeRecurrence(),
+        tracksPresence: true,
+      );
+      expect(EventPresence.isMissed(once, day), isFalse);
+
+      await service.setStatus('e1', day, PresenceStatus.missed);
+
+      expect(EventPresence.isMissed(once, day), isTrue);
     });
   });
 

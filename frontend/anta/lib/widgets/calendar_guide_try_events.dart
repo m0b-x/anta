@@ -11,6 +11,7 @@ import '../l10n/app_localizations.dart';
 import '../models/calendar_event.dart';
 import '../models/calendar_guide_content.dart';
 import '../models/calendar_guide_demo.dart';
+import '../models/category_profile.dart';
 import '../models/recurrence_rule.dart';
 import '../services/day_summary_resolver.dart';
 import '../services/event_time_formatter.dart';
@@ -264,6 +265,7 @@ class GuideEventsDemo extends GuideCardDemo {
         pendingOccurrenceDescription: OccurrenceDescriptions.appliesTo(current)
             ? _descriptionOn(current.id, day)
             : null,
+        profileOf: (_) => EffectiveProfile.unprofiled,
       );
       if (action == null || !context.mounted) return;
       switch (action) {

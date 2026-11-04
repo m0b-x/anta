@@ -881,7 +881,134 @@ revision (S2a decides when the fold reads it).
 baseline, so 121 new cases); `dart format` clean on every slice file (three
 files — `calendar_bloc.dart`, `app_sync_apply_hooks.dart`, the calendar
 round-trip test — were already unformatted at HEAD and their old code was
-left alone); no ARB touched. 45 files, committed in the next line's hash.
+left alone); no ARB touched. 45 files; commit `2661c8de`, pushed to
+`origin/main` on 2026-11-04.
+
+#### S1 — one mark for every shape (2026-11-04)
+
+Built as S1a (the gates and their readers, nothing user-visible) and S1b
+(the editor, the verb, the cancel), then one fix pass from two reviews and
+one isolated backup change.
+
+- **S1a.** `EventPresence.appliesTo` is `event.tracksPresence`;
+  `EventSkips.appliesTo` is `true` (kept as the one place to ask);
+  `CalendarEvent.occursOnUtcDay` subtracts a one-off's skip too (the inline
+  one-time bypass removed — the agenda's one-time bucket now goes through
+  it as well); `withExplicitDates` keeps presence on a single date (the
+  repeat-only flags still drop); `EventTemplate.buildEvent` keeps presence;
+  `shapeOf` and `PresenceAdherence.compute` keep `rule is! OneTimeRecurrence`
+  inline, each with its why — a tracked one-off is a dated row with no
+  adherence (§6.5 "Shapes"); `eventInDayRail`: auto membership is
+  `EventPresence.appliesTo`, a stored `true` never rails an untracked
+  one-off, `false` forces out; every other call site follows the new gate
+  (the resolvers, the agenda, the timeline, the overview, the grid filters,
+  the Missed card's `presenceTracked`). The sampler needed no change: a
+  tracked one-off yields missed / pending / plain samples by tense and a
+  cancelled day is dropped and counted. A cancelled one-off is omitted from
+  the `.ics` export (a `METHOD:PUBLISH` snapshot, not an iTIP update);
+  alerts never arm it (the planner decides every day through
+  `occursOnUtcDay`; the scheduler cancels an armed registration on skip).
+- **S1b.** The editor's switch rule `_presenceOffered` = series ∨ tracked ∨
+  the kind marks, the save writing `tracksPresence: _tracksPresence`, the
+  kind's defaults on init and on every category pick for a new event while
+  the owner has not touched the switch (`_presenceTouched`); the template
+  editor the same; `lib/utils/mark_verb_labels.dart` (`effectiveFor(event)`,
+  `markVerbLabel`, `markAsVerbLabel`; "Present" / "Mark as present"
+  unprofiled); nineteen ARB keys in en / de / ro (`markVerb*`, `eventMark*`,
+  `eventMarkAsVerb`, `eventCancelEvent`, `eventCancelledState`,
+  `eventRestoreEvent`, `eventCancelled`); the detail sheet's kept chip reads
+  the verb, a one-off's Cancel (`eventDetailCancel`) writes in place through
+  `onCancelChanged` and the sheet shows a Cancelled row sized by an
+  invisible template of the presence row plus Restore
+  (`eventDetailRestore`); the rows' and the day panel's mark tooltips per
+  verb (`AgendaDayListEntry.categoryId`); `CalendarEvent.strandsSkipsOf`
+  clears an event's skips when a save makes its rule one-time or moves a
+  one-off's start day, in the editor and in the Dates sheet alike.
+- **The fix pass.** Schema **v45** (`v45OneOffSkipSweep`): one UPDATE
+  tombstoning every live `calendar_event_skips` row of a `rule_kind =
+  'oneTime'` event with a stamp minted as the v43 backfill mints (before S1
+  no surface could cancel a one-off, so each was a leftover of a conversion
+  that would now hide the event; idempotent; queues nothing, v43's rule);
+  the guide demo's own `isMissed` and `occursOn` follow the facades; the
+  `CustomSnackbar` action drops to its own line when it does not fit beside
+  the message (61 px over at de 2.0 × 360 before); the review's test gaps
+  (the agenda, the bloc round trip, the explicit missed mark and
+  `markSkipped` on a one-off, the untracked one-off's sheet, the Dates
+  sheet's skip clearing through the flow's harness). A backup archive of
+  version < 8 drops its one-time skip rows on import (archived leftovers;
+  a version-8 archive keeps every row — a cancel is intentional there).
+
+**Decisions taken on the way:**
+
+- **AI — The switch is offered to a one-off only when its category's kind
+  marks or the event is already tracked.** §6.5's "under Custom for every
+  event off by default" would have put the Occurrences group on every
+  one-off of an unprofiled calendar and pushed Priority below the fold on
+  360 × 780, breaking the editor redesign's pin; for this run an unprofiled
+  editor stays exactly today's and marks on one-offs arrive through a kind
+  — the roadmap's own mechanism. One condition to add back
+  (`_presenceOffered`) if the owner wants the other reading.
+- **AJ — A one-off's cancel is in place, with Restore.** A skipped day
+  vanishes from every surface by the calendar's oldest rule, and a one-off
+  has no other day to be found on; so the sheet stays open and shows the
+  state, the snackbar's Undo stands, and the Report's rows (S4) will open
+  the sheet of a cancelled one-off again. A Cancelled listing in the
+  overview is deferred (§14).
+- **AK — A conversion clears skips.** `strandsSkipsOf`: all of an event's
+  skips when its rule becomes one-time or a one-off's start day moves;
+  one-off → series keeps them (the owner's skipped days survive the way
+  they always did).
+- **AL — The notice's Skip on a one-off still turns the alert off**, never
+  cancels the event: a one-tap cancel from a notification has no way back.
+- **AM — The fold keeps counting a missed one-off as kept until S2a.**
+  `_isMissed` in the builder requires `_isRoutine`; the builder is S2a's
+  (builder I) and the Missed card with one-offs is S4's, as §12.1 lays them
+  out. Today's unmarked tracked one-off is `pending` → Ahead, D31's rule.
+
+**Review** (one `reviewer` on S1a; one on S1b + the fix pass, below):
+S1a's eight findings — the stale skip rows (fixed: v45 + `strandsSkipsOf`
++ the backup gate), an unknown rule kind decoding as one-time (accepted:
+the sweep and the gate match the literal key only), the fold counting a
+missed one-off as kept (AM), the Dates sheet's tracked one-off stripped by
+the editor's next save (fixed by S1b's save rule), the guide demo's gates
+(fixed), the docs (fixed: the calendar skill's rules and lineage, the
+subsystems reference, the feature doc, the lifecycle contract list), the
+test gaps (fixed), dead `EventSkips.appliesTo` conditions (accepted: the
+one place to ask).
+
+**Review of S1b and the fix pass** (one `reviewer`): no data loss on a
+path the app runs today; ten items, all taken in a second pass — the v45
+sweep's tombstones now queue themselves into `sync_outbox` under the
+step's stamp (a fresh v45 device would otherwise pull the space's live rows
+and hide its one-offs; `crdt_write_guard_test` carries the one named
+exception); a cancel's cleared mark is captured by the sheet and handed
+back on Restore and on the snackbar's Undo (`onCancelChanged(day,
+cancelled, {restore})`, the flow writing it after the unskip); the editor's
+switch term is latched to the value the sheet opened with so switching it
+off never hides the row; an untracked one-off's cancel keeps the sheet's
+geometry (the Restore row takes the Cancel row's slot with "Cancelled" as
+its value); the guide's sandbox editor and sheet read `unprofiled`
+(`profileOf` seam; decision V); a Save-as-template draft counts as touched;
+de "Besucht" / "Stattgefunden", ro "Prezent" / "Văzut" /
+"contramandat" / "Restaurează"; the pins it asked for (the sweep's units,
+a pre-tombstoned row, a `specificDates` series, a soft-deleted event's row
+— swept, since an undelete would bring the hidden day back; the editor's
+moved one-off and one-off → series; the Restore row's 48 dp; the snackbar's
+fitting action on the message's line). Accepted — every one-off's sheet
+offers Cancel regardless of kind (decision B: the cancel is the shape's,
+as a series' Skip is); the snackbar over a short sheet may cover Restore
+while up (its own Undo does the same).
+
+**Gate.** `dart analyze lib test` clean; the whole suite `+12632 ~11 -1`
+on the implementer's undisturbed run and `-2` on the lead's with
+`test/widgets/database_settings_page_test.dart`'s delete-all case red,
+which passes alone (32 / 32) and is red only under a concurrent Dart
+process — a Windows load flake, not the slice's; `untranslated.txt` `{}`;
+`dart format` clean on every hunk (fourteen files already unformatted at
+HEAD left as they were); the docs updated in the same change (the calendar
+skill's presence rules and lineage header, `references/schema-lineage.md`
+v44 + v45, `references/subsystems.md`, the feature doc's three gate
+statements, the lifecycle contract list). 74 files; commit *(next line)*.
 
 ### 12.3 The kick-off prompt — written 2026-11-03, NOT RUN
 
@@ -998,3 +1125,14 @@ suite count and result, uncommitted files, open findings, what §14 gained.
 - **An isolate fold** (R) — only on a measurement.
 - **The guide's kinds and goals card** (V) — S8 decides after the owner has
   used them.
+- **A Cancelled listing** (AJ, S1) — a cancelled one-off is reachable only
+  from its open sheet, the snackbar's Undo and, from S4, the Report's rows;
+  an overview filter or a "Cancelled" section would make it findable on
+  any day. After the owner has cancelled a few.
+- **The v45 sweep's tombstones are not queued for sync** (S1) — v43's
+  backfill rule; every device sweeps its own copy on upgrade. If a device
+  that never upgraded keeps pushing a stale row, decide then whether the
+  sweep should enqueue.
+- **Targets on a secondary measure** (AD, S0) — Work's "at least days /
+  month" and Trip's "at least trips / year" need a target that names its
+  measure; the profile row has no `targetMeasure` column yet.

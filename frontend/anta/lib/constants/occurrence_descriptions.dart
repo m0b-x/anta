@@ -45,9 +45,10 @@ class OccurrenceDescriptions {
   /// Whether [event] participates in per-occurrence descriptions at all.
   ///
   /// Opt-in per event via [CalendarEvent.perOccurrenceDescriptions] (v28 — the
-  /// global switch v24 shipped behind is gone), plus the same gate
-  /// [EventPresence.appliesTo] uses: `rule is OneTimeRecurrence` and nothing
-  /// else. An event that fires on exactly one day has nothing to separate,
+  /// global switch v24 shipped behind is gone), plus a shape gate:
+  /// `rule is OneTimeRecurrence` and nothing else — kept here though
+  /// [EventPresence.appliesTo] dropped it, because a per-day text needs many
+  /// days. An event that fires on exactly one day has nothing to separate,
   /// while a `SpecificDatesRecurrence` — a set of explicit dates — is a list of
   /// distinct occasions and does participate. Never gate on the editor's
   /// `_RepeatMode`, which files specific-dates under `oneTime`.

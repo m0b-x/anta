@@ -166,11 +166,24 @@ void main() {
       expect(next!.day, DateTime.utc(2026, 9, 17));
     });
 
-    test('never passes over the one day of a one-time event', () {
-      // A one-time rule carries no skips; a stale set must not hide it.
-      final next = nextOf(eventOf(startDate: tomorrow), [
-        alertOf('a1'),
-      ], skippedDays: {tomorrow});
+    test('passes over the one day of a cancelled one-time event', () {
+      // Decision B: a one-off is cancelled like a routine's day, so an edit
+      // that cancelled it announces nothing.
+      final next = nextOf(
+        eventOf(startDate: tomorrow),
+        [alertOf('a1')],
+        skippedDays: {tomorrow},
+      );
+
+      expect(next, isNull);
+    });
+
+    test('keeps a one-time event whose set cancels another day', () {
+      final next = nextOf(
+        eventOf(startDate: tomorrow),
+        [alertOf('a1')],
+        skippedDays: {DateTime.utc(2026, 9, 16)},
+      );
 
       expect(next!.day, tomorrow);
     });

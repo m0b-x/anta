@@ -1,5 +1,4 @@
 import '../models/calendar_event.dart';
-import '../models/recurrence_rule.dart';
 
 /// What an explicit `calendar_event_absences` row says about one occurrence
 /// (**v37**).
@@ -70,14 +69,17 @@ class EventPresence {
 
   /// Whether [event] participates in presence tracking at all.
   ///
-  /// Opt-in per event, plus the same gate [OccurrenceDescriptions.appliesTo]
-  /// uses: `rule is OneTimeRecurrence` and nothing else. An event that fires on
-  /// exactly one day has no attendance to keep, while a
-  /// `SpecificDatesRecurrence` — a set of explicit dates — is a list of
-  /// distinct occasions and does participate. Never gate on the editor's
-  /// `_RepeatMode`, which files specific-dates under `oneTime`.
-  static bool appliesTo(CalendarEvent event) =>
-      event.tracksPresence && event.rule is! OneTimeRecurrence;
+  /// The per-event opt-in alone, whatever the event's shape (decision B of
+  /// the analytics record, "one mark for every shape"): a dentist visit, a
+  /// bill or a to-do is done, paid, overdue or cancelled exactly as a routine
+  /// is attended. A one-off's day is its start day — its days, for a
+  /// multi-day event — and the rows are keyed by event id and UTC day as
+  /// before, so no storage changed.
+  ///
+  /// Readers that need *many* occasions keep their own shape gate inline —
+  /// the report's routine shape and the adherence stats — and so does
+  /// [OccurrenceDescriptions.appliesTo]: a per-day text needs many days.
+  static bool appliesTo(CalendarEvent event) => event.tracksPresence;
 
   /// **The** entry point for "was this occurrence missed". Every surface goes
   /// through it, or the grid, the day panel, the agenda and the timeline drift

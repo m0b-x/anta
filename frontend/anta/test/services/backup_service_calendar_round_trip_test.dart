@@ -1015,5 +1015,114 @@ void main() {
       },
     );
   });
+
+  group('one-off skips (v8)', () {
+    late AppDatabase db;
+    late BackupService backup;
+
+    final cancelledDay = DateTime.utc(2026, 9, 7);
+    final strayDay = DateTime.utc(2026, 9, 1);
+    final strayStart = DateTime.utc(2026, 9, 8);
+    final seriesSkip = DateTime.utc(2026, 9, 14);
+
+    /// A one-off skipped on its start day, a one-off skipped on another day
+    /// and a weekly series with one skip, exported, the calendar wiped after.
+    Future<Map<String, dynamic>> seedAndExport() async {
+      db = await AppDatabase.getInstance();
+      await db.calendarEventDao.deleteAll();
+      await db.eventSkipDao.deleteAll();
+      DatabaseLifecycle.notifyDatabaseSwitching();
+      final events = await CalendarEventService.getInstance();
+      await events.upsert(
+        CalendarEvent(
+          id: 'oneoff-cancelled',
+          title: 'Dentist',
+          categoryId: 'other',
+          startDate: cancelledDay,
+        ),
+      );
+      await events.upsert(
+        CalendarEvent(
+          id: 'oneoff-stray',
+          title: 'Plumber',
+          categoryId: 'other',
+          startDate: strayStart,
+        ),
+      );
+      await events.upsert(
+        CalendarEvent(
+          id: 'series',
+          title: 'Standing meeting',
+          categoryId: 'other',
+          startDate: cancelledDay,
+          rule: const WeeklyRecurrence(weekdays: {DateTime.monday}),
+        ),
+      );
+      final skips = await EventSkipService.getInstance();
+      await skips.markSkipped('oneoff-cancelled', cancelledDay);
+      await skips.markSkipped('oneoff-stray', strayDay);
+      await skips.markSkipped('series', seriesSkip);
+
+      backup = await BackupService.getInstance();
+      final exported = await backup.exportAllData();
+      expect(exported['version'], 8);
+      expect(exported['eventSkips'], hasLength(3));
+
+      await db.calendarEventDao.deleteAll();
+      await db.eventSkipDao.deleteAll();
+      DatabaseLifecycle.notifyDatabaseSwitching();
+      await EventSkipService.getInstance();
+      expect(
+        EventSkips.daysFor('series'),
+        isEmpty,
+        reason: 'the wipe must land or the assertions below prove nothing',
+      );
+      DatabaseLifecycle.notifyDatabaseSwitching();
+      return (jsonDecode(jsonEncode(exported)) as Map<String, dynamic>)
+        ..['folders'] = const <Object>[]
+        ..['notes'] = const <Object>[];
+    }
+
+    Future<CalendarEvent> restored(String id) async =>
+        (await CalendarEventService.getInstance()).events.firstWhere(
+          (e) => e.id == id,
+        );
+
+    test('a v7 archive drops the skips of its one-offs', () async {
+      final exported = await seedAndExport()
+        ..['version'] = 7;
+
+      final result = await backup.importFromJson(jsonEncode(exported));
+      expect(result.success, isTrue, reason: 'error: ${result.error}');
+
+      await EventSkipService.getInstance();
+      expect(await db.eventSkipDao.getActive(), hasLength(1));
+      expect(EventSkips.daysFor('series'), {seriesSkip});
+      expect(EventSkips.daysFor('oneoff-cancelled'), isEmpty);
+      expect(EventSkips.daysFor('oneoff-stray'), isEmpty);
+      expect(
+        (await restored('oneoff-cancelled')).occursOn(cancelledDay),
+        isTrue,
+      );
+      expect((await restored('oneoff-stray')).occursOn(strayStart), isTrue);
+    });
+
+    test('a v8 archive keeps every skip, a one-off cancel included', () async {
+      final exported = await seedAndExport();
+
+      final result = await backup.importFromJson(jsonEncode(exported));
+      expect(result.success, isTrue, reason: 'error: ${result.error}');
+
+      await EventSkipService.getInstance();
+      expect(await db.eventSkipDao.getActive(), hasLength(3));
+      expect(EventSkips.daysFor('series'), {seriesSkip});
+      expect(EventSkips.daysFor('oneoff-cancelled'), {cancelledDay});
+      expect(EventSkips.daysFor('oneoff-stray'), {strayDay});
+      expect(
+        (await restored('oneoff-cancelled')).occursOn(cancelledDay),
+        isFalse,
+      );
+    });
+  });
 }
 

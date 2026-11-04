@@ -7505,4 +7505,63 @@ class AppLocalizationsEn extends AppLocalizations {
   ) {
     return 'On a week “$weekly”, on a month “$monthly”, opens a digest of the period just ended — save it and it arrives on the first day of the next week or month: a digest with “$shows” set to “$weekReport” or “$monthReport”. “$share” writes the page as Markdown.';
   }
+
+  @override
+  String get markVerbDone => 'Done';
+
+  @override
+  String get markVerbAttended => 'Attended';
+
+  @override
+  String get markVerbTaken => 'Taken';
+
+  @override
+  String get markVerbPaid => 'Paid';
+
+  @override
+  String get markVerbReceived => 'Received';
+
+  @override
+  String get markVerbMet => 'Met';
+
+  @override
+  String get markVerbRenewed => 'Renewed';
+
+  @override
+  String get eventMarkDone => 'Mark as done';
+
+  @override
+  String get eventMarkAttended => 'Mark as attended';
+
+  @override
+  String get eventMarkTaken => 'Mark as taken';
+
+  @override
+  String get eventMarkPaid => 'Mark as paid';
+
+  @override
+  String get eventMarkReceived => 'Mark as received';
+
+  @override
+  String get eventMarkMet => 'Mark as met';
+
+  @override
+  String get eventMarkRenewed => 'Mark as renewed';
+
+  @override
+  String eventMarkAsVerb(String verb) {
+    return 'Mark as $verb';
+  }
+
+  @override
+  String get eventCancelEvent => 'Cancel this event';
+
+  @override
+  String get eventCancelledState => 'Cancelled';
+
+  @override
+  String get eventRestoreEvent => 'Restore';
+
+  @override
+  String get eventCancelled => 'Event cancelled';
 }

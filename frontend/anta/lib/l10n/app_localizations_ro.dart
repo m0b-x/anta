@@ -7634,4 +7634,63 @@ class AppLocalizationsRo extends AppLocalizations {
   ) {
     return 'Pe o săptămână „$weekly”, pe o lună „$monthly” deschide un rezumat al perioadei tocmai încheiate — salvează-l și îl primești în prima zi a săptămânii sau a lunii următoare: un rezumat cu „$shows” setat pe „$weekReport” sau „$monthReport”. „$share” scrie pagina ca Markdown.';
   }
+
+  @override
+  String get markVerbDone => 'Făcut';
+
+  @override
+  String get markVerbAttended => 'Prezent';
+
+  @override
+  String get markVerbTaken => 'Luat';
+
+  @override
+  String get markVerbPaid => 'Plătit';
+
+  @override
+  String get markVerbReceived => 'Primit';
+
+  @override
+  String get markVerbMet => 'Văzut';
+
+  @override
+  String get markVerbRenewed => 'Reînnoit';
+
+  @override
+  String get eventMarkDone => 'Marchează ca făcut';
+
+  @override
+  String get eventMarkAttended => 'Marchează ca prezent';
+
+  @override
+  String get eventMarkTaken => 'Marchează ca luat';
+
+  @override
+  String get eventMarkPaid => 'Marchează ca plătit';
+
+  @override
+  String get eventMarkReceived => 'Marchează ca primit';
+
+  @override
+  String get eventMarkMet => 'Marchează ca văzut';
+
+  @override
+  String get eventMarkRenewed => 'Marchează ca reînnoit';
+
+  @override
+  String eventMarkAsVerb(String verb) {
+    return 'Marchează ca $verb';
+  }
+
+  @override
+  String get eventCancelEvent => 'Contramandează evenimentul';
+
+  @override
+  String get eventCancelledState => 'Contramandat';
+
+  @override
+  String get eventRestoreEvent => 'Restaurează';
+
+  @override
+  String get eventCancelled => 'Eveniment contramandat';
 }

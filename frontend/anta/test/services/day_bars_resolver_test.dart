@@ -232,10 +232,13 @@ void main() {
       expect(bars, isEmpty);
     });
 
-    test('a tracked one-time event keeps its bar — it is never railed', () {
+    test('an untracked one-off keeps its bar, a tracked one is railed', () {
+      // Decision B: a tracked one-off is in the rail by the presence gate; a
+      // stored `true` alone never rails a single untracked day.
       final events = [
+        event('once', showInDayRail: true, rule: const OneTimeRecurrence()),
         event(
-          'once',
+          'trackedOnce',
           tracksPresence: true,
           showInDayRail: true,
           rule: const OneTimeRecurrence(),

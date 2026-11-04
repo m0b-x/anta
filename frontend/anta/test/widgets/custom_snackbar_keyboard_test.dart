@@ -5,6 +5,7 @@ import 'package:anta/constants/app_constants.dart';
 import 'package:anta/constants/app_spacing.dart';
 import 'package:anta/constants/app_theme.dart';
 import 'package:anta/constants/snackbar_metrics.dart';
+import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/utils/custom_snackbar.dart';
 import 'package:anta/widgets/overlay_snackbar.dart';
 
@@ -385,6 +386,83 @@ void main() {
       final action = tester.getSize(find.widgetWithText(TextButton, 'Open'));
       expect(action.width, greaterThanOrEqualTo(kMinInteractiveDimension));
       expect(action.height, greaterThanOrEqualTo(kMinInteractiveDimension));
+      expect(barRect(tester).height, lessThanOrEqualTo(56));
+
+      await disposeHost(tester);
+    });
+  }
+
+  // The detail sheet's cancel: "Termin abgesagt" beside "Rückgängig" ran
+  // 61 px past a 360 phone at text scale 2.0.
+  for (final road in ['sheet', 'overlay', 'Scaffold']) {
+    testWidgets('"Event cancelled" with Undo fits a 360 phone in German at '
+        '2.0 ($road road)', (tester) async {
+      addTearDown(tester.view.reset);
+      tester.view.devicePixelRatio = 1.0;
+      tester.view.physicalSize = const Size(360, 780);
+      await tester.pumpWidget(
+        MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          locale: const Locale('de'),
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(
+              context,
+            ).copyWith(textScaler: const TextScaler.linear(2.0)),
+            child: child!,
+          ),
+          home: _Host(
+            resizeToAvoidBottomInset: road == 'Scaffold',
+            onShow: (context) {
+              final l10n = AppLocalizations.of(context)!;
+              CustomSnackbar.showWithAction(
+                context,
+                message: l10n.eventCancelled,
+                actionLabel: l10n.undo,
+                overSheet: road == 'sheet',
+                onAction: () {},
+              );
+            },
+          ),
+        ),
+      );
+      await showBar(tester);
+
+      expect(tester.takeException(), isNull);
+      expect(find.text('Termin abgesagt'), findsOneWidget);
+      final action = find.widgetWithText(TextButton, 'Rückgängig');
+      expect(tester.getSize(action).height, greaterThanOrEqualTo(48));
+      expect(tester.getRect(action).right, lessThanOrEqualTo(360));
+
+      await disposeHost(tester);
+    });
+  }
+
+  // The stacked shape is for an action that does not fit; one that fits
+  // stays on the message's line, as every bar drew it before.
+  for (final road in ['sheet', 'overlay', 'Scaffold']) {
+    testWidgets('an action that fits stays on the message\'s line ($road '
+        'road)', (tester) async {
+      sizeSurface(tester);
+      await pumpHost(
+        tester,
+        resizeToAvoidBottomInset: road == 'Scaffold',
+        onShow: (context) => CustomSnackbar.showWithAction(
+          context,
+          // One line in the test font, so the line is the message's one.
+          message: 'Moved',
+          actionLabel: 'Undo',
+          overSheet: road == 'sheet',
+          onAction: () {},
+        ),
+      );
+      await showBar(tester);
+
+      final message = tester.getRect(find.text('Moved'));
+      final action = tester.getRect(find.widgetWithText(TextButton, 'Undo'));
+      expect(action.center.dy, moreOrLessEquals(message.center.dy));
+      expect(action.top, lessThan(message.top));
+      expect(action.left, greaterThan(message.right));
       expect(barRect(tester).height, lessThanOrEqualTo(56));
 
       await disposeHost(tester);

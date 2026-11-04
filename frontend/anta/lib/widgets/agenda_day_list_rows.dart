@@ -1,9 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
+import '../constants/calendar_categories.dart';
 import '../constants/calendar_colors.dart';
+import '../constants/category_profiles.dart';
 import '../l10n/app_localizations.dart';
 import '../models/agenda_day_list.dart';
+import '../models/category_profile.dart';
+import '../utils/mark_verb_labels.dart';
 import 'agenda_list_view.dart';
 import 'event_avatar.dart';
 import 'form_rows.dart';
@@ -561,7 +565,9 @@ class AgendaDayListRowBuilder {
         icon: entry.missed
             ? Icons.event_available_rounded
             : Icons.event_busy_rounded,
-        tooltip: entry.missed ? l10n.eventMarkPresent : l10n.eventMarkMissed,
+        tooltip: entry.missed
+            ? markAsVerbLabel(l10n, _profileOf(entry))
+            : l10n.eventMarkMissed,
         onPressed: () => onPresence(entry, !entry.missed),
         identifier: presenceIdentifier?.call(entry),
       );
@@ -606,6 +612,16 @@ class AgendaDayListRowBuilder {
       identifier: eventRowIdentifier?.call(row),
       onTap: tap == null ? null : () => tap(row),
       showChevron: false,
+    );
+  }
+
+  /// The profile whose verb a missed row's button offers; a row without a
+  /// category id says "present", as every row did before kinds.
+  static EffectiveProfile _profileOf(AgendaDayListEntry entry) {
+    final categoryId = entry.categoryId;
+    if (categoryId == null) return EffectiveProfile.unprofiled;
+    return CategoryProfiles.effectiveFor(
+      CalendarCategories.resolve(categoryId).id,
     );
   }
 

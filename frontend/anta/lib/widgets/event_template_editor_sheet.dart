@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import '../constants/app_constants.dart';
 import '../constants/calendar_categories.dart';
 import '../constants/calendar_icons.dart';
+import '../constants/category_profiles.dart';
 import '../constants/event_priorities.dart';
 import '../constants/row_metrics.dart';
 import '../constants/semantics_ids.dart';
@@ -13,6 +14,7 @@ import '../constants/settings_keys.dart';
 import '../l10n/app_localizations.dart';
 import '../models/calendar_appearance.dart';
 import '../models/calendar_event.dart';
+import '../models/category_profile.dart';
 import '../models/event_template.dart';
 import '../models/recurrence_rule.dart';
 import '../services/event_template_service.dart';
@@ -124,11 +126,24 @@ class _EventTemplateEditorSheetState extends State<EventTemplateEditorSheet> {
   late bool _tintIcon;
   late int _priority;
 
+  /// Presence, any shape since decision B of the analytics record, offered
+  /// where [_presenceOffered] says.
+  late bool _tracksPresence;
+  late bool _assumeAbsent;
+
+  /// Whether the owner has set the presence switch or its default here; until
+  /// then a new template's two flags follow its category's kind (decision U),
+  /// the event editor's rule. A Save-as-template draft opens touched: it
+  /// carries the event's own answer, which a category pick must not reset.
+  late bool _presenceTouched = widget.draft != null;
+
+  /// Whether the template was tracked when the sheet opened, latched for
+  /// [_presenceOffered].
+  late final bool _trackedAtOpen;
+
   /// The repeat-only flags. Parked, not cleared, while the rule is one-time:
   /// [_buildTemplate] stores none of them for a rule that cannot carry them,
   /// and they come back if the rule repeats again before Save.
-  late bool _tracksPresence;
-  late bool _assumeAbsent;
   late bool _perOccurrenceDescriptions;
   late bool _countOccurrences;
 
@@ -191,7 +206,10 @@ class _EventTemplateEditorSheetState extends State<EventTemplateEditorSheet> {
     _tintIcon = source?.tintIcon ?? true;
     _priority = source?.priority ?? kDefaultEventPriority;
     _tracksPresence = source?.tracksPresence ?? false;
+    _trackedAtOpen = _tracksPresence;
     _assumeAbsent = source?.assumeAbsent ?? false;
+    // A draft arrives with the event's own answer, which is not a kind's.
+    if (source == null) _applyKindPresenceDefaults();
     _perOccurrenceDescriptions = source?.perOccurrenceDescriptions ?? false;
     _countOccurrences = source?.countOccurrences ?? false;
     _countStyle = source?.countStyle ?? OccurrenceCountStyle.numbered;
@@ -294,6 +312,25 @@ class _EventTemplateEditorSheetState extends State<EventTemplateEditorSheet> {
   /// occurrence — the gate the event editor applies on save.
   bool get _repeats => _rule is! OneTimeRecurrence;
 
+  /// The picked category's kind under its overrides.
+  EffectiveProfile get _profile =>
+      CategoryProfiles.effectiveFor(CalendarCategories.resolve(_categoryId).id);
+
+  /// Whether Track presence is on offer — the event editor's rule: a series
+  /// always, a one-off only where its kind marks, and a template that
+  /// tracked as the sheet opened — never the live switch, which would take
+  /// itself from under the finger.
+  bool get _presenceOffered => _repeats || _trackedAtOpen || _profile.marks;
+
+  /// A new template's presence flags as its kind sets them, until the owner
+  /// has answered for them; a stored template keeps what it has.
+  void _applyKindPresenceDefaults() {
+    if (_isEditing || _presenceTouched) return;
+    final profile = _profile;
+    _tracksPresence = profile.marksNew;
+    _assumeAbsent = profile.assumeAbsentNew;
+  }
+
   /// Whether Count occurrences is on offer: only a kind with an interval has
   /// a unit to count in, the event editor's own gate.
   bool get _countOffered => _repeats && _repeat.kind.supportsInterval;
@@ -392,8 +429,8 @@ class _EventTemplateEditorSheetState extends State<EventTemplateEditorSheet> {
       retroactive: repeats && _repeat.retroactive,
       countOccurrences: storesCount,
       countStyle: storesCount ? _shownCountStyle : _countStyle,
-      tracksPresence: repeats && _tracksPresence,
-      assumeAbsent: repeats && _tracksPresence && _assumeAbsent,
+      tracksPresence: _tracksPresence,
+      assumeAbsent: _tracksPresence && _assumeAbsent,
       perOccurrenceDescriptions: repeats && _perOccurrenceDescriptions,
       sortOrder: widget.initial?.sortOrder ?? 0,
     );
@@ -449,7 +486,10 @@ class _EventTemplateEditorSheetState extends State<EventTemplateEditorSheet> {
       selectedId: _categoryId,
     );
     if (picked == null || !mounted) return;
-    setState(() => _categoryId = picked);
+    setState(() {
+      _categoryId = picked;
+      _applyKindPresenceDefaults();
+    });
   }
 
   Future<void> _pickLook() async {
@@ -755,13 +795,17 @@ class _EventTemplateEditorSheetState extends State<EventTemplateEditorSheet> {
             caption: FormCaption(text: _countStyleExample(l10n)),
           ),
       ],
-      FormSwitchRow(
-        glyph: Icons.how_to_reg_outlined,
-        identifier: SemanticsIds.templatePresence,
-        label: l10n.eventTrackPresence,
-        value: _tracksPresence,
-        onChanged: (value) => setState(() => _tracksPresence = value),
-      ),
+      if (_presenceOffered)
+        FormSwitchRow(
+          glyph: Icons.how_to_reg_outlined,
+          identifier: SemanticsIds.templatePresence,
+          label: l10n.eventTrackPresence,
+          value: _tracksPresence,
+          onChanged: (value) => setState(() {
+            _tracksPresence = value;
+            _presenceTouched = true;
+          }),
+        ),
       // No from-date under the chips, unlike the event editor: a boundary is
       // a statement about one event's history, and a template has none.
       if (_tracksPresence)
@@ -771,24 +815,31 @@ class _EventTemplateEditorSheetState extends State<EventTemplateEditorSheet> {
               label: l10n.eventAssumePresent,
               selected: !_assumeAbsent,
               identifier: SemanticsIds.templateAssumePresent,
-              onTap: () => setState(() => _assumeAbsent = false),
+              onTap: () => setState(() {
+                _assumeAbsent = false;
+                _presenceTouched = true;
+              }),
             ),
             FormChip(
               label: l10n.eventAssumeAbsent,
               selected: _assumeAbsent,
               identifier: SemanticsIds.templateAssumeAbsent,
-              onTap: () => setState(() => _assumeAbsent = true),
+              onTap: () => setState(() {
+                _assumeAbsent = true;
+                _presenceTouched = true;
+              }),
             ),
           ],
         ),
-      FormSwitchRow(
-        glyph: Icons.event_note_outlined,
-        identifier: SemanticsIds.templatePerDay,
-        label: l10n.eventPerOccurrenceDescriptions,
-        value: _perOccurrenceDescriptions,
-        onChanged: (value) =>
-            setState(() => _perOccurrenceDescriptions = value),
-      ),
+      if (_repeats)
+        FormSwitchRow(
+          glyph: Icons.event_note_outlined,
+          identifier: SemanticsIds.templatePerDay,
+          label: l10n.eventPerOccurrenceDescriptions,
+          value: _perOccurrenceDescriptions,
+          onChanged: (value) =>
+              setState(() => _perOccurrenceDescriptions = value),
+        ),
     ];
   }
 
@@ -877,7 +928,7 @@ class _EventTemplateEditorSheetState extends State<EventTemplateEditorSheet> {
                     FormRowGroup(children: _buildCaptureRows(l10n)),
                     FormSectionLabel(text: l10n.eventSectionWhen),
                     FormRowGroup(children: _buildWhenRows(l10n)),
-                    if (_repeats) ...[
+                    if (_presenceOffered) ...[
                       FormSectionLabel(text: l10n.recurrenceScopeLabel),
                       FormRowGroup(children: _buildOccurrenceRows(l10n)),
                     ],

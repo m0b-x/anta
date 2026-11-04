@@ -205,12 +205,12 @@ void main() {
       expect(defaultControl, findsNothing);
     });
 
-    testWidgets('a one-time event is not offered it', (tester) async {
+    testWidgets('a tracked one-time event is offered it too', (tester) async {
       await open(tester, initial: event(rule: const OneTimeRecurrence()));
 
-      // `EventPresence.appliesTo` excludes one-time rules whatever the columns
-      // say — the same gate the Track-presence switch itself lives behind.
-      expect(defaultControl, findsNothing);
+      // Decision B of the analytics record: a one-off keeps its mark, so its
+      // default is offered under the switch as a series' is.
+      expect(defaultControl, findsOneWidget);
     });
 
     testWidgets('the selection swaps with the pick', (tester) async {
@@ -407,9 +407,9 @@ void main() {
       expect(saved.assumeAbsentFrom, isNull);
     });
 
-    testWidgets('a one-time rule cannot carry either field', (tester) async {
-      // The row can hold both from back when the event was recurring; the
-      // editor's gates are what stop them being written again.
+    testWidgets('a one-time rule carries both fields', (tester) async {
+      // Decision B: a one-off dentist visit stays "done or overdue", so the
+      // save writes the presence fields whatever the rule.
       final results = await open(
         tester,
         initial: event(
@@ -421,9 +421,9 @@ void main() {
 
       final saved = await saveAnd(tester, results);
 
-      expect(saved.tracksPresence, isFalse);
-      expect(saved.assumeAbsent, isFalse);
-      expect(saved.assumeAbsentFrom, isNull);
+      expect(saved.tracksPresence, isTrue);
+      expect(saved.assumeAbsent, isTrue);
+      expect(saved.assumeAbsentFromUtc, occurrenceDay);
     });
   });
 }

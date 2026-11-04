@@ -345,9 +345,10 @@ abstract final class EventAgenda {
       final oneTimeToday = oneTimeByDay[day];
       if (oneTimeToday != null) {
         for (final event in oneTimeToday) {
-          // The occurrence here is certain; only the search query narrows it,
-          // and a one-time event's description never varies by day.
-          if (matcher.matches(event, day)) {
+          // Placed for certain, but it may be cancelled (decision B), so
+          // `occursOnUtcDay` still decides; the query narrows the rest, and a
+          // one-time event's description never varies by day.
+          if (event.occursOnUtcDay(day) && matcher.matches(event, day)) {
             (onDay ??= <CalendarEvent>[]).add(event);
           }
         }
@@ -536,11 +537,10 @@ abstract final class EventAgenda {
   /// itself.
   ///
   /// One-time events occur on exactly one day, so they are bucketed by it
-  /// ([oneTimeByDay]) and never enter the per-day scan: a one-time event is
-  /// never skipped (`CalendarEvent.occursOnUtcDay` only consults
-  /// `EventSkips` for `rule is! OneTimeRecurrence`) and its rule is a bare
+  /// ([oneTimeByDay]) and never enter the per-day scan: its rule is a bare
   /// `day == start`, so once the (rare) end-date clamp is honoured its
-  /// placement on that day is certain.
+  /// placement on that day is certain. Whether it still occurs there is the
+  /// caller's one `occursOnUtcDay` call, since a one-off can be cancelled.
   ///
   /// Every other survivor is asked for its candidate days
   /// ([RecurrenceRule.candidateDaysIn], **3.2b**) and lands in one of two

@@ -67,6 +67,14 @@ void main() {
   };
   final mergeSites = {for (final merge in merges) (merge.$1, merge.$2)};
 
+  /// The one migration step that queues rows: the v45 sweep tombstones skip
+  /// rows as this device's own edit, which must reach the space — a backfill
+  /// queues nothing. Frozen raw SQL, since a step never calls a helper that
+  /// follows the live schema; every other step stays schema-only.
+  const outboxSteps = {
+    ('lib/database/migrations/database_migrations.dart', '_migrateV44ToV45'),
+  };
+
   final units = [
     for (final file in Directory('lib').listSync(recursive: true))
       if (file is File &&
@@ -84,6 +92,7 @@ void main() {
         ('lib/database/daos/calendar_event_dao.dart', 'tombstoneEventCascade'),
         ('lib/services/calendar_event_service.dart', 'deleteById'),
         ...mergeSites,
+        ...outboxSteps,
       ]),
     );
   });
@@ -182,7 +191,10 @@ void main() {
       final rights = may(unit);
       if (rights.contains(_May.outbox)) continue;
       if (rights.contains(_May.outboxSchema)) {
-        if (rowWrite.hasMatch(unit.text)) strays.add('$unit: a row write');
+        if (rowWrite.hasMatch(unit.text) &&
+            !outboxSteps.contains((unit.path, unit.name))) {
+          strays.add('$unit: a row write');
+        }
         continue;
       }
       final text = rights.contains(_May.outboxRetire)

@@ -70,7 +70,7 @@ class CalendarGridFilters extends Equatable {
   final CalendarEventTiming timing;
 
   /// Keep only events participating in presence tracking
-  /// ([EventPresence.appliesTo], so a one-time event never qualifies).
+  /// ([EventPresence.appliesTo], so a tracked one-off qualifies too).
   final bool trackedOnly;
 
   /// Keep only events carrying a [CalendarEvent.noteId].

@@ -731,6 +731,7 @@ class AgendaListView extends StatelessWidget {
               missed: entry.missed,
               eventId: occurrence.event.id,
               presenceTracked: EventPresence.appliesTo(occurrence.event),
+              categoryId: occurrence.event.categoryId,
             ),
     ];
   }

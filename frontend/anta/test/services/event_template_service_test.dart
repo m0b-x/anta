@@ -339,10 +339,11 @@ void main() {
       expect(event.startDate, DateTime.utc(2026, 8, 10));
     });
 
-    test('a one-time rule cannot carry the repeat-only flags', () {
+    test('a one-time rule cannot carry the repeat-only flags but keeps '
+        'presence', () {
       // Captured while recurring, later flipped to one-time: the flags are
-      // still stored but must not reach the event, matching the editor's own
-      // save guards.
+      // still stored but must not reach the event. Presence is not one of
+      // them since decision B — a one-off is done or overdue like a routine.
       final template = draft(
         tracksPresence: true,
         assumeAbsent: true,
@@ -356,8 +357,8 @@ void main() {
         startDate: DateTime.utc(2026, 8, 10),
       );
 
-      expect(event.tracksPresence, isFalse);
-      expect(event.assumeAbsent, isFalse);
+      expect(event.tracksPresence, isTrue);
+      expect(event.assumeAbsent, isTrue);
       expect(event.perOccurrenceDescriptions, isFalse);
       expect(event.countOccurrences, isFalse);
       expect(event.retroactive, isFalse);

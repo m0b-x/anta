@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import '../constants/app_constants.dart';
 import '../constants/app_spacing.dart';
@@ -61,6 +63,7 @@ class CustomSnackbar {
     Duration? duration,
     bool withToolbarOffset = false,
     String? actionIdentifier,
+    bool overSheet = false,
   }) {
     // Cap so an action prompt (e.g. Undo) never lingers indefinitely: a
     // duration past the max collapses down to it; a shorter one is honoured.
@@ -85,12 +88,15 @@ class CustomSnackbar {
         actionLabel: actionLabel,
         actionIdentifier: actionIdentifier,
         onAction: onAction,
-        dismiss: () => hide(context),
+        // A sheet's context may be gone by the time the action is tapped,
+        // and the overlay's bar needs none to come down.
+        dismiss: overSheet ? OverlaySnackbar.hide : () => hide(context),
       ),
       duration: capped,
       withToolbarOffset: withToolbarOffset,
       showCloseIcon: true,
       verticalPadding: SnackbarMetrics.actionBarVerticalPadding,
+      overSheet: overSheet,
     );
   }
 
@@ -132,18 +138,23 @@ class CustomSnackbar {
     required bool withToolbarOffset,
     bool showCloseIcon = false,
     double? verticalPadding,
+    bool overSheet = false,
   }) {
     final margin = AppSpacing.snackbarMargin(
       withToolbarOffset: withToolbarOffset,
     );
     hide(context);
-    final scaffold = _hostScaffold(context);
-    if (scaffold?.widget.resizeToAvoidBottomInset == false) {
+    // Raised from inside a modal sheet, the bar has to be the overlay's: the
+    // Scaffold's would be drawn under the sheet.
+    if (overSheet ||
+        _hostScaffold(context)?.widget.resizeToAvoidBottomInset == false) {
       OverlaySnackbar.showContent(
         context,
         content: content,
         duration: duration,
-        bottomOffset: margin.bottom,
+        bottomOffset: overSheet
+            ? OverlaySnackbar.sheetBottomOffset
+            : margin.bottom,
         showCloseIcon: showCloseIcon,
         verticalPadding: verticalPadding ?? SnackbarMetrics.barVerticalPadding,
       );
@@ -240,7 +251,7 @@ class _ActionContent extends StatelessWidget {
       },
       style: TextButton.styleFrom(
         foregroundColor: actionColor,
-        padding: const EdgeInsets.symmetric(horizontal: 12),
+        padding: const EdgeInsets.symmetric(horizontal: _actionPadding),
         // A full touch target, in the label's own sentence case: the
         // 32 dp uppercase button was Material 2's.
         minimumSize: const Size(
@@ -251,30 +262,85 @@ class _ActionContent extends StatelessWidget {
       ),
       child: Text(
         actionLabel,
-        style: const TextStyle(fontWeight: FontWeight.w600),
+        style: _actionStyle,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
       ),
     );
     if (actionIdentifier case final id?) {
       action = AutomationId(identifier: id, child: action);
     }
 
-    return Row(
-      children: [
-        // The bar's own padding shrank around the 48 dp action; the text
-        // keeps the usual distance from the bar's edges when it wraps.
-        Expanded(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(
-              vertical:
-                  SnackbarMetrics.barVerticalPadding -
-                  SnackbarMetrics.actionBarVerticalPadding,
-            ),
-            child: Text(message),
-          ),
-        ),
-        const SizedBox(width: 12),
-        action,
-      ],
+    // The bar's own padding shrank around the 48 dp action; the text keeps
+    // the usual distance from the bar's edges when it wraps.
+    final text = Padding(
+      padding: const EdgeInsets.symmetric(
+        vertical:
+            SnackbarMetrics.barVerticalPadding -
+            SnackbarMetrics.actionBarVerticalPadding,
+      ),
+      child: Text(message),
     );
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (_fitsBeside(context, constraints.maxWidth)) {
+          return Row(
+            children: [
+              Expanded(child: text),
+              const SizedBox(width: _gap),
+              action,
+            ],
+          );
+        }
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            text,
+            Align(alignment: AlignmentDirectional.centerEnd, child: action),
+          ],
+        );
+      },
+    );
+  }
+
+  static const _actionStyle = TextStyle(fontWeight: FontWeight.w600);
+  static const double _actionPadding = 12;
+  static const double _gap = 12;
+
+  /// Whether the action fits beside a message that wraps without breaking a
+  /// word, as `SnackBar` measures its own action's label to decide the same.
+  /// When it does not — "Termin abgesagt" beside "Rückgängig" at text scale
+  /// 2.0 on a 360 phone ran 61 px past the bar — the action takes its own
+  /// line under the message, kept on one line.
+  bool _fitsBeside(BuildContext context, double width) {
+    final theme = Theme.of(context);
+    final scaler = MediaQuery.textScalerOf(context);
+    final direction = Directionality.of(context);
+    final label = TextPainter(
+      text: TextSpan(
+        text: actionLabel,
+        style: (theme.textTheme.labelLarge ?? const TextStyle()).merge(
+          _actionStyle,
+        ),
+      ),
+      textScaler: scaler,
+      textDirection: direction,
+      maxLines: 1,
+    )..layout();
+    final words = TextPainter(
+      text: TextSpan(text: message, style: DefaultTextStyle.of(context).style),
+      textScaler: scaler,
+      textDirection: direction,
+    )..layout();
+    final actionWidth = math.max(
+      label.width + 2 * _actionPadding,
+      kMinInteractiveDimension,
+    );
+    final fits = words.minIntrinsicWidth + _gap + actionWidth <= width;
+    label.dispose();
+    words.dispose();
+    return fits;
   }
 }

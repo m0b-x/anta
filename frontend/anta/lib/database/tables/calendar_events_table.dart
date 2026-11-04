@@ -48,7 +48,8 @@ import 'package:drift/drift.dart';
 /// bool on purpose: NULL (the default) means *auto* — the event is in the
 /// rail exactly when `EventPresence.appliesTo` holds; `true` forces it in,
 /// `false` forces it out. The recurrence guard lives in the shared predicate
-/// (`eventInDayRail`), so `true` on a one-time event still stays out.
+/// (`eventInDayRail`), so `true` on an untracked one-time event still stays
+/// out.
 ///
 /// [assumeAbsent] / [assumeAbsentFrom] (added in schema v37) invert the
 /// presence default for one event: unmarked occurrences read as **missed**

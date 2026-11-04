@@ -4,7 +4,7 @@ import 'package:flutter/foundation.dart' show listEquals;
 import 'package:table_calendar/table_calendar.dart' show CalendarFormat;
 
 import '../constants/calendar_categories.dart';
-import '../constants/event_presence.dart' show PresenceStatus;
+import '../constants/event_presence.dart' show EventPresence, PresenceStatus;
 import '../l10n/app_localizations.dart';
 import '../services/day_bars_resolver.dart';
 import '../utils/event_agenda.dart';
@@ -278,7 +278,7 @@ class GuideDemoCalendar {
   /// wins, else the event's own default. The reader every shared widget the
   /// page draws takes in place of the facade.
   bool isMissed(CalendarEvent event, DateTime day) {
-    if (!event.tracksPresence || event.rule is OneTimeRecurrence) return false;
+    if (!EventPresence.appliesTo(event)) return false;
     final utcDay = _dayOf(day);
     final mark = _presence[event.id]?[utcDay];
     if (mark != null) return mark == PresenceStatus.missed;
@@ -363,8 +363,7 @@ class GuideDemoCalendar {
   /// removes.
   bool occursOn(CalendarEvent event, DateTime day) {
     if (!event.occursOnUtcDay(day)) return false;
-    return event.rule is OneTimeRecurrence ||
-        !(_skips[event.id]?.contains(day) ?? false);
+    return !(_skips[event.id]?.contains(day) ?? false);
   }
 
   /// Every unfiltered occurrence from today over [upcomingDays], the order

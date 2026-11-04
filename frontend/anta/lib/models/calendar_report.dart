@@ -1,6 +1,5 @@
 import 'package:equatable/equatable.dart';
 
-import '../constants/event_presence.dart';
 import 'calendar_appearance.dart';
 import 'calendar_event.dart';
 import 'date_range.dart';
@@ -34,11 +33,17 @@ enum ReportShape {
   oneOff,
 }
 
-/// The shape of [event] (§4.1). Routine wins first, through the same gate
-/// presence uses everywhere, so a tracked set of explicit dates is graded
-/// like any other routine.
+/// The shape of [event] (§4.1). Routine wins first, so a tracked set of
+/// explicit dates is graded like any other routine (D31).
+///
+/// Not `EventPresence.appliesTo`, by design: since presence applies to every
+/// shape, a tracked one-off would turn into a one-row routine aggregate. It
+/// stays a dated one-off whose row may now be missed (the analytics record's
+/// §6.5, "Shapes").
 ReportShape shapeOf(CalendarEvent event) {
-  if (EventPresence.appliesTo(event)) return ReportShape.routine;
+  if (event.tracksPresence && event.rule is! OneTimeRecurrence) {
+    return ReportShape.routine;
+  }
   final rule = event.rule;
   if (rule is OneTimeRecurrence || rule is SpecificDatesRecurrence) {
     return ReportShape.oneOff;

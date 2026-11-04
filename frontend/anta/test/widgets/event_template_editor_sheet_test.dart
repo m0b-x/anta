@@ -18,6 +18,8 @@ import 'package:anta/constants/app_theme.dart';
 import 'package:anta/constants/calendar_categories.dart';
 import 'package:anta/constants/calendar_icons.dart';
 import 'package:anta/constants/calendar_palette.dart';
+import 'package:anta/constants/category_kinds.dart';
+import 'package:anta/constants/category_profiles.dart';
 import 'package:anta/constants/row_metrics.dart';
 import 'package:anta/constants/semantics_ids.dart';
 import 'package:anta/constants/settings_keys.dart';
@@ -26,6 +28,7 @@ import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/models/calendar_appearance.dart';
 import 'package:anta/models/calendar_category.dart';
 import 'package:anta/models/calendar_event.dart';
+import 'package:anta/models/category_profile.dart';
 import 'package:anta/models/event_template.dart';
 import 'package:anta/models/recurrence_rule.dart';
 import 'package:anta/pages/event_templates_page.dart';
@@ -800,7 +803,12 @@ void main() {
       });
 
       expect(saved.rule, const OneTimeRecurrence());
-      expectOptions(saved, stored: false);
+      // Presence is not repeat-only since decision B: a one-off keeps it.
+      expect(saved.tracksPresence, isTrue);
+      expect(saved.assumeAbsent, isTrue);
+      expect(saved.perOccurrenceDescriptions, isFalse);
+      expect(saved.countOccurrences, isFalse);
+      expect(saved.retroactive, isFalse);
     });
 
     testWidgets('they come back when the rule repeats again', (tester) async {
@@ -1209,12 +1217,11 @@ void main() {
         expect(
           saved,
           created(
+            // Presence stays: a one-off keeps its mark (decision B).
             loaded.copyWith(
               rule: const OneTimeRecurrence(),
               retroactive: false,
               countOccurrences: false,
-              tracksPresence: false,
-              assumeAbsent: false,
               perOccurrenceDescriptions: false,
             ),
             id: saved.id,
@@ -2695,6 +2702,7 @@ void main() {
       await openSheet(tester);
 
       expect(form.occurrencesVisible, isFalse);
+      expect(form.presenceVisible, isFalse);
       expect(sectionsOf(tester), ['When', 'Details']);
 
       await form.chooseRepeat(TemplateRepeat.daily);
@@ -3258,6 +3266,132 @@ void main() {
           }
         }
       }
+    });
+  });
+
+  // Decisions B and U of the analytics record (S1b), the event editor's rule.
+  group('presence under the kind', () {
+    setUp(() {
+      CategoryProfiles.updateCache({
+        for (final (id, kind) in const [
+          ('gym', CategoryKind.task),
+          ('cardio', CategoryKind.bill),
+          ('mobility', CategoryKind.custom),
+          ('rest', CategoryKind.sleep),
+        ])
+          id: CategoryProfile(id: 'p-$id', categoryId: id, kind: kind),
+      });
+    });
+
+    tearDown(CategoryProfiles.resetCache);
+
+    testWidgets('a new one-off under Task tracks presence, assumes absent and '
+        'saves both', (tester) async {
+      final form = TemplateFormRobot(tester);
+      final saved = await saveNew(tester, (form) async {
+        expect(form.tracksPresence, isTrue);
+        expect(form.assumesAbsent, isTrue);
+      });
+
+      expect(form.isOpen, isFalse);
+      expect(saved.rule, const OneTimeRecurrence());
+      expect(saved.tracksPresence, isTrue);
+      expect(saved.assumeAbsent, isTrue);
+    });
+
+    testWidgets('no switch for a one-off under Custom; the switch for a '
+        'series', (tester) async {
+      final form = TemplateFormRobot(tester);
+      await openSheet(tester);
+
+      await form.chooseCategory('mobility');
+      expect(form.presenceVisible, isFalse);
+
+      await form.chooseRepeat(TemplateRepeat.daily);
+      expect(form.presenceVisible, isTrue);
+      expect(form.tracksPresence, isFalse);
+    });
+
+    testWidgets('under Sleep a one-off offers no switch', (tester) async {
+      final form = TemplateFormRobot(tester);
+      await openSheet(tester);
+
+      await form.chooseCategory('rest');
+      expect(form.presenceVisible, isFalse);
+    });
+
+    testWidgets('a switch the owner flipped survives a category change', (
+      tester,
+    ) async {
+      final form = TemplateFormRobot(tester);
+      await openSheet(tester);
+      await form.setTrackPresence(false);
+
+      await form.chooseCategory('cardio');
+
+      expect(form.tracksPresence, isFalse);
+    });
+
+    testWidgets('a stored untracked one-off under Task stays off', (
+      tester,
+    ) async {
+      final existing = await service.create(
+        plain.copyWith(rule: const OneTimeRecurrence()),
+      );
+
+      final saved = await saveFrom(
+        tester,
+        initial: existing,
+        edit: (form) async => expect(form.tracksPresence, isFalse),
+      );
+
+      expect(saved.tracksPresence, isFalse);
+    });
+
+    // S1 fix pass.
+    testWidgets('a Save-as-template draft keeps the event\'s presence answer '
+        'on a category pick', (tester) async {
+      final saved = await saveFrom(
+        tester,
+        draft: plain.copyWith(
+          rule: const OneTimeRecurrence(),
+          categoryId: 'mobility',
+        ),
+        edit: (form) async {
+          await form.chooseCategory('gym');
+          expect(form.presenceVisible, isTrue);
+          expect(form.tracksPresence, isFalse);
+        },
+      );
+
+      expect(saved.categoryId, 'gym');
+      expect(saved.tracksPresence, isFalse);
+      expect(saved.assumeAbsent, isFalse);
+    });
+
+    testWidgets('a stored tracked one-off under Custom switched off keeps its '
+        'switch', (tester) async {
+      final existing = await service.create(
+        plain.copyWith(
+          rule: const OneTimeRecurrence(),
+          categoryId: 'mobility',
+          tracksPresence: true,
+        ),
+      );
+
+      final saved = await saveFrom(
+        tester,
+        initial: existing,
+        edit: (form) async {
+          await form.setTrackPresence(false);
+          expect(form.presenceVisible, isTrue);
+          expect(form.tracksPresence, isFalse);
+          await form.setTrackPresence(true);
+          expect(form.tracksPresence, isTrue);
+        },
+      );
+
+      expect(saved.tracksPresence, isTrue);
     });
   });
 

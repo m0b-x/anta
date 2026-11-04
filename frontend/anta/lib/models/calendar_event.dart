@@ -177,10 +177,10 @@ class CalendarEvent extends Equatable {
   /// implicit, so only the exceptions are stored.
   ///
   /// Never affects occurrence math — a missed day still occurs, still numbers
-  /// into [countOccurrences] labels and still exports. Meaningless for a rule
-  /// with a single occurrence: the gate every surface uses is
-  /// `EventPresence.appliesTo`, i.e. this flag **and**
-  /// `rule is! OneTimeRecurrence`.
+  /// into [countOccurrences] labels and still exports. Every shape may carry
+  /// it since decision B of the analytics record — a one-off is done, paid or
+  /// overdue the way a routine is attended — so the gate every surface uses,
+  /// `EventPresence.appliesTo`, is this flag alone.
   final bool tracksPresence;
 
   /// Inverts the presence default (**v37**): unmarked occurrences read as
@@ -222,8 +222,8 @@ class CalendarEvent extends Equatable {
   /// the rail exactly when `EventPresence.appliesTo` holds, so no existing
   /// event changes behaviour and nothing needed a backfill. `true` forces it
   /// in, `false` forces it out. The recurrence guard lives in the shared
-  /// `eventInDayRail` predicate rather than here, so `true` on a one-time
-  /// event still stays out.
+  /// `eventInDayRail` predicate rather than here, so `true` on an untracked
+  /// one-time event still stays out.
   final bool? showInDayRail;
 
   /// Whether acknowledging this event's first alert deletes the event
@@ -330,17 +330,29 @@ class CalendarEvent extends Equatable {
     _ => null,
   };
 
+  /// Whether saving this over [previous] strands [previous]'s skip rows: the
+  /// event became a one-off, or a one-off moved to another day. A one-off's
+  /// cancel is the skip on its one day, so a row a series left on the new
+  /// day would hide the event with no Cancelled state to explain it; the
+  /// editor and the Dates sheet both clear the event's skips then, so the
+  /// two writers agree.
+  bool strandsSkipsOf(CalendarEvent previous) =>
+      rule is OneTimeRecurrence &&
+      (previous.rule is! OneTimeRecurrence ||
+          previous.startDateUtc != startDateUtc);
+
   /// This event pinned to exactly [dates]: the earliest becomes the start, one
   /// date is a one-time rule, and a single date drops the flags only a series
-  /// can carry — the editor's own save guards, so the two write paths agree.
+  /// can carry. Presence is not one of them since decision B of the analytics
+  /// record: a single date keeps its mark and its assume-absent default, the
+  /// way a one-off dentist visit stays "done or overdue".
   CalendarEvent withExplicitDates(Set<DateTime> dates) {
     final sorted =
         dates.map((d) => DateTime.utc(d.year, d.month, d.day)).toSet().toList()
           ..sort();
     if (sorted.isEmpty) return this;
     final single = sorted.length == 1;
-    final keepsPresence = !single && tracksPresence;
-    final keepsAssumeAbsent = keepsPresence && assumeAbsent;
+    final keepsAssumeAbsent = tracksPresence && assumeAbsent;
     return copyWith(
       startDate: sorted.first,
       rule: single
@@ -349,7 +361,6 @@ class CalendarEvent extends Equatable {
       clearEndDate: true,
       retroactive: false,
       countOccurrences: false,
-      tracksPresence: keepsPresence,
       assumeAbsent: keepsAssumeAbsent,
       clearAssumeAbsentFrom: !keepsAssumeAbsent,
       clearShowInDayRail: single,
@@ -496,10 +507,9 @@ class CalendarEvent extends Equatable {
   ///
   /// Note the deliberate contrast with the hidden-category filter, which is
   /// render-time only, forever: hiding a category changes what you are looking
-  /// at, while cancelling an occurrence changes what is there. The
-  /// [OneTimeRecurrence] gate keeps a stale row from ever hiding a one-time
-  /// event — cancelling its only occurrence is a delete, which the UI offers
-  /// separately.
+  /// at, while cancelling an occurrence changes what is there. A one-time
+  /// event is no exception since decision B of the analytics record: its
+  /// cancelled day is gone like a routine's, and an unskip brings it back.
   ///
   /// This normalizes [day] and delegates to [occursOnUtcDay]; a caller that
   /// already holds a date-only UTC day should call that directly.
@@ -518,7 +528,7 @@ class CalendarEvent extends Equatable {
       return true;
     }());
     if (!wouldOccurOnUtcDay(day)) return false;
-    return rule is OneTimeRecurrence || !EventSkips.isSkipped(id, day);
+    return !EventSkips.isSkipped(id, day);
   }
 
   /// Whether the rule produces an occurrence on [day] before any skip is

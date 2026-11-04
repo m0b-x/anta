@@ -268,9 +268,13 @@ class TemplateFormRobot {
       .widget<FormPickerRow>(_pickerRow(SemanticsIds.templateRepeat))
       .value!;
 
-  /// Whether the form shows the options only a repeating template has.
+  /// Whether the form shows the options only a repeating template has —
+  /// Track presence no longer one of them since decision B.
   bool get occurrencesVisible =>
-      _shown(_switchRow(SemanticsIds.templatePresence));
+      _shown(_switchRow(SemanticsIds.templatePerDay));
+
+  /// Whether Track presence is on offer.
+  bool get presenceVisible => _shown(_switchRow(SemanticsIds.templatePresence));
 
   bool get countOccurrencesVisible =>
       _shown(_switchRow(SemanticsIds.templateCount));

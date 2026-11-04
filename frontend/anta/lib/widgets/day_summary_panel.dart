@@ -8,6 +8,7 @@ import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
 import '../models/calendar_event.dart';
 import '../models/day_summary_entry.dart';
+import '../utils/mark_verb_labels.dart';
 import '../utils/markdown_color_syntax.dart';
 import 'automation_id.dart';
 import 'event_alert_badge.dart';
@@ -218,7 +219,7 @@ class DaySummaryPanel extends StatelessWidget {
                 final Widget? tail = canToggleMissed
                     ? IconButton(
                         tooltip: entry.missed
-                            ? l10n.eventMarkPresent
+                            ? markAsVerbLabel(l10n, effectiveFor(event))
                             : l10n.eventMarkMissed,
                         icon: Icon(
                           entry.missed

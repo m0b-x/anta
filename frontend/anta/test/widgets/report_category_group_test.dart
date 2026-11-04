@@ -7,6 +7,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:anta/constants/app_colors.dart';
 import 'package:anta/constants/app_theme.dart';
 import 'package:anta/constants/calendar_categories.dart';
+import 'package:anta/constants/category_kinds.dart';
+import 'package:anta/constants/category_profiles.dart';
 import 'package:anta/constants/event_presence.dart';
 import 'package:anta/constants/report_metrics.dart';
 import 'package:anta/constants/row_metrics.dart';
@@ -15,6 +17,7 @@ import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/models/calendar_category.dart';
 import 'package:anta/models/calendar_event.dart';
 import 'package:anta/models/calendar_report.dart';
+import 'package:anta/models/category_profile.dart';
 import 'package:anta/models/recurrence_rule.dart';
 import 'package:anta/utils/report_labels.dart';
 import 'package:anta/widgets/event_avatar.dart';
@@ -897,6 +900,31 @@ void main() {
       await tester.tap(button);
       expect(log.presence, [(row, false)]);
       expect(log.dated, isEmpty);
+    });
+
+    testWidgets('a Missed row\'s button says its kind\'s verb', (tester) async {
+      CategoryProfiles.updateCache({
+        'gym': const CategoryProfile(
+          id: 'p1',
+          categoryId: 'gym',
+          kind: CategoryKind.workout,
+        ),
+      });
+      addTearDown(CategoryProfiles.resetCache);
+      final day = DateTime.utc(2026, 10, 27);
+      await pump(
+        tester,
+        groupOf([
+          ReportDatedRow(eventId: gym.id, day: day, missed: true),
+        ], missed: 1),
+        card: ReportCard.missed,
+      );
+      expect(
+        tester
+            .widget<FormTrailingButton>(find.byType(FormTrailingButton))
+            .tooltip,
+        'Mark as attended',
+      );
     });
 
     testWidgets('an Ahead row of a tracked event carries no button', (

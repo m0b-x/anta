@@ -387,8 +387,10 @@ class AppDatabase extends _$AppDatabase {
 
   /// The HLC a migration step backfills onto rows that predate their CRDT
   /// columns — for `DatabaseMigrations` alone. Such rows are not local edits
-  /// and queue nothing; every write on a synced table takes its stamp from
-  /// `CrdtWrite` instead, which is what queues it for the push.
+  /// and queue nothing (the v45 one-off skip sweep is the one exception: it
+  /// tombstones rows that would hide data on every device, so it queues its
+  /// own tombstones under this stamp); every write on a synced table takes
+  /// its stamp from `CrdtWrite` instead, which is what queues it for the push.
   String migrationBackfillHlc() {
     return hlc.now().toString();
   }

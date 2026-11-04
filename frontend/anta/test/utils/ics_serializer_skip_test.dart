@@ -148,7 +148,10 @@ void main() {
   });
 
   group('one-time events', () {
-    test('a stale row cannot suppress one', () {
+    test('a cancelled one is left out, never STATUS:CANCELLED', () {
+      // Decision B: a one-off can be cancelled like a routine's day. The
+      // export is a PUBLISH snapshot, so a cancelled day is absent in every
+      // shape — the one-off's only day included.
       final only = DateTime.utc(2026, 8, 3);
       skip([only]);
 
@@ -156,7 +159,21 @@ void main() {
         event(rule: const OneTimeRecurrence(), startDate: only),
       );
 
+      expect(ics, isNot(contains('BEGIN:VEVENT')));
+      expect(ics, isNot(contains('STATUS:CANCELLED')));
+      expect(ics, contains('END:VCALENDAR'));
+    });
+
+    test('a skip on another day leaves it in', () {
+      final only = DateTime.utc(2026, 8, 3);
+      skip([DateTime.utc(2026, 8, 4)]);
+
+      final ics = export(
+        event(rule: const OneTimeRecurrence(), startDate: only),
+      );
+
       expect(ics, contains('DTSTART;VALUE=DATE:20260803'));
+      expect(ics, isNot(contains('EXDATE')));
     });
   });
 }

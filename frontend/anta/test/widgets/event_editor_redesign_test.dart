@@ -15,6 +15,8 @@ import 'package:anta/bloc/markdown_bar/markdown_bar_bloc.dart';
 import 'package:anta/constants/calendar_categories.dart';
 import 'package:anta/constants/calendar_icons.dart';
 import 'package:anta/constants/calendar_palette.dart';
+import 'package:anta/constants/category_kinds.dart';
+import 'package:anta/constants/category_profiles.dart';
 import 'package:anta/constants/event_alerts.dart';
 import 'package:anta/constants/event_skips.dart';
 import 'package:anta/constants/row_metrics.dart';
@@ -23,6 +25,7 @@ import 'package:anta/database/database.dart';
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/models/calendar_category.dart';
 import 'package:anta/models/calendar_event.dart';
+import 'package:anta/models/category_profile.dart';
 import 'package:anta/models/event_alert.dart';
 import 'package:anta/models/recurrence_rule.dart';
 import 'package:anta/repositories/note_repository.dart';
@@ -1884,6 +1887,287 @@ void main() {
       final saved = await saveAnd(tester, results);
       expect(saved.event.retroactive, isTrue);
       expect(saved.event.endDate, isNull);
+    });
+  });
+
+  // Decisions B and U of the analytics record (S1b): Track presence follows
+  // the category's kind, and a new event takes the kind's defaults until the
+  // owner answers for them.
+  group('presence under the kind', () {
+    setUp(() {
+      CalendarCategories.updateCache([
+        for (final (i, id) in const [
+          'tasks',
+          'bills',
+          'custom',
+          'sleep',
+        ].indexed)
+          CalendarCategory(
+            id: id,
+            name: '${id[0].toUpperCase()}${id.substring(1)}',
+            colorValue: 0xFF3366CC,
+            iconKey: 'event',
+            sortOrder: i,
+            isBuiltIn: false,
+          ),
+      ]);
+      CategoryProfiles.updateCache({
+        for (final (id, kind) in const [
+          ('tasks', CategoryKind.task),
+          ('bills', CategoryKind.bill),
+          ('custom', CategoryKind.custom),
+          ('sleep', CategoryKind.sleep),
+        ])
+          id: CategoryProfile(id: 'p-$id', categoryId: id, kind: kind),
+      });
+    });
+
+    tearDown(() {
+      CategoryProfiles.resetCache();
+      CalendarCategories.updateCache(const []);
+    });
+
+    final trackPresence = find.widgetWithText(FormSwitchRow, 'Track presence');
+    bool tracks(WidgetTester tester) =>
+        tester.widget<FormSwitchRow>(trackPresence).value;
+    bool assumesAbsent(WidgetTester tester) => tester
+        .widget<FormChip>(find.widgetWithText(FormChip, 'Assume absent'))
+        .selected;
+
+    Future<void> pickCategory(WidgetTester tester, String name) async {
+      await tapText(tester, 'Category');
+      await tapText(tester, name);
+    }
+
+    testWidgets('a new event under Task tracks presence and assumes absent', (
+      tester,
+    ) async {
+      await open(tester);
+
+      expect(tracks(tester), isTrue);
+      expect(assumesAbsent(tester), isTrue);
+    });
+
+    testWidgets('no switch for a one-off under Custom; the switch for a '
+        'series', (tester) async {
+      await open(tester);
+      await pickCategory(tester, 'Custom');
+
+      expect(trackPresence, findsNothing);
+
+      await pickRepeat(tester, 'Weekly');
+
+      expect(trackPresence, findsOneWidget);
+      expect(tracks(tester), isFalse);
+      expect(find.widgetWithText(FormChip, 'Assume absent'), findsNothing);
+    });
+
+    testWidgets('under Sleep a one-off offers no switch', (tester) async {
+      await open(tester);
+      await pickCategory(tester, 'Sleep');
+
+      expect(trackPresence, findsNothing);
+    });
+
+    testWidgets('an existing untracked event under Task stays off', (
+      tester,
+    ) async {
+      final results = await open(
+        tester,
+        initial: CalendarEvent(
+          id: 'e1',
+          title: 'Taxes',
+          categoryId: 'tasks',
+          startDate: startDate,
+          rule: const OneTimeRecurrence(),
+        ),
+      );
+
+      expect(tracks(tester), isFalse);
+      final saved = await saveAnd(tester, results);
+      expect(saved.event.tracksPresence, isFalse);
+    });
+
+    testWidgets('a switch the owner flipped survives a category change', (
+      tester,
+    ) async {
+      await open(tester);
+      await tapText(tester, 'Track presence');
+      expect(tracks(tester), isFalse);
+
+      await pickCategory(tester, 'Bills');
+
+      expect(tracks(tester), isFalse);
+    });
+
+    testWidgets('a new one-off saves its presence', (tester) async {
+      final results = await open(tester);
+      await typeTitle(tester, 'Taxes');
+
+      final saved = await saveAnd(tester, results);
+
+      expect(saved.event.rule, const OneTimeRecurrence());
+      expect(saved.event.tracksPresence, isTrue);
+      expect(saved.event.assumeAbsent, isTrue);
+    });
+
+    testWidgets('a series turned into a one-off on a skipped day clears its '
+        'skips', (tester) async {
+      EventSkips.updateCache(
+        byEvent: {
+          'e1': {startDate},
+        },
+      );
+      final results = await open(
+        tester,
+        initial: CalendarEvent(
+          id: 'e1',
+          title: 'Standup',
+          categoryId: 'tasks',
+          startDate: startDate,
+          rule: const DailyRecurrence(),
+          tracksPresence: true,
+        ),
+      );
+      await pickRepeat(tester, 'Does not repeat');
+
+      final saved = await saveAnd(tester, results);
+
+      expect(saved.event.rule, const OneTimeRecurrence());
+      expect(saved.event.startDateUtc, startDate);
+      expect(saved.skippedDays, isEmpty);
+      expect(saved.skippedDays, isNotNull);
+    });
+
+    testWidgets('a series left a series keeps its skips alone', (tester) async {
+      EventSkips.updateCache(
+        byEvent: {
+          'e1': {startDate},
+        },
+      );
+      final results = await open(
+        tester,
+        initial: CalendarEvent(
+          id: 'e1',
+          title: 'Standup',
+          categoryId: 'tasks',
+          startDate: startDate,
+          rule: const DailyRecurrence(),
+        ),
+      );
+
+      final saved = await saveAnd(tester, results);
+
+      expect(saved.skippedDays, isNull);
+    });
+
+    // S1 fix pass: the switch is offered as the sheet opened, never as it
+    // stands, so switching it off never takes it from under the finger.
+    testWidgets('a tracked one-off under Custom switched off keeps its '
+        'switch', (tester) async {
+      final results = await open(
+        tester,
+        initial: CalendarEvent(
+          id: 'e1',
+          title: 'Dentist',
+          categoryId: 'custom',
+          startDate: startDate,
+          rule: const OneTimeRecurrence(),
+          tracksPresence: true,
+        ),
+      );
+      expect(tracks(tester), isTrue);
+
+      await tapText(tester, 'Track presence');
+
+      expect(trackPresence, findsOneWidget);
+      expect(tracks(tester), isFalse);
+
+      await tapText(tester, 'Track presence');
+
+      expect(tracks(tester), isTrue);
+      final saved = await saveAnd(tester, results);
+      expect(saved.event.tracksPresence, isTrue);
+    });
+
+    testWidgets('a one-off moved to another day clears its skips', (
+      tester,
+    ) async {
+      EventSkips.updateCache(
+        byEvent: {
+          'e1': {startDate},
+        },
+      );
+      final results = await open(
+        tester,
+        initial: CalendarEvent(
+          id: 'e1',
+          title: 'Dentist',
+          categoryId: 'tasks',
+          startDate: startDate,
+          rule: const OneTimeRecurrence(),
+          tracksPresence: true,
+        ),
+      );
+      await tapText(tester, 'Date');
+      final target = DateTime.utc(2026, 9, 15);
+      await tester.tap(
+        find.byWidgetPredicate((w) => w is CalendarDayCell && w.day == target),
+      );
+      await tester.pumpAndSettle();
+
+      final saved = await saveAnd(tester, results);
+
+      expect(saved.event.startDateUtc, target);
+      expect(saved.skippedDays, isNotNull);
+      expect(saved.skippedDays, isEmpty);
+    });
+
+    testWidgets('a one-off turned into a series keeps its skips', (
+      tester,
+    ) async {
+      EventSkips.updateCache(
+        byEvent: {
+          'e1': {startDate},
+        },
+      );
+      final results = await open(
+        tester,
+        initial: CalendarEvent(
+          id: 'e1',
+          title: 'Dentist',
+          categoryId: 'tasks',
+          startDate: startDate,
+          rule: const OneTimeRecurrence(),
+          tracksPresence: true,
+        ),
+      );
+      await pickRepeat(tester, 'Weekly');
+
+      final saved = await saveAnd(tester, results);
+
+      expect(saved.event.rule, isA<WeeklyRecurrence>());
+      expect(saved.skippedDays, isNull, reason: 'left as they are');
+    });
+
+    // Decision V: the guide's practice reads none of the owner's profiles.
+    testWidgets('a guide practice editor under a Task category starts as an '
+        'unprofiled one: no switch on a one-off, off on a series', (
+      tester,
+    ) async {
+      final results = await open(tester, sandbox: true);
+      await typeTitle(tester, 'Practice');
+      // The first category, profiled Task, is the new event's.
+      expect(find.text('Tasks'), findsOneWidget);
+
+      expect(trackPresence, findsNothing);
+
+      await pickRepeat(tester, 'Weekly');
+
+      expect(tracks(tester), isFalse);
+      final saved = await saveAnd(tester, results);
+      expect(saved.event.tracksPresence, isFalse);
+      expect(saved.event.assumeAbsent, isFalse);
     });
   });
 

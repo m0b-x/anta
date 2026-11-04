@@ -3369,5 +3369,33 @@
   "calendarGuideReportMissedTitle": "Was du verpasst hast",
   "calendarGuideReportMissedBody": "„{missed}“ listet die Termine, die du als abwesend markiert hast oder die als abwesend gelten; tippe neben einer Zeile auf „{markPresent}“, und die Zahlen rechnen sich neu.",
   "calendarGuideReportDigestTitle": "Jede Woche oder jeden Monat von selbst",
-  "calendarGuideReportDigestBody": "Bei einer Woche öffnet „{weekly}“, bei einem Monat „{monthly}“ eine Zusammenfassung des gerade abgelaufenen Zeitraums – speichere sie, und sie kommt am ersten Tag der nächsten Woche oder des nächsten Monats: eine Zusammenfassung, bei der „{shows}“ auf „{weekReport}“ oder „{monthReport}“ steht. „{share}“ schreibt die Seite als Markdown."
+  "calendarGuideReportDigestBody": "Bei einer Woche öffnet „{weekly}“, bei einem Monat „{monthly}“ eine Zusammenfassung des gerade abgelaufenen Zeitraums – speichere sie, und sie kommt am ersten Tag der nächsten Woche oder des nächsten Monats: eine Zusammenfassung, bei der „{shows}“ auf „{weekReport}“ oder „{monthReport}“ steht. „{share}“ schreibt die Seite als Markdown.",
+  "markVerbDone": "Erledigt",
+  "markVerbAttended": "Besucht",
+  "markVerbTaken": "Genommen",
+  "markVerbPaid": "Bezahlt",
+  "markVerbReceived": "Erhalten",
+  "markVerbMet": "Stattgefunden",
+  "markVerbRenewed": "Erneuert",
+  "eventMarkDone": "Als erledigt markieren",
+  "eventMarkAttended": "Als besucht markieren",
+  "eventMarkTaken": "Als genommen markieren",
+  "eventMarkPaid": "Als bezahlt markieren",
+  "eventMarkReceived": "Als erhalten markieren",
+  "eventMarkMet": "Als stattgefunden markieren",
+  "eventMarkRenewed": "Als erneuert markieren",
+  "eventMarkAsVerb": "Als {verb} markieren",
+  "@eventMarkAsVerb": {
+    "description": "Tooltip on a row's button that returns a missed occurrence to kept, for a category whose owner wrote their own word for a kept mark",
+    "placeholders": {
+      "verb": {
+        "type": "String",
+        "example": "logged"
+      }
+    }
+  },
+  "eventCancelEvent": "Diesen Termin absagen",
+  "eventCancelledState": "Abgesagt",
+  "eventRestoreEvent": "Wiederherstellen",
+  "eventCancelled": "Termin abgesagt"
 }

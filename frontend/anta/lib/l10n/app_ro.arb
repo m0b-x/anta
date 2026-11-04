@@ -2235,5 +2235,33 @@
   "calendarGuideReportMissedTitle": "Ce ai ratat",
   "calendarGuideReportMissedBody": "„{missed}” arată ședințele pe care le-ai marcat absente sau care se consideră absente; atinge „{markPresent}” lângă o ședință, iar cifrele se actualizează.",
   "calendarGuideReportDigestTitle": "În fiecare săptămână sau lună, de la sine",
-  "calendarGuideReportDigestBody": "Pe o săptămână „{weekly}”, pe o lună „{monthly}” deschide un rezumat al perioadei tocmai încheiate — salvează-l și îl primești în prima zi a săptămânii sau a lunii următoare: un rezumat cu „{shows}” setat pe „{weekReport}” sau „{monthReport}”. „{share}” scrie pagina ca Markdown."
+  "calendarGuideReportDigestBody": "Pe o săptămână „{weekly}”, pe o lună „{monthly}” deschide un rezumat al perioadei tocmai încheiate — salvează-l și îl primești în prima zi a săptămânii sau a lunii următoare: un rezumat cu „{shows}” setat pe „{weekReport}” sau „{monthReport}”. „{share}” scrie pagina ca Markdown.",
+  "markVerbDone": "Făcut",
+  "markVerbAttended": "Prezent",
+  "markVerbTaken": "Luat",
+  "markVerbPaid": "Plătit",
+  "markVerbReceived": "Primit",
+  "markVerbMet": "Văzut",
+  "markVerbRenewed": "Reînnoit",
+  "eventMarkDone": "Marchează ca făcut",
+  "eventMarkAttended": "Marchează ca prezent",
+  "eventMarkTaken": "Marchează ca luat",
+  "eventMarkPaid": "Marchează ca plătit",
+  "eventMarkReceived": "Marchează ca primit",
+  "eventMarkMet": "Marchează ca văzut",
+  "eventMarkRenewed": "Marchează ca reînnoit",
+  "eventMarkAsVerb": "Marchează ca {verb}",
+  "@eventMarkAsVerb": {
+    "description": "Tooltip on a row's button that returns a missed occurrence to kept, for a category whose owner wrote their own word for a kept mark",
+    "placeholders": {
+      "verb": {
+        "type": "String",
+        "example": "logged"
+      }
+    }
+  },
+  "eventCancelEvent": "Contramandează evenimentul",
+  "eventCancelledState": "Contramandat",
+  "eventRestoreEvent": "Restaurează",
+  "eventCancelled": "Eveniment contramandat"
 }

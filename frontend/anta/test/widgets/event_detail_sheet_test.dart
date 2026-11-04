@@ -6,13 +6,17 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/intl.dart';
 
 import 'package:anta/constants/calendar_categories.dart';
+import 'package:anta/constants/category_kinds.dart';
+import 'package:anta/constants/category_profiles.dart';
 import 'package:anta/constants/event_alerts.dart';
+import 'package:anta/constants/event_presence.dart';
 import 'package:anta/constants/event_skips.dart';
 import 'package:anta/constants/semantics_ids.dart';
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/models/calendar_category.dart';
 import 'package:anta/models/calendar_event.dart';
 import 'package:anta/models/category_alert.dart';
+import 'package:anta/models/category_profile.dart';
 import 'package:anta/models/event_alert.dart';
 import 'package:anta/models/recurrence_rule.dart';
 import 'package:anta/services/event_time_formatter.dart';
@@ -73,7 +77,10 @@ void main() {
     double textScale = 1,
     bool use24HourFormat = true,
     void Function(DateTime day, bool missed)? onPresenceChanged,
+    void Function(DateTime day, bool cancelled, {PresenceStatus? restore})?
+    onCancelChanged,
     Future<String?> Function(String noteId)? resolveNoteTitle,
+    EffectiveProfile Function(CalendarEvent event)? profileOf,
   }) async {
     addTearDown(tester.view.reset);
     tester.view.devicePixelRatio = 1.0;
@@ -103,7 +110,9 @@ void main() {
                     event: subject,
                     day: day ?? today,
                     onPresenceChanged: onPresenceChanged,
+                    onCancelChanged: onCancelChanged,
                     resolveNoteTitle: resolveNoteTitle,
+                    profileOf: profileOf,
                   ),
                 );
               },
@@ -329,6 +338,37 @@ void main() {
       expect(find.byType(FormChip), findsNothing);
     });
 
+    testWidgets('a tracked one-off shows the chips, no adherence and no Skip', (
+      tester,
+    ) async {
+      // Decision B opens presence to a one-off; Skip this day stays a
+      // recurring event's action, and a one-off's cancel needs its wiring.
+      await openSheet(
+        tester,
+        event(tracksPresence: true),
+        onPresenceChanged: (_, _) {},
+      );
+      expect(find.text('Presence'), findsOneWidget);
+      expect(
+        find.bySemanticsIdentifier(SemanticsIds.eventDetailPresent),
+        findsOneWidget,
+      );
+      expect(find.textContaining('attended'), findsNothing);
+      expect(find.textContaining('Streak'), findsNothing);
+      expect(
+        find.bySemanticsIdentifier(SemanticsIds.eventDetailSkip),
+        findsNothing,
+      );
+    });
+
+    testWidgets('an untracked one-off shows no chips, the callback wired', (
+      tester,
+    ) async {
+      await openSheet(tester, event(), onPresenceChanged: (_, _) {});
+      expect(find.text('Presence'), findsNothing);
+      expect(find.byType(FormChip), findsNothing);
+    });
+
     testWidgets('Skip this day pops skipOccurrence on a recurring event', (
       tester,
     ) async {
@@ -349,6 +389,431 @@ void main() {
       );
       await openSheet(tester, event(rule: everyDay, startDate: offset(-7)));
       expect(find.text('Skip this day'), findsNothing);
+    });
+
+    // Decision B of the analytics record (S1b): the kept chip says the
+    // kind's verb, and a one-off is cancelled and restored in place.
+    group('under the kind', () {
+      setUp(() {
+        CalendarCategories.updateCache(const [
+          CalendarCategory(
+            id: 'gym',
+            name: 'Gym',
+            colorValue: 0xFF43A047,
+            iconKey: 'event',
+            sortOrder: 0,
+            isBuiltIn: false,
+          ),
+        ]);
+      });
+
+      tearDown(() {
+        CategoryProfiles.resetCache();
+        CalendarCategories.updateCache(const []);
+      });
+
+      void profile(CategoryKind kind, {String? markVerb}) =>
+          CategoryProfiles.updateCache({
+            'gym': CategoryProfile(
+              id: 'p1',
+              categoryId: 'gym',
+              kind: kind,
+              markVerb: markVerb,
+            ),
+          });
+
+      String keptChip(WidgetTester tester) => tester
+          .widget<FormChip>(
+            find.ancestor(
+              of: find.bySemanticsIdentifier(SemanticsIds.eventDetailPresent),
+              matching: find.byType(FormChip),
+            ),
+          )
+          .label;
+
+      for (final (kind, word) in const [
+        (CategoryKind.task, 'Done'),
+        (CategoryKind.workout, 'Attended'),
+        (CategoryKind.bill, 'Paid'),
+      ]) {
+        testWidgets('the kept chip reads $word under ${kind.name}', (
+          tester,
+        ) async {
+          profile(kind);
+          await openSheet(
+            tester,
+            event(rule: everyDay, tracksPresence: true),
+            onPresenceChanged: (_, _) {},
+          );
+          expect(keptChip(tester), word);
+          expect(dataOf(tester, SemanticsIds.eventDetailPresent).label, word);
+          expect(find.text('Missed'), findsOneWidget);
+        });
+      }
+
+      testWidgets('the owner\'s own verb is drawn as written', (tester) async {
+        profile(CategoryKind.task, markVerb: 'Logged');
+        await openSheet(
+          tester,
+          event(tracksPresence: true),
+          onPresenceChanged: (_, _) {},
+        );
+        expect(keptChip(tester), 'Logged');
+      });
+
+      testWidgets('an unprofiled category still reads Present', (tester) async {
+        await openSheet(
+          tester,
+          event(rule: everyDay, tracksPresence: true),
+          onPresenceChanged: (_, _) {},
+        );
+        expect(keptChip(tester), 'Present');
+      });
+
+      testWidgets('the guide\'s unprofiled reader reads Present under a '
+          'profiled category', (tester) async {
+        profile(CategoryKind.task);
+        await openSheet(
+          tester,
+          event(rule: everyDay, tracksPresence: true),
+          onPresenceChanged: (_, _) {},
+          profileOf: (_) => EffectiveProfile.unprofiled,
+        );
+        expect(keptChip(tester), 'Present');
+      });
+
+      testWidgets('a one-off is cancelled in place and restored', (
+        tester,
+      ) async {
+        final writes = <(DateTime, bool)>[];
+        final actions = await openSheet(
+          tester,
+          event(tracksPresence: true),
+          onPresenceChanged: (_, _) {},
+          onCancelChanged: (day, cancelled, {restore}) =>
+              writes.add((day, cancelled)),
+        );
+        final presenceRow = tester.getRect(
+          find.widgetWithText(FormChipRow, 'Presence'),
+        );
+        final cancel = find.bySemanticsIdentifier(
+          SemanticsIds.eventDetailCancel,
+        );
+        expect(find.text('Cancel this event'), findsOneWidget);
+        expect(find.text('Skip this day'), findsNothing);
+
+        await tester.tap(cancel);
+        await tester.pumpAndSettle();
+
+        expect(writes, [(today, true)]);
+        expect(actions, isEmpty, reason: 'the sheet stays open');
+        expect(find.byType(EventDetailSheet), findsOneWidget);
+        // The pair stays only as the invisible template sizing the row.
+        expect(find.text('Presence').hitTestable(), findsNothing);
+        expect(
+          find.bySemanticsIdentifier(SemanticsIds.eventDetailPresent),
+          findsNothing,
+        );
+        expect(cancel, findsNothing);
+        expect(find.text('Event cancelled'), findsOneWidget);
+        // The Cancelled row takes the presence row's slot and height.
+        final cancelledRow = tester.getRect(
+          find.widgetWithText(FormPickerRow, 'Cancelled'),
+        );
+        expect(cancelledRow.height, presenceRow.height);
+        expect(cancelledRow.top, presenceRow.top);
+
+        await tester.tap(
+          find.bySemanticsIdentifier(SemanticsIds.eventDetailRestore),
+        );
+        await tester.pumpAndSettle();
+
+        expect(writes, [(today, true), (today, false)]);
+        expect(find.text('Cancelled'), findsNothing);
+        expect(find.text('Presence'), findsOneWidget);
+        expect(cancel, findsOneWidget);
+        expect(find.text('Event cancelled'), findsNothing);
+        expect(actions, isEmpty);
+      });
+
+      testWidgets('the cancel\'s Undo restores the one-off', (tester) async {
+        final writes = <(DateTime, bool)>[];
+        await openSheet(
+          tester,
+          event(),
+          onCancelChanged: (day, cancelled, {restore}) =>
+              writes.add((day, cancelled)),
+        );
+        await tester.tap(
+          find.bySemanticsIdentifier(SemanticsIds.eventDetailCancel),
+        );
+        await tester.pumpAndSettle();
+        expect(find.text('Cancelled'), findsOneWidget);
+
+        await tester.tap(find.text('Undo'));
+        await tester.pumpAndSettle();
+
+        expect(writes, [(today, true), (today, false)]);
+        expect(find.text('Cancelled'), findsNothing);
+        expect(find.text('Cancel this event'), findsOneWidget);
+      });
+
+      testWidgets('a sheet opened on a cancelled one-off shows it Cancelled', (
+        tester,
+      ) async {
+        EventSkips.updateCache(
+          byEvent: {
+            'e1': {today},
+          },
+        );
+        await openSheet(
+          tester,
+          event(tracksPresence: true),
+          onPresenceChanged: (_, _) {},
+          onCancelChanged: (_, _, {restore}) {},
+        );
+        expect(find.text('Cancelled'), findsOneWidget);
+        expect(
+          find.bySemanticsIdentifier(SemanticsIds.eventDetailRestore),
+          findsOneWidget,
+        );
+        expect(find.text('Presence').hitTestable(), findsNothing);
+      });
+
+      testWidgets('a recurring event still skips its day and closes', (
+        tester,
+      ) async {
+        final writes = <(DateTime, bool)>[];
+        final actions = await openSheet(
+          tester,
+          event(rule: everyDay),
+          onCancelChanged: (day, cancelled, {restore}) =>
+              writes.add((day, cancelled)),
+        );
+        expect(
+          find.bySemanticsIdentifier(SemanticsIds.eventDetailCancel),
+          findsNothing,
+        );
+
+        await tester.tap(
+          find.bySemanticsIdentifier(SemanticsIds.eventDetailSkip),
+        );
+        await tester.pumpAndSettle();
+
+        expect(actions, [EventDetailAction.skipOccurrence]);
+        expect(writes, isEmpty);
+      });
+
+      group('a restore gives the mark back', () {
+        final restores = <(bool, PresenceStatus?)>[];
+        tearDown(() {
+          EventPresence.resetCache();
+          restores.clear();
+        });
+
+        // Assumed absent, so a day whose mark the cancel cleared reads
+        // missed unless the restore writes the mark back.
+        final doneOneOff = event(
+          tracksPresence: true,
+        ).copyWith(assumeAbsent: true);
+
+        /// The cancel's side of `EventSkipService.markSkipped`: the day's
+        /// mark leaves the facade.
+        void onCancel(DateTime day, bool cancelled, {PresenceStatus? restore}) {
+          restores.add((cancelled, restore));
+          if (cancelled) EventPresence.updateCache(byEvent: const {});
+        }
+
+        bool keptSelected(WidgetTester tester) => tester
+            .widget<FormChip>(
+              find.ancestor(
+                of: find.bySemanticsIdentifier(SemanticsIds.eventDetailPresent),
+                matching: find.byType(FormChip),
+              ),
+            )
+            .selected;
+
+        testWidgets('a Done one-off cancelled and restored is Done again', (
+          tester,
+        ) async {
+          profile(CategoryKind.task);
+          EventPresence.updateCache(
+            byEvent: {
+              'e1': {today: PresenceStatus.present},
+            },
+          );
+          await openSheet(
+            tester,
+            doneOneOff,
+            onPresenceChanged: (_, _) {},
+            onCancelChanged: onCancel,
+          );
+          expect(keptSelected(tester), isTrue);
+
+          await tester.tap(
+            find.bySemanticsIdentifier(SemanticsIds.eventDetailCancel),
+          );
+          await tester.pumpAndSettle();
+          await tester.tap(
+            find.bySemanticsIdentifier(SemanticsIds.eventDetailRestore),
+          );
+          await tester.pumpAndSettle();
+
+          expect(restores, [(true, null), (false, PresenceStatus.present)]);
+          expect(keptSelected(tester), isTrue, reason: 'not missed');
+        });
+
+        testWidgets('a mark set in the sheet is the one handed back', (
+          tester,
+        ) async {
+          await openSheet(
+            tester,
+            doneOneOff,
+            onPresenceChanged: (_, _) {},
+            onCancelChanged: onCancel,
+          );
+          expect(keptSelected(tester), isFalse);
+          await tester.tap(
+            find.bySemanticsIdentifier(SemanticsIds.eventDetailPresent),
+          );
+          await tester.pumpAndSettle();
+
+          await tester.tap(
+            find.bySemanticsIdentifier(SemanticsIds.eventDetailCancel),
+          );
+          await tester.pumpAndSettle();
+          await tester.tap(find.text('Undo'));
+          await tester.pumpAndSettle();
+
+          expect(restores.last, (false, PresenceStatus.present));
+          expect(keptSelected(tester), isTrue);
+        });
+
+        testWidgets('the Undo after the sheet closed hands the mark back', (
+          tester,
+        ) async {
+          EventPresence.updateCache(
+            byEvent: {
+              'e1': {today: PresenceStatus.present},
+            },
+          );
+          await openSheet(
+            tester,
+            doneOneOff,
+            onPresenceChanged: (_, _) {},
+            onCancelChanged: onCancel,
+          );
+          await tester.tap(
+            find.bySemanticsIdentifier(SemanticsIds.eventDetailCancel),
+          );
+          await tester.pumpAndSettle();
+          await tester.tap(
+            find.bySemanticsIdentifier(SemanticsIds.eventDetailClose),
+          );
+          await tester.pumpAndSettle();
+          expect(find.byType(EventDetailSheet), findsNothing);
+
+          await tester.tap(find.text('Undo'));
+          await tester.pumpAndSettle();
+
+          expect(restores, [(true, null), (false, PresenceStatus.present)]);
+        });
+
+        testWidgets('an unmarked one-off restores unmarked', (tester) async {
+          await openSheet(
+            tester,
+            doneOneOff,
+            onPresenceChanged: (_, _) {},
+            onCancelChanged: onCancel,
+          );
+          await tester.tap(
+            find.bySemanticsIdentifier(SemanticsIds.eventDetailCancel),
+          );
+          await tester.pumpAndSettle();
+          await tester.tap(
+            find.bySemanticsIdentifier(SemanticsIds.eventDetailRestore),
+          );
+          await tester.pumpAndSettle();
+
+          expect(restores, [(true, null), (false, null)]);
+          // The event's own answer again: assumed absent.
+          expect(keptSelected(tester), isFalse);
+        });
+      });
+
+      // The cancel keeps the sheet's geometry: one row for one row, so the
+      // rows below and the content-tall sheet's top never move.
+      for (final scale in const [1.0, 2.0]) {
+        for (final tracked in const [false, true]) {
+          testWidgets('cancelling a${tracked ? ' tracked' : 'n untracked'} '
+              'one-off moves nothing at $scale', (tester) async {
+            EventAlerts.updateCache(
+              byEvent: {
+                'e1': const [
+                  EventAlert(id: 'a1', eventId: 'e1', mode: AlertMode.ring),
+                ],
+              },
+            );
+            await openSheet(
+              tester,
+              event(
+                tracksPresence: tracked,
+                time: const EventTime(startMinute: 450),
+              ),
+              textScale: scale,
+              onPresenceChanged: tracked ? (_, _) {} : null,
+              onCancelChanged: (_, _, {restore}) {},
+            );
+            final alerts = find.text('ALERTS');
+            final top = tester.getRect(alerts).top;
+            final cancelRect = tester.getRect(
+              find.bySemanticsIdentifier(SemanticsIds.eventDetailCancel),
+            );
+
+            await tester.tap(
+              find.bySemanticsIdentifier(SemanticsIds.eventDetailCancel),
+            );
+            await tester.pumpAndSettle();
+
+            expect(tester.takeException(), isNull);
+            expect(tester.getRect(alerts).top, top);
+            final restore = find.bySemanticsIdentifier(
+              SemanticsIds.eventDetailRestore,
+            );
+            // Restore stands where Cancel stood, at its height.
+            expect(tester.getRect(restore), cancelRect);
+            if (scale == 1.0) {
+              expect(tester.getRect(restore).height, FormMetrics.rowMinHeight);
+            }
+            expect(
+              find.bySemanticsIdentifier(SemanticsIds.eventDetailCancel),
+              findsNothing,
+            );
+            expect(find.text('Cancelled'), findsOneWidget);
+          });
+        }
+      }
+
+      testWidgets('an untracked one-off\'s Restore carries the Cancelled '
+          'word and is one 48 dp target', (tester) async {
+        await openSheet(tester, event(), onCancelChanged: (_, _, {restore}) {});
+        await tester.tap(
+          find.bySemanticsIdentifier(SemanticsIds.eventDetailCancel),
+        );
+        await tester.pumpAndSettle();
+
+        final restore = find.bySemanticsIdentifier(
+          SemanticsIds.eventDetailRestore,
+        );
+        expect(tester.getRect(restore).height, FormMetrics.rowMinHeight);
+        expect(
+          find.descendant(of: restore, matching: find.text('Cancelled')),
+          findsOneWidget,
+        );
+        final data = dataOf(tester, SemanticsIds.eventDetailRestore);
+        expect(data.label, contains('Restore'));
+        expect(data.hasAction(SemanticsAction.tap), isTrue);
+      });
     });
   });
 
@@ -659,6 +1124,41 @@ void main() {
       expect(find.text('Bearbeiten'), findsOneWidget);
       final sheet = tester.getRect(find.byType(EventDetailSheet));
       expect(sheet.height, lessThanOrEqualTo(780 * 0.92 + 1));
+    });
+
+    testWidgets('a cancelled one-off in German at text scale 2.0 keeps the '
+        'presence row\'s height', (tester) async {
+      Future<void> open() => openSheet(
+        tester,
+        event(title: 'Zahnarzt', tracksPresence: true),
+        locale: const Locale('de'),
+        size: const Size(360, 780),
+        textScale: 2.0,
+        onPresenceChanged: (_, _) {},
+        onCancelChanged: (_, _, {restore}) {},
+      );
+      await open();
+      expect(tester.takeException(), isNull);
+      final before = tester
+          .getSize(find.widgetWithText(FormChipRow, 'Anwesenheit'))
+          .height;
+      await tester.pumpWidget(const SizedBox.shrink());
+
+      // Opened cancelled, so no confirmation is up over the sheet.
+      EventSkips.updateCache(
+        byEvent: {
+          'e1': {today},
+        },
+      );
+      await open();
+
+      expect(tester.takeException(), isNull);
+      expect(find.text('Abgesagt'), findsOneWidget);
+      expect(find.text('Wiederherstellen'), findsOneWidget);
+      expect(
+        tester.getSize(find.widgetWithText(FormPickerRow, 'Abgesagt')).height,
+        before,
+      );
     });
 
     testWidgets('every driver id is on the sheet', (tester) async {

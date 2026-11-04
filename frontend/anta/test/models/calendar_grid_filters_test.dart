@@ -138,10 +138,10 @@ void main() {
       expect(allows(filters, event(priority: 3)), isFalse);
     });
 
-    /// The gate is `EventPresence.appliesTo`, not the bare flag: a one-time
-    /// event has no attendance to keep, so it is never a tracked commitment
-    /// however its column reads.
-    test('tracked-only follows presence applicability, not the flag', () {
+    /// The gate is `EventPresence.appliesTo`, which since decision B is the
+    /// opt-in alone: a tracked one-off is done or overdue like a routine, so
+    /// it is a tracked commitment too.
+    test('tracked-only follows presence applicability, one-offs included', () {
       const filters = CalendarGridFilters(trackedOnly: true);
 
       expect(allows(filters, event(tracksPresence: true)), isTrue);
@@ -151,8 +151,9 @@ void main() {
           filters,
           event(tracksPresence: true, rule: const OneTimeRecurrence()),
         ),
-        isFalse,
+        isTrue,
       );
+      expect(allows(filters, event(rule: const OneTimeRecurrence())), isFalse);
     });
 
     test('linked-notes-only keeps events carrying a note id', () {

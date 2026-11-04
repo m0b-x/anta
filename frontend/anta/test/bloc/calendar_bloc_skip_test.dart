@@ -186,6 +186,33 @@ void main() {
     expect(emitted, isEmpty);
   });
 
+  // Decision B of the analytics record: a one-off is cancelled, not deleted.
+  test('a one-off is cancelled and restored through the bloc', () async {
+    // Before the daily e1 starts, so the one-off is the day's only event.
+    final dentist = DateTime.utc(2026, 7, 20);
+    await dispatch(
+      CreateCalendarEvent(
+        event: CalendarEvent(
+          id: 'e2',
+          title: 'Dentist',
+          categoryId: 'other',
+          startDate: dentist,
+        ),
+      ),
+    );
+    expect(bloc.eventsForDay(dentist).map((e) => e.id), ['e2']);
+    final before = loaded();
+
+    await dispatch(SetOccurrenceSkipped(eventId: 'e2', day: dentist));
+
+    expect(bloc.eventsForDay(dentist), isEmpty);
+    expect(loaded().membershipRevision, before.membershipRevision + 1);
+
+    await dispatch(ClearOccurrenceSkipped(eventId: 'e2', day: dentist));
+
+    expect(bloc.eventsForDay(dentist).map((e) => e.id), ['e2']);
+  });
+
   test('deleting the event clears its skips', () async {
     await dispatch(SetOccurrenceSkipped(eventId: 'e1', day: day));
     expect(EventSkips.isSkipped('e1', day), isTrue);

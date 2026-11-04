@@ -8,9 +8,8 @@ import 'package:anta/models/recurrence_rule.dart';
 /// goes through, which is exactly why the skip filter lives there — and why a
 /// mistake in it is invisible until several surfaces quietly disagree.
 ///
-/// The gate on [OneTimeRecurrence] carries the most weight: a stale row must
-/// never be able to hide a one-time event, because there is no UI to restore
-/// one.
+/// Every shape takes skips since decision B of the analytics record, a
+/// one-time event included: its one day is cancelled like a routine's.
 void main() {
   final day = DateTime.utc(2026, 8, 12);
 
@@ -105,10 +104,21 @@ void main() {
   });
 
   group('one-time events', () {
-    test('a stale row can never hide one', () {
-      // The row should not exist — the UI offers delete instead — so this is
-      // about what happens if one ever does.
+    test('a skipped day hides one, and an unskip brings it back', () {
+      // Decision B: a one-off is cancelled like a routine's day.
+      final once = event(rule: const OneTimeRecurrence(), startDate: day);
       skip([day]);
+
+      expect(once.occursOn(day), isFalse);
+      expect(once.wouldOccurOnUtcDay(day), isTrue);
+
+      EventSkips.updateCache(byEvent: const {});
+
+      expect(once.occursOn(day), isTrue);
+    });
+
+    test('a skip on another day leaves it in place', () {
+      skip([day.add(const Duration(days: 1))]);
 
       expect(
         event(rule: const OneTimeRecurrence(), startDate: day).occursOn(day),
@@ -116,10 +126,10 @@ void main() {
       );
     });
 
-    test('appliesTo excludes them', () {
+    test('appliesTo admits them', () {
       expect(
         EventSkips.appliesTo(event(rule: const OneTimeRecurrence())),
-        isFalse,
+        isTrue,
       );
       expect(EventSkips.appliesTo(event()), isTrue);
     });

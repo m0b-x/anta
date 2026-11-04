@@ -14,22 +14,21 @@ import 'resolver_chain.dart';
 /// would let the two channels disagree about the same event, dropping it from
 /// the grid entirely.
 ///
-/// The recurrence guard sits here rather than on the column, so an explicit
-/// `showInDayRail == true` on a one-time event still stays out: a day that
-/// happens once has no attendance streak to scan across a month.
-///
 /// `NULL` (the default, and every pre-v34 row) means *auto* — the event is in
 /// the rail exactly when presence tracking applies to it, so the schema change
-/// needed no backfill:
+/// needed no backfill. Since presence applies to every shape (decision B of
+/// the analytics record), a tracked one-off joins the rail too: its mark is
+/// one the user keeps, like a routine's.
 ///
-/// ```
-/// showInDayRail == null
-///     ? EventPresence.appliesTo(event)
-///     : showInDayRail && event.rule is! OneTimeRecurrence
-/// ```
-bool eventInDayRail(CalendarEvent event) =>
-    event.rule is! OneTimeRecurrence &&
-    (event.showInDayRail ?? event.tracksPresence);
+/// A one-time event ignores a stored `true`, so an untracked one still stays
+/// out: forcing in exists to put an untracked routine's streak on the rail,
+/// and a single untracked day has none. `false` forces any event out.
+bool eventInDayRail(CalendarEvent event) {
+  final forced = event.showInDayRail;
+  if (forced == false) return false;
+  if (event.rule is OneTimeRecurrence) return EventPresence.appliesTo(event);
+  return forced ?? EventPresence.appliesTo(event);
+}
 
 /// Contract for anything that contributes marks to a day cell's rail.
 ///

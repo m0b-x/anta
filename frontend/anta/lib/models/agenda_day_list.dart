@@ -50,6 +50,12 @@ class AgendaDayListEntry {
   /// the facade itself.
   final bool presenceTracked;
 
+  /// The entry's event's category as stored, for the word the presence
+  /// button says ("Mark as done", decision B of the analytics record). Null
+  /// — a holiday, a fast, a surface that does not pass it — says what an
+  /// unprofiled category says.
+  final String? categoryId;
+
   const AgendaDayListEntry({
     required this.day,
     required this.icon,
@@ -60,6 +66,7 @@ class AgendaDayListEntry {
     this.missed = false,
     this.eventId,
     this.presenceTracked = false,
+    this.categoryId,
   });
 }
 

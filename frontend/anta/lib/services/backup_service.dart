@@ -680,7 +680,24 @@ class BackupService {
       if (eventSkips != null || calendarEvents != null) {
         final skips = await EventSkipService.getInstance();
         if (eventSkips != null) {
-          await skips.importData(eventSkips);
+          // Before v8 no surface could cancel a one-off, so its skip is a
+          // converted series' leftover hiding it: v45 swept the on-disk rows.
+          final oneOffIds = (data['version'] as int? ?? 1) < 8
+              ? {
+                  for (final event in calendarEvents ?? const <Object?>[])
+                    if (event is Map && event['ruleKind'] == 'oneTime')
+                      event['id'],
+                }
+              : const <Object?>{};
+          final kept = [
+            for (final skip in eventSkips)
+              if (skip is! Map || !oneOffIds.contains(skip['eventId'])) skip,
+          ];
+          final dropped = eventSkips.length - kept.length;
+          if (dropped > 0) {
+            debugPrint('[BackupService] Dropped $dropped one-off skips');
+          }
+          await skips.importData(kept);
         } else {
           await skips.clearAllForImport();
         }

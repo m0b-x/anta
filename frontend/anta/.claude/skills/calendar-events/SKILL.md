@@ -7,7 +7,7 @@ description: The rulebook and file map for ANTA's calendar, events and alerts - 
 
 ## Hardest constraints
 
-- **The nine calendar services are lazy** (`EventDigestService` since v42): `await X.getInstance()`, never `GetIt.I<>`; `CalendarBloc._onLoad` awaits all nine in one wrapped `Future.wait` and **only then emits `CalendarPageLoaded`**; other facade readers live under it or await the owner.
+- **The ten calendar services are lazy** (`EventDigestService` since v42, `CategoryProfileService` since v44): `await X.getInstance()`, never `GetIt.I<>`; `CalendarBloc._onLoad` awaits all ten in one wrapped `Future.wait` and **only then emits `CalendarPageLoaded`**; other facade readers live under it or await the owner.
 - `TableCalendar.eventLoader` is `CalendarBloc.eventsForDay`: memoized per day, pure O(1). Never dispatch, call a service or expand a recurrence inside it.
 - A handler changing events or filters calls `_invalidateDayCache()` in its emit's synchronous turn, after the last await; never a day / focus / format handler. Async handlers re-read `state` after the last await.
 - A re-load copies `CalendarPageLoaded` (`selectedDay`, `focusedDay`, `format`, `selectionSource`) and bumps `membershipRevision`.
@@ -40,7 +40,7 @@ Read only the `docs/calendar-events-feature.md` section you touch (§1–§13: v
 
 Reworks follow `ui-revamp`. **Before changing a surface, read its section in `references/subsystems.md`**.
 
-## Schema lineage (current v43)
+## Schema lineage (current v45)
 
 Chain: `references/schema-lineage.md`. Rules for every version:
 
@@ -127,7 +127,7 @@ Chain: `references/schema-lineage.md`. Rules for every version:
 ## Presence, skips, occurrences
 
 - **Skips are not presence**: a missed occurrence still occurs (never invalidate); the skip filter lives **only** in `CalendarEvent.occursOn` and invalidates the day cache.
-- Gate on `rule is OneTimeRecurrence`, never `_RepeatMode`; skips never change counts; `markSkipped` clears the day's absence.
+- **One mark for every shape** (analytics S1, 2026-11-04): `EventPresence.appliesTo` is `tracksPresence` alone and `EventSkips.appliesTo` is `true` — a tracked one-off carries kept / missed marks, joins the day rail and can be cancelled (its skip on its start day); only `OccurrenceDescriptions.appliesTo` still gates on `rule is OneTimeRecurrence`, never `_RepeatMode`. `shapeOf` and `PresenceAdherence.compute` keep `rule is! OneTimeRecurrence` inline: a tracked one-off is a dated row with no adherence. The editor offers the switch to a one-off only when its category's kind marks or the event is already tracked (`CategoryProfiles.effectiveFor`), pre-set from the kind for a new event; the mark's verb is `markVerbLabel` / `markAsVerbLabel` (`lib/utils/mark_verb_labels.dart`, "Present" unprofiled); a one-off's cancel is the detail sheet's `eventDetailCancel`, in place, with Restore. A save that makes a rule one-time or moves a one-off's start day clears its skips (`CalendarEvent.strandsSkipsOf`, both write paths); v45 swept the rows older builds left. Skips never change counts; `markSkipped` clears the day's absence.
 - `isMissed`: an explicit absence row wins both ways; no wall clock on reads; converting never rewrites marks; `CalendarMissedDisplay.hidden` spares the day panel.
 - `OccurrenceDescriptions.descriptionFor` is the one entry; **a present row wins, `''` included**; never delete rows to clean up.
 - One description controller: swap text via `loadText`, never `set text`; **never a `ListenableBuilder` on a re_editor controller**.
@@ -178,7 +178,7 @@ Chain: `references/schema-lineage.md`. Rules for every version:
 - Dirty leave asks (`_fingerprint()`); `_leave()` serves ✕, back, `PopScope`, drag; Save bypasses it; sub-sheets unguarded.
 - Autofocus the title on new events only; `_blur()` before every modal; `!mounted` after awaits.
 - Preserve: `_canSave` = title non-empty ∧ (not weekly ∨ weekdays non-empty) ∧ both scopes within limit; interval clamped 1–99 for the four periodic rules only; weekday sets `Set.unmodifiable`; `_initRecurrenceFrom` sealed rehydration; the birthday built-in pre-fills yearly + counting on a still-one-time event.
-- Templates: two entry points only; `buildEvent` clears repeat-only flags for one-time.
+- Templates: two entry points only; `buildEvent` clears repeat-only flags for one-time (presence kept since analytics S1).
 - Guards: `event_editor_redesign_test.dart, event_repeat_sheet_test.dart, event_look_sheet_test.dart`, six older editor suites, `sheet_bottom_clearance_test.dart`.
 
 ## The alert sheet and the quick alarm

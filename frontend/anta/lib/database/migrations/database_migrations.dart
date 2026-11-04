@@ -226,6 +226,11 @@ class DatabaseMigrations {
       toVersion: DatabaseSchema.v44CategoryProfiles,
       migrate: _migrateV43ToV44,
     ),
+    Migration(
+      fromVersion: DatabaseSchema.v44CategoryProfiles,
+      toVersion: DatabaseSchema.v45OneOffSkipSweep,
+      migrate: _migrateV44ToV45,
+    ),
   ];
 
   Future<void> runMigrations(Migrator m, int from, int to) async {
@@ -1968,5 +1973,53 @@ class DatabaseMigrations {
     ''');
 
     await DatabaseIndexes(_db).createCategoryProfileIndexes();
+  }
+
+  /// v44→v45: tombstones every live skip row whose event is a one-time rule.
+  /// Before this version no surface could cancel a one-off, so every such row
+  /// is a leftover of a series once converted to a single event: the editor
+  /// never cleared them, and `occursOnUtcDay` ignored skips on a one-off.
+  /// Since a skip applies to a one-off (decision B of the analytics record)
+  /// they would hide the event with no way back.
+  ///
+  /// `'oneTime'` is the persisted `rule_kind` string, matched exactly: an
+  /// unknown kind a newer build wrote also decodes as one-time here, and its
+  /// skips belong to a real series. The tombstone is the DAO's unskip —
+  /// `is_deleted = 1`, `deleted_at`, `version + 1` — under one stamp minted
+  /// as the v43 backfill mints its own; Drift stores the timestamps as unix
+  /// seconds.
+  ///
+  /// Unlike a backfill, the sweep is this device's edit: each swept row is
+  /// queued as a tombstone, so the space's still-live copy loses to it — a
+  /// device installed fresh at v45 runs no migration and would otherwise
+  /// pull the skip back live and hide its one-off for good. The outbox entry
+  /// is `CrdtWrite.enqueueMany`'s byte for byte (the `dayRowKey` expression
+  /// of `synced_tables.dart`, op `tombstone`, `enqueued_at` in unix seconds,
+  /// the newer stamp winning a key already queued), selected by the step's
+  /// own stamp, so a rerun, which sweeps nothing, queues nothing.
+  ///
+  /// Frozen at this version. Idempotent: a tombstoned row is never matched
+  /// again.
+  Future<void> _migrateV44ToV45(Migrator m, GeneratedDatabase db) async {
+    final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    final stamp = _db.migrationBackfillHlc();
+    await _db.customStatement(
+      'UPDATE calendar_event_skips '
+      'SET is_deleted = 1, deleted_at = ?, updated_at = ?, '
+      'version = version + 1, hlc_timestamp = ?, device_id = ? '
+      'WHERE is_deleted = 0 AND event_id IN '
+      "(SELECT id FROM calendar_events WHERE rule_kind = 'oneTime')",
+      [now, now, stamp, _db.deviceId],
+    );
+    await _db.customStatement(
+      'INSERT INTO sync_outbox (table_name, row_key, hlc, op, enqueued_at) '
+      "SELECT 'calendar_event_skips', event_id || '|' || (day * 1000), "
+      "hlc_timestamp, 'tombstone', ? FROM calendar_event_skips "
+      'WHERE is_deleted = 1 AND hlc_timestamp = ? '
+      'ON CONFLICT (table_name, row_key) DO UPDATE SET hlc = excluded.hlc, '
+      'op = excluded.op, enqueued_at = excluded.enqueued_at '
+      'WHERE excluded.hlc > sync_outbox.hlc',
+      [now, stamp],
+    );
   }
 }

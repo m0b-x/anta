@@ -3,10 +3,15 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/date_symbol_data_local.dart';
 
+import 'package:anta/constants/calendar_categories.dart';
 import 'package:anta/constants/calendar_colors.dart';
+import 'package:anta/constants/category_kinds.dart';
+import 'package:anta/constants/category_profiles.dart';
 import 'package:anta/constants/row_metrics.dart';
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/models/agenda_day_list.dart';
+import 'package:anta/models/calendar_category.dart';
+import 'package:anta/models/category_profile.dart';
 import 'package:anta/widgets/agenda_day_list_rows.dart';
 import 'package:anta/widgets/agenda_list_view.dart';
 import 'package:anta/widgets/event_avatar.dart';
@@ -582,6 +587,77 @@ void main() {
       expect(find.bySemanticsIdentifier('presence-Squat'), findsNothing);
       expect(find.byIcon(Icons.event_busy_rounded), findsNothing);
       expect(find.byIcon(Icons.event_available_rounded), findsNothing);
+    });
+
+    testWidgets('a missed row\'s button offers its kind\'s verb, and "Mark as '
+        'present" without a profile (decision B)', (tester) async {
+      final en = lookupAppLocalizations(const Locale('en'));
+      CalendarCategories.updateCache([
+        for (final (i, id) in const ['tasks', 'bills', 'mine', 'plain'].indexed)
+          CalendarCategory(
+            id: id,
+            name: id,
+            colorValue: 0xFF1E88E5,
+            iconKey: 'event',
+            sortOrder: i,
+            isBuiltIn: false,
+          ),
+      ]);
+      CategoryProfiles.updateCache({
+        'tasks': const CategoryProfile(
+          id: 'p1',
+          categoryId: 'tasks',
+          kind: CategoryKind.task,
+        ),
+        'bills': const CategoryProfile(
+          id: 'p2',
+          categoryId: 'bills',
+          kind: CategoryKind.bill,
+        ),
+        'mine': const CategoryProfile(
+          id: 'p3',
+          categoryId: 'mine',
+          kind: CategoryKind.task,
+          markVerb: 'logged',
+        ),
+      });
+      addTearDown(() {
+        CategoryProfiles.resetCache();
+        CalendarCategories.updateCache(const []);
+      });
+      AgendaDayListEntry missed(String title, String? categoryId) =>
+          AgendaDayListEntry(
+            day: jan5,
+            icon: Icons.event,
+            color: const Color(0xFF1E88E5),
+            title: title,
+            missed: true,
+            eventId: title,
+            presenceTracked: true,
+            categoryId: categoryId,
+          );
+      String tooltip(String title) => tester
+          .widget<IconButton>(
+            find.descendant(
+              of: find.bySemanticsIdentifier('presence-$title'),
+              matching: find.byType(IconButton),
+            ),
+          )
+          .tooltip!;
+
+      await pumpBuilder(tester, (r) => plain(r, onEntryPresence: (_, _) {}), [
+        AgendaDayListEntryRow(entry: missed('Taxes', 'tasks')),
+        AgendaDayListEntryRow(entry: missed('Rent', 'bills')),
+        AgendaDayListEntryRow(entry: missed('Run', 'mine')),
+        AgendaDayListEntryRow(entry: missed('Walk', 'plain')),
+        AgendaDayListEntryRow(entry: missed('Swim', null)),
+      ]);
+
+      expect(tooltip('Taxes'), 'Mark as done');
+      expect(tooltip('Rent'), 'Mark as paid');
+      expect(tooltip('Run'), 'Mark as logged');
+      expect(tooltip('Walk'), en.eventMarkPresent);
+      expect(tooltip('Swim'), 'Mark as present');
     });
 
     testWidgets('the pencil keeps the slot where an entry offers both an edit '

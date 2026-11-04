@@ -16,15 +16,18 @@ import '../constants/row_metrics.dart';
 import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
 import '../models/calendar_event.dart';
+import '../models/category_profile.dart';
 import '../models/event_alert.dart';
 import '../models/recurrence_rule.dart';
 import '../services/alert_scheduler.dart';
 import '../services/day_summary_resolver.dart';
 import '../services/event_time_formatter.dart';
 import '../services/recurrence_formatter.dart';
+import '../utils/custom_snackbar.dart';
 import '../utils/line_based_markdown_builder.dart';
 import '../utils/markdown_callout_syntax.dart';
 import '../utils/markdown_color_syntax.dart';
+import '../utils/mark_verb_labels.dart';
 import '../utils/markdown_list_syntax.dart';
 import '../utils/money_display_config.dart';
 import '../utils/presence_stats.dart';
@@ -32,6 +35,7 @@ import 'automation_id.dart';
 import 'calendar_date_picker_sheet.dart';
 import 'event_avatar.dart';
 import 'form_rows.dart';
+import 'overlay_snackbar.dart';
 import 'simple_markdown_preview.dart';
 
 /// What the user chose to do from the detail sheet.
@@ -128,6 +132,20 @@ class EventDetailSheet extends StatefulWidget {
   /// immediately: a two-state toggle has nothing to coalesce.
   final void Function(DateTime day, bool missed)? onPresenceChanged;
 
+  /// Receives `(day, cancelled)` when the user cancels or restores a one-off
+  /// here (decision B). Null leaves a one-off without the action, the
+  /// [onPresenceChanged] opt-in. Unlike a series' Skip this day it writes in
+  /// place: a cancelled one-off is still the event, shown as Cancelled with
+  /// the way back beside it, where a skipped day would leave the sheet
+  /// describing an occurrence that no longer exists.
+  ///
+  /// A cancel clears the day's mark (`EventSkipService.markSkipped`), so a
+  /// restore — the Restore row or the snackbar's Undo, after the sheet closed
+  /// too — carries in [restore] the mark the cancel took, for the caller to
+  /// write back; null when the day had none.
+  final void Function(DateTime day, bool cancelled, {PresenceStatus? restore})?
+  onCancelChanged;
+
   /// Receives the raw inner text of a `[[title]]` the description's preview
   /// reports as tapped, **after** this sheet has already closed. Null leaves
   /// wiki links inert, exactly like [onOccurrenceChanged] — the caller opts in
@@ -153,6 +171,12 @@ class EventDetailSheet extends StatefulWidget {
   /// practice calendar keeps its marks in memory and hands its own reader.
   final bool Function(CalendarEvent event, DateTime dayUtc)? isMissed;
 
+  /// Where the kind the mark's words come from is read. Null reads the
+  /// owner's profiles (`effectiveFor`); the guide's sandbox hands
+  /// `EffectiveProfile.unprofiled`, since its practice reads none of them
+  /// (decision V).
+  final EffectiveProfile Function(CalendarEvent event)? profileOf;
+
   const EventDetailSheet({
     super.key,
     required this.event,
@@ -162,9 +186,11 @@ class EventDetailSheet extends StatefulWidget {
     this.onEventChanged,
     this.onOccurrenceChanged,
     this.onPresenceChanged,
+    this.onCancelChanged,
     this.onOpenWikiLink,
     this.resolveNoteTitle,
     this.isMissed,
+    this.profileOf,
   });
 
   /// The sub-sheet shape: as tall as its content, clamped at the editor's
@@ -179,9 +205,12 @@ class EventDetailSheet extends StatefulWidget {
     ValueChanged<CalendarEvent>? onEventChanged,
     void Function(DateTime day, String description)? onOccurrenceChanged,
     void Function(DateTime day, bool missed)? onPresenceChanged,
+    void Function(DateTime day, bool cancelled, {PresenceStatus? restore})?
+    onCancelChanged,
     ValueChanged<String>? onOpenWikiLink,
     Future<String?> Function(String noteId)? resolveNoteTitle,
     bool Function(CalendarEvent event, DateTime dayUtc)? isMissed,
+    EffectiveProfile Function(CalendarEvent event)? profileOf,
   }) {
     final colorScheme = Theme.of(context).colorScheme;
     return showModalBottomSheet<EventDetailAction>(
@@ -208,9 +237,11 @@ class EventDetailSheet extends StatefulWidget {
           onEventChanged: onEventChanged,
           onOccurrenceChanged: onOccurrenceChanged,
           onPresenceChanged: onPresenceChanged,
+          onCancelChanged: onCancelChanged,
           onOpenWikiLink: onOpenWikiLink,
           resolveNoteTitle: resolveNoteTitle,
           isMissed: isMissed,
+          profileOf: profileOf,
         ),
       ),
     );
@@ -302,10 +333,38 @@ class _EventDetailSheetState extends State<EventDetailSheet> {
   final ScrollController _bodyScroll = ScrollController();
   final ValueNotifier<bool> _headerScrolled = ValueNotifier<bool>(false);
 
-  /// Whether the present/missed control is offered at all: the event opts in,
-  /// the rule repeats, and the caller wired persistence.
+  /// Whether the present/missed control is offered at all: the event opts in
+  /// (any shape, decision B) and the caller wired persistence.
   bool get _presenceVisible =>
       widget.onPresenceChanged != null && EventPresence.appliesTo(widget.event);
+
+  /// Whether this one-off can be cancelled and restored in place: the caller
+  /// wired the write. A series keeps Skip this day, which closes the sheet.
+  bool get _cancelOffered =>
+      widget.onCancelChanged != null && widget.event.rule is OneTimeRecurrence;
+
+  /// Whether this one-off is cancelled, seeded from the facade — a sheet the
+  /// Report opens on a cancelled one-off opens Cancelled — and updated
+  /// locally so the rows follow the tap before the write lands.
+  late bool _cancelled =
+      _cancelOffered && EventSkips.isSkipped(widget.event.id, widget.day);
+
+  /// The day's explicit mark as this sheet last knew it, for a cancel to
+  /// hand back on restore: seeded from the facade, then what [_setMissed]
+  /// wrote, which the facade may not hold yet. Read only where a cancel is
+  /// offered — the guide's sheet keeps its marks elsewhere and offers none.
+  late PresenceStatus? _mark = _cancelOffered
+      ? EventPresence.marksFor(widget.event.id)[widget.day]
+      : null;
+
+  /// The mark the last cancel cleared, handed back by its restore.
+  PresenceStatus? _cancelledMark;
+
+  /// The profile the kept chip's word comes from, read once: a category's
+  /// kind cannot change while a read-only sheet is open.
+  late final EffectiveProfile _profile = (widget.profileOf ?? effectiveFor)(
+    widget.event,
+  );
 
   PresenceStats? _computeStats() {
     return PresenceAdherence.compute(
@@ -326,9 +385,54 @@ class _EventDetailSheetState extends State<EventDetailSheet> {
     HapticFeedback.lightImpact();
     setState(() {
       _missed = missed;
+      _mark = missed ? PresenceStatus.missed : PresenceStatus.present;
       _stats = _computeStats();
     });
     widget.onPresenceChanged!(widget.day, missed);
+  }
+
+  /// Cancels or restores the one-off without closing the sheet. A cancel
+  /// clears the day's mark (`EventSkipService.markSkipped`), so it keeps the
+  /// mark it is about to lose and the restore hands it back: a Done one-off
+  /// cancelled by mistake is Done again, never missed by the assumed answer.
+  void _setCancelled(bool cancelled) {
+    if (cancelled == _cancelled) return;
+    HapticFeedback.lightImpact();
+    final onCancelChanged = widget.onCancelChanged!;
+    final day = widget.day;
+    final restore = cancelled ? _mark : _cancelledMark;
+    setState(() {
+      _cancelled = cancelled;
+      if (cancelled) {
+        _cancelledMark = restore;
+        _mark = null;
+      } else {
+        _mark = restore;
+        _cancelledMark = null;
+        _missed = restore == null
+            ? (widget.isMissed ?? EventPresence.isMissed)(widget.event, day)
+            : restore == PresenceStatus.missed;
+        _stats = _computeStats();
+      }
+    });
+    if (!cancelled) {
+      onCancelChanged(day, false, restore: restore);
+      OverlaySnackbar.hide();
+      return;
+    }
+    onCancelChanged(day, true);
+    final l10n = AppLocalizations.of(context)!;
+    CustomSnackbar.showWithAction(
+      context,
+      message: l10n.eventCancelled,
+      actionLabel: l10n.undo,
+      overSheet: true,
+      // The bar outlives the sheet: once it is gone, the undo writes alone,
+      // with the mark this cancel took.
+      onAction: () => mounted
+          ? _setCancelled(false)
+          : onCancelChanged(day, false, restore: restore),
+    );
   }
 
   /// Whether the tick belongs to this one occurrence rather than to the whole
@@ -668,54 +772,123 @@ class _EventDetailSheetState extends State<EventDetailSheet> {
     ];
   }
 
+  /// The presence pair. As a [template] it carries no ids and no taps: the
+  /// invisible box the Cancelled row is sized by.
+  FormChipRow _presenceRow(AppLocalizations l10n, {bool template = false}) {
+    final stats = _stats;
+    return FormChipRow(
+      glyph: Icons.how_to_reg_outlined,
+      label: l10n.eventPresence,
+      chips: [
+        FormChip(
+          label: markVerbLabel(l10n, _profile),
+          selected: !_missed,
+          identifier: template ? null : SemanticsIds.eventDetailPresent,
+          onTap: template ? null : () => _setMissed(false),
+        ),
+        FormChip(
+          label: l10n.eventPresenceMissed,
+          selected: _missed,
+          identifier: template ? null : SemanticsIds.eventDetailMissed,
+          onTap: template ? null : () => _setMissed(true),
+        ),
+      ],
+      caption: stats == null
+          ? null
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                FormCaption(
+                  text: l10n.eventAdherenceSummary(
+                    stats.attended,
+                    stats.total,
+                    PresenceAdherence.windowDays,
+                  ),
+                ),
+                FormCaption(
+                  text: l10n.eventAdherenceStreak(
+                    stats.currentStreak,
+                    stats.longestStreak,
+                  ),
+                ),
+              ],
+            ),
+    );
+  }
+
   List<Widget> _buildOccurrenceRows(AppLocalizations l10n) {
     final event = widget.event;
-    final stats = _stats;
-    return [
-      if (_presenceVisible)
-        FormChipRow(
-          glyph: Icons.how_to_reg_outlined,
-          label: l10n.eventPresence,
-          chips: [
-            FormChip(
-              label: l10n.eventPresencePresent,
-              selected: !_missed,
-              identifier: SemanticsIds.eventDetailPresent,
-              onTap: () => _setMissed(false),
+    // A cancelled one-off: Cancelled where the presence pair stood, at its
+    // height (an invisible template under it), and Restore where Cancel did,
+    // so the finger that cancelled rests on the inert row rather than on the
+    // way back, and nothing below moves. Without the pair there is one slot,
+    // so Restore takes Cancel's and carries the Cancelled word as its value:
+    // one row for one row. Restore always stands on Cancel's template, the
+    // longer label in every language, so the slot keeps its height.
+    if (_cancelled) {
+      void restore() => _setCancelled(false);
+      if (!_presenceVisible) {
+        return [
+          _inCancelSlot(
+            l10n,
+            FormPickerRow(
+              glyph: Icons.restore_rounded,
+              glyphColor: Theme.of(context).colorScheme.primary,
+              label: l10n.eventRestoreEvent,
+              labelColor: Theme.of(context).colorScheme.primary,
+              value: l10n.eventCancelledState,
+              identifier: SemanticsIds.eventDetailRestore,
+              onTap: restore,
+              showChevron: false,
+              singleLine: true,
             ),
-            FormChip(
-              label: l10n.eventPresenceMissed,
-              selected: _missed,
-              identifier: SemanticsIds.eventDetailMissed,
-              onTap: () => _setMissed(true),
-            ),
-          ],
-          caption: stats == null
-              ? null
-              : Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    FormCaption(
-                      text: l10n.eventAdherenceSummary(
-                        stats.attended,
-                        stats.total,
-                        PresenceAdherence.windowDays,
-                      ),
-                    ),
-                    FormCaption(
-                      text: l10n.eventAdherenceStreak(
-                        stats.currentStreak,
-                        stats.longestStreak,
-                      ),
-                    ),
-                  ],
-                ),
+          ),
+        ];
+      }
+      final cancelled = FormPickerRow(
+        glyph: Icons.event_busy_outlined,
+        label: l10n.eventCancelledState,
+        onTap: null,
+        showChevron: false,
+      );
+      return [
+        FormIndentedRow(
+          dividerIndent: cancelled.dividerIndent,
+          child: Stack(
+            children: [
+              Visibility(
+                visible: false,
+                maintainSize: true,
+                maintainAnimation: true,
+                maintainState: true,
+                child: _presenceRow(l10n, template: true),
+              ),
+              Positioned.fill(child: cancelled),
+            ],
+          ),
         ),
-      // Cancelling closes the sheet with an action rather than writing here:
-      // the occurrence stops existing, so the day panel behind this sheet —
-      // and the sheet itself — would be describing something that is gone.
-      if (EventSkips.appliesTo(event) &&
+        _inCancelSlot(
+          l10n,
+          FormActionRow(
+            glyph: Icons.restore_rounded,
+            identifier: SemanticsIds.eventDetailRestore,
+            label: l10n.eventRestoreEvent,
+            onTap: restore,
+          ),
+        ),
+      ];
+    }
+    return [
+      if (_presenceVisible) _presenceRow(l10n),
+      if (_cancelOffered)
+        _cancelRow(l10n)
+      // Skipping a series' day closes the sheet with an action rather than
+      // writing here: the occurrence stops existing, so the day panel behind
+      // this sheet — and the sheet itself — would be describing something
+      // that is gone. A one-off without the wiring offers neither.
+      else if (event.rule is! OneTimeRecurrence &&
+          EventSkips.appliesTo(event) &&
           !EventSkips.isSkipped(event.id, widget.day))
         FormActionRow(
           glyph: Icons.event_busy_outlined,
@@ -724,6 +897,32 @@ class _EventDetailSheetState extends State<EventDetailSheet> {
           onTap: () => _close(EventDetailAction.skipOccurrence),
         ),
     ];
+  }
+
+  FormActionRow _cancelRow(AppLocalizations l10n) => FormActionRow(
+    glyph: Icons.event_busy_outlined,
+    identifier: SemanticsIds.eventDetailCancel,
+    label: l10n.eventCancelEvent,
+    onTap: () => _setCancelled(true),
+  );
+
+  /// [row] at the Cancel row's height (an invisible template under it).
+  Widget _inCancelSlot(AppLocalizations l10n, Widget row) {
+    return FormIndentedRow(
+      dividerIndent: FormMetrics.dividerIndentGlyph,
+      child: Stack(
+        children: [
+          Visibility(
+            visible: false,
+            maintainSize: true,
+            maintainAnimation: true,
+            maintainState: true,
+            child: _cancelRow(l10n),
+          ),
+          Positioned.fill(child: row),
+        ],
+      ),
+    );
   }
 
   List<Widget> _buildAlertRows(

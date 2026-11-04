@@ -2,6 +2,7 @@ import 'package:equatable/equatable.dart';
 
 import '../constants/event_presence.dart';
 import '../models/calendar_event.dart';
+import '../models/recurrence_rule.dart';
 import 'event_agenda.dart';
 
 /// How a presence-tracking event is actually going.
@@ -44,7 +45,11 @@ abstract final class PresenceAdherence {
   static const int lookbackDays = EventAgenda.maxRangeDays;
 
   /// Stats for [event] as of [today], or `null` when the event does not track
-  /// presence or has no occurrence in the lookback window.
+  /// presence, is one-time, or has no occurrence in the lookback window.
+  ///
+  /// One-time is gated here rather than through `EventPresence.appliesTo`,
+  /// which admits a tracked one-off since decision B: a single occasion is
+  /// done or missed, and has no adherence or streak to report.
   ///
   /// Occurrences after [today] are excluded throughout: presence may be
   /// marked ahead of time, and a future day the user pre-marked has not
@@ -64,7 +69,7 @@ abstract final class PresenceAdherence {
     bool? overrideMissed,
     bool Function(CalendarEvent event, DateTime dayUtc)? isMissed,
   }) {
-    if (!EventPresence.appliesTo(event)) return null;
+    if (!event.tracksPresence || event.rule is OneTimeRecurrence) return null;
     final readMissed = isMissed ?? EventPresence.isMissed;
 
     final override = overrideDay == null || overrideMissed == null

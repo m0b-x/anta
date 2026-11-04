@@ -2638,8 +2638,10 @@ birth (cloud-sync phase-02 — now **v31** — wires transport; absences
 
 - **One read entry point**: `EventPresence`
   (`lib/constants/event_presence.dart`) — `appliesTo(event)` is
-  `tracksPresence && rule is! OneTimeRecurrence` (specific-dates
-  participates), `isMissed(eventId, day)` is an O(1) probe safe inside
+  `tracksPresence` alone since analytics S1 (2026-11-04; before it
+  `&& rule is! OneTimeRecurrence` — a tracked one-off now carries marks,
+  while `shapeOf` and `PresenceAdherence.compute` keep that gate inline),
+  `isMissed(eventId, day)` is an O(1) probe safe inside
   `DayBarProvider.barsFor`. Published by `EventPresenceService` (the
   `EventOccurrenceService` shape minus the global flag — opt-in is per
   event); `reset()` clears the singleton **and** the facade.
@@ -2847,9 +2849,15 @@ marking one missed, and the difference is the whole design:
   render-time only, forever: hiding a category changes what you are looking at,
   cancelling an occurrence changes what is there. Both rules must stay stated
   side by side.
-- **The `OneTimeRecurrence` gate** keeps a stale row from ever hiding a
-  one-time event — cancelling its only occurrence is a delete, offered
-  separately.
+- **The `OneTimeRecurrence` gate was lifted by analytics S1 (2026-11-04,
+  decision B of `docs/calendar-analytics-roadmap.md`)**: a one-off can be
+  cancelled from its detail sheet (a skip on its start day, restorable in
+  place), so `EventSkips.appliesTo` is `true` and `occursOn` subtracts the
+  skip for every shape. What used to keep a stale row from hiding a
+  one-time event is now done at the write sites — a save that makes a rule
+  one-time or moves a one-off's start day clears its skips
+  (`CalendarEvent.strandsSkipsOf`, the editor and the Dates sheet) — and
+  once by the v45 sweep for rows older builds had left.
 - **`membershipRevision` cannot ride `occurrenceRevision`.** That revision
   contractually means "the overlay changed, do **not** rescan";
   `UpcomingAgendaView` forwards it into its row memo but never re-runs its
@@ -3303,11 +3311,18 @@ template-created event defaults to NULL = auto, which is already right.
 read by both the rail provider and the bar provider's exclusion:
 
 ```dart
+// as built at v34
 event.rule is! OneTimeRecurrence && (event.showInDayRail ?? event.tracksPresence)
+// since analytics S1 (2026-11-04): a tracked one-off joins the rail; an
+// untracked one-off ignores a stored true; false still forces any event out
+if (forced == false) return false;
+if (event.rule is OneTimeRecurrence) return EventPresence.appliesTo(event);
+return forced ?? EventPresence.appliesTo(event);
 ```
 
 - `NULL` (default, and every pre-v34 row) — **auto**: presence-tracked
-  recurring events are in, nothing else. No event changed behaviour.
+  events are in, nothing else (recurring only until analytics S1 let a
+  one-off track presence). No event changed behaviour.
 - `true` — force in. The recurrence guard is part of the predicate, so a
   one-time event can never enter the rail whatever the column says.
 - `false` — force out.

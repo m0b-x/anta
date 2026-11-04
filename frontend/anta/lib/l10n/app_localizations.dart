@@ -12087,6 +12087,120 @@ abstract class AppLocalizations {
     String monthReport,
     String share,
   );
+
+  /// The kept chip of a marked occurrence in the event detail sheet, for a category whose kind marks a task or a chore done
+  ///
+  /// In en, this message translates to:
+  /// **'Done'**
+  String get markVerbDone;
+
+  /// The kept chip of a marked occurrence in the event detail sheet, for a workout, an appointment or a class
+  ///
+  /// In en, this message translates to:
+  /// **'Attended'**
+  String get markVerbAttended;
+
+  /// The kept chip of a marked occurrence in the event detail sheet, for a medication
+  ///
+  /// In en, this message translates to:
+  /// **'Taken'**
+  String get markVerbTaken;
+
+  /// The kept chip of a marked occurrence in the event detail sheet, for a bill
+  ///
+  /// In en, this message translates to:
+  /// **'Paid'**
+  String get markVerbPaid;
+
+  /// The kept chip of a marked occurrence in the event detail sheet, for an income
+  ///
+  /// In en, this message translates to:
+  /// **'Received'**
+  String get markVerbReceived;
+
+  /// The kept chip of a marked occurrence in the event detail sheet, for a social plan
+  ///
+  /// In en, this message translates to:
+  /// **'Met'**
+  String get markVerbMet;
+
+  /// The kept chip of a marked occurrence in the event detail sheet, for an expiry
+  ///
+  /// In en, this message translates to:
+  /// **'Renewed'**
+  String get markVerbRenewed;
+
+  /// Tooltip on a row's button that returns a missed occurrence to kept, for a category whose verb is Done
+  ///
+  /// In en, this message translates to:
+  /// **'Mark as done'**
+  String get eventMarkDone;
+
+  /// Tooltip on a row's button that returns a missed occurrence to kept, for a category whose verb is Attended
+  ///
+  /// In en, this message translates to:
+  /// **'Mark as attended'**
+  String get eventMarkAttended;
+
+  /// Tooltip on a row's button that returns a missed occurrence to kept, for a category whose verb is Taken
+  ///
+  /// In en, this message translates to:
+  /// **'Mark as taken'**
+  String get eventMarkTaken;
+
+  /// Tooltip on a row's button that returns a missed occurrence to kept, for a category whose verb is Paid
+  ///
+  /// In en, this message translates to:
+  /// **'Mark as paid'**
+  String get eventMarkPaid;
+
+  /// Tooltip on a row's button that returns a missed occurrence to kept, for a category whose verb is Received
+  ///
+  /// In en, this message translates to:
+  /// **'Mark as received'**
+  String get eventMarkReceived;
+
+  /// Tooltip on a row's button that returns a missed occurrence to kept, for a category whose verb is Met
+  ///
+  /// In en, this message translates to:
+  /// **'Mark as met'**
+  String get eventMarkMet;
+
+  /// Tooltip on a row's button that returns a missed occurrence to kept, for a category whose verb is Renewed
+  ///
+  /// In en, this message translates to:
+  /// **'Mark as renewed'**
+  String get eventMarkRenewed;
+
+  /// Tooltip on a row's button that returns a missed occurrence to kept, for a category whose owner wrote their own word for a kept mark
+  ///
+  /// In en, this message translates to:
+  /// **'Mark as {verb}'**
+  String eventMarkAsVerb(String verb);
+
+  /// Action in the event detail sheet that cancels a one-time event, keeping it so it can be restored
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel this event'**
+  String get eventCancelEvent;
+
+  /// Row in the event detail sheet of a one-time event that was cancelled
+  ///
+  /// In en, this message translates to:
+  /// **'Cancelled'**
+  String get eventCancelledState;
+
+  /// Action in the event detail sheet that brings a cancelled one-time event back
+  ///
+  /// In en, this message translates to:
+  /// **'Restore'**
+  String get eventRestoreEvent;
+
+  /// Confirmation after cancelling a one-time event, with an Undo
+  ///
+  /// In en, this message translates to:
+  /// **'Event cancelled'**
+  String get eventCancelled;
 }
 
 class _AppLocalizationsDelegate

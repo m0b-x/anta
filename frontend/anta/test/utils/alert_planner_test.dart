@@ -304,6 +304,25 @@ void main() {
       );
     });
 
+    test('a cancelled one-off is never planned', () {
+      // Decision B: a one-off's day is skipped like a routine's.
+      final event = eventOf(startDate: DateTime.utc(2026, 9, 16));
+      EventSkips.updateCache(
+        byEvent: {
+          'e1': {DateTime.utc(2026, 9, 16)},
+        },
+      );
+      final plan = planOf(
+        events: [event],
+        alerts: {
+          'e1': [alertOf('a1')],
+        },
+        now: DateTime(2026, 9, 15, 12),
+      );
+
+      expect(plan, isEmpty);
+    });
+
     test('endDate truncates the horizon', () {
       final event = eventOf(
         startDate: DateTime.utc(2026, 9, 7),

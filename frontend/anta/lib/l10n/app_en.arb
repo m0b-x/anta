@@ -9795,5 +9795,87 @@
         "type": "String"
       }
     }
+  },
+  "markVerbDone": "Done",
+  "@markVerbDone": {
+    "description": "The kept chip of a marked occurrence in the event detail sheet, for a category whose kind marks a task or a chore done"
+  },
+  "markVerbAttended": "Attended",
+  "@markVerbAttended": {
+    "description": "The kept chip of a marked occurrence in the event detail sheet, for a workout, an appointment or a class"
+  },
+  "markVerbTaken": "Taken",
+  "@markVerbTaken": {
+    "description": "The kept chip of a marked occurrence in the event detail sheet, for a medication"
+  },
+  "markVerbPaid": "Paid",
+  "@markVerbPaid": {
+    "description": "The kept chip of a marked occurrence in the event detail sheet, for a bill"
+  },
+  "markVerbReceived": "Received",
+  "@markVerbReceived": {
+    "description": "The kept chip of a marked occurrence in the event detail sheet, for an income"
+  },
+  "markVerbMet": "Met",
+  "@markVerbMet": {
+    "description": "The kept chip of a marked occurrence in the event detail sheet, for a social plan"
+  },
+  "markVerbRenewed": "Renewed",
+  "@markVerbRenewed": {
+    "description": "The kept chip of a marked occurrence in the event detail sheet, for an expiry"
+  },
+  "eventMarkDone": "Mark as done",
+  "@eventMarkDone": {
+    "description": "Tooltip on a row's button that returns a missed occurrence to kept, for a category whose verb is Done"
+  },
+  "eventMarkAttended": "Mark as attended",
+  "@eventMarkAttended": {
+    "description": "Tooltip on a row's button that returns a missed occurrence to kept, for a category whose verb is Attended"
+  },
+  "eventMarkTaken": "Mark as taken",
+  "@eventMarkTaken": {
+    "description": "Tooltip on a row's button that returns a missed occurrence to kept, for a category whose verb is Taken"
+  },
+  "eventMarkPaid": "Mark as paid",
+  "@eventMarkPaid": {
+    "description": "Tooltip on a row's button that returns a missed occurrence to kept, for a category whose verb is Paid"
+  },
+  "eventMarkReceived": "Mark as received",
+  "@eventMarkReceived": {
+    "description": "Tooltip on a row's button that returns a missed occurrence to kept, for a category whose verb is Received"
+  },
+  "eventMarkMet": "Mark as met",
+  "@eventMarkMet": {
+    "description": "Tooltip on a row's button that returns a missed occurrence to kept, for a category whose verb is Met"
+  },
+  "eventMarkRenewed": "Mark as renewed",
+  "@eventMarkRenewed": {
+    "description": "Tooltip on a row's button that returns a missed occurrence to kept, for a category whose verb is Renewed"
+  },
+  "eventMarkAsVerb": "Mark as {verb}",
+  "@eventMarkAsVerb": {
+    "description": "Tooltip on a row's button that returns a missed occurrence to kept, for a category whose owner wrote their own word for a kept mark",
+    "placeholders": {
+      "verb": {
+        "type": "String",
+        "example": "logged"
+      }
+    }
+  },
+  "eventCancelEvent": "Cancel this event",
+  "@eventCancelEvent": {
+    "description": "Action in the event detail sheet that cancels a one-time event, keeping it so it can be restored"
+  },
+  "eventCancelledState": "Cancelled",
+  "@eventCancelledState": {
+    "description": "Row in the event detail sheet of a one-time event that was cancelled"
+  },
+  "eventRestoreEvent": "Restore",
+  "@eventRestoreEvent": {
+    "description": "Action in the event detail sheet that brings a cancelled one-time event back"
+  },
+  "eventCancelled": "Event cancelled",
+  "@eventCancelled": {
+    "description": "Confirmation after cancelling a one-time event, with an Undo"
   }
 }

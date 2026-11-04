@@ -379,7 +379,9 @@ void main() {
       expect(flags(input, 'marked'), {day(2026, 10, 15): (true, false)});
     });
 
-    test('a one-time tracked event today is neither pending nor missed', () {
+    test('a one-time tracked event today unmarked is pending', () {
+      // Decision B: a tracked one-off is still to come on its day, like a
+      // routine's — no longer a plain sample.
       final once = CalendarEvent(
         id: 'once',
         title: 'once',
@@ -391,7 +393,75 @@ void main() {
       final input = CalendarReportService.sampleInput(
         request(span: span(today, today), events: [once], today: today),
       );
-      expect(flags(input, 'once'), {today: (false, false)});
+      expect(flags(input, 'once'), {today: (false, true)});
+    });
+  });
+
+  group('one-offs (decision B)', () {
+    final today = day(2026, 10, 15);
+    final twoDaysAgo = day(2026, 10, 13);
+    final october = span(day(2026, 10, 1), day(2026, 10, 31));
+
+    CalendarEvent dentist(DateTime on) =>
+        ev('dentist', 'other', on, tracked: true, assumeAbsent: true);
+
+    List<ReportSample> samplesOf(ReportInput input) =>
+        input.samples.where((s) => s.eventId == 'dentist').toList();
+
+    ReportInput sample(CalendarEvent event) =>
+        CalendarReportService.sampleInput(
+          request(span: october, events: [event], today: today),
+        );
+
+    test('two days ago under assume-absent folds as missed', () {
+      final only = samplesOf(sample(dentist(twoDaysAgo))).single;
+      expect((only.day, only.missed, only.pending), (twoDaysAgo, true, false));
+    });
+
+    test('marked present folds as kept', () {
+      EventPresence.updateCache(
+        byEvent: {
+          'dentist': {twoDaysAgo: PresenceStatus.present},
+        },
+      );
+      final only = samplesOf(sample(dentist(twoDaysAgo))).single;
+      expect((only.missed, only.pending), (false, false));
+    });
+
+    test('today unmarked is pending', () {
+      final only = samplesOf(sample(dentist(today))).single;
+      expect((only.missed, only.pending), (false, true));
+    });
+
+    test('a day still ahead is a plain sample, never missed', () {
+      final ahead = day(2026, 10, 20);
+      final only = samplesOf(sample(dentist(ahead))).single;
+      expect((only.day, only.missed, only.pending), (ahead, false, false));
+    });
+
+    test('cancelled is dropped and counted as one skipped day', () {
+      EventSkips.updateCache(
+        byEvent: {
+          'dentist': {twoDaysAgo},
+        },
+      );
+      final input = sample(dentist(twoDaysAgo));
+      expect(samplesOf(input), isEmpty);
+      expect(input.skippedDays, 1);
+    });
+
+    test('a tracked one-off stays a one-off shape', () {
+      // Not the presence gate: a one-off row is dated, never aggregated.
+      expect(shapeOf(dentist(twoDaysAgo)), ReportShape.oneOff);
+      // D31 still holds: a tracked set of explicit dates is a routine.
+      final dates = ev(
+        'dates',
+        'other',
+        twoDaysAgo,
+        rule: SpecificDatesRecurrence(dates: {twoDaysAgo, today}),
+        tracked: true,
+      );
+      expect(shapeOf(dates), ReportShape.routine);
     });
   });
 

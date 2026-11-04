@@ -221,6 +221,25 @@ void main() {
       expect(EventPresence.isMissed(eventOf('e1'), day), isFalse);
     });
 
+    test('cancelling a one-off clears its mark', () async {
+      final once = CalendarEvent(
+        id: 'e2',
+        title: 'Dentist',
+        categoryId: 'health',
+        startDate: day,
+        rule: const OneTimeRecurrence(),
+        tracksPresence: true,
+      );
+      final presence = await EventPresenceService.getInstance();
+      await presence.setStatus('e2', day, PresenceStatus.missed);
+      expect(EventPresence.isMissed(once, day), isTrue);
+
+      await service.markSkipped('e2', day);
+
+      expect(EventPresence.isMissed(once, day), isFalse);
+      expect(EventSkips.isSkipped('e2', day), isTrue);
+    });
+
     test('an absence on another day survives', () async {
       final presence = await EventPresenceService.getInstance();
       await presence.setStatus('e1', otherDay, PresenceStatus.missed);

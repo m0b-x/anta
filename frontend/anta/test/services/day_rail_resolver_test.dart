@@ -15,8 +15,8 @@ import 'package:anta/utils/event_agenda.dart';
 ///
 /// Membership is the whole point of the tri-state column: `null` must mean
 /// exactly what presence tracking already meant (so no pre-v34 row changed
-/// behaviour), and the recurrence guard must survive an explicit `true` — a
-/// one-time event has no attendance streak to scan across a month.
+/// behaviour), and the recurrence guard must survive an explicit `true` — an
+/// untracked one-time event has no mark to keep across a month.
 ///
 /// Ordering and presence mirror `day_bars_resolver_test.dart`: equal-priority
 /// marks keep the arrival order `EventAgenda.compareWithinDay` gave them, and a
@@ -62,11 +62,20 @@ void main() {
       expect(eventInDayRail(event('e', tracksPresence: true)), isTrue);
     });
 
-    test('a presence-tracked one-time event is out', () {
+    test('a presence-tracked one-time event is in', () {
+      // Decision B: the presence gate admits a tracked one-off, and auto
+      // membership is that gate.
       expect(
         eventInDayRail(
           event('e', tracksPresence: true, rule: const OneTimeRecurrence()),
         ),
+        isTrue,
+      );
+    });
+
+    test('an untracked one-time event is out', () {
+      expect(
+        eventInDayRail(event('e', rule: const OneTimeRecurrence())),
         isFalse,
       );
     });
@@ -113,15 +122,33 @@ void main() {
       );
     });
 
-    test('true on a one-time event still stays out', () {
+    test('true on an untracked one-time event still stays out', () {
       // The recurrence guard lives in the predicate, not on the column, so no
-      // stored value can put a single-day event on the rail.
+      // stored value can put an untracked single day on the rail; a tracked
+      // one is there by the presence gate, a stored `true` or not.
+      expect(
+        eventInDayRail(
+          event('e', showInDayRail: true, rule: const OneTimeRecurrence()),
+        ),
+        isFalse,
+      );
       expect(
         eventInDayRail(
           event(
             'e',
             tracksPresence: true,
             showInDayRail: true,
+            rule: const OneTimeRecurrence(),
+          ),
+        ),
+        isTrue,
+      );
+      expect(
+        eventInDayRail(
+          event(
+            'e',
+            tracksPresence: true,
+            showInDayRail: false,
             rule: const OneTimeRecurrence(),
           ),
         ),
@@ -264,6 +291,28 @@ void main() {
           .toList(growable: false);
 
       expect(marks.single.semanticLabel, 'Physio');
+    });
+
+    test('a tracked one-off missed yesterday draws a missed mark', () {
+      // Decision B: a dentist visit left unmarked under assume-absent is
+      // overdue, and the rail says so as it does for a routine.
+      final yesterday = day.subtract(const Duration(days: 1));
+      final dentist = CalendarEvent(
+        id: 'dentist',
+        title: 'Dentist',
+        categoryId: 'gym',
+        startDate: yesterday,
+        tracksPresence: true,
+        assumeAbsent: true,
+      );
+
+      final marks = EventDayRailProvider(
+        l10n,
+      ).marksFor(yesterday, [dentist]).toList(growable: false);
+
+      expect(markIds(marks), ['dentist']);
+      expect(marks.single.missed, isTrue);
+      expect(marks.single.semanticLabel, 'Dentist, missed');
     });
   });
 

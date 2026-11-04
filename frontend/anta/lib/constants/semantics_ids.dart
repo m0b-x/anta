@@ -713,6 +713,12 @@ abstract final class SemanticsIds {
   static const String eventDetailPresent = 'event-detail-present';
   static const String eventDetailMissed = 'event-detail-missed';
   static const String eventDetailSkip = 'event-detail-skip';
+
+  /// A one-off's Cancel this event and the Cancelled state's Restore — ids
+  /// of their own, because a flow that cancels a one-off must not be able to
+  /// pass by tapping a recurring event's Skip this day.
+  static const String eventDetailCancel = 'event-detail-cancel';
+  static const String eventDetailRestore = 'event-detail-restore';
   static const String eventDetailAddDate = 'event-detail-add-date';
   static const String eventDetailDates = 'event-detail-dates';
   static const String eventDetailNote = 'event-detail-note';

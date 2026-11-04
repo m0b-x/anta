@@ -54,7 +54,14 @@ abstract final class IcsSerializer {
 
   /// Builds the full `.ics` document. Events with no occurrence inside the
   /// search window (an empty specific-date set, a holidays-only rule with no
-  /// holiday ahead of it) are skipped rather than written as broken entries.
+  /// holiday ahead of it, a cancelled one-off) are skipped rather than written
+  /// as broken entries.
+  ///
+  /// A cancelled one-off is left out rather than written with
+  /// `STATUS:CANCELLED`: this is a `METHOD:PUBLISH` snapshot, not an iTIP
+  /// update to a calendar that already holds the event, and a cancelled day
+  /// of every other shape is likewise absent — not an entity marked
+  /// cancelled.
   static String serialize({
     required List<CalendarEvent> events,
     DateTime? now,
@@ -205,7 +212,8 @@ abstract final class IcsSerializer {
   /// Cancelled occurrences (**v30**) are skipped explicitly here. Querying
   /// `event.rule` rather than `event.occursOn` is what drops `retroactive`,
   /// and it drops the skip filter with it — so a `DTSTART` on a cancelled day
-  /// would otherwise be the one place a skip leaks into the export.
+  /// would otherwise be the one place a skip leaks into the export. A
+  /// cancelled one-off has no first occurrence, so it exports nothing.
   static DateTime? _firstOccurrenceOf(CalendarEvent event, DateTime anchor) {
     final end = event.endDate == null ? null : _dateOnly(event.endDate!);
     final skippable = EventSkips.appliesTo(event);

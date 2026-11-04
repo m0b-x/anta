@@ -1,5 +1,4 @@
 import '../models/calendar_event.dart';
-import '../models/recurrence_rule.dart';
 
 /// Synchronous, in-memory facade over the cancelled occurrences in
 /// `calendar_event_skips`, published by `EventSkipService`.
@@ -41,12 +40,14 @@ abstract final class EventSkips {
 
   /// Whether [event] can have occurrences cancelled at all.
   ///
-  /// No per-event opt-in, unlike presence: any recurring event has occurrences
-  /// to cancel. A one-time event is excluded because cancelling its only
-  /// occurrence is a delete, which the UI offers separately — and because that
-  /// gate is what stops a stale row from ever hiding a one-time event.
-  static bool appliesTo(CalendarEvent event) =>
-      event.rule is! OneTimeRecurrence;
+  /// Always, since decision B of the analytics record ("one mark for every
+  /// shape"): a cancelled appointment or bill is not a deleted one — it keeps
+  /// its title, its notes and its place in the Report's cancelled count, and an
+  /// unskip brings it back. A one-off's day is its start day (its days, for a
+  /// multi-day event), keyed by event id and UTC day like any other row.
+  ///
+  /// Kept as a method so its call sites stay the one place to ask.
+  static bool appliesTo(CalendarEvent event) => true;
 
   /// **The** entry point for "was this occurrence cancelled". O(1): two map
   /// probes, no allocation — it runs inside [CalendarEvent.occursOnUtcDay],

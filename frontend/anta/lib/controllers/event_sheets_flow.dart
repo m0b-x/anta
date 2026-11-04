@@ -158,6 +158,29 @@ class EventSheetsFlow {
         },
         onPresenceChanged: (occurrenceDay, missed) =>
             setOccurrencePresence(bloc, current.id, occurrenceDay, missed),
+        // A one-off's cancel writes in place: the same events the series'
+        // Skip this day and its undo dispatch, without closing the sheet. A
+        // restore writes back the mark the cancel cleared.
+        onCancelChanged: (occurrenceDay, cancelled, {restore}) {
+          if (cancelled) {
+            bloc.add(
+              SetOccurrenceSkipped(eventId: current.id, day: occurrenceDay),
+            );
+            return;
+          }
+          bloc.add(
+            ClearOccurrenceSkipped(eventId: current.id, day: occurrenceDay),
+          );
+          if (restore != null) {
+            bloc.add(
+              SetOccurrencePresence(
+                eventId: current.id,
+                day: occurrenceDay,
+                status: restore,
+              ),
+            );
+          }
+        },
         onOpenWikiLink: (title) => _openWikiLink(context, title),
         resolveNoteTitle: _resolveNoteTitle,
       );
@@ -194,9 +217,19 @@ class EventSheetsFlow {
           );
           if (!context.mounted) return;
           if (updated != null) {
+            // The editor's rule (`strandsSkipsOf`): a set picked down to one
+            // date clears the skips a series left, and the facade is not told
+            // in time, so the survival check skips it too.
+            final stranded = updated.strandsSkipsOf(current);
             current = updated;
             bloc.add(UpdateCalendarEvent(event: updated));
-            if (!updated.occursOn(day)) return;
+            if (stranded) {
+              bloc.add(SetOccurrenceSkips(eventId: updated.id, days: const {}));
+            }
+            final survives = stranded
+                ? updated.wouldOccurOnUtcDay(_utcDay(day))
+                : updated.occursOn(day);
+            if (!survives) return;
           }
         case EventDetailAction.edit:
           final result = await editorSheet(
@@ -266,9 +299,14 @@ class EventSheetsFlow {
     CalendarEvent saved,
     DateTime day,
   ) {
-    if (result.skippedDays?.contains(day) ?? false) return false;
-    return saved.occursOn(day);
+    final skipped = result.skippedDays;
+    if (skipped == null) return saved.occursOn(day);
+    final utcDay = _utcDay(day);
+    return !skipped.contains(utcDay) && saved.wouldOccurOnUtcDay(utcDay);
   }
+
+  static DateTime _utcDay(DateTime day) =>
+      DateTime.utc(day.year, day.month, day.day);
 
   /// Edits one description from the detail sheet, without the form.
   ///

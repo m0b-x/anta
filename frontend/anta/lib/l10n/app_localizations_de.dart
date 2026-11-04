@@ -7569,4 +7569,63 @@ class AppLocalizationsDe extends AppLocalizations {
   ) {
     return 'Bei einer Woche öffnet „$weekly“, bei einem Monat „$monthly“ eine Zusammenfassung des gerade abgelaufenen Zeitraums – speichere sie, und sie kommt am ersten Tag der nächsten Woche oder des nächsten Monats: eine Zusammenfassung, bei der „$shows“ auf „$weekReport“ oder „$monthReport“ steht. „$share“ schreibt die Seite als Markdown.';
   }
+
+  @override
+  String get markVerbDone => 'Erledigt';
+
+  @override
+  String get markVerbAttended => 'Besucht';
+
+  @override
+  String get markVerbTaken => 'Genommen';
+
+  @override
+  String get markVerbPaid => 'Bezahlt';
+
+  @override
+  String get markVerbReceived => 'Erhalten';
+
+  @override
+  String get markVerbMet => 'Stattgefunden';
+
+  @override
+  String get markVerbRenewed => 'Erneuert';
+
+  @override
+  String get eventMarkDone => 'Als erledigt markieren';
+
+  @override
+  String get eventMarkAttended => 'Als besucht markieren';
+
+  @override
+  String get eventMarkTaken => 'Als genommen markieren';
+
+  @override
+  String get eventMarkPaid => 'Als bezahlt markieren';
+
+  @override
+  String get eventMarkReceived => 'Als erhalten markieren';
+
+  @override
+  String get eventMarkMet => 'Als stattgefunden markieren';
+
+  @override
+  String get eventMarkRenewed => 'Als erneuert markieren';
+
+  @override
+  String eventMarkAsVerb(String verb) {
+    return 'Als $verb markieren';
+  }
+
+  @override
+  String get eventCancelEvent => 'Diesen Termin absagen';
+
+  @override
+  String get eventCancelledState => 'Abgesagt';
+
+  @override
+  String get eventRestoreEvent => 'Wiederherstellen';
+
+  @override
+  String get eventCancelled => 'Termin abgesagt';
 }

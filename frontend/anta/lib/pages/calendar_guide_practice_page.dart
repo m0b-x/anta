@@ -19,6 +19,7 @@ import '../models/calendar_event.dart';
 import '../models/calendar_guide_coach.dart';
 import '../models/calendar_guide_content.dart';
 import '../models/calendar_guide_demo.dart';
+import '../models/category_profile.dart';
 import '../models/recurrence_rule.dart';
 import '../services/category_service.dart';
 import '../services/day_bars_resolver.dart';
@@ -556,6 +557,7 @@ class _CalendarGuidePracticePageState extends State<CalendarGuidePracticePage> {
             ? demo.overrideFor(current.id, day)
             : null,
         isMissed: demo.isMissed,
+        profileOf: (_) => EffectiveProfile.unprofiled,
         // The sheet may fire these from its `dispose` (a pending tick on
         // dismissal), where `setState` throws: they write the demo and
         // leave the rebuild to [_rebuildSoon] and to the return below.

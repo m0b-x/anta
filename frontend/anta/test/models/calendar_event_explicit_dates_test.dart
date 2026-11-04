@@ -85,9 +85,13 @@ void main() {
       expect(updated.removeAfterAlert, isFalse);
     });
 
-    test('a single date makes it one-time and drops the series flags', () {
+    test('a single date makes it one-time, drops the series flags and keeps '
+        'presence', () {
       final updated = event(
         rule: SpecificDatesRecurrence(dates: {d(2026, 9, 25), d(2026, 10, 2)}),
+        endDate: d(2027, 1, 1),
+        retroactive: true,
+        countOccurrences: true,
         tracksPresence: true,
         assumeAbsent: true,
         assumeAbsentFrom: d(2026, 9, 25),
@@ -97,11 +101,27 @@ void main() {
 
       expect(updated.startDate, d(2026, 10, 2));
       expect(updated.rule, const OneTimeRecurrence());
+      // Decision B: a one-off keeps its mark and its assume-absent default.
+      expect(updated.tracksPresence, isTrue);
+      expect(updated.assumeAbsent, isTrue);
+      expect(updated.assumeAbsentFrom, d(2026, 9, 25));
+      expect(updated.endDate, isNull);
+      expect(updated.retroactive, isFalse);
+      expect(updated.countOccurrences, isFalse);
+      expect(updated.perOccurrenceDescriptions, isFalse);
+      expect(updated.showInDayRail, isNull);
+    });
+
+    test('an untracked single date still clears a stray assume-absent', () {
+      final updated = event(
+        rule: SpecificDatesRecurrence(dates: {d(2026, 9, 25), d(2026, 10, 2)}),
+        assumeAbsent: true,
+        assumeAbsentFrom: d(2026, 9, 25),
+      ).withExplicitDates({d(2026, 10, 2)});
+
       expect(updated.tracksPresence, isFalse);
       expect(updated.assumeAbsent, isFalse);
       expect(updated.assumeAbsentFrom, isNull);
-      expect(updated.perOccurrenceDescriptions, isFalse);
-      expect(updated.showInDayRail, isNull);
     });
 
     test('a single date keeps the remove-after-alert promise', () {
@@ -123,6 +143,44 @@ void main() {
     test('an empty set changes nothing', () {
       final original = event(rule: const OneTimeRecurrence());
       expect(identical(original.withExplicitDates({}), original), isTrue);
+    });
+  });
+
+  // The rule the editor and the Dates sheet share (S1b): a save that leaves a
+  // one-off where a series' skip rows could hide it clears them.
+  group('strandsSkipsOf', () {
+    final series = event(
+      rule: const SpecificDatesRecurrence(dates: {}),
+    ).withExplicitDates({d(2026, 9, 25), d(2026, 9, 28)});
+    final oneOff = event(rule: const OneTimeRecurrence());
+
+    test('a series picked down to one date strands its skips', () {
+      expect(
+        series.withExplicitDates({d(2026, 9, 28)}).strandsSkipsOf(series),
+        isTrue,
+      );
+      expect(
+        oneOff.strandsSkipsOf(event(rule: const DailyRecurrence())),
+        isTrue,
+      );
+    });
+
+    test('a one-off moved to another day strands them', () {
+      expect(
+        oneOff.withExplicitDates({d(2026, 9, 30)}).strandsSkipsOf(oneOff),
+        isTrue,
+      );
+    });
+
+    test('a one-off kept on its day, and any series, strand nothing', () {
+      expect(oneOff.copyWith(title: 'Dentist').strandsSkipsOf(oneOff), isFalse);
+      expect(series.strandsSkipsOf(oneOff), isFalse);
+      expect(
+        series
+            .withExplicitDates({d(2026, 9, 25), d(2026, 9, 30)})
+            .strandsSkipsOf(series),
+        isFalse,
+      );
     });
   });
 }

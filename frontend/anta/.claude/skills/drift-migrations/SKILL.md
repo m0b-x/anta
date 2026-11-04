@@ -74,7 +74,7 @@ static void reset() { _instance = null; }
 
 Handlers fire once per `notifyDatabaseSwitching()` and the registry self-clears — re-registration happens naturally on the next `getInstance()`. Anti-patterns: a `late AppDatabase _db` singleton without reset+registration (latent crash after switch); static caches with no owning `reset()`; registering from a constructor that runs more than once.
 
-Services already on the contract: `CounterService`, `CalendarEventService`, `CategoryService`, `PublicHolidayService`, `MarkdownBarService`, `SettingsService`, `DevOptionsService`, `BackupService`, `NotePositionService`. New singletons must join.
+Services already on the contract: `CounterService`, `CalendarEventService`, `CategoryService`, `CategoryProfileService` (with `CategoryService`'s generation guard: a construction a switch overtook restarts and never publishes), `PublicHolidayService`, `MarkdownBarService`, `SettingsService`, `DevOptionsService`, `BackupService`, `NotePositionService`. New singletons must join.
 
 ## Settings
 

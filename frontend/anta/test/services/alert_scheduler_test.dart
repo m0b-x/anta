@@ -3035,6 +3035,37 @@ void main() {
         ]);
       },
     );
+
+    test(
+      'cancelling a one-off takes its alarm off, and unskip arms it again',
+      () async {
+        // Decision B: a one-off's day is skipped like a routine's, through
+        // the same `occursOnUtcDay` the plan reads.
+        await seed();
+        final scheduler = schedulerOf();
+        await scheduler.reconcileAll(AlertReconcileReason.launch);
+        final armed = (await registrations()).single;
+        final skips = await EventSkipService.getInstance();
+
+        await skips.markSkipped('e1', DateTime.utc(2026, 9, 20));
+        await scheduler.reconcileEvent(
+          'e1',
+          AlertReconcileReason.occurrenceChanged,
+        );
+
+        expect(gateway.cancelled, contains(armed.osId));
+        expect(gateway.platform, isEmpty);
+        expect(await pendingDays(), isEmpty);
+
+        await skips.unskip('e1', DateTime.utc(2026, 9, 20));
+        await scheduler.reconcileEvent(
+          'e1',
+          AlertReconcileReason.occurrenceChanged,
+        );
+
+        expect(await pendingDays(), [DateTime.utc(2026, 9, 20)]);
+      },
+    );
   });
 
   group('the hub', () {

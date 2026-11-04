@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:anta/constants/event_presence.dart';
+import 'package:anta/constants/event_skips.dart';
 import 'package:anta/constants/fasting_calendar.dart';
 import 'package:anta/models/agenda_day_list.dart';
 import 'package:anta/models/calendar_event.dart';
@@ -99,6 +100,22 @@ void main() {
   test('category allowlist keeps only the selected categories', () {
     expect(idsForCategories({'gym'}), {'d'});
     expect(idsForCategories({'other'}), {'ot', 'sp'});
+  });
+
+  // Decision B of the analytics record: a skip applies to a one-off.
+  test('a cancelled one-off leaves the scan and returns once restored', () {
+    addTearDown(EventSkips.resetCache);
+    EventSkips.updateCache(
+      byEvent: {
+        'ot': {DateTime.utc(2026, 8, 11)},
+      },
+    );
+
+    expect(idsFor(AgendaEventType.all), {'d', 'sp'});
+
+    EventSkips.updateCache(byEvent: const {});
+
+    expect(idsFor(AgendaEventType.all), {'ot', 'd', 'sp'});
   });
 
   test('an empty category allowlist shows every category', () {

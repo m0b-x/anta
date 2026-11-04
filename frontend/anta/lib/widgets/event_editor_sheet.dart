@@ -13,6 +13,7 @@ import '../constants/calendar_bounds.dart';
 import '../constants/event_skips.dart';
 import '../constants/calendar_categories.dart';
 import '../constants/calendar_icons.dart';
+import '../constants/category_profiles.dart';
 import '../constants/event_alerts.dart';
 import '../constants/event_priorities.dart';
 import '../constants/event_title.dart';
@@ -29,6 +30,7 @@ import '../l10n/app_localizations.dart';
 import '../models/calendar_appearance.dart';
 import '../models/calendar_event.dart';
 import '../models/category_alert.dart';
+import '../models/category_profile.dart';
 import '../models/event_alert.dart';
 import '../models/event_template.dart';
 import '../models/custom_markdown_shortcut.dart';
@@ -416,11 +418,17 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
   /// that supports an interval.
   bool _countOccurrences = false;
 
-  /// Whether the event records which of its occurrences were missed. Only
-  /// meaningful for a rule with more than one occurrence — an event that
-  /// fires once has no attendance to keep — which is exactly the set
-  /// [_ruleHasManyOccurrences] describes, so specific-dates participates.
+  /// Whether the event records which of its occurrences were kept or missed —
+  /// any shape since decision B of the analytics record: a one-off dentist
+  /// visit is attended or missed like a weekly session. Offered where
+  /// [_presenceOffered] says.
   bool _tracksPresence = false;
+
+  /// Whether the owner has set the presence switch or its default here — the
+  /// [_assumeAbsentFromTouched] idiom. Until they do, a new event's two
+  /// presence flags follow its category's kind (decision U) and re-resolve
+  /// on every category pick; after, a pick leaves their answer alone.
+  bool _presenceTouched = false;
 
   /// Whether unmarked occurrences read as **missed** rather than attended
   /// (**v37**). Draft state for `CalendarEvent.assumeAbsent`; meaningless
@@ -443,8 +451,7 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
   ///
   /// Tri-state on purpose — auto is what makes the column need no backfill and
   /// what keeps a newly tracked event on the rail without a second tap. Gated
-  /// by [_ruleHasManyOccurrences] like [_tracksPresence]: the membership
-  /// predicate excludes one-time events whatever this says, so the control
+  /// by [_ruleHasManyOccurrences]: a one-off follows auto, so the control
   /// must not offer a choice that cannot take effect.
   bool? _showInDayRail;
 
@@ -482,8 +489,8 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
 
   /// Whether the event keeps one description per occurrence instead of one
   /// shared by every day, with its own description as the template each day
-  /// starts from. Gated by [_ruleHasManyOccurrences] like [_tracksPresence] —
-  /// an event that fires once has nothing to separate.
+  /// starts from. Gated by [_ruleHasManyOccurrences] — an event that fires
+  /// once has nothing to separate.
   ///
   /// Draft state, not the saved row: the scope control below reads it through
   /// [_scopeGateOpen], so flipping the switch reveals or hides that control
@@ -784,7 +791,9 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
     _retroactive = initial?.retroactive ?? false;
     _countOccurrences = initial?.countOccurrences ?? false;
     _tracksPresence = initial?.tracksPresence ?? false;
+    _trackedAtOpen = _tracksPresence;
     _assumeAbsent = initial?.assumeAbsent ?? false;
+    _applyKindPresenceDefaults();
     _assumeAbsentFrom = initial?.assumeAbsentFrom == null
         ? null
         : _normalize(initial!.assumeAbsentFrom!);
@@ -1173,6 +1182,38 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
   /// dates is a `SpecificDatesRecurrence`, which *is* multi-occurrence.
   bool get _ruleHasManyOccurrences =>
       _mode == _RepeatMode.recurring || _additionalDates.isNotEmpty;
+
+  /// The picked category's kind under its overrides, resolved as rendering
+  /// resolves the category. The guide's sandbox reads none of the owner's
+  /// profiles (decision V): its practice pre-fills and labels as an
+  /// unprofiled calendar does, whatever the owner made of a category.
+  EffectiveProfile get _profile => widget.sandbox
+      ? EffectiveProfile.unprofiled
+      : CategoryProfiles.effectiveFor(
+          CalendarCategories.resolve(_categoryId).id,
+        );
+
+  /// Whether the event was tracked when the sheet opened, latched in
+  /// `initState` for [_presenceOffered].
+  late final bool _trackedAtOpen;
+
+  /// Whether Track presence is on offer. A series always; a one-off only
+  /// where its kind marks, so an unprofiled calendar's one-off editor stays
+  /// the one it was (lead decision AI). A tracked event keeps it whatever
+  /// its kind, or a mark nobody can see could never be switched off — read
+  /// as it opened, never live, or switching it off would take the switch
+  /// out from under the finger.
+  bool get _presenceOffered =>
+      _ruleHasManyOccurrences || _trackedAtOpen || _profile.marks;
+
+  /// A new event's presence flags as its kind sets them, until the owner has
+  /// answered for them. An existing event keeps what it has (decision U).
+  void _applyKindPresenceDefaults() {
+    if (_isEditing || _presenceTouched) return;
+    final profile = _profile;
+    _tracksPresence = profile.marksNew;
+    _assumeAbsent = profile.assumeAbsentNew;
+  }
 
   /// Whether the form currently describes an event whose days are separable:
   /// a rule with more than one occurrence, opted into per-occurrence
@@ -1615,6 +1656,7 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
     if (picked == null || !mounted) return;
     setState(() {
       _categoryId = picked;
+      _applyKindPresenceDefaults();
       // Birthdays are inherently yearly. When the user tags a brand-new,
       // still-one-time event as a birthday, pre-fill a yearly recurrence so it
       // repeats every year with no extra taps. A recurrence the user already
@@ -1722,8 +1764,8 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
           _kind.supportsInterval &&
           _countOccurrences,
       countStyle: _countStyle,
-      tracksPresence: _ruleHasManyOccurrences && _tracksPresence,
-      assumeAbsent: _ruleHasManyOccurrences && _tracksPresence && _assumeAbsent,
+      tracksPresence: _tracksPresence,
+      assumeAbsent: _tracksPresence && _assumeAbsent,
       perOccurrenceDescriptions:
           _ruleHasManyOccurrences && _perOccurrenceDescriptions,
     );
@@ -1758,10 +1800,9 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
         _mode == _RepeatMode.recurring &&
         _kind.supportsInterval &&
         _countOccurrences;
-    // And for presence: editing a tracked event down to a single day clears
-    // the opt-in, exactly as the two flags above do. The absence rows survive
-    // untouched, so re-ticking the switch restores every mark.
-    final effectiveTracksPresence = _ruleHasManyOccurrences && _tracksPresence;
+    // Presence is not one of them since decision B: a one-off keeps its mark,
+    // so editing a series down to a single day keeps the opt-in it had.
+    final effectiveTracksPresence = _tracksPresence;
     // The presence **default** rides the opt-in it qualifies: an untracked
     // event has no unmarked days to reinterpret, so it never persists an
     // inverted default. The from-date only means something while the default
@@ -1873,11 +1914,13 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
         occurrenceDay: occurrenceDay,
         occurrenceDescription: occurrenceDescription,
         // Only when the picker was actually opened, and only while the saved
-        // rule can still carry skips — editing an event down to a single day
-        // must not dispatch skips against a rule that has no occurrences to
-        // cancel. The rows survive untouched either way, exactly like the
-        // absence and description rows.
-        skippedDays: _skippedDays != null && event.rule is! OneTimeRecurrence
+        // rule is a series — a one-off's one skip is its cancel, which the
+        // detail sheet owns. A save that makes the event a one-off or moves
+        // one clears its skips instead, so an old row on the new day cannot
+        // hide it (`CalendarEvent.strandsSkipsOf`).
+        skippedDays: base != null && event.strandsSkipsOf(base)
+            ? const <DateTime>{}
+            : _skippedDays != null && event.rule is! OneTimeRecurrence
             ? _skippedDays
             : null,
         alerts: List<EventAlert>.unmodifiable(_alerts),
@@ -2725,24 +2768,34 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
             caption: FormCaption(text: _countStyleExample(l10n)),
           ),
       ],
-      FormSwitchRow(
-        glyph: Icons.how_to_reg_outlined,
-        label: l10n.eventTrackPresence,
-        value: _tracksPresence,
-        onChanged: (v) => setState(() => _tracksPresence = v),
-      ),
+      if (_presenceOffered)
+        FormSwitchRow(
+          glyph: Icons.how_to_reg_outlined,
+          label: l10n.eventTrackPresence,
+          value: _tracksPresence,
+          onChanged: (v) => setState(() {
+            _tracksPresence = v;
+            _presenceTouched = true;
+          }),
+        ),
       if (_tracksPresence) ...[
         FormChipRow(
           chips: [
             FormChip(
               label: l10n.eventAssumePresent,
               selected: !_assumeAbsent,
-              onTap: () => setState(() => _selectAssumeAbsent(false)),
+              onTap: () => setState(() {
+                _selectAssumeAbsent(false);
+                _presenceTouched = true;
+              }),
             ),
             FormChip(
               label: l10n.eventAssumeAbsent,
               selected: _assumeAbsent,
-              onTap: () => setState(() => _selectAssumeAbsent(true)),
+              onTap: () => setState(() {
+                _selectAssumeAbsent(true);
+                _presenceTouched = true;
+              }),
             ),
           ],
         ),
@@ -2766,34 +2819,39 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
                   ),
           ),
       ],
-      if (_dayRailEnabled)
-        FormMenuRow<_DayRailChoice>(
-          glyph: Icons.vertical_split_outlined,
-          label: l10n.eventShowInDayRail,
-          value: _dayRailLabel(l10n, _DayRailChoice.of(_showInDayRail)),
-          selected: _DayRailChoice.of(_showInDayRail),
-          menuWidth: _dayRailMenuWidth,
-          items: [
-            for (final choice in _DayRailChoice.values)
-              FormMenuItem(value: choice, label: _dayRailLabel(l10n, choice)),
-          ],
-          onSelected: (choice) => setState(() => _showInDayRail = choice.value),
+      // A one-off reaches this group for its presence alone: the rest stays
+      // a series' (the rail's membership, the per-day texts, the skips).
+      if (_ruleHasManyOccurrences) ...[
+        if (_dayRailEnabled)
+          FormMenuRow<_DayRailChoice>(
+            glyph: Icons.vertical_split_outlined,
+            label: l10n.eventShowInDayRail,
+            value: _dayRailLabel(l10n, _DayRailChoice.of(_showInDayRail)),
+            selected: _DayRailChoice.of(_showInDayRail),
+            menuWidth: _dayRailMenuWidth,
+            items: [
+              for (final choice in _DayRailChoice.values)
+                FormMenuItem(value: choice, label: _dayRailLabel(l10n, choice)),
+            ],
+            onSelected: (choice) =>
+                setState(() => _showInDayRail = choice.value),
+          ),
+        FormSwitchRow(
+          glyph: Icons.event_note_outlined,
+          label: l10n.eventPerOccurrenceDescriptions,
+          value: _perOccurrenceDescriptions,
+          onChanged: _setPerOccurrenceDescriptions,
         ),
-      FormSwitchRow(
-        glyph: Icons.event_note_outlined,
-        label: l10n.eventPerOccurrenceDescriptions,
-        value: _perOccurrenceDescriptions,
-        onChanged: _setPerOccurrenceDescriptions,
-      ),
-      if (_isEditing)
-        FormPickerRow(
-          glyph: Icons.event_busy_outlined,
-          label: l10n.eventSkippedDays,
-          value: _effectiveSkippedDays.isEmpty
-              ? l10n.eventNoSkippedDays
-              : l10n.eventSkippedDaysCount(_effectiveSkippedDays.length),
-          onTap: _pickSkippedDays,
-        ),
+        if (_isEditing)
+          FormPickerRow(
+            glyph: Icons.event_busy_outlined,
+            label: l10n.eventSkippedDays,
+            value: _effectiveSkippedDays.isEmpty
+                ? l10n.eventNoSkippedDays
+                : l10n.eventSkippedDaysCount(_effectiveSkippedDays.length),
+            onTap: _pickSkippedDays,
+          ),
+      ],
     ];
   }
 
@@ -3028,7 +3086,7 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
                     FormRowGroup(
                       children: _buildWhenRows(l10n, dateFormat, oneTimeDates),
                     ),
-                    if (_ruleHasManyOccurrences) ...[
+                    if (_presenceOffered) ...[
                       FormSectionLabel(text: l10n.recurrenceScopeLabel),
                       FormRowGroup(
                         children: _buildOccurrenceRows(l10n, dateFormat),

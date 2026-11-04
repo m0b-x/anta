@@ -67,11 +67,12 @@ class EventTemplate extends Equatable {
   /// Stamps out the event this template describes, anchored on [startDate].
   ///
   /// The flags that only mean anything for a repeating rule ([retroactive],
-  /// [tracksPresence], [assumeAbsent], [perOccurrenceDescriptions]) are
-  /// cleared for a one-time rule here, matching the editor's own save guards —
-  /// a template captured while recurring and later flipped to one-time must
-  /// not stamp out an event carrying flags its rule cannot honour.
-  /// [assumeAbsent] additionally rides [tracksPresence], the flag it
+  /// [countOccurrences], [perOccurrenceDescriptions]) are cleared for a
+  /// one-time rule here — a template captured while recurring and later
+  /// flipped to one-time must not stamp out an event carrying flags its rule
+  /// cannot honour. Presence is not one of them since decision B of the
+  /// analytics record (a one-off is done or overdue like a routine is
+  /// attended); [assumeAbsent] still rides [tracksPresence], the flag it
   /// qualifies.
   CalendarEvent buildEvent({required String id, required DateTime startDate}) {
     final repeats = rule is! OneTimeRecurrence;
@@ -90,8 +91,8 @@ class EventTemplate extends Equatable {
       retroactive: repeats && retroactive,
       countOccurrences: repeats && countOccurrences,
       countStyle: countStyle,
-      tracksPresence: repeats && tracksPresence,
-      assumeAbsent: repeats && tracksPresence && assumeAbsent,
+      tracksPresence: tracksPresence,
+      assumeAbsent: tracksPresence && assumeAbsent,
       perOccurrenceDescriptions: repeats && perOccurrenceDescriptions,
     );
   }
