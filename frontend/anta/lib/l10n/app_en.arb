@@ -11430,6 +11430,24 @@
       }
     }
   },
+  "reportDayRangeSameMonth": "{month} {first} – {last}",
+  "@reportDayRangeSameMonth": {
+    "description": "Caption subject of the year in review's busiest week when its first and last day share a month, the month named once, e.g. Jun 16 – 22",
+    "placeholders": {
+      "month": {
+        "type": "String",
+        "example": "Jun"
+      },
+      "first": {
+        "type": "String",
+        "example": "16"
+      },
+      "last": {
+        "type": "String",
+        "example": "22"
+      }
+    }
+  },
   "reportYearSpanSpoken": "from {first} to {last}",
   "@reportYearSpanSpoken": {
     "description": "Screen reader form of a report Months row's span: the category's first and last kept day, e.g. from 2 January to 30 December",

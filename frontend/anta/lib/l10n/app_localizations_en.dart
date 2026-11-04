@@ -8846,6 +8846,11 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String reportDayRangeSameMonth(String month, String first, String last) {
+    return '$month $first – $last';
+  }
+
+  @override
   String reportYearSpanSpoken(String first, String last) {
     return 'from $first to $last';
   }

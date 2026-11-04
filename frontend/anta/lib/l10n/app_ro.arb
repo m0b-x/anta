@@ -2602,6 +2602,7 @@
   "reportRecordCaption": "{subject} · {value}",
   "reportRecordSpoken": "{record}: {subject}, {value}",
   "reportYearSpan": "{first} – {last}",
+  "reportDayRangeSameMonth": "{first}–{last} {month}",
   "reportYearSpanSpoken": "de la {first} până la {last}",
   "reportYearDaySpoken": "pe {day}",
   "reportYearMonthsSpoken": "{category}, {span}. Pe luni: {months}.",

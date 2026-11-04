@@ -3302,17 +3302,16 @@ void main() {
       );
     });
 
-    test('the busiest week is named as the band titles its week', () {
-      final en = labelsIn('en');
-      final band = en.periodName(OverviewWeekPeriod(DateTime.utc(2025, 6, 16)));
-      expect(band, 'Jun 16 – Jun 22, 2025');
+    test('the busiest week is named by its two days, without the year', () {
       final week = words(
         ReportRecordKind.busiestWeek,
         12,
         start: DateTime.utc(2025, 6, 16),
       );
-      expect(week.caption, '$band · 12${nb}events');
-      expect(week.spoken, 'Busiest week: $band, 12 events');
+      expect(week, (
+        caption: 'Jun${nb}16$nb– 22 · 12${nb}events',
+        spoken: 'Busiest week: Jun${nb}16$nb– 22, 12 events',
+      ));
       // The week holding the start, on the calendar's week start.
       expect(
         words(
@@ -3329,18 +3328,27 @@ void main() {
           start: DateTime.utc(2025, 6, 15),
           weekStart: CalendarWeekStart.sunday,
         ).caption,
-        startsWith('Jun 15 – Jun 21, 2025'),
+        startsWith('Jun${nb}15$nb– 21 ·'),
       );
-      final de = labelsIn('de');
+      String caption(String locale, DateTime start) => words(
+        ReportRecordKind.busiestWeek,
+        12,
+        locale: locale,
+        start: start,
+      ).caption;
+      final within = DateTime.utc(2025, 6, 16);
+      expect(caption('de', within), '16.–22.${nb}Juni · 12${nb}Termine');
+      expect(caption('ro', within), '16–22${nb}iun. · 12${nb}evenimente');
+      // Across two months each day names its own, as a Months row's span.
+      final across = DateTime.utc(2025, 6, 30);
+      expect(caption('en', across), 'Jun${nb}30$nb– Jul${nb}6 · 12${nb}events');
       expect(
-        words(
-          ReportRecordKind.busiestWeek,
-          12,
-          locale: 'de',
-          start: DateTime.utc(2025, 6, 16),
-        ).caption,
-        '${de.periodName(OverviewWeekPeriod(DateTime.utc(2025, 6, 16)))}'
-        ' · 12${nb}Termine',
+        caption('de', across),
+        '30.${nb}Juni – 6.${nb}Juli · 12${nb}Termine',
+      );
+      expect(
+        caption('ro', across),
+        '30${nb}iun. – 6${nb}iul. · 12${nb}evenimente',
       );
     });
 

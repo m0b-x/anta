@@ -8910,6 +8910,11 @@ class AppLocalizationsDe extends AppLocalizations {
   }
 
   @override
+  String reportDayRangeSameMonth(String month, String first, String last) {
+    return '$first.–$last. $month';
+  }
+
+  @override
   String reportYearSpanSpoken(String first, String last) {
     return 'vom $first bis $last';
   }

@@ -592,19 +592,9 @@ void main() {
       );
     });
 
-    // The busiest week is named as the band titles a past week, year
-    // included ("Jun 16 – Jun 22, 2025 · 11 events"), which §2.2's one
-    // reserved line at 1.3 cannot hold on a 360 phone: it is the one cut,
-    // pinned so a change to the words or the line rule shows here.
-    bool cutByDesign(ReportRecord record, double scale, double width) =>
-        record.kind == ReportRecordKind.busiestWeek &&
-        scale == 1.3 &&
-        width == 360;
-
     for (final bold in [false, true]) {
       testWidgets('${bold ? 'under bold text ' : ''}no name and no caption '
-          'is cut, in every locale and scale, at 360 and 412, but the '
-          'busiest week at 1.3 on 360', (tester) async {
+          'is cut, in every locale and scale, at 360 and 412', (tester) async {
         folds.setRecordsExpanded(true);
         for (final locale in const ['en', 'de', 'ro']) {
           for (final scale in const [1.0, 1.3, 2.0]) {
@@ -627,15 +617,7 @@ void main() {
                   if (bold) {
                     expect(paragraph.text.style?.fontWeight, FontWeight.bold);
                   }
-                  // Bold Romanian is wider still: its week cuts at 412 too.
-                  final cut =
-                      text == widget.caption &&
-                      (cutByDesign(record, scale, width) ||
-                          (bold &&
-                              locale == 'ro' &&
-                              record.kind == ReportRecordKind.busiestWeek &&
-                              scale == 1.3));
-                  expect(paragraph.didExceedMaxLines, cut, reason: reason);
+                  expect(paragraph.didExceedMaxLines, isFalse, reason: reason);
                 }
               }
             }

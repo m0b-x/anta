@@ -13599,6 +13599,12 @@ abstract class AppLocalizations {
   /// **'{first} – {last}'**
   String reportYearSpan(String first, String last);
 
+  /// Caption subject of the year in review's busiest week when its first and last day share a month, the month named once, e.g. Jun 16 – 22
+  ///
+  /// In en, this message translates to:
+  /// **'{month} {first} – {last}'**
+  String reportDayRangeSameMonth(String month, String first, String last);
+
   /// Screen reader form of a report Months row's span: the category's first and last kept day, e.g. from 2 January to 30 December
   ///
   /// In en, this message translates to:

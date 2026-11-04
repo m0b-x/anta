@@ -1677,11 +1677,11 @@ class ReportLabels {
   };
 
   /// A Records row's words (S6 §2.2): "June · 31 events" and "Busiest
-  /// month: June, 31 events". The week is named as the band titles a week
-  /// period, from the week holding its start on [weekStart], so a record
-  /// reads as the page it would open; a trip and a streak by their event's
-  /// title (the id while the report holds no such event), a gap by its
-  /// category. Only the value is bound (W): a title is the user's text.
+  /// month: June, 31 events". The week is named by its two days
+  /// ([_weekSpan]), a trip and a streak by their event's title (the id
+  /// while the report holds no such event), a gap by its category. Only
+  /// the value and the week's days are bound (W): a title is the user's
+  /// text.
   ({String caption, String spoken}) recordWords(
     ReportRecord record,
     CalendarReport report, {
@@ -1697,9 +1697,7 @@ class ReportLabels {
       ReportRecordKind.busiestMonth ||
       ReportRecordKind.socialMonth ||
       ReportRecordKind.moneyMonth => _monthName.format(start),
-      ReportRecordKind.busiestWeek => periodName(
-        OverviewPeriod.thisWeek(today: start, weekStart: weekStart),
-      ),
+      ReportRecordKind.busiestWeek => _weekSpan(start, weekStart),
       ReportRecordKind.longestTrip || ReportRecordKind.longestStreak => title(),
       ReportRecordKind.longestGap => CalendarCategories.labelOf(
         CalendarCategories.resolve(record.categoryId ?? ''),
@@ -1721,6 +1719,30 @@ class ReportLabels {
     return (
       caption: l10n.reportRecordCaption(subject, _bindNumbers(value)),
       spoken: l10n.reportRecordSpoken(recordName(record.kind), subject, value),
+    );
+  }
+
+  /// The busiest week by its two days, the month named once when they
+  /// share it ("Jun 16 – 22", else "Jun 30 – Jul 6"): the week holding
+  /// [day] on [weekStart], so the row names the week the band would page
+  /// to. Unlike the band's title it leaves the year out: the page is that
+  /// year's, and the caption has the one line the row keeps below text
+  /// scale 1.6 (S6 §2.2). The month is the date symbols' format form, as
+  /// the group rows' is: German writes "Juni" in a date, never "Jun".
+  String _weekSpan(DateTime day, CalendarWeekStart weekStart) {
+    final week =
+        OverviewPeriod.thisWeek(today: day, weekStart: weekStart)
+            as OverviewWeekPeriod;
+    final (first, last) = (week.start, week.end);
+    if (first.year != last.year || first.month != last.month) {
+      return yearSpan(first, last);
+    }
+    return _bindNumbers(
+      l10n.reportDayRangeSameMonth(
+        _rowSymbols.SHORTMONTHS[first.month - 1],
+        _rowDayOfMonth.format(first),
+        _rowDayOfMonth.format(last),
+      ),
     );
   }
 
