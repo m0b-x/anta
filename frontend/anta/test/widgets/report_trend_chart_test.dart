@@ -4,6 +4,7 @@ import 'package:flutter/semantics.dart' show SemanticsAction;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/intl.dart';
 
+import 'package:anta/constants/app_colors.dart';
 import 'package:anta/constants/app_theme.dart';
 import 'package:anta/constants/form_metrics.dart';
 import 'package:anta/constants/report_metrics.dart';
@@ -657,6 +658,183 @@ void main() {
         scheme.primary.toARGB32(),
         scheme.outlineVariant.toARGB32(),
       });
+    });
+  });
+
+  group('last year', () {
+    // This year from January: the columns peak at 2; last year's counts
+    // peak at 5 in March and are 0 in February.
+    const lastYearCounts = [1, 0, 5, 2, 1, 3, 2, 1, 4, 2, 1, 2];
+    ReportTrend yearWithLastYear({List<int>? lastYear = lastYearCounts}) =>
+        ReportTrend(
+          unit: ReportTrendUnit.month,
+          buckets: yearTrend.buckets,
+          busiestWeekday: DateTime.monday,
+          usualStartMinute: 18 * 60,
+          usualEndMinute: 19 * 60 + 30,
+          lastYear: lastYear,
+        );
+
+    /// The plot's flat rectangles past the two hairlines, with their colour.
+    List<(Rect, int)> bands(WidgetTester tester) => [
+      for (final call in plotCalls(tester).skip(2))
+        if (call.invocation.memberName == #drawRect)
+          (
+            call.invocation.positionalArguments[0] as Rect,
+            (call.invocation.positionalArguments[1] as Paint).color.toARGB32(),
+          ),
+    ];
+
+    testWidgets('a ringed tick per month with a count, at its height, none '
+        'at 0', (tester) async {
+      await pump(tester, yearWithLastYear(), year);
+      final scheme = AppTheme.light().colorScheme;
+      final drawn = bands(tester);
+      final ticked = lastYearCounts.where((count) => count > 0).length;
+      expect(drawn, hasLength(2 * ticked), reason: 'a ring and a tick each');
+      final columns = segments(tester);
+      final drawnColumns = [
+        for (final (index, bucket) in yearTrend.buckets.indexed)
+          if (bucket.happened > 0) index,
+      ];
+      const perUnit = ReportMetrics.chartPlotHeight / 5;
+      var band = 0;
+      for (final (index, count) in lastYearCounts.indexed) {
+        if (count == 0) continue;
+        final (ring, ringColour) = drawn[band++];
+        final (tick, tickColour) = drawn[band++];
+        expect(ringColour, scheme.rowGroup.toARGB32());
+        expect(tickColour, scheme.onSurfaceVariant.toARGB32());
+        expect(
+          ring.height,
+          ReportMetrics.trendLastYearTick + 2 * ReportMetrics.trendLastYearRing,
+        );
+        expect(tick.height, ReportMetrics.trendLastYearTick);
+        expect(tick.center.dy, closeTo(ring.center.dy, 0.01));
+        expect(
+          tick.center.dy,
+          closeTo(ReportMetrics.chartPlotHeight - count * perUnit, 0.5),
+          reason: 'month $index',
+        );
+        expect(
+          tick.width,
+          closeTo(296 / 12 - ReportMetrics.columnGap, 1),
+          reason: 'month $index',
+        );
+        // As wide as the month's column where one is drawn.
+        if (yearTrend.buckets[index].happened > 0) {
+          final column = columns[drawnColumns.indexOf(index)];
+          expect(tick.left, column.left, reason: 'month $index');
+          expect(tick.right, column.right, reason: 'month $index');
+        }
+      }
+    });
+
+    testWidgets('the peak follows last year\'s largest count', (tester) async {
+      await pump(tester, yearWithLastYear(), year);
+      expect(find.text('5'), findsOneWidget);
+      expect(find.text('2'), findsNothing);
+    });
+
+    testWidgets('no count above 0 draws no tick and no legend', (tester) async {
+      await pump(tester, yearWithLastYear(lastYear: List.filled(12, 0)), year);
+      expect(bands(tester), isEmpty);
+      expect(find.text('Last year'), findsNothing);
+      expect(find.text('Happened'), findsNothing);
+    });
+
+    testWidgets('a single series shows the legend while ticks exist: '
+        'Happened and Last year, never Missed', (tester) async {
+      await pump(tester, yearWithLastYear(), year);
+      expect(find.text('Happened'), findsOneWidget);
+      expect(find.text('Missed'), findsNothing);
+      expect(find.text('Last year'), findsOneWidget);
+      expect(
+        tester.getTopLeft(find.text('Last year')).dx,
+        greaterThan(tester.getTopLeft(find.text('Happened')).dx),
+      );
+    });
+
+    testWidgets('both parts and ticks: three legend items', (tester) async {
+      final trend = monthTrend();
+      await pump(
+        tester,
+        trend.withLastYear([for (var i = 0; i < 31; i++) i % 4]),
+        october,
+      );
+      expect(find.text('Happened'), findsOneWidget);
+      expect(find.text('Missed'), findsOneWidget);
+      expect(find.text('Last year'), findsOneWidget);
+    });
+
+    testWidgets('the swatch is a tick-thick bar across the dot\'s box', (
+      tester,
+    ) async {
+      await pump(tester, yearWithLastYear(), year);
+      final bar = find.descendant(
+        of: find.ancestor(
+          of: find.text('Last year'),
+          matching: find.byType(Row),
+        ),
+        matching: find.byType(ColoredBox),
+      );
+      expect(bar, findsOneWidget);
+      expect(
+        tester.widget<ColoredBox>(bar).color,
+        AppTheme.light().colorScheme.onSurfaceVariant,
+      );
+      expect(
+        tester.getSize(bar),
+        const Size(RowMetrics.labelDotSize, ReportMetrics.trendLastYearTick),
+      );
+    });
+
+    testWidgets('dark: the ring is the card\'s tone, the tick '
+        'onSurfaceVariant', (tester) async {
+      await pump(tester, yearWithLastYear(), year, brightness: Brightness.dark);
+      final scheme = AppTheme.dark().colorScheme;
+      expect(
+        {for (final (_, colour) in bands(tester)) colour},
+        {scheme.rowGroup.toARGB32(), scheme.onSurfaceVariant.toARGB32()},
+      );
+    });
+
+    testWidgets('the card is 178 at en 1.0', (tester) async {
+      await pump(tester, yearWithLastYear(), year);
+      expect(tester.getSize(card()).height, closeTo(178, 1));
+    });
+
+    testWidgets('at de 2.0 the legend wraps to a second line, the card as '
+        'tall as a German month with both parts', (tester) async {
+      await pump(
+        tester,
+        yearWithLastYear(),
+        year,
+        locale: const Locale('de'),
+        textScale: 2.0,
+      );
+      expect(
+        tester.getTopLeft(find.text('Vorjahr')).dy,
+        greaterThan(tester.getTopLeft(find.text('Stattgefunden')).dy),
+      );
+      // The legend on two lines and the caption on three, as the German
+      // month measures in the geometry group.
+      expect(tester.getSize(card()).height, closeTo(342, 1));
+    });
+
+    testWidgets('the spoken label closes with last year\'s events', (
+      tester,
+    ) async {
+      final handle = tester.ensureSemantics();
+      await pump(tester, yearWithLastYear(), year);
+      final total = lastYearCounts.fold(0, (sum, n) => sum + n);
+      expect(
+        tester
+            .getSemantics(find.bySemanticsIdentifier(SemanticsIds.reportTrend))
+            .label,
+        endsWith('; same period last year, $total events'),
+      );
+      handle.dispose();
     });
   });
 }

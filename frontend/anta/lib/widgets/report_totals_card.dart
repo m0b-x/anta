@@ -27,6 +27,7 @@ class ReportTotalsCard extends StatefulWidget {
     this.against,
     this.muted = false,
     this.nominalMinutes = 0,
+    this.tileIdentifier = SemanticsIds.reportTile,
   });
 
   /// The tiles in display order.
@@ -45,6 +46,11 @@ class ReportTotalsCard extends StatefulWidget {
   /// which only its spoken label says (O): the drawn tile leaves it to the
   /// Totals caption.
   final int nominalMinutes;
+
+  /// A tile's semantics id from its name. A saved view's second card passes
+  /// [SemanticsIds.reportViewTile], so the page's `report-tile-*` stay
+  /// unique.
+  final String Function(String tileName) tileIdentifier;
 
   @override
   State<ReportTotalsCard> createState() => _ReportTotalsCardState();
@@ -238,7 +244,7 @@ class _ReportTotalsCardState extends State<ReportTotalsCard> {
     final detail = labels.detail(value, ofInDetail: ofInDetail);
     return Semantics(
       container: true,
-      identifier: SemanticsIds.reportTile(value.tile.name),
+      identifier: widget.tileIdentifier(value.tile.name),
       label: labels.tileSemantics(
         value,
         against: widget.against,

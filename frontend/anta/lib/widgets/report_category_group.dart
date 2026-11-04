@@ -54,7 +54,7 @@ class ReportGroupRows {
   final ReportLabels labels;
 
   /// The header meter's share — the group's count over the card's largest —
-  /// on the Categories card only; ignored on the others.
+  /// on the Categories and By tag cards only; ignored on the others.
   final double fraction;
 
   /// Whether the group's rows are shown under its header.
@@ -109,6 +109,12 @@ class ReportGroupRows {
   /// header's count facts.
   final ReportMeasures? measures;
 
+  /// The tag a By tag group stands for (`ReportGroupStack.tagGroups`): the
+  /// header names it and wears its first category's avatar and colour (P),
+  /// and every id is the tag's, since a tag's row can also be a Categories
+  /// row. Null on every other card.
+  final ReportTag? tag;
+
   ReportGroupRows({
     required this.card,
     required this.group,
@@ -128,6 +134,7 @@ class ReportGroupRows {
     required this.use24Hour,
     this.trailingGap = true,
     this.measures,
+    this.tag,
   });
 
   /// Read for a dated row's icon, colour and title only: the row's subtitle
@@ -137,13 +144,15 @@ class ReportGroupRows {
   );
 
   late final CalendarCategory _category = CalendarCategories.resolve(
-    group.categoryId,
+    tag?.categoryIds.firstOrNull ?? group.categoryId,
   );
 
-  late final String _categoryName = CalendarCategories.labelOf(
-    _category,
-    labels.l10n,
-  );
+  /// What the header and the disclosure rows name: the category, or the
+  /// tag as typed.
+  late final String _groupName = switch (tag) {
+    final tag? => '#${tag.label}',
+    null => CalendarCategories.labelOf(_category, labels.l10n),
+  };
 
   /// The group's rows shown under the open header.
   late final int _shown = math.min(
@@ -190,17 +199,27 @@ class ReportGroupRows {
   /// shape and lose its glyph's state mid-turn.
   Widget build(BuildContext context, int index) {
     final last = index == rowCount - 1;
+    Widget shell(Widget row) => FormRowShell(
+      first: index == 0,
+      last: last,
+      trailingGap: false,
+      child: row,
+    );
+    final tag = this.tag;
     return Padding(
       key: keyOf(index),
       padding: EdgeInsets.only(
         bottom: last && trailingGap ? RowMetrics.groupGap : 0,
       ),
-      child: FormRowShell(
-        first: index == 0,
-        last: last,
-        trailingGap: false,
-        child: _row(context, index),
-      ),
+      // A tag header reserves its caption lines at the row's width; the
+      // builder sits outside the shell, which reads the row's divider
+      // indent from the row itself.
+      child: index == 0 && tag != null
+          ? LayoutBuilder(
+              builder: (context, constraints) =>
+                  shell(_tagHeader(context, tag, constraints.maxWidth)),
+            )
+          : shell(_row(context, index)),
     );
   }
 
@@ -226,21 +245,35 @@ class ReportGroupRows {
         glyph: Icons.chevron_right_rounded,
         label: labels.l10n.reportShowAsList,
         onTap: onShowAsList,
-        semanticsLabel: labels.l10n.reportGroupListSpoken(_categoryName),
-        identifier: SemanticsIds.reportGroupList(card.name, group.categoryId),
+        semanticsLabel: labels.l10n.reportGroupListSpoken(_groupName),
+        identifier: switch (tag) {
+          final tag? => SemanticsIds.reportTagList(tag.key),
+          null => SemanticsIds.reportGroupList(card.name, group.categoryId),
+        },
       );
     }
     return _disclosure();
   }
 
+  Widget get _avatar => EventAvatar(
+    icon: CalendarIcons.forKey(_category.iconKey) ?? Icons.event_rounded,
+    color: _category.color,
+  );
+
+  /// The fold glyph, half a turn while [open].
+  Widget _chevron(BuildContext context) => AnimatedRotation(
+    turns: open ? 0.5 : 0,
+    duration: MediaQuery.disableAnimationsOf(context)
+        ? Duration.zero
+        : Durations.short4,
+    curve: Easing.standard,
+    child: const FormTrailingGlyph(icon: Icons.expand_more_rounded),
+  );
+
   Widget _header(BuildContext context) {
-    final animate = !MediaQuery.disableAnimationsOf(context);
     return FormMeterRow(
-      leading: EventAvatar(
-        icon: CalendarIcons.forKey(_category.iconKey) ?? Icons.event_rounded,
-        color: _category.color,
-      ),
-      label: _categoryName,
+      leading: _avatar,
+      label: _groupName,
       caption: labels.groupFacts(
         card,
         group,
@@ -249,22 +282,52 @@ class ReportGroupRows {
       ),
       fraction: card == ReportCard.categories ? fraction : null,
       meterColor: _category.color,
-      trailing: AnimatedRotation(
-        turns: open ? 0.5 : 0,
-        duration: animate ? Durations.short4 : Duration.zero,
-        curve: Easing.standard,
-        child: const FormTrailingGlyph(icon: Icons.expand_more_rounded),
-      ),
+      trailing: _chevron(context),
       onTap: onToggle,
       expanded: open,
       semanticsLabel: labels.groupSpoken(
         card,
         group,
-        category: _categoryName,
+        category: _groupName,
         measures: measures,
         use24Hour: use24Hour,
       ),
       identifier: SemanticsIds.reportGroup(card.name, group.categoryId),
+    );
+  }
+
+  /// A By tag header (§2.2): "#ana" over its two facts, on as many caption
+  /// lines as the widest of the tag's templates takes in a row [width]
+  /// wide (S4 D) — never the value's, so a refold keeps the row's height.
+  /// Spoken "tag ana, …": a '#' would be read as a number sign.
+  Widget _tagHeader(BuildContext context, ReportTag tag, double width) {
+    final words = labels.tagWords(tag, spansMonths: spansMonths, today: today);
+    return FormMeterRow(
+      leading: _avatar,
+      label: _groupName,
+      caption: words.caption,
+      captionLines: reportCaptionLines(
+        words.templates,
+        style: DefaultTextStyle.of(context).style.merge(reportCaptionStyle),
+        scaler: MediaQuery.textScalerOf(context),
+        direction: Directionality.of(context),
+        // The caption runs from the text column's start to the fold glyph.
+        width:
+            width -
+            RowMetrics.groupInset -
+            FormMetrics.rowLeadingSize -
+            FormMetrics.gap -
+            FormMetrics.gap -
+            FormMetrics.trailingIconSize -
+            FormMetrics.rowEndPadding,
+      ),
+      fraction: fraction,
+      meterColor: _category.color,
+      trailing: _chevron(context),
+      onTap: onToggle,
+      expanded: open,
+      semanticsLabel: words.spoken,
+      identifier: SemanticsIds.reportTag(tag.key),
     );
   }
 
@@ -324,7 +387,10 @@ class ReportGroupRows {
       presenceIdentifier: mark == null
           ? null
           : (_) => SemanticsIds.reportRowPresence(row.eventId, row.day),
-      rowIdentifier: (_) => SemanticsIds.reportRow(row.eventId, row.day),
+      rowIdentifier: (_) => switch (tag) {
+        final tag? => SemanticsIds.reportTagRow(tag.key, row.eventId, row.day),
+        null => SemanticsIds.reportRow(row.eventId, row.day),
+      },
     ).entryRow(context, entry);
   }
 
@@ -332,8 +398,11 @@ class ReportGroupRows {
   /// id both ways.
   Widget _disclosure() {
     final l10n = labels.l10n;
-    final name = _categoryName;
-    final id = SemanticsIds.reportGroupMore(card.name, group.categoryId);
+    final name = _groupName;
+    final id = switch (tag) {
+      final tag? => SemanticsIds.reportTagMore(tag.key),
+      null => SemanticsIds.reportGroupMore(card.name, group.categoryId),
+    };
     if (expanded) {
       return FormActionRow.disclosure(
         glyph: Icons.expand_less_rounded,
@@ -354,4 +423,37 @@ class ReportGroupRows {
       identifier: id,
     );
   }
+}
+
+/// [FormMeterRow]'s caption role, to measure a caption ahead of the row;
+/// merged over the ambient style, which a bare style would measure in the
+/// box font.
+const TextStyle reportCaptionStyle = TextStyle(
+  fontSize: FormMetrics.captionSize,
+  height: FormMetrics.captionLineHeight / FormMetrics.captionSize,
+);
+
+/// The lines a [FormMeterRow]'s `captionLines` reserves (S4 D): the most
+/// any of [templates] wraps to at the caption's [width] — at least one. The
+/// report's goal rows and tag headers decide their height through it, from
+/// the shapes their caption can take and never from its value.
+int reportCaptionLines(
+  Iterable<String> templates, {
+  required TextStyle style,
+  required TextScaler scaler,
+  required TextDirection direction,
+  required double width,
+}) {
+  var most = 1;
+  for (final template in templates) {
+    final painter = TextPainter(
+      text: TextSpan(text: template, style: style),
+      textScaler: scaler,
+      textDirection: direction,
+    )..layout(maxWidth: width);
+    final count = painter.computeLineMetrics().length;
+    painter.dispose();
+    if (count > most) most = count;
+  }
+  return most;
 }

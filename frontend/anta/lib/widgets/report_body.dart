@@ -706,6 +706,7 @@ class _ReportBodyState extends State<ReportBody> {
       ReportCard.categories => report.categories,
       ReportCard.missed => report.missed,
       ReportCard.ahead => report.ahead,
+      ReportCard.tags => const <ReportCategoryGroup>[],
     };
     if (all.isEmpty) return const [];
     final capped =

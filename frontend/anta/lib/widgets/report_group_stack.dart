@@ -9,10 +9,13 @@ import 'package:flutter/rendering.dart'
         RenderSliverMultiBoxAdaptor,
         SliverGeometry;
 
+import '../constants/analytics_metrics.dart';
 import '../constants/report_metrics.dart';
+import '../constants/semantics_ids.dart';
 import '../models/calendar_event.dart';
 import '../models/calendar_report.dart';
 import '../utils/report_labels.dart';
+import 'form_rows.dart';
 import 'report_category_group.dart';
 
 /// Whether a report group's rows are shown and whether it shows every row
@@ -24,8 +27,10 @@ class ReportGroupFolds {
   final Map<(ReportCard, String), bool> _open = {};
   final Set<(ReportCard, String)> _expanded = {};
 
+  /// A By tag group is closed until opened (S5 O): eight open tags would
+  /// push every card below them a screen down.
   bool isOpen(ReportCard card, String categoryId) =>
-      _open[(card, categoryId)] ?? true;
+      _open[(card, categoryId)] ?? card != ReportCard.tags;
 
   bool isExpanded(ReportCard card, String categoryId) =>
       _expanded.contains((card, categoryId));
@@ -52,11 +57,24 @@ class ReportGroupFolds {
   /// Written by the card's disclosure row alone, so a new report never
   /// resets it within the visit.
   void setDueSoonExpanded(bool expanded) => _dueSoonExpanded = expanded;
+
+  bool _tagsExpanded = false;
+
+  /// Whether the By tag card shows every tag rather than its
+  /// [ReportGroupStack.preview], kept for the visit as [isDueSoonExpanded]
+  /// is.
+  bool get isTagsExpanded => _tagsExpanded;
+
+  /// Written by the card's own disclosure row and by a reveal past the
+  /// preview.
+  void setTagsExpanded(bool expanded) => _tagsExpanded = expanded;
 }
 
 /// [card]'s [groups], each a `SliverList` of its own in the surface's one
 /// scroll (X) — the report page's cards and the "n more categories" sheet
-/// draw their groups through it, so a fold behaves the same in both.
+/// draw their groups through it, so a fold behaves the same in both. The
+/// By tag card's tags fold through the same machinery, as groups
+/// [tagGroups] adapts them into.
 ///
 /// After a fold a list re-anchors its built rows by index, so one list over
 /// a whole card left a later group's rows at the offsets of the rows folded
@@ -86,7 +104,24 @@ class ReportGroupStack extends StatefulWidget {
     this.trailingGap = false,
     this.onShrink,
     this.measures = const {},
+    this.tags = const {},
+    this.preview,
   });
+
+  /// [tags] as the groups a By tag stack folds — the first
+  /// [AnalyticsMetrics.tagRows] in the model's order, each under its key,
+  /// counting its kept days — handed to the stack as [groups] beside the
+  /// tags by key.
+  static List<ReportCategoryGroup> tagGroups(Iterable<ReportTag> tags) => [
+    for (final tag in tags.take(AnalyticsMetrics.tagRows))
+      ReportCategoryGroup(
+        categoryId: tag.key,
+        count: tag.count,
+        minutes: tag.minutes,
+        missed: 0,
+        rows: tag.rows,
+      ),
+  ];
 
   /// The surface's one scroll, which "Show less" moves so "n more" stays
   /// under the finger (S).
@@ -102,9 +137,11 @@ class ReportGroupStack extends StatefulWidget {
   final Map<String, CalendarEvent> events;
   final ReportLabels labels;
 
-  /// The count a Categories meter is a share of; null reads the largest of
-  /// [groups]. The "n more categories" sheet passes the page's, so its
-  /// meters compare with the card's rather than restart at full.
+  /// The count a Categories or By tag meter is a share of; null reads the
+  /// largest of [groups] — past a [preview] too, so expanding the card never
+  /// rescales the meters above. The "n more categories" sheet passes the
+  /// page's, so its meters compare with the card's rather than restart at
+  /// full.
   final int? largest;
 
   /// A row's tap; null leaves the rows inert, as the guide's stage draws
@@ -135,6 +172,15 @@ class ReportGroupStack extends StatefulWidget {
   /// every header's count facts.
   final Map<String, ReportMeasures> measures;
 
+  /// The By tag card's tags by [ReportTag.key], the [groups] [tagGroups]
+  /// made of them stand for; empty on every other card.
+  final Map<String, ReportTag> tags;
+
+  /// How many groups show before the card's own "n more", which expands
+  /// the rest in place and folds them back (O); null shows every group. The
+  /// By tag card's: the expansion is [ReportGroupFolds.isTagsExpanded].
+  final int? preview;
+
   @override
   State<ReportGroupStack> createState() => ReportGroupStackState();
 }
@@ -154,13 +200,19 @@ class ReportGroupStackState extends State<ReportGroupStack> {
     final groups = widget.groups;
     final folds = widget.folds;
     final onShowAsList = widget.onShowAsList;
-    final largest = card != ReportCard.categories
-        ? 0
-        : widget.largest ??
-              groups.fold<int>(0, (top, group) => math.max(top, group.count));
+    final largest = switch (card) {
+      ReportCard.missed || ReportCard.ahead => 0,
+      ReportCard.categories || ReportCard.tags =>
+        widget.largest ??
+            groups.fold<int>(0, (top, group) => math.max(top, group.count)),
+    };
+    final preview = widget.preview;
+    final previews = preview != null && groups.length > preview;
+    final expanded = previews && folds.isTagsExpanded;
+    final shown = previews && !expanded ? groups.sublist(0, preview) : groups;
     return SliverMainAxisGroup(
       slivers: [
-        for (final (index, group) in groups.indexed)
+        for (final (index, group) in shown.indexed)
           _groupList(
             ReportGroupRows(
               card: card,
@@ -181,14 +233,81 @@ class ReportGroupStackState extends State<ReportGroupStack> {
               today: widget.today,
               spansMonths: widget.spansMonths,
               use24Hour: widget.use24Hour,
-              trailingGap: widget.trailingGap || index < groups.length - 1,
+              // The card's "n more" is a card of its own, after the gap.
+              trailingGap:
+                  widget.trailingGap || previews || index < shown.length - 1,
               measures: card == ReportCard.categories
                   ? widget.measures[group.categoryId]
                   : null,
+              tag: widget.tags[group.categoryId],
+            ),
+          ),
+        if (previews)
+          SliverToBoxAdapter(
+            child: FormRowShell(
+              first: true,
+              last: true,
+              trailingGap: widget.trailingGap,
+              child: _moreGroups(groups.length - preview, expanded),
             ),
           ),
       ],
     );
+  }
+
+  /// The card's "n more ▾" under its preview, "Show less ▴" under every
+  /// group — one id both ways, the look of the Categories card's "n more
+  /// categories" row.
+  Widget _moreGroups(int hidden, bool expanded) {
+    final l10n = widget.labels.l10n;
+    final section = l10n.reportSectionTags;
+    if (expanded) {
+      return FormActionRow.disclosure(
+        glyph: Icons.expand_less_rounded,
+        label: l10n.reportGroupLess,
+        onTap: _toggleCard,
+        expanded: true,
+        semanticsLabel: l10n.reportGroupLessSpoken(section),
+        identifier: SemanticsIds.reportTagsMore,
+      );
+    }
+    return FormActionRow.disclosure(
+      glyph: Icons.expand_more_rounded,
+      label: l10n.reportGroupMore(hidden),
+      onTap: _toggleCard,
+      expanded: false,
+      semanticsLabel: l10n.reportGroupMoreSpoken(hidden, section),
+      identifier: SemanticsIds.reportTagsMore,
+    );
+  }
+
+  /// The card's "n more" and "Show less". Folding back scrolls up by the
+  /// lists that leave, gaps included, so "n more" lands where the finger
+  /// was (S); a list above the viewport is read at its laid-out extent,
+  /// which for an open group's unbuilt rows is the list's own estimate.
+  void _toggleCard() {
+    final folds = widget.folds;
+    if (!folds.isTagsExpanded) {
+      setState(() => folds.setTagsExpanded(true));
+      return;
+    }
+    final leaving = widget.groups.skip(widget.preview ?? widget.groups.length);
+    foldBackInPlace(
+      widget.scroll,
+      onShrink: widget.onShrink,
+      extent: () {
+        var extent = 0.0;
+        for (final group in leaving) {
+          final list = _lists[group.categoryId]?.currentContext
+              ?.findRenderObject();
+          final geometry = list is RenderSliver ? list.geometry : null;
+          if (geometry == null) return null;
+          extent += geometry.scrollExtent;
+        }
+        return extent;
+      },
+    );
+    setState(() => folds.setTagsExpanded(false));
   }
 
   /// [rows] as their group's `SliverList`, under the group's own key.
@@ -275,14 +394,24 @@ class ReportGroupStackState extends State<ReportGroupStack> {
     );
   }
 
-  /// Opens [categoryId]'s group and lands its header at the viewport's top
-  /// (G): a goal's or an insight's tap reads the group it names. A group
-  /// this stack does not draw moves nothing.
+  /// Opens [categoryId]'s group — a tag's key on the By tag card, which
+  /// expands past its [ReportGroupStack.preview] to reach it — and lands
+  /// its header at the viewport's top (G): a goal's or an insight's tap
+  /// reads the group it names. A group this stack does not draw moves
+  /// nothing.
   void reveal(String categoryId) {
-    if (!widget.groups.any((group) => group.categoryId == categoryId)) return;
+    final groups = widget.groups;
+    final index = groups.indexWhere((group) => group.categoryId == categoryId);
+    if (index < 0) return;
     final card = widget.card;
-    if (!widget.folds.isOpen(card, categoryId)) {
-      setState(() => widget.folds.setOpen(card, categoryId, true));
+    final folds = widget.folds;
+    final hidden =
+        index >= (widget.preview ?? groups.length) && !folds.isTagsExpanded;
+    if (!folds.isOpen(card, categoryId) || hidden) {
+      setState(() {
+        folds.setOpen(card, categoryId, true);
+        if (hidden) folds.setTagsExpanded(true);
+      });
     }
     revealAtTop(
       widget.scroll,

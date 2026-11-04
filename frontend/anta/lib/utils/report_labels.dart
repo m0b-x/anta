@@ -20,10 +20,11 @@ import 'date_span_label.dart';
 /// or the words around it ("of", " h"), drawn at the label's size (§4.8, D).
 typedef ReportValueRun = ({String text, bool figure});
 
-/// The three cards drawn from category groups (W). A group's facts depend
-/// on its card — Missed counts only what was missed — and its ids carry the
-/// card, because one category heads a group in each.
-enum ReportCard { categories, missed, ahead }
+/// The cards drawn from category groups (W), and By tag, whose tags fold
+/// as groups do (S5 §2.2). A group's facts depend on its card — Missed
+/// counts only what was missed — and its ids carry the card, because one
+/// category heads a group in each.
+enum ReportCard { categories, missed, ahead, tags }
 
 /// What a goal row says about its state (§2.2's glyph table): a period's
 /// [GoalState] and a gap's [GapState] in one set, so the spoken word and the

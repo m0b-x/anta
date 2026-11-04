@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:anta/constants/app_colors.dart';
 import 'package:anta/constants/app_theme.dart';
 import 'package:anta/constants/calendar_categories.dart';
+import 'package:anta/constants/calendar_icons.dart';
 import 'package:anta/constants/category_kinds.dart';
 import 'package:anta/constants/category_profiles.dart';
 import 'package:anta/constants/event_presence.dart';
@@ -23,6 +24,7 @@ import 'package:anta/utils/report_labels.dart';
 import 'package:anta/widgets/event_avatar.dart';
 import 'package:anta/widgets/form_rows.dart';
 import 'package:anta/widgets/report_category_group.dart';
+import 'package:anta/widgets/report_group_stack.dart';
 
 import '../goldens/support/golden_fonts.dart';
 
@@ -51,6 +53,7 @@ class _GroupHost extends StatefulWidget {
     this.spansMonths = false,
     this.listEnabled = true,
     this.measures,
+    this.tag,
   });
 
   final ReportCard card;
@@ -67,6 +70,9 @@ class _GroupHost extends StatefulWidget {
 
   /// A profiled category's measures, which its Categories header leads with.
   final ReportMeasures? measures;
+
+  /// The tag a By tag group stands for.
+  final ReportTag? tag;
 
   @override
   State<_GroupHost> createState() => _GroupHostState();
@@ -103,6 +109,7 @@ class _GroupHostState extends State<_GroupHost> {
       spansMonths: widget.spansMonths,
       use24Hour: MediaQuery.alwaysUse24HourFormatOf(context),
       measures: widget.measures,
+      tag: widget.tag,
     );
     return CustomScrollView(
       slivers: [
@@ -309,6 +316,7 @@ void main() {
     bool listEnabled = true,
     bool disableAnimations = false,
     ReportMeasures? measures,
+    ReportTag? tag,
   }) async {
     addTearDown(tester.view.reset);
     tester.view.devicePixelRatio = 1.0;
@@ -345,6 +353,7 @@ void main() {
             spansMonths: spansMonths,
             listEnabled: listEnabled,
             measures: measures,
+            tag: tag,
           ),
         ),
       ),
@@ -1114,6 +1123,374 @@ void main() {
         closeTo(62, 1),
       );
       expect(find.text('3 more'), findsOneWidget);
+    });
+  });
+
+  group('By tag', () {
+    DateTime gymDay(int day) => DateTime.utc(2026, 1, day);
+
+    /// [count] tagged gym days from 1 January.
+    List<ReportDatedRow> tagDays(int count) => [
+      for (var i = 0; i < count; i++)
+        ReportDatedRow(eventId: gym.id, day: DateTime.utc(2026, 1, 1 + i)),
+    ];
+
+    /// A tag first seen in [categoryId], last seen on Saturday 24 October,
+    /// six days before today.
+    ReportTag tagOf({
+      String label = 'ana',
+      CategoryKind kind = CategoryKind.social,
+      String categoryId = 'birthday',
+      int events = 1,
+      int? count,
+      int spentCents = 0,
+      List<ReportDatedRow>? rows,
+    }) {
+      final days = rows ?? tagDays(6);
+      return ReportTag(
+        key: label.toLowerCase(),
+        label: label,
+        events: events,
+        count: count ?? days.length,
+        minutes: 0,
+        spentCents: spentCents,
+        lastSeenDay: DateTime.utc(2026, 10, 24),
+        categoryIds: [categoryId, 'other'],
+        kind: kind,
+        rows: days,
+      );
+    }
+
+    final ana = tagOf();
+    final rome = tagOf(
+      label: 'Rome',
+      kind: CategoryKind.trip,
+      categoryId: 'holiday',
+      events: 2,
+      count: 5,
+    );
+    final car = tagOf(
+      label: 'car',
+      kind: CategoryKind.maintenance,
+      categoryId: 'other',
+      count: 3,
+      spentCents: 124000,
+    );
+
+    ReportCategoryGroup groupFor(ReportTag tag) =>
+        ReportGroupStack.tagGroups([tag]).single;
+
+    Future<_Log> pumpTag(
+      WidgetTester tester,
+      ReportTag tag, {
+      bool open = false,
+      double fraction = 0.5,
+      bool spansMonths = false,
+      Locale locale = const Locale('en'),
+      double textScale = 1.0,
+      Size surface = const Size(360, 780),
+      Brightness brightness = Brightness.light,
+    }) => pump(
+      tester,
+      groupFor(tag),
+      card: ReportCard.tags,
+      tag: tag,
+      open: open,
+      fraction: fraction,
+      spansMonths: spansMonths,
+      locale: locale,
+      textScale: textScale,
+      surface: surface,
+      brightness: brightness,
+    );
+
+    final noBreak = String.fromCharCode(0x00A0);
+    Finder headerRow() => find.byType(FormMeterRow);
+    String captionOf(WidgetTester tester) =>
+        tester.widget<FormMeterRow>(headerRow()).caption!;
+
+    testWidgets('the header: "#ana" in its first category\'s avatar and '
+        'meter colour, two facts, spoken "tag ana", closed, report-tag-ana', (
+      tester,
+    ) async {
+      final handle = tester.ensureSemantics();
+      final log = await pumpTag(tester, ana, fraction: 0.75);
+      final category = CalendarCategories.resolve('birthday');
+      final row = tester.widget<FormMeterRow>(headerRow());
+      expect(row.label, '#ana');
+      expect(row.fraction, 0.75);
+      expect(row.meterColor, category.color);
+      final avatar = tester.widget<EventAvatar>(find.byType(EventAvatar));
+      expect(avatar.icon, CalendarIcons.forKey(category.iconKey));
+      expect(avatar.color, category.color);
+      expect(
+        captionOf(tester).replaceAll(noBreak, ' '),
+        '6 evenings · last Sat 24',
+      );
+
+      expect(SemanticsIds.reportTag('ana'), 'report-tag-ana');
+      final node = tester.getSemantics(byId(SemanticsIds.reportTag('ana')));
+      var data = node.getSemanticsData();
+      expect(node.childrenCount, 0);
+      expect(
+        data.label.replaceAll(noBreak, ' '),
+        'tag ana, 6 evenings, last Saturday 24 October',
+      );
+      expect(data.flagsCollection.isButton, isTrue);
+      expect(data.flagsCollection.isExpanded, Tristate.isFalse);
+      expect(
+        byId(SemanticsIds.reportTagRow('ana', gym.id, gymDay(1))),
+        findsNothing,
+      );
+
+      await tester.tap(byId(SemanticsIds.reportTag('ana')));
+      await tester.pumpAndSettle();
+      expect(log.toggles, 1);
+      data = tester
+          .getSemantics(byId(SemanticsIds.reportTag('ana')))
+          .getSemanticsData();
+      expect(data.flagsCollection.isExpanded, Tristate.isTrue);
+      expect(
+        byId(SemanticsIds.reportTagRow('ana', gym.id, gymDay(1))),
+        findsOneWidget,
+      );
+      handle.dispose();
+    });
+
+    testWidgets('the facts per kind: a Trip\'s events and days, '
+        'Maintenance\'s money, in every locale the labels\' words', (
+      tester,
+    ) async {
+      await pumpTag(tester, rome);
+      expect(captionOf(tester).replaceAll(noBreak, ' '), '2 trips · 5 days');
+      expect(
+        tester.widget<FormMeterRow>(headerRow()).meterColor,
+        CalendarCategories.resolve('holiday').color,
+      );
+      for (final locale in const ['en', 'de', 'ro']) {
+        final labels = ReportLabels(lookupAppLocalizations(Locale(locale)));
+        for (final tag in [ana, rome, car]) {
+          await pumpTag(tester, tag, locale: Locale(locale));
+          final words = labels.tagWords(tag, spansMonths: false, today: today);
+          expect(
+            captionOf(tester),
+            words.caption,
+            reason: '${tag.key} $locale',
+          );
+          expect(
+            tester.widget<FormMeterRow>(headerRow()).semanticsLabel,
+            words.spoken,
+            reason: '${tag.key} $locale',
+          );
+        }
+      }
+    });
+
+    testWidgets('open, the dated rows carry report-tag-row ids and no '
+        'presence button; "2 more" and "Show less" carry report-tag-more', (
+      tester,
+    ) async {
+      final handle = tester.ensureSemantics();
+      final log = await pumpTag(
+        tester,
+        ana,
+        open: true,
+        surface: const Size(360, 1600),
+      );
+      expect(
+        SemanticsIds.reportTagRow('ana', gym.id, gymDay(1)),
+        'report-tag-row-ana-e-gym-2026-01-01',
+      );
+      for (var day = 1; day <= 4; day++) {
+        expect(
+          byId(SemanticsIds.reportTagRow('ana', gym.id, gymDay(day))),
+          findsOneWidget,
+        );
+        expect(byId(rowId(gym.id, 1, day)), findsNothing);
+      }
+      expect(
+        byId(SemanticsIds.reportTagRow('ana', gym.id, gymDay(5))),
+        findsNothing,
+      );
+      expect(find.byType(FormTrailingButton), findsNothing);
+      // The Categories rows' words, unchanged.
+      expect(
+        subtitleOf(tester, SemanticsIds.reportTagRow('ana', gym.id, gymDay(1))),
+        joined(['Thu 1', '18:00', '1 h']),
+      );
+
+      final id = SemanticsIds.reportTagMore('ana');
+      expect(id, 'report-tag-more-ana');
+      var data = tester.getSemantics(byId(id)).getSemanticsData();
+      expect(data.label, '2 more in #ana');
+      expect(data.flagsCollection.isExpanded, Tristate.isFalse);
+      await tester.tap(byId(id));
+      await tester.pumpAndSettle();
+      expect(log.mores, 1);
+      expect(
+        byId(SemanticsIds.reportTagRow('ana', gym.id, gymDay(6))),
+        findsOneWidget,
+      );
+      data = tester.getSemantics(byId(id)).getSemanticsData();
+      expect(data.label, 'Show less of #ana');
+      expect(data.flagsCollection.isExpanded, Tristate.isTrue);
+      await tester.tap(byId(id));
+      await tester.pumpAndSettle();
+      expect(log.mores, 2);
+      expect(
+        byId(SemanticsIds.reportTagRow('ana', gym.id, gymDay(5))),
+        findsNothing,
+      );
+      expect(find.text('2 more'), findsOneWidget);
+      handle.dispose();
+    });
+
+    testWidgets('past 200 rows "Show as list" carries report-tag-list and '
+        'names the tag', (tester) async {
+      final handle = tester.ensureSemantics();
+      final long = tagOf(rows: tagDays(201));
+      final log = await pumpTag(tester, long, open: true);
+      await tester.tap(byId(SemanticsIds.reportTagMore('ana')));
+      await tester.pumpAndSettle();
+      final id = SemanticsIds.reportTagList('ana');
+      expect(id, 'report-tag-list-ana');
+      await tester.scrollUntilVisible(
+        byId(id),
+        500,
+        scrollable: find.byType(Scrollable),
+      );
+      expect(
+        byId(SemanticsIds.reportGroupList(ReportCard.tags.name, 'ana')),
+        findsNothing,
+      );
+      expect(
+        tester.getSemantics(byId(id)).getSemanticsData().label,
+        'Show #ana as a list',
+      );
+      await tester.tap(byId(id));
+      await tester.pumpAndSettle();
+      expect(log.showAsList, 1);
+      handle.dispose();
+    });
+
+    /// The header's caption paragraph: drawn whole on its reserved lines,
+    /// never in the shrinking one-line slot.
+    void expectWholeCaption(WidgetTester tester, String reason) {
+      final caption = captionOf(tester);
+      expect(
+        find.ancestor(of: find.text(caption), matching: find.byType(FittedBox)),
+        findsNothing,
+        reason: reason,
+      );
+      final paragraph = tester.renderObject<RenderParagraph>(
+        find.descendant(of: headerRow(), matching: find.text(caption)),
+      );
+      expect(paragraph.didExceedMaxLines, isFalse, reason: reason);
+    }
+
+    // §2.2's heights: the caption's lines follow the tag's template shape,
+    // measured beside the fold glyph, never its value. Where they differ
+    // from the spec's table the glyph's 38 dp is why: Romanian's
+    // cross-month "last …" takes two lines at 1.0, and Maintenance reserves
+    // its last-seen fallback, three lines in Romanian at 2.0 — the one-line
+    // 104 is a Trip's at 412.
+    for (final (scale, cells) in [
+      (
+        1.0,
+        [
+          ('en', ana, false, 360.0, 66.0),
+          ('de', ana, false, 360.0, 66.0),
+          ('ro', ana, false, 360.0, 66.0),
+          ('de', ana, true, 360.0, 66.0),
+          ('ro', ana, true, 360.0, 84.0),
+          ('ro', ana, true, 412.0, 66.0),
+        ],
+      ),
+      (
+        1.3,
+        [
+          ('en', ana, false, 360.0, 77.4),
+          ('de', ana, false, 360.0, 100.8),
+          ('en', ana, true, 360.0, 100.8),
+          ('de', ana, false, 412.0, 77.4),
+        ],
+      ),
+      (
+        2.0,
+        [
+          ('en', rome, false, 412.0, 104.0),
+          ('en', ana, false, 360.0, 140.0),
+          ('de', ana, true, 360.0, 176.0),
+          ('ro', car, false, 360.0, 176.0),
+        ],
+      ),
+    ]) {
+      testWidgets('at $scale the header heights pin §2.2', (tester) async {
+        for (final (locale, tag, spansMonths, width, height) in cells) {
+          await pumpTag(
+            tester,
+            tag,
+            locale: Locale(locale),
+            textScale: scale,
+            spansMonths: spansMonths,
+            surface: Size(width, 1600),
+          );
+          expect(
+            tester.getSize(headerRow()).height,
+            closeTo(height, 1),
+            reason: '${tag.key} $locale $width cross-month $spansMonths',
+          );
+        }
+      });
+
+      testWidgets('at $scale no tag caption shrinks or cuts, at 360 and '
+          '412, in en, de and ro', (tester) async {
+        for (final width in const [360.0, 412.0]) {
+          for (final locale in const ['en', 'de', 'ro']) {
+            for (final tag in [ana, rome, car]) {
+              for (final spansMonths in const [false, true]) {
+                final reason =
+                    '${tag.key} $locale $width cross-month $spansMonths';
+                await pumpTag(
+                  tester,
+                  tag,
+                  open: true,
+                  locale: Locale(locale),
+                  textScale: scale,
+                  spansMonths: spansMonths,
+                  surface: Size(width, 1600),
+                );
+                expectWholeCaption(tester, reason);
+                expect(tester.takeException(), isNull, reason: reason);
+              }
+            }
+          }
+        }
+      });
+    }
+
+    testWidgets('dark: the tag group wears the dark row surface at the '
+        'light geometry', (tester) async {
+      await pumpTag(tester, ana, open: true, brightness: Brightness.dark);
+      final shell = tester.widget<Material>(
+        find
+            .descendant(
+              of: find.byType(FormRowShell).first,
+              matching: find.byType(Material),
+            )
+            .first,
+      );
+      expect(shell.color, AppTheme.dark().colorScheme.rowGroup);
+      expect(tester.getSize(headerRow()).height, closeTo(66, 1));
+      expect(
+        tester
+            .getSize(
+              pickerOf(SemanticsIds.reportTagRow('ana', gym.id, gymDay(1))),
+            )
+            .height,
+        closeTo(62, 1),
+      );
+      expectWholeCaption(tester, 'dark');
     });
   });
 }

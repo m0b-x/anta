@@ -1,9 +1,10 @@
 /// The report's analytics cards (S4, `docs/calendar-analytics-specs/
 /// s4-design-spec.md` §2.2–2.4): Goals, Insights and Due soon, the three
-/// cards a profiled selection puts above Totals. One file for the three (V):
-/// they share the row primitive's fields, the template rule and the page's
-/// slot shape. Each card draws no section label of its own — the page sets
-/// `FormSectionLabel` above it — and is absent when it has nothing to show.
+/// cards a profiled selection puts above Totals, and S5's Balance below
+/// them. One file for the cards (V): they share the row primitive's fields,
+/// the template rule and the page's slot shape. Each card draws no section
+/// label of its own — the page sets `FormSectionLabel` above it — and is
+/// absent when it has nothing to show.
 library;
 
 import 'package:flutter/material.dart';
@@ -21,6 +22,7 @@ import '../models/date_range.dart';
 import '../utils/report_labels.dart';
 import 'event_avatar.dart';
 import 'form_rows.dart';
+import 'report_category_group.dart';
 import 'report_group_stack.dart';
 
 /// The Goals card (§2.2): one [FormMeterRow] per [CalendarReport.goals], in
@@ -111,13 +113,6 @@ class _ReportGoalsCardState extends State<ReportGoalsCard> {
   CalendarReport get report => widget.report;
   ReportLabels get labels => widget.labels;
 
-  /// The caption's role, as [FormMeterRow] draws it; measured merged over
-  /// the ambient style, which a bare style would measure in the box font.
-  static const TextStyle _captionStyle = TextStyle(
-    fontSize: FormMetrics.captionSize,
-    height: FormMetrics.captionLineHeight / FormMetrics.captionSize,
-  );
-
   @override
   Widget build(BuildContext context) {
     final goals = report.goals;
@@ -141,7 +136,7 @@ class _ReportGoalsCardState extends State<ReportGoalsCard> {
     BuildContext context,
     double cardWidth,
   ) {
-    final style = DefaultTextStyle.of(context).style.merge(_captionStyle);
+    final style = DefaultTextStyle.of(context).style.merge(reportCaptionStyle);
     final scaler = MediaQuery.textScalerOf(context);
     final direction = Directionality.of(context);
     // The caption runs from the text column's start to the row's end; the
@@ -173,29 +168,14 @@ class _ReportGoalsCardState extends State<ReportGoalsCard> {
       for (final goal in report.goals)
         goal:
             previous[goal] ??
-            _measureLines(goal, style, scaler, direction, width),
+            reportCaptionLines(
+              labels.goalTemplates(goal, report),
+              style: style,
+              scaler: scaler,
+              direction: direction,
+              width: width,
+            ),
     };
-  }
-
-  int _measureLines(
-    ReportGoal goal,
-    TextStyle style,
-    TextScaler scaler,
-    TextDirection direction,
-    double width,
-  ) {
-    var most = 1;
-    for (final template in labels.goalTemplates(goal, report)) {
-      final painter = TextPainter(
-        text: TextSpan(text: template, style: style),
-        textScaler: scaler,
-        textDirection: direction,
-      )..layout(maxWidth: width);
-      final count = painter.computeLineMetrics().length;
-      painter.dispose();
-      if (count > most) most = count;
-    }
-    return most;
   }
 
   Widget _row(BuildContext context, ReportGoal goal, int captionLines) {
@@ -555,6 +535,72 @@ class _ReportDueSoonCardState extends State<ReportDueSoonCard> {
       );
     }
     setState(() => folds.setDueSoonExpanded(!expanded));
+  }
+}
+
+/// The Balance card (S5 §2.4): one [FormMeterRow] per life area of
+/// [CalendarReport.balance], the most hours first and ties in [LifeArea]'s
+/// order (E) — the area's glyph, its name, "38 h · 67 %" of the hours the
+/// card shows and a meter in `primary` against the largest area, since an
+/// area has no colour of its own. Read rows: an area has no group to open.
+/// Absent under [AnalyticsMetrics.balanceMinAreas] areas, where one area
+/// would only read 100 % of itself.
+class ReportBalanceCard extends StatelessWidget {
+  const ReportBalanceCard({
+    super.key,
+    required this.report,
+    required this.labels,
+  });
+
+  /// The report whose [CalendarReport.balance] the card draws.
+  final CalendarReport report;
+
+  /// The page's words, built once per build.
+  final ReportLabels labels;
+
+  @override
+  Widget build(BuildContext context) {
+    final balance = report.balance;
+    if (balance.length < AnalyticsMetrics.balanceMinAreas) {
+      return const SizedBox.shrink();
+    }
+    final scheme = Theme.of(context).colorScheme;
+    final areas = balance.entries.toList()
+      ..sort((a, b) {
+        final byMinutes = b.value.compareTo(a.value);
+        return byMinutes != 0 ? byMinutes : a.key.index - b.key.index;
+      });
+    final total = areas.fold<int>(0, (sum, area) => sum + area.value);
+    final largest = areas.first.value;
+    return FormRowGroup(
+      trailingGap: false,
+      children: [
+        for (final MapEntry(key: area, value: minutes) in areas)
+          _row(scheme, area, minutes, total: total, largest: largest),
+      ],
+    );
+  }
+
+  Widget _row(
+    ColorScheme scheme,
+    LifeArea area,
+    int minutes, {
+    required int total,
+    required int largest,
+  }) {
+    final words = labels.balanceWords(area, minutes, totalMinutes: total);
+    return FormMeterRow(
+      leading: _LeadingGlyph(
+        icon: CalendarIcons.areaIcon(area),
+        color: scheme.onSurfaceVariant,
+      ),
+      label: labels.areaName(area),
+      caption: words.caption,
+      fraction: largest > 0 ? minutes / largest : 0,
+      onTap: null,
+      semanticsLabel: words.spoken,
+      identifier: SemanticsIds.reportBalance(area.name),
+    );
   }
 }
 

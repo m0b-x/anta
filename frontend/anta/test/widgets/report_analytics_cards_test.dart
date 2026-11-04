@@ -9,6 +9,7 @@ import 'package:anta/constants/analytics_metrics.dart';
 import 'package:anta/constants/app_colors.dart';
 import 'package:anta/constants/app_theme.dart';
 import 'package:anta/constants/calendar_categories.dart';
+import 'package:anta/constants/calendar_icons.dart';
 import 'package:anta/constants/category_kinds.dart';
 import 'package:anta/constants/report_metrics.dart';
 import 'package:anta/constants/row_metrics.dart';
@@ -929,6 +930,7 @@ void main() {
   CalendarReport analyticsReport({
     List<ReportDueRow> dueSoon = const [],
     List<ReportInsight> insights = const [],
+    Map<LifeArea, int> balance = const {},
   }) => CalendarReport(
     span: thisWeek,
     today: today,
@@ -943,6 +945,7 @@ void main() {
     ahead: const [],
     dueSoon: dueSoon,
     insights: insights,
+    balance: balance,
   );
 
   final threeInsights = [gapOverdue, unmarked, lateEvenings];
@@ -956,10 +959,11 @@ void main() {
     Brightness brightness = Brightness.light,
     ScrollController? scroll,
     double room = 0,
+    Size surface = const Size(360, 780),
   }) async {
     addTearDown(tester.view.reset);
     tester.view.devicePixelRatio = 1.0;
-    tester.view.physicalSize = const Size(360, 780);
+    tester.view.physicalSize = surface;
     await tester.pumpWidget(
       MaterialApp(
         theme: brightness == Brightness.light
@@ -1656,5 +1660,205 @@ void main() {
         handle.dispose();
       });
     }
+  });
+
+  group('balance', () {
+    // Written out of order: the card sorts. Work is 38 h, two thirds of the
+    // 57 h shown; Health and Leisure tie at 5 h.
+    const balance = {
+      LifeArea.leisure: 300,
+      LifeArea.health: 300,
+      LifeArea.home: 540,
+      LifeArea.work: 2280,
+    };
+    const order = [
+      LifeArea.work,
+      LifeArea.home,
+      LifeArea.health,
+      LifeArea.leisure,
+    ];
+    const total = 3420;
+
+    Future<void> pumpBalance(
+      WidgetTester tester, {
+      Map<LifeArea, int> areas = balance,
+      Locale locale = const Locale('en'),
+      double textScale = 1.0,
+      Brightness brightness = Brightness.light,
+      double width = 360,
+    }) => pumpCard(
+      tester,
+      (labels) => ReportBalanceCard(
+        report: analyticsReport(balance: areas),
+        labels: labels,
+      ),
+      locale: locale,
+      textScale: textScale,
+      brightness: brightness,
+      surface: Size(width, 780),
+    );
+
+    String balanceId(LifeArea area) => SemanticsIds.reportBalance(area.name);
+    Finder rowOf(LifeArea area) => find.byWidgetPredicate(
+      (widget) =>
+          widget is FormMeterRow && widget.identifier == balanceId(area),
+    );
+
+    testWidgets('the areas by hours, largest first, ties in LifeArea order; '
+        'nothing under two areas', (tester) async {
+      await pumpBalance(tester);
+      final tops = [for (final area in order) tester.getRect(rowOf(area)).top];
+      expect(tops, orderedEquals([...tops]..sort()));
+      expect(find.byType(FormMeterRow), findsNWidgets(4));
+      expect(find.byType(FormRowGroup), findsOneWidget);
+      expect(
+        tester.widget<FormRowGroup>(find.byType(FormRowGroup)).trailingGap,
+        isFalse,
+      );
+
+      await pumpBalance(tester, areas: const {LifeArea.work: 2280});
+      expect(AnalyticsMetrics.balanceMinAreas, 2);
+      expect(find.byType(FormMeterRow), findsNothing);
+      expect(find.byType(FormRowGroup), findsNothing);
+      await pumpBalance(tester, areas: const {});
+      expect(find.byType(FormMeterRow), findsNothing);
+    });
+
+    testWidgets('each row: the area\'s glyph in onSurfaceVariant, its name, '
+        '"38 h · 67 %", and the share of the largest in primary', (
+      tester,
+    ) async {
+      for (final brightness in Brightness.values) {
+        final scheme = brightness == Brightness.light
+            ? AppTheme.light().colorScheme
+            : AppTheme.dark().colorScheme;
+        await pumpBalance(tester, brightness: brightness);
+        final labels = labelsIn('en');
+        for (final area in order) {
+          final row = tester.widget<FormMeterRow>(rowOf(area));
+          final icon = glyphIn(tester, rowOf(area));
+          expect(icon.icon, CalendarIcons.areaIcon(area), reason: area.name);
+          expect(icon.color, scheme.onSurfaceVariant, reason: area.name);
+          expect(row.label, labels.areaName(area));
+          expect(
+            row.caption,
+            labels
+                .balanceWords(area, balance[area]!, totalMinutes: total)
+                .caption,
+          );
+          expect(row.captionLines, isNull, reason: 'the one-line slot');
+          expect(row.fraction, balance[area]! / 2280);
+          expect(row.meterColor, isNull, reason: 'primary');
+          expect(row.onTap, isNull);
+        }
+        final fill = tester.widget<FormMeterRow>(rowOf(LifeArea.work));
+        expect(fill.fraction, 1);
+      }
+      expect(
+        tester
+            .widget<FormMeterRow>(rowOf(LifeArea.work))
+            .caption!
+            .replaceAll(noBreakSpace, ' '),
+        '38 h · 67 %',
+      );
+      expect(tester.widget<FormMeterRow>(rowOf(LifeArea.work)).label, 'Work');
+    });
+
+    testWidgets('one node per row, report-balance-<area>, spoken "Work, 38 '
+        'hours, 67 percent of the hours", no button', (tester) async {
+      final handle = tester.ensureSemantics();
+      expect(balanceId(LifeArea.work), 'report-balance-work');
+      await pumpBalance(tester);
+      final labels = labelsIn('en');
+      for (final area in order) {
+        final node = tester.getSemantics(
+          find.bySemanticsIdentifier(balanceId(area)),
+        );
+        final data = node.getSemanticsData();
+        expect(separateChildren(node), 0, reason: area.name);
+        expect(
+          data.label,
+          labels.balanceWords(area, balance[area]!, totalMinutes: total).spoken,
+        );
+        expect(data.flagsCollection.isButton, isFalse, reason: area.name);
+        expect(data.hasAction(SemanticsAction.tap), isFalse);
+      }
+      expect(
+        tester
+            .getSemantics(find.bySemanticsIdentifier(balanceId(LifeArea.work)))
+            .label
+            .replaceAll(noBreakSpace, ' '),
+        'Work, 38 hours, 67 percent of the hours',
+      );
+      handle.dispose();
+    });
+
+    for (final (scale, height, card) in const [
+      (1.0, 66.0, 267.0),
+      (1.3, 77.4, 312.6),
+      (2.0, 104.0, 419.0),
+    ]) {
+      testWidgets('at $scale a row is $height and four areas $card, at 360 '
+          'and 412, in every locale, light and dark', (tester) async {
+        for (final brightness in Brightness.values) {
+          for (final width in const [360.0, 412.0]) {
+            for (final locale in const ['en', 'de', 'ro']) {
+              final reason = '$locale $width ${brightness.name}';
+              await pumpBalance(
+                tester,
+                locale: Locale(locale),
+                textScale: scale,
+                brightness: brightness,
+                width: width,
+              );
+              for (final area in order) {
+                expect(
+                  tester.getRect(rowOf(area)).height,
+                  closeTo(height, 1),
+                  reason: '${area.name} $reason',
+                );
+              }
+              expect(
+                tester.getRect(find.byType(FormRowGroup)).height,
+                closeTo(card, 1),
+                reason: reason,
+              );
+              expect(tester.takeException(), isNull, reason: reason);
+            }
+          }
+        }
+      });
+    }
+
+    testWidgets('German at 2.0 shrinks no caption, at 360 and 412', (
+      tester,
+    ) async {
+      for (final width in const [360.0, 412.0]) {
+        await pumpBalance(
+          tester,
+          locale: const Locale('de'),
+          textScale: 2.0,
+          width: width,
+        );
+        for (final area in order) {
+          final caption = find.descendant(
+            of: rowOf(area),
+            matching: find.text(
+              tester.widget<FormMeterRow>(rowOf(area)).caption!,
+            ),
+          );
+          final slot = find.ancestor(
+            of: caption,
+            matching: find.byType(FittedBox),
+          );
+          // A FittedBox that scales down is narrower than its child.
+          expect(
+            tester.getSize(caption).width,
+            lessThanOrEqualTo(tester.getSize(slot).width + 0.01),
+            reason: '${area.name} at $width',
+          );
+        }
+      }
+    });
   });
 }

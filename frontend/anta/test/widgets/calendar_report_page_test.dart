@@ -2765,7 +2765,13 @@ void main() {
         locale: const Locale('de'),
         textScale: 2.0,
       );
-      for (final card in ReportCard.values) {
+      // The three category cards; By tag draws tags, not categories.
+      const categoryCards = [
+        ReportCard.categories,
+        ReportCard.missed,
+        ReportCard.ahead,
+      ];
+      for (final card in categoryCards) {
         await tester.scrollUntilVisible(robot.group(card, 'gym'), 200);
         expect(tester.takeException(), isNull, reason: card.name);
       }
@@ -2783,7 +2789,7 @@ void main() {
         brightness: Brightness.dark,
         surface: tall,
       );
-      for (final card in ReportCard.values) {
+      for (final card in categoryCards) {
         expect(robot.group(card, 'gym'), findsOneWidget, reason: card.name);
       }
       expect(tester.takeException(), isNull);

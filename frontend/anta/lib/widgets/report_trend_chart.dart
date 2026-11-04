@@ -16,7 +16,8 @@ import '../utils/report_labels.dart';
 /// The report's Over time card (§4.8): one series of columns — the
 /// occurrences that happened in `primary`, the routines' missed part stacked
 /// above in `outlineVariant` — over the whole span, the days after today at
-/// zero so a month so far still reads as a month.
+/// zero so a month so far still reads as a month. Under Compare with last
+/// year each column gains a tick at last year's count (S5 K).
 ///
 /// Read-only on purpose (Q): no column is a target, and a screen reader
 /// hears one summary; the group headers are the chart's table twin. Every
@@ -52,7 +53,14 @@ class ReportTrendChart extends StatelessWidget {
       color: colorScheme.onSurfaceVariant,
     );
     final buckets = trend.buckets;
-    final peak = ReportLabels.peakOf(trend);
+    final lastYear = trend.lastYear;
+    // Last year's counts join the peak, so a tick above this year's tallest
+    // column never clips and the peak label names it.
+    final peak = math.max(
+      ReportLabels.peakOf(trend),
+      lastYear == null || lastYear.isEmpty ? 0 : lastYear.reduce(math.max),
+    );
+    final ticks = lastYear?.any((count) => count > 0) ?? false;
     final words = labels.trendWords(trend, use24Hour: use24Hour);
     final caption = words.caption;
     final bothParts =
@@ -70,7 +78,7 @@ class ReportTrendChart extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Expanded(
-          child: bothParts
+          child: bothParts || ticks
               ? Wrap(
                   spacing: ReportMetrics.legendItemSpacing,
                   runSpacing: RowMetrics.lineGap,
@@ -80,11 +88,19 @@ class ReportTrendChart extends StatelessWidget {
                       label: labels.l10n.reportLegendHappened,
                       style: captionStyle,
                     ),
-                    _LegendItem(
-                      color: colorScheme.outlineVariant,
-                      label: labels.l10n.reportTileMissed,
-                      style: captionStyle,
-                    ),
+                    if (bothParts)
+                      _LegendItem(
+                        color: colorScheme.outlineVariant,
+                        label: labels.l10n.reportTileMissed,
+                        style: captionStyle,
+                      ),
+                    if (ticks)
+                      _LegendItem(
+                        color: colorScheme.onSurfaceVariant,
+                        label: labels.l10n.reportLegendLastYear,
+                        style: captionStyle,
+                        bar: true,
+                      ),
                   ],
                 )
               : const SizedBox.shrink(),
@@ -120,10 +136,13 @@ class ReportTrendChart extends StatelessWidget {
                   child: CustomPaint(
                     painter: _TrendPainter(
                       buckets: buckets,
+                      lastYear: lastYear,
                       peak: peak,
                       happenedColor: colorScheme.primary,
                       missedColor: colorScheme.outlineVariant,
                       lineColor: colorScheme.rowDivider,
+                      tickColor: colorScheme.onSurfaceVariant,
+                      ringColor: colorScheme.rowGroup,
                       devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
                     ),
                   ),
@@ -314,11 +333,16 @@ class _LegendItem extends StatelessWidget {
     required this.color,
     required this.label,
     required this.style,
+    this.bar = false,
   });
 
   final Color color;
   final String label;
   final TextStyle style;
+
+  /// A tick's bar across the dot's box instead of the dot: last year's mark
+  /// is a line on the plot, so its swatch is one too.
+  final bool bar;
 
   @override
   Widget build(BuildContext context) {
@@ -327,9 +351,20 @@ class _LegendItem extends StatelessWidget {
       children: [
         SizedBox.square(
           dimension: RowMetrics.labelDotSize,
-          child: DecoratedBox(
-            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-          ),
+          child: bar
+              ? Center(
+                  child: SizedBox(
+                    width: RowMetrics.labelDotSize,
+                    height: ReportMetrics.trendLastYearTick,
+                    child: ColoredBox(color: color),
+                  ),
+                )
+              : DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: color,
+                    shape: BoxShape.circle,
+                  ),
+                ),
         ),
         const SizedBox(width: ReportMetrics.legendDotGap),
         Flexible(child: Text(label, style: style)),
@@ -338,8 +373,8 @@ class _LegendItem extends StatelessWidget {
   }
 }
 
-/// The plot: the peak and baseline hairlines and the columns. Bounds and
-/// colours only; every word is laid out by the card.
+/// The plot: the peak and baseline hairlines, the columns and last year's
+/// ticks. Bounds and colours only; every word is laid out by the card.
 ///
 /// Column edges and the hairlines are snapped to physical pixels, so 31
 /// narrow columns keep even gaps and the hairlines stay one crisp line
@@ -347,18 +382,29 @@ class _LegendItem extends StatelessWidget {
 class _TrendPainter extends CustomPainter {
   _TrendPainter({
     required this.buckets,
+    required this.lastYear,
     required this.peak,
     required this.happenedColor,
     required this.missedColor,
     required this.lineColor,
+    required this.tickColor,
+    required this.ringColor,
     required this.devicePixelRatio,
   });
 
   final List<ReportTrendBucket> buckets;
+
+  /// [ReportTrend.lastYear]: a tick per column at last year's count (K).
+  final List<int>? lastYear;
   final int peak;
   final Color happenedColor;
   final Color missedColor;
   final Color lineColor;
+  final Color tickColor;
+
+  /// The band behind a tick, the card's own tone, which parts it from a
+  /// column it crosses.
+  final Color ringColor;
   final double devicePixelRatio;
 
   /// [logical] rounded to the nearest physical pixel.
@@ -388,20 +434,23 @@ class _TrendPainter extends CustomPainter {
     final perUnit = height / peak;
     final happened = Paint()..color = happenedColor;
     final missed = Paint()..color = missedColor;
+    // A capped column keeps its width, centred; a full-slot column runs from
+    // half a gap past its slot's start to the next column's start less a
+    // whole gap, so every gap is the same number of pixels.
+    (double, double) span(int index) {
+      if (capped) {
+        final left = _snap(index * slot + (slot - width) / 2);
+        return (left, left + _snap(width));
+      }
+      return (
+        _snap(index * slot + ReportMetrics.columnGap / 2),
+        _snap((index + 1) * slot + ReportMetrics.columnGap / 2) - gap,
+      );
+    }
+
     for (final (index, bucket) in buckets.indexed) {
       if (bucket.happened + bucket.missed == 0) continue;
-      // A capped column keeps its width, centred; a full-slot column runs
-      // from half a gap past its slot's start to the next column's start
-      // less a whole gap, so every gap is the same number of pixels.
-      final double left;
-      final double right;
-      if (capped) {
-        left = _snap(index * slot + (slot - width) / 2);
-        right = left + _snap(width);
-      } else {
-        left = _snap(index * slot + ReportMetrics.columnGap / 2);
-        right = _snap((index + 1) * slot + ReportMetrics.columnGap / 2) - gap;
-      }
+      final (left, right) = span(index);
       final radius = math.min(ReportMetrics.columnRadius, (right - left) / 2);
       final total = (bucket.happened + bucket.missed) * perUnit;
       if (bucket.missed == 0) {
@@ -442,6 +491,33 @@ class _TrendPainter extends CustomPainter {
         missed,
       );
     }
+    final ticks = lastYear;
+    if (ticks == null) return;
+    // On top of the columns, so a month where this year is higher still
+    // shows last year's level across it.
+    final ring = Paint()..color = ringColor;
+    final tick = Paint()..color = tickColor;
+    final ringHeight = _snap(
+      ReportMetrics.trendLastYearTick + 2 * ReportMetrics.trendLastYearRing,
+    );
+    final ringInset = _snap(ReportMetrics.trendLastYearRing);
+    final tickHeight = _snap(ReportMetrics.trendLastYearTick);
+    for (
+      var index = 0;
+      index < math.min(ticks.length, buckets.length);
+      index++
+    ) {
+      final count = ticks[index];
+      if (count <= 0) continue;
+      final (left, right) = span(index);
+      final top = _snap(height - count * perUnit - ringHeight / 2);
+      canvas.drawRect(Rect.fromLTRB(left, top, right, top + ringHeight), ring);
+      final tickTop = top + ringInset;
+      canvas.drawRect(
+        Rect.fromLTRB(left, tickTop, right, tickTop + tickHeight),
+        tick,
+      );
+    }
   }
 
   /// A segment rounded at its top only: the data end, never the baseline.
@@ -456,9 +532,12 @@ class _TrendPainter extends CustomPainter {
   @override
   bool shouldRepaint(_TrendPainter oldDelegate) =>
       !identical(buckets, oldDelegate.buckets) ||
+      !identical(lastYear, oldDelegate.lastYear) ||
       peak != oldDelegate.peak ||
       happenedColor != oldDelegate.happenedColor ||
       missedColor != oldDelegate.missedColor ||
       lineColor != oldDelegate.lineColor ||
+      tickColor != oldDelegate.tickColor ||
+      ringColor != oldDelegate.ringColor ||
       devicePixelRatio != oldDelegate.devicePixelRatio;
 }
