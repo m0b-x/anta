@@ -1,0 +1,49 @@
+# The Report page's cards II (docs/calendar-analytics-specs/s5-design-spec.md
+# §2.2, §2.5, §2.9): the view menu's third entry, the band's Period menu to
+# Last 90 days, the By tag card's #ana opened by its header onto the seed's
+# coffee three days ago, then the footer's Compare with row: its menu with
+# Same period last year and the seed's saved view, the view picked and its
+# Totals card found under the page's, then back to the calendar through the
+# view menu.
+# - The seed's qa-cal-coffee ("Coffee with #ana", Other, untracked, three
+#   days ago) is the one tagged event, so its tag's dated row is spelled
+#   with {{day-3}}; Last 90 days holds it on any day of the month.
+# - Same period last year is listed but disabled on this seed: every event
+#   starts this year, so the calendar's first year does not reach back a
+#   year (S5 §2.5 "Disabled"). The flow expects it in the menu and picks
+#   the view; the widget suite covers the last-year fold.
+# - The seed's view qa-view-strength ("Strength only") is the one saved
+#   view, so its item's id is known; picking it refolds with a second
+#   Totals card whose tiles are report-view-tile-*, above the footer the
+#   pick was made from, so it is reached by a scroll-to upwards.
+# - `expect` never scrolls: everything below the fold is checked after the
+#   scroll-to that reaches it.
+tap id:calendar-view-menu
+wait id:calendar-report-open
+tap id:calendar-report-open
+wait id:report-body
+wait id:report-nav-title
+tap id:report-nav-title
+wait id:report-period-last-90-days
+tap id:report-period-last-90-days
+wait id:report-period-last-90-days --gone
+wait id:report-tile-events
+scroll-to id:report-tag-ana --in id:report-body --max 30
+tap id:report-tag-ana
+wait id:report-tag-row-ana-qa-cal-coffee-{{day-3}}
+shot 32_report_tag_open
+scroll-to id:report-compare --in id:report-body --max 30
+tap id:report-compare
+wait id:report-compare-last-year
+expect id:report-compare-previous id:report-compare-view-qa-view-strength
+shot 32_report_compare_menu
+tap id:report-compare-view-qa-view-strength
+wait id:report-compare-view-qa-view-strength --gone
+scroll-to id:report-view-tile-events --in id:report-body --up --max 30
+expect id:report-view-tile-events id:report-tile-events
+shot 32_report_view
+tap id:calendar-view-menu
+wait id:calendar-view-calendar
+tap id:calendar-view-calendar
+wait id:calendar-add-event
+errors

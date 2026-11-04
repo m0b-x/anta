@@ -4,10 +4,11 @@
 # dialog, the period moved to This year, the view applied from its row —
 # which closes the sheet and puts the list back on Last 90 days — then the
 # view renamed and deleted through its ⋮. Leaves the overview on Year and
-# This year, as the seed has it, with no saved view.
+# This year, as the seed has it, with only the seed's view saved.
 # - A view's row, ⋮ and handle ids carry its UUID, which a flow cannot know:
 #   the row is tapped by its name and the ⋮ by its tooltip, "Saved view
-#   options", which is unique while one view exists.
+#   options". The seed's own view (qa-view-strength, for 32_report_cards)
+#   is listed first, so the saved one's ⋮ is the tooltip's second match.
 # - The name dialog opens with the period's words selected; `type` replaces
 #   them. "Save" alone is ambiguous here ("Saved views", "Save the current
 #   list"), so the dialog is waited on and saved by its ids.
@@ -61,7 +62,7 @@ tap id:overview-views-open
 wait id:overview-views-close
 expect "Ninety days"
 shot 24_overview_views_checked
-tap "Saved view options"
+tap "Saved view options" --nth 1
 wait id:overview-views-rename
 tap id:overview-views-rename
 wait id:filter-preset-name
@@ -70,7 +71,7 @@ tap id:filter-preset-name-save
 wait id:filter-preset-name --gone
 expect "Last ninety" --absent "Ninety days"
 shot 24_overview_views_renamed
-tap "Saved view options"
+tap "Saved view options" --nth 1
 wait id:overview-views-delete
 tap id:overview-views-delete
 wait id:sheet-confirm

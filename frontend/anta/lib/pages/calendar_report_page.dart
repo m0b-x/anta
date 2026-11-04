@@ -180,9 +180,16 @@ class _ReportViewState extends State<_ReportView>
   ({OverviewPeriod period, Set<String> categoryIds})? _heardLook;
   Set<(String, DateTime)> _heardMissed = const {};
 
+  /// The saved views, awaited once and held as the overview holds them: the
+  /// Compare with menu lists them in their stored order, read from the
+  /// service's cache on every build. Null until it answers, and the menu
+  /// offers no view until then.
+  OverviewViewService? _views;
+
   @override
   void initState() {
     super.initState();
+    unawaited(_loadViews());
     WidgetsBinding.instance.addObserver(this);
     // The alarm page's Keep, as the overview hears it: this page reads the
     // same bloc, and may be the only one open when Keep is pressed.
@@ -195,6 +202,16 @@ class _ReportViewState extends State<_ReportView>
     AppNavigator.pendingReportLook.addListener(_serveReportLook);
     if (AppNavigator.pendingReportLook.value != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _serveReportLook());
+    }
+  }
+
+  Future<void> _loadViews() async {
+    try {
+      final service = await OverviewViewService.getInstance();
+      if (!mounted) return;
+      setState(() => _views = service);
+    } catch (e, st) {
+      debugPrint('[CalendarReportPage] Saved views load failed: $e\n$st');
     }
   }
 
@@ -266,9 +283,12 @@ class _ReportViewState extends State<_ReportView>
   @override
   void didPushNext() => _covered = true;
 
+  /// A view saved, renamed or deleted on an overview above this page is in
+  /// the service's cache by now: the rebuild lists it in Compare with.
   @override
   void didPopNext() {
     _covered = false;
+    setState(() {});
     _askAgain();
   }
 
@@ -724,6 +744,14 @@ class _ReportViewState extends State<_ReportView>
       onSend: (period, categoryIds) =>
           unawaited(_sendReport(period, categoryIds)),
       onShrink: _armSlack,
+      compare: shown?.compare ?? ReportCompare.previous,
+      compareView: shown?.compareView,
+      views: _views?.views ?? const [],
+      onCompare: shown == null
+          ? null
+          : (compare, view) => context.read<CalendarReportBloc>().add(
+              ReportComparePicked(compare, view: view),
+            ),
     );
   }
 

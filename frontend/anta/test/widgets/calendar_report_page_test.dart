@@ -35,7 +35,9 @@ import 'package:anta/models/calendar_report.dart';
 import 'package:anta/models/category_profile.dart';
 import 'package:anta/models/event_digest.dart';
 import 'package:anta/models/export_format.dart';
+import 'package:anta/models/overview_list_options.dart';
 import 'package:anta/models/overview_period.dart';
+import 'package:anta/models/overview_view.dart';
 import 'package:anta/models/recurrence_rule.dart';
 import 'package:anta/pages/calendar_report_page.dart';
 import 'package:anta/repositories/folder_repository.dart';
@@ -57,6 +59,7 @@ import 'package:anta/widgets/event_detail_sheet.dart';
 import 'package:anta/widgets/form_menu_item.dart';
 import 'package:anta/widgets/form_rows.dart';
 import 'package:anta/widgets/report_more_categories_sheet.dart';
+import 'package:anta/widgets/report_totals_card.dart';
 import 'package:anta/widgets/report_trend_chart.dart';
 
 import '../database/support/db_test_support.dart';
@@ -168,6 +171,7 @@ void main() {
   late AppDatabase db;
   late SettingsService settings;
   late CalendarReportService service;
+  late OverviewViewService views;
 
   setUpAll(() async {
     SharedPreferences.setMockInitialValues({});
@@ -215,7 +219,7 @@ void main() {
     // The bloc resolves the saved views as the page opens, for Compare
     // with; bound here so it never reaches for the file database.
     OverviewViewService.reset();
-    await OverviewViewService.forTesting(db);
+    views = await OverviewViewService.forTesting(db);
     gate = null;
     final notes = NoteRepository(database: db);
     importExport = _RecordingImportExportBloc(
@@ -1071,6 +1075,254 @@ void main() {
         'its name', (tester) async {
       final robot = await open(tester);
       expect(robot.caption, contains('against February 2026'));
+    });
+  });
+
+  group('Compare with (S5)', () {
+    /// Five sessions in March 2025: the calendar's first year reaches back
+    /// to it, so Same period last year is offered, and they are enough
+    /// (`trendMinOccurrences`) for last year's fold to draw the ticks.
+    final lastMarch = [
+      for (final day in [4, 11, 18, 21, 25])
+        CalendarEvent(
+          id: 'e-run-$day',
+          title: 'Run',
+          categoryId: 'gym',
+          startDate: DateTime.utc(2025, 3, day),
+          rule: const OneTimeRecurrence(),
+        ),
+    ];
+
+    void seedLastYear() {
+      // ignore: invalid_use_of_visible_for_testing_member
+      bloc.emit(
+        CalendarPageLoaded(
+          allEvents: [gym, todo, ...lastMarch],
+          focusedDay: today,
+          selectedDay: today,
+        ),
+      );
+    }
+
+    /// Saves a view over Other through the real service, in real async:
+    /// the database never answers under the test's fake clock.
+    Future<OverviewView> saveView(WidgetTester tester, String name) async =>
+        (await tester.runAsync(
+          () => views.create(
+            name: name,
+            period: const OverviewYearPeriod(2026),
+            options: OverviewListOptions.defaults,
+            categoryIds: const {'other'},
+          ),
+        ))!;
+
+    Finder compareFinder(ReportRobot robot) =>
+        robot.byId(SemanticsIds.reportCompare);
+
+    FormMenuRow compareRow(WidgetTester tester) => tester.widget<FormMenuRow>(
+      find.byWidgetPredicate(
+        (w) => w is FormMenuRow && w.identifier == SemanticsIds.reportCompare,
+      ),
+    );
+
+    List<String?> itemIds(WidgetTester tester) => [
+      for (final item in compareRow(tester).items) item.identifier,
+    ];
+
+    /// Opens the footer's Compare with menu and picks [id], then lets the
+    /// refold land.
+    Future<void> pick(WidgetTester tester, ReportRobot robot, String id) async {
+      await robot.reveal(compareFinder(robot));
+      await tester.tap(compareFinder(robot));
+      await tester.pumpAndSettle();
+      await tester.tap(robot.byId(id));
+      await tester.pumpAndSettle();
+    }
+
+    /// Back to the top, where the Totals card and its caption are built.
+    Future<void> toTop(WidgetTester tester, ReportRobot robot) async {
+      robot.scroll.jumpTo(0);
+      await tester.pump();
+    }
+
+    testWidgets('the footer\'s row reads Previous period on open; Same '
+        'period last year refolds against March 2025 and ticks the trend', (
+      tester,
+    ) async {
+      seedLastYear();
+      final robot = await open(tester);
+      await robot.reveal(compareFinder(robot));
+      expect(compareFinder(robot), findsOneWidget);
+      expect(compareRow(tester).label, 'Compare with');
+      expect(compareRow(tester).value, 'Previous period');
+      expect((robot.state as ReportReady).compare, ReportCompare.previous);
+
+      await pick(tester, robot, SemanticsIds.reportCompareLastYear);
+      final ready = robot.state as ReportReady;
+      expect(ready.compare, ReportCompare.lastYear);
+      expect(ready.compareView, isNull);
+      expect(ready.report.compare, ReportCompare.lastYear);
+      expect(ready.report.compared, isNotNull);
+      await robot.reveal(compareFinder(robot));
+      expect(compareRow(tester).value, 'Same period last year');
+
+      await toTop(tester, robot);
+      expect(robot.caption, contains('against March 2025'));
+      await robot.reveal(robot.byId(SemanticsIds.reportTrend));
+      expect(find.text('Last year'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('a saved view is listed by id; picking it draws its Totals '
+        'card beside the page\'s, no deltas, "beside" its name; deleted, it '
+        'falls back to Previous period on the next fold', (tester) async {
+      final view = await saveView(tester, 'Errands');
+      final robot = await open(tester);
+      // Read while the robot's one Totals card is the only one.
+      final words = ReportLabels(robot.l10n);
+      await robot.reveal(compareFinder(robot));
+      expect(itemIds(tester), [
+        SemanticsIds.reportComparePrevious,
+        SemanticsIds.reportCompareLastYear,
+        SemanticsIds.reportCompareView(view.id),
+      ]);
+
+      await pick(tester, robot, SemanticsIds.reportCompareView(view.id));
+      final ready = robot.state as ReportReady;
+      expect(ready.compare, ReportCompare.view);
+      expect(ready.compareView?.id, view.id);
+      expect(ready.report.compare, ReportCompare.view);
+      await robot.reveal(compareFinder(robot));
+      expect(compareRow(tester).value, 'Errands');
+
+      await toTop(tester, robot);
+      expect(
+        robot.byId(SemanticsIds.reportViewTile(ReportTile.events.name)),
+        findsOneWidget,
+      );
+      expect(robot.tile(ReportTile.events), findsOneWidget);
+      final cards = tester
+          .widgetList<ReportTotalsCard>(find.byType(ReportTotalsCard))
+          .toList();
+      expect(cards, hasLength(2));
+      for (final card in cards) {
+        expect(card.against, isNull);
+        for (final tile in card.tiles) {
+          expect(words.delta(tile), isNull, reason: '${tile.tile}');
+        }
+      }
+      // The caption sits under the view's card, below the first screen.
+      await robot.reveal(find.textContaining('beside Errands'));
+      expect(robot.caption, contains('beside Errands'));
+      expect(robot.caption, isNot(contains('against')));
+
+      await tester.runAsync(() => views.delete(view.id));
+      await robot.tapId(SemanticsIds.reportNavPrevious);
+      await tester.pumpAndSettle();
+      final after = robot.state as ReportReady;
+      expect(after.compare, ReportCompare.previous);
+      expect(after.compareView, isNull);
+      expect(after.report.compare, ReportCompare.previous);
+      await toTop(tester, robot);
+      expect(find.byType(ReportTotalsCard), findsOneWidget);
+      await robot.reveal(compareFinder(robot));
+      expect(compareRow(tester).value, 'Previous period');
+      expect(itemIds(tester).last, SemanticsIds.reportCompareNone);
+    });
+
+    testWidgets('with no saved views the menu holds a disabled "No saved '
+        'views", which a tap leaves as it was', (tester) async {
+      final robot = await open(tester);
+      await robot.reveal(compareFinder(robot));
+      final items = compareRow(tester).items;
+      expect(itemIds(tester), [
+        SemanticsIds.reportComparePrevious,
+        SemanticsIds.reportCompareLastYear,
+        SemanticsIds.reportCompareNone,
+      ]);
+      expect(items.last.label, 'No saved views');
+      expect(items.last.enabled, isFalse);
+      // The calendar starts in 2026: nothing a year back to compare with.
+      expect(items[1].enabled, isFalse);
+
+      await tester.tap(compareFinder(robot));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        robot.byId(SemanticsIds.reportCompareNone),
+        warnIfMissed: false,
+      );
+      await tester.pumpAndSettle();
+      expect(robot.byId(SemanticsIds.reportCompareNone), findsOneWidget);
+      expect((robot.state as ReportReady).compare, ReportCompare.previous);
+      await robot.closeMenu();
+    });
+
+    testWidgets('a step keeps the choice: February is compared with '
+        'February 2025', (tester) async {
+      seedLastYear();
+      final robot = await open(tester);
+      await pick(tester, robot, SemanticsIds.reportCompareLastYear);
+      await robot.tapId(SemanticsIds.reportNavPrevious);
+      await tester.pumpAndSettle();
+      expect(robot.nav.title, 'February 2026');
+      final ready = robot.state as ReportReady;
+      expect(ready.compare, ReportCompare.lastYear);
+      expect(ready.report.compare, ReportCompare.lastYear);
+      await robot.reveal(compareFinder(robot));
+      expect(compareRow(tester).value, 'Same period last year');
+      await toTop(tester, robot);
+      expect(robot.caption, contains('against February 2025'));
+    });
+
+    testWidgets('a view saved while a page covered the report is listed once '
+        'that page pops', (tester) async {
+      final robot = await open(tester);
+      AppNavigator.navigatorKey.currentState!.push(
+        MaterialPageRoute<void>(builder: (_) => const Scaffold()),
+      );
+      await tester.pumpAndSettle();
+      final view = await saveView(tester, 'Errands');
+      AppNavigator.navigatorKey.currentState!.pop();
+      await tester.pumpAndSettle();
+      await robot.reveal(compareFinder(robot));
+      expect(itemIds(tester).last, SemanticsIds.reportCompareView(view.id));
+    });
+
+    testWidgets('the period menu keeps its ten rows, 452 dp of them at en '
+        '1.0, with a view saved', (tester) async {
+      await saveView(tester, 'Errands');
+      final robot = await open(tester);
+      await robot.openPeriodMenu();
+      final rows = find.byType(FormMenuItemRow);
+      expect(
+        [
+          for (final row in tester.widgetList<FormMenuItemRow>(rows))
+            row.identifier,
+        ],
+        [
+          SemanticsIds.reportPeriodThisWeek,
+          SemanticsIds.reportPeriodLastWeek,
+          SemanticsIds.reportPeriodNextWeek,
+          SemanticsIds.reportPeriodThisMonth,
+          SemanticsIds.reportPeriodLastMonth,
+          SemanticsIds.reportPeriodNextMonth,
+          SemanticsIds.reportPeriodThisYear,
+          SemanticsIds.reportPeriodLast12Months,
+          SemanticsIds.reportPeriodLast90Days,
+          SemanticsIds.reportPeriodCustom,
+        ],
+      );
+      // A row's own box is its label line, the 44 dp pitch its padding: the
+      // menu's surface holds every row and the menu's padding.
+      final surface = tester.getRect(
+        find.ancestor(of: rows.first, matching: find.byType(Material)).first,
+      );
+      expect(surface.height, closeTo(452, 1));
+      for (var i = 0; i < 10; i++) {
+        final row = tester.getRect(rows.at(i));
+        expect(surface.top <= row.top && row.bottom <= surface.bottom, isTrue);
+      }
+      await robot.closeMenu();
     });
   });
 

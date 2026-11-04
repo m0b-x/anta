@@ -64,6 +64,7 @@ import 'package:anta/services/import_export_service.dart';
 import 'package:anta/services/markdown_bar_service.dart';
 import 'package:anta/services/navigation_history_service.dart';
 import 'package:anta/services/note_storage_service.dart';
+import 'package:anta/services/overview_view_service.dart';
 import 'package:anta/services/pairing_service.dart';
 import 'package:anta/services/permission_gateway.dart';
 import 'package:anta/services/permission_service.dart';
@@ -126,6 +127,9 @@ void main() {
     await CalendarEventService.getInstance();
     await CalendarPaletteService.getInstance();
     await DevOptionsService.getInstance();
+    // The report page and its bloc resolve the saved views as it opens.
+    OverviewViewService.reset();
+    await OverviewViewService.forTesting(db);
 
     markdownBloc = MarkdownBarBloc(
       barService: await MarkdownBarService.getInstance(),
@@ -196,6 +200,7 @@ void main() {
     await calendarBloc.close();
     await GetIt.I.reset();
     PairingService.reset();
+    OverviewViewService.reset();
     await gateway.dispose();
     await auth.dispose();
     await (await AppDatabase.getInstance()).close();

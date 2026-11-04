@@ -258,6 +258,34 @@
       "showInDayRail": true,
       "createdAtMs": "{{now}}",
       "updatedAtMs": "{{now}}"
+    },
+    {
+      "id": "qa-cal-coffee",
+      "title": "Coffee with #ana",
+      "category": "other",
+      "startDateMs": "{{today-3}}",
+      "allDay": false,
+      "iconKey": null,
+      "ruleKind": "oneTime",
+      "rulePayload": null,
+      "endDateMs": null,
+      "startMinute": 630,
+      "durationMinutes": 45,
+      "description": "",
+      "noteId": null,
+      "colorValue": null,
+      "tintIcon": false,
+      "priority": 3,
+      "retroactive": false,
+      "countOccurrences": false,
+      "countStyle": "numbered",
+      "tracksPresence": false,
+      "assumeAbsent": false,
+      "assumeAbsentFromMs": null,
+      "perOccurrenceDescriptions": false,
+      "showInDayRail": true,
+      "createdAtMs": "{{now}}",
+      "updatedAtMs": "{{now}}"
     }
   ],
   "eventAbsences": [
@@ -394,6 +422,16 @@
       "name": "Tracked",
       "filters": "{\"trackedOnly\":true}",
       "sortOrder": 1,
+      "createdAtMs": "{{now}}",
+      "updatedAtMs": "{{now}}"
+    }
+  ],
+  "overviewViews": [
+    {
+      "id": "qa-view-strength",
+      "name": "Strength only",
+      "payload": "{\"period\":{\"kind\":\"thisYear\"},\"order\":\"oldestFirst\",\"rows\":\"everyOccurrence\",\"missedOnly\":false,\"categories\":[\"qa-cal-strength\"]}",
+      "sortOrder": 0,
       "createdAtMs": "{{now}}",
       "updatedAtMs": "{{now}}"
     }
