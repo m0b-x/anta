@@ -769,9 +769,8 @@ at the boundary)*
 **Where the next session starts (rewritten 2026-11-04 after S4).**
 Done and on `origin/main`: S0 (`2661c8de`), S1 (`6a586668`), S2a
 (`0f5fae29`), S2b-i (`66efe1f1`), S3 (`fb9ae486`), **S2b-ii**
-(`f29edf64`) and **S4** (the commit after `f29edf64` that carries the "S4"
-note; its hash is added to this paragraph by the docs commit that follows
-it). Next, in order: **S5** (report cards II — By tag, When, Balance,
+(`f29edf64`) and **S4** (`f3571ecf`, 34 files; the worktree and its
+branch are gone). Next, in order: **S5** (report cards II — By tag, When, Balance,
 Compare with… in the footer; the model is complete: `ReportTag.kind`, the
 When cells without Sleep, `CalendarReport.compare` / `compared` /
 `balanceLastYear`, `ReportTrend.lastYear`, the `ReportCompare` request
