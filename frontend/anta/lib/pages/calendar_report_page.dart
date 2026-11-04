@@ -180,16 +180,9 @@ class _ReportViewState extends State<_ReportView>
   ({OverviewPeriod period, Set<String> categoryIds})? _heardLook;
   Set<(String, DateTime)> _heardMissed = const {};
 
-  /// The saved views, awaited once and held as the overview holds them: the
-  /// Compare with menu lists them in their stored order, read from the
-  /// service's cache on every build. Null until it answers, and the menu
-  /// offers no view until then.
-  OverviewViewService? _views;
-
   @override
   void initState() {
     super.initState();
-    unawaited(_loadViews());
     WidgetsBinding.instance.addObserver(this);
     // The alarm page's Keep, as the overview hears it: this page reads the
     // same bloc, and may be the only one open when Keep is pressed.
@@ -202,16 +195,6 @@ class _ReportViewState extends State<_ReportView>
     AppNavigator.pendingReportLook.addListener(_serveReportLook);
     if (AppNavigator.pendingReportLook.value != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _serveReportLook());
-    }
-  }
-
-  Future<void> _loadViews() async {
-    try {
-      final service = await OverviewViewService.getInstance();
-      if (!mounted) return;
-      setState(() => _views = service);
-    } catch (e, st) {
-      debugPrint('[CalendarReportPage] Saved views load failed: $e\n$st');
     }
   }
 
@@ -284,11 +267,11 @@ class _ReportViewState extends State<_ReportView>
   void didPushNext() => _covered = true;
 
   /// A view saved, renamed or deleted on an overview above this page is in
-  /// the service's cache by now: the rebuild lists it in Compare with.
+  /// the service's cache by now: the ask lands it in the state's views,
+  /// which Compare with lists.
   @override
   void didPopNext() {
     _covered = false;
-    setState(() {});
     _askAgain();
   }
 
@@ -734,19 +717,26 @@ class _ReportViewState extends State<_ReportView>
                   spansMonths: spansMonths,
                   use24Hour: use24Hour,
                 ),
-      onShare: (report, {required periodName, required against}) =>
-          _shareReport(
-            report,
-            labels,
-            periodName: periodName,
-            against: against,
-          ),
+      onShare:
+          (report, {required periodName, required against, required beside}) =>
+              _shareReport(
+                report,
+                labels,
+                periodName: periodName,
+                against: against,
+                beside: beside,
+              ),
       onSend: (period, categoryIds) =>
           unawaited(_sendReport(period, categoryIds)),
       onShrink: _armSlack,
       compare: shown?.compare ?? ReportCompare.previous,
       compareView: shown?.compareView,
-      views: _views?.views ?? const [],
+      // The view the drawn report was folded beside, as [_foldedFor] picks
+      // its period (D36.9).
+      foldedCompareView: shown is ReportFolding
+          ? shown.previousCompareView
+          : shown?.compareView,
+      views: shown?.views ?? const [],
       onCompare: shown == null
           ? null
           : (compare, view) => context.read<CalendarReportBloc>().add(
@@ -884,13 +874,15 @@ class _ReportViewState extends State<_ReportView>
 
   /// Share report (K): [report] as Markdown through the import/export bloc
   /// — the share sheet and the temp file are the service's — answered by
-  /// this page's export snackbars. A second tap while an export is pending
+  /// this page's export snackbars, captioned [against] a period or [beside]
+  /// a saved view as the page is. A second tap while an export is pending
   /// does nothing (D46).
   void _shareReport(
     CalendarReport report,
     ReportLabels labels, {
     required String periodName,
     required String? against,
+    required String? beside,
   }) {
     if (_export.isPending) return;
     _blur();
@@ -903,6 +895,7 @@ class _ReportViewState extends State<_ReportView>
         use24Hour: MediaQuery.alwaysUse24HourFormatOf(context),
         periodName: periodName,
         against: against,
+        beside: beside,
       ),
       format: ExportFormat.markdown,
     );

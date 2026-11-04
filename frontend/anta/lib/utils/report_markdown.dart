@@ -16,14 +16,20 @@ abstract final class ReportMarkdown {
   /// subtitle, the Totals caption in italics, then Totals, Categories, Over
   /// time, Missed and Ahead as level-2 sections, each drawn only with
   /// content, as the page draws its cards; a plan has Totals and Categories
-  /// only (T). [periodName] and [against] are the values the page's caption
-  /// reads.
+  /// only (T). [periodName], [against] and [beside] are the values the
+  /// page's caption reads.
+  ///
+  /// Beside a saved view the caption names the view in place of the
+  /// compared period, and the tiles carry no delta, as the page's two cards
+  /// draw none (S5 I); the view's own column is S7's, with the sections it
+  /// adds.
   static String render(
     CalendarReport report,
     ReportLabels labels, {
     required bool use24Hour,
     required String periodName,
     String? against,
+    String? beside,
   }) {
     final l10n = labels.l10n;
     const dot = ReportLabels.separator;
@@ -39,13 +45,26 @@ abstract final class ReportMarkdown {
       report,
       periodName: periodName,
       against: against,
+      beside: beside,
     );
     if (caption != null) block('*$caption*');
 
     if (report.tiles.isNotEmpty) {
       block('## ${l10n.reportSectionTotals}');
       block(
-        [for (final tile in report.tiles) _tileLine(tile, labels)].join('\n'),
+        [
+          for (final tile in report.tiles)
+            _tileLine(
+              beside == null
+                  ? tile
+                  : ReportTileValue(
+                      tile: tile.tile,
+                      value: tile.value,
+                      of: tile.of,
+                    ),
+              labels,
+            ),
+        ].join('\n'),
       );
     }
 

@@ -1330,7 +1330,7 @@ class ReportLabels {
     final ratio = insight.ratio;
     final up = ratio != null ? ratio > 0 : rose;
     final percent = '${((ratio ?? 0).abs() * 100).round()}';
-    final period = _comparedSpanName(report);
+    final period = comparedSpanName(report);
     return up
         ? l10n.reportInsightUpOn(value, percent, period)
         : l10n.reportInsightDownOn(value, percent, period);
@@ -1341,7 +1341,7 @@ class ReportLabels {
   /// under last year "October 2025"), a whole year by its number, any other
   /// span by its dates. Read from the span, so it holds whichever period
   /// the fold compared with — the insight card has no period to step.
-  String _comparedSpanName(CalendarReport report) {
+  String comparedSpanName(CalendarReport report) {
     final span = report.previousCounted ?? report.previousSpan;
     if (span == null) return '';
     final (:start, :end) = span;

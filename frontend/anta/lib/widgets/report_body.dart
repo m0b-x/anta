@@ -1,7 +1,8 @@
-import 'package:flutter/foundation.dart' show ValueListenable, setEquals;
+import 'package:flutter/foundation.dart'
+    show ValueListenable, precisionErrorTolerance, setEquals;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart'
-    show RenderSliverToBoxAdapter, SliverGeometry;
+    show PipelineOwner, RenderSliverToBoxAdapter, SliverGeometry;
 
 import '../constants/alert_constants.dart';
 import '../constants/analytics_metrics.dart';
@@ -255,6 +256,7 @@ class ReportBody extends StatefulWidget {
     this.onShrink,
     this.compare = ReportCompare.previous,
     this.compareView,
+    this.foldedCompareView,
     this.views = const [],
     this.onCompare,
   });
@@ -335,11 +337,13 @@ class ReportBody extends StatefulWidget {
   onMoreCategories;
 
   /// Share report, handed the report shown, the period's name and what the
-  /// caption compares it against.
+  /// caption compares it against — [against] a period, or [beside] a saved
+  /// view's name, never both.
   final void Function(
     CalendarReport report, {
     required String periodName,
     required String? against,
+    required String? beside,
   })?
   onShare;
 
@@ -357,8 +361,15 @@ class ReportBody extends StatefulWidget {
   /// to the previous period where the asked one could not fold.
   final ReportCompare compare;
 
-  /// The saved view asked for under [ReportCompare.view], for its name.
+  /// The saved view asked for under [ReportCompare.view], which the row
+  /// names.
   final OverviewView? compareView;
+
+  /// The saved view [report] was folded beside, which the second Totals
+  /// card and the caption name: while a refold runs it is still the old
+  /// report's, so the card never wears the new pick's name over the old
+  /// numbers (D36.9). Null under a view names it as the row's no-view word.
+  final OverviewView? foldedCompareView;
 
   /// The saved views in their stored order: the Compare with menu's items.
   final List<OverviewView> views;
@@ -396,10 +407,25 @@ class _ReportBodyState extends State<ReportBody> {
   /// over (R).
   int _refolds = 0;
 
-  /// Only a refold — a new report for the same period and allowlist — moves
-  /// the anchor (§2.6). A step, a pick or a category change is another
-  /// report altogether: it keeps the raw offset, and the page releases its
-  /// end slack for it, which a correction would then spring back from.
+  /// The section labels laid out, which the refold anchor is picked from.
+  final _LabelAnchors _anchors = _LabelAnchors();
+
+  /// The label the last refold holds, by its id; null holds none.
+  Object? _anchor;
+
+  /// The Totals block as last built, and the side-by-side choice it was
+  /// built for: its [SliverLayoutBuilder] calls back on every scroll frame
+  /// — the constraints carry the offset — and the same widget handed back
+  /// rebuilds nothing. Dropped by every build of the body.
+  ({bool sideBySide, Widget block})? _totalsBlock;
+
+  /// Only a refold — a new report for the same period and allowlist, a
+  /// compare pick's included — moves the anchor (§2.6). A step, a pick or a
+  /// category change is another report altogether: it keeps the raw
+  /// offset, and the page releases its end slack for it, which a correction
+  /// would then spring back from. The anchor is decided here, from the
+  /// labels' last layout, before the frame that lays the new report out
+  /// (S6 H): the nearest label at or above the viewport's top.
   @override
   void didUpdateWidget(ReportBody oldWidget) {
     super.didUpdateWidget(oldWidget);
@@ -409,6 +435,10 @@ class _ReportBodyState extends State<ReportBody> {
         oldWidget.period == widget.period &&
         setEquals(oldWidget.categoryIds, widget.categoryIds)) {
       _refolds++;
+      final scroll = _scroll;
+      _anchor = scroll.hasClients
+          ? _anchors.nearestAbove(scroll.position.pixels)
+          : null;
     }
   }
 
@@ -437,29 +467,47 @@ class _ReportBodyState extends State<ReportBody> {
       ReportTileValue(tile: tile.tile, value: tile.value, of: tile.of),
   ];
 
+  /// The report [_bareTiles] last stripped, and its two cards' tiles.
+  CalendarReport? _bareFor;
+  ({List<ReportTileValue> shown, List<ReportTileValue> compared})? _bare;
+
+  /// [report]'s and its saved view's tiles with no deltas, once per report.
+  ({List<ReportTileValue> shown, List<ReportTileValue> compared}) _bareTiles(
+    CalendarReport report,
+    CalendarReport compared,
+  ) {
+    final bare = _bare;
+    if (bare != null && identical(report, _bareFor)) return bare;
+    _bareFor = report;
+    return _bare = (
+      shown: _withoutDeltas(report.tiles),
+      compared: _withoutDeltas(compared.tiles),
+    );
+  }
+
   /// What the caption and the spoken deltas compare [report] against: the
-  /// compared period's name, or the span of its days counted (D36.3). The
-  /// previous period is the shown one stepped back; last year's is the same
-  /// month or year a year earlier, and a week or a span has no name of its
-  /// own a year back, so its counted days name it.
+  /// previous period by its name, the shown one stepped back, or the span of
+  /// its days counted (D36.3); last year by the compared span itself, as
+  /// the insights name it — a whole month or year by its name, anything
+  /// else, a month so far included, by its counted days (D28).
   String? _againstName(
     CalendarReport report,
     OverviewPeriod period,
     ReportLabels labels,
   ) {
-    final previous = report.compare == ReportCompare.lastYear
-        ? switch (period) {
-            OverviewMonthPeriod(:final year, :final month) =>
-              OverviewMonthPeriod(year - 1, month),
-            OverviewYearPeriod(:final year) => OverviewYearPeriod(year - 1),
-            _ => null,
-          }
-        : period.stepped(
-            direction: -1,
-            today: widget.today,
-            yearBounds: widget.years,
-          );
-    return labels.comparisonName(report, previous: previous);
+    if (report.compare == ReportCompare.lastYear) {
+      return report.previousSpan == null
+          ? null
+          : labels.comparedSpanName(report);
+    }
+    return labels.comparisonName(
+      report,
+      previous: period.stepped(
+        direction: -1,
+        today: widget.today,
+        yearBounds: widget.years,
+      ),
+    );
   }
 
   @override
@@ -474,7 +522,9 @@ class _ReportBodyState extends State<ReportBody> {
         ? report?.compared
         : null;
     final viewName =
-        widget.compareView?.name ?? labels.compareName(ReportCompare.view);
+        widget.foldedCompareView?.name ??
+        labels.compareName(ReportCompare.view);
+    final beside = compared == null ? null : viewName;
     final against = report == null || period == null || compared != null
         ? null
         : _againstName(report, period, labels);
@@ -484,176 +534,199 @@ class _ReportBodyState extends State<ReportBody> {
             report,
             periodName: labels.periodName(period),
             against: against,
-            beside: compared == null ? null : viewName,
+            beside: beside,
           );
     final clearance = widget.bottomClearance;
     final slack = widget.slack;
     final analytics = report == null
         ? const <Widget>[]
         : _analyticsCards(l10n, labels, report);
+    _totalsBlock = null;
     return Semantics(
       container: true,
       identifier: SemanticsIds.reportBody,
-      // The body's own width, not the screen's, decides how a saved view's
-      // card stands (S5 §2.5).
-      child: LayoutBuilder(
-        builder: (context, constraints) => CustomScrollView(
-          controller: _scroll,
-          slivers: [
-            SliverPadding(
-              padding: EdgeInsets.fromLTRB(
-                RowMetrics.groupInset,
-                FormMetrics.bodyTop,
-                RowMetrics.groupInset,
-                FormMetrics.bodyBottom + clearance,
-              ),
-              sliver: SliverMainAxisGroup(
-                slivers: [
-                  ...analytics,
-                  if (analytics.isNotEmpty)
-                    const SliverToBoxAdapter(
-                      child: SizedBox(height: RowMetrics.groupGap),
-                    ),
-                  ..._totalsCards(
-                    l10n,
-                    labels,
-                    report,
-                    compared: compared,
-                    viewName: viewName,
-                    against: against,
-                    caption: caption,
-                    sideBySide: constraints.maxWidth >= _compareSideBySideWidth,
+      child: CustomScrollView(
+        controller: _scroll,
+        slivers: [
+          SliverPadding(
+            padding: EdgeInsets.fromLTRB(
+              RowMetrics.groupInset,
+              FormMetrics.bodyTop,
+              RowMetrics.groupInset,
+              FormMetrics.bodyBottom + clearance,
+            ),
+            sliver: SliverMainAxisGroup(
+              slivers: [
+                ...analytics,
+                if (analytics.isNotEmpty)
+                  const SliverToBoxAdapter(
+                    child: SizedBox(height: RowMetrics.groupGap),
                   ),
-                  if (report != null) ...[
-                    ..._buildCard(
-                      ReportCard.categories,
-                      l10n.reportSectionCategories,
-                      report,
-                      labels,
-                    ),
-                    ..._tagsCard(l10n, labels, report),
-                  ],
-                  // The builder already left the trend out below the
-                  // threshold and for a plan (Q, T).
-                  if (report case CalendarReport(
-                    :final trend?,
-                    :final span,
-                  )) ...[
-                    const SliverToBoxAdapter(
-                      child: SizedBox(height: RowMetrics.groupGap),
-                    ),
-                    SliverToBoxAdapter(
-                      child: FormSectionLabel(text: l10n.reportSectionOverTime),
-                    ),
-                    SliverToBoxAdapter(
-                      child: RepaintBoundary(
-                        child: ReportTrendChart(
-                          trend: trend,
-                          labels: labels,
-                          weekStart: widget.weekStart,
-                          span: span,
-                        ),
+                // The body's own width, not the screen's, decides how a
+                // saved view's card stands (S5 §2.5); read around the
+                // Totals block alone, so a change of height rebuilds no
+                // other card. Keyed: the cards above may change their
+                // count of slivers, and the anchors inside keep their last
+                // layout (R).
+                SliverLayoutBuilder(
+                  key: const ValueKey(#totals),
+                  builder: (context, constraints) {
+                    final sideBySide =
+                        constraints.crossAxisExtent +
+                            2 * RowMetrics.groupInset >=
+                        _compareSideBySideWidth;
+                    final built = _totalsBlock;
+                    if (built != null && built.sideBySide == sideBySide) {
+                      return built.block;
+                    }
+                    final block = SliverMainAxisGroup(
+                      slivers: _totalsCards(
+                        l10n,
+                        labels,
+                        report,
+                        compared: compared,
+                        viewName: viewName,
+                        against: against,
+                        caption: caption,
+                        sideBySide: sideBySide,
                       ),
-                    ),
-                  ],
-                  // Under the model's timed-day threshold, and in a plan,
-                  // which keeps no day, When has no busiest day (S5 §2.1).
-                  if (report?.when case final hours?
-                      when hours.busiestWeekday != null) ...[
-                    const SliverToBoxAdapter(
-                      child: SizedBox(height: RowMetrics.groupGap),
-                    ),
-                    SliverToBoxAdapter(
-                      child: FormSectionLabel(text: l10n.reportSectionWhen),
-                    ),
-                    SliverToBoxAdapter(
-                      child: RepaintBoundary(
-                        child: ReportWhenChart(
-                          when: hours,
-                          labels: labels,
-                          weekStart: widget.weekStart,
-                        ),
-                      ),
-                    ),
-                  ],
-                  // An unprofiled calendar counts no area's hours, so it
-                  // inserts no Balance.
-                  if (report != null &&
-                      report.balance.length >=
-                          AnalyticsMetrics.balanceMinAreas) ...[
-                    const SliverToBoxAdapter(
-                      child: SizedBox(height: RowMetrics.groupGap),
-                    ),
-                    SliverToBoxAdapter(
-                      child: FormSectionLabel(text: l10n.reportSectionBalance),
-                    ),
-                    SliverToBoxAdapter(
-                      child: RepaintBoundary(
-                        child: ReportBalanceCard(
-                          report: report,
-                          labels: labels,
-                        ),
-                      ),
-                    ),
-                  ],
-                  // A plan has no Missed and no Ahead (T): the builder
-                  // leaves both empty, and an empty card is not drawn (H).
-                  if (report != null) ...[
-                    ..._buildCard(
-                      ReportCard.missed,
-                      l10n.reportSectionMissed,
-                      report,
-                      labels,
-                    ),
-                    ..._buildCard(
-                      ReportCard.ahead,
-                      l10n.reportSectionAhead,
-                      report,
-                      labels,
-                    ),
-                  ],
-                  if (period != null && report != null) ...[
-                    const SliverToBoxAdapter(
-                      child: SizedBox(height: RowMetrics.groupGap),
-                    ),
-                    SliverToBoxAdapter(
-                      child: RepaintBoundary(
-                        child: _buildFooter(
-                          l10n,
-                          labels,
-                          report,
-                          period: period,
-                          categoryIds: widget.categoryIds,
-                          against: against,
-                        ),
-                      ),
-                    ),
-                  ],
+                    );
+                    _totalsBlock = (sideBySide: sideBySide, block: block);
+                    return block;
+                  },
+                ),
+                if (report != null) ...[
+                  ..._buildCard(
+                    ReportCard.categories,
+                    l10n.reportSectionCategories,
+                    report,
+                    labels,
+                  ),
+                  ..._tagsCard(l10n, labels, report),
                 ],
+                // The builder already left the trend out below the
+                // threshold and for a plan (Q, T).
+                if (report case CalendarReport(:final trend?, :final span)) ...[
+                  const SliverToBoxAdapter(
+                    child: SizedBox(height: RowMetrics.groupGap),
+                  ),
+                  _sectionLabel(#overTime, l10n.reportSectionOverTime),
+                  SliverToBoxAdapter(
+                    child: RepaintBoundary(
+                      child: ReportTrendChart(
+                        trend: trend,
+                        labels: labels,
+                        weekStart: widget.weekStart,
+                        span: span,
+                      ),
+                    ),
+                  ),
+                ],
+                // Under the model's timed-day threshold, and in a plan,
+                // which keeps no day, When has no busiest day (S5 §2.1).
+                if (report?.when case final hours?
+                    when hours.busiestWeekday != null) ...[
+                  const SliverToBoxAdapter(
+                    child: SizedBox(height: RowMetrics.groupGap),
+                  ),
+                  _sectionLabel(#when, l10n.reportSectionWhen),
+                  SliverToBoxAdapter(
+                    child: RepaintBoundary(
+                      child: ReportWhenChart(
+                        when: hours,
+                        labels: labels,
+                        weekStart: widget.weekStart,
+                      ),
+                    ),
+                  ),
+                ],
+                // An unprofiled calendar counts no area's hours, so it
+                // inserts no Balance.
+                if (report != null &&
+                    report.balance.length >=
+                        AnalyticsMetrics.balanceMinAreas) ...[
+                  const SliverToBoxAdapter(
+                    child: SizedBox(height: RowMetrics.groupGap),
+                  ),
+                  _sectionLabel(#balance, l10n.reportSectionBalance),
+                  SliverToBoxAdapter(
+                    child: RepaintBoundary(
+                      child: ReportBalanceCard(report: report, labels: labels),
+                    ),
+                  ),
+                ],
+                // A plan has no Missed and no Ahead (T): the builder
+                // leaves both empty, and an empty card is not drawn (H).
+                if (report != null) ...[
+                  ..._buildCard(
+                    ReportCard.missed,
+                    l10n.reportSectionMissed,
+                    report,
+                    labels,
+                  ),
+                  ..._buildCard(
+                    ReportCard.ahead,
+                    l10n.reportSectionAhead,
+                    report,
+                    labels,
+                  ),
+                ],
+                if (period != null && report != null) ...[
+                  const SliverToBoxAdapter(
+                    child: SizedBox(height: RowMetrics.groupGap),
+                  ),
+                  SliverToBoxAdapter(
+                    child: RepaintBoundary(
+                      child: _buildFooter(
+                        l10n,
+                        labels,
+                        report,
+                        period: period,
+                        categoryIds: widget.categoryIds,
+                        against: against,
+                        beside: beside,
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          if (slack == null)
+            EndSlackSliver(arms: 0, clearance: clearance)
+          else
+            ValueListenableBuilder(
+              valueListenable: slack,
+              builder: (_, slack, _) => EndSlackSliver(
+                arms: slack.arms,
+                releases: slack.releases,
+                clearance: clearance,
               ),
             ),
-            if (slack == null)
-              EndSlackSliver(arms: 0, clearance: clearance)
-            else
-              ValueListenableBuilder(
-                valueListenable: slack,
-                builder: (_, slack, _) => EndSlackSliver(
-                  arms: slack.arms,
-                  releases: slack.releases,
-                  clearance: clearance,
-                ),
-              ),
-          ],
-        ),
+        ],
       ),
     );
   }
 
+  /// [child], a section label's sliver, as a refold anchor candidate under
+  /// [id] — the one the last refold holds when [id] is [_anchor] (R, S6 H).
+  Widget _anchored(Object id, Widget child) => _AnchoredLabel(
+    id: id,
+    anchors: _anchors,
+    refolds: _refolds,
+    anchor: id == _anchor,
+    child: child,
+  );
+
+  /// The section label [text] as a refold anchor candidate under [id].
+  Widget _sectionLabel(Object id, String text) =>
+      _anchored(id, FormSectionLabel(text: text));
+
   /// The Totals card under its label, then the caption. Beside a saved
   /// view (S5 §2.5) the view's card joins it under the view's name —
   /// stacked on a phone, side by side from [_compareSideBySideWidth] — with
-  /// no deltas on either and the one caption under both. The Totals label
-  /// is the refold anchor in every layout (R).
+  /// no deltas on either and the one caption under both. Both labels are
+  /// anchor candidates (R); side by side, their row is one.
   List<Widget> _totalsCards(
     AppLocalizations l10n,
     ReportLabels labels,
@@ -664,18 +737,12 @@ class _ReportBodyState extends State<ReportBody> {
     required String? caption,
     required bool sideBySide,
   }) {
-    // Keyed: a refold that changes the count of the cards' slivers above it
-    // and one below would otherwise re-create it with no extent to compare
-    // against.
-    Widget anchored(Widget label) => _AnchoredLabel(
-      key: const ValueKey(#totalsLabel),
-      refolds: _refolds,
-      child: label,
-    );
     final totalsLabel = FormSectionLabel(text: l10n.reportSectionTotals);
-    final tiles = report?.tiles ?? _placeholderTiles;
+    final bare = report == null || compared == null
+        ? null
+        : _bareTiles(report, compared);
     final card = ReportTotalsCard(
-      tiles: compared == null ? tiles : _withoutDeltas(tiles),
+      tiles: bare?.shown ?? report?.tiles ?? _placeholderTiles,
       labels: labels,
       against: against,
       muted: report?.isEmpty ?? false,
@@ -691,7 +758,7 @@ class _ReportBodyState extends State<ReportBody> {
           );
     if (compared == null) {
       return [
-        anchored(totalsLabel),
+        _anchored(#totals, totalsLabel),
         SliverToBoxAdapter(child: RepaintBoundary(child: card)),
         ?captionSliver,
       ];
@@ -699,7 +766,7 @@ class _ReportBodyState extends State<ReportBody> {
     // A compared fold has no categories, so it always reads as empty: the
     // view's card is never muted.
     final viewCard = ReportTotalsCard(
-      tiles: _withoutDeltas(compared.tiles),
+      tiles: bare!.compared,
       labels: labels,
       nominalMinutes: compared.nominalMinutes,
       tileIdentifier: SemanticsIds.reportViewTile,
@@ -707,10 +774,10 @@ class _ReportBodyState extends State<ReportBody> {
     final viewLabel = FormSectionLabel(text: viewName);
     if (!sideBySide) {
       return [
-        anchored(totalsLabel),
+        _anchored(#totals, totalsLabel),
         SliverToBoxAdapter(child: RepaintBoundary(child: card)),
         const SliverToBoxAdapter(child: SizedBox(height: RowMetrics.groupGap)),
-        SliverToBoxAdapter(child: viewLabel),
+        _anchored(#view, viewLabel),
         SliverToBoxAdapter(child: RepaintBoundary(child: viewCard)),
         ?captionSliver,
       ];
@@ -718,7 +785,8 @@ class _ReportBodyState extends State<ReportBody> {
     // The labels share one row, so a name that wraps lowers both cards
     // alike and their tile rows stay level (J).
     return [
-      anchored(
+      _anchored(
+        #totals,
         Row(
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
@@ -758,7 +826,7 @@ class _ReportBodyState extends State<ReportBody> {
     final onShowAsList = widget.onShowAsList;
     return [
       const SliverToBoxAdapter(child: SizedBox(height: RowMetrics.groupGap)),
-      SliverToBoxAdapter(child: FormSectionLabel(text: l10n.reportSectionTags)),
+      _sectionLabel(#tags, l10n.reportSectionTags),
       ReportGroupStack(
         key: _tags,
         scroll: _scroll,
@@ -770,15 +838,14 @@ class _ReportBodyState extends State<ReportBody> {
         events: report.events,
         labels: labels,
         onDatedTap: widget.onDatedTap,
-        // A tag's group stands under its key: the list is over the tag's
-        // categories.
+        // A tag's group stands under its key, always one of [tags]: the
+        // list is over the tag's categories.
         onShowAsList: onShowAsList == null
             ? null
             : (group) => onShowAsList(
                 start: span.start,
                 end: span.end,
-                categoryIds:
-                    tags[group.categoryId]?.categoryIds.toSet() ?? const {},
+                categoryIds: tags[group.categoryId]!.categoryIds.toSet(),
               ),
         today: widget.today,
         spansMonths: _spansMonths(report),
@@ -805,6 +872,7 @@ class _ReportBodyState extends State<ReportBody> {
     final cards = [
       if (report.goals.isNotEmpty)
         (
+          id: #goals,
           label: l10n.reportSectionGoals,
           labelKey: null,
           card: ReportGoalsCard(
@@ -816,6 +884,7 @@ class _ReportBodyState extends State<ReportBody> {
         ),
       if (insights.isNotEmpty)
         (
+          id: #insights,
           label: l10n.reportSectionInsights,
           labelKey: null,
           card: ReportInsightsCard(
@@ -829,6 +898,7 @@ class _ReportBodyState extends State<ReportBody> {
         ),
       if (report.dueSoon.isNotEmpty)
         (
+          id: #dueSoon,
           label: l10n.reportSectionDueSoon,
           labelKey: _dueSoonLabel,
           card: ReportDueSoonCard(
@@ -842,14 +912,12 @@ class _ReportBodyState extends State<ReportBody> {
         ),
     ];
     return [
-      for (final (index, (:label, :labelKey, :card)) in cards.indexed) ...[
+      for (final (index, (:id, :label, :labelKey, :card)) in cards.indexed) ...[
         if (index > 0)
           const SliverToBoxAdapter(
             child: SizedBox(height: RowMetrics.groupGap),
           ),
-        SliverToBoxAdapter(
-          child: FormSectionLabel(key: labelKey, text: label),
-        ),
+        _anchored(id, FormSectionLabel(key: labelKey, text: label)),
         SliverToBoxAdapter(child: RepaintBoundary(child: card)),
       ],
     ];
@@ -951,7 +1019,7 @@ class _ReportBodyState extends State<ReportBody> {
       ReportCard.categories => report.categories,
       ReportCard.missed => report.missed,
       ReportCard.ahead => report.ahead,
-      ReportCard.tags => const <ReportCategoryGroup>[],
+      ReportCard.tags => throw StateError('the tags card is _tagsCard\'s'),
     };
     if (all.isEmpty) return const [];
     final capped =
@@ -969,7 +1037,7 @@ class _ReportBodyState extends State<ReportBody> {
     final onShowAsList = widget.onShowAsList;
     return [
       const SliverToBoxAdapter(child: SizedBox(height: RowMetrics.groupGap)),
-      SliverToBoxAdapter(child: FormSectionLabel(text: label)),
+      _sectionLabel(card, label),
       ReportGroupStack(
         // Still one key per card: Categories' is the one a goal reaches.
         key: card == ReportCard.categories ? _categories : ValueKey(card),
@@ -1043,8 +1111,8 @@ class _ReportBodyState extends State<ReportBody> {
   /// The footer of [report], folded over [period] and [categoryIds]:
   /// Compare with first where the surface offers it; Show as list hands the
   /// overview the span the service folded — clamped past 366 days (D33) —
-  /// not the period's own; Share writes the report shown, with [against] as
-  /// the caption names it.
+  /// not the period's own; Share writes the report shown, with [against] or
+  /// [beside] as the caption names it.
   Widget _buildFooter(
     AppLocalizations l10n,
     ReportLabels labels,
@@ -1052,6 +1120,7 @@ class _ReportBodyState extends State<ReportBody> {
     required OverviewPeriod period,
     required Set<String> categoryIds,
     required String? against,
+    required String? beside,
   }) {
     final onShowAsList = widget.onShowAsList;
     final onShare = widget.onShare;
@@ -1085,6 +1154,7 @@ class _ReportBodyState extends State<ReportBody> {
                   report,
                   periodName: labels.periodName(period),
                   against: against,
+                  beside: beside,
                 ),
         ),
         // At the digest cap there is nothing to send to: disabled, as the
@@ -1172,55 +1242,111 @@ class _ReportBodyState extends State<ReportBody> {
 /// value.
 typedef _CompareChoice = ({ReportCompare compare, String? viewId});
 
-/// The Totals label's sliver, the page's anchor on a refold (R, §2.6): the
-/// Insights and Due soon cards above it change height with the report, and
-/// with the viewport's top below the label everything under the finger
-/// would move by that change. Still a [SliverToBoxAdapter], so the body's
-/// slivers read as they always have.
+/// The section labels laid out, by id: a refold holds the one nearest above
+/// the viewport's top (R, S6 H), read from their last layout before the
+/// frame that lays the new report out.
+class _LabelAnchors {
+  final Map<Object, _RenderAnchoredLabel> _labels = {};
+
+  /// The label whose start, at its last layout, lies nearest at or above
+  /// [top], the viewport's scroll offset; null when [top] lies above every
+  /// label, as at offset 0. At the top counts: a label a reveal left there
+  /// is where the reader reads.
+  Object? nearestAbove(double top) {
+    Object? nearest;
+    var nearestStart = double.negativeInfinity;
+    for (final MapEntry(key: id, value: label) in _labels.entries) {
+      final start = label._preceding;
+      if (start == null ||
+          start > top + precisionErrorTolerance ||
+          start <= nearestStart) {
+        continue;
+      }
+      nearest = id;
+      nearestStart = start;
+    }
+    return nearest;
+  }
+}
+
+/// A section label's sliver, a candidate for the page's anchor on a refold
+/// (R, §2.6, S6 H): the cards above the reader's place change height with
+/// the report — Insights, Due soon, a saved view's Totals card, a group —
+/// and everything under the finger would move by that change. Still a
+/// [SliverToBoxAdapter], so the body's slivers read as they always have.
+/// Keyed by [id], so a refold that changes the count of slivers above it
+/// keeps its last layout to compare against.
 class _AnchoredLabel extends SliverToBoxAdapter {
-  const _AnchoredLabel({
-    super.key,
+  _AnchoredLabel({
+    required this.id,
+    required this.anchors,
     required this.refolds,
+    required this.anchor,
     required Widget super.child,
-  });
+  }) : super(key: ValueKey((#anchor, id)));
+
+  /// The label's section, which [anchors] knows it by.
+  final Object id;
+
+  final _LabelAnchors anchors;
 
   /// How many reports have replaced the one drawn; a count that moved arms
   /// the next layout.
   final int refolds;
 
+  /// Whether this label is the one the last refold holds.
+  final bool anchor;
+
   @override
   _RenderAnchoredLabel createRenderObject(BuildContext context) =>
-      _RenderAnchoredLabel(refolds: refolds);
+      _RenderAnchoredLabel(
+        id: id,
+        anchors: anchors,
+        refolds: refolds,
+        anchor: anchor,
+      );
 
   @override
   void updateRenderObject(
     BuildContext context,
     covariant _RenderAnchoredLabel renderObject,
   ) {
-    renderObject.refolds = refolds;
+    renderObject
+      ..anchor = anchor
+      ..refolds = refolds;
   }
 }
 
-/// Armed by a new report, the next layout compares the label's preceding
-/// extent — everything above it — with the last one laid; when the last
-/// layout had the viewport's top below the label's top, it corrects the
+/// Armed by a new report, the anchor's next layout compares its preceding
+/// extent — everything above it — with the last one laid, and corrects the
 /// scroll offset by the difference inside that layout, so the new report's
 /// first frame already holds the label, and all below it, where it was:
-/// never a post-frame jump, never a frame drawn off the finger. With the
-/// label at or below the top nothing moves, so at offset 0 the page still
-/// opens on the first card. Only a new report arms it: "Show less" on the
-/// Due soon card carries its own compensation.
+/// never a post-frame jump, never a frame drawn off the finger. With no
+/// label at or above the top there is no anchor, so at offset 0 the page
+/// still opens on the first card. Only a new report arms it: "Show less" on
+/// the Due soon card carries its own compensation.
 class _RenderAnchoredLabel extends RenderSliverToBoxAdapter {
-  _RenderAnchoredLabel({required int refolds}) : _refolds = refolds;
+  _RenderAnchoredLabel({
+    required Object id,
+    required _LabelAnchors anchors,
+    required int refolds,
+    required bool anchor,
+  }) : _id = id,
+       _anchors = anchors,
+       _refolds = refolds,
+       _anchor = anchor;
 
+  final Object _id;
+  final _LabelAnchors _anchors;
   int _refolds;
+  bool _anchor;
   bool _armed = false;
 
-  /// The extent above the label at the last layout; null before the first.
+  /// The extent above the label at the last layout — its start in the
+  /// scroll; null before the first.
   double? _preceding;
 
-  /// Whether the last layout had the viewport's top below the label's top.
-  bool _passed = false;
+  set anchor(bool value) => _anchor = value;
 
   set refolds(int value) {
     if (value == _refolds) return;
@@ -1230,18 +1356,29 @@ class _RenderAnchoredLabel extends RenderSliverToBoxAdapter {
   }
 
   @override
+  void attach(PipelineOwner owner) {
+    super.attach(owner);
+    _anchors._labels[_id] = this;
+  }
+
+  @override
+  void detach() {
+    if (identical(_anchors._labels[_id], this)) _anchors._labels.remove(_id);
+    super.detach();
+  }
+
+  @override
   void performLayout() {
     final preceding = constraints.precedingScrollExtent;
     final old = _preceding;
     final armed = _armed;
     _armed = false;
-    if (armed && _passed && old != null && preceding != old) {
+    if (armed && _anchor && old != null && preceding != old) {
       // The viewport lays every sliver out again at the corrected offset.
       geometry = SliverGeometry(scrollOffsetCorrection: preceding - old);
       return;
     }
     super.performLayout();
     _preceding = preceding;
-    _passed = constraints.scrollOffset > 0;
   }
 }

@@ -1230,6 +1230,54 @@ void main() {
       expect(itemIds(tester).last, SemanticsIds.reportCompareNone);
     });
 
+    testWidgets('the menu lists the views the state holds, in its order', (
+      tester,
+    ) async {
+      final errands = await saveView(tester, 'Errands');
+      final work = await saveView(tester, 'Work');
+      final robot = await open(tester);
+      final state = robot.state as ReportReady;
+      expect({for (final view in state.views) view.id}, {errands.id, work.id});
+      await robot.reveal(compareFinder(robot));
+      expect(itemIds(tester), [
+        SemanticsIds.reportComparePrevious,
+        SemanticsIds.reportCompareLastYear,
+        for (final view in state.views) SemanticsIds.reportCompareView(view.id),
+      ]);
+      expect(
+        [for (final item in compareRow(tester).items.skip(2)) item.label],
+        [for (final view in state.views) view.name],
+      );
+    });
+
+    testWidgets('Share beside a saved view writes "beside" its name and no '
+        'deltas (S5 I)', (tester) async {
+      final view = await saveView(tester, 'Errands');
+      final robot = await open(tester, alwaysUse24HourFormat: true);
+      // Read while the Totals card the robot reads it through is on screen.
+      final l10n = robot.l10n;
+      await pick(tester, robot, SemanticsIds.reportCompareView(view.id));
+      final share = robot.byId(SemanticsIds.reportShare);
+      await robot.reveal(share);
+      await tester.tap(share);
+      await tester.pump();
+      final report = (robot.state as ReportReady).report;
+      expect(report.compare, ReportCompare.view);
+      final text = importExport.texts.single.text;
+      expect(
+        text,
+        ReportMarkdown.render(
+          report,
+          ReportLabels(l10n),
+          use24Hour: true,
+          periodName: 'March 2026',
+          beside: 'Errands',
+        ),
+      );
+      expect(text, contains('beside Errands'));
+      expect(text, isNot(contains('against')));
+    });
+
     testWidgets('with no saved views the menu holds a disabled "No saved '
         'views", which a tap leaves as it was', (tester) async {
       final robot = await open(tester);

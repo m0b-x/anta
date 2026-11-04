@@ -135,21 +135,33 @@ void main() {
 
   Finder byId(String id) => find.bySemanticsIdentifier(id);
 
-  /// The body's padded sliver group as words: a section label by its text,
-  /// a boxed child by its type through its repaint boundary, any other
-  /// sliver by its own type — what an unprofiled page must keep and the
-  /// new cards insert into.
-  List<String> sliverSequence(WidgetTester tester) {
-    final group = tester.widget<SliverMainAxisGroup>(
-      find
-          .descendant(
-            of: byId(SemanticsIds.reportBody),
-            matching: find.byType(SliverMainAxisGroup),
-          )
-          .first,
-    );
+  /// The body's padded sliver group, the Totals block's own slivers in its
+  /// builder's place: the builder reads the width alone, the slivers it
+  /// builds are the page's.
+  List<Widget> bodySlivers(WidgetTester tester) {
+    List<Widget> children(Finder of) => tester
+        .widget<SliverMainAxisGroup>(
+          find
+              .descendant(of: of, matching: find.byType(SliverMainAxisGroup))
+              .first,
+        )
+        .children;
     return [
-      for (final sliver in group.children)
+      for (final sliver in children(byId(SemanticsIds.reportBody)))
+        if (sliver is SliverLayoutBuilder)
+          ...children(find.byWidget(sliver))
+        else
+          sliver,
+    ];
+  }
+
+  /// The body's slivers as words: a section label by its text, a boxed
+  /// child by its type through its repaint boundary, any other sliver by
+  /// its own type — what an unprofiled page must keep and the new cards
+  /// insert into.
+  List<String> sliverSequence(WidgetTester tester) {
+    return [
+      for (final sliver in bodySlivers(tester))
         switch (sliver) {
           SliverToBoxAdapter(child: FormSectionLabel(:final text)) =>
             'label $text',
@@ -181,10 +193,18 @@ void main() {
     ({int first, int last}) yearBounds = years,
     ReportCompare compare = ReportCompare.previous,
     OverviewView? compareView,
+    OverviewView? foldedCompareView,
     List<OverviewView> views = const [],
     void Function(ReportCompare compare, OverviewView? view)? onCompare,
     ReportShowAsList? onShowAsList,
     VoidCallback? onReveal,
+    void Function(
+      CalendarReport report, {
+      required String periodName,
+      required String? against,
+      required String? beside,
+    })?
+    onShare,
   }) async {
     addTearDown(tester.view.reset);
     tester.view.devicePixelRatio = 1.0;
@@ -231,10 +251,13 @@ void main() {
                       use24Hour: true,
                       compare: compare,
                       compareView: compareView,
+                      // Ready: the report drawn is the asked one's.
+                      foldedCompareView: foldedCompareView ?? compareView,
                       views: views,
                       onCompare: onCompare,
                       onShowAsList: onShowAsList,
                       onReveal: onReveal,
+                      onShare: onShare,
                     ),
                   ),
                 ],
@@ -1014,6 +1037,7 @@ void main() {
       ReportCompare compare = ReportCompare.previous,
       CalendarReport? compared,
       DateRange? previousSpan,
+      DateRange? previousCounted,
     }) {
       final from = base ?? report;
       return CalendarReport(
@@ -1022,7 +1046,8 @@ void main() {
         tense: from.tense,
         countedTo: from.countedTo,
         previousSpan: previousSpan ?? from.previousSpan,
-        previousCounted: previousSpan ?? from.previousCounted,
+        previousCounted:
+            previousCounted ?? previousSpan ?? from.previousCounted,
         events: from.events,
         tiles: tiles ?? from.tiles,
         skippedDays: from.skippedDays,
@@ -1075,16 +1100,6 @@ void main() {
     };
     const work = OverviewView(id: 'v-work', name: 'Work', period: october);
     const life = OverviewView(id: 'v-life', name: 'Life', period: october);
-
-    SliverMainAxisGroup mainGroup(WidgetTester tester) =>
-        tester.widget<SliverMainAxisGroup>(
-          find
-              .descendant(
-                of: byId(SemanticsIds.reportBody),
-                matching: find.byType(SliverMainAxisGroup),
-              )
-              .first,
-        );
 
     Finder bodyScrollable() => find.descendant(
       of: byId(SemanticsIds.reportBody),
@@ -1329,7 +1344,44 @@ void main() {
         expect(captionText(tester), contains('against September 2026'));
       });
 
-      testWidgets('last year names the same month a year back', (tester) async {
+      testWidgets('last year names the same whole month a year back', (
+        tester,
+      ) async {
+        const september = OverviewMonthPeriod(2026, 9);
+        final lastSeptember = (
+          start: DateTime.utc(2025, 9, 1),
+          end: DateTime.utc(2025, 9, 30),
+        );
+        // A past month, as the service folds it: counted whole, so the
+        // compared span is last year's whole month.
+        final past = CalendarReportBuilder.fold(
+          CalendarReportService.sampleInput(
+            ReportRequest(
+              span: september.resolve(today: today, yearBounds: years),
+              previousSpan: lastSeptember,
+              events: [gym, dentist, birthday],
+              today: today,
+              weekStart: CalendarWeekStart.monday,
+            ),
+          ),
+        );
+        expect(past.tense, ReportTense.past);
+        expect(past.previousCounted, lastSeptember);
+        await pumpBody(
+          tester,
+          period: september,
+          shown: s5(
+            base: past,
+            compare: ReportCompare.lastYear,
+            previousSpan: lastSeptember,
+          ),
+        );
+        expect(captionText(tester), contains('against September 2025'));
+        expect(captionText(tester), isNot(contains('August')));
+      });
+
+      testWidgets('last year under a month so far names the counted days, '
+          'never the whole month (D28)', (tester) async {
         await pumpBody(
           tester,
           shown: s5(
@@ -1338,10 +1390,22 @@ void main() {
               start: DateTime.utc(2025, 10, 1),
               end: DateTime.utc(2025, 10, 31),
             ),
+            // October 1 to 30 so far: last year counted to the same length.
+            previousCounted: (
+              start: DateTime.utc(2025, 10, 1),
+              end: DateTime.utc(2025, 10, 30),
+            ),
           ),
         );
-        expect(captionText(tester), contains('against October 2025'));
-        expect(captionText(tester), isNot(contains('September')));
+        expect(report.countedTo, DateTime.utc(2026, 10, 30));
+        expect(
+          captionText(tester),
+          contains(
+            'against '
+            '${dateSpanLabel(en, DateTime.utc(2025, 10, 1), DateTime.utc(2025, 10, 30))}',
+          ),
+        );
+        expect(captionText(tester), isNot(contains('October 2025')));
       });
 
       for (final (name, period, previousSpan) in [
@@ -1445,15 +1509,22 @@ void main() {
         }
       }
 
-      /// The Totals label's sliver is still the refold anchor.
-      void expectAnchored(WidgetTester tester) {
-        final anchored = mainGroup(tester).children.where(
-          (sliver) => '${sliver.runtimeType}' == '_AnchoredLabel',
-        );
-        expect(anchored, hasLength(1));
+      /// The Totals label's sliver is still a refold anchor, and so is the
+      /// view's where it stands alone (S6 H): [labels] anchors above the
+      /// caption.
+      void expectAnchored(WidgetTester tester, {required int labels}) {
+        final anchored = bodySlivers(tester)
+            .takeWhile(
+              (sliver) =>
+                  !(sliver is SliverToBoxAdapter &&
+                      sliver.child is FormCaption),
+            )
+            .where((sliver) => '${sliver.runtimeType}' == '_AnchoredLabel')
+            .toList();
+        expect(anchored, hasLength(labels));
         expect(
           find.descendant(
-            of: find.byWidget(anchored.single),
+            of: find.byWidget(anchored.first),
             matching: sectionLabel('Totals'),
           ),
           findsOneWidget,
@@ -1472,7 +1543,7 @@ void main() {
           'FormCaption',
           'SizedBox',
         ]);
-        expectAnchored(tester);
+        expectAnchored(tester, labels: 2);
         expectNoDeltas(tester);
         expect(byId(SemanticsIds.reportTile('events')), findsOneWidget);
         expect(byId(SemanticsIds.reportViewTile('events')), findsOneWidget);
@@ -1500,7 +1571,7 @@ void main() {
           'FormCaption',
           'SizedBox',
         ]);
-        expectAnchored(tester);
+        expectAnchored(tester, labels: 1);
         expectNoDeltas(tester);
         final cards = find.byType(ReportTotalsCard);
         expect(
@@ -1535,6 +1606,142 @@ void main() {
           tester.getTopLeft(find.byType(FormCaption).first).dy,
           greaterThanOrEqualTo(math.max(page.bottom, view.bottom)),
         );
+        expect(tester.takeException(), isNull);
+      });
+
+      testWidgets('the card and the caption name the view folded; the row '
+          'names the one asked for (D36.9)', (tester) async {
+        await pumpBody(
+          tester,
+          shown: besideView(),
+          compare: ReportCompare.view,
+          compareView: life,
+          foldedCompareView: work,
+          views: const [work, life],
+          onCompare: (_, _) {},
+        );
+        expect(sectionLabel('Work'), findsOneWidget);
+        expect(sectionLabel('Life'), findsNothing);
+        expect(captionText(tester), contains('beside Work'));
+        await toEnd(tester);
+        expect(compareRow(tester).value, 'Life');
+
+        // No view folded to name: the row's no-view word, as before.
+        await pumpBody(
+          tester,
+          shown: besideView(),
+          compare: ReportCompare.view,
+          onCompare: (_, _) {},
+        );
+        scrollOf(tester).jumpTo(0);
+        await tester.pumpAndSettle();
+        expect(sectionLabel('No saved views'), findsOneWidget);
+      });
+
+      testWidgets('Share hands the caption\'s "beside" and no "against"', (
+        tester,
+      ) async {
+        final shares = <({String? against, String? beside})>[];
+        await pumpBody(
+          tester,
+          shown: besideView(),
+          compare: ReportCompare.view,
+          compareView: work,
+          views: const [work],
+          onCompare: (_, _) {},
+          onShare:
+              (_, {required periodName, required against, required beside}) =>
+                  shares.add((against: against, beside: beside)),
+        );
+        await toEnd(tester);
+        await tester.tap(byId(SemanticsIds.reportShare));
+        await tester.pumpAndSettle();
+        expect(shares, [(against: null, beside: 'Work')]);
+
+        await pumpBody(
+          tester,
+          onCompare: (_, _) {},
+          onShare:
+              (_, {required periodName, required against, required beside}) =>
+                  shares.add((against: against, beside: beside)),
+        );
+        await toEnd(tester);
+        await tester.tap(byId(SemanticsIds.reportShare));
+        await tester.pumpAndSettle();
+        expect(shares.last, (against: 'September 2026', beside: null));
+      });
+
+      testWidgets('a view picked at the scroll\'s end keeps the Compare row '
+          'under the finger, and so does the way back (S6 H)', (tester) async {
+        await pumpBody(tester, views: const [work], onCompare: (_, _) {});
+        await toEnd(tester);
+        final row = tester.getTopLeft(byId(SemanticsIds.reportCompare)).dy;
+        final offset = scrollOf(tester).pixels;
+        expect(offset, scrollOf(tester).maxScrollExtent);
+
+        await pumpBody(
+          tester,
+          shown: besideView(),
+          compare: ReportCompare.view,
+          compareView: work,
+          views: const [work],
+          onCompare: (_, _) {},
+        );
+        expect(
+          find.byType(ReportTotalsCard, skipOffstage: false),
+          findsNWidgets(2),
+        );
+        expect(
+          tester.getTopLeft(byId(SemanticsIds.reportCompare)).dy,
+          closeTo(row, 1),
+        );
+        final grown = scrollOf(tester);
+        expect(grown.pixels, greaterThan(offset + 200));
+        expect(grown.pixels, lessThanOrEqualTo(grown.maxScrollExtent));
+
+        await pumpBody(tester, views: const [work], onCompare: (_, _) {});
+        expect(
+          tester.getTopLeft(byId(SemanticsIds.reportCompare)).dy,
+          closeTo(row, 1),
+        );
+        expect(scrollOf(tester).pixels, closeTo(offset, 1));
+        expect(tester.takeException(), isNull);
+      });
+
+      testWidgets('one scroll keeps its offset across a 360 ↔ 600 resize and '
+          'a compare switch', (tester) async {
+        await pumpView(tester, const Size(360, 780));
+        scrollOf(tester).jumpTo(100);
+        await tester.pumpAndSettle();
+        final scrollable = tester.state<ScrollableState>(bodyScrollable());
+
+        tester.view.physicalSize = const Size(600, 780);
+        await tester.pumpAndSettle();
+        expect(sliverSequence(tester).first, 'Row');
+        expect(
+          tester.state<ScrollableState>(bodyScrollable()),
+          same(scrollable),
+        );
+        expect(scrollOf(tester).pixels, 100);
+
+        tester.view.physicalSize = const Size(360, 780);
+        await tester.pumpAndSettle();
+        expect(sliverSequence(tester).first, 'label Totals');
+        expect(
+          tester.state<ScrollableState>(bodyScrollable()),
+          same(scrollable),
+        );
+        expect(scrollOf(tester).pixels, 100);
+
+        // Back to Previous: the view's card leaves below the Totals label,
+        // which holds the top.
+        await pumpBody(tester, views: const [work], onCompare: (_, _) {});
+        expect(find.byType(ReportTotalsCard), findsOneWidget);
+        expect(
+          tester.state<ScrollableState>(bodyScrollable()),
+          same(scrollable),
+        );
+        expect(scrollOf(tester).pixels, 100);
         expect(tester.takeException(), isNull);
       });
     });
@@ -1614,6 +1821,100 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
+    testWidgets('an insight about a tag past the card\'s eight reads its '
+        'category\'s group', (tester) async {
+      final nine = [
+        ...eightTags,
+        ReportTag(
+          key: 'tag8',
+          label: 'tag8',
+          events: 1,
+          count: 1,
+          minutes: 0,
+          categoryIds: const ['gym'],
+          rows: [
+            ReportDatedRow(eventId: gym.id, day: DateTime.utc(2026, 10, 1)),
+          ],
+        ),
+      ];
+      const about = ReportInsight(
+        rule: InsightRule.r2,
+        severity: 0,
+        categoryId: 'gym',
+        tagKey: 'tag8',
+        target: InsightTarget.tagRows,
+        n1: 1,
+      );
+      var reveals = 0;
+      await pumpBody(
+        tester,
+        surface: const Size(360, 520),
+        shown: s5(tags: nine, insights: const [about]),
+        onReveal: () => reveals++,
+      );
+      final gymHeader = byId(SemanticsIds.reportGroup('categories', 'gym'));
+      expect(
+        tester.getTopLeft(gymHeader).dy,
+        greaterThan(tester.getTopLeft(byId(SemanticsIds.reportBody)).dy + 1),
+      );
+      await tester.tap(byId(SemanticsIds.reportInsight(0)));
+      await tester.pumpAndSettle();
+      expect(reveals, 1);
+      expect(folds.isOpen(ReportCard.categories, 'gym'), isTrue);
+      expect(folds.isOpen(ReportCard.tags, 'tag8'), isFalse);
+      expect(
+        tester.getTopLeft(gymHeader).dy,
+        closeTo(tester.getTopLeft(byId(SemanticsIds.reportBody)).dy, 1),
+      );
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('with onReveal null an insight about a tag is inert, inside '
+        'the card\'s eight or past them', (tester) async {
+      for (final key in ['tag5', 'tag8']) {
+        await pumpBody(
+          tester,
+          shown: s5(
+            tags: [
+              ...eightTags,
+              ReportTag(
+                key: 'tag8',
+                label: 'tag8',
+                events: 1,
+                count: 1,
+                minutes: 0,
+                categoryIds: const ['gym'],
+                rows: [
+                  ReportDatedRow(
+                    eventId: gym.id,
+                    day: DateTime.utc(2026, 10, 1),
+                  ),
+                ],
+              ),
+            ],
+            insights: [
+              ReportInsight(
+                rule: InsightRule.r2,
+                severity: 0,
+                categoryId: 'gym',
+                tagKey: key,
+                target: InsightTarget.tagRows,
+                n1: 1,
+              ),
+            ],
+          ),
+        );
+        final row = tester.widget<FormPickerRow>(
+          find.byWidgetPredicate(
+            (widget) =>
+                widget is FormPickerRow &&
+                widget.identifier == SemanticsIds.reportInsight(0),
+          ),
+        );
+        expect(row.onTap, isNull, reason: key);
+      }
+    });
+
     for (final (scale, height) in [(1.0, 195.0), (1.3, 213.0), (2.0, 293.0)]) {
       testWidgets('the footer with Compare is $height at en $scale', (
         tester,
@@ -1623,6 +1924,30 @@ void main() {
         expect(footerHeight(tester), closeTo(height, 1));
         expect(tester.takeException(), isNull);
       });
+    }
+
+    // The design review's measures: the longer de and ro words wrap the
+    // footer's rows sooner than en's.
+    for (final locale in ['de', 'ro']) {
+      for (final (scale, height) in [
+        (1.0, 201.0),
+        (1.3, 213.0),
+        (2.0, 333.0),
+      ]) {
+        testWidgets('the footer with Compare is $height at $locale $scale', (
+          tester,
+        ) async {
+          await pumpBody(
+            tester,
+            locale: Locale(locale),
+            textScale: scale,
+            onCompare: (_, _) {},
+          );
+          await toEnd(tester);
+          expect(footerHeight(tester), closeTo(height, 1));
+          expect(tester.takeException(), isNull);
+        });
+      }
     }
 
     testWidgets('de at 2.0 on 360 × 780 lays every card and the Compare row '

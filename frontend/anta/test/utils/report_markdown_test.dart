@@ -184,12 +184,14 @@ void main() {
     String locale = 'en',
     required String periodName,
     String? against,
+    String? beside,
   }) => ReportMarkdown.render(
     report,
     labelsIn(locale),
     use24Hour: true,
     periodName: periodName,
     against: against,
+    beside: beside,
   );
 
   /// The labels' separator: a no-break space, the dot, a space.
@@ -237,6 +239,40 @@ void main() {
       '\n'
       '- Gym${s}Thu 3${s}18:00${s}1 h\n'
       '- Gym${s}Thu 17${s}18:00${s}1 h\n',
+    );
+  });
+
+  test('beside a saved view the caption names the view and the tiles '
+      'carry no delta, as the page draws them (S5 I)', () {
+    final out = render(
+      september,
+      periodName: 'September 2026',
+      beside: 'Work / Life',
+    );
+    expect(
+      out,
+      contains('*To September 30${s}beside Work / Life${s}2 skipped*\n'),
+    );
+    expect(out, isNot(contains('against')));
+    expect(
+      out,
+      contains(
+        '## Totals\n'
+        '\n'
+        '- Events: 31\n'
+        '- Attended: 21 of 24${s}88 %\n'
+        '- Missed: 3\n'
+        '- Hours: 18.5 h\n'
+        '- Tasks: 2 of 3${s}1 open\n'
+        '\n'
+        '## Categories\n',
+      ),
+    );
+    // Everything below Totals is the page's own report, as without a view.
+    final plain = render(september, periodName: 'September 2026');
+    expect(
+      out.substring(out.indexOf('## Categories')),
+      plain.substring(plain.indexOf('## Categories')),
     );
   });
 
