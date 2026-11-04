@@ -5,6 +5,7 @@ import 'package:flutter/scheduler.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../constants/category_profiles.dart';
+import '../../database/database_lifecycle.dart';
 import '../../models/agenda_day_list.dart';
 import '../../models/calendar_appearance.dart';
 import '../../models/calendar_event.dart';
@@ -44,7 +45,8 @@ class CalendarReportBloc extends Bloc<ReportEvent, ReportState> {
   /// no binding passes one that completes at once. [views] is where a
   /// compared saved view is looked up, handed over unawaited like
   /// [settings]; null is a calendar with no saved views, so a view compare
-  /// falls back to the previous period.
+  /// falls back to the previous period. After a database switch the bloc
+  /// asks `OverviewViewService.getInstance()` for the new database's.
   CalendarReportBloc({
     required CalendarReportService service,
     required CalendarBloc calendar,
@@ -96,10 +98,17 @@ class CalendarReportBloc extends Bloc<ReportEvent, ReportState> {
   ReportCompare _compare = ReportCompare.previous;
   OverviewView? _compareView;
 
-  /// The saved views, once [_viewsSeed] has resolved; null before, without
+  /// The saved views, once [_viewsReady] has resolved; null before, without
   /// a seed, or when it failed.
   OverviewViewService? _views;
-  late final Future<void> _viewsReady = _resolveViews();
+  late Future<void> _viewsReady = _resolveViews(_viewsSeed, _viewsGeneration);
+
+  /// The database generation [_viewsReady] was asked under: a switch since
+  /// closed the database its service reads, so the next view pick or resume
+  /// asks for the new one's.
+  int _viewsGeneration = DatabaseLifecycle.generation;
+
+  List<OverviewView> get _savedViews => _views?.views ?? const [];
 
   /// The years of the last events and allowlist they were computed for —
   /// a scan of every event, so it is redone only when either moves.
@@ -165,7 +174,12 @@ class CalendarReportBloc extends Bloc<ReportEvent, ReportState> {
           );
         }
       case ReportComparePicked(:final compare, :final view):
-        await _viewsReady;
+        // Only a view is looked up in the service: one still resolving, or
+        // never, must not hold the other choices or the events behind them.
+        if (compare == ReportCompare.view) {
+          _followDatabaseSwitch();
+          await _viewsReady;
+        }
         _compare = compare;
         _compareView = view;
         await _fold(emit);
@@ -215,16 +229,34 @@ class CalendarReportBloc extends Bloc<ReportEvent, ReportState> {
     await _fold(emit);
   }
 
-  Future<void> _resolveViews() async {
-    final seed = _viewsSeed;
+  Future<void> _resolveViews(
+    FutureOr<OverviewViewService>? seed,
+    int generation,
+  ) async {
     if (seed == null) return;
     try {
-      _views = await seed;
+      final views = await seed;
+      // A switch that landed while this resolved has asked for another.
+      if (generation == _viewsGeneration) _views = views;
     } catch (e, st) {
       // No saved views to compare with: a view pick falls back to the
       // previous period, as a deleted view does.
       debugPrint('[CalendarReportBloc] saved views load failed: $e\n$st');
     }
+  }
+
+  /// Follows a database switch since [_viewsReady] was asked: the service it
+  /// resolved is dropped — its cache belongs to the closed database — and
+  /// the new database's is asked for; true when it did. Otherwise the
+  /// resolved service is reused. With no seed there are no saved views to
+  /// follow.
+  bool _followDatabaseSwitch() {
+    final generation = DatabaseLifecycle.generation;
+    if (_viewsSeed == null || generation == _viewsGeneration) return false;
+    _viewsGeneration = generation;
+    _views = null;
+    _viewsReady = _resolveViews(OverviewViewService.getInstance(), generation);
+    return true;
   }
 
   Future<void> _step(int direction, Emitter<ReportState> emit) async {
@@ -282,6 +314,9 @@ class CalendarReportBloc extends Bloc<ReportEvent, ReportState> {
   Future<void> _resume(Emitter<ReportState> emit) async {
     if (!_settingsLoaded) return;
     await _reread();
+    // Awaited only after a switch: a first service still resolving must not
+    // hold the resume; the first fold after it lands reads it.
+    if (_followDatabaseSwitch()) await _viewsReady;
     final request = _request();
     if (request == null) return;
     // No Folding here: a resume usually changes nothing, and the memo then
@@ -374,6 +409,8 @@ class CalendarReportBloc extends Bloc<ReportEvent, ReportState> {
         previous: shown?.report,
         previousPeriod: shown?.period,
         previousCategoryIds: shown?.categoryIds ?? const {},
+        previousCompare: shown?.compare ?? ReportCompare.previous,
+        previousCompareView: shown?.compareView,
         period: _period!,
         home: _home!,
         categoryIds: _categoryIds,
@@ -386,6 +423,7 @@ class CalendarReportBloc extends Bloc<ReportEvent, ReportState> {
         years: request.years,
         compare: _compare,
         compareView: _compareView,
+        views: _savedViews,
       ),
     );
     // Folding is drawn before the fold holds the isolate: the band titles
@@ -435,6 +473,7 @@ class CalendarReportBloc extends Bloc<ReportEvent, ReportState> {
       years: years,
       compare: _compare,
       compareView: _compareView,
+      views: _savedViews,
     );
     _lastReady = ready;
     emit(ready);
@@ -451,6 +490,15 @@ class CalendarReportBloc extends Bloc<ReportEvent, ReportState> {
       years: years,
     );
     _refreshCompareView();
+    // The row dims Same period last year on a span whose year before is
+    // before the calendar's first, so that is what folds: the previous
+    // period for the rest of the visit, as after a deleted view.
+    if (_compare == ReportCompare.lastYear &&
+        span.start.year - 1 < years.first) {
+      _compare = ReportCompare.previous;
+      _compareView = null;
+    }
+    final compared = _compareView;
     final request = ReportRequest(
       span: span,
       previousSpan: previousSpan,
@@ -462,7 +510,7 @@ class CalendarReportBloc extends Bloc<ReportEvent, ReportState> {
       membershipRevision: calendar.membershipRevision,
       presenceRevision: calendar.presenceRevision,
       compare: _compare,
-      compareView: _compareView,
+      compareView: compared,
     );
     final key = _FoldKey(
       events: calendar.allEvents,
@@ -477,7 +525,13 @@ class CalendarReportBloc extends Bloc<ReportEvent, ReportState> {
       profilesRevision: CategoryProfiles.revision,
       ledgerRevision: NoteMoneyLedgerService.instanceOrNull?.revision ?? -1,
       compare: _compare,
-      compareView: _compareView,
+      compareView: compared == null
+          ? null
+          : (
+              id: compared.id,
+              name: compared.name,
+              categoryIds: compared.categoryIds,
+            ),
     );
     return (request: request, key: key, years: years);
   }
@@ -581,9 +635,20 @@ class _FoldKey {
   final int ledgerRevision;
   final ReportCompare compare;
 
-  /// By value: the view as the service holds it, so an edit since the last
-  /// fold refolds and the same pick again does not.
-  final OverviewView? compareView;
+  /// What the fold and its words read of the compared view, as the service
+  /// holds it: a rename or a category edit since the last fold refolds, a
+  /// reorder or a list-option edit in the overview does not, nor does the
+  /// same pick again.
+  final ({String id, String name, Set<String> categoryIds})? compareView;
+
+  static bool _sameView(
+    ({String id, String name, Set<String> categoryIds})? a,
+    ({String id, String name, Set<String> categoryIds})? b,
+  ) => a == null || b == null
+      ? a == b
+      : a.id == b.id &&
+            a.name == b.name &&
+            setEquals(a.categoryIds, b.categoryIds);
 
   @override
   bool operator ==(Object other) =>
@@ -600,7 +665,7 @@ class _FoldKey {
       profilesRevision == other.profilesRevision &&
       ledgerRevision == other.ledgerRevision &&
       compare == other.compare &&
-      compareView == other.compareView;
+      _sameView(compareView, other.compareView);
 
   @override
   int get hashCode => Object.hash(
@@ -616,6 +681,8 @@ class _FoldKey {
     profilesRevision,
     ledgerRevision,
     compare,
-    compareView,
+    compareView?.id,
+    compareView?.name,
+    Object.hashAllUnordered(compareView?.categoryIds ?? const {}),
   );
 }

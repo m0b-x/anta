@@ -96,7 +96,10 @@ final class ReportLookArrived extends ReportEvent {
 /// the visit — kept across every period, step, category and calendar change,
 /// never persisted (decision H). [view] is the saved view picked, exactly
 /// when [compare] is [ReportCompare.view]; the bloc re-reads it by id on
-/// every fold, so a rename or a deletion in the overview reaches the report.
+/// every fold, so a rename or a deletion in the overview reaches the report
+/// on its next fold — a step, a pick, a calendar change or a resume — and a
+/// deleted view then compares with the previous period for the rest of the
+/// visit.
 final class ReportComparePicked extends ReportEvent {
   final ReportCompare compare;
   final OverviewView? view;

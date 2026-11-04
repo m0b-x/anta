@@ -75,6 +75,11 @@ sealed class ReportShown extends ReportState {
   /// non-null exactly when [compare] is [ReportCompare.view].
   final OverviewView? compareView;
 
+  /// The saved views the Compare with row offers, as the views service held
+  /// them at this state's fold or resume; empty with no service or while it
+  /// resolves.
+  final List<OverviewView> views;
+
   const ReportShown({
     required this.period,
     required this.home,
@@ -88,6 +93,7 @@ sealed class ReportShown extends ReportState {
     required this.years,
     this.compare = ReportCompare.previous,
     this.compareView,
+    this.views = const [],
   });
 
   /// The calendar's first weekday.
@@ -111,16 +117,19 @@ sealed class ReportShown extends ReportState {
     years,
     compare,
     compareView,
+    views,
   ];
 }
 
 /// A fold is running. [previous] is the last report, drawn dimmed until
 /// the new one lands (§4.2's refold); null on the first fold.
 ///
-/// [period] and [categoryIds] are already the new pick, which the band's
-/// title shows; everything worded from [previous] — the caption, Show as
-/// list — reads [previousPeriod] and [previousCategoryIds], the ones it was
-/// folded for (D36.9), so the page never pairs a new name with old numbers.
+/// [period], [categoryIds], [compare] and [compareView] are already the new
+/// pick, which the band's title and the Compare with row show; everything
+/// worded from [previous] — the caption, Show as list, a compared view's
+/// name — reads [previousPeriod], [previousCategoryIds], [previousCompare]
+/// and [previousCompareView], the ones it was folded for (D36.9), so the page
+/// never pairs a new name with old numbers.
 final class ReportFolding extends ReportShown {
   final CalendarReport? previous;
 
@@ -130,10 +139,20 @@ final class ReportFolding extends ReportShown {
   /// The allowlist [previous] was folded over.
   final Set<String> previousCategoryIds;
 
+  /// The Compare with choice [previous] was folded for; the previous period
+  /// on the first fold.
+  final ReportCompare previousCompare;
+
+  /// The saved view [previous] was compared with; null with it, or when
+  /// [previousCompare] is not [ReportCompare.view].
+  final OverviewView? previousCompareView;
+
   const ReportFolding({
     this.previous,
     this.previousPeriod,
     this.previousCategoryIds = const {},
+    this.previousCompare = ReportCompare.previous,
+    this.previousCompareView,
     required super.period,
     required super.home,
     required super.categoryIds,
@@ -146,6 +165,7 @@ final class ReportFolding extends ReportShown {
     required super.years,
     super.compare,
     super.compareView,
+    super.views,
   });
 
   @override
@@ -157,6 +177,8 @@ final class ReportFolding extends ReportShown {
     previous,
     previousPeriod,
     previousCategoryIds,
+    previousCompare,
+    previousCompareView,
   ];
 }
 
@@ -178,6 +200,7 @@ final class ReportReady extends ReportShown {
     required super.years,
     super.compare,
     super.compareView,
+    super.views,
   });
 
   @override

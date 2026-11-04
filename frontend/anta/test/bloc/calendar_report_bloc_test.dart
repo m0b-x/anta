@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:drift/drift.dart' show driftRuntimeOptions;
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:anta/bloc/calendar/calendar_bloc.dart';
@@ -114,12 +115,13 @@ void main() {
   CalendarReportBloc build(
     CalendarReportService service, {
     FutureOr<SettingsService>? settingsSeed,
+    FutureOr<OverviewViewService>? viewsSeed,
     Future<void> Function()? nextFrame,
   }) => CalendarReportBloc(
     service: service,
     calendar: calendar,
     settings: settingsSeed ?? settings,
-    views: views,
+    views: viewsSeed ?? views,
     clock: clock,
     // No binding here: a fold waits on nothing but the event queue.
     nextFrame: nextFrame ?? () async {},
@@ -134,8 +136,9 @@ void main() {
   Future<List<ReportState>> openReady(
     CalendarReportBloc bloc, {
     ReportOpened opened = const ReportOpened(),
+    CalendarPageLoaded? calendarState,
   }) async {
-    loadCalendar();
+    loadCalendar(calendarState);
     final states = <ReportState>[];
     bloc.stream.listen(states.add);
     bloc.add(opened);
@@ -786,6 +789,21 @@ void main() {
       categoryIds: categoryIds,
     ))!;
 
+    // Events since 2025, so October 2026 has a last year to compare with.
+    final reachesLastYear = CalendarPageLoaded(
+      allEvents: [
+        CalendarEvent(
+          id: 'run',
+          title: 'Run',
+          categoryId: 'gym',
+          startDate: DateTime.utc(2025, 1, 1),
+          rule: const DailyRecurrence(),
+        ),
+      ],
+      focusedDay: today,
+      selectedDay: today,
+    );
+
     test('the first Ready of a visit compares with the previous period, no '
         'view', () async {
       final service = _FakeReportService();
@@ -876,7 +894,7 @@ void main() {
         final service = _FakeReportService();
         final bloc = build(service);
         addTearDown(bloc.close);
-        final states = await openReady(bloc);
+        final states = await openReady(bloc, calendarState: reachesLastYear);
 
         bloc.add(const ReportComparePicked(ReportCompare.lastYear));
         await pumpEventQueue();
@@ -1046,5 +1064,238 @@ void main() {
         expect((bloc.state as ReportReady).compare, ReportCompare.previous);
       },
     );
+
+    test('a fold that throws restores the choice of the last Ready '
+        '(D36.6)', () async {
+      final view = await saveView();
+      final service = _FakeReportService();
+      final bloc = build(service);
+      addTearDown(bloc.close);
+      final states = await openReady(bloc);
+      bloc.add(ReportComparePicked(ReportCompare.view, view: view));
+      await pumpEventQueue();
+      final picked = bloc.state as ReportReady;
+
+      service.failWith = StateError('fold');
+      bloc.add(const ReportComparePicked(ReportCompare.previous));
+      await pumpEventQueue();
+      expect(states.last, picked);
+
+      service.failWith = null;
+      bloc.add(const ReportStepped(-1));
+      await pumpEventQueue();
+      expect(service.requests.last.compare, ReportCompare.view);
+      expect(service.requests.last.compareView, view);
+      final ready = bloc.state as ReportReady;
+      expect(ready.compare, ReportCompare.view);
+      expect(ready.compareView, view);
+    });
+
+    test('a views service that never resolves holds neither the first fold, '
+        'a previous-period or last-year pick, nor a later step', () async {
+      final service = _FakeReportService();
+      final bloc = build(
+        service,
+        viewsSeed: Completer<OverviewViewService>().future,
+      );
+      addTearDown(bloc.close);
+      await openReady(bloc, calendarState: reachesLastYear);
+      expect(service.requests, hasLength(1));
+
+      bloc.add(const ReportComparePicked(ReportCompare.lastYear));
+      await pumpEventQueue();
+      expect(service.requests.last.compare, ReportCompare.lastYear);
+      expect((bloc.state as ReportReady).compare, ReportCompare.lastYear);
+
+      bloc.add(const ReportComparePicked(ReportCompare.previous));
+      await pumpEventQueue();
+      expect(service.requests.last.compare, ReportCompare.previous);
+
+      bloc.add(const ReportStepped(-1));
+      await pumpEventQueue();
+      final ready = bloc.state as ReportReady;
+      expect(ready.period, const OverviewMonthPeriod(2026, 9));
+      expect(ready.views, isEmpty);
+      expect(service.requests, hasLength(4));
+    });
+
+    test('a views service that fails folds a view pick as the previous '
+        'period', () async {
+      final view = await saveView();
+      final service = _FakeReportService();
+      final bloc = build(
+        service,
+        viewsSeed: Future<OverviewViewService>.error(StateError('views')),
+      );
+      addTearDown(bloc.close);
+      await openReady(bloc);
+
+      bloc.add(ReportComparePicked(ReportCompare.view, view: view));
+      await pumpEventQueue();
+      expect(service.requests.last.compare, ReportCompare.previous);
+      expect(service.requests.last.compareView, isNull);
+      final ready = bloc.state as ReportReady;
+      expect(ready.compare, ReportCompare.previous);
+      expect(ready.compareView, isNull);
+      expect(ready.views, isEmpty);
+    });
+
+    test('a resume after the compared view was deleted compares with the '
+        'previous period', () async {
+      final view = await saveView();
+      final service = _FakeReportService();
+      final bloc = build(service);
+      addTearDown(bloc.close);
+      await openReady(bloc);
+      bloc.add(ReportComparePicked(ReportCompare.view, view: view));
+      await pumpEventQueue();
+      expect(service.requests.last.compareView, view);
+
+      await views.delete(view.id);
+      bloc.add(const ReportResumed());
+      await pumpEventQueue();
+      expect(service.requests.last.compare, ReportCompare.previous);
+      expect(service.requests.last.compareView, isNull);
+      final ready = bloc.state as ReportReady;
+      expect(ready.compare, ReportCompare.previous);
+      expect(ready.compareView, isNull);
+      expect(ready.views, isEmpty);
+    });
+
+    test('Same period last year on a span whose year before the calendar '
+        'does not reach folds the previous period, and the state says '
+        'so', () async {
+      final service = _FakeReportService();
+      final bloc = build(service);
+      addTearDown(bloc.close);
+      // The calendar starts in 2026: October 2026 has no last year.
+      final states = await openReady(bloc);
+      expect((bloc.state as ReportReady).years.first, 2026);
+      final before = states.length;
+
+      bloc.add(const ReportComparePicked(ReportCompare.lastYear));
+      await pumpEventQueue();
+      expect(service.requests, hasLength(1), reason: 'the first fold again');
+      expect(states, hasLength(before), reason: 'an equal Ready is dropped');
+      expect((bloc.state as ReportReady).compare, ReportCompare.previous);
+
+      bloc.add(const ReportPeriodPicked(OverviewYearPeriod(2026)));
+      await pumpEventQueue();
+      expect(service.requests.last.compare, ReportCompare.previous);
+      expect((bloc.state as ReportReady).compare, ReportCompare.previous);
+    });
+
+    test('every shown state carries the saved views; one saved before a '
+        'resume reaches the Ready', () async {
+      final first = await saveView(name: 'First');
+      final service = CalendarReportService();
+      final bloc = build(service);
+      addTearDown(bloc.close);
+      final states = await openReady(bloc);
+      for (final state in states.whereType<ReportShown>()) {
+        expect(state.views, [first]);
+      }
+      final report = (bloc.state as ReportReady).report;
+
+      final second = await saveView(name: 'Second');
+      bloc.add(const ReportResumed());
+      await pumpEventQueue();
+      final ready = bloc.state as ReportReady;
+      expect(ready.views, [first, second]);
+      expect(identical(ready.report, report), isTrue, reason: 'a memo hit');
+      expect(service.foldCount, 1);
+    });
+
+    test('Folding names the choice of the report it draws (D36.9) beside the '
+        'new pick', () async {
+      final view = await saveView();
+      final bloc = build(_FakeReportService());
+      addTearDown(bloc.close);
+      final states = await openReady(bloc, calendarState: reachesLastYear);
+
+      var before = states.length;
+      bloc.add(ReportComparePicked(ReportCompare.view, view: view));
+      await pumpEventQueue();
+      var folding = states.skip(before).whereType<ReportFolding>().single;
+      expect(folding.previousCompare, ReportCompare.previous);
+      expect(folding.previousCompareView, isNull);
+      expect(folding.compare, ReportCompare.view);
+      expect(folding.compareView, view);
+
+      before = states.length;
+      bloc.add(const ReportComparePicked(ReportCompare.lastYear));
+      await pumpEventQueue();
+      folding = states.skip(before).whereType<ReportFolding>().single;
+      expect(folding.previousCompare, ReportCompare.view);
+      expect(folding.previousCompareView, view);
+      expect(folding.compare, ReportCompare.lastYear);
+      expect(folding.compareView, isNull);
+    });
+
+    test('a reorder of the saved views does not refold; a rename of the '
+        'compared one does', () async {
+      final first = await saveView(name: 'First');
+      final second = await saveView(name: 'Second');
+      final service = _FakeReportService();
+      final bloc = build(service);
+      addTearDown(bloc.close);
+      final states = await openReady(bloc);
+      bloc.add(ReportComparePicked(ReportCompare.view, view: first));
+      await pumpEventQueue();
+      final folds = service.requests.length;
+
+      await views.reorder([second.id, first.id]);
+      final before = states.length;
+      loadCalendar(loaded.copyWith(selectedDay: DateTime.utc(2026, 10, 12)));
+      await pumpEventQueue();
+      expect(service.requests, hasLength(folds));
+      expect(states.skip(before).whereType<ReportFolding>(), isEmpty);
+      final reordered = bloc.state as ReportReady;
+      expect(reordered.views.map((v) => v.id), [second.id, first.id]);
+
+      final moved = views.views.firstWhere((v) => v.id == first.id);
+      await views.update(moved.copyWith(name: 'Renamed'));
+      loadCalendar(loaded.copyWith(selectedDay: DateTime.utc(2026, 10, 13)));
+      await pumpEventQueue();
+      expect(service.requests, hasLength(folds + 1));
+      expect(service.requests.last.compareView!.name, 'Renamed');
+      expect((bloc.state as ReportReady).compareView!.name, 'Renamed');
+    });
+
+    test('after a database switch a resume and a view pick read the new '
+        'database\'s saved views', () async {
+      await saveView(name: 'Old');
+      final service = _FakeReportService();
+      final bloc = build(service);
+      addTearDown(bloc.close);
+      await openReady(bloc);
+      expect((bloc.state as ReportReady).views.single.name, 'Old');
+
+      DatabaseLifecycle.notifyDatabaseSwitching();
+      // Two open databases on purpose: the one switched from stays open
+      // under the settings the bloc already holds.
+      driftRuntimeOptions.dontWarnAboutMultipleDatabases = true;
+      addTearDown(
+        () => driftRuntimeOptions.dontWarnAboutMultipleDatabases = false,
+      );
+      final switched = await openTestDatabase();
+      addTearDown(switched.close);
+      final fresh = await OverviewViewService.forTesting(switched);
+      final view = (await fresh.create(
+        name: 'New',
+        period: const OverviewYearPeriod(2026),
+        options: OverviewListOptions.defaults,
+        categoryIds: const {'gym'},
+      ))!;
+
+      bloc.add(const ReportResumed());
+      await pumpEventQueue();
+      expect((bloc.state as ReportReady).views, [view]);
+
+      bloc.add(ReportComparePicked(ReportCompare.view, view: view));
+      await pumpEventQueue();
+      expect(service.requests.last.compare, ReportCompare.view);
+      expect(service.requests.last.compareView, view);
+    });
   });
 }
