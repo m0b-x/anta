@@ -14,6 +14,8 @@ import 'package:anta/models/calendar_event.dart';
 import 'package:anta/models/calendar_report.dart';
 import 'package:anta/models/category_profile.dart';
 import 'package:anta/models/date_range.dart';
+import 'package:anta/models/overview_period.dart';
+import 'package:anta/models/overview_view.dart';
 import 'package:anta/models/recurrence_rule.dart';
 import 'package:anta/services/calendar_report_service.dart';
 import 'package:anta/services/note_money_ledger_service.dart';
@@ -61,6 +63,8 @@ void main() {
     int occurrenceRevision = 0,
     int membershipRevision = 0,
     int presenceRevision = 0,
+    ReportCompare compare = ReportCompare.previous,
+    OverviewView? compareView,
   }) {
     return ReportRequest(
       span: span,
@@ -72,6 +76,8 @@ void main() {
       occurrenceRevision: occurrenceRevision,
       membershipRevision: membershipRevision,
       presenceRevision: presenceRevision,
+      compare: compare,
+      compareView: compareView,
     );
   }
 
@@ -985,23 +991,94 @@ void main() {
       expect(measures.measures['other']!.spentCents, 1500);
     });
 
+    ({int working, int holidays}) workingDaysOf(DateRange over) {
+      final input = CalendarReportService.sampleInput(
+        request(span: over, events: [daily], today: today),
+      );
+      return (working: input.workingDays, holidays: input.publicHolidays);
+    }
+
     test('working days leave out weekends and public holidays (T)', () {
       PublicHolidays.resetCache();
-      ({int working, int holidays}) of(DateRange over) {
-        final input = CalendarReportService.sampleInput(
-          request(span: over, events: [daily], today: today),
-        );
-        return (working: input.workingDays, holidays: input.publicHolidays);
-      }
-
+      CategoryProfiles.updateCache({'gym': profile('gym', CategoryKind.work)});
       // 1 May 2026 is a Friday; 15 August a Saturday.
-      expect(of(span(day(2026, 5, 1), day(2026, 5, 31))), (
+      expect(workingDaysOf(span(day(2026, 5, 1), day(2026, 5, 31))), (
         working: 20,
         holidays: 1,
       ));
-      expect(of(august), (working: 21, holidays: 1));
+      expect(workingDaysOf(august), (working: 21, holidays: 1));
       final report = CalendarReportService().report(augustAsked([daily]));
       expect((report.workingDays, report.publicHolidays), (21, 1));
+    });
+
+    test('working days: a leap February, a plan year, a clamped custom '
+        'span', () {
+      PublicHolidays.resetCache();
+      CategoryProfiles.updateCache({'gym': profile('gym', CategoryKind.work)});
+      // 1 February 2028 is a Tuesday: four weeks and the 29th, a Tuesday.
+      expect(workingDaysOf(span(day(2028, 2, 1), day(2028, 2, 29))), (
+        working: 21,
+        holidays: 0,
+      ));
+      ({int working, int holidays}) walked(int year) {
+        var working = 0;
+        var holidays = 0;
+        for (
+          var d = day(year, 1, 1);
+          d.year == year;
+          d = day(d.year, d.month, d.day + 1)
+        ) {
+          final holiday = PublicHolidays.isHoliday(d);
+          if (holiday) holidays++;
+          if (!holiday && d.weekday <= DateTime.friday) working++;
+        }
+        return (working: working, holidays: holidays);
+      }
+
+      final plan = workingDaysOf(span(day(2027, 1, 1), day(2027, 12, 31)));
+      expect(plan, walked(2027), reason: 'a plan year reads its own');
+      expect(plan.holidays, greaterThan(0));
+      expect(
+        workingDaysOf(span(day(2027, 1, 1), day(2028, 12, 31))),
+        walked(2028),
+        reason: 'D33 keeps 2028\'s 366 days, a whole year',
+      );
+    });
+
+    test('working days are resolved only for a whole month or year whose scope '
+        'holds a Work, Meeting or Leave kind (analytics P)', () {
+      PublicHolidays.resetCache();
+      // Unprofiled, nothing: every month report reads as before S4.
+      expect(workingDaysOf(august), (working: 0, holidays: 0));
+      // A Workout is no working-days story either.
+      CategoryProfiles.updateCache({
+        'gym': profile('gym', CategoryKind.workout),
+      });
+      expect(workingDaysOf(august), (working: 0, holidays: 0));
+      // Meeting and Leave count like Work; a week and a span that is not a
+      // calendar month do not, whatever the kind.
+      CategoryProfiles.updateCache({
+        'gym': profile('gym', CategoryKind.meeting),
+      });
+      expect(workingDaysOf(august), (working: 21, holidays: 1));
+      expect(workingDaysOf(span(day(2026, 8, 3), day(2026, 8, 9))), (
+        working: 0,
+        holidays: 0,
+      ));
+      expect(workingDaysOf(span(day(2026, 8, 2), day(2026, 8, 31))), (
+        working: 0,
+        holidays: 0,
+      ));
+      CategoryProfiles.updateCache({'gym': profile('gym', CategoryKind.leave)});
+      // The whole year, and a plan's month (December seen from October).
+      expect(
+        workingDaysOf(span(day(2026, 1, 1), day(2026, 12, 31))).working,
+        greaterThan(200),
+      );
+      expect(
+        workingDaysOf(span(day(2026, 12, 1), day(2026, 12, 31))).working,
+        greaterThan(0),
+      );
     });
 
     test('the lookback finds the last kept day before the span', () {
@@ -1058,16 +1135,18 @@ void main() {
       reports.report(augustAsked(events));
       expect(reports.scanCount, 4, reason: 'August is past: 2 + 2');
       reports.report(augustAsked(events));
-      expect((reports.foldCount, reports.scanCount), (1, 4));
+      // A profiled calendar folds the previous period too (§6.11): two
+      // folds a report, over the scans the totals fold took.
+      expect((reports.foldCount, reports.scanCount), (2, 4));
       // A description edit refolds the span; the windows are unchanged.
       reports.report(augustAsked(events, occurrenceRevision: 1));
-      expect((reports.foldCount, reports.scanCount), (2, 6));
+      expect((reports.foldCount, reports.scanCount), (4, 6));
       reports.report(
         request(span: july, previousSpan: june, events: events, today: today),
       );
-      expect((reports.foldCount, reports.scanCount), (3, 10));
+      expect((reports.foldCount, reports.scanCount), (6, 10));
       reports.report(augustAsked(events, occurrenceRevision: 1));
-      expect((reports.foldCount, reports.scanCount), (3, 10), reason: '◄ ►');
+      expect((reports.foldCount, reports.scanCount), (6, 10), reason: '◄ ►');
     });
 
     test('a profile change refolds once', () {
@@ -1079,7 +1158,11 @@ void main() {
       });
       reports.report(augustAsked(events));
       reports.report(augustAsked(events));
-      expect(reports.foldCount, 2);
+      expect(
+        reports.foldCount,
+        3,
+        reason: 'one unprofiled fold, then a report and its compared fold',
+      );
     });
 
     test('a ledger change refolds once', () {
@@ -1193,17 +1276,19 @@ void main() {
             'and, August being past, one lookahead',
       );
       reports.report(augustAsked(events));
-      expect((reports.foldCount, reports.scanCount), (1, 6));
+      // Two folds a report: profiled, the previous period is a compared
+      // fold (§6.11).
+      expect((reports.foldCount, reports.scanCount), (2, 6));
       reports.report(
         request(span: july, previousSpan: june, events: events, today: today),
       );
-      expect((reports.foldCount, reports.scanCount), (2, 12));
+      expect((reports.foldCount, reports.scanCount), (4, 12));
       reports.report(augustAsked(events));
-      expect((reports.foldCount, reports.scanCount), (2, 12), reason: '◄ ►');
+      expect((reports.foldCount, reports.scanCount), (4, 12), reason: '◄ ►');
       reports.report(augustAsked(events, occurrenceRevision: 1));
       expect(
         (reports.foldCount, reports.scanCount),
-        (3, 14),
+        (6, 14),
         reason: 'a description edit rescans the spans, never the windows',
       );
     });
@@ -1346,15 +1431,17 @@ void main() {
       reports.report(augustAsked(events, occurrenceRevision: 1));
       expect(
         (reports.foldCount, reports.scanCount),
-        (2, 5),
-        reason: 'a description edit rescans the spans, never the window',
+        (4, 5),
+        reason:
+            'a description edit rescans the spans, never the window; two '
+            'folds a report, the previous period compared (§6.11)',
       );
       reports.report(
         request(span: july, previousSpan: june, events: events, today: today),
       );
       expect(
         (reports.foldCount, reports.scanCount),
-        (3, 7),
+        (6, 7),
         reason: 'another span reads the same next month',
       );
     });
@@ -1464,6 +1551,497 @@ void main() {
         ),
         throwsAssertionError,
       );
+    });
+  });
+
+  // Compare's second fold (S2b-ii, §6.11): the compared span per mode, the
+  // compared today, the view's fold, the two-fold memo, and the unprofiled
+  // calendar folding exactly as it did.
+  group('compare (§6.11)', () {
+    final daily = ev(
+      'd',
+      'gym',
+      day(2020, 1, 1),
+      rule: const DailyRecurrence(),
+      tracked: true,
+    );
+    final october = span(day(2026, 10, 1), day(2026, 10, 31));
+    final september = span(day(2026, 9, 1), day(2026, 9, 30));
+    final august = span(day(2026, 8, 1), day(2026, 8, 31));
+    final july = span(day(2026, 7, 1), day(2026, 7, 31));
+    final june = span(day(2026, 6, 1), day(2026, 6, 30));
+    final may = span(day(2026, 5, 1), day(2026, 5, 31));
+    final april = span(day(2026, 4, 1), day(2026, 4, 30));
+    final today = day(2026, 11, 15);
+    // One list for the memo's cases: the memo keys on the list's identity.
+    final dailies = [daily];
+
+    void profileGym() => CategoryProfiles.updateCache({
+      'gym': const CategoryProfile(
+        id: 'p-gym',
+        categoryId: 'gym',
+        kind: CategoryKind.workout,
+      ),
+    });
+
+    tearDown(CategoryProfiles.resetCache);
+
+    OverviewView viewOf(Set<String> categoryIds) => OverviewView(
+      id: 'v',
+      name: 'Life',
+      period: const OverviewYearPeriod(2026),
+      categoryIds: categoryIds,
+    );
+
+    CalendarReport lastYear(DateRange of, DateTime on) =>
+        CalendarReportService().report(
+          request(
+            span: of,
+            events: [daily],
+            today: on,
+            compare: ReportCompare.lastYear,
+          ),
+        );
+
+    test('last year: a calendar year, a month, whole weeks, any other '
+        'span', () {
+      final cases = <(DateRange, DateTime, DateRange)>[
+        (
+          span(day(2026, 1, 1), day(2026, 12, 31)),
+          day(2027, 1, 15),
+          span(day(2025, 1, 1), day(2025, 12, 31)),
+        ),
+        (
+          span(day(2028, 2, 1), day(2028, 2, 29)),
+          day(2028, 3, 10),
+          span(day(2027, 2, 1), day(2027, 2, 28)),
+        ),
+        (
+          span(day(2026, 11, 2), day(2026, 11, 8)),
+          today,
+          span(day(2025, 11, 3), day(2025, 11, 9)),
+        ),
+        (
+          span(day(2028, 2, 20), day(2028, 2, 29)),
+          day(2028, 3, 10),
+          span(day(2027, 2, 20), day(2027, 2, 28)),
+        ),
+        (
+          span(day(2028, 2, 29), day(2028, 3, 9)),
+          day(2028, 3, 10),
+          span(day(2027, 2, 28), day(2027, 3, 9)),
+        ),
+      ];
+      for (final (of, on, expected) in cases) {
+        final report = lastYear(of, on);
+        expect(report.compare, ReportCompare.lastYear, reason: '$of');
+        expect(report.previousSpan, expected, reason: '$of');
+        expect(report.compared!.span, expected, reason: '$of');
+      }
+      expect(
+        lastYear(
+          span(day(2026, 11, 2), day(2026, 11, 8)),
+          today,
+        ).previousSpan!.start.weekday,
+        DateTime.monday,
+        reason: 'whole weeks keep their weekdays',
+      );
+    });
+
+    test('last year: a shifted span that gains 29 February is clamped to '
+        'the scan\'s cap', () {
+      final report = lastYear(
+        span(day(2028, 3, 1), day(2029, 3, 1)),
+        day(2029, 3, 10),
+      );
+      final compared = report.compared!.span;
+      expect(compared.end, day(2028, 3, 1), reason: 'the shifted end');
+      expect(
+        compared.end.difference(compared.start).inDays + 1,
+        lessThanOrEqualTo(EventAgenda.maxRangeDays),
+      );
+      expect(report.previousSpan, compared);
+      expect(
+        report.compared!.totals!.kept,
+        EventAgenda.maxRangeDays,
+        reason: 'every day the span names is scanned',
+      );
+    });
+
+    test('last year before the calendar\'s first day folds as the previous '
+        'period', () {
+      final report = lastYear(span(day(1900, 1, 1), day(1900, 1, 31)), today);
+      expect(report.compare, ReportCompare.previous);
+      expect(report.previousSpan, isNull);
+      expect(report.compared, isNull);
+    });
+
+    test('a plan compares with the previous period whatever is asked', () {
+      profileGym();
+      final november = span(day(2026, 11, 1), day(2026, 11, 30));
+      for (final (compare, view) in [
+        (ReportCompare.lastYear, null),
+        (ReportCompare.view, viewOf({'gym'})),
+      ]) {
+        final service = CalendarReportService();
+        final report = service.report(
+          request(
+            span: november,
+            previousSpan: october,
+            events: [daily],
+            today: day(2026, 10, 15),
+            compare: compare,
+            compareView: view,
+          ),
+        );
+        expect(report.tense, ReportTense.future);
+        expect(report.compare, ReportCompare.previous, reason: '$compare');
+        expect(report.previousSpan, october, reason: '$compare');
+        expect(report.compared, isNull, reason: '$compare');
+        expect(service.foldCount, 1, reason: '$compare');
+      }
+    });
+
+    test('the compared today: the counted part\'s last day in a current '
+        'span, the real today in a past one', () {
+      final current = CalendarReportService().report(
+        request(
+          span: october,
+          events: [daily],
+          today: day(2026, 10, 10),
+          compare: ReportCompare.lastYear,
+        ),
+      );
+      final before = span(day(2025, 10, 1), day(2025, 10, 10));
+      expect(current.previousCounted, before);
+      final compared = current.compared!;
+      expect((compared.today, compared.countedTo), (before.end, before.end));
+      expect(compared.tense, ReportTense.current);
+      expect(tile(current, ReportTile.events).previous, 10);
+
+      final past = CalendarReportService()
+          .report(
+            request(
+              span: september,
+              events: [daily],
+              today: day(2026, 10, 30),
+              compare: ReportCompare.lastYear,
+            ),
+          )
+          .compared!;
+      expect((past.today, past.tense), (day(2026, 10, 30), ReportTense.past));
+      expect(past.totals!.kept, 30);
+    });
+
+    test('previous totals are the compared fold\'s totals on the D28 '
+        'fixtures', () {
+      profileGym();
+      EventPresence.updateCache(
+        byEvent: {
+          'd': {
+            day(2026, 9, 5): PresenceStatus.missed,
+            day(2026, 8, 7): PresenceStatus.missed,
+          },
+        },
+      );
+      for (final (of, before, on, previous) in [
+        (september, august, day(2026, 10, 30), 30),
+        (october, september, day(2026, 10, 10), 9),
+        (october, september, day(2026, 10, 1), 1),
+        (october, september, day(2026, 10, 31), 29),
+      ]) {
+        final asked = request(
+          span: of,
+          previousSpan: before,
+          events: [daily],
+          today: on,
+        );
+        final report = CalendarReportService().report(asked);
+        expect(
+          report.compared!.totals,
+          CalendarReportService.sampleInput(asked).previousTotals,
+          reason: '$of on $on',
+        );
+        expect(
+          tile(report, ReportTile.events).previous,
+          previous,
+          reason: '$of on $on',
+        );
+      }
+    });
+
+    test('a view folds its categories over the span with the page\'s '
+        'tiles', () {
+      final events = [
+        ev(
+          'gym',
+          'gym',
+          day(2026, 1, 1),
+          rule: const DailyRecurrence(),
+          time: const EventTime(startMinute: 18 * 60, durationMinutes: 60),
+        ),
+        ev('lunch', 'friends', day(2026, 10, 3)),
+        ev('dinner', 'friends', day(2026, 10, 9)),
+      ];
+      final report = CalendarReportService().report(
+        request(
+          span: october,
+          previousSpan: september,
+          events: events,
+          today: today,
+          compare: ReportCompare.view,
+          compareView: viewOf({'friends'}),
+        ),
+      );
+      expect(report.compare, ReportCompare.view);
+      expect(report.previousSpan, september);
+      expect(tile(report, ReportTile.events).previous, 30);
+      final view = report.compared!;
+      expect(view.span, october);
+      expect(view.measures.keys, ['friends']);
+      expect(
+        [for (final t in view.tiles) t.tile],
+        [for (final t in report.tiles) t.tile],
+      );
+      expect(tile(view, ReportTile.events).value, 2);
+      expect(tile(view, ReportTile.hours).value, 0);
+      expect(view.tiles.every((t) => t.previous == null), isTrue);
+    });
+
+    test('the two-fold memo: the same request folds nothing more, a step '
+        'back and forth neither, a presence mark refolds both', () {
+      profileGym();
+      ReportRequest asked(
+        DateRange of,
+        DateRange before, {
+        int presenceRevision = 0,
+      }) => request(
+        span: of,
+        previousSpan: before,
+        events: dailies,
+        today: today,
+        presenceRevision: presenceRevision,
+      );
+      final service = CalendarReportService();
+      final first = service.report(asked(august, july));
+      expect(service.foldCount, 2);
+      expect(service.report(asked(august, july)), same(first));
+      expect(service.foldCount, 2);
+      service.report(asked(july, june));
+      expect(service.foldCount, 4);
+      service.report(asked(august, july));
+      expect(service.foldCount, 4, reason: '◄ ►');
+      service.report(asked(august, july, presenceRevision: 1));
+      expect(service.foldCount, 6);
+    });
+
+    test('a view is two memo entries, and an edited view misses', () {
+      ReportRequest asked(Set<String> ids) => request(
+        span: august,
+        previousSpan: july,
+        events: dailies,
+        today: today,
+        compare: ReportCompare.view,
+        compareView: viewOf(ids),
+      );
+      final service = CalendarReportService();
+      service.report(asked({'gym'}));
+      service.report(asked({'gym'}));
+      expect(service.foldCount, 2);
+      service.report(asked({'gym', 'friends'}));
+      expect(service.foldCount, 4);
+      service.report(
+        request(
+          span: august,
+          previousSpan: july,
+          events: dailies,
+          today: today,
+        ),
+      );
+      expect(service.foldCount, 5, reason: 'unprofiled, previous: one fold');
+    });
+
+    test('memoFolds keeps four compared reports', () {
+      profileGym();
+      final service = CalendarReportService();
+      final spans = [(august, july), (july, june), (june, may), (may, april)];
+      void askAll() {
+        for (final (of, before) in spans) {
+          service.report(
+            request(
+              span: of,
+              previousSpan: before,
+              events: dailies,
+              today: today,
+            ),
+          );
+        }
+      }
+
+      askAll();
+      expect(service.foldCount, 8);
+      askAll();
+      expect(service.foldCount, 8, reason: 'eight entries hold four reports');
+    });
+
+    test('unprofiled, the default mode folds once, exactly as before', () {
+      final asked = request(
+        span: october,
+        previousSpan: september,
+        events: [daily],
+        today: day(2026, 10, 20),
+      );
+      final service = CalendarReportService();
+      final report = service.report(asked);
+      expect(service.foldCount, 1);
+      expect((report.compare, report.compared), (ReportCompare.previous, null));
+      expect(report.balanceLastYear, isNull);
+      expect(
+        report,
+        CalendarReportBuilder.fold(CalendarReportService.sampleInput(asked)),
+      );
+    });
+
+    test('last year folds a second fold even unprofiled; Balance reads it', () {
+      final service = CalendarReportService();
+      final report = service.report(
+        request(
+          span: september,
+          events: [
+            ev(
+              'gym',
+              'gym',
+              day(2025, 1, 1),
+              rule: const DailyRecurrence(),
+              time: const EventTime(startMinute: 9 * 60, durationMinutes: 30),
+            ),
+          ],
+          today: today,
+          compare: ReportCompare.lastYear,
+        ),
+      );
+      expect(service.foldCount, 2);
+      expect(report.balanceLastYear, report.compared!.balance);
+      expect(report.balanceLastYear, {LifeArea.other: 30 * 30});
+      expect(report.trend!.lastYear, List.filled(30, 1));
+    });
+
+    test('T1 through the service: a current span against the previous '
+        'period\'s counted part', () {
+      CategoryProfiles.updateCache({
+        'gym': const CategoryProfile(
+          id: 'p-gym',
+          categoryId: 'gym',
+          kind: CategoryKind.custom,
+          measure: ReportMeasure.count,
+        ),
+      });
+      // Ten visits by 20 September and three after it; thirteen by
+      // 20 October and one still ahead.
+      final events = [
+        for (var i = 1; i <= 10; i++) ev('s$i', 'gym', day(2026, 9, i)),
+        for (var i = 21; i <= 23; i++) ev('s$i', 'gym', day(2026, 9, i)),
+        for (var i = 1; i <= 13; i++) ev('o$i', 'gym', day(2026, 10, i)),
+        ev('ahead', 'gym', day(2026, 10, 25)),
+      ];
+      final report = CalendarReportService().report(
+        request(
+          span: october,
+          previousSpan: september,
+          events: events,
+          today: day(2026, 10, 20),
+        ),
+      );
+      final compared = report.compared!;
+      expect(
+        (compared.today, compared.countedTo),
+        (day(2026, 9, 20), day(2026, 9, 20)),
+      );
+      final t1 = report.insights.singleWhere((i) => i.rule == InsightRule.t1);
+      expect(
+        (t1.categoryId, t1.n1, t1.n2),
+        ('gym', 13, 10),
+        reason: 'the whole of September would read 13 against 13',
+      );
+      expect(t1.ratio, closeTo(0.3, 1e-9));
+    });
+
+    test('the memo: a calendar year\'s previous period and last year share '
+        'one compared entry', () {
+      profileGym();
+      final service = CalendarReportService();
+      final y2026 = span(day(2026, 1, 1), day(2026, 12, 31));
+      final y2025 = span(day(2025, 1, 1), day(2025, 12, 31));
+      final on = day(2027, 1, 15);
+      final previous = service.report(
+        request(span: y2026, previousSpan: y2025, events: dailies, today: on),
+      );
+      expect(service.foldCount, 2);
+      final lastYear = service.report(
+        request(
+          span: y2026,
+          previousSpan: y2025,
+          events: dailies,
+          today: on,
+          compare: ReportCompare.lastYear,
+        ),
+      );
+      expect(service.foldCount, 3, reason: 'the main fold alone');
+      expect(lastYear.compared, same(previous.compared));
+    });
+
+    test('the memo: the same previous span on another elapsed day misses', () {
+      profileGym();
+      final service = CalendarReportService();
+      CalendarReport on(DateTime today) => service.report(
+        request(
+          span: october,
+          previousSpan: september,
+          events: dailies,
+          today: today,
+        ),
+      );
+      final tenth = on(day(2026, 10, 10));
+      final twelfth = on(day(2026, 10, 12));
+      expect(service.foldCount, 4);
+      expect(
+        (tenth.compared!.totals!.kept, twelfth.compared!.totals!.kept),
+        (10, 12),
+      );
+    });
+
+    test('the memo: a view re-folds when the main tile set changes, and a '
+        'profiled view stays at two folds', () {
+      profileGym();
+      final events = [
+        daily,
+        ev('lunch', 'friends', day(2026, 8, 3)),
+        ev('dinner', 'friends', day(2026, 8, 9)),
+      ];
+      final service = CalendarReportService();
+      CalendarReport asked(Set<String> categoryIds) => service.report(
+        request(
+          span: august,
+          previousSpan: july,
+          categoryIds: categoryIds,
+          events: events,
+          today: today,
+          compare: ReportCompare.view,
+          compareView: viewOf({'friends'}),
+        ),
+      );
+      List<ReportTile> tilesOf(CalendarReport r) => [
+        for (final t in r.tiles) t.tile,
+      ];
+      final all = asked(const {});
+      expect(service.foldCount, 2, reason: 'profiled: the main and the view');
+      final gym = asked({'gym'});
+      expect(tilesOf(gym), tilesOf(all));
+      expect(service.foldCount, 3, reason: 'the same tiles: the view is hit');
+      final friends = asked({'friends'});
+      expect(tilesOf(friends), isNot(tilesOf(all)));
+      expect(service.foldCount, 5, reason: 'other tiles: the view re-folds');
+      expect(tilesOf(friends.compared!), tilesOf(friends));
     });
   });
 }

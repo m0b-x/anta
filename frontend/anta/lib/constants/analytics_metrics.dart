@@ -181,4 +181,9 @@ abstract final class AnalyticsMetrics {
   /// Categories the year's Months strip lists before "n more" (§6.12),
   /// `ReportMetrics.maxCategoryRows`'s seven for the same reason.
   static const int yearMonthsStripCategories = 7;
+
+  /// The shortest run of kept occurrences a year's Records lists as a
+  /// streak (S6 J): two in a row is any week's routine, three is the first
+  /// run worth naming.
+  static const int recordStreakMin = 3;
 }

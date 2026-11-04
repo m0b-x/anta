@@ -19,6 +19,7 @@ import '../models/calendar_report.dart';
 import '../models/category_profile.dart';
 import '../models/date_range.dart';
 import '../models/overview_period.dart';
+import '../models/overview_view.dart';
 import '../utils/calendar_report_builder.dart';
 import '../utils/event_agenda.dart';
 import '../utils/lru_cache.dart';
@@ -93,6 +94,16 @@ final class ReportRequest {
   /// numbers (a Bill category counts no hours).
   final EffectiveProfile Function(String categoryId)? profileOf;
 
+  /// What the second fold compares with (§6.11). Under
+  /// [ReportCompare.lastYear] the service shifts the span itself and
+  /// [previousSpan] goes unread; a plan always compares with the previous
+  /// period.
+  final ReportCompare compare;
+
+  /// The saved view folded beside the span under [ReportCompare.view] — its
+  /// categories only; null in every other mode.
+  final OverviewView? compareView;
+
   const ReportRequest({
     required this.span,
     this.previousSpan,
@@ -108,7 +119,12 @@ final class ReportRequest {
     this.skipsFor,
     this.descriptionsFor,
     this.profileOf,
-  });
+    this.compare = ReportCompare.previous,
+    this.compareView,
+  }) : assert(
+         (compare == ReportCompare.view) == (compareView != null),
+         'a view is compared exactly when Compare chose one',
+       );
 }
 
 /// Turns the live calendar — the events, the presence, skip and description
@@ -155,7 +171,10 @@ class CalendarReportService {
 
   /// The report [request] asks for, from the memo when nothing it reads has
   /// moved. A miss costs one sampling and one fold of the span, and one
-  /// sampling and one totals fold of the previous span's counted part.
+  /// sampling of the previous span's counted part: a totals fold of it for
+  /// an unprofiled calendar comparing with the previous period, else a
+  /// compared fold (§6.11) — itself a memo entry, so a step back and forth
+  /// re-folds neither.
   CalendarReport report(ReportRequest request) {
     assert(
       request.isMissed == null &&
@@ -167,19 +186,182 @@ class CalendarReportService {
       'with readers folds through sampleInput',
     );
     final window = _Window.of(request);
+    final view = window.compare == ReportCompare.view
+        ? request.compareView
+        : null;
     final key = _ReportKey(
       window.scope,
       window.span,
       window.previousSpan,
       request.weekStart,
+      compare: window.compare,
+      viewCategoryIds: view == null ? null : _sorted(view.categoryIds),
     );
     final cached = _reports.get(key);
     if (cached != null) return cached;
-    _foldCount++;
-    final report = CalendarReportBuilder.fold(_input(request, window, this));
+    final scoped = _Scoped.of(request);
+    final previousCounted = window.previousCounted;
+    // An unprofiled calendar comparing with the previous period needs only
+    // totals, so it folds exactly as it did before Compare.
+    final compares =
+        !window.plan &&
+        (window.compare != ReportCompare.previous ||
+            scoped.profiles.values.any((p) => !p.isUnprofiled));
+    final CalendarReport report;
+    if (compares && view != null) {
+      final main = _fold(_input(request, window, owner: this, scoped: scoped));
+      report = main.withCompared(_viewFold(request, view, main));
+    } else if (compares && previousCounted != null) {
+      final compared = _comparedFold(request, scoped, window, previousCounted);
+      report = _fold(
+        _input(
+          request,
+          window,
+          owner: this,
+          scoped: scoped,
+          compared: compared,
+        ),
+      );
+    } else {
+      report = _fold(_input(request, window, owner: this, scoped: scoped));
+    }
     _reports.put(key, report);
     return report;
   }
+
+  CalendarReport _fold(ReportInput input) {
+    _foldCount++;
+    return CalendarReportBuilder.fold(input);
+  }
+
+  /// The previous period's or last year's fold over its counted part (D28),
+  /// folded on its own today — the real one when the span is past, the
+  /// counted part's last day when it is current — so its numbers are the
+  /// deltas' like with like; sampled with the real today, whose pending
+  /// rule decides what may still happen.
+  CalendarReport _comparedFold(
+    ReportRequest request,
+    _Scoped scoped,
+    _Window window,
+    DateRange counted,
+  ) {
+    final span = window.previousSpan!;
+    final today = window.span.end.isBefore(window.today)
+        ? window.today
+        : counted.end;
+    final key = _ReportKey(
+      window.scope,
+      span,
+      null,
+      request.weekStart,
+      role: ReportFoldRole.compared,
+      foldToday: today,
+    );
+    final cached = _reports.get(key);
+    if (cached != null) return cached;
+    final compared = _fold(
+      _comparedInput(
+        scoped,
+        span: span,
+        counted: counted,
+        today: today,
+        sampledOn: window.today,
+        weekStart: request.weekStart,
+      ),
+    );
+    _reports.put(key, compared);
+    return compared;
+  }
+
+  /// The saved [view]'s fold over the span and today of [request], with
+  /// [main]'s tiles, so the two Totals columns line up.
+  CalendarReport _viewFold(
+    ReportRequest request,
+    OverviewView view,
+    CalendarReport main,
+  ) {
+    final derived = ReportRequest(
+      span: request.span,
+      categoryIds: view.categoryIds,
+      events: request.events,
+      today: request.today,
+      weekStart: request.weekStart,
+      occurrenceRevision: request.occurrenceRevision,
+      membershipRevision: request.membershipRevision,
+      presenceRevision: request.presenceRevision,
+    );
+    final window = _Window.of(derived);
+    final tileSet = List<ReportTile>.unmodifiable([
+      for (final tile in main.tiles) tile.tile,
+    ]);
+    final key = _ReportKey(
+      window.scope,
+      window.span,
+      null,
+      request.weekStart,
+      role: ReportFoldRole.compared,
+      foldToday: window.today,
+      tileSet: tileSet,
+    );
+    final cached = _reports.get(key);
+    if (cached != null) return cached;
+    final compared = _fold(
+      _comparedInput(
+        _Scoped.of(derived),
+        span: window.span,
+        counted: window.counted,
+        today: window.today,
+        sampledOn: window.today,
+        weekStart: request.weekStart,
+        tileSet: tileSet,
+      ),
+    );
+    _reports.put(key, compared);
+    return compared;
+  }
+
+  /// A compared fold's input: [counted]'s samples alone — the fold reads no
+  /// day after its [today] — and no lookback, lookahead, bills ahead or
+  /// working days, which only the main fold's cards read.
+  ReportInput _comparedInput(
+    _Scoped scoped, {
+    required DateRange span,
+    required DateRange counted,
+    required DateTime today,
+    required DateTime sampledOn,
+    required CalendarWeekStart weekStart,
+    List<ReportTile>? tileSet,
+  }) {
+    final cancelled = _cancelled(scoped, counted, today);
+    final samples = _samples(scoped, counted, sampledOn, this);
+    // A pending day the compared today has passed has not happened: left
+    // out, as the totals fold leaves it out.
+    bool stale(ReportSample s) => s.pending && s.day != today;
+    return ReportInput(
+      span: span,
+      today: today,
+      weekStart: weekStart,
+      events: scoped.byId,
+      categoryOf: scoped.categoryOf,
+      samples: samples.any(stale)
+          ? [
+              for (final sample in samples)
+                if (!stale(sample)) sample,
+            ]
+          : samples,
+      overrides: scoped.overrides,
+      skippedDays: cancelled.length,
+      categoryOrder: [for (final c in CalendarCategories.all) c.id],
+      profiles: scoped.profiles,
+      cancelled: cancelled,
+      money: _money(scoped),
+      role: ReportFoldRole.compared,
+      tileSet: tileSet,
+    );
+  }
+
+  static List<String> _sorted(Set<String> ids) =>
+      List.unmodifiable(ids.toList()..sort());
 
   /// The builder's input for [request], unmemoized: the sampling [report]
   /// folds, public for the digest planner's path — whose caller may fold one
@@ -216,17 +398,26 @@ class CalendarReportService {
   );
 
   /// [owner] counts the scans and caches the lookbacks; the unmemoized
-  /// [sampleInput] passes none and resolves them afresh.
+  /// [sampleInput] passes none and resolves them afresh. Given [compared],
+  /// the previous totals are its totals — the same numbers as the totals
+  /// fold, from the fold the rules read — and no second sampling runs.
   static ReportInput _input(
     ReportRequest request,
-    _Window window, [
+    _Window window, {
     CalendarReportService? owner,
-  ]) {
-    final scoped = _Scoped.of(request);
+    _Scoped? scoped,
+    CalendarReport? compared,
+  }) {
+    scoped ??= _Scoped.of(request);
     final previousCounted = window.previousCounted;
     final samples = _samples(scoped, window.span, window.today, owner);
-    final cancelled = _cancelled(scoped, window);
-    final (:workingDays, :publicHolidays) = _workingDays(window.span);
+    final cancelled = _cancelled(scoped, window.counted, window.today);
+    final (
+      :workingDays,
+      :publicHolidays,
+    ) = _readsWorkingDays(window.span, scoped.profiles)
+        ? _workingDays(window.span)
+        : (workingDays: 0, publicHolidays: 0);
     final lookback = _lookback(scoped, window, owner);
     final lookahead = _lookahead(scoped, window, owner);
     final billsAhead = _billsAhead(scoped, window, owner);
@@ -244,7 +435,8 @@ class CalendarReportService {
       previousCounted: previousCounted,
       previousTotals: previousCounted == null
           ? null
-          : _previousTotals(scoped, previousCounted, window, owner),
+          : compared?.totals ??
+                _previousTotals(scoped, previousCounted, window, owner),
       profiles: scoped.profiles,
       cancelled: cancelled,
       money: _money(scoped),
@@ -254,6 +446,8 @@ class CalendarReportService {
       billsAhead: billsAhead,
       workingDays: workingDays,
       publicHolidays: publicHolidays,
+      compare: window.compare,
+      compared: compared,
     );
   }
 
@@ -267,6 +461,31 @@ class CalendarReportService {
         if (event.noteId case final noteId?)
           event.id: ?ledger.ledgerFor(noteId)?.net,
     };
+  }
+
+  /// Whether [span]'s working days are worth resolving (analytics P): a
+  /// whole calendar month or year, in a scope whose [profiles] hold a Work,
+  /// Meeting or Leave kind — a plan included. A week has no working-days
+  /// story, and resolved unconditionally the facts would reach every month's
+  /// caption, where walkthroughs 1 and 7 want nothing to change.
+  static bool _readsWorkingDays(
+    DateRange span,
+    Map<String, EffectiveProfile> profiles,
+  ) {
+    final start = span.start;
+    final wholeMonth =
+        start.day == 1 &&
+        span.end == DateTime.utc(start.year, start.month + 1, 0);
+    final wholeYear =
+        start == DateTime.utc(start.year, 1, 1) &&
+        span.end == DateTime.utc(start.year, 12, 31);
+    if (!wholeMonth && !wholeYear) return false;
+    return profiles.values.any(
+      (profile) => switch (profile.kind) {
+        CategoryKind.work || CategoryKind.meeting || CategoryKind.leave => true,
+        _ => false,
+      },
+    );
   }
 
   /// The span's working days and public holidays (T). [PublicHolidays] is
@@ -542,9 +761,12 @@ class CalendarReportService {
   /// only where the rule still produces the day: a skip row outlives a rule
   /// change, and a cancelled Monday of a routine moved to Tuesdays skipped
   /// nothing.
-  static List<ReportSample> _cancelled(_Scoped scoped, _Window window) {
-    final counted = window.counted;
-    final end = counted.end.isAfter(window.today) ? window.today : counted.end;
+  static List<ReportSample> _cancelled(
+    _Scoped scoped,
+    DateRange counted,
+    DateTime today,
+  ) {
+    final end = counted.end.isAfter(today) ? today : counted.end;
     if (end.isBefore(counted.start)) return const [];
     return [
       for (final event in scoped.byId.values)
@@ -575,6 +797,12 @@ final class _Window {
   /// Whether [span] is wholly after today — a plan, whose totals count every
   /// occurrence.
   final bool plan;
+
+  /// The mode the report folds in: the request's, else
+  /// [ReportCompare.previous] for a plan, for a last year before
+  /// [CalendarBounds.earliest] and for a view with no
+  /// [ReportRequest.compareView].
+  final ReportCompare compare;
   final _Scope scope;
 
   const _Window({
@@ -584,18 +812,42 @@ final class _Window {
     required this.counted,
     required this.previousCounted,
     required this.plan,
+    required this.compare,
     required this.scope,
   });
 
   /// The tense and the counted end come from [CalendarReport.tenseOf] and
   /// [CalendarReport.countedToOf], the rule [CalendarReportBuilder.fold]
-  /// reads, so the previous span is counted the way the report is.
+  /// reads, so the previous span is counted the way the report is. Under
+  /// last year the shifted span stands in for the previous one, and is
+  /// counted by the same rule.
   factory _Window.of(ReportRequest request) {
     final today = EventAgenda.dateOnly(request.today);
     final span = _clamp(request.span);
-    final previous = request.previousSpan;
-    final previousSpan = previous == null ? null : _clamp(previous);
     final tense = CalendarReport.tenseOf(span: span, today: today);
+    var compare = tense == ReportTense.future
+        ? ReportCompare.previous
+        : request.compare;
+    // A view compared with no view is a caller's bug the constructor asserts;
+    // a release build folds the previous period rather than a previous-period
+    // fold labelled as a view.
+    if (compare == ReportCompare.view && request.compareView == null) {
+      compare = ReportCompare.previous;
+    }
+    // Clamped like the span: a 366-day span that holds 29 February shifts to
+    // 367 days, and the scan would drop the last day the span still names.
+    final shifted = compare == ReportCompare.lastYear
+        ? _clamp(_lastYearOf(span))
+        : null;
+    if (shifted != null && shifted.end.isBefore(CalendarBounds.earliest)) {
+      compare = ReportCompare.previous;
+    }
+    final previous = request.previousSpan;
+    final previousSpan = compare == ReportCompare.lastYear
+        ? shifted
+        : previous == null
+        ? null
+        : _clamp(previous);
     final DateRange counted = (
       start: span.start,
       end: CalendarReport.countedToOf(span: span, today: today),
@@ -622,6 +874,7 @@ final class _Window {
       counted: counted,
       previousCounted: previousCounted,
       plan: tense == ReportTense.future,
+      compare: compare,
       scope: _Scope(
         categoryIds: List.unmodifiable(request.categoryIds.toList()..sort()),
         occurrenceRevision: request.occurrenceRevision,
@@ -635,6 +888,48 @@ final class _Window {
         ledgerRevision: NoteMoneyLedgerService.instanceOrNull?.revision ?? -1,
       ),
     );
+  }
+
+  /// The same period a year before [span] (§6.11), so like meets like: a
+  /// calendar year the year before; a calendar month the same month, to its
+  /// own last day; a whole number of weeks the same weekdays 364 days back;
+  /// otherwise both ends a year back, a day past the month's end (29
+  /// February) clamped to its last.
+  static DateRange _lastYearOf(DateRange span) {
+    final (:start, :end) = span;
+    final sameMonth = start.year == end.year && start.month == end.month;
+    if (start.day == 1 && end == DateTime.utc(end.year, end.month + 1, 0)) {
+      if (start.year == end.year && start.month == 1 && end.month == 12) {
+        return (
+          start: DateTime.utc(start.year - 1, 1, 1),
+          end: DateTime.utc(start.year - 1, 12, 31),
+        );
+      }
+      if (sameMonth) {
+        return (
+          start: DateTime.utc(start.year - 1, start.month, 1),
+          end: DateTime.utc(start.year - 1, start.month + 1, 0),
+        );
+      }
+    }
+    final days = end.difference(start).inDays + 1;
+    if (days % DateTime.daysPerWeek == 0) {
+      const back = 52 * DateTime.daysPerWeek;
+      return (
+        start: DateTime.utc(start.year, start.month, start.day - back),
+        end: DateTime.utc(end.year, end.month, end.day - back),
+      );
+    }
+    DateTime yearBack(DateTime day) {
+      final last = DateTime.utc(day.year - 1, day.month + 1, 0).day;
+      return DateTime.utc(
+        day.year - 1,
+        day.month,
+        day.day > last ? last : day.day,
+      );
+    }
+
+    return (start: yearBack(start), end: yearBack(end));
   }
 
   /// The last [EventAgenda.maxRangeDays] days of [span] (D33): a long custom
@@ -838,16 +1133,45 @@ final class _LookbackKey extends Equatable {
 /// lookahead, or the Bill categories' next month.
 enum _WindowKind { category, billsAhead }
 
+/// One memo entry: a report, or a compared fold (§6.11). A compared fold's
+/// [scope] carries its own allowlist (a view's) and [foldToday] its own
+/// today; a main report's [compare] and [viewCategoryIds] make a mode change
+/// or an edited view miss.
 final class _ReportKey extends Equatable {
   final _Scope scope;
   final DateRange span;
   final DateRange? previousSpan;
   final CalendarWeekStart weekStart;
+  final ReportCompare compare;
+  final List<String>? viewCategoryIds;
+  final ReportFoldRole role;
+  final DateTime? foldToday;
+  final List<ReportTile>? tileSet;
 
-  const _ReportKey(this.scope, this.span, this.previousSpan, this.weekStart);
+  const _ReportKey(
+    this.scope,
+    this.span,
+    this.previousSpan,
+    this.weekStart, {
+    this.compare = ReportCompare.previous,
+    this.viewCategoryIds,
+    this.role = ReportFoldRole.main,
+    this.foldToday,
+    this.tileSet,
+  });
 
   @override
-  List<Object?> get props => [scope, span, previousSpan, weekStart];
+  List<Object?> get props => [
+    scope,
+    span,
+    previousSpan,
+    weekStart,
+    compare,
+    viewCategoryIds,
+    role,
+    foldToday,
+    tileSet,
+  ];
 }
 
 /// Equal only to itself: a value compare would walk every event on each

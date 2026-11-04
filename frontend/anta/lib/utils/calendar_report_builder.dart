@@ -124,7 +124,11 @@ abstract final class CalendarReportBuilder {
   /// (or its end, when that comes first), the rest ahead; a span wholly
   /// after today is a plan, counted whole and graded on nothing (T). A
   /// pending sample (D31) is read as ahead in a graded span and as a plain
-  /// occurrence in a plan.
+  /// occurrence in a plan. A [ReportFoldRole.compared] fold stops at what
+  /// Compare reads; a main fold given [ReportInput.compared] carries it, and
+  /// under last year its trend's outline and Balance's second bar. A main
+  /// fold of a whole calendar year adds [CalendarReport.year] from the same
+  /// walk.
   static CalendarReport fold(ReportInput input) {
     final span = input.span;
     final today = input.today;
@@ -180,23 +184,84 @@ abstract final class CalendarReportBuilder {
       return compareEventsWithinDay(events[a.eventId]!, events[b.eventId]!);
     }
 
-    countedSamples.sort(byDay);
-    aheadSamples.sort(byDay);
+    if (input.role == ReportFoldRole.main) {
+      countedSamples.sort(byDay);
+      aheadSamples.sort(byDay);
+    } else {
+      // A compared fold draws no row, so only the days' order counts — and
+      // the sampler's scan already walks day by day: the within-day sort is
+      // most of a compared fold's cost (§8 "Cost").
+      _sortByDay(countedSamples);
+      _sortByDay(aheadSamples);
+    }
 
     final order = <String, int>{
       for (final (i, id) in input.categoryOrder.indexed) id: i,
     };
 
-    final trend = graded && totals.kept >= ReportMetrics.trendMinOccurrences
+    final main = input.role == ReportFoldRole.main;
+    final compared = main ? input.compared : null;
+    final lastYear =
+        compared != null && input.compare == ReportCompare.lastYear;
+    var trend = graded && totals.kept >= ReportMetrics.trendMinOccurrences
         ? _trend(input, countedSamples)
         : null;
+    if (lastYear && trend != null) {
+      // A shifted span that loses 29 February can change the column unit
+      // (183 → 182 days reads weeks, 32 → 31 days): index-aligned counts
+      // under two units would compare a month with a week.
+      if (compared.trend case final before? when before.unit == trend.unit) {
+        trend = trend.withLastYear(
+          List.unmodifiable([
+            for (var i = 0; i < trend.buckets.length; i++)
+              if (i < before.buckets.length) before.buckets[i].happened,
+          ]),
+        );
+      }
+    }
+    // A year is a span like any other (S6 N), so however it was picked a
+    // whole calendar year to today or past gains its aggregates; a plan has
+    // kept nothing to rank.
+    final wholeYear =
+        main &&
+        graded &&
+        span.start == DateTime.utc(span.start.year, 1, 1) &&
+        span.end == DateTime.utc(span.start.year, 12, 31);
     // `when` is a pattern keyword, so its variable takes another name.
-    final (:measures, :tags, :goals, when: heatmap) = _measures(
+    final (:measures, :tags, :goals, when: heatmap, :year) = _measures(
       input,
       countedSamples,
       aheadSamples,
       order,
+      year: wholeYear ? _YearTally(span.start, input) : null,
     );
+    final balance = _balance(input, measures);
+    final money = Map<String, int>.unmodifiable({
+      for (final MapEntry(key: eventId, value: net) in input.money.entries)
+        if (net != 0 && events.containsKey(eventId)) eventId: net,
+    });
+    if (!main) {
+      return CalendarReport(
+        span: span,
+        today: today,
+        tense: tense,
+        countedTo: countedTo,
+        events: Map.unmodifiable(events),
+        tiles: List.unmodifiable(_tiles(tense, input, totals)),
+        skippedDays: input.skippedDays,
+        aheadCount: aheadSamples.length,
+        categories: const [],
+        trend: trend,
+        missed: const [],
+        ahead: const [],
+        measures: measures,
+        nominalMinutes: graded ? totals.nominalKept : totals.nominalAll,
+        balance: balance,
+        when: heatmap,
+        money: money,
+        totals: totals,
+      );
+    }
     final due = _dueSoon(
       input,
       countedSamples,
@@ -243,13 +308,15 @@ abstract final class CalendarReportBuilder {
       publicHolidays: input.publicHolidays,
       goals: goals,
       dueSoon: due,
-      balance: _balance(input, measures),
+      balance: balance,
       when: heatmap,
-      money: Map.unmodifiable({
-        for (final MapEntry(key: eventId, value: net) in input.money.entries)
-          if (net != 0 && events.containsKey(eventId)) eventId: net,
-      }),
+      money: money,
       billsAhead: _billsAhead(input),
+      compare: input.compare,
+      compared: compared,
+      balanceLastYear: lastYear ? compared.balance : null,
+      totals: totals,
+      year: year,
     );
     return report.withInsights(
       List.unmodifiable(ReportInsights.rank(report, input.profiles)),
@@ -261,19 +328,23 @@ abstract final class CalendarReportBuilder {
   /// samples [fold] already sorted — [counted] by day, then [ahead] — so a
   /// day's tags and rows come oldest first and no scan runs twice. Only the
   /// lookback's and the lookahead's samples, which lie outside the span,
-  /// take a walk of their own.
+  /// take a walk of their own. Given a [year] tally, the same walk fills it
+  /// and the year's aggregates come back with the rest (§6.12: nothing new
+  /// is scanned).
   static ({
     Map<String, ReportMeasures> measures,
     List<ReportTag> tags,
     List<ReportGoal> goals,
     ReportWhen when,
+    ReportYear? year,
   })
   _measures(
     ReportInput input,
     List<ReportSample> counted,
     List<ReportSample> ahead,
-    Map<String, int> order,
-  ) {
+    Map<String, int> order, {
+    _YearTally? year,
+  }) {
     final today = input.today;
     final events = input.events;
     final tallies = <String, _MeasureTally>{};
@@ -281,19 +352,42 @@ abstract final class CalendarReportBuilder {
         tallies.putIfAbsent(categoryId, _MeasureTally.new);
 
     final byCategory = <String, List<CalendarEvent>>{};
+    // What the walk reads of each event, resolved once: one lookup a sample
+    // instead of four, on the path every fold — the compared one too — pays.
+    final factsOf =
+        <
+          String,
+          ({
+            CalendarEvent event,
+            String categoryId,
+            _MeasureTally tally,
+            EffectiveProfile profile,
+            _EventYear? year,
+          })
+        >{};
     for (final event in events.values) {
       final categoryId = _categoryOf(input, event);
       (byCategory[categoryId] ??= []).add(event);
       final tally = tallyOf(categoryId);
+      final profile = _profileOf(input, categoryId);
+      factsOf[event.id] = (
+        event: event,
+        categoryId: categoryId,
+        tally: tally,
+        profile: profile,
+        year: year?.eventOf(event, categoryId, profile.kind),
+      );
       // The ledger's entry, not the link: with money off it holds nothing.
       if (input.money.containsKey(event.id)) tally.hasMoney = true;
     }
 
+    // A compared fold reads no goal and no tag, so it pays for neither.
+    final main = input.role == ReportFoldRole.main;
     final goalTallies = <String, _GoalTally>{};
     for (final MapEntry(key: categoryId, value: categoryEvents)
         in byCategory.entries) {
       final period = _profileOf(input, categoryId).target?.period;
-      if (period == null) continue;
+      if (period == null || !main) continue;
       goalTallies[categoryId] = _goalTallyOf(input, period, categoryEvents);
     }
 
@@ -313,20 +407,24 @@ abstract final class CalendarReportBuilder {
       }
       if (!_contains(input.span, start)) continue;
       moneyOf[eventId] = net;
-      final tally = tallyOf(_categoryOf(input, event));
+      final categoryId = _categoryOf(input, event);
+      final tally = tallyOf(categoryId);
       if (net < 0) {
         tally.spentCents -= net;
       } else {
         tally.receivedCents += net;
       }
+      year?.money(categoryId, start, net);
     }
 
     for (final sample in input.cancelled) {
       final event = events[sample.eventId];
       if (event == null) continue;
-      final tally = tallyOf(_categoryOf(input, event));
+      final categoryId = _categoryOf(input, event);
+      final tally = tallyOf(categoryId);
       tally.cancelled++;
       tally.planned++;
+      year?.cancel(categoryId, sample.day);
     }
 
     final tags = <String, _TagTally>{};
@@ -375,9 +473,8 @@ abstract final class CalendarReportBuilder {
     // missed: a gap has something to measure.
     final occurred = <String>{};
     for (final sample in counted) {
-      final event = events[sample.eventId]!;
-      final categoryId = _categoryOf(input, event);
-      final tally = tallyOf(categoryId);
+      final (:event, :categoryId, :tally, :profile, year: eventYear) =
+          factsOf[sample.eventId]!;
       final day = sample.day;
       final missed = _isMissed(sample, event);
       final past = !day.isAfter(today);
@@ -405,7 +502,6 @@ abstract final class CalendarReportBuilder {
         tally.tasksTicked += tasks.ticked;
         tally.tasksTotal += tasks.total;
       }
-      final profile = _profileOf(input, categoryId);
       final (:minutes, :nominal) = missed
           ? (minutes: 0, nominal: 0)
           : _minutesOf(event, profile);
@@ -421,6 +517,7 @@ abstract final class CalendarReportBuilder {
       }
       if (missed) {
         tally.missedWeekdays[row]++;
+        eventYear?.miss();
         continue;
       }
 
@@ -435,9 +532,15 @@ abstract final class CalendarReportBuilder {
       final week = epochDay - row;
       if (tally.lastKeptDay case final last?) {
         final gap = epochDay - last - 1;
-        if (gap > tally.longestGap) tally.longestGap = gap;
+        if (gap > tally.longestGap) {
+          tally.longestGap = gap;
+          tally.longestGapFrom = last;
+        }
       }
       tally.lastKeptDay = epochDay;
+      if (eventYear != null) {
+        year!.keep(eventYear, day, epochDay, week, minutes: minutes);
+      }
       if (day.weekday >= DateTime.saturday) tally.weekendMinutes += minutes;
       if (past && profile.kind == CategoryKind.episode) {
         _episodeDay(tally, epochDay);
@@ -458,10 +561,14 @@ abstract final class CalendarReportBuilder {
         }
       }
       tally.weekdays[row]++;
-      if (time case EventTime(
-        :final startMinute,
-        durationMinutes: final duration?,
-      ) when duration > 0) {
+      // When shows where the waking hours go: the counts-hours rule Balance
+      // follows, and never Sleep, whose eight hours a night would bury
+      // every other cell.
+      if (time
+          case EventTime(:final startMinute, durationMinutes: final duration?)
+          when duration > 0 &&
+              profile.countsHours &&
+              profile.kind != CategoryKind.sleep) {
         timedDays++;
         _fillWhen(
           whenCells,
@@ -469,6 +576,7 @@ abstract final class CalendarReportBuilder {
           duration,
         );
       }
+      if (!main) continue;
 
       // Nothing is built for an untagged day (§8 "Cost": thousands of kept
       // samples): the event's own tags are keyed once, and a per-day set
@@ -538,13 +646,14 @@ abstract final class CalendarReportBuilder {
       }
     }
 
-    final categoryIds = byCategory.keys.toList()
-      ..sort((a, b) {
-        final byOrder = (order[a] ?? order.length).compareTo(
-          order[b] ?? order.length,
-        );
-        return byOrder != 0 ? byOrder : a.compareTo(b);
-      });
+    int byOrder(String a, String b) {
+      final byIndex = (order[a] ?? order.length).compareTo(
+        order[b] ?? order.length,
+      );
+      return byIndex != 0 ? byIndex : a.compareTo(b);
+    }
+
+    final categoryIds = byCategory.keys.toList()..sort(byOrder);
     final measures = <String, ReportMeasures>{
       for (final categoryId in categoryIds)
         categoryId: _measuresOf(
@@ -555,6 +664,9 @@ abstract final class CalendarReportBuilder {
         ),
     };
 
+    for (final tag in tags.values) {
+      tag.categoryIds.sort(byOrder);
+    }
     final tagList = [
       for (final MapEntry(:key, value: tag) in tags.entries)
         ReportTag(
@@ -567,6 +679,7 @@ abstract final class CalendarReportBuilder {
           receivedCents: tag.receivedCents,
           lastSeenDay: tag.lastSeen,
           categoryIds: List.unmodifiable(tag.categoryIds),
+          kind: _tagKindOf(input, tag.categoryIds),
           rows: List.unmodifiable(tag.rows),
           medianGapDays: tag.gaps.isEmpty ? null : _lowerMedian(tag.gaps),
         ),
@@ -578,7 +691,7 @@ abstract final class CalendarReportBuilder {
       return byCount != 0 ? byCount : a.key.compareTo(b.key);
     });
     final goals = [
-      for (final categoryId in categoryIds)
+      for (final categoryId in main ? categoryIds : const <String>[])
         if (_profileOf(input, categoryId).target case final target?)
           _goalOf(
             input,
@@ -596,6 +709,194 @@ abstract final class CalendarReportBuilder {
       tags: List.unmodifiable(tagList),
       goals: List.unmodifiable(goals),
       when: _when(whenCells, timedDays),
+      year: year == null
+          ? null
+          : _year(
+              input,
+              year,
+              categoryIds,
+              measures,
+              tallies,
+              goals,
+              goalTallies,
+            ),
+    );
+  }
+
+  /// The year's aggregates from its [year] tally (§6.12, S6 §2.8): the
+  /// records in [ReportRecordKind]'s order, then per category in
+  /// [categoryIds]' order its months, its kept span and its goal's tally,
+  /// counted from its [periods]' `streakFrom`.
+  static ReportYear _year(
+    ReportInput input,
+    _YearTally year,
+    List<String> categoryIds,
+    Map<String, ReportMeasures> measures,
+    Map<String, _MeasureTally> tallies,
+    List<ReportGoal> goals,
+    Map<String, _GoalTally> periods,
+  ) {
+    final first = input.span.start;
+    final lastOfYear = DateTime.utc(first.year, 12, 31);
+    final records = <ReportRecord>[];
+    // The earliest of the largest: a later month only wins by more.
+    void month(ReportRecordKind kind, List<int> values) {
+      var best = 0;
+      for (var m = 1; m < values.length; m++) {
+        if (values[m] > values[best]) best = m;
+      }
+      if (values[best] == 0) return;
+      records.add(
+        ReportRecord(
+          kind: kind,
+          value: values[best],
+          start: DateTime.utc(first.year, best + 1, 1),
+          end: DateTime.utc(first.year, best + 2, 0),
+        ),
+      );
+    }
+
+    month(ReportRecordKind.busiestMonth, year.kept);
+    var week = 0;
+    for (var w = 1; w < year.weeks.length; w++) {
+      if (year.weeks[w] > year.weeks[week]) week = w;
+    }
+    if (year.weeks[week] > 0) {
+      final start = _addDays(first, year.firstWeekOffset + week * 7);
+      final end = _addDays(start, 6);
+      records.add(
+        ReportRecord(
+          kind: ReportRecordKind.busiestWeek,
+          value: year.weeks[week],
+          start: start,
+          end: end.isAfter(lastOfYear) ? lastOfYear : end,
+        ),
+      );
+    }
+    month(ReportRecordKind.socialMonth, year.social);
+    month(ReportRecordKind.moneyMonth, year.spent);
+
+    ReportRecord runRecord(ReportRecordKind kind, _Run run) => ReportRecord(
+      kind: kind,
+      categoryId: run.categoryId,
+      eventId: run.eventId,
+      value: run.length,
+      start: _fromEpochDay(run.start),
+      end: _fromEpochDay(run.last),
+    );
+    // Longest, then earliest, then the walk's order: the one sort every
+    // run record takes, since `List.sort` keeps no order of its own.
+    int byRun(_Run a, _Run b) {
+      final byLength = b.length.compareTo(a.length);
+      if (byLength != 0) return byLength;
+      final byStart = a.start.compareTo(b.start);
+      return byStart != 0 ? byStart : a.order.compareTo(b.order);
+    }
+
+    _Run? trip;
+    for (final run in year.trips()) {
+      if (trip == null || byRun(run, trip) < 0) trip = run;
+    }
+    if (trip != null) {
+      records.add(runRecord(ReportRecordKind.longestTrip, trip));
+    }
+    final streaks = [
+      for (final run in year.streaks())
+        if (run.length >= AnalyticsMetrics.recordStreakMin) run,
+    ]..sort(byRun);
+    for (final run in streaks) {
+      records.add(runRecord(ReportRecordKind.longestStreak, run));
+    }
+    final gaps = <(int, ReportRecord)>[];
+    for (final (i, categoryId) in categoryIds.indexed) {
+      final tally = tallies[categoryId]!;
+      final from = tally.longestGapFrom;
+      if (_profileOf(input, categoryId).target?.kind != TargetKind.maxGap ||
+          from == null) {
+        continue;
+      }
+      gaps.add((
+        i,
+        ReportRecord(
+          kind: ReportRecordKind.longestGap,
+          categoryId: categoryId,
+          value: tally.longestGap,
+          start: _fromEpochDay(from),
+          end: _fromEpochDay(from + tally.longestGap + 1),
+        ),
+      ));
+    }
+    gaps.sort((a, b) {
+      final byValue = b.$2.value.compareTo(a.$2.value);
+      if (byValue != 0) return byValue;
+      final byStart = a.$2.start.compareTo(b.$2.start);
+      return byStart != 0 ? byStart : a.$1.compareTo(b.$1);
+    });
+    records.addAll([for (final (_, record) in gaps) record]);
+
+    final months = <String, List<int>>{};
+    final spans = <String, ({DateTime first, DateTime last})>{};
+    for (final categoryId in categoryIds) {
+      final category = year.categories[categoryId];
+      final kept = category?.first;
+      if (category == null || kept == null) continue;
+      final income = _profileOf(input, categoryId).kind == CategoryKind.income;
+      months[categoryId] = List.unmodifiable(
+        switch (measures[categoryId]!.primary) {
+          ReportMeasure.events => category.events,
+          ReportMeasure.hours => category.minutes,
+          ReportMeasure.attendance => category.attended,
+          ReportMeasure.cancelled => category.cancelled,
+          ReportMeasure.money =>
+            income ? category.receivedCents : category.spentCents,
+          _ => category.kept,
+        },
+      );
+      spans[categoryId] = (
+        first: _fromEpochDay(kept),
+        last: _fromEpochDay(category.last),
+      );
+    }
+
+    final goalTallies = <String, ReportGoalTally>{};
+    for (final goal in goals) {
+      final period = goal.target.period;
+      if (period == null || period == TargetPeriod.year) continue;
+      // The bound the goal's own streak reads: a budget begun in July never
+      // met the weeks before it existed.
+      final from = periods[goal.categoryId]?.streakFrom ?? first;
+      var met = 0;
+      var closed = 0;
+      var run = 0;
+      var longest = 0;
+      for (final p in goal.periods) {
+        // A week begun in December belongs to the year before, as on the
+        // Records' busiest week; a period ending today is still open.
+        if (p.start.isBefore(first) ||
+            p.start.isBefore(from) ||
+            !p.end.isBefore(input.today)) {
+          continue;
+        }
+        closed++;
+        if (p.state == GoalState.met) {
+          met++;
+          if (++run > longest) longest = run;
+        } else {
+          run = 0;
+        }
+      }
+      goalTallies[goal.categoryId] = ReportGoalTally(
+        met: met,
+        closed: closed,
+        longestStreak: longest,
+      );
+    }
+
+    return ReportYear(
+      records: List.unmodifiable(records),
+      months: Map.unmodifiable(months),
+      spans: Map.unmodifiable(spans),
+      goalTallies: Map.unmodifiable(goalTallies),
     );
   }
 
@@ -1229,6 +1530,10 @@ abstract final class CalendarReportBuilder {
   static int _epochDay(DateTime day) =>
       day.millisecondsSinceEpoch ~/ Duration.millisecondsPerDay;
 
+  /// The date-only UTC day [_epochDay] numbered [epochDay].
+  static DateTime _fromEpochDay(int epochDay) =>
+      DateTime.utc(1970, 1, 1 + epochDay);
+
   /// One occurrence's minutes under [profile]: its duration when it has one,
   /// else the confirmed counts-as (I) — never on a repeat (an Anniversary is
   /// no time spent) nor on Sleep, whose hours are its own card's.
@@ -1249,6 +1554,17 @@ abstract final class CalendarReportBuilder {
 
   static EffectiveProfile _profileOf(ReportInput input, String categoryId) =>
       input.profiles[categoryId] ?? EffectiveProfile.unprofiled;
+
+  /// A tag's noun: the first profiled of its [categoryIds] — the catalogue
+  /// seeds Other first, so the plain first id would let an uncategorised
+  /// event erase a Social tag's person.
+  static CategoryKind _tagKindOf(ReportInput input, List<String> categoryIds) {
+    for (final categoryId in categoryIds) {
+      final profile = _profileOf(input, categoryId);
+      if (!profile.isUnprofiled) return profile.kind;
+    }
+    return CategoryKind.custom;
+  }
 
   /// [categoryId]'s lookback and lookahead samples, oldest first, that the
   /// fold may read: an event in the selection, a day outside the span and
@@ -1332,11 +1648,48 @@ abstract final class CalendarReportBuilder {
 
   /// The tile set (D15, D20): decided by what the selection could ever show,
   /// never by what the period holds, so stepping never reshuffles the grid.
+  /// A compared view's fold takes the page's set instead
+  /// ([ReportInput.tileSet]), with no delta: its column stands beside the
+  /// page's.
   static List<ReportTileValue> _tiles(
     ReportTense tense,
     ReportInput input,
     ReportTotals totals,
   ) {
+    final plan = tense == ReportTense.future;
+    if (input.tileSet case final tileSet?) {
+      return [
+        for (final tile in tileSet)
+          switch (tile) {
+            ReportTile.events => ReportTileValue(
+              tile: tile,
+              value: totals.kept,
+            ),
+            ReportTile.planned => ReportTileValue(
+              tile: tile,
+              value: totals.occurrences,
+            ),
+            ReportTile.attended => ReportTileValue(
+              tile: tile,
+              value: totals.attended,
+              of: totals.tracked,
+            ),
+            ReportTile.missed => ReportTileValue(
+              tile: tile,
+              value: totals.missed,
+            ),
+            ReportTile.hours => ReportTileValue(
+              tile: tile,
+              value: plan ? totals.minutesAll : totals.minutesKept,
+            ),
+            ReportTile.tasks => ReportTileValue(
+              tile: tile,
+              value: totals.tasksTicked,
+              of: totals.tasksTotal,
+            ),
+          },
+      ];
+    }
     final events = input.events.values;
     // A tracked one-off is graded too (analytics AM), so it shows the grades.
     final anyRoutine = events.any((e) => e.tracksPresence);
@@ -1348,7 +1701,6 @@ abstract final class CalendarReportBuilder {
     });
     final anyTasks = events.any((e) => _holdsTasks(e, input.overrides));
     final previous = input.previousTotals;
-    final plan = tense == ReportTense.future;
     return [
       if (plan)
         ReportTileValue(
@@ -1553,11 +1905,14 @@ abstract final class CalendarReportBuilder {
   }
 
   /// The Over time series and its caption facts (D29) over the counted
-  /// samples; the columns cover the whole span.
+  /// samples; the columns cover the whole span. A compared fold's trend is
+  /// its columns alone — the outline behind the page's (§6.11) — since no
+  /// caption names its busiest day or usual hours.
   static ReportTrend _trend(
     ReportInput input,
     List<ReportSample> countedSamples,
   ) {
+    final captions = input.role == ReportFoldRole.main;
     final span = input.span;
     final days = span.end.difference(span.start).inDays + 1;
     final unit = days <= ReportMetrics.trendDayUnitMaxDays
@@ -1607,6 +1962,7 @@ abstract final class CalendarReportBuilder {
         continue;
       }
       happened[index]++;
+      if (!captions) continue;
       perWeekday[day.weekday]++;
       final time = event.time;
       if (time != null) {
@@ -1618,6 +1974,15 @@ abstract final class CalendarReportBuilder {
         }
       }
     }
+    final buckets = List<ReportTrendBucket>.unmodifiable([
+      for (var i = 0; i < starts.length; i++)
+        ReportTrendBucket(
+          start: starts[i],
+          happened: happened[i],
+          missed: missed[i],
+        ),
+    ]);
+    if (!captions) return ReportTrend(unit: unit, buckets: buckets);
 
     int? busiest;
     var most = 0;
@@ -1649,14 +2014,7 @@ abstract final class CalendarReportBuilder {
     }
     return ReportTrend(
       unit: unit,
-      buckets: List.unmodifiable([
-        for (var i = 0; i < starts.length; i++)
-          ReportTrendBucket(
-            start: starts[i],
-            happened: happened[i],
-            missed: missed[i],
-          ),
-      ]),
+      buckets: buckets,
       busiestWeekday: tied ? null : busiest,
       usualStartMinute: usualStart,
       usualEndMinute: usualEnd,
@@ -1674,6 +2032,16 @@ abstract final class CalendarReportBuilder {
   static DateTime _weekStartOf(DateTime day, ReportInput input) {
     final back = (day.weekday - input.weekStart.weekday + 7) % 7;
     return _addDays(day, -back);
+  }
+
+  /// Orders [samples] by day in place, with one pass when they already are.
+  static void _sortByDay(List<ReportSample> samples) {
+    for (var i = 1; i < samples.length; i++) {
+      if (samples[i].day.isBefore(samples[i - 1].day)) {
+        samples.sort((a, b) => a.day.compareTo(b.day));
+        return;
+      }
+    }
   }
 
   /// [samples] with every missed flag after [today] cleared — a day that has
@@ -1776,6 +2144,9 @@ class _MeasureTally {
   // between starts, which give the mean and the spread with no list kept.
   int? lastKeptDay;
   int longestGap = 0;
+  // The kept day before [longestGap]: the first of the widest, since a tie
+  // never replaces it.
+  int? longestGapFrom;
   int episodes = 0;
   int? lastEpisode;
   int? lastRunDay;
@@ -1802,6 +2173,200 @@ class _WeekMax {
       _inWeek = 0;
     }
     if (++_inWeek > max) max = _inWeek;
+  }
+}
+
+/// A whole year's running aggregates while [CalendarReportBuilder._measures]
+/// walks its kept samples by day (§6.12): fixed month and week slots, and
+/// each event's own slot resolved before the walk, so a year of daily
+/// samples adds a few increments each and no lookup.
+class _YearTally {
+  _YearTally(DateTime first, ReportInput input)
+    : year = first.year,
+      firstEpochDay = CalendarReportBuilder._epochDay(first),
+      firstWeekOffset =
+          (7 - (first.weekday - input.weekStart.weekday + 7) % 7) % 7,
+      countedTo = CalendarReport.countedToOf(
+        span: input.span,
+        today: input.today,
+      );
+
+  final int year;
+  final int firstEpochDay;
+
+  /// Days from 1 January to the first week start inside the year: a week
+  /// begun in December is the year before's.
+  final int firstWeekOffset;
+
+  /// Money and cancellations count to here, as the kept samples do.
+  final DateTime countedTo;
+
+  final List<int> kept = List.filled(12, 0);
+  final List<int> social = List.filled(12, 0);
+  final List<int> spent = List.filled(12, 0);
+  final List<int> weeks = List.filled(53, 0);
+  final Map<String, _CategoryYear> categories = {};
+  final List<_EventYear> _events = [];
+  final List<_Run> _closedTrips = [];
+
+  // The runs' walk order, the last tie-break.
+  int _order = 0;
+
+  /// [event]'s slot, made once before the walk.
+  _EventYear eventOf(
+    CalendarEvent event,
+    String categoryId,
+    CategoryKind kind,
+  ) {
+    final slot = _EventYear(
+      event.id,
+      categoryId,
+      categories[categoryId] ??= _CategoryYear(),
+      tracked: event.tracksPresence,
+      trip: kind == CategoryKind.trip,
+      social: kind == CategoryKind.social,
+    );
+    _events.add(slot);
+    return slot;
+  }
+
+  void keep(
+    _EventYear slot,
+    DateTime day,
+    int epochDay,
+    int week, {
+    required int minutes,
+  }) {
+    final m = day.month - 1;
+    kept[m]++;
+    if (slot.social) social[m]++;
+    final fromFirstWeek = week - firstEpochDay - firstWeekOffset;
+    if (fromFirstWeek >= 0) weeks[fromFirstWeek ~/ 7]++;
+    final category = slot.category;
+    category.kept[m]++;
+    // The samples arrive by day, so an event's months only move forward.
+    if (slot.lastMonth != m) {
+      slot.lastMonth = m;
+      category.events[m]++;
+    }
+    category.minutes[m] += minutes;
+    category.first ??= epochDay;
+    category.last = epochDay;
+    if (slot.trip) {
+      final run = slot.openTrip;
+      if (run != null && run.last == epochDay - 1) {
+        run.extend(epochDay);
+      } else {
+        if (run != null) _closedTrips.add(run);
+        slot.openTrip = _Run(slot, epochDay, _order++);
+      }
+    }
+    if (slot.tracked) {
+      category.attended[m]++;
+      if (slot.openStreak case final run?) {
+        run.extend(epochDay);
+      } else {
+        slot.openStreak = _Run(slot, epochDay, _order++);
+      }
+    }
+  }
+
+  void money(String categoryId, DateTime start, int net) {
+    if (start.isAfter(countedTo)) return;
+    final m = start.month - 1;
+    final category = categories[categoryId] ??= _CategoryYear();
+    if (net < 0) {
+      category.spentCents[m] -= net;
+      spent[m] -= net;
+    } else {
+      category.receivedCents[m] += net;
+    }
+  }
+
+  void cancel(String categoryId, DateTime day) {
+    if (day.year != year || day.isAfter(countedTo)) return;
+    (categories[categoryId] ??= _CategoryYear()).cancelled[day.month - 1]++;
+  }
+
+  /// Every trip, the runs still open at the year's last counted day included.
+  Iterable<_Run> trips() => [
+    ..._closedTrips,
+    for (final slot in _events) ?slot.openTrip,
+  ];
+
+  /// Each tracked event's longest run; call once, after the walk.
+  Iterable<_Run> streaks() => [
+    for (final slot in _events)
+      if (slot.tracked) ?(slot..miss()).bestStreak,
+  ];
+}
+
+/// One event's running year: its last month counted and its open runs.
+class _EventYear {
+  _EventYear(
+    this.eventId,
+    this.categoryId,
+    this.category, {
+    required this.tracked,
+    required this.trip,
+    required this.social,
+  });
+
+  final String eventId;
+  final String categoryId;
+  final _CategoryYear category;
+  final bool tracked;
+  final bool trip;
+  final bool social;
+  int lastMonth = -1;
+  _Run? openTrip;
+  _Run? openStreak;
+  _Run? bestStreak;
+
+  /// A missed day, or the walk's end: the open streak closes, and only a
+  /// longer one replaces the best, so the earliest of the longest stays.
+  void miss() {
+    final run = openStreak;
+    if (run == null) return;
+    openStreak = null;
+    final best = bestStreak;
+    if (best == null || run.length > best.length) bestStreak = run;
+  }
+}
+
+/// One category's twelve months while the year walks.
+class _CategoryYear {
+  final List<int> kept = List.filled(12, 0);
+  final List<int> events = List.filled(12, 0);
+  final List<int> minutes = List.filled(12, 0);
+  final List<int> attended = List.filled(12, 0);
+  final List<int> cancelled = List.filled(12, 0);
+  final List<int> spentCents = List.filled(12, 0);
+  final List<int> receivedCents = List.filled(12, 0);
+
+  // The first and the latest kept day's number; null until one is kept.
+  int? first;
+  int last = 0;
+}
+
+/// One event's run of consecutive kept days (a trip) or occurrences (a
+/// streak), in day numbers.
+class _Run {
+  _Run(_EventYear slot, this.start, this.order)
+    : eventId = slot.eventId,
+      categoryId = slot.categoryId,
+      last = start;
+
+  final String eventId;
+  final String categoryId;
+  final int start;
+  final int order;
+  int last;
+  int length = 1;
+
+  void extend(int epochDay) {
+    last = epochDay;
+    length++;
   }
 }
 

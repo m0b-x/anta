@@ -63,6 +63,9 @@ abstract final class ReportInsights {
     _p4,
     _p5,
     _p6,
+    _t1,
+    _t2,
+    _t3,
     _m1,
     _m2,
     _r1,
@@ -547,6 +550,136 @@ abstract final class ReportInsights {
         categoryId: measures.categoryId,
         target: InsightTarget.categoryGroup,
         n1: rest,
+      );
+    }
+  }
+
+  // T1: the primary moved against the previous period.
+  static Iterable<ReportInsight> _t1(
+    CalendarReport report,
+    Map<String, EffectiveProfile> profiles,
+  ) => _moved(report, profiles, ReportCompare.previous, InsightRule.t1);
+
+  // T2: T1 against the same period last year, when Compare chose it.
+  static Iterable<ReportInsight> _t2(
+    CalendarReport report,
+    Map<String, EffectiveProfile> profiles,
+  ) => _moved(report, profiles, ReportCompare.lastYear, InsightRule.t2);
+
+  /// T1 / T2: a primary with a size moved by `trendDelta` or more, both
+  /// sides above zero and either side large enough to mean it — a move from
+  /// two to three is not "up 50 %". Both sides are read in this span's
+  /// primary, whatever Auto picked over the compared span. A Bill's amount
+  /// is T3's.
+  static Iterable<ReportInsight> _moved(
+    CalendarReport report,
+    Map<String, EffectiveProfile> profiles,
+    ReportCompare mode,
+    InsightRule rule,
+  ) sync* {
+    final compared = report.compared;
+    if (compared == null || report.compare != mode) return;
+    for (final (measures, profile) in _profiled(report, profiles)) {
+      if (profile.kind == CategoryKind.bill) continue;
+      final before = compared.measures[measures.categoryId];
+      if (before == null) continue;
+      final now = _sizeOf(measures, measures.primary, profile);
+      final then = _sizeOf(before, measures.primary, profile);
+      if (now == null || then == null || now <= 0 || then <= 0) continue;
+      bool enough(ReportMeasures m) =>
+          m.count >= AnalyticsMetrics.trendMinOccurrences ||
+          m.minutes >= AnalyticsMetrics.trendMinMinutes;
+      if (!enough(measures) && !enough(before)) continue;
+      final ratio = (now - then) / then;
+      if (ratio.abs() < AnalyticsMetrics.trendDelta) continue;
+      yield ReportInsight(
+        rule: rule,
+        severity: 1,
+        categoryId: measures.categoryId,
+        target: InsightTarget.categoryGroup,
+        n1: now,
+        n2: then,
+        ratio: ratio,
+      );
+    }
+  }
+
+  /// [primary]'s value in [measures], in its own unit; null for a measure
+  /// that is a position in time, which has no size to move.
+  static int? _sizeOf(
+    ReportMeasures measures,
+    ReportMeasure primary,
+    EffectiveProfile profile,
+  ) => switch (primary) {
+    ReportMeasure.count => measures.count,
+    ReportMeasure.events => measures.events,
+    ReportMeasure.hours => measures.minutes,
+    ReportMeasure.attendance => measures.attended,
+    ReportMeasure.cancelled => measures.cancelled,
+    ReportMeasure.tasks => measures.tasksTicked,
+    ReportMeasure.money =>
+      profile.kind == CategoryKind.income
+          ? measures.receivedCents
+          : measures.spentCents,
+    ReportMeasure.lastSeen ||
+    ReportMeasure.leadTime ||
+    ReportMeasure.timing ||
+    ReportMeasure.daysUntil => null,
+  };
+
+  // T3: a Bill's spending moved by a tenth against the compared span — the
+  // previous period's or last year's, never a view's. It points at the
+  // span's latest counted event whose spending the tally holds — its start
+  // day in the span (P) — so a Rent begun last year, whose money the cents
+  // never counted, is not the bill the sentence names.
+  static Iterable<ReportInsight> _t3(
+    CalendarReport report,
+    Map<String, EffectiveProfile> profiles,
+  ) sync* {
+    final compared = report.compared;
+    if (compared == null || report.compare == ReportCompare.view) return;
+    for (final (measures, profile) in _profiled(report, profiles)) {
+      if (profile.kind != CategoryKind.bill) continue;
+      final cents = measures.spentCents;
+      final before = compared.measures[measures.categoryId]?.spentCents ?? 0;
+      if (cents <= 0 || before <= 0) continue;
+      final ratio = (cents - before) / before;
+      if (ratio.abs() < AnalyticsMetrics.billDelta) continue;
+      final span = report.span;
+      bool tallied(String eventId) {
+        final event = report.events[eventId];
+        final net = report.money[eventId];
+        if (event == null || net == null || net >= 0) return false;
+        final start = event.startDate;
+        final day = DateTime.utc(start.year, start.month, start.day);
+        return !day.isBefore(span.start) && !day.isAfter(span.end);
+      }
+
+      DateTime? latest;
+      String? eventId;
+      for (final group in [...report.categories, ...report.missed]) {
+        if (group.categoryId != measures.categoryId) continue;
+        for (final row in group.rows) {
+          if (!tallied(row.eventId)) continue;
+          final day = switch (row) {
+            ReportDatedRow(:final day) => day,
+            ReportRoutineRow(:final latestDay) => latestDay,
+          };
+          if (latest == null || day.isAfter(latest)) {
+            latest = day;
+            eventId = row.eventId;
+          }
+        }
+      }
+      yield ReportInsight(
+        rule: InsightRule.t3,
+        severity: 2,
+        categoryId: measures.categoryId,
+        eventId: eventId,
+        target: InsightTarget.categoryGroup,
+        n1: before,
+        cents: cents,
+        ratio: ratio,
       );
     }
   }

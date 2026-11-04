@@ -1258,7 +1258,100 @@ S2b-ii (year in review, compare, T1–T3, the shapes S5 asked for).
   ~12 -1` (the known Windows-only case); `dart format` clean on every slice
   file; no ARB. 9 files; commit `66efe1f1` (2026-11-04).
 
-*(S2b-ii follows in the next session — see the head of §12.2.)*
+- **S2b-ii** (2026-11-04, the second session; Fable leads, two Opus
+  implementer runs, two Opus reviewers, one fix pass). Built: `ReportCompare`
+  (previous · lastYear · view) on `ReportRequest` (`compare`, `compareView`)
+  and in the memo key; the compared fold — `ReportInput.role`
+  (`ReportFoldRole.main | compared`), `compare`, `compared`, `tileSet`;
+  `CalendarReport.compare`, `compared`, `balanceLastYear`, `totals`,
+  `withCompared`; `ReportTrend.lastYear`; T1–T3 (`InsightRule.t1..t3`
+  after `p6`); Sleep out of When; `ReportTag.kind`; the year aggregates —
+  `CalendarReport.year` (`ReportYear(records, months, spans, goalTallies)`,
+  `ReportRecord(kind, categoryId?, eventId?, value, start, end?)`,
+  `ReportRecordKind` in S6's order, `ReportGoalTally(met, closed,
+  longestStreak)`), `AnalyticsMetrics.recordStreakMin` (3); the
+  working-days gate (S4's model ask 3); `ReportMetrics.memoFolds` 4 → 8.
+- **Decisions (S2b-ii):** **AQ** the compared fold is a second `fold` with
+  the `compared` role — totals, tiles, measures, trend (columns only),
+  balance, when, money; no categories, tags, goals, due rows, insights or
+  year — and its own memo entry (its key: the fold's category ids, span,
+  today, role, tile set, week start, the scope's revisions; a compared
+  fold's own `compare` stays `previous`, so a calendar year's previous
+  period and its last year share one entry); the service runs it when the
+  tense is not future and (the mode is not `previous` or a profiled
+  category is in scope), so an unprofiled calendar's default report folds
+  once, exactly as before. **AR** Same period last year: a whole calendar
+  year → the previous year; a whole calendar month → the same month a year
+  earlier to its own last day; a span of 7 n days → 364 days earlier
+  (weekdays align); otherwise both ends a year earlier with the day clamped
+  (29 Feb → 28 Feb); clamped by D33 like the previous span; a compared span
+  ending before the calendar's first day, and every plan, fold as
+  `previous`; `report.previousSpan` is then the shifted span, so the
+  "against …" caption needs nothing. **AS** like with like for the compared
+  fold (D28 extended): its today is the real today for a past span and
+  `previousCounted.end` for a current one, sampled with the real today and
+  folded with the compared today; `previousTotals` = its totals (pinned
+  equal to the old totals fold). **AT** T1 / T2 read seven additive
+  primaries in their own unit (count, events, hours as minutes,
+  attendance, cancelled, tasks, money as spent cents — received for
+  Income), both sides > 0, either side ≥ `trendMinOccurrences` or ≥
+  `trendMinMinutes`, |Δ| ≥ `trendDelta`; T3 (Bill kinds, `billDelta`)
+  compares the category's spent cents against the **compared span** — not
+  the bill's previous occurrence, which money per event cannot see (§14) —
+  and names the latest counted bill whose start day lies in the span and
+  whose net is negative; none of the three under `view`. **AU** When fills
+  only samples whose profile counts hours and whose kind is not Sleep (the
+  `_minutesOf` / Balance rule); `timedDays` counts the samples that fill a
+  cell. **AV** `ReportTag.categoryIds` in catalogue order, then id, and
+  `kind` from the first *profiled* one (else `custom`); R1 / R2 therefore
+  read the catalogue-first category of a tag — a shift from first-seen
+  order, accepted and pinned. **AW** `ReportTrend.lastYear` only when both
+  trends share a unit (a shifted span that loses 29 Feb can change it);
+  `balanceLastYear` under `lastYear` only. **AX** `year` is set by a main,
+  graded fold whose span is exactly 1 Jan – 31 Dec, on any calendar (S6 N);
+  records tie to the earliest; the busiest week is a week on the week start
+  whose start lies in the year (the first partial week belongs to no week),
+  clipped at 31 Dec; a trip is any Trip-kind event's run of consecutive
+  kept days; money goes to the month of the event's start day and, like
+  cancellations, is cut at today; a streak counts kept occurrences in a
+  row (`PresenceStats`' rule); goal tallies count periods from the goal's
+  `streakFrom` (a budget begun in July reads "n of 27 weeks", not 52) and
+  "closed" means ended before today. **AY** `totals` on every fold; the
+  benchmark's bound 1.5 → 1.75 (two folds by design: 1.40 → 1.49 on an idle
+  machine). **AZ** working days and public holidays are resolved only for a
+  whole calendar month or year whose scope holds a Work, Meeting or Leave
+  kind, plans included (S4 P); every other span reads 0, so no unprofiled
+  caption changes.
+- **Reviews (S2b-ii).** Two `reviewer`s (compare half; year half), nine
+  probes through the real fold in a snapshot. Taken in one fix pass: the
+  goal tallies' `streakFrom` bound (CONFIRMED); `ReportTag.kind` from the
+  first profiled category (`other` is the catalogue's first seed); the
+  outline only under one unit; the shifted span clamped (a 366-day span
+  shifted to 367 and lost its last day); T3's row attributed as its cents
+  are; `compare == view` without a view resolves to `previous` in release
+  (the assert stays; no test can build that request); four `///` fixes
+  (`closed`, the records' ties, the months' cut, `_settled`'s displaced
+  doc). Accepted as built: money months cut at today while the measures
+  count a current span's later bills (§14); the first partial week; a
+  leap-year quarter shifting 364 days (AR names months and years only);
+  working days 0 for unprofiled spans; the compared memo key's `foldToday`
+  (identical inputs fold identically). Pins added from both gap lists: T1
+  per unit, T3 in a current span and with no event, T1 through the service,
+  the shared year entry, an elapsed-day miss, the view refold on a tile-set
+  change, working days on a 29-day February / a plan year / a D33-clamped
+  span, Sunday and Saturday week starts, a trip and a streak across 1 Jan,
+  two gap categories' order, a compared fold's totals, a streak tie.
+- **Gate (S2b-ii).** `dart analyze lib test` clean; `dart format` clean;
+  no ARB; the benchmark alone 1.49; the whole suite `+12917 ~12 -1` (the
+  known Windows-only case). 10 files; the commit hash is in the hand-off
+  at the head of §12.2.
+- **Noted for S4 / S5 / S6:** an insight whose category has no Categories
+  group (a money primary whose events lie after today; a cancelled-only
+  category) is a read row (S4 G's rule); `months` and `spans` iterate in
+  catalogue order while `categories` is ordered by count — the Months card
+  iterates `categories` and looks up, and a category whose every day was
+  missed has no `months` entry; the trend's last-year tick shows 0 after
+  the compared today in a current span (like with like).
 
 #### S3 — the category editor's profile sections (2026-11-04)
 
@@ -1698,3 +1791,19 @@ suite count and result, uncommitted files, open findings, what §14 gained.
   first month; a Bill paid monthly is one one-off per payment, each with
   its note, until the ledger can attribute a note's lines to occurrence
   days. The Bill kind's preset stands for that shape.
+- **Money after today in a current span** (S2b-ii review) — the measures'
+  `spentCents` and a budget goal count a current span's later bills (money
+  is read at the event's start day, uncut), while the year's months and
+  its Biggest spend record cut at today like every kept-day measure; a
+  Categories row can say 510 where October's tile says 10. Align both when
+  the money-per-occurrence item above is taken.
+- **The view-without-a-view release guard** (S2b-ii) — `compare == view`
+  with no `compareView` folds as `previous` in release, behind an assert
+  that fires in the request's initializer, so no test can build the case;
+  if the request ever grows a non-asserting path, pin it then.
+- **Same period last year for a quarter** (AR) — a 91-day leap-year quarter
+  shifts 364 days, a 90-day one month to month; AR names only months and
+  years. Decide when a quarter preset exists.
+- **The year's first partial week** (AX) — belongs to no busiest week while
+  the last week counts its December days; symmetric clipping would need the
+  previous year's samples. After the Records card has been looked at.

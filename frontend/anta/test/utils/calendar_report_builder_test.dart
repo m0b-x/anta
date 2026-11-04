@@ -2132,7 +2132,11 @@ void main() {
       expect(tags, hasLength(1));
       final tag = tags.single;
       expect((tag.key, tag.label, tag.events, tag.count), ('ana', 'Ana', 2, 2));
-      expect(tag.categoryIds, ['friends', 'other']);
+      expect(
+        tag.categoryIds,
+        ['other', 'friends'],
+        reason: 'the catalogue\'s order, not the first-seen day\'s',
+      );
     });
 
     test('a day counts a tag once, a missed day never', () {
@@ -2227,6 +2231,35 @@ void main() {
       expect(
         foldFacts([ev('gym', 'gym', day(2026, 9, 1))], firstThree, later).tags,
         isEmpty,
+      );
+    });
+
+    test('the kind is the first profiled category\'s, else custom', () {
+      final events = [
+        ev('lunch', 'friends', day(2026, 9, 1)).copyWith(title: 'Lunch #ana'),
+        ev('call', 'other', day(2026, 9, 2)).copyWith(title: 'Call #ana'),
+      ];
+      final social = foldFacts(
+        events,
+        firstThree,
+        later,
+        profiles: {
+          'friends': CategoryProfile(
+            id: 'p',
+            categoryId: 'friends',
+            kind: CategoryKind.social,
+          ).effective,
+        },
+      ).tags.single;
+      expect(social.categoryIds, ['other', 'friends']);
+      expect(
+        social.kind,
+        CategoryKind.social,
+        reason: 'the uncategorised event never erases the person',
+      );
+      expect(
+        foldFacts(events, firstThree, later).tags.single.kind,
+        CategoryKind.custom,
       );
     });
   });
@@ -2944,6 +2977,8 @@ void main() {
       expect(report.goals, isEmpty);
       expect(report.dueSoon, isEmpty);
       expect(report.insights, isEmpty);
+      expect((report.compare, report.compared), (ReportCompare.previous, null));
+      expect((report.balanceLastYear, report.trend?.lastYear), (null, null));
       expect(report.when, isNotNull);
       expect(report.balance.keys, everyElement(LifeArea.other));
       expect(
@@ -4105,6 +4140,49 @@ void main() {
       expect((r2.tagKey, r2.n1), ('ana', 4), reason: 'most evenings (4)');
     });
 
+    test('R1 and R2 read the catalogue-first of a tag\'s categories', () {
+      final events = [
+        ev('lift', 'gym', day(2026, 10, 1)).copyWith(title: 'Lift #ana'),
+        ev(
+          'dinner',
+          'friends',
+          day(2026, 10, 8),
+          rule: dates([day(2026, 10, 8), day(2026, 10, 15)]),
+        ).copyWith(title: 'Dinner #ana'),
+      ];
+      final gapped = foldFacts(
+        events,
+        span(day(2026, 10, 1), day(2026, 11, 30)),
+        later,
+        profiles: {
+          'gym': targeted(CategoryKind.custom, maxGap(30)),
+          'friends': targeted(CategoryKind.social, maxGap(20)),
+        },
+      );
+      expect(gapped.tags.single.categoryIds, ['gym', 'friends']);
+      final r1 = one(gapped, InsightRule.r1);
+      expect(
+        (r1.categoryId, r1.n1, r1.n2, r1.alternate),
+        ('gym', 36, 30, false),
+        reason: 'the catalogue-first limit, not the tighter one',
+      );
+      final people = foldFacts(
+        [
+          ev('cake', 'birthday', day(2026, 11, 2)).copyWith(title: 'Cake #ana'),
+          ev('tea', 'friends', day(2026, 11, 3)).copyWith(title: 'Tea #ana'),
+        ],
+        week,
+        later,
+        profiles: {
+          'birthday': kindOf(CategoryKind.social),
+          'friends': kindOf(CategoryKind.social),
+        },
+      );
+      expect(people.tags.single.categoryIds, ['birthday', 'friends']);
+      final r2 = one(people, InsightRule.r2);
+      expect((r2.tagKey, r2.categoryId, r2.n1), ('ana', 'birthday', 2));
+    });
+
     test('L1: Appointments booked a day ahead', () {
       CalendarEvent booked(String id, DateTime d) => ev(
         id,
@@ -4812,6 +4890,1409 @@ void main() {
             report.measures[id]!.profiled,
         ],
         [true, false, true],
+      );
+    });
+  });
+
+  // Compare's second fold (S2b-ii, §6.11): what a compared fold yields, what
+  // the main fold reads from it, and T1–T3, each one step from its
+  // threshold.
+  group('compare and T1–T3 (§6.11)', () {
+    final october = span(day(2026, 10, 1), day(2026, 10, 31));
+    final november = span(day(2026, 11, 1), day(2026, 11, 30));
+    final later = day(2026, 12, 15);
+    final counted = kindOf(CategoryKind.custom, measure: ReportMeasure.count);
+
+    ReportInput factsInput(
+      List<CalendarEvent> events,
+      DateRange range,
+      DateTime today, {
+      Map<String, EffectiveProfile> profiles = const {},
+      Map<String, int> money = const {},
+      ReportFoldRole role = ReportFoldRole.main,
+      ReportCompare compare = ReportCompare.previous,
+      CalendarReport? compared,
+      List<ReportTile>? tileSet,
+      Map<String, List<DateTime>> skipped = const {},
+    }) {
+      final base = inputFor(events, range, today, skipped: skipped);
+      return ReportInput(
+        span: base.span,
+        today: base.today,
+        weekStart: base.weekStart,
+        events: base.events,
+        categoryOf: base.categoryOf,
+        samples: base.samples,
+        categoryOrder: base.categoryOrder,
+        previousSpan: compared?.span,
+        previousCounted: compared?.span,
+        previousTotals: compared?.totals,
+        profiles: profiles,
+        cancelled: [
+          for (final MapEntry(:key, :value) in skipped.entries)
+            for (final d in value)
+              if (!d.isBefore(range.start) && !d.isAfter(range.end))
+                ReportSample(eventId: key, day: d),
+        ],
+        money: money,
+        role: role,
+        compare: compare,
+        compared: compared,
+        tileSet: tileSet,
+      );
+    }
+
+    CalendarReport comparedOf(
+      List<CalendarEvent> events,
+      DateRange range, {
+      DateTime? today,
+      Map<String, EffectiveProfile> profiles = const {},
+      Map<String, int> money = const {},
+      List<ReportTile>? tileSet,
+      Map<String, List<DateTime>> skipped = const {},
+    }) => CalendarReportBuilder.fold(
+      factsInput(
+        events,
+        range,
+        today ?? later,
+        profiles: profiles,
+        money: money,
+        role: ReportFoldRole.compared,
+        tileSet: tileSet,
+        skipped: skipped,
+      ),
+    );
+
+    /// [events] folded over [range] against their own fold over [before].
+    CalendarReport against(
+      List<CalendarEvent> events,
+      DateRange range,
+      DateRange before,
+      ReportCompare compare, {
+      DateTime? today,
+      Map<String, EffectiveProfile> profiles = const {},
+      Map<String, int> money = const {},
+      Map<String, List<DateTime>> skipped = const {},
+    }) => CalendarReportBuilder.fold(
+      factsInput(
+        events,
+        range,
+        today ?? later,
+        profiles: profiles,
+        money: money,
+        compare: compare,
+        skipped: skipped,
+        compared: comparedOf(
+          events,
+          before,
+          today: today,
+          profiles: profiles,
+          money: money,
+          skipped: skipped,
+        ),
+      ),
+    );
+
+    List<ReportInsight> fired(CalendarReport r, InsightRule rule) => [
+      for (final i in r.insights)
+        if (i.rule == rule) i,
+    ];
+
+    /// One one-off a day in October, [then] of them, and in November [now].
+    List<CalendarEvent> visits(int then, int now, {String category = 'gym'}) =>
+        [
+          for (var i = 1; i <= then; i++) ev('o$i', category, day(2026, 10, i)),
+          for (var i = 1; i <= now; i++) ev('n$i', category, day(2026, 11, i)),
+        ];
+
+    test('a compared fold yields totals, tiles, measures, trend, balance, '
+        'when and money, and nothing a card of the page alone reads', () {
+      final events = [
+        ev(
+          'gym',
+          'gym',
+          day(2026, 10, 1),
+          rule: daily,
+          tracked: true,
+          time: at(18, 0, 60),
+          description: 'with #coach',
+        ),
+        ev('bill', 'birthday', day(2026, 10, 3)),
+      ];
+      final profiles = {
+        'gym': targeted(
+          CategoryKind.workout,
+          perPeriod(TargetKind.atLeast, 3, TargetPeriod.week),
+        ),
+      };
+      final report = comparedOf(
+        events,
+        october,
+        profiles: profiles,
+        money: {'bill': -500},
+      );
+      expect(report.totals!.kept, 32);
+      expect(kindsOf(report), [
+        ReportTile.events,
+        ReportTile.attended,
+        ReportTile.missed,
+        ReportTile.hours,
+      ]);
+      expect(report.tiles.every((t) => t.previous == null), isTrue);
+      expect(report.measures.keys, containsAll(['gym', 'birthday']));
+      expect(report.trend, isNotNull);
+      expect(report.balance, {LifeArea.health: 31 * 60});
+      expect(report.when!.timedDays, 31);
+      expect(report.money, {'bill': -500});
+      expect(<Object>[
+        report.categories,
+        report.missed,
+        report.ahead,
+        report.tags,
+        report.goals,
+        report.dueSoon,
+        report.insights,
+      ], everyElement(isEmpty));
+      expect(report.billsAhead, isEmpty);
+      expect(report.compared, isNull);
+    });
+
+    test('a tile set is emitted exactly, in its order, with no delta', () {
+      final report = comparedOf(
+        [ev('walk', 'friends', day(2026, 10, 3))],
+        october,
+        tileSet: const [
+          ReportTile.events,
+          ReportTile.attended,
+          ReportTile.missed,
+          ReportTile.hours,
+          ReportTile.tasks,
+        ],
+      );
+      expect(tilesOf(report), [
+        'events 1',
+        'attended 0/0',
+        'missed 0',
+        'hours 0',
+        'tasks 0/0',
+      ]);
+      expect(
+        report.tiles.every((t) => t.previous == null && t.previousOf == null),
+        isTrue,
+      );
+    });
+
+    test('the main fold carries the compared fold and its mode', () {
+      final events = visits(10, 13);
+      final previous = against(
+        events,
+        november,
+        october,
+        ReportCompare.previous,
+      );
+      expect(previous.compare, ReportCompare.previous);
+      expect(previous.compared!.span, october);
+      expect(tile(previous, ReportTile.events).previous, 10);
+      expect(
+        (previous.balanceLastYear, previous.trend?.lastYear),
+        (null, null),
+      );
+    });
+
+    test('T1: the primary up 30 % fires, one step under is silent', () {
+      final fires = fired(
+        against(
+          visits(10, 13),
+          november,
+          october,
+          ReportCompare.previous,
+          profiles: {'gym': counted},
+        ),
+        InsightRule.t1,
+      ).single;
+      expect(
+        (fires.severity, fires.categoryId, fires.n1, fires.n2, fires.target),
+        (1, 'gym', 13, 10, InsightTarget.categoryGroup),
+      );
+      expect(fires.ratio, closeTo(0.3, 1e-9));
+      expect(
+        fired(
+          against(
+            visits(10, 12),
+            november,
+            october,
+            ReportCompare.previous,
+            profiles: {'gym': counted},
+          ),
+          InsightRule.t1,
+        ),
+        isEmpty,
+        reason: 'up 20 %',
+      );
+    });
+
+    test('T1: down 30 % fires signed', () {
+      final down = fired(
+        against(
+          visits(10, 7),
+          november,
+          october,
+          ReportCompare.previous,
+          profiles: {'gym': counted},
+        ),
+        InsightRule.t1,
+      ).single;
+      expect((down.n1, down.n2), (7, 10));
+      expect(down.ratio, closeTo(-0.3, 1e-9));
+    });
+
+    test('T1: either side needs five occurrences or two hours', () {
+      CalendarReport on(int then, int now, {int? minutes}) => against(
+        [
+          for (var i = 1; i <= then; i++)
+            ev('o$i', 'gym', day(2026, 10, i), time: at(9, 0, minutes)),
+          for (var i = 1; i <= now; i++)
+            ev('n$i', 'gym', day(2026, 11, i), time: at(9, 0, minutes)),
+        ],
+        november,
+        october,
+        ReportCompare.previous,
+        profiles: {'gym': counted},
+      );
+      expect(fired(on(3, 5), InsightRule.t1), hasLength(1), reason: '5 now');
+      expect(fired(on(3, 4), InsightRule.t1), isEmpty, reason: '3 and 4');
+      expect(
+        fired(on(3, 4, minutes: 30), InsightRule.t1),
+        hasLength(1),
+        reason: '120 minutes now',
+      );
+      expect(
+        fired(on(3, 4, minutes: 29), InsightRule.t1),
+        isEmpty,
+        reason: '116 and 87 minutes',
+      );
+    });
+
+    test('T1 reads the primary\'s unit: hours as minutes', () {
+      final hours = kindOf(CategoryKind.custom, measure: ReportMeasure.hours);
+      final t1 = fired(
+        against(
+          [
+            for (var i = 1; i <= 5; i++)
+              ev('o$i', 'gym', day(2026, 10, i), time: at(9, 0, 60)),
+            for (var i = 1; i <= 5; i++)
+              ev('n$i', 'gym', day(2026, 11, i), time: at(9, 0, 90)),
+          ],
+          november,
+          october,
+          ReportCompare.previous,
+          profiles: {'gym': hours},
+        ),
+        InsightRule.t1,
+      ).single;
+      expect((t1.n1, t1.n2), (450, 300));
+      expect(t1.ratio, closeTo(0.5, 1e-9));
+    });
+
+    test('T1 reads every sized primary in its own unit', () {
+      ReportInsight? t1(
+        EffectiveProfile profile,
+        List<CalendarEvent> events, {
+        Map<String, int> money = const {},
+        Map<String, List<DateTime>> skipped = const {},
+      }) => fired(
+        against(
+          events,
+          november,
+          october,
+          ReportCompare.previous,
+          profiles: {'gym': profile},
+          money: money,
+          skipped: skipped,
+        ),
+        InsightRule.t1,
+      ).singleOrNull;
+      List<CalendarEvent> oneOffs(
+        int then,
+        int now, {
+        String prefix = '',
+        bool tracked = false,
+        String? description,
+      }) => [
+        for (var i = 1; i <= then; i++)
+          ev(
+            '${prefix}o$i',
+            'gym',
+            day(2026, 10, i),
+            tracked: tracked,
+            description: description,
+          ),
+        for (var i = 1; i <= now; i++)
+          ev(
+            '${prefix}n$i',
+            'gym',
+            day(2026, 11, i),
+            tracked: tracked,
+            description: description,
+          ),
+      ];
+      EffectiveProfile by(ReportMeasure measure, [CategoryKind? kind]) =>
+          kindOf(kind ?? CategoryKind.custom, measure: measure);
+      void pair(
+        String unit,
+        ReportInsight? Function(int now) on, {
+        int then = 10,
+        int now = 13,
+        int under = 12,
+      }) {
+        final fires = on(now);
+        expect((fires?.n1, fires?.n2), (now, then), reason: unit);
+        expect(fires!.ratio, closeTo((now - then) / then, 1e-9), reason: unit);
+        expect(on(under), isNull, reason: '$unit just under');
+      }
+
+      pair('events', (now) => t1(by(ReportMeasure.events), oneOffs(10, now)));
+      pair(
+        'attendance',
+        (now) =>
+            t1(by(ReportMeasure.attendance), oneOffs(10, now, tracked: true)),
+      );
+      pair(
+        'tasks',
+        (now) => t1(
+          by(ReportMeasure.tasks),
+          oneOffs(10, now, description: '- [x] done'),
+        ),
+      );
+      pair(
+        'cancelled',
+        (now) => t1(
+          by(ReportMeasure.cancelled),
+          [...oneOffs(5, 5), ...oneOffs(10, now, prefix: 'c')],
+          skipped: {
+            for (var i = 1; i <= 10; i++) 'co$i': [day(2026, 10, i)],
+            for (var i = 1; i <= now; i++) 'cn$i': [day(2026, 11, i)],
+          },
+        ),
+      );
+      pair(
+        'spent',
+        (now) => t1(
+          by(ReportMeasure.money),
+          oneOffs(5, 5),
+          money: {'o1': -1000, 'n1': -now},
+        ),
+        then: 1000,
+        now: 1300,
+        under: 1299,
+      );
+      pair(
+        'received',
+        (now) => t1(
+          by(ReportMeasure.money, CategoryKind.income),
+          oneOffs(5, 5),
+          money: {'o1': 1000, 'n1': now, 'o2': -5000},
+        ),
+        then: 1000,
+        now: 1300,
+        under: 1299,
+      );
+    });
+
+    test('T1 is silent for a Bill kind and for a position in time', () {
+      for (final profile in [
+        kindOf(CategoryKind.bill, measure: ReportMeasure.count),
+        kindOf(CategoryKind.custom, measure: ReportMeasure.lastSeen),
+      ]) {
+        expect(
+          fired(
+            against(
+              visits(10, 20),
+              november,
+              october,
+              ReportCompare.previous,
+              profiles: {'gym': profile},
+            ),
+            InsightRule.t1,
+          ),
+          isEmpty,
+          reason: '${profile.kind} ${profile.primary}',
+        );
+      }
+    });
+
+    test('T1 and T2 each read their own mode, never a view; unprofiled is '
+        'silent', () {
+      final events = visits(10, 13);
+      CalendarReport on(
+        ReportCompare mode, {
+        Map<String, EffectiveProfile>? profiles,
+      }) => against(
+        events,
+        november,
+        october,
+        mode,
+        profiles: profiles ?? {'gym': counted},
+      );
+      final lastYear = on(ReportCompare.lastYear);
+      expect(fired(lastYear, InsightRule.t1), isEmpty);
+      final t2 = fired(lastYear, InsightRule.t2).single;
+      expect((t2.severity, t2.n1, t2.n2), (1, 13, 10));
+      expect(fired(on(ReportCompare.previous), InsightRule.t2), isEmpty);
+      expect(fired(on(ReportCompare.previous), InsightRule.t1), hasLength(1));
+      final view = on(ReportCompare.view);
+      expect([
+        ...fired(view, InsightRule.t1),
+        ...fired(view, InsightRule.t2),
+      ], isEmpty);
+      expect(on(ReportCompare.previous, profiles: const {}).insights, isEmpty);
+    });
+
+    test('T3: a Bill\'s spending up 10 % fires on its latest money event, '
+        'one cent under is silent', () {
+      final events = [
+        ev('october', 'birthday', day(2026, 10, 5)),
+        ev('water', 'birthday', day(2026, 11, 3)),
+        ev('rent', 'birthday', day(2026, 11, 20)),
+        ev('unpaid', 'birthday', day(2026, 11, 25)),
+      ];
+      CalendarReport on(int rent, ReportCompare mode) => against(
+        events,
+        november,
+        october,
+        mode,
+        profiles: {'birthday': kindOf(CategoryKind.bill)},
+        money: {'october': -1000, 'water': -500, 'rent': -rent},
+      );
+      final t3 = fired(on(600, ReportCompare.previous), InsightRule.t3).single;
+      expect(
+        (t3.severity, t3.categoryId, t3.eventId, t3.cents, t3.n1, t3.target),
+        (2, 'birthday', 'rent', 1100, 1000, InsightTarget.categoryGroup),
+      );
+      expect(t3.ratio, closeTo(0.1, 1e-9));
+      expect(
+        fired(on(599, ReportCompare.previous), InsightRule.t3),
+        isEmpty,
+        reason: 'up 9.9 %',
+      );
+      expect(
+        fired(on(600, ReportCompare.lastYear), InsightRule.t3),
+        hasLength(1),
+      );
+      expect(fired(on(600, ReportCompare.view), InsightRule.t3), isEmpty);
+      expect(
+        fired(on(600, ReportCompare.previous), InsightRule.t1),
+        isEmpty,
+        reason: 'a Bill moves under T3 alone',
+      );
+    });
+
+    test('T3 names a bill whose money its cents hold', () {
+      final bill = {'birthday': kindOf(CategoryKind.bill)};
+      final t3 = fired(
+        against(
+          [
+            ev('october', 'birthday', day(2026, 10, 5)),
+            ev(
+              'rent',
+              'birthday',
+              day(2025, 11, 20),
+              rule: dates([day(2025, 11, 20), day(2026, 11, 20)]),
+            ),
+            ev('water', 'birthday', day(2026, 11, 3)),
+          ],
+          november,
+          october,
+          ReportCompare.previous,
+          profiles: bill,
+          money: {'october': -1000, 'rent': -90000, 'water': -1100},
+        ),
+        InsightRule.t3,
+      ).single;
+      expect(
+        (t3.eventId, t3.cents, t3.n1),
+        ('water', 1100, 1000),
+        reason: 'the Rent begun last year is in no cent of the span',
+      );
+
+      CalendarReport current(
+        DateTime today,
+        List<CalendarEvent> events,
+        Map<String, int> money,
+      ) => against(
+        [ev('october', 'birthday', day(2026, 10, 5)), ...events],
+        november,
+        october,
+        ReportCompare.previous,
+        today: today,
+        profiles: bill,
+        money: {'october': -1000, ...money},
+      );
+      final gas = ev('gas', 'birthday', day(2026, 11, 25));
+      final counted = fired(
+        current(
+          day(2026, 11, 22),
+          [ev('water', 'birthday', day(2026, 11, 3)), gas],
+          {'water': -600, 'gas': -500},
+        ),
+        InsightRule.t3,
+      ).single;
+      expect(
+        (counted.eventId, counted.cents),
+        ('water', 1100),
+        reason: 'the cents hold the Gas ahead; the row named is counted',
+      );
+      final ahead = fired(
+        current(day(2026, 11, 10), [gas], {'gas': -1100}),
+        InsightRule.t3,
+      ).single;
+      expect(
+        (ahead.eventId, ahead.cents),
+        (null, 1100),
+        reason: 'no counted row carries the money',
+      );
+    });
+
+    test('no compared fold, no T rule', () {
+      final report = CalendarReportBuilder.fold(
+        factsInput(visits(10, 13), november, later, profiles: {'gym': counted}),
+      );
+      expect([
+        for (final i in report.insights)
+          if ({InsightRule.t1, InsightRule.t2, InsightRule.t3}.contains(i.rule))
+            i,
+      ], isEmpty);
+      expect(report.compared, isNull);
+    });
+
+    test('last year: the trend\'s outline is index-aligned, as long as the '
+        'shorter February', () {
+      final events = [ev('d', 'gym', day(2027, 1, 1), rule: daily)];
+      final february = span(day(2028, 2, 1), day(2028, 2, 29));
+      final before = span(day(2027, 2, 1), day(2027, 2, 28));
+      final report = against(
+        events,
+        february,
+        before,
+        ReportCompare.lastYear,
+        today: day(2028, 3, 10),
+      );
+      expect(report.trend!.buckets, hasLength(29));
+      expect(report.trend!.lastYear, List.filled(28, 1));
+      final shorter = against(
+        events,
+        before,
+        february,
+        ReportCompare.lastYear,
+        today: day(2028, 3, 10),
+      );
+      expect(shorter.trend!.buckets, hasLength(28));
+      expect(shorter.trend!.lastYear, hasLength(28));
+      expect(
+        against(
+          events,
+          february,
+          before,
+          ReportCompare.previous,
+          today: day(2028, 3, 10),
+        ).trend!.lastYear,
+        isNull,
+      );
+    });
+
+    test('last year: the outline reads each column\'s kept occurrences', () {
+      final report = against(
+        [ev('d', 'gym', day(2025, 10, 1), rule: daily, tracked: true)],
+        span(day(2026, 10, 1), day(2026, 10, 7)),
+        span(day(2025, 10, 2), day(2025, 10, 8)),
+        ReportCompare.lastYear,
+      );
+      expect(report.trend!.lastYear, List.filled(7, 1));
+    });
+
+    test('last year: no outline when the shifted span reads another unit', () {
+      final events = [ev('d', 'gym', day(2027, 1, 1), rule: daily)];
+      final leap = against(
+        events,
+        span(day(2028, 1, 1), day(2028, 7, 1)),
+        span(day(2027, 1, 1), day(2027, 7, 1)),
+        ReportCompare.lastYear,
+        today: day(2028, 8, 1),
+      );
+      expect(
+        (leap.trend!.unit, leap.compared!.trend!.unit),
+        (ReportTrendUnit.month, ReportTrendUnit.week),
+        reason: '183 days against 182',
+      );
+      expect(leap.trend!.lastYear, isNull);
+      final same = against(
+        events,
+        span(day(2028, 3, 1), day(2028, 8, 31)),
+        span(day(2027, 3, 1), day(2027, 8, 31)),
+        ReportCompare.lastYear,
+        today: day(2028, 9, 10),
+      );
+      expect(same.trend!.unit, ReportTrendUnit.month);
+      expect(same.trend!.lastYear, [31, 30, 31, 30, 31, 31]);
+    });
+
+    test('last year: Balance\'s second bar is the compared fold\'s', () {
+      final events = [
+        for (var i = 1; i <= 3; i++)
+          ev('o$i', 'gym', day(2026, 10, i), time: at(9, 0, 60)),
+        ev('n1', 'gym', day(2026, 11, 1), time: at(9, 0, 30)),
+      ];
+      final profiles = {'gym': kindOf(CategoryKind.workout)};
+      final lastYear = against(
+        events,
+        november,
+        october,
+        ReportCompare.lastYear,
+        profiles: profiles,
+      );
+      expect(lastYear.balance, {LifeArea.health: 30});
+      expect(lastYear.balanceLastYear, {LifeArea.health: 180});
+      expect(
+        against(
+          events,
+          november,
+          october,
+          ReportCompare.previous,
+          profiles: profiles,
+        ).balanceLastYear,
+        isNull,
+      );
+    });
+
+    test('When: a Sleep night fills no cell, a Workout fills, a timed Bill '
+        'fills nothing', () {
+      final week = span(day(2026, 11, 2), day(2026, 11, 8));
+      ReportWhen on(String categoryId, EffectiveProfile profile) => foldFacts(
+        [ev('e', categoryId, day(2026, 11, 2), time: at(23, 0, 480))],
+        week,
+        later,
+        profiles: {categoryId: profile},
+      ).when!;
+      final sleep = on('rest', kindOf(CategoryKind.sleep));
+      expect((sleep.timedDays, sleep.cells.fold(0, (a, b) => a + b)), (0, 0));
+      final countedSleep = on(
+        'rest',
+        kindOf(CategoryKind.sleep, countsHours: true),
+      );
+      expect(
+        countedSleep.timedDays,
+        0,
+        reason: 'Sleep stays out even when its hours count',
+      );
+      final workout = on('gym', kindOf(CategoryKind.workout));
+      expect(
+        (workout.timedDays, workout.cells[23], workout.cells[24]),
+        (1, 60, 60),
+      );
+      expect(workout.cells.fold(0, (a, b) => a + b), 480);
+      final bill = on('birthday', kindOf(CategoryKind.bill));
+      expect((bill.timedDays, bill.cells.fold(0, (a, b) => a + b)), (0, 0));
+    });
+
+    test(
+      'a tag\'s kind is its first category\'s, in the catalogue\'s order',
+      () {
+        CalendarReport on(Map<String, EffectiveProfile> profiles) => foldFacts(
+          [
+            ev(
+              'lunch',
+              'friends',
+              day(2026, 9, 1),
+            ).copyWith(title: 'Lunch #ana'),
+            ev('trip', 'other', day(2026, 9, 2)).copyWith(title: 'Trip #ana'),
+          ],
+          span(day(2026, 9, 1), day(2026, 9, 3)),
+          later,
+          profiles: profiles,
+        );
+        final tag = on({
+          'friends': kindOf(CategoryKind.social),
+          'other': kindOf(CategoryKind.trip),
+        }).tags.single;
+        expect(tag.categoryIds, ['other', 'friends']);
+        expect(tag.kind, CategoryKind.trip);
+        expect(on(const {}).tags.single.kind, CategoryKind.custom);
+      },
+    );
+  });
+
+  // The year's aggregates (S2b-ii-b): the S6 designer's fixture — 2025 seen
+  // from 30 October 2026 — and the current year, folded from the same walk.
+  group('the year (§6.12)', () {
+    final y2025 = span(day(2025, 1, 1), day(2025, 12, 31));
+    final y2026 = span(day(2026, 1, 1), day(2026, 12, 31));
+    final today = day(2026, 10, 30);
+    final jan1 = day(2025, 1, 1);
+
+    String recordText(ReportRecord r) =>
+        '${r.kind.name} ${r.categoryId} ${r.eventId} ${r.value} '
+        '${r.start.month}-${r.start.day}..${r.end?.month}-${r.end?.day}';
+    List<String> recordsOf(CalendarReport r) => [
+      for (final record in r.year!.records) recordText(record),
+    ];
+    List<DateTime> weekdaysOf(int weekday, DateRange range) => [
+      for (
+        var d = range.start;
+        !d.isAfter(range.end);
+        d = day(d.year, d.month, d.day + 1)
+      )
+        if (d.weekday == weekday) d,
+    ];
+
+    final saturdays = weekdaysOf(DateTime.saturday, y2025);
+    final sundays = weekdaysOf(DateTime.sunday, y2025);
+    final gym = ev(
+      'gym',
+      'gym',
+      jan1,
+      rule: weekly({2, 4}),
+      tracked: true,
+      time: at(18, 0, 60),
+    );
+    final run = ev(
+      'run',
+      'cardio',
+      jan1,
+      rule: weekly({6}),
+      tracked: true,
+      time: at(8, 0, 45),
+    );
+    final stretch = ev(
+      'stretch',
+      'rest',
+      jan1,
+      rule: weekly({7}),
+      tracked: true,
+    );
+    final work = ev(
+      'work',
+      'measurement',
+      jan1,
+      rule: weekly({1, 2, 3, 4, 5}),
+      time: at(9, 0, 480),
+    );
+    final friendDays = [
+      day(2025, 1, 10),
+      day(2025, 2, 14),
+      day(2025, 3, 7),
+      day(2025, 3, 14),
+      day(2025, 3, 21),
+      day(2025, 6, 6),
+      day(2025, 6, 13),
+      day(2025, 6, 20),
+      day(2025, 9, 5),
+      day(2025, 12, 12),
+    ];
+    final events2025 = [
+      gym,
+      run,
+      stretch,
+      work,
+      for (final (i, d) in friendDays.indexed) ev('f${i + 1}', 'friends', d),
+      ev(
+        'cluj',
+        'holiday',
+        day(2025, 5, 9),
+        rule: daily,
+        end: day(2025, 5, 11),
+      ),
+      ev(
+        'sibiu',
+        'holiday',
+        day(2025, 9, 1),
+        rule: daily,
+        end: day(2025, 9, 6),
+      ),
+      ev('oil', 'mobility', day(2025, 3, 10)),
+      ev('tyres', 'mobility', day(2025, 10, 6)),
+      ev('rent1', 'todo', day(2025, 1, 5)),
+      ev('rent2', 'todo', day(2025, 2, 5)),
+      ev('salary', 'competition', day(2025, 3, 25)),
+    ];
+    final missed2025 = {
+      'gym': [
+        day(2025, 2, 4),
+        day(2025, 4, 8),
+        day(2025, 6, 10),
+        day(2025, 8, 12),
+        day(2025, 11, 4),
+      ],
+      // Three kept, then two kept between each miss.
+      'run': [
+        for (final (i, d) in saturdays.indexed)
+          if (i >= 3 && i % 3 == 0) d,
+      ],
+      // Never more than two in a row.
+      'stretch': [
+        for (final (i, d) in sundays.indexed)
+          if (i % 3 == 2) d,
+      ],
+    };
+    final profiles2025 = {
+      'gym': targeted(
+        CategoryKind.workout,
+        perPeriod(TargetKind.atLeast, 2, TargetPeriod.week),
+      ),
+      'cardio': targeted(
+        CategoryKind.workout,
+        perPeriod(TargetKind.atLeast, 1, TargetPeriod.week),
+      ),
+      'measurement': kindOf(CategoryKind.work),
+      'friends': targeted(
+        CategoryKind.social,
+        perPeriod(TargetKind.atLeast, 12, TargetPeriod.year),
+      ),
+      'holiday': kindOf(CategoryKind.trip),
+      'mobility': targeted(CategoryKind.maintenance, maxGap(180)),
+      'todo': kindOf(CategoryKind.bill),
+      'competition': kindOf(CategoryKind.income),
+    };
+    const money2025 = {
+      'f6': -4000,
+      'oil': -12000,
+      'tyres': -30000,
+      'rent1': -50000,
+      'rent2': -50000,
+      'salary': 300000,
+    };
+    CalendarReport fold2025() => foldFacts(
+      events2025,
+      y2025,
+      today,
+      missed: missed2025,
+      profiles: profiles2025,
+      money: money2025,
+      lookahead: {
+        ...lookaheadFor('gym', [gym], y2025, today),
+        ...lookaheadFor('cardio', [run], y2025, today),
+      },
+    );
+
+    test('a past year: every record kind, in the card\'s order', () {
+      final report = fold2025();
+      // The busiest month and week, counted straight off the samples.
+      final samples = sampled(events2025, y2025, missed: missed2025);
+      final byMonth = List.filled(12, 0);
+      final byWeek = <DateTime, int>{};
+      for (final s in samples) {
+        if (s.missed) continue;
+        byMonth[s.day.month - 1]++;
+        final monday = day(
+          s.day.year,
+          s.day.month,
+          s.day.day - s.day.weekday + 1,
+        );
+        if (monday.year == 2025) byWeek[monday] = (byWeek[monday] ?? 0) + 1;
+      }
+      var month = 0;
+      for (var m = 1; m < 12; m++) {
+        if (byMonth[m] > byMonth[month]) month = m;
+      }
+      final weeks = byWeek.keys.toList()..sort();
+      var week = weeks.first;
+      for (final w in weeks) {
+        if (byWeek[w]! > byWeek[week]!) week = w;
+      }
+      final weekEnd = day(week.year, week.month, week.day + 6);
+      expect(recordsOf(report), [
+        'busiestMonth null null ${byMonth[month]} '
+            '${month + 1}-1..${month + 1}-${day(2025, month + 2, 0).day}',
+        'busiestWeek null null ${byWeek[week]} '
+            '${week.month}-${week.day}..${weekEnd.month}-${weekEnd.day}',
+        // March and June both hold three evenings: the earliest wins.
+        'socialMonth null null 3 3-1..3-31',
+        // January's rent ties February's.
+        'moneyMonth null null 50000 1-1..1-31',
+        'longestTrip holiday sibiu 6 9-1..9-6',
+        // Gym's runs are 9, 17, 17, 17, 23 and 16 sessions; Run's longest is
+        // its first three Saturdays; Stretch never keeps three in a row.
+        'longestStreak gym gym 23 8-14..10-30',
+        'longestStreak cardio run 3 1-4..1-18',
+        'longestGap mobility null 209 3-10..10-6',
+      ]);
+    });
+
+    test('a past year\'s months, each in its primary\'s unit', () {
+      final months = fold2025().year!.months;
+      expect(months.keys, [
+        'gym',
+        'cardio',
+        'rest',
+        'holiday',
+        'competition',
+        'measurement',
+        'mobility',
+        'friends',
+        'todo',
+      ]);
+      expect(months.values.map((m) => m.length), everyElement(12));
+      // Attendance → attended days: nine in January, February's miss out.
+      expect(months['gym']!.take(2), [9, 7]);
+      // Hours → minutes: January's 23 weekdays of eight hours.
+      expect(months['measurement']!.first, 23 * 480);
+      // Money → spent cents, received for the Income kind.
+      expect(months['todo'], [50000, 50000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+      expect(months['competition'], [0, 0, 300000, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+      // Events → distinct events; Last seen and Count → kept occurrences.
+      expect(months['friends'], [1, 1, 3, 0, 0, 3, 0, 0, 1, 0, 0, 1]);
+      expect(months['mobility'], [0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0]);
+      expect(months['holiday'], [0, 0, 0, 0, 3, 0, 0, 0, 6, 0, 0, 0]);
+    });
+
+    test('a past year\'s spans run first to last kept day', () {
+      final spans = fold2025().year!.spans;
+      expect(spans.keys, fold2025().year!.months.keys);
+      expect(spans['gym'], (first: day(2025, 1, 2), last: day(2025, 12, 30)));
+      expect(spans['mobility'], (
+        first: day(2025, 3, 10),
+        last: day(2025, 10, 6),
+      ));
+      expect(spans['holiday'], (first: day(2025, 5, 9), last: day(2025, 9, 6)));
+    });
+
+    test('goal tallies: the weeks begun in the year, closed; no tally for a '
+        'year or a gap goal', () {
+      final tallies = fold2025().year!.goalTallies;
+      expect(tallies.keys, unorderedEquals(['gym', 'cardio']));
+      // 52 weeks from 6 January; five held a missed session, the longest
+      // run between them is 32..42; the week of 29 December reads its
+      // Thursday from the lookahead.
+      expect(
+        tallies['gym'],
+        const ReportGoalTally(met: 47, closed: 52, longestStreak: 11),
+      );
+      // Every third Saturday missed from the fourth.
+      expect(
+        tallies['cardio'],
+        const ReportGoalTally(met: 35, closed: 52, longestStreak: 2),
+      );
+    });
+
+    test('the current year: counted to today, the open week out, the months '
+        'ahead at 0', () {
+      final gym26 = ev(
+        'gym',
+        'gym',
+        day(2026, 1, 1),
+        rule: weekly({2, 4}),
+        tracked: true,
+        time: at(18, 0, 60),
+      );
+      final events = [
+        gym26,
+        ev('f1', 'friends', day(2026, 3, 3)),
+        ev('party', 'friends', day(2026, 12, 12)),
+        ev('gift', 'todo', day(2026, 12, 1)),
+      ];
+      final report = foldFacts(
+        events,
+        y2026,
+        today,
+        profiles: {
+          'gym': targeted(
+            CategoryKind.workout,
+            perPeriod(TargetKind.atLeast, 2, TargetPeriod.week),
+          ),
+          'friends': kindOf(CategoryKind.social),
+          'todo': kindOf(CategoryKind.bill),
+        },
+        money: const {'gift': -9000},
+      );
+      expect(report.tense, ReportTense.current);
+      final year = report.year!;
+      final gymMonths = year.months['gym']!;
+      expect(gymMonths.sublist(9), [9, 0, 0]);
+      expect(year.months['friends'], [0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+      expect(year.months.keys, [
+        'gym',
+        'friends',
+      ], reason: 'a December one-off is not kept yet');
+      expect(year.spans['gym'], (
+        first: day(2026, 1, 1),
+        last: day(2026, 10, 29),
+      ));
+      final streak = year.records.singleWhere(
+        (r) => r.kind == ReportRecordKind.longestStreak,
+      );
+      expect(
+        (streak.value, streak.start, streak.end),
+        (
+          gymMonths.fold(0, (n, v) => n + v),
+          day(2026, 1, 1),
+          day(2026, 10, 29),
+        ),
+      );
+      expect(
+        year.records.map((r) => r.kind),
+        isNot(contains(ReportRecordKind.moneyMonth)),
+        reason: 'December\'s spending lies ahead',
+      );
+      // 42 weeks from 5 January closed by 25 October; this week is open.
+      expect(
+        year.goalTallies['gym'],
+        const ReportGoalTally(met: 42, closed: 42, longestStreak: 42),
+      );
+    });
+
+    test('a week begun in December is the year before\'s; the last week ends '
+        'on 31 December; a kind without its source is absent', () {
+      final report = fold(
+        [
+          for (var i = 0; i < 4; i++) ev('jan$i', 'other', day(2025, 1, 2)),
+          for (var i = 0; i < 3; i++) ev('dec$i', 'other', day(2025, 12, 30)),
+        ],
+        y2025,
+        today,
+      );
+      expect(recordsOf(report), [
+        'busiestMonth null null 4 1-1..1-31',
+        'busiestWeek null null 3 12-29..12-31',
+      ]);
+    });
+
+    test('ties go to the earliest month and week', () {
+      final report = fold(
+        [
+          for (var i = 0; i < 2; i++) ev('jun$i', 'other', day(2025, 6, 2)),
+          for (var i = 0; i < 2; i++) ev('mar$i', 'other', day(2025, 3, 3)),
+        ],
+        y2025,
+        today,
+      );
+      expect(recordsOf(report), [
+        'busiestMonth null null 2 3-1..3-31',
+        'busiestWeek null null 2 3-3..3-9',
+      ]);
+    });
+
+    test('streaks: three in a row is a record, two is not; the longest '
+        'first, then the earliest', () {
+      final tue = ev('tue', 'gym', jan1, rule: weekly({2}), tracked: true);
+      final wed = ev('wed', 'gym', jan1, rule: weekly({3}), tracked: true);
+      final fri = ev('fri', 'gym', jan1, rule: weekly({5}), tracked: true);
+      // Tue keeps 7–21 Jan, Wed 1–15 Jan, Fri only 3 and 10 Jan.
+      final report = fold(
+        [tue, wed, fri],
+        span(day(2025, 1, 1), day(2025, 12, 31)),
+        today,
+        missed: {
+          'tue': [
+            for (final d in weekdaysOf(DateTime.tuesday, y2025))
+              if (d.isAfter(day(2025, 1, 21))) d,
+          ],
+          'wed': [
+            for (final d in weekdaysOf(DateTime.wednesday, y2025))
+              if (d.isAfter(day(2025, 1, 15))) d,
+          ],
+          'fri': [
+            for (final d in weekdaysOf(DateTime.friday, y2025))
+              if (d.isAfter(day(2025, 1, 10))) d,
+          ],
+        },
+      );
+      expect(
+        [
+          for (final line in recordsOf(report))
+            if (line.startsWith('longestStreak')) line,
+        ],
+        [
+          'longestStreak gym wed 3 1-1..1-15',
+          'longestStreak gym tue 3 1-7..1-21',
+        ],
+      );
+    });
+
+    test('a streak tie on one start day keeps the walk\'s within-day '
+        'order', () {
+      final report = fold(
+        [
+          ev(
+            'a',
+            'gym',
+            jan1,
+            rule: daily,
+            end: day(2025, 1, 5),
+            tracked: true,
+            time: at(9, 0, 30),
+          ),
+          ev(
+            'z',
+            'gym',
+            jan1,
+            rule: daily,
+            end: day(2025, 1, 5),
+            tracked: true,
+            time: at(8, 0, 30),
+          ),
+        ],
+        y2025,
+        today,
+      );
+      expect(
+        [
+          for (final line in recordsOf(report))
+            if (line.startsWith('longestStreak')) line,
+        ],
+        ['longestStreak gym z 5 1-1..1-5', 'longestStreak gym a 5 1-1..1-5'],
+        reason: 'the 08:00 session walks first',
+      );
+    });
+
+    test('a trip and a streak across 1 January count the year\'s days', () {
+      final events = [
+        ev(
+          'gym',
+          'gym',
+          day(2024, 12, 20),
+          rule: daily,
+          end: day(2025, 1, 9),
+          tracked: true,
+        ),
+        ev(
+          'alps',
+          'holiday',
+          day(2024, 12, 29),
+          rule: daily,
+          end: day(2025, 1, 3),
+        ),
+      ];
+      final report = foldFacts(
+        events,
+        y2025,
+        today,
+        profiles: {
+          'gym': targeted(CategoryKind.workout, maxGap(30)),
+          'holiday': kindOf(CategoryKind.trip),
+        },
+        lookback: lookbackFor('gym', events, y2025, today),
+      );
+      expect(
+        [
+          for (final line in recordsOf(report))
+            if (line.startsWith('longestTrip') ||
+                line.startsWith('longestStreak'))
+              line,
+        ],
+        [
+          'longestTrip holiday alps 3 1-1..1-3',
+          'longestStreak gym gym 9 1-1..1-9',
+        ],
+      );
+    });
+
+    test('gap records: by value, then start, then the categories\' order', () {
+      final gap = targeted(CategoryKind.custom, maxGap(400));
+      final report = foldFacts(
+        [
+          for (final (id, categoryId, d) in [
+            ('g1', 'gym', day(2025, 2, 1)),
+            ('g2', 'gym', day(2025, 8, 1)),
+            ('c1', 'cardio', day(2025, 2, 1)),
+            ('c2', 'cardio', day(2025, 8, 1)),
+            ('r1', 'rest', day(2025, 1, 2)),
+            ('r2', 'rest', day(2025, 12, 1)),
+            ('m1', 'mobility', day(2025, 1, 10)),
+            ('m2', 'mobility', day(2025, 7, 10)),
+          ])
+            ev(id, categoryId, d),
+        ],
+        y2025,
+        today,
+        profiles: {'gym': gap, 'cardio': gap, 'rest': gap, 'mobility': gap},
+      );
+      expect(
+        [
+          for (final line in recordsOf(report))
+            if (line.startsWith('longestGap')) line,
+        ],
+        [
+          'longestGap rest null 332 1-2..12-1',
+          'longestGap mobility null 180 1-10..7-10',
+          'longestGap gym null 180 2-1..8-1',
+          'longestGap cardio null 180 2-1..8-1',
+        ],
+      );
+    });
+
+    for (final (weekStart, busiest) in [
+      (CalendarWeekStart.monday, 'busiestWeek null null 5 3-3..3-9'),
+      (CalendarWeekStart.sunday, 'busiestWeek null null 5 3-9..3-15'),
+      (CalendarWeekStart.saturday, 'busiestWeek null null 7 3-8..3-14'),
+    ]) {
+      test('a ${weekStart.name} week start: the busiest week and the goal '
+          'tally from the first whole week', () {
+        final report = fold(
+          [
+            for (var i = 0; i < 2; i++) ev('sat$i', 'other', day(2025, 3, 8)),
+            for (var i = 0; i < 3; i++) ev('sun$i', 'other', day(2025, 3, 9)),
+            for (var i = 0; i < 2; i++) ev('mon$i', 'other', day(2025, 3, 10)),
+          ],
+          y2025,
+          today,
+          weekStart: weekStart,
+        );
+        expect(
+          [
+            for (final line in recordsOf(report))
+              if (line.startsWith('busiestWeek')) line,
+          ],
+          [busiest],
+        );
+
+        // Twice a week from Tuesday 1 July: 27 weeks of the year exist for
+        // the goal under every week start, the last read from the lookahead.
+        final lifts = ev(
+          'lift',
+          'gym',
+          day(2025, 7, 1),
+          rule: weekly({2, 4}),
+          tracked: true,
+        );
+        final goal = foldFacts(
+          [lifts],
+          y2025,
+          today,
+          weekStart: weekStart,
+          profiles: {
+            'gym': targeted(
+              CategoryKind.workout,
+              perPeriod(TargetKind.atLeast, 2, TargetPeriod.week),
+            ),
+          },
+          lookahead: lookaheadFor('gym', [lifts], y2025, today),
+        );
+        expect(
+          goal.year!.goalTallies['gym'],
+          const ReportGoalTally(met: 27, closed: 27, longestStreak: 27),
+        );
+      });
+    }
+
+    test('an at-most goal begun mid-year meets only the weeks it existed', () {
+      final report = foldFacts(
+        [
+          ev('run', 'cardio', day(2025, 7, 5), rule: weekly({6})),
+        ],
+        y2025,
+        today,
+        profiles: {
+          'cardio': targeted(
+            CategoryKind.workout,
+            perPeriod(TargetKind.atMost, 1, TargetPeriod.week),
+          ),
+        },
+      );
+      final tally = report.year!.goalTallies['cardio']!;
+      expect(
+        tally,
+        const ReportGoalTally(met: 27, closed: 27, longestStreak: 27),
+        reason: 'from the week of 30 June, never 52 of 52',
+      );
+    });
+
+    test('a cancelled primary\'s months count the cancelled days', () {
+      final weeklyBox = ev('box', 'birthday', jan1, rule: weekly({1}));
+      final report = foldFacts(
+        [weeklyBox],
+        y2025,
+        today,
+        skipped: {
+          'box': [day(2025, 1, 6), day(2025, 1, 13), day(2025, 3, 3)],
+        },
+        profiles: {
+          'birthday': kindOf(
+            CategoryKind.custom,
+            measure: ReportMeasure.cancelled,
+          ),
+        },
+      );
+      expect(report.year!.months['birthday'], [
+        2,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+      ]);
+    });
+
+    test('the gate: only a main fold of 1 January – 31 December, never a '
+        'plan', () {
+      final events = [ev('daily', 'gym', day(2024, 1, 1), rule: daily)];
+      DateTime? yearOf(DateRange range) =>
+          fold(events, range, today).year?.records.first.start;
+      expect(yearOf(y2025), day(2025, 1, 1));
+      expect(yearOf(y2026), isNotNull);
+      expect(yearOf(span(day(2025, 10, 1), day(2025, 10, 31))), isNull);
+      expect(
+        yearOf(span(day(2025, 10, 31), day(2026, 10, 30))),
+        isNull,
+        reason: 'Last 12 months',
+      );
+      expect(
+        yearOf(span(day(2026, 1, 1), day(2027, 1, 1))),
+        isNull,
+        reason: 'one day past 31 December',
+      );
+      expect(yearOf(span(day(2027, 1, 1), day(2027, 12, 31))), isNull);
+
+      final base = inputFor(events, y2025, today);
+      final compared = CalendarReportBuilder.fold(
+        ReportInput(
+          span: base.span,
+          today: base.today,
+          weekStart: base.weekStart,
+          events: base.events,
+          categoryOf: base.categoryOf,
+          samples: base.samples,
+          categoryOrder: base.categoryOrder,
+          role: ReportFoldRole.compared,
+        ),
+      );
+      expect(compared.year, isNull);
+    });
+
+    test('every fold sets its totals', () {
+      final events = [ev('daily', 'gym', day(2024, 1, 1), rule: daily)];
+      final october = fold(
+        events,
+        span(day(2025, 10, 1), day(2025, 10, 31)),
+        today,
+      );
+      expect(october.totals!.kept, 31);
+      expect(fold(events, y2026, today).totals!.kept, 303);
+      expect(fold(events, y2025, today).year!.records.map((r) => r.kind), [
+        ReportRecordKind.busiestMonth,
+        ReportRecordKind.busiestWeek,
+      ]);
+      final base = inputFor(events, y2025, today);
+      final compared = CalendarReportBuilder.fold(
+        ReportInput(
+          span: base.span,
+          today: base.today,
+          weekStart: base.weekStart,
+          events: base.events,
+          categoryOf: base.categoryOf,
+          samples: base.samples,
+          categoryOrder: base.categoryOrder,
+          role: ReportFoldRole.compared,
+        ),
+      );
+      expect(
+        (compared.totals!.kept, compared.year),
+        (365, null),
+        reason: 'a compared year folds totals, never aggregates',
       );
     });
   });

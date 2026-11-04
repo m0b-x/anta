@@ -354,13 +354,34 @@ class ReportTrend extends Equatable {
   /// one or the start is null.
   final int? usualEndMinute;
 
+  /// Under Compare: last year, the same columns' kept occurrences a year
+  /// earlier — the thin outline behind each column (§6.11) — index-aligned
+  /// with [buckets] and as long as the shorter of the two series (a leap
+  /// February has a column last year's lacks); null in every other mode, and
+  /// null when last year's span reads another [unit] — a shifted span that
+  /// loses 29 February can cross a unit's threshold, and a week's count
+  /// behind a month's column would be nonsense.
+  final List<int>? lastYear;
+
   const ReportTrend({
     required this.unit,
     required this.buckets,
     this.busiestWeekday,
     this.usualStartMinute,
     this.usualEndMinute,
+    this.lastYear,
   });
+
+  /// This trend with [lastYear] — set by the fold once the compared fold's
+  /// trend is known.
+  ReportTrend withLastYear(List<int>? lastYear) => ReportTrend(
+    unit: unit,
+    buckets: buckets,
+    busiestWeekday: busiestWeekday,
+    usualStartMinute: usualStartMinute,
+    usualEndMinute: usualEndMinute,
+    lastYear: lastYear,
+  );
 
   @override
   List<Object?> get props => [
@@ -369,6 +390,7 @@ class ReportTrend extends Equatable {
     busiestWeekday,
     usualStartMinute,
     usualEndMinute,
+    lastYear,
   ];
 }
 
@@ -631,8 +653,18 @@ class ReportTag extends Equatable {
   /// it (a plan). Date-only UTC.
   final DateTime? lastSeenDay;
 
-  /// The resolved categories of the tagged events, in first-seen order.
+  /// The resolved categories of the tagged events, in the catalogue's order,
+  /// then by id — so the first, whose kind names the tag, never depends on
+  /// which day came first.
   final List<String> categoryIds;
+
+  /// The effective kind of the first profiled of [categoryIds], else
+  /// [CategoryKind.custom] — the noun of the By tag card's sentence (§6.9):
+  /// a person in a people category, a place in a Trip, a thing in
+  /// Maintenance. Unprofiled categories are skipped because the catalogue
+  /// seeds Other first: one uncategorised tagged event would otherwise erase
+  /// the noun. Nothing is typed on the tag itself.
+  final CategoryKind kind;
 
   /// The tagged kept days as dated rows, oldest first, at most
   /// `ReportMetrics.maxListRows`.
@@ -653,6 +685,7 @@ class ReportTag extends Equatable {
     this.receivedCents = 0,
     this.lastSeenDay,
     required this.categoryIds,
+    this.kind = CategoryKind.custom,
     required this.rows,
     this.medianGapDays,
   });
@@ -668,6 +701,7 @@ class ReportTag extends Equatable {
     receivedCents,
     lastSeenDay,
     categoryIds,
+    kind,
     rows,
     medianGapDays,
   ];
@@ -929,8 +963,9 @@ class ReportWhen extends Equatable {
 }
 
 /// The insight rules (L, §6.7), in the record's order — the ranking's last
-/// key, so the order is part of the contract. T1–T3 need a second fold and
-/// join with Compare.
+/// key, so the order is part of the contract. Nothing persists an index:
+/// only the ranking reads it, so a rule may be inserted in its place. T1–T3
+/// read the compared fold (§6.11).
 enum InsightRule {
   g1,
   g2,
@@ -948,6 +983,9 @@ enum InsightRule {
   p4,
   p5,
   p6,
+  t1,
+  t2,
+  t3,
   m1,
   m2,
   r1,
@@ -997,6 +1035,9 @@ enum InsightTarget {
 /// | P4 | ratio the Meeting share; minutes Meeting minutes, n1 Work + Meeting minutes |
 /// | P5 | n1 cancelled, n2 planned, ratio cancelled / planned |
 /// | P6 | n1 the longest rest gap in days |
+/// | T1 | n1 this span's primary value, n2 the previous period's, both in the primary's unit (counts, minutes, attended, cancelled, ticked tasks, cents — spent, received for Income); ratio (n1 − n2) / n2, signed |
+/// | T2 | T1's slots against the same period last year |
+/// | T3 | eventId the latest counted event carrying money; cents this span's spent cents, n1 the compared span's; ratio (cents − n1) / n1, signed |
 /// | M1 | day..dayEnd today to today + 30; cents spent ahead, n1 events |
 /// | M2 | cents spent a year, n1 events |
 /// | R1 | tagKey; n1 days since, n2 the limit passed; [alternate] when the limit is the median gap's multiple |
@@ -1049,7 +1090,8 @@ class ReportInsight extends Equatable {
   /// An amount in cents, for the rules that report money.
   final int cents;
 
-  /// A share in 0..1, exact, for the rules that report one.
+  /// A share in 0..1, exact, for the rules that report one; for T1–T3 a
+  /// signed change, which may pass 1.
   final double? ratio;
 
   /// Whether a two-condition rule fired on its second condition (the table
@@ -1101,6 +1143,173 @@ class ReportInsight extends Equatable {
     alternate,
     beyondLookback,
   ];
+}
+
+/// What a report's second fold compares the span with (§6.11, *Compare
+/// with*).
+enum ReportCompare {
+  /// The period one step back — the deltas as they always were.
+  previous,
+
+  /// The same period a year earlier; the tiles' deltas, the trend's outline,
+  /// Balance's second bar and T2 read it.
+  lastYear,
+
+  /// A saved overview view's categories over the same span, drawn as a
+  /// second Totals column.
+  view,
+}
+
+/// Which of a report's two folds a [ReportInput] asks for.
+enum ReportFoldRole {
+  /// The page's report: everything.
+  main,
+
+  /// The second fold Compare reads: totals, tiles, measures, trend, balance,
+  /// when and money only — no categories, missed, ahead, tags, goals, Due
+  /// soon, bills ahead or insights. It is the cost seam: the profiled
+  /// calendar pays for it on every cold fold, and the benchmark's 1.5× bound
+  /// times the whole cold service.
+  compared,
+}
+
+/// What a year's record measures (§6.12, S6 §2.2), in the Records card's
+/// order: the model's order is the card's.
+enum ReportRecordKind {
+  /// The month with the most kept occurrences over every category.
+  busiestMonth,
+
+  /// The week, on the app's week start, with the most kept occurrences.
+  busiestWeek,
+
+  /// The month with the most kept occurrences in the Social-kind categories.
+  socialMonth,
+
+  /// The month with the most spent cents.
+  moneyMonth,
+
+  /// The longest run of one Trip-kind event's consecutive kept days.
+  longestTrip,
+
+  /// One tracked event's longest run of consecutive kept occurrences.
+  longestStreak,
+
+  /// One gap-target category's longest days between two kept days.
+  longestGap,
+}
+
+/// One record of a whole year (§6.12): what peaked, and when.
+class ReportRecord extends Equatable {
+  /// What the record measures; it decides the unit of [value].
+  final ReportRecordKind kind;
+
+  /// The record's category: the trip's, the streak's and the gap's; null
+  /// for the month and week records, which count every category in scope
+  /// (the Social ones for [ReportRecordKind.socialMonth]).
+  final String? categoryId;
+
+  /// The trip's or the streak's event; null for the other kinds.
+  final String? eventId;
+
+  /// In the kind's unit: kept occurrences for the month, week and social
+  /// records; cents for [ReportRecordKind.moneyMonth]; days inside the year
+  /// for a trip and a gap; kept occurrences in a row for a streak, so a
+  /// Tue/Thu routine's 14 is fourteen sessions, not fourteen days.
+  final int value;
+
+  /// The first day, date-only UTC: the month's 1st, the week's start, the
+  /// trip's or the streak's first kept day, or the kept day before a gap.
+  final DateTime start;
+
+  /// The last day, inclusive: the month's last, the week's sixth day after
+  /// [start] or 31 December when that comes first, the trip's or the
+  /// streak's last kept day, or the kept day after a gap.
+  final DateTime? end;
+
+  const ReportRecord({
+    required this.kind,
+    this.categoryId,
+    this.eventId,
+    required this.value,
+    required this.start,
+    this.end,
+  });
+
+  @override
+  List<Object?> get props => [kind, categoryId, eventId, value, start, end];
+}
+
+/// A periodic goal's whole-year tally (S6 §2.4) — "41 of 52 weeks met ·
+/// longest streak 11", read over the closed periods only, so the current
+/// year's open period is in neither number.
+class ReportGoalTally extends Equatable {
+  /// The [closed] periods in [GoalState.met].
+  final int met;
+
+  /// The periods starting in the year, on or after the goal's first whole
+  /// period (the bound its streak reads), that ended before today — a past
+  /// year viewed on 2 January still has its last week open, so 51 weeks
+  /// are closed, not every one.
+  final int closed;
+
+  /// The longest run of consecutive met [closed] periods.
+  final int longestStreak;
+
+  const ReportGoalTally({
+    required this.met,
+    required this.closed,
+    required this.longestStreak,
+  });
+
+  @override
+  List<Object?> get props => [met, closed, longestStreak];
+}
+
+/// What a whole calendar year adds to its report (§6.12) — folded in the
+/// same walk as the measures, so a year page scans nothing new.
+class ReportYear extends Equatable {
+  /// Every record, in [ReportRecordKind]'s order; ties go to the earliest,
+  /// and a kind whose source is absent has none. Uncapped: the page caps.
+  /// The streaks run longest first, then by start, then by the walk's order
+  /// (the within-day event order); the gaps longest first, then by start,
+  /// then by the categories' order.
+  final List<ReportRecord> records;
+
+  /// Twelve values per category with a kept day in the year, keyed like
+  /// [CalendarReport.categories], in the unit of the category's primary:
+  ///
+  /// | Primary | A month's value |
+  /// |---|---|
+  /// | count | kept occurrences |
+  /// | events | distinct events kept |
+  /// | hours | minutes, counts-as included (the measures' rule) |
+  /// | attendance | attended days |
+  /// | cancelled | cancelled occurrences |
+  /// | money | spent cents (received for the Income kind), each event's net in its start day's month |
+  /// | tasks, lastSeen, leadTime, timing, daysUntil | kept occurrences |
+  ///
+  /// The last row's measures have no month of their own, so the strip shows
+  /// presence. A current year's months after today's are 0, and inside
+  /// today's month money and cancellations are cut at today too, like the
+  /// kept days.
+  final Map<String, List<int>> months;
+
+  /// The first and last kept day per category, the [months] keys, to today.
+  final Map<String, ({DateTime first, DateTime last})> spans;
+
+  /// One tally per goal whose period is shorter than a year, by category id;
+  /// a year-period goal and a gap goal have none.
+  final Map<String, ReportGoalTally> goalTallies;
+
+  const ReportYear({
+    this.records = const [],
+    this.months = const {},
+    this.spans = const {},
+    this.goalTallies = const {},
+  });
+
+  @override
+  List<Object?> get props => [records, months, spans, goalTallies];
 }
 
 /// The report of one span over one selection — the one model the page, the
@@ -1216,6 +1425,33 @@ class CalendarReport extends Equatable {
   /// page and the digest cap and filter; the fold never does.
   final List<ReportInsight> insights;
 
+  /// What [compared] compares with. [ReportCompare.previous] wherever the
+  /// asked mode could not fold — a plan, or last year before the calendar's
+  /// first day — so a reader never draws a comparison that is not there.
+  final ReportCompare compare;
+
+  /// The second fold (§6.11): the previous period's or last year's over
+  /// [previousCounted], or the saved view's over this span; null when the
+  /// report has none — a plan, or an unprofiled calendar comparing with the
+  /// previous period, whose deltas need only totals.
+  final CalendarReport? compared;
+
+  /// [compared]'s [balance] under [ReportCompare.lastYear] — Balance's
+  /// second bar; null in every other mode.
+  final Map<LifeArea, int>? balanceLastYear;
+
+  /// The counted range's totals, set by every fold: a compared fold's are
+  /// the main fold's previous totals, so the deltas and T1–T3 read one fold,
+  /// and the year cards read a report's own without re-deriving them from
+  /// the tiles. Null only in a report built by hand.
+  final ReportTotals? totals;
+
+  /// The whole-year aggregates (§6.12), set only by a main fold whose span
+  /// is exactly 1 January – 31 December of one year and is no plan — however
+  /// the period was picked; null on every other span and on a compared
+  /// fold, so month and week pages draw no year card.
+  final ReportYear? year;
+
   const CalendarReport({
     required this.span,
     required this.today,
@@ -1243,6 +1479,11 @@ class CalendarReport extends Equatable {
     this.money = const {},
     this.billsAhead = const {},
     this.insights = const [],
+    this.compare = ReportCompare.previous,
+    this.compared,
+    this.balanceLastYear,
+    this.totals,
+    this.year,
   });
 
   /// Whether the span holds no occurrence at all — the page dims Totals and
@@ -1251,7 +1492,19 @@ class CalendarReport extends Equatable {
 
   /// This report with [insights] — the fold's last step, since the rules
   /// read the folded report they join.
-  CalendarReport withInsights(List<ReportInsight> insights) => CalendarReport(
+  CalendarReport withInsights(List<ReportInsight> insights) =>
+      _with(insights: insights, compared: compared);
+
+  /// This report comparing with a saved view's fold — attached after the
+  /// main fold, whose tile order the view's fold takes; no insight reads a
+  /// view, so the ranking stands.
+  CalendarReport withCompared(CalendarReport compared) =>
+      _with(insights: insights, compared: compared);
+
+  CalendarReport _with({
+    required List<ReportInsight> insights,
+    required CalendarReport? compared,
+  }) => CalendarReport(
     span: span,
     today: today,
     tense: tense,
@@ -1278,6 +1531,11 @@ class CalendarReport extends Equatable {
     money: money,
     billsAhead: billsAhead,
     insights: insights,
+    compare: compare,
+    compared: compared,
+    balanceLastYear: balanceLastYear,
+    totals: totals,
+    year: year,
   );
 
   /// Where [span] sits against [today] (T) — the one rule the fold and its
@@ -1332,6 +1590,11 @@ class CalendarReport extends Equatable {
     money,
     billsAhead,
     insights,
+    compare,
+    compared,
+    balanceLastYear,
+    totals,
+    year,
   ];
 }
 
@@ -1469,6 +1732,25 @@ class ReportInput extends Equatable {
   /// Public holidays in [span] (T); 0 when not resolved.
   final int publicHolidays;
 
+  /// Which fold this is; a [ReportFoldRole.compared] fold yields only what
+  /// Compare reads.
+  final ReportFoldRole role;
+
+  /// The mode the main fold compares in, recorded on its report; T1 reads
+  /// [compared] under [ReportCompare.previous], T2 under
+  /// [ReportCompare.lastYear], and no rule under [ReportCompare.view].
+  final ReportCompare compare;
+
+  /// The compared fold of the previous period or of last year, folded first
+  /// so the rules can read it; null for a view (attached after the fold) and
+  /// when there is none.
+  final CalendarReport? compared;
+
+  /// The tiles a compared view's fold emits, in this order, from its totals
+  /// — the page's own, so the two Totals columns line up whatever the view's
+  /// categories could show; null keeps D15's rule.
+  final List<ReportTile>? tileSet;
+
   const ReportInput({
     required this.span,
     required this.today,
@@ -1491,6 +1773,10 @@ class ReportInput extends Equatable {
     this.billsAhead = const [],
     this.workingDays = 0,
     this.publicHolidays = 0,
+    this.role = ReportFoldRole.main,
+    this.compare = ReportCompare.previous,
+    this.compared,
+    this.tileSet,
   });
 
   @override
@@ -1516,5 +1802,9 @@ class ReportInput extends Equatable {
     billsAhead,
     workingDays,
     publicHolidays,
+    role,
+    compare,
+    compared,
+    tileSet,
   ];
 }

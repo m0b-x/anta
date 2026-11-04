@@ -38,9 +38,11 @@ abstract final class ReportMetrics {
   /// 26 weeks still fit; a longer span reads per month.
   static const int trendWeekUnitMaxDays = 182;
 
-  /// Folded reports the service keeps (D30): a step back and forth and one
-  /// category change hit the memo instead of re-scanning.
-  static const int memoFolds = 4;
+  /// Folds the service keeps (D30): a step back and forth and one category
+  /// change hit the memo instead of re-scanning. A compared report is two
+  /// entries — its own and its second fold's (§6.11) — so eight keep four
+  /// reports, as four did before Compare.
+  static const int memoFolds = 8;
 
   /// Description texts whose task count stays cached (D27): a shared text is
   /// parsed once however many days show it, and the cache stays bounded
