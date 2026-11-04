@@ -1020,6 +1020,380 @@ void main() {
     });
   });
 
+  group('the year in review (S6 §2.1)', () {
+    const year2025 = OverviewYearPeriod(2025);
+
+    /// Tuesdays and Thursdays through 2025.
+    final lift = CalendarEvent(
+      id: 'e-lift',
+      title: 'Lifting',
+      categoryId: 'gym',
+      startDate: DateTime.utc(2025, 1, 7),
+      rule: const WeeklyRecurrence(weekdays: {2, 4}),
+      time: const EventTime(startMinute: 18 * 60, durationMinutes: 60),
+    );
+
+    /// One time, in June.
+    final checkup = CalendarEvent(
+      id: 'e-checkup',
+      title: 'Checkup',
+      categoryId: 'other',
+      startDate: DateTime.utc(2025, 6, 12),
+      rule: const OneTimeRecurrence(),
+    );
+
+    late CalendarReport folded;
+
+    setUp(() {
+      folded = CalendarReportBuilder.fold(
+        CalendarReportService.sampleInput(
+          ReportRequest(
+            span: year2025.resolve(today: today, yearBounds: years),
+            previousSpan: year2025
+                .stepped(direction: -1, today: today, yearBounds: years)
+                ?.resolve(today: today, yearBounds: years),
+            events: [lift, checkup, birthday],
+            today: today,
+            weekStart: CalendarWeekStart.monday,
+          ),
+        ),
+      );
+    });
+
+    final busiestMonth = ReportRecord(
+      kind: ReportRecordKind.busiestMonth,
+      value: 10,
+      start: DateTime.utc(2025, 7, 1),
+      end: DateTime.utc(2025, 7, 31),
+    );
+    final busiestWeek = ReportRecord(
+      kind: ReportRecordKind.busiestWeek,
+      value: 2,
+      start: DateTime.utc(2025, 1, 6),
+      end: DateTime.utc(2025, 1, 12),
+    );
+    final socialMonth = ReportRecord(
+      kind: ReportRecordKind.socialMonth,
+      value: 1,
+      start: DateTime.utc(2025, 10, 1),
+      end: DateTime.utc(2025, 10, 31),
+    );
+
+    /// Twelve months for Gym and Other, each with its kept span; [strips]
+    /// false keys them to Cardio alone, a category the report has no group
+    /// for, so the card has nothing to draw.
+    ReportYear yearOf({List<ReportRecord>? records, bool strips = true}) =>
+        ReportYear(
+          records: records ?? [busiestMonth, busiestWeek],
+          months: strips
+              ? const {
+                  'gym': [9, 8, 9, 9, 8, 9, 10, 8, 9, 9, 8, 9],
+                  'other': [0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0],
+                }
+              : const {
+                  'cardio': [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                },
+          spans: strips
+              ? {
+                  'gym': (
+                    first: DateTime.utc(2025, 1, 7),
+                    last: DateTime.utc(2025, 12, 30),
+                  ),
+                  'other': (
+                    first: DateTime.utc(2025, 6, 12),
+                    last: DateTime.utc(2025, 6, 12),
+                  ),
+                }
+              : {
+                  'cardio': (
+                    first: DateTime.utc(2025, 1, 2),
+                    last: DateTime.utc(2025, 12, 30),
+                  ),
+                },
+          goalTallies: const {
+            'gym': ReportGoalTally(met: 41, closed: 52, longestStreak: 11),
+          },
+        );
+
+    /// A weekly goal on [categoryId], its last week met.
+    ReportGoal weekly(String categoryId) => ReportGoal(
+      categoryId: categoryId,
+      measure: ReportMeasure.count,
+      target: const ReportTarget(
+        kind: TargetKind.atLeast,
+        value: 2,
+        period: TargetPeriod.week,
+      ),
+      periods: [
+        ReportGoalPeriod(
+          start: DateTime.utc(2025, 12, 22),
+          end: DateTime.utc(2025, 12, 28),
+          value: 2,
+          expected: 2,
+          state: GoalState.met,
+        ),
+      ],
+    );
+
+    /// [folded] — 2025 seen from 30 October 2026 — with [year] in place of
+    /// the fold's own and [goals]; the rest as it came.
+    CalendarReport wholeYear({ReportYear? year, List<ReportGoal>? goals}) =>
+        CalendarReport(
+          span: folded.span,
+          today: folded.today,
+          tense: folded.tense,
+          countedTo: folded.countedTo,
+          previousSpan: folded.previousSpan,
+          previousCounted: folded.previousCounted,
+          events: folded.events,
+          tiles: folded.tiles,
+          skippedDays: folded.skippedDays,
+          aheadCount: folded.aheadCount,
+          categories: folded.categories,
+          trend: folded.trend,
+          missed: folded.missed,
+          ahead: folded.ahead,
+          measures: folded.measures,
+          goals: goals ?? [weekly('gym')],
+          year: year ?? yearOf(),
+        );
+
+    Finder bodyScrollable() => find.descendant(
+      of: byId(SemanticsIds.reportBody),
+      matching: find.byType(Scrollable),
+    );
+
+    ScrollPosition scrollOf(WidgetTester tester) =>
+        tester.state<ScrollableState>(bodyScrollable()).position;
+
+    double bodyTop(WidgetTester tester) =>
+        tester.getTopLeft(byId(SemanticsIds.reportBody)).dy;
+
+    /// The section labels' slivers that are refold anchors, by their text.
+    List<String> anchoredLabels(WidgetTester tester) => [
+      for (final sliver in bodySlivers(tester))
+        if ('${sliver.runtimeType}' == '_AnchoredLabel' &&
+            sliver is SliverToBoxAdapter &&
+            sliver.child is FormSectionLabel)
+          (sliver.child! as FormSectionLabel).text,
+    ];
+
+    test('the fold holds what the cases read', () {
+      expect(folded.tense, ReportTense.past);
+      expect(folded.year, isNotNull);
+      expect([
+        for (final group in folded.categories) group.categoryId,
+      ], containsAll(['gym', 'other']));
+    });
+
+    testWidgets('Records and Months sit between the Totals caption and '
+        'Categories, each under its label, both anchors, in one scroll', (
+      tester,
+    ) async {
+      await pumpBody(tester, period: year2025, shown: wholeYear());
+      expect(sliverSequence(tester).take(16), [
+        'label Goals',
+        'ReportGoalsCard',
+        'SizedBox',
+        'label Totals',
+        'ReportTotalsCard',
+        'FormCaption',
+        'SizedBox',
+        'label Records',
+        'ReportRecordsCard',
+        'SizedBox',
+        'label Months',
+        'ReportMonthsCard',
+        'SizedBox',
+        'label Categories',
+        'ReportGroupStack',
+        'SizedBox',
+      ]);
+      expect(
+        anchoredLabels(tester),
+        containsAllInOrder(['Goals', 'Totals', 'Records', 'Months']),
+      );
+      expect(
+        byId(SemanticsIds.reportYearRecord('busiest-month')),
+        findsOneWidget,
+      );
+      expect(bodyScrollable(), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('Records is absent with no record, Months with no strip — '
+        'each with its label and its gap', (tester) async {
+      await pumpBody(tester, period: year2025, shown: wholeYear());
+      final full = sliverSequence(tester);
+
+      await pumpBody(
+        tester,
+        period: year2025,
+        shown: wholeYear(year: yearOf(records: const [])),
+      );
+      var sequence = sliverSequence(tester);
+      expect(sequence, isNot(contains('label Records')));
+      expect(sequence, contains('label Months'));
+      expect(sequence, hasLength(full.length - 3));
+
+      // Months keyed to a category with no group: the card draws nothing,
+      // so its label stays away too.
+      await pumpBody(
+        tester,
+        period: year2025,
+        shown: wholeYear(year: yearOf(strips: false)),
+      );
+      sequence = sliverSequence(tester);
+      expect(sequence, contains('label Records'));
+      expect(sequence, isNot(contains('label Months')));
+      expect(sequence, hasLength(full.length - 3));
+
+      await pumpBody(
+        tester,
+        period: year2025,
+        shown: wholeYear(year: yearOf(records: const [], strips: false)),
+      );
+      sequence = sliverSequence(tester);
+      expect(sequence, isNot(contains('label Records')));
+      expect(sequence, isNot(contains('label Months')));
+      expect(sequence, hasLength(full.length - 6));
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('a month and a plan year fold no year and insert nothing; '
+        'the October pins hold', (tester) async {
+      const plan = OverviewYearPeriod(2027);
+      const planYears = (first: 2020, last: 2027);
+      final planned = CalendarReportBuilder.fold(
+        CalendarReportService.sampleInput(
+          ReportRequest(
+            span: plan.resolve(today: today, yearBounds: planYears),
+            events: [lift, checkup, birthday],
+            today: today,
+            weekStart: CalendarWeekStart.monday,
+          ),
+        ),
+      );
+      expect(planned.tense, ReportTense.future);
+      expect(planned.year, isNull);
+      await pumpBody(
+        tester,
+        period: plan,
+        yearBounds: planYears,
+        shown: planned,
+      );
+      expect(sectionLabel('Records'), findsNothing);
+      expect(sectionLabel('Months'), findsNothing);
+      expect(find.bySemanticsIdentifier(RegExp('^report-year-')), findsNothing);
+
+      expect(report.year, isNull);
+      await pumpBody(tester);
+      expect(sliverSequence(tester).take(5), [
+        'label Totals',
+        'ReportTotalsCard',
+        'FormCaption',
+        'SizedBox',
+        'label Categories',
+      ]);
+      expect(tester.getTopLeft(sectionLabel('Totals')), const Offset(16, 82));
+      expect(scrollOf(tester).maxScrollExtent, 574);
+    });
+
+    testWidgets('a strip\'s tap opens its Categories group and lands its '
+        'header at the top (S4 G)', (tester) async {
+      var reveals = 0;
+      // Closed by its header on an earlier visit.
+      folds.setOpen(ReportCard.categories, 'other', false);
+      await pumpBody(
+        tester,
+        surface: const Size(360, 520),
+        period: year2025,
+        shown: wholeYear(),
+        onReveal: () => reveals++,
+      );
+      final strip = byId(SemanticsIds.reportYearMonths('other'));
+      await tester.scrollUntilVisible(strip, 200, scrollable: bodyScrollable());
+      await tester.pumpAndSettle();
+      await tester.tap(strip);
+      await tester.pumpAndSettle();
+      expect(reveals, 1);
+      expect(folds.isOpen(ReportCard.categories, 'other'), isTrue);
+      expect(
+        tester
+            .getTopLeft(byId(SemanticsIds.reportGroup('categories', 'other')))
+            .dy,
+        closeTo(bodyTop(tester), 1),
+      );
+      expect(pushes.pushes, 0);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('with onReveal null a strip is a read row', (tester) async {
+      await pumpBody(tester, period: year2025, shown: wholeYear());
+      final strip = byId(SemanticsIds.reportYearMonths('gym'));
+      await tester.scrollUntilVisible(strip, 200, scrollable: bodyScrollable());
+      await tester.pumpAndSettle();
+      final row = tester.widget<FormMeterRow>(
+        find.ancestor(of: strip, matching: find.byType(FormMeterRow)).first,
+      );
+      expect(row.onTap, isNull);
+      final offset = scrollOf(tester).pixels;
+      await tester.tap(strip);
+      await tester.pumpAndSettle();
+      expect(scrollOf(tester).pixels, offset);
+      expect(pushes.pushes, 0);
+    });
+
+    testWidgets('a refold that grows the Goals and Records cards holds the '
+        'Months label under the viewport\'s top (S6 H)', (tester) async {
+      await pumpBody(
+        tester,
+        surface: const Size(360, 520),
+        period: year2025,
+        shown: wholeYear(),
+      );
+      double monthsTop() => tester
+          .getTopLeft(
+            find.byWidgetPredicate(
+              (widget) => widget is FormSectionLabel && widget.text == 'Months',
+              skipOffstage: false,
+            ),
+          )
+          .dy;
+      scrollOf(tester).jumpTo(monthsTop() - bodyTop(tester) + 20);
+      await tester.pump();
+      final label = monthsTop();
+      expect(label, closeTo(bodyTop(tester) - 20, 0.01));
+      final offset = scrollOf(tester).pixels;
+
+      await pumpBody(
+        tester,
+        surface: const Size(360, 520),
+        period: year2025,
+        shown: wholeYear(
+          goals: [weekly('gym'), weekly('other')],
+          year: yearOf(records: [busiestMonth, busiestWeek, socialMonth]),
+        ),
+      );
+      expect(scrollOf(tester).pixels, greaterThan(offset));
+      expect(monthsTop(), closeTo(label, 0.01));
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('de at 2.0 on 360 × 780 lays the year block out with no '
+        'exception, in one scroll', (tester) async {
+      await pumpBody(
+        tester,
+        locale: const Locale('de'),
+        textScale: 2,
+        period: year2025,
+        shown: wholeYear(),
+      );
+      expect(bodyScrollable(), findsOneWidget);
+      await scrollThrough(tester, () => expect(tester.takeException(), isNull));
+    });
+  });
+
   group('report cards II and Compare with (S5 §2.1, §2.5)', () {
     final en = lookupAppLocalizations(const Locale('en'));
     // Late: the date formats load with the first test.

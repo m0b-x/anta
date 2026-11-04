@@ -27,6 +27,7 @@ import 'report_group_stack.dart';
 import 'report_totals_card.dart';
 import 'report_trend_chart.dart';
 import 'report_when_chart.dart';
+import 'report_year_cards.dart';
 
 /// Hands the overview a span and an allowlist to list: a group's Show as
 /// list, and the footer's.
@@ -219,8 +220,9 @@ class _ReportBandState extends State<ReportBand> {
   }
 }
 
-/// The Report view's body — Goals, Insights, Due soon, Totals, Categories,
-/// By tag, Over time, When, Balance, Missed, Ahead and the footer, ending in
+/// The Report view's body — Goals, Insights, Due soon, Totals, on a whole
+/// year Records and Months, Categories, By tag, Over time, When, Balance,
+/// Missed, Ahead and the footer, ending in
 /// the [EndSlackSliver] — drawn by the report page and by the guide's screen
 /// stage over plain inputs, so the two never drift (D74, the owner's
 /// one-copy rule D59). It writes nothing and owns no data.
@@ -597,6 +599,7 @@ class _ReportBodyState extends State<ReportBody> {
                   },
                 ),
                 if (report != null) ...[
+                  ..._yearCards(l10n, labels, report),
                   ..._buildCard(
                     ReportCard.categories,
                     l10n.reportSectionCategories,
@@ -810,6 +813,65 @@ class _ReportBodyState extends State<ReportBody> {
         ),
       ),
       ?captionSliver,
+    ];
+  }
+
+  /// The year in review between the Totals caption and Categories (S6
+  /// §2.1): Records, then Months, each under its label after the gap
+  /// between cards and absent with it when the card would draw nothing —
+  /// the card's own rule, so a label never stands over an empty card. The
+  /// model folds no year for a month, a week or a plan (A): they insert
+  /// nothing. A strip's tap lands on its Categories group (G); with no way
+  /// there wired, as on the guide's stage, the strips are read rows.
+  List<Widget> _yearCards(
+    AppLocalizations l10n,
+    ReportLabels labels,
+    CalendarReport report,
+  ) {
+    final year = report.year;
+    if (year == null) return const [];
+    final hasStrips = report.categories.any(
+      (group) =>
+          year.months[group.categoryId] != null &&
+          year.spans[group.categoryId] != null,
+    );
+    final reachable =
+        widget.onReveal != null || widget.onMoreCategories != null;
+    return [
+      if (year.records.isNotEmpty) ...[
+        const SliverToBoxAdapter(child: SizedBox(height: RowMetrics.groupGap)),
+        _sectionLabel(#records, l10n.reportSectionRecords),
+        SliverToBoxAdapter(
+          child: RepaintBoundary(
+            child: ReportRecordsCard(
+              report: report,
+              labels: labels,
+              folds: widget.folds,
+              onShrink: widget.onShrink,
+              scroll: _scroll,
+              weekStart: widget.weekStart,
+            ),
+          ),
+        ),
+      ],
+      if (hasStrips) ...[
+        const SliverToBoxAdapter(child: SizedBox(height: RowMetrics.groupGap)),
+        _sectionLabel(#months, l10n.reportSectionMonths),
+        SliverToBoxAdapter(
+          child: RepaintBoundary(
+            child: ReportMonthsCard(
+              report: report,
+              labels: labels,
+              folds: widget.folds,
+              onShrink: widget.onShrink,
+              scroll: _scroll,
+              onCategoryTap: reachable
+                  ? (categoryId) => _toGroup(report, categoryId)?.call()
+                  : null,
+            ),
+          ),
+        ),
+      ],
     ];
   }
 

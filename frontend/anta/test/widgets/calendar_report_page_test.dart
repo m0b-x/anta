@@ -479,6 +479,80 @@ void main() {
     });
   });
 
+  group('the year in review (S6 §2.1)', () {
+    final busiestMonth = SemanticsIds.reportYearRecord('busiest-month');
+    Finder anyYearId() => find.bySemanticsIdentifier(RegExp('^report-year-'));
+
+    double bodyTop(WidgetTester tester, ReportRobot robot) =>
+        tester.getTopLeft(robot.byId(SemanticsIds.reportBody)).dy;
+
+    testWidgets('This year draws Records and Months; a strip\'s tap lands on '
+        'its Categories group; a month pick draws no year card', (
+      tester,
+    ) async {
+      final robot = await open(tester);
+      expect(anyYearId(), findsNothing);
+
+      await robot.openPeriodMenu();
+      await robot.pickPeriod(SemanticsIds.reportPeriodThisYear);
+      expect(robot.nav.title, '2026');
+      await robot.reveal(robot.byId(busiestMonth));
+      expect(robot.byId(busiestMonth), findsOneWidget);
+      final strip = robot.byId(SemanticsIds.reportYearMonths('gym'));
+      await robot.reveal(strip);
+      expect(strip, findsOneWidget);
+
+      await tester.tap(strip);
+      await tester.pumpAndSettle();
+      final header = robot.group(ReportCard.categories, 'gym');
+      expect(tester.getTopLeft(header).dy, closeTo(bodyTop(tester, robot), 1));
+      expect(tester.takeException(), isNull);
+
+      await robot.openPeriodMenu();
+      await robot.pickPeriod(SemanticsIds.reportPeriodThisMonth);
+      expect(robot.nav.title, 'October 2026');
+      robot.scroll.jumpTo(0);
+      await tester.pumpAndSettle();
+      expect(anyYearId(), findsNothing);
+    });
+
+    testWidgets('Last year draws the block for the year before', (
+      tester,
+    ) async {
+      // ignore: invalid_use_of_visible_for_testing_member
+      bloc.emit(
+        CalendarPageLoaded(
+          allEvents: [
+            gym,
+            todo,
+            for (final day in [4, 11, 18, 21, 25])
+              CalendarEvent(
+                id: 'e-run-$day',
+                title: 'Run',
+                categoryId: 'gym',
+                startDate: DateTime.utc(2025, 3, day),
+                rule: const OneTimeRecurrence(),
+              ),
+          ],
+          focusedDay: today,
+          selectedDay: today,
+        ),
+      );
+      final robot = await open(tester);
+      await robot.openPeriodMenu();
+      await robot.pickPeriod(SemanticsIds.reportPeriodLastYear);
+      expect(robot.nav.title, '2025');
+      final report = (robot.state as ReportShown).shown!;
+      expect(report.year, isNotNull);
+      expect(report.span.start, DateTime.utc(2025, 1, 1));
+      await robot.reveal(robot.byId(busiestMonth));
+      expect(robot.byId(busiestMonth), findsOneWidget);
+      await robot.reveal(robot.byId(SemanticsIds.reportYearMonths('gym')));
+      expect(robot.byId(SemanticsIds.reportYearMonths('gym')), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+  });
+
   group('Totals', () {
     testWidgets('a past month over every category draws the five tiles '
         '(D15) and the caption', (tester) async {
