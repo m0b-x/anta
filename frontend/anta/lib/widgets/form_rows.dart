@@ -2194,6 +2194,21 @@ class FormMeterRow extends FormDividedRow {
   /// The fill's colour; the scheme's `primary` when null.
   final Color? meterColor;
 
+  /// A share 0 to 1 of the track where an upright bar marks a reference
+  /// value — last year's share on the year in review's Balance card —
+  /// clamped like [fraction] and kept inside the track at both ends. It
+  /// overhangs the meter into the air around it, so it never changes the
+  /// row's height. Only on a meter: a marker without [fraction] asserts.
+  final double? marker;
+
+  /// A widget in the meter's place, after [FormMetrics.meterGap] at the text
+  /// column's width — the year in review's twelve-month strip — so a chart
+  /// row keeps every meter row's geometry. No constant knows its height: the
+  /// chart sizes itself, and its height sets the row's. A row draws a meter
+  /// or a chart, never both, so [fraction] must be null; [meterColor] and
+  /// [marker] have nothing to draw on.
+  final Widget? chart;
+
   /// A trailing glyph — the fold chevron — after [FormMetrics.gap].
   final Widget? trailing;
   final VoidCallback? onTap;
@@ -2244,7 +2259,16 @@ class FormMeterRow extends FormDividedRow {
     this.captionLines,
     this.labelTrailing,
     this.compactLeading,
-  });
+    this.marker,
+    this.chart,
+  }) : assert(
+         fraction == null || chart == null,
+         'a meter row draws a meter or a chart, not both',
+       ),
+       assert(
+         marker == null || fraction != null,
+         'a marker sits on a meter: it needs a fraction',
+       );
 
   @override
   double get dividerIndent => FormMetrics.dividerIndentTitle;
@@ -2272,6 +2296,7 @@ class FormMeterRow extends FormDividedRow {
     final scaler = MediaQuery.textScalerOf(context);
     final captionText = caption;
     final share = fraction;
+    final graphic = chart;
     final lines = captionLines;
     final captionStyle = TextStyle(
       fontSize: FormMetrics.captionSize,
@@ -2302,45 +2327,72 @@ class FormMeterRow extends FormDividedRow {
         ],
       );
     }
+    final words = [
+      labelLine,
+      if (captionText != null && lines != null)
+        Text(
+          captionText,
+          style: captionStyle,
+          maxLines: lines,
+          overflow: TextOverflow.ellipsis,
+        )
+      else if (captionText != null)
+        SizedBox(
+          height: scaler.scale(FormMetrics.captionLineHeight),
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text(
+              captionText,
+              style: captionStyle,
+              maxLines: 1,
+              softWrap: false,
+            ),
+          ),
+        ),
+    ];
     final text = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
-        labelLine,
-        if (captionText != null && lines != null)
-          Text(
-            captionText,
-            style: captionStyle,
-            maxLines: lines,
-            overflow: TextOverflow.ellipsis,
-          )
-        else if (captionText != null)
-          SizedBox(
-            height: scaler.scale(FormMetrics.captionLineHeight),
-            child: FittedBox(
-              fit: BoxFit.scaleDown,
-              alignment: Alignment.centerLeft,
-              child: Text(
-                captionText,
-                style: captionStyle,
-                maxLines: 1,
-                softWrap: false,
-              ),
+        // Under a chart no constant knows the row's height, so the reserved
+        // caption lines are held around the words themselves, centred.
+        if (graphic != null && lines != null)
+          ConstrainedBox(
+            constraints: BoxConstraints(
+              minHeight:
+                  scaler.scale(FormMetrics.labelLineHeight) +
+                  scaler.scale(FormMetrics.captionLineHeight) * lines,
             ),
-          ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: words,
+            ),
+          )
+        else
+          ...words,
         if (share != null) ...[
           const SizedBox(height: FormMetrics.meterGap),
           _FormMeter(
             fraction: share,
             color: meterColor ?? colorScheme.primary,
             track: colorScheme.rowDivider,
+            marker: marker,
+            markerColor: colorScheme.onSurfaceVariant,
+            markerRing: colorScheme.rowGroup,
           ),
+        ],
+        if (graphic != null) ...[
+          const SizedBox(height: FormMetrics.meterGap),
+          SizedBox(width: double.infinity, child: graphic),
         ],
       ],
     );
     // A caption shorter than its lines leaves the spare one as air around
     // the centred content, never as a hole under it.
-    final minHeight = lines == null
+    final minHeight = lines == null || graphic != null
         ? FormMetrics.twoLineRowMinHeight
         : math.max(
             FormMetrics.twoLineRowMinHeight,
@@ -2393,17 +2445,24 @@ class FormMeterRow extends FormDividedRow {
   }
 }
 
-/// [FormMeterRow]'s track and fill, sized to the text column's width.
+/// [FormMeterRow]'s track and fill, sized to the text column's width, with
+/// its marker painted past the track's 4 dp box.
 class _FormMeter extends StatelessWidget {
   const _FormMeter({
     required this.fraction,
     required this.color,
     required this.track,
+    required this.marker,
+    required this.markerColor,
+    required this.markerRing,
   });
 
   final double fraction;
   final Color color;
   final Color track;
+  final double? marker;
+  final Color markerColor;
+  final Color markerRing;
 
   static const BorderRadius _radius = BorderRadius.all(
     Radius.circular(FormMetrics.meterHeight / 2),
@@ -2418,7 +2477,7 @@ class _FormMeter extends StatelessWidget {
           final width = constraints.maxWidth;
           // A share of an empty total (0 / 0) arrives as NaN: nothing to fill.
           final share = fraction.isFinite ? fraction.clamp(0.0, 1.0) : 0.0;
-          return DecoratedBox(
+          final meter = DecoratedBox(
             decoration: BoxDecoration(color: track, borderRadius: _radius),
             child: share <= 0
                 ? const SizedBox.expand()
@@ -2438,6 +2497,40 @@ class _FormMeter extends StatelessWidget {
                       ),
                     ),
                   ),
+          );
+          final at = marker;
+          if (at == null) return meter;
+          const ring = FormMetrics.meterMarkerRing;
+          const barWidth = FormMetrics.meterMarkerWidth;
+          final position = at.isFinite ? at.clamp(0.0, 1.0) : 0.0;
+          // Centred on its share, then held inside the track, so a marker at
+          // either end still shows whole.
+          final start = (position * width - barWidth / 2).clamp(
+            0.0,
+            math.max(0.0, width - barWidth),
+          );
+          return Stack(
+            clipBehavior: Clip.none,
+            children: [
+              meter,
+              PositionedDirectional(
+                start: start - ring,
+                top: -FormMetrics.meterMarkerOverhang - ring,
+                width: barWidth + 2 * ring,
+                height:
+                    FormMetrics.meterHeight +
+                    2 * (FormMetrics.meterMarkerOverhang + ring),
+                child: DecoratedBox(
+                  decoration: BoxDecoration(color: markerRing),
+                  child: Padding(
+                    padding: const EdgeInsets.all(ring),
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(color: markerColor),
+                    ),
+                  ),
+                ),
+              ),
+            ],
           );
         },
       ),

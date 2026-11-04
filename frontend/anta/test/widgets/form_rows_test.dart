@@ -6,6 +6,7 @@ import 'package:flutter/semantics.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:anta/constants/app_colors.dart';
+import 'package:anta/constants/app_theme.dart';
 import 'package:anta/constants/row_metrics.dart';
 import 'package:anta/widgets/event_avatar.dart';
 import 'package:anta/widgets/form_menu_item.dart';
@@ -4793,12 +4794,14 @@ void main() {
       WidgetTester tester,
       Widget row, {
       double textScale = 1.0,
+      ThemeData? theme,
     }) async {
       addTearDown(tester.view.reset);
       tester.view.devicePixelRatio = 1.0;
       tester.view.physicalSize = const Size(360, 780);
       await tester.pumpWidget(
         MaterialApp(
+          theme: theme,
           builder: (context, child) => MediaQuery(
             data: MediaQuery.of(
               context,
@@ -5204,6 +5207,142 @@ void main() {
       expect(
         tester.widget<Divider>(find.byType(Divider)).indent,
         FormMetrics.dividerIndentTitle,
+      );
+    });
+
+    const span = 'Jan 2 – Dec 30';
+    const chartKey = ValueKey('chart');
+
+    FormMeterRow chartRow({String caption = span, int? captionLines}) =>
+        FormMeterRow(
+          leading: const SizedBox.square(dimension: FormMetrics.rowLeadingSize),
+          label: 'Gym',
+          caption: caption,
+          chart: const SizedBox(key: chartKey, height: 16),
+          onTap: () {},
+          identifier: 'meter-row',
+          captionLines: captionLines,
+        );
+
+    testWidgets('a chart takes the meter\'s place at the text column\'s '
+        'width', (tester) async {
+      await pump(tester, chartRow());
+      final row = tester.getRect(find.byType(FormMeterRow));
+      final label = tester.getRect(find.text('Gym'));
+      final caption = tester.getRect(find.text(span));
+      final chart = tester.getRect(find.byKey(chartKey));
+      expect(chart.top, closeTo(caption.bottom + FormMetrics.meterGap, 0.01));
+      expect(chart.left, closeTo(label.left, 0.01));
+      expect(
+        chart.width,
+        closeTo(row.right - FormMetrics.rowEndPadding - label.left, 0.01),
+        reason: 'the text column\'s width, as a meter\'s track',
+      );
+      expect(chart.height, 16);
+      expect(meterBox(trackColor(tester)), findsNothing);
+    });
+
+    for (final (scale, height) in [(1.0, 78.0), (1.3, 89.4), (2.0, 116.0)]) {
+      testWidgets('a 16 dp chart row is $height high at $scale', (
+        tester,
+      ) async {
+        await pump(tester, chartRow(), textScale: scale);
+        expect(
+          tester.getSize(find.byType(FormMeterRow)).height,
+          closeTo(height, 1),
+        );
+      });
+    }
+
+    testWidgets('over a chart, captionLines still holds the row\'s height '
+        'whatever the caption', (tester) async {
+      await pump(tester, chartRow(caption: sentence, captionLines: 2));
+      final full = tester.getSize(find.byType(FormMeterRow)).height;
+      expect(full, closeTo(96, 1));
+      await pump(tester, chartRow(captionLines: 2));
+      expect(tester.getSize(find.byType(FormMeterRow)).height, full);
+    });
+
+    FormMeterRow markerRow(double? marker) => FormMeterRow(
+      leading: const SizedBox.square(dimension: FormMetrics.rowLeadingSize),
+      label: 'Gym',
+      caption: '14 · 13.2 h · 2 missed',
+      fraction: 0.5,
+      marker: marker,
+      onTap: () {},
+      identifier: 'meter-row',
+    );
+
+    testWidgets('a marker keeps the row\'s height', (tester) async {
+      for (final scale in [1.0, 2.0]) {
+        await pump(tester, markerRow(null), textScale: scale);
+        final without = tester.getSize(find.byType(FormMeterRow)).height;
+        await pump(tester, markerRow(0.5), textScale: scale);
+        expect(tester.getSize(find.byType(FormMeterRow)).height, without);
+      }
+    });
+
+    for (final (name, theme) in [
+      ('light', AppTheme.light()),
+      ('dark', AppTheme.dark()),
+    ]) {
+      testWidgets('the marker is an onSurfaceVariant bar in a rowGroup ring, '
+          'inside the track at both ends, in $name', (tester) async {
+        final scheme = theme.colorScheme;
+        for (final (marker, end) in [
+          (0.0, 'start'),
+          (1.0, 'end'),
+          (double.nan, 'start'),
+          (1.5, 'end'),
+          (0.5, 'middle'),
+        ]) {
+          await pump(tester, markerRow(marker), theme: theme);
+          final track = tester.getRect(meterBox(scheme.rowDivider));
+          final bar = tester.getRect(meterBox(scheme.onSurfaceVariant));
+          final ring = tester.getRect(meterBox(scheme.rowGroup));
+          expect(
+            bar.size,
+            const Size(
+              FormMetrics.meterMarkerWidth,
+              FormMetrics.meterHeight + 2 * FormMetrics.meterMarkerOverhang,
+            ),
+          );
+          expect(bar.center.dy, closeTo(track.center.dy, 0.01));
+          expect(ring, bar.inflate(FormMetrics.meterMarkerRing));
+          expect(bar.left, greaterThanOrEqualTo(track.left - 0.01));
+          expect(bar.right, lessThanOrEqualTo(track.right + 0.01));
+          switch (end) {
+            case 'start':
+              expect(bar.left, closeTo(track.left, 0.01), reason: '$marker');
+            case 'end':
+              expect(bar.right, closeTo(track.right, 0.01), reason: '$marker');
+            default:
+              expect(bar.center.dx, closeTo(track.center.dx, 0.01));
+          }
+        }
+      });
+    }
+
+    test('a meter and a chart together assert, as does a marker without '
+        'a meter', () {
+      expect(
+        () => FormMeterRow(
+          leading: const SizedBox(),
+          label: 'Gym',
+          fraction: 0.5,
+          chart: const SizedBox(),
+          onTap: null,
+        ),
+        throwsAssertionError,
+      );
+      expect(
+        () => FormMeterRow(
+          leading: const SizedBox(),
+          label: 'Gym',
+          marker: 0.5,
+          onTap: null,
+        ),
+        throwsAssertionError,
       );
     });
   });
