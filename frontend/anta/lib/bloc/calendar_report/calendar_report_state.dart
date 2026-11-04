@@ -4,6 +4,7 @@ import '../../models/agenda_day_list.dart';
 import '../../models/calendar_appearance.dart';
 import '../../models/calendar_report.dart';
 import '../../models/overview_period.dart';
+import '../../models/overview_view.dart';
 import '../../utils/markdown_color_syntax.dart';
 
 sealed class ReportState extends Equatable {
@@ -65,6 +66,15 @@ sealed class ReportShown extends ReportState {
   /// where a step stops and what the range picker offers.
   final AgendaYearBounds years;
 
+  /// What the footer's Compare with row has chosen for this visit — the
+  /// choice asked, which the report's own `compare` may have downgraded (a
+  /// plan, or last year before the calendar's first day).
+  final ReportCompare compare;
+
+  /// The saved view compared with, as the views service holds it now;
+  /// non-null exactly when [compare] is [ReportCompare.view].
+  final OverviewView? compareView;
+
   const ReportShown({
     required this.period,
     required this.home,
@@ -76,6 +86,8 @@ sealed class ReportShown extends ReportState {
     this.currencySuffix = false,
     required this.today,
     required this.years,
+    this.compare = ReportCompare.previous,
+    this.compareView,
   });
 
   /// The calendar's first weekday.
@@ -97,6 +109,8 @@ sealed class ReportShown extends ReportState {
     currencySuffix,
     today,
     years,
+    compare,
+    compareView,
   ];
 }
 
@@ -130,6 +144,8 @@ final class ReportFolding extends ReportShown {
     super.currencySuffix,
     required super.today,
     required super.years,
+    super.compare,
+    super.compareView,
   });
 
   @override
@@ -160,6 +176,8 @@ final class ReportReady extends ReportShown {
     super.currencySuffix,
     required super.today,
     required super.years,
+    super.compare,
+    super.compareView,
   });
 
   @override

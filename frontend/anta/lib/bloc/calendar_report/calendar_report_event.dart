@@ -1,7 +1,9 @@
 import 'package:equatable/equatable.dart';
 
 import '../../bloc/calendar/calendar_state.dart';
+import '../../models/calendar_report.dart';
 import '../../models/overview_period.dart';
+import '../../models/overview_view.dart';
 import '../../models/report_look.dart';
 
 sealed class ReportEvent extends Equatable {
@@ -88,6 +90,25 @@ final class ReportLookArrived extends ReportEvent {
 
   @override
   List<Object?> get props => [look.period, look.categoryIds];
+}
+
+/// The footer's Compare with row answered: the second fold for the rest of
+/// the visit — kept across every period, step, category and calendar change,
+/// never persisted (decision H). [view] is the saved view picked, exactly
+/// when [compare] is [ReportCompare.view]; the bloc re-reads it by id on
+/// every fold, so a rename or a deletion in the overview reaches the report.
+final class ReportComparePicked extends ReportEvent {
+  final ReportCompare compare;
+  final OverviewView? view;
+
+  const ReportComparePicked(this.compare, {this.view})
+    : assert(
+        (compare == ReportCompare.view) == (view != null),
+        'a view is picked exactly when Compare chose one',
+      );
+
+  @override
+  List<Object?> get props => [compare, view];
 }
 
 /// The wall clock moved to another day while the page was open: the periods

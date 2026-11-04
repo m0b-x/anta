@@ -11,10 +11,12 @@ import '../../models/calendar_event.dart';
 import '../../models/calendar_report.dart';
 import '../../models/date_range.dart';
 import '../../models/overview_period.dart';
+import '../../models/overview_view.dart';
 import '../../models/report_look.dart';
 import '../../models/report_period_choice.dart';
 import '../../services/calendar_report_service.dart';
 import '../../services/note_money_ledger_service.dart';
+import '../../services/overview_view_service.dart';
 import '../../services/settings_service.dart';
 import '../../utils/event_agenda.dart';
 import '../../utils/markdown_color_syntax.dart';
@@ -39,19 +41,27 @@ class CalendarReportBloc extends Bloc<ReportEvent, ReportState> {
   /// its service, so `BlocProvider.create` stays synchronous. [clock] is
   /// what today is read from; tests pin it. [nextFrame] is what a fold
   /// waits on before it runs — the end of the next frame; a bloc suite with
-  /// no binding passes one that completes at once.
+  /// no binding passes one that completes at once. [views] is where a
+  /// compared saved view is looked up, handed over unawaited like
+  /// [settings]; null is a calendar with no saved views, so a view compare
+  /// falls back to the previous period.
   CalendarReportBloc({
     required CalendarReportService service,
     required CalendarBloc calendar,
     required FutureOr<SettingsService> settings,
+    FutureOr<OverviewViewService>? views,
     DateTime Function()? clock,
     Future<void> Function()? nextFrame,
   }) : _service = service,
        _calendarBloc = calendar,
        _settingsSeed = settings,
+       _viewsSeed = views,
        _clock = clock ?? DateTime.now,
        _nextFrame = nextFrame ?? _endOfFrame,
        super(const ReportLoading()) {
+    // Listened to at once: a seed that fails before the first pick would
+    // otherwise surface as an uncaught error.
+    unawaited(_viewsReady);
     on<ReportEvent>(_onEvent, transformer: _oneAtATime);
     _calendarSubscription = calendar.stream.listen((state) {
       if (state is CalendarPageLoaded) add(ReportCalendarChanged(state));
@@ -61,6 +71,7 @@ class CalendarReportBloc extends Bloc<ReportEvent, ReportState> {
   final CalendarReportService _service;
   final CalendarBloc _calendarBloc;
   final FutureOr<SettingsService> _settingsSeed;
+  final FutureOr<OverviewViewService>? _viewsSeed;
   final DateTime Function() _clock;
   final Future<void> Function() _nextFrame;
   late final StreamSubscription<CalendarPageState> _calendarSubscription;
@@ -79,6 +90,16 @@ class CalendarReportBloc extends Bloc<ReportEvent, ReportState> {
   bool _hapticFeedback = false;
   String _currencySymbol = '';
   bool _currencySuffix = false;
+
+  /// The Compare with choice, for this visit only (decision H): it starts at
+  /// the previous period and no setting stores it.
+  ReportCompare _compare = ReportCompare.previous;
+  OverviewView? _compareView;
+
+  /// The saved views, once [_viewsSeed] has resolved; null before, without
+  /// a seed, or when it failed.
+  OverviewViewService? _views;
+  late final Future<void> _viewsReady = _resolveViews();
 
   /// The years of the last events and allowlist they were computed for —
   /// a scan of every event, so it is redone only when either moves.
@@ -143,6 +164,11 @@ class CalendarReportBloc extends Bloc<ReportEvent, ReportState> {
             (s) => s.setCalendarReportCategories(look.categoryIds),
           );
         }
+      case ReportComparePicked(:final compare, :final view):
+        await _viewsReady;
+        _compare = compare;
+        _compareView = view;
+        await _fold(emit);
       case ReportDayChanged(:final today):
         _moveTo(_dayOf(today));
         await _reread();
@@ -187,6 +213,18 @@ class CalendarReportBloc extends Bloc<ReportEvent, ReportState> {
       return;
     }
     await _fold(emit);
+  }
+
+  Future<void> _resolveViews() async {
+    final seed = _viewsSeed;
+    if (seed == null) return;
+    try {
+      _views = await seed;
+    } catch (e, st) {
+      // No saved views to compare with: a view pick falls back to the
+      // previous period, as a deleted view does.
+      debugPrint('[CalendarReportBloc] saved views load failed: $e\n$st');
+    }
   }
 
   Future<void> _step(int direction, Emitter<ReportState> emit) async {
@@ -346,6 +384,8 @@ class CalendarReportBloc extends Bloc<ReportEvent, ReportState> {
         currencySuffix: _currencySuffix,
         today: _today,
         years: request.years,
+        compare: _compare,
+        compareView: _compareView,
       ),
     );
     // Folding is drawn before the fold holds the isolate: the band titles
@@ -368,6 +408,8 @@ class CalendarReportBloc extends Bloc<ReportEvent, ReportState> {
         _period = shown.period;
         _home = shown.home;
         _categoryIds = shown.categoryIds;
+        _compare = shown.compare;
+        _compareView = shown.compareView;
         emit(shown);
       }
       return false;
@@ -391,6 +433,8 @@ class CalendarReportBloc extends Bloc<ReportEvent, ReportState> {
       currencySuffix: _currencySuffix,
       today: _today,
       years: years,
+      compare: _compare,
+      compareView: _compareView,
     );
     _lastReady = ready;
     emit(ready);
@@ -406,6 +450,7 @@ class CalendarReportBloc extends Bloc<ReportEvent, ReportState> {
       today: _today,
       years: years,
     );
+    _refreshCompareView();
     final request = ReportRequest(
       span: span,
       previousSpan: previousSpan,
@@ -416,6 +461,8 @@ class CalendarReportBloc extends Bloc<ReportEvent, ReportState> {
       occurrenceRevision: calendar.occurrenceRevision,
       membershipRevision: calendar.membershipRevision,
       presenceRevision: calendar.presenceRevision,
+      compare: _compare,
+      compareView: _compareView,
     );
     final key = _FoldKey(
       events: calendar.allEvents,
@@ -429,8 +476,25 @@ class CalendarReportBloc extends Bloc<ReportEvent, ReportState> {
       weekStart: _appearance.weekStart,
       profilesRevision: CategoryProfiles.revision,
       ledgerRevision: NoteMoneyLedgerService.instanceOrNull?.revision ?? -1,
+      compare: _compare,
+      compareView: _compareView,
     );
     return (request: request, key: key, years: years);
+  }
+
+  /// The compared view as the views service holds it now — renamed or
+  /// recategorized in the overview since the pick, it folds as it is — or,
+  /// once it is gone, the previous period for the rest of the visit.
+  void _refreshCompareView() {
+    if (_compare != ReportCompare.view) return;
+    final id = _compareView?.id;
+    final current = _views?.views.where((view) => view.id == id).firstOrNull;
+    if (current == null) {
+      _compare = ReportCompare.previous;
+      _compareView = null;
+    } else {
+      _compareView = current;
+    }
   }
 
   AgendaYearBounds _yearsFor(CalendarPageLoaded calendar) {
@@ -500,6 +564,8 @@ class _FoldKey {
     required this.weekStart,
     required this.profilesRevision,
     required this.ledgerRevision,
+    required this.compare,
+    required this.compareView,
   });
 
   final List<CalendarEvent> events;
@@ -513,6 +579,11 @@ class _FoldKey {
   final CalendarWeekStart weekStart;
   final int profilesRevision;
   final int ledgerRevision;
+  final ReportCompare compare;
+
+  /// By value: the view as the service holds it, so an edit since the last
+  /// fold refolds and the same pick again does not.
+  final OverviewView? compareView;
 
   @override
   bool operator ==(Object other) =>
@@ -527,7 +598,9 @@ class _FoldKey {
       today == other.today &&
       weekStart == other.weekStart &&
       profilesRevision == other.profilesRevision &&
-      ledgerRevision == other.ledgerRevision;
+      ledgerRevision == other.ledgerRevision &&
+      compare == other.compare &&
+      compareView == other.compareView;
 
   @override
   int get hashCode => Object.hash(
@@ -542,5 +615,7 @@ class _FoldKey {
     weekStart,
     profilesRevision,
     ledgerRevision,
+    compare,
+    compareView,
   );
 }

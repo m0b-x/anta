@@ -47,6 +47,7 @@ import 'package:anta/services/calendar_report_service.dart';
 import 'package:anta/services/folder_storage_service.dart';
 import 'package:anta/services/import_export_service.dart';
 import 'package:anta/services/note_storage_service.dart';
+import 'package:anta/services/overview_view_service.dart';
 import 'package:anta/services/settings_service.dart';
 import 'package:anta/utils/event_agenda.dart';
 import 'package:anta/utils/report_labels.dart';
@@ -211,6 +212,10 @@ void main() {
     SettingsService.reset();
     db = await openTestDatabase();
     settings = SettingsService.forTesting(db);
+    // The bloc resolves the saved views as the page opens, for Compare
+    // with; bound here so it never reaches for the file database.
+    OverviewViewService.reset();
+    await OverviewViewService.forTesting(db);
     gate = null;
     final notes = NoteRepository(database: db);
     importExport = _RecordingImportExportBloc(
@@ -258,6 +263,7 @@ void main() {
     EventPresence.resetCache();
     CalendarCategories.updateCache(const []);
     SettingsService.reset();
+    OverviewViewService.reset();
     await db.close();
   });
 
@@ -3148,26 +3154,40 @@ void main() {
         handle.dispose();
       });
 
-      for (final (name, target, tags) in [
-        ('a category group', InsightTarget.categoryGroup, <ReportTag>[]),
+      for (final (name, target, header, tags) in [
         (
-          'a tag\'s rows, through its first category',
+          'a category group, Cardio',
+          InsightTarget.categoryGroup,
+          SemanticsIds.reportGroup(ReportCard.categories.name, 'cardio'),
+          <ReportTag>[],
+        ),
+        (
+          'a tag\'s rows, in the By tag card',
           InsightTarget.tagRows,
-          const [
+          SemanticsIds.reportTag('ana'),
+          [
             ReportTag(
               key: 'ana',
               label: 'Ana',
               events: 1,
-              count: 1,
+              count: 3,
               minutes: 0,
-              categoryIds: ['cardio', 'gym'],
-              rows: [],
+              categoryIds: const ['cardio', 'gym'],
+              // Rows under the header, so the scroll can bring it to the
+              // top rather than stop at its end.
+              rows: [
+                for (final day in [1, 6, 8])
+                  ReportDatedRow(
+                    eventId: gym.id,
+                    day: DateTime.utc(2026, 10, day),
+                  ),
+              ],
             ),
           ],
         ),
       ]) {
-        testWidgets('an insight on $name opens Cardio and lands its header '
-            'at the top', (tester) async {
+        testWidgets('an insight on $name opens it and lands its header at '
+            'the top', (tester) async {
           seed([gym, todo, ...cardio]);
           service = _ShapingReportService(
             (folded) => shaped(
@@ -3188,7 +3208,7 @@ void main() {
           await robot.tapId(SemanticsIds.reportInsight(0));
           await tester.pumpAndSettle();
           expect(
-            tester.getRect(robot.group(ReportCard.categories, 'cardio')).top,
+            tester.getRect(robot.byId(header)).top,
             closeTo(bodyTop(tester), 0.5),
           );
         });

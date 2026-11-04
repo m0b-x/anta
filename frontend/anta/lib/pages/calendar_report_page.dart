@@ -31,6 +31,7 @@ import '../models/report_period_choice.dart';
 import '../services/alert_keep_notice.dart';
 import '../services/app_navigator.dart';
 import '../services/calendar_report_service.dart';
+import '../services/overview_view_service.dart';
 import '../services/settings_service.dart';
 import '../utils/event_agenda.dart';
 import '../utils/markdown_color_syntax.dart';
@@ -93,6 +94,7 @@ class CalendarReportPage extends StatelessWidget {
           service: _service ?? CalendarReportService(),
           calendar: calendar,
           settings: SettingsService.getInstance(),
+          views: OverviewViewService.getInstance(),
           clock: _clock,
           nextFrame: _nextFrame,
         )..add(ReportOpened(look: look));
