@@ -1142,7 +1142,87 @@ lookbacks (rare). §14 — money once per event (P).
 (the known Windows-only case; 12 skipped with the new benchmark case);
 `dart format` clean on every slice file; no ARB; the record's §6.3 / §6.6
 / §6.8 read as amended here (the lookahead, the gap floor, AN, the Due
-soon order). Commit *(next line)*.
+soon order). 14 files; commit `0f5fae29` (2026-11-04).
+
+#### S2b — builder II (2026-11-04)
+
+Built as S2b-i (the insight library and the model shapes S4 asked for) and
+S2b-ii (year in review, compare, T1–T3, the shapes S5 asked for).
+
+- **S2b-i.** `InsightRule` (g1 … a2; T1–T3 wait for the compared fold),
+  `InsightTarget` (categoryGroup · tagRows · dueSoon · overviewDays),
+  `ReportInsight(rule, severity, categoryId?, tagKey?, eventId?, target,
+  day?, dayEnd?, n1 … n4, minutes, cents, ratio?, alternate)` with the slot
+  table per rule in its `///` (`alternate` marks a two-condition rule that
+  fired on its second condition); `CalendarReport.insights` — every fired
+  rule, ranked by severity, then the category's primary value, then rule
+  order, then emission order; `lib/utils/report_insights.dart`
+  (`ReportInsights.rank`, one pure function per rule, called at the end of
+  `fold`; D1 and D2 share one, a gap reading one state). The measures the
+  rules need, in the same walk on fixed arrays: `missedByWeekday`,
+  `maxLateDaysInAWeek`, `weekendMinutes`, `maxShortDaysInAWeek`,
+  `startMinuteSpread` (the shortest arc of the day holding every start, so
+  23:30 and 00:30 read 60), `longestGapDays` (the days between two kept
+  days), `leadTimeEvents`, the episode stats (`episodes`, `lastEpisodeDay`,
+  `episodeGapMean`, `episodeGapCv` — kept days up to today, a same-day
+  second event joining the episode, the lookback and lookahead walked only
+  for Episode kinds); `ReportTag.medianGapDays`; `ReportGoal.brokenStreak`
+  (G4's break is unreadable once `streak` is 0); `CalendarReport.money`
+  (the selection's non-zero nets, for M1 / M2); S4's asks —
+  `ReportMeasures.profiled`, `dueSoon` uncapped (`dueSoonMore` gone; the
+  page caps).
+- **Defaults taken (S2b-i):** **every rule reads only profiled
+  categories** (P1, P5 and R1's median branch read no kind, so this gate is
+  what keeps the unprofiled golden empty); P1–P6 skip a plan; D1 / D2 are
+  graded only (the Due soon card's rule); "upcoming" (A1, A2, M1) is Ahead
+  in a current span and the plan's groups in a future one; G2 / G3 read the
+  current period only; G4's break is any closed period not met, `over`
+  included; G5 requires value ≤ target; P1 needs two weekdays with ≥
+  `weekdayMinDays` tracked days each in an all-routine category, percents
+  rounded; M1 / M2 sum spent cents only; M1, M2, A1, L2 one insight per
+  category, P4 and A2 one across categories (P4 points at the Meeting
+  category with the most minutes); R1's limit from the first profiled
+  `maxGap` category, else 3× the median gap; R2 the first tag in tag order;
+  late and short days per sample; weekend minutes counts-as included.
+- **Noted for S2b-ii / S4:** D3's upcoming branch reads `daysUntil`, which
+  covers the span only (an Expiry past the span's end is in Due soon but
+  fires no D3 — the page drops D3 beside Due soon anyway, decision H); D1
+  cannot say "over a year" (no `beyondLookback` slot — S2b-ii adds one);
+  M1 / M2 read the note's whole net once per event (P, §14).
+
+- **Review of S2b-i** (one `reviewer`, with nine probes through the real
+  builder in a snapshot and one mutation of the ranking): no data loss;
+  eleven behaviour findings and a set of edge cases and test gaps, taken in
+  two fix passes. **Pass one** — M2 counts a tracked recurring Bill
+  ("recurring" = not one-off; `shapeOf` calls a tracked recurring event a
+  routine); D3 reads the Due soon rows (one per Expiry event, with its id,
+  so an Expiry past the span's end fires too); G5's "under" is strict on
+  both branches; P4 needs Work hours (no Work → no "100 % of your work
+  hours"); `tags` is uncapped in the model (the card caps) so R1 and R2 see
+  every tag, and R1 runs only in the current tense (a past span's tags stop
+  at its end while `since` runs to today — the lookahead is per
+  target-or-gap category, not per tag, decision R); episodes join across
+  events (a category's runs of consecutive kept days); P6 counts the rest
+  still running in a current span; M1 reads the next thirty days through
+  one more scan for Bill kinds (`ReportInput.billsAhead`; the monthly
+  digest's thirty days lie wholly after its span), once per event, its
+  target the overview's days; R2 picks by days; D4 once per event; the
+  ranking pin carries a severity tie that the primary value decides and
+  one that emission order decides (the primary values compare across units
+  — cents, minutes, counts — as §6.7 states; accepted). **Pass two** — the
+  bedtime spread as the 10th–90th percentile range of the Sleep category's
+  starts (one late night in thirty gave 105 min); a short night needs a
+  night-sized sample (`sleepNightMinMinutes`, a nap is not a night); P1
+  compares exact percents and rounds for display; G4 skips a plan; A1
+  counts occurrences; A2 ends on the trip's last day and skips a trip
+  already under way; the episode walk runs for Episode kinds only; `///`
+  on every `ReportInsight` field; the fire / just-under pairs one step
+  apart (G5, P1 with `weekdayMinDays`, P5 with `cancelledMinPlanned`, L1's
+  lead, D5's CV at and under 0.25 and 2 vs 3 episodes, P4 without Work, M2
+  tracked). Accepted — L2 overlaps D4 for Deadlines (the page's filter H
+  and the digest's one line keep it harmless).
+
+*(S2b-ii, the reviews and the gate follow at the boundary.)*
 
 #### S3 — the category editor's profile sections (2026-11-04)
 
@@ -1191,7 +1271,65 @@ editable stepper. Built in a worktree (`C:\Temp\anta-wt-s3`, branch
 `analytics-s3` from `6a586668`) beside S2a's review in the main tree, to
 be merged at its boundary.
 
-*(The build, the two reviews and the gate follow at the boundary.)*
+**Built** (Opus 5.5, in the worktree): the two sections after the alerts
+caption with the profile draft seeded from `CategoryProfiles.profileFor`,
+the profile in the dirty check, the save order category → profile → alerts
+(`save`, or `clear` when the draft returns to Custom with nothing
+overridden), the sandbox writing nothing, repeat-only read once at open
+from the calendar bloc, every profile row in `ValueChangeHighlight` under
+`FormIndentedRow(52)`; `CategoryKindSheet`; `CategoryGoalSheet` returning
+`CategoryGoalSaved(ReportTarget)` / `CategoryGoalRemoved`; `FormMenuRow`
++ `caption`, `FormStepperRow` + `controller` / `focusNode` / `maxDigits` /
+`fieldIdentifier`; `lib/utils/category_profile_labels.dart` with
+`categoryGoalReadBack` shared by the row and the sheet;
+`CategoryKinds.countsAsChoices` / `headlineMeasures`, `CategoryGoalUnit`,
+`CategoryGoalLimits`; 107 ARB keys in en / de / ro; the suites (27 editor
+cases, 10 kind sheet, 14 goal sheet, the primitives, the clearance test)
+and the flows `30_category_kind` and `31_category_goal` (unrun until S9).
+The builder's own deviations, accepted: the examples' wholeness at 2.0 is
+the design review's real-font check, not a test-font pin; two container
+ids (`category-editor-form`, `category-kind-list`) for `scroll-to --in`;
+the en Workout example keeps the spec's four items.
+
+**Reviews** — one `reviewer`: one real bug (a revert after a partial
+save never written while the sheet popped as saved) and nine low items;
+one `design-reviewer`: the pins hold (row heights, a caption in every
+state, disabled rows in place with their reason, no example cut at 2.0,
+one goal-sheet height per open, nothing above REPORT moved against a HEAD
+snapshot) and four severity-2 findings. Taken in two fix passes — **A
+(code)**: the save baseline moves with each successful profile write; a
+non-whole stored value reads exactly ("7.5 h") and survives a Done that
+changes only the period; Budget preselects Month unless the owner picked a
+period; a stored type the measure does not list opens checked with its
+reason; nothing opens while Save writes; a kind pick resets every override
+except Counts as and a still-valid goal, the hidden three included; hours
+formatted like counts; a stored non-headline measure reads as its own
+name; de "Ablaufdatum", "Tabletten, Vitamine", "Gehalt, Honorare",
+"Ferien, freie Tage", "z. B. Spaziert", "Zuletzt am", "Eigene Art",
+"Eigenes Wort"; ro "Automat: …", "Ales automat pe perioadă", "… zile între
+ele", "Interval în zile", "Zile rămase"; the one-height pin for hours,
+count and tasks. **B (design)**: a `RowMetrics.groupGap` between the
+alerts caption and REPORT (the digest editor's precedent; the label has
+no top air of its own); the stepper decides beside-or-stacked from the
+widest label among the offered types so a type switch moves nothing
+(pinned by rect); the typed value gets the row's 48 dp hit height and a
+tap anywhere in the box focuses it, with a visible edit affordance;
+`AppDialogs.textInput`'s counter in `onSurfaceVariant` (it was the error
+red for every consumer — pre-existing); **AO — a disabled row's reason
+caption keeps full `onSurfaceVariant`** while the glyph, label and value
+dim (1.94:1 was the faintest text in the sheet and the one line that
+explains the state; applied to `FormMenuRow` and `FormPickerRow`); **AP —
+a fixed goal-type order** (At least · At most or Budget · Days between)
+with the kind's preset preselected, never reordered per category; the
+period chips show no selection while Days between is chosen and remember
+the last period; the guideline case at de 2.0 dark too. Accepted — the
+goal sheet's measured heights replace the spec's table (429 / 490 / 490 /
+575 with no stored goal, 495 / 556 / 556 / 645 with one; 623 for Tasks de
+2.0). The device-only bucket (the menus at 2.0, the real keypad on the goal
+field, TalkBack on the six rows and the uppercase labels, ink, ro
+diacritics, the kind sheet's bottom inset) goes to S9.
+
+*(The merge, the gate and the commit follow at the boundary.)*
 
 #### S4 — report cards I (designed 2026-11-04, built after S2b)
 
@@ -1251,6 +1389,126 @@ scroll path — the design review and the device pass watch it) · S the ids
 X moot: S2b lands first, so S4 builds Insights too. Model asks for S4's
 build: `ReportMeasures.profiled`, `dueSoon` uncapped, `ReportInsight(id,
 severity, subject, detail, target)`.
+
+*(The build, the two reviews and the gate follow at the boundary.)*
+
+#### S5 — report cards II (designed 2026-11-04, built after S4)
+
+**The designer's spec** (Opus 5.5, real-font renders from a HEAD snapshot
+with the cards composed from the page's own primitives; the ramp checked
+with the dataviz skill's validator; the spec and renders in the
+scratchpad): the order Categories · By tag · Over time · When · Balance ·
+Missed · Ahead · Compare row + footer, each card absent without content.
+**By tag** on the Categories-group shape (`FormMeterRow` inside
+`ReportGroupStack` under a new `ReportCard.tags`), closed by default with
+the first four tags and "n more ▾" in place (open by default was 617 dp at
+1.0 and 905 at 2.0), the first category's `EventAvatar` leading, the meter
+count over the largest tag in that category's colour, two facts per tag
+with the kind's noun ("6 evenings · last Fri 24", "2 trips · 5 days", "3
+services · 1,240", else "times" / "once" — three facts shrank to 0.53 at
+de 2.0), lines from templates; an open tag shows the dated rows. **When**
+(`report_when_chart.dart` on the trend's card): the weekday label column
+measured as drawn plus 8 dp, column pitch (width − labels) / 24 with 2 dp
+gaps, row pitch the caption line clamped between one and two column
+pitches (square cells lost five weekday labels at 2.0), weekday labels
+every ⌈line / rowPitch⌉-th row, hour labels stepping by the smallest of 3
+/ 6 / 12 that fits, the ramp `Color.lerp(rowGroup, primary, [0.5, 0.67,
+0.84, 1.0])` with empty cells in `rowDivider` (light 2.18 · 3.03 · 4.29 ·
+6.12:1, dark 3.46 · 5.05 · 7.15 · 9.56:1 — a 25 / 50 / 75 / 100 % ramp's
+lightest step was 1.44:1 in light), linear steps to the busiest cell, no
+legend, the caption "Busiest: Tuesday · 18:00–19:00", one semantics node;
+202 / 234 / 285–294 dp. **Balance**: one `FormMeterRow` per area, largest
+first, the area's glyph in `onSurfaceVariant`, "38 h · 67 %", the meter in
+`primary`, read-only. **Compare with**: a `FormMenuRow` as the footer's
+first row (the period menu with a compare section grew to 620 dp, flipped
+above the title and scrolled its section out of sight at de 2.0) — Previous
+period · Same period last year (dimmed before the calendar's first year) ·
+each saved view by name or a dimmed "No saved views"; the choice lasts for
+the visit; last year: the tiles' deltas read it, the caption "against
+October 2025", the trend draws last year as a column-wide tick on top with
+a 1 dp `rowGroup` ring (an outline behind hid last year wherever this year
+was higher; in dark the tick and the column are 1.00:1 without the ring)
+and a "Last year" legend item; a saved view stacks a second Totals card
+under the view's name at 360 and sits beside at ≥ 600 dp, both with the
+page's tile set and no deltas, the caption "beside Work / Life".
+
+**Its defaults, accepted by the lead:** A the footer row (§6.11's "period
+menu" amended) · B the nouns and two facts · C–D the ramp and linear steps
+· E Balance by hours · F `CalendarIcons.areaIcon` · G saved views listed in
+the menu · H the choice per visit, not a setting · I no deltas against a
+view · J the view's card uses the page's tiles · K the tick, not the
+outline · L rows up to twice as tall · M no legend · N the caption names
+the day and the hour · O tags closed, four shown · P tag headers carry a
+meter. Model asks for S2b-ii / S5: Sleep out of When (the counts-hours
+rule), `ReportTag.kind`, `ReportTrend.lastYear`, the compared view folded
+with the page's tile set.
+
+*(The build, the two reviews and the gate follow at the boundary.)*
+
+#### S6 — year in review (designed 2026-11-04, built after S5)
+
+**The designer's spec** (Opus 5.5, real-font renders of a 2025 fixture
+seen from 2026 — six categories, two weekly goals, a gap goal, two trips,
+car services — across the matrix; the spec and renders in the scratchpad):
+§6.12's five cards become **two new cards and two year readings**, since
+the others would duplicate what S4 and S5 already show. The year cards
+draw when `report.year != null` — the span is exactly 1 Jan – 31 Dec
+however it was picked (This year, Last year, a paged year, an equal Custom
+range) and not a plan — after the Totals caption, before Categories:
+**Records** (`ReportRecordsCard` in `lib/widgets/report_year_cards.dart`):
+read-only `FormMeterRow`s with no meter (a `FormPickerRow` cut "Most
+social month…" and thirteen de / ro strings at 2.0), the glyph in
+`onSurfaceVariant`, the record's name as the label (two lines), "{subject}
+· {value}" as the caption (one line, two reserved from 1.6), the kinds in
+order busiest month · busiest week · most social month · biggest spend ·
+longest trip · longest streak per tracked event (from
+`AnalyticsMetrics.recordStreakMin` 3) · longest gap per gap-target
+category, the first `ReportMetrics.yearRecordRows` (6) then "n more ▾" in
+place; 62 / 67.4 / 130 dp rows. **Months** (`ReportMonthsCard`): an axis
+row of month initials (the trend's `MMM` / `MMMMM` rule, every step-th
+month from [1, 2, 3]) over one strip per category in the Categories order
+(7 then "n more ▾"): `FormMeterRow(EventAvatar, name, caption "Jan 2 – Dec
+30" — the firsts and lasts as a range, since the worded form made 152 dp
+rows and a 966 dp card at 2.0 —, chart: twelve tiles of pitch (W + 2) / 12
+by `yearTileHeight` 16, radius 2, S5's `primary` ramp stepped to the
+strip's own peak, an empty month in `rowDivider`, a month still ahead a 1
+dp `outlineVariant` outline, onTap its group)`, one spoken node per strip;
+78 / 89.4 / 116 dp rows, a six-strip card 504 / 577.8 / 750. **Goals on a
+year**: a periodic goal shorter than a year reads "41 of 52 weeks met ·
+longest streak 11" (closed periods only, the meter met / closed). **Balance
+with Compare: last year**: the union of both years' areas, the meter scaled
+to the max of both, last year as a 2 × 10 dp `onSurfaceVariant` tick with
+a 1 dp `rowGroup` ring (`FormMeterRow.marker`), the caption "1,720 h · last
+year 1,650 h". **Last year** joins the period menu after This year with
+This year's glyph (the eleven-row menu stays at 496 dp and never scrolls
+or flips at 360 × 780), id `report-period-last-year`, reopening as This
+year. Ids `report-year-record-<kind>`, `report-year-records-more`,
+`report-year-months-<categoryId>`, `report-year-months-more`; the
+constants `ReportMetrics.yearRecordRows` / `yearRecordCaptionLinesCompact`
+/ `yearTileHeight` / `yearAxisPadding` / `yearAxisSteps`,
+`FormMetrics.meterMarkerWidth` / `meterMarkerRing` / `meterMarkerOverhang`,
+`AnalyticsMetrics.recordStreakMin`; `FormMeterRow` gains `chart` and
+`marker`.
+
+**Its defaults, accepted by the lead:** A the past and the current year,
+never a plan · B no Goals met card — the Goals card reads the year's tally
+· C seven strips then "n more" · D firsts and lasts as the strip's caption
+range · E `chart` and `marker` on `FormMeterRow` · F the `primary` ramp,
+empty months in `rowDivider`, months ahead hollow · G By area is Balance
+with the upright last-year tick · H S4's refold anchor becomes the nearest
+section label above the viewport · I record rows read-only · J six records,
+streaks from three · K the name as the label, the subject leading the
+caption · L the glyphs as specified, no fire icon · M Last year after This
+year, no Next year · N the axis at the top of the Months card. **A year
+page gains the two cards on any calendar, profiled or not** (decision N:
+a year is a span like any other; month and week pages stay pixel-identical
+and the October golden and the guide's stage stay pinned). Model asks for
+S2b-ii: `CalendarReport.year` (`records`, `months` — twelve values per
+category in the primary's unit —, `spans` — first and last kept day per
+category to today —, `goalTallies` — met, closed, longest streak per
+periodic goal), `ReportRecord(kind, categoryId?, eventId?, value, start,
+end?)` with ties to the earliest, `CalendarReport.balanceLastYear` under
+Compare: last year.
 
 *(The build, the two reviews and the gate follow at the boundary.)*
 

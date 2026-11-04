@@ -1629,6 +1629,7 @@ void main() {
     Map<String, DateTime> lastSeenBefore = const {},
     Map<String, List<ReportSample>> lookback = const {},
     Map<String, List<ReportSample>> lookahead = const {},
+    List<ReportSample> billsAhead = const [],
   }) {
     final base = inputFor(
       events,
@@ -1660,9 +1661,25 @@ void main() {
         lastSeenBefore: lastSeenBefore,
         lookback: lookback,
         lookahead: lookahead,
+        billsAhead: billsAhead,
       ),
     );
   }
+
+  /// What the sampler's bills-ahead scan hands over: [events]' samples from
+  /// [today] to today + `AnalyticsMetrics.billsAheadDays`.
+  List<ReportSample> billsAheadOf(List<CalendarEvent> events, DateTime today) =>
+      sampled(
+        events,
+        span(
+          today,
+          day(
+            today.year,
+            today.month,
+            today.day + AnalyticsMetrics.billsAheadDays,
+          ),
+        ),
+      );
 
   group('measures (analytics H, §6.3)', () {
     final september = span(day(2026, 9, 1), day(2026, 9, 30));
@@ -2170,7 +2187,7 @@ void main() {
       expect((tag.count, tag.spentCents), (3, 1000));
     });
 
-    test('the top tags by events, then days, then key, capped', () {
+    test('every tag by events, then days, then key, uncapped', () {
       final report = foldFacts(
         [
           for (var i = 0; i < 10; i++)
@@ -2186,7 +2203,11 @@ void main() {
         firstThree,
         later,
       );
-      expect(report.tags, hasLength(AnalyticsMetrics.tagRows));
+      expect(
+        report.tags,
+        hasLength(greaterThan(AnalyticsMetrics.tagRows)),
+        reason: 'R1 reads the rarely seen tag a cap would drop; the card caps',
+      );
       expect(report.tags.map((t) => t.key), [
         't9',
         'z',
@@ -2196,6 +2217,9 @@ void main() {
         't3',
         't4',
         't5',
+        't6',
+        't7',
+        't8',
       ]);
     });
 
@@ -2721,7 +2745,7 @@ void main() {
       },
     );
 
-    test('overdue, due, unmarked, upcoming, each by days, capped', () {
+    test('overdue, due, unmarked, upcoming, each by days, every row', () {
       final report = dueOf(fixture());
       expect(
         [for (final r in report.dueSoon) dueText(r)],
@@ -2732,9 +2756,11 @@ void main() {
           'tax unmarked unmarked 3',
           'rent unmarked unmarked 14',
           'visa upcoming expiry 5',
+          'passport upcoming expiry 42',
         ],
+        reason: 'uncapped: the page shows AnalyticsMetrics.dueSoonRows',
       );
-      expect(report.dueSoonMore, 1, reason: 'the passport, 42 days out');
+      expect(report.dueSoon.length, greaterThan(AnalyticsMetrics.dueSoonRows));
       final oil = report.dueSoon[0];
       expect((oil.categoryId, oil.day), ('cardio', day(2026, 10, 30)));
       expect(report.dueSoon[2].day, day(2026, 11, 16));
@@ -2756,7 +2782,6 @@ void main() {
           'passport upcoming expiry 42',
         ],
       );
-      expect(report.dueSoonMore, 0);
     });
 
     test('a plan lists only the span\'s Expiries and Bills, as upcoming', () {
@@ -2918,7 +2943,7 @@ void main() {
       final report = fold(p4Events(), p4Span, p4Today, missed: p4Missed);
       expect(report.goals, isEmpty);
       expect(report.dueSoon, isEmpty);
-      expect(report.dueSoonMore, 0);
+      expect(report.insights, isEmpty);
       expect(report.when, isNotNull);
       expect(report.balance.keys, everyElement(LifeArea.other));
       expect(
@@ -3221,10 +3246,1581 @@ void main() {
     });
   });
 
+  // The insight library (S2b-i): each rule fires on its fixture with its
+  // slots, and stays quiet just under its threshold.
+  group('insights (L, §6.7)', () {
+    final week = span(day(2026, 11, 2), day(2026, 11, 8));
+    final november = span(day(2026, 11, 1), day(2026, 11, 30));
+    final mid = day(2026, 11, 15);
+    final later = day(2026, 11, 20);
+    List<ReportInsight> fired(CalendarReport r, InsightRule rule) => [
+      for (final i in r.insights)
+        if (i.rule == rule) i,
+    ];
+    ReportInsight one(CalendarReport r, InsightRule rule) =>
+        fired(r, rule).single;
+    ReportTarget perWeek(TargetKind kind, int value) =>
+        perPeriod(kind, value, TargetPeriod.week);
+
+    test('G1: an at-least goal behind past half its period', () {
+      CalendarReport on(DateTime today) => foldFacts(
+        [ev('lift', 'gym', day(2026, 11, 2))],
+        week,
+        today,
+        profiles: {
+          'gym': targeted(CategoryKind.custom, perWeek(TargetKind.atLeast, 3)),
+        },
+      );
+      final g1 = one(on(day(2026, 11, 5)), InsightRule.g1);
+      expect(
+        (g1.severity, g1.categoryId, g1.target, g1.n1, g1.n2, g1.n3),
+        (3, 'gym', InsightTarget.categoryGroup, 1, 3, 2),
+      );
+      expect((g1.day, g1.dayEnd), (day(2026, 11, 2), day(2026, 11, 8)));
+      expect(
+        fired(on(day(2026, 11, 4)), InsightRule.g1),
+        isEmpty,
+        reason: 'three days of seven is not past half',
+      );
+    });
+
+    test('G2: an at-most goal over in its current period', () {
+      CalendarReport on(int kept) => foldFacts(
+        [
+          ev(
+            'desk',
+            'gym',
+            day(2026, 11, 2),
+            rule: daily,
+            end: day(2026, 11, 1 + kept),
+          ),
+        ],
+        week,
+        day(2026, 11, 5),
+        profiles: {
+          'gym': targeted(CategoryKind.custom, perWeek(TargetKind.atMost, 2)),
+        },
+      );
+      final g2 = one(on(3), InsightRule.g2);
+      expect((g2.severity, g2.n1, g2.n2, g2.n3), (2, 3, 2, 1));
+      expect(fired(on(2), InsightRule.g2), isEmpty, reason: 'at the cap');
+    });
+
+    test('G3: a goal met before its period ends', () {
+      CalendarReport on(int kept) => foldFacts(
+        [
+          ev(
+            'run',
+            'gym',
+            day(2026, 11, 2),
+            rule: daily,
+            end: day(2026, 11, 1 + kept),
+          ),
+        ],
+        week,
+        day(2026, 11, 5),
+        profiles: {
+          'gym': targeted(CategoryKind.custom, perWeek(TargetKind.atLeast, 2)),
+        },
+      );
+      final g3 = one(on(2), InsightRule.g3);
+      expect((g3.severity, g3.n1, g3.n2), (1, 2, 2));
+      expect(fired(on(1), InsightRule.g3), isEmpty);
+    });
+
+    test('G4: a streak at a multiple of four', () {
+      final today = day(2026, 11, 5);
+      CalendarReport from(DateTime first) {
+        final events = [
+          ev('lift', 'gym', first, rule: weekly({1})),
+        ];
+        return foldFacts(
+          events,
+          week,
+          today,
+          profiles: {
+            'gym': targeted(
+              CategoryKind.custom,
+              perWeek(TargetKind.atLeast, 1),
+            ),
+          },
+          lookback: lookbackFor('gym', events, week, today),
+        );
+      }
+
+      final four = from(day(2026, 10, 5));
+      expect(goalOf(four, 'gym').streak, 4);
+      final g4 = one(four, InsightRule.g4);
+      expect((g4.severity, g4.n1, g4.alternate), (2, 4, false));
+      expect(fired(from(day(2026, 10, 12)), InsightRule.g4), isEmpty);
+    });
+
+    test('G4: a streak the last closed period broke', () {
+      final today = day(2026, 11, 5);
+      CalendarReport on(List<DateTime> days) {
+        final events = [ev('lift', 'gym', days.first, rule: dates(days))];
+        return foldFacts(
+          events,
+          week,
+          today,
+          profiles: {
+            'gym': targeted(
+              CategoryKind.custom,
+              perWeek(TargetKind.atLeast, 1),
+            ),
+          },
+          lookback: lookbackFor('gym', events, week, today),
+        );
+      }
+
+      final broke = on([
+        day(2026, 10, 5),
+        day(2026, 10, 12),
+        day(2026, 10, 19),
+        day(2026, 11, 2),
+      ]);
+      expect(
+        (goalOf(broke, 'gym').streak, goalOf(broke, 'gym').brokenStreak),
+        (0, 3),
+      );
+      final g4 = one(broke, InsightRule.g4);
+      expect((g4.severity, g4.n1, g4.alternate), (1, 3, true));
+      final long = on([day(2026, 10, 5), day(2026, 11, 2)]);
+      expect(
+        goalOf(long, 'gym').brokenStreak,
+        0,
+        reason: 'the streak broke three weeks before the last closed one',
+      );
+      expect(fired(long, InsightRule.g4), isEmpty);
+    });
+
+    final year = span(day(2026, 1, 1), day(2026, 12, 31));
+    CalendarReport leaveOf(int days, DateTime today) => foldFacts(
+      [
+        ev(
+          'summer',
+          'holiday',
+          day(2026, 7, 1),
+          rule: daily,
+          end: day(2026, 7, days),
+        ),
+      ],
+      year,
+      today,
+      profiles: {
+        'holiday': targeted(
+          CategoryKind.leave,
+          perPeriod(TargetKind.atMost, 25, TargetPeriod.year),
+        ),
+      },
+    );
+
+    test('G5: a Leave allowance nearly spent with a quarter of the year '
+        'ahead', () {
+      final g5 = one(leaveOf(21, day(2026, 8, 15)), InsightRule.g5);
+      expect(
+        (g5.severity, g5.n1, g5.n2, g5.n3, g5.alternate),
+        (1, 4, 25, 4, false),
+      );
+      expect((g5.day, g5.dayEnd), (year.start, year.end));
+      expect(
+        fired(leaveOf(19, day(2026, 8, 15)), InsightRule.g5),
+        isEmpty,
+        reason: 'six of 25 is over a fifth',
+      );
+    });
+
+    test('G5: Leave days unused with a month left', () {
+      final g5 = one(leaveOf(20, day(2026, 12, 5)), InsightRule.g5);
+      expect((g5.n1, g5.n2, g5.n3, g5.alternate), (5, 25, 26, true));
+      expect(
+        fired(leaveOf(20, day(2026, 11, 30)), InsightRule.g5),
+        isEmpty,
+        reason: '31 days left',
+      );
+    });
+
+    test('G5: both boundaries are strict, one step apart', () {
+      expect(
+        fired(leaveOf(20, day(2026, 8, 15)), InsightRule.g5),
+        isEmpty,
+        reason: 'five of 25 is a fifth, not under it',
+      );
+      expect(one(leaveOf(21, day(2026, 8, 15)), InsightRule.g5).n1, 4);
+      expect(
+        fired(leaveOf(20, day(2026, 12, 1)), InsightRule.g5),
+        isEmpty,
+        reason: '30 days left is a month, not under it',
+      );
+      final g5 = one(leaveOf(20, day(2026, 12, 2)), InsightRule.g5);
+      expect((g5.n1, g5.n3, g5.alternate), (5, 29, true));
+    });
+
+    CalendarReport gapOf(DateTime kept) => foldFacts(
+      [ev('oil', 'cardio', kept)],
+      november,
+      mid,
+      profiles: {'cardio': targeted(CategoryKind.maintenance, maxGap(10))},
+    );
+
+    test('D1: a gap target overdue', () {
+      final d1 = one(gapOf(day(2026, 11, 1)), InsightRule.d1);
+      expect(
+        (d1.severity, d1.target, d1.n1, d1.n2),
+        (3, InsightTarget.dueSoon, 14, 10),
+      );
+      expect(
+        fired(gapOf(day(2026, 11, 5)), InsightRule.d1),
+        isEmpty,
+        reason: 'ten days is the limit itself',
+      );
+    });
+
+    test('D2: a gap target due', () {
+      final d2 = one(gapOf(day(2026, 11, 6)), InsightRule.d2);
+      expect((d2.severity, d2.n1, d2.n2), (2, 1, 10));
+      expect(fired(gapOf(day(2026, 11, 8)), InsightRule.d2), isEmpty);
+    });
+
+    test('D3: an Expiry inside sixty days', () {
+      CalendarReport on(DateTime expires) => foldFacts(
+        [ev('visa', 'holiday', expires)],
+        span(day(2026, 11, 1), day(2027, 1, 31)),
+        mid,
+        profiles: {'holiday': kindOf(CategoryKind.expiry)},
+      );
+      final d3 = one(on(day(2027, 1, 14)), InsightRule.d3);
+      expect(
+        (d3.severity, d3.n1, d3.day, d3.alternate, d3.target),
+        (3, 60, day(2027, 1, 14), false, InsightTarget.dueSoon),
+      );
+      expect(fired(on(day(2027, 1, 15)), InsightRule.d3), isEmpty);
+    });
+
+    test('D3: an Expiry passed unmarked', () {
+      CalendarReport on({required bool missed}) => foldFacts(
+        [ev('card', 'holiday', day(2026, 11, 10), tracked: true)],
+        november,
+        mid,
+        missed: {
+          if (missed) 'card': [day(2026, 11, 10)],
+        },
+        profiles: {'holiday': kindOf(CategoryKind.expiry)},
+      );
+      final d3 = one(on(missed: true), InsightRule.d3);
+      expect(
+        (d3.severity, d3.eventId, d3.day, d3.n1, d3.alternate),
+        (2, 'card', day(2026, 11, 10), 5, true),
+      );
+      expect(fired(on(missed: false), InsightRule.d3), isEmpty);
+    });
+
+    test('D3: reads the Due soon rows — a one-off past the span\'s end', () {
+      CalendarReport on(List<CalendarEvent> events) => foldFacts(
+        events,
+        november,
+        mid,
+        profiles: {'holiday': kindOf(CategoryKind.expiry)},
+      );
+      final passport = ev('passport', 'holiday', day(2026, 12, 10));
+      final report = on([passport]);
+      expect(report.dueSoon.map(dueText), ['passport upcoming expiry 25']);
+      final d3 = one(report, InsightRule.d3);
+      expect(
+        (d3.severity, d3.eventId, d3.day, d3.n1, d3.alternate),
+        (3, 'passport', day(2026, 12, 10), 25, false),
+      );
+      final two = on([passport, ev('id', 'holiday', day(2026, 12, 20))]);
+      expect(
+        [
+          for (final i in fired(two, InsightRule.d3))
+            (i.categoryId, i.eventId, i.n1),
+        ],
+        [('holiday', 'passport', 25), ('holiday', 'id', 35)],
+        reason: 'one insight per document, not per category',
+      );
+    });
+
+    test('D4: a Bill day passed unmarked', () {
+      CalendarReport on({required bool missed}) => foldFacts(
+        [ev('rent', 'birthday', day(2026, 11, 1), tracked: true)],
+        november,
+        mid,
+        missed: {
+          if (missed) 'rent': [day(2026, 11, 1)],
+        },
+        profiles: {'birthday': kindOf(CategoryKind.bill)},
+      );
+      final d4 = one(on(missed: true), InsightRule.d4);
+      expect(
+        (d4.severity, d4.eventId, d4.day, d4.n1, d4.n2, d4.target),
+        (3, 'rent', day(2026, 11, 1), 1, 14, InsightTarget.dueSoon),
+      );
+      expect(fired(on(missed: false), InsightRule.d4), isEmpty);
+    });
+
+    test('D4: once per event — the latest unmarked day and the count', () {
+      final report = foldFacts(
+        [
+          ev(
+            'rent',
+            'birthday',
+            day(2026, 1, 1),
+            rule: const MonthlyRecurrence(),
+            tracked: true,
+          ),
+        ],
+        year,
+        mid,
+        missed: {
+          'rent': [day(2026, 8, 1), day(2026, 9, 1), day(2026, 10, 1)],
+        },
+        profiles: {'birthday': kindOf(CategoryKind.bill)},
+      );
+      expect(
+        report.dueSoon.where((r) => r.state == ReportDueState.unmarked),
+        hasLength(3),
+        reason: 'the card still lists each day',
+      );
+      final d4 = one(report, InsightRule.d4);
+      expect(
+        (d4.eventId, d4.day, d4.n1, d4.n2),
+        ('rent', day(2026, 10, 1), 3, 45),
+      );
+    });
+
+    test('D5: a regular Episode expected within a week', () {
+      final events = [
+        ev('m1', 'measurement', day(2026, 10, 6)),
+        ev(
+          'm2',
+          'measurement',
+          day(2026, 10, 16),
+          rule: daily,
+          end: day(2026, 10, 17),
+        ),
+        ev('m3', 'measurement', day(2026, 10, 26)),
+        ev('m4', 'measurement', day(2026, 11, 5)),
+      ];
+      CalendarReport on(DateTime today) => foldFacts(
+        events,
+        span(day(2026, 10, 1), day(2026, 11, 30)),
+        today,
+        profiles: {'measurement': kindOf(CategoryKind.episode)},
+      );
+      final report = on(day(2026, 11, 8));
+      final m = report.measures['measurement']!;
+      expect(
+        (m.episodes, m.lastEpisodeDay, m.episodeGapMean, m.episodeGapCv),
+        (4, day(2026, 11, 5), 10.0, 0.0),
+        reason: 'the 16–17 run is one episode',
+      );
+      final d5 = one(report, InsightRule.d5);
+      expect(
+        (d5.severity, d5.day, d5.n1, d5.n2, d5.n3, d5.target),
+        (1, day(2026, 11, 15), 4, 10, 7, InsightTarget.categoryGroup),
+      );
+      expect(
+        fired(on(day(2026, 11, 7)), InsightRule.d5),
+        isEmpty,
+        reason: 'eight days out',
+      );
+    });
+
+    test('D5: an Episode lookback joins the span', () {
+      final events = [
+        ev('m1', 'measurement', day(2026, 10, 6)),
+        ev('m2', 'measurement', day(2026, 10, 16)),
+        ev('m3', 'measurement', day(2026, 10, 26)),
+        ev('m4', 'measurement', day(2026, 11, 5)),
+      ];
+      final today = day(2026, 11, 8);
+      final report = foldFacts(
+        events,
+        november,
+        today,
+        profiles: {'measurement': targeted(CategoryKind.episode, maxGap(30))},
+        lookback: lookbackFor('measurement', events, november, today),
+      );
+      expect(report.measures['measurement']!.episodes, 4);
+      expect(one(report, InsightRule.d5).day, day(2026, 11, 15));
+    });
+
+    test('D5: overlapping events join one episode', () {
+      final report = foldFacts(
+        [
+          ev(
+            'a',
+            'measurement',
+            day(2026, 10, 6),
+            rule: daily,
+            end: day(2026, 10, 8),
+          ),
+          ev('b', 'measurement', day(2026, 10, 7)),
+          ev('c', 'measurement', day(2026, 10, 16)),
+          ev('d', 'measurement', day(2026, 10, 26)),
+        ],
+        span(day(2026, 10, 1), day(2026, 10, 31)),
+        day(2026, 10, 30),
+        profiles: {'measurement': kindOf(CategoryKind.episode)},
+      );
+      final m = report.measures['measurement']!;
+      expect(
+        (m.episodes, m.lastEpisodeDay, m.episodeGapMean, m.episodeGapCv),
+        (3, day(2026, 10, 26), 10.0, 0.0),
+        reason: 'a 6–8 and b on the 7th are one run',
+      );
+      final d5 = one(report, InsightRule.d5);
+      expect((d5.day, d5.n1, d5.n2, d5.n3), (day(2026, 11, 5), 3, 10, 6));
+    });
+
+    test('P1: a routine\'s weekdays fifty points apart', () {
+      final fridays = [day(2026, 10, 9), day(2026, 10, 16)];
+      CalendarReport on(int missed) => foldFacts(
+        [
+          ev(
+            'gym',
+            'gym',
+            day(2026, 10, 5),
+            rule: weekly({2, 5}),
+            tracked: true,
+          ),
+        ],
+        span(day(2026, 10, 5), day(2026, 11, 1)),
+        later,
+        missed: {'gym': fridays.take(missed).toList()},
+        profiles: {'gym': kindOf(CategoryKind.routine)},
+      );
+      final p1 = one(on(2), InsightRule.p1);
+      expect(
+        (p1.severity, p1.n1, p1.n2, p1.n3, p1.n4),
+        (1, 100, 50, 1, 4),
+        reason: 'Tuesdays 4 of 4, Fridays 2 of 4',
+      );
+      expect(fired(on(1), InsightRule.p1), isEmpty, reason: '100 vs 75');
+    });
+
+    test('P2: three late Work evenings in one week', () {
+      CalendarReport on(Set<int> weekdays) => foldFacts(
+        [
+          ev(
+            'desk',
+            'cardio',
+            day(2026, 11, 2),
+            rule: weekly(weekdays),
+            time: at(10, 0, 600),
+          ),
+        ],
+        week,
+        later,
+        profiles: {'cardio': kindOf(CategoryKind.work)},
+      );
+      final p2 = one(on({1, 2, 3}), InsightRule.p2);
+      expect((p2.severity, p2.n1, p2.minutes, p2.alternate), (1, 3, 0, false));
+      expect(fired(on({1, 2}), InsightRule.p2), isEmpty);
+    });
+
+    test('P2: Work on the weekend', () {
+      CalendarReport on(DateTime d) => foldFacts(
+        [ev('desk', 'cardio', d, time: at(10, 0, 120))],
+        week,
+        later,
+        profiles: {'cardio': kindOf(CategoryKind.work)},
+      );
+      final p2 = one(on(day(2026, 11, 7)), InsightRule.p2);
+      expect((p2.n1, p2.minutes, p2.alternate), (0, 120, true));
+      expect(fired(on(day(2026, 11, 6)), InsightRule.p2), isEmpty);
+    });
+
+    test('P3: three short nights in one week', () {
+      CalendarReport on(int short) => foldFacts(
+        [
+          for (var i = 0; i < 4; i++)
+            ev(
+              'n$i',
+              'rest',
+              day(2026, 11, 2 + i),
+              time: at(23, 0, i < short ? 400 : 480),
+            ),
+        ],
+        week,
+        later,
+        profiles: {'rest': kindOf(CategoryKind.sleep)},
+      );
+      final p3 = one(on(3), InsightRule.p3);
+      expect((p3.severity, p3.n1, p3.n2, p3.alternate), (1, 3, 0, false));
+      expect(fired(on(2), InsightRule.p3), isEmpty);
+    });
+
+    test('P3: bedtimes spread past ninety minutes', () {
+      CalendarReport on(int minute) => foldFacts(
+        [
+          ev('early', 'rest', day(2026, 11, 2), time: at(22, 0, 480)),
+          ev('late', 'rest', day(2026, 11, 3), time: at(23, minute, 480)),
+        ],
+        week,
+        later,
+        profiles: {'rest': kindOf(CategoryKind.sleep)},
+      );
+      final p3 = one(on(31), InsightRule.p3);
+      expect((p3.n1, p3.n2, p3.alternate), (0, 91, true));
+      expect(fired(on(30), InsightRule.p3), isEmpty);
+    });
+
+    test('P4: Meetings half of the Work + Meeting hours', () {
+      CalendarReport on(int meeting) => foldFacts(
+        [
+          ev('desk', 'cardio', day(2026, 11, 2), time: at(9, 0, 120)),
+          ev('sync', 'competition', day(2026, 11, 3), time: at(9, 0, meeting)),
+        ],
+        week,
+        later,
+        profiles: {
+          'cardio': kindOf(CategoryKind.work),
+          'competition': kindOf(CategoryKind.meeting),
+        },
+      );
+      final p4 = one(on(120), InsightRule.p4);
+      expect(
+        (p4.categoryId, p4.ratio, p4.minutes, p4.n1),
+        ('competition', 0.5, 120, 240),
+      );
+      expect(fired(on(119), InsightRule.p4), isEmpty);
+    });
+
+    test('P4: no Work hours, no share', () {
+      CalendarReport on({required bool work}) => foldFacts(
+        [
+          ev('sync', 'competition', day(2026, 11, 3), time: at(9, 0, 120)),
+          if (work) ev('desk', 'cardio', day(2026, 11, 2), time: at(9, 0, 60)),
+        ],
+        week,
+        later,
+        profiles: {
+          'cardio': kindOf(CategoryKind.work),
+          'competition': kindOf(CategoryKind.meeting),
+        },
+      );
+      expect(
+        fired(on(work: false), InsightRule.p4),
+        isEmpty,
+        reason: 'not "100 % of your work hours"',
+      );
+      expect(one(on(work: true), InsightRule.p4).n1, 180);
+    });
+
+    test('P5: three of eight planned days cancelled', () {
+      CalendarReport on(DateRange range, int cancelled) => foldFacts(
+        [ev('pt', 'gym', day(2026, 11, 2), rule: daily)],
+        range,
+        later,
+        skipped: {
+          'pt': [
+            day(2026, 11, 3),
+            day(2026, 11, 4),
+            day(2026, 11, 5),
+          ].take(cancelled).toList(),
+        },
+        profiles: {'gym': kindOf(CategoryKind.workout)},
+      );
+      final p5 = one(
+        on(span(day(2026, 11, 2), day(2026, 11, 9)), 3),
+        InsightRule.p5,
+      );
+      expect((p5.severity, p5.n1, p5.n2, p5.ratio), (2, 3, 8, 0.375));
+      expect(
+        fired(on(week, 2), InsightRule.p5),
+        isEmpty,
+        reason: 'two of seven',
+      );
+    });
+
+    test('P6: a Workout rested ten days', () {
+      CalendarReport on(DateTime second) => foldFacts(
+        [ev('run', 'gym', day(2026, 11, 1)), ev('run2', 'gym', second)],
+        november,
+        day(2026, 12, 1),
+        profiles: {'gym': kindOf(CategoryKind.workout)},
+      );
+      final p6 = one(on(day(2026, 11, 12)), InsightRule.p6);
+      expect((p6.severity, p6.n1), (1, 10));
+      expect(fired(on(day(2026, 11, 11)), InsightRule.p6), isEmpty);
+    });
+
+    test('P6: in a current span the rest still running counts', () {
+      CalendarReport on(DateTime today) => foldFacts(
+        [ev('run', 'gym', day(2026, 11, 1))],
+        november,
+        today,
+        profiles: {'gym': kindOf(CategoryKind.workout)},
+      );
+      final report = on(day(2026, 11, 25));
+      expect(
+        report.measures['gym']!.longestGapDays,
+        0,
+        reason: 'the measure holds closed gaps only',
+      );
+      expect(one(report, InsightRule.p6).n1, 23, reason: '2 to 24 November');
+      expect(one(on(day(2026, 11, 12)), InsightRule.p6).n1, 10);
+      expect(fired(on(day(2026, 11, 11)), InsightRule.p6), isEmpty);
+    });
+
+    test('M1: Bills due in the next thirty days', () {
+      final twoMonths = span(day(2026, 11, 1), day(2026, 12, 31));
+      CalendarReport on(DateTime due, {bool tax = true}) {
+        final events = [
+          ev('rent', 'birthday', due),
+          if (tax) ev('tax', 'birthday', day(2026, 11, 20)),
+        ];
+        return foldFacts(
+          events,
+          twoMonths,
+          mid,
+          profiles: {'birthday': kindOf(CategoryKind.bill)},
+          money: {'rent': -1200, 'tax': -800},
+          billsAhead: billsAheadOf(events, mid),
+        );
+      }
+
+      final m1 = one(on(day(2026, 12, 15)), InsightRule.m1);
+      expect(
+        (m1.severity, m1.cents, m1.n1, m1.target),
+        (0, 2000, 2, InsightTarget.overviewDays),
+      );
+      expect((m1.day, m1.dayEnd), (mid, day(2026, 12, 15)));
+      expect(
+        fired(on(day(2026, 12, 16), tax: false), InsightRule.m1),
+        isEmpty,
+        reason: '31 days out',
+      );
+    });
+
+    test('M1: a monthly Rent that began last year counts, once', () {
+      final rent = ev(
+        'rent',
+        'birthday',
+        day(2025, 1, 3),
+        rule: const MonthlyRecurrence(),
+      ).copyWith(noteId: 'n');
+      final report = foldFacts(
+        [rent],
+        november,
+        mid,
+        profiles: {'birthday': kindOf(CategoryKind.bill)},
+        money: {'rent': -1200},
+        billsAhead: billsAheadOf([rent], mid),
+      );
+      expect(report.billsAhead, {
+        'birthday': ['rent'],
+      });
+      final m1 = one(report, InsightRule.m1);
+      expect((m1.cents, m1.n1), (1200, 1));
+    });
+
+    test('M1: a month report on the 25th sees a Bill on the 3rd of next '
+        'month, in every tense', () {
+      final bill = ev('water', 'birthday', day(2026, 12, 3));
+      CalendarReport on(DateTime today) => foldFacts(
+        [bill],
+        november,
+        today,
+        profiles: {'birthday': kindOf(CategoryKind.bill)},
+        money: {'water': -300},
+        billsAhead: billsAheadOf([bill], today),
+      );
+      final current = one(on(day(2026, 11, 25)), InsightRule.m1);
+      expect(
+        (current.cents, current.day, current.dayEnd),
+        (300, day(2026, 11, 25), day(2026, 12, 25)),
+      );
+      final digest = on(day(2026, 12, 1));
+      expect(digest.tense, ReportTense.past);
+      expect(one(digest, InsightRule.m1).cents, 300, reason: 'the ended month');
+    });
+
+    test('M2: a whole year\'s recurring Bills', () {
+      CalendarReport on(DateRange range) => foldFacts(
+        [
+          ev('stream', 'birthday', day(2025, 3, 1), rule: yearly),
+          ev('fine', 'birthday', day(2026, 5, 1)),
+        ],
+        range,
+        mid,
+        profiles: {'birthday': kindOf(CategoryKind.bill)},
+        money: {'stream': -1428, 'fine': -300},
+      );
+      final m2 = one(on(year), InsightRule.m2);
+      expect(
+        (m2.severity, m2.cents, m2.n1, m2.target),
+        (0, 1428, 1, InsightTarget.categoryGroup),
+        reason: 'the one-off fine is no recurring Bill',
+      );
+      expect(
+        fired(on(span(year.start, day(2026, 12, 30))), InsightRule.m2),
+        isEmpty,
+      );
+    });
+
+    test('M2: a tracked recurring Bill counts — the Bill kind marks', () {
+      final stream = ev(
+        'stream',
+        'birthday',
+        day(2025, 3, 1),
+        rule: yearly,
+        tracked: true,
+      );
+      expect(shapeOf(stream), ReportShape.routine);
+      final m2 = one(
+        foldFacts(
+          [stream],
+          year,
+          mid,
+          profiles: {'birthday': kindOf(CategoryKind.bill)},
+          money: {'stream': -1428},
+        ),
+        InsightRule.m2,
+      );
+      expect((m2.cents, m2.n1), (1428, 1));
+    });
+
+    test('R1: a tag unseen past three of its median gaps, or past the '
+        'gap limit', () {
+      CalendarReport on(DateTime today, [EffectiveProfile? profile]) =>
+          foldFacts(
+            [
+              ev(
+                'dinner',
+                'friends',
+                day(2026, 10, 1),
+                rule: dates([
+                  day(2026, 10, 1),
+                  day(2026, 10, 8),
+                  day(2026, 10, 15),
+                ]),
+              ).copyWith(title: 'Dinner #ana'),
+            ],
+            span(day(2026, 10, 1), day(2026, 11, 30)),
+            today,
+            profiles: {'friends': profile ?? kindOf(CategoryKind.social)},
+          );
+      final report = on(day(2026, 11, 6));
+      expect(report.tags.single.medianGapDays, 7);
+      final r1 = one(report, InsightRule.r1);
+      expect(
+        (r1.severity, r1.tagKey, r1.categoryId, r1.n1, r1.n2, r1.alternate),
+        (2, 'ana', 'friends', 22, 21, true),
+      );
+      expect(r1.target, InsightTarget.tagRows);
+      expect(fired(on(day(2026, 11, 5)), InsightRule.r1), isEmpty);
+      final limited = one(
+        on(day(2026, 11, 5), targeted(CategoryKind.social, maxGap(20))),
+        InsightRule.r1,
+      );
+      expect((limited.n1, limited.n2, limited.alternate), (21, 20, false));
+    });
+
+    test('R1: a past span carries none; the current span measures to '
+        'today', () {
+      final dinner = ev(
+        'dinner',
+        'friends',
+        day(2026, 10, 1),
+        rule: dates([
+          day(2026, 10, 1),
+          day(2026, 10, 8),
+          day(2026, 10, 15),
+          day(2026, 11, 3),
+        ]),
+      ).copyWith(title: 'Dinner #ana');
+      CalendarReport on(DateRange range, DateTime today) => foldFacts(
+        [dinner],
+        range,
+        today,
+        profiles: {'friends': kindOf(CategoryKind.social)},
+      );
+      final october = on(
+        span(day(2026, 10, 1), day(2026, 10, 31)),
+        day(2026, 11, 6),
+      );
+      expect(october.tags.single.lastSeenDay, day(2026, 10, 15));
+      expect(
+        fired(october, InsightRule.r1),
+        isEmpty,
+        reason: 'seen 3 days ago, not 22: the span cannot know',
+      );
+      final current = one(
+        on(span(day(2026, 10, 1), day(2026, 11, 30)), day(2026, 11, 30)),
+        InsightRule.r1,
+      );
+      expect((current.n1, current.n2), (27, 21));
+    });
+
+    test('R2: the most-seen tag in a People category', () {
+      CalendarReport on(EffectiveProfile profile) => foldFacts(
+        [
+          ev('a1', 'friends', day(2026, 11, 2)).copyWith(title: 'Lunch #ana'),
+          ev('a2', 'friends', day(2026, 11, 3)).copyWith(title: 'Tea #ana'),
+          ev('m1', 'friends', day(2026, 11, 4)).copyWith(title: 'Run #mihai'),
+          ev('m2', 'friends', day(2026, 11, 5)).copyWith(title: '#mihai film'),
+          ev('m3', 'friends', day(2026, 11, 6)).copyWith(title: '#mihai walk'),
+        ],
+        week,
+        later,
+        profiles: {'friends': profile},
+      );
+      final r2 = one(on(kindOf(CategoryKind.social)), InsightRule.r2);
+      expect(
+        (r2.severity, r2.tagKey, r2.categoryId, r2.n1),
+        (0, 'mihai', 'friends', 3),
+      );
+      expect(
+        fired(on(kindOf(CategoryKind.trip)), InsightRule.r2),
+        isEmpty,
+        reason: 'a Trip is no People category',
+      );
+    });
+
+    test('R2: picks by days, not events', () {
+      final report = foldFacts(
+        [
+          ev(
+            'dinner',
+            'friends',
+            day(2026, 11, 2),
+            rule: weekly({1}),
+            end: day(2026, 11, 23),
+          ).copyWith(title: 'Dinner #ana'),
+          ev('m1', 'friends', day(2026, 11, 4)).copyWith(title: 'Run #mihai'),
+          ev('m2', 'friends', day(2026, 11, 5)).copyWith(title: '#mihai film'),
+        ],
+        november,
+        day(2026, 11, 30),
+        profiles: {'friends': kindOf(CategoryKind.social)},
+      );
+      expect(
+        [for (final t in report.tags) (t.key, t.events, t.count)],
+        [('mihai', 2, 2), ('ana', 1, 4)],
+      );
+      final r2 = one(report, InsightRule.r2);
+      expect((r2.tagKey, r2.n1), ('ana', 4), reason: 'most evenings (4)');
+    });
+
+    test('L1: Appointments booked a day ahead', () {
+      CalendarEvent booked(String id, DateTime d) => ev(
+        id,
+        'other',
+        d,
+      ).copyWith(createdAt: d.subtract(const Duration(days: 1)));
+      CalendarReport on(int n) => foldFacts(
+        [for (var i = 0; i < n; i++) booked('a$i', day(2026, 11, 2 + i))],
+        week,
+        later,
+        profiles: {'other': kindOf(CategoryKind.appointment)},
+      );
+      final report = on(4);
+      expect(report.measures['other']!.leadTimeEvents, 4);
+      final l1 = one(report, InsightRule.l1);
+      expect((l1.severity, l1.n1, l1.n2), (0, 1, 4));
+      expect(fired(on(3), InsightRule.l1), isEmpty);
+    });
+
+    test('L2: three Deadlines open past their day', () {
+      CalendarReport on(int open) => foldFacts(
+        [
+          for (var i = 0; i < 3; i++)
+            ev('d$i', 'competition', day(2026, 11, 2 + i), tracked: true),
+        ],
+        week,
+        later,
+        missed: {
+          for (var i = 0; i < open; i++) 'd$i': [day(2026, 11, 2 + i)],
+        },
+        profiles: {'competition': kindOf(CategoryKind.deadline)},
+      );
+      final l2 = one(on(3), InsightRule.l2);
+      expect(
+        (l2.severity, l2.n1, l2.target),
+        (2, 3, InsightTarget.categoryGroup),
+      );
+      expect(fired(on(2), InsightRule.l2), isEmpty);
+    });
+
+    test('A1: Anniversaries ahead in the span', () {
+      CalendarReport on(DateTime today) => foldFacts(
+        [
+          ev('ana', 'birthday', day(1990, 11, 20), rule: yearly),
+          ev('ion', 'birthday', day(1985, 11, 25), rule: yearly),
+        ],
+        november,
+        today,
+        profiles: {'birthday': kindOf(CategoryKind.anniversary)},
+      );
+      final a1 = one(on(mid), InsightRule.a1);
+      expect(
+        (a1.severity, a1.n1, a1.day, a1.dayEnd, a1.target),
+        (0, 2, mid, november.end, InsightTarget.overviewDays),
+      );
+      expect(fired(on(day(2026, 11, 26)), InsightRule.a1), isEmpty);
+    });
+
+    test('A2: the next Trip ahead', () {
+      CalendarReport on(DateTime today) => foldFacts(
+        [
+          ev('sibiu', 'holiday', day(2026, 11, 25)),
+          ev('brasov', 'holiday', day(2026, 11, 20)),
+        ],
+        november,
+        today,
+        profiles: {'holiday': kindOf(CategoryKind.trip)},
+      );
+      final a2 = one(on(mid), InsightRule.a2);
+      expect(
+        (a2.categoryId, a2.eventId, a2.day, a2.dayEnd, a2.n1),
+        ('holiday', 'brasov', day(2026, 11, 20), day(2026, 11, 20), 5),
+        reason: 'a one-day trip ends on its day',
+      );
+      expect(fired(on(day(2026, 11, 26)), InsightRule.a2), isEmpty);
+    });
+
+    test('A2: a trip ends on its last day; one under way is no next trip', () {
+      CalendarReport on(DateTime today) => foldFacts(
+        [
+          ev(
+            'sibiu',
+            'holiday',
+            day(2026, 11, 14),
+            rule: daily,
+            end: day(2026, 11, 17),
+          ),
+          ev(
+            'cluj',
+            'holiday',
+            day(2026, 11, 22),
+            rule: daily,
+            end: day(2026, 11, 24),
+          ),
+          ev(
+            'brasov',
+            'holiday',
+            day(2026, 11, 29),
+            rule: daily,
+            end: day(2026, 12, 2),
+          ),
+        ],
+        november,
+        today,
+        profiles: {'holiday': kindOf(CategoryKind.trip)},
+      );
+      final a2 = one(on(mid), InsightRule.a2);
+      expect(
+        (a2.eventId, a2.day, a2.dayEnd, a2.n1),
+        ('cluj', day(2026, 11, 22), day(2026, 11, 24), 7),
+        reason: 'Sibiu began on the 14th: under way, not ahead',
+      );
+      expect(
+        one(on(day(2026, 11, 13)), InsightRule.a2).eventId,
+        'sibiu',
+        reason: 'the day before, Sibiu is the next trip',
+      );
+      final starting = one(on(day(2026, 11, 22)), InsightRule.a2);
+      expect(
+        (starting.eventId, starting.dayEnd, starting.n1),
+        ('brasov', november.end, 7),
+        reason:
+            'Cluj begins today, never "in 0 days"; Brasov runs past the '
+            'span, so its range ends with it',
+      );
+      expect(fired(on(day(2026, 11, 29)), InsightRule.a2), isEmpty);
+    });
+
+    test('A1: a tracked routine counts its occurrences ahead', () {
+      final report = foldFacts(
+        [
+          ev(
+            'ana',
+            'birthday',
+            day(2026, 11, 10),
+            rule: daily,
+            end: day(2026, 11, 18),
+            tracked: true,
+          ),
+          ev('ion', 'birthday', day(1985, 11, 25), rule: yearly),
+        ],
+        november,
+        mid,
+        profiles: {'birthday': kindOf(CategoryKind.anniversary)},
+      );
+      expect(
+        report.categories.single.rows.whereType<ReportRoutineRow>().length,
+        1,
+        reason: 'the counted days are one aggregate row',
+      );
+      expect(
+        one(report, InsightRule.a1).n1,
+        4,
+        reason: 'the 16th, 17th and 18th, and the 25th',
+      );
+    });
+
+    test('G4: a plan carries no streak insight', () {
+      final today = day(2026, 11, 5);
+      final plan = span(day(2026, 11, 9), day(2026, 11, 15));
+      final events = [
+        ev('lift', 'gym', day(2026, 10, 5), rule: weekly({1})),
+      ];
+      final report = foldFacts(
+        events,
+        plan,
+        today,
+        profiles: {
+          'gym': targeted(CategoryKind.custom, perWeek(TargetKind.atLeast, 1)),
+        },
+        lookback: lookbackFor('gym', events, plan, today),
+      );
+      expect(report.tense, ReportTense.future);
+      final goal = goalOf(report, 'gym');
+      expect(
+        goal.streak + goal.brokenStreak,
+        greaterThan(0),
+        reason: 'the lookback gives the plan a streak to read',
+      );
+      expect(fired(report, InsightRule.g4), isEmpty);
+    });
+
+    test('D1: a gap past the lookback carries the floor', () {
+      final events = [
+        ev('service', 'cardio', day(2025, 11, 1), rule: yearly, tracked: true),
+      ];
+      final missed = {
+        'service': [day(2025, 11, 1), day(2026, 11, 1)],
+      };
+      final report = foldFacts(
+        events,
+        november,
+        mid,
+        missed: missed,
+        profiles: {'cardio': targeted(CategoryKind.maintenance, maxGap(30))},
+        lookback: lookbackFor('cardio', events, november, mid, missed: missed),
+      );
+      final d1 = one(report, InsightRule.d1);
+      expect(
+        (d1.n1, d1.n2, d1.beyondLookback),
+        (AnalyticsMetrics.lookbackDays, 30, true),
+      );
+      expect(
+        one(gapOf(day(2026, 11, 1)), InsightRule.d1).beyondLookback,
+        isFalse,
+      );
+    });
+
+    test('P1: exact shares decide, one step apart; the slots round', () {
+      CalendarReport on(int missedFridays) {
+        final tuesdays = [day(2026, 8, 4), day(2026, 8, 11), day(2026, 8, 18)];
+        final fridays = [
+          for (var i = 0; i < missedFridays; i++) day(2026, 8, 7 + 7 * i),
+        ];
+        return foldFacts(
+          [
+            ev(
+              'tue',
+              'gym',
+              day(2026, 8, 4),
+              rule: weekly({2}),
+              end: day(2026, 9, 22),
+              tracked: true,
+            ),
+            ev('fri', 'gym', day(2026, 8, 7), rule: weekly({5}), tracked: true),
+          ],
+          span(day(2026, 8, 3), day(2026, 11, 1)),
+          later,
+          missed: {'tue': tuesdays, 'fri': fridays},
+          profiles: {'gym': kindOf(CategoryKind.routine)},
+        );
+      }
+
+      expect(
+        fired(on(10), InsightRule.p1),
+        isEmpty,
+        reason:
+            'Tuesdays 5 of 8, Fridays 3 of 13: 39.4 points, though the '
+            'rounded 63 and 23 are forty apart',
+      );
+      final p1 = one(on(11), InsightRule.p1);
+      expect(
+        (p1.n1, p1.n2, p1.n3, p1.n4),
+        (63, 15, 1, 4),
+        reason: 'Fridays 2 of 13: 47.1 points',
+      );
+    });
+
+    test('P1: each compared weekday needs four tracked days', () {
+      CalendarReport on(int fridays) => foldFacts(
+        [
+          ev('tue', 'gym', day(2026, 10, 6), rule: weekly({2}), tracked: true),
+          ev(
+            'fri',
+            'gym',
+            day(2026, 10, 9),
+            rule: weekly({5}),
+            end: day(2026, 10, 9 + 7 * (fridays - 1)),
+            tracked: true,
+          ),
+        ],
+        span(day(2026, 10, 5), day(2026, 11, 1)),
+        later,
+        missed: {
+          'fri': [for (var i = 0; i < fridays; i++) day(2026, 10, 9 + 7 * i)],
+        },
+        profiles: {'gym': kindOf(CategoryKind.routine)},
+      );
+      final p1 = one(on(4), InsightRule.p1);
+      expect((p1.n1, p1.n2, p1.n3, p1.n4), (100, 0, 1, 4));
+      expect(
+        fired(on(3), InsightRule.p1),
+        isEmpty,
+        reason: 'three Fridays are not "Fridays"',
+      );
+    });
+
+    test('P5: the cancelled share and the planned floor, one step apart', () {
+      CalendarReport on(DateTime end, int cancelled) => foldFacts(
+        [ev('pt', 'gym', day(2026, 11, 2), rule: daily)],
+        span(day(2026, 11, 2), end),
+        later,
+        skipped: {
+          'pt': [for (var i = 0; i < cancelled; i++) day(2026, 11, 2 + i)],
+        },
+        profiles: {'gym': kindOf(CategoryKind.workout)},
+      );
+      final atShare = one(on(day(2026, 11, 11), 3), InsightRule.p5);
+      expect((atShare.n1, atShare.n2, atShare.ratio), (3, 10, 0.3));
+      expect(
+        fired(on(day(2026, 11, 12), 3), InsightRule.p5),
+        isEmpty,
+        reason: 'three of eleven is under the share',
+      );
+      final atFloor = one(on(day(2026, 11, 5), 3), InsightRule.p5);
+      expect((atFloor.n1, atFloor.n2), (3, 4));
+      expect(
+        fired(on(day(2026, 11, 4), 3), InsightRule.p5),
+        isEmpty,
+        reason: 'three planned days are under the floor, all cancelled',
+      );
+    });
+
+    test('L1: a median lead of two days is not short notice', () {
+      CalendarReport on(int lead) => foldFacts(
+        [
+          for (var i = 0; i < 4; i++)
+            ev(
+              'a$i',
+              'other',
+              day(2026, 11, 2 + i),
+            ).copyWith(createdAt: day(2026, 11, 2 + i - lead)),
+        ],
+        week,
+        later,
+        profiles: {'other': kindOf(CategoryKind.appointment)},
+      );
+      expect(one(on(1), InsightRule.l1).n1, 1);
+      expect(fired(on(2), InsightRule.l1), isEmpty);
+    });
+
+    test('D5: a CV of 0.25 is no pattern, one step under is', () {
+      CalendarReport on(DateTime third) => foldFacts(
+        [
+          ev('m1', 'measurement', day(2026, 10, 1)),
+          ev('m2', 'measurement', day(2026, 10, 16)),
+          ev('m3', 'measurement', third),
+        ],
+        span(day(2026, 10, 1), day(2026, 11, 30)),
+        day(2026, 11, 3),
+        profiles: {'measurement': kindOf(CategoryKind.episode)},
+      );
+      final at = on(day(2026, 10, 25));
+      expect(
+        at.measures['measurement']!.episodeGapCv,
+        AnalyticsMetrics.episodeRegularCv,
+        reason: 'gaps 15 and 9',
+      );
+      expect(fired(at, InsightRule.d5), isEmpty);
+      final under = on(day(2026, 10, 26));
+      expect(
+        under.measures['measurement']!.episodeGapCv,
+        lessThan(AnalyticsMetrics.episodeRegularCv),
+        reason: 'gaps 15 and 10',
+      );
+      final d5 = one(under, InsightRule.d5);
+      expect((d5.day, d5.n1, d5.n2, d5.n3), (day(2026, 11, 8), 3, 13, 5));
+    });
+
+    test('D5: two episodes are no pattern, three are', () {
+      CalendarReport on(int count) => foldFacts(
+        [
+          for (var i = 3 - count; i < 3; i++)
+            ev('m$i', 'measurement', day(2026, 10, 6 + 10 * i)),
+        ],
+        span(day(2026, 10, 1), day(2026, 11, 30)),
+        day(2026, 11, 1),
+        profiles: {'measurement': kindOf(CategoryKind.episode)},
+      );
+      expect(
+        fired(on(2), InsightRule.d5),
+        isEmpty,
+        reason: 'one gap, perfectly regular, is still no pattern',
+      );
+      final d5 = one(on(3), InsightRule.d5);
+      expect((d5.day, d5.n1, d5.n2, d5.n3), (day(2026, 11, 5), 3, 10, 4));
+    });
+
+    test('ranking: severity, then the primary value, then rule order; no '
+        'profile, no insight', () {
+      final events = [
+        ev('lift', 'gym', day(2026, 11, 2)),
+        ev('rent', 'birthday', day(2026, 11, 2), tracked: true),
+        ev(
+          'desk',
+          'cardio',
+          day(2026, 11, 2),
+          rule: daily,
+          end: day(2026, 11, 3),
+        ),
+        ev(
+          'stretch',
+          'mobility',
+          day(2026, 11, 2),
+          rule: daily,
+          end: day(2026, 11, 5),
+          tracked: true,
+        ),
+        ev('sibiu', 'holiday', day(2026, 11, 7)),
+      ];
+      CalendarReport on(Map<String, EffectiveProfile> profiles) => foldFacts(
+        events,
+        week,
+        day(2026, 11, 5),
+        missed: {
+          'rent': [day(2026, 11, 2)],
+        },
+        skipped: {
+          'stretch': [day(2026, 11, 3), day(2026, 11, 4)],
+        },
+        profiles: profiles,
+      );
+      final report = on({
+        'gym': targeted(CategoryKind.custom, perWeek(TargetKind.atLeast, 3)),
+        'birthday': kindOf(CategoryKind.bill),
+        'cardio': targeted(CategoryKind.custom, perWeek(TargetKind.atMost, 1)),
+        'mobility': kindOf(CategoryKind.routine),
+        'holiday': kindOf(CategoryKind.trip),
+      });
+      expect(
+        [for (final i in report.insights) '${i.rule.name} ${i.categoryId}'],
+        ['g1 gym', 'd4 birthday', 'g2 cardio', 'p5 mobility', 'a2 holiday'],
+        reason:
+            'G1 and D4 at 3, the gym leading by one kept day; G2 and P5 at 2 '
+            'with two each, so the rule order',
+      );
+      expect(on(const {}).insights, isEmpty);
+    });
+
+    test('ranking: a severity tie goes to the larger primary over the rule '
+        'order, then a full tie to the emission order', () {
+      final report = foldFacts(
+        [
+          ev('lift', 'gym', day(2026, 11, 2)),
+          ev('rent', 'birthday', day(2026, 11, 2), tracked: true),
+          ev('water', 'birthday', day(2026, 11, 3), tracked: true),
+        ],
+        week,
+        day(2026, 11, 5),
+        missed: {
+          'rent': [day(2026, 11, 2)],
+          'water': [day(2026, 11, 3)],
+        },
+        profiles: {
+          'gym': targeted(CategoryKind.custom, perWeek(TargetKind.atLeast, 3)),
+          'birthday': kindOf(CategoryKind.bill),
+        },
+        money: {'rent': -1200},
+      );
+      expect(
+        (
+          report.measures['gym']!.primary,
+          report.measures['birthday']!.primary,
+          report.measures['birthday']!.spentCents,
+        ),
+        (ReportMeasure.count, ReportMeasure.money, 1200),
+      );
+      expect(
+        [
+          for (final i in report.insights)
+            '${i.rule.name} ${i.categoryId} ${i.eventId}',
+        ],
+        ['d4 birthday water', 'd4 birthday rent', 'g1 gym null'],
+        reason:
+            'all at 3: the Bill category leads G1\'s count by its cents though '
+            'D4 comes later in the rule order; the two D4s tie on both and '
+            'keep the Due soon order (the fewest days since first), not the '
+            'event ids\'',
+      );
+    });
+
+    test('the measures the rules read: missed by weekday from the week '
+        'start', () {
+      final events = [
+        ev('gym', 'gym', day(2026, 10, 31), rule: daily, tracked: true),
+      ];
+      final range = span(day(2026, 10, 31), day(2026, 11, 6));
+      final missed = {
+        'gym': [day(2026, 10, 31), day(2026, 11, 2)],
+      };
+      final saturday = foldFacts(
+        events,
+        range,
+        later,
+        missed: missed,
+        weekStart: CalendarWeekStart.saturday,
+      ).measures['gym']!;
+      expect(saturday.missedByWeekday, [1, 0, 1, 0, 0, 0, 0]);
+      expect(saturday.weekdayHistogram, [0, 1, 0, 1, 1, 1, 1]);
+      final monday = foldFacts(
+        events,
+        range,
+        later,
+        missed: missed,
+      ).measures['gym']!;
+      expect(monday.missedByWeekday, [1, 0, 0, 0, 0, 1, 0]);
+    });
+
+    test('the measures the rules read: late and short days per week, the '
+        'weekend\'s minutes', () {
+      final events = [
+        ev(
+          'desk',
+          'cardio',
+          day(2026, 11, 7),
+          rule: daily,
+          end: day(2026, 11, 9),
+          time: at(13, 0, 400),
+        ),
+      ];
+      final monday = foldFacts(events, november, later).measures['cardio']!;
+      expect(
+        (
+          monday.lateDays,
+          monday.maxLateDaysInAWeek,
+          monday.maxShortDaysInAWeek,
+          monday.weekendMinutes,
+        ),
+        (3, 2, 2, 800),
+        reason: 'Saturday and Sunday close a Monday week',
+      );
+      final saturday = foldFacts(
+        events,
+        november,
+        later,
+        weekStart: CalendarWeekStart.saturday,
+      ).measures['cardio']!;
+      expect(
+        (saturday.maxLateDaysInAWeek, saturday.maxShortDaysInAWeek),
+        (3, 3),
+      );
+    });
+
+    test('the measures the rules read: the start spread wraps past '
+        'midnight', () {
+      int spreadOf(List<EventTime> times) => foldFacts(
+        [
+          for (final (i, t) in times.indexed)
+            ev('n$i', 'rest', day(2026, 11, 2 + i), time: t),
+        ],
+        november,
+        later,
+        profiles: {'rest': kindOf(CategoryKind.sleep)},
+      ).measures['rest']!.startMinuteSpread;
+      expect(spreadOf([at(23, 30, 60), at(0, 30, 60)]), 60);
+      expect(spreadOf([at(22, 0, 60), at(23, 30, 60)]), 90);
+      expect(spreadOf([at(22, 0, 60), at(23, 30, 60), at(1, 0, 60)]), 180);
+      expect(spreadOf([at(22, 0, 60)]), 0);
+    });
+
+    test('the measures the rules read: the bedtime spread is the 10th to '
+        'the 90th percentile', () {
+      ReportMeasures on(List<EventTime> times, {CategoryKind? kind}) =>
+          foldFacts(
+            [
+              for (final (i, t) in times.indexed)
+                ev('n$i', 'rest', day(2026, 11, 1 + i), time: t),
+            ],
+            november,
+            day(2026, 12, 1),
+            profiles: {if (kind != null) 'rest': kindOf(kind)},
+          ).measures['rest']!;
+      final oneLate = [
+        for (var i = 0; i < 29; i++) at(23, 0, 480),
+        at(0, 45, 480),
+      ];
+      final sleep = on(oneLate, kind: CategoryKind.sleep);
+      expect(
+        sleep.startMinuteSpread,
+        0,
+        reason: 'one 00:45 night in thirty is no spread (the full range: 105)',
+      );
+      expect(sleep.medianStartMinute, 23 * 60);
+      // 21:00, nine nights 22:00–23:20 and 02:00: the trim leaves one out at
+      // each end, so 22:00–23:20 — never the 21:00–02:00 range's 300.
+      final real = [
+        at(21, 0, 480),
+        for (var i = 0; i < 9; i++) at(22, 10 * i, 480),
+        at(2, 0, 480),
+      ];
+      expect(on(real, kind: CategoryKind.sleep).startMinuteSpread, 80);
+      expect(
+        on(real).startMinuteSpread,
+        0,
+        reason: 'read only on a Sleep category',
+      );
+      expect(
+        on(real, kind: CategoryKind.workout).startMinuteSpread,
+        0,
+        reason: 'read only on a Sleep category',
+      );
+    });
+
+    test('the measures the rules read: a nap is no short night', () {
+      int shortOf(int minutes) => foldFacts(
+        [
+          for (var i = 0; i < 3; i++)
+            ev('n$i', 'rest', day(2026, 11, 2 + i), time: at(14, 0, minutes)),
+        ],
+        week,
+        later,
+        profiles: {'rest': kindOf(CategoryKind.sleep)},
+      ).measures['rest']!.maxShortDaysInAWeek;
+      expect(shortOf(AnalyticsMetrics.sleepNightMinMinutes), 3);
+      expect(shortOf(AnalyticsMetrics.sleepNightMinMinutes - 1), 0);
+      expect(shortOf(AnalyticsMetrics.sleepShortMinutes - 1), 3);
+      expect(shortOf(AnalyticsMetrics.sleepShortMinutes), 0);
+    });
+
+    test('P3: three naps in a week are no short nights', () {
+      CalendarReport on(int minutes) => foldFacts(
+        [
+          for (var i = 0; i < 3; i++)
+            ev('n$i', 'rest', day(2026, 11, 2 + i), time: at(14, 0, minutes)),
+        ],
+        week,
+        later,
+        profiles: {'rest': kindOf(CategoryKind.sleep)},
+      );
+      expect(one(on(180), InsightRule.p3).n1, 3);
+      expect(fired(on(90), InsightRule.p3), isEmpty);
+    });
+
+    test('the measures the rules read: only an Episode category walks '
+        'episodes', () {
+      ReportMeasures on(CategoryKind? kind) => foldFacts(
+        [
+          ev('a', 'rest', day(2026, 11, 2)),
+          ev('b', 'rest', day(2026, 11, 9)),
+          ev('c', 'rest', day(2026, 11, 16)),
+        ],
+        november,
+        later,
+        profiles: {if (kind != null) 'rest': kindOf(kind)},
+      ).measures['rest']!;
+      expect(on(CategoryKind.episode).episodes, 3);
+      for (final kind in [null, CategoryKind.workout, CategoryKind.sleep]) {
+        final m = on(kind);
+        expect(
+          (m.episodes, m.lastEpisodeDay, m.episodeGapMean, m.episodeGapCv),
+          (0, null, null, null),
+          reason: '$kind',
+        );
+        expect(m.count, 3, reason: 'the kept days still count');
+      }
+    });
+
+    test('the measures the rules read: the longest gap between kept '
+        'days', () {
+      ReportMeasures on(List<DateTime> days) => foldFacts(
+        [ev('run', 'gym', days.first, rule: dates(days), tracked: true)],
+        november,
+        later,
+        missed: {
+          'run': [day(2026, 11, 8)],
+        },
+      ).measures['gym']!;
+      expect(
+        on([
+          day(2026, 11, 1),
+          day(2026, 11, 4),
+          day(2026, 11, 8),
+          day(2026, 11, 12),
+        ]).longestGapDays,
+        7,
+        reason: 'the missed 8th is no kept day',
+      );
+      expect(on([day(2026, 11, 1)]).longestGapDays, 0);
+    });
+
+    test('the measures the rules read: a tag\'s median gap', () {
+      List<ReportTag> on(List<DateTime> days) => foldFacts(
+        [
+          ev(
+            'dinner',
+            'friends',
+            days.first,
+            rule: dates(days),
+          ).copyWith(title: 'Dinner #ana'),
+          ev('lunch', 'friends', days.first).copyWith(title: 'Lunch #ana'),
+        ],
+        span(day(2026, 10, 1), day(2026, 10, 31)),
+        later,
+      ).tags;
+      expect(
+        on([
+          day(2026, 10, 1),
+          day(2026, 10, 8),
+          day(2026, 10, 22),
+          day(2026, 10, 25),
+        ]).single.medianGapDays,
+        7,
+        reason: 'gaps 7, 14 and 3; the lunch on the 1st adds none',
+      );
+      expect(on([day(2026, 10, 1)]).single.medianGapDays, isNull);
+    });
+
+    test('profiled: a category with a profile of its own', () {
+      final report = foldFacts(
+        [
+          ev('a', 'gym', day(2026, 11, 2)),
+          ev('b', 'cardio', day(2026, 11, 2)),
+          ev('c', 'mobility', day(2026, 11, 2)),
+        ],
+        week,
+        later,
+        profiles: {
+          'gym': kindOf(CategoryKind.workout),
+          'mobility': targeted(CategoryKind.custom, maxGap(5)),
+        },
+      );
+      expect(
+        [
+          for (final id in ['gym', 'cardio', 'mobility'])
+            report.measures[id]!.profiled,
+        ],
+        [true, false, true],
+      );
+    });
+  });
+
   group('purity', () {
     const roots = [
       'lib/utils/calendar_report_builder.dart',
       'lib/models/calendar_report.dart',
+      'lib/utils/report_insights.dart',
       'lib/utils/task_count.dart',
     ];
     String code(String path) => File(path)

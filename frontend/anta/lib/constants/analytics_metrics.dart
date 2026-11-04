@@ -105,12 +105,21 @@ abstract final class AnalyticsMetrics {
   /// guideline's floor.
   static const int sleepShortMinutes = 7 * 60;
 
+  /// The shortest sample that counts as a night for P3's short nights: a
+  /// sample shorter than three hours is a nap, not a night.
+  static const int sleepNightMinMinutes = 3 * 60;
+
   /// Short nights in one week that P3 reports, the late-evenings twin.
   static const int shortNightsPerWeek = 3;
 
   /// The bedtime spread, in minutes, past which P3 calls sleep irregular:
   /// an hour and a half either way is a different evening.
   static const int bedtimeSpreadMinutes = 90;
+
+  /// The share of the bedtimes left out at each end before P3's spread is
+  /// read — the 10th to the 90th percentile — so one late night in thirty
+  /// does not make a whole month irregular.
+  static const double bedtimeSpreadTrim = 0.1;
 
   /// Meetings' share of Work + Meeting hours that P4 reports: past half, the
   /// meetings are the job.

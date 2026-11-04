@@ -1289,6 +1289,76 @@ void main() {
       expect(reports.scanCount, 11, reason: 'a skip moves what occurred');
     });
 
+    // M1's window (S2b-i fix pass): the Bill categories' next month, scanned
+    // once beside the span in any tense.
+    test('a Bill category adds one bills-ahead scan over the next month, '
+        'cached', () {
+      final rent = ev(
+        'rent',
+        'other',
+        day(2025, 1, 3),
+        rule: const MonthlyRecurrence(),
+      ).copyWith(noteId: 'n1');
+      final events = [daily, rent];
+      expect(
+        CalendarReportService.sampleInput(augustAsked(events)).billsAhead,
+        isEmpty,
+        reason: 'no Bill category, no scan',
+      );
+      CategoryProfiles.updateCache({
+        'other': profile('other', CategoryKind.bill),
+      });
+      EventSkips.updateCache(
+        byEvent: {
+          'rent': {day(2026, 11, 3)},
+        },
+      );
+      final input = CalendarReportService.sampleInput(augustAsked(events));
+      expect(
+        [for (final s in input.billsAhead) (s.eventId, s.day)],
+        isEmpty,
+        reason: '30 October to 29 November: the one Rent day is skipped',
+      );
+      EventSkips.resetCache();
+      expect(
+        [
+          for (final s in CalendarReportService.sampleInput(
+            augustAsked(events),
+          ).billsAhead)
+            (s.eventId, s.day),
+        ],
+        [('rent', day(2026, 11, 3))],
+        reason: 'the Bill alone, a year after its start, past the span',
+      );
+
+      NoteMoneyLedgerService.seedForTesting({
+        'n1': (balance: 0, net: -1200, title: 'Rent'),
+      });
+      final reports = CalendarReportService();
+      final august = reports.report(augustAsked(events));
+      final m1 = august.insights.singleWhere((i) => i.rule == InsightRule.m1);
+      expect((m1.cents, m1.n1, m1.day), (1200, 1, today));
+      expect(
+        reports.scanCount,
+        3,
+        reason: 'the span, the previous span and the bills ahead',
+      );
+      reports.report(augustAsked(events, occurrenceRevision: 1));
+      expect(
+        (reports.foldCount, reports.scanCount),
+        (2, 5),
+        reason: 'a description edit rescans the spans, never the window',
+      );
+      reports.report(
+        request(span: july, previousSpan: june, events: events, today: today),
+      );
+      expect(
+        (reports.foldCount, reports.scanCount),
+        (3, 7),
+        reason: 'another span reads the same next month',
+      );
+    });
+
     test('the streak\'s first period is the first event\'s partial week', () {
       // Wednesday 14 October: its week holds five of the event's days.
       final gym = ev(

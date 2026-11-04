@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import '../constants/analytics_metrics.dart';
 import '../constants/category_kinds.dart';
 import '../constants/occurrence_descriptions.dart';
@@ -7,6 +9,7 @@ import '../models/calendar_report.dart';
 import '../models/category_profile.dart';
 import '../models/date_range.dart';
 import '../models/recurrence_rule.dart';
+import 'report_insights.dart';
 import 'tag_extractor.dart';
 import 'task_count.dart';
 import 'within_day_order.dart';
@@ -138,6 +141,10 @@ abstract final class CalendarReportBuilder {
       input.samples.every((s) => !s.pending || s.day == today),
       'a pending sample lies on today',
     );
+    assert(
+      input.billsAhead.every((s) => _isDateOnly(s.day)),
+      'fold requires date-only UTC bills-ahead days',
+    );
     final tense = CalendarReport.tenseOf(span: span, today: today);
     final countedTo = CalendarReport.countedToOf(span: span, today: today);
     final DateRange counted = (start: span.start, end: countedTo);
@@ -198,7 +205,7 @@ abstract final class CalendarReportBuilder {
       order,
       graded: graded,
     );
-    return CalendarReport(
+    final report = CalendarReport(
       span: span,
       today: today,
       tense: tense,
@@ -235,10 +242,17 @@ abstract final class CalendarReportBuilder {
       workingDays: input.workingDays,
       publicHolidays: input.publicHolidays,
       goals: goals,
-      dueSoon: due.rows,
-      dueSoonMore: due.more,
+      dueSoon: due,
       balance: _balance(input, measures),
       when: heatmap,
+      money: Map.unmodifiable({
+        for (final MapEntry(key: eventId, value: net) in input.money.entries)
+          if (net != 0 && events.containsKey(eventId)) eventId: net,
+      }),
+      billsAhead: _billsAhead(input),
+    );
+    return report.withInsights(
+      List.unmodifiable(ReportInsights.rank(report, input.profiles)),
     );
   }
 
@@ -330,6 +344,31 @@ abstract final class CalendarReportBuilder {
       if (days >= 0) tally.leadDays.add(days);
     }
 
+    // Episodes run across the span's edges (D5), so an Episode category's
+    // lookback is walked before the span and its lookahead after, each
+    // window oldest first, then its span's days in the walk below; every
+    // other category walks no episode at all, and pays no second walk of a
+    // year of samples.
+    void episodesOutside(Map<String, List<ReportSample>> windows) {
+      for (final MapEntry(key: categoryId, value: window) in windows.entries) {
+        final tally = tallies[categoryId];
+        if (tally == null ||
+            _profileOf(input, categoryId).kind != CategoryKind.episode) {
+          continue;
+        }
+        for (final sample in window) {
+          final event = events[sample.eventId];
+          if (event == null ||
+              !_isOutside(input, sample.day) ||
+              _isMissed(sample, event)) {
+            continue;
+          }
+          _episodeDay(tally, _epochDay(sample.day));
+        }
+      }
+    }
+
+    episodesOutside(input.lookback);
     final whenCells = List<int>.filled(ReportWhen.cellCount, 0);
     var timedDays = 0;
     // The categories with an occurrence up to today in the span, kept or
@@ -342,6 +381,7 @@ abstract final class CalendarReportBuilder {
       final day = sample.day;
       final missed = _isMissed(sample, event);
       final past = !day.isAfter(today);
+      final row = (day.weekday - input.weekStart.weekday + 7) % 7;
       leadTime(event, tally);
       if (past) {
         occurred.add(categoryId);
@@ -365,9 +405,10 @@ abstract final class CalendarReportBuilder {
         tally.tasksTicked += tasks.ticked;
         tally.tasksTotal += tasks.total;
       }
+      final profile = _profileOf(input, categoryId);
       final (:minutes, :nominal) = missed
           ? (minutes: 0, nominal: 0)
-          : _minutesOf(event, _profileOf(input, categoryId));
+          : _minutesOf(event, profile);
       if (goalTallies[categoryId] case final goal?) {
         _addToGoal(
           input,
@@ -378,22 +419,44 @@ abstract final class CalendarReportBuilder {
           minutes: minutes,
         );
       }
-      if (missed) continue;
+      if (missed) {
+        tally.missedWeekdays[row]++;
+        continue;
+      }
 
       tally.count++;
       tally.events.add(event.id);
       tally.minutes += minutes;
       tally.nominal += nominal;
       if (past) tally.lastSeen = day;
+      // Day numbers, not dates: a week's key is its first day's number, so
+      // the per-week maxima and the gaps allocate nothing per sample.
+      final epochDay = _epochDay(day);
+      final week = epochDay - row;
+      if (tally.lastKeptDay case final last?) {
+        final gap = epochDay - last - 1;
+        if (gap > tally.longestGap) tally.longestGap = gap;
+      }
+      tally.lastKeptDay = epochDay;
+      if (day.weekday >= DateTime.saturday) tally.weekendMinutes += minutes;
+      if (past && profile.kind == CategoryKind.episode) {
+        _episodeDay(tally, epochDay);
+      }
       final time = event.time;
       if (time != null) {
         tally.startMinutes.add(time.startMinute);
         final end = time.endMinute;
         if (end != null && end > AnalyticsMetrics.workLateMinute) {
           tally.lateDays++;
+          tally.lateWeeks.add(week);
+        }
+        final duration = time.durationMinutes;
+        if (duration != null &&
+            duration >= AnalyticsMetrics.sleepNightMinMinutes &&
+            duration < AnalyticsMetrics.sleepShortMinutes) {
+          tally.shortWeeks.add(week);
         }
       }
-      final row = (day.weekday - input.weekStart.weekday + 7) % 7;
       tally.weekdays[row]++;
       if (time case EventTime(
         :final startMinute,
@@ -450,6 +513,7 @@ abstract final class CalendarReportBuilder {
       leadTime(event, tally);
       tally.nextDay ??= sample.day;
     }
+    episodesOutside(input.lookahead);
     for (final MapEntry(key: categoryId, value: goal) in goalTallies.entries) {
       final profile = _profileOf(input, categoryId);
       // Plain loops, not [_outside]'s chain: a year of daily samples per
@@ -504,6 +568,7 @@ abstract final class CalendarReportBuilder {
           lastSeenDay: tag.lastSeen,
           categoryIds: List.unmodifiable(tag.categoryIds),
           rows: List.unmodifiable(tag.rows),
+          medianGapDays: tag.gaps.isEmpty ? null : _lowerMedian(tag.gaps),
         ),
     ];
     tagList.sort((a, b) {
@@ -528,7 +593,7 @@ abstract final class CalendarReportBuilder {
     ];
     return (
       measures: Map.unmodifiable(measures),
-      tags: List.unmodifiable(tagList.take(AnalyticsMetrics.tagRows)),
+      tags: List.unmodifiable(tagList),
       goals: List.unmodifiable(goals),
       when: _when(whenCells, timedDays),
     );
@@ -653,6 +718,7 @@ abstract final class CalendarReportBuilder {
     final period = tally.period;
     final periods = <ReportGoalPeriod>[];
     var streak = 0;
+    var broken = 0;
     var start = tally.base;
     for (var i = 0; i < tally.buckets.length; i++) {
       final end = _periodEndOf(period, start);
@@ -668,6 +734,7 @@ abstract final class CalendarReportBuilder {
       // A past span's last period running past its end is exact too: the
       // lookahead sampled its later days, so it is judged like any other.
       if (end.isBefore(today) && !start.isBefore(tally.streakFrom)) {
+        broken = state == GoalState.met ? 0 : streak;
         streak = state == GoalState.met ? streak + 1 : 0;
       }
       if (!start.isBefore(tally.spanFirst)) {
@@ -689,6 +756,7 @@ abstract final class CalendarReportBuilder {
       target: target,
       periods: List.unmodifiable(periods),
       streak: streak,
+      brokenStreak: broken,
     );
   }
 
@@ -737,13 +805,13 @@ abstract final class CalendarReportBuilder {
     return value <= expected ? GoalState.onPace : GoalState.behind;
   }
 
-  /// The Due soon rows (§6.8, O), ordered and capped. Graded: the gap goals
-  /// due or overdue; an Expiry's next day inside
+  /// Every Due soon row (§6.8, O), ordered; the page caps. Graded: the gap
+  /// goals due or overdue; an Expiry's next day inside
   /// `AnalyticsMetrics.expiryWarnDays` — from the span's samples, else a
   /// one-off's day past the span's end (the fold never scans) — and its
   /// missed days; a Bill's or a Deadline's missed days. A plan lists the
   /// span's Expiry and Bill days as upcoming, nothing else.
-  static ({List<ReportDueRow> rows, int more}) _dueSoon(
+  static List<ReportDueRow> _dueSoon(
     ReportInput input,
     List<ReportSample> counted,
     List<ReportSample> ahead,
@@ -866,11 +934,26 @@ abstract final class CalendarReportBuilder {
       final byDay = a.day.compareTo(b.day);
       return byDay != 0 ? byDay : a.eventId.compareTo(b.eventId);
     });
-    const cap = AnalyticsMetrics.dueSoonRows;
-    return (
-      rows: List.unmodifiable(rows.take(cap)),
-      more: rows.length > cap ? rows.length - cap : 0,
-    );
+    return List.unmodifiable(rows);
+  }
+
+  /// [ReportInput.billsAhead]'s events by resolved Bill-kind category, each
+  /// once, in the order they first occur — M1 sums an event's money once,
+  /// whatever its occurrences (P).
+  static Map<String, List<String>> _billsAhead(ReportInput input) {
+    final byCategory = <String, List<String>>{};
+    final seen = <String>{};
+    for (final sample in input.billsAhead) {
+      final event = input.events[sample.eventId];
+      if (event == null || !seen.add(event.id)) continue;
+      final categoryId = _categoryOf(input, event);
+      if (_profileOf(input, categoryId).kind != CategoryKind.bill) continue;
+      (byCategory[categoryId] ??= []).add(event.id);
+    }
+    return Map.unmodifiable({
+      for (final MapEntry(:key, :value) in byCategory.entries)
+        key: List<String>.unmodifiable(value),
+    });
   }
 
   /// The event of [categoryId] kept on [day], from the lookahead, the span's
@@ -1034,6 +1117,15 @@ abstract final class CalendarReportBuilder {
         tally.lastSeen ??
         input.lastSeenBefore[categoryId];
     final next = tally.nextDay;
+    final episodes = tally.episodes;
+    final mean = episodes < 2 ? null : tally.gapSum / (episodes - 1);
+    final variance = mean == null
+        ? null
+        : tally.gapSquares / (episodes - 1) - mean * mean;
+    final lastEpisode = tally.lastEpisode;
+    // Sorted once, in place: the median and the bedtime spread read the
+    // same order.
+    final starts = tally.startMinutes..sort();
     return ReportMeasures(
       categoryId: categoryId,
       primary: unsourced
@@ -1058,15 +1150,84 @@ abstract final class CalendarReportBuilder {
       leadTimeDays: tally.leadDays.isEmpty
           ? null
           : _lowerMedian(tally.leadDays),
-      medianStartMinute: tally.startMinutes.isEmpty
+      medianStartMinute: starts.isEmpty
           ? null
-          : _lowerMedian(tally.startMinutes),
+          : starts[(starts.length - 1) ~/ 2],
       lateDays: tally.lateDays,
       weekdayHistogram: List.unmodifiable(tally.weekdays),
       daysUntil: next?.difference(today).inDays,
       nextDay: next,
+      profiled: !profile.isUnprofiled,
+      leadTimeEvents: tally.leadDays.length,
+      missedByWeekday: List.unmodifiable(tally.missedWeekdays),
+      maxLateDaysInAWeek: tally.lateWeeks.max,
+      weekendMinutes: tally.weekendMinutes,
+      maxShortDaysInAWeek: tally.shortWeeks.max,
+      startMinuteSpread: profile.kind == CategoryKind.sleep
+          ? _startSpread(starts)
+          : 0,
+      longestGapDays: tally.longestGap,
+      episodes: episodes,
+      lastEpisodeDay: lastEpisode == null
+          ? null
+          : DateTime.utc(1970, 1, 1 + lastEpisode),
+      episodeGapMean: mean,
+      // Rounding can leave a hair below zero when every gap is equal.
+      episodeGapCv: mean == null
+          ? null
+          : math.sqrt(math.max(0.0, variance!)) / mean,
     );
   }
+
+  /// P3's bedtime spread over the ascending [sorted] starts: the minutes
+  /// from the 10th to the 90th percentile (nearest rank, the
+  /// [AnalyticsMetrics.bedtimeSpreadTrim] share left out at each end) on the
+  /// shortest arc of the day — the starts read from just after the widest
+  /// empty stretch between two neighbours, the one across midnight
+  /// included, so 23:30 and 00:30 are 60 apart, never 1,380, and one late
+  /// night in thirty is no spread. 0 under two.
+  static int _startSpread(List<int> sorted) {
+    final n = sorted.length;
+    if (n < 2) return 0;
+    var from = 0;
+    var widest = sorted.first + EventTime.minutesPerDay - sorted.last;
+    for (var i = 1; i < n; i++) {
+      final empty = sorted[i] - sorted[i - 1];
+      if (empty > widest) {
+        widest = empty;
+        from = i;
+      }
+    }
+    final trim = (AnalyticsMetrics.bedtimeSpreadTrim * (n - 1)).round();
+    final low = sorted[(from + trim) % n];
+    final high = sorted[(from + n - 1 - trim) % n];
+    return (high - low + EventTime.minutesPerDay) % EventTime.minutesPerDay;
+  }
+
+  /// One kept day up to today of the category [tally] counts (D5): it
+  /// starts an episode unless the category was kept the day before or
+  /// already that day — a run of consecutive kept days is one episode
+  /// whichever events cover it, so two overlapping events never read as
+  /// two. The days arrive oldest first: the lookback, the span, the
+  /// lookahead.
+  static void _episodeDay(_MeasureTally tally, int epochDay) {
+    final last = tally.lastRunDay;
+    tally.lastRunDay = epochDay;
+    if (last != null && epochDay - last <= 1) return;
+    final previous = tally.lastEpisode;
+    if (previous != null) {
+      final gap = epochDay - previous;
+      tally.gapSum += gap;
+      tally.gapSquares += gap * gap;
+    }
+    tally.episodes++;
+    tally.lastEpisode = epochDay;
+  }
+
+  /// [day]'s number counted from 1 January 1970 — exact for a date-only UTC
+  /// day, so differences are whole days with no `DateTime` built.
+  static int _epochDay(DateTime day) =>
+      day.millisecondsSinceEpoch ~/ Duration.millisecondsPerDay;
 
   /// One occurrence's minutes under [profile]: its duration when it has one,
   /// else the confirmed counts-as (I) — never on a repeat (an Anniversary is
@@ -1152,6 +1313,13 @@ abstract final class CalendarReportBuilder {
     tag.count++;
     tag.minutes += minutes;
     if (past) tag.lastSeen = sample.day;
+    // The samples arrive by day: a second event tagged the same day adds no
+    // gap.
+    final epochDay = _epochDay(sample.day);
+    if (tag.lastDay case final last? when epochDay > last) {
+      tag.gaps.add(epochDay - last);
+    }
+    tag.lastDay = epochDay;
     if (tag.events.add(event.id) && net != null) {
       if (net < 0) tag.spentCents -= net;
       if (net > 0) tag.receivedCents += net;
@@ -1597,12 +1765,44 @@ class _MeasureTally {
   final List<int> startMinutes = [];
   int lateDays = 0;
   final List<int> weekdays = List.filled(7, 0);
+  final List<int> missedWeekdays = List.filled(7, 0);
+  int weekendMinutes = 0;
+  final _WeekMax lateWeeks = _WeekMax();
+  final _WeekMax shortWeeks = _WeekMax();
+
+  // Day numbers (`_epochDay`): the latest kept day in the span and the
+  // widest gap behind it; the episodes' count, latest start, the latest day
+  // of the run that started it, and the sum and sum of squares of the gaps
+  // between starts, which give the mean and the spread with no list kept.
+  int? lastKeptDay;
+  int longestGap = 0;
+  int episodes = 0;
+  int? lastEpisode;
+  int? lastRunDay;
+  int gapSum = 0;
+  int gapSquares = 0;
 
   // The samples arrive sorted by day: the last kept day to today seen is the
   // latest, the first one still to come (today's pending one included) the
   // next.
   DateTime? lastSeen;
   DateTime? nextDay;
+}
+
+/// The most days counted in one week while the samples arrive by day: a
+/// week's count runs until a later week's key arrives.
+class _WeekMax {
+  int? _week;
+  int _inWeek = 0;
+  int max = 0;
+
+  void add(int week) {
+    if (week != _week) {
+      _week = week;
+      _inWeek = 0;
+    }
+    if (++_inWeek > max) max = _inWeek;
+  }
 }
 
 /// One goal's period buckets while the measures walk (§8 "Cost"): a sample
@@ -1669,6 +1869,11 @@ class _TagTally {
   DateTime? lastSeen;
   final List<String> categoryIds = [];
   final List<ReportDatedRow> rows = [];
+
+  // The latest tagged day's number and the gaps between distinct days —
+  // a tagged day is rare, unlike a sample.
+  int? lastDay;
+  final List<int> gaps = [];
 }
 
 /// One category's running numbers while a fold walks its samples.

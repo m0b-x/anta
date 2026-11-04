@@ -141,8 +141,9 @@ class CalendarReportService {
 
   /// Range scans so far — the span's, the previous span's, and per category
   /// that has a target or reads a gap (R) one lookback and, after a past
-  /// span, one lookahead — the cost seam that proves a memo hit and a
-  /// cached window scan nothing.
+  /// span, one lookahead, and one bills-ahead window when a scoped category
+  /// is a Bill (M1) — the cost seam that proves a memo hit and a cached
+  /// window scan nothing.
   int get scanCount => _scanCount;
 
   /// Drops the memo and the lookbacks; [foldCount] and [scanCount] keep
@@ -228,6 +229,7 @@ class CalendarReportService {
     final (:workingDays, :publicHolidays) = _workingDays(window.span);
     final lookback = _lookback(scoped, window, owner);
     final lookahead = _lookahead(scoped, window, owner);
+    final billsAhead = _billsAhead(scoped, window, owner);
     return ReportInput(
       span: window.span,
       today: window.today,
@@ -249,6 +251,7 @@ class CalendarReportService {
       lastSeenBefore: _lastSeenBefore(scoped, lookback),
       lookback: lookback,
       lookahead: lookahead,
+      billsAhead: billsAhead,
       workingDays: workingDays,
       publicHolidays: publicHolidays,
     );
@@ -362,6 +365,50 @@ class CalendarReportService {
       result[categoryId] = found;
     }
     return result;
+  }
+
+  /// The occurrences from today to today +
+  /// [AnalyticsMetrics.billsAheadDays] of every Bill-kind category in scope
+  /// — M1's window, which no span holds whole: one scan for them all in
+  /// any tense, cached in [owner] beside the lookbacks under a key naming
+  /// its window; nothing when no scoped category is a Bill.
+  static List<ReportSample> _billsAhead(
+    _Scoped scoped,
+    _Window window,
+    CalendarReportService? owner,
+  ) {
+    final bills = {
+      for (final MapEntry(key: categoryId, value: profile)
+          in scoped.profiles.entries)
+        if (profile.kind == CategoryKind.bill) categoryId,
+    };
+    if (bills.isEmpty) return const [];
+    final today = window.today;
+    final to = DateTime.utc(
+      today.year,
+      today.month,
+      today.day + AnalyticsMetrics.billsAheadDays,
+    );
+    final key = _LookbackKey.billsAhead(today, to, window.scope);
+    final cached = owner?._lookbacks.get(key);
+    if (cached != null) return cached;
+    final occurrences = EventAgenda.occurrencesInRange(
+      events: [
+        for (final event in scoped.byId.values)
+          if (bills.contains(scoped.categoryOf[event.id])) event,
+      ],
+      from: today,
+      to: to,
+    );
+    final found = List<ReportSample>.unmodifiable([
+      for (final EventOccurrence(:event, :day) in occurrences)
+        if (!EventSkips.appliesTo(event) ||
+            !scoped.skipsFor(event.id).contains(day))
+          ReportSample(eventId: event.id, day: day),
+    ]);
+    owner?._scanCount++;
+    owner?._lookbacks.put(key, found);
+    return found;
   }
 
   /// The last kept day before the span of every category that reads a gap,
@@ -737,7 +784,11 @@ final class _Scope extends Equatable {
 /// category, the window's first and last day, the events, their memberships
 /// and marks, the profiles and the catalogue — and never the descriptions or
 /// the ledger, so a text edit refolds the report without rescanning the year.
+/// The bills-ahead window (M1) shares the cache under its own [kind]: one
+/// scan over every Bill-kind category, which the allowlist and the profiles'
+/// revision already decide.
 final class _LookbackKey extends Equatable {
+  final _WindowKind kind;
   final String categoryId;
   final DateTime from;
   final DateTime to;
@@ -750,7 +801,13 @@ final class _LookbackKey extends Equatable {
   final int categoriesRevision;
   final int holidaysRevision;
 
-  _LookbackKey(this.categoryId, this.from, this.to, _Scope scope)
+  _LookbackKey(String categoryId, DateTime from, DateTime to, _Scope scope)
+    : this._(_WindowKind.category, categoryId, from, to, scope);
+
+  _LookbackKey.billsAhead(DateTime from, DateTime to, _Scope scope)
+    : this._(_WindowKind.billsAhead, '', from, to, scope);
+
+  _LookbackKey._(this.kind, this.categoryId, this.from, this.to, _Scope scope)
     : categoryIds = scope.categoryIds,
       today = scope.today,
       events = scope.events,
@@ -762,6 +819,7 @@ final class _LookbackKey extends Equatable {
 
   @override
   List<Object?> get props => [
+    kind,
     categoryId,
     from,
     to,
@@ -775,6 +833,10 @@ final class _LookbackKey extends Equatable {
     holidaysRevision,
   ];
 }
+
+/// Which window a [_LookbackKey] names: one category's lookback or
+/// lookahead, or the Bill categories' next month.
+enum _WindowKind { category, billsAhead }
 
 final class _ReportKey extends Equatable {
   final _Scope scope;

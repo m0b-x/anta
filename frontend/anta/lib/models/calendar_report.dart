@@ -465,6 +465,64 @@ class ReportMeasures extends Equatable {
   /// when none.
   final DateTime? nextDay;
 
+  /// Whether the category's effective profile is not
+  /// `EffectiveProfile.unprofiled`: only a profiled category leads with its
+  /// primary on the page (S4 N), and only a profiled one feeds an insight,
+  /// so an unprofiled calendar reads exactly as it did.
+  final bool profiled;
+
+  /// The one-offs [leadTimeDays] is the median of — L1 needs enough of them
+  /// before "booked a day ahead" means anything.
+  final int leadTimeEvents;
+
+  /// Missed tracked days per weekday, seven bins from the app's week start —
+  /// beside [weekdayHistogram] the attendance by weekday P1 compares.
+  final List<int> missedByWeekday;
+
+  /// The most kept days ending late ([lateDays]'s rule) in one week from the
+  /// app's week start — P2's "three evenings this week", which a span's
+  /// total cannot say.
+  final int maxLateDaysInAWeek;
+
+  /// Kept minutes on Saturdays and Sundays, timed or counts-as — P2's
+  /// weekend Work hours.
+  final int weekendMinutes;
+
+  /// The most kept days in one week from the app's week start whose duration
+  /// is a night (`AnalyticsMetrics.sleepNightMinMinutes` or more) under
+  /// `AnalyticsMetrics.sleepShortMinutes` — P3's short nights, read only on
+  /// a Sleep category; a nap is no short night.
+  final int maxShortDaysInAWeek;
+
+  /// Minutes from the 10th to the 90th percentile of the kept timed days'
+  /// starts on the shortest arc of the day — it wraps past midnight, so a
+  /// 23:30 and a 00:30 bedtime are an hour apart, and one late night in
+  /// thirty is no spread (P3); 0 under two, and 0 off a Sleep category.
+  final int startMinuteSpread;
+
+  /// The most days with no kept day between two consecutive kept days in
+  /// the span — P6's rest gap; 0 under two kept days. A rest still running
+  /// is not in it: P6 adds the days from the last kept day to today in a
+  /// current span itself, so a span read later keeps this number.
+  final int longestGapDays;
+
+  /// Episodes up to today — runs of consecutive kept days of the category,
+  /// whichever events cover them — in the span and the lookback and
+  /// lookahead around it; D5 predicts the next one from their gaps. 0 off
+  /// an Episode category, which walks none.
+  final int episodes;
+
+  /// The latest episode's first day, date-only UTC; null with no episode.
+  final DateTime? lastEpisodeDay;
+
+  /// The mean days between consecutive episodes' first days; null under two
+  /// episodes.
+  final double? episodeGapMean;
+
+  /// The gaps' coefficient of variation (population standard deviation over
+  /// the mean) — how regular the episodes are; null with [episodeGapMean].
+  final double? episodeGapCv;
+
   const ReportMeasures({
     required this.categoryId,
     required this.primary,
@@ -490,6 +548,18 @@ class ReportMeasures extends Equatable {
     this.weekdayHistogram = const [0, 0, 0, 0, 0, 0, 0],
     this.daysUntil,
     this.nextDay,
+    this.profiled = false,
+    this.leadTimeEvents = 0,
+    this.missedByWeekday = const [0, 0, 0, 0, 0, 0, 0],
+    this.maxLateDaysInAWeek = 0,
+    this.weekendMinutes = 0,
+    this.maxShortDaysInAWeek = 0,
+    this.startMinuteSpread = 0,
+    this.longestGapDays = 0,
+    this.episodes = 0,
+    this.lastEpisodeDay,
+    this.episodeGapMean,
+    this.episodeGapCv,
   });
 
   @override
@@ -518,6 +588,18 @@ class ReportMeasures extends Equatable {
     weekdayHistogram,
     daysUntil,
     nextDay,
+    profiled,
+    leadTimeEvents,
+    missedByWeekday,
+    maxLateDaysInAWeek,
+    weekendMinutes,
+    maxShortDaysInAWeek,
+    startMinuteSpread,
+    longestGapDays,
+    episodes,
+    lastEpisodeDay,
+    episodeGapMean,
+    episodeGapCv,
   ];
 }
 
@@ -556,6 +638,11 @@ class ReportTag extends Equatable {
   /// `ReportMetrics.maxListRows`.
   final List<ReportDatedRow> rows;
 
+  /// The lower median of the days between the tag's consecutive distinct
+  /// days — R1's sense of "usual" for a person seen every week or every
+  /// season; null under two days.
+  final int? medianGapDays;
+
   const ReportTag({
     required this.key,
     required this.label,
@@ -567,6 +654,7 @@ class ReportTag extends Equatable {
     this.lastSeenDay,
     required this.categoryIds,
     required this.rows,
+    this.medianGapDays,
   });
 
   @override
@@ -581,6 +669,7 @@ class ReportTag extends Equatable {
     lastSeenDay,
     categoryIds,
     rows,
+    medianGapDays,
   ];
 }
 
@@ -707,6 +796,12 @@ class ReportGoal extends Equatable {
   /// the last closed one was not met and for a *max gap* target.
   final int streak;
 
+  /// The streak the last closed period ended — the run of met periods
+  /// before it, counted as [streak] is — when that period was not met; 0
+  /// when it was, or when nothing ran before it. G4's "the 5-week streak
+  /// ended last week", which [streak] alone (then 0) cannot say.
+  final int brokenStreak;
+
   /// The gap reading of a *max gap* target; null for every other kind, and
   /// for a *max gap* whose category has not occurred at all up to today —
   /// nothing to measure.
@@ -718,6 +813,7 @@ class ReportGoal extends Equatable {
     required this.target,
     this.periods = const [],
     this.streak = 0,
+    this.brokenStreak = 0,
     this.gap,
   });
 
@@ -728,6 +824,7 @@ class ReportGoal extends Equatable {
     target,
     periods,
     streak,
+    brokenStreak,
     gap,
   ];
 }
@@ -831,6 +928,181 @@ class ReportWhen extends Equatable {
   List<Object?> get props => [cells, timedDays, busiestWeekday, busiestHour];
 }
 
+/// The insight rules (L, §6.7), in the record's order — the ranking's last
+/// key, so the order is part of the contract. T1–T3 need a second fold and
+/// join with Compare.
+enum InsightRule {
+  g1,
+  g2,
+  g3,
+  g4,
+  g5,
+  d1,
+  d2,
+  d3,
+  d4,
+  d5,
+  p1,
+  p2,
+  p3,
+  p4,
+  p5,
+  p6,
+  m1,
+  m2,
+  r1,
+  r2,
+  l1,
+  l2,
+  a1,
+  a2,
+}
+
+/// Where an insight's tap lands (§6.7).
+enum InsightTarget {
+  /// The category's group on the page.
+  categoryGroup,
+
+  /// The tag's rows.
+  tagRows,
+
+  /// The Due soon card.
+  dueSoon,
+
+  /// The overview's list on `ReportInsight.day .. dayEnd`.
+  overviewDays,
+}
+
+/// One fired insight (L, §6.7): typed numbers and ids only, deterministic
+/// and locale-free, so the page, the digest and a test read the same facts
+/// and the sentence is written only by the labels.
+///
+/// The slots each rule fills (unlisted slots stay null or 0):
+///
+/// | Rule | Slots |
+/// | --- | --- |
+/// | G1 | day..dayEnd the current period; n1 value, n2 target, n3 remaining |
+/// | G2 | day..dayEnd the current period; n1 value, n2 target, n3 over by |
+/// | G3 | day..dayEnd the current period; n1 = n2 = target |
+/// | G4 | n1 the streak (severity 2); [alternate]: n1 the broken streak (1) |
+/// | G5 | day..dayEnd the year; n1 remaining, n2 target, n3 whole months after today's; [alternate] (unused days): n3 days left in the year |
+/// | D1 | n1 days since, n2 limit; [beyondLookback] when n1 is a floor |
+/// | D2 | n1 days left inside the limit, n2 limit |
+/// | D3 | eventId, day the next expiry, n1 days until (severity 3); [alternate]: eventId, day, n1 days since (2) |
+/// | D4 | eventId, day the latest unmarked day; n1 unmarked days, n2 days since day |
+/// | D5 | day the expected episode; n1 episodes, n2 the mean gap in days, n3 days until day |
+/// | P1 | n1 best weekday %, n2 worst % (rounded for the sentence; the rule compares exact shares), n3 best weekday, n4 worst (0–6 from the week start) |
+/// | P2 | n1 most late days in a week; minutes the weekend minutes; [alternate] when only the weekend holds |
+/// | P3 | n1 most short nights in a week, n2 the bedtime spread in minutes; [alternate] when only the spread holds |
+/// | P4 | ratio the Meeting share; minutes Meeting minutes, n1 Work + Meeting minutes |
+/// | P5 | n1 cancelled, n2 planned, ratio cancelled / planned |
+/// | P6 | n1 the longest rest gap in days |
+/// | M1 | day..dayEnd today to today + 30; cents spent ahead, n1 events |
+/// | M2 | cents spent a year, n1 events |
+/// | R1 | tagKey; n1 days since, n2 the limit passed; [alternate] when the limit is the median gap's multiple |
+/// | R2 | tagKey; n1 days |
+/// | L1 | n1 the median lead time in days, n2 one-offs |
+/// | L2 | n1 one-offs open past their day |
+/// | A1 | day..dayEnd the span's remainder; n1 occurrences |
+/// | A2 | eventId; day..dayEnd the trip's first and last day in the span; n1 days until |
+class ReportInsight extends Equatable {
+  /// The rule that fired, which picks the sentence and the slots' meaning.
+  final InsightRule rule;
+
+  /// 0 (a fact) to 3 (act now), the ranking's first key.
+  final int severity;
+
+  /// The resolved category the insight is about — a tag insight's too, so
+  /// it ranks by that category's primary.
+  final String? categoryId;
+
+  /// The tag key of an R rule, `ReportTag.key`.
+  final String? tagKey;
+
+  /// The event a dated insight is about.
+  final String? eventId;
+
+  /// Where the insight's tap lands.
+  final InsightTarget target;
+
+  /// A date-only UTC day, or the first of a range ending at [dayEnd].
+  final DateTime? day;
+
+  /// The range's last day, date-only UTC and inclusive; null for one day.
+  final DateTime? dayEnd;
+
+  /// The rule's first number, in the unit the table above names.
+  final int n1;
+
+  /// The rule's second number, in the unit the table above names.
+  final int n2;
+
+  /// The rule's third number, in the unit the table above names.
+  final int n3;
+
+  /// The rule's fourth number, in the unit the table above names.
+  final int n4;
+
+  /// A duration in minutes, for the rules that report time spent.
+  final int minutes;
+
+  /// An amount in cents, for the rules that report money.
+  final int cents;
+
+  /// A share in 0..1, exact, for the rules that report one.
+  final double? ratio;
+
+  /// Whether a two-condition rule fired on its second condition (the table
+  /// above), so the labels pick the sentence without re-reading thresholds.
+  final bool alternate;
+
+  /// Whether a day count is a floor (D1, `ReportGapState.beyondLookback`):
+  /// the last kept day lies before the lookback, so the label says "over a
+  /// year" rather than the number.
+  final bool beyondLookback;
+
+  const ReportInsight({
+    required this.rule,
+    required this.severity,
+    this.categoryId,
+    this.tagKey,
+    this.eventId,
+    required this.target,
+    this.day,
+    this.dayEnd,
+    this.n1 = 0,
+    this.n2 = 0,
+    this.n3 = 0,
+    this.n4 = 0,
+    this.minutes = 0,
+    this.cents = 0,
+    this.ratio,
+    this.alternate = false,
+    this.beyondLookback = false,
+  }) : assert(severity >= 0 && severity <= 3);
+
+  @override
+  List<Object?> get props => [
+    rule,
+    severity,
+    categoryId,
+    tagKey,
+    eventId,
+    target,
+    day,
+    dayEnd,
+    n1,
+    n2,
+    n3,
+    n4,
+    minutes,
+    cents,
+    ratio,
+    alternate,
+    beyondLookback,
+  ];
+}
+
 /// The report of one span over one selection — the one model the page, the
 /// report digest's words and the Markdown share all read (U), so a number
 /// can never disagree between them.
@@ -892,8 +1164,9 @@ class CalendarReport extends Equatable {
   /// order.
   final Map<String, ReportMeasures> measures;
 
-  /// The top tags (Y), at most `AnalyticsMetrics.tagRows`: the most events
-  /// first, then the most days, then the key.
+  /// Every tag (Y): the most events first, then the most days, then the
+  /// key. Uncapped, because R1 is about the person rarely seen — the one a
+  /// cap would drop first; the By tag card shows `AnalyticsMetrics.tagRows`.
   final List<ReportTag> tags;
 
   /// The counts-as minutes inside the Hours tile's value (I) — its "incl.
@@ -911,12 +1184,11 @@ class CalendarReport extends Equatable {
   /// target, in [measures]' order; empty when none has (§6.6).
   final List<ReportGoal> goals;
 
-  /// The Due soon rows (§6.8): overdue, due, unmarked, then upcoming, each
-  /// by [ReportDueRow.days], at most `AnalyticsMetrics.dueSoonRows`.
+  /// Every Due soon row (§6.8): overdue, due, unmarked, then upcoming, each
+  /// by [ReportDueRow.days]. Uncapped (S4 L): the card shows
+  /// `AnalyticsMetrics.dueSoonRows` and expands the rest in place, and D4
+  /// reads every unmarked row.
   final List<ReportDueRow> dueSoon;
-
-  /// The Due soon rows beyond the cap — the card's "n more".
-  final int dueSoonMore;
 
   /// Minutes per life area (§6.10, M): each category whose effective profile
   /// counts hours adds its `ReportMeasures.minutes`, counts-as included, to
@@ -926,6 +1198,23 @@ class CalendarReport extends Equatable {
   /// The When heatmap's facts (§6.10); every fold sets it, null only in a
   /// report built by hand.
   final ReportWhen? when;
+
+  /// The linked notes' net cents by event id, the selection's non-zero
+  /// entries of what the sampler read (P) — M1 and M2 sum a Bill's money
+  /// whatever day its event started, which the span's measures cannot.
+  final Map<String, int> money;
+
+  /// The Bill-kind categories' events occurring from [today] to today +
+  /// `AnalyticsMetrics.billsAheadDays`, by resolved category id, each once
+  /// in the order it first occurs — M1's window, which the span cannot
+  /// hold: a month report on the 25th sees six of its days, and a digest's
+  /// ended month none.
+  final Map<String, List<String>> billsAhead;
+
+  /// Every insight that fired (L, §6.7), ranked: severity descending, then
+  /// the category's primary value descending, then [InsightRule] order. The
+  /// page and the digest cap and filter; the fold never does.
+  final List<ReportInsight> insights;
 
   const CalendarReport({
     required this.span,
@@ -949,14 +1238,47 @@ class CalendarReport extends Equatable {
     this.publicHolidays = 0,
     this.goals = const [],
     this.dueSoon = const [],
-    this.dueSoonMore = 0,
     this.balance = const {},
     this.when,
+    this.money = const {},
+    this.billsAhead = const {},
+    this.insights = const [],
   });
 
   /// Whether the span holds no occurrence at all — the page dims Totals and
   /// says so in one caption.
   bool get isEmpty => categories.isEmpty && aheadCount == 0;
+
+  /// This report with [insights] — the fold's last step, since the rules
+  /// read the folded report they join.
+  CalendarReport withInsights(List<ReportInsight> insights) => CalendarReport(
+    span: span,
+    today: today,
+    tense: tense,
+    countedTo: countedTo,
+    previousSpan: previousSpan,
+    previousCounted: previousCounted,
+    events: events,
+    tiles: tiles,
+    skippedDays: skippedDays,
+    aheadCount: aheadCount,
+    categories: categories,
+    trend: trend,
+    missed: missed,
+    ahead: ahead,
+    measures: measures,
+    tags: tags,
+    nominalMinutes: nominalMinutes,
+    workingDays: workingDays,
+    publicHolidays: publicHolidays,
+    goals: goals,
+    dueSoon: dueSoon,
+    balance: balance,
+    when: when,
+    money: money,
+    billsAhead: billsAhead,
+    insights: insights,
+  );
 
   /// Where [span] sits against [today] (T) — the one rule the fold and its
   /// sampler share, so a previous period is counted the way the report is.
@@ -1005,9 +1327,11 @@ class CalendarReport extends Equatable {
     publicHolidays,
     goals,
     dueSoon,
-    dueSoonMore,
     balance,
     when,
+    money,
+    billsAhead,
+    insights,
   ];
 }
 
@@ -1132,6 +1456,12 @@ class ReportInput extends Equatable {
   /// period running past the span's end on its first days alone.
   final Map<String, List<ReportSample>> lookahead;
 
+  /// The occurrences from [today] to today + `AnalyticsMetrics.billsAheadDays`
+  /// of the Bill-kind categories in the selection, date-only UTC, in any
+  /// tense — M1's window, scanned apart from [span]; empty when no selected
+  /// category is a Bill. Skipped days never arrive.
+  final List<ReportSample> billsAhead;
+
   /// Monday-to-Friday days of [span] that are no public holiday (T); 0 when
   /// not resolved.
   final int workingDays;
@@ -1158,6 +1488,7 @@ class ReportInput extends Equatable {
     this.lastSeenBefore = const {},
     this.lookback = const {},
     this.lookahead = const {},
+    this.billsAhead = const [],
     this.workingDays = 0,
     this.publicHolidays = 0,
   });
@@ -1182,6 +1513,7 @@ class ReportInput extends Equatable {
     lastSeenBefore,
     lookback,
     lookahead,
+    billsAhead,
     workingDays,
     publicHolidays,
   ];
