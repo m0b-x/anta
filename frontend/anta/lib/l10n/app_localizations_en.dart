@@ -8799,4 +8799,117 @@ class AppLocalizationsEn extends AppLocalizations {
     );
     return 'same period last year, $_temp0';
   }
+
+  @override
+  String get reportPeriodLastYear => 'Last year';
+
+  @override
+  String get reportSectionRecords => 'Records';
+
+  @override
+  String get reportSectionMonths => 'Months';
+
+  @override
+  String get reportRecordBusiestMonth => 'Busiest month';
+
+  @override
+  String get reportRecordBusiestWeek => 'Busiest week';
+
+  @override
+  String get reportRecordSocialMonth => 'Most social month';
+
+  @override
+  String get reportRecordMoneyMonth => 'Biggest spend';
+
+  @override
+  String get reportRecordLongestTrip => 'Longest trip';
+
+  @override
+  String get reportRecordLongestStreak => 'Longest streak';
+
+  @override
+  String get reportRecordLongestGap => 'Longest gap';
+
+  @override
+  String reportRecordCaption(String subject, String value) {
+    return '$subject · $value';
+  }
+
+  @override
+  String reportRecordSpoken(String record, String subject, String value) {
+    return '$record: $subject, $value';
+  }
+
+  @override
+  String reportYearSpan(String first, String last) {
+    return '$first – $last';
+  }
+
+  @override
+  String reportYearSpanSpoken(String first, String last) {
+    return 'from $first to $last';
+  }
+
+  @override
+  String reportYearDaySpoken(String day) {
+    return 'on $day';
+  }
+
+  @override
+  String reportYearMonthsSpoken(String category, String span, String months) {
+    return '$category, $span. By month: $months.';
+  }
+
+  @override
+  String reportYearMonthValue(String month, String value) {
+    return '$month $value';
+  }
+
+  @override
+  String reportGoalLongestStreak(int count) {
+    return 'longest streak $count';
+  }
+
+  @override
+  String reportGoalLongestStreakSpoken(String period, int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count days',
+      one: '1 day',
+    );
+    String _temp1 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count weeks',
+      one: '1 week',
+    );
+    String _temp2 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count months',
+      one: '1 month',
+    );
+    String _temp3 = intl.Intl.selectLogic(period, {
+      'day': 'longest streak $_temp0',
+      'week': 'longest streak $_temp1',
+      'month': 'longest streak $_temp2',
+      'other': 'longest streak $count',
+    });
+    return '$_temp3';
+  }
+
+  @override
+  String reportBalanceLastYear(String hours) {
+    return 'last year $hours';
+  }
+
+  @override
+  String reportBalanceLastYearSpoken(
+    String area,
+    String hours,
+    String lastHours,
+  ) {
+    return '$area, $hours, last year $lastHours';
+  }
 }

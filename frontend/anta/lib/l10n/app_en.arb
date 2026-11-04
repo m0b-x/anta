@@ -11343,5 +11343,194 @@
         "type": "int"
       }
     }
+  },
+  "reportPeriodLastYear": "Last year",
+  "@reportPeriodLastYear": {
+    "description": "Report Period menu item: the whole previous calendar year"
+  },
+  "reportSectionRecords": "Records",
+  "@reportSectionRecords": {
+    "description": "Section label of the report's Records card on a whole year: the year's busiest month, longest streak and other peaks"
+  },
+  "reportSectionMonths": "Months",
+  "@reportSectionMonths": {
+    "description": "Section label of the report's Months card on a whole year: one strip of twelve months per category"
+  },
+  "reportRecordBusiestMonth": "Busiest month",
+  "@reportRecordBusiestMonth": {
+    "description": "Report Records row name: the month with the most events in the year. Keep it short (18 characters at most)"
+  },
+  "reportRecordBusiestWeek": "Busiest week",
+  "@reportRecordBusiestWeek": {
+    "description": "Report Records row name: the week with the most events in the year. Keep it short (18 characters at most)"
+  },
+  "reportRecordSocialMonth": "Most social month",
+  "@reportRecordSocialMonth": {
+    "description": "Report Records row name: the month with the most social events (friends, family, evenings out). Keep it short (18 characters at most)"
+  },
+  "reportRecordMoneyMonth": "Biggest spend",
+  "@reportRecordMoneyMonth": {
+    "description": "Report Records row name: the month with the most money spent. Keep it short (18 characters at most)"
+  },
+  "reportRecordLongestTrip": "Longest trip",
+  "@reportRecordLongestTrip": {
+    "description": "Report Records row name: the trip with the most days in the year. Keep it short (18 characters at most)"
+  },
+  "reportRecordLongestStreak": "Longest streak",
+  "@reportRecordLongestStreak": {
+    "description": "Report Records row name: a routine's most occurrences kept in a row in the year. Keep it short (18 characters at most)"
+  },
+  "reportRecordLongestGap": "Longest gap",
+  "@reportRecordLongestGap": {
+    "description": "Report Records row name: a category's most days between two of its events in the year. Keep it short (18 characters at most)"
+  },
+  "reportRecordCaption": "{subject} · {value}",
+  "@reportRecordCaption": {
+    "description": "Caption of a report Records row: what holds the record (a month, a week, an event or a category) and its value, e.g. June · 31 events",
+    "placeholders": {
+      "subject": {
+        "type": "String",
+        "example": "June"
+      },
+      "value": {
+        "type": "String",
+        "example": "31 events"
+      }
+    }
+  },
+  "reportRecordSpoken": "{record}: {subject}, {value}",
+  "@reportRecordSpoken": {
+    "description": "Screen reader label of a report Records row: the record's name, what holds it and its value, e.g. Busiest month: June, 31 events",
+    "placeholders": {
+      "record": {
+        "type": "String",
+        "example": "Busiest month"
+      },
+      "subject": {
+        "type": "String",
+        "example": "June"
+      },
+      "value": {
+        "type": "String",
+        "example": "31 events"
+      }
+    }
+  },
+  "reportYearSpan": "{first} – {last}",
+  "@reportYearSpan": {
+    "description": "Caption of a report Months row: the category's first and last kept day in the year, e.g. Jan 2 – Dec 30",
+    "placeholders": {
+      "first": {
+        "type": "String",
+        "example": "Jan 2"
+      },
+      "last": {
+        "type": "String",
+        "example": "Dec 30"
+      }
+    }
+  },
+  "reportYearSpanSpoken": "from {first} to {last}",
+  "@reportYearSpanSpoken": {
+    "description": "Screen reader form of a report Months row's span: the category's first and last kept day, e.g. from 2 January to 30 December",
+    "placeholders": {
+      "first": {
+        "type": "String",
+        "example": "January 2"
+      },
+      "last": {
+        "type": "String",
+        "example": "December 30"
+      }
+    }
+  },
+  "reportYearDaySpoken": "on {day}",
+  "@reportYearDaySpoken": {
+    "description": "Screen reader form of a report Months row's span when the category was kept on one day only, e.g. on 2 January",
+    "placeholders": {
+      "day": {
+        "type": "String",
+        "example": "January 2"
+      }
+    }
+  },
+  "reportYearMonthsSpoken": "{category}, {span}. By month: {months}.",
+  "@reportYearMonthsSpoken": {
+    "description": "Screen reader label of a report Months row: the category, its span and its value in each of the twelve months, e.g. Gym, from 2 January to 30 December. By month: January 9, February 8",
+    "placeholders": {
+      "category": {
+        "type": "String"
+      },
+      "span": {
+        "type": "String",
+        "example": "from January 2 to December 30"
+      },
+      "months": {
+        "type": "String",
+        "example": "January 9, February 8"
+      }
+    }
+  },
+  "reportYearMonthValue": "{month} {value}",
+  "@reportYearMonthValue": {
+    "description": "One month in a report Months row's screen reader list: the month's name and its value, e.g. January 9 or January 31 hours",
+    "placeholders": {
+      "month": {
+        "type": "String",
+        "example": "January"
+      },
+      "value": {
+        "type": "String",
+        "example": "9"
+      }
+    }
+  },
+  "reportGoalLongestStreak": "longest streak {count}",
+  "@reportGoalLongestStreak": {
+    "description": "Report Goals card caption on a whole year, after the periods met: the most periods met in a row, e.g. 41 of 52 weeks met · longest streak 11. Keep it short",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "reportGoalLongestStreakSpoken": "{period, select, day{longest streak {count, plural, =1{1 day} other{{count} days}}} week{longest streak {count, plural, =1{1 week} other{{count} weeks}}} month{longest streak {count, plural, =1{1 month} other{{count} months}}} other{longest streak {count}}}",
+  "@reportGoalLongestStreakSpoken": {
+    "description": "Screen reader form of the Goals card's longest streak on a whole year, with the goal's period (day, week or month), e.g. longest streak 11 weeks",
+    "placeholders": {
+      "period": {
+        "type": "String"
+      },
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "reportBalanceLastYear": "last year {hours}",
+  "@reportBalanceLastYear": {
+    "description": "Report Balance row caption under Compare with last year, after this period's hours: the same area's hours a year earlier, e.g. 1720 h · last year 1650 h",
+    "placeholders": {
+      "hours": {
+        "type": "String",
+        "example": "1650 h"
+      }
+    }
+  },
+  "reportBalanceLastYearSpoken": "{area}, {hours}, last year {lastHours}",
+  "@reportBalanceLastYearSpoken": {
+    "description": "Screen reader label of a report Balance row under Compare with last year: the life area, its hours and the same area's hours a year earlier, both spelled out",
+    "placeholders": {
+      "area": {
+        "type": "String"
+      },
+      "hours": {
+        "type": "String",
+        "example": "1720 hours"
+      },
+      "lastHours": {
+        "type": "String",
+        "example": "1650 hours"
+      }
+    }
   }
 }

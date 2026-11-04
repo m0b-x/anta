@@ -1215,6 +1215,7 @@ abstract final class SemanticsIds {
   static const String reportPeriodLastMonth = 'report-period-last-month';
   static const String reportPeriodNextMonth = 'report-period-next-month';
   static const String reportPeriodThisYear = 'report-period-this-year';
+  static const String reportPeriodLastYear = 'report-period-last-year';
   static const String reportPeriodLast12Months = 'report-period-last-12-months';
   static const String reportPeriodLast90Days = 'report-period-last-90-days';
   static const String reportPeriodCustom = 'report-period-custom';
@@ -1310,6 +1311,29 @@ abstract final class SemanticsIds {
 
   /// A Balance row, by its `LifeArea` name: `report-balance-work`, …
   static String reportBalance(String area) => 'report-balance-$area';
+
+  /// A whole year's Records row of one record a year (S6 §2.7), by its kind
+  /// in kebab case: `report-year-record-busiest-month`, `-busiest-week`,
+  /// `-social-month`, `-money-month`, `-longest-trip`.
+  static String reportYearRecord(String kind) => 'report-year-record-$kind';
+
+  /// A Records streak row, by its event: a year holds one per routine.
+  static String reportYearRecordStreak(String eventId) =>
+      'report-year-record-streak-$eventId';
+
+  /// A Records gap row, by its category: a year holds one per gap goal.
+  static String reportYearRecordGap(String categoryId) =>
+      'report-year-record-gap-$categoryId';
+
+  /// The Records card's "n more" row, past `ReportMetrics.yearRecordRows`.
+  static const String reportYearRecordsMore = 'report-year-records-more';
+
+  /// A Months strip row, by its category.
+  static String reportYearMonths(String categoryId) =>
+      'report-year-months-$categoryId';
+
+  /// The Months card's "n more" row, past its seventh category.
+  static const String reportYearMonthsMore = 'report-year-months-more';
 
   /// The footer's Compare with row and its menu items; a saved view's item
   /// by the view's id, and the one disabled item shown with no saved view.

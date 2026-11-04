@@ -4,10 +4,12 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/date_symbol_data_local.dart';
 
+import 'package:anta/constants/calendar_categories.dart';
 import 'package:anta/constants/category_kinds.dart';
 import 'package:anta/constants/report_metrics.dart';
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/models/calendar_appearance.dart';
+import 'package:anta/models/calendar_category.dart';
 import 'package:anta/models/calendar_event.dart';
 import 'package:anta/models/calendar_report.dart';
 import 'package:anta/models/category_profile.dart';
@@ -3167,6 +3169,544 @@ void main() {
             )
             .spoken,
         plain.spoken,
+      );
+    });
+  });
+
+  // S6a: the year in review's words. 2025 is a past whole year on today's
+  // 4 November 2026; 16 June 2025 is a Monday.
+  group('S6 words (year in review)', () {
+    final year = (
+      start: DateTime.utc(2025, 1, 1),
+      end: DateTime.utc(2025, 12, 31),
+    );
+    final june = DateTime.utc(2025, 6, 1);
+    final sibiu = CalendarEvent(
+      id: 'trip',
+      title: 'Sibiu',
+      categoryId: 'travel',
+      startDate: DateTime.utc(2025, 7, 10),
+      rule: const OneTimeRecurrence(),
+    );
+    final yearReport = analytics(span: year, events: {'trip': sibiu});
+
+    setUp(
+      () => CalendarCategories.updateCache(const [
+        CalendarCategory(
+          id: 'car',
+          name: 'Car',
+          colorValue: 0xFF112233,
+          iconKey: 'event',
+          sortOrder: 0,
+          isBuiltIn: false,
+          isHidden: false,
+        ),
+      ]),
+    );
+    tearDown(() => CalendarCategories.updateCache(const []));
+
+    ({String caption, String spoken}) words(
+      ReportRecordKind kind,
+      int value, {
+      String locale = 'en',
+      DateTime? start,
+      String? eventId,
+      String? categoryId,
+      CalendarWeekStart weekStart = CalendarWeekStart.monday,
+    }) => labelsIn(locale).recordWords(
+      ReportRecord(
+        kind: kind,
+        value: value,
+        start: start ?? june,
+        eventId: eventId,
+        categoryId: categoryId,
+      ),
+      yearReport,
+      weekStart: weekStart,
+    );
+
+    test('the seven record names, each within 18 characters', () {
+      for (final locale in ['en', 'de', 'ro']) {
+        final labels = labelsIn(locale);
+        final names = [
+          for (final kind in ReportRecordKind.values) labels.recordName(kind),
+        ];
+        expect(names.toSet(), hasLength(ReportRecordKind.values.length));
+        for (final name in names) {
+          expect(name.length, lessThanOrEqualTo(18), reason: '$locale $name');
+        }
+      }
+      expect(
+        labelsIn('en').recordName(ReportRecordKind.socialMonth),
+        'Most social month',
+      );
+      expect(
+        labelsIn('de').recordName(ReportRecordKind.busiestMonth),
+        'Stärkster Monat',
+      );
+      expect(
+        labelsIn('ro').recordName(ReportRecordKind.longestStreak),
+        'Serie maximă',
+      );
+    });
+
+    test('the month records name the month and bind the value', () {
+      expect(words(ReportRecordKind.busiestMonth, 31), (
+        caption: 'June · 31${nb}events',
+        spoken: 'Busiest month: June, 31 events',
+      ));
+      expect(words(ReportRecordKind.busiestMonth, 31, locale: 'de'), (
+        caption: 'Juni · 31${nb}Termine',
+        spoken: 'Stärkster Monat: Juni, 31 Termine',
+      ));
+      expect(words(ReportRecordKind.busiestMonth, 31, locale: 'ro'), (
+        caption: 'iunie · 31${nb}de evenimente',
+        spoken: 'Luna de vârf: iunie, 31 de evenimente',
+      ));
+      expect(words(ReportRecordKind.socialMonth, 6), (
+        caption: 'June · 6${nb}evenings',
+        spoken: 'Most social month: June, 6 evenings',
+      ));
+      expect(
+        words(ReportRecordKind.socialMonth, 6, locale: 'de').caption,
+        'Juni · 6${nb}Abende',
+      );
+      expect(
+        words(ReportRecordKind.socialMonth, 6, locale: 'ro').caption,
+        'iunie · 6${nb}seri',
+      );
+      expect(words(ReportRecordKind.moneyMonth, 134000), (
+        caption: 'June · 1,340',
+        spoken: 'Biggest spend: June, 1,340',
+      ));
+      expect(
+        words(ReportRecordKind.moneyMonth, 134000, locale: 'de').caption,
+        'Juni · 1.340',
+      );
+      expect(
+        ReportLabels(
+              lookupAppLocalizations(const Locale('en')),
+              currencySymbol: '€',
+            )
+            .recordWords(
+              ReportRecord(
+                kind: ReportRecordKind.moneyMonth,
+                value: 134000,
+                start: june,
+              ),
+              yearReport,
+              weekStart: CalendarWeekStart.monday,
+            )
+            .caption,
+        'June · €1,340',
+      );
+    });
+
+    test('the busiest week is named as the band titles its week', () {
+      final en = labelsIn('en');
+      final band = en.periodName(OverviewWeekPeriod(DateTime.utc(2025, 6, 16)));
+      expect(band, 'Jun 16 – Jun 22, 2025');
+      final week = words(
+        ReportRecordKind.busiestWeek,
+        12,
+        start: DateTime.utc(2025, 6, 16),
+      );
+      expect(week.caption, '$band · 12${nb}events');
+      expect(week.spoken, 'Busiest week: $band, 12 events');
+      // The week holding the start, on the calendar's week start.
+      expect(
+        words(
+          ReportRecordKind.busiestWeek,
+          12,
+          start: DateTime.utc(2025, 6, 18),
+        ).caption,
+        week.caption,
+      );
+      expect(
+        words(
+          ReportRecordKind.busiestWeek,
+          12,
+          start: DateTime.utc(2025, 6, 15),
+          weekStart: CalendarWeekStart.sunday,
+        ).caption,
+        startsWith('Jun 15 – Jun 21, 2025'),
+      );
+      final de = labelsIn('de');
+      expect(
+        words(
+          ReportRecordKind.busiestWeek,
+          12,
+          locale: 'de',
+          start: DateTime.utc(2025, 6, 16),
+        ).caption,
+        '${de.periodName(OverviewWeekPeriod(DateTime.utc(2025, 6, 16)))}'
+        ' · 12${nb}Termine',
+      );
+    });
+
+    test('a trip and a streak by their title, the id without one', () {
+      expect(words(ReportRecordKind.longestTrip, 6, eventId: 'trip'), (
+        caption: 'Sibiu · 6${nb}days',
+        spoken: 'Longest trip: Sibiu, 6 days',
+      ));
+      expect(
+        words(
+          ReportRecordKind.longestTrip,
+          6,
+          eventId: 'trip',
+          locale: 'ro',
+        ).caption,
+        'Sibiu · 6${nb}zile',
+      );
+      expect(words(ReportRecordKind.longestStreak, 14, eventId: 'gone'), (
+        caption: 'gone · 14${nb}in a row',
+        spoken: 'Longest streak: gone, 14 in a row',
+      ));
+      expect(
+        words(
+          ReportRecordKind.longestStreak,
+          14,
+          eventId: 'trip',
+          locale: 'de',
+        ),
+        (
+          caption: 'Sibiu · 14${nb}in Folge',
+          spoken: 'Längste Serie: Sibiu, 14 in Folge',
+        ),
+      );
+    });
+
+    test('a gap by its category\'s name', () {
+      expect(words(ReportRecordKind.longestGap, 212, categoryId: 'car'), (
+        caption: 'Car · 212${nb}days',
+        spoken: 'Longest gap: Car, 212 days',
+      ));
+      expect(
+        words(
+          ReportRecordKind.longestGap,
+          212,
+          categoryId: 'car',
+          locale: 'de',
+        ).caption,
+        'Car · 212${nb}Tage',
+      );
+      expect(
+        words(
+          ReportRecordKind.longestGap,
+          212,
+          categoryId: 'car',
+          locale: 'ro',
+        ).spoken,
+        'Pauză maximă: Car, 212 zile',
+      );
+    });
+
+    test('the year span: a range, one day, and its spoken form', () {
+      final first = DateTime.utc(2025, 1, 2);
+      final last = DateTime.utc(2025, 12, 30);
+      // The dash is bound to the day before it, so a wrap falls after it.
+      expect(labelsIn('en').yearSpan(first, last), 'Jan${nb}2$nb– Dec${nb}30');
+      expect(
+        labelsIn('de').yearSpan(first, last),
+        '2.${nb}Jan. – 30.${nb}Dez.',
+      );
+      expect(labelsIn('ro').yearSpan(first, last), '2${nb}ian. – 30${nb}dec.');
+      expect(labelsIn('en').yearSpan(first, first), 'Jan${nb}2');
+      expect(labelsIn('de').yearSpan(first, first), '2.${nb}Jan.');
+
+      expect(
+        labelsIn('en').yearSpanSpoken(first, last),
+        'from January 2 to December 30',
+      );
+      expect(
+        labelsIn('de').yearSpanSpoken(first, last),
+        'vom 2. Januar bis 30. Dezember',
+      );
+      expect(
+        labelsIn('ro').yearSpanSpoken(first, last),
+        'de la 2 ianuarie până la 30 decembrie',
+      );
+      expect(labelsIn('en').yearSpanSpoken(first, first), 'on January 2');
+      expect(labelsIn('ro').yearSpanSpoken(first, first), 'pe 2 ianuarie');
+    });
+
+    test('the span template is the widest 28th, in the locale\'s order', () {
+      final asked = <List<String>>[];
+      String september(Iterable<String> names) {
+        asked.add(names.toList());
+        return names.elementAt(8);
+      }
+
+      expect(labelsIn('en').yearSpanTemplates(widest: september), [
+        'Sep${nb}28$nb– Sep${nb}28',
+      ]);
+      expect(labelsIn('de').yearSpanTemplates(widest: september), [
+        '28.${nb}Sept. – 28.${nb}Sept.',
+      ]);
+      expect(labelsIn('ro').yearSpanTemplates(widest: september), [
+        '28${nb}sept. – 28${nb}sept.',
+      ]);
+      expect(asked, hasLength(3));
+      expect(asked.first, hasLength(12));
+      expect(asked[1], containsAll(['28. Jan.', '28. Dez.']));
+    });
+
+    test('the months are spoken in the primary\'s unit', () {
+      final en = labelsIn('en');
+      const names = [
+        'January',
+        'February',
+        'March',
+        'April',
+        'May',
+        'June',
+        'July',
+        'August',
+        'September',
+        'October',
+        'November',
+        'December',
+      ];
+      String spoken(List<String> values) => [
+        for (final (i, value) in values.indexed) '${names[i]} $value',
+      ].join(', ');
+
+      final counts = [9, 8, 0, 1, 2, 3, 4, 5, 6, 7, 1200, 8];
+      expect(
+        en.yearMonthsSpoken(
+          category: 'Gym',
+          span: 'from January 2 to December 30',
+          months: counts,
+          primary: ReportMeasure.count,
+        ),
+        'Gym, from January 2 to December 30. By month: '
+        '${spoken([for (final n in counts) n == 1200 ? '1,200' : '$n'])}.',
+      );
+
+      final minutes = [31 * 60, 90, 40, ...List.filled(9, 0)];
+      expect(
+        en.yearMonthsSpoken(
+          category: 'Work',
+          span: 'on January 2',
+          months: minutes,
+          primary: ReportMeasure.hours,
+        ),
+        'Work, on January 2. By month: '
+        '${spoken(['31 hours', '1.5 hours', '40 minutes', ...List.filled(9, '0 minutes')])}.',
+      );
+
+      final cents = [134000, ...List.filled(11, 0)];
+      expect(
+        en.yearMonthsSpoken(
+          category: 'Bills',
+          span: 'on January 2',
+          months: cents,
+          primary: ReportMeasure.money,
+        ),
+        'Bills, on January 2. By month: '
+        '${spoken(['1,340', ...List.filled(11, '0')])}.',
+      );
+
+      expect(
+        labelsIn('de').yearMonthsSpoken(
+          category: 'Gym',
+          span: 'am 2. Januar',
+          months: List.filled(12, 2),
+          primary: ReportMeasure.count,
+        ),
+        startsWith('Gym, am 2. Januar. Nach Monat: Januar 2, Februar 2,'),
+      );
+      expect(
+        labelsIn('ro').yearMonthsSpoken(
+          category: 'Sală',
+          span: 'pe 2 ianuarie',
+          months: List.filled(12, 2),
+          primary: ReportMeasure.count,
+        ),
+        endsWith('noiembrie 2, decembrie 2.'),
+      );
+    });
+
+    group('a goal on the whole year', () {
+      final closedWeeks = [
+        period(
+          (start: DateTime.utc(2025, 12, 15), end: DateTime.utc(2025, 12, 21)),
+          3,
+          GoalState.met,
+        ),
+        period(
+          (start: DateTime.utc(2025, 12, 22), end: DateTime.utc(2025, 12, 28)),
+          3,
+          GoalState.met,
+        ),
+      ];
+      const tally = ReportGoalTally(met: 41, closed: 52, longestStreak: 11);
+
+      test('the periods met and the longest streak', () {
+        final en = labelsIn(
+          'en',
+        ).goalYearWords(atLeast(closedWeeks), tally, yearReport, name: 'Gym');
+        expect(
+          en.caption,
+          '41${nb}of${nb}52${nb}weeks met${sep}longest streak${nb}11',
+        );
+        expect(
+          en.spoken,
+          'Gym, 41 of 52 weeks met, longest streak 11 weeks, met',
+        );
+
+        final none = labelsIn('en').goalYearWords(
+          atLeast(closedWeeks),
+          const ReportGoalTally(met: 0, closed: 52, longestStreak: 0),
+          yearReport,
+          name: 'Gym',
+        );
+        expect(none.caption, '0${nb}of${nb}52${nb}weeks met');
+        expect(none.spoken, isNot(contains('streak')));
+
+        expect(
+          labelsIn('de')
+              .goalYearWords(
+                atLeast(closedWeeks),
+                tally,
+                yearReport,
+                name: 'Gym',
+              )
+              .caption,
+          '41${nb}von${nb}52${nb}Wochen erreicht${sep}längste Serie${nb}11',
+        );
+        final ro = labelsIn(
+          'ro',
+        ).goalYearWords(atLeast(closedWeeks), tally, yearReport, name: 'Sală');
+        expect(
+          ro.caption,
+          'atins în${nb}41${nb}din${nb}52${nb}de săptămâni'
+          '${sep}serie maximă${nb}11',
+        );
+        expect(ro.spoken, contains('serie maximă de 11 săptămâni'));
+      });
+
+      test('the templates are in 8s with the goal\'s own period', () {
+        final en = labelsIn('en');
+        expect(
+          en
+              .goalYearWords(
+                atLeast(closedWeeks),
+                tally,
+                yearReport,
+                name: 'Gym',
+              )
+              .templates,
+          ['88${nb}of${nb}88${nb}weeks met${sep}longest streak${nb}88'],
+        );
+        expect(
+          en
+              .goalYearWords(
+                atLeast(closedWeeks, per: TargetPeriod.month),
+                const ReportGoalTally(met: 9, closed: 10, longestStreak: 0),
+                yearReport,
+                name: 'Gym',
+              )
+              .templates,
+          ['88${nb}of${nb}88${nb}months met${sep}longest streak${nb}88'],
+        );
+        // A day goal counts up to 365 closed days.
+        expect(
+          en
+              .goalYearWords(
+                atLeast(closedWeeks, target: 1, per: TargetPeriod.day),
+                const ReportGoalTally(met: 200, closed: 300, longestStreak: 9),
+                yearReport,
+                name: 'Gym',
+              )
+              .templates,
+          ['888${nb}of${nb}888${nb}days met${sep}longest streak${nb}888'],
+        );
+      });
+
+      test('a missed week makes the spoken state missed', () {
+        final words = labelsIn('en').goalYearWords(
+          atLeast([
+            closedWeeks.first,
+            period(
+              (
+                start: DateTime.utc(2025, 12, 22),
+                end: DateTime.utc(2025, 12, 28),
+              ),
+              1,
+              GoalState.missed,
+            ),
+          ]),
+          tally,
+          yearReport,
+          name: 'Gym',
+        );
+        expect(words.spoken, endsWith(', longest streak 11 weeks, missed'));
+      });
+    });
+
+    test('Balance with last year: caption, templates in 8s, spoken', () {
+      final en = labelsIn('en');
+      final words = en.balanceLastYearWords(
+        LifeArea.work,
+        1720 * 60,
+        1650 * 60,
+      );
+      expect(words.caption, '1720${nb}h${sep}last year${nb}1650${nb}h');
+      expect(words.templates, ['8888.8${nb}h${sep}last year${nb}8888.8${nb}h']);
+      // [ReportLabels.hoursSpoken] groups a whole figure, as every row says it.
+      expect(words.spoken, 'Work, 1,720 hours, last year 1,650 hours');
+
+      // Each figure at its own digit count; under an hour in minutes.
+      final small = en.balanceLastYearWords(LifeArea.work, 38 * 60 + 30, 40);
+      expect(small.caption, '38.5${nb}h${sep}last year${nb}40${nb}min');
+      expect(small.templates, ['88.8${nb}h${sep}last year${nb}88${nb}min']);
+      expect(small.spoken, 'Work, 38.5 hours, last year 40 minutes');
+
+      final de = labelsIn(
+        'de',
+      ).balanceLastYearWords(LifeArea.work, 38 * 60 + 30, 12 * 60);
+      expect(de.caption, '38,5${nb}Std.${sep}Vorjahr${nb}12${nb}Std.');
+      expect(de.spoken, endsWith(', Vorjahr 12 Stunden'));
+      expect(
+        labelsIn(
+          'ro',
+        ).balanceLastYearWords(LifeArea.work, 12 * 60, 12 * 60).caption,
+        endsWith('anul trecut${nb}12${nb}h'),
+      );
+    });
+
+    test('the new keys are in all three languages', () {
+      for (final locale in ['en', 'de', 'ro']) {
+        final l10n = lookupAppLocalizations(Locale(locale));
+        for (final text in [
+          l10n.reportPeriodLastYear,
+          l10n.reportSectionRecords,
+          l10n.reportSectionMonths,
+          l10n.reportRecordCaption('a', 'b'),
+          l10n.reportRecordSpoken('a', 'b', 'c'),
+          l10n.reportYearSpan('a', 'b'),
+          l10n.reportYearSpanSpoken('a', 'b'),
+          l10n.reportYearDaySpoken('a'),
+          l10n.reportYearMonthsSpoken('a', 'b', 'c'),
+          l10n.reportYearMonthValue('a', 'b'),
+          l10n.reportGoalLongestStreak(2),
+          l10n.reportGoalLongestStreakSpoken('week', 2),
+          l10n.reportBalanceLastYear('a'),
+          l10n.reportBalanceLastYearSpoken('a', 'b', 'c'),
+        ]) {
+          expect(text, isNotEmpty, reason: locale);
+        }
+      }
+      final de = lookupAppLocalizations(const Locale('de'));
+      final ro = lookupAppLocalizations(const Locale('ro'));
+      expect(de.reportPeriodLastYear, 'Letztes Jahr');
+      expect(ro.reportPeriodLastYear, 'Anul trecut');
+      expect(de.reportGoalLongestStreakSpoken('day', 1), 'längste Serie 1 Tag');
+      expect(ro.reportGoalLongestStreak(11), 'serie maximă 11');
+      expect(
+        ro.reportGoalLongestStreakSpoken('month', 20),
+        'serie maximă de 20 de luni',
       );
     });
   });

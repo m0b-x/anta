@@ -171,4 +171,26 @@ abstract final class ReportMetrics {
   /// The `rowGroup` band on each side of the tick, so it stays apart from
   /// the column it crosses (`primary` against the ring is 6.12:1).
   static const double trendLastYearRing = 1;
+
+  /// Records a whole year's Records card shows before "n more" (S6 §2.2):
+  /// six rows keep the card under the Totals on one 780 dp screen at 1.0.
+  static const int yearRecordRows = 6;
+
+  /// The caption lines a Records row reserves from
+  /// `RowMetrics.compactLeadingTextScale` (S6 §2.2, S4 D): a week's span
+  /// beside its count wraps there, and one line below it fits every locale.
+  static const int yearRecordCaptionLinesCompact = 2;
+
+  /// A Months strip tile's height (S6 §2.3): the When card's cell at 1.0,
+  /// so the two heat textures read as one family.
+  static const double yearTileHeight = 16;
+
+  /// Above and below the Months card's axis row (S6 §2.3): the month names
+  /// sit close to the strips they name, not as a row of their own.
+  static const double yearAxisPadding = 6;
+
+  /// The Months axis's month steps, smallest first: the first whose names
+  /// keep [axisLabelMinGap] between them is drawn, so 2.0 names every other
+  /// month.
+  static const List<int> yearAxisSteps = [1, 2, 3];
 }

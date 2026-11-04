@@ -8996,4 +8996,120 @@ class AppLocalizationsRo extends AppLocalizations {
     );
     return 'aceeași perioadă anul trecut, $_temp0';
   }
+
+  @override
+  String get reportPeriodLastYear => 'Anul trecut';
+
+  @override
+  String get reportSectionRecords => 'Recorduri';
+
+  @override
+  String get reportSectionMonths => 'Luni';
+
+  @override
+  String get reportRecordBusiestMonth => 'Luna de vârf';
+
+  @override
+  String get reportRecordBusiestWeek => 'Săptămâna de vârf';
+
+  @override
+  String get reportRecordSocialMonth => 'Socializare maximă';
+
+  @override
+  String get reportRecordMoneyMonth => 'Cheltuieli maxime';
+
+  @override
+  String get reportRecordLongestTrip => 'Călătorie maximă';
+
+  @override
+  String get reportRecordLongestStreak => 'Serie maximă';
+
+  @override
+  String get reportRecordLongestGap => 'Pauză maximă';
+
+  @override
+  String reportRecordCaption(String subject, String value) {
+    return '$subject · $value';
+  }
+
+  @override
+  String reportRecordSpoken(String record, String subject, String value) {
+    return '$record: $subject, $value';
+  }
+
+  @override
+  String reportYearSpan(String first, String last) {
+    return '$first – $last';
+  }
+
+  @override
+  String reportYearSpanSpoken(String first, String last) {
+    return 'de la $first până la $last';
+  }
+
+  @override
+  String reportYearDaySpoken(String day) {
+    return 'pe $day';
+  }
+
+  @override
+  String reportYearMonthsSpoken(String category, String span, String months) {
+    return '$category, $span. Pe luni: $months.';
+  }
+
+  @override
+  String reportYearMonthValue(String month, String value) {
+    return '$month $value';
+  }
+
+  @override
+  String reportGoalLongestStreak(int count) {
+    return 'serie maximă $count';
+  }
+
+  @override
+  String reportGoalLongestStreakSpoken(String period, int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count de zile',
+      few: '$count zile',
+      one: '1 zi',
+    );
+    String _temp1 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count de săptămâni',
+      few: '$count săptămâni',
+      one: '1 săptămână',
+    );
+    String _temp2 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count de luni',
+      few: '$count luni',
+      one: '1 lună',
+    );
+    String _temp3 = intl.Intl.selectLogic(period, {
+      'day': 'serie maximă de $_temp0',
+      'week': 'serie maximă de $_temp1',
+      'month': 'serie maximă de $_temp2',
+      'other': 'serie maximă $count',
+    });
+    return '$_temp3';
+  }
+
+  @override
+  String reportBalanceLastYear(String hours) {
+    return 'anul trecut $hours';
+  }
+
+  @override
+  String reportBalanceLastYearSpoken(
+    String area,
+    String hours,
+    String lastHours,
+  ) {
+    return '$area, $hours, anul trecut $lastHours';
+  }
 }

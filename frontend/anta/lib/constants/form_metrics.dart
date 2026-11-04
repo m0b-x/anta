@@ -342,6 +342,19 @@ abstract final class FormMetrics {
   /// row's numbers, so it sits a little apart from the words above it.
   static const double meterGap = 6;
 
+  /// The width of a meter's marker — a second share drawn upright across
+  /// the track, last year's beside this one's: thin enough to read as a
+  /// mark, never as a second bar.
+  static const double meterMarkerWidth = 2;
+
+  /// The `rowGroup` band on each side of the marker, so it stays apart from
+  /// the fill it crosses (the marker against `primary` is 1.00:1 in dark).
+  static const double meterMarkerRing = 1;
+
+  /// How far the marker reaches past the track above and below: into
+  /// [meterGap] and the row's padding, so the row's height never changes.
+  static const double meterMarkerOverhang = 3;
+
   /// A chip's height while its label's line fits it, which is up to 160 %
   /// text; past that it is the chip's minimum and the chip grows with the
   /// line, so a label is never cut.

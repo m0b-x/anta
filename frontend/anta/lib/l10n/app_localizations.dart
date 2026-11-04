@@ -13520,6 +13520,136 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'same period last year, {count, plural, =1{1 event} other{{count} events}}'**
   String reportTrendLastYearSpoken(int count);
+
+  /// Report Period menu item: the whole previous calendar year
+  ///
+  /// In en, this message translates to:
+  /// **'Last year'**
+  String get reportPeriodLastYear;
+
+  /// Section label of the report's Records card on a whole year: the year's busiest month, longest streak and other peaks
+  ///
+  /// In en, this message translates to:
+  /// **'Records'**
+  String get reportSectionRecords;
+
+  /// Section label of the report's Months card on a whole year: one strip of twelve months per category
+  ///
+  /// In en, this message translates to:
+  /// **'Months'**
+  String get reportSectionMonths;
+
+  /// Report Records row name: the month with the most events in the year. Keep it short (18 characters at most)
+  ///
+  /// In en, this message translates to:
+  /// **'Busiest month'**
+  String get reportRecordBusiestMonth;
+
+  /// Report Records row name: the week with the most events in the year. Keep it short (18 characters at most)
+  ///
+  /// In en, this message translates to:
+  /// **'Busiest week'**
+  String get reportRecordBusiestWeek;
+
+  /// Report Records row name: the month with the most social events (friends, family, evenings out). Keep it short (18 characters at most)
+  ///
+  /// In en, this message translates to:
+  /// **'Most social month'**
+  String get reportRecordSocialMonth;
+
+  /// Report Records row name: the month with the most money spent. Keep it short (18 characters at most)
+  ///
+  /// In en, this message translates to:
+  /// **'Biggest spend'**
+  String get reportRecordMoneyMonth;
+
+  /// Report Records row name: the trip with the most days in the year. Keep it short (18 characters at most)
+  ///
+  /// In en, this message translates to:
+  /// **'Longest trip'**
+  String get reportRecordLongestTrip;
+
+  /// Report Records row name: a routine's most occurrences kept in a row in the year. Keep it short (18 characters at most)
+  ///
+  /// In en, this message translates to:
+  /// **'Longest streak'**
+  String get reportRecordLongestStreak;
+
+  /// Report Records row name: a category's most days between two of its events in the year. Keep it short (18 characters at most)
+  ///
+  /// In en, this message translates to:
+  /// **'Longest gap'**
+  String get reportRecordLongestGap;
+
+  /// Caption of a report Records row: what holds the record (a month, a week, an event or a category) and its value, e.g. June · 31 events
+  ///
+  /// In en, this message translates to:
+  /// **'{subject} · {value}'**
+  String reportRecordCaption(String subject, String value);
+
+  /// Screen reader label of a report Records row: the record's name, what holds it and its value, e.g. Busiest month: June, 31 events
+  ///
+  /// In en, this message translates to:
+  /// **'{record}: {subject}, {value}'**
+  String reportRecordSpoken(String record, String subject, String value);
+
+  /// Caption of a report Months row: the category's first and last kept day in the year, e.g. Jan 2 – Dec 30
+  ///
+  /// In en, this message translates to:
+  /// **'{first} – {last}'**
+  String reportYearSpan(String first, String last);
+
+  /// Screen reader form of a report Months row's span: the category's first and last kept day, e.g. from 2 January to 30 December
+  ///
+  /// In en, this message translates to:
+  /// **'from {first} to {last}'**
+  String reportYearSpanSpoken(String first, String last);
+
+  /// Screen reader form of a report Months row's span when the category was kept on one day only, e.g. on 2 January
+  ///
+  /// In en, this message translates to:
+  /// **'on {day}'**
+  String reportYearDaySpoken(String day);
+
+  /// Screen reader label of a report Months row: the category, its span and its value in each of the twelve months, e.g. Gym, from 2 January to 30 December. By month: January 9, February 8
+  ///
+  /// In en, this message translates to:
+  /// **'{category}, {span}. By month: {months}.'**
+  String reportYearMonthsSpoken(String category, String span, String months);
+
+  /// One month in a report Months row's screen reader list: the month's name and its value, e.g. January 9 or January 31 hours
+  ///
+  /// In en, this message translates to:
+  /// **'{month} {value}'**
+  String reportYearMonthValue(String month, String value);
+
+  /// Report Goals card caption on a whole year, after the periods met: the most periods met in a row, e.g. 41 of 52 weeks met · longest streak 11. Keep it short
+  ///
+  /// In en, this message translates to:
+  /// **'longest streak {count}'**
+  String reportGoalLongestStreak(int count);
+
+  /// Screen reader form of the Goals card's longest streak on a whole year, with the goal's period (day, week or month), e.g. longest streak 11 weeks
+  ///
+  /// In en, this message translates to:
+  /// **'{period, select, day{longest streak {count, plural, =1{1 day} other{{count} days}}} week{longest streak {count, plural, =1{1 week} other{{count} weeks}}} month{longest streak {count, plural, =1{1 month} other{{count} months}}} other{longest streak {count}}}'**
+  String reportGoalLongestStreakSpoken(String period, int count);
+
+  /// Report Balance row caption under Compare with last year, after this period's hours: the same area's hours a year earlier, e.g. 1720 h · last year 1650 h
+  ///
+  /// In en, this message translates to:
+  /// **'last year {hours}'**
+  String reportBalanceLastYear(String hours);
+
+  /// Screen reader label of a report Balance row under Compare with last year: the life area, its hours and the same area's hours a year earlier, both spelled out
+  ///
+  /// In en, this message translates to:
+  /// **'{area}, {hours}, last year {lastHours}'**
+  String reportBalanceLastYearSpoken(
+    String area,
+    String hours,
+    String lastHours,
+  );
 }
 
 class _AppLocalizationsDelegate
