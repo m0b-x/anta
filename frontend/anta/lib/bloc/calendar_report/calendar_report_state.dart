@@ -50,6 +50,14 @@ sealed class ReportShown extends ReportState {
   /// Whether a presence mark clicks.
   final bool hapticFeedback;
 
+  /// The ledger's currency, which a goal's, a header's or an insight's
+  /// amount is written in, as the notes it was summed from read; empty
+  /// writes the plain decimal.
+  final String currencySymbol;
+
+  /// Whether [currencySymbol] follows the amount ("12.50 lei").
+  final bool currencySuffix;
+
   /// The day the report was asked for, date-only UTC.
   final DateTime today;
 
@@ -64,6 +72,8 @@ sealed class ReportShown extends ReportState {
     required this.appearance,
     required this.palette,
     required this.hapticFeedback,
+    this.currencySymbol = '',
+    this.currencySuffix = false,
     required this.today,
     required this.years,
   });
@@ -83,6 +93,8 @@ sealed class ReportShown extends ReportState {
     appearance,
     palette,
     hapticFeedback,
+    currencySymbol,
+    currencySuffix,
     today,
     years,
   ];
@@ -114,6 +126,8 @@ final class ReportFolding extends ReportShown {
     required super.appearance,
     required super.palette,
     required super.hapticFeedback,
+    super.currencySymbol,
+    super.currencySuffix,
     required super.today,
     required super.years,
   });
@@ -142,6 +156,8 @@ final class ReportReady extends ReportShown {
     required super.appearance,
     required super.palette,
     required super.hapticFeedback,
+    super.currencySymbol,
+    super.currencySuffix,
     required super.today,
     required super.years,
   });

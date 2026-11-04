@@ -73,6 +73,22 @@ abstract final class ReportMetrics {
   /// decimal-hours value a report shows in practice.
   static const double tileTemplateHours = 888.8;
 
+  /// The digit a goal's template figures are written in (S4 D): a goal
+  /// row's caption lines come from its state sentences with every figure
+  /// written in this digit at the target's width, never from the value, so
+  /// a refold that changes the numbers never changes the Goals card's
+  /// height.
+  static const String goalTemplateDigit = '8';
+
+  /// The streak a goal's templates write ("88 in a row", S4 D): two digits,
+  /// the most a weekly streak over the lookback reaches.
+  static const int goalTemplateStreak = 88;
+
+  /// The most lines an insight row's detail wraps to (S4 I): a sentence
+  /// that says its finding whole at 2.0, while one runaway detail never
+  /// takes over the card.
+  static const int insightCaptionMaxLines = 4;
+
   /// The Over time card's start and end inset (§4.8): the Totals tiles'
   /// own, so the two cards' contents line up down the page.
   static const double chartPaddingHorizontal = tilePaddingHorizontal;

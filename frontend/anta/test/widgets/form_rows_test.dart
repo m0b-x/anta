@@ -5009,6 +5009,203 @@ void main() {
     test('the divider indents to the text, past the leading box', () {
       expect(meterRow().dividerIndent, FormMetrics.dividerIndentTitle);
     });
+
+    const sentence =
+        '31 h of 40 · 9 h left this week · 4 in a row · and a little more '
+        'so the sentence runs past one line';
+
+    FormMeterRow sentenceRow({
+      String caption = sentence,
+      int? captionLines = 2,
+      Widget? labelTrailing,
+      Widget? compactLeading,
+    }) => FormMeterRow(
+      leading: const SizedBox.square(
+        key: ValueKey('avatar'),
+        dimension: FormMetrics.rowLeadingSize,
+      ),
+      label: 'Gym',
+      caption: caption,
+      fraction: 0.5,
+      meterColor: fill,
+      onTap: () {},
+      semanticsLabel: 'Gym, 31 hours of 40',
+      identifier: 'meter-row',
+      captionLines: captionLines,
+      labelTrailing: labelTrailing,
+      compactLeading: compactLeading,
+    );
+
+    for (final (scale, one, two) in [
+      (1.0, 66.0, 84.0),
+      (1.3, 77.4, 100.8),
+      (2.0, 104.0, 140.0),
+    ]) {
+      testWidgets('captionLines wraps the caption and holds its lines at '
+          '$scale', (tester) async {
+        await pump(tester, sentenceRow(), textScale: scale);
+        expect(
+          tester.getSize(find.byType(FormMeterRow)).height,
+          closeTo(two, 1),
+        );
+        final paragraph = tester.renderObject<RenderParagraph>(
+          find.descendant(
+            of: find.text(sentence),
+            matching: find.byType(RichText),
+          ),
+        );
+        expect(
+          tester.getSize(find.text(sentence)).height,
+          closeTo(2 * scale * FormMetrics.captionLineHeight, 1),
+          reason: 'two lines, never shrunk',
+        );
+        expect(paragraph.maxLines, 2);
+
+        // A caption that fits one line keeps the two-line height: the spare
+        // line is air, centred.
+        await pump(tester, sentenceRow(caption: '2 of 3'), textScale: scale);
+        final row = tester.getRect(find.byType(FormMeterRow));
+        expect(row.height, closeTo(two, 1));
+        final label = tester.getRect(find.text('Gym'));
+        final meter = tester.getRect(meterBox(fill).first);
+        expect(
+          label.top - row.top,
+          closeTo(row.bottom - meter.bottom, 1),
+          reason: 'the content is centred in the reserved height',
+        );
+
+        await pump(
+          tester,
+          sentenceRow(caption: '2 of 3', captionLines: 1),
+          textScale: scale,
+        );
+        expect(
+          tester.getSize(find.byType(FormMeterRow)).height,
+          closeTo(one, 1),
+        );
+      });
+    }
+
+    testWidgets('captionLines cuts a caption past its lines with an ellipsis', (
+      tester,
+    ) async {
+      await pump(tester, sentenceRow(captionLines: 1));
+      final text = tester.widget<Text>(find.text(sentence));
+      expect(text.maxLines, 1);
+      expect(text.overflow, TextOverflow.ellipsis);
+      expect(
+        tester.getSize(find.text(sentence)).height,
+        closeTo(FormMetrics.captionLineHeight, 0.01),
+      );
+      expect(tester.getSize(find.byType(FormMeterRow)).height, closeTo(66, 1));
+    });
+
+    testWidgets('labelTrailing sits at the label line\'s end and the row '
+        'stays one node', (tester) async {
+      final handle = tester.ensureSemantics();
+      const glyph = ValueKey('state');
+      for (final scale in [1.0, 2.0]) {
+        await pump(
+          tester,
+          sentenceRow(
+            labelTrailing: const FormTrailingGlyph(
+              key: glyph,
+              icon: Icons.check_circle_rounded,
+            ),
+          ),
+          textScale: scale,
+        );
+        final node = tester.getSemantics(
+          find.bySemanticsIdentifier('meter-row'),
+        );
+        expect(node.childrenCount, 0, reason: 'the row is one node');
+        expect(node.getSemanticsData().label, 'Gym, 31 hours of 40');
+
+        final icon = tester.getRect(find.byKey(glyph));
+        final label = tester.getRect(find.text('Gym'));
+        final row = tester.getRect(find.byType(FormMeterRow));
+        expect(
+          icon.center.dy,
+          closeTo(label.top + scale * FormMetrics.labelLineHeight / 2, 0.5),
+          reason: 'centred on the label line',
+        );
+        expect(
+          icon.right,
+          closeTo(row.right - FormMetrics.rowEndPadding, 0.5),
+          reason: 'at the end of the text column',
+        );
+        expect(
+          icon.left - label.right,
+          greaterThanOrEqualTo(FormMetrics.gap - 0.01),
+        );
+      }
+      handle.dispose();
+    });
+
+    testWidgets('compactLeading takes over from '
+        '${RowMetrics.compactLeadingTextScale} and moves the divider to '
+        '${RowMetrics.dividerIndentWithGlyph}', (tester) async {
+      const glyph = ValueKey('glyph');
+      final row = sentenceRow(
+        compactLeading: const FormGlyph(key: glyph, icon: Icons.fitness_center),
+      );
+      Widget group() =>
+          FormRowGroup(trailingGap: false, children: [row, meterRow()]);
+      double dividerIndent(WidgetTester tester) =>
+          tester.widget<Divider>(find.byType(Divider)).indent!;
+
+      for (final scale in [1.0, 1.3, 1.5]) {
+        await pump(tester, group(), textScale: scale);
+        expect(find.byKey(const ValueKey('avatar')), findsOneWidget);
+        expect(find.byKey(glyph), findsNothing);
+        expect(dividerIndent(tester), FormMetrics.dividerIndentTitle);
+        expect(
+          FormRowGroup.indentOf(
+            row,
+            tester.element(find.byType(FormMeterRow).first),
+          ),
+          FormMetrics.dividerIndentTitle,
+        );
+      }
+      for (final scale in [RowMetrics.compactLeadingTextScale, 2.0]) {
+        await pump(tester, group(), textScale: scale);
+        expect(find.byKey(glyph), findsOneWidget);
+        expect(find.byKey(const ValueKey('avatar')), findsNothing);
+        expect(
+          tester.getSize(
+            find
+                .ancestor(
+                  of: find.byKey(glyph),
+                  matching: find.byType(SizedBox),
+                )
+                .first,
+          ),
+          const Size.square(RowMetrics.glyphSize),
+        );
+        expect(dividerIndent(tester), RowMetrics.dividerIndentWithGlyph);
+        final first = tester.getRect(find.byType(FormMeterRow).first);
+        expect(
+          tester.getRect(find.text('Gym').first).left - first.left,
+          closeTo(RowMetrics.dividerIndentWithGlyph, 0.01),
+          reason: 'the text starts where the hairline does',
+        );
+      }
+      // Context-free, the indent is the avatar's.
+      expect(row.dividerIndent, FormMetrics.dividerIndentTitle);
+    });
+
+    testWidgets('a row without compactLeading keeps its avatar and its '
+        'indent at 2.0', (tester) async {
+      await pump(
+        tester,
+        FormRowGroup(trailingGap: false, children: [meterRow(), meterRow()]),
+        textScale: 2.0,
+      );
+      expect(
+        tester.widget<Divider>(find.byType(Divider)).indent,
+        FormMetrics.dividerIndentTitle,
+      );
+    });
   });
 
   group('disclosure action row', () {

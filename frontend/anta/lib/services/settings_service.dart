@@ -1360,14 +1360,18 @@ class SettingsService {
     SettingsKeys.reportCategoryIds,
     SettingsKeys.hapticFeedback,
     SettingsKeys.markdownCustomColors,
+    SettingsKeys.moneyCurrencySymbol,
+    SettingsKeys.moneyCurrencySuffix,
   ];
 
   /// What the calendar report remembers (D35), in one statement: its period,
   /// its allowlist and the calendar's appearance — whose week start This
   /// week and the trend's columns follow, and which the range picker draws
   /// its grid in — with the palette a row's detail sheet renders the
-  /// description in and the haptic switch a presence mark obeys. [today]
-  /// (date-only) is what a stored `thisWeek` or `thisMonth` means.
+  /// description in, the haptic switch a presence mark obeys and the
+  /// ledger's global currency, which the report's amounts are written in
+  /// (a note's own currency is not the report's: its sums cross notes).
+  /// [today] (date-only) is what a stored `thisWeek` or `thisMonth` means.
   Future<
     ({
       OverviewPeriod period,
@@ -1375,6 +1379,8 @@ class SettingsService {
       CalendarAppearance appearance,
       MarkdownColorPalette palette,
       bool hapticFeedback,
+      String currencySymbol,
+      bool currencySuffix,
     })
   >
   getCalendarReportSettings({required DateTime today}) async {
@@ -1394,6 +1400,13 @@ class SettingsService {
       hapticFeedback: _decodeBool(
         values[SettingsKeys.hapticFeedback],
         SettingsKeys.defaultHapticFeedback,
+      ),
+      currencySymbol:
+          values[SettingsKeys.moneyCurrencySymbol] ??
+          SettingsKeys.defaultMoneyCurrencySymbol,
+      currencySuffix: _decodeBool(
+        values[SettingsKeys.moneyCurrencySuffix],
+        SettingsKeys.defaultMoneyCurrencySuffix,
       ),
     );
   }

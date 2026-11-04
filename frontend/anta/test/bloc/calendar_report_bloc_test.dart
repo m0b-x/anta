@@ -714,6 +714,34 @@ void main() {
     expect(ready.hapticFeedback, isTrue);
   });
 
+  test('every shown state carries the ledger\'s currency, the plain decimal '
+      'by default, and a resume re-reads it', () async {
+    final bloc = build(_FakeReportService());
+    addTearDown(bloc.close);
+    var shown = (await openReady(bloc)).whereType<ReportShown>().toList();
+    for (final state in shown) {
+      expect(state.currencySymbol, '');
+      expect(state.currencySuffix, isFalse);
+    }
+
+    await settings.setMoneyCurrencySymbol('lei');
+    await settings.setMoneyCurrencySuffix(true);
+    bloc.add(const ReportResumed());
+    await pumpEventQueue();
+    final ready = bloc.state as ReportReady;
+    expect(ready.currencySymbol, 'lei');
+    expect(ready.currencySuffix, isTrue);
+
+    final reopened = build(_FakeReportService());
+    addTearDown(reopened.close);
+    shown = (await openReady(reopened)).whereType<ReportShown>().toList();
+    expect(shown, isNotEmpty);
+    for (final state in shown) {
+      expect(state.currencySymbol, 'lei');
+      expect(state.currencySuffix, isTrue);
+    }
+  });
+
   test('a resume with nothing moved emits nothing', () async {
     final service = CalendarReportService();
     final bloc = build(service);

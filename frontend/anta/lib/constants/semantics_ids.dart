@@ -1230,6 +1230,23 @@ abstract final class SemanticsIds {
   static const String reportShare = 'report-share';
   static const String reportSend = 'report-send';
 
+  /// A Goals card row, by its category: a category carries one target, so
+  /// the category names the row.
+  static String reportGoal(String categoryId) => 'report-goal-$categoryId';
+
+  /// An Insights card row, by its rank on the page (0 first): the ranking
+  /// is deterministic, so a flow taps the same insight for the same data.
+  static String reportInsight(int rank) => 'report-insight-$rank';
+
+  /// A Due soon row, the [reportRow] shape: an event can be due on more
+  /// than one day of a span, so the day is part of the id.
+  static String reportDue(String eventId, DateTime day) =>
+      'report-due-$eventId-${_isoDate(day)}';
+
+  /// The Due soon card's disclosure row, one id whether it reads "n more"
+  /// or "Show less".
+  static const String reportDueMore = 'report-due-more';
+
   /// A category group's header, by its card's `ReportCard` name:
   /// `report-group-categories-<categoryId>`, `-missed-…`, `-ahead-…` — one
   /// category heads a group in each card, so the card is part of the id.

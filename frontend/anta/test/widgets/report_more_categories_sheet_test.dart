@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:anta/constants/app_theme.dart';
 import 'package:anta/constants/calendar_categories.dart';
+import 'package:anta/constants/category_kinds.dart';
 import 'package:anta/constants/semantics_ids.dart';
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/models/calendar_category.dart';
@@ -130,6 +131,7 @@ void main() {
     List<ReportCategoryGroup>? groups,
     Map<String, CalendarEvent>? events,
     int? largest,
+    Map<String, ReportMeasures> measures = const {},
     Locale locale = const Locale('en'),
     double? textScale,
     Brightness brightness = Brightness.light,
@@ -168,6 +170,7 @@ void main() {
                   spansMonths: false,
                   use24Hour: true,
                   largest: largest,
+                  measures: measures,
                 );
                 outcome.returned = true;
               },
@@ -213,6 +216,29 @@ void main() {
       expect(header(id), findsNothing, reason: id);
     }
     expect(find.byType(Scrollable), findsNWidgets(1));
+  });
+
+  testWidgets('a profiled header past the cap leads with its primary, as on '
+      'the page; an unprofiled one keeps its count (N)', (tester) async {
+    await openSheet(
+      tester,
+      measures: {
+        'birthday': const ReportMeasures(
+          categoryId: 'birthday',
+          primary: ReportMeasure.hours,
+          profiled: true,
+          minutes: 31 * 60,
+        ),
+      },
+    );
+    FormMeterRow headerRow(String categoryId) => tester.widget<FormMeterRow>(
+      find.ancestor(
+        of: header(categoryId),
+        matching: find.byType(FormMeterRow),
+      ),
+    );
+    expect(headerRow('birthday').caption, '31 h${ReportLabels.separator}30');
+    expect(headerRow('other').caption, isNot(startsWith('31 h')));
   });
 
   testWidgets('a header tap closes its group and a second opens it', (

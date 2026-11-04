@@ -1,5 +1,7 @@
-import 'package:flutter/foundation.dart' show ValueListenable;
+import 'package:flutter/foundation.dart' show ValueListenable, setEquals;
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart'
+    show RenderSliverToBoxAdapter, SliverGeometry;
 
 import '../constants/alert_constants.dart';
 import '../constants/event_digests.dart';
@@ -13,9 +15,11 @@ import '../models/calendar_report.dart';
 import '../models/overview_period.dart';
 import '../models/report_period_choice.dart';
 import '../utils/date_span_label.dart';
+import '../utils/report_insight_filter.dart';
 import '../utils/report_labels.dart';
 import 'agenda_period_nav.dart';
 import 'form_rows.dart';
+import 'report_analytics_cards.dart';
 import 'report_group_stack.dart';
 import 'report_totals_card.dart';
 import 'report_trend_chart.dart';
@@ -162,6 +166,13 @@ class _ReportBandState extends State<ReportBand> {
               yearBounds: years,
             ) !=
             null;
+    final settled = report != null && !widget.folding;
+    // The goals form only where it fits at the 1.0 size (Q); the nav owns
+    // the box, so it decides between the two forms handed to it.
+    final goalsForm =
+        settled &&
+        report.goals.isNotEmpty &&
+        report.tense != ReportTense.future;
     return AgendaPeriodNav(
       title: period == null ? '' : labels.periodName(period),
       titleTemplates: _titleTemplates(l10n, widget.today),
@@ -173,6 +184,13 @@ class _ReportBandState extends State<ReportBand> {
       subtitle: report == null || widget.folding
           ? ' '
           : labels.subtitle(report),
+      compactSubtitle: goalsForm ? labels.subtitle(report, goals: false) : null,
+      subtitleTemplate: goalsForm
+          ? labels.subtitleTemplate(
+              report.goals.length,
+              past: report.tense == ReportTense.past,
+            )
+          : null,
       previousTooltip: l10n.overviewPeriodPrevious,
       nextTooltip: l10n.overviewPeriodNext,
       todayTooltip: l10n.overviewPeriodHome(
@@ -222,6 +240,8 @@ class ReportBody extends StatefulWidget {
     required this.use24Hour,
     this.onDatedTap,
     this.onRoutineTap,
+    this.onDueTap,
+    this.onReveal,
     this.onPresence,
     this.onShowAsList,
     this.onMoreCategories,
@@ -278,6 +298,16 @@ class ReportBody extends StatefulWidget {
   /// A routine aggregate's tap.
   final void Function(ReportRoutineRow row)? onRoutineTap;
 
+  /// A Due soon row's tap (M); the surface picks the day it opens on.
+  final void Function(ReportDueRow row)? onDueTap;
+
+  /// Called when a goal's or an insight's tap moves the body to one of its
+  /// own cards — a group opened and scrolled to, the Due soon card scrolled
+  /// to — so the surface can click. Null leaves those rows with no tap, as
+  /// the guide's stage draws them; a tap that leaves the body reads
+  /// [onMoreCategories] or [onShowAsList] instead.
+  final VoidCallback? onReveal;
+
   /// A Missed row's presence button, handed the status to write; null draws
   /// no button.
   final void Function(ReportDatedRow row, bool missed)? onPresence;
@@ -321,6 +351,34 @@ class _ReportBodyState extends State<ReportBody> {
 
   ScrollController get _scroll =>
       widget.scroll ?? (_ownScroll ??= ScrollController());
+
+  /// The Categories card's stack, which a goal's or an insight's tap opens
+  /// a group of and scrolls to (G).
+  final GlobalKey<ReportGroupStackState> _categories = GlobalKey();
+
+  /// The Due soon card's label, which an insight's tap scrolls to the top.
+  final GlobalKey _dueSoonLabel = GlobalKey();
+
+  /// How many reports of the same look have replaced the one drawn; the
+  /// refold anchor acts on a count that moved, so a build only hands it
+  /// over (R).
+  int _refolds = 0;
+
+  /// Only a refold — a new report for the same period and allowlist — moves
+  /// the anchor (§2.6). A step, a pick or a category change is another
+  /// report altogether: it keeps the raw offset, and the page releases its
+  /// end slack for it, which a correction would then spring back from.
+  @override
+  void didUpdateWidget(ReportBody oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.report != null &&
+        widget.report != null &&
+        !identical(oldWidget.report, widget.report) &&
+        oldWidget.period == widget.period &&
+        setEquals(oldWidget.categoryIds, widget.categoryIds)) {
+      _refolds++;
+    }
+  }
 
   @override
   void dispose() {
@@ -368,6 +426,9 @@ class _ReportBodyState extends State<ReportBody> {
           );
     final clearance = widget.bottomClearance;
     final slack = widget.slack;
+    final analytics = report == null
+        ? const <Widget>[]
+        : _analyticsCards(l10n, labels, report);
     return Semantics(
       container: true,
       identifier: SemanticsIds.reportBody,
@@ -383,7 +444,17 @@ class _ReportBodyState extends State<ReportBody> {
             ),
             sliver: SliverMainAxisGroup(
               slivers: [
-                SliverToBoxAdapter(
+                ...analytics,
+                if (analytics.isNotEmpty)
+                  const SliverToBoxAdapter(
+                    child: SizedBox(height: RowMetrics.groupGap),
+                  ),
+                _AnchoredLabel(
+                  // Keyed: a refold that changes the count of the cards'
+                  // slivers above it and one below would otherwise re-create
+                  // it with no extent to compare against.
+                  key: const ValueKey(#totalsLabel),
+                  refolds: _refolds,
                   child: FormSectionLabel(text: l10n.reportSectionTotals),
                 ),
                 SliverToBoxAdapter(
@@ -393,6 +464,7 @@ class _ReportBodyState extends State<ReportBody> {
                       labels: labels,
                       against: against,
                       muted: report?.isEmpty ?? false,
+                      nominalMinutes: report?.nominalMinutes ?? 0,
                     ),
                   ),
                 ),
@@ -482,6 +554,143 @@ class _ReportBodyState extends State<ReportBody> {
     );
   }
 
+  /// Goals, Insights and Due soon above Totals (S4 §2.1), each under its
+  /// label after the gap between cards, the first with none; a card with
+  /// nothing to show is absent with its label (H), so an unprofiled report
+  /// inserts no sliver and opens on Totals as it always has. A plan has no
+  /// Insights: nothing has happened to remark on. The Insights card reads
+  /// the page's filter, which drops what Goals and Due soon already say.
+  List<Widget> _analyticsCards(
+    AppLocalizations l10n,
+    ReportLabels labels,
+    CalendarReport report,
+  ) {
+    final insights = report.tense == ReportTense.future
+        ? const <ReportInsight>[]
+        : ReportInsightFilter.forPage(report);
+    final cards = [
+      if (report.goals.isNotEmpty)
+        (
+          label: l10n.reportSectionGoals,
+          labelKey: null,
+          card: ReportGoalsCard(
+            report: report,
+            labels: labels,
+            canTap: (goal) => _toGroup(report, goal.categoryId) != null,
+            onGoalTap: (goal) => _toGroup(report, goal.categoryId)?.call(),
+          ),
+        ),
+      if (insights.isNotEmpty)
+        (
+          label: l10n.reportSectionInsights,
+          labelKey: null,
+          card: ReportInsightsCard(
+            insights: insights,
+            report: report,
+            labels: labels,
+            weekStart: widget.weekStart,
+            canTap: (insight) => _toInsight(report, insight) != null,
+            onInsightTap: (insight) => _toInsight(report, insight)?.call(),
+          ),
+        ),
+      if (report.dueSoon.isNotEmpty)
+        (
+          label: l10n.reportSectionDueSoon,
+          labelKey: _dueSoonLabel,
+          card: ReportDueSoonCard(
+            report: report,
+            labels: labels,
+            folds: widget.folds,
+            onDueTap: widget.onDueTap,
+            onShrink: widget.onShrink,
+            scroll: _scroll,
+          ),
+        ),
+    ];
+    return [
+      for (final (index, (:label, :labelKey, :card)) in cards.indexed) ...[
+        if (index > 0)
+          const SliverToBoxAdapter(
+            child: SizedBox(height: RowMetrics.groupGap),
+          ),
+        SliverToBoxAdapter(
+          child: FormSectionLabel(key: labelKey, text: label),
+        ),
+        SliverToBoxAdapter(child: RepaintBoundary(child: card)),
+      ],
+    ];
+  }
+
+  /// Where a tap about [categoryId]'s group lands (G): a group the card
+  /// shows opens and scrolls to the top; one past the cap opens the "n more
+  /// categories" sheet, as the cap row does. Null — a row with no tap —
+  /// when the category has no group, or the surface wired no way there.
+  VoidCallback? _toGroup(CalendarReport report, String? categoryId) {
+    if (categoryId == null) return null;
+    final groups = report.categories;
+    final index = groups.indexWhere((group) => group.categoryId == categoryId);
+    if (index < 0) return null;
+    if (index < ReportMetrics.maxCategoryRows) {
+      final onReveal = widget.onReveal;
+      if (onReveal == null) return null;
+      return () {
+        onReveal();
+        _categories.currentState?.reveal(categoryId);
+      };
+    }
+    final onMoreCategories = widget.onMoreCategories;
+    if (onMoreCategories == null) return null;
+    return () => onMoreCategories(
+      report,
+      largest: groups.first.count,
+      spansMonths: _spansMonths(report),
+    );
+  }
+
+  /// Where [insight]'s tap lands, by its target (§2.3): its category's
+  /// group, the Due soon card's label at the top, or the overview's list on
+  /// its days — over its category, else the page's allowlist. A tag's rows
+  /// are its first category's group until the By tag card exists. Null
+  /// when the target cannot be reached.
+  VoidCallback? _toInsight(CalendarReport report, ReportInsight insight) {
+    switch (insight.target) {
+      case InsightTarget.categoryGroup:
+        return _toGroup(report, insight.categoryId);
+      case InsightTarget.tagRows:
+        final tag = report.tags
+            .where((tag) => tag.key == insight.tagKey)
+            .firstOrNull;
+        return _toGroup(report, tag?.categoryIds.firstOrNull);
+      case InsightTarget.dueSoon:
+        final onReveal = widget.onReveal;
+        if (onReveal == null || report.dueSoon.isEmpty) return null;
+        return () {
+          onReveal();
+          revealAtTop(
+            _scroll,
+            () => _dueSoonLabel.currentContext?.findRenderObject(),
+          );
+        };
+      case InsightTarget.overviewDays:
+        final day = insight.day;
+        final onShowAsList = widget.onShowAsList;
+        if (day == null || onShowAsList == null) return null;
+        final categoryId = insight.categoryId;
+        return () => onShowAsList(
+          start: day,
+          end: insight.dayEnd ?? day,
+          categoryIds: categoryId == null ? widget.categoryIds : {categoryId},
+        );
+    }
+  }
+
+  /// Whether [report]'s span crosses a month: a row's day names it (U).
+  static bool _spansMonths(CalendarReport report) {
+    final span = report.span;
+    return span.start.year != span.end.year ||
+        span.start.month != span.end.month;
+  }
+
   /// [card]'s groups under their [label], after the gap between cards;
   /// nothing when the card has no group (H). Categories shows its first
   /// [ReportMetrics.maxCategoryRows] groups and a row for the rest (V). The
@@ -504,8 +713,7 @@ class _ReportBodyState extends State<ReportBody> {
         all.length > ReportMetrics.maxCategoryRows;
     final groups = capped ? all.sublist(0, ReportMetrics.maxCategoryRows) : all;
     final span = report.span;
-    final spansMonths =
-        span.start.year != span.end.year || span.start.month != span.end.month;
+    final spansMonths = _spansMonths(report);
     // Ahead's rows are the days after the counted end, so its list starts
     // there; Categories and Missed list the folded span.
     final counted = report.countedTo;
@@ -517,13 +725,15 @@ class _ReportBodyState extends State<ReportBody> {
       const SliverToBoxAdapter(child: SizedBox(height: RowMetrics.groupGap)),
       SliverToBoxAdapter(child: FormSectionLabel(text: label)),
       ReportGroupStack(
-        key: ValueKey(card),
+        // Still one key per card: Categories' is the one a goal reaches.
+        key: card == ReportCard.categories ? _categories : ValueKey(card),
         scroll: _scroll,
         folds: widget.folds,
         card: card,
         groups: groups,
         events: report.events,
         labels: labels,
+        measures: report.measures,
         onDatedTap: widget.onDatedTap,
         onRoutineTap: widget.onRoutineTap,
         onPresence: card == ReportCard.missed ? widget.onPresence : null,
@@ -644,5 +854,79 @@ class _ReportBodyState extends State<ReportBody> {
         ),
       ],
     );
+  }
+}
+
+/// The Totals label's sliver, the page's anchor on a refold (R, §2.6): the
+/// Insights and Due soon cards above it change height with the report, and
+/// with the viewport's top below the label everything under the finger
+/// would move by that change. Still a [SliverToBoxAdapter], so the body's
+/// slivers read as they always have.
+class _AnchoredLabel extends SliverToBoxAdapter {
+  const _AnchoredLabel({
+    super.key,
+    required this.refolds,
+    required Widget super.child,
+  });
+
+  /// How many reports have replaced the one drawn; a count that moved arms
+  /// the next layout.
+  final int refolds;
+
+  @override
+  _RenderAnchoredLabel createRenderObject(BuildContext context) =>
+      _RenderAnchoredLabel(refolds: refolds);
+
+  @override
+  void updateRenderObject(
+    BuildContext context,
+    covariant _RenderAnchoredLabel renderObject,
+  ) {
+    renderObject.refolds = refolds;
+  }
+}
+
+/// Armed by a new report, the next layout compares the label's preceding
+/// extent — everything above it — with the last one laid; when the last
+/// layout had the viewport's top below the label's top, it corrects the
+/// scroll offset by the difference inside that layout, so the new report's
+/// first frame already holds the label, and all below it, where it was:
+/// never a post-frame jump, never a frame drawn off the finger. With the
+/// label at or below the top nothing moves, so at offset 0 the page still
+/// opens on the first card. Only a new report arms it: "Show less" on the
+/// Due soon card carries its own compensation.
+class _RenderAnchoredLabel extends RenderSliverToBoxAdapter {
+  _RenderAnchoredLabel({required int refolds}) : _refolds = refolds;
+
+  int _refolds;
+  bool _armed = false;
+
+  /// The extent above the label at the last layout; null before the first.
+  double? _preceding;
+
+  /// Whether the last layout had the viewport's top below the label's top.
+  bool _passed = false;
+
+  set refolds(int value) {
+    if (value == _refolds) return;
+    _refolds = value;
+    _armed = true;
+    markNeedsLayout();
+  }
+
+  @override
+  void performLayout() {
+    final preceding = constraints.precedingScrollExtent;
+    final old = _preceding;
+    final armed = _armed;
+    _armed = false;
+    if (armed && _passed && old != null && preceding != old) {
+      // The viewport lays every sliver out again at the corrected offset.
+      geometry = SliverGeometry(scrollOffsetCorrection: preceding - old);
+      return;
+    }
+    super.performLayout();
+    _preceding = preceding;
+    _passed = constraints.scrollOffset > 0;
   }
 }

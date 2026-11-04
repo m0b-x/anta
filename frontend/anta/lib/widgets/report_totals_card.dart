@@ -26,6 +26,7 @@ class ReportTotalsCard extends StatefulWidget {
     required this.labels,
     this.against,
     this.muted = false,
+    this.nominalMinutes = 0,
   });
 
   /// The tiles in display order.
@@ -39,6 +40,11 @@ class ReportTotalsCard extends StatefulWidget {
 
   /// An empty period: every value in `onSurfaceVariant`, never faded (F).
   final bool muted;
+
+  /// The counts-as part of the Hours tile ([CalendarReport.nominalMinutes]),
+  /// which only its spoken label says (O): the drawn tile leaves it to the
+  /// Totals caption.
+  final int nominalMinutes;
 
   @override
   State<ReportTotalsCard> createState() => _ReportTotalsCardState();
@@ -233,7 +239,11 @@ class _ReportTotalsCardState extends State<ReportTotalsCard> {
     return Semantics(
       container: true,
       identifier: SemanticsIds.reportTile(value.tile.name),
-      label: labels.tileSemantics(value, against: widget.against),
+      label: labels.tileSemantics(
+        value,
+        against: widget.against,
+        nominalMinutes: widget.nominalMinutes,
+      ),
       child: ExcludeSemantics(
         child: Padding(
           padding: const EdgeInsets.symmetric(

@@ -63,6 +63,7 @@ class ReportMoreCategoriesSheet extends StatefulWidget {
     required this.use24Hour,
     this.largest,
     this.folds,
+    this.measures = const {},
   });
 
   final List<ReportCategoryGroup> groups;
@@ -87,6 +88,11 @@ class ReportMoreCategoriesSheet extends StatefulWidget {
   /// an id with the card's. Null keeps folds of the sheet's own.
   final ReportGroupFolds? folds;
 
+  /// The report's `CalendarReport.measures`, so a profiled header past the
+  /// cap leads with its primary as it would on the page (N); empty keeps
+  /// every header's count facts.
+  final Map<String, ReportMeasures> measures;
+
   /// Resolves to what the viewer picked, or null when dismissed.
   static Future<ReportSheetResult?> show(
     BuildContext context, {
@@ -98,6 +104,7 @@ class ReportMoreCategoriesSheet extends StatefulWidget {
     required bool use24Hour,
     int? largest,
     ReportGroupFolds? folds,
+    Map<String, ReportMeasures> measures = const {},
   }) {
     final colorScheme = Theme.of(context).colorScheme;
     return showModalBottomSheet<ReportSheetResult>(
@@ -122,6 +129,7 @@ class ReportMoreCategoriesSheet extends StatefulWidget {
           use24Hour: use24Hour,
           largest: largest,
           folds: folds,
+          measures: measures,
         ),
       ),
     );
@@ -212,6 +220,7 @@ class _ReportMoreCategoriesSheetState extends State<ReportMoreCategoriesSheet> {
                     spansMonths: widget.spansMonths,
                     use24Hour: widget.use24Hour,
                     onShrink: () => _slackArms.value++,
+                    measures: widget.measures,
                   ),
                 ),
                 ValueListenableBuilder(

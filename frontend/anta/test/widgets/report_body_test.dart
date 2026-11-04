@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:anta/constants/app_theme.dart';
 import 'package:anta/constants/calendar_categories.dart';
+import 'package:anta/constants/category_kinds.dart';
 import 'package:anta/constants/event_presence.dart';
 import 'package:anta/constants/report_metrics.dart';
 import 'package:anta/constants/semantics_ids.dart';
@@ -12,6 +13,7 @@ import 'package:anta/models/calendar_appearance.dart';
 import 'package:anta/models/calendar_category.dart';
 import 'package:anta/models/calendar_event.dart';
 import 'package:anta/models/calendar_report.dart';
+import 'package:anta/models/category_profile.dart';
 import 'package:anta/models/overview_period.dart';
 import 'package:anta/models/recurrence_rule.dart';
 import 'package:anta/services/app_navigator.dart';
@@ -127,6 +129,38 @@ void main() {
 
   Finder byId(String id) => find.bySemanticsIdentifier(id);
 
+  /// The body's padded sliver group as words: a section label by its text,
+  /// a boxed child by its type through its repaint boundary, any other
+  /// sliver by its own type — what an unprofiled page must keep and the
+  /// new cards insert into.
+  List<String> sliverSequence(WidgetTester tester) {
+    final group = tester.widget<SliverMainAxisGroup>(
+      find
+          .descendant(
+            of: byId(SemanticsIds.reportBody),
+            matching: find.byType(SliverMainAxisGroup),
+          )
+          .first,
+    );
+    return [
+      for (final sliver in group.children)
+        switch (sliver) {
+          SliverToBoxAdapter(child: FormSectionLabel(:final text)) =>
+            'label $text',
+          SliverToBoxAdapter(child: RepaintBoundary(:final child?)) =>
+            '${child.runtimeType}',
+          SliverToBoxAdapter(:final child?) => '${child.runtimeType}',
+          _ => '${sliver.runtimeType}',
+        },
+    ];
+  }
+
+  /// The section label whose text is [text], found by the widget's own
+  /// field: the label draws its words uppercase.
+  Finder sectionLabel(String text) => find.byWidgetPredicate(
+    (widget) => widget is FormSectionLabel && widget.text == text,
+  );
+
   /// [shown] over [period] in place of the October fixture; [bandPeriod] the
   /// band's title alone, its home staying [period].
   Future<void> pumpBody(
@@ -136,6 +170,7 @@ void main() {
     Size surface = const Size(360, 780),
     CalendarReport? shown,
     OverviewPeriod period = october,
+    Set<String> categoryIds = const {},
     OverviewPeriod? bandPeriod,
   }) async {
     addTearDown(tester.view.reset);
@@ -173,6 +208,7 @@ void main() {
                     child: ReportBody(
                       report: shown ?? report,
                       period: period,
+                      categoryIds: categoryIds,
                       today: today,
                       years: years,
                       weekStart: CalendarWeekStart.monday,
@@ -240,6 +276,482 @@ void main() {
       }
     });
     expect(seen, hasLength(6));
+  });
+
+  testWidgets('an unprofiled report inserts no sliver and moves nothing: the '
+      'sequence, the Totals label and the scroll extent as before S4', (
+    tester,
+  ) async {
+    await pumpBody(tester);
+    expect(report.goals, isEmpty);
+    expect(report.insights, isEmpty);
+    expect(report.dueSoon, isEmpty);
+    expect(sliverSequence(tester), [
+      'label Totals',
+      'ReportTotalsCard',
+      'FormCaption',
+      'SizedBox',
+      'label Categories',
+      'ReportGroupStack',
+      'SizedBox',
+      'label Over time',
+      'ReportTrendChart',
+      'SizedBox',
+      'label Missed',
+      'ReportGroupStack',
+      'SizedBox',
+      'FormRowGroup',
+    ]);
+    expect(tester.getTopLeft(sectionLabel('Totals')), const Offset(16, 82));
+    expect(
+      tester.getTopLeft(find.byType(ReportTotalsCard)),
+      const Offset(16, 102),
+    );
+    final position = tester
+        .state<ScrollableState>(
+          find.descendant(
+            of: byId(SemanticsIds.reportBody),
+            matching: find.byType(Scrollable),
+          ),
+        )
+        .position;
+    expect(position.maxScrollExtent, 574);
+  });
+
+  group('the analytics cards above Totals (§2.1)', () {
+    const sep = ReportLabels.separator;
+
+    /// [report] with the analytics a profiled calendar carries; the rest
+    /// of the fold as it came.
+    CalendarReport profiled({
+      ReportTense? tense,
+      List<ReportGoal> goals = const [],
+      List<ReportDueRow> dueSoon = const [],
+      List<ReportInsight> insights = const [],
+      Map<String, ReportMeasures>? measures,
+      List<ReportCategoryGroup>? missed,
+    }) => CalendarReport(
+      span: report.span,
+      today: report.today,
+      tense: tense ?? report.tense,
+      countedTo: report.countedTo,
+      previousSpan: report.previousSpan,
+      previousCounted: report.previousCounted,
+      events: report.events,
+      tiles: report.tiles,
+      skippedDays: report.skippedDays,
+      aheadCount: report.aheadCount,
+      categories: report.categories,
+      trend: report.trend,
+      missed: missed ?? report.missed,
+      ahead: report.ahead,
+      measures: measures ?? report.measures,
+      goals: goals,
+      dueSoon: dueSoon,
+      insights: insights,
+    );
+    final gymGoal = ReportGoal(
+      categoryId: 'gym',
+      measure: ReportMeasure.count,
+      target: const ReportTarget(
+        kind: TargetKind.atLeast,
+        value: 2,
+        period: TargetPeriod.week,
+      ),
+      periods: [
+        ReportGoalPeriod(
+          start: DateTime.utc(2026, 10, 26),
+          end: DateTime.utc(2026, 11, 1),
+          value: 1,
+          expected: 1,
+          state: GoalState.onPace,
+        ),
+      ],
+    );
+    final gymDue = ReportDueRow(
+      categoryId: 'gym',
+      eventId: gym.id,
+      day: DateTime.utc(2026, 10, 29),
+      kind: ReportDueKind.unmarked,
+      state: ReportDueState.unmarked,
+      days: 1,
+    );
+    const trend = ReportInsight(
+      rule: InsightRule.t1,
+      severity: 1,
+      categoryId: 'gym',
+      target: InsightTarget.categoryGroup,
+      n1: 8,
+      n2: 5,
+      ratio: 0.6,
+    );
+    // The Goals card says this one already, so the page drops it (H).
+    const behind = ReportInsight(
+      rule: InsightRule.g1,
+      severity: 3,
+      categoryId: 'gym',
+      target: InsightTarget.categoryGroup,
+    );
+    const totalsOn = [
+      'label Totals',
+      'ReportTotalsCard',
+      'FormCaption',
+      'SizedBox',
+      'label Categories',
+    ];
+
+    testWidgets('Goals, Insights and Due soon lead, a gap between each and '
+        'before Totals', (tester) async {
+      await pumpBody(
+        tester,
+        shown: profiled(
+          goals: [gymGoal],
+          dueSoon: [gymDue],
+          insights: const [trend],
+        ),
+      );
+      expect(sliverSequence(tester).take(14), [
+        'label Goals',
+        'ReportGoalsCard',
+        'SizedBox',
+        'label Insights',
+        'ReportInsightsCard',
+        'SizedBox',
+        'label Due soon',
+        'ReportDueSoonCard',
+        'SizedBox',
+        ...totalsOn,
+      ]);
+      expect(tester.getTopLeft(sectionLabel('Goals')).dy, 82);
+      expect(
+        tester.getTopLeft(sectionLabel('Totals')).dy,
+        greaterThan(tester.getTopLeft(sectionLabel('Due soon')).dy),
+      );
+      // Plain labels: the page's headings stay the bar's (U).
+      final handle = tester.ensureSemantics();
+      try {
+        await tester.pump();
+        final label = tester
+            .getSemantics(find.text('GOALS'))
+            .getSemanticsData();
+        expect(label.headingLevel, 0);
+      } finally {
+        handle.dispose();
+      }
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('a card with nothing to show is absent with its label, and '
+        'the first card has no gap above it', (tester) async {
+      await pumpBody(
+        tester,
+        shown: profiled(dueSoon: [gymDue], insights: const [trend]),
+      );
+      expect(sliverSequence(tester).take(11), [
+        'label Insights',
+        'ReportInsightsCard',
+        'SizedBox',
+        'label Due soon',
+        'ReportDueSoonCard',
+        'SizedBox',
+        ...totalsOn,
+      ]);
+
+      await pumpBody(tester, shown: profiled(goals: [gymGoal]));
+      expect(sliverSequence(tester).take(8), [
+        'label Goals',
+        'ReportGoalsCard',
+        'SizedBox',
+        ...totalsOn,
+      ]);
+
+      // The one insight is the goal's own news: Insights is absent (H).
+      await pumpBody(
+        tester,
+        shown: profiled(goals: [gymGoal], insights: const [behind]),
+      );
+      expect(sliverSequence(tester).take(8), [
+        'label Goals',
+        'ReportGoalsCard',
+        'SizedBox',
+        ...totalsOn,
+      ]);
+      expect(sectionLabel('Insights'), findsNothing);
+    });
+
+    testWidgets('a plan shows Goals then Due soon, and no Insights', (
+      tester,
+    ) async {
+      await pumpBody(
+        tester,
+        shown: profiled(
+          tense: ReportTense.future,
+          goals: [gymGoal],
+          dueSoon: [gymDue],
+          insights: const [trend],
+        ),
+      );
+      expect(sliverSequence(tester).take(7), [
+        'label Goals',
+        'ReportGoalsCard',
+        'SizedBox',
+        'label Due soon',
+        'ReportDueSoonCard',
+        'SizedBox',
+        'label Totals',
+      ]);
+      expect(sectionLabel('Insights'), findsNothing);
+    });
+
+    testWidgets('a profiled Categories header leads with its primary; '
+        'Missed keeps its facts', (tester) async {
+      final group = report.categories.firstWhere(
+        (group) => group.categoryId == 'gym',
+      );
+      await pumpBody(
+        tester,
+        shown: profiled(
+          measures: {
+            'gym': const ReportMeasures(
+              categoryId: 'gym',
+              primary: ReportMeasure.hours,
+              profiled: true,
+              minutes: 31 * 60,
+            ),
+          },
+        ),
+      );
+      final header = tester.widget<FormMeterRow>(
+        find
+            .ancestor(
+              of: byId(SemanticsIds.reportGroup('categories', 'gym')),
+              matching: find.byType(FormMeterRow),
+            )
+            .first,
+      );
+      expect(
+        header.caption,
+        [
+          '31 h',
+          '${group.count}',
+          if (group.missed > 0) '${group.missed} missed',
+        ].join(sep),
+      );
+      expect(
+        header.semanticsLabel,
+        endsWith(
+          [
+            '31 hours',
+            '${group.count} events',
+            if (group.missed > 0) '${group.missed} missed',
+          ].join(', '),
+        ),
+      );
+      final missed = report.missed.firstWhere(
+        (group) => group.categoryId == 'gym',
+      );
+      final scrollable = find.descendant(
+        of: byId(SemanticsIds.reportBody),
+        matching: find.byType(Scrollable),
+      );
+      final missedHeader = byId(SemanticsIds.reportGroup('missed', 'gym'));
+      await tester.scrollUntilVisible(
+        missedHeader,
+        300,
+        scrollable: scrollable,
+      );
+      final missedRow = tester.widget<FormMeterRow>(
+        find
+            .ancestor(of: missedHeader, matching: find.byType(FormMeterRow))
+            .first,
+      );
+      expect(missedRow.caption, '${missed.missed} missed');
+    });
+
+    /// The body's one scroll position.
+    ScrollPosition bodyScroll(WidgetTester tester) => tester
+        .state<ScrollableState>(
+          find.descendant(
+            of: byId(SemanticsIds.reportBody),
+            matching: find.byType(Scrollable),
+          ),
+        )
+        .position;
+
+    double bodyTop(WidgetTester tester) =>
+        tester.getTopLeft(byId(SemanticsIds.reportBody)).dy;
+
+    /// The Totals label's top on screen; above the viewport once scrolled
+    /// past, so offstage to a plain finder.
+    double totalsTop(WidgetTester tester) => tester
+        .getTopLeft(
+          find.byWidgetPredicate(
+            (widget) => widget is FormSectionLabel && widget.text == 'Totals',
+            skipOffstage: false,
+          ),
+        )
+        .dy;
+
+    const short = Size(360, 520);
+
+    /// [first] on the short phone, scrolled until the viewport's top lies
+    /// [past] below the Totals label's top.
+    Future<void> pastTotals(
+      WidgetTester tester,
+      CalendarReport first, {
+      double past = 60,
+    }) async {
+      await pumpBody(tester, surface: short, shown: first);
+      bodyScroll(tester).jumpTo(totalsTop(tester) - bodyTop(tester) + past);
+      await tester.pump();
+      expect(totalsTop(tester), closeTo(bodyTop(tester) - past, 0.01));
+    }
+
+    const another = ReportInsight(
+      rule: InsightRule.t1,
+      severity: 1,
+      categoryId: 'birthday',
+      target: InsightTarget.categoryGroup,
+      n1: 3,
+      n2: 1,
+      ratio: 2,
+    );
+
+    for (final (name, insights, missed) in [
+      ('the insights gone, Missed kept', const <ReportInsight>[], null),
+      (
+        'the insights gone and Missed gone',
+        const <ReportInsight>[],
+        const <ReportCategoryGroup>[],
+      ),
+      (
+        'the insights kept and Missed gone',
+        const [trend],
+        const <ReportCategoryGroup>[],
+      ),
+    ]) {
+      testWidgets('a refold with $name holds the Totals label past the '
+          'viewport\'s top (R): the anchor keeps its memory', (tester) async {
+        await pastTotals(
+          tester,
+          profiled(dueSoon: [gymDue], insights: const [trend]),
+        );
+        final label = totalsTop(tester);
+        await pumpBody(
+          tester,
+          surface: short,
+          shown: profiled(
+            dueSoon: [gymDue],
+            insights: insights,
+            missed: missed,
+          ),
+        );
+        expect(
+          find.byWidgetPredicate(
+            (widget) => widget is FormSectionLabel && widget.text == 'Insights',
+            skipOffstage: false,
+          ),
+          insights.isEmpty ? findsNothing : findsOneWidget,
+        );
+        expect(sliverSequence(tester).contains('label Missed'), missed == null);
+        expect(totalsTop(tester), closeTo(label, 0.01));
+        final position = bodyScroll(tester);
+        expect(position.pixels, lessThanOrEqualTo(position.maxScrollExtent));
+        expect(tester.takeException(), isNull);
+      });
+    }
+
+    testWidgets('a refold that shrinks the cards above Totals corrects the '
+        'offset down and holds the label (R)', (tester) async {
+      await pastTotals(
+        tester,
+        profiled(dueSoon: [gymDue], insights: const [trend, another]),
+      );
+      final label = totalsTop(tester);
+      final offset = bodyScroll(tester).pixels;
+      await pumpBody(
+        tester,
+        surface: short,
+        shown: profiled(dueSoon: [gymDue], insights: const [trend]),
+      );
+      expect(bodyScroll(tester).pixels, lessThan(offset));
+      expect(totalsTop(tester), closeTo(label, 0.01));
+    });
+
+    testWidgets('a label only partly scrolled off is held too (R)', (
+      tester,
+    ) async {
+      await pastTotals(
+        tester,
+        profiled(dueSoon: [gymDue], insights: const [trend]),
+        past: 4,
+      );
+      final label = totalsTop(tester);
+      await pumpBody(
+        tester,
+        surface: short,
+        shown: profiled(dueSoon: [gymDue], insights: const [trend, another]),
+      );
+      expect(totalsTop(tester), closeTo(label, 0.01));
+    });
+
+    testWidgets('a step, a pick or a category change is not a refold: past '
+        'Totals the offset stays as it was and the label moves', (
+      tester,
+    ) async {
+      const september = OverviewMonthPeriod(2026, 9);
+      await pastTotals(
+        tester,
+        profiled(dueSoon: [gymDue], insights: const [trend]),
+      );
+      final offset = bodyScroll(tester).pixels;
+      final label = totalsTop(tester);
+      await pumpBody(
+        tester,
+        surface: short,
+        period: september,
+        shown: profiled(dueSoon: [gymDue], insights: const [trend, another]),
+      );
+      expect(bodyScroll(tester).pixels, offset);
+      expect(totalsTop(tester), greaterThan(label));
+
+      final moved = totalsTop(tester);
+      await pumpBody(
+        tester,
+        surface: short,
+        period: september,
+        categoryIds: const {'gym'},
+        shown: profiled(dueSoon: [gymDue], insights: const [trend]),
+      );
+      expect(bodyScroll(tester).pixels, offset);
+      expect(totalsTop(tester), lessThan(moved));
+    });
+
+    testWidgets('revealAtTop on a header already at the top moves nothing '
+        'and throws nothing', (tester) async {
+      await pumpBody(tester, surface: short);
+      final header = byId(SemanticsIds.reportGroup('categories', 'gym'));
+      final position = bodyScroll(tester);
+      position.jumpTo(tester.getTopLeft(header).dy - bodyTop(tester));
+      await tester.pump();
+      expect(tester.getTopLeft(header).dy, closeTo(bodyTop(tester), 0.01));
+      final offset = position.pixels;
+      final scroll = tester
+          .widget<CustomScrollView>(
+            find.descendant(
+              of: byId(SemanticsIds.reportBody),
+              matching: find.byType(CustomScrollView),
+            ),
+          )
+          .controller!;
+
+      revealAtTop(scroll, () => tester.renderObject(header));
+      await tester.pump();
+      await tester.pump();
+      expect(position.pixels, offset);
+      expect(tester.getTopLeft(header).dy, closeTo(bodyTop(tester), 0.01));
+      expect(tester.takeException(), isNull);
+    });
   });
 
   testWidgets('with every callback null no tap opens a route or leaves the '

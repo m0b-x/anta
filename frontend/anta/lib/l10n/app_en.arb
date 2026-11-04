@@ -10394,5 +10394,786 @@
   "categoryGoalRemove": "Remove goal",
   "@categoryGoalRemove": {
     "description": "Destructive row at the foot of the goal sheet"
+  },
+  "reportSectionGoals": "Goals",
+  "@reportSectionGoals": {
+    "description": "Report page: label of the card listing each category's goal and where it stands"
+  },
+  "reportSectionInsights": "Insights",
+  "@reportSectionInsights": {
+    "description": "Report page: label of the card with the few things worth noticing in the period"
+  },
+  "reportSectionDueSoon": "Due soon",
+  "@reportSectionDueSoon": {
+    "description": "Report page: label of the card listing what is overdue, due, expiring or not marked"
+  },
+  "reportGoalMoreBy": "{count, plural, =1{one more by {day}} other{{count} more by {day}}}",
+  "@reportGoalMoreBy": {
+    "description": "Report Goals card caption, an at-least count goal still open: how many are still needed before the period ends, e.g. one more by Sunday",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "day": {
+        "type": "String",
+        "example": "Sunday"
+      }
+    }
+  },
+  "reportGoalMoreToday": "{count, plural, =1{one more today} other{{count} more today}}",
+  "@reportGoalMoreToday": {
+    "description": "Report Goals card caption, an at-least count goal per day still open: how many are still needed today",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "reportGoalAmountMoreBy": "{amount} more by {day}",
+  "@reportGoalAmountMoreBy": {
+    "description": "Report Goals card caption, an at-least hours or money goal still open: what is still needed before the period ends, e.g. 2 h more by Sunday",
+    "placeholders": {
+      "amount": {
+        "type": "String",
+        "example": "2 h"
+      },
+      "day": {
+        "type": "String",
+        "example": "Sunday"
+      }
+    }
+  },
+  "reportGoalAmountMoreToday": "{amount} more today",
+  "@reportGoalAmountMoreToday": {
+    "description": "Report Goals card caption, an at-least hours or money goal per day still open: what is still needed today",
+    "placeholders": {
+      "amount": {
+        "type": "String",
+        "example": "2 h"
+      }
+    }
+  },
+  "reportGoalDone": "{period, select, day{done for today} week{done for the week} month{done for the month} year{done for the year} other{done}}",
+  "@reportGoalDone": {
+    "description": "Report Goals card caption: an at-least goal already reached before its period ends; period is the goal's period (day, week, month or year)",
+    "placeholders": {
+      "period": {
+        "type": "String"
+      }
+    }
+  },
+  "reportGoalLeft": "{amount} left",
+  "@reportGoalLeft": {
+    "description": "Report Goals card caption, an at-most or budget goal: what is left before the limit, e.g. 9 h left",
+    "placeholders": {
+      "amount": {
+        "type": "String",
+        "example": "9 h"
+      }
+    }
+  },
+  "reportGoalLeftIn": "{amount} left {period, select, day{today} week{this week} month{this month} year{this year} other{}}",
+  "@reportGoalLeftIn": {
+    "description": "Report Goals card caption, an at-most or budget goal when the report shows a longer span than the goal's period: what is left in the current period; period is day, week, month or year",
+    "placeholders": {
+      "amount": {
+        "type": "String",
+        "example": "9 h"
+      },
+      "period": {
+        "type": "String"
+      }
+    }
+  },
+  "reportGoalOver": "{amount} over",
+  "@reportGoalOver": {
+    "description": "Report Goals card caption, an at-most or budget goal past its limit: by how much, e.g. 4 h over",
+    "placeholders": {
+      "amount": {
+        "type": "String",
+        "example": "4 h"
+      }
+    }
+  },
+  "reportGoalMet": "Met",
+  "@reportGoalMet": {
+    "description": "Report Goals card caption: an at-least goal whose closed period reached its target"
+  },
+  "reportGoalMissed": "Missed",
+  "@reportGoalMissed": {
+    "description": "Report Goals card caption: an at-least goal whose closed period fell short of its target"
+  },
+  "reportGoalWithin": "Within",
+  "@reportGoalWithin": {
+    "description": "Report Goals card caption: an at-most or budget goal whose closed period stayed within its limit"
+  },
+  "reportGoalOverWord": "Over",
+  "@reportGoalOverWord": {
+    "description": "Report Goals card caption: an at-most or budget goal whose closed period went past its limit"
+  },
+  "reportGoalPeriodsMet": "{total, plural, one{{met} of 1 {period, select, day{day} week{week} month{month} year{year} other{period}} met} other{{met} of {total} {period, select, day{days} week{weeks} month{months} year{years} other{periods}} met}}",
+  "@reportGoalPeriodsMet": {
+    "description": "Report Goals card caption for a past span holding several goal periods: how many of them met the goal, e.g. 3 of 4 weeks met; period is day, week, month or year",
+    "placeholders": {
+      "met": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      },
+      "period": {
+        "type": "String"
+      }
+    }
+  },
+  "reportGoalPlanned": "{value} of {target} planned",
+  "@reportGoalPlanned": {
+    "description": "Report Goals card caption for a future period: what is planned against the goal's target, e.g. 2 of 3 planned; both already formatted",
+    "placeholders": {
+      "value": {
+        "type": "String"
+      },
+      "target": {
+        "type": "String"
+      }
+    }
+  },
+  "reportGoalGapDays": "{days, plural, one{1 day} other{{days} days}}",
+  "@reportGoalGapDays": {
+    "description": "Report Goals card caption, a days-between goal: days since the category last happened",
+    "placeholders": {
+      "days": {
+        "type": "int"
+      }
+    }
+  },
+  "reportGoalGapNone": "None yet",
+  "@reportGoalGapNone": {
+    "description": "Report Goals card caption, a days-between goal whose category has not happened yet"
+  },
+  "reportGoalGapLong": "Over a year",
+  "@reportGoalGapLong": {
+    "description": "Report Goals card caption, a days-between goal last kept before the year the report looks back over"
+  },
+  "reportGoalLimit": "limit {limit}",
+  "@reportGoalLimit": {
+    "description": "Report Goals card caption, a days-between goal: the most days allowed between two occurrences, e.g. limit 14",
+    "placeholders": {
+      "limit": {
+        "type": "int"
+      }
+    }
+  },
+  "reportGoalStreak": "{count} in a row",
+  "@reportGoalStreak": {
+    "description": "Report Goals card caption's last part: consecutive periods the goal was met, e.g. 4 in a row",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "reportGoalStreakSpoken": "{count, plural, one{1 {period, select, day{day} week{week} month{month} year{year} other{period}} in a row} other{{count} {period, select, day{days} week{weeks} month{months} year{years} other{periods}} in a row}}",
+  "@reportGoalStreakSpoken": {
+    "description": "Screen reader wording of a goal's streak, and an insight: consecutive periods met, e.g. 4 weeks in a row; period is day, week, month or year",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "period": {
+        "type": "String"
+      }
+    }
+  },
+  "reportGoalStateMet": "met",
+  "@reportGoalStateMet": {
+    "description": "Screen reader wording of a goal row's state glyph: the target was reached"
+  },
+  "reportGoalStateOnPace": "on pace",
+  "@reportGoalStateOnPace": {
+    "description": "Screen reader wording of a goal row's state glyph: on track to reach the goal"
+  },
+  "reportGoalStateBehind": "behind",
+  "@reportGoalStateBehind": {
+    "description": "Screen reader wording of a goal row's state glyph: behind the even pace"
+  },
+  "reportGoalStateOver": "over",
+  "@reportGoalStateOver": {
+    "description": "Screen reader wording of a goal row's state glyph: past an at-most or budget limit"
+  },
+  "reportGoalStateMissed": "missed",
+  "@reportGoalStateMissed": {
+    "description": "Screen reader wording of a goal row's state glyph: a closed period fell short"
+  },
+  "reportGoalStateNotStarted": "not started",
+  "@reportGoalStateNotStarted": {
+    "description": "Screen reader wording of a goal row's state glyph: nothing counted yet in the period"
+  },
+  "reportGoalStatePlanned": "planned",
+  "@reportGoalStatePlanned": {
+    "description": "Screen reader wording of a goal row's state glyph: a future period"
+  },
+  "reportGoalStateWithin": "within the limit",
+  "@reportGoalStateWithin": {
+    "description": "Screen reader wording of a days-between goal's state glyph: fewer days than the limit"
+  },
+  "reportGoalStateDueSoon": "due soon",
+  "@reportGoalStateDueSoon": {
+    "description": "Screen reader wording of a days-between goal's state glyph: close to the limit"
+  },
+  "reportGoalStatePastLimit": "past the limit",
+  "@reportGoalStatePastLimit": {
+    "description": "Screen reader wording of a days-between goal's state glyph: more days than the limit"
+  },
+  "reportGoalsOnPace": "{onPace} of {total, plural, one{1 goal} other{{total} goals}} on pace",
+  "@reportGoalsOnPace": {
+    "description": "Report band subtitle of a current period, after the event count: goals met or on track of all goals; keep it short, it must fit one line",
+    "placeholders": {
+      "onPace": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "reportGoalsMet": "{met} of {total, plural, one{1 goal} other{{total} goals}} met",
+  "@reportGoalsMet": {
+    "description": "Report band subtitle of a past period, after the event count: goals met of all goals; keep it short, it must fit one line",
+    "placeholders": {
+      "met": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "reportInsightAttention": "Needs attention",
+  "@reportInsightAttention": {
+    "description": "Screen reader wording of an insight's highest-severity glyph"
+  },
+  "reportInsightNotable": "Worth a look",
+  "@reportInsightNotable": {
+    "description": "Screen reader wording of an insight's second-severity glyph"
+  },
+  "reportInsightObservation": "Worth knowing",
+  "@reportInsightObservation": {
+    "description": "Screen reader wording of an insight's third-severity glyph"
+  },
+  "reportInsightInfo": "For information",
+  "@reportInsightInfo": {
+    "description": "Screen reader wording of an insight's lowest-severity glyph: a plain fact"
+  },
+  "reportInsightBills": "Bills",
+  "@reportInsightBills": {
+    "description": "Report Insights card: the subject of the bills-ahead insight, across every bill category"
+  },
+  "reportInsightNextTrip": "Next trip",
+  "@reportInsightNextTrip": {
+    "description": "Report Insights card: the subject of the trip-ahead insight"
+  },
+  "reportInsightBehind": "{progress}, {more}",
+  "@reportInsightBehind": {
+    "description": "Report Insights card, an at-least goal behind: progress (e.g. 1 of 3) then what is still needed (e.g. two more by Sunday), both already worded",
+    "placeholders": {
+      "progress": {
+        "type": "String"
+      },
+      "more": {
+        "type": "String"
+      }
+    }
+  },
+  "reportInsightOver": "{progress} {period, select, day{today} week{this week} month{this month} year{this year} other{}}, {over}",
+  "@reportInsightOver": {
+    "description": "Report Insights card, an at-most or budget goal over: progress (e.g. 44 h of 40) in the goal's period (day, week, month or year), then by how much (e.g. 4 h over), both already worded",
+    "placeholders": {
+      "progress": {
+        "type": "String"
+      },
+      "period": {
+        "type": "String"
+      },
+      "over": {
+        "type": "String"
+      }
+    }
+  },
+  "reportInsightDone": "{progress}, {done}",
+  "@reportInsightDone": {
+    "description": "Report Insights card, an at-least goal met early: progress (e.g. 3 of 3) then the done phrase (e.g. done for the week), both already worded",
+    "placeholders": {
+      "progress": {
+        "type": "String"
+      },
+      "done": {
+        "type": "String"
+      }
+    }
+  },
+  "reportInsightStreakEnded": "{count, plural, one{the 1-{period, select, day{day} week{week} month{month} year{year} other{period}} streak ended} other{the {count}-{period, select, day{day} week{week} month{month} year{year} other{period}} streak ended}}",
+  "@reportInsightStreakEnded": {
+    "description": "Report Insights card: a run of met goal periods broke at the last closed one, e.g. the 5-week streak ended; period is day, week, month or year",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "period": {
+        "type": "String"
+      }
+    }
+  },
+  "reportInsightAllowance": "{total, plural, one{{left} of 1 day left} other{{left} of {total} days left}}",
+  "@reportInsightAllowance": {
+    "description": "Report Insights card, a leave allowance running low: days left of the year's allowance; left is already formatted",
+    "placeholders": {
+      "left": {
+        "type": "String"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "reportInsightMonthsToGo": "{months, plural, one{1 month to go} other{{months} months to go}}",
+  "@reportInsightMonthsToGo": {
+    "description": "Report Insights card, after a leave allowance's days left: whole months left in the year",
+    "placeholders": {
+      "months": {
+        "type": "int"
+      }
+    }
+  },
+  "reportInsightAllowanceUnused": "{days, plural, one{1 day unused} other{{days} days unused}}",
+  "@reportInsightAllowanceUnused": {
+    "description": "Report Insights card, a leave allowance late in the year: days of it not taken yet",
+    "placeholders": {
+      "days": {
+        "type": "int"
+      }
+    }
+  },
+  "reportInsightDaysLeftInYear": "{days, plural, one{1 day left in the year} other{{days} days left in the year}}",
+  "@reportInsightDaysLeftInYear": {
+    "description": "Report Insights card, after the unused leave days: days left until the year ends",
+    "placeholders": {
+      "days": {
+        "type": "int"
+      }
+    }
+  },
+  "reportInsightGapOverdue": "{days, plural, one{1 day since the last} other{{days} days since the last}}, the limit is {limit}",
+  "@reportInsightGapOverdue": {
+    "description": "Report Insights card, a days-between goal or a tag past its limit: days since the last time, then the limit in days",
+    "placeholders": {
+      "days": {
+        "type": "int"
+      },
+      "limit": {
+        "type": "int"
+      }
+    }
+  },
+  "reportInsightGapOverdueLong": "over a year since the last, the limit is {limit}",
+  "@reportInsightGapOverdueLong": {
+    "description": "Report Insights card, a days-between goal last kept before the year the report looks back over; limit in days",
+    "placeholders": {
+      "limit": {
+        "type": "int"
+      }
+    }
+  },
+  "reportInsightGapDue": "{days, plural, one{due in 1 day} other{due in {days} days}}",
+  "@reportInsightGapDue": {
+    "description": "Report Insights card, a days-between goal close to its limit: days left before it",
+    "placeholders": {
+      "days": {
+        "type": "int"
+      }
+    }
+  },
+  "reportInsightExpires": "{days, plural, =0{expires today} one{expires in 1 day} other{expires in {days} days}}",
+  "@reportInsightExpires": {
+    "description": "Report Insights card, an expiry ahead, under the event's title: the days until it",
+    "placeholders": {
+      "days": {
+        "type": "int"
+      }
+    }
+  },
+  "reportInsightExpired": "{days, plural, =0{expired today} one{expired 1 day ago} other{expired {days} days ago}}",
+  "@reportInsightExpired": {
+    "description": "Report Insights card, an expiry passed, under the event's title: the days since it",
+    "placeholders": {
+      "days": {
+        "type": "int"
+      }
+    }
+  },
+  "reportInsightUnmarked": "{count, plural, one{not marked on {day}} other{{count} days not marked, the latest {day}}}",
+  "@reportInsightUnmarked": {
+    "description": "Report Insights card, a bill or deadline day passed with no mark, under the event's title: the latest such day (e.g. Nov 1) and how many days are unmarked",
+    "placeholders": {
+      "day": {
+        "type": "String",
+        "example": "Nov 1"
+      },
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "reportInsightEpisodeNext": "the usual gap puts the next around {day}",
+  "@reportInsightEpisodeNext": {
+    "description": "Report Insights card, a recurring episode (e.g. a migraine): the weekday the usual gap between episodes points to",
+    "placeholders": {
+      "day": {
+        "type": "String",
+        "example": "Thursday"
+      }
+    }
+  },
+  "reportInsightWeekdays": "{best} {bestPercent} %, {worst} {worstPercent} %",
+  "@reportInsightWeekdays": {
+    "description": "Report Insights card, a routine's attendance by weekday: the best weekday and its share attended, then the worst; the percents are whole numbers",
+    "placeholders": {
+      "best": {
+        "type": "String",
+        "example": "Tuesday"
+      },
+      "bestPercent": {
+        "type": "String"
+      },
+      "worst": {
+        "type": "String",
+        "example": "Friday"
+      },
+      "worstPercent": {
+        "type": "String"
+      }
+    }
+  },
+  "reportInsightLateEvenings": "{count, plural, one{1 late evening} other{{count} late evenings}} in one week",
+  "@reportInsightLateEvenings": {
+    "description": "Report Insights card, work: the most days in one week that ran late into the evening",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "reportInsightWeekend": "{hours} on the weekend",
+  "@reportInsightWeekend": {
+    "description": "Report Insights card, work: hours worked on Saturdays and Sundays, e.g. 5 h on the weekend",
+    "placeholders": {
+      "hours": {
+        "type": "String",
+        "example": "5 h"
+      }
+    }
+  },
+  "reportInsightShortNights": "{count, plural, one{1 night} other{{count} nights}} under {hours} in one week",
+  "@reportInsightShortNights": {
+    "description": "Report Insights card, sleep: the most short nights in one week; hours is the short-night line, e.g. 7 h",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "hours": {
+        "type": "String",
+        "example": "7 h"
+      }
+    }
+  },
+  "reportInsightBedtimeSpread": "bedtimes vary by {spread}",
+  "@reportInsightBedtimeSpread": {
+    "description": "Report Insights card, sleep: how far apart the usual bedtimes are, e.g. 1.5 h",
+    "placeholders": {
+      "spread": {
+        "type": "String",
+        "example": "1.5 h"
+      }
+    }
+  },
+  "reportInsightMeetingShare": "{hours}, {percent} % of your work hours",
+  "@reportInsightMeetingShare": {
+    "description": "Report Insights card, meetings: meeting hours and their share of work and meeting hours; percent is a whole number",
+    "placeholders": {
+      "hours": {
+        "type": "String",
+        "example": "18 h"
+      },
+      "percent": {
+        "type": "String"
+      }
+    }
+  },
+  "reportInsightCancelled": "{planned, plural, one{{cancelled} of 1 cancelled} other{{cancelled} of {planned} cancelled}}",
+  "@reportInsightCancelled": {
+    "description": "Report Insights card: cancelled days of the planned ones, e.g. 3 of 8 cancelled",
+    "placeholders": {
+      "cancelled": {
+        "type": "int"
+      },
+      "planned": {
+        "type": "int"
+      }
+    }
+  },
+  "reportInsightRestGap": "{days, plural, one{a break of 1 day} other{a break of {days} days}}",
+  "@reportInsightRestGap": {
+    "description": "Report Insights card, a workout category: the longest run of days without it in the period",
+    "placeholders": {
+      "days": {
+        "type": "int"
+      }
+    }
+  },
+  "reportInsightBillsAhead": "{days, plural, one{{amount} due in the next day} other{{amount} due in the next {days} days}}",
+  "@reportInsightBillsAhead": {
+    "description": "Report Insights card: the money of the bills due in the coming days; amount is already formatted",
+    "placeholders": {
+      "amount": {
+        "type": "String",
+        "example": "2140.00"
+      },
+      "days": {
+        "type": "int"
+      }
+    }
+  },
+  "reportInsightBillsYear": "{count, plural, one{{amount} a year across 1 bill} other{{amount} a year across {count} bills}}",
+  "@reportInsightBillsYear": {
+    "description": "Report Insights card of a year: the twelve-month total of the recurring bills and how many there are; amount is already formatted",
+    "placeholders": {
+      "amount": {
+        "type": "String",
+        "example": "1428.00"
+      },
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "reportInsightTagGapLong": "{days, plural, one{1 day since the last, longer than usual} other{{days} days since the last, longer than usual}}",
+  "@reportInsightTagGapLong": {
+    "description": "Report Insights card, a #tag (a person, a place) not seen for much longer than its usual gap: days since the last time",
+    "placeholders": {
+      "days": {
+        "type": "int"
+      }
+    }
+  },
+  "reportInsightTagTop": "{days, plural, one{the most seen in {category}, on 1 day} other{the most seen in {category}, on {days} days}}",
+  "@reportInsightTagTop": {
+    "description": "Report Insights card, a #tag: the one seen most often in a people category, with the days it was seen",
+    "placeholders": {
+      "category": {
+        "type": "String",
+        "example": "Friends"
+      },
+      "days": {
+        "type": "int"
+      }
+    }
+  },
+  "reportInsightLeadTime": "{days, plural, =0{usually booked the same day} =1{usually booked a day ahead} other{usually booked {days} days ahead}}",
+  "@reportInsightLeadTime": {
+    "description": "Report Insights card, appointments: the usual days between adding one and its day",
+    "placeholders": {
+      "days": {
+        "type": "int"
+      }
+    }
+  },
+  "reportInsightOpenPast": "{count, plural, one{1 open past its day} other{{count} open past their day}}",
+  "@reportInsightOpenPast": {
+    "description": "Report Insights card, deadlines: how many are still open after their day",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "reportInsightAhead": "{count, plural, one{1 ahead by {day}} other{{count} ahead by {day}}}",
+  "@reportInsightAhead": {
+    "description": "Report Insights card, anniversaries: how many come before the period's last day (e.g. Nov 30)",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "day": {
+        "type": "String",
+        "example": "Nov 30"
+      }
+    }
+  },
+  "reportInsightTrip": "{days, plural, =0{{title} today} =1{{title} tomorrow} other{{title} in {days} days}}",
+  "@reportInsightTrip": {
+    "description": "Report Insights card, the next trip: its title and the days until it starts",
+    "placeholders": {
+      "title": {
+        "type": "String",
+        "example": "Sibiu"
+      },
+      "days": {
+        "type": "int"
+      }
+    }
+  },
+  "reportInsightUpOn": "{value}, up {percent} % on {period}",
+  "@reportInsightUpOn": {
+    "description": "Report Insights card, a category's leading measure or a bill's amount rose against the compared period: the value this period, the change in whole percent and the compared period's name",
+    "placeholders": {
+      "value": {
+        "type": "String",
+        "example": "31 h"
+      },
+      "percent": {
+        "type": "String",
+        "example": "35"
+      },
+      "period": {
+        "type": "String",
+        "example": "September 2026"
+      }
+    }
+  },
+  "reportInsightDownOn": "{value}, down {percent} % on {period}",
+  "@reportInsightDownOn": {
+    "description": "Report Insights card, a category's leading measure or a bill's amount fell against the compared period: the value this period, the change in whole percent and the compared period's name",
+    "placeholders": {
+      "value": {
+        "type": "String",
+        "example": "31 h"
+      },
+      "percent": {
+        "type": "String",
+        "example": "35"
+      },
+      "period": {
+        "type": "String",
+        "example": "September 2026"
+      }
+    }
+  },
+  "reportDueOverdue": "{count, plural, =0{Overdue today} one{Overdue 1 day} other{Overdue {count} days}}",
+  "@reportDueOverdue": {
+    "description": "Report Due soon row: days past a days-between limit; one line, keep it under 20 characters with the number first where the language allows",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "reportDueIn": "{count, plural, =0{Due today} one{Due in 1 day} other{Due in {count} days}}",
+  "@reportDueIn": {
+    "description": "Report Due soon row: days left inside a days-between limit; one line, keep it under 20 characters",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "reportDueExpires": "{count, plural, =0{Expires today} one{Expires in 1 day} other{Expires in {count} days}}",
+  "@reportDueExpires": {
+    "description": "Report Due soon row: days until an expiry; one line, keep it under 20 characters",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "reportDueExpired": "{count, plural, =0{Expired today} one{Expired 1 day ago} other{Expired {count} days ago}}",
+  "@reportDueExpired": {
+    "description": "Report Due soon row: days since an expiry passed; one line, keep it under 20 characters",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "reportDueNotMarked": "not marked",
+  "@reportDueNotMarked": {
+    "description": "Report Due soon row, after a bill's or deadline's day (e.g. Nov 1 · not marked): the day passed with no mark"
+  },
+  "reportDueLong": "Over a year ago",
+  "@reportDueLong": {
+    "description": "Report Due soon row: a days-between goal last kept before the year the report looks back over"
+  },
+  "reportLastSeenAgo": "{count, plural, =0{today} =1{yesterday} other{{count} days ago}}",
+  "@reportLastSeenAgo": {
+    "description": "Report Categories header caption, a category led by Last seen: days since it last happened",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "reportCancelledCount": "{count, plural, one{1 cancelled} other{{count} cancelled}}",
+  "@reportCancelledCount": {
+    "description": "Report Categories header caption, a category led by Cancelled: cancelled days in the period",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "reportLeadTime": "{count, plural, =0{booked the same day} one{booked 1 day ahead} other{booked {count} days ahead}}",
+  "@reportLeadTime": {
+    "description": "Report Categories header caption, a category led by Lead time: the usual days between adding an event and its day",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "reportDaysUntil": "{count, plural, =0{today} =1{tomorrow} other{in {count} days}}",
+  "@reportDaysUntil": {
+    "description": "Report Categories header caption led by Days until, and a Due soon row after a bill's day: days until the next occurrence",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "reportWorkingDays": "{count, plural, one{1 working day} other{{count} working days}}",
+  "@reportWorkingDays": {
+    "description": "Part of the caption under the report's tiles: Monday-to-Friday days of the period that are no public holiday",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "reportPublicHolidays": "{count, plural, one{1 public holiday} other{{count} public holidays}}",
+  "@reportPublicHolidays": {
+    "description": "Part of the caption under the report's tiles: public holidays in the period",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "reportCaptionCountedAs": "Hours incl. {hours} counted as",
+  "@reportCaptionCountedAs": {
+    "description": "Part of the caption under the report's tiles: how much of the Hours tile comes from days counted as a fixed duration (e.g. a leave day counted as 8 h), not from event times",
+    "placeholders": {
+      "hours": {
+        "type": "String",
+        "example": "6 h"
+      }
+    }
+  },
+  "reportCountedAsSpoken": "including {hours} counted as",
+  "@reportCountedAsSpoken": {
+    "description": "Screen reader wording appended to the Hours tile: how much of it comes from days counted as a fixed duration; hours is spelled out, e.g. 6 hours",
+    "placeholders": {
+      "hours": {
+        "type": "String",
+        "example": "6 hours"
+      }
+    }
   }
 }

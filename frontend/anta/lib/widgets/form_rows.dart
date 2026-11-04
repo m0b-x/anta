@@ -20,6 +20,11 @@ abstract class FormDividedRow extends StatelessWidget {
   const FormDividedRow({super.key});
 
   double get dividerIndent;
+
+  /// [dividerIndent] as drawn in [context]: a row whose leading narrows at a
+  /// large text scale ([FormMeterRow.compactLeading]) moves its hairline
+  /// with its text, which a context-free getter cannot know.
+  double dividerIndentIn(BuildContext context) => dividerIndent;
 }
 
 class FormRowGroup extends StatelessWidget {
@@ -32,8 +37,11 @@ class FormRowGroup extends StatelessWidget {
     this.trailingGap = true,
   });
 
-  static double indentOf(Widget row) => row is FormDividedRow
-      ? row.dividerIndent
+  /// The hairline indent under [row]; with [context], the one it draws at
+  /// that context's text scale ([FormDividedRow.dividerIndentIn]).
+  static double indentOf(Widget row, [BuildContext? context]) =>
+      row is FormDividedRow
+      ? (context == null ? row.dividerIndent : row.dividerIndentIn(context))
       : FormMetrics.dividerIndentGlyph;
 
   @override
@@ -47,7 +55,7 @@ class FormRowGroup extends StatelessWidget {
           Divider(
             height: 1,
             thickness: 1,
-            indent: indentOf(children[i]),
+            indent: indentOf(children[i], context),
             endIndent: 0,
             color: colorScheme.rowDivider,
           ),
@@ -173,7 +181,7 @@ class FormRowShell extends StatelessWidget {
           Divider(
             height: 1,
             thickness: 1,
-            indent: FormRowGroup.indentOf(child),
+            indent: FormRowGroup.indentOf(child, context),
             endIndent: 0,
             color: colorScheme.rowDivider,
           ),
@@ -2163,9 +2171,10 @@ class FormActionRow extends FormDividedRow {
 /// The caption shrinks to fit one line inside a box of its one-line height
 /// (`AgendaPeriodNav`'s count rule) instead of truncating or wrapping, so a
 /// refold that lengthens the numbers never changes the row's height under
-/// the finger. The meter is drawn only when [fraction] is set; a fill above
-/// zero is never thinner than it is tall, so a sliver of a share still
-/// shows, and zero draws the bare track.
+/// the finger; a sentence caption takes a fixed [captionLines] for the same
+/// reason (the report's goal rows). The meter is drawn only when [fraction]
+/// is set; a fill above zero is never thinner than it is tall, so a sliver
+/// of a share still shows, and zero draws the bare track.
 ///
 /// One node: the row's words are spelled out in [semanticsLabel] (the
 /// caption's figures read badly aloud), with [expanded] for a row that
@@ -2196,6 +2205,30 @@ class FormMeterRow extends FormDividedRow {
   final bool? expanded;
   final String? identifier;
 
+  /// The caption's line count, for a caption that is a sentence rather than
+  /// a run of figures — a goal's read-back ("31 h of 40 · 9 h left this
+  /// week") cannot shrink into one line at 1.3. The caption then wraps to at
+  /// most this many lines at full width, and the row is always as tall as
+  /// [captionLines] caption lines, centred: the caller decides the count
+  /// from templates, never from the value, so a refold that lengthens the
+  /// caption never changes the row's height. Null keeps the one-line slot
+  /// that shrinks.
+  final int? captionLines;
+
+  /// A glyph at the label line's end, after [FormMetrics.gap] — a goal's
+  /// state. Beside the label rather than in a reserved trailing column: the
+  /// column's width came out of every name and broke "Measurement" at 1.3
+  /// and German names at 2.0 mid-word.
+  final Widget? labelTrailing;
+
+  /// What stands in for [leading] from [RowMetrics.compactLeadingTextScale]
+  /// up, in a [RowMetrics.glyphSize] box — the category's glyph for its
+  /// avatar. The 18 dp it frees is what keeps a built-in name whole at 2.0
+  /// on a small phone; decided by the scale, never by the name, so a row
+  /// never changes shape with its data. Null keeps [leading] at every
+  /// scale.
+  final Widget? compactLeading;
+
   const FormMeterRow({
     super.key,
     required this.leading,
@@ -2208,10 +2241,30 @@ class FormMeterRow extends FormDividedRow {
     this.semanticsLabel,
     this.expanded,
     this.identifier,
+    this.captionLines,
+    this.labelTrailing,
+    this.compactLeading,
   });
 
   @override
   double get dividerIndent => FormMetrics.dividerIndentTitle;
+
+  @override
+  double dividerIndentIn(BuildContext context) => _compact(context)
+      ? RowMetrics.dividerIndentWithGlyph
+      : FormMetrics.dividerIndentTitle;
+
+  /// Whether [scaler] is past [RowMetrics.compactLeadingTextScale], where a
+  /// row with a [compactLeading] narrows its leading box. Public so a caller
+  /// that measures the row's text width ahead of it (the report's goal
+  /// captions) reads the same rule rather than a copy.
+  static bool isCompact(TextScaler scaler) =>
+      scaler.scale(RowMetrics.titleFontSize) / RowMetrics.titleFontSize >=
+      RowMetrics.compactLeadingTextScale;
+
+  /// Whether [compactLeading] replaces [leading] at [context]'s text scale.
+  bool _compact(BuildContext context) =>
+      compactLeading != null && isCompact(MediaQuery.textScalerOf(context));
 
   @override
   Widget build(BuildContext context) {
@@ -2219,22 +2272,49 @@ class FormMeterRow extends FormDividedRow {
     final scaler = MediaQuery.textScalerOf(context);
     final captionText = caption;
     final share = fraction;
+    final lines = captionLines;
+    final captionStyle = TextStyle(
+      fontSize: FormMetrics.captionSize,
+      height: FormMetrics.captionLineHeight / FormMetrics.captionSize,
+      color: colorScheme.onSurfaceVariant,
+    );
+    Widget labelLine = Text(
+      label,
+      style: TextStyle(
+        fontSize: FormMetrics.labelSize,
+        height: FormMetrics.labelLineHeight / FormMetrics.labelSize,
+        fontWeight: FontWeight.w500,
+        color: colorScheme.onSurface,
+      ),
+      maxLines: 2,
+      overflow: TextOverflow.ellipsis,
+    );
+    if (labelTrailing case final end?) {
+      labelLine = Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(child: labelLine),
+          const SizedBox(width: FormMetrics.gap),
+          SizedBox(
+            height: scaler.scale(FormMetrics.labelLineHeight),
+            child: Center(child: end),
+          ),
+        ],
+      );
+    }
     final text = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: FormMetrics.labelSize,
-            height: FormMetrics.labelLineHeight / FormMetrics.labelSize,
-            fontWeight: FontWeight.w500,
-            color: colorScheme.onSurface,
-          ),
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
-        ),
-        if (captionText != null)
+        labelLine,
+        if (captionText != null && lines != null)
+          Text(
+            captionText,
+            style: captionStyle,
+            maxLines: lines,
+            overflow: TextOverflow.ellipsis,
+          )
+        else if (captionText != null)
           SizedBox(
             height: scaler.scale(FormMetrics.captionLineHeight),
             child: FittedBox(
@@ -2242,12 +2322,7 @@ class FormMeterRow extends FormDividedRow {
               alignment: Alignment.centerLeft,
               child: Text(
                 captionText,
-                style: TextStyle(
-                  fontSize: FormMetrics.captionSize,
-                  height:
-                      FormMetrics.captionLineHeight / FormMetrics.captionSize,
-                  color: colorScheme.onSurfaceVariant,
-                ),
+                style: captionStyle,
                 maxLines: 1,
                 softWrap: false,
               ),
@@ -2263,10 +2338,22 @@ class FormMeterRow extends FormDividedRow {
         ],
       ],
     );
+    // A caption shorter than its lines leaves the spare one as air around
+    // the centred content, never as a hole under it.
+    final minHeight = lines == null
+        ? FormMetrics.twoLineRowMinHeight
+        : math.max(
+            FormMetrics.twoLineRowMinHeight,
+            RowMetrics.twoLinePadding.vertical +
+                scaler.scale(FormMetrics.labelLineHeight) +
+                scaler.scale(FormMetrics.captionLineHeight) * lines +
+                (share == null
+                    ? 0
+                    : FormMetrics.meterGap + FormMetrics.meterHeight),
+          );
+    final compact = _compact(context);
     final row = ConstrainedBox(
-      constraints: const BoxConstraints(
-        minHeight: FormMetrics.twoLineRowMinHeight,
-      ),
+      constraints: BoxConstraints(minHeight: minHeight),
       child: Padding(
         padding: EdgeInsets.only(
           left: RowMetrics.groupInset,
@@ -2277,8 +2364,10 @@ class FormMeterRow extends FormDividedRow {
         child: Row(
           children: [
             SizedBox.square(
-              dimension: FormMetrics.rowLeadingSize,
-              child: Center(child: leading),
+              dimension: compact
+                  ? RowMetrics.glyphSize
+                  : FormMetrics.rowLeadingSize,
+              child: Center(child: compact ? compactLeading : leading),
             ),
             const SizedBox(width: FormMetrics.gap),
             Expanded(child: text),

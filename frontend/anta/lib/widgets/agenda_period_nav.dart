@@ -86,6 +86,22 @@ class AgendaPeriodNav extends StatelessWidget {
   /// [month]'s twelve are.
   final List<String>? titleTemplates;
   final String? subtitle;
+
+  /// What the count's line says in place of [subtitle] when
+  /// [subtitleTemplate] would shrink below its 1.0 size; null keeps
+  /// [subtitle] either way.
+  final String? compactSubtitle;
+
+  /// The widest [subtitle] this row can show, written in 8s (the report's
+  /// "888 events · 3 of 3 goals on pace", S4 Q): [subtitle] is drawn only
+  /// when this template's width at the ambient scale fits the count's box
+  /// without the shrink taking it below the 1.0 size, else
+  /// [compactSubtitle]. The template decides, never the value, so stepping
+  /// to a month with more events never swaps the line's form. Measured at
+  /// 360: en 1.0 fits (185.9 of 208), de 1.0 just (207.5); en 1.3 shrinks
+  /// to 0.86 and 2.0 to 0.56, de 2.0 to 0.50 — all at or above 1.0's size;
+  /// ro at 1.0 (0.79) does not. Null draws [subtitle] as it always has.
+  final String? subtitleTemplate;
   final String previousTooltip;
   final String nextTooltip;
   final String todayTooltip;
@@ -115,6 +131,8 @@ class AgendaPeriodNav extends StatelessWidget {
     this.month,
     this.titleTemplates,
     this.subtitle,
+    this.compactSubtitle,
+    this.subtitleTemplate,
     required this.previousTooltip,
     required this.nextTooltip,
     required this.todayTooltip,
@@ -220,9 +238,9 @@ class AgendaPeriodNav extends StatelessWidget {
   /// The count's one-line height at the ambient scale, laid out unbounded:
   /// the box it shrinks inside (see [build]), so the row is as tall with a
   /// count that had to shrink as with one that did not.
-  double _subtitleHeight(BuildContext context, TextStyle? style) {
+  double _subtitleHeight(BuildContext context, String text, TextStyle? style) {
     final painter = TextPainter(
-      text: TextSpan(text: subtitle, style: style),
+      text: TextSpan(text: text, style: style),
       textDirection: Directionality.of(context),
       textScaler: MediaQuery.textScalerOf(context),
       maxLines: 1,
@@ -231,6 +249,47 @@ class AgendaPeriodNav extends StatelessWidget {
     painter.dispose();
     return height;
   }
+
+  /// [shown] or [compactSubtitle], by [subtitleTemplate]'s rule: the
+  /// template laid out unbounded at the ambient scale, as the count's
+  /// `FittedBox` lays it out, must fit [maxWidth] times the scale — a
+  /// shrink that leaves the line at least as large as at 1.0.
+  String _subtitleFor(
+    BuildContext context,
+    String shown,
+    TextStyle? style,
+    double maxWidth,
+  ) {
+    final template = subtitleTemplate;
+    final compact = compactSubtitle;
+    if (template == null || compact == null) return shown;
+    final scaler = MediaQuery.textScalerOf(context);
+    final painter = TextPainter(
+      text: TextSpan(text: template, style: style),
+      textDirection: Directionality.of(context),
+      textScaler: scaler,
+      maxLines: 1,
+    )..layout();
+    final width = painter.width;
+    painter.dispose();
+    final scale =
+        scaler.scale(FormMetrics.captionSize) / FormMetrics.captionSize;
+    return width <= maxWidth * scale ? shown : compact;
+  }
+
+  /// The count's line: [text] shrinks rather than cuts ("32 Einträge · 1
+  /// verpa…" at German 200 % between the chevrons and the today slot)
+  /// inside a box of its one-line height at the current text scale, so a
+  /// month with a longer count is no taller than one without — D7's idiom
+  /// for the day numbers.
+  Widget _count(BuildContext context, String text, TextStyle? style) =>
+      SizedBox(
+        height: _subtitleHeight(context, text, style),
+        child: FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Text(text, style: style, maxLines: 1, softWrap: false),
+        ),
+      );
 
   @override
   Widget build(BuildContext context) {
@@ -323,24 +382,22 @@ class AgendaPeriodNav extends StatelessWidget {
                   // 2026-10-03).
                   Semantics(
                     container: true,
-                    child: SizedBox(
-                      // The count shrinks rather than cuts ("32 Einträge ·
-                      // 1 verpa…" at German 200 % between the chevrons and
-                      // the today slot) inside a box of its one-line height
-                      // at the current text scale, so a month with a longer
-                      // count is no taller than one without — D7's idiom for
-                      // the day numbers.
-                      height: _subtitleHeight(context, subtitleStyle),
-                      child: FittedBox(
-                        fit: BoxFit.scaleDown,
-                        child: Text(
-                          subtitle,
-                          style: subtitleStyle,
-                          maxLines: 1,
-                          softWrap: false,
-                        ),
-                      ),
-                    ),
+                    child: subtitleTemplate == null
+                        ? _count(context, subtitle, subtitleStyle)
+                        // The box's width decides the form, so it is read
+                        // where the count is laid out.
+                        : LayoutBuilder(
+                            builder: (context, constraints) => _count(
+                              context,
+                              _subtitleFor(
+                                context,
+                                subtitle,
+                                subtitleStyle,
+                                constraints.maxWidth,
+                              ),
+                              subtitleStyle,
+                            ),
+                          ),
                   ),
               ],
             ),

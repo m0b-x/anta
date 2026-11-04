@@ -77,6 +77,8 @@ class CalendarReportBloc extends Bloc<ReportEvent, ReportState> {
   CalendarAppearance _appearance = const CalendarAppearance();
   MarkdownColorPalette _palette = MarkdownColorPalette.presets;
   bool _hapticFeedback = false;
+  String _currencySymbol = '';
+  bool _currencySuffix = false;
 
   /// The years of the last events and allowlist they were computed for —
   /// a scan of every event, so it is redone only when either moves.
@@ -157,6 +159,8 @@ class CalendarReportBloc extends Bloc<ReportEvent, ReportState> {
       _appearance = loaded.appearance;
       _palette = loaded.palette;
       _hapticFeedback = loaded.hapticFeedback;
+      _currencySymbol = loaded.currencySymbol;
+      _currencySuffix = loaded.currencySuffix;
       _period = _home = loaded.period;
       _categoryIds = loaded.categoryIds;
     } catch (e, st) {
@@ -230,6 +234,8 @@ class CalendarReportBloc extends Bloc<ReportEvent, ReportState> {
       _appearance = loaded.appearance;
       _palette = loaded.palette;
       _hapticFeedback = loaded.hapticFeedback;
+      _currencySymbol = loaded.currencySymbol;
+      _currencySuffix = loaded.currencySuffix;
     } catch (e, st) {
       debugPrint('[CalendarReportBloc] settings re-read failed: $e\n$st');
     }
@@ -336,6 +342,8 @@ class CalendarReportBloc extends Bloc<ReportEvent, ReportState> {
         appearance: _appearance,
         palette: _palette,
         hapticFeedback: _hapticFeedback,
+        currencySymbol: _currencySymbol,
+        currencySuffix: _currencySuffix,
         today: _today,
         years: request.years,
       ),
@@ -379,6 +387,8 @@ class CalendarReportBloc extends Bloc<ReportEvent, ReportState> {
       appearance: _appearance,
       palette: _palette,
       hapticFeedback: _hapticFeedback,
+      currencySymbol: _currencySymbol,
+      currencySuffix: _currencySuffix,
       today: _today,
       years: years,
     );

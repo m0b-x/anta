@@ -50,6 +50,7 @@ class _GroupHost extends StatefulWidget {
     this.open = true,
     this.spansMonths = false,
     this.listEnabled = true,
+    this.measures,
   });
 
   final ReportCard card;
@@ -63,6 +64,9 @@ class _GroupHost extends StatefulWidget {
 
   /// Whether "Show as list" has a tap; without one it draws disabled.
   final bool listEnabled;
+
+  /// A profiled category's measures, which its Categories header leads with.
+  final ReportMeasures? measures;
 
   @override
   State<_GroupHost> createState() => _GroupHostState();
@@ -98,6 +102,7 @@ class _GroupHostState extends State<_GroupHost> {
       today: widget.today,
       spansMonths: widget.spansMonths,
       use24Hour: MediaQuery.alwaysUse24HourFormatOf(context),
+      measures: widget.measures,
     );
     return CustomScrollView(
       slivers: [
@@ -303,6 +308,7 @@ void main() {
     Brightness brightness = Brightness.light,
     bool listEnabled = true,
     bool disableAnimations = false,
+    ReportMeasures? measures,
   }) async {
     addTearDown(tester.view.reset);
     tester.view.devicePixelRatio = 1.0;
@@ -338,6 +344,7 @@ void main() {
             open: open,
             spansMonths: spansMonths,
             listEnabled: listEnabled,
+            measures: measures,
           ),
         ),
       ),
@@ -988,6 +995,102 @@ void main() {
         expect(find.text('3 weitere'), findsOneWidget);
       });
     }
+
+    group('a profiled header', () {
+      const hoursPrimary = ReportMeasures(
+        categoryId: 'gym',
+        primary: ReportMeasure.hours,
+        profiled: true,
+        minutes: 31 * 60,
+      );
+      const attendancePrimary = ReportMeasures(
+        categoryId: 'gym',
+        primary: ReportMeasure.attendance,
+        profiled: true,
+        attended: 8,
+        tracked: 10,
+      );
+      final profiled = groupOf(
+        gymDays(6),
+        count: 12,
+        minutes: 31 * 60,
+        missed: 2,
+      );
+
+      testWidgets('leads with its primary: "31 h · 12 · 2 missed", spoken '
+          'primary first', (tester) async {
+        final handle = tester.ensureSemantics();
+        await pump(tester, profiled, measures: hoursPrimary);
+        expect(
+          tester.widget<FormMeterRow>(find.byType(FormMeterRow)).caption,
+          joined(['31 h', '12', '2 missed']),
+        );
+        expect(
+          tester.getSemantics(byId(header(ReportCard.categories, 'gym'))).label,
+          'Gym, 31 hours, 12 events, 2 missed',
+        );
+        handle.dispose();
+      });
+
+      for (final locale in const ['de', 'ro']) {
+        testWidgets('$locale at 2.0 keeps 104 and the labels\' facts inside '
+            'one caption line, for an hours and an attendance primary', (
+          tester,
+        ) async {
+          final labels = ReportLabels(lookupAppLocalizations(Locale(locale)));
+          for (final measures in [hoursPrimary, attendancePrimary]) {
+            final reason = '${measures.primary.name} in $locale';
+            await pump(
+              tester,
+              profiled,
+              measures: measures,
+              locale: Locale(locale),
+              textScale: 2.0,
+            );
+            final row = find.byType(FormMeterRow);
+            final facts = labels.groupFacts(
+              ReportCard.categories,
+              profiled,
+              measures: measures,
+            );
+            expect(
+              tester.widget<FormMeterRow>(row).caption,
+              facts,
+              reason: reason,
+            );
+            expect(tester.getSize(row).height, closeTo(104, 1), reason: reason);
+            // The one-line slot that shrinks: as tall as one caption line,
+            // the text on one line inside it however long the facts run.
+            final slot = find.ancestor(
+              of: find.text(facts),
+              matching: find.byType(FittedBox),
+            );
+            expect(
+              tester.getSize(slot).height,
+              closeTo(FormMetrics.captionLineHeight * 2.0, 0.5),
+              reason: reason,
+            );
+            final paragraph = tester.renderObject<RenderParagraph>(
+              find.descendant(
+                of: find.text(facts),
+                matching: find.byType(RichText),
+              ),
+            );
+            expect(
+              paragraph
+                  .getBoxesForSelection(
+                    TextSelection(baseOffset: 0, extentOffset: facts.length),
+                  )
+                  .map((box) => box.top)
+                  .toSet(),
+              hasLength(1),
+              reason: reason,
+            );
+            expect(paragraph.didExceedMaxLines, isFalse, reason: reason);
+          }
+        });
+      }
+    });
 
     testWidgets('dark: the group wears the dark row surface at the light '
         'geometry', (tester) async {

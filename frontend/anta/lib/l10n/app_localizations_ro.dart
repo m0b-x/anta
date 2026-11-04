@@ -8083,4 +8083,760 @@ class AppLocalizationsRo extends AppLocalizations {
 
   @override
   String get categoryGoalRemove => 'Șterge obiectivul';
+
+  @override
+  String get reportSectionGoals => 'Obiective';
+
+  @override
+  String get reportSectionInsights => 'Observații';
+
+  @override
+  String get reportSectionDueSoon => 'Scadențe';
+
+  @override
+  String reportGoalMoreBy(int count, String day) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'încă $count până la $day',
+      one: 'încă 1 până la $day',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String reportGoalMoreToday(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'încă $count azi',
+      one: 'încă 1 azi',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String reportGoalAmountMoreBy(String amount, String day) {
+    return 'încă $amount până la $day';
+  }
+
+  @override
+  String reportGoalAmountMoreToday(String amount) {
+    return 'încă $amount azi';
+  }
+
+  @override
+  String reportGoalDone(String period) {
+    String _temp0 = intl.Intl.selectLogic(period, {
+      'day': 'gata pentru azi',
+      'week': 'gata pe săptămâna asta',
+      'month': 'gata pe luna asta',
+      'year': 'gata pe anul ăsta',
+      'other': 'gata',
+    });
+    return '$_temp0';
+  }
+
+  @override
+  String reportGoalLeft(String amount) {
+    return 'rămân $amount';
+  }
+
+  @override
+  String reportGoalLeftIn(String amount, String period) {
+    String _temp0 = intl.Intl.selectLogic(period, {
+      'day': 'azi',
+      'week': 'săptămâna asta',
+      'month': 'luna asta',
+      'year': 'anul ăsta',
+      'other': '',
+    });
+    return 'rămân $amount $_temp0';
+  }
+
+  @override
+  String reportGoalOver(String amount) {
+    return 'depășit cu $amount';
+  }
+
+  @override
+  String get reportGoalMet => 'Atins';
+
+  @override
+  String get reportGoalMissed => 'Ratat';
+
+  @override
+  String get reportGoalWithin => 'În limită';
+
+  @override
+  String get reportGoalOverWord => 'Depășit';
+
+  @override
+  String reportGoalPeriodsMet(int met, int total, String period) {
+    String _temp0 = intl.Intl.selectLogic(period, {
+      'day': 'zile',
+      'week': 'săptămâni',
+      'month': 'luni',
+      'year': 'ani',
+      'other': 'perioade',
+    });
+    String _temp1 = intl.Intl.selectLogic(period, {
+      'day': 'zile',
+      'week': 'săptămâni',
+      'month': 'luni',
+      'year': 'ani',
+      'other': 'perioade',
+    });
+    String _temp2 = intl.Intl.selectLogic(period, {
+      'day': 'zi',
+      'week': 'săptămână',
+      'month': 'lună',
+      'year': 'an',
+      'other': 'perioadă',
+    });
+    String _temp3 = intl.Intl.pluralLogic(
+      total,
+      locale: localeName,
+      other: 'atins în $met din $total de $_temp0',
+      few: 'atins în $met din $total $_temp1',
+      one: 'atins în $met din 1 $_temp2',
+    );
+    return '$_temp3';
+  }
+
+  @override
+  String reportGoalPlanned(String value, String target) {
+    return '$value din $target în plan';
+  }
+
+  @override
+  String reportGoalGapDays(int days) {
+    String _temp0 = intl.Intl.pluralLogic(
+      days,
+      locale: localeName,
+      other: '$days de zile',
+      few: '$days zile',
+      one: '1 zi',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get reportGoalGapNone => 'Încă nimic';
+
+  @override
+  String get reportGoalGapLong => 'Peste un an';
+
+  @override
+  String reportGoalLimit(int limit) {
+    return 'limită $limit';
+  }
+
+  @override
+  String reportGoalStreak(int count) {
+    return '$count la rând';
+  }
+
+  @override
+  String reportGoalStreakSpoken(int count, String period) {
+    String _temp0 = intl.Intl.selectLogic(period, {
+      'day': 'zile',
+      'week': 'săptămâni',
+      'month': 'luni',
+      'year': 'ani',
+      'other': 'perioade',
+    });
+    String _temp1 = intl.Intl.selectLogic(period, {
+      'day': 'zile',
+      'week': 'săptămâni',
+      'month': 'luni',
+      'year': 'ani',
+      'other': 'perioade',
+    });
+    String _temp2 = intl.Intl.selectLogic(period, {
+      'day': 'zi',
+      'week': 'săptămână',
+      'month': 'lună',
+      'year': 'an',
+      'other': 'perioadă',
+    });
+    String _temp3 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count de $_temp0 la rând',
+      few: '$count $_temp1 la rând',
+      one: '1 $_temp2 la rând',
+    );
+    return '$_temp3';
+  }
+
+  @override
+  String get reportGoalStateMet => 'atins';
+
+  @override
+  String get reportGoalStateOnPace => 'în ritm';
+
+  @override
+  String get reportGoalStateBehind => 'în urmă';
+
+  @override
+  String get reportGoalStateOver => 'depășit';
+
+  @override
+  String get reportGoalStateMissed => 'ratat';
+
+  @override
+  String get reportGoalStateNotStarted => 'neînceput';
+
+  @override
+  String get reportGoalStatePlanned => 'planificat';
+
+  @override
+  String get reportGoalStateWithin => 'în limită';
+
+  @override
+  String get reportGoalStateDueSoon => 'scadent curând';
+
+  @override
+  String get reportGoalStatePastLimit => 'peste limită';
+
+  @override
+  String reportGoalsOnPace(int onPace, int total) {
+    String _temp0 = intl.Intl.pluralLogic(
+      total,
+      locale: localeName,
+      other: '$onPace/$total de obiective în ritm',
+      few: '$onPace/$total obiective în ritm',
+      one: '$onPace/1 obiectiv în ritm',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String reportGoalsMet(int met, int total) {
+    String _temp0 = intl.Intl.pluralLogic(
+      total,
+      locale: localeName,
+      other: '$met/$total de obiective atinse',
+      few: '$met/$total obiective atinse',
+      one: '$met/1 obiectiv atins',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get reportInsightAttention => 'Necesită atenție';
+
+  @override
+  String get reportInsightNotable => 'Merită o privire';
+
+  @override
+  String get reportInsightObservation => 'Bine de știut';
+
+  @override
+  String get reportInsightInfo => 'Informativ';
+
+  @override
+  String get reportInsightBills => 'Facturi';
+
+  @override
+  String get reportInsightNextTrip => 'Următoarea călătorie';
+
+  @override
+  String reportInsightBehind(String progress, String more) {
+    return '$progress, $more';
+  }
+
+  @override
+  String reportInsightOver(String progress, String period, String over) {
+    String _temp0 = intl.Intl.selectLogic(period, {
+      'day': 'azi',
+      'week': 'săptămâna asta',
+      'month': 'luna asta',
+      'year': 'anul ăsta',
+      'other': '',
+    });
+    return '$progress $_temp0, $over';
+  }
+
+  @override
+  String reportInsightDone(String progress, String done) {
+    return '$progress, $done';
+  }
+
+  @override
+  String reportInsightStreakEnded(int count, String period) {
+    String _temp0 = intl.Intl.selectLogic(period, {
+      'day': 'zile',
+      'week': 'săptămâni',
+      'month': 'luni',
+      'year': 'ani',
+      'other': 'perioade',
+    });
+    String _temp1 = intl.Intl.selectLogic(period, {
+      'day': 'zile',
+      'week': 'săptămâni',
+      'month': 'luni',
+      'year': 'ani',
+      'other': 'perioade',
+    });
+    String _temp2 = intl.Intl.selectLogic(period, {
+      'day': 'zi',
+      'week': 'săptămână',
+      'month': 'lună',
+      'year': 'an',
+      'other': 'perioadă',
+    });
+    String _temp3 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'seria de $count de $_temp0 s-a încheiat',
+      few: 'seria de $count $_temp1 s-a încheiat',
+      one: 'seria de 1 $_temp2 s-a încheiat',
+    );
+    return '$_temp3';
+  }
+
+  @override
+  String reportInsightAllowance(String left, int total) {
+    String _temp0 = intl.Intl.pluralLogic(
+      total,
+      locale: localeName,
+      other: 'rămân $left din $total de zile',
+      few: 'rămân $left din $total zile',
+      one: 'rămân $left din 1 zi',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String reportInsightMonthsToGo(int months) {
+    String _temp0 = intl.Intl.pluralLogic(
+      months,
+      locale: localeName,
+      other: 'mai sunt $months de luni',
+      few: 'mai sunt $months luni',
+      one: 'mai e 1 lună',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String reportInsightAllowanceUnused(int days) {
+    String _temp0 = intl.Intl.pluralLogic(
+      days,
+      locale: localeName,
+      other: '$days de zile nefolosite',
+      few: '$days zile nefolosite',
+      one: '1 zi nefolosită',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String reportInsightDaysLeftInYear(int days) {
+    String _temp0 = intl.Intl.pluralLogic(
+      days,
+      locale: localeName,
+      other: '$days de zile până la final de an',
+      few: '$days zile până la final de an',
+      one: '1 zi până la final de an',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String reportInsightGapOverdue(int days, int limit) {
+    String _temp0 = intl.Intl.pluralLogic(
+      days,
+      locale: localeName,
+      other: '$days de zile de la ultima dată',
+      few: '$days zile de la ultima dată',
+      one: '1 zi de la ultima dată',
+    );
+    return '$_temp0, limita e $limit';
+  }
+
+  @override
+  String reportInsightGapOverdueLong(int limit) {
+    return 'peste un an de la ultima dată, limita e $limit';
+  }
+
+  @override
+  String reportInsightGapDue(int days) {
+    String _temp0 = intl.Intl.pluralLogic(
+      days,
+      locale: localeName,
+      other: 'scadent în $days de zile',
+      few: 'scadent în $days zile',
+      one: 'scadent în 1 zi',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String reportInsightExpires(int days) {
+    String _temp0 = intl.Intl.pluralLogic(
+      days,
+      locale: localeName,
+      other: 'expiră în $days de zile',
+      few: 'expiră în $days zile',
+      one: 'expiră în 1 zi',
+      zero: 'expiră azi',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String reportInsightExpired(int days) {
+    String _temp0 = intl.Intl.pluralLogic(
+      days,
+      locale: localeName,
+      other: 'a expirat acum $days de zile',
+      few: 'a expirat acum $days zile',
+      one: 'a expirat acum 1 zi',
+      zero: 'a expirat azi',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String reportInsightUnmarked(String day, int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count de zile nemarcate, ultima pe $day',
+      few: '$count zile nemarcate, ultima pe $day',
+      one: 'nemarcat pe $day',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String reportInsightEpisodeNext(String day) {
+    return 'după intervalul obișnuit, următorul pe la $day';
+  }
+
+  @override
+  String reportInsightWeekdays(
+    String best,
+    String bestPercent,
+    String worst,
+    String worstPercent,
+  ) {
+    return '$best $bestPercent %, $worst $worstPercent %';
+  }
+
+  @override
+  String reportInsightLateEvenings(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count de seri târzii',
+      few: '$count seri târzii',
+      one: '1 seară târzie',
+    );
+    return '$_temp0 într-o săptămână';
+  }
+
+  @override
+  String reportInsightWeekend(String hours) {
+    return '$hours în weekend';
+  }
+
+  @override
+  String reportInsightShortNights(int count, String hours) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count de nopți',
+      few: '$count nopți',
+      one: '1 noapte',
+    );
+    return '$_temp0 sub $hours într-o săptămână';
+  }
+
+  @override
+  String reportInsightBedtimeSpread(String spread) {
+    return 'orele de culcare variază cu $spread';
+  }
+
+  @override
+  String reportInsightMeetingShare(String hours, String percent) {
+    return '$hours, $percent % din orele de lucru';
+  }
+
+  @override
+  String reportInsightCancelled(int cancelled, int planned) {
+    String _temp0 = intl.Intl.pluralLogic(
+      planned,
+      locale: localeName,
+      other: '$cancelled din $planned anulate',
+      few: '$cancelled din $planned anulate',
+      one: '$cancelled din 1 anulat',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String reportInsightRestGap(int days) {
+    String _temp0 = intl.Intl.pluralLogic(
+      days,
+      locale: localeName,
+      other: 'o pauză de $days de zile',
+      few: 'o pauză de $days zile',
+      one: 'o pauză de 1 zi',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String reportInsightBillsAhead(String amount, int days) {
+    String _temp0 = intl.Intl.pluralLogic(
+      days,
+      locale: localeName,
+      other: '$amount de plătit în următoarele $days de zile',
+      few: '$amount de plătit în următoarele $days zile',
+      one: '$amount de plătit în ziua următoare',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String reportInsightBillsYear(String amount, int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$amount pe an pentru $count de facturi',
+      few: '$amount pe an pentru $count facturi',
+      one: '$amount pe an pentru 1 factură',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String reportInsightTagGapLong(int days) {
+    String _temp0 = intl.Intl.pluralLogic(
+      days,
+      locale: localeName,
+      other: '$days de zile de la ultima dată, mai mult ca de obicei',
+      few: '$days zile de la ultima dată, mai mult ca de obicei',
+      one: '1 zi de la ultima dată, mai mult ca de obicei',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String reportInsightTagTop(String category, int days) {
+    String _temp0 = intl.Intl.pluralLogic(
+      days,
+      locale: localeName,
+      other: 'cel mai des în $category, în $days de zile',
+      few: 'cel mai des în $category, în $days zile',
+      one: 'cel mai des în $category, într-o zi',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String reportInsightLeadTime(int days) {
+    String _temp0 = intl.Intl.pluralLogic(
+      days,
+      locale: localeName,
+      other: 'de obicei programat cu $days de zile înainte',
+      few: 'de obicei programat cu $days zile înainte',
+      one: 'de obicei programat cu o zi înainte',
+      zero: 'de obicei programat în aceeași zi',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String reportInsightOpenPast(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count de deschise după termen',
+      few: '$count deschise după termen',
+      one: '1 deschis după termen',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String reportInsightAhead(int count, String day) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count urmează până la $day',
+      one: '1 urmează până la $day',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String reportInsightTrip(String title, int days) {
+    String _temp0 = intl.Intl.pluralLogic(
+      days,
+      locale: localeName,
+      other: '$title peste $days de zile',
+      few: '$title peste $days zile',
+      one: '$title mâine',
+      zero: '$title azi',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String reportInsightUpOn(String value, String percent, String period) {
+    return '$value, cu $percent % mai mult față de $period';
+  }
+
+  @override
+  String reportInsightDownOn(String value, String percent, String period) {
+    return '$value, cu $percent % mai puțin față de $period';
+  }
+
+  @override
+  String reportDueOverdue(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count de zile întârziere',
+      few: '$count zile întârziere',
+      one: '1 zi întârziere',
+      zero: 'Termen depășit azi',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String reportDueIn(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Scadent în $count de zile',
+      few: 'Scadent în $count zile',
+      one: 'Scadent în 1 zi',
+      zero: 'Scadent azi',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String reportDueExpires(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Expiră în $count de zile',
+      few: 'Expiră în $count zile',
+      one: 'Expiră în 1 zi',
+      zero: 'Expiră azi',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String reportDueExpired(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Expirat de $count de zile',
+      few: 'Expirat de $count zile',
+      one: 'Expirat de 1 zi',
+      zero: 'Expirat azi',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get reportDueNotMarked => 'nemarcat';
+
+  @override
+  String get reportDueLong => 'Acum peste un an';
+
+  @override
+  String reportLastSeenAgo(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'acum $count de zile',
+      few: 'acum $count zile',
+      one: 'ieri',
+      zero: 'azi',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String reportCancelledCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count de anulate',
+      few: '$count anulate',
+      one: '1 anulat',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String reportLeadTime(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'programat cu $count de zile înainte',
+      few: 'programat cu $count zile înainte',
+      one: 'programat cu 1 zi înainte',
+      zero: 'programat în aceeași zi',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String reportDaysUntil(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'peste $count de zile',
+      few: 'peste $count zile',
+      one: 'mâine',
+      zero: 'azi',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String reportWorkingDays(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count de zile lucrătoare',
+      few: '$count zile lucrătoare',
+      one: '1 zi lucrătoare',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String reportPublicHolidays(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count de sărbători legale',
+      few: '$count sărbători legale',
+      one: '1 sărbătoare legală',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String reportCaptionCountedAs(String hours) {
+    return 'Ore incl. $hours socotite fix';
+  }
+
+  @override
+  String reportCountedAsSpoken(String hours) {
+    return 'inclusiv $hours socotite fix';
+  }
 }

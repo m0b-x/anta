@@ -1,8 +1,13 @@
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart' show precisionErrorTolerance;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart'
-    show RenderSliver, RenderSliverMultiBoxAdaptor, SliverGeometry;
+    show
+        RenderAbstractViewport,
+        RenderSliver,
+        RenderSliverMultiBoxAdaptor,
+        SliverGeometry;
 
 import '../constants/report_metrics.dart';
 import '../models/calendar_event.dart';
@@ -35,6 +40,18 @@ class ReportGroupFolds {
       _expanded.remove((card, categoryId));
     }
   }
+
+  bool _dueSoonExpanded = false;
+
+  /// Whether the Due soon card shows every row rather than its first
+  /// `AnalyticsMetrics.dueSoonRows`. Kept for the visit like the groups'
+  /// folds: a refold rebuilds the card, and must not collapse what the
+  /// owner opened.
+  bool get isDueSoonExpanded => _dueSoonExpanded;
+
+  /// Written by the card's disclosure row alone, so a new report never
+  /// resets it within the visit.
+  void setDueSoonExpanded(bool expanded) => _dueSoonExpanded = expanded;
 }
 
 /// [card]'s [groups], each a `SliverList` of its own in the surface's one
@@ -68,6 +85,7 @@ class ReportGroupStack extends StatefulWidget {
     required this.use24Hour,
     this.trailingGap = false,
     this.onShrink,
+    this.measures = const {},
   });
 
   /// The surface's one scroll, which "Show less" moves so "n more" stays
@@ -112,11 +130,19 @@ class ReportGroupStack extends StatefulWidget {
   /// null for a surface with no slack to arm.
   final VoidCallback? onShrink;
 
+  /// [CalendarReport.measures] by category, which a profiled Categories
+  /// header leads with (N); the other cards never read it, and empty keeps
+  /// every header's count facts.
+  final Map<String, ReportMeasures> measures;
+
   @override
-  State<ReportGroupStack> createState() => _ReportGroupStackState();
+  State<ReportGroupStack> createState() => ReportGroupStackState();
 }
 
-class _ReportGroupStackState extends State<ReportGroupStack> {
+/// The stack's state, public so the body can reach [reveal] through a
+/// `GlobalKey`: a goal's or an insight's tap opens a group and scrolls to
+/// it, and only the stack holds the group's list.
+class ReportGroupStackState extends State<ReportGroupStack> {
   /// Each group's `SliverList`, by category: it keeps the list's rows with
   /// the group when a refold reorders the groups, and "Show less" measures
   /// the built rows through it.
@@ -156,6 +182,9 @@ class _ReportGroupStackState extends State<ReportGroupStack> {
               spansMonths: widget.spansMonths,
               use24Hour: widget.use24Hour,
               trailingGap: widget.trailingGap || index < groups.length - 1,
+              measures: card == ReportCard.categories
+                  ? widget.measures[group.categoryId]
+                  : null,
             ),
           ),
       ],
@@ -214,34 +243,106 @@ class _ReportGroupStackState extends State<ReportGroupStack> {
   /// built, nothing moves. The fold also calls [ReportGroupStack.onShrink],
   /// for a group folded at the scroll's end.
   void _keepMoreInPlace(ReportCategoryGroup group) {
-    widget.onShrink?.call();
-    final scroll = widget.scroll;
-    final sliver = _lists[group.categoryId]?.currentContext?.findRenderObject();
-    if (sliver is! RenderSliverMultiBoxAdaptor || !scroll.hasClients) return;
-    final length = group.rows.length;
-    final capped = length > ReportMetrics.maxListRows;
-    final shown = math.min(length, ReportMetrics.maxListRows);
-    double? rowHeight;
-    double? listHeight;
-    for (
-      var child = sliver.firstChild;
-      child != null;
-      child = sliver.childAfter(child)
-    ) {
-      // The header is 0, the rows 1 to [shown], then "Show as list".
-      final index = sliver.indexOf(child);
-      if (index >= 1 && index <= shown) {
-        rowHeight ??= child.size.height;
-      } else if (capped && index == shown + 1) {
-        listHeight = child.size.height;
-      }
-    }
-    if (rowHeight == null || (capped && listHeight == null)) return;
-    final extent =
-        (shown - ReportMetrics.groupPreviewRows) * rowHeight +
-        (listHeight ?? 0);
-    scroll.jumpTo(math.max(0, scroll.offset - extent));
+    foldBackInPlace(
+      widget.scroll,
+      onShrink: widget.onShrink,
+      extent: () {
+        final sliver = _lists[group.categoryId]?.currentContext
+            ?.findRenderObject();
+        if (sliver is! RenderSliverMultiBoxAdaptor) return null;
+        final length = group.rows.length;
+        final capped = length > ReportMetrics.maxListRows;
+        final shown = math.min(length, ReportMetrics.maxListRows);
+        double? rowHeight;
+        double? listHeight;
+        for (
+          var child = sliver.firstChild;
+          child != null;
+          child = sliver.childAfter(child)
+        ) {
+          // The header is 0, the rows 1 to [shown], then "Show as list".
+          final index = sliver.indexOf(child);
+          if (index >= 1 && index <= shown) {
+            rowHeight ??= child.size.height;
+          } else if (capped && index == shown + 1) {
+            listHeight = child.size.height;
+          }
+        }
+        if (rowHeight == null || (capped && listHeight == null)) return null;
+        return (shown - ReportMetrics.groupPreviewRows) * rowHeight +
+            (listHeight ?? 0);
+      },
+    );
   }
+
+  /// Opens [categoryId]'s group and lands its header at the viewport's top
+  /// (G): a goal's or an insight's tap reads the group it names. A group
+  /// this stack does not draw moves nothing.
+  void reveal(String categoryId) {
+    if (!widget.groups.any((group) => group.categoryId == categoryId)) return;
+    final card = widget.card;
+    if (!widget.folds.isOpen(card, categoryId)) {
+      setState(() => widget.folds.setOpen(card, categoryId, true));
+    }
+    revealAtTop(
+      widget.scroll,
+      () => _lists[categoryId]?.currentContext?.findRenderObject(),
+    );
+  }
+}
+
+/// Before a "Show less" folds rows away above its disclosure row, scrolls
+/// back by the [extent] about to go, so "n more" lands where the finger was
+/// (S) — a report group's and the Due soon card's alike, so the two never
+/// drift. The list or card would hold its first row in place instead —
+/// right for an edit far above, the opposite of what a reader folding a
+/// long run wants: the rows below would jump up past the finger. Called
+/// before the fold's `setState`, so the folded frame is laid out at the new
+/// offset — one frame, never a post-frame jump; the offset clamps at 0.
+/// [onShrink] is called first, for a fold at the scroll's end; a null
+/// [extent] — nothing built to measure — moves nothing.
+void foldBackInPlace(
+  ScrollController? scroll, {
+  required double? Function() extent,
+  VoidCallback? onShrink,
+}) {
+  onShrink?.call();
+  if (scroll == null || !scroll.hasClients) return;
+  final leaving = extent();
+  if (leaving == null) return;
+  scroll.jumpTo(math.max(0, scroll.offset - leaving));
+}
+
+/// Scrolls [scroll] so [target] — a group's list, a card's label — starts
+/// at the viewport's top edge, clamped to the scroll's range: where a goal
+/// or an insight takes the reader. It runs after the frame that lays the
+/// target out, since the tap may have just opened it; and once more after
+/// its own jump, because a list above the old viewport, or the target
+/// itself, may have been laid out at an estimated extent the jump then
+/// builds for real.
+void revealAtTop(ScrollController scroll, RenderObject? Function() target) {
+  void jump({required bool again}) {
+    final object = target();
+    if (object == null || !object.attached || !scroll.hasClients) return;
+    final viewport = RenderAbstractViewport.maybeOf(object);
+    if (viewport == null) return;
+    final position = scroll.position;
+    final offset = viewport
+        .getOffsetToReveal(object, 0)
+        .offset
+        .clamp(position.minScrollExtent, position.maxScrollExtent);
+    if ((offset - position.pixels).abs() < precisionErrorTolerance) return;
+    position.jumpTo(offset);
+    if (again) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => jump(again: false));
+    }
+  }
+
+  WidgetsBinding.instance
+    ..addPostFrameCallback((_) => jump(again: true))
+    // A tap on a group already open changes nothing, so no frame would
+    // come to run the jump.
+    ..ensureVisualUpdate();
 }
 
 /// Blank room after the body's end, so a content that shrinks under the

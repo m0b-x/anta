@@ -10,10 +10,9 @@ the work needs, and named the same Fable session the lead: one Opus 5.5
 implementer and one reviewer per slice (the `delegation` roster), the
 designer and design-reviewer around the visual slices, the suite from the
 lead. §12.2 records each slice as built; this line moves to COMMITTED when
-S9's device pass is green. **Paused by the owner on 2026-11-04 after S3**
-(S0, S1, S2a, S2b-i and S3 committed, `fb9ae486` last; the next session
-resumes at S2b-ii — see "Where the next session starts" at the head of
-§12.2).
+S9's device pass is green. **In progress: S0–S4 committed by 2026-11-04**
+(S2b-ii `f29edf64`, then S4; the next session resumes at S5 — see "Where
+the next session starts" at the head of §12.2).
 
 This record extends `docs/calendar-report-roadmap.md` (the Report, COMMITTED
 2026-10-31) and never replaces it: one page, one pure builder, one model.
@@ -767,30 +766,32 @@ warning; a sync between two devices converges on the newer profile.
 verified, the reviewer's findings and their fate, the uncommitted file count
 at the boundary)*
 
-**Where the next session starts (written 2026-11-04 at the pause).**
+**Where the next session starts (rewritten 2026-11-04 after S4).**
 Done and on `origin/main`: S0 (`2661c8de`), S1 (`6a586668`), S2a
-(`0f5fae29`), S2b-i (`66efe1f1`), S3 (`fb9ae486`, built in a worktree and
-rebased onto main; the worktree and its branch are gone). Next, in order:
-**S2b-ii** (builder II, the rest: the year aggregates `CalendarReport.year`
-— `records`, `months`, `spans`, `goalTallies` — and `ReportRecord`,
-`balanceLastYear`; Compare's second fold in the service — previous period,
-same period last year, a saved view folded with the page's tile set —
-`CalendarReport.compared` and `ReportTrend.lastYear`; T1–T3; Sleep out of
-When by the counts-hours rule; `ReportTag.kind`; the `ReportCompare` choice
-in the request and the memo key; its own fixture pairs and the two-fold
-memo pin), then **S4**, **S5**, **S6** (each: implementer → the whole suite
-from the lead → reviewer → fix pass → design-reviewer → fix pass →
-commit), **S7**, **S8**, **S9**. The designer's accepted specs for S3–S6
-are in `docs/calendar-analytics-specs/` (`s3-design-spec.md` … `s6-design-
-spec.md`; their defaults and the lead's amendments are the "S3" … "S6"
-notes below); S4's, S5's and S6's renders stayed in the session's
-scratchpad and are not needed — the specs carry every number. The
-process that worked: one Opus implementer per (sub-)slice with a brief of
-at most eight ids, the whole suite only from the lead with nothing else
-running (the delete-all load flake), one reviewer told to report by its
-60th turn, a fix pass from the same list, a parallel slice in a worktree
-at a short path (`C:\Temp\anta-wt-<slice>`, `firebase_options.dart`
-copied, the generated plugin files left out of the commit). The owner's
+(`0f5fae29`), S2b-i (`66efe1f1`), S3 (`fb9ae486`), **S2b-ii**
+(`f29edf64`) and **S4** (the commit after `f29edf64` that carries the "S4"
+note; its hash is added to this paragraph by the docs commit that follows
+it). Next, in order: **S5** (report cards II — By tag, When, Balance,
+Compare with… in the footer; the model is complete: `ReportTag.kind`, the
+When cells without Sleep, `CalendarReport.compare` / `compared` /
+`balanceLastYear`, `ReportTrend.lastYear`, the `ReportCompare` request
+choice and `OverviewView` folds; S5 also fixes `_againstName` under last
+year — the S4 note), **S6** (year in review — `CalendarReport.year` is
+built: `records`, `months`, `spans`, `goalTallies`; the Months card
+iterates `categories` and looks `months` up, a category whose every day
+was missed has no entry — the S2b-ii note), each: implementer runs of ≤ 8
+ids → the whole suite from the lead → two reviewers (3–4 items each) and
+the design-reviewer → fix passes → commit; then **S7**, **S8**, **S9**.
+The designer's accepted specs for S5 and S6 are in
+`docs/calendar-analytics-specs/`; S4's spec is built as amended by
+decisions BA–BJ. The process that worked in this session: a slice split
+by layer into words → primitives and cards → page wiring, the words and
+the model built in parallel in a worktree (`C:\Temp\anta-wt-<slice>`,
+`firebase_options.dart` copied, the branch committed and squash-merged,
+the generated plugin registrants never staged), two code reviewers plus
+the design reviewer told to report by turn 60, fix passes grouped by file
+so two run at once on disjoint files, the whole suite and the benchmark's
+ratio pin only from the lead with nothing else running. The owner's
 pending step (the Firestore rules deploy before a v44+ build syncs from a
 phone) is in the S0 note.
 
@@ -1528,7 +1529,116 @@ X moot: S2b lands first, so S4 builds Insights too. Model asks for S4's
 build: `ReportMeasures.profiled`, `dueSoon` uncapped, `ReportInsight(id,
 severity, subject, detail, target)`.
 
-*(The build, the two reviews and the gate follow at the boundary.)*
+- **Built (2026-11-04, the second session)** in five implementer runs —
+  S4a (words) and S4b-i / S4b-ii (the row primitive and the three cards) in
+  a worktree (`C:\Temp\anta-wt-s4`, branch `analytics-s4`, squash-merged;
+  the generated plugin registrants left out), S4c-i / S4c-ii (the page) in
+  the main tree after S2b-ii — then three fix passes from two code reviews
+  and one design review. `ReportLabels` gained every word (`goalCaption` /
+  `goalStateWord` / `goalSpoken` / `goalTemplates`, the static `goalPeriod`
+  and `closedPeriods`, `insightSubject` / `insightDetail` / `insightSpoken`
+  / `insightSeverityWord`, `dueCaption` / `dueSpoken`, `money`, `subtitle(…,
+  goals:)`, `subtitleTemplate`, the profiled `groupFacts` / `groupSpoken`,
+  the caption and tile appendices) and ~90 ARB keys × 3; `FormMeterRow`
+  gained `captionLines`, `labelTrailing`, `compactLeading` and a static
+  `isCompact(scaler)` (`FormDividedRow.dividerIndentIn(context)` lets the
+  indent follow the scale); `lib/widgets/report_analytics_cards.dart` holds
+  `ReportGoalsCard`, `ReportInsightsCard`, `ReportDueSoonCard` (each with
+  `canTap`); `lib/utils/report_insight_filter.dart` is H;
+  `ReportGroupFolds.isDueSoonExpanded`; `ReportGroupStackState.reveal` and
+  the shared `foldBackInPlace` / `revealAtTop`; the body's `_analyticsCards`,
+  `_toGroup` / `_toInsight`, `onDueTap` / `onReveal` and the keyed
+  `_AnchoredLabel` sliver (R); `AgendaPeriodNav.compactSubtitle` /
+  `subtitleTemplate` (Q); `ReportMoreCategoriesSheet.measures`; the
+  currency through `getCalendarReportSettings` → `ReportShown` →
+  `ReportLabels`; ids `report-goal-<categoryId>`, `report-insight-<n>`,
+  `report-due-<eventId>-<yyyy-MM-dd>`, `report-due-more`;
+  `ReportMetrics.insightCaptionMaxLines` (4), `goalTemplateDigit`,
+  `goalTemplateStreak`.
+- **Decisions (S4, the lead's, beyond the designer's A–X):** **BA** money in
+  the words reads whole units with the locale's grouping and the settings'
+  symbol (attached as a prefix, after a no-break space as a suffix); the
+  "of {target}" and over / left figures are bare; the ledger's own sheets
+  keep the cents. **BB** a goal's closed shapes (Met / Missed / Within /
+  Over) follow the period's own state — `end` before today — never the
+  tense: a past week with a monthly goal reads its open period as pace; F
+  counts closed periods only ("3 of 4 weeks met" = of the closed ones); on
+  a span of several periods the glyph is met when every closed period was
+  met, `timelapse` when some were (a partial result is not a failure, C)
+  and the alarm when none; the spoken label omits a state word the caption
+  already says; the band's past "n of m goals met" counts a goal met only
+  when every period was. **BC** the templates (D) are narrowed by the
+  reading — the closed words for one closed period, "8 of 8 weeks met" for
+  several, "8 of 8 planned" for a plan, the pace / `=1` "one more" / done /
+  left / over sentences for an open one — and a day-period goal's figures
+  take three digits from the span's day count. **BD** H also drops D1 / D2
+  beside a max-gap goal row and a milestone G4 beside a periodic goal row
+  (the row ends "· 8 in a row"); D3 / D4 take the event's title as the
+  subject. **BE** the band's goals form is "2/3 Ziele im Plan" / "2/3
+  obiective în ritm" (the editor's "obiectiv", not "ținte"); it fits in de
+  at 360 and still falls back in ro at 360 (the nav's rule, Q). **BF** the
+  refold anchor is a `scrollOffsetCorrection` returned by the Totals label's
+  own sliver (one frame, never a post-frame jump), keyed
+  (`ValueKey(#totalsLabel)`) so a refold that changes the slivers above and
+  below keeps its memory, and armed only under the same look (a step, a
+  pick or a category change keep the raw offset); the end slack arms when
+  the goals, insights or due rows change, not on every refold (D40 / D42
+  of the report record hold). **BG** `revealAtTop` jumps after the next
+  frame and checks once more (estimated extents above); the Due soon
+  fold-back goes through the stack's `foldBackInPlace`; `onReveal` gates
+  the in-body jumps and carries the haptic click (null in the guide's
+  stage, whose rows stay read rows). **BH** a row `canTap` refuses is a read
+  row; on `FormPickerRow` it still carries a disabled-button flag (the
+  primitive's rule, left for S8); the picker rows keep text at x 70 at 2.0
+  while goal rows go compact (the designer's §2.3 — a `compactLeading` on
+  `FormPickerRow` is a question for the design record). **BI** a gap row
+  past the lookback opens the event on its start day (the last kept day is
+  unknown). **BJ** `ReportMetrics.goalTemplateStreak` is the two-digit
+  floor; a day goal's streak can reach three digits from the lookback in
+  any span (the template reserves them only in a long span — accepted).
+- **Reviews (S4).** Two `reviewer`s (the words, filter, row and cards; the
+  wiring) and one `design-reviewer` (18 real-font renders across the
+  matrix, geometry on the spec's table at every cell, contrast from
+  tokens, the three guideline matchers; no severity 3–4). Taken in the
+  three passes: the anchor's lost memory (CONFIRMED: an unkeyed sliver),
+  the spring-back near the end, a step anchoring, the past-span open
+  period reading "Missed" (CONFIRMED), the missing `=1` template
+  (CONFIRMED), the over-reserved lines on closed and planned rows, the
+  doubled spoken state, the several-periods glyph, money's ".00", the de
+  band and due phrases ("32 Tage abgelaufen", "offen"), `=0` due phrases
+  ("Due today"), D1 / D2 beside a gap goal, G4 beside a goal row, D3 / D4's
+  subject, the line cache keyed on the currency and today, one compact
+  rule, the profiled-header pin at de / ro 2.0, the reviewers' test gaps.
+  Accepted as built: faint meter tints (the groups' existing behaviour),
+  the 20 dp glyph at 2.0 (the spec's own risk), the meter's reversed sense
+  on a gap goal (the glyph resolves it), two identical captions with
+  different glyphs (behind vs not started — the glyph and the word
+  differ), a missing event titled by its id (unreachable), ro due phrases
+  of 21 characters where no shorter natural form exists, the picker rows'
+  x 70, a goal past the cap opening the More sheet without scrolling to
+  its group inside it. Device-only, for S9's pass: TalkBack on the goal
+  rows (one node, no doubled state), the Due soon fold announcement, the
+  anchor's and the reveal's frames, ink states, the AOSP 200 % curve in
+  de / ro, the gesture-bar clearance with Due soon expanded.
+- **Measured (the design review, ±1 dp, 360 and 412, light and dark, en /
+  de / ro):** goal rows 66 / 84 at 1.0, 77.4 / 100.8 at 1.3, 104 / 140 /
+  176 at 2.0 plus a four-line 212 (a ro weekly hours limit in a month
+  view); insight rows 62 / 74, 67 / 90, 130 / 166; due rows 62 / 67 / 94;
+  the disclosure 48 / 48 / 52; the header 66 / 77.4 / 104; the unprofiled
+  October page pinned (14 slivers, the Totals label at 82, the card at 102,
+  the extent 574) and the guide's stage green.
+- **Gate (S4).** `dart analyze lib test` clean; `dart format` clean;
+  `flutter gen-l10n`, `untranslated.txt` empty; the whole suite `+13064 ~12
+  -1` (the known Windows-only case). 33 files; the commit hash is in the
+  hand-off at the head of §12.2.
+- **Noted for S5 / S8:** `_againstName` in the body always steps the period
+  back, so under Compare: last year the caption would say "against
+  September 2026" — S5 wires the compare choice and fixes it; the two
+  other hand copies of the compact rule (`category_delete_sheet.dart`,
+  `calendar_guide_try_categories.dart`) can call `FormMeterRow.isCompact`;
+  `FormPickerRow`'s button flag on a refused row and its leading box at
+  2.0 are S8 / design-record questions; `_periodsMetReading` in the card
+  mirrors the labels' private predicate — make it public when touched.
 
 #### S5 — report cards II (designed 2026-11-04, built after S4)
 

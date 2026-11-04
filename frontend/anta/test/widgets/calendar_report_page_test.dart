@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show RenderParagraph;
 import 'package:flutter/scheduler.dart' show SchedulerBinding;
+import 'package:flutter/semantics.dart' show SemanticsData;
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/intl.dart';
@@ -18,6 +19,7 @@ import 'package:anta/bloc/import_export/import_export_event.dart';
 import 'package:anta/constants/alert_constants.dart';
 import 'package:anta/constants/app_bar_metrics.dart';
 import 'package:anta/constants/calendar_categories.dart';
+import 'package:anta/constants/category_kinds.dart';
 import 'package:anta/constants/event_alerts.dart';
 import 'package:anta/constants/event_digests.dart';
 import 'package:anta/constants/event_presence.dart';
@@ -30,6 +32,7 @@ import 'package:anta/models/calendar_appearance.dart';
 import 'package:anta/models/calendar_category.dart';
 import 'package:anta/models/calendar_event.dart';
 import 'package:anta/models/calendar_report.dart';
+import 'package:anta/models/category_profile.dart';
 import 'package:anta/models/event_digest.dart';
 import 'package:anta/models/export_format.dart';
 import 'package:anta/models/overview_period.dart';
@@ -140,6 +143,19 @@ class _FailingReportService extends CalendarReportService {
     }
     return super.report(request);
   }
+}
+
+/// A report service that hands every fold through [shape]: the analytics a
+/// profiled calendar folds — goals, insights, due rows, working days, the
+/// counts-as hours — laid onto the fixture's real fold, so a case reads
+/// the page's wiring without seeding profiles.
+class _ShapingReportService extends CalendarReportService {
+  _ShapingReportService(this.shape);
+
+  final CalendarReport Function(CalendarReport folded) shape;
+
+  @override
+  CalendarReport report(ReportRequest request) => shape(super.report(request));
 }
 
 /// The report page over a loaded calendar: its bar, its band and Period
@@ -2785,5 +2801,758 @@ void main() {
     }
     await tester.pumpAndSettle();
     expect(service.foldCount, 1);
+  });
+
+  group('analytics (S4)', () {
+    const nb = ' ';
+    const sep = ReportLabels.separator;
+
+    /// [folded] with the analytics laid on; the rest as it was folded.
+    CalendarReport shaped(
+      CalendarReport folded, {
+      List<ReportGoal> goals = const [],
+      List<ReportInsight> insights = const [],
+      List<ReportDueRow> dueSoon = const [],
+      List<ReportTag> tags = const [],
+      int nominalMinutes = 0,
+      int workingDays = 0,
+      int publicHolidays = 0,
+      Map<String, ReportMeasures>? measures,
+    }) => CalendarReport(
+      span: folded.span,
+      today: folded.today,
+      tense: folded.tense,
+      countedTo: folded.countedTo,
+      previousSpan: folded.previousSpan,
+      previousCounted: folded.previousCounted,
+      events: folded.events,
+      tiles: folded.tiles,
+      skippedDays: folded.skippedDays,
+      aheadCount: folded.aheadCount,
+      categories: folded.categories,
+      trend: folded.trend,
+      missed: folded.missed,
+      ahead: folded.ahead,
+      measures: measures ?? folded.measures,
+      goals: goals,
+      insights: insights,
+      dueSoon: dueSoon,
+      tags: tags,
+      nominalMinutes: nominalMinutes,
+      workingDays: workingDays,
+      publicHolidays: publicHolidays,
+    );
+
+    /// A goal on [categoryId] whose one period, in March, is [state].
+    ReportGoal goal(String categoryId, GoalState state) => ReportGoal(
+      categoryId: categoryId,
+      measure: ReportMeasure.count,
+      target: const ReportTarget(
+        kind: TargetKind.atLeast,
+        value: 20,
+        period: TargetPeriod.month,
+      ),
+      periods: [
+        ReportGoalPeriod(
+          start: DateTime.utc(2026, 3, 1),
+          end: DateTime.utc(2026, 3, 31),
+          value: 30,
+          expected: 20,
+          state: state,
+        ),
+      ],
+    );
+    final threeGoals = [
+      goal('gym', GoalState.met),
+      goal('other', GoalState.met),
+      goal('work', GoalState.missed),
+    ];
+    final due = ReportDueRow(
+      categoryId: 'gym',
+      eventId: gym.id,
+      day: DateTime.utc(2026, 3, 31),
+      kind: ReportDueKind.unmarked,
+      state: ReportDueState.unmarked,
+      days: 0,
+    );
+    const insight = ReportInsight(
+      rule: InsightRule.t1,
+      severity: 1,
+      categoryId: 'gym',
+      target: InsightTarget.categoryGroup,
+      n1: 30,
+      n2: 20,
+      ratio: 0.5,
+    );
+
+    Finder label(String text) => find.byWidgetPredicate(
+      (widget) => widget is FormSectionLabel && widget.text == text,
+    );
+
+    Finder bandText(String text) => find.descendant(
+      of: find.byType(AgendaPeriodNav),
+      matching: find.text(text),
+    );
+
+    testWidgets('the three cards stand above Totals under their labels with '
+        'content, and are absent without', (tester) async {
+      var robot = await open(tester);
+      final l10n = robot.l10n;
+      for (final text in [
+        l10n.reportSectionGoals,
+        l10n.reportSectionInsights,
+        l10n.reportSectionDueSoon,
+      ]) {
+        expect(label(text), findsNothing, reason: text);
+      }
+      expect(robot.nav.subtitleTemplate, isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+
+      service = _ShapingReportService(
+        (folded) => shaped(
+          folded,
+          goals: [threeGoals.first],
+          insights: const [insight],
+          dueSoon: [due],
+        ),
+      );
+      robot = await open(tester);
+      final totals = tester.getTopLeft(label(l10n.reportSectionTotals)).dy;
+      var above = 0.0;
+      for (final text in [
+        l10n.reportSectionGoals,
+        l10n.reportSectionInsights,
+        l10n.reportSectionDueSoon,
+      ]) {
+        expect(label(text), findsOneWidget, reason: text);
+        final top = tester.getTopLeft(label(text)).dy;
+        expect(top, greaterThan(above), reason: text);
+        expect(top, lessThan(totals), reason: text);
+        above = top;
+      }
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('the Hours tile says the counts-as hours, and the caption '
+        'closes with the working days and them', (tester) async {
+      service = _ShapingReportService(
+        (folded) => shaped(
+          folded,
+          nominalMinutes: 6 * 60,
+          workingDays: 22,
+          publicHolidays: 1,
+        ),
+      );
+      final robot = await open(tester);
+      expect(
+        tester.getSemantics(robot.tile(ReportTile.hours)).label,
+        endsWith(', including 6 hours counted as'),
+      );
+      expect(
+        robot.caption,
+        endsWith(
+          '${sep}22${nb}working${nb}days${sep}1${nb}public${nb}holiday'
+          '${sep}Hours incl. 6${nb}h counted as',
+        ),
+      );
+    });
+
+    testWidgets('a plan month\'s caption holds only the working days', (
+      tester,
+    ) async {
+      service = _ShapingReportService(
+        (folded) => shaped(folded, workingDays: 21, publicHolidays: 1),
+      );
+      final robot = await open(
+        tester,
+        period: const OverviewMonthPeriod(2026, 12),
+      );
+      expect(
+        robot.caption,
+        '21${nb}working${nb}days${sep}1${nb}public${nb}holiday',
+      );
+    });
+
+    testWidgets('the band counts the goals in en at 360, and falls back to '
+        'the missed form where the template would shrink below 1.0', (
+      tester,
+    ) async {
+      service = _ShapingReportService(
+        (folded) => shaped(folded, goals: threeGoals),
+      );
+      var robot = await open(tester);
+      // March is past: two of the three met.
+      expect(robot.nav.subtitle, '31 events${sep}2 of 3 goals met');
+      expect(robot.nav.compactSubtitle, '31 events${sep}1 missed');
+      expect(bandText('31 events${sep}2 of 3 goals met'), findsOneWidget);
+      expect(bandText('31 events${sep}1 missed'), findsNothing);
+      await tester.pumpWidget(const SizedBox.shrink());
+
+      robot = await open(tester, locale: const Locale('ro'));
+      final ro = robot.l10n;
+      final goals = ro.reportGoalsMet(2, 3);
+      expect(robot.nav.subtitle, endsWith(goals));
+      expect(bandText(robot.nav.subtitle!), findsNothing);
+      expect(bandText(robot.nav.compactSubtitle!), findsOneWidget);
+      expect(robot.nav.compactSubtitle, endsWith(ro.dayListMissedCount(1)));
+    });
+
+    group('taps and anchoring (S4c-ii)', () {
+      DateTime march(int day) => DateTime.utc(2026, 3, day);
+
+      /// Replaces the calendar's events: a new state the report folds;
+      /// another [presenceRevision] refolds the same events.
+      void seed(List<CalendarEvent> events, {int presenceRevision = 0}) {
+        // ignore: invalid_use_of_visible_for_testing_member
+        bloc.emit(
+          CalendarPageLoaded(
+            allEvents: events,
+            focusedDay: today,
+            selectedDay: today,
+            presenceRevision: presenceRevision,
+          ),
+        );
+      }
+
+      /// Six Cardio one-offs, one a day from March 1: the second group.
+      final cardio = [
+        for (var i = 0; i < 6; i++)
+          CalendarEvent(
+            id: 'e-cardio-$i',
+            title: 'Cardio ${i + 1}',
+            categoryId: 'cardio',
+            startDate: march(1 + i),
+            rule: const OneTimeRecurrence(),
+          ),
+      ];
+
+      /// Seven more categories with a one-off each: Birthday and Other
+      /// fall past the card's seven.
+      final pastTheCap = [
+        for (final id in const [
+          'cardio',
+          'rest',
+          'holiday',
+          'competition',
+          'measurement',
+          'mobility',
+          'birthday',
+        ])
+          CalendarEvent(
+            id: 'e-$id',
+            title: id,
+            categoryId: id,
+            startDate: march(12),
+            rule: const OneTimeRecurrence(),
+          ),
+      ];
+
+      ReportInsight insightTo(
+        InsightTarget target, {
+        String? categoryId = 'cardio',
+        String? tagKey,
+        DateTime? day,
+        DateTime? dayEnd,
+      }) => ReportInsight(
+        rule: InsightRule.t1,
+        severity: 1,
+        categoryId: categoryId,
+        tagKey: tagKey,
+        target: target,
+        day: day,
+        dayEnd: dayEnd,
+        n1: 30,
+        n2: 20,
+        ratio: 0.5,
+      );
+
+      ReportDueRow unmarkedOn(int day) => ReportDueRow(
+        categoryId: 'gym',
+        eventId: gym.id,
+        day: march(day),
+        kind: ReportDueKind.unmarked,
+        state: ReportDueState.unmarked,
+        days: 31 - day,
+      );
+
+      double bodyTop(WidgetTester tester) => tester
+          .getRect(find.bySemanticsIdentifier(SemanticsIds.reportBody))
+          .top;
+
+      SemanticsData semanticsOf(WidgetTester tester, String id) => tester
+          .getSemantics(find.bySemanticsIdentifier(id))
+          .getSemanticsData();
+
+      testWidgets('a goal tap opens its closed group and lands its header at '
+          'the body\'s top (G)', (tester) async {
+        seed([gym, todo, ...cardio]);
+        service = _ShapingReportService(
+          (folded) => shaped(folded, goals: [goal('cardio', GoalState.met)]),
+        );
+        final robot = await open(tester);
+        final header = robot.group(ReportCard.categories, 'cardio');
+        await robot.reveal(header);
+        await tester.tap(header);
+        await tester.pump();
+        expect(robot.row('e-cardio-0', march(1)), findsNothing);
+        robot.scroll.jumpTo(0);
+        await tester.pump();
+
+        await robot.tapId(SemanticsIds.reportGoal('cardio'));
+        await tester.pumpAndSettle();
+        expect(robot.scroll.offset, greaterThan(0));
+        expect(tester.getRect(header).top, closeTo(bodyTop(tester), 0.5));
+        expect(robot.row('e-cardio-0', march(1)), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      });
+
+      testWidgets('a goal past the cap opens the More categories sheet; a '
+          'goal with no group has no tap and no button', (tester) async {
+        final handle = tester.ensureSemantics();
+        seed([gym, todo, ...pastTheCap]);
+        service = _ShapingReportService(
+          (folded) => shaped(
+            folded,
+            goals: [
+              goal('birthday', GoalState.met),
+              goal('work', GoalState.met),
+            ],
+          ),
+        );
+        final robot = await open(tester);
+        expect(
+          (robot.state as ReportReady).report.categories
+              .skip(7)
+              .map((group) => group.categoryId),
+          contains('birthday'),
+        );
+        final none = semanticsOf(tester, SemanticsIds.reportGoal('work'));
+        expect(none.flagsCollection.isButton, isFalse);
+        expect(none.hasAction(SemanticsAction.tap), isFalse);
+        final past = semanticsOf(tester, SemanticsIds.reportGoal('birthday'));
+        expect(past.flagsCollection.isButton, isTrue);
+
+        await robot.tapId(SemanticsIds.reportGoal('work'));
+        await tester.pumpAndSettle();
+        expect(robot.byId(SemanticsIds.reportMoreClose), findsNothing);
+        await robot.tapId(SemanticsIds.reportGoal('birthday'));
+        await tester.pumpAndSettle();
+        expect(robot.byId(SemanticsIds.reportMoreClose), findsOneWidget);
+        expect(find.byType(ReportMoreCategoriesSheet), findsOneWidget);
+        handle.dispose();
+      });
+
+      for (final (name, target, tags) in [
+        ('a category group', InsightTarget.categoryGroup, <ReportTag>[]),
+        (
+          'a tag\'s rows, through its first category',
+          InsightTarget.tagRows,
+          const [
+            ReportTag(
+              key: 'ana',
+              label: 'Ana',
+              events: 1,
+              count: 1,
+              minutes: 0,
+              categoryIds: ['cardio', 'gym'],
+              rows: [],
+            ),
+          ],
+        ),
+      ]) {
+        testWidgets('an insight on $name opens Cardio and lands its header '
+            'at the top', (tester) async {
+          seed([gym, todo, ...cardio]);
+          service = _ShapingReportService(
+            (folded) => shaped(
+              folded,
+              tags: tags,
+              insights: [
+                insightTo(
+                  target,
+                  categoryId: target == InsightTarget.tagRows
+                      ? 'gym'
+                      : 'cardio',
+                  tagKey: 'ana',
+                ),
+              ],
+            ),
+          );
+          final robot = await open(tester);
+          await robot.tapId(SemanticsIds.reportInsight(0));
+          await tester.pumpAndSettle();
+          expect(
+            tester.getRect(robot.group(ReportCard.categories, 'cardio')).top,
+            closeTo(bodyTop(tester), 0.5),
+          );
+        });
+      }
+
+      testWidgets('an insight on Due soon scrolls the card\'s label to the '
+          'top', (tester) async {
+        service = _ShapingReportService(
+          (folded) => shaped(
+            folded,
+            goals: [goal('gym', GoalState.met)],
+            insights: [insightTo(InsightTarget.dueSoon)],
+            dueSoon: [unmarkedOn(20)],
+          ),
+        );
+        final robot = await open(tester);
+        final dueSoon = label(robot.l10n.reportSectionDueSoon);
+        expect(tester.getRect(dueSoon).top, greaterThan(bodyTop(tester)));
+        await robot.tapId(SemanticsIds.reportInsight(0));
+        await tester.pumpAndSettle();
+        expect(tester.getRect(dueSoon).top, closeTo(bodyTop(tester), 0.5));
+      });
+
+      testWidgets('an insight on days hands the overview its span and its '
+          'category; one with no day has no tap', (tester) async {
+        final handle = tester.ensureSemantics();
+        service = _ShapingReportService(
+          (folded) => shaped(
+            folded,
+            insights: [
+              insightTo(
+                InsightTarget.overviewDays,
+                categoryId: 'gym',
+                day: march(2),
+                dayEnd: march(8),
+              ),
+              insightTo(InsightTarget.overviewDays, categoryId: 'gym'),
+              insightTo(InsightTarget.categoryGroup, categoryId: 'work'),
+            ],
+          ),
+        );
+        final robot = await open(tester);
+        for (final rank in [1, 2]) {
+          expect(
+            semanticsOf(
+              tester,
+              SemanticsIds.reportInsight(rank),
+            ).hasAction(SemanticsAction.tap),
+            isFalse,
+            reason: '$rank',
+          );
+        }
+        await tester.tap(robot.byId(SemanticsIds.reportInsight(0)));
+        final look = AppNavigator.pendingOverviewLook.value;
+        AppNavigator.pendingOverviewLook.value = null;
+        handle.dispose();
+        await tester.pumpWidget(const SizedBox.shrink());
+        expect(look?.start, march(2));
+        expect(look?.end, march(8));
+        expect(look?.categoryIds, {'gym'});
+      });
+
+      testWidgets('a due row opens the detail sheet on its day; a gap row on '
+          'the last kept day, its day less the limit (M)', (tester) async {
+        final gap = ReportDueRow(
+          categoryId: 'gym',
+          eventId: gym.id,
+          day: march(31),
+          kind: ReportDueKind.gap,
+          state: ReportDueState.overdue,
+          days: 3,
+        );
+        service = _ShapingReportService(
+          (folded) => shaped(
+            folded,
+            goals: [
+              ReportGoal(
+                categoryId: 'gym',
+                measure: ReportMeasure.count,
+                target: const ReportTarget(kind: TargetKind.maxGap, value: 14),
+                gap: const ReportGapState(
+                  daysSince: 17,
+                  limit: 14,
+                  state: GapState.overdue,
+                ),
+              ),
+            ],
+            dueSoon: [gap, unmarkedOn(20)],
+          ),
+        );
+        final robot = await open(tester);
+        await robot.openSheet(
+          robot.byId(SemanticsIds.reportDue(gym.id, march(20))),
+        );
+        expect(robot.detailSheet?.event.id, gym.id);
+        expect(robot.detailSheet?.day, march(20));
+        await robot.closeSheet();
+
+        await robot.openSheet(
+          robot.byId(SemanticsIds.reportDue(gym.id, march(31))),
+        );
+        expect(robot.detailSheet?.event.id, gym.id);
+        expect(robot.detailSheet?.day, march(17));
+        await robot.closeSheet();
+      });
+
+      testWidgets('"Show less" on an expanded Due soon card keeps the '
+          'disclosure where the finger was', (tester) async {
+        service = _ShapingReportService(
+          (folded) => shaped(
+            folded,
+            dueSoon: [for (var day = 1; day <= 8; day++) unmarkedOn(day)],
+          ),
+        );
+        final robot = await open(tester);
+        final more = robot.byId(SemanticsIds.reportDueMore);
+        await robot.tapId(SemanticsIds.reportDueMore);
+        expect(find.text('Show less'), findsOneWidget);
+        robot.scroll.jumpTo(200);
+        await tester.pump();
+        final tapY = tester.getRect(more).top;
+        expect(tapY, greaterThan(bodyTop(tester)));
+
+        await robot.tapId(SemanticsIds.reportDueMore);
+        expect(find.text('2 more'), findsOneWidget);
+        expect(robot.scroll.offset, lessThan(200));
+        expect(tester.getRect(more).top, closeTo(tapY, 0.5));
+        await tester.pumpAndSettle();
+        expect(tester.getRect(more).top, closeTo(tapY, 0.5));
+        expect(tester.takeException(), isNull);
+      });
+
+      testWidgets('a refold that grows Insights holds the Totals label and '
+          'what is below it; at offset 0 the offset stays 0 (R)', (
+        tester,
+      ) async {
+        var insights = 1;
+        service = _ShapingReportService(
+          (folded) => shaped(
+            folded,
+            insights: [
+              for (var i = 0; i < insights; i++)
+                insightTo(InsightTarget.categoryGroup, categoryId: 'gym'),
+            ],
+            dueSoon: [unmarkedOn(20)],
+          ),
+        );
+        var robot = await open(tester);
+        // Above the viewport once scrolled, so offstage to a plain finder.
+        final totals = find.byWidgetPredicate(
+          (widget) =>
+              widget is FormSectionLabel &&
+              widget.text == robot.l10n.reportSectionTotals,
+          skipOffstage: false,
+        );
+        final gymHeader = robot.group(ReportCard.categories, 'gym');
+        // Past Due soon and the Totals label: Categories under the finger.
+        robot.scroll.jumpTo(tester.getRect(totals).top - bodyTop(tester) + 120);
+        await tester.pump();
+        expect(tester.getRect(totals).top, lessThan(bodyTop(tester)));
+        final label0 = tester.getRect(totals).top;
+        final header0 = tester.getRect(gymHeader).top;
+        final offset0 = robot.scroll.offset;
+
+        insights = 2;
+        seed([gym, todo], presenceRevision: 1);
+        await tester.pump();
+        await tester.pump();
+        expect(
+          find.bySemanticsIdentifier(
+            SemanticsIds.reportInsight(1),
+            skipOffstage: false,
+          ),
+          findsOneWidget,
+        );
+        expect(robot.scroll.offset, greaterThan(offset0));
+        expect(tester.getRect(totals).top, closeTo(label0, 0.01));
+        expect(tester.getRect(gymHeader).top, closeTo(header0, 0.01));
+        await tester.pumpAndSettle();
+        expect(tester.getRect(gymHeader).top, closeTo(header0, 0.01));
+        await tester.pumpWidget(const SizedBox.shrink());
+
+        insights = 1;
+        robot = await open(tester);
+        expect(robot.scroll.offset, 0);
+        final first = tester.getRect(label(robot.l10n.reportSectionInsights));
+        insights = 2;
+        seed([gym, todo], presenceRevision: 2);
+        await tester.pumpAndSettle();
+        expect(robot.byId(SemanticsIds.reportInsight(1)), findsOneWidget);
+        expect(robot.scroll.offset, 0);
+        expect(tester.getRect(label(robot.l10n.reportSectionInsights)), first);
+      });
+
+      testWidgets('at the end a refold that grows Insights while Missed '
+          'leaves arms the slack: the corrected offset stays inside the new '
+          'end and nothing springs back (R, D40)', (tester) async {
+        var insights = 1;
+        service = _ShapingReportService(
+          (folded) => shaped(
+            folded,
+            insights: [
+              for (var i = 0; i < insights; i++)
+                insightTo(InsightTarget.categoryGroup, categoryId: 'gym'),
+            ],
+            dueSoon: [unmarkedOn(20)],
+          ),
+        );
+        final robot = await open(tester);
+        for (var i = 0; i < 2; i++) {
+          robot.scroll.jumpTo(robot.scroll.position.maxScrollExtent);
+          await tester.pump();
+        }
+        expect(robot.group(ReportCard.missed, 'gym'), findsOneWidget);
+        final offset0 = robot.scroll.offset;
+
+        // The one missed day marked elsewhere: the Missed card leaves below
+        // while a second insight grows the cards above.
+        insights = 2;
+        EventPresence.updateCache(byEvent: const {});
+        seed([gym, todo], presenceRevision: 1);
+        await tester.pump();
+        await tester.pump();
+        // Far above the viewport, so out of the semantics tree: read the
+        // report drawn instead.
+        final drawn = (robot.state as ReportReady).report;
+        expect(drawn.insights, hasLength(2));
+        expect(drawn.missed, isEmpty);
+        final position = robot.scroll.position;
+        expect(position.pixels, greaterThan(offset0), reason: 'corrected');
+        expect(position.pixels, lessThanOrEqualTo(position.maxScrollExtent));
+        final pixels = position.pixels;
+        for (var i = 0; i < 8; i++) {
+          await tester.pump(const Duration(milliseconds: 16));
+          expect(position.pixels, pixels);
+        }
+      });
+
+      testWidgets('a gap row past the lookback opens the detail sheet on the '
+          'event\'s start day: its last kept day is unknown (M)', (
+        tester,
+      ) async {
+        final gap = ReportDueRow(
+          categoryId: 'gym',
+          eventId: gym.id,
+          day: march(31),
+          kind: ReportDueKind.gap,
+          state: ReportDueState.overdue,
+          days: 400,
+          beyondLookback: true,
+        );
+        service = _ShapingReportService(
+          (folded) => shaped(
+            folded,
+            goals: [
+              ReportGoal(
+                categoryId: 'gym',
+                measure: ReportMeasure.count,
+                target: const ReportTarget(kind: TargetKind.maxGap, value: 14),
+                gap: const ReportGapState(
+                  daysSince: 414,
+                  limit: 14,
+                  state: GapState.overdue,
+                  beyondLookback: true,
+                ),
+              ),
+            ],
+            dueSoon: [gap],
+          ),
+        );
+        final robot = await open(tester);
+        await robot.openSheet(
+          robot.byId(SemanticsIds.reportDue(gym.id, march(31))),
+        );
+        expect(robot.detailSheet?.event.id, gym.id);
+        expect(robot.detailSheet?.day, DateTime.utc(2026, 1, 1));
+        await robot.closeSheet();
+      });
+
+      testWidgets('the settings\' currency reaches the labels: a budget '
+          'goal\'s caption carries the symbol', (tester) async {
+        await settings.setMoneyCurrencySymbol('€');
+        service = _ShapingReportService(
+          (folded) => shaped(
+            folded,
+            goals: [
+              ReportGoal(
+                categoryId: 'gym',
+                measure: ReportMeasure.money,
+                target: const ReportTarget(
+                  kind: TargetKind.budget,
+                  value: 120000,
+                  period: TargetPeriod.month,
+                ),
+                periods: [
+                  ReportGoalPeriod(
+                    start: march(1),
+                    end: march(31),
+                    value: 134000,
+                    expected: 120000,
+                    state: GoalState.over,
+                  ),
+                ],
+              ),
+            ],
+          ),
+        );
+        await open(tester);
+        final row = tester.widget<FormMeterRow>(
+          find
+              .ancestor(
+                of: find.bySemanticsIdentifier(SemanticsIds.reportGoal('gym')),
+                matching: find.byType(FormMeterRow),
+              )
+              .first,
+        );
+        expect(row.caption, contains('€'));
+      });
+
+      testWidgets('the report\'s measures reach the More categories sheet: a '
+          'profiled header past the cap leads with its primary (N)', (
+        tester,
+      ) async {
+        seed([gym, todo, ...pastTheCap]);
+        service = _ShapingReportService(
+          (folded) => shaped(
+            folded,
+            measures: {
+              ...folded.measures,
+              'birthday': const ReportMeasures(
+                categoryId: 'birthday',
+                primary: ReportMeasure.hours,
+                profiled: true,
+                minutes: 120,
+              ),
+            },
+          ),
+        );
+        final robot = await open(tester);
+        expect(
+          (robot.state as ReportReady).report.categories
+              .skip(7)
+              .map((group) => group.categoryId),
+          contains('birthday'),
+        );
+        // Read before the sheet covers the page the robot reads it from.
+        final hours = robot.l10n.reportHours('2');
+        await robot.reveal(robot.byId(SemanticsIds.reportCategoriesMore));
+        await robot.tapId(SemanticsIds.reportCategoriesMore);
+        await tester.pumpAndSettle();
+        expect(find.byType(ReportMoreCategoriesSheet), findsOneWidget);
+        final header = find.descendant(
+          of: find.byType(ReportMoreCategoriesSheet),
+          matching: find.bySemanticsIdentifier(
+            SemanticsIds.reportGroup('categories', 'birthday'),
+          ),
+        );
+        await tester.scrollUntilVisible(
+          header,
+          200,
+          scrollable: find.descendant(
+            of: find.byType(ReportMoreCategoriesSheet),
+            matching: find.byType(Scrollable),
+          ),
+        );
+        final row = tester.widget<FormMeterRow>(
+          find.ancestor(of: header, matching: find.byType(FormMeterRow)).first,
+        );
+        expect(row.caption, startsWith(hours));
+      });
+    });
   });
 }

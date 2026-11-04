@@ -8016,4 +8016,703 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get categoryGoalRemove => 'Ziel entfernen';
+
+  @override
+  String get reportSectionGoals => 'Ziele';
+
+  @override
+  String get reportSectionInsights => 'Hinweise';
+
+  @override
+  String get reportSectionDueSoon => 'Bald fällig';
+
+  @override
+  String reportGoalMoreBy(int count, String day) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'noch $count bis $day',
+      one: 'noch 1 bis $day',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String reportGoalMoreToday(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'heute noch $count',
+      one: 'heute noch 1',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String reportGoalAmountMoreBy(String amount, String day) {
+    return 'noch $amount bis $day';
+  }
+
+  @override
+  String reportGoalAmountMoreToday(String amount) {
+    return 'heute noch $amount';
+  }
+
+  @override
+  String reportGoalDone(String period) {
+    String _temp0 = intl.Intl.selectLogic(period, {
+      'day': 'für heute erledigt',
+      'week': 'für die Woche erledigt',
+      'month': 'für den Monat erledigt',
+      'year': 'für das Jahr erledigt',
+      'other': 'erledigt',
+    });
+    return '$_temp0';
+  }
+
+  @override
+  String reportGoalLeft(String amount) {
+    return '$amount übrig';
+  }
+
+  @override
+  String reportGoalLeftIn(String amount, String period) {
+    String _temp0 = intl.Intl.selectLogic(period, {
+      'day': 'heute',
+      'week': 'diese Woche',
+      'month': 'diesen Monat',
+      'year': 'dieses Jahr',
+      'other': '',
+    });
+    return '$amount übrig $_temp0';
+  }
+
+  @override
+  String reportGoalOver(String amount) {
+    return '$amount darüber';
+  }
+
+  @override
+  String get reportGoalMet => 'Erreicht';
+
+  @override
+  String get reportGoalMissed => 'Verfehlt';
+
+  @override
+  String get reportGoalWithin => 'Im Rahmen';
+
+  @override
+  String get reportGoalOverWord => 'Überschritten';
+
+  @override
+  String reportGoalPeriodsMet(int met, int total, String period) {
+    String _temp0 = intl.Intl.selectLogic(period, {
+      'day': 'Tagen',
+      'week': 'Wochen',
+      'month': 'Monaten',
+      'year': 'Jahren',
+      'other': 'Zeiträumen',
+    });
+    String _temp1 = intl.Intl.selectLogic(period, {
+      'day': 'Tag',
+      'week': 'Woche',
+      'month': 'Monat',
+      'year': 'Jahr',
+      'other': 'Zeitraum',
+    });
+    String _temp2 = intl.Intl.pluralLogic(
+      total,
+      locale: localeName,
+      other: '$met von $total $_temp0 erreicht',
+      one: '$met von 1 $_temp1 erreicht',
+    );
+    return '$_temp2';
+  }
+
+  @override
+  String reportGoalPlanned(String value, String target) {
+    return '$value von $target geplant';
+  }
+
+  @override
+  String reportGoalGapDays(int days) {
+    String _temp0 = intl.Intl.pluralLogic(
+      days,
+      locale: localeName,
+      other: '$days Tage',
+      one: '1 Tag',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get reportGoalGapNone => 'Noch nie';
+
+  @override
+  String get reportGoalGapLong => 'Über 1 Jahr';
+
+  @override
+  String reportGoalLimit(int limit) {
+    return 'max. $limit';
+  }
+
+  @override
+  String reportGoalStreak(int count) {
+    return '$count in Folge';
+  }
+
+  @override
+  String reportGoalStreakSpoken(int count, String period) {
+    String _temp0 = intl.Intl.selectLogic(period, {
+      'day': 'Tage',
+      'week': 'Wochen',
+      'month': 'Monate',
+      'year': 'Jahre',
+      'other': 'Zeiträume',
+    });
+    String _temp1 = intl.Intl.selectLogic(period, {
+      'day': 'Tag',
+      'week': 'Woche',
+      'month': 'Monat',
+      'year': 'Jahr',
+      'other': 'Zeitraum',
+    });
+    String _temp2 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count $_temp0 in Folge',
+      one: '1 $_temp1 in Folge',
+    );
+    return '$_temp2';
+  }
+
+  @override
+  String get reportGoalStateMet => 'erreicht';
+
+  @override
+  String get reportGoalStateOnPace => 'im Plan';
+
+  @override
+  String get reportGoalStateBehind => 'im Rückstand';
+
+  @override
+  String get reportGoalStateOver => 'darüber';
+
+  @override
+  String get reportGoalStateMissed => 'verfehlt';
+
+  @override
+  String get reportGoalStateNotStarted => 'nicht begonnen';
+
+  @override
+  String get reportGoalStatePlanned => 'geplant';
+
+  @override
+  String get reportGoalStateWithin => 'innerhalb des Limits';
+
+  @override
+  String get reportGoalStateDueSoon => 'bald fällig';
+
+  @override
+  String get reportGoalStatePastLimit => 'über dem Limit';
+
+  @override
+  String reportGoalsOnPace(int onPace, int total) {
+    String _temp0 = intl.Intl.pluralLogic(
+      total,
+      locale: localeName,
+      other: '$onPace/$total Ziele im Plan',
+      one: '$onPace/1 Ziel im Plan',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String reportGoalsMet(int met, int total) {
+    String _temp0 = intl.Intl.pluralLogic(
+      total,
+      locale: localeName,
+      other: '$met/$total Ziele erreicht',
+      one: '$met/1 Ziel erreicht',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get reportInsightAttention => 'Braucht Aufmerksamkeit';
+
+  @override
+  String get reportInsightNotable => 'Einen Blick wert';
+
+  @override
+  String get reportInsightObservation => 'Gut zu wissen';
+
+  @override
+  String get reportInsightInfo => 'Zur Information';
+
+  @override
+  String get reportInsightBills => 'Rechnungen';
+
+  @override
+  String get reportInsightNextTrip => 'Nächste Reise';
+
+  @override
+  String reportInsightBehind(String progress, String more) {
+    return '$progress, $more';
+  }
+
+  @override
+  String reportInsightOver(String progress, String period, String over) {
+    String _temp0 = intl.Intl.selectLogic(period, {
+      'day': 'heute',
+      'week': 'diese Woche',
+      'month': 'diesen Monat',
+      'year': 'dieses Jahr',
+      'other': '',
+    });
+    return '$progress $_temp0, $over';
+  }
+
+  @override
+  String reportInsightDone(String progress, String done) {
+    return '$progress, $done';
+  }
+
+  @override
+  String reportInsightStreakEnded(int count, String period) {
+    String _temp0 = intl.Intl.selectLogic(period, {
+      'day': 'Tagen',
+      'week': 'Wochen',
+      'month': 'Monaten',
+      'year': 'Jahren',
+      'other': 'Zeiträumen',
+    });
+    String _temp1 = intl.Intl.selectLogic(period, {
+      'day': 'Tag',
+      'week': 'Woche',
+      'month': 'Monat',
+      'year': 'Jahr',
+      'other': 'Zeitraum',
+    });
+    String _temp2 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'die Serie von $count $_temp0 ist gerissen',
+      one: 'die Serie von 1 $_temp1 ist gerissen',
+    );
+    return '$_temp2';
+  }
+
+  @override
+  String reportInsightAllowance(String left, int total) {
+    String _temp0 = intl.Intl.pluralLogic(
+      total,
+      locale: localeName,
+      other: '$left von $total Tagen übrig',
+      one: '$left von 1 Tag übrig',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String reportInsightMonthsToGo(int months) {
+    String _temp0 = intl.Intl.pluralLogic(
+      months,
+      locale: localeName,
+      other: 'noch $months Monate',
+      one: 'noch 1 Monat',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String reportInsightAllowanceUnused(int days) {
+    String _temp0 = intl.Intl.pluralLogic(
+      days,
+      locale: localeName,
+      other: '$days Tage ungenutzt',
+      one: '1 Tag ungenutzt',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String reportInsightDaysLeftInYear(int days) {
+    String _temp0 = intl.Intl.pluralLogic(
+      days,
+      locale: localeName,
+      other: 'noch $days Tage im Jahr',
+      one: 'noch 1 Tag im Jahr',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String reportInsightGapOverdue(int days, int limit) {
+    String _temp0 = intl.Intl.pluralLogic(
+      days,
+      locale: localeName,
+      other: '$days Tage seit dem letzten Mal',
+      one: '1 Tag seit dem letzten Mal',
+    );
+    return '$_temp0, das Limit ist $limit';
+  }
+
+  @override
+  String reportInsightGapOverdueLong(int limit) {
+    return 'über ein Jahr seit dem letzten Mal, das Limit ist $limit';
+  }
+
+  @override
+  String reportInsightGapDue(int days) {
+    String _temp0 = intl.Intl.pluralLogic(
+      days,
+      locale: localeName,
+      other: 'fällig in $days Tagen',
+      one: 'fällig in 1 Tag',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String reportInsightExpires(int days) {
+    String _temp0 = intl.Intl.pluralLogic(
+      days,
+      locale: localeName,
+      other: 'läuft in $days Tagen ab',
+      one: 'läuft in 1 Tag ab',
+      zero: 'läuft heute ab',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String reportInsightExpired(int days) {
+    String _temp0 = intl.Intl.pluralLogic(
+      days,
+      locale: localeName,
+      other: 'vor $days Tagen abgelaufen',
+      one: 'vor 1 Tag abgelaufen',
+      zero: 'heute abgelaufen',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String reportInsightUnmarked(String day, int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count Tage nicht markiert, zuletzt $day',
+      one: 'am $day nicht markiert',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String reportInsightEpisodeNext(String day) {
+    return 'nach dem üblichen Abstand das nächste Mal gegen $day';
+  }
+
+  @override
+  String reportInsightWeekdays(
+    String best,
+    String bestPercent,
+    String worst,
+    String worstPercent,
+  ) {
+    return '$best $bestPercent %, $worst $worstPercent %';
+  }
+
+  @override
+  String reportInsightLateEvenings(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count späte Abende',
+      one: '1 später Abend',
+    );
+    return '$_temp0 in einer Woche';
+  }
+
+  @override
+  String reportInsightWeekend(String hours) {
+    return '$hours am Wochenende';
+  }
+
+  @override
+  String reportInsightShortNights(int count, String hours) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count Nächte',
+      one: '1 Nacht',
+    );
+    return '$_temp0 unter $hours in einer Woche';
+  }
+
+  @override
+  String reportInsightBedtimeSpread(String spread) {
+    return 'Schlafenszeiten schwanken um $spread';
+  }
+
+  @override
+  String reportInsightMeetingShare(String hours, String percent) {
+    return '$hours, $percent % deiner Arbeitsstunden';
+  }
+
+  @override
+  String reportInsightCancelled(int cancelled, int planned) {
+    String _temp0 = intl.Intl.pluralLogic(
+      planned,
+      locale: localeName,
+      other: '$cancelled von $planned abgesagt',
+      one: '$cancelled von 1 abgesagt',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String reportInsightRestGap(int days) {
+    String _temp0 = intl.Intl.pluralLogic(
+      days,
+      locale: localeName,
+      other: 'eine Pause von $days Tagen',
+      one: 'eine Pause von 1 Tag',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String reportInsightBillsAhead(String amount, int days) {
+    String _temp0 = intl.Intl.pluralLogic(
+      days,
+      locale: localeName,
+      other: '$amount fällig in den nächsten $days Tagen',
+      one: '$amount fällig am nächsten Tag',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String reportInsightBillsYear(String amount, int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$amount im Jahr für $count Rechnungen',
+      one: '$amount im Jahr für 1 Rechnung',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String reportInsightTagGapLong(int days) {
+    String _temp0 = intl.Intl.pluralLogic(
+      days,
+      locale: localeName,
+      other: '$days Tage seit dem letzten Mal, länger als üblich',
+      one: '1 Tag seit dem letzten Mal, länger als üblich',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String reportInsightTagTop(String category, int days) {
+    String _temp0 = intl.Intl.pluralLogic(
+      days,
+      locale: localeName,
+      other: 'am häufigsten in $category, an $days Tagen',
+      one: 'am häufigsten in $category, an 1 Tag',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String reportInsightLeadTime(int days) {
+    String _temp0 = intl.Intl.pluralLogic(
+      days,
+      locale: localeName,
+      other: 'meist $days Tage vorher gebucht',
+      one: 'meist einen Tag vorher gebucht',
+      zero: 'meist am selben Tag gebucht',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String reportInsightOpenPast(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count nach Fälligkeit offen',
+      one: '1 nach Fälligkeit offen',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String reportInsightAhead(int count, String day) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count anstehend bis $day',
+      one: '1 anstehend bis $day',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String reportInsightTrip(String title, int days) {
+    String _temp0 = intl.Intl.pluralLogic(
+      days,
+      locale: localeName,
+      other: '$title in $days Tagen',
+      one: '$title morgen',
+      zero: '$title heute',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String reportInsightUpOn(String value, String percent, String period) {
+    return '$value, $percent % mehr gegenüber $period';
+  }
+
+  @override
+  String reportInsightDownOn(String value, String percent, String period) {
+    return '$value, $percent % weniger gegenüber $period';
+  }
+
+  @override
+  String reportDueOverdue(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count Tage überfällig',
+      one: '1 Tag überfällig',
+      zero: 'Heute überfällig',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String reportDueIn(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'In $count Tagen fällig',
+      one: 'In 1 Tag fällig',
+      zero: 'Heute fällig',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String reportDueExpires(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Läuft in $count Tagen ab',
+      one: 'Läuft in 1 Tag ab',
+      zero: 'Läuft heute ab',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String reportDueExpired(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count Tage abgelaufen',
+      one: '1 Tag abgelaufen',
+      zero: 'Heute abgelaufen',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get reportDueNotMarked => 'offen';
+
+  @override
+  String get reportDueLong => 'Vor über 1 Jahr';
+
+  @override
+  String reportLastSeenAgo(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'vor $count Tagen',
+      one: 'gestern',
+      zero: 'heute',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String reportCancelledCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count abgesagt',
+      one: '1 abgesagt',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String reportLeadTime(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count Tage vorher gebucht',
+      one: '1 Tag vorher gebucht',
+      zero: 'am selben Tag gebucht',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String reportDaysUntil(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'in $count Tagen',
+      one: 'morgen',
+      zero: 'heute',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String reportWorkingDays(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count Arbeitstage',
+      one: '1 Arbeitstag',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String reportPublicHolidays(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count Feiertage',
+      one: '1 Feiertag',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String reportCaptionCountedAs(String hours) {
+    return 'Stunden inkl. $hours pauschal gezählt';
+  }
+
+  @override
+  String reportCountedAsSpoken(String hours) {
+    return 'einschließlich $hours pauschal gezählt';
+  }
 }

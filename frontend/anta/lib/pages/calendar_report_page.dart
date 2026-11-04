@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 
-import 'package:flutter/foundation.dart' show setEquals;
+import 'package:flutter/foundation.dart' show listEquals, setEquals;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show HapticFeedback;
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -471,11 +471,14 @@ class _ReportViewState extends State<_ReportView>
   /// The bloc's [state], heard before it is drawn — every arm and release
   /// of the slack is set here or in a handler, never in a build (D40).
   ///
-  /// A new report of the look on screen arms the slack only when it folds
-  /// away a mark of this page — a marked row the last report listed as
-  /// missed and this one does not: that shrink is under the finger. Any
-  /// other refold of the same look — an event deleted or re-categorised on
-  /// a sheet's trip, a category deleted in settings — may remove rows above
+  /// A new report of the look on screen arms the slack when it folds away a
+  /// mark of this page — a marked row the last report listed as missed and
+  /// this one does not: that shrink is under the finger — or when it
+  /// changes the cards above Totals, whose new height the refold anchor (R)
+  /// corrects the offset by: a correction is never clamped, and past the
+  /// new end it would spring back over the frames after it. Any other
+  /// refold of the same look — an event deleted or re-categorised on a
+  /// sheet's trip, a category deleted in settings — may remove rows above
   /// the leading edge, and slack held for it would jump every visible row
   /// up and open blank ground below; the clamp's small slide on return from
   /// such a trip is the lesser harm. Keyed, not counted (D42): a pending
@@ -500,14 +503,16 @@ class _ReportViewState extends State<_ReportView>
         if (!missed.contains(key)) key,
     ];
     final heard = _heardLook;
-    if (heard != null) {
+    final before = _heardReport;
+    if (heard != null && before != null) {
       final sameLook =
           heard.period == folded.period &&
           setEquals(heard.categoryIds, folded.categoryIds);
       final slack = _slack.value;
       if (!sameLook) {
         _slack.value = (arms: slack.arms, releases: slack.releases + 1);
-      } else if (landed.any(_heardMissed.contains)) {
+      } else if (landed.any(_heardMissed.contains) ||
+          !_sameCardsAboveTotals(before, report)) {
         _slack.value = (arms: slack.arms + 1, releases: slack.releases);
       }
     }
@@ -516,6 +521,14 @@ class _ReportViewState extends State<_ReportView>
     _heardLook = folded;
     _heardMissed = missed;
   }
+
+  /// Whether [a] and [b] draw the same Goals, Insights and Due soon rows:
+  /// only a change there moves the Totals label's preceding extent, so only
+  /// then can the refold anchor correct the offset.
+  static bool _sameCardsAboveTotals(CalendarReport a, CalendarReport b) =>
+      listEquals(a.goals, b.goals) &&
+      listEquals(a.insights, b.insights) &&
+      listEquals(a.dueSoon, b.dueSoon);
 
   /// Arms the slack before a frame that may shrink the content under the
   /// finger: a header close, "Show less".
@@ -528,7 +541,6 @@ class _ReportViewState extends State<_ReportView>
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final colorScheme = Theme.of(context).colorScheme;
-    final labels = ReportLabels(l10n);
     final hasEvents = context.select<CalendarBloc, bool>(
       (bloc) => switch (bloc.state) {
         CalendarPageLoaded(:final allEvents) => allEvents.isNotEmpty,
@@ -547,6 +559,12 @@ class _ReportViewState extends State<_ReportView>
       child: BlocBuilder<CalendarReportBloc, ReportState>(
         builder: (context, state) {
           final shown = state is ReportShown ? state : null;
+          // Per state: the currency arrives with the settings the bloc read.
+          final labels = ReportLabels(
+            l10n,
+            currencySymbol: shown?.currencySymbol ?? '',
+            currencySuffix: shown?.currencySuffix ?? false,
+          );
           return Scaffold(
             backgroundColor: colorScheme.pageGround,
             // The body pads itself by the larger of the keyboard and the
@@ -679,6 +697,8 @@ class _ReportViewState extends State<_ReportView>
       use24Hour: use24Hour,
       onDatedTap: _openDated,
       onRoutineTap: _openRoutine,
+      onDueTap: _openDue,
+      onReveal: _click,
       onPresence: _markPresence,
       onShowAsList: AppNavigator.toCalendarOverviewLook,
       onMoreCategories: shown == null
@@ -734,6 +754,7 @@ class _ReportViewState extends State<_ReportView>
         use24Hour: use24Hour,
         largest: largest,
         folds: _folds,
+        measures: report.measures,
       ),
     );
     if (!mounted) return;
@@ -761,6 +782,34 @@ class _ReportViewState extends State<_ReportView>
   void _openRoutine(ReportRoutineRow row) =>
       _openOn(row.eventId, row.latestDay);
 
+  /// A Due soon row's tap (M): the detail sheet on the row's day — for a
+  /// gap row that is the limit's last day, so it opens on the day kept last,
+  /// the row's day less its goal's limit, read from the report drawn. Past
+  /// the lookback that day is unknown — the row's day less the limit is the
+  /// window's floor, which the event may not occur on, and the sheet would
+  /// show and write that day's presence and text all the same — so it opens
+  /// on the event's start day, an occurrence day by the rule's own anchor.
+  void _openDue(ReportDueRow row) {
+    if (row.kind == ReportDueKind.gap && row.beyondLookback) {
+      _openOn(row.eventId, null);
+      return;
+    }
+    var day = row.day;
+    if (row.kind == ReportDueKind.gap) {
+      final state = context.read<CalendarReportBloc>().state;
+      final goals = state is ReportShown
+          ? state.shown?.goals ?? const <ReportGoal>[]
+          : const <ReportGoal>[];
+      for (final goal in goals) {
+        final gap = goal.gap;
+        if (goal.categoryId != row.categoryId || gap == null) continue;
+        day = DateTime.utc(day.year, day.month, day.day - gap.limit);
+        break;
+      }
+    }
+    _openOn(row.eventId, day);
+  }
+
   /// The detail sheet over the report through [_sheets] (§5): no calendar is
   /// pushed, so back closes the sheet onto the row it came from. The event
   /// is read from the calendar's loaded events at the tap, not from the
@@ -768,14 +817,15 @@ class _ReportViewState extends State<_ReportView>
   /// and a row whose event has gone opens nothing (the overview's rule).
   /// Nothing is parked while the trip runs: the bloc folds the calendar's
   /// newest state and coalesces a burst, and a refold under the sheet only
-  /// dims the body beneath it (D36).
-  void _openOn(String eventId, DateTime day) {
+  /// dims the body beneath it (D36). A null [day] opens on the event's start
+  /// day.
+  void _openOn(String eventId, DateTime? day) {
     _blur();
     final calendar = context.read<CalendarBloc>().state;
     if (calendar is! CalendarPageLoaded) return;
     for (final event in calendar.allEvents) {
       if (event.id != eventId) continue;
-      unawaited(_sheets.openDetail(context, event, day));
+      unawaited(_sheets.openDetail(context, event, day ?? event.startDateUtc));
       return;
     }
   }

@@ -12867,6 +12867,539 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Remove goal'**
   String get categoryGoalRemove;
+
+  /// Report page: label of the card listing each category's goal and where it stands
+  ///
+  /// In en, this message translates to:
+  /// **'Goals'**
+  String get reportSectionGoals;
+
+  /// Report page: label of the card with the few things worth noticing in the period
+  ///
+  /// In en, this message translates to:
+  /// **'Insights'**
+  String get reportSectionInsights;
+
+  /// Report page: label of the card listing what is overdue, due, expiring or not marked
+  ///
+  /// In en, this message translates to:
+  /// **'Due soon'**
+  String get reportSectionDueSoon;
+
+  /// Report Goals card caption, an at-least count goal still open: how many are still needed before the period ends, e.g. one more by Sunday
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{one more by {day}} other{{count} more by {day}}}'**
+  String reportGoalMoreBy(int count, String day);
+
+  /// Report Goals card caption, an at-least count goal per day still open: how many are still needed today
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{one more today} other{{count} more today}}'**
+  String reportGoalMoreToday(int count);
+
+  /// Report Goals card caption, an at-least hours or money goal still open: what is still needed before the period ends, e.g. 2 h more by Sunday
+  ///
+  /// In en, this message translates to:
+  /// **'{amount} more by {day}'**
+  String reportGoalAmountMoreBy(String amount, String day);
+
+  /// Report Goals card caption, an at-least hours or money goal per day still open: what is still needed today
+  ///
+  /// In en, this message translates to:
+  /// **'{amount} more today'**
+  String reportGoalAmountMoreToday(String amount);
+
+  /// Report Goals card caption: an at-least goal already reached before its period ends; period is the goal's period (day, week, month or year)
+  ///
+  /// In en, this message translates to:
+  /// **'{period, select, day{done for today} week{done for the week} month{done for the month} year{done for the year} other{done}}'**
+  String reportGoalDone(String period);
+
+  /// Report Goals card caption, an at-most or budget goal: what is left before the limit, e.g. 9 h left
+  ///
+  /// In en, this message translates to:
+  /// **'{amount} left'**
+  String reportGoalLeft(String amount);
+
+  /// Report Goals card caption, an at-most or budget goal when the report shows a longer span than the goal's period: what is left in the current period; period is day, week, month or year
+  ///
+  /// In en, this message translates to:
+  /// **'{amount} left {period, select, day{today} week{this week} month{this month} year{this year} other{}}'**
+  String reportGoalLeftIn(String amount, String period);
+
+  /// Report Goals card caption, an at-most or budget goal past its limit: by how much, e.g. 4 h over
+  ///
+  /// In en, this message translates to:
+  /// **'{amount} over'**
+  String reportGoalOver(String amount);
+
+  /// Report Goals card caption: an at-least goal whose closed period reached its target
+  ///
+  /// In en, this message translates to:
+  /// **'Met'**
+  String get reportGoalMet;
+
+  /// Report Goals card caption: an at-least goal whose closed period fell short of its target
+  ///
+  /// In en, this message translates to:
+  /// **'Missed'**
+  String get reportGoalMissed;
+
+  /// Report Goals card caption: an at-most or budget goal whose closed period stayed within its limit
+  ///
+  /// In en, this message translates to:
+  /// **'Within'**
+  String get reportGoalWithin;
+
+  /// Report Goals card caption: an at-most or budget goal whose closed period went past its limit
+  ///
+  /// In en, this message translates to:
+  /// **'Over'**
+  String get reportGoalOverWord;
+
+  /// Report Goals card caption for a past span holding several goal periods: how many of them met the goal, e.g. 3 of 4 weeks met; period is day, week, month or year
+  ///
+  /// In en, this message translates to:
+  /// **'{total, plural, one{{met} of 1 {period, select, day{day} week{week} month{month} year{year} other{period}} met} other{{met} of {total} {period, select, day{days} week{weeks} month{months} year{years} other{periods}} met}}'**
+  String reportGoalPeriodsMet(int met, int total, String period);
+
+  /// Report Goals card caption for a future period: what is planned against the goal's target, e.g. 2 of 3 planned; both already formatted
+  ///
+  /// In en, this message translates to:
+  /// **'{value} of {target} planned'**
+  String reportGoalPlanned(String value, String target);
+
+  /// Report Goals card caption, a days-between goal: days since the category last happened
+  ///
+  /// In en, this message translates to:
+  /// **'{days, plural, one{1 day} other{{days} days}}'**
+  String reportGoalGapDays(int days);
+
+  /// Report Goals card caption, a days-between goal whose category has not happened yet
+  ///
+  /// In en, this message translates to:
+  /// **'None yet'**
+  String get reportGoalGapNone;
+
+  /// Report Goals card caption, a days-between goal last kept before the year the report looks back over
+  ///
+  /// In en, this message translates to:
+  /// **'Over a year'**
+  String get reportGoalGapLong;
+
+  /// Report Goals card caption, a days-between goal: the most days allowed between two occurrences, e.g. limit 14
+  ///
+  /// In en, this message translates to:
+  /// **'limit {limit}'**
+  String reportGoalLimit(int limit);
+
+  /// Report Goals card caption's last part: consecutive periods the goal was met, e.g. 4 in a row
+  ///
+  /// In en, this message translates to:
+  /// **'{count} in a row'**
+  String reportGoalStreak(int count);
+
+  /// Screen reader wording of a goal's streak, and an insight: consecutive periods met, e.g. 4 weeks in a row; period is day, week, month or year
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, one{1 {period, select, day{day} week{week} month{month} year{year} other{period}} in a row} other{{count} {period, select, day{days} week{weeks} month{months} year{years} other{periods}} in a row}}'**
+  String reportGoalStreakSpoken(int count, String period);
+
+  /// Screen reader wording of a goal row's state glyph: the target was reached
+  ///
+  /// In en, this message translates to:
+  /// **'met'**
+  String get reportGoalStateMet;
+
+  /// Screen reader wording of a goal row's state glyph: on track to reach the goal
+  ///
+  /// In en, this message translates to:
+  /// **'on pace'**
+  String get reportGoalStateOnPace;
+
+  /// Screen reader wording of a goal row's state glyph: behind the even pace
+  ///
+  /// In en, this message translates to:
+  /// **'behind'**
+  String get reportGoalStateBehind;
+
+  /// Screen reader wording of a goal row's state glyph: past an at-most or budget limit
+  ///
+  /// In en, this message translates to:
+  /// **'over'**
+  String get reportGoalStateOver;
+
+  /// Screen reader wording of a goal row's state glyph: a closed period fell short
+  ///
+  /// In en, this message translates to:
+  /// **'missed'**
+  String get reportGoalStateMissed;
+
+  /// Screen reader wording of a goal row's state glyph: nothing counted yet in the period
+  ///
+  /// In en, this message translates to:
+  /// **'not started'**
+  String get reportGoalStateNotStarted;
+
+  /// Screen reader wording of a goal row's state glyph: a future period
+  ///
+  /// In en, this message translates to:
+  /// **'planned'**
+  String get reportGoalStatePlanned;
+
+  /// Screen reader wording of a days-between goal's state glyph: fewer days than the limit
+  ///
+  /// In en, this message translates to:
+  /// **'within the limit'**
+  String get reportGoalStateWithin;
+
+  /// Screen reader wording of a days-between goal's state glyph: close to the limit
+  ///
+  /// In en, this message translates to:
+  /// **'due soon'**
+  String get reportGoalStateDueSoon;
+
+  /// Screen reader wording of a days-between goal's state glyph: more days than the limit
+  ///
+  /// In en, this message translates to:
+  /// **'past the limit'**
+  String get reportGoalStatePastLimit;
+
+  /// Report band subtitle of a current period, after the event count: goals met or on track of all goals; keep it short, it must fit one line
+  ///
+  /// In en, this message translates to:
+  /// **'{onPace} of {total, plural, one{1 goal} other{{total} goals}} on pace'**
+  String reportGoalsOnPace(int onPace, int total);
+
+  /// Report band subtitle of a past period, after the event count: goals met of all goals; keep it short, it must fit one line
+  ///
+  /// In en, this message translates to:
+  /// **'{met} of {total, plural, one{1 goal} other{{total} goals}} met'**
+  String reportGoalsMet(int met, int total);
+
+  /// Screen reader wording of an insight's highest-severity glyph
+  ///
+  /// In en, this message translates to:
+  /// **'Needs attention'**
+  String get reportInsightAttention;
+
+  /// Screen reader wording of an insight's second-severity glyph
+  ///
+  /// In en, this message translates to:
+  /// **'Worth a look'**
+  String get reportInsightNotable;
+
+  /// Screen reader wording of an insight's third-severity glyph
+  ///
+  /// In en, this message translates to:
+  /// **'Worth knowing'**
+  String get reportInsightObservation;
+
+  /// Screen reader wording of an insight's lowest-severity glyph: a plain fact
+  ///
+  /// In en, this message translates to:
+  /// **'For information'**
+  String get reportInsightInfo;
+
+  /// Report Insights card: the subject of the bills-ahead insight, across every bill category
+  ///
+  /// In en, this message translates to:
+  /// **'Bills'**
+  String get reportInsightBills;
+
+  /// Report Insights card: the subject of the trip-ahead insight
+  ///
+  /// In en, this message translates to:
+  /// **'Next trip'**
+  String get reportInsightNextTrip;
+
+  /// Report Insights card, an at-least goal behind: progress (e.g. 1 of 3) then what is still needed (e.g. two more by Sunday), both already worded
+  ///
+  /// In en, this message translates to:
+  /// **'{progress}, {more}'**
+  String reportInsightBehind(String progress, String more);
+
+  /// Report Insights card, an at-most or budget goal over: progress (e.g. 44 h of 40) in the goal's period (day, week, month or year), then by how much (e.g. 4 h over), both already worded
+  ///
+  /// In en, this message translates to:
+  /// **'{progress} {period, select, day{today} week{this week} month{this month} year{this year} other{}}, {over}'**
+  String reportInsightOver(String progress, String period, String over);
+
+  /// Report Insights card, an at-least goal met early: progress (e.g. 3 of 3) then the done phrase (e.g. done for the week), both already worded
+  ///
+  /// In en, this message translates to:
+  /// **'{progress}, {done}'**
+  String reportInsightDone(String progress, String done);
+
+  /// Report Insights card: a run of met goal periods broke at the last closed one, e.g. the 5-week streak ended; period is day, week, month or year
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, one{the 1-{period, select, day{day} week{week} month{month} year{year} other{period}} streak ended} other{the {count}-{period, select, day{day} week{week} month{month} year{year} other{period}} streak ended}}'**
+  String reportInsightStreakEnded(int count, String period);
+
+  /// Report Insights card, a leave allowance running low: days left of the year's allowance; left is already formatted
+  ///
+  /// In en, this message translates to:
+  /// **'{total, plural, one{{left} of 1 day left} other{{left} of {total} days left}}'**
+  String reportInsightAllowance(String left, int total);
+
+  /// Report Insights card, after a leave allowance's days left: whole months left in the year
+  ///
+  /// In en, this message translates to:
+  /// **'{months, plural, one{1 month to go} other{{months} months to go}}'**
+  String reportInsightMonthsToGo(int months);
+
+  /// Report Insights card, a leave allowance late in the year: days of it not taken yet
+  ///
+  /// In en, this message translates to:
+  /// **'{days, plural, one{1 day unused} other{{days} days unused}}'**
+  String reportInsightAllowanceUnused(int days);
+
+  /// Report Insights card, after the unused leave days: days left until the year ends
+  ///
+  /// In en, this message translates to:
+  /// **'{days, plural, one{1 day left in the year} other{{days} days left in the year}}'**
+  String reportInsightDaysLeftInYear(int days);
+
+  /// Report Insights card, a days-between goal or a tag past its limit: days since the last time, then the limit in days
+  ///
+  /// In en, this message translates to:
+  /// **'{days, plural, one{1 day since the last} other{{days} days since the last}}, the limit is {limit}'**
+  String reportInsightGapOverdue(int days, int limit);
+
+  /// Report Insights card, a days-between goal last kept before the year the report looks back over; limit in days
+  ///
+  /// In en, this message translates to:
+  /// **'over a year since the last, the limit is {limit}'**
+  String reportInsightGapOverdueLong(int limit);
+
+  /// Report Insights card, a days-between goal close to its limit: days left before it
+  ///
+  /// In en, this message translates to:
+  /// **'{days, plural, one{due in 1 day} other{due in {days} days}}'**
+  String reportInsightGapDue(int days);
+
+  /// Report Insights card, an expiry ahead, under the event's title: the days until it
+  ///
+  /// In en, this message translates to:
+  /// **'{days, plural, =0{expires today} one{expires in 1 day} other{expires in {days} days}}'**
+  String reportInsightExpires(int days);
+
+  /// Report Insights card, an expiry passed, under the event's title: the days since it
+  ///
+  /// In en, this message translates to:
+  /// **'{days, plural, =0{expired today} one{expired 1 day ago} other{expired {days} days ago}}'**
+  String reportInsightExpired(int days);
+
+  /// Report Insights card, a bill or deadline day passed with no mark, under the event's title: the latest such day (e.g. Nov 1) and how many days are unmarked
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, one{not marked on {day}} other{{count} days not marked, the latest {day}}}'**
+  String reportInsightUnmarked(String day, int count);
+
+  /// Report Insights card, a recurring episode (e.g. a migraine): the weekday the usual gap between episodes points to
+  ///
+  /// In en, this message translates to:
+  /// **'the usual gap puts the next around {day}'**
+  String reportInsightEpisodeNext(String day);
+
+  /// Report Insights card, a routine's attendance by weekday: the best weekday and its share attended, then the worst; the percents are whole numbers
+  ///
+  /// In en, this message translates to:
+  /// **'{best} {bestPercent} %, {worst} {worstPercent} %'**
+  String reportInsightWeekdays(
+    String best,
+    String bestPercent,
+    String worst,
+    String worstPercent,
+  );
+
+  /// Report Insights card, work: the most days in one week that ran late into the evening
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, one{1 late evening} other{{count} late evenings}} in one week'**
+  String reportInsightLateEvenings(int count);
+
+  /// Report Insights card, work: hours worked on Saturdays and Sundays, e.g. 5 h on the weekend
+  ///
+  /// In en, this message translates to:
+  /// **'{hours} on the weekend'**
+  String reportInsightWeekend(String hours);
+
+  /// Report Insights card, sleep: the most short nights in one week; hours is the short-night line, e.g. 7 h
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, one{1 night} other{{count} nights}} under {hours} in one week'**
+  String reportInsightShortNights(int count, String hours);
+
+  /// Report Insights card, sleep: how far apart the usual bedtimes are, e.g. 1.5 h
+  ///
+  /// In en, this message translates to:
+  /// **'bedtimes vary by {spread}'**
+  String reportInsightBedtimeSpread(String spread);
+
+  /// Report Insights card, meetings: meeting hours and their share of work and meeting hours; percent is a whole number
+  ///
+  /// In en, this message translates to:
+  /// **'{hours}, {percent} % of your work hours'**
+  String reportInsightMeetingShare(String hours, String percent);
+
+  /// Report Insights card: cancelled days of the planned ones, e.g. 3 of 8 cancelled
+  ///
+  /// In en, this message translates to:
+  /// **'{planned, plural, one{{cancelled} of 1 cancelled} other{{cancelled} of {planned} cancelled}}'**
+  String reportInsightCancelled(int cancelled, int planned);
+
+  /// Report Insights card, a workout category: the longest run of days without it in the period
+  ///
+  /// In en, this message translates to:
+  /// **'{days, plural, one{a break of 1 day} other{a break of {days} days}}'**
+  String reportInsightRestGap(int days);
+
+  /// Report Insights card: the money of the bills due in the coming days; amount is already formatted
+  ///
+  /// In en, this message translates to:
+  /// **'{days, plural, one{{amount} due in the next day} other{{amount} due in the next {days} days}}'**
+  String reportInsightBillsAhead(String amount, int days);
+
+  /// Report Insights card of a year: the twelve-month total of the recurring bills and how many there are; amount is already formatted
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, one{{amount} a year across 1 bill} other{{amount} a year across {count} bills}}'**
+  String reportInsightBillsYear(String amount, int count);
+
+  /// Report Insights card, a #tag (a person, a place) not seen for much longer than its usual gap: days since the last time
+  ///
+  /// In en, this message translates to:
+  /// **'{days, plural, one{1 day since the last, longer than usual} other{{days} days since the last, longer than usual}}'**
+  String reportInsightTagGapLong(int days);
+
+  /// Report Insights card, a #tag: the one seen most often in a people category, with the days it was seen
+  ///
+  /// In en, this message translates to:
+  /// **'{days, plural, one{the most seen in {category}, on 1 day} other{the most seen in {category}, on {days} days}}'**
+  String reportInsightTagTop(String category, int days);
+
+  /// Report Insights card, appointments: the usual days between adding one and its day
+  ///
+  /// In en, this message translates to:
+  /// **'{days, plural, =0{usually booked the same day} =1{usually booked a day ahead} other{usually booked {days} days ahead}}'**
+  String reportInsightLeadTime(int days);
+
+  /// Report Insights card, deadlines: how many are still open after their day
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, one{1 open past its day} other{{count} open past their day}}'**
+  String reportInsightOpenPast(int count);
+
+  /// Report Insights card, anniversaries: how many come before the period's last day (e.g. Nov 30)
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, one{1 ahead by {day}} other{{count} ahead by {day}}}'**
+  String reportInsightAhead(int count, String day);
+
+  /// Report Insights card, the next trip: its title and the days until it starts
+  ///
+  /// In en, this message translates to:
+  /// **'{days, plural, =0{{title} today} =1{{title} tomorrow} other{{title} in {days} days}}'**
+  String reportInsightTrip(String title, int days);
+
+  /// Report Insights card, a category's leading measure or a bill's amount rose against the compared period: the value this period, the change in whole percent and the compared period's name
+  ///
+  /// In en, this message translates to:
+  /// **'{value}, up {percent} % on {period}'**
+  String reportInsightUpOn(String value, String percent, String period);
+
+  /// Report Insights card, a category's leading measure or a bill's amount fell against the compared period: the value this period, the change in whole percent and the compared period's name
+  ///
+  /// In en, this message translates to:
+  /// **'{value}, down {percent} % on {period}'**
+  String reportInsightDownOn(String value, String percent, String period);
+
+  /// Report Due soon row: days past a days-between limit; one line, keep it under 20 characters with the number first where the language allows
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =0{Overdue today} one{Overdue 1 day} other{Overdue {count} days}}'**
+  String reportDueOverdue(int count);
+
+  /// Report Due soon row: days left inside a days-between limit; one line, keep it under 20 characters
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =0{Due today} one{Due in 1 day} other{Due in {count} days}}'**
+  String reportDueIn(int count);
+
+  /// Report Due soon row: days until an expiry; one line, keep it under 20 characters
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =0{Expires today} one{Expires in 1 day} other{Expires in {count} days}}'**
+  String reportDueExpires(int count);
+
+  /// Report Due soon row: days since an expiry passed; one line, keep it under 20 characters
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =0{Expired today} one{Expired 1 day ago} other{Expired {count} days ago}}'**
+  String reportDueExpired(int count);
+
+  /// Report Due soon row, after a bill's or deadline's day (e.g. Nov 1 · not marked): the day passed with no mark
+  ///
+  /// In en, this message translates to:
+  /// **'not marked'**
+  String get reportDueNotMarked;
+
+  /// Report Due soon row: a days-between goal last kept before the year the report looks back over
+  ///
+  /// In en, this message translates to:
+  /// **'Over a year ago'**
+  String get reportDueLong;
+
+  /// Report Categories header caption, a category led by Last seen: days since it last happened
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =0{today} =1{yesterday} other{{count} days ago}}'**
+  String reportLastSeenAgo(int count);
+
+  /// Report Categories header caption, a category led by Cancelled: cancelled days in the period
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, one{1 cancelled} other{{count} cancelled}}'**
+  String reportCancelledCount(int count);
+
+  /// Report Categories header caption, a category led by Lead time: the usual days between adding an event and its day
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =0{booked the same day} one{booked 1 day ahead} other{booked {count} days ahead}}'**
+  String reportLeadTime(int count);
+
+  /// Report Categories header caption led by Days until, and a Due soon row after a bill's day: days until the next occurrence
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =0{today} =1{tomorrow} other{in {count} days}}'**
+  String reportDaysUntil(int count);
+
+  /// Part of the caption under the report's tiles: Monday-to-Friday days of the period that are no public holiday
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, one{1 working day} other{{count} working days}}'**
+  String reportWorkingDays(int count);
+
+  /// Part of the caption under the report's tiles: public holidays in the period
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, one{1 public holiday} other{{count} public holidays}}'**
+  String reportPublicHolidays(int count);
+
+  /// Part of the caption under the report's tiles: how much of the Hours tile comes from days counted as a fixed duration (e.g. a leave day counted as 8 h), not from event times
+  ///
+  /// In en, this message translates to:
+  /// **'Hours incl. {hours} counted as'**
+  String reportCaptionCountedAs(String hours);
+
+  /// Screen reader wording appended to the Hours tile: how much of it comes from days counted as a fixed duration; hours is spelled out, e.g. 6 hours
+  ///
+  /// In en, this message translates to:
+  /// **'including {hours} counted as'**
+  String reportCountedAsSpoken(String hours);
 }
 
 class _AppLocalizationsDelegate

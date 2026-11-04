@@ -30,6 +30,8 @@ void main() {
     DateTime? month,
     List<String>? titleTemplates,
     String? subtitle,
+    String? compactSubtitle,
+    String? subtitleTemplate,
     Locale locale = const Locale('en'),
     double textScale = 1.0,
     Size? size,
@@ -68,6 +70,8 @@ void main() {
                     month: month,
                     titleTemplates: titleTemplates,
                     subtitle: subtitle,
+                    compactSubtitle: compactSubtitle,
+                    subtitleTemplate: subtitleTemplate,
                     previousTooltip: 'Previous month',
                     nextTooltip: 'Next month',
                     todayTooltip: 'This month',
@@ -388,6 +392,95 @@ void main() {
       onTitleTap: (_) {},
     );
     expect(rowHeight(tester), tall);
+  });
+
+  group('a subtitle template (the report band, S4 Q)', () {
+    const full = '31 events · 2 of 3 goals on pace';
+    const compact = '31 events · 3 missed';
+
+    /// The count's box between the chevron and the today slot at 360,
+    /// and the test font's advance of one character at 1.0, read off the
+    /// drawn count: its glyphs are all one width, so a template's width is
+    /// its length times this.
+    Future<({double box, double em})> measure(WidgetTester tester) async {
+      await pumpNav(
+        tester,
+        title: '2026',
+        subtitle: compact,
+        size: const Size(360, 780),
+      );
+      final previous = tester.getRect(
+        find.widgetWithIcon(IconButton, Icons.chevron_left_rounded),
+      );
+      final today = tester.getRect(
+        find.widgetWithIcon(IconButton, Icons.today_rounded),
+      );
+      final drawn = tester.renderObject<RenderParagraph>(find.text(compact));
+      return (
+        box: today.left - previous.right,
+        em: drawn.size.width / compact.length,
+      );
+    }
+
+    testWidgets('a template that fits at 1.0 draws the subtitle, at 2.0 too '
+        'where it shrinks to no less than the 1.0 size', (tester) async {
+      final (:box, :em) = await measure(tester);
+      final fits = '8' * (box / em).floor();
+      for (final scale in [1.0, 2.0]) {
+        final errors = await pumpNav(
+          tester,
+          title: '2026',
+          subtitle: full,
+          compactSubtitle: compact,
+          subtitleTemplate: fits,
+          textScale: scale,
+          size: const Size(360, 780),
+        );
+        expect(errors, isEmpty);
+        expect(find.text(full), findsOneWidget, reason: '$scale');
+        expect(find.text(compact), findsNothing, reason: '$scale');
+      }
+    });
+
+    testWidgets('a template wider than the box falls back to the compact '
+        'subtitle on a row of the same height', (tester) async {
+      final (:box, :em) = await measure(tester);
+      final tall = rowHeight(tester);
+      final wide = '8' * ((box / em).floor() + 2);
+      await pumpNav(
+        tester,
+        title: '2026',
+        subtitle: full,
+        compactSubtitle: compact,
+        subtitleTemplate: wide,
+        size: const Size(360, 780),
+      );
+      expect(find.text(compact), findsOneWidget);
+      expect(find.text(full), findsNothing);
+      expect(rowHeight(tester), tall);
+    });
+
+    testWidgets('no template, or no compact form, draws the subtitle as it '
+        'always has', (tester) async {
+      final (:box, :em) = await measure(tester);
+      final wide = '8' * ((box / em).floor() + 2);
+      await pumpNav(
+        tester,
+        title: '2026',
+        subtitle: wide,
+        compactSubtitle: compact,
+        size: const Size(360, 780),
+      );
+      expect(find.text(wide), findsOneWidget);
+      await pumpNav(
+        tester,
+        title: '2026',
+        subtitle: full,
+        subtitleTemplate: wide,
+        size: const Size(360, 780),
+      );
+      expect(find.text(full), findsOneWidget);
+    });
   });
 
   testWidgets("a year's twelve titles are laid out once per key: a rebuild or "

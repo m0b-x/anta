@@ -104,6 +104,11 @@ class ReportGroupRows {
   /// The air below the group's last row, as `FormRowGroup` carries it.
   final bool trailingGap;
 
+  /// The category's measures, which a profiled Categories header leads
+  /// with (N); null — every other card, an unprofiled report — keeps the
+  /// header's count facts.
+  final ReportMeasures? measures;
+
   ReportGroupRows({
     required this.card,
     required this.group,
@@ -122,6 +127,7 @@ class ReportGroupRows {
     required this.spansMonths,
     required this.use24Hour,
     this.trailingGap = true,
+    this.measures,
   });
 
   /// Read for a dated row's icon, colour and title only: the row's subtitle
@@ -235,7 +241,12 @@ class ReportGroupRows {
         color: _category.color,
       ),
       label: _categoryName,
-      caption: labels.groupFacts(card, group),
+      caption: labels.groupFacts(
+        card,
+        group,
+        measures: measures,
+        use24Hour: use24Hour,
+      ),
       fraction: card == ReportCard.categories ? fraction : null,
       meterColor: _category.color,
       trailing: AnimatedRotation(
@@ -246,7 +257,13 @@ class ReportGroupRows {
       ),
       onTap: onToggle,
       expanded: open,
-      semanticsLabel: labels.groupSpoken(card, group, category: _categoryName),
+      semanticsLabel: labels.groupSpoken(
+        card,
+        group,
+        category: _categoryName,
+        measures: measures,
+        use24Hour: use24Hour,
+      ),
       identifier: SemanticsIds.reportGroup(card.name, group.categoryId),
     );
   }
