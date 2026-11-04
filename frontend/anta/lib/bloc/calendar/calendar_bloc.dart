@@ -11,6 +11,7 @@ import '../../models/calendar_grid_filters.dart';
 import '../../models/event_alert.dart';
 import '../../services/alert_scheduler.dart';
 import '../../services/calendar_event_service.dart';
+import '../../services/category_profile_service.dart';
 import '../../services/category_service.dart';
 import '../../services/event_occurrence_service.dart';
 import '../../services/event_presence_service.dart';
@@ -256,7 +257,7 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
 
   /// Awaits one service's construction, logging rather than rethrowing.
   ///
-  /// Lets the nine resolve through a single [Future.wait] without its
+  /// Lets the ten resolve through a single [Future.wait] without its
   /// fail-fast semantics turning one bad service into an empty calendar.
   static Future<void> _resolveQuietly(
     Future<Object?> init,
@@ -658,7 +659,7 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
   /// This is where the calendar's first load lives now that the services are
   /// no longer constructed before `runApp`. Two properties it must keep:
   ///
-  /// The nine `getInstance()` calls run through one [Future.wait] rather than
+  /// The ten `getInstance()` calls run through one [Future.wait] rather than
   /// sequentially — each is a separate round trip to the Drift isolate, so
   /// awaiting them in order makes the latencies add rather than overlap. That
   /// was the roadmap's complaint about the old DI block, and it applies just
@@ -744,7 +745,7 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
     );
   }
 
-  /// The resolution every load shares: the nine services, the event store
+  /// The resolution every load shares: the ten services, the event store
   /// re-read, the money ledger refreshed over it. Returns the events.
   Future<List<CalendarEvent>> _resolveAndReload() async {
     CalendarEventService? service;
@@ -763,6 +764,7 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
       _resolveQuietly(EventTemplateService.getInstance(), 'templates'),
       _resolveQuietly(EventAlertService.getInstance(), 'alerts'),
       _resolveQuietly(EventDigestService.getInstance(), 'digests'),
+      _resolveQuietly(CategoryProfileService.getInstance(), 'profiles'),
     ]);
     try {
       final resolved = await resolving;

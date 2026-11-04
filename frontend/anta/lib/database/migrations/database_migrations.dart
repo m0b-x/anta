@@ -221,6 +221,11 @@ class DatabaseMigrations {
       toVersion: DatabaseSchema.v43SyncReadiness,
       migrate: _migrateV42ToV43,
     ),
+    Migration(
+      fromVersion: DatabaseSchema.v43SyncReadiness,
+      toVersion: DatabaseSchema.v44CategoryProfiles,
+      migrate: _migrateV43ToV44,
+    ),
   ];
 
   Future<void> runMigrations(Migrator m, int from, int to) async {
@@ -1919,5 +1924,49 @@ class DatabaseMigrations {
         "INSERT INTO notes_fts(notes_fts) VALUES('rebuild')",
       );
     }
+  }
+
+  /// v43→v44: category profiles — `calendar_category_profiles`, the
+  /// `calendar_category_alerts` row shape keyed by category with the kind and
+  /// its overrides in place of the alert's columns. No data moves: a category
+  /// without a profile reads as `custom` with nothing overridden, which is
+  /// what every category was before this version.
+  ///
+  /// The table is born with v43's `owner_id`, because the v43 step's ALTER
+  /// loop is frozen at the eighteen tables it shipped with and never reaches
+  /// this one. No backup version bump here; the archive's key lands with the
+  /// service.
+  ///
+  /// The DDL is frozen at this version and must never be re-derived from the
+  /// live Drift declarations. Idempotent by `CREATE TABLE IF NOT EXISTS` and
+  /// the creator's own `IF NOT EXISTS`.
+  Future<void> _migrateV43ToV44(Migrator m, GeneratedDatabase db) async {
+    await _db.customStatement('''
+      CREATE TABLE IF NOT EXISTS calendar_category_profiles (
+        id TEXT NOT NULL PRIMARY KEY,
+        category_id TEXT NOT NULL,
+        kind TEXT NOT NULL DEFAULT 'custom',
+        area TEXT NULL,
+        measure TEXT NULL,
+        nominal_minutes INTEGER NULL,
+        mark_verb TEXT NULL,
+        marks_new INTEGER NULL,
+        assume_absent_new INTEGER NULL,
+        counts_hours INTEGER NULL,
+        target_kind TEXT NULL,
+        target_value INTEGER NULL,
+        target_period TEXT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        hlc_timestamp TEXT NOT NULL,
+        device_id TEXT NOT NULL,
+        version INTEGER NOT NULL DEFAULT 1,
+        is_deleted INTEGER NOT NULL DEFAULT 0,
+        deleted_at INTEGER NULL,
+        owner_id TEXT NULL
+      )
+    ''');
+
+    await DatabaseIndexes(_db).createCategoryProfileIndexes();
   }
 }

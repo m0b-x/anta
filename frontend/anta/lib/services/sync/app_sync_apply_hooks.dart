@@ -9,6 +9,7 @@ import '../../repositories/folder_repository.dart';
 import '../../repositories/note_repository.dart';
 import '../alert_scheduler.dart';
 import '../calendar_event_service.dart';
+import '../category_profile_service.dart';
 import '../category_service.dart';
 import '../counter_service.dart';
 import '../event_alert_service.dart';
@@ -250,9 +251,12 @@ class AppSyncApplyHooks implements SyncApplyHooks {
   /// The calendar services in the record's order — categories and templates
   /// before the events that name them, the day rows after — each on its own
   /// guard, then the signal a bloc already showing the calendar reloads on.
+  /// The profiles reload only a live instance: nothing has read them
+  /// otherwise, and the next `getInstance` reads the merged table.
   static Future<void> _appReloadCalendar() async {
     final reloads = <String, Future<void> Function()>{
       'categories': () async => (await CategoryService.getInstance()).reload(),
+      'profiles': CategoryProfileService.refreshAfterSync,
       'templates': () async =>
           (await EventTemplateService.getInstance()).reload(),
       'events': () async => (await CalendarEventService.getInstance()).reload(),

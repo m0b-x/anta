@@ -181,10 +181,23 @@ class CalendarEventService {
     events.insert(index, event);
   }
 
+  /// Saves [event] and caches it as stored.
+  ///
+  /// A model without `createdAt` (a new event's draft), or one whose id the
+  /// cache did not hold, takes the row's back after the write: the insert
+  /// stamps `created_at`, at the column's whole-second precision, and an
+  /// existing row keeps its own, so neither the model's `null`, the date a
+  /// `copyWith(id:)` carried over from another event, nor this call's clock
+  /// would match what a reload reads.
   Future<void> upsert(CalendarEvent event) async {
-    final normalized = _normalized(event);
+    var normalized = _normalized(event);
+    final cached = _cache.any((e) => e.id == normalized.id);
     final now = DateTime.now();
     await _dao.upsert(_eventToCompanion(normalized, updatedAt: now));
+    if (normalized.createdAt == null || !cached) {
+      final rows = await _dao.getByIdsIncludingDeleted([normalized.id]);
+      normalized = normalized.copyWith(createdAt: rows.single.createdAt);
+    }
     _writes++;
     _cacheWritten(normalized);
   }
@@ -652,6 +665,7 @@ class CalendarEventService {
       removeAfterAlert: row.removeAfterAlert,
       categoryAlerts: row.categoryAlerts,
       rule: _decodeRule(row.ruleKind, row.rulePayload),
+      createdAt: row.createdAt,
     );
   }
 

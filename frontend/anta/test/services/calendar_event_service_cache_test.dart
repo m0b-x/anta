@@ -86,6 +86,43 @@ void main() {
     expect(cachedIds(), ['b', 'a']);
   });
 
+  test('a new event is cached with the createdAt its row holds', () async {
+    await service.upsert(eventOf('fresh', DateTime.utc(2026, 1, 1)));
+
+    final row = (await db.calendarEventDao.getAll()).single;
+    expect(service.events.single.createdAt, isNotNull);
+    expect(service.events.single.createdAt, row.createdAt);
+
+    await service.reload();
+    expect(service.events.single.createdAt, row.createdAt);
+  });
+
+  test('an edit without createdAt caches the first save\'s', () async {
+    await service.upsert(eventOf('a', DateTime.utc(2026, 1, 1)));
+    final created = service.events.single.createdAt;
+
+    await service.upsert(eventOf('a', DateTime.utc(2026, 3, 1)));
+
+    expect(service.events.single.createdAt, created);
+    expect((await db.calendarEventDao.getAll()).single.createdAt, created);
+  });
+
+  /// A stored event copied under a fresh id carries the original's date,
+  /// while the insert stamps its own: the cache must hold the row's.
+  test(
+    'a new id carrying another event\'s createdAt caches the row\'s',
+    () async {
+      final carried = DateTime(2020, 1, 1);
+      await service.upsert(
+        eventOf('copy', DateTime.utc(2026, 1, 1)).copyWith(createdAt: carried),
+      );
+
+      final row = (await db.calendarEventDao.getAll()).single;
+      expect(row.createdAt, isNot(carried));
+      expect(service.events.single.createdAt, row.createdAt);
+    },
+  );
+
   test('a save inside a reload is not read back out of the cache', () async {
     await service.upsert(eventOf('kept', DateTime.utc(2026, 1, 1)));
     // The reload's rows are held, so the save below commits after they were

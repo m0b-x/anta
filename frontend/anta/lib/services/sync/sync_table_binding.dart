@@ -150,6 +150,10 @@ final class WireFields {
     }
   }
 
+  /// A live row's wire map met outside an envelope — a backup row, which is
+  /// the wire map — held to the same strictness as a pulled upsert.
+  WireFields.row(this.table, this.data) : live = true;
+
   /// A non-nullable column: required on a live row, [tombstoneDefault] on a
   /// tombstone.
   T field<T extends Object>(String key, T tombstoneDefault) {

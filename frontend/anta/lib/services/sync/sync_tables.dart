@@ -1,6 +1,7 @@
 import 'sync_table_binding.dart';
 import 'tables/calendar_categories_binding.dart';
 import 'tables/calendar_category_alerts_binding.dart';
+import 'tables/calendar_category_profiles_binding.dart';
 import 'tables/calendar_event_absences_binding.dart';
 import 'tables/calendar_event_alerts_binding.dart';
 import 'tables/calendar_event_occurrences_binding.dart';
@@ -36,6 +37,7 @@ const List<SyncTableBinding<Object>> syncTableBindings = [
   CalendarEventSkipsBinding(),
   CalendarEventAlertsBinding(),
   CalendarCategoryAlertsBinding(),
+  CalendarCategoryProfilesBinding(),
   EventDigestsBinding(),
   CalendarFilterPresetsBinding(),
   OverviewViewsBinding(),

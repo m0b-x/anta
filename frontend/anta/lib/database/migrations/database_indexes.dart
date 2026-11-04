@@ -15,6 +15,7 @@ class DatabaseIndexes {
     await createCalendarDeltaIndexes();
     await createAlertIndexes();
     await createCategoryAlertIndexes();
+    await createCategoryProfileIndexes();
     await _createFtsTable();
     await createUniqueNameIndexes();
     await createNoteTitleIndex();
@@ -292,6 +293,21 @@ class DatabaseIndexes {
     await _db.customStatement(
       'CREATE INDEX IF NOT EXISTS idx_calendar_category_alerts_category '
       'ON calendar_category_alerts(category_id)',
+    );
+  }
+
+  /// The index behind `CategoryProfileDao`'s per-category reads and writes —
+  /// the upsert's live-row read and the `deleteCategory` cascade (**v44**).
+  ///
+  /// [createCategoryAlertIndexes]'s twin and for its reasons: a creator of
+  /// its own so no older step can reach the table, called by the v44 step and
+  /// by `createAllIndexes`. Plain, not unique: two devices may each hold a
+  /// live profile for one category until a local write converges them, and a
+  /// merge must be able to store both.
+  Future<void> createCategoryProfileIndexes() async {
+    await _db.customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_calendar_category_profiles_category '
+      'ON calendar_category_profiles(category_id)',
     );
   }
 

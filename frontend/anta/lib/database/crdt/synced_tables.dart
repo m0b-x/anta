@@ -57,6 +57,7 @@ const List<SyncedTable> syncedTables = [
   SyncedTable('calendar_events'),
   SyncedTable('calendar_categories'),
   SyncedTable('calendar_category_alerts'),
+  SyncedTable('calendar_category_profiles'),
   SyncedTable('calendar_event_occurrences', rowKeySql: _dayKey),
   SyncedTable('calendar_event_absences', rowKeySql: _dayKey),
   SyncedTable('calendar_event_skips', rowKeySql: _dayKey),

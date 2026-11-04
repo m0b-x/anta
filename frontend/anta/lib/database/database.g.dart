@@ -16395,6 +16395,1213 @@ class CalendarCategoryAlertsCompanion
   }
 }
 
+class $CalendarCategoryProfilesTable extends CalendarCategoryProfiles
+    with TableInfo<$CalendarCategoryProfilesTable, CategoryProfileRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $CalendarCategoryProfilesTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+    'id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _categoryIdMeta = const VerificationMeta(
+    'categoryId',
+  );
+  @override
+  late final GeneratedColumn<String> categoryId = GeneratedColumn<String>(
+    'category_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _kindMeta = const VerificationMeta('kind');
+  @override
+  late final GeneratedColumn<String> kind = GeneratedColumn<String>(
+    'kind',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant('custom'),
+  );
+  static const VerificationMeta _areaMeta = const VerificationMeta('area');
+  @override
+  late final GeneratedColumn<String> area = GeneratedColumn<String>(
+    'area',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _measureMeta = const VerificationMeta(
+    'measure',
+  );
+  @override
+  late final GeneratedColumn<String> measure = GeneratedColumn<String>(
+    'measure',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _nominalMinutesMeta = const VerificationMeta(
+    'nominalMinutes',
+  );
+  @override
+  late final GeneratedColumn<int> nominalMinutes = GeneratedColumn<int>(
+    'nominal_minutes',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _markVerbMeta = const VerificationMeta(
+    'markVerb',
+  );
+  @override
+  late final GeneratedColumn<String> markVerb = GeneratedColumn<String>(
+    'mark_verb',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _marksNewMeta = const VerificationMeta(
+    'marksNew',
+  );
+  @override
+  late final GeneratedColumn<bool> marksNew = GeneratedColumn<bool>(
+    'marks_new',
+    aliasedName,
+    true,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("marks_new" IN (0, 1))',
+    ),
+  );
+  static const VerificationMeta _assumeAbsentNewMeta = const VerificationMeta(
+    'assumeAbsentNew',
+  );
+  @override
+  late final GeneratedColumn<bool> assumeAbsentNew = GeneratedColumn<bool>(
+    'assume_absent_new',
+    aliasedName,
+    true,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("assume_absent_new" IN (0, 1))',
+    ),
+  );
+  static const VerificationMeta _countsHoursMeta = const VerificationMeta(
+    'countsHours',
+  );
+  @override
+  late final GeneratedColumn<bool> countsHours = GeneratedColumn<bool>(
+    'counts_hours',
+    aliasedName,
+    true,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("counts_hours" IN (0, 1))',
+    ),
+  );
+  static const VerificationMeta _targetKindMeta = const VerificationMeta(
+    'targetKind',
+  );
+  @override
+  late final GeneratedColumn<String> targetKind = GeneratedColumn<String>(
+    'target_kind',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _targetValueMeta = const VerificationMeta(
+    'targetValue',
+  );
+  @override
+  late final GeneratedColumn<int> targetValue = GeneratedColumn<int>(
+    'target_value',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _targetPeriodMeta = const VerificationMeta(
+    'targetPeriod',
+  );
+  @override
+  late final GeneratedColumn<String> targetPeriod = GeneratedColumn<String>(
+    'target_period',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _createdAtMeta = const VerificationMeta(
+    'createdAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> createdAt = GeneratedColumn<DateTime>(
+    'created_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _updatedAtMeta = const VerificationMeta(
+    'updatedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> updatedAt = GeneratedColumn<DateTime>(
+    'updated_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _hlcTimestampMeta = const VerificationMeta(
+    'hlcTimestamp',
+  );
+  @override
+  late final GeneratedColumn<String> hlcTimestamp = GeneratedColumn<String>(
+    'hlc_timestamp',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _deviceIdMeta = const VerificationMeta(
+    'deviceId',
+  );
+  @override
+  late final GeneratedColumn<String> deviceId = GeneratedColumn<String>(
+    'device_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _versionMeta = const VerificationMeta(
+    'version',
+  );
+  @override
+  late final GeneratedColumn<int> version = GeneratedColumn<int>(
+    'version',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(1),
+  );
+  static const VerificationMeta _isDeletedMeta = const VerificationMeta(
+    'isDeleted',
+  );
+  @override
+  late final GeneratedColumn<bool> isDeleted = GeneratedColumn<bool>(
+    'is_deleted',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("is_deleted" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
+  static const VerificationMeta _deletedAtMeta = const VerificationMeta(
+    'deletedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> deletedAt = GeneratedColumn<DateTime>(
+    'deleted_at',
+    aliasedName,
+    true,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _ownerIdMeta = const VerificationMeta(
+    'ownerId',
+  );
+  @override
+  late final GeneratedColumn<String> ownerId = GeneratedColumn<String>(
+    'owner_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    categoryId,
+    kind,
+    area,
+    measure,
+    nominalMinutes,
+    markVerb,
+    marksNew,
+    assumeAbsentNew,
+    countsHours,
+    targetKind,
+    targetValue,
+    targetPeriod,
+    createdAt,
+    updatedAt,
+    hlcTimestamp,
+    deviceId,
+    version,
+    isDeleted,
+    deletedAt,
+    ownerId,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'calendar_category_profiles';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<CategoryProfileRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    } else if (isInserting) {
+      context.missing(_idMeta);
+    }
+    if (data.containsKey('category_id')) {
+      context.handle(
+        _categoryIdMeta,
+        categoryId.isAcceptableOrUnknown(data['category_id']!, _categoryIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_categoryIdMeta);
+    }
+    if (data.containsKey('kind')) {
+      context.handle(
+        _kindMeta,
+        kind.isAcceptableOrUnknown(data['kind']!, _kindMeta),
+      );
+    }
+    if (data.containsKey('area')) {
+      context.handle(
+        _areaMeta,
+        area.isAcceptableOrUnknown(data['area']!, _areaMeta),
+      );
+    }
+    if (data.containsKey('measure')) {
+      context.handle(
+        _measureMeta,
+        measure.isAcceptableOrUnknown(data['measure']!, _measureMeta),
+      );
+    }
+    if (data.containsKey('nominal_minutes')) {
+      context.handle(
+        _nominalMinutesMeta,
+        nominalMinutes.isAcceptableOrUnknown(
+          data['nominal_minutes']!,
+          _nominalMinutesMeta,
+        ),
+      );
+    }
+    if (data.containsKey('mark_verb')) {
+      context.handle(
+        _markVerbMeta,
+        markVerb.isAcceptableOrUnknown(data['mark_verb']!, _markVerbMeta),
+      );
+    }
+    if (data.containsKey('marks_new')) {
+      context.handle(
+        _marksNewMeta,
+        marksNew.isAcceptableOrUnknown(data['marks_new']!, _marksNewMeta),
+      );
+    }
+    if (data.containsKey('assume_absent_new')) {
+      context.handle(
+        _assumeAbsentNewMeta,
+        assumeAbsentNew.isAcceptableOrUnknown(
+          data['assume_absent_new']!,
+          _assumeAbsentNewMeta,
+        ),
+      );
+    }
+    if (data.containsKey('counts_hours')) {
+      context.handle(
+        _countsHoursMeta,
+        countsHours.isAcceptableOrUnknown(
+          data['counts_hours']!,
+          _countsHoursMeta,
+        ),
+      );
+    }
+    if (data.containsKey('target_kind')) {
+      context.handle(
+        _targetKindMeta,
+        targetKind.isAcceptableOrUnknown(data['target_kind']!, _targetKindMeta),
+      );
+    }
+    if (data.containsKey('target_value')) {
+      context.handle(
+        _targetValueMeta,
+        targetValue.isAcceptableOrUnknown(
+          data['target_value']!,
+          _targetValueMeta,
+        ),
+      );
+    }
+    if (data.containsKey('target_period')) {
+      context.handle(
+        _targetPeriodMeta,
+        targetPeriod.isAcceptableOrUnknown(
+          data['target_period']!,
+          _targetPeriodMeta,
+        ),
+      );
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(
+        _createdAtMeta,
+        createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_createdAtMeta);
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(
+        _updatedAtMeta,
+        updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_updatedAtMeta);
+    }
+    if (data.containsKey('hlc_timestamp')) {
+      context.handle(
+        _hlcTimestampMeta,
+        hlcTimestamp.isAcceptableOrUnknown(
+          data['hlc_timestamp']!,
+          _hlcTimestampMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_hlcTimestampMeta);
+    }
+    if (data.containsKey('device_id')) {
+      context.handle(
+        _deviceIdMeta,
+        deviceId.isAcceptableOrUnknown(data['device_id']!, _deviceIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_deviceIdMeta);
+    }
+    if (data.containsKey('version')) {
+      context.handle(
+        _versionMeta,
+        version.isAcceptableOrUnknown(data['version']!, _versionMeta),
+      );
+    }
+    if (data.containsKey('is_deleted')) {
+      context.handle(
+        _isDeletedMeta,
+        isDeleted.isAcceptableOrUnknown(data['is_deleted']!, _isDeletedMeta),
+      );
+    }
+    if (data.containsKey('deleted_at')) {
+      context.handle(
+        _deletedAtMeta,
+        deletedAt.isAcceptableOrUnknown(data['deleted_at']!, _deletedAtMeta),
+      );
+    }
+    if (data.containsKey('owner_id')) {
+      context.handle(
+        _ownerIdMeta,
+        ownerId.isAcceptableOrUnknown(data['owner_id']!, _ownerIdMeta),
+      );
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  CategoryProfileRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return CategoryProfileRow(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}id'],
+      )!,
+      categoryId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}category_id'],
+      )!,
+      kind: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}kind'],
+      )!,
+      area: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}area'],
+      ),
+      measure: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}measure'],
+      ),
+      nominalMinutes: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}nominal_minutes'],
+      ),
+      markVerb: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}mark_verb'],
+      ),
+      marksNew: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}marks_new'],
+      ),
+      assumeAbsentNew: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}assume_absent_new'],
+      ),
+      countsHours: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}counts_hours'],
+      ),
+      targetKind: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}target_kind'],
+      ),
+      targetValue: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}target_value'],
+      ),
+      targetPeriod: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}target_period'],
+      ),
+      createdAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}created_at'],
+      )!,
+      updatedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}updated_at'],
+      )!,
+      hlcTimestamp: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}hlc_timestamp'],
+      )!,
+      deviceId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}device_id'],
+      )!,
+      version: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}version'],
+      )!,
+      isDeleted: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}is_deleted'],
+      )!,
+      deletedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}deleted_at'],
+      ),
+      ownerId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}owner_id'],
+      ),
+    );
+  }
+
+  @override
+  $CalendarCategoryProfilesTable createAlias(String alias) {
+    return $CalendarCategoryProfilesTable(attachedDatabase, alias);
+  }
+}
+
+class CategoryProfileRow extends DataClass
+    implements Insertable<CategoryProfileRow> {
+  final String id;
+  final String categoryId;
+
+  /// The catalogue key; `custom` when the owner never picked one.
+  final String kind;
+  final String? area;
+
+  /// Override of the kind's primary measure.
+  final String? measure;
+
+  /// The confirmed "counts as" length an untimed occurrence earns; `NULL` is
+  /// none.
+  final int? nominalMinutes;
+
+  /// Override of the kind's mark verb; `''` turns marking off.
+  final String? markVerb;
+
+  /// Whether new events in the category track presence.
+  final bool? marksNew;
+
+  /// Whether new events in the category assume absent.
+  final bool? assumeAbsentNew;
+  final bool? countsHours;
+
+  /// `atLeast` | `atMost` | `maxGap` | `budget`; `NULL` is no goal.
+  final String? targetKind;
+  final int? targetValue;
+
+  /// `day` | `week` | `month` | `year`.
+  final String? targetPeriod;
+  final DateTime createdAt;
+  final DateTime updatedAt;
+  final String hlcTimestamp;
+  final String deviceId;
+  final int version;
+  final bool isDeleted;
+  final DateTime? deletedAt;
+
+  /// The owning account once sync binds one; NULL until then.
+  final String? ownerId;
+  const CategoryProfileRow({
+    required this.id,
+    required this.categoryId,
+    required this.kind,
+    this.area,
+    this.measure,
+    this.nominalMinutes,
+    this.markVerb,
+    this.marksNew,
+    this.assumeAbsentNew,
+    this.countsHours,
+    this.targetKind,
+    this.targetValue,
+    this.targetPeriod,
+    required this.createdAt,
+    required this.updatedAt,
+    required this.hlcTimestamp,
+    required this.deviceId,
+    required this.version,
+    required this.isDeleted,
+    this.deletedAt,
+    this.ownerId,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['category_id'] = Variable<String>(categoryId);
+    map['kind'] = Variable<String>(kind);
+    if (!nullToAbsent || area != null) {
+      map['area'] = Variable<String>(area);
+    }
+    if (!nullToAbsent || measure != null) {
+      map['measure'] = Variable<String>(measure);
+    }
+    if (!nullToAbsent || nominalMinutes != null) {
+      map['nominal_minutes'] = Variable<int>(nominalMinutes);
+    }
+    if (!nullToAbsent || markVerb != null) {
+      map['mark_verb'] = Variable<String>(markVerb);
+    }
+    if (!nullToAbsent || marksNew != null) {
+      map['marks_new'] = Variable<bool>(marksNew);
+    }
+    if (!nullToAbsent || assumeAbsentNew != null) {
+      map['assume_absent_new'] = Variable<bool>(assumeAbsentNew);
+    }
+    if (!nullToAbsent || countsHours != null) {
+      map['counts_hours'] = Variable<bool>(countsHours);
+    }
+    if (!nullToAbsent || targetKind != null) {
+      map['target_kind'] = Variable<String>(targetKind);
+    }
+    if (!nullToAbsent || targetValue != null) {
+      map['target_value'] = Variable<int>(targetValue);
+    }
+    if (!nullToAbsent || targetPeriod != null) {
+      map['target_period'] = Variable<String>(targetPeriod);
+    }
+    map['created_at'] = Variable<DateTime>(createdAt);
+    map['updated_at'] = Variable<DateTime>(updatedAt);
+    map['hlc_timestamp'] = Variable<String>(hlcTimestamp);
+    map['device_id'] = Variable<String>(deviceId);
+    map['version'] = Variable<int>(version);
+    map['is_deleted'] = Variable<bool>(isDeleted);
+    if (!nullToAbsent || deletedAt != null) {
+      map['deleted_at'] = Variable<DateTime>(deletedAt);
+    }
+    if (!nullToAbsent || ownerId != null) {
+      map['owner_id'] = Variable<String>(ownerId);
+    }
+    return map;
+  }
+
+  CalendarCategoryProfilesCompanion toCompanion(bool nullToAbsent) {
+    return CalendarCategoryProfilesCompanion(
+      id: Value(id),
+      categoryId: Value(categoryId),
+      kind: Value(kind),
+      area: area == null && nullToAbsent ? const Value.absent() : Value(area),
+      measure: measure == null && nullToAbsent
+          ? const Value.absent()
+          : Value(measure),
+      nominalMinutes: nominalMinutes == null && nullToAbsent
+          ? const Value.absent()
+          : Value(nominalMinutes),
+      markVerb: markVerb == null && nullToAbsent
+          ? const Value.absent()
+          : Value(markVerb),
+      marksNew: marksNew == null && nullToAbsent
+          ? const Value.absent()
+          : Value(marksNew),
+      assumeAbsentNew: assumeAbsentNew == null && nullToAbsent
+          ? const Value.absent()
+          : Value(assumeAbsentNew),
+      countsHours: countsHours == null && nullToAbsent
+          ? const Value.absent()
+          : Value(countsHours),
+      targetKind: targetKind == null && nullToAbsent
+          ? const Value.absent()
+          : Value(targetKind),
+      targetValue: targetValue == null && nullToAbsent
+          ? const Value.absent()
+          : Value(targetValue),
+      targetPeriod: targetPeriod == null && nullToAbsent
+          ? const Value.absent()
+          : Value(targetPeriod),
+      createdAt: Value(createdAt),
+      updatedAt: Value(updatedAt),
+      hlcTimestamp: Value(hlcTimestamp),
+      deviceId: Value(deviceId),
+      version: Value(version),
+      isDeleted: Value(isDeleted),
+      deletedAt: deletedAt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(deletedAt),
+      ownerId: ownerId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(ownerId),
+    );
+  }
+
+  factory CategoryProfileRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return CategoryProfileRow(
+      id: serializer.fromJson<String>(json['id']),
+      categoryId: serializer.fromJson<String>(json['categoryId']),
+      kind: serializer.fromJson<String>(json['kind']),
+      area: serializer.fromJson<String?>(json['area']),
+      measure: serializer.fromJson<String?>(json['measure']),
+      nominalMinutes: serializer.fromJson<int?>(json['nominalMinutes']),
+      markVerb: serializer.fromJson<String?>(json['markVerb']),
+      marksNew: serializer.fromJson<bool?>(json['marksNew']),
+      assumeAbsentNew: serializer.fromJson<bool?>(json['assumeAbsentNew']),
+      countsHours: serializer.fromJson<bool?>(json['countsHours']),
+      targetKind: serializer.fromJson<String?>(json['targetKind']),
+      targetValue: serializer.fromJson<int?>(json['targetValue']),
+      targetPeriod: serializer.fromJson<String?>(json['targetPeriod']),
+      createdAt: serializer.fromJson<DateTime>(json['createdAt']),
+      updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
+      hlcTimestamp: serializer.fromJson<String>(json['hlcTimestamp']),
+      deviceId: serializer.fromJson<String>(json['deviceId']),
+      version: serializer.fromJson<int>(json['version']),
+      isDeleted: serializer.fromJson<bool>(json['isDeleted']),
+      deletedAt: serializer.fromJson<DateTime?>(json['deletedAt']),
+      ownerId: serializer.fromJson<String?>(json['ownerId']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'categoryId': serializer.toJson<String>(categoryId),
+      'kind': serializer.toJson<String>(kind),
+      'area': serializer.toJson<String?>(area),
+      'measure': serializer.toJson<String?>(measure),
+      'nominalMinutes': serializer.toJson<int?>(nominalMinutes),
+      'markVerb': serializer.toJson<String?>(markVerb),
+      'marksNew': serializer.toJson<bool?>(marksNew),
+      'assumeAbsentNew': serializer.toJson<bool?>(assumeAbsentNew),
+      'countsHours': serializer.toJson<bool?>(countsHours),
+      'targetKind': serializer.toJson<String?>(targetKind),
+      'targetValue': serializer.toJson<int?>(targetValue),
+      'targetPeriod': serializer.toJson<String?>(targetPeriod),
+      'createdAt': serializer.toJson<DateTime>(createdAt),
+      'updatedAt': serializer.toJson<DateTime>(updatedAt),
+      'hlcTimestamp': serializer.toJson<String>(hlcTimestamp),
+      'deviceId': serializer.toJson<String>(deviceId),
+      'version': serializer.toJson<int>(version),
+      'isDeleted': serializer.toJson<bool>(isDeleted),
+      'deletedAt': serializer.toJson<DateTime?>(deletedAt),
+      'ownerId': serializer.toJson<String?>(ownerId),
+    };
+  }
+
+  CategoryProfileRow copyWith({
+    String? id,
+    String? categoryId,
+    String? kind,
+    Value<String?> area = const Value.absent(),
+    Value<String?> measure = const Value.absent(),
+    Value<int?> nominalMinutes = const Value.absent(),
+    Value<String?> markVerb = const Value.absent(),
+    Value<bool?> marksNew = const Value.absent(),
+    Value<bool?> assumeAbsentNew = const Value.absent(),
+    Value<bool?> countsHours = const Value.absent(),
+    Value<String?> targetKind = const Value.absent(),
+    Value<int?> targetValue = const Value.absent(),
+    Value<String?> targetPeriod = const Value.absent(),
+    DateTime? createdAt,
+    DateTime? updatedAt,
+    String? hlcTimestamp,
+    String? deviceId,
+    int? version,
+    bool? isDeleted,
+    Value<DateTime?> deletedAt = const Value.absent(),
+    Value<String?> ownerId = const Value.absent(),
+  }) => CategoryProfileRow(
+    id: id ?? this.id,
+    categoryId: categoryId ?? this.categoryId,
+    kind: kind ?? this.kind,
+    area: area.present ? area.value : this.area,
+    measure: measure.present ? measure.value : this.measure,
+    nominalMinutes: nominalMinutes.present
+        ? nominalMinutes.value
+        : this.nominalMinutes,
+    markVerb: markVerb.present ? markVerb.value : this.markVerb,
+    marksNew: marksNew.present ? marksNew.value : this.marksNew,
+    assumeAbsentNew: assumeAbsentNew.present
+        ? assumeAbsentNew.value
+        : this.assumeAbsentNew,
+    countsHours: countsHours.present ? countsHours.value : this.countsHours,
+    targetKind: targetKind.present ? targetKind.value : this.targetKind,
+    targetValue: targetValue.present ? targetValue.value : this.targetValue,
+    targetPeriod: targetPeriod.present ? targetPeriod.value : this.targetPeriod,
+    createdAt: createdAt ?? this.createdAt,
+    updatedAt: updatedAt ?? this.updatedAt,
+    hlcTimestamp: hlcTimestamp ?? this.hlcTimestamp,
+    deviceId: deviceId ?? this.deviceId,
+    version: version ?? this.version,
+    isDeleted: isDeleted ?? this.isDeleted,
+    deletedAt: deletedAt.present ? deletedAt.value : this.deletedAt,
+    ownerId: ownerId.present ? ownerId.value : this.ownerId,
+  );
+  CategoryProfileRow copyWithCompanion(CalendarCategoryProfilesCompanion data) {
+    return CategoryProfileRow(
+      id: data.id.present ? data.id.value : this.id,
+      categoryId: data.categoryId.present
+          ? data.categoryId.value
+          : this.categoryId,
+      kind: data.kind.present ? data.kind.value : this.kind,
+      area: data.area.present ? data.area.value : this.area,
+      measure: data.measure.present ? data.measure.value : this.measure,
+      nominalMinutes: data.nominalMinutes.present
+          ? data.nominalMinutes.value
+          : this.nominalMinutes,
+      markVerb: data.markVerb.present ? data.markVerb.value : this.markVerb,
+      marksNew: data.marksNew.present ? data.marksNew.value : this.marksNew,
+      assumeAbsentNew: data.assumeAbsentNew.present
+          ? data.assumeAbsentNew.value
+          : this.assumeAbsentNew,
+      countsHours: data.countsHours.present
+          ? data.countsHours.value
+          : this.countsHours,
+      targetKind: data.targetKind.present
+          ? data.targetKind.value
+          : this.targetKind,
+      targetValue: data.targetValue.present
+          ? data.targetValue.value
+          : this.targetValue,
+      targetPeriod: data.targetPeriod.present
+          ? data.targetPeriod.value
+          : this.targetPeriod,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+      hlcTimestamp: data.hlcTimestamp.present
+          ? data.hlcTimestamp.value
+          : this.hlcTimestamp,
+      deviceId: data.deviceId.present ? data.deviceId.value : this.deviceId,
+      version: data.version.present ? data.version.value : this.version,
+      isDeleted: data.isDeleted.present ? data.isDeleted.value : this.isDeleted,
+      deletedAt: data.deletedAt.present ? data.deletedAt.value : this.deletedAt,
+      ownerId: data.ownerId.present ? data.ownerId.value : this.ownerId,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('CategoryProfileRow(')
+          ..write('id: $id, ')
+          ..write('categoryId: $categoryId, ')
+          ..write('kind: $kind, ')
+          ..write('area: $area, ')
+          ..write('measure: $measure, ')
+          ..write('nominalMinutes: $nominalMinutes, ')
+          ..write('markVerb: $markVerb, ')
+          ..write('marksNew: $marksNew, ')
+          ..write('assumeAbsentNew: $assumeAbsentNew, ')
+          ..write('countsHours: $countsHours, ')
+          ..write('targetKind: $targetKind, ')
+          ..write('targetValue: $targetValue, ')
+          ..write('targetPeriod: $targetPeriod, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('hlcTimestamp: $hlcTimestamp, ')
+          ..write('deviceId: $deviceId, ')
+          ..write('version: $version, ')
+          ..write('isDeleted: $isDeleted, ')
+          ..write('deletedAt: $deletedAt, ')
+          ..write('ownerId: $ownerId')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hashAll([
+    id,
+    categoryId,
+    kind,
+    area,
+    measure,
+    nominalMinutes,
+    markVerb,
+    marksNew,
+    assumeAbsentNew,
+    countsHours,
+    targetKind,
+    targetValue,
+    targetPeriod,
+    createdAt,
+    updatedAt,
+    hlcTimestamp,
+    deviceId,
+    version,
+    isDeleted,
+    deletedAt,
+    ownerId,
+  ]);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is CategoryProfileRow &&
+          other.id == this.id &&
+          other.categoryId == this.categoryId &&
+          other.kind == this.kind &&
+          other.area == this.area &&
+          other.measure == this.measure &&
+          other.nominalMinutes == this.nominalMinutes &&
+          other.markVerb == this.markVerb &&
+          other.marksNew == this.marksNew &&
+          other.assumeAbsentNew == this.assumeAbsentNew &&
+          other.countsHours == this.countsHours &&
+          other.targetKind == this.targetKind &&
+          other.targetValue == this.targetValue &&
+          other.targetPeriod == this.targetPeriod &&
+          other.createdAt == this.createdAt &&
+          other.updatedAt == this.updatedAt &&
+          other.hlcTimestamp == this.hlcTimestamp &&
+          other.deviceId == this.deviceId &&
+          other.version == this.version &&
+          other.isDeleted == this.isDeleted &&
+          other.deletedAt == this.deletedAt &&
+          other.ownerId == this.ownerId);
+}
+
+class CalendarCategoryProfilesCompanion
+    extends UpdateCompanion<CategoryProfileRow> {
+  final Value<String> id;
+  final Value<String> categoryId;
+  final Value<String> kind;
+  final Value<String?> area;
+  final Value<String?> measure;
+  final Value<int?> nominalMinutes;
+  final Value<String?> markVerb;
+  final Value<bool?> marksNew;
+  final Value<bool?> assumeAbsentNew;
+  final Value<bool?> countsHours;
+  final Value<String?> targetKind;
+  final Value<int?> targetValue;
+  final Value<String?> targetPeriod;
+  final Value<DateTime> createdAt;
+  final Value<DateTime> updatedAt;
+  final Value<String> hlcTimestamp;
+  final Value<String> deviceId;
+  final Value<int> version;
+  final Value<bool> isDeleted;
+  final Value<DateTime?> deletedAt;
+  final Value<String?> ownerId;
+  final Value<int> rowid;
+  const CalendarCategoryProfilesCompanion({
+    this.id = const Value.absent(),
+    this.categoryId = const Value.absent(),
+    this.kind = const Value.absent(),
+    this.area = const Value.absent(),
+    this.measure = const Value.absent(),
+    this.nominalMinutes = const Value.absent(),
+    this.markVerb = const Value.absent(),
+    this.marksNew = const Value.absent(),
+    this.assumeAbsentNew = const Value.absent(),
+    this.countsHours = const Value.absent(),
+    this.targetKind = const Value.absent(),
+    this.targetValue = const Value.absent(),
+    this.targetPeriod = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.hlcTimestamp = const Value.absent(),
+    this.deviceId = const Value.absent(),
+    this.version = const Value.absent(),
+    this.isDeleted = const Value.absent(),
+    this.deletedAt = const Value.absent(),
+    this.ownerId = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  CalendarCategoryProfilesCompanion.insert({
+    required String id,
+    required String categoryId,
+    this.kind = const Value.absent(),
+    this.area = const Value.absent(),
+    this.measure = const Value.absent(),
+    this.nominalMinutes = const Value.absent(),
+    this.markVerb = const Value.absent(),
+    this.marksNew = const Value.absent(),
+    this.assumeAbsentNew = const Value.absent(),
+    this.countsHours = const Value.absent(),
+    this.targetKind = const Value.absent(),
+    this.targetValue = const Value.absent(),
+    this.targetPeriod = const Value.absent(),
+    required DateTime createdAt,
+    required DateTime updatedAt,
+    required String hlcTimestamp,
+    required String deviceId,
+    this.version = const Value.absent(),
+    this.isDeleted = const Value.absent(),
+    this.deletedAt = const Value.absent(),
+    this.ownerId = const Value.absent(),
+    this.rowid = const Value.absent(),
+  }) : id = Value(id),
+       categoryId = Value(categoryId),
+       createdAt = Value(createdAt),
+       updatedAt = Value(updatedAt),
+       hlcTimestamp = Value(hlcTimestamp),
+       deviceId = Value(deviceId);
+  static Insertable<CategoryProfileRow> custom({
+    Expression<String>? id,
+    Expression<String>? categoryId,
+    Expression<String>? kind,
+    Expression<String>? area,
+    Expression<String>? measure,
+    Expression<int>? nominalMinutes,
+    Expression<String>? markVerb,
+    Expression<bool>? marksNew,
+    Expression<bool>? assumeAbsentNew,
+    Expression<bool>? countsHours,
+    Expression<String>? targetKind,
+    Expression<int>? targetValue,
+    Expression<String>? targetPeriod,
+    Expression<DateTime>? createdAt,
+    Expression<DateTime>? updatedAt,
+    Expression<String>? hlcTimestamp,
+    Expression<String>? deviceId,
+    Expression<int>? version,
+    Expression<bool>? isDeleted,
+    Expression<DateTime>? deletedAt,
+    Expression<String>? ownerId,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (categoryId != null) 'category_id': categoryId,
+      if (kind != null) 'kind': kind,
+      if (area != null) 'area': area,
+      if (measure != null) 'measure': measure,
+      if (nominalMinutes != null) 'nominal_minutes': nominalMinutes,
+      if (markVerb != null) 'mark_verb': markVerb,
+      if (marksNew != null) 'marks_new': marksNew,
+      if (assumeAbsentNew != null) 'assume_absent_new': assumeAbsentNew,
+      if (countsHours != null) 'counts_hours': countsHours,
+      if (targetKind != null) 'target_kind': targetKind,
+      if (targetValue != null) 'target_value': targetValue,
+      if (targetPeriod != null) 'target_period': targetPeriod,
+      if (createdAt != null) 'created_at': createdAt,
+      if (updatedAt != null) 'updated_at': updatedAt,
+      if (hlcTimestamp != null) 'hlc_timestamp': hlcTimestamp,
+      if (deviceId != null) 'device_id': deviceId,
+      if (version != null) 'version': version,
+      if (isDeleted != null) 'is_deleted': isDeleted,
+      if (deletedAt != null) 'deleted_at': deletedAt,
+      if (ownerId != null) 'owner_id': ownerId,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  CalendarCategoryProfilesCompanion copyWith({
+    Value<String>? id,
+    Value<String>? categoryId,
+    Value<String>? kind,
+    Value<String?>? area,
+    Value<String?>? measure,
+    Value<int?>? nominalMinutes,
+    Value<String?>? markVerb,
+    Value<bool?>? marksNew,
+    Value<bool?>? assumeAbsentNew,
+    Value<bool?>? countsHours,
+    Value<String?>? targetKind,
+    Value<int?>? targetValue,
+    Value<String?>? targetPeriod,
+    Value<DateTime>? createdAt,
+    Value<DateTime>? updatedAt,
+    Value<String>? hlcTimestamp,
+    Value<String>? deviceId,
+    Value<int>? version,
+    Value<bool>? isDeleted,
+    Value<DateTime?>? deletedAt,
+    Value<String?>? ownerId,
+    Value<int>? rowid,
+  }) {
+    return CalendarCategoryProfilesCompanion(
+      id: id ?? this.id,
+      categoryId: categoryId ?? this.categoryId,
+      kind: kind ?? this.kind,
+      area: area ?? this.area,
+      measure: measure ?? this.measure,
+      nominalMinutes: nominalMinutes ?? this.nominalMinutes,
+      markVerb: markVerb ?? this.markVerb,
+      marksNew: marksNew ?? this.marksNew,
+      assumeAbsentNew: assumeAbsentNew ?? this.assumeAbsentNew,
+      countsHours: countsHours ?? this.countsHours,
+      targetKind: targetKind ?? this.targetKind,
+      targetValue: targetValue ?? this.targetValue,
+      targetPeriod: targetPeriod ?? this.targetPeriod,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+      hlcTimestamp: hlcTimestamp ?? this.hlcTimestamp,
+      deviceId: deviceId ?? this.deviceId,
+      version: version ?? this.version,
+      isDeleted: isDeleted ?? this.isDeleted,
+      deletedAt: deletedAt ?? this.deletedAt,
+      ownerId: ownerId ?? this.ownerId,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (categoryId.present) {
+      map['category_id'] = Variable<String>(categoryId.value);
+    }
+    if (kind.present) {
+      map['kind'] = Variable<String>(kind.value);
+    }
+    if (area.present) {
+      map['area'] = Variable<String>(area.value);
+    }
+    if (measure.present) {
+      map['measure'] = Variable<String>(measure.value);
+    }
+    if (nominalMinutes.present) {
+      map['nominal_minutes'] = Variable<int>(nominalMinutes.value);
+    }
+    if (markVerb.present) {
+      map['mark_verb'] = Variable<String>(markVerb.value);
+    }
+    if (marksNew.present) {
+      map['marks_new'] = Variable<bool>(marksNew.value);
+    }
+    if (assumeAbsentNew.present) {
+      map['assume_absent_new'] = Variable<bool>(assumeAbsentNew.value);
+    }
+    if (countsHours.present) {
+      map['counts_hours'] = Variable<bool>(countsHours.value);
+    }
+    if (targetKind.present) {
+      map['target_kind'] = Variable<String>(targetKind.value);
+    }
+    if (targetValue.present) {
+      map['target_value'] = Variable<int>(targetValue.value);
+    }
+    if (targetPeriod.present) {
+      map['target_period'] = Variable<String>(targetPeriod.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<DateTime>(createdAt.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<DateTime>(updatedAt.value);
+    }
+    if (hlcTimestamp.present) {
+      map['hlc_timestamp'] = Variable<String>(hlcTimestamp.value);
+    }
+    if (deviceId.present) {
+      map['device_id'] = Variable<String>(deviceId.value);
+    }
+    if (version.present) {
+      map['version'] = Variable<int>(version.value);
+    }
+    if (isDeleted.present) {
+      map['is_deleted'] = Variable<bool>(isDeleted.value);
+    }
+    if (deletedAt.present) {
+      map['deleted_at'] = Variable<DateTime>(deletedAt.value);
+    }
+    if (ownerId.present) {
+      map['owner_id'] = Variable<String>(ownerId.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('CalendarCategoryProfilesCompanion(')
+          ..write('id: $id, ')
+          ..write('categoryId: $categoryId, ')
+          ..write('kind: $kind, ')
+          ..write('area: $area, ')
+          ..write('measure: $measure, ')
+          ..write('nominalMinutes: $nominalMinutes, ')
+          ..write('markVerb: $markVerb, ')
+          ..write('marksNew: $marksNew, ')
+          ..write('assumeAbsentNew: $assumeAbsentNew, ')
+          ..write('countsHours: $countsHours, ')
+          ..write('targetKind: $targetKind, ')
+          ..write('targetValue: $targetValue, ')
+          ..write('targetPeriod: $targetPeriod, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('hlcTimestamp: $hlcTimestamp, ')
+          ..write('deviceId: $deviceId, ')
+          ..write('version: $version, ')
+          ..write('isDeleted: $isDeleted, ')
+          ..write('deletedAt: $deletedAt, ')
+          ..write('ownerId: $ownerId, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 class $EventDigestsTable extends EventDigests
     with TableInfo<$EventDigestsTable, EventDigestRow> {
   @override
@@ -17560,6 +18767,8 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   );
   late final $CalendarCategoryAlertsTable calendarCategoryAlerts =
       $CalendarCategoryAlertsTable(this);
+  late final $CalendarCategoryProfilesTable calendarCategoryProfiles =
+      $CalendarCategoryProfilesTable(this);
   late final $EventDigestsTable eventDigests = $EventDigestsTable(this);
   late final $SyncOutboxTable syncOutbox = $SyncOutboxTable(this);
   late final FolderDao folderDao = FolderDao(this as AppDatabase);
@@ -17605,6 +18814,9 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   late final CategoryAlertDao categoryAlertDao = CategoryAlertDao(
     this as AppDatabase,
   );
+  late final CategoryProfileDao categoryProfileDao = CategoryProfileDao(
+    this as AppDatabase,
+  );
   late final EventDigestDao eventDigestDao = EventDigestDao(
     this as AppDatabase,
   );
@@ -17635,6 +18847,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     vocabularies,
     vocabularyItems,
     calendarCategoryAlerts,
+    calendarCategoryProfiles,
     eventDigests,
     syncOutbox,
   ];
@@ -25325,6 +26538,545 @@ typedef $$CalendarCategoryAlertsTableProcessedTableManager =
       CategoryAlertRow,
       PrefetchHooks Function()
     >;
+typedef $$CalendarCategoryProfilesTableCreateCompanionBuilder =
+    CalendarCategoryProfilesCompanion Function({
+      required String id,
+      required String categoryId,
+      Value<String> kind,
+      Value<String?> area,
+      Value<String?> measure,
+      Value<int?> nominalMinutes,
+      Value<String?> markVerb,
+      Value<bool?> marksNew,
+      Value<bool?> assumeAbsentNew,
+      Value<bool?> countsHours,
+      Value<String?> targetKind,
+      Value<int?> targetValue,
+      Value<String?> targetPeriod,
+      required DateTime createdAt,
+      required DateTime updatedAt,
+      required String hlcTimestamp,
+      required String deviceId,
+      Value<int> version,
+      Value<bool> isDeleted,
+      Value<DateTime?> deletedAt,
+      Value<String?> ownerId,
+      Value<int> rowid,
+    });
+typedef $$CalendarCategoryProfilesTableUpdateCompanionBuilder =
+    CalendarCategoryProfilesCompanion Function({
+      Value<String> id,
+      Value<String> categoryId,
+      Value<String> kind,
+      Value<String?> area,
+      Value<String?> measure,
+      Value<int?> nominalMinutes,
+      Value<String?> markVerb,
+      Value<bool?> marksNew,
+      Value<bool?> assumeAbsentNew,
+      Value<bool?> countsHours,
+      Value<String?> targetKind,
+      Value<int?> targetValue,
+      Value<String?> targetPeriod,
+      Value<DateTime> createdAt,
+      Value<DateTime> updatedAt,
+      Value<String> hlcTimestamp,
+      Value<String> deviceId,
+      Value<int> version,
+      Value<bool> isDeleted,
+      Value<DateTime?> deletedAt,
+      Value<String?> ownerId,
+      Value<int> rowid,
+    });
+
+class $$CalendarCategoryProfilesTableFilterComposer
+    extends Composer<_$AppDatabase, $CalendarCategoryProfilesTable> {
+  $$CalendarCategoryProfilesTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get categoryId => $composableBuilder(
+    column: $table.categoryId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get kind => $composableBuilder(
+    column: $table.kind,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get area => $composableBuilder(
+    column: $table.area,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get measure => $composableBuilder(
+    column: $table.measure,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get nominalMinutes => $composableBuilder(
+    column: $table.nominalMinutes,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get markVerb => $composableBuilder(
+    column: $table.markVerb,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get marksNew => $composableBuilder(
+    column: $table.marksNew,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get assumeAbsentNew => $composableBuilder(
+    column: $table.assumeAbsentNew,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get countsHours => $composableBuilder(
+    column: $table.countsHours,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get targetKind => $composableBuilder(
+    column: $table.targetKind,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get targetValue => $composableBuilder(
+    column: $table.targetValue,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get targetPeriod => $composableBuilder(
+    column: $table.targetPeriod,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get hlcTimestamp => $composableBuilder(
+    column: $table.hlcTimestamp,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get deviceId => $composableBuilder(
+    column: $table.deviceId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get version => $composableBuilder(
+    column: $table.version,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get isDeleted => $composableBuilder(
+    column: $table.isDeleted,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get deletedAt => $composableBuilder(
+    column: $table.deletedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get ownerId => $composableBuilder(
+    column: $table.ownerId,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$CalendarCategoryProfilesTableOrderingComposer
+    extends Composer<_$AppDatabase, $CalendarCategoryProfilesTable> {
+  $$CalendarCategoryProfilesTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get categoryId => $composableBuilder(
+    column: $table.categoryId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get kind => $composableBuilder(
+    column: $table.kind,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get area => $composableBuilder(
+    column: $table.area,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get measure => $composableBuilder(
+    column: $table.measure,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get nominalMinutes => $composableBuilder(
+    column: $table.nominalMinutes,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get markVerb => $composableBuilder(
+    column: $table.markVerb,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get marksNew => $composableBuilder(
+    column: $table.marksNew,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get assumeAbsentNew => $composableBuilder(
+    column: $table.assumeAbsentNew,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get countsHours => $composableBuilder(
+    column: $table.countsHours,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get targetKind => $composableBuilder(
+    column: $table.targetKind,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get targetValue => $composableBuilder(
+    column: $table.targetValue,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get targetPeriod => $composableBuilder(
+    column: $table.targetPeriod,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get hlcTimestamp => $composableBuilder(
+    column: $table.hlcTimestamp,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get deviceId => $composableBuilder(
+    column: $table.deviceId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get version => $composableBuilder(
+    column: $table.version,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get isDeleted => $composableBuilder(
+    column: $table.isDeleted,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get deletedAt => $composableBuilder(
+    column: $table.deletedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get ownerId => $composableBuilder(
+    column: $table.ownerId,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$CalendarCategoryProfilesTableAnnotationComposer
+    extends Composer<_$AppDatabase, $CalendarCategoryProfilesTable> {
+  $$CalendarCategoryProfilesTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get categoryId => $composableBuilder(
+    column: $table.categoryId,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get kind =>
+      $composableBuilder(column: $table.kind, builder: (column) => column);
+
+  GeneratedColumn<String> get area =>
+      $composableBuilder(column: $table.area, builder: (column) => column);
+
+  GeneratedColumn<String> get measure =>
+      $composableBuilder(column: $table.measure, builder: (column) => column);
+
+  GeneratedColumn<int> get nominalMinutes => $composableBuilder(
+    column: $table.nominalMinutes,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get markVerb =>
+      $composableBuilder(column: $table.markVerb, builder: (column) => column);
+
+  GeneratedColumn<bool> get marksNew =>
+      $composableBuilder(column: $table.marksNew, builder: (column) => column);
+
+  GeneratedColumn<bool> get assumeAbsentNew => $composableBuilder(
+    column: $table.assumeAbsentNew,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<bool> get countsHours => $composableBuilder(
+    column: $table.countsHours,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get targetKind => $composableBuilder(
+    column: $table.targetKind,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get targetValue => $composableBuilder(
+    column: $table.targetValue,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get targetPeriod => $composableBuilder(
+    column: $table.targetPeriod,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<DateTime> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+
+  GeneratedColumn<String> get hlcTimestamp => $composableBuilder(
+    column: $table.hlcTimestamp,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get deviceId =>
+      $composableBuilder(column: $table.deviceId, builder: (column) => column);
+
+  GeneratedColumn<int> get version =>
+      $composableBuilder(column: $table.version, builder: (column) => column);
+
+  GeneratedColumn<bool> get isDeleted =>
+      $composableBuilder(column: $table.isDeleted, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get deletedAt =>
+      $composableBuilder(column: $table.deletedAt, builder: (column) => column);
+
+  GeneratedColumn<String> get ownerId =>
+      $composableBuilder(column: $table.ownerId, builder: (column) => column);
+}
+
+class $$CalendarCategoryProfilesTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $CalendarCategoryProfilesTable,
+          CategoryProfileRow,
+          $$CalendarCategoryProfilesTableFilterComposer,
+          $$CalendarCategoryProfilesTableOrderingComposer,
+          $$CalendarCategoryProfilesTableAnnotationComposer,
+          $$CalendarCategoryProfilesTableCreateCompanionBuilder,
+          $$CalendarCategoryProfilesTableUpdateCompanionBuilder,
+          (
+            CategoryProfileRow,
+            BaseReferences<
+              _$AppDatabase,
+              $CalendarCategoryProfilesTable,
+              CategoryProfileRow
+            >,
+          ),
+          CategoryProfileRow,
+          PrefetchHooks Function()
+        > {
+  $$CalendarCategoryProfilesTableTableManager(
+    _$AppDatabase db,
+    $CalendarCategoryProfilesTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$CalendarCategoryProfilesTableFilterComposer(
+                $db: db,
+                $table: table,
+              ),
+          createOrderingComposer: () =>
+              $$CalendarCategoryProfilesTableOrderingComposer(
+                $db: db,
+                $table: table,
+              ),
+          createComputedFieldComposer: () =>
+              $$CalendarCategoryProfilesTableAnnotationComposer(
+                $db: db,
+                $table: table,
+              ),
+          updateCompanionCallback:
+              ({
+                Value<String> id = const Value.absent(),
+                Value<String> categoryId = const Value.absent(),
+                Value<String> kind = const Value.absent(),
+                Value<String?> area = const Value.absent(),
+                Value<String?> measure = const Value.absent(),
+                Value<int?> nominalMinutes = const Value.absent(),
+                Value<String?> markVerb = const Value.absent(),
+                Value<bool?> marksNew = const Value.absent(),
+                Value<bool?> assumeAbsentNew = const Value.absent(),
+                Value<bool?> countsHours = const Value.absent(),
+                Value<String?> targetKind = const Value.absent(),
+                Value<int?> targetValue = const Value.absent(),
+                Value<String?> targetPeriod = const Value.absent(),
+                Value<DateTime> createdAt = const Value.absent(),
+                Value<DateTime> updatedAt = const Value.absent(),
+                Value<String> hlcTimestamp = const Value.absent(),
+                Value<String> deviceId = const Value.absent(),
+                Value<int> version = const Value.absent(),
+                Value<bool> isDeleted = const Value.absent(),
+                Value<DateTime?> deletedAt = const Value.absent(),
+                Value<String?> ownerId = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => CalendarCategoryProfilesCompanion(
+                id: id,
+                categoryId: categoryId,
+                kind: kind,
+                area: area,
+                measure: measure,
+                nominalMinutes: nominalMinutes,
+                markVerb: markVerb,
+                marksNew: marksNew,
+                assumeAbsentNew: assumeAbsentNew,
+                countsHours: countsHours,
+                targetKind: targetKind,
+                targetValue: targetValue,
+                targetPeriod: targetPeriod,
+                createdAt: createdAt,
+                updatedAt: updatedAt,
+                hlcTimestamp: hlcTimestamp,
+                deviceId: deviceId,
+                version: version,
+                isDeleted: isDeleted,
+                deletedAt: deletedAt,
+                ownerId: ownerId,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String id,
+                required String categoryId,
+                Value<String> kind = const Value.absent(),
+                Value<String?> area = const Value.absent(),
+                Value<String?> measure = const Value.absent(),
+                Value<int?> nominalMinutes = const Value.absent(),
+                Value<String?> markVerb = const Value.absent(),
+                Value<bool?> marksNew = const Value.absent(),
+                Value<bool?> assumeAbsentNew = const Value.absent(),
+                Value<bool?> countsHours = const Value.absent(),
+                Value<String?> targetKind = const Value.absent(),
+                Value<int?> targetValue = const Value.absent(),
+                Value<String?> targetPeriod = const Value.absent(),
+                required DateTime createdAt,
+                required DateTime updatedAt,
+                required String hlcTimestamp,
+                required String deviceId,
+                Value<int> version = const Value.absent(),
+                Value<bool> isDeleted = const Value.absent(),
+                Value<DateTime?> deletedAt = const Value.absent(),
+                Value<String?> ownerId = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => CalendarCategoryProfilesCompanion.insert(
+                id: id,
+                categoryId: categoryId,
+                kind: kind,
+                area: area,
+                measure: measure,
+                nominalMinutes: nominalMinutes,
+                markVerb: markVerb,
+                marksNew: marksNew,
+                assumeAbsentNew: assumeAbsentNew,
+                countsHours: countsHours,
+                targetKind: targetKind,
+                targetValue: targetValue,
+                targetPeriod: targetPeriod,
+                createdAt: createdAt,
+                updatedAt: updatedAt,
+                hlcTimestamp: hlcTimestamp,
+                deviceId: deviceId,
+                version: version,
+                isDeleted: isDeleted,
+                deletedAt: deletedAt,
+                ownerId: ownerId,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$CalendarCategoryProfilesTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $CalendarCategoryProfilesTable,
+      CategoryProfileRow,
+      $$CalendarCategoryProfilesTableFilterComposer,
+      $$CalendarCategoryProfilesTableOrderingComposer,
+      $$CalendarCategoryProfilesTableAnnotationComposer,
+      $$CalendarCategoryProfilesTableCreateCompanionBuilder,
+      $$CalendarCategoryProfilesTableUpdateCompanionBuilder,
+      (
+        CategoryProfileRow,
+        BaseReferences<
+          _$AppDatabase,
+          $CalendarCategoryProfilesTable,
+          CategoryProfileRow
+        >,
+      ),
+      CategoryProfileRow,
+      PrefetchHooks Function()
+    >;
 typedef $$EventDigestsTableCreateCompanionBuilder =
     EventDigestsCompanion Function({
       required String id,
@@ -25935,6 +27687,11 @@ class $AppDatabaseManager {
       $$CalendarCategoryAlertsTableTableManager(
         _db,
         _db.calendarCategoryAlerts,
+      );
+  $$CalendarCategoryProfilesTableTableManager get calendarCategoryProfiles =>
+      $$CalendarCategoryProfilesTableTableManager(
+        _db,
+        _db.calendarCategoryProfiles,
       );
   $$EventDigestsTableTableManager get eventDigests =>
       $$EventDigestsTableTableManager(_db, _db.eventDigests);

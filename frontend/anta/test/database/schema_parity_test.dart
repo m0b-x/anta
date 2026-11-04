@@ -516,6 +516,65 @@ void main() {
     expect(byName['id']!.read<int>('pk'), 1);
   });
 
+  test('the category profile table matches its frozen migration DDL', () async {
+    // Frozen at v44: the category alert row's identity and CRDT block around
+    // the kind and its overrides, every override nullable (NULL = the kind's
+    // default).
+    final columns = await db
+        .customSelect('PRAGMA table_info(calendar_category_profiles)')
+        .get();
+    final byName = _frozenShape(columns);
+
+    expect(byName.keys.toSet(), {
+      'id',
+      'category_id',
+      'kind',
+      'area',
+      'measure',
+      'nominal_minutes',
+      'mark_verb',
+      'marks_new',
+      'assume_absent_new',
+      'counts_hours',
+      'target_kind',
+      'target_value',
+      'target_period',
+      'created_at',
+      'updated_at',
+      'hlc_timestamp',
+      'device_id',
+      'version',
+      'is_deleted',
+      'deleted_at',
+    });
+
+    const required = {
+      'id',
+      'category_id',
+      'kind',
+      'created_at',
+      'updated_at',
+      'hlc_timestamp',
+      'device_id',
+      'version',
+      'is_deleted',
+    };
+    for (final name in byName.keys) {
+      expect(
+        byName[name]!.read<int>('notnull'),
+        required.contains(name) ? 1 : 0,
+        reason: 'calendar_category_profiles.$name nullability',
+      );
+    }
+    expect(byName['kind']!.read<String>('dflt_value'), "'custom'");
+    expect(byName['mark_verb']!.readNullable<String>('dflt_value'), isNull);
+    expect(byName['version']!.read<String>('dflt_value'), '1');
+    expect(byName['is_deleted']!.read<String>('dflt_value'), '0');
+    expect(byName['hlc_timestamp']!.readNullable<String>('dflt_value'), isNull);
+    expect(byName['device_id']!.readNullable<String>('dflt_value'), isNull);
+    expect(byName['id']!.read<int>('pk'), 1);
+  });
+
   test('the digest table matches its frozen migration DDL', () async {
     // Frozen at v42: the v41 overview view shape plus `enabled`, and `name`
     // defaulting to '' — the derived title.
@@ -770,7 +829,8 @@ void main() {
     'every synced table carries a nullable owner_id, and only those',
     () async {
       // v43: a synced row must be able to say whose it is before it syncs. NULL
-      // until a binding exists, so no DEFAULT — on both paths alike.
+      // until a binding exists, so no DEFAULT — on both paths alike. v44's
+      // profile table is born with the column.
       const synced = {
         'folders',
         'notes',
@@ -783,6 +843,7 @@ void main() {
         'calendar_event_alerts',
         'event_digests',
         'calendar_category_alerts',
+        'calendar_category_profiles',
         'calendar_filter_presets',
         'overview_views',
         'vocabularies',

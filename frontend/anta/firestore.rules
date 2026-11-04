@@ -195,7 +195,7 @@ service cloud.firestore {
         function syncedTable() {
           return table in ['folders', 'notes', 'counters', 'counter_values',
             'calendar_events', 'calendar_categories', 'calendar_category_alerts',
-            'calendar_event_occurrences', 'calendar_event_absences',
+            'calendar_category_profiles', 'calendar_event_occurrences', 'calendar_event_absences',
             'calendar_event_skips', 'calendar_event_alerts',
             'calendar_event_templates', 'calendar_filter_presets',
             'overview_views', 'event_digests', 'vocabularies', 'vocabulary_items'];

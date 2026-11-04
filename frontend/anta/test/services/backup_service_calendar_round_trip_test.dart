@@ -8,6 +8,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:anta/constants/calendar_categories.dart';
 import 'package:anta/constants/calendar_palette.dart';
+import 'package:anta/constants/category_kinds.dart';
+import 'package:anta/constants/category_profiles.dart';
 import 'package:anta/constants/event_alerts.dart';
 import 'package:anta/constants/event_presence.dart';
 import 'package:anta/constants/event_skips.dart';
@@ -17,6 +19,7 @@ import 'package:anta/database/database.dart';
 import 'package:anta/database/database_lifecycle.dart';
 import 'package:anta/models/calendar_event.dart';
 import 'package:anta/models/category_alert.dart';
+import 'package:anta/models/category_profile.dart';
 import 'package:anta/models/event_alert.dart';
 import 'package:anta/models/event_digest.dart';
 import 'package:anta/models/event_template.dart';
@@ -27,6 +30,7 @@ import 'package:anta/models/recurrence_rule.dart';
 import 'package:anta/services/backup_service.dart';
 import 'package:anta/services/calendar_event_service.dart';
 import 'package:anta/services/calendar_palette_service.dart';
+import 'package:anta/services/category_profile_service.dart';
 import 'package:anta/services/category_service.dart';
 import 'package:anta/services/counter_service.dart';
 import 'package:anta/services/event_alert_service.dart';
@@ -52,7 +56,7 @@ import 'package:anta/services/settings_service.dart';
 /// failure is a silent snackbar rather than a crash a manual click-through
 /// would necessarily notice.
 ///
-/// There is no "v7 backup" fixture to import — v7 is simply the format the app
+/// There is no "v8 backup" fixture to import — v8 is simply the format the app
 /// writes today, so exporting fresh data and re-importing it exercises the same
 /// services, in the same order, that consuming an old file would.
 ///
@@ -183,7 +187,7 @@ void main() {
 
     final backup = await BackupService.getInstance();
     final exported = await backup.exportAllData();
-    expect(exported['version'], 7);
+    expect(exported['version'], 8);
     final json = jsonEncode(exported);
 
     // Everything the calendar owns, gone — then every singleton dropped so the
@@ -433,8 +437,8 @@ void main() {
       final exported = await backup.exportAllData();
       expect(
         exported['version'],
-        7,
-        reason: 'alerts are additive; the format version must not move',
+        8,
+        reason: 'alerts are additive; only the profiles moved the version',
       );
       expect(
         exported.keys,
@@ -557,8 +561,8 @@ void main() {
       final exported = await backup.exportAllData();
       expect(
         exported['version'],
-        7,
-        reason: 'views are additive; the format version must not move',
+        8,
+        reason: 'views are additive; only the profiles moved the version',
       );
       return jsonDecode(jsonEncode(exported)) as Map<String, dynamic>;
     }
@@ -656,8 +660,8 @@ void main() {
       final exported = await backup.exportAllData();
       expect(
         exported['version'],
-        7,
-        reason: 'both keys are additive; the format version must not move',
+        8,
+        reason: 'both keys are additive; only the profiles moved the version',
       );
       return jsonDecode(jsonEncode(exported)) as Map<String, dynamic>;
     }
@@ -791,6 +795,225 @@ void main() {
       expect(categoryAlert.compareTo(template), lessThan(0));
       expect(categoryAlert.compareTo(eventAlert), lessThan(0));
     });
+  });
+
+  group('category profiles (v8)', () {
+    late AppDatabase db;
+    late BackupService backup;
+
+    final created = DateTime.utc(2026, 3, 1, 9);
+    final updated = DateTime.utc(2026, 4, 2, 10);
+
+    /// A Workout gym with a goal and a birthday that does not mark,
+    /// exported, every singleton dropped after.
+    Future<Map<String, dynamic>> seedAndExport() async {
+      db = await AppDatabase.getInstance();
+      await db.categoryProfileDao.deleteAll();
+      DatabaseLifecycle.notifyDatabaseSwitching();
+      await CategoryService.getInstance();
+      final profiles = await CategoryProfileService.getInstance();
+      await profiles.save(
+        const CategoryProfile(
+          id: 'profile-gym',
+          categoryId: 'gym',
+          kind: CategoryKind.workout,
+          target: ReportTarget(
+            kind: TargetKind.atLeast,
+            value: 3,
+            period: TargetPeriod.week,
+          ),
+        ),
+      );
+      await profiles.save(
+        const CategoryProfile(
+          id: 'profile-birthday',
+          categoryId: kBirthdayCategoryId,
+          kind: CategoryKind.social,
+          markVerb: '',
+        ),
+      );
+
+      backup = await BackupService.getInstance();
+      final exported = await backup.exportAllData();
+      expect(exported['version'], 8);
+      DatabaseLifecycle.notifyDatabaseSwitching();
+      // An import appends copies of every folder and note, so each test here
+      // would double what the groups above left; none of them is asserted.
+      return (jsonDecode(jsonEncode(exported)) as Map<String, dynamic>)
+        ..['folders'] = const <Object>[]
+        ..['notes'] = const <Object>[];
+    }
+
+    Future<void> wipe() async {
+      await db.categoryProfileDao.deleteAll();
+      DatabaseLifecycle.notifyDatabaseSwitching();
+      await CategoryProfileService.getInstance();
+      expect(
+        CategoryProfiles.all,
+        isEmpty,
+        reason: 'the wipe must land or the assertions below prove nothing',
+      );
+      DatabaseLifecycle.notifyDatabaseSwitching();
+    }
+
+    test('profiles round-trip under their own key', () async {
+      final exported = await seedAndExport();
+      expect(exported['categoryProfiles'], hasLength(2));
+      await wipe();
+
+      final result = await backup.importFromJson(jsonEncode(exported));
+      expect(result.success, isTrue, reason: 'error: ${result.error}');
+
+      await CategoryProfileService.getInstance();
+      final gym = CategoryProfiles.profileFor('gym')!;
+      expect(gym.kind, CategoryKind.workout);
+      expect(gym.target?.value, 3);
+      expect(CategoryProfiles.profileFor(kBirthdayCategoryId)?.markVerb, '');
+      expect(CategoryProfiles.effectiveFor(kBirthdayCategoryId).marks, isFalse);
+    });
+
+    test('the archive\'s dates are kept', () async {
+      final exported = await seedAndExport();
+      final rows = exported['categoryProfiles'] as List;
+      for (final raw in rows) {
+        (raw as Map)[CategoryProfileKeys.createdAt] =
+            created.millisecondsSinceEpoch;
+        raw[CategoryProfileKeys.updatedAt] = updated.millisecondsSinceEpoch;
+      }
+      await wipe();
+
+      final result = await backup.importFromJson(jsonEncode(exported));
+      expect(result.success, isTrue, reason: 'error: ${result.error}');
+
+      final row = await db.categoryProfileDao.getActiveForCategory('gym');
+      expect(row!.createdAt.isAtSameMomentAs(created), isTrue);
+      expect(row.updatedAt.isAtSameMomentAs(updated), isTrue);
+    });
+
+    test('a v7 archive without the key imports with no profiles', () async {
+      final exported = await seedAndExport()
+        ..remove('categoryProfiles')
+        ..['version'] = 7;
+      await wipe();
+
+      final result = await backup.importFromJson(jsonEncode(exported));
+      expect(result.success, isTrue, reason: 'error: ${result.error}');
+
+      await CategoryProfileService.getInstance();
+      expect(CategoryProfiles.all, isEmpty);
+      expect(CategoryProfiles.effectiveFor('gym').isUnprofiled, isTrue);
+    });
+
+    test(
+      'an archive with categories and no categoryProfiles clears the table',
+      () async {
+        final exported = await seedAndExport()
+          ..remove('categoryProfiles');
+        expect(exported['calendarCategories'], isNotEmpty);
+
+        // Not a wipe first: the profiles are still there, which is the point.
+        final result = await backup.importFromJson(jsonEncode(exported));
+        expect(result.success, isTrue, reason: 'error: ${result.error}');
+
+        await CategoryProfileService.getInstance();
+        expect(CategoryProfiles.all, isEmpty);
+        expect(await db.select(db.calendarCategoryProfiles).get(), isEmpty);
+      },
+    );
+
+    test('an archive without categories keeps the profiles', () async {
+      final exported = await seedAndExport()
+        ..remove('categoryProfiles')
+        ..remove('calendarCategories');
+
+      final result = await backup.importFromJson(jsonEncode(exported));
+      expect(result.success, isTrue, reason: 'error: ${result.error}');
+
+      DatabaseLifecycle.notifyDatabaseSwitching();
+      await CategoryProfileService.getInstance();
+      expect(CategoryProfiles.all.keys, unorderedEquals(['gym', 'birthday']));
+    });
+
+    test('a profile of a category the archive lacks is dropped', () async {
+      final exported = await seedAndExport();
+      (exported['categoryProfiles'] as List).add(
+        const CategoryProfile(
+          id: 'profile-orphan',
+          categoryId: 'no-such-category',
+          kind: CategoryKind.bill,
+        ).toJson(),
+      );
+      await wipe();
+
+      final result = await backup.importFromJson(jsonEncode(exported));
+      expect(result.success, isTrue, reason: 'error: ${result.error}');
+
+      await CategoryProfileService.getInstance();
+      expect(CategoryProfiles.all.keys, unorderedEquals(['gym', 'birthday']));
+      expect(
+        await db.categoryProfileDao.getActiveForCategory('no-such-category'),
+        isNull,
+      );
+    });
+
+    /// The known ids are the restored catalog's, read after the categories
+    /// import: a custom category this database no longer holds and a hidden
+    /// one are categories all the same, never orphans.
+    test(
+      'profiles on an archive-only custom and a hidden category survive',
+      () async {
+        db = await AppDatabase.getInstance();
+        await db.categoryProfileDao.deleteAll();
+        DatabaseLifecycle.notifyDatabaseSwitching();
+        final categories = await CategoryService.getInstance();
+        final custom = await categories.create(
+          name: 'Bouldering',
+          colorValue: 0xFF00AAFF,
+          iconKey: 'event',
+        );
+        await categories.setHidden('gym', true);
+        addTearDown(() async {
+          DatabaseLifecycle.notifyDatabaseSwitching();
+          await (await CategoryService.getInstance()).setHidden('gym', false);
+        });
+        final profiles = await CategoryProfileService.getInstance();
+        await profiles.save(
+          CategoryProfile(
+            id: '',
+            categoryId: custom.id,
+            kind: CategoryKind.workout,
+          ),
+        );
+        await profiles.save(
+          const CategoryProfile(
+            id: '',
+            categoryId: 'gym',
+            kind: CategoryKind.routine,
+          ),
+        );
+        backup = await BackupService.getInstance();
+        final exported =
+            (jsonDecode(jsonEncode(await backup.exportAllData()))
+                  as Map<String, dynamic>)
+              ..['folders'] = const <Object>[]
+              ..['notes'] = const <Object>[];
+        expect(await categories.deleteCategory(custom.id), isTrue);
+        DatabaseLifecycle.notifyDatabaseSwitching();
+
+        final result = await backup.importFromJson(jsonEncode(exported));
+        expect(result.success, isTrue, reason: 'error: ${result.error}');
+
+        DatabaseLifecycle.notifyDatabaseSwitching();
+        await CategoryService.getInstance();
+        await CategoryProfileService.getInstance();
+        expect(CalendarCategories.byId('gym')?.isHidden, isTrue);
+        expect(
+          CategoryProfiles.profileFor(custom.id)?.kind,
+          CategoryKind.workout,
+        );
+        expect(CategoryProfiles.profileFor('gym')?.kind, CategoryKind.routine);
+      },
+    );
   });
 }
 

@@ -30,6 +30,7 @@ void main() {
       'calendar_event_skips',
       'calendar_event_alerts',
       'calendar_category_alerts',
+      'calendar_category_profiles',
       'event_digests',
       'calendar_filter_presets',
       'overview_views',

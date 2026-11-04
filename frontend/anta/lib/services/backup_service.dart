@@ -6,12 +6,14 @@ import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import '../database/database.dart';
 import '../database/database_lifecycle.dart';
+import '../constants/calendar_categories.dart';
 import '../constants/json_keys.dart';
 import '../constants/settings_keys.dart';
 import '../models/item_label.dart';
 import '../models/note_metadata.dart';
 import 'alert_scheduler.dart';
 import 'calendar_event_service.dart';
+import 'category_profile_service.dart';
 import 'event_occurrence_service.dart';
 import 'event_presence_service.dart';
 import 'event_alert_service.dart';
@@ -116,6 +118,8 @@ class BackupService {
     final alertService = await EventAlertService.getInstance();
     final eventAlerts = await alertService.exportData();
     final categoryAlerts = await alertService.exportCategoryAlerts();
+    final categoryProfiles = await (await CategoryProfileService.getInstance())
+        .exportCategoryProfiles();
     final eventTemplates = await (await EventTemplateService.getInstance())
         .exportData();
     final filterPresets = await (await FilterPresetService.getInstance())
@@ -128,9 +132,12 @@ class BackupService {
         .exportData();
 
     return {
-      // v7: event priorities are stored inverted (1 = highest). Older
-      // backups carry the old 5-is-highest values and are flipped on import.
-      'version': 7,
+      // v8: category profiles ride `categoryProfiles`; an archive of 7 or
+      // older imports with none, which is what those installs had, and no
+      // version is refused. v7: event priorities are stored inverted
+      // (1 = highest). Older backups carry the old 5-is-highest values and
+      // are flipped on import.
+      'version': 8,
       'exportedAt': DateTime.now().toIso8601String(),
       'folders': foldersData,
       'notes': notesWithContent,
@@ -170,6 +177,9 @@ class BackupService {
       // `calendarCategories` (the `eventTemplates` rule), not `calendarEvents`.
       // The event's own opt-out rides `calendarEvents`.
       'categoryAlerts': categoryAlerts,
+      // v44, the `categoryAlerts` strand rule for the same reason: keyed by
+      // category ids. One profile per category, no CRDT identity.
+      'categoryProfiles': categoryProfiles,
       // Purely additive (v29): an absent key on an older backup is a database
       // with no templates, which is what those installs had.
       'eventTemplates': eventTemplates,
@@ -545,6 +555,27 @@ class BackupService {
           await alerts.importCategoryAlerts(categoryAlerts);
         } else {
           await alerts.clearCategoryAlertsForImport();
+        }
+      }
+      // Category profiles (v8 backups), the category alerts' strand rule. A
+      // profile whose category the restored set does not hold is dropped,
+      // counted in the log only.
+      final categoryProfiles = data['categoryProfiles'] as List?;
+      if (categoryProfiles != null || calendarCategories != null) {
+        final profiles = await CategoryProfileService.getInstance();
+        if (categoryProfiles != null) {
+          await CategoryService.getInstance();
+          final dropped = await profiles.importCategoryProfiles(
+            categoryProfiles,
+            knownCategoryIds: {
+              for (final category in CalendarCategories.all) category.id,
+            },
+          );
+          if (dropped > 0) {
+            debugPrint('[BackupService] Dropped $dropped category profiles');
+          }
+        } else {
+          await profiles.clearCategoryProfilesForImport();
         }
       }
       // Event templates (v29+ backups). The strand rule applies, but keyed to

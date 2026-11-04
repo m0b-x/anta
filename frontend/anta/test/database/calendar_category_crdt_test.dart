@@ -354,9 +354,12 @@ void main() {
           .get();
     }
 
-    test('v43 is the current version', () {
+    test('the step is registered at 43', () {
       expect(DatabaseSchema.v43SyncReadiness, 43);
-      expect(DatabaseSchema.currentVersion, DatabaseSchema.v43SyncReadiness);
+      expect(
+        DatabaseSchema.currentVersion,
+        greaterThanOrEqualTo(DatabaseSchema.v43SyncReadiness),
+      );
     });
 
     test('backfills real identity onto every pre-existing row', () async {

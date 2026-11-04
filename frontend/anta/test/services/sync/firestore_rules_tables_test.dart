@@ -5,7 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:anta/services/sync/sync_tables.dart';
 
 /// Pins the rules' allow-list of table names to the binding registry.
-/// `firestore.rules` names its 17 collections literally, and the rules are
+/// `firestore.rules` names its 18 collections literally, and the rules are
 /// the one surface of this app with no local safety net and no deployment of
 /// their own: a binding added without the matching rules line is invisible
 /// until the day they are deployed, and then every push of that table is

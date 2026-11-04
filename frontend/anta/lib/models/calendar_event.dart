@@ -284,6 +284,12 @@ class CalendarEvent extends Equatable {
   /// limited number of bars.
   final int priority;
 
+  /// When the event's row was first written, or null for an event never
+  /// stored. Storage metadata the calendar never edits: only the report's
+  /// lead-time measure reads it. Not a [props] member, so a draft and its
+  /// stored copy still compare equal — the derived fields' choice below.
+  final DateTime? createdAt;
+
   CalendarEvent({
     required this.id,
     required this.title,
@@ -308,6 +314,7 @@ class CalendarEvent extends Equatable {
     this.colorValue,
     this.tintIcon = true,
     this.priority = kDefaultEventPriority,
+    this.createdAt,
   });
 
   /// Derived: `true` iff this event has no [time] annotation. This is the
@@ -375,6 +382,7 @@ class CalendarEvent extends Equatable {
     int? colorValue,
     bool? tintIcon,
     int? priority,
+    DateTime? createdAt,
     bool clearEndDate = false,
     bool clearTime = false,
     bool clearDescription = false,
@@ -413,6 +421,7 @@ class CalendarEvent extends Equatable {
       colorValue: clearColorValue ? null : (colorValue ?? this.colorValue),
       tintIcon: tintIcon ?? this.tintIcon,
       priority: priority ?? this.priority,
+      createdAt: createdAt ?? this.createdAt,
     );
   }
 

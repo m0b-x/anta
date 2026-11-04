@@ -7,13 +7,16 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:get_it/get_it.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:anta/constants/category_kinds.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/database/database_lifecycle.dart';
 import 'package:anta/models/category_alert.dart';
+import 'package:anta/models/category_profile.dart';
 import 'package:anta/models/event_alert.dart';
 import 'package:anta/services/alert_gateway.dart';
 import 'package:anta/services/backup_service.dart';
 import 'package:anta/services/calendar_event_service.dart';
+import 'package:anta/services/category_profile_service.dart';
 import 'package:anta/services/category_service.dart';
 import 'package:anta/services/counter_service.dart';
 import 'package:anta/services/event_alert_service.dart';
@@ -67,6 +70,12 @@ void main() {
     ),
     _Table('calendar_categories', 'id', them: 'c-them', mine: 'c-mine'),
     _Table('calendar_category_alerts', 'id', them: 'ca-them', mine: 'ca-mine'),
+    _Table(
+      'calendar_category_profiles',
+      'id',
+      them: 'cp-them',
+      mine: 'cp-mine',
+    ),
     _Table('calendar_events', 'id', them: 'e-them', mine: 'e-mine'),
     _Table(
       'calendar_event_occurrences',
@@ -183,6 +192,21 @@ void main() {
       for (final id in ['ca-them', 'ca-mine'])
         CategoryAlert(id: id, categoryId: 'c-mine', daysBefore: 1).toJson(),
     ]);
+    // One live profile per category, so each of the two is its own category's.
+    await (await CategoryProfileService.getInstance()).importCategoryProfiles(
+      [
+        for (final (id, categoryId) in [
+          ('cp-them', 'c-them'),
+          ('cp-mine', 'c-mine'),
+        ])
+          CategoryProfile(
+            id: id,
+            categoryId: categoryId,
+            kind: CategoryKind.workout,
+          ).toJson(),
+      ],
+      knownCategoryIds: const {'c-them', 'c-mine'},
+    );
     await (await EventTemplateService.getInstance()).importData([
       for (final id in ['t-them', 't-mine'])
         {'id': id, 'name': id, 'category': 'c-mine'},
@@ -274,7 +298,7 @@ void main() {
   test('ownerId round-trips on every synced table, absent on mine', () async {
     final db = await seed(foreign: true);
     final exported = await (await BackupService.getInstance()).exportAllData();
-    expect(exported['version'], 7);
+    expect(exported['version'], 8);
 
     final keyed = <String, (List<dynamic>, String, String, String)>{
       'folders': (exported['folders'] as List, 'name', 'Theirs', 'Mine'),
@@ -290,6 +314,12 @@ void main() {
         'id',
         'ca-them',
         'ca-mine',
+      ),
+      'categoryProfiles': (
+        exported['categoryProfiles'] as List,
+        'id',
+        'cp-them',
+        'cp-mine',
       ),
       'calendarEvents': (
         exported['calendarEvents'] as List,

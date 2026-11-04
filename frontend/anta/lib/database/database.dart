@@ -26,6 +26,7 @@ import 'tables/alert_registrations_table.dart';
 import 'tables/calendar_filter_presets_table.dart';
 import 'tables/overview_views_table.dart';
 import 'tables/calendar_category_alerts_table.dart';
+import 'tables/calendar_category_profiles_table.dart';
 import 'tables/event_digests_table.dart';
 import 'tables/event_templates_table.dart';
 import 'tables/vocabularies_table.dart';
@@ -49,6 +50,7 @@ import 'daos/event_skip_dao.dart';
 import 'daos/event_alert_dao.dart';
 import 'daos/alert_registration_dao.dart';
 import 'daos/category_alert_dao.dart';
+import 'daos/category_profile_dao.dart';
 import 'daos/event_digest_dao.dart';
 import 'daos/vocabulary_dao.dart';
 import 'daos/sync_outbox_dao.dart';
@@ -83,6 +85,7 @@ part 'database.g.dart';
     Vocabularies,
     VocabularyItems,
     CalendarCategoryAlerts,
+    CalendarCategoryProfiles,
     EventDigests,
     SyncOutbox,
   ],
@@ -106,6 +109,7 @@ part 'database.g.dart';
     AlertRegistrationDao,
     VocabularyDao,
     CategoryAlertDao,
+    CategoryProfileDao,
     EventDigestDao,
     SyncOutboxDao,
   ],

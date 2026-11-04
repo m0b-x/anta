@@ -8,6 +8,7 @@ import 'package:anta/database/crdt/hlc.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/models/note_metadata.dart';
 import 'package:anta/services/calendar_event_service.dart';
+import 'package:anta/services/category_profile_service.dart';
 import 'package:anta/services/category_service.dart';
 import 'package:anta/services/counter_service.dart';
 import 'package:anta/services/event_alert_service.dart';
@@ -22,6 +23,7 @@ import 'package:anta/services/sync/sync_gateway.dart';
 import 'package:anta/services/sync/sync_table_binding.dart';
 import 'package:anta/services/sync/tables/calendar_categories_binding.dart';
 import 'package:anta/services/sync/tables/calendar_category_alerts_binding.dart';
+import 'package:anta/services/sync/tables/calendar_category_profiles_binding.dart';
 import 'package:anta/services/sync/tables/calendar_event_absences_binding.dart';
 import 'package:anta/services/sync/tables/calendar_event_alerts_binding.dart';
 import 'package:anta/services/sync/tables/calendar_event_occurrences_binding.dart';
@@ -1006,6 +1008,87 @@ void main() {
     mismatched: const {'id': 'another-row'},
     reset: EventAlertService.reset,
   );
+
+  calendarTable(
+    const CalendarCategoryProfilesBinding(),
+    key: 'cp1',
+    row: ({bool deleted = false}) => CategoryProfileRow(
+      id: 'cp1',
+      categoryId: 'climb',
+      kind: 'workout',
+      area: 'health',
+      measure: 'hours',
+      nominalMinutes: 90,
+      markVerb: '',
+      marksNew: false,
+      assumeAbsentNew: true,
+      countsHours: false,
+      targetKind: 'atLeast',
+      targetValue: 3,
+      targetPeriod: 'week',
+      createdAt: created,
+      updatedAt: updated,
+      hlcTimestamp: hlc,
+      deviceId: 'dev-a',
+      version: 5,
+      isDeleted: deleted,
+      deletedAt: deleted ? deletedAt : null,
+      ownerId: uid,
+    ),
+    insert: (row) => db.into(db.calendarCategoryProfiles).insert(row),
+    exported: () async => (await (await CategoryProfileService.forTesting(
+      db,
+    )).exportCategoryProfiles()).single,
+    requiredKey: 'categoryId',
+    mismatched: const {'id': 'another-row'},
+    reset: CategoryProfileService.reset,
+  );
+
+  /// Written as literals, not through `CategoryProfileKeys`: renaming a
+  /// constant moves the wire and the backup together, which every
+  /// round-trip above would pass.
+  test('a calendar_category_profiles row carries exactly its keys', () async {
+    await db
+        .into(db.calendarCategoryProfiles)
+        .insert(
+          CategoryProfileRow(
+            id: 'cp1',
+            categoryId: 'climb',
+            kind: 'workout',
+            createdAt: created,
+            updatedAt: updated,
+            hlcTimestamp: hlc,
+            deviceId: 'dev-a',
+            version: 5,
+            isDeleted: false,
+            ownerId: uid,
+          ),
+        );
+
+    final envelope = await encodeStored(
+      const CalendarCategoryProfilesBinding(),
+      'cp1',
+    );
+
+    expect(envelope.data!.keys.toSet(), {
+      'id',
+      'categoryId',
+      'kind',
+      'area',
+      'measure',
+      'nominalMinutes',
+      'markVerb',
+      'marksNew',
+      'assumeAbsentNew',
+      'countsHours',
+      'targetKind',
+      'targetValue',
+      'targetPeriod',
+      'createdAtMs',
+      'updatedAtMs',
+      'ownerId',
+    });
+  });
 
   calendarTable(
     const EventDigestsBinding(),

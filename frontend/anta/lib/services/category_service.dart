@@ -15,6 +15,7 @@ import '../models/calendar_event.dart';
 import '../models/category_delete_impact.dart';
 import 'alert_scheduler.dart';
 import 'calendar_event_service.dart';
+import 'category_profile_service.dart';
 import 'event_alert_service.dart';
 import 'event_template_service.dart';
 
@@ -502,6 +503,7 @@ class CategoryService {
       try {
         await _load();
         await EventAlertService.refreshAfterCategoryRemoval();
+        await CategoryProfileService.refreshAfterCategoryRemoval();
         await CalendarEventService.refreshAfterCategoryRemoval();
         await EventTemplateService.refreshAfterCategoryRemoval();
       } catch (e, st) {

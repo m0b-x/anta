@@ -46,7 +46,7 @@ void main() {
     }
 
     expect({for (final t in syncedTables) t.name}, stamped);
-    expect(syncedTables, hasLength(18));
+    expect(syncedTables, hasLength(19));
     expect(
       [
         for (final t in syncedTables)

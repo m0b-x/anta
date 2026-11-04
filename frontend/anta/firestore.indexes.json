@@ -12,6 +12,7 @@
   "fieldOverrides": [
     { "collectionGroup": "calendar_categories", "fieldPath": "data", "indexes": [] },
     { "collectionGroup": "calendar_category_alerts", "fieldPath": "data", "indexes": [] },
+    { "collectionGroup": "calendar_category_profiles", "fieldPath": "data", "indexes": [] },
     { "collectionGroup": "calendar_event_absences", "fieldPath": "data", "indexes": [] },
     { "collectionGroup": "calendar_event_alerts", "fieldPath": "data", "indexes": [] },
     { "collectionGroup": "calendar_event_occurrences", "fieldPath": "data", "indexes": [] },

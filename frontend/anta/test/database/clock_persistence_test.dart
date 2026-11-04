@@ -217,8 +217,11 @@ void main() {
     test('an upgrade seeds before its first step', () async {
       final stored = await writeOnce();
       final previous = AppDatabase.forTesting(NativeDatabase(file));
+      // From before the newest step that stamps (v43's backfill): a chain of
+      // steps that mint nothing would leave the clock at the stored value and
+      // prove nothing about when it was seeded.
       await previous.customStatement(
-        'PRAGMA user_version = ${DatabaseSchema.currentVersion - 1}',
+        'PRAGMA user_version = ${DatabaseSchema.v42CategoryAlertsAndDigests}',
       );
       await previous.close();
 

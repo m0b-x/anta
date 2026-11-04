@@ -213,10 +213,10 @@ class CalendarCategoryDao extends DatabaseAccessor<AppDatabase>
   }
 
   /// Deletes a custom category as the one act it is to the user: its live
-  /// events and templates move to [reassignTo], its live alerts tombstone,
-  /// and the category tombstones, all under **one** HLC and each row queued —
-  /// so another device merges the delete whole rather than four changes it
-  /// could interleave.
+  /// events and templates move to [reassignTo], its live alerts and profile
+  /// tombstone, and the category tombstones, all under **one** HLC and each
+  /// row queued — so another device merges the delete whole rather than five
+  /// changes it could interleave.
   ///
   /// The templates move for the same reason the events do: `CategoryService`'s
   /// contract is that no event is ever orphaned, and a template left on the
@@ -243,6 +243,7 @@ class CalendarCategoryDao extends DatabaseAccessor<AppDatabase>
       await db.calendarEventDao.reassignCategory(id, target, stamp: stamp);
       await db.eventTemplateDao.reassignCategory(id, target, stamp: stamp);
       await db.categoryAlertDao.tombstoneForCategory(id, stamp: stamp);
+      await db.categoryProfileDao.tombstoneForCategory(id, stamp: stamp);
       await _tombstone(existing, stamp);
       return true;
     });
