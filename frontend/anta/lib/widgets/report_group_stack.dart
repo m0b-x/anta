@@ -68,6 +68,26 @@ class ReportGroupFolds {
   /// Written by the card's own disclosure row and by a reveal past the
   /// preview.
   void setTagsExpanded(bool expanded) => _tagsExpanded = expanded;
+
+  bool _recordsExpanded = false;
+
+  /// Whether a year's Records card shows every record rather than its first
+  /// `ReportMetrics.yearRecordRows` (S6 §2.2), kept for the visit as
+  /// [isDueSoonExpanded] is.
+  bool get isRecordsExpanded => _recordsExpanded;
+
+  /// Written by the Records card's disclosure row alone.
+  void setRecordsExpanded(bool expanded) => _recordsExpanded = expanded;
+
+  bool _monthsExpanded = false;
+
+  /// Whether a year's Months card shows every category's strip rather than
+  /// its first `AnalyticsMetrics.yearMonthsStripCategories` (S6 §2.3), kept
+  /// for the visit as [isDueSoonExpanded] is.
+  bool get isMonthsExpanded => _monthsExpanded;
+
+  /// Written by the Months card's disclosure row alone.
+  void setMonthsExpanded(bool expanded) => _monthsExpanded = expanded;
 }
 
 /// [card]'s [groups], each a `SliverList` of its own in the surface's one

@@ -38,7 +38,8 @@ class ReportWhenChart extends StatelessWidget {
 
   /// A cell's colour at ramp [step]: 0 is an empty cell on the meter's
   /// track, 1–4 the validated linear steps of `primary` over the card (C).
-  @visibleForTesting
+  /// The year's month strips fill from it too (S6 §2.3, F), so the two
+  /// textures read one ramp.
   static Color fillFor(ColorScheme scheme, int step) => step <= 0
       ? scheme.rowDivider
       : Color.lerp(
@@ -49,7 +50,6 @@ class ReportWhenChart extends StatelessWidget {
 
   /// The ramp step of [minutes] against the fullest cell [peakCell]: linear
   /// quarters of the peak (D), so any filled cell shows at least step 1.
-  @visibleForTesting
   static int stepFor(int minutes, int peakCell) {
     if (minutes <= 0 || peakCell <= 0) return 0;
     final steps = ReportMetrics.whenRamp.length;

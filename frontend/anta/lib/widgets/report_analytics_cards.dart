@@ -7,6 +7,8 @@
 /// absent when it has nothing to show.
 library;
 
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../constants/analytics_metrics.dart';
@@ -169,7 +171,7 @@ class _ReportGoalsCardState extends State<ReportGoalsCard> {
         goal:
             previous[goal] ??
             reportCaptionLines(
-              labels.goalTemplates(goal, report),
+              _yearWords(goal)?.templates ?? labels.goalTemplates(goal, report),
               style: style,
               scaler: scaler,
               direction: direction,
@@ -187,6 +189,7 @@ class _ReportGoalsCardState extends State<ReportGoalsCard> {
     final onGoalTap = widget.canTap?.call(goal) ?? true
         ? widget.onGoalTap
         : null;
+    final year = _yearWords(goal, name: name);
     return FormMeterRow(
       leading: EventAvatar(icon: icon, color: category.color),
       compactLeading: FormGlyph(icon: icon, color: category.color),
@@ -195,15 +198,28 @@ class _ReportGoalsCardState extends State<ReportGoalsCard> {
         icon: glyph.icon,
         color: glyph.colorIn(scheme),
       ),
-      caption: labels.goalCaption(goal, report),
+      caption: year?.caption ?? labels.goalCaption(goal, report),
       captionLines: captionLines,
       fraction: _fractionOf(goal),
       // The category's colour in every state (C): the glyph says the state.
       meterColor: category.color,
       onTap: onGoalTap == null ? null : () => onGoalTap(goal),
-      semanticsLabel: labels.goalSpoken(name, goal, report),
+      semanticsLabel: year?.spoken ?? labels.goalSpoken(name, goal, report),
       identifier: SemanticsIds.reportGoal(goal.categoryId),
     );
+  }
+
+  /// A periodic goal's whole-year reading (S6 §2.4, B) — "41 of 52 weeks
+  /// met · longest streak 11" — or null where the report holds no tally
+  /// for it: any span but a whole year, a year-period goal, a gap goal.
+  /// The templates do not depend on [name], so the measuring pass omits it.
+  ({String caption, List<String> templates, String spoken})? _yearWords(
+    ReportGoal goal, {
+    String name = '',
+  }) {
+    final tally = report.year?.goalTallies[goal.categoryId];
+    if (tally == null) return null;
+    return labels.goalYearWords(goal, tally, report, name: name);
   }
 
   /// The closed periods a past span of several counts met (F), or null
@@ -250,10 +266,14 @@ class _ReportGoalsCardState extends State<ReportGoalsCard> {
   /// The meter's share, from the period the caption reads: its value of
   /// the target; a gap's days of its limit; a past span of several periods,
   /// the closed periods met of those closed, as the caption's "3 of 4 weeks
-  /// met" counts them — a period still open is not yet a result.
+  /// met" counts them — a period still open is not yet a result; a whole
+  /// year's tally, the same share of the year.
   double _fractionOf(ReportGoal goal) {
     double share(int part, int whole) =>
         whole <= 0 ? 0 : (part / whole).clamp(0.0, 1.0);
+    if (report.year?.goalTallies[goal.categoryId] case final tally?) {
+      return share(tally.met, tally.closed);
+    }
     if (goal.target.kind == TargetKind.maxGap) {
       final gap = goal.gap;
       return gap == null ? 0 : share(gap.daysSince, gap.limit);
@@ -544,7 +564,8 @@ class _ReportDueSoonCardState extends State<ReportDueSoonCard> {
 /// card shows and a meter in `primary` against the largest area, since an
 /// area has no colour of its own. Read rows: an area has no group to open.
 /// Absent under [AnalyticsMetrics.balanceMinAreas] areas, where one area
-/// would only read 100 % of itself.
+/// would only read 100 % of itself. With [CalendarReport.balanceLastYear]
+/// the rows read last year beside this span instead of the share (S6 §2.5).
 class ReportBalanceCard extends StatelessWidget {
   const ReportBalanceCard({
     super.key,
@@ -561,6 +582,9 @@ class ReportBalanceCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final balance = report.balance;
+    if (report.balanceLastYear case final lastYear?) {
+      return _withLastYear(context, balance, lastYear);
+    }
     if (balance.length < AnalyticsMetrics.balanceMinAreas) {
       return const SizedBox.shrink();
     }
@@ -598,6 +622,90 @@ class ReportBalanceCard extends StatelessWidget {
       label: labels.areaName(area),
       caption: words.caption,
       fraction: largest > 0 ? minutes / largest : 0,
+      onTap: null,
+      semanticsLabel: words.spoken,
+      identifier: SemanticsIds.reportBalance(area.name),
+    );
+  }
+
+  /// Balance under Compare: Same period last year (S6 §2.5, G): the areas
+  /// of both spans, by this span's hours, then last span's, then
+  /// [LifeArea]'s order; each meter and its last-year marker against the
+  /// most hours either span holds, so a marker never clips; "1720 h · last
+  /// year 1650 h" in place of the share, on the lines its template wraps to
+  /// (S4 D), measured as the caption draws it.
+  Widget _withLastYear(
+    BuildContext context,
+    Map<LifeArea, int> balance,
+    Map<LifeArea, int> lastYear,
+  ) {
+    final areas = {...balance.keys, ...lastYear.keys}.toList()
+      ..sort((a, b) {
+        final byMinutes = (balance[b] ?? 0).compareTo(balance[a] ?? 0);
+        if (byMinutes != 0) return byMinutes;
+        final byLastYear = (lastYear[b] ?? 0).compareTo(lastYear[a] ?? 0);
+        return byLastYear != 0 ? byLastYear : a.index - b.index;
+      });
+    if (areas.length < AnalyticsMetrics.balanceMinAreas) {
+      return const SizedBox.shrink();
+    }
+    final scale = [...balance.values, ...lastYear.values].fold(0, math.max);
+    double share(int minutes) => scale > 0 ? minutes / scale : 0;
+    final scheme = Theme.of(context).colorScheme;
+    final style = reportCaptionStyleOf(context);
+    final scaler = MediaQuery.textScalerOf(context);
+    final direction = Directionality.of(context);
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width =
+            constraints.maxWidth -
+            RowMetrics.groupInset -
+            FormMetrics.rowLeadingSize -
+            FormMetrics.gap -
+            FormMetrics.rowEndPadding;
+        return FormRowGroup(
+          trailingGap: false,
+          children: [
+            for (final area in areas)
+              _lastYearRow(
+                scheme,
+                area,
+                balance[area] ?? 0,
+                lastYear[area] ?? 0,
+                share: share,
+                lines: (templates) => reportCaptionLines(
+                  templates,
+                  style: style,
+                  scaler: scaler,
+                  direction: direction,
+                  width: width,
+                ),
+              ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _lastYearRow(
+    ColorScheme scheme,
+    LifeArea area,
+    int minutes,
+    int lastYearMinutes, {
+    required double Function(int minutes) share,
+    required int Function(List<String> templates) lines,
+  }) {
+    final words = labels.balanceLastYearWords(area, minutes, lastYearMinutes);
+    return FormMeterRow(
+      leading: _LeadingGlyph(
+        icon: CalendarIcons.areaIcon(area),
+        color: scheme.onSurfaceVariant,
+      ),
+      label: labels.areaName(area),
+      caption: words.caption,
+      captionLines: lines(words.templates),
+      fraction: share(minutes),
+      marker: share(lastYearMinutes),
       onTap: null,
       semanticsLabel: words.spoken,
       identifier: SemanticsIds.reportBalance(area.name),

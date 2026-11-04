@@ -526,7 +526,7 @@ class ReportTagCaptions {
         spansMonths: spansMonths,
         widest: (names) => _widest.putIfAbsent(
           names.join('\n'),
-          () => _widestOf(names, style, scaler, direction),
+          () => widestOf(names, style, scaler, direction),
         ),
       ),
       style: style,
@@ -549,8 +549,9 @@ class ReportTagCaptions {
 
   /// The name of [names] that draws widest — not the longest: German
   /// "Mo." is wider than "So.", English "Wed" than "Sun". A tie keeps the
-  /// first.
-  static String _widestOf(
+  /// first. Public for the year's Months rows, whose span template names
+  /// the widest month the same way.
+  static String widestOf(
     Iterable<String> names,
     TextStyle style,
     TextScaler scaler,

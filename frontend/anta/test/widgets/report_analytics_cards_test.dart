@@ -823,6 +823,283 @@ void main() {
     }
   });
 
+  group('a whole year', () {
+    // 2025 seen from 4 November 2026: two periodic goals with the year's
+    // tally and a gap goal, which has none and keeps S4's reading.
+    final year2025 = (
+      start: DateTime.utc(2025, 1, 1),
+      end: DateTime.utc(2025, 12, 31),
+    );
+    final lastWeeks = [
+      for (var i = 0; i < 2; i++)
+        (
+          start: DateTime.utc(2025, 12, 15 + 7 * i),
+          end: DateTime.utc(2025, 12, 21 + 7 * i),
+        ),
+    ];
+    final weekly = atLeast('gym', [
+      period(lastWeeks[0], 3, GoalState.met),
+      period(lastWeeks[1], 1, GoalState.missed),
+    ]);
+    final monthly = ReportGoal(
+      categoryId: 'cardio',
+      measure: ReportMeasure.count,
+      target: const ReportTarget(
+        kind: TargetKind.atLeast,
+        value: 8,
+        period: TargetPeriod.month,
+      ),
+      periods: [
+        period(
+          (start: DateTime.utc(2025, 11, 1), end: DateTime.utc(2025, 11, 30)),
+          9,
+          GoalState.met,
+        ),
+        period(
+          (start: DateTime.utc(2025, 12, 1), end: DateTime.utc(2025, 12, 31)),
+          8,
+          GoalState.met,
+        ),
+      ],
+    );
+    final gap = maxGap('holiday', gapOf(23, GapState.overdue));
+    const tallies = {
+      'gym': ReportGoalTally(met: 41, closed: 52, longestStreak: 11),
+      'cardio': ReportGoalTally(met: 9, closed: 12, longestStreak: 0),
+    };
+
+    CalendarReport yearOf({bool withYear = true}) {
+      final report = reportOf(year2025, [weekly, monthly, gap]);
+      return CalendarReport(
+        span: report.span,
+        today: report.today,
+        tense: report.tense,
+        countedTo: report.countedTo,
+        events: const {},
+        tiles: const [],
+        skippedDays: 0,
+        aheadCount: 0,
+        categories: const [],
+        missed: const [],
+        ahead: const [],
+        goals: report.goals,
+        year: withYear ? const ReportYear(goalTallies: tallies) : null,
+      );
+    }
+
+    final yearReport = yearOf();
+
+    String nameOf(ReportGoal goal, ReportLabels labels) =>
+        CalendarCategories.labelOf(
+          CalendarCategories.resolve(goal.categoryId),
+          labels.l10n,
+        );
+
+    testWidgets('a tally row reads the year: its caption, met of closed on '
+        'the meter, the spoken form; the gap row keeps S4\'s', (tester) async {
+      final handle = tester.ensureSemantics();
+      await pump(tester, yearReport);
+      final labels = labelsIn('en');
+      for (final goal in [weekly, monthly]) {
+        final words = labels.goalYearWords(
+          goal,
+          tallies[goal.categoryId]!,
+          yearReport,
+          name: nameOf(goal, labels),
+        );
+        final row = rowWidget(tester, goal);
+        expect(row.caption, words.caption, reason: goal.categoryId);
+        expect(
+          tester.getSemantics(rowOf(goal)).label,
+          words.spoken,
+          reason: goal.categoryId,
+        );
+      }
+      expect(rowWidget(tester, weekly).fraction, 41 / 52);
+      expect(rowWidget(tester, monthly).fraction, 9 / 12);
+      // What binds a number to its word (W), declared below for the cards
+      // after this group.
+      final bound = String.fromCharCode(0x00A0);
+      expect(
+        rowWidget(tester, weekly).caption!.replaceAll(bound, ' '),
+        '41 of 52 weeks met · longest streak 11',
+      );
+      expect(
+        rowWidget(tester, monthly).caption!.replaceAll(bound, ' '),
+        '9 of 12 months met',
+        reason: 'no streak segment at 0',
+      );
+      expect(
+        tester.getSemantics(rowOf(weekly)).label.replaceAll(bound, ' '),
+        startsWith('Gym, 41 of 52 weeks met, longest streak 11 weeks, '),
+      );
+      expect(
+        rowWidget(tester, gap).caption,
+        labels.goalCaption(gap, yearReport),
+      );
+      expect(
+        tester.getSemantics(rowOf(gap)).label,
+        labels.goalSpoken(nameOf(gap, labels), gap, yearReport),
+      );
+      handle.dispose();
+    });
+
+    testWidgets('no closed period fills nothing', (tester) async {
+      final report = yearOf();
+      await pump(
+        tester,
+        CalendarReport(
+          span: report.span,
+          today: report.today,
+          tense: report.tense,
+          countedTo: report.countedTo,
+          events: const {},
+          tiles: const [],
+          skippedDays: 0,
+          aheadCount: 0,
+          categories: const [],
+          missed: const [],
+          ahead: const [],
+          goals: [weekly],
+          year: const ReportYear(
+            goalTallies: {
+              'gym': ReportGoalTally(met: 0, closed: 0, longestStreak: 0),
+            },
+          ),
+        ),
+      );
+      expect(rowWidget(tester, weekly).fraction, 0);
+    });
+
+    testWidgets('the glyph stays S4\'s: the same as the span without a '
+        'tally reads', (tester) async {
+      Icon glyph() => tester.widget<Icon>(
+        find.descendant(
+          of: find.descendant(
+            of: rowOf(weekly),
+            matching: find.byType(FormTrailingGlyph),
+          ),
+          matching: find.byType(Icon),
+        ),
+      );
+      await pump(tester, yearOf(withYear: false));
+      final s4 = glyph();
+      await pump(tester, yearReport);
+      expect(glyph().icon, s4.icon);
+      expect(glyph().color, s4.color);
+    });
+
+    testWidgets('without the year the same goals read S4\'s captions and '
+        'meters', (tester) async {
+      final plain = yearOf(withYear: false);
+      await pump(tester, plain);
+      final labels = labelsIn('en');
+      for (final goal in plain.goals) {
+        expect(
+          rowWidget(tester, goal).caption,
+          labels.goalCaption(goal, plain),
+        );
+        expect(
+          tester.getSemantics(rowOf(goal)).label,
+          labels.goalSpoken(nameOf(goal, labels), goal, plain),
+        );
+      }
+      expect(rowWidget(tester, weekly).fraction, 0.5, reason: '1 of 2 met');
+    });
+
+    // §2.4's table: two tally rows (weekly, monthly) and one gap row. The
+    // shipped Romanian words take three caption lines for the week at 2.0
+    // and two for the month, where the draft took four for both.
+    for (final (scale, tally, card) in const [
+      (
+        1.0,
+        {
+          'en': [66.0, 66.0],
+          'de': [84.0, 84.0],
+          'ro': [84.0, 84.0],
+        },
+        {'en': 200.0, 'de': 236.0, 'ro': 236.0},
+      ),
+      (
+        1.3,
+        {
+          'en': [100.8, 100.8],
+          'de': [100.8, 100.8],
+          'ro': [100.8, 100.8],
+        },
+        {'en': 281.0, 'de': 281.0, 'ro': 281.0},
+      ),
+      (
+        2.0,
+        {
+          'en': [140.0, 140.0],
+          'de': [176.0, 176.0],
+          'ro': [176.0, 140.0],
+        },
+        {'en': 386.0, 'de': 458.0, 'ro': 422.0},
+      ),
+    ]) {
+      testWidgets('at $scale the tally rows are $tally, in both themes', (
+        tester,
+      ) async {
+        for (final brightness in Brightness.values) {
+          for (final locale in const ['en', 'de', 'ro']) {
+            final reason = '$locale ${brightness.name}';
+            await pump(
+              tester,
+              yearReport,
+              locale: Locale(locale),
+              textScale: scale,
+              brightness: brightness,
+            );
+            for (final (index, goal) in [weekly, monthly].indexed) {
+              expect(
+                tester.getRect(rowOf(goal)).height,
+                closeTo(tally[locale]![index], 1),
+                reason: '${goal.categoryId} $reason',
+              );
+            }
+            if (card[locale] case final height?) {
+              expect(
+                tester.getRect(find.byType(FormRowGroup)).height,
+                closeTo(height, 1),
+                reason: reason,
+              );
+            }
+          }
+        }
+      });
+    }
+
+    testWidgets('under bold text a tally caption is measured bold and drawn '
+        'whole', (tester) async {
+      for (final locale in const ['en', 'de', 'ro']) {
+        for (final scale in heights.keys) {
+          await pump(
+            tester,
+            yearReport,
+            locale: Locale(locale),
+            textScale: scale,
+            boldText: true,
+          );
+          for (final goal in [weekly, monthly]) {
+            final paragraph = tester.renderObject<RenderParagraph>(
+              find.descendant(
+                of: rowOf(goal),
+                matching: find.text(rowWidget(tester, goal).caption!),
+              ),
+            );
+            expect(
+              paragraph.didExceedMaxLines,
+              isFalse,
+              reason: '${goal.categoryId} $locale $scale',
+            );
+          }
+        }
+      }
+    });
+  });
+
   // The Insights and Due soon cards (§2.3, §2.4), on one report that
   // carries both, drawn by the same harness.
 
@@ -962,6 +1239,7 @@ void main() {
     List<ReportDueRow> dueSoon = const [],
     List<ReportInsight> insights = const [],
     Map<LifeArea, int> balance = const {},
+    Map<LifeArea, int>? balanceLastYear,
   }) => CalendarReport(
     span: thisWeek,
     today: today,
@@ -977,6 +1255,7 @@ void main() {
     dueSoon: dueSoon,
     insights: insights,
     balance: balance,
+    balanceLastYear: balanceLastYear,
   );
 
   final threeInsights = [gapOverdue, unmarked, lateEvenings];
@@ -1722,6 +2001,7 @@ void main() {
     Future<void> pumpBalance(
       WidgetTester tester, {
       Map<LifeArea, int> areas = balance,
+      Map<LifeArea, int>? lastYear,
       Locale locale = const Locale('en'),
       double textScale = 1.0,
       Brightness brightness = Brightness.light,
@@ -1730,7 +2010,7 @@ void main() {
     }) => pumpCard(
       tester,
       (labels) => ReportBalanceCard(
-        report: analyticsReport(balance: areas),
+        report: analyticsReport(balance: areas, balanceLastYear: lastYear),
         labels: labels,
       ),
       locale: locale,
@@ -1965,6 +2245,178 @@ void main() {
           }
         }
       }
+    });
+
+    group('with last year', () {
+      const hour = 60;
+      // A year beside the last: Leisure only this year, Home and People
+      // only last year, and last year's Work the most of either year.
+      const these = {LifeArea.work: 1720 * hour, LifeArea.leisure: 100 * hour};
+      const last = {
+        LifeArea.work: 1800 * hour,
+        LifeArea.home: 600 * hour,
+        LifeArea.people: 50 * hour,
+        LifeArea.leisure: 90 * hour,
+      };
+      const union = [
+        LifeArea.work,
+        LifeArea.leisure,
+        LifeArea.home,
+        LifeArea.people,
+      ];
+      // Four areas in both years, for the table's heights.
+      const fourThese = {
+        LifeArea.work: 1720 * hour,
+        LifeArea.home: 500 * hour,
+        LifeArea.health: 150 * hour,
+        LifeArea.leisure: 100 * hour,
+      };
+      const fourLast = {
+        LifeArea.work: 1650 * hour,
+        LifeArea.home: 600 * hour,
+        LifeArea.health: 120 * hour,
+        LifeArea.leisure: 90 * hour,
+      };
+
+      testWidgets('the union of both years, by this year\'s hours then '
+          'last year\'s; the meter and the marker against the most of '
+          'either', (tester) async {
+        await pumpBalance(tester, areas: these, lastYear: last);
+        expect(find.byType(FormMeterRow), findsNWidgets(union.length));
+        final tops = [
+          for (final area in union) tester.getRect(rowOf(area)).top,
+        ];
+        expect(tops, orderedEquals([...tops]..sort()));
+        const scale = 1800 * hour;
+        for (final area in union) {
+          final row = tester.widget<FormMeterRow>(rowOf(area));
+          expect(row.fraction, (these[area] ?? 0) / scale, reason: area.name);
+          expect(row.marker, (last[area] ?? 0) / scale, reason: area.name);
+        }
+        expect(tester.widget<FormMeterRow>(rowOf(LifeArea.work)).marker, 1);
+      });
+
+      testWidgets('each row: "1720 h · last year 1800 h", the spoken twin, '
+          'the S5 id, read rows', (tester) async {
+        final handle = tester.ensureSemantics();
+        await pumpBalance(tester, areas: these, lastYear: last);
+        final labels = labelsIn('en');
+        for (final area in union) {
+          final words = labels.balanceLastYearWords(
+            area,
+            these[area] ?? 0,
+            last[area] ?? 0,
+          );
+          final row = tester.widget<FormMeterRow>(rowOf(area));
+          expect(row.caption, words.caption, reason: area.name);
+          expect(row.captionLines, isNotNull, reason: 'the template\'s lines');
+          expect(row.onTap, isNull);
+          final data = tester
+              .getSemantics(find.bySemanticsIdentifier(balanceId(area)))
+              .getSemanticsData();
+          expect(data.label, words.spoken, reason: area.name);
+          expect(data.flagsCollection.isButton, isFalse);
+        }
+        expect(
+          tester
+              .widget<FormMeterRow>(rowOf(LifeArea.work))
+              .caption!
+              .replaceAll(noBreakSpace, ' '),
+          '1720 h · last year 1800 h',
+        );
+        expect(
+          tester
+              .getSemantics(
+                find.bySemanticsIdentifier(balanceId(LifeArea.work)),
+              )
+              .label
+              .replaceAll(noBreakSpace, ' '),
+          'Work, 1,720 hours, last year 1,800 hours',
+        );
+        handle.dispose();
+      });
+
+      testWidgets('the marker is drawn inside the track at both ends', (
+        tester,
+      ) async {
+        await pumpBalance(tester, areas: these, lastYear: last);
+        for (final area in [LifeArea.work, LifeArea.people]) {
+          final meter = find.descendant(
+            of: rowOf(area),
+            matching: find.byWidgetPredicate(
+              (widget) =>
+                  widget is SizedBox &&
+                  widget.height == FormMetrics.meterHeight &&
+                  widget.child is LayoutBuilder,
+            ),
+          );
+          final track = tester.getRect(meter);
+          final bar = tester.getRect(
+            find
+                .descendant(of: meter, matching: find.byType(DecoratedBox))
+                .last,
+          );
+          expect(bar.left, greaterThanOrEqualTo(track.left), reason: area.name);
+          expect(bar.right, lessThanOrEqualTo(track.right), reason: area.name);
+          expect(bar.height, greaterThan(track.height), reason: 'overhangs');
+        }
+      });
+
+      for (final (scale, locale, card) in const [
+        (1.0, 'en', 267.0),
+        (1.0, 'de', 267.0),
+        (2.0, 'de', 563.0),
+      ]) {
+        testWidgets('four areas at $locale $scale take $card at 360 and 412, '
+            'and no caption is cut', (tester) async {
+          for (final width in const [360.0, 412.0]) {
+            for (final bold in [false, true]) {
+              await pumpBalance(
+                tester,
+                areas: fourThese,
+                lastYear: fourLast,
+                locale: Locale(locale),
+                textScale: scale,
+                width: width,
+                boldText: bold,
+              );
+              final reason = '$width bold $bold';
+              if (!bold) {
+                expect(
+                  tester.getRect(find.byType(FormRowGroup)).height,
+                  closeTo(card, 1),
+                  reason: reason,
+                );
+              }
+              for (final area in fourThese.keys) {
+                final paragraph = tester.renderObject<RenderParagraph>(
+                  find.descendant(
+                    of: rowOf(area),
+                    matching: find.text(
+                      tester.widget<FormMeterRow>(rowOf(area)).caption!,
+                    ),
+                  ),
+                );
+                expect(
+                  paragraph.didExceedMaxLines,
+                  isFalse,
+                  reason: '${area.name} $reason',
+                );
+              }
+            }
+          }
+        });
+      }
+
+      testWidgets('without last year the card is S5\'s: the share and the '
+          'one-line slot, no marker', (tester) async {
+        await pumpBalance(tester);
+        for (final area in order) {
+          final row = tester.widget<FormMeterRow>(rowOf(area));
+          expect(row.marker, isNull);
+          expect(row.captionLines, isNull);
+        }
+      });
     });
   });
 }
