@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import '../../constants/category_profiles.dart';
 import '../../models/agenda_day_list.dart';
 import '../../models/calendar_appearance.dart';
 import '../../models/calendar_event.dart';
@@ -13,6 +14,7 @@ import '../../models/overview_period.dart';
 import '../../models/report_look.dart';
 import '../../models/report_period_choice.dart';
 import '../../services/calendar_report_service.dart';
+import '../../services/note_money_ledger_service.dart';
 import '../../services/settings_service.dart';
 import '../../utils/event_agenda.dart';
 import '../../utils/markdown_color_syntax.dart';
@@ -415,6 +417,8 @@ class CalendarReportBloc extends Bloc<ReportEvent, ReportState> {
       categoryIds: _categoryIds,
       today: _today,
       weekStart: _appearance.weekStart,
+      profilesRevision: CategoryProfiles.revision,
+      ledgerRevision: NoteMoneyLedgerService.instanceOrNull?.revision ?? -1,
     );
     return (request: request, key: key, years: years);
   }
@@ -470,7 +474,9 @@ class CalendarReportBloc extends Bloc<ReportEvent, ReportState> {
 }
 
 /// Everything a fold reads, by identity where the calendar compares by
-/// identity: two equal keys fold to the same report.
+/// identity: two equal keys fold to the same report. The profiles' and the
+/// ledger's revisions move with no calendar revision, so without them a
+/// profile edit would be served the old fold on the next calendar change.
 class _FoldKey {
   const _FoldKey({
     required this.events,
@@ -482,6 +488,8 @@ class _FoldKey {
     required this.categoryIds,
     required this.today,
     required this.weekStart,
+    required this.profilesRevision,
+    required this.ledgerRevision,
   });
 
   final List<CalendarEvent> events;
@@ -493,6 +501,8 @@ class _FoldKey {
   final Set<String> categoryIds;
   final DateTime today;
   final CalendarWeekStart weekStart;
+  final int profilesRevision;
+  final int ledgerRevision;
 
   @override
   bool operator ==(Object other) =>
@@ -505,7 +515,9 @@ class _FoldKey {
       previousSpan == other.previousSpan &&
       setEquals(categoryIds, other.categoryIds) &&
       today == other.today &&
-      weekStart == other.weekStart;
+      weekStart == other.weekStart &&
+      profilesRevision == other.profilesRevision &&
+      ledgerRevision == other.ledgerRevision;
 
   @override
   int get hashCode => Object.hash(
@@ -518,5 +530,7 @@ class _FoldKey {
     Object.hashAllUnordered(categoryIds),
     today,
     weekStart,
+    profilesRevision,
+    ledgerRevision,
   );
 }

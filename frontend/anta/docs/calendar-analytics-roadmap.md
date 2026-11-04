@@ -1008,7 +1008,251 @@ process — a Windows load flake, not the slice's; `untranslated.txt` `{}`;
 HEAD left as they were); the docs updated in the same change (the calendar
 skill's presence rules and lineage header, `references/schema-lineage.md`
 v44 + v45, `references/subsystems.md`, the feature doc's three gate
-statements, the lifecycle contract list). 74 files; commit *(next line)*.
+statements, the lifecycle contract list). 74 files; commit `6a586668`
+(2026-11-04).
+
+#### S2a — builder I (2026-11-04)
+
+Built as S2a-i (the inputs, the eleven measures, the tags, the memo keys)
+and S2a-ii (goals, due soon, balance, the when buckets), reviewed together.
+
+- **S2a-i.** `ReportInput` gained `profiles` (every scoped category, the
+  unprofiled ones included so the builder never consults the facade),
+  `cancelled` (the skipped days as samples; `skippedDays` is their count),
+  `money` (event id → the linked note's net cents from
+  `NoteMoneyLedgerService.ledgerFor`), `lastSeenBefore`, `workingDays`,
+  `publicHolidays`; `CalendarReport` gained `measures` (one `ReportMeasures`
+  per category with an event, catalogue order), `tags` (`ReportTag`, the
+  top `AnalyticsMetrics.tagRows` by events), `nominalMinutes`, the two
+  day counts; `ReportTotals` gained `nominalKept` / `nominalAll`. The
+  builder folds the measures in the one sorted walk it already makes
+  (`_MeasureTally`, `_TagTally`); `_measuresOf` resolves the primary (the
+  profile's, else Auto, then the fallback); `_minutesOf` applies counts-as
+  to a kept untimed day of a routine or a one-off, never a repeat, never
+  Sleep; the Hours tile counts a category only when its `countsHours` is
+  true and includes the nominal part; `_isMissed` is `missed && !pending
+  && tracksPresence` (AM — a missed one-off lands in `missed` as a dated
+  row and the tile counts it; the attended / missed tiles appear once any
+  event is tracked). `lib/utils/tag_extractor.dart` tokenises through
+  `MarkdownTagSyntax` with an LRU (`AnalyticsMetrics.tagCacheSize`). The
+  service resolves everything in `_input`; the last-seen lookback is one
+  `occurrencesInRange` per gap category over the 366 days before the span
+  with its own LRU (`lastSeenCacheSize`); `_Scope` and the bloc's
+  `_FoldKey` carry `profilesRevision` and `ledgerRevision`; `scanCount`
+  beside `foldCount` is the cost seam (today's fold: 2 scans — the span and
+  the previous span — plus one per gap category; a memo hit 0).
+  `NoteMoneyLedgerService.seedForTesting` for the suites. The unprofiled
+  golden holds: every earlier case unchanged, the worked periods included.
+- **Defaults taken (S2a-i, reversible):** "timed" = has a duration; lead
+  time counts `OneTimeRecurrence` only and skips an event created after its
+  day (a log, not a booking); `planned` = counted days to today, missed in,
+  pending out, plus cancelled; in a plan the measures cover every
+  occurrence and `lastSeenDay` falls back to the lookback; the lookback
+  ends the day before the span or today, whichever is earlier, and drops
+  cancelled, missed and today's pending day; `publicHolidays` counts
+  weekend holidays too, `workingDays` is Monday–Friday minus holidays; a
+  tag's label is its first spelling in sample order; money of 0 is ignored
+  and counts once per event whose start day lies in the span; the
+  Categories group headers' minutes are unchanged until S4 reads
+  `measures`.
+- **Noted for S4:** `ReportTile.hours`'s doc still says timed only; the
+  bloc's `_FoldKey` never carried `CalendarCategories.revision` (a catalogue
+  rename with no calendar change does not refold through the bloc —
+  pre-existing; S4's resume refresh covers it).
+
+- **S2a-ii.** `GoalState` (met · onPace · behind · over · missed · notDue ·
+  future), `ReportGoalPeriod`, `ReportGoal(categoryId, measure, target,
+  periods, streak, gap)`, `GapState` / `ReportGapState`, `ReportDueKind` /
+  `ReportDueState` / `ReportDueRow`, `ReportWhen` (168 cells of minutes
+  from the week start, `timedDays`, the busiest row and column, null under
+  `whenMinTimedSamples`); `CalendarReport.goals`, `dueSoon`, `dueSoonMore`,
+  `balance` (`Map<LifeArea, int>` minutes, `countsHours` categories only),
+  `when`; `ReportInput.lookback` (kept and missed samples per category over
+  the 366 days before the span — one scan per category with a target OR a
+  gap, never two, the lookback LRU renamed `_lookbacks`; `lastSeenBefore`
+  derived from it). Goal periods are bucketed by index inside the measures
+  walk; the lookback samples get one walk of their own; the when cells fill
+  in the same walk. `AnalyticsMetrics.lookbackDays` (pinned equal to
+  `EventAgenda.maxRangeDays`).
+- **Defaults taken (S2a-ii, reversible):** a period's value counts what was
+  kept to today, a future period what is planned; `expected = ceil(target ×
+  elapsed / days)` in integers, a closed period's expected is the target; the
+  value per primary (Count → kept days, Events → distinct kept events, Hours
+  → minutes with counts-as, Attendance → kept tracked days, Tasks → ticked,
+  Money → cents spent for budget and *at most*, received for *at least*; the
+  rest → kept days); `notDue` on the current period's first day at value 0
+  for every kind; the streak never counts a period ending before the
+  category's earliest event (an *at most* goal's empty pre-history would read
+  as a year met); **a past span's last period that runs past the span's end
+  is valued to the end and left out of the streak** (one 366-day lookback
+  cannot also reach past the end; a current span loses nothing; exact would
+  cost a second scan — §14); a gap row's event is the one kept on the
+  last-seen day, its day the last kept day plus the limit; an upcoming
+  Expiry is the first sample on or after today, else a one-off's start day
+  past the span (a recurring Expiry beyond the span is unseen — §14); a
+  passed Expiry lists every missed sample; "unmarked" Bills and Deadlines
+  are `missed` samples; due ties break by days, catalogue order, day, event
+  id; `when` nullable, set by every fold.
+
+**Review** (one `reviewer` on S2a-i + S2a-ii): the golden confirmed by
+diff (no pre-existing expectation edited; the §4.4 worked periods
+untouched; the attended / missed tiles' rule differs only for a tracked
+one-off); fourteen findings, taken in one fix pass. Fixed — **the days
+after a past span** (`ReportInput.lookahead`: on a Last-month report
+last-seen, the gap state and a trailing goal period were blind to the days
+between the span's end and today; the service now scans `[span.end + 1,
+today]` for every target-or-gap category on a past span, one more
+`occurrencesInRange` each, in the same LRU; a trailing period is then
+exact and closed only when its end is before today; the streak counts it;
+scans: a past span 2 + 2 per such category, a current span 2 + 1;
+`lastSeenCacheSize` 64); **a gap with no kept day in the lookback**
+(`gap` null when nothing occurred up to today; `daysSince =
+lookbackDays` with `beyondLookback` true when something occurred and
+nothing was kept — "over a year"; a limit ≥ 366 can never read overdue;
+`ReportDueRow.beyondLookback`); **AN — Expiry assumes absent** (an
+expired, unrenewed Expiry is a missed day and reaches Due soon as
+overdue; the catalogue row and its pin updated; Social is now the only
+marking kind that does not assume absent); **the guide's Report folds
+unprofiled** (`ReportRequest.profileOf`, the fifth reader of the guide's
+seam, `report()` refusing it like the others; `calendar_guide_try_report`
+passes `unprofiled` — decision V); Due soon orders overdue rows most
+overdue first and the rest soonest first; `hasMoney` follows the ledger
+(the money toggle off → Money falls back to Count); an Expiry due today
+reads 0 days; no allocation per untagged kept sample (the event's own tag
+keys once; the per-day set only when an override adds tags;
+`extractTags` returns `const []` before the cache for a text without
+`#`); tags skip a code span's and a bare URL's `#` as the inline grammar
+does (`MarkdownLinkPatterns.matchBareUrlEnd`; the code-span rule a small
+copy, since the grammar imports Flutter — `\#` escapes, `%%` comments,
+ghosts, wiki links and autolinks are still counted, §14); the lookback
+key's presence and membership invalidation pinned, the partial first week
+pinned. **The cost pin**: a `benchmark`-tagged case folds the 366-day,
+50-event fixture with every category profiled (targets, two counts-as, a
+tag in every title) against unprofiled in interleaved rounds — the
+fastest profiled / fastest unprofiled ratio 1.35–1.41 over three runs
+(the bound 1.5; medians swung to 1.60 under load, so the estimator is the
+minimum); the extra is the lookback scans (inherent to R) and the goal
+walk, whose period lookup is memoised per day. Accepted — last seen
+includes today's happened or kept day; the histogram counts every kept day;
+one late line for every kind; a current span's future periods hold no
+planned value; a plan's Cancelled is 0; a profile edit rescans the
+lookbacks (rare). §14 — money once per event (P).
+
+**Gate.** `dart analyze lib test` clean; the whole suite `+12713 ~12 -1`
+(the known Windows-only case; 12 skipped with the new benchmark case);
+`dart format` clean on every slice file; no ARB; the record's §6.3 / §6.6
+/ §6.8 read as amended here (the lookahead, the gap floor, AN, the Due
+soon order). Commit *(next line)*.
+
+#### S3 — the category editor's profile sections (2026-11-04)
+
+**The designer's spec** (Opus 5.5, from real-font renders of the current
+editor and of the proposal at 1.0 / 1.3 / 2.0, en and de, 360 wide; no
+mock, every structure an existing primitive; the spec and renders in the
+session's scratchpad, the as-built below is the record): after Alerts, two
+labelled groups — **Report**: Kind (`FormPickerRow` → the kind picker;
+caption the kind's one-line example), Mark (`FormMenuRow`: the kind's verb
+· "Own word…" through `AppDialogs.textInput` · Off), Area (`FormMenuRow`,
+the seven areas); **Measure & goal**: Measure (`FormMenuRow` + caption:
+Auto first, then the eight main measures), Counts as (`FormMenuRow` +
+caption: Off · 15 · 30 · 45 · 60 · 90 · 120 · 240 · 480 min, the kind's
+suggestion as the caption, the pick is the confirmation; disabled in place
+with its reason under Sleep or a repeat-only category, decided once at
+open), Goal (`FormPickerRow` → the goal sheet; the read-back in the
+caption, which wraps — a value is cut at 2.0 de). Every row carries a
+caption in every state (a caption costs 28 dp, so a row that gained one
+would jump). `CategoryKindSheet`: the single-pick `CategoryPickerSheet`
+shape, seven area labels in enum order over `FormCheckRow(exclusive)`
+rows with a ≤ 28-character example each, Custom last, no search, opens at
+the top. `CategoryGoalSheet`: ✕ · Goal · Done; TYPE as three exclusive
+check rows (At least · At most · Days between, or Budget in place of At
+most on a Money primary; the kind's presets first, an impossible type
+disabled in place); TARGET as an editable `FormStepperRow` whose label
+follows the unit, then Day · Week · Month · Year chips (disabled for Days
+between, no "Per" label — it never fit one line); the read-back inside a
+`FormCaptionSlot` sizer so the sheet never grows at runtime; "Remove goal"
+at the foot only when a goal was stored. Two primitive extensions:
+`FormMenuRow.caption`, `FormStepperRow`'s editable value.
+
+**Its defaults, accepted by the lead:** A after Alerts · B the two labels
+with Mark and Area under Report · C rows inline (the editor opens full
+height, about 1,125 dp edited; a profile sub-sheet is the way back to a
+short sheet) · D Auto plus the eight main measures · E no search · F a
+kind pick resets the area, measure and mark overrides and keeps Counts as
+and a still-valid goal · G no rows for the new-event switches or
+counts-toward-hours (§14) · H opens at the top · I Done, the sub-sheet rule
+· J seeds 3 / 3 tasks / 8 h / 30 days / 100, whole hours, step 1 · **K a
+budget takes any period, Month preselected** (J's "per month" widened) · L
+Remove goal only with a stored goal · M the durations menu, not the time
+pad (which would read "1:00 AM" for 60 min on a 12-hour phone) · N the own
+word through the text dialog, the other stock verbs not offered · O
+Custom's Auto not resolved in the editor ("Auto picks per period") · P the
+editable stepper. Built in a worktree (`C:\Temp\anta-wt-s3`, branch
+`analytics-s3` from `6a586668`) beside S2a's review in the main tree, to
+be merged at its boundary.
+
+*(The build, the two reviews and the gate follow at the boundary.)*
+
+#### S4 — report cards I (designed 2026-11-04, built after S2b)
+
+**The designer's spec** (Opus 5.5, rendered from a `git archive HEAD`
+snapshot with real fonts while the tree was mid-edit; the spec and renders
+in the session's scratchpad): the current page and a missed one-off beside
+a routine read right (nav 52 / 64 / 146, header 66 / 77.4 / 104, rows 62 /
+67.4 / 94 — §4.8 of the report record holds), so Missed changes nothing.
+Goals · Insights · Due soon come first, each a section label over a
+`FormRowGroup` in a box sliver behind a `RepaintBoundary`, absent without
+content, so an unprofiled page inserts no sliver and changes no string. A
+goal row is `FormMeterRow` with three additive fields defaulting to today's
+behaviour — `captionLines` (a wrapping caption whose line count comes from
+templates written in 8s, never from the value, so a refold never changes
+the card's height), `labelTrailing` (the state glyph at the end of the
+name line), `compactLeading` (from 1.6 the avatar becomes the category's
+glyph) — the meter in the category colour in every state, the streak as
+the caption's last segment ("4 in a row": a trailing "× 4" broke names
+mid-word), the glyphs met `check_circle_rounded` in `primary`, on pace
+`timelapse_rounded`, behind / due `hourglass_bottom_rounded`, over / missed
+/ overdue `error_outline_rounded` in `onSurface`, not started / planned
+`radio_button_unchecked_rounded`; measured 66 / 84 at 1.0, 77.4 / 100.8 at
+1.3, 104–176 at 2.0, five goals 370 dp at 360 en and 830 at de 2.0. An
+insight is a `FormPickerRow` with the severity glyph in a 40 dp leading box,
+the subject as the label and the sentence as a caption of at most
+`ReportMetrics.insightCaptionMaxLines` (4). A due row is the routine-row
+shape with a one-line phrase ("Overdue 32 days", "1 Nov · not marked"), "n
+more ▾" expanding in place (so the model keeps every due row and the page
+caps). Touches: a profiled category's header reads "31 h · 12 · 1 missed";
+the Totals caption appends "22 working days · 1 public holiday" (only for a
+calendar month or year whose categories include a Work, Meeting or Leave
+kind, or a plan — unconditional would change every month report) and
+"Hours incl. 6 h counted as" (the tile's half width holds 131.5 dp, the
+footnote needs 161); the band reads "31 events · 2 of 3 goals on pace" in
+place of the missed count only when the template fits without shrinking
+("31 events · 2 goals on pace · 1 behind" squeezed to 0.35 at ro 2.0); after
+a refold the page keeps the Totals label in place when the reader is past
+the new cards.
+
+**Its defaults, accepted by the lead:** A extend `FormMeterRow` · B the
+streak in words · C the glyph on the name line, no red (K) · D template
+line counts · E "this week" only when the shown period differs from the
+goal's · F a past span of several periods reads "3 of 4 weeks met" · G a
+goal tap scrolls to and opens its group (the More sheet past the cap) ·
+**H the page drops G1–G3 and D1–D4 when the Goals or Due soon card already
+shows that subject** (decision L's "never a sentence a tile already says";
+it amends walkthrough 2 — Insights shows neither G1 nor G3 beside the Goals
+card; the builder still ranks every insight, the readers filter) · I–K as
+specified · L "n more" in place, the model uncapped · M a gap row opens the
+sheet on its last kept day · N only a profiled category leads with its
+primary (`ReportMeasures.profiled`) · O the footnote in the Totals caption
+and the tile's spoken label · P the working-days gate · Q the band's
+no-shrink rule · R the refold anchor on the Totals label (new code on the
+scroll path — the design review and the device pass watch it) · S the ids
+`report-goal-<categoryId>`, `report-insight-<n>`,
+`report-due-<eventId>-<yyyy-MM-dd>`, `report-due-more` · T–W as specified ·
+X moot: S2b lands first, so S4 builds Insights too. Model asks for S4's
+build: `ReportMeasures.profiled`, `dueSoon` uncapped, `ReportInsight(id,
+severity, subject, detail, target)`.
+
+*(The build, the two reviews and the gate follow at the boundary.)*
 
 ### 12.3 The kick-off prompt — written 2026-11-03, NOT RUN
 
@@ -1136,3 +1380,18 @@ suite count and result, uncommitted files, open findings, what §14 gained.
 - **Targets on a secondary measure** (AD, S0) — Work's "at least days /
   month" and Trip's "at least trips / year" need a target that names its
   measure; the profile row has no `targetMeasure` column yet.
+- **A past span's trailing goal period** (S2a-ii) — a Last-month report's
+  last week runs past the month's end and is valued to the end, out of the
+  streak; a second scan per target category (the days after the span, to
+  the period's end) would make it exact. After the Goals card has been
+  looked at.
+- **A recurring Expiry beyond the span** (S2a-ii) — the builder never
+  scans, so Due soon lists an Expiry only from the span's samples or a
+  one-off's start day; a yearly Expiry whose next day lies past a month
+  span needs the next-occurrence probe the sampler does not do yet.
+- **Money per occurrence** (P, found by the S2a review) — money is read
+  once per event at its start day (the ledger's rule: one net per linked
+  note), so a monthly-repeat Bill feeds a `budget / month` goal only in its
+  first month; a Bill paid monthly is one one-off per payment, each with
+  its note, until the ledger can attribute a note's lines to occurrence
+  days. The Bill kind's preset stands for that shape.

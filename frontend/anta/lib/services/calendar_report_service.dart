@@ -2,8 +2,11 @@ import 'dart:collection';
 
 import 'package:equatable/equatable.dart';
 
+import '../constants/analytics_metrics.dart';
 import '../constants/calendar_bounds.dart';
 import '../constants/calendar_categories.dart';
+import '../constants/category_kinds.dart';
+import '../constants/category_profiles.dart';
 import '../constants/event_presence.dart';
 import '../constants/event_skips.dart';
 import '../constants/occurrence_descriptions.dart';
@@ -13,11 +16,13 @@ import '../models/agenda_day_list.dart';
 import '../models/calendar_appearance.dart';
 import '../models/calendar_event.dart';
 import '../models/calendar_report.dart';
+import '../models/category_profile.dart';
 import '../models/date_range.dart';
 import '../models/overview_period.dart';
 import '../utils/calendar_report_builder.dart';
 import '../utils/event_agenda.dart';
 import '../utils/lru_cache.dart';
+import 'note_money_ledger_service.dart';
 
 /// One report asked of [CalendarReportService]: what the caller already
 /// resolved from its period and its calendar state, so the service reads no
@@ -63,7 +68,7 @@ final class ReportRequest {
 
   /// Whether an occurrence was missed; null reads `EventPresence.isMissed`.
   ///
-  /// This and the three readers below are the guide's seam: its demo keeps
+  /// This and the four readers below are the guide's seam: its demo keeps
   /// its marks, skips and texts in memory, under ids no facade holds, and
   /// folds through [CalendarReportService.sampleInput] with its own — never
   /// through [CalendarReportService.report], whose memo keys on the
@@ -82,6 +87,12 @@ final class ReportRequest {
   /// reads `OccurrenceDescriptions.overridesFor`.
   final Map<DateTime, String> Function(String eventId)? descriptionsFor;
 
+  /// A category's effective profile; null reads
+  /// `CategoryProfiles.effectiveFor`. The guide's demo passes the
+  /// unprofiled one, so the owner's kinds never relabel or drop the demo's
+  /// numbers (a Bill category counts no hours).
+  final EffectiveProfile Function(String categoryId)? profileOf;
+
   const ReportRequest({
     required this.span,
     this.previousSpan,
@@ -96,6 +107,7 @@ final class ReportRequest {
     this.marksFor,
     this.skipsFor,
     this.descriptionsFor,
+    this.profileOf,
   });
 }
 
@@ -115,14 +127,30 @@ class CalendarReportService {
     : _reports = LruCache(maxSize: memoFolds);
 
   final LruCache<_ReportKey, CalendarReport> _reports;
+
+  /// The lookbacks and the lookaheads, one LRU: each key names its window.
+  final LruCache<_LookbackKey, List<ReportSample>> _lookbacks = LruCache(
+    maxSize: AnalyticsMetrics.lastSeenCacheSize,
+  );
   int _foldCount = 0;
+  int _scanCount = 0;
 
   /// Report folds so far — the seam that proves a step back serves the memo
   /// and a presence mark folds once.
   int get foldCount => _foldCount;
 
-  /// Drops the memo; [foldCount] keeps counting.
-  void clear() => _reports.clear();
+  /// Range scans so far — the span's, the previous span's, and per category
+  /// that has a target or reads a gap (R) one lookback and, after a past
+  /// span, one lookahead — the cost seam that proves a memo hit and a
+  /// cached window scan nothing.
+  int get scanCount => _scanCount;
+
+  /// Drops the memo and the lookbacks; [foldCount] and [scanCount] keep
+  /// counting.
+  void clear() {
+    _reports.clear();
+    _lookbacks.clear();
+  }
 
   /// The report [request] asks for, from the memo when nothing it reads has
   /// moved. A miss costs one sampling and one fold of the span, and one
@@ -132,7 +160,8 @@ class CalendarReportService {
       request.isMissed == null &&
           request.marksFor == null &&
           request.skipsFor == null &&
-          request.descriptionsFor == null,
+          request.descriptionsFor == null &&
+          request.profileOf == null,
       'the memo keys on the calendar\'s revisions, not on readers: a request '
       'with readers folds through sampleInput',
     );
@@ -146,7 +175,7 @@ class CalendarReportService {
     final cached = _reports.get(key);
     if (cached != null) return cached;
     _foldCount++;
-    final report = CalendarReportBuilder.fold(_input(request, window));
+    final report = CalendarReportBuilder.fold(_input(request, window, this));
     _reports.put(key, report);
     return report;
   }
@@ -185,10 +214,20 @@ class CalendarReportService {
     latestYear: CalendarBounds.latest.year,
   );
 
-  static ReportInput _input(ReportRequest request, _Window window) {
+  /// [owner] counts the scans and caches the lookbacks; the unmemoized
+  /// [sampleInput] passes none and resolves them afresh.
+  static ReportInput _input(
+    ReportRequest request,
+    _Window window, [
+    CalendarReportService? owner,
+  ]) {
     final scoped = _Scoped.of(request);
     final previousCounted = window.previousCounted;
-    final samples = _samples(scoped, window.span, window.today);
+    final samples = _samples(scoped, window.span, window.today, owner);
+    final cancelled = _cancelled(scoped, window);
+    final (:workingDays, :publicHolidays) = _workingDays(window.span);
+    final lookback = _lookback(scoped, window, owner);
+    final lookahead = _lookahead(scoped, window, owner);
     return ReportInput(
       span: window.span,
       today: window.today,
@@ -197,14 +236,184 @@ class CalendarReportService {
       categoryOf: scoped.categoryOf,
       samples: samples,
       overrides: scoped.overrides,
-      skippedDays: _skippedDays(scoped, window),
+      skippedDays: cancelled.length,
       categoryOrder: [for (final c in CalendarCategories.all) c.id],
       previousSpan: window.previousSpan,
       previousCounted: previousCounted,
       previousTotals: previousCounted == null
           ? null
-          : _previousTotals(scoped, previousCounted, window),
+          : _previousTotals(scoped, previousCounted, window, owner),
+      profiles: scoped.profiles,
+      cancelled: cancelled,
+      money: _money(scoped),
+      lastSeenBefore: _lastSeenBefore(scoped, lookback),
+      lookback: lookback,
+      lookahead: lookahead,
+      workingDays: workingDays,
+      publicHolidays: publicHolidays,
     );
+  }
+
+  /// Each scoped event's linked note's net, for the notes whose ledger is
+  /// cached (P): read, never recomputed; no ledger service, no money.
+  static Map<String, int> _money(_Scoped scoped) {
+    final ledger = NoteMoneyLedgerService.instanceOrNull;
+    if (ledger == null) return const {};
+    return {
+      for (final event in scoped.byId.values)
+        if (event.noteId case final noteId?)
+          event.id: ?ledger.ledgerFor(noteId)?.net,
+    };
+  }
+
+  /// The span's working days and public holidays (T). [PublicHolidays] is
+  /// pure Dart, so the caption's facts cost one walk of at most a year.
+  static ({int workingDays, int publicHolidays}) _workingDays(DateRange span) {
+    var working = 0;
+    var holidays = 0;
+    for (
+      var day = span.start;
+      !day.isAfter(span.end);
+      day = DateTime.utc(day.year, day.month, day.day + 1)
+    ) {
+      final holiday = PublicHolidays.isHoliday(day);
+      if (holiday) holidays++;
+      if (!holiday && day.weekday <= DateTime.friday) working++;
+    }
+    return (workingDays: working, publicHolidays: holidays);
+  }
+
+  /// Whether [profile] reads how long ago its category was last kept — the
+  /// categories that pay for a lookback (R).
+  static bool _readsGap(EffectiveProfile profile) =>
+      profile.primary == ReportMeasure.lastSeen ||
+      profile.secondary.contains(ReportMeasure.lastSeen) ||
+      profile.target?.kind == TargetKind.maxGap;
+
+  /// Whether [profile] pays for a lookback (R): a goal reads its streak and
+  /// a period starting before the span from it, a gap its last kept day.
+  static bool _readsLookback(EffectiveProfile profile) =>
+      profile.target != null || _readsGap(profile);
+
+  /// The kept and missed samples of the [AnalyticsMetrics.lookbackDays]
+  /// before the span, never past today, of every category that has a target
+  /// or reads a gap — one scan per category, whichever it does, cached in
+  /// [owner] so a step ◄ ► never rescans.
+  static Map<String, List<ReportSample>> _lookback(
+    _Scoped scoped,
+    _Window window,
+    CalendarReportService? owner,
+  ) {
+    final start = window.span.start;
+    final dayBefore = DateTime.utc(start.year, start.month, start.day - 1);
+    return _windowSamples(
+      scoped,
+      window,
+      owner,
+      from: DateTime.utc(
+        start.year,
+        start.month,
+        start.day - AnalyticsMetrics.lookbackDays,
+      ),
+      to: dayBefore.isAfter(window.today) ? window.today : dayBefore,
+    );
+  }
+
+  /// The kept and missed samples after a past span, `span.end + 1` to
+  /// today, of the categories [_lookback] scans — what a Last-month report
+  /// needs to know a category was kept since and to value a goal period
+  /// running past the span's end. Nothing when the span reaches today.
+  static Map<String, List<ReportSample>> _lookahead(
+    _Scoped scoped,
+    _Window window,
+    CalendarReportService? owner,
+  ) {
+    final end = window.span.end;
+    if (!end.isBefore(window.today)) return const {};
+    return _windowSamples(
+      scoped,
+      window,
+      owner,
+      from: DateTime.utc(end.year, end.month, end.day + 1),
+      to: window.today,
+    );
+  }
+
+  /// One scan per category that has a target or reads a gap over `from ..
+  /// to`, cached in [owner] under a key naming the window.
+  static Map<String, List<ReportSample>> _windowSamples(
+    _Scoped scoped,
+    _Window window,
+    CalendarReportService? owner, {
+    required DateTime from,
+    required DateTime to,
+  }) {
+    final result = <String, List<ReportSample>>{};
+    for (final MapEntry(key: categoryId, value: profile)
+        in scoped.profiles.entries) {
+      if (!_readsLookback(profile)) continue;
+      final key = _LookbackKey(categoryId, from, to, window.scope);
+      var found = owner?._lookbacks.get(key);
+      if (found == null) {
+        found = _lookbackOf(scoped, categoryId, from, to, window.today);
+        owner?._scanCount++;
+        owner?._lookbacks.put(key, found);
+      }
+      result[categoryId] = found;
+    }
+    return result;
+  }
+
+  /// The last kept day before the span of every category that reads a gap,
+  /// from its [lookback] — present only where one was found.
+  static Map<String, DateTime> _lastSeenBefore(
+    _Scoped scoped,
+    Map<String, List<ReportSample>> lookback,
+  ) {
+    final result = <String, DateTime>{};
+    for (final MapEntry(key: categoryId, value: samples) in lookback.entries) {
+      if (!_readsGap(scoped.profiles[categoryId]!)) continue;
+      for (final sample in samples.reversed) {
+        if (sample.missed) continue;
+        result[categoryId] = sample.day;
+        break;
+      }
+    }
+    return result;
+  }
+
+  /// The samples in `from .. to` of [categoryId]'s events, oldest first:
+  /// cancelled days and today's unmarked tracked day left out, a tracked
+  /// day flagged when missed.
+  static List<ReportSample> _lookbackOf(
+    _Scoped scoped,
+    String categoryId,
+    DateTime from,
+    DateTime to,
+    DateTime today,
+  ) {
+    if (to.isBefore(from)) return const [];
+    final occurrences = EventAgenda.occurrencesInRange(
+      events: [
+        for (final event in scoped.byId.values)
+          if (scoped.categoryOf[event.id] == categoryId) event,
+      ],
+      from: from,
+      to: to,
+    );
+    return List.unmodifiable([
+      for (final EventOccurrence(:event, :day) in occurrences)
+        if (!EventSkips.appliesTo(event) ||
+            !scoped.skipsFor(event.id).contains(day))
+          if (!EventPresence.appliesTo(event))
+            ReportSample(eventId: event.id, day: day)
+          else if (day != today || scoped.marksFor(event.id)[today] != null)
+            ReportSample(
+              eventId: event.id,
+              day: day,
+              missed: scoped.isMissed(event, day),
+            ),
+    ]);
   }
 
   /// The previous span's totals over [counted] alone — the same numbers as
@@ -218,8 +427,9 @@ class CalendarReportService {
     _Scoped scoped,
     DateRange counted,
     _Window window,
+    CalendarReportService? owner,
   ) {
-    final samples = _samples(scoped, counted, window.today);
+    final samples = _samples(scoped, counted, window.today, owner);
     return CalendarReportBuilder.foldTotals(
       counted: counted,
       events: scoped.byId,
@@ -230,6 +440,8 @@ class CalendarReportService {
             ]
           : samples,
       overrides: scoped.overrides,
+      categoryOf: scoped.categoryOf,
+      profiles: scoped.profiles,
     );
   }
 
@@ -243,7 +455,9 @@ class CalendarReportService {
     _Scoped scoped,
     DateRange range,
     DateTime today,
+    CalendarReportService? owner,
   ) {
+    owner?._scanCount++;
     final occurrences = EventAgenda.occurrencesInRange(
       events: scoped.all,
       from: range.start,
@@ -277,25 +491,23 @@ class CalendarReportService {
   }
 
   /// Skipped days in the counted range, never one after today — what the
-  /// caption describes. A skip counts only where the rule still produces the
-  /// day: a skip row outlives a rule change, and a cancelled Monday of a
-  /// routine moved to Tuesdays skipped nothing.
-  static int _skippedDays(_Scoped scoped, _Window window) {
+  /// caption describes, and what Cancelled folds per category. A skip counts
+  /// only where the rule still produces the day: a skip row outlives a rule
+  /// change, and a cancelled Monday of a routine moved to Tuesdays skipped
+  /// nothing.
+  static List<ReportSample> _cancelled(_Scoped scoped, _Window window) {
     final counted = window.counted;
     final end = counted.end.isAfter(window.today) ? window.today : counted.end;
-    if (end.isBefore(counted.start)) return 0;
-    var skipped = 0;
-    for (final event in scoped.byId.values) {
-      if (!EventSkips.appliesTo(event)) continue;
-      for (final day in scoped.skipsFor(event.id)) {
-        if (!day.isBefore(counted.start) &&
-            !day.isAfter(end) &&
-            event.wouldOccurOnUtcDay(day)) {
-          skipped++;
-        }
-      }
-    }
-    return skipped;
+    if (end.isBefore(counted.start)) return const [];
+    return [
+      for (final event in scoped.byId.values)
+        if (EventSkips.appliesTo(event))
+          for (final day in scoped.skipsFor(event.id))
+            if (!day.isBefore(counted.start) &&
+                !day.isAfter(end) &&
+                event.wouldOccurOnUtcDay(day))
+              ReportSample(eventId: event.id, day: day),
+    ];
   }
 }
 
@@ -372,6 +584,8 @@ final class _Window {
         events: _Same(request.events),
         categoriesRevision: CalendarCategories.revision,
         holidaysRevision: PublicHolidays.revision,
+        profilesRevision: CategoryProfiles.revision,
+        ledgerRevision: NoteMoneyLedgerService.instanceOrNull?.revision ?? -1,
       ),
     );
   }
@@ -410,6 +624,10 @@ final class _Scoped {
   /// that hold still the same way (the guide's demo hands copies).
   final Map<String, Map<DateTime, String>> overrides;
 
+  /// Every resolved category's effective profile, unprofiled ones included,
+  /// so the builder never consults [CategoryProfiles].
+  final Map<String, EffectiveProfile> profiles;
+
   /// The request's readers, each the static facade's where it passed none.
   final bool Function(CalendarEvent event, DateTime dayUtc) isMissed;
   final Map<DateTime, PresenceStatus> Function(String eventId) marksFor;
@@ -421,6 +639,7 @@ final class _Scoped {
     required this.byId,
     required this.categoryOf,
     required this.overrides,
+    required this.profiles,
     required this.isMissed,
     required this.marksFor,
     required this.skipsFor,
@@ -431,12 +650,16 @@ final class _Scoped {
     final byId = <String, CalendarEvent>{};
     final categoryOf = <String, String>{};
     final overrides = <String, Map<DateTime, String>>{};
+    final profiles = <String, EffectiveProfile>{};
     final textsFor =
         request.descriptionsFor ?? OccurrenceDescriptions.overridesFor;
+    final profileOf = request.profileOf ?? CategoryProfiles.effectiveFor;
     for (final event in request.events) {
       if (!EventAgenda.passesEventFilters(event, categoryIds: ids)) continue;
       byId[event.id] = event;
-      categoryOf[event.id] = CalendarCategories.resolve(event.categoryId).id;
+      final categoryId = CalendarCategories.resolve(event.categoryId).id;
+      categoryOf[event.id] = categoryId;
+      profiles[categoryId] ??= profileOf(categoryId);
       if (OccurrenceDescriptions.appliesTo(event)) {
         final texts = textsFor(event.id);
         if (texts.isNotEmpty) {
@@ -450,6 +673,7 @@ final class _Scoped {
       byId: byId,
       categoryOf: categoryOf,
       overrides: overrides,
+      profiles: profiles,
       isMissed: request.isMissed ?? EventPresence.isMissed,
       marksFor: request.marksFor ?? EventPresence.marksFor,
       skipsFor: request.skipsFor ?? EventSkips.daysFor,
@@ -463,7 +687,10 @@ final class _Scoped {
 /// catalogue's and the holidays' revisions: an event's create, edit or delete
 /// builds a fresh `allEvents` and bumps no counter, a category's change
 /// re-resolves `categoryOf` without touching an event, and the holiday set
-/// moves the workday and holiday-only rules with no bloc event at all.
+/// moves the workday and holiday-only rules with no bloc event at all. The
+/// profiles' and the ledger's revisions the same way: a profile edit changes
+/// what is counted, and a linked note's edit its money, with no event row
+/// touched.
 final class _Scope extends Equatable {
   final List<String> categoryIds;
   final int occurrenceRevision;
@@ -473,6 +700,10 @@ final class _Scope extends Equatable {
   final _Same events;
   final int categoriesRevision;
   final int holidaysRevision;
+  final int profilesRevision;
+
+  /// -1 while no ledger service exists, so its first load misses.
+  final int ledgerRevision;
 
   const _Scope({
     required this.categoryIds,
@@ -483,6 +714,8 @@ final class _Scope extends Equatable {
     required this.events,
     required this.categoriesRevision,
     required this.holidaysRevision,
+    required this.profilesRevision,
+    required this.ledgerRevision,
   });
 
   @override
@@ -493,6 +726,51 @@ final class _Scope extends Equatable {
     presenceRevision,
     today,
     events,
+    categoriesRevision,
+    holidaysRevision,
+    profilesRevision,
+    ledgerRevision,
+  ];
+}
+
+/// One category's lookback or lookahead (R): what the scan reads — the
+/// category, the window's first and last day, the events, their memberships
+/// and marks, the profiles and the catalogue — and never the descriptions or
+/// the ledger, so a text edit refolds the report without rescanning the year.
+final class _LookbackKey extends Equatable {
+  final String categoryId;
+  final DateTime from;
+  final DateTime to;
+  final List<String> categoryIds;
+  final DateTime today;
+  final _Same events;
+  final int membershipRevision;
+  final int presenceRevision;
+  final int profilesRevision;
+  final int categoriesRevision;
+  final int holidaysRevision;
+
+  _LookbackKey(this.categoryId, this.from, this.to, _Scope scope)
+    : categoryIds = scope.categoryIds,
+      today = scope.today,
+      events = scope.events,
+      membershipRevision = scope.membershipRevision,
+      presenceRevision = scope.presenceRevision,
+      profilesRevision = scope.profilesRevision,
+      categoriesRevision = scope.categoriesRevision,
+      holidaysRevision = scope.holidaysRevision;
+
+  @override
+  List<Object?> get props => [
+    categoryId,
+    from,
+    to,
+    categoryIds,
+    today,
+    events,
+    membershipRevision,
+    presenceRevision,
+    profilesRevision,
     categoriesRevision,
     holidaysRevision,
   ];

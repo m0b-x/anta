@@ -53,6 +53,21 @@ class NoteMoneyLedgerService {
     _instance = null;
   }
 
+  /// Installs [ledgers] as the cached summaries, with no repository behind
+  /// them, and bumps [revision] — the report suites' seam, whose folds read
+  /// [instanceOrNull] and need no database. [reset] removes it.
+  @visibleForTesting
+  static NoteMoneyLedgerService seedForTesting(
+    Map<String, ({int balance, int net, String title})> ledgers,
+  ) {
+    final service = _instance ?? NoteMoneyLedgerService._();
+    service._ledgers
+      ..clear()
+      ..addAll(ledgers);
+    service._revision++;
+    return _instance = service;
+  }
+
   /// Synchronous access for the pure day-bar / day-summary providers,
   /// which cannot await [getInstance] from build-time code.
   static NoteMoneyLedgerService? get instanceOrNull => _instance;

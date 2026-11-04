@@ -1,6 +1,9 @@
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:anta/constants/analytics_metrics.dart';
 import 'package:anta/constants/calendar_categories.dart';
+import 'package:anta/constants/category_kinds.dart';
+import 'package:anta/constants/category_profiles.dart';
 import 'package:anta/constants/event_presence.dart';
 import 'package:anta/constants/event_skips.dart';
 import 'package:anta/constants/occurrence_descriptions.dart';
@@ -9,10 +12,13 @@ import 'package:anta/models/calendar_appearance.dart';
 import 'package:anta/models/calendar_category.dart';
 import 'package:anta/models/calendar_event.dart';
 import 'package:anta/models/calendar_report.dart';
+import 'package:anta/models/category_profile.dart';
 import 'package:anta/models/date_range.dart';
 import 'package:anta/models/recurrence_rule.dart';
 import 'package:anta/services/calendar_report_service.dart';
+import 'package:anta/services/note_money_ledger_service.dart';
 import 'package:anta/utils/calendar_report_builder.dart';
+import 'package:anta/utils/event_agenda.dart';
 
 /// The service is the boundary between the live facades and the pure fold,
 /// so the risks are what crosses it — one sample per occurrence, the missed
@@ -888,6 +894,506 @@ void main() {
       final hours = tile(report, ReportTile.hours);
       expect(hours.value, 30 * 60);
       expect(hours.previous, 31 * 60);
+    });
+  });
+
+  // The analytics facts (S2a-i): what the service resolves so the builder
+  // reads no facade — profiles, cancelled days, money, the lookback, the
+  // working days — and what each costs in scans.
+  group('the analytics facts', () {
+    final today = day(2026, 10, 30);
+    final august = span(day(2026, 8, 1), day(2026, 8, 31));
+    final july = span(day(2026, 7, 1), day(2026, 7, 31));
+    final june = span(day(2026, 6, 1), day(2026, 6, 30));
+    final daily = ev(
+      'd',
+      'gym',
+      day(2026, 1, 1),
+      rule: const DailyRecurrence(),
+      tracked: true,
+    );
+    final service = ev('service', 'other', day(2026, 5, 10));
+
+    CategoryProfile profile(String categoryId, CategoryKind kind) =>
+        CategoryProfile(
+          id: 'p-$categoryId',
+          categoryId: categoryId,
+          kind: kind,
+        );
+
+    ReportRequest augustAsked(
+      List<CalendarEvent> events, {
+      int occurrenceRevision = 0,
+    }) => request(
+      span: august,
+      previousSpan: july,
+      events: events,
+      today: today,
+      occurrenceRevision: occurrenceRevision,
+    );
+
+    tearDown(() {
+      CategoryProfiles.resetCache();
+      NoteMoneyLedgerService.reset();
+    });
+
+    test('every scoped category resolves its profile, unprofiled too', () {
+      CategoryProfiles.updateCache({
+        'gym': profile('gym', CategoryKind.workout),
+      });
+      final input = CalendarReportService.sampleInput(
+        augustAsked([daily, service, ev('lost', 'gone', day(2026, 8, 9))]),
+      );
+      expect(input.profiles.keys, unorderedEquals(['gym', 'other']));
+      expect(input.profiles['gym']!.kind, CategoryKind.workout);
+      expect(input.profiles['other'], EffectiveProfile.unprofiled);
+    });
+
+    test('the skipped days counted arrive as cancelled samples', () {
+      EventSkips.updateCache(
+        byEvent: {
+          'd': {day(2026, 8, 5), day(2026, 8, 20)},
+        },
+      );
+      final input = CalendarReportService.sampleInput(augustAsked([daily]));
+      expect(input.skippedDays, 2);
+      expect(
+        [for (final s in input.cancelled) (s.eventId, s.day)],
+        [('d', day(2026, 8, 5)), ('d', day(2026, 8, 20))],
+      );
+      expect(input.samples.where((s) => s.day == day(2026, 8, 5)), isEmpty);
+    });
+
+    test('money reads the cached ledgers of the linked notes', () {
+      final events = [
+        ev('shop', 'other', day(2026, 8, 3)).copyWith(noteId: 'n1'),
+        ev('lunch', 'other', day(2026, 8, 4)).copyWith(noteId: 'n2'),
+        ev('walk', 'other', day(2026, 8, 5)),
+      ];
+      expect(
+        CalendarReportService.sampleInput(augustAsked(events)).money,
+        isEmpty,
+        reason: 'no ledger service, no money',
+      );
+      NoteMoneyLedgerService.seedForTesting({
+        'n1': (balance: 0, net: -1500, title: 'Shop'),
+      });
+      expect(CalendarReportService.sampleInput(augustAsked(events)).money, {
+        'shop': -1500,
+      });
+      final measures = CalendarReportService().report(augustAsked(events));
+      expect(measures.measures['other']!.spentCents, 1500);
+    });
+
+    test('working days leave out weekends and public holidays (T)', () {
+      PublicHolidays.resetCache();
+      ({int working, int holidays}) of(DateRange over) {
+        final input = CalendarReportService.sampleInput(
+          request(span: over, events: [daily], today: today),
+        );
+        return (working: input.workingDays, holidays: input.publicHolidays);
+      }
+
+      // 1 May 2026 is a Friday; 15 August a Saturday.
+      expect(of(span(day(2026, 5, 1), day(2026, 5, 31))), (
+        working: 20,
+        holidays: 1,
+      ));
+      expect(of(august), (working: 21, holidays: 1));
+      final report = CalendarReportService().report(augustAsked([daily]));
+      expect((report.workingDays, report.publicHolidays), (21, 1));
+    });
+
+    test('the lookback finds the last kept day before the span', () {
+      final missed = ev('oil', 'other', day(2026, 6, 10), tracked: true);
+      final cancelled = ev('tyres', 'other', day(2026, 7, 1));
+      EventPresence.updateCache(
+        byEvent: {
+          'oil': {day(2026, 6, 10): PresenceStatus.missed},
+        },
+      );
+      EventSkips.updateCache(
+        byEvent: {
+          'tyres': {day(2026, 7, 1)},
+        },
+      );
+      final events = [daily, service, missed, cancelled];
+      expect(
+        CalendarReportService.sampleInput(augustAsked(events)).lastSeenBefore,
+        isEmpty,
+        reason: 'no category reads a gap',
+      );
+      CategoryProfiles.updateCache({
+        'other': profile('other', CategoryKind.maintenance),
+      });
+      expect(
+        CalendarReportService.sampleInput(augustAsked(events)).lastSeenBefore,
+        {'other': day(2026, 5, 10)},
+      );
+      final other = CalendarReportService()
+          .report(augustAsked(events))
+          .measures['other']!;
+      expect((other.lastSeenDay, other.lastSeenDays), (day(2026, 5, 10), 173));
+      expect(other.primary, ReportMeasure.lastSeen);
+    });
+
+    test('a fold scans its span and its previous span, a memo hit none', () {
+      final events = [daily];
+      final reports = CalendarReportService();
+      reports.report(augustAsked(events));
+      expect(reports.scanCount, 2);
+      reports.report(augustAsked(events));
+      expect(reports.scanCount, 2);
+      reports.report(request(span: june, events: events, today: today));
+      expect(reports.scanCount, 3, reason: 'no previous span, one scan');
+    });
+
+    test('a category that reads a gap adds one lookback, and after a past '
+        'span one lookahead, cached', () {
+      CategoryProfiles.updateCache({
+        'other': profile('other', CategoryKind.maintenance),
+      });
+      final events = [daily, service];
+      final reports = CalendarReportService();
+      reports.report(augustAsked(events));
+      expect(reports.scanCount, 4, reason: 'August is past: 2 + 2');
+      reports.report(augustAsked(events));
+      expect((reports.foldCount, reports.scanCount), (1, 4));
+      // A description edit refolds the span; the windows are unchanged.
+      reports.report(augustAsked(events, occurrenceRevision: 1));
+      expect((reports.foldCount, reports.scanCount), (2, 6));
+      reports.report(
+        request(span: july, previousSpan: june, events: events, today: today),
+      );
+      expect((reports.foldCount, reports.scanCount), (3, 10));
+      reports.report(augustAsked(events, occurrenceRevision: 1));
+      expect((reports.foldCount, reports.scanCount), (3, 10), reason: '◄ ►');
+    });
+
+    test('a profile change refolds once', () {
+      final events = [daily];
+      final reports = CalendarReportService();
+      reports.report(augustAsked(events));
+      CategoryProfiles.updateCache({
+        'gym': profile('gym', CategoryKind.workout),
+      });
+      reports.report(augustAsked(events));
+      reports.report(augustAsked(events));
+      expect(reports.foldCount, 2);
+    });
+
+    test('a ledger change refolds once', () {
+      final events = [daily];
+      final reports = CalendarReportService();
+      reports.report(augustAsked(events));
+      NoteMoneyLedgerService.seedForTesting(const {});
+      reports.report(augustAsked(events));
+      reports.report(augustAsked(events));
+      expect(reports.foldCount, 2);
+    });
+
+    test('the guide\'s path folds what the memo folds', () {
+      final asked = augustAsked([daily, service]);
+      final folded = CalendarReportBuilder.fold(
+        CalendarReportService.sampleInput(asked),
+      );
+      expect(folded, CalendarReportService().report(asked));
+      expect(folded.measures.keys, unorderedEquals(['gym', 'other']));
+    });
+
+    // The goals' lookback (S2a-ii): the same one scan per category, now also
+    // for a target, handing over its samples.
+    const weekly3 = ReportTarget(
+      kind: TargetKind.atLeast,
+      value: 3,
+      period: TargetPeriod.week,
+    );
+
+    test('the lookback reads the scan\'s cap', () {
+      expect(AnalyticsMetrics.lookbackDays, EventAgenda.maxRangeDays);
+    });
+
+    test('a target\'s lookback hands over its kept and missed samples', () {
+      EventPresence.updateCache(
+        byEvent: {
+          'd': {day(2026, 7, 15): PresenceStatus.missed},
+        },
+      );
+      EventSkips.updateCache(
+        byEvent: {
+          'd': {day(2026, 7, 20)},
+        },
+      );
+      CategoryProfiles.updateCache({
+        'gym': profile('gym', CategoryKind.workout).copyWith(target: weekly3),
+      });
+      final asked = augustAsked([daily, service]);
+      final input = CalendarReportService.sampleInput(asked);
+      expect(input.lookback.keys, ['gym']);
+      final gym = input.lookback['gym']!;
+      expect(
+        (gym.first.day, gym.last.day),
+        (day(2026, 1, 1), day(2026, 7, 31)),
+      );
+      expect(gym.length, 211, reason: '1 January to 31 July, the skip out');
+      expect(
+        [
+          for (final s in gym)
+            if (s.missed) s.day,
+        ],
+        [day(2026, 7, 15)],
+      );
+      expect(input.lastSeenBefore, isEmpty, reason: 'a target reads no gap');
+
+      final goal = CalendarReportService().report(asked).goals.single;
+      expect(goal.periods.first.start, day(2026, 7, 27));
+      expect(goal.periods.first.value, 7, reason: 'five days of July');
+      // Every week from that of 1 January to that of 31 August kept three —
+      // the last valued past the span's end from the lookahead.
+      expect(goal.streak, 36);
+    });
+
+    test('a gap that is also a target derives its last-seen from the one '
+        'lookback', () {
+      CategoryProfiles.updateCache({
+        'other': profile('other', CategoryKind.maintenance).copyWith(
+          target: const ReportTarget(kind: TargetKind.maxGap, value: 90),
+        ),
+      });
+      final input = CalendarReportService.sampleInput(
+        augustAsked([daily, service]),
+      );
+      expect(input.lastSeenBefore, {'other': day(2026, 5, 10)});
+      expect(
+        [for (final s in input.lookback['other']!) s.day],
+        [day(2026, 5, 10)],
+      );
+      final goal = CalendarReportService()
+          .report(augustAsked([daily, service]))
+          .goals
+          .single;
+      expect((goal.gap!.daysSince, goal.gap!.state), (173, GapState.overdue));
+    });
+
+    test('one lookback per category with a target or a gap, cached', () {
+      CategoryProfiles.updateCache({
+        'gym': profile('gym', CategoryKind.workout).copyWith(target: weekly3),
+        'other': profile('other', CategoryKind.maintenance).copyWith(
+          target: const ReportTarget(kind: TargetKind.maxGap, value: 90),
+        ),
+      });
+      final events = [daily, service];
+      final reports = CalendarReportService();
+      reports.report(augustAsked(events));
+      expect(
+        reports.scanCount,
+        6,
+        reason:
+            'the span, the previous span, and per category one lookback '
+            'and, August being past, one lookahead',
+      );
+      reports.report(augustAsked(events));
+      expect((reports.foldCount, reports.scanCount), (1, 6));
+      reports.report(
+        request(span: july, previousSpan: june, events: events, today: today),
+      );
+      expect((reports.foldCount, reports.scanCount), (2, 12));
+      reports.report(augustAsked(events));
+      expect((reports.foldCount, reports.scanCount), (2, 12), reason: '◄ ►');
+      reports.report(augustAsked(events, occurrenceRevision: 1));
+      expect(
+        (reports.foldCount, reports.scanCount),
+        (3, 14),
+        reason: 'a description edit rescans the spans, never the windows',
+      );
+    });
+
+    // The S2a fix pass: the days after a past span, what the windows key
+    // on, the guide's profiles and an Expiry left unrenewed.
+    final september = span(day(2026, 9, 1), day(2026, 9, 30));
+    final october = span(day(2026, 10, 1), day(2026, 10, 31));
+
+    test('a past span hands over the days after it to today; a current '
+        'span none', () {
+      EventSkips.updateCache(
+        byEvent: {
+          'd': {day(2026, 9, 10)},
+        },
+      );
+      CategoryProfiles.updateCache({
+        'gym': profile('gym', CategoryKind.workout).copyWith(target: weekly3),
+        'other': profile('other', CategoryKind.maintenance),
+      });
+      final tyres = ev('tyres', 'other', day(2026, 10, 20));
+      final events = [daily, service, tyres];
+      final input = CalendarReportService.sampleInput(augustAsked(events));
+      expect(input.lookahead.keys, unorderedEquals(['gym', 'other']));
+      final gym = input.lookahead['gym']!;
+      expect(
+        (gym.first.day, gym.last.day, gym.length),
+        (day(2026, 9, 1), day(2026, 10, 29), 58),
+        reason: 'the skip and today\'s pending day out',
+      );
+      expect(
+        [for (final s in input.lookahead['other']!) s.day],
+        [day(2026, 10, 20)],
+      );
+      final other = CalendarReportService()
+          .report(augustAsked(events))
+          .measures['other']!;
+      expect((other.lastSeenDay, other.lastSeenDays), (day(2026, 10, 20), 10));
+
+      final current = request(
+        span: october,
+        previousSpan: september,
+        events: events,
+        today: today,
+      );
+      expect(CalendarReportService.sampleInput(current).lookahead, isEmpty);
+      final reports = CalendarReportService();
+      reports.report(current);
+      expect(
+        reports.scanCount,
+        4,
+        reason: 'a current span: the two spans and one lookback each',
+      );
+    });
+
+    test('a presence or a membership bump rescans the lookback; a '
+        'description edit never', () {
+      CategoryProfiles.updateCache({
+        'other': profile('other', CategoryKind.maintenance),
+      });
+      final events = [daily, service];
+      ReportRequest asked({
+        int occurrence = 0,
+        int presence = 0,
+        int membership = 0,
+      }) => request(
+        span: october,
+        previousSpan: september,
+        events: events,
+        today: today,
+        occurrenceRevision: occurrence,
+        presenceRevision: presence,
+        membershipRevision: membership,
+      );
+      final reports = CalendarReportService();
+      reports.report(asked());
+      expect(reports.scanCount, 3);
+      reports.report(asked(occurrence: 1));
+      expect(reports.scanCount, 5, reason: 'the two spans alone');
+      reports.report(asked(occurrence: 1, presence: 1));
+      expect(reports.scanCount, 8, reason: 'a mark moves what was kept');
+      reports.report(asked(occurrence: 1, presence: 1, membership: 1));
+      expect(reports.scanCount, 11, reason: 'a skip moves what occurred');
+    });
+
+    test('the streak\'s first period is the first event\'s partial week', () {
+      // Wednesday 14 October: its week holds five of the event's days.
+      final gym = ev(
+        'g',
+        'gym',
+        day(2026, 10, 14),
+        rule: const DailyRecurrence(),
+        tracked: true,
+      );
+      int streakFor(int perWeek) {
+        CategoryProfiles.updateCache({
+          'gym': profile('gym', CategoryKind.workout).copyWith(
+            target: ReportTarget(
+              kind: TargetKind.atLeast,
+              value: perWeek,
+              period: TargetPeriod.week,
+            ),
+          ),
+        });
+        return CalendarReportService()
+            .report(
+              request(
+                span: span(day(2026, 10, 26), day(2026, 11, 1)),
+                events: [gym],
+                today: today,
+              ),
+            )
+            .goals
+            .single
+            .streak;
+      }
+
+      expect(streakFor(5), 2, reason: '5 of 12–18 October, then 7');
+      expect(streakFor(6), 1, reason: 'the partial week missed six');
+    });
+
+    test('an Expiry unmarked past its day is overdue (analytics AN)', () {
+      expect(CategoryKinds.of(CategoryKind.expiry).assumeAbsentNew, isTrue);
+      CategoryProfiles.updateCache({
+        'other': profile('other', CategoryKind.expiry),
+      });
+      expect(CategoryProfiles.effectiveFor('other').assumeAbsentNew, isTrue);
+      // As the editor pre-fills a new event from its kind.
+      final passport = ev(
+        'passport',
+        'other',
+        day(2026, 10, 20),
+        tracked: true,
+        assumeAbsent: true,
+      );
+      final report = CalendarReportService().report(
+        request(span: october, events: [passport], today: today),
+      );
+      expect(
+        [for (final r in report.dueSoon) (r.eventId, r.state, r.kind, r.days)],
+        [('passport', ReportDueState.overdue, ReportDueKind.expiry, 10)],
+      );
+    });
+
+    test('the guide\'s profile reader folds the demo unprofiled', () {
+      CategoryProfiles.updateCache({
+        'gym': profile('gym', CategoryKind.bill).copyWith(
+          target: const ReportTarget(
+            kind: TargetKind.budget,
+            value: 10000,
+            period: TargetPeriod.month,
+          ),
+        ),
+      });
+      final run = ev(
+        'run',
+        'gym',
+        day(2026, 8, 3),
+        time: const EventTime(startMinute: 7 * 60, durationMinutes: 45),
+      );
+      ReportRequest asked(EffectiveProfile Function(String)? profileOf) =>
+          ReportRequest(
+            span: august,
+            events: [run],
+            today: today,
+            weekStart: CalendarWeekStart.monday,
+            profileOf: profileOf,
+          );
+      final owners = CalendarReportBuilder.fold(
+        CalendarReportService.sampleInput(asked(null)),
+      );
+      expect(owners.goals, hasLength(1));
+      expect(
+        owners.tiles.where((t) => t.tile == ReportTile.hours),
+        isEmpty,
+        reason: 'a Bill counts no hours',
+      );
+      final demo = CalendarReportBuilder.fold(
+        CalendarReportService.sampleInput(
+          asked((_) => EffectiveProfile.unprofiled),
+        ),
+      );
+      expect(demo.goals, isEmpty);
+      expect(tile(demo, ReportTile.hours).value, 45);
+      expect(
+        () => CalendarReportService().report(
+          asked((_) => EffectiveProfile.unprofiled),
+        ),
+        throwsAssertionError,
+      );
     });
   });
 }

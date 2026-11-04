@@ -184,7 +184,7 @@ final class CategoryKindRow {
 
   /// Whether a new event starts with assume-absent on: an unmarked past day
   /// counts missed. Social is the one marking kind without it — an unmarked
-  /// dinner happened.
+  /// dinner happened; an unmarked Expiry was not renewed.
   final bool assumeAbsentNew;
 
   /// Whether the category's hours count toward the Hours tile and Balance.
@@ -399,6 +399,9 @@ abstract final class CategoryKinds {
       primary: ReportMeasure.daysUntil,
       verb: MarkVerb.renewed,
       marksNew: true,
+      // A passport not marked renewed by its day has expired: unmarked
+      // counts missed, so Due soon lists it overdue (analytics AN).
+      assumeAbsentNew: true,
     ),
     CategoryKindRow(
       kind: CategoryKind.trip,

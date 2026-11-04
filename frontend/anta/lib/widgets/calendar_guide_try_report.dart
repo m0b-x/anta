@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../l10n/app_localizations.dart';
 import '../models/agenda_day_list.dart';
 import '../models/calendar_report.dart';
+import '../models/category_profile.dart';
 import '../models/overview_period.dart';
 import '../services/calendar_report_service.dart';
 import '../utils/calendar_report_builder.dart';
@@ -61,8 +62,9 @@ class GuideReportView extends ChangeNotifier {
   void leave() => _shown = false;
 
   /// One fold of the shown month over the demo's events, read through the
-  /// demo's own marks, skips and texts: the facades hold nothing for a demo
-  /// id, and read through them the report would show no missed day.
+  /// demo's own marks, skips and texts, and no profile: the facades hold
+  /// nothing for a demo id, and read through them the report would show no
+  /// missed day.
   void _fold() {
     final calendar = world.calendar;
     if (calendar == null) return;
@@ -88,6 +90,9 @@ class GuideReportView extends ChangeNotifier {
           marksFor: calendar.marksFor,
           skipsFor: calendar.skipsFor,
           descriptionsFor: calendar.overridesFor,
+          // The demo's categories are the owner's ids: their kinds would
+          // relabel and drop the demo's numbers (a Bill counts no hours).
+          profileOf: (_) => EffectiveProfile.unprofiled,
         ),
       ),
     );

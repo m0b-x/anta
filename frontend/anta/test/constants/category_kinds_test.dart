@@ -48,12 +48,11 @@ void main() {
       expect(seen, hasLength(CategoryKind.values.length));
     });
 
-    test('a marking kind pre-fills presence; only Social and Expiry do not '
-        'assume absent', () {
+    test('a marking kind pre-fills presence; only Social does not assume '
+        'absent', () {
       for (final row in CategoryKinds.all.where((r) => r.verb != null)) {
         expect(row.marksNew, isTrue, reason: '${row.kind}');
-        final noAssume =
-            row.kind == CategoryKind.social || row.kind == CategoryKind.expiry;
+        final noAssume = row.kind == CategoryKind.social;
         expect(row.assumeAbsentNew, !noAssume, reason: '${row.kind}');
       }
     });
@@ -332,7 +331,7 @@ void main() {
           [],
           V.renewed,
           true,
-          false,
+          true,
           false,
           null,
           [],

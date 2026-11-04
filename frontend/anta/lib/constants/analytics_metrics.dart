@@ -12,6 +12,22 @@ abstract final class AnalyticsMetrics {
   /// in a span, not every word ever tagged once.
   static const int tagRows = 8;
 
+  /// Texts whose tags are kept tokenised (§8 "Cost"): the task-count
+  /// cache's size, since a fold reads the same titles, descriptions and
+  /// per-day texts the task counter does.
+  static const int tagCacheSize = 256;
+
+  /// Lookbacks and lookaheads a report service keeps (R): per category that
+  /// has a target or reads a gap and per span the owner steps between, one
+  /// of each on a past span, so a step ◄ ► never rescans a window it
+  /// already scanned.
+  static const int lastSeenCacheSize = 64;
+
+  /// Days before a span the lookback reads (R, §6.6): a year of streak and
+  /// last-seen. `EventAgenda.maxRangeDays`, the one scan's cap — a test pins
+  /// the two equal, since the pure builder cannot import the agenda.
+  static const int lookbackDays = 366;
+
   /// Insights the page shows (§6.7): three sentences read at a glance; more
   /// become a list nobody reads.
   static const int insightsOnPage = 3;

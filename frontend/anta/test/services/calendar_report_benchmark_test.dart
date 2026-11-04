@@ -2,6 +2,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:anta/constants/calendar_categories.dart';
+import 'package:anta/constants/category_kinds.dart';
+import 'package:anta/constants/category_profiles.dart';
 import 'package:anta/constants/event_presence.dart';
 import 'package:anta/constants/event_skips.dart';
 import 'package:anta/constants/occurrence_descriptions.dart';
@@ -9,6 +11,7 @@ import 'package:anta/models/calendar_appearance.dart';
 import 'package:anta/models/calendar_category.dart';
 import 'package:anta/models/calendar_event.dart';
 import 'package:anta/models/calendar_report.dart';
+import 'package:anta/models/category_profile.dart';
 import 'package:anta/models/date_range.dart';
 import 'package:anta/models/recurrence_rule.dart';
 import 'package:anta/services/calendar_report_service.dart';
@@ -36,9 +39,7 @@ void main() {
   final today = DateTime.utc(2026, 10, 30);
   // Early enough that the previous span's fold is as full as the span's.
   final seriesStart = DateTime.utc(2024, 12, 1);
-  final days = [
-    for (var i = 0; i < 366; i++) DateTime.utc(2026, 1, 1 + i),
-  ];
+  final days = [for (var i = 0; i < 366; i++) DateTime.utc(2026, 1, 1 + i)];
   const tasks = '- [x] warm up\n- [ ] sets\n- [ ] stretch';
 
   Set<int> repeatDays(int i) => {i % 7 + 1, (i + 3) % 7 + 1};
@@ -194,25 +195,146 @@ void main() {
     expect(service.foldCount, 1);
   });
 
+  test('every category profiled samples the same and adds one lookback per '
+      'gap category (analytics R)', () {
+    CategoryProfiles.updateCache({
+      for (final (categoryId, kind) in [
+        ('gym', CategoryKind.workout),
+        ('cardio', CategoryKind.study),
+        ('mobility', CategoryKind.chore),
+        ('other', CategoryKind.appointment),
+        ('friends', CategoryKind.social),
+      ])
+        categoryId: CategoryProfile(
+          id: 'p-$categoryId',
+          categoryId: categoryId,
+          kind: kind,
+        ),
+    });
+    addTearDown(CategoryProfiles.resetCache);
+    final events = fixture();
+    final input = CalendarReportService.sampleInput(asked(events));
+    expect(input.samples, hasLength(expectedSamples()));
+    // The repeats ran through 2025; the one-offs are all in the span.
+    expect(input.lastSeenBefore, {'mobility': DateTime.utc(2025, 12, 31)});
+
+    final service = CalendarReportService();
+    final report = service.report(asked(events));
+    expect(report.measures.keys, hasLength(5));
+    // The span, the previous span, and one lookback each for Chore,
+    // Appointment and Social — the three kinds that read Last seen.
+    expect(service.scanCount, 5);
+    expect(service.report(asked(events)), same(report));
+    expect(service.scanCount, 5);
+  });
+
+  test('a 366-day span over fifty events, timed', () {
+    final events = fixture();
+    final service = CalendarReportService();
+    final cold = Stopwatch()..start();
+    service.report(asked(events));
+    cold.stop();
+    final warm = Stopwatch()..start();
+    service.report(asked(events));
+    warm.stop();
+    debugPrint(
+      '\n=== Calendar report, 366 days x 50 events, '
+      '${expectedSamples()} samples, previous year folded ===\n'
+      '  first fold ${cold.elapsedMicroseconds / 1000} ms\n'
+      '  memo hit   ${warm.elapsedMicroseconds / 1000} ms',
+    );
+    expect(cold.elapsedMilliseconds, lessThan(2000));
+    expect(service.foldCount, 1);
+  }, tags: ['benchmark']);
+
+  // The analytics cost bound (§8 "Cost"): every category profiled — a
+  // target or a gap each, so one lookback each, a counts-as, tags in every
+  // title — folds cold within 1.5× of the same fixture unprofiled, both
+  // timed in the same run so the machine cancels out.
   test(
-    'a 366-day span over fifty events, timed',
+    'every category profiled folds within 1.5× of unprofiled, timed',
     () {
-      final events = fixture();
-      final service = CalendarReportService();
-      final cold = Stopwatch()..start();
-      service.report(asked(events));
-      cold.stop();
-      final warm = Stopwatch()..start();
-      service.report(asked(events));
-      warm.stop();
+      final events = [
+        for (final e in fixture())
+          e.copyWith(title: '${e.title} #${e.categoryId} #week${e.id.length}'),
+      ];
+      ReportTarget per(TargetKind kind, int value, TargetPeriod period) =>
+          ReportTarget(kind: kind, value: value, period: period);
+      final profiles = {
+        for (final (categoryId, kind, target, nominal) in [
+          (
+            'gym',
+            CategoryKind.workout,
+            per(TargetKind.atLeast, 3, TargetPeriod.week),
+            null,
+          ),
+          (
+            'cardio',
+            CategoryKind.study,
+            per(TargetKind.atMost, 600, TargetPeriod.week),
+            null,
+          ),
+          (
+            'mobility',
+            CategoryKind.chore,
+            const ReportTarget(kind: TargetKind.maxGap, value: 10),
+            30,
+          ),
+          (
+            'other',
+            CategoryKind.appointment,
+            per(TargetKind.atLeast, 2, TargetPeriod.month),
+            60,
+          ),
+          (
+            'friends',
+            CategoryKind.social,
+            const ReportTarget(kind: TargetKind.maxGap, value: 14),
+            null,
+          ),
+        ])
+          categoryId: CategoryProfile(
+            id: 'p-$categoryId',
+            categoryId: categoryId,
+            kind: kind,
+            nominalMinutes: nominal,
+            target: target,
+          ),
+      };
+      addTearDown(CategoryProfiles.resetCache);
+
+      int coldFold() {
+        final watch = Stopwatch()..start();
+        final report = CalendarReportService().report(asked(events));
+        watch.stop();
+        expect(report.tags, isNotEmpty);
+        return watch.elapsedMicroseconds;
+      }
+
+      // The fastest of many interleaved rounds: noise on a shared machine
+      // only ever adds time, so the minimum is the fold's own cost, where a
+      // median of a few rounds swung the ratio by ±0.1 run to run.
+      int fastest(List<int> values) => (values..sort()).first;
+      final plain = <int>[];
+      final profiled = <int>[];
+      // Three warm-up rounds so neither side pays the JIT alone; then twenty.
+      for (var round = 0; round < 23; round++) {
+        CategoryProfiles.resetCache();
+        final p = coldFold();
+        CategoryProfiles.updateCache(profiles);
+        final q = coldFold();
+        if (round < 3) continue;
+        plain.add(p);
+        profiled.add(q);
+      }
+      final ratio = fastest(profiled) / fastest(plain);
       debugPrint(
-        '\n=== Calendar report, 366 days x 50 events, '
-        '${expectedSamples()} samples, previous year folded ===\n'
-        '  first fold ${cold.elapsedMicroseconds / 1000} ms\n'
-        '  memo hit   ${warm.elapsedMicroseconds / 1000} ms',
+        '\n=== Calendar report, cold fold, profiled vs unprofiled ===\n'
+        '  unprofiled ${fastest(plain) / 1000} ms (fastest of ${plain.length})\n'
+        '  profiled   ${fastest(profiled) / 1000} ms\n'
+        '  ratio      ${ratio.toStringAsFixed(2)}',
       );
-      expect(cold.elapsedMilliseconds, lessThan(2000));
-      expect(service.foldCount, 1);
+      expect(ratio, lessThanOrEqualTo(1.5));
     },
     tags: ['benchmark'],
   );
