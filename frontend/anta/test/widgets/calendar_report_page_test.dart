@@ -343,24 +343,101 @@ void main() {
   });
 
   group('Period menu', () {
-    testWidgets('lists the ten rows by id, no All time', (tester) async {
+    testWidgets('lists the eleven rows by id in order, Last year after This '
+        'year, no All time', (tester) async {
       final robot = await open(tester);
       await robot.openPeriodMenu();
-      for (final id in [
-        SemanticsIds.reportPeriodThisWeek,
-        SemanticsIds.reportPeriodLastWeek,
-        SemanticsIds.reportPeriodNextWeek,
-        SemanticsIds.reportPeriodThisMonth,
-        SemanticsIds.reportPeriodLastMonth,
-        SemanticsIds.reportPeriodNextMonth,
-        SemanticsIds.reportPeriodThisYear,
-        SemanticsIds.reportPeriodLast12Months,
-        SemanticsIds.reportPeriodLast90Days,
-        SemanticsIds.reportPeriodCustom,
-      ]) {
-        expect(robot.byId(id), findsOneWidget, reason: id);
-      }
-      expect(find.byType(FormMenuItemRow), findsNWidgets(10));
+      expect(
+        [
+          for (final row in tester.widgetList<FormMenuItemRow>(
+            find.byType(FormMenuItemRow),
+          ))
+            row.identifier,
+        ],
+        [
+          SemanticsIds.reportPeriodThisWeek,
+          SemanticsIds.reportPeriodLastWeek,
+          SemanticsIds.reportPeriodNextWeek,
+          SemanticsIds.reportPeriodThisMonth,
+          SemanticsIds.reportPeriodLastMonth,
+          SemanticsIds.reportPeriodNextMonth,
+          SemanticsIds.reportPeriodThisYear,
+          SemanticsIds.reportPeriodLastYear,
+          SemanticsIds.reportPeriodLast12Months,
+          SemanticsIds.reportPeriodLast90Days,
+          SemanticsIds.reportPeriodCustom,
+        ],
+      );
+      final lastYear = tester.widget<FormMenuItemRow>(
+        find.byWidgetPredicate(
+          (w) =>
+              w is FormMenuItemRow &&
+              w.identifier == SemanticsIds.reportPeriodLastYear,
+        ),
+      );
+      expect(lastYear.icon, Icons.today_rounded);
+      expect(lastYear.label, robot.l10n.reportPeriodLastYear);
+      await robot.closeMenu();
+    });
+
+    testWidgets('Last year folds the year before; the menu checks it, ◄ / ► '
+        'step years and Today returns to it', (tester) async {
+      // ignore: invalid_use_of_visible_for_testing_member
+      bloc.emit(
+        CalendarPageLoaded(
+          allEvents: [
+            gym,
+            todo,
+            CalendarEvent(
+              id: 'e-run',
+              title: 'Run',
+              categoryId: 'gym',
+              startDate: DateTime.utc(2024, 5, 4),
+              rule: const OneTimeRecurrence(),
+            ),
+          ],
+          focusedDay: today,
+          selectedDay: today,
+        ),
+      );
+      final robot = await open(tester);
+      await robot.openPeriodMenu();
+      await robot.pickPeriod(SemanticsIds.reportPeriodLastYear);
+      expect(robot.nav.title, '2025');
+      expect(
+        (robot.state as ReportShown).period,
+        const OverviewYearPeriod(2025),
+      );
+      await robot.openPeriodMenu();
+      expect(robot.checkedPeriodId, SemanticsIds.reportPeriodLastYear);
+      await robot.closeMenu();
+
+      await robot.tapId(SemanticsIds.reportNavPrevious);
+      expect(robot.nav.title, '2024');
+      await robot.tapId(SemanticsIds.reportNavNext);
+      await robot.tapId(SemanticsIds.reportNavNext);
+      expect(robot.nav.title, '2026');
+      await robot.openPeriodMenu();
+      expect(robot.checkedPeriodId, SemanticsIds.reportPeriodThisYear);
+      await robot.closeMenu();
+
+      await robot.tapId(SemanticsIds.reportNavToday);
+      expect(robot.nav.title, '2025');
+    });
+
+    testWidgets('at the calendar\'s first year Last year is This year, and '
+        'the menu checks This year', (tester) async {
+      // The fixture's events all start in 2026: no year lies before it.
+      final robot = await open(tester);
+      await robot.openPeriodMenu();
+      await robot.pickPeriod(SemanticsIds.reportPeriodLastYear);
+      expect(robot.nav.title, '2026');
+      expect(
+        (robot.state as ReportShown).period,
+        OverviewYearPeriod(today.year),
+      );
+      await robot.openPeriodMenu();
+      expect(robot.checkedPeriodId, SemanticsIds.reportPeriodThisYear);
       await robot.closeMenu();
     });
 
@@ -1336,8 +1413,10 @@ void main() {
       expect(itemIds(tester).last, SemanticsIds.reportCompareView(view.id));
     });
 
-    testWidgets('the period menu keeps its ten rows, 452 dp of them at en '
-        '1.0, with a view saved', (tester) async {
+    testWidgets('the period menu keeps its eleven rows, 496 dp of them at en '
+        '1.0, with a view saved, and never scrolls at 360 × 780', (
+      tester,
+    ) async {
       await saveView(tester, 'Errands');
       final robot = await open(tester);
       await robot.openPeriodMenu();
@@ -1355,6 +1434,7 @@ void main() {
           SemanticsIds.reportPeriodLastMonth,
           SemanticsIds.reportPeriodNextMonth,
           SemanticsIds.reportPeriodThisYear,
+          SemanticsIds.reportPeriodLastYear,
           SemanticsIds.reportPeriodLast12Months,
           SemanticsIds.reportPeriodLast90Days,
           SemanticsIds.reportPeriodCustom,
@@ -1365,11 +1445,14 @@ void main() {
       final surface = tester.getRect(
         find.ancestor(of: rows.first, matching: find.byType(Material)).first,
       );
-      expect(surface.height, closeTo(452, 1));
-      for (var i = 0; i < 10; i++) {
+      expect(surface.height, closeTo(496, 1));
+      for (var i = 0; i < 11; i++) {
         final row = tester.getRect(rows.at(i));
         expect(surface.top <= row.top && row.bottom <= surface.bottom, isTrue);
       }
+      // The whole menu is on the screen: nothing in it waits for a scroll.
+      expect(tester.getRect(rows.first).top, greaterThanOrEqualTo(0));
+      expect(tester.getRect(rows.at(10)).bottom, lessThanOrEqualTo(780));
       await robot.closeMenu();
     });
   });

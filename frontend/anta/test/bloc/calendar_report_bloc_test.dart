@@ -352,6 +352,43 @@ void main() {
     expect(await stored(SettingsKeys.reportPeriod), isNull);
   });
 
+  test('Last year shows the year before and persists This year', () async {
+    final bloc = build(_FakeReportService());
+    addTearDown(bloc.close);
+    // A run in 2025 reaches the calendar's first year back to it.
+    final run = CalendarEvent(
+      id: 'run',
+      title: 'Run',
+      categoryId: 'gym',
+      startDate: DateTime.utc(2025, 3, 4),
+      rule: const OneTimeRecurrence(),
+    );
+    await openReady(
+      bloc,
+      calendarState: CalendarPageLoaded(
+        allEvents: [gym, run],
+        focusedDay: today,
+        selectedDay: today,
+      ),
+    );
+    final years = (bloc.state as ReportReady).years;
+
+    bloc.add(
+      ReportPeriodPicked(
+        ReportPeriodChoice.lastYear.periodFor(
+          today: today,
+          weekStart: CalendarWeekStart.monday,
+          years: years,
+        ),
+      ),
+    );
+    await pumpEventQueue();
+    expect(await stored(SettingsKeys.reportPeriod), 'thisYear');
+    final ready = bloc.state as ReportReady;
+    expect(ready.period, const OverviewYearPeriod(2025));
+    expect(ready.home, ready.period);
+  });
+
   test('a pick equal to the shown period still re-emits Ready: home and '
       'Today follow (D36.7)', () async {
     final service = _FakeReportService();

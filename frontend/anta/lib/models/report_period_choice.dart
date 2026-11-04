@@ -3,7 +3,7 @@ import 'calendar_appearance.dart';
 import 'overview_period.dart';
 
 /// The report's Period menu, in order (R): the overview's calendar units and
-/// rolling presets without All time (D18), plus the four relative rows —
+/// rolling presets without All time (D18), plus the five relative rows —
 /// each its This row stepped once, so nothing new is persisted and ◄ / ►
 /// keep stepping from there. [custom] opens the range picker.
 enum ReportPeriodChoice {
@@ -14,6 +14,7 @@ enum ReportPeriodChoice {
   lastMonth,
   nextMonth,
   thisYear,
+  lastYear,
   last12Months,
   last90Days,
   custom;
@@ -46,6 +47,7 @@ enum ReportPeriodChoice {
       lastMonth => step(OverviewPeriodChoice.thisMonth, -1),
       nextMonth => step(OverviewPeriodChoice.thisMonth, 1),
       thisYear => base(OverviewPeriodChoice.thisYear),
+      lastYear => step(OverviewPeriodChoice.thisYear, -1),
       last12Months => base(OverviewPeriodChoice.last12Months),
       last90Days => base(OverviewPeriodChoice.last90Days),
       custom => throw ArgumentError.value(

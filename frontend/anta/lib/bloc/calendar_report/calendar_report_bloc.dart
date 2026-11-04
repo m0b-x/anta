@@ -347,9 +347,9 @@ class CalendarReportBloc extends Bloc<ReportEvent, ReportState> {
   }
 
   /// What a pick of [picked] stores: a relative row (Last / Next week or
-  /// month) its base preset, so the report reopens on This week or This
-  /// month (D18, D36.2); anything else itself, a span that is not kept
-  /// clearing the key.
+  /// month, Last year) its base preset, so the report reopens on This week,
+  /// This month or This year (D18, D36.2); anything else itself, a span
+  /// that is not kept clearing the key.
   OverviewPeriod _keptOf(OverviewPeriod picked) {
     final calendar = _calendar;
     if (calendar == null) return picked;
@@ -365,6 +365,7 @@ class CalendarReportBloc extends Bloc<ReportEvent, ReportState> {
       ReportPeriodChoice.nextWeek => ReportPeriodChoice.thisWeek,
       ReportPeriodChoice.lastMonth ||
       ReportPeriodChoice.nextMonth => ReportPeriodChoice.thisMonth,
+      ReportPeriodChoice.lastYear => ReportPeriodChoice.thisYear,
       _ => null,
     };
     return base?.periodFor(

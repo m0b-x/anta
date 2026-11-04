@@ -360,7 +360,8 @@ class _ReportViewState extends State<_ReportView>
       ReportPeriodChoice.thisMonth ||
       ReportPeriodChoice.lastMonth ||
       ReportPeriodChoice.nextMonth => Icons.calendar_view_month_rounded,
-      ReportPeriodChoice.thisYear => Icons.today_rounded,
+      ReportPeriodChoice.thisYear ||
+      ReportPeriodChoice.lastYear => Icons.today_rounded,
       ReportPeriodChoice.last12Months ||
       ReportPeriodChoice.last90Days => Icons.history_rounded,
       ReportPeriodChoice.custom => Icons.date_range_rounded,
@@ -376,6 +377,7 @@ class _ReportViewState extends State<_ReportView>
       ReportPeriodChoice.lastMonth => SemanticsIds.reportPeriodLastMonth,
       ReportPeriodChoice.nextMonth => SemanticsIds.reportPeriodNextMonth,
       ReportPeriodChoice.thisYear => SemanticsIds.reportPeriodThisYear,
+      ReportPeriodChoice.lastYear => SemanticsIds.reportPeriodLastYear,
       ReportPeriodChoice.last12Months => SemanticsIds.reportPeriodLast12Months,
       ReportPeriodChoice.last90Days => SemanticsIds.reportPeriodLast90Days,
       ReportPeriodChoice.custom => SemanticsIds.reportPeriodCustom,

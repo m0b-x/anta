@@ -108,6 +108,7 @@ class ReportBand extends StatefulWidget {
       ReportPeriodChoice.lastMonth => l10n.reportPeriodLastMonth,
       ReportPeriodChoice.nextMonth => l10n.reportPeriodNextMonth,
       ReportPeriodChoice.thisYear => l10n.upcomingPeriodWholeYear,
+      ReportPeriodChoice.lastYear => l10n.reportPeriodLastYear,
       ReportPeriodChoice.last12Months => l10n.overviewPeriodLast12Months,
       ReportPeriodChoice.last90Days => l10n.overviewPeriodLast90Days,
       ReportPeriodChoice.custom => l10n.upcomingPeriodCustom,
