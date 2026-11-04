@@ -200,6 +200,12 @@ void main() {
     VoidCallback? onReveal,
     void Function(
       CalendarReport report, {
+      required int largest,
+      required bool spansMonths,
+    })?
+    onMoreCategories,
+    void Function(
+      CalendarReport report, {
       required String periodName,
       required String? against,
       required String? beside,
@@ -257,6 +263,7 @@ void main() {
                       onCompare: onCompare,
                       onShowAsList: onShowAsList,
                       onReveal: onReveal,
+                      onMoreCategories: onMoreCategories,
                       onShare: onShare,
                     ),
                   ),
@@ -737,6 +744,39 @@ void main() {
       expect(totalsTop(tester), closeTo(label, 0.01));
     });
 
+    testWidgets('a refold read inside the leading Insights card that drops '
+        'it stops at the scroll\'s start: the next label held never pulls '
+        'the offset under 0', (tester) async {
+      await pumpBody(
+        tester,
+        surface: short,
+        shown: profiled(dueSoon: [gymDue], insights: const [trend, another]),
+      );
+      final position = bodyScroll(tester);
+      position.jumpTo(40);
+      await tester.pump();
+      expect(
+        tester.getTopLeft(sectionLabel('Due soon')).dy,
+        greaterThan(bodyTop(tester)),
+      );
+      // A correction moves the offset silently; a spring back from under 0
+      // would be heard frame by frame.
+      final heard = <double>[];
+      void hear() => heard.add(position.pixels);
+      position.addListener(hear);
+      addTearDown(() => position.removeListener(hear));
+
+      await pumpBody(
+        tester,
+        surface: short,
+        shown: profiled(dueSoon: [gymDue]),
+      );
+      expect(sectionLabel('Insights'), findsNothing);
+      expect(position.pixels, 0);
+      expect(heard, everyElement(greaterThanOrEqualTo(0)));
+      expect(tester.takeException(), isNull);
+    });
+
     testWidgets('a step, a pick or a category change is not a refold: past '
         'Totals the offset stays as it was and the label moves', (
       tester,
@@ -1015,6 +1055,42 @@ void main() {
       await expectDisabled(
         SemanticsIds.reportGroupList('missed', dailyCategory),
       );
+      expect(pushes.pushes, 0);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('a strip whose category is past the Categories cap opens the '
+        'More categories sheet, handed the report (S4 G)', (tester) async {
+      final past = wide.categories[ReportMetrics.maxCategoryRows].categoryId;
+      expect(ReportBody.stripIds(wide), contains(past));
+      // The Months card caps its strips too: open, so the strip is drawn.
+      folds.setMonthsExpanded(true);
+      final handed = <({CalendarReport report, int largest, bool months})>[];
+      await pumpBody(
+        tester,
+        shown: wide,
+        period: year,
+        onMoreCategories: (report, {required largest, required spansMonths}) =>
+            handed.add((report: report, largest: largest, months: spansMonths)),
+      );
+      final strip = byId(SemanticsIds.reportYearMonths(past));
+      await tester.scrollUntilVisible(
+        strip,
+        200,
+        scrollable: find
+            .descendant(
+              of: byId(SemanticsIds.reportBody),
+              matching: find.byType(Scrollable),
+            )
+            .first,
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(strip);
+      await tester.pumpAndSettle();
+      expect(handed, hasLength(1));
+      expect(handed.single.report, same(wide));
+      expect(handed.single.largest, wide.categories.first.count);
+      expect(handed.single.months, isTrue);
       expect(pushes.pushes, 0);
       expect(tester.takeException(), isNull);
     });
@@ -1377,6 +1453,85 @@ void main() {
       );
       expect(scrollOf(tester).pixels, greaterThan(offset));
       expect(monthsTop(), closeTo(label, 0.01));
+      expect(tester.takeException(), isNull);
+    });
+
+    /// The top of the section label [text], scrolled off or not.
+    double labelTop(WidgetTester tester, String text) => tester
+        .getTopLeft(
+          find.byWidgetPredicate(
+            (widget) => widget is FormSectionLabel && widget.text == text,
+            skipOffstage: false,
+          ),
+        )
+        .dy;
+
+    testWidgets('a refold read inside the Records card holds its rows under '
+        'the viewport\'s top: Records is the anchor (S6 H)', (tester) async {
+      await pumpBody(
+        tester,
+        surface: const Size(360, 520),
+        period: year2025,
+        shown: wholeYear(),
+      );
+      scrollOf(
+        tester,
+      ).jumpTo(labelTop(tester, 'Records') - bodyTop(tester) + 20);
+      await tester.pump();
+      final week = byId(SemanticsIds.reportYearRecord('busiest-week'));
+      final row = tester.getTopLeft(week).dy;
+      expect(row, greaterThan(bodyTop(tester)));
+      final offset = scrollOf(tester).pixels;
+
+      await pumpBody(
+        tester,
+        surface: const Size(360, 520),
+        period: year2025,
+        shown: wholeYear(
+          goals: [weekly('gym'), weekly('other')],
+          year: yearOf(records: [busiestMonth, busiestWeek, socialMonth]),
+        ),
+      );
+      expect(scrollOf(tester).pixels, greaterThan(offset));
+      expect(tester.getTopLeft(week).dy, closeTo(row, 0.01));
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('a refold read inside the Months card while Records and '
+        'Months both leave holds the Categories label still: the anchor '
+        'falls to the next label that stays', (tester) async {
+      await pumpBody(
+        tester,
+        surface: const Size(360, 520),
+        period: year2025,
+        shown: wholeYear(),
+      );
+      scrollOf(
+        tester,
+      ).jumpTo(labelTop(tester, 'Months') - bodyTop(tester) + 20);
+      await tester.pump();
+      final categories = labelTop(tester, 'Categories');
+      expect(categories, greaterThan(bodyTop(tester)));
+      final offset = scrollOf(tester).pixels;
+
+      // Goals grow above while the year block leaves: no label above the
+      // reader stays put, only the one after the leaving card.
+      await pumpBody(
+        tester,
+        surface: const Size(360, 520),
+        period: year2025,
+        shown: wholeYear(
+          goals: [weekly('gym'), weekly('other')],
+          year: yearOf(records: const [], strips: false),
+        ),
+      );
+      expect(sectionLabel('Records'), findsNothing);
+      expect(sectionLabel('Months'), findsNothing);
+      expect(scrollOf(tester).pixels, lessThan(offset));
+      expect(labelTop(tester, 'Categories'), closeTo(categories, 0.01));
+      final pixels = scrollOf(tester).pixels;
+      await tester.pumpAndSettle();
+      expect(scrollOf(tester).pixels, pixels);
       expect(tester.takeException(), isNull);
     });
 

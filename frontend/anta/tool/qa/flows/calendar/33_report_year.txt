@@ -3,15 +3,19 @@
 # band's Period menu to This year, then Last year and back, the Records
 # card's busiest month, the Strength strip of the Months card tapped onto
 # its Categories group, then back to the calendar through the view menu.
-# - The seed's events start this year (Lifting 28 days ago reaches into last
-#   year only in January), so the calendar's first year is this one and Last
-#   year folds This year again (S6c-i): the flow still picks it, checks the
-#   band and shoots it, then picks This year for the cards. The widget suite
-#   covers a last year with its own events.
+# - The seed's earliest event is the Old checkup at {{today-40}}, so until
+#   about 9 February the calendar's first year is last year and Last year
+#   folds it; the rest of the year the first year is this one and Last year
+#   folds This year again (S6c-i). Either way the flow picks it, waits for
+#   the year block, checks the band and shoots it, then picks This year for
+#   the cards. The widget suite covers a last year with its own events.
 # - This year is a whole calendar year that is not a plan, so the year block
 #   draws between the Totals caption and Categories; Records and Months sit
 #   below the first screen, and `expect` never scrolls: each id is checked
-#   after the scroll-to that reaches it.
+#   after the scroll-to that reaches it. A shot waits on a record row, which
+#   only a year's fold draws; the Totals tiles stand before the pick lands.
+# - Records is never expanded: the seed folds at most six records, so the
+#   card draws no disclosure.
 # - A strip row's id carries the seed's category id; its tap opens the
 #   group and scrolls its header to the top (S4 G), and the shot shows it
 #   there.
@@ -24,18 +28,19 @@ tap id:report-nav-title
 wait id:report-period-this-year
 tap id:report-period-this-year
 wait id:report-period-this-year --gone
-wait id:report-tile-events
+wait id:report-year-record-busiest-month
 tap id:report-nav-title
 wait id:report-period-last-year
 tap id:report-period-last-year
 wait id:report-period-last-year --gone
-expect id:report-nav-title
+wait id:report-year-record-busiest-month
+expect id:report-nav-title id:report-year-record-busiest-month
 shot 33_report_last_year
 tap id:report-nav-title
 wait id:report-period-this-year
 tap id:report-period-this-year
 wait id:report-period-this-year --gone
-wait id:report-tile-events
+wait id:report-year-record-busiest-month
 scroll-to id:report-year-record-busiest-month --in id:report-body --max 30
 expect id:report-year-record-busiest-month
 shot 33_report_records

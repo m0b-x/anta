@@ -59,11 +59,12 @@ enum ReportPeriodChoice {
   }
 
   /// The row the menu checks for [period]: the week or month holding today,
-  /// the one before it or the one after it by their rows, this year and the
-  /// presets by theirs, anything else — a paged unit further away, a
-  /// stepped preset, a custom span — as Custom. A relative row that fell
-  /// back to its This row at the calendar's edge never claims that period:
-  /// the This row precedes it in [values] and answers first.
+  /// the one before it or the one after it by their rows; this year by its
+  /// row and the year before it by Last year's, so a year paged once back
+  /// is checked there; the presets by theirs; anything else — a paged unit
+  /// further away, a stepped preset, a custom span — as Custom. A relative
+  /// row that fell back to its This row at the calendar's edge never claims
+  /// that period: the This row precedes it in [values] and answers first.
   static ReportPeriodChoice checkedFor(
     OverviewPeriod period, {
     required DateTime today,

@@ -1,8 +1,15 @@
+import 'dart:math' as math;
+
 import 'package:flutter/foundation.dart'
     show ValueListenable, precisionErrorTolerance, setEquals;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart'
-    show PipelineOwner, RenderSliverToBoxAdapter, SliverGeometry;
+    show
+        PipelineOwner,
+        RenderAbstractViewport,
+        RenderSliverToBoxAdapter,
+        RenderViewportBase,
+        SliverGeometry;
 
 import '../constants/alert_constants.dart';
 import '../constants/analytics_metrics.dart';
@@ -384,6 +391,20 @@ class ReportBody extends StatefulWidget {
   /// teach a dead control.
   final void Function(ReportCompare compare, OverviewView? view)? onCompare;
 
+  /// The categories [report]'s Months card draws a strip for — a group with
+  /// both a year of months and a kept span — which the page's slack rule
+  /// compares too: a strip set that changes moves Categories.
+  static Set<String> stripIds(CalendarReport report) {
+    final year = report.year;
+    if (year == null) return const {};
+    return {
+      for (final group in report.categories)
+        if (year.months[group.categoryId] != null &&
+            year.spans[group.categoryId] != null)
+          group.categoryId,
+    };
+  }
+
   @override
   State<ReportBody> createState() => _ReportBodyState();
 }
@@ -428,22 +449,53 @@ class _ReportBodyState extends State<ReportBody> {
   /// offset, and the page releases its end slack for it, which a correction
   /// would then spring back from. The anchor is decided here, from the
   /// labels' last layout, before the frame that lays the new report out
-  /// (S6 H): the nearest label at or above the viewport's top.
+  /// (S6 H): the nearest label at or above the viewport's top, or, when its
+  /// card leaves with the new report, the next label that stays.
   @override
   void didUpdateWidget(ReportBody oldWidget) {
     super.didUpdateWidget(oldWidget);
+    final report = widget.report;
     if (oldWidget.report != null &&
-        widget.report != null &&
-        !identical(oldWidget.report, widget.report) &&
+        report != null &&
+        !identical(oldWidget.report, report) &&
         oldWidget.period == widget.period &&
         setEquals(oldWidget.categoryIds, widget.categoryIds)) {
       _refolds++;
       final scroll = _scroll;
       _anchor = scroll.hasClients
-          ? _anchors.nearestAbove(scroll.position.pixels)
+          ? _anchors.heldFor(scroll.position.pixels, among: _labelIds(report))
           : null;
     }
   }
+
+  /// The ids of the section labels a build of [report] draws, by the same
+  /// conditions the build reads. A saved view's label is listed whenever
+  /// one is folded: side by side it shares the Totals row and is never laid
+  /// out on its own, so it can never be picked.
+  static Set<Object> _labelIds(CalendarReport report) => {
+    if (report.goals.isNotEmpty) #goals,
+    if (_pageInsights(report).isNotEmpty) #insights,
+    if (report.dueSoon.isNotEmpty) #dueSoon,
+    #totals,
+    if (report.compare == ReportCompare.view && report.compared != null) #view,
+    if (report.year?.records.isNotEmpty ?? false) #records,
+    if (ReportBody.stripIds(report).isNotEmpty) #months,
+    if (report.categories.isNotEmpty) ReportCard.categories,
+    if (report.tags.isNotEmpty) #tags,
+    if (report.trend != null) #overTime,
+    if (report.when?.busiestWeekday != null) #when,
+    if (report.balance.length >= AnalyticsMetrics.balanceMinAreas) #balance,
+    if (report.missed.isNotEmpty) ReportCard.missed,
+    if (report.ahead.isNotEmpty) ReportCard.ahead,
+  };
+
+  /// The insights the Insights card draws: the page's filter, which drops
+  /// what Goals and Due soon already say; none in a plan, where nothing has
+  /// happened to remark on.
+  static List<ReportInsight> _pageInsights(CalendarReport report) =>
+      report.tense == ReportTense.future
+      ? const []
+      : ReportInsightFilter.forPage(report);
 
   @override
   void dispose() {
@@ -830,11 +882,7 @@ class _ReportBodyState extends State<ReportBody> {
   ) {
     final year = report.year;
     if (year == null) return const [];
-    final hasStrips = report.categories.any(
-      (group) =>
-          year.months[group.categoryId] != null &&
-          year.spans[group.categoryId] != null,
-    );
+    final hasStrips = ReportBody.stripIds(report).isNotEmpty;
     final reachable =
         widget.onReveal != null || widget.onMoreCategories != null;
     return [
@@ -921,17 +969,14 @@ class _ReportBodyState extends State<ReportBody> {
   /// Goals, Insights and Due soon above Totals (S4 §2.1), each under its
   /// label after the gap between cards, the first with none; a card with
   /// nothing to show is absent with its label (H), so an unprofiled report
-  /// inserts no sliver and opens on Totals as it always has. A plan has no
-  /// Insights: nothing has happened to remark on. The Insights card reads
-  /// the page's filter, which drops what Goals and Due soon already say.
+  /// inserts no sliver and opens on Totals as it always has. Insights are
+  /// [_pageInsights].
   List<Widget> _analyticsCards(
     AppLocalizations l10n,
     ReportLabels labels,
     CalendarReport report,
   ) {
-    final insights = report.tense == ReportTense.future
-        ? const <ReportInsight>[]
-        : ReportInsightFilter.forPage(report);
+    final insights = _pageInsights(report);
     final cards = [
       if (report.goals.isNotEmpty)
         (
@@ -1311,32 +1356,40 @@ typedef _CompareChoice = ({ReportCompare compare, String? viewId});
 class _LabelAnchors {
   final Map<Object, _RenderAnchoredLabel> _labels = {};
 
-  /// The label whose start, at its last layout, lies nearest at or above
-  /// [top], the viewport's scroll offset; null when [top] lies above every
-  /// label, as at offset 0. At the top counts: a label a reveal left there
-  /// is where the reader reads.
-  Object? nearestAbove(double top) {
-    Object? nearest;
-    var nearestStart = double.negativeInfinity;
-    for (final MapEntry(key: id, value: label) in _labels.entries) {
-      final start = label._preceding;
-      if (start == null ||
-          start > top + precisionErrorTolerance ||
-          start <= nearestStart) {
-        continue;
-      }
-      nearest = id;
-      nearestStart = start;
+  /// The label a refold to a report drawing the labels [among] holds, by
+  /// their starts at the last layout: the one nearest at or above [top],
+  /// the viewport's scroll offset — at the top counts, a label a reveal
+  /// left there is where the reader reads; null when [top] lies above every
+  /// label, as at offset 0. When that label's card leaves with the new
+  /// report, the first label of [among] after it, where the reading goes
+  /// on, so nothing below the leaving card moves; with none after it, the
+  /// nearest of [among] above it.
+  Object? heldFor(double top, {required Set<Object> among}) {
+    final starts = [
+      for (final MapEntry(key: id, value: label) in _labels.entries)
+        if (label._preceding case final start?) (id: id, start: start),
+    ]..sort((a, b) => a.start.compareTo(b.start));
+    final at = starts.lastIndexWhere(
+      (label) => label.start <= top + precisionErrorTolerance,
+    );
+    if (at < 0) return null;
+    if (among.contains(starts[at].id)) return starts[at].id;
+    for (final label in starts.skip(at + 1)) {
+      if (among.contains(label.id)) return label.id;
     }
-    return nearest;
+    for (final label in starts.take(at).toList().reversed) {
+      if (among.contains(label.id)) return label.id;
+    }
+    return null;
   }
 }
 
 /// A section label's sliver, a candidate for the page's anchor on a refold
 /// (R, §2.6, S6 H): the cards above the reader's place change height with
-/// the report — Insights, Due soon, a saved view's Totals card, a group —
-/// and everything under the finger would move by that change. Still a
-/// [SliverToBoxAdapter], so the body's slivers read as they always have.
+/// the report — Insights, Due soon, a saved view's Totals card, the year's
+/// Records and Months, a group — and everything under the finger would move
+/// by that change. Still a [SliverToBoxAdapter], so the body's slivers read
+/// as they always have.
 /// Keyed by [id], so a refold that changes the count of slivers above it
 /// keeps its last layout to compare against.
 class _AnchoredLabel extends SliverToBoxAdapter {
@@ -1437,9 +1490,17 @@ class _RenderAnchoredLabel extends RenderSliverToBoxAdapter {
     final armed = _armed;
     _armed = false;
     if (armed && _anchor && old != null && preceding != old) {
-      // The viewport lays every sliver out again at the corrected offset.
-      geometry = SliverGeometry(scrollOffsetCorrection: preceding - old);
-      return;
+      // Never past the scroll's start: a label held below the top, after a
+      // card that left, would otherwise pull the offset under 0 and spring.
+      final viewport = RenderAbstractViewport.maybeOf(this);
+      final correction = viewport is RenderViewportBase
+          ? math.max(preceding - old, -viewport.offset.pixels)
+          : preceding - old;
+      if (correction != 0) {
+        // The viewport lays every sliver out again at the corrected offset.
+        geometry = SliverGeometry(scrollOffsetCorrection: correction);
+        return;
+      }
     }
     super.performLayout();
     _preceding = preceding;

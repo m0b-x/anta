@@ -3287,6 +3287,7 @@ void main() {
       int workingDays = 0,
       int publicHolidays = 0,
       Map<String, ReportMeasures>? measures,
+      ReportYear? year,
     }) => CalendarReport(
       span: folded.span,
       today: folded.today,
@@ -3310,6 +3311,7 @@ void main() {
       nominalMinutes: nominalMinutes,
       workingDays: workingDays,
       publicHolidays: publicHolidays,
+      year: year,
     );
 
     /// A goal on [categoryId] whose one period, in March, is [state].
@@ -3903,6 +3905,88 @@ void main() {
           expect(position.pixels, pixels);
         }
       });
+
+      final threeRecords = [
+        ReportRecord(
+          kind: ReportRecordKind.busiestMonth,
+          value: 30,
+          start: march(1),
+          end: march(31),
+        ),
+        ReportRecord(
+          kind: ReportRecordKind.busiestWeek,
+          value: 7,
+          start: march(2),
+          end: march(8),
+        ),
+        ReportRecord(
+          kind: ReportRecordKind.socialMonth,
+          value: 1,
+          start: march(1),
+          end: march(31),
+        ),
+      ];
+
+      /// A year block of [records] and a strip for each of [strips].
+      ReportYear yearOf(List<ReportRecord> records, List<String> strips) =>
+          ReportYear(
+            records: records,
+            months: {
+              for (final id in strips)
+                id: const [9, 8, 31, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            },
+            spans: {
+              for (final id in strips) id: (first: march(1), last: march(31)),
+            },
+          );
+
+      for (final (name, before, after) in [
+        (
+          'Records 1 → 3',
+          yearOf(threeRecords.take(1).toList(), const ['gym']),
+          yearOf(threeRecords, const ['gym']),
+        ),
+        (
+          'a Months strip set that grows',
+          yearOf(threeRecords.take(1).toList(), const ['gym']),
+          yearOf(threeRecords.take(1).toList(), const ['gym', 'other']),
+        ),
+      ]) {
+        testWidgets('at the end a refold with $name while Missed leaves arms '
+            'the slack: the corrected offset stays inside the new end and '
+            'nothing springs back (R, D40)', (tester) async {
+          var year = before;
+          service = _ShapingReportService(
+            (folded) => shaped(folded, dueSoon: [unmarkedOn(20)], year: year),
+          );
+          final robot = await open(tester);
+          for (var i = 0; i < 2; i++) {
+            robot.scroll.jumpTo(robot.scroll.position.maxScrollExtent);
+            await tester.pump();
+          }
+          expect(robot.group(ReportCard.missed, 'gym'), findsOneWidget);
+          final offset0 = robot.scroll.offset;
+
+          // The one missed day marked elsewhere: the Missed card leaves
+          // below while the year block grows above Categories.
+          year = after;
+          EventPresence.updateCache(byEvent: const {});
+          seed([gym, todo], presenceRevision: 1);
+          await tester.pump();
+          await tester.pump();
+          final drawn = (robot.state as ReportReady).report;
+          expect(drawn.year, after);
+          expect(drawn.missed, isEmpty);
+          final position = robot.scroll.position;
+          expect(position.pixels, greaterThan(offset0), reason: 'corrected');
+          expect(position.pixels, lessThanOrEqualTo(position.maxScrollExtent));
+          final pixels = position.pixels;
+          for (var i = 0; i < 8; i++) {
+            await tester.pump(const Duration(milliseconds: 16));
+            expect(position.pixels, pixels);
+          }
+        });
+      }
 
       testWidgets('a gap row past the lookback opens the detail sheet on the '
           'event\'s start day: its last kept day is unknown (M)', (

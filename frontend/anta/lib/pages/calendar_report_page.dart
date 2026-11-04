@@ -481,14 +481,15 @@ class _ReportViewState extends State<_ReportView>
   /// A new report of the look on screen arms the slack when it folds away a
   /// mark of this page — a marked row the last report listed as missed and
   /// this one does not: that shrink is under the finger — or when it
-  /// changes the cards above Totals, whose new height the refold anchor (R)
-  /// corrects the offset by: a correction is never clamped, and past the
-  /// new end it would spring back over the frames after it. Any other
-  /// refold of the same look — an event deleted or re-categorised on a
-  /// sheet's trip, a category deleted in settings — may remove rows above
-  /// the leading edge, and slack held for it would jump every visible row
-  /// up and open blank ground below; the clamp's small slide on return from
-  /// such a trip is the lesser harm. Keyed, not counted (D42): a pending
+  /// changes the cards above the anchors — above Totals, or the year block
+  /// above Categories — whose new height the refold anchor (R) corrects the
+  /// offset by: a correction is never clamped at the end, and past the new
+  /// end it would spring back over the frames after it. Any other refold of
+  /// the same look — an event deleted or re-categorised on a sheet's trip, a
+  /// category deleted in settings — may remove rows above the leading edge,
+  /// and slack held for it would jump every visible row up and open blank
+  /// ground below; the clamp's small slide on return from such a trip is the
+  /// lesser harm. Keyed, not counted (D42): a pending
   /// mark whose write failed never arms another refold, and an unrelated
   /// Ready between the tap and the mark's refold never disarms it. A new
   /// look — a step, a pick — is another report: it never arms, and releases
@@ -519,7 +520,7 @@ class _ReportViewState extends State<_ReportView>
       if (!sameLook) {
         _slack.value = (arms: slack.arms, releases: slack.releases + 1);
       } else if (landed.any(_heardMissed.contains) ||
-          !_sameCardsAboveTotals(before, report)) {
+          !_sameCardsAboveAnchors(before, report)) {
         _slack.value = (arms: slack.arms + 1, releases: slack.releases);
       }
     }
@@ -529,13 +530,19 @@ class _ReportViewState extends State<_ReportView>
     _heardMissed = missed;
   }
 
-  /// Whether [a] and [b] draw the same Goals, Insights and Due soon rows:
-  /// only a change there moves the Totals label's preceding extent, so only
-  /// then can the refold anchor correct the offset.
-  static bool _sameCardsAboveTotals(CalendarReport a, CalendarReport b) =>
+  /// Whether [a] and [b] draw the same cards above the labels a refold can
+  /// hold: the Goals, Insights and Due soon rows above Totals, and the year
+  /// block's Records and Months above Categories. Only a change there moves
+  /// an anchor's preceding extent, so only then can the refold anchor
+  /// correct the offset. A year's rows never change height, so its record
+  /// count and its strips' categories suffice: comparing the whole year
+  /// would arm on every month value a refold moves, the worse harm above.
+  static bool _sameCardsAboveAnchors(CalendarReport a, CalendarReport b) =>
       listEquals(a.goals, b.goals) &&
       listEquals(a.insights, b.insights) &&
-      listEquals(a.dueSoon, b.dueSoon);
+      listEquals(a.dueSoon, b.dueSoon) &&
+      a.year?.records.length == b.year?.records.length &&
+      setEquals(ReportBody.stripIds(a), ReportBody.stripIds(b));
 
   /// Arms the slack before a frame that may shrink the content under the
   /// finger: a header close, "Show less".
