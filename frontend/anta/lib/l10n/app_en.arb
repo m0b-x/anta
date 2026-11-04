@@ -11175,5 +11175,151 @@
         "example": "6 hours"
       }
     }
+  },
+  "reportSectionTags": "By tag",
+  "@reportSectionTags": {
+    "description": "Section label of the report's By tag card: the #tags typed in event descriptions over the period"
+  },
+  "reportSectionWhen": "When",
+  "@reportSectionWhen": {
+    "description": "Section label of the report's When card: a weekday by hour heatmap of the timed events"
+  },
+  "reportSectionBalance": "Balance",
+  "@reportSectionBalance": {
+    "description": "Section label of the report's Balance card: the hours per life area (health, work, people…)"
+  },
+  "reportTagCount": "{kind, select, social{{count, plural, =1{1 evening} other{{count} evenings}}} trip{{count, plural, =1{1 trip} other{{count} trips}}} maintenance{{count, plural, =1{1 service} other{{count} services}}} workout{{count, plural, =1{1 session} other{{count} sessions}}} other{{count, plural, =1{once} other{{count} times}}}}",
+  "@reportTagCount": {
+    "description": "Report By tag row, the first fact: how often the tag was seen, the noun from its category's kind (social, trip, maintenance, workout, other). Keep each noun short (10 characters at most)",
+    "placeholders": {
+      "kind": {
+        "type": "String"
+      },
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "reportTagDays": "{count, plural, =1{1 day} other{{count} days}}",
+  "@reportTagDays": {
+    "description": "Report By tag row of a trip tag, the second fact: the days the tag was seen, e.g. 2 trips · 5 days",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "reportTagLastSeen": "{when, select, today{today} yesterday{yesterday} other{last {day}}}",
+  "@reportTagLastSeen": {
+    "description": "Report By tag row, the second fact: the latest day the tag was seen; day is the row's day, e.g. last Fri 24, or spelled out for a screen reader",
+    "placeholders": {
+      "when": {
+        "type": "String"
+      },
+      "day": {
+        "type": "String",
+        "example": "Fri 24"
+      }
+    }
+  },
+  "reportTagSpoken": "tag {name}, {facts}",
+  "@reportTagSpoken": {
+    "description": "Screen reader label of a report By tag row: the tag's name without the # sign, then its facts, e.g. tag ana, 6 evenings, last Saturday 24 October",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      },
+      "facts": {
+        "type": "String"
+      }
+    }
+  },
+  "reportWhenBusiest": "Busiest: {weekday} · {hours}",
+  "@reportWhenBusiest": {
+    "description": "Caption under the report's When heatmap: the weekday and the hour with the most minutes, e.g. Busiest: Tuesday · 18:00–19:00",
+    "placeholders": {
+      "weekday": {
+        "type": "String"
+      },
+      "hours": {
+        "type": "String",
+        "example": "18:00–19:00"
+      }
+    }
+  },
+  "reportWhenSpoken": "When. Busiest day {weekday}, busiest hour {from} to {to}, over {count, plural, =1{1 timed day} other{{count} timed days}}.",
+  "@reportWhenSpoken": {
+    "description": "Screen reader label of the report's When heatmap: the busiest weekday, the busiest hour from its start to its end, and the timed days it was drawn from",
+    "placeholders": {
+      "weekday": {
+        "type": "String"
+      },
+      "from": {
+        "type": "String",
+        "example": "18:00"
+      },
+      "to": {
+        "type": "String",
+        "example": "19:00"
+      },
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "reportBalanceSpoken": "{area}, {hours}, {percent} of the hours",
+  "@reportBalanceSpoken": {
+    "description": "Screen reader label of a report Balance row: the life area, its hours spelled out and its share of all the areas' hours, e.g. Work, 38 hours, 67 percent of the hours",
+    "placeholders": {
+      "area": {
+        "type": "String"
+      },
+      "hours": {
+        "type": "String",
+        "example": "38 hours"
+      },
+      "percent": {
+        "type": "String",
+        "example": "67 percent"
+      }
+    }
+  },
+  "reportCompareWith": "Compare with",
+  "@reportCompareWith": {
+    "description": "Report footer menu row: what the report's deltas and second column compare the period with"
+  },
+  "reportComparePrevious": "Previous period",
+  "@reportComparePrevious": {
+    "description": "Report Compare with menu item and value: the period one step back"
+  },
+  "reportCompareLastYear": "Same period last year",
+  "@reportCompareLastYear": {
+    "description": "Report Compare with menu item and value: the same period one year earlier"
+  },
+  "reportCompareNoViews": "No saved views",
+  "@reportCompareNoViews": {
+    "description": "Report Compare with menu item, disabled, shown when no overview view is saved"
+  },
+  "reportCaptionBeside": "beside {view}",
+  "@reportCaptionBeside": {
+    "description": "Part of the caption under the report's tiles when it compares with a saved view, e.g. To 30 October · beside Work / Life",
+    "placeholders": {
+      "view": {
+        "type": "String"
+      }
+    }
+  },
+  "reportLegendLastYear": "Last year",
+  "@reportLegendLastYear": {
+    "description": "Legend item of the report's Over time chart for the tick at each column's count a year earlier"
+  },
+  "reportTrendLastYearSpoken": "same period last year, {count, plural, =1{1 event} other{{count} events}}",
+  "@reportTrendLastYearSpoken": {
+    "description": "Screen reader wording appended to the report's Over time chart under Compare with last year: the events of the same period a year earlier",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
   }
 }

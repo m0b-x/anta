@@ -3702,5 +3702,22 @@
   "reportWorkingDays": "{count, plural, one{1 Arbeitstag} other{{count} Arbeitstage}}",
   "reportPublicHolidays": "{count, plural, one{1 Feiertag} other{{count} Feiertage}}",
   "reportCaptionCountedAs": "Stunden inkl. {hours} pauschal gezählt",
-  "reportCountedAsSpoken": "einschließlich {hours} pauschal gezählt"
+  "reportCountedAsSpoken": "einschließlich {hours} pauschal gezählt",
+  "reportSectionTags": "Nach Schlagwort",
+  "reportSectionWhen": "Wann",
+  "reportSectionBalance": "Balance",
+  "reportTagCount": "{kind, select, social{{count, plural, =1{1 Abend} other{{count} Abende}}} trip{{count, plural, =1{1 Reise} other{{count} Reisen}}} maintenance{{count, plural, =1{1 Wartung} other{{count} Wartungen}}} workout{{count, plural, =1{1 Einheit} other{{count} Einheiten}}} other{{count, plural, =1{einmal} other{{count}-mal}}}}",
+  "reportTagDays": "{count, plural, =1{1 Tag} other{{count} Tage}}",
+  "reportTagLastSeen": "{when, select, today{heute} yesterday{gestern} other{zuletzt {day}}}",
+  "reportTagSpoken": "Schlagwort {name}, {facts}",
+  "reportWhenBusiest": "Meist: {weekday} · {hours}",
+  "reportWhenSpoken": "Wann. Häufigster Tag {weekday}, häufigste Stunde {from} bis {to}, aus {count, plural, =1{1 Tag mit Uhrzeit} other{{count} Tagen mit Uhrzeit}}.",
+  "reportBalanceSpoken": "{area}, {hours}, {percent} der Stunden",
+  "reportCompareWith": "Vergleichen mit",
+  "reportComparePrevious": "Vorheriger Zeitraum",
+  "reportCompareLastYear": "Gleicher Zeitraum im Vorjahr",
+  "reportCompareNoViews": "Keine gespeicherten Ansichten",
+  "reportCaptionBeside": "neben {view}",
+  "reportLegendLastYear": "Vorjahr",
+  "reportTrendLastYearSpoken": "gleicher Zeitraum im Vorjahr, {count, plural, =1{1 Termin} other{{count} Termine}}"
 }

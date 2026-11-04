@@ -13400,6 +13400,108 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'including {hours} counted as'**
   String reportCountedAsSpoken(String hours);
+
+  /// Section label of the report's By tag card: the #tags typed in event descriptions over the period
+  ///
+  /// In en, this message translates to:
+  /// **'By tag'**
+  String get reportSectionTags;
+
+  /// Section label of the report's When card: a weekday by hour heatmap of the timed events
+  ///
+  /// In en, this message translates to:
+  /// **'When'**
+  String get reportSectionWhen;
+
+  /// Section label of the report's Balance card: the hours per life area (health, work, people…)
+  ///
+  /// In en, this message translates to:
+  /// **'Balance'**
+  String get reportSectionBalance;
+
+  /// Report By tag row, the first fact: how often the tag was seen, the noun from its category's kind (social, trip, maintenance, workout, other). Keep each noun short (10 characters at most)
+  ///
+  /// In en, this message translates to:
+  /// **'{kind, select, social{{count, plural, =1{1 evening} other{{count} evenings}}} trip{{count, plural, =1{1 trip} other{{count} trips}}} maintenance{{count, plural, =1{1 service} other{{count} services}}} workout{{count, plural, =1{1 session} other{{count} sessions}}} other{{count, plural, =1{once} other{{count} times}}}}'**
+  String reportTagCount(String kind, int count);
+
+  /// Report By tag row of a trip tag, the second fact: the days the tag was seen, e.g. 2 trips · 5 days
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 day} other{{count} days}}'**
+  String reportTagDays(int count);
+
+  /// Report By tag row, the second fact: the latest day the tag was seen; day is the row's day, e.g. last Fri 24, or spelled out for a screen reader
+  ///
+  /// In en, this message translates to:
+  /// **'{when, select, today{today} yesterday{yesterday} other{last {day}}}'**
+  String reportTagLastSeen(String when, String day);
+
+  /// Screen reader label of a report By tag row: the tag's name without the # sign, then its facts, e.g. tag ana, 6 evenings, last Saturday 24 October
+  ///
+  /// In en, this message translates to:
+  /// **'tag {name}, {facts}'**
+  String reportTagSpoken(String name, String facts);
+
+  /// Caption under the report's When heatmap: the weekday and the hour with the most minutes, e.g. Busiest: Tuesday · 18:00–19:00
+  ///
+  /// In en, this message translates to:
+  /// **'Busiest: {weekday} · {hours}'**
+  String reportWhenBusiest(String weekday, String hours);
+
+  /// Screen reader label of the report's When heatmap: the busiest weekday, the busiest hour from its start to its end, and the timed days it was drawn from
+  ///
+  /// In en, this message translates to:
+  /// **'When. Busiest day {weekday}, busiest hour {from} to {to}, over {count, plural, =1{1 timed day} other{{count} timed days}}.'**
+  String reportWhenSpoken(String weekday, String from, String to, int count);
+
+  /// Screen reader label of a report Balance row: the life area, its hours spelled out and its share of all the areas' hours, e.g. Work, 38 hours, 67 percent of the hours
+  ///
+  /// In en, this message translates to:
+  /// **'{area}, {hours}, {percent} of the hours'**
+  String reportBalanceSpoken(String area, String hours, String percent);
+
+  /// Report footer menu row: what the report's deltas and second column compare the period with
+  ///
+  /// In en, this message translates to:
+  /// **'Compare with'**
+  String get reportCompareWith;
+
+  /// Report Compare with menu item and value: the period one step back
+  ///
+  /// In en, this message translates to:
+  /// **'Previous period'**
+  String get reportComparePrevious;
+
+  /// Report Compare with menu item and value: the same period one year earlier
+  ///
+  /// In en, this message translates to:
+  /// **'Same period last year'**
+  String get reportCompareLastYear;
+
+  /// Report Compare with menu item, disabled, shown when no overview view is saved
+  ///
+  /// In en, this message translates to:
+  /// **'No saved views'**
+  String get reportCompareNoViews;
+
+  /// Part of the caption under the report's tiles when it compares with a saved view, e.g. To 30 October · beside Work / Life
+  ///
+  /// In en, this message translates to:
+  /// **'beside {view}'**
+  String reportCaptionBeside(String view);
+
+  /// Legend item of the report's Over time chart for the tick at each column's count a year earlier
+  ///
+  /// In en, this message translates to:
+  /// **'Last year'**
+  String get reportLegendLastYear;
+
+  /// Screen reader wording appended to the report's Over time chart under Compare with last year: the events of the same period a year earlier
+  ///
+  /// In en, this message translates to:
+  /// **'same period last year, {count, plural, =1{1 event} other{{count} events}}'**
+  String reportTrendLastYearSpoken(int count);
 }
 
 class _AppLocalizationsDelegate

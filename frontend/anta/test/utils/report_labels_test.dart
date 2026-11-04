@@ -2551,4 +2551,411 @@ void main() {
       );
     });
   });
+
+  group('S5 words (By tag, When, Balance, Compare)', () {
+    const nb = ' ';
+    const sep = ReportLabels.separator;
+    // A Friday; 24 October 2026 is the Saturday before it.
+    final today = DateTime.utc(2026, 10, 30);
+    final saturday = DateTime.utc(2026, 10, 24);
+
+    ReportTag tag({
+      CategoryKind kind = CategoryKind.custom,
+      int events = 2,
+      int count = 3,
+      int spentCents = 0,
+      int receivedCents = 0,
+      DateTime? lastSeenDay,
+    }) => ReportTag(
+      key: 'ana',
+      label: 'ana',
+      events: events,
+      count: count,
+      minutes: 0,
+      spentCents: spentCents,
+      receivedCents: receivedCents,
+      lastSeenDay: lastSeenDay,
+      categoryIds: const ['friends'],
+      kind: kind,
+      rows: const [],
+    );
+
+    String caption(
+      ReportTag tag, {
+      String locale = 'en',
+      bool spansMonths = false,
+    }) => labelsIn(
+      locale,
+    ).tagWords(tag, spansMonths: spansMonths, today: today).caption;
+
+    test('the noun follows the kind, "once" at 1', () {
+      expect(
+        caption(tag(kind: CategoryKind.social, count: 6)),
+        '6${nb}evenings',
+      );
+      expect(caption(tag(kind: CategoryKind.workout)), '3${nb}sessions');
+      expect(caption(tag(kind: CategoryKind.maintenance)), '3${nb}services');
+      expect(caption(tag()), '3${nb}times');
+      expect(caption(tag(kind: CategoryKind.meeting)), '3${nb}times');
+      expect(caption(tag(count: 1)), 'once');
+      expect(
+        caption(tag(kind: CategoryKind.social, count: 1)),
+        '1${nb}evening',
+      );
+
+      expect(
+        caption(tag(kind: CategoryKind.social, count: 6), locale: 'de'),
+        '6${nb}Abende',
+      );
+      expect(
+        caption(tag(kind: CategoryKind.workout), locale: 'de'),
+        '3${nb}Einheiten',
+      );
+      expect(caption(tag(count: 1), locale: 'de'), 'einmal');
+      expect(caption(tag(), locale: 'de'), '3-mal');
+
+      expect(
+        caption(tag(kind: CategoryKind.social, count: 1), locale: 'ro'),
+        '1${nb}seară',
+      );
+      expect(
+        caption(tag(kind: CategoryKind.social, count: 6), locale: 'ro'),
+        '6${nb}seri',
+      );
+      expect(
+        caption(tag(kind: CategoryKind.social, count: 20), locale: 'ro'),
+        '20${nb}de seri',
+      );
+      expect(caption(tag(count: 1), locale: 'ro'), 'o dată');
+      expect(caption(tag(), locale: 'ro'), 'de${nb}3${nb}ori');
+    });
+
+    test('the second fact follows the kind', () {
+      // A trip counts its events, then the days.
+      expect(
+        caption(tag(kind: CategoryKind.trip, events: 2, count: 5)),
+        '2${nb}trips${sep}5${nb}days',
+      );
+      expect(
+        caption(tag(kind: CategoryKind.maintenance, spentCents: 124000)),
+        '3${nb}services${sep}1,240',
+      );
+      expect(
+        caption(tag(kind: CategoryKind.maintenance, receivedCents: 124000)),
+        '3${nb}services$sep+1,240',
+      );
+      // Money at 0 falls back to the day last seen.
+      expect(
+        caption(
+          tag(
+            kind: CategoryKind.maintenance,
+            spentCents: 5000,
+            receivedCents: 5000,
+            lastSeenDay: saturday,
+          ),
+        ),
+        '3${nb}services${sep}last Sat${nb}24',
+      );
+      // A bill counts times and says its money.
+      expect(
+        caption(tag(kind: CategoryKind.bill, spentCents: 124000)),
+        '3${nb}times${sep}1,240',
+      );
+    });
+
+    test('last seen: today, yesterday, the day, the month across months', () {
+      expect(caption(tag(lastSeenDay: today)), '3${nb}times${sep}today');
+      expect(
+        caption(tag(lastSeenDay: DateTime.utc(2026, 10, 29))),
+        '3${nb}times${sep}yesterday',
+      );
+      expect(
+        caption(tag(lastSeenDay: saturday)),
+        '3${nb}times${sep}last Sat${nb}24',
+      );
+      expect(
+        caption(tag(lastSeenDay: saturday), spansMonths: true),
+        '3${nb}times${sep}last Sat${nb}24${nb}Oct',
+      );
+      expect(caption(tag()), '3${nb}times');
+      expect(
+        caption(tag(lastSeenDay: saturday), locale: 'de'),
+        '3-mal${sep}zuletzt Sa., 24.',
+      );
+    });
+
+    test('the templates are written in 8s and never follow the value', () {
+      final en = labelsIn('en');
+      List<String> templates(ReportTag tag, {bool spansMonths = false}) =>
+          en.tagWords(tag, spansMonths: spansMonths, today: today).templates;
+
+      expect(templates(tag(lastSeenDay: saturday)), [
+        '888${nb}times${sep}today',
+        '888${nb}times${sep}yesterday',
+        '888${nb}times${sep}last Sun${nb}28',
+        '888${nb}times',
+      ]);
+      expect(
+        templates(tag(count: 47, lastSeenDay: today)),
+        templates(tag(count: 1)),
+      );
+      expect(
+        templates(tag(lastSeenDay: saturday), spansMonths: true),
+        contains('888${nb}times${sep}last Sun${nb}28${nb}Jan'),
+      );
+      expect(templates(tag(kind: CategoryKind.trip, events: 1, count: 2)), [
+        '888${nb}trips${sep}888${nb}days',
+      ]);
+      // Money keeps the real figure's digit count, in 8s.
+      final spent = templates(
+        tag(kind: CategoryKind.maintenance, spentCents: 124000),
+      );
+      expect(spent.first, '888${nb}services${sep}8,888');
+      expect(
+        templates(tag(kind: CategoryKind.maintenance, spentCents: 999900)),
+        spent,
+      );
+      expect(
+        templates(
+          tag(kind: CategoryKind.maintenance, receivedCents: 124000),
+        ).first,
+        '888${nb}services$sep+8,888',
+      );
+    });
+
+    test('the spoken label says the day in full and never "#"', () {
+      final words = labelsIn('en').tagWords(
+        tag(kind: CategoryKind.social, count: 6, lastSeenDay: saturday),
+        spansMonths: false,
+        today: today,
+      );
+      expect(words.spoken, 'tag ana, 6 evenings, last Saturday 24 October');
+      expect(words.spoken, isNot(contains('#')));
+      expect(
+        labelsIn('de')
+            .tagWords(
+              tag(kind: CategoryKind.social, count: 6, lastSeenDay: saturday),
+              spansMonths: false,
+              today: today,
+            )
+            .spoken,
+        'Schlagwort ana, 6 Abende, zuletzt Samstag, 24. Oktober',
+      );
+      expect(
+        labelsIn('en')
+            .tagWords(
+              tag(kind: CategoryKind.trip, events: 2, count: 5),
+              spansMonths: false,
+              today: today,
+            )
+            .spoken,
+        'tag ana, 2 trips, 5 days',
+      );
+    });
+
+    group('when', () {
+      ReportWhen when({int? weekday = 1, int? hour = 18}) => ReportWhen(
+        cells: List.filled(ReportWhen.cellCount, 0),
+        timedDays: 34,
+        busiestWeekday: weekday,
+        busiestHour: hour,
+      );
+
+      test('24-hour and 12-hour, the row read from the week start', () {
+        final en = labelsIn('en');
+        final words = en.whenWords(
+          when(),
+          weekStart: CalendarWeekStart.monday,
+          use24Hour: true,
+        )!;
+        expect(words.caption, 'Busiest: Tuesday · 18:00–19:00');
+        expect(
+          words.spoken,
+          'When. Busiest day Tuesday, busiest hour 18:00 to 19:00, over 34 '
+          'timed days.',
+        );
+        expect(
+          en
+              .whenWords(
+                when(),
+                weekStart: CalendarWeekStart.monday,
+                use24Hour: false,
+              )!
+              .caption,
+          'Busiest: Tuesday · 6${nb}PM–7${nb}PM',
+        );
+        expect(
+          en
+              .whenWords(
+                when(weekday: 0, hour: 23),
+                weekStart: CalendarWeekStart.sunday,
+                use24Hour: true,
+              )!
+              .caption,
+          'Busiest: Sunday · 23:00–00:00',
+        );
+      });
+
+      test('de and ro weekday names, 24-hour whatever the switch', () {
+        expect(
+          labelsIn('de')
+              .whenWords(
+                when(),
+                weekStart: CalendarWeekStart.monday,
+                use24Hour: false,
+              )!
+              .caption,
+          'Meist: Dienstag · 18:00–19:00',
+        );
+        expect(
+          labelsIn('ro')
+              .whenWords(
+                when(),
+                weekStart: CalendarWeekStart.saturday,
+                use24Hour: true,
+              )!
+              .caption,
+          'Cel mai des: duminică · 18:00–19:00',
+        );
+      });
+
+      test('no busiest day, no words', () {
+        final en = labelsIn('en');
+        expect(
+          en.whenWords(
+            when(weekday: null, hour: null),
+            weekStart: CalendarWeekStart.monday,
+            use24Hour: true,
+          ),
+          isNull,
+        );
+      });
+    });
+
+    test('balance: hours and the share per locale, and the spoken form', () {
+      const minutes = 38 * 60;
+      const total = 57 * 60;
+      final en = labelsIn(
+        'en',
+      ).balanceWords(LifeArea.work, minutes, totalMinutes: total);
+      expect(en.caption, '38${nb}h${sep}67$nb%');
+      expect(en.spoken, 'Work, 38 hours, 67 percent of the hours');
+      expect(
+        labelsIn(
+          'de',
+        ).balanceWords(LifeArea.work, minutes, totalMinutes: total).caption,
+        '38${nb}Std.${sep}67$nb%',
+      );
+      final ro = labelsIn(
+        'ro',
+      ).balanceWords(LifeArea.work, minutes, totalMinutes: total);
+      expect(ro.caption, '38${nb}h${sep}67$nb%');
+      expect(ro.spoken, 'Muncă, 38 de ore, 67 la sută din ore');
+      expect(
+        labelsIn('en').balanceWords(LifeArea.home, 0, totalMinutes: 0).caption,
+        '0${nb}min${sep}0$nb%',
+      );
+      expect(
+        labelsIn('en')
+            .balanceWords(
+              LifeArea.work,
+              minutes,
+              totalMinutes: total,
+              areaName: 'Office',
+            )
+            .spoken,
+        startsWith('Office, '),
+      );
+    });
+
+    test('compare names', () {
+      final en = labelsIn('en');
+      expect(en.compareName(ReportCompare.previous), 'Previous period');
+      expect(en.compareName(ReportCompare.lastYear), 'Same period last year');
+      expect(
+        en.compareName(ReportCompare.view, viewName: 'Work / Life'),
+        'Work / Life',
+      );
+      expect(en.compareName(ReportCompare.view), 'No saved views');
+      expect(
+        labelsIn('de').compareName(ReportCompare.lastYear),
+        'Gleicher Zeitraum im Vorjahr',
+      );
+    });
+
+    test('the caption names a compared view in place of "against"', () {
+      final en = labelsIn('en');
+      final current = report(
+        span: (
+          start: DateTime.utc(2026, 10, 1),
+          end: DateTime.utc(2026, 10, 31),
+        ),
+        today: today,
+        previousSpan: september,
+        previousCounted: september,
+        aheadCount: 1,
+      );
+      final against = en.caption(
+        current,
+        periodName: 'October 2026',
+        against: 'September 2026',
+      )!;
+      expect(against, contains('against September 2026'));
+      expect(
+        en.caption(
+          current,
+          periodName: 'October 2026',
+          against: 'September 2026',
+          beside: 'Work / Life',
+        ),
+        against.replaceFirst('against September 2026', 'beside Work / Life'),
+      );
+    });
+
+    test('the trend speaks last year only when it holds events', () {
+      final en = labelsIn('en');
+      final buckets = [
+        ReportTrendBucket(
+          start: DateTime.utc(2026, 10, 1),
+          happened: 3,
+          missed: 0,
+        ),
+        ReportTrendBucket(
+          start: DateTime.utc(2026, 10, 2),
+          happened: 1,
+          missed: 0,
+        ),
+      ];
+      final plain = en.trendWords(
+        ReportTrend(unit: ReportTrendUnit.day, buckets: buckets),
+        use24Hour: true,
+      );
+      final compared = en.trendWords(
+        ReportTrend(
+          unit: ReportTrendUnit.day,
+          buckets: buckets,
+          lastYear: const [20, 21],
+        ),
+        use24Hour: true,
+      );
+      expect(compared.caption, plain.caption);
+      expect(
+        compared.spoken,
+        '${plain.spoken}; same period last year, 41 events',
+      );
+      expect(
+        en
+            .trendWords(
+              ReportTrend(
+                unit: ReportTrendUnit.day,
+                buckets: buckets,
+                lastYear: const [0, 0],
+              ),
+              use24Hour: true,
+            )
+            .spoken,
+        plain.spoken,
+      );
+    });
+  });
 }

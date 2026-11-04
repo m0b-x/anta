@@ -141,4 +141,34 @@ abstract final class ReportMetrics {
   /// `Durations.short3`: a memo hit or a quick fold lands before it, so the
   /// common refold never flickers.
   static const Duration refoldDimDelay = Duration(milliseconds: 150);
+
+  /// Between the When card's weekday names and its grid (S5 §2.3): the
+  /// label column is the widest name plus this, so no name touches a cell.
+  static const double whenLabelGap = 8;
+
+  /// The rounding of a When cell: small enough that a 9 dp cell stays a
+  /// cell, not a dot.
+  static const double whenCellRadius = 2;
+
+  /// A When row's height at most this many times a column's width: a row
+  /// grows with the caption line for its label, never into a bar.
+  static const double whenRowAspectMax = 2.0;
+
+  /// The When axis's hour steps, smallest first: the first whose labels keep
+  /// [axisLabelMinGap] between them is drawn, so 2.0 reads every sixth hour.
+  static const List<int> whenHourSteps = [3, 6, 12];
+
+  /// The When ramp's four steps, each a `lerp(rowGroup, primary, t)` (S5
+  /// §2.3's table: light 2.18 · 3.03 · 4.29 · 6.12:1, dark 3.46 · 5.05 ·
+  /// 7.15 · 9.56:1 against `rowGroup`): a 25/50/75/100 ramp's lightest step
+  /// was 1.44:1 in light, a cell no one could see.
+  static const List<double> whenRamp = [0.5, 0.67, 0.84, 1.0];
+
+  /// The height of the Over time card's last-year tick (S5 §2.5, K): a line
+  /// across the column, thin enough to read as a mark, not a second bar.
+  static const double trendLastYearTick = 2;
+
+  /// The `rowGroup` band on each side of the tick, so it stays apart from
+  /// the column it crosses (`primary` against the ring is 6.12:1).
+  static const double trendLastYearRing = 1;
 }

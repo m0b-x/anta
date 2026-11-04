@@ -8839,4 +8839,141 @@ class AppLocalizationsRo extends AppLocalizations {
   String reportCountedAsSpoken(String hours) {
     return 'inclusiv $hours socotite fix';
   }
+
+  @override
+  String get reportSectionTags => 'După etichetă';
+
+  @override
+  String get reportSectionWhen => 'Când';
+
+  @override
+  String get reportSectionBalance => 'Echilibru';
+
+  @override
+  String reportTagCount(String kind, int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count de seri',
+      few: '$count seri',
+      one: '1 seară',
+    );
+    String _temp1 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count de călătorii',
+      few: '$count călătorii',
+      one: '1 călătorie',
+    );
+    String _temp2 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count de revizii',
+      few: '$count revizii',
+      one: '1 revizie',
+    );
+    String _temp3 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count de ședințe',
+      few: '$count ședințe',
+      one: '1 ședință',
+    );
+    String _temp4 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'de $count de ori',
+      few: 'de $count ori',
+      one: 'o dată',
+    );
+    String _temp5 = intl.Intl.selectLogic(kind, {
+      'social': '$_temp0',
+      'trip': '$_temp1',
+      'maintenance': '$_temp2',
+      'workout': '$_temp3',
+      'other': '$_temp4',
+    });
+    return '$_temp5';
+  }
+
+  @override
+  String reportTagDays(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count de zile',
+      few: '$count zile',
+      one: '1 zi',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String reportTagLastSeen(String when, String day) {
+    String _temp0 = intl.Intl.selectLogic(when, {
+      'today': 'azi',
+      'yesterday': 'ieri',
+      'other': 'ultima dată $day',
+    });
+    return '$_temp0';
+  }
+
+  @override
+  String reportTagSpoken(String name, String facts) {
+    return 'eticheta $name, $facts';
+  }
+
+  @override
+  String reportWhenBusiest(String weekday, String hours) {
+    return 'Cel mai des: $weekday · $hours';
+  }
+
+  @override
+  String reportWhenSpoken(String weekday, String from, String to, int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count de zile cu oră',
+      few: '$count zile cu oră',
+      one: '1 zi cu oră',
+    );
+    return 'Când. Cea mai plină zi $weekday, cea mai plină oră de la $from la $to, din $_temp0.';
+  }
+
+  @override
+  String reportBalanceSpoken(String area, String hours, String percent) {
+    return '$area, $hours, $percent din ore';
+  }
+
+  @override
+  String get reportCompareWith => 'Compară cu';
+
+  @override
+  String get reportComparePrevious => 'Perioada anterioară';
+
+  @override
+  String get reportCompareLastYear => 'Aceeași perioadă anul trecut';
+
+  @override
+  String get reportCompareNoViews => 'Nicio vizualizare salvată';
+
+  @override
+  String reportCaptionBeside(String view) {
+    return 'alături de $view';
+  }
+
+  @override
+  String get reportLegendLastYear => 'Anul trecut';
+
+  @override
+  String reportTrendLastYearSpoken(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count de evenimente',
+      few: '$count evenimente',
+      one: '1 eveniment',
+    );
+    return 'aceeași perioadă anul trecut, $_temp0';
+  }
 }

@@ -1286,6 +1286,44 @@ abstract final class SemanticsIds {
   static String reportRowPresence(String eventId, DateTime day) =>
       'report-row-presence-$eventId-${_isoDate(day)}';
 
+  /// A By tag header, by the tag's lower-cased key without `#`.
+  static String reportTag(String key) => 'report-tag-$key';
+
+  /// A tag's disclosure row, one id whether it reads "n more" or "Show
+  /// less", the [reportGroupMore] shape.
+  static String reportTagMore(String key) => 'report-tag-more-$key';
+
+  /// A tag's "Show as list" row, the [reportGroupList] shape.
+  static String reportTagList(String key) => 'report-tag-list-$key';
+
+  /// A dated row under an open tag: its own prefix beside [reportRow],
+  /// because the same occurrence can stand in a Categories group too.
+  static String reportTagRow(String key, String eventId, DateTime day) =>
+      'report-tag-row-$key-$eventId-${_isoDate(day)}';
+
+  /// The By tag card's "n more" row, past `ReportMetrics.groupPreviewRows`
+  /// tags; one per page.
+  static const String reportTagsMore = 'report-tags-more';
+
+  /// The When card, one node with the heatmap's spoken summary.
+  static const String reportWhen = 'report-when';
+
+  /// A Balance row, by its `LifeArea` name: `report-balance-work`, …
+  static String reportBalance(String area) => 'report-balance-$area';
+
+  /// The footer's Compare with row and its menu items; a saved view's item
+  /// by the view's id, and the one disabled item shown with no saved view.
+  static const String reportCompare = 'report-compare';
+  static const String reportComparePrevious = 'report-compare-previous';
+  static const String reportCompareLastYear = 'report-compare-last-year';
+  static String reportCompareView(String viewId) =>
+      'report-compare-view-$viewId';
+  static const String reportCompareNone = 'report-compare-none';
+
+  /// A tile of the compared view's Totals card, by its `ReportTile` name:
+  /// its own prefix, so the page's [reportTile] ids stay unique.
+  static String reportViewTile(String tile) => 'report-view-tile-$tile';
+
   static const String permissionsPromptContinue = 'permissions-prompt-continue';
   static const String permissionsPromptNotNow = 'permissions-prompt-not-now';
 }

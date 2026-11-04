@@ -2568,5 +2568,22 @@
   "reportWorkingDays": "{count, plural, one{1 zi lucrătoare} few{{count} zile lucrătoare} other{{count} de zile lucrătoare}}",
   "reportPublicHolidays": "{count, plural, one{1 sărbătoare legală} few{{count} sărbători legale} other{{count} de sărbători legale}}",
   "reportCaptionCountedAs": "Ore incl. {hours} socotite fix",
-  "reportCountedAsSpoken": "inclusiv {hours} socotite fix"
+  "reportCountedAsSpoken": "inclusiv {hours} socotite fix",
+  "reportSectionTags": "După etichetă",
+  "reportSectionWhen": "Când",
+  "reportSectionBalance": "Echilibru",
+  "reportTagCount": "{kind, select, social{{count, plural, =1{1 seară} few{{count} seri} other{{count} de seri}}} trip{{count, plural, =1{1 călătorie} few{{count} călătorii} other{{count} de călătorii}}} maintenance{{count, plural, =1{1 revizie} few{{count} revizii} other{{count} de revizii}}} workout{{count, plural, =1{1 ședință} few{{count} ședințe} other{{count} de ședințe}}} other{{count, plural, =1{o dată} few{de {count} ori} other{de {count} de ori}}}}",
+  "reportTagDays": "{count, plural, =1{1 zi} few{{count} zile} other{{count} de zile}}",
+  "reportTagLastSeen": "{when, select, today{azi} yesterday{ieri} other{ultima dată {day}}}",
+  "reportTagSpoken": "eticheta {name}, {facts}",
+  "reportWhenBusiest": "Cel mai des: {weekday} · {hours}",
+  "reportWhenSpoken": "Când. Cea mai plină zi {weekday}, cea mai plină oră de la {from} la {to}, din {count, plural, =1{1 zi cu oră} few{{count} zile cu oră} other{{count} de zile cu oră}}.",
+  "reportBalanceSpoken": "{area}, {hours}, {percent} din ore",
+  "reportCompareWith": "Compară cu",
+  "reportComparePrevious": "Perioada anterioară",
+  "reportCompareLastYear": "Aceeași perioadă anul trecut",
+  "reportCompareNoViews": "Nicio vizualizare salvată",
+  "reportCaptionBeside": "alături de {view}",
+  "reportLegendLastYear": "Anul trecut",
+  "reportTrendLastYearSpoken": "aceeași perioadă anul trecut, {count, plural, =1{1 eveniment} few{{count} evenimente} other{{count} de evenimente}}"
 }

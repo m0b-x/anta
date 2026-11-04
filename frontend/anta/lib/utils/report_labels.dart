@@ -13,6 +13,7 @@ import '../models/calendar_report.dart';
 import '../models/overview_period.dart';
 import '../services/event_time_formatter.dart';
 import '../services/recurrence_formatter.dart';
+import 'category_profile_labels.dart' show lifeAreaName;
 import 'date_span_label.dart';
 
 /// One run of a tile's value line: a figure ("21", "18.5", "—"), drawn large,
@@ -102,6 +103,13 @@ class ReportLabels {
   // the standalone ones ("Do", "Okt") that German never writes in a date.
   late final DateFormat _rowDayOfMonth = DateFormat.d(l10n.localeName);
   late final DateSymbols _rowSymbols = _rowDayOfMonth.dateSymbols;
+
+  // The When card's clock (S5), built on first use. The hour-only clock
+  // follows `EventTimeFormatter`'s rule for a day period — the locale's `jm`
+  // writes one — so "6 PM" stands where "6:00 PM" would.
+  late final bool _clockHasDayPeriod =
+      (DateFormat.jm(l10n.localeName).pattern ?? '').contains('a');
+  late final DateFormat _hourOnly = DateFormat('h a', l10n.localeName);
 
   /// The names already worded by this instance: a build names the shown
   /// period three times and each `menuValue` builds a `DateFormat`.
@@ -335,10 +343,15 @@ class ReportLabels {
   /// beside them) when the service resolved them — when is its rule (P) —
   /// then the counts-as part of the Hours tile (O). In the future tense,
   /// where nothing is counted yet, only the working days, or null.
+  ///
+  /// [beside] names a saved view compared as a second Totals card (S5
+  /// §2.5): "beside Work / Life" takes the "against …" fact's place, since
+  /// the two cards cover one span and no delta is drawn.
   String? caption(
     CalendarReport report, {
     required String periodName,
     String? against,
+    String? beside,
   }) {
     final working = report.workingDays;
     final days = [
@@ -357,7 +370,9 @@ class ReportLabels {
     }
     return [
       l10n.reportCaptionTo(_countedTo.format(report.countedTo)),
-      if (against != null && report.previousSpan != null)
+      if (beside != null)
+        l10n.reportCaptionBeside(beside)
+      else if (against != null && report.previousSpan != null)
         l10n.reportCaptionAgainst(against),
       if (report.skippedDays > 0)
         _bound(l10n.reportSkippedCount(report.skippedDays)),
@@ -415,19 +430,29 @@ class ReportLabels {
   /// neither fact) and what a screen reader hears — the same facts, or with
   /// none the peak and the day, week or month it fell on; the plot itself
   /// is not read, and a trend with no occurrence says only its name.
+  ///
+  /// Under Compare with last year the spoken label closes with last year's
+  /// events ("…; same period last year, 41 events"): the ticks are drawn,
+  /// so they are heard too. The caption stays this year's.
   ({String? caption, String spoken}) trendWords(
     ReportTrend trend, {
     required bool use24Hour,
   }) {
+    final lastYear = trend.lastYear?.fold(0, (sum, n) => sum + n) ?? 0;
+    final tail = lastYear > 0
+        ? '; ${l10n.reportTrendLastYearSpoken(lastYear)}'
+        : '';
     final facts = _trendFacts(trend, use24Hour: use24Hour);
     if (facts.isNotEmpty) {
       return (
         caption: _sentence(facts.join(separator)),
-        spoken: l10n.reportTrendSpoken(_sentence(facts.join(', '))),
+        spoken: l10n.reportTrendSpoken(_sentence(facts.join(', '))) + tail,
       );
     }
     final peak = peakOf(trend);
-    if (peak <= 0) return (caption: null, spoken: l10n.reportSectionOverTime);
+    if (peak <= 0) {
+      return (caption: null, spoken: l10n.reportSectionOverTime + tail);
+    }
     final at = trend.buckets.firstWhere(
       (bucket) => bucket.happened + bucket.missed == peak,
     );
@@ -445,7 +470,7 @@ class ReportLabels {
         _peakMonth.format(at.start),
       ),
     };
-    return (caption: null, spoken: l10n.reportTrendSpoken(phrase));
+    return (caption: null, spoken: l10n.reportTrendSpoken(phrase) + tail);
   }
 
   /// The band's subtitle: "31 events · 3 missed", or for a plan "10 planned
@@ -1381,4 +1406,200 @@ class ReportLabels {
   /// [title] the event's.
   String dueSpoken(String title, ReportDueRow row, CalendarReport report) =>
       '$title$spokenSeparator${dueCaption(row, report)}';
+
+  /// The `reportTagCount` noun of a tag whose first category is of [kind]
+  /// (S5 §2.2, B): four kinds name what the tag was seen at, every other —
+  /// Bill and Custom among them — counts "times".
+  static String _tagNoun(CategoryKind kind) => switch (kind) {
+    CategoryKind.social ||
+    CategoryKind.trip ||
+    CategoryKind.maintenance ||
+    CategoryKind.workout => kind.name,
+    _ => 'other',
+  };
+
+  /// The longest of [names] by length: the template's stand-in for the
+  /// widest; the row measures the real width.
+  static String _longest(List<String> names) =>
+      names.reduce((a, b) => b.length > a.length ? b : a);
+
+  /// [day] as a screen reader hears it on a tag ("Saturday 24 October"):
+  /// the row's template with the long names, the month always, as no span
+  /// is heard beside it.
+  String _rowDaySpoken(DateTime day) => l10n.reportRowDayMonth(
+    _rowSymbols.WEEKDAYS[day.weekday % DateTime.daysPerWeek],
+    _rowDayOfMonth.format(day),
+    _rowSymbols.MONTHS[day.month - 1],
+  );
+
+  /// "today", "yesterday" or "last [day]" for a tag last seen on [seen].
+  String _tagLastSeen(DateTime seen, DateTime today, String day) {
+    final days = DateTime.utc(
+      today.year,
+      today.month,
+      today.day,
+    ).difference(DateTime.utc(seen.year, seen.month, seen.day)).inDays;
+    return l10n.reportTagLastSeen(switch (days) {
+      0 => 'today',
+      1 => 'yesterday',
+      _ => 'other',
+    }, day);
+  }
+
+  /// A net amount as a tag's fact: spent reads as [money], money only
+  /// received is signed "+", so it never reads as spending.
+  String _netMoney(int net) => net < 0 ? '+${money(-net)}' : money(net);
+
+  /// A By tag header's words (S5 §2.2): the caption's two facts, the
+  /// template lines its height is reserved from, and the spoken label.
+  ///
+  /// The count leads with the noun of [ReportTag.kind] — a Trip counts its
+  /// events ("2 trips") because its second fact is the days ("5 days").
+  /// Maintenance and Bill follow with the net money ("1,240", "+1,240"
+  /// received only), every other kind — and money at 0 — with the day last
+  /// seen as the dated rows write it, the month only when [spansMonths];
+  /// with no day seen up to [today] the count stands alone.
+  ///
+  /// [templates] is one line per shape the caption can take, every count
+  /// written as 888 and the day as the locale's longest names, so the row
+  /// reserves its lines from the shapes and a refold never changes its
+  /// height (S4 D). A money line keeps the real figure's digit count. The
+  /// spoken label says the day in full and never the '#'.
+  ({String caption, List<String> templates, String spoken}) tagWords(
+    ReportTag tag, {
+    required bool spansMonths,
+    required DateTime today,
+  }) {
+    final noun = _tagNoun(tag.kind);
+    final trip = tag.kind == CategoryKind.trip;
+    final money =
+        tag.kind == CategoryKind.maintenance || tag.kind == CategoryKind.bill;
+    final net = tag.spentCents - tag.receivedCents;
+    final seen = tag.lastSeenDay;
+    final counted = l10n.reportTagCount(noun, trip ? tag.events : tag.count);
+    final String? drawn;
+    final String? heard;
+    if (trip) {
+      drawn = heard = l10n.reportTagDays(tag.count);
+    } else if (money && net != 0) {
+      drawn = heard = _netMoney(net);
+    } else if (seen != null) {
+      drawn = _tagLastSeen(
+        seen,
+        today,
+        _rowDay(seen, spansMonths: spansMonths),
+      );
+      heard = _tagLastSeen(seen, today, _rowDaySpoken(seen));
+    } else {
+      drawn = heard = null;
+    }
+
+    final widest = l10n.reportTagCount(noun, _eights(3));
+    String template(String? fact) =>
+        [widest, ?fact].map(_bindNumbers).join(separator);
+    final weekday = _longest(_rowSymbols.SHORTWEEKDAYS);
+    final ofMonth = _rowDayOfMonth.format(DateTime.utc(2026, 1, 28));
+    final lastSeen = [
+      l10n.reportTagLastSeen('today', ''),
+      l10n.reportTagLastSeen('yesterday', ''),
+      l10n.reportTagLastSeen(
+        'other',
+        spansMonths
+            ? l10n.reportRowDayMonth(
+                weekday,
+                ofMonth,
+                _longest(_rowSymbols.SHORTMONTHS),
+              )
+            : l10n.reportRowDay(weekday, ofMonth),
+      ),
+    ];
+    final moneyTemplate = _eights('${(net.abs() / 100).round()}'.length) * 100;
+    return (
+      caption: [counted, ?drawn].map(_bindNumbers).join(separator),
+      templates: trip
+          ? [template(l10n.reportTagDays(_eights(3)))]
+          : [
+              if (money)
+                template(_netMoney(net < 0 ? -moneyTemplate : moneyTemplate)),
+              for (final fact in lastSeen) template(fact),
+              template(null),
+            ],
+      spoken: l10n.reportTagSpoken(
+        tag.label,
+        [counted, ?heard].join(spokenSeparator),
+      ),
+    );
+  }
+
+  /// [hour] (0–24) on the phone's clock, the hour alone where it reads with
+  /// a day period ("6 PM"), else as the rows write it ("18:00").
+  String _hourOf(int hour, {required bool use24Hour}) =>
+      !use24Hour && _clockHasDayPeriod
+      ? _hourOnly.format(DateTime(2000, 1, 1, hour % Duration.hoursPerDay))
+      : EventTimeFormatter.formatMinuteFor(
+          hour * Duration.minutesPerHour,
+          localeName: l10n.localeName,
+          use24Hour: use24Hour,
+        );
+
+  /// The When card's words (S5 §2.3): "Busiest: Tuesday · 18:00–19:00" and
+  /// the spoken summary with the timed days it was drawn from; null while
+  /// the fold names no busiest day. The fold's row counts from
+  /// [weekStart], so the weekday is resolved through it.
+  ({String caption, String spoken})? whenWords(
+    ReportWhen when, {
+    required CalendarWeekStart weekStart,
+    required bool use24Hour,
+  }) {
+    final row = when.busiestWeekday;
+    final hour = when.busiestHour;
+    if (row == null || hour == null) return null;
+    final weekday = (weekStart.weekday - 1 + row) % DateTime.daysPerWeek + 1;
+    // January 2024 opens on a Monday, so its day N is weekday N.
+    final name = _weekday.format(DateTime.utc(2024, 1, weekday));
+    final from = _hourOf(hour, use24Hour: use24Hour);
+    final to = _hourOf(hour + 1, use24Hour: use24Hour);
+    return (
+      caption: l10n.reportWhenBusiest(name, _bindNumbers('$from–$to')),
+      spoken: l10n.reportWhenSpoken(name, from, to, when.timedDays),
+    );
+  }
+
+  /// [area]'s name, S3's words.
+  String areaName(LifeArea area) => lifeAreaName(l10n, area);
+
+  /// A Balance row's words (S5 §2.4): "38 h · 67 %" — the share of
+  /// [totalMinutes], the hours the card shows, 0 % with none, written as
+  /// the Attended tile writes its share — and "Work, 38 hours, 67 percent
+  /// of the hours". [areaName] defaults to [ReportLabels.areaName] of
+  /// [area].
+  ({String caption, String spoken}) balanceWords(
+    LifeArea area,
+    int minutes, {
+    required int totalMinutes,
+    String? areaName,
+  }) {
+    final percent = totalMinutes > 0
+        ? (minutes * 100 / totalMinutes).round()
+        : 0;
+    return (
+      caption: _bindNumbers(
+        [hours(minutes), l10n.reportPercent('$percent')].join(separator),
+      ),
+      spoken: l10n.reportBalanceSpoken(
+        areaName ?? this.areaName(area),
+        hoursSpoken(minutes),
+        l10n.reportPercentSpoken('$percent'),
+      ),
+    );
+  }
+
+  /// What the footer's Compare with row names: the choice, or for a view
+  /// its [viewName] — "No saved views" when the view is gone.
+  String compareName(ReportCompare compare, {String? viewName}) =>
+      switch (compare) {
+        ReportCompare.previous => l10n.reportComparePrevious,
+        ReportCompare.lastYear => l10n.reportCompareLastYear,
+        ReportCompare.view => viewName ?? l10n.reportCompareNoViews,
+      };
 }

@@ -8715,4 +8715,133 @@ class AppLocalizationsDe extends AppLocalizations {
   String reportCountedAsSpoken(String hours) {
     return 'einschließlich $hours pauschal gezählt';
   }
+
+  @override
+  String get reportSectionTags => 'Nach Schlagwort';
+
+  @override
+  String get reportSectionWhen => 'Wann';
+
+  @override
+  String get reportSectionBalance => 'Balance';
+
+  @override
+  String reportTagCount(String kind, int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count Abende',
+      one: '1 Abend',
+    );
+    String _temp1 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count Reisen',
+      one: '1 Reise',
+    );
+    String _temp2 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count Wartungen',
+      one: '1 Wartung',
+    );
+    String _temp3 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count Einheiten',
+      one: '1 Einheit',
+    );
+    String _temp4 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count-mal',
+      one: 'einmal',
+    );
+    String _temp5 = intl.Intl.selectLogic(kind, {
+      'social': '$_temp0',
+      'trip': '$_temp1',
+      'maintenance': '$_temp2',
+      'workout': '$_temp3',
+      'other': '$_temp4',
+    });
+    return '$_temp5';
+  }
+
+  @override
+  String reportTagDays(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count Tage',
+      one: '1 Tag',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String reportTagLastSeen(String when, String day) {
+    String _temp0 = intl.Intl.selectLogic(when, {
+      'today': 'heute',
+      'yesterday': 'gestern',
+      'other': 'zuletzt $day',
+    });
+    return '$_temp0';
+  }
+
+  @override
+  String reportTagSpoken(String name, String facts) {
+    return 'Schlagwort $name, $facts';
+  }
+
+  @override
+  String reportWhenBusiest(String weekday, String hours) {
+    return 'Meist: $weekday · $hours';
+  }
+
+  @override
+  String reportWhenSpoken(String weekday, String from, String to, int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count Tagen mit Uhrzeit',
+      one: '1 Tag mit Uhrzeit',
+    );
+    return 'Wann. Häufigster Tag $weekday, häufigste Stunde $from bis $to, aus $_temp0.';
+  }
+
+  @override
+  String reportBalanceSpoken(String area, String hours, String percent) {
+    return '$area, $hours, $percent der Stunden';
+  }
+
+  @override
+  String get reportCompareWith => 'Vergleichen mit';
+
+  @override
+  String get reportComparePrevious => 'Vorheriger Zeitraum';
+
+  @override
+  String get reportCompareLastYear => 'Gleicher Zeitraum im Vorjahr';
+
+  @override
+  String get reportCompareNoViews => 'Keine gespeicherten Ansichten';
+
+  @override
+  String reportCaptionBeside(String view) {
+    return 'neben $view';
+  }
+
+  @override
+  String get reportLegendLastYear => 'Vorjahr';
+
+  @override
+  String reportTrendLastYearSpoken(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count Termine',
+      one: '1 Termin',
+    );
+    return 'gleicher Zeitraum im Vorjahr, $_temp0';
+  }
 }

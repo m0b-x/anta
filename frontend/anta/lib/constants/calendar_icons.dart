@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../l10n/app_localizations.dart';
 import '../services/folder_search_service.dart' show normalizeForSearch;
+import 'category_kinds.dart';
 
 /// Identifier for an icon group rendered as a section in the icon picker.
 /// Add a value here, append a group to [CalendarIcons.groups] and add a case
@@ -1558,4 +1559,17 @@ abstract final class CalendarIcons {
       IconGroupId.digits => l10n.iconGroupDigits,
     };
   }
+
+  /// The glyph of a Balance row (S5 §2.4, F): areas carry no colour and no
+  /// stored icon, so the glyph is fixed per area. Exhaustive over
+  /// [LifeArea], so a new area without a glyph is a compile error.
+  static IconData areaIcon(LifeArea area) => switch (area) {
+    LifeArea.health => Icons.monitor_heart_rounded,
+    LifeArea.work => Icons.work_rounded,
+    LifeArea.money => Icons.payments_rounded,
+    LifeArea.people => Icons.people_rounded,
+    LifeArea.home => Icons.home_rounded,
+    LifeArea.leisure => Icons.beach_access_rounded,
+    LifeArea.other => Icons.category_rounded,
+  };
 }
