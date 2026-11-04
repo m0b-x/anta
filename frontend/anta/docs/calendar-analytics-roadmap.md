@@ -10,9 +10,9 @@ the work needs, and named the same Fable session the lead: one Opus 5.5
 implementer and one reviewer per slice (the `delegation` roster), the
 designer and design-reviewer around the visual slices, the suite from the
 lead. §12.2 records each slice as built; this line moves to COMMITTED when
-S9's device pass is green. **In progress: S0–S4 committed by 2026-11-04**
-(S2b-ii `f29edf64`, then S4; the next session resumes at S5 — see "Where
-the next session starts" at the head of §12.2).
+S9's device pass is green. **In progress: S0–S5 committed by 2026-11-05**
+(S4 `f3571ecf`, S5 `8855bf29` last; the next session resumes at S6 — see
+"Where the next session starts" at the head of §12.2).
 
 This record extends `docs/calendar-report-roadmap.md` (the Report, COMMITTED
 2026-10-31) and never replaces it: one page, one pure builder, one model.
@@ -766,33 +766,34 @@ warning; a sync between two devices converges on the newer profile.
 verified, the reviewer's findings and their fate, the uncommitted file count
 at the boundary)*
 
-**Where the next session starts (rewritten 2026-11-04 after S4).**
+**Where the next session starts (rewritten 2026-11-05 after S5).**
 Done and on `origin/main`: S0 (`2661c8de`), S1 (`6a586668`), S2a
-(`0f5fae29`), S2b-i (`66efe1f1`), S3 (`fb9ae486`), **S2b-ii**
-(`f29edf64`) and **S4** (`f3571ecf`, 34 files; the worktree and its
-branch are gone). Next, in order: **S5** (report cards II — By tag, When, Balance,
-Compare with… in the footer; the model is complete: `ReportTag.kind`, the
-When cells without Sleep, `CalendarReport.compare` / `compared` /
-`balanceLastYear`, `ReportTrend.lastYear`, the `ReportCompare` request
-choice and `OverviewView` folds; S5 also fixes `_againstName` under last
-year — the S4 note), **S6** (year in review — `CalendarReport.year` is
-built: `records`, `months`, `spans`, `goalTallies`; the Months card
-iterates `categories` and looks `months` up, a category whose every day
-was missed has no entry — the S2b-ii note), each: implementer runs of ≤ 8
-ids → the whole suite from the lead → two reviewers (3–4 items each) and
-the design-reviewer → fix passes → commit; then **S7**, **S8**, **S9**.
-The designer's accepted specs for S5 and S6 are in
-`docs/calendar-analytics-specs/`; S4's spec is built as amended by
-decisions BA–BJ. The process that worked in this session: a slice split
-by layer into words → primitives and cards → page wiring, the words and
-the model built in parallel in a worktree (`C:\Temp\anta-wt-<slice>`,
-`firebase_options.dart` copied, the branch committed and squash-merged,
-the generated plugin registrants never staged), two code reviewers plus
-the design reviewer told to report by turn 60, fix passes grouped by file
-so two run at once on disjoint files, the whole suite and the benchmark's
-ratio pin only from the lead with nothing else running. The owner's
-pending step (the Firestore rules deploy before a v44+ build syncs from a
-phone) is in the S0 note.
+(`0f5fae29`), S2b-i (`66efe1f1`), S3 (`fb9ae486`), S2b-ii (`f29edf64`),
+S4 (`f3571ecf`) and **S5** (seven code commits from `0abb2f69` to
+`8855bf29`, listed in the S5 note's gate line, then the docs commit).
+Next, in order: **S6** (year in review — the model is built:
+`CalendarReport.year` with `records`, `months`, `spans`, `goalTallies`,
+and `balanceLastYear` under Compare: last year; the Months card iterates
+`categories` and looks `months` up, a category whose every day was missed
+has no entry — the S2b-ii note; the accepted spec is
+`docs/calendar-analytics-specs/s6-design-spec.md`, whose decision H — the
+refold anchor is the nearest section label above the viewport — S5's fix
+pass B2 already built; the worktree `C:\Temp\anta-wt-s5` sits on
+`analytics-s6` at `main`), then **S7**, **S8**, **S9** (S9's device
+bucket from S5's design review is in the S5 note; flow 32 lists Same
+period last year but cannot pick it on the seed). Each slice: implementer
+runs of ≤ 8 ids by layer (words → primitives and cards → page), the whole
+suite from the lead, two code reviewers and the design-reviewer told to
+report by turn 60, fix passes grouped by file, commit. The process that
+worked in S5 beyond S4's: a parallel sub-slice in a worktree at a short
+path (`C:\Temp\anta-wt-<id>`, `firebase_options.dart` copied, the branch
+committed and squash-merged, the generated plugin registrants never
+staged); where both sides touched one file, commit the branch, `git diff
+main <branch> > patch`, `git add` the dirty file, `git apply --3way`; the
+suite only from the lead with nothing else running, and a red case re-run
+at the pre-slice commit in the spare worktree before blaming the slice
+(the real-clock guide cases). The owner's pending step (the Firestore
+rules deploy before a v44+ build syncs from a phone) is in the S0 note.
 
 #### S0 — the data foundation (2026-11-04)
 
@@ -1690,7 +1691,125 @@ meter. Model asks for S2b-ii / S5: Sleep out of When (the counts-hours
 rule), `ReportTag.kind`, `ReportTrend.lastYear`, the compared view folded
 with the page's tile set.
 
-*(The build, the two reviews and the gate follow at the boundary.)*
+**Built 2026-11-04 by layer**, each layer committed after the whole suite:
+S5a words, constants and ids `0abb2f69` (17 ARB keys × 3;
+`ReportLabels.tagWords` / `whenWords` / `balanceWords` / `compareName` /
+`caption(beside:)`, the trend's spoken last-year tail;
+`ReportMetrics.when*` and `trendLastYear*`; the §2.9 ids;
+`CalendarIcons.areaIcon`); S5b widgets `67858816` — S5b-i in the main tree
+(`report_when_chart.dart`, the trend's tick, ring and "Last year" legend
+bar, `ReportTotalsCard.tileIdentifier`) beside S5b-ii in a worktree
+(`ReportCard.tags`, the tags inside `ReportGroupStack` through `tagGroups`
+/ `tags` / `preview` with the card-level "n more" `report-tags-more`,
+folds closed by default for tags only, `ReportBalanceCard`, the shared
+`reportCaptionLines` helper); S5c-i body and S5c-bloc `bfa59f0f`
+(`ReportBody(compare:, compareView:, views:, onCompare:)`, the three cards
+in §2.1's order, the Compare row, `_totalsCards` stacked or side by side
+from 600 dp of the body's width, `ReportComparePicked(compare, {view})`,
+`ReportShown.compare` / `compareView`, the bloc's `views:
+OverviewViewService.getInstance()`); S5c-page `55207ac6` (the page glue,
+six end-to-end page cases, the fixture's `qa-cal-coffee` "Coffee with
+#ana" and the saved view `qa-view-strength`, flow `32_report_cards.txt`,
+flow 24's `--nth 1`); the fix passes B1 `0588f418` and A1 / A2 / B2 (the
+hash in the hand-off).
+
+**The reviews** (two code reviewers and the design-reviewer, from a
+`bfa59f0f` snapshot; no finding at severity 3–4) and their fate:
+- CONFIRMED, fixed: Share under a saved view wrote the previous period's
+  bare deltas — `onShare` and `ReportMarkdown.render` take `beside`, the
+  deltas are omitted as on the page, the view's own column in the Markdown
+  is S7's; a view pick from the footer pushed the footer off screen (the
+  second Totals card grew below the anchor) — S6's decision H brought
+  forward, the refold anchor is the nearest section label above the
+  viewport's top; bold text was not measured for tag and goal captions —
+  the shared helper merges `FontWeight.bold` under `boldText`; the "last
+  …" template took the longest name by characters ("So." over "Mo.",
+  "Sun" over "Wed") — `tagTemplates(widest:)` takes the widget's measuring
+  callback; a net of 1–49 cents read "€0" — tested on the rounded units;
+  a month so far under last year names the counted days (D28, "Oct 1 –
+  Oct 30, 2025") and the body test had pinned a state the fold never
+  produces — the test and §2.5's example corrected (a whole month names
+  the month); ro headers reserved blank caption lines — the templates
+  follow the row's own fact kind and digit counts in 8s (as S4's money
+  templates), so a refold that changes a digit count or the fact kind may
+  change a row's height, accepted; disclosures spoke "#" — `reportTagName`
+  "tag ana", `reportTagsMoreSpoken` / `LessSpoken`; the avatar could name
+  another category than the noun — `ReportTag.kindCategoryId`; Balance
+  shares summed to 101 % — `ReportLabels.shares` (largest remainder); the
+  When caption broke at the en dash and used hour-only times — bound with
+  word joiners, `EventTimeFormatter`; a tick at the peak sat on the top
+  hairline and the When label boxes overhung the grid — clamped.
+- Bloc: the saved views ride in `ReportShown.views` (fresh at every emit,
+  so the page reads no service); `ReportFolding.previousCompare` /
+  `previousCompareView` name the view of the report drawn (D36.9); a
+  non-view pick never waits on the views service; last year falls back to
+  Previous before `years.first` (the row's dimmed rule) and a deleted view
+  falls back on its next fold; the fold key compares the view's id, name
+  and categories (a reorder refolds nothing); a database switch is read
+  from `DatabaseLifecycle.generation`.
+- Accepted, noted: per-tag cards with the group gap (the Categories shape;
+  the closed card 384, not 316) and the card-level "n more" as its own
+  card (the "n more categories" precedent — the design review calls it
+  the weakest element; judge on a device); tag header heights beside the
+  chevron (66 / 77.4 / 140 after the templates fix); the trend with ticks
+  at de 2.0 is 342 (the suite's German month height); the de / ro Compare
+  row stacks at 1.0 (54 dp; the footer 201 / 213 / 333, pinned); the en
+  percent "67 %" through `reportPercent`, the Attended tile's grammar (the
+  design review finds it unidiomatic — the owner's call for both); the
+  ramp's step 1 against an empty cell 1.78:1 (texture; the facts are
+  words); a money fact is bare without a ledger currency; a Trip counts
+  `tag.events`; `whenWords` takes the week start because
+  `ReportWhen.busiestWeekday` is a row from it; `ReportTotalsCard` takes
+  a `tileIdentifier` callback rather than the spec's `idPrefix`, so
+  `SemanticsIds` keeps every id string.
+- **Open edges, for S6's review** (noted by the fix passes, not fixed):
+  the page's slack-arming rule (`_sameCardsAboveTotals`) still reads only
+  the cards above Totals, so with the wider anchor a refold that also
+  shrinks content below the anchor could correct past the new end and
+  spring back; an anchor label that itself leaves in the refold (reading
+  under Insights when every insight vanishes) corrects nothing; a failed
+  fold re-emits the last Ready, whose `views` are that fold's; the row's
+  dimmed last-year rule reads the service's clamped span while the bloc
+  reads the unclamped one (they differ only at `CalendarBounds`).
+- **For S9's device pass** (the design review's bucket): TalkBack on a tag
+  header ("tag ana", one button node, expanded) and its disclosure; the
+  When and Balance nodes read once; the compare menu near the bottom
+  inset under gesture and 3-button navigation; a 600 dp device and
+  landscape; real de / ro copy and ro diacritics; ink on the new rows;
+  the Android non-linear 200 % scale on When's label column and the
+  legend wrap. Flow 32 lists Same period last year but cannot pick it:
+  the seed has no event a year back (a `{{today-365}}` one-off would add a
+  2025 section to the overview's Year scroll that flows 05 and 23 walk).
+
+**Decisions (continuing S4's lettering):** BK per-tag cards with the gap ·
+BL templates by the row's shape and digit counts, bold-aware, the widest
+name measured · BM a Trip counts `tag.events` · BN `whenWords(weekStart:)`
+· BO the en percent through `reportPercent` · BP the compare choice per
+visit in the bloc, `views` and the folded view in the state, the two
+fall-backs, the key by id / name / categories · BQ the body draws from
+`report.compare` / `compared` and shows the asked choice as the row's
+value · BR a view compare strips the deltas on both cards and Share
+writes "beside" with no deltas · BS the refold anchor is the nearest
+section label above the viewport (S6 H, brought forward) · BT spoken tag
+names say "tag", the avatar from `kindCategoryId` · BU
+`ReportTotalsCard.tileIdentifier` · BV flow 32 and the two fixture
+entries.
+
+**Gate (S5).** `dart analyze lib test` clean; `dart format` clean on the
+slice's 18 files (25 older files elsewhere would reformat — not touched);
+`flutter gen-l10n` reproduces the committed generated files,
+`untranslated.txt` empty; the whole suite `+13215 ~12 -4` on 2026-11-05:
+the known Windows-only host-devices case and **three guide try-cards
+cases that are red at the pre-S5 commit too** ("a stage never changes
+height at text scale 2.0 — screen: every panel mode", where the day
+timeline overflows twice on 2026-11-05's sandbox data, and the two
+"tap-target and text-contrast guidelines — screen 360 / 412 light" cases,
+whose contrast sampler reads the report stage's "2 events" caption off its
+rect) — the stage runs on the real clock (the 2026-11-01 trap), so these
+are date drift, not the slice; §14 carries the clock pin. S5 is on `main`
+as `0abb2f69` (S5a), `67858816` (S5b), `bfa59f0f` (S5c-i, S5c-bloc),
+`55207ac6` (S5c-page), `0588f418` (B1), `830e7645` (B2), **`8855bf29`**
+(A1–A2, the last); the docs commit follows it.
 
 #### S6 — year in review (designed 2026-11-04, built after S5)
 
@@ -1851,6 +1970,8 @@ suite count and result, uncommitted files, open findings, what §14 gained.
 
 ## 14. Deferred
 
+- **The guide try-cards suite's clock** — `test/widgets/calendar_guide_try_cards_test.dart` opens its stages on `DateTime.now` (only the fasting topic is pinned by `fixedNowFor`), so three cases went red on 2026-11-05 at the pre-S5 commit as well: "a stage never changes height at text scale 2.0 — screen: every panel mode" (the day timeline overflowed twice on that day's sandbox data; the case tolerates one) and "the tap-target and text-contrast guidelines — screen 360 / 412 light" (the sampler read the report stage's "2 events" caption off its rect). Intended fix: pin `now` for every stage in `fixedNowFor` (and the finding topic's 2026-11-01 case alike), then re-pin the two cases; a product check whether the stage should ever draw a day whose timeline overflows. Not S5's; carried here so the gate's "whole suite green" reads honestly until the pin lands.
+- **The saved view's own column in the shared Markdown** — `ReportMarkdown.render(beside:)` writes "beside {view}" and omits the deltas (S5 BR); the view's Totals column itself joins the Markdown with S7's new sections.
 - **Per-event overrides** (A, D) — a counts-as or an exclusion on one event;
   only if a category's events prove too mixed.
 - **Task weighting** — minutes per ticked task; after counts-as has been
