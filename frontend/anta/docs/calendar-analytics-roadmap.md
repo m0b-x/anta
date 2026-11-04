@@ -10,7 +10,10 @@ the work needs, and named the same Fable session the lead: one Opus 5.5
 implementer and one reviewer per slice (the `delegation` roster), the
 designer and design-reviewer around the visual slices, the suite from the
 lead. §12.2 records each slice as built; this line moves to COMMITTED when
-S9's device pass is green.
+S9's device pass is green. **Paused by the owner on 2026-11-04 after S3**
+(S0, S1, S2a, S2b-i and S3 committed, `fb9ae486` last; the next session
+resumes at S2b-ii — see "Where the next session starts" at the head of
+§12.2).
 
 This record extends `docs/calendar-report-roadmap.md` (the Report, COMMITTED
 2026-10-31) and never replaces it: one page, one pure builder, one model.
@@ -764,6 +767,33 @@ warning; a sync between two devices converges on the newer profile.
 verified, the reviewer's findings and their fate, the uncommitted file count
 at the boundary)*
 
+**Where the next session starts (written 2026-11-04 at the pause).**
+Done and on `origin/main`: S0 (`2661c8de`), S1 (`6a586668`), S2a
+(`0f5fae29`), S2b-i (`66efe1f1`), S3 (`fb9ae486`, built in a worktree and
+rebased onto main; the worktree and its branch are gone). Next, in order:
+**S2b-ii** (builder II, the rest: the year aggregates `CalendarReport.year`
+— `records`, `months`, `spans`, `goalTallies` — and `ReportRecord`,
+`balanceLastYear`; Compare's second fold in the service — previous period,
+same period last year, a saved view folded with the page's tile set —
+`CalendarReport.compared` and `ReportTrend.lastYear`; T1–T3; Sleep out of
+When by the counts-hours rule; `ReportTag.kind`; the `ReportCompare` choice
+in the request and the memo key; its own fixture pairs and the two-fold
+memo pin), then **S4**, **S5**, **S6** (each: implementer → the whole suite
+from the lead → reviewer → fix pass → design-reviewer → fix pass →
+commit), **S7**, **S8**, **S9**. The designer's accepted specs for S3–S6
+are in `docs/calendar-analytics-specs/` (`s3-design-spec.md` … `s6-design-
+spec.md`; their defaults and the lead's amendments are the "S3" … "S6"
+notes below); S4's, S5's and S6's renders stayed in the session's
+scratchpad and are not needed — the specs carry every number. The
+process that worked: one Opus implementer per (sub-)slice with a brief of
+at most eight ids, the whole suite only from the lead with nothing else
+running (the delete-all load flake), one reviewer told to report by its
+60th turn, a fix pass from the same list, a parallel slice in a worktree
+at a short path (`C:\Temp\anta-wt-<slice>`, `firebase_options.dart`
+copied, the generated plugin files left out of the commit). The owner's
+pending step (the Firestore rules deploy before a v44+ build syncs from a
+phone) is in the S0 note.
+
 #### S0 — the data foundation (2026-11-04)
 
 Built as three sub-slices — S0a and S0b in parallel on disjoint files, then
@@ -1220,9 +1250,15 @@ S2b-ii (year in review, compare, T1–T3, the shapes S5 asked for).
   apart (G5, P1 with `weekdayMinDays`, P5 with `cancelledMinPlanned`, L1's
   lead, D5's CV at and under 0.25 and 2 vs 3 episodes, P4 without Work, M2
   tracked). Accepted — L2 overlaps D4 for Deadlines (the page's filter H
-  and the digest's one line keep it harmless).
+  and the digest's one line keep it harmless). Pass two also added
+  `AnalyticsMetrics.sleepNightMinMinutes` (180) and `bedtimeSpreadTrim`
+  (0.1), the `beyondLookback` slot on `ReportInsight`, and a trip as a run
+  of one event's consecutive days for A2.
+- **Gate (S2b-i).** `dart analyze lib test` clean; the whole suite `+12777
+  ~12 -1` (the known Windows-only case); `dart format` clean on every slice
+  file; no ARB. 9 files; commit `66efe1f1` (2026-11-04).
 
-*(S2b-ii, the reviews and the gate follow at the boundary.)*
+*(S2b-ii follows in the next session — see the head of §12.2.)*
 
 #### S3 — the category editor's profile sections (2026-11-04)
 
@@ -1329,7 +1365,16 @@ goal sheet's measured heights replace the spec's table (429 / 490 / 490 /
 field, TalkBack on the six rows and the uppercase labels, ink, ro
 diacritics, the kind sheet's bottom inset) goes to S9.
 
-*(The merge, the gate and the commit follow at the boundary.)*
+**Gate and commit.** In the worktree after pass B: `dart analyze lib test`
+clean, `flutter gen-l10n` with `untranslated.txt` `{}`, the whole suite
+`+12716 ~11 -1`; committed on `analytics-s3`, rebased onto `66efe1f1`
+without a conflict, fast-forwarded onto main as `fb9ae486` (36 files),
+and the merged tree's gate from the lead: analyze clean, `+12860 ~12 -1`
+(the known Windows-only case), `untranslated.txt` `{}`. The
+`ui-language` reference `row-primitives.md` describes the typeable
+stepper, `widestLabel` and the readable disabled caption (in the S2b-i
+commit). The spec as accepted: `docs/calendar-analytics-specs/s3-design-
+spec.md`.
 
 #### S4 — report cards I (designed 2026-11-04, built after S2b)
 
