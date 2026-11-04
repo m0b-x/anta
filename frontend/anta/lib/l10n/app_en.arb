@@ -9877,5 +9877,522 @@
   "eventCancelled": "Event cancelled",
   "@eventCancelled": {
     "description": "Confirmation after cancelling a one-time event, with an Undo"
+  },
+  "categoryReportSection": "Report",
+  "@categoryReportSection": {
+    "description": "Section label in the category editor over the Kind, Mark and Area rows: what the Report treats the category as"
+  },
+  "categoryMeasureGoalSection": "Measure & goal",
+  "@categoryMeasureGoalSection": {
+    "description": "Section label in the category editor over the Measure, Counts as and Goal rows"
+  },
+  "categoryKindLabel": "Kind",
+  "@categoryKindLabel": {
+    "description": "Row label in the category editor, and the title of the kind picker: what the category is for (Workout, Bill, …)"
+  },
+  "categoryKindRoutine": "Routine",
+  "@categoryKindRoutine": {
+    "description": "Category kind: a habit kept on a rhythm"
+  },
+  "categoryKindWorkout": "Workout",
+  "@categoryKindWorkout": {
+    "description": "Category kind: training sessions"
+  },
+  "categoryKindMedication": "Medication",
+  "@categoryKindMedication": {
+    "description": "Category kind: pills and supplements taken"
+  },
+  "categoryKindSleep": "Sleep",
+  "@categoryKindSleep": {
+    "description": "Category kind: the night's sleep and its length"
+  },
+  "categoryKindEpisode": "Episode",
+  "@categoryKindEpisode": {
+    "description": "Category kind: an illness, a symptom, a cycle"
+  },
+  "categoryKindAppointment": "Appointment",
+  "@categoryKindAppointment": {
+    "description": "Category kind: doctor, dentist and other appointments"
+  },
+  "categoryKindWork": "Work",
+  "@categoryKindWork": {
+    "description": "Category kind: shifts and working days"
+  },
+  "categoryKindMeeting": "Meeting",
+  "@categoryKindMeeting": {
+    "description": "Category kind: calls and meetings"
+  },
+  "categoryKindTask": "Task",
+  "@categoryKindTask": {
+    "description": "Category kind: to-dos and errands"
+  },
+  "categoryKindDeadline": "Deadline",
+  "@categoryKindDeadline": {
+    "description": "Category kind: submissions and filings due on a day"
+  },
+  "categoryKindStudy": "Study",
+  "@categoryKindStudy": {
+    "description": "Category kind: courses, practice, reading"
+  },
+  "categoryKindBill": "Bill",
+  "@categoryKindBill": {
+    "description": "Category kind: rent, bills, subscriptions to pay"
+  },
+  "categoryKindIncome": "Income",
+  "@categoryKindIncome": {
+    "description": "Category kind: salary and payments received"
+  },
+  "categoryKindSocial": "Social",
+  "@categoryKindSocial": {
+    "description": "Category kind: time with people"
+  },
+  "categoryKindAnniversary": "Anniversary",
+  "@categoryKindAnniversary": {
+    "description": "Category kind: birthdays and name days"
+  },
+  "categoryKindChore": "Chore",
+  "@categoryKindChore": {
+    "description": "Category kind: housework"
+  },
+  "categoryKindMaintenance": "Maintenance",
+  "@categoryKindMaintenance": {
+    "description": "Category kind: car service, boiler and other upkeep"
+  },
+  "categoryKindExpiry": "Expiry",
+  "@categoryKindExpiry": {
+    "description": "Category kind: documents and warranties that expire"
+  },
+  "categoryKindTrip": "Trip",
+  "@categoryKindTrip": {
+    "description": "Category kind: travel"
+  },
+  "categoryKindLeave": "Leave",
+  "@categoryKindLeave": {
+    "description": "Category kind: vacation and days off"
+  },
+  "categoryKindCustom": "Custom",
+  "@categoryKindCustom": {
+    "description": "Category kind: anything else, the kind of a category nobody set one for"
+  },
+  "categoryKindExampleRoutine": "Stretching, journaling",
+  "@categoryKindExampleRoutine": {
+    "description": "Examples under the Routine kind. At most 28 characters and three items"
+  },
+  "categoryKindExampleWorkout": "Gym, run, swim, class",
+  "@categoryKindExampleWorkout": {
+    "description": "Examples under the Workout kind. At most 28 characters"
+  },
+  "categoryKindExampleMedication": "Pills, supplements",
+  "@categoryKindExampleMedication": {
+    "description": "Examples under the Medication kind. At most 28 characters"
+  },
+  "categoryKindExampleSleep": "The night and its length",
+  "@categoryKindExampleSleep": {
+    "description": "What the Sleep kind holds. At most 28 characters"
+  },
+  "categoryKindExampleEpisode": "Illness, migraine, cycle",
+  "@categoryKindExampleEpisode": {
+    "description": "Examples under the Episode kind. At most 28 characters"
+  },
+  "categoryKindExampleAppointment": "Doctor, dentist, vet",
+  "@categoryKindExampleAppointment": {
+    "description": "Examples under the Appointment kind. At most 28 characters"
+  },
+  "categoryKindExampleWork": "Shifts, working days",
+  "@categoryKindExampleWork": {
+    "description": "Examples under the Work kind. At most 28 characters"
+  },
+  "categoryKindExampleMeeting": "Calls, stand-ups, reviews",
+  "@categoryKindExampleMeeting": {
+    "description": "Examples under the Meeting kind. At most 28 characters"
+  },
+  "categoryKindExampleTask": "To-dos, errands",
+  "@categoryKindExampleTask": {
+    "description": "Examples under the Task kind. At most 28 characters"
+  },
+  "categoryKindExampleDeadline": "Submissions, filings",
+  "@categoryKindExampleDeadline": {
+    "description": "Examples under the Deadline kind. At most 28 characters"
+  },
+  "categoryKindExampleStudy": "Courses, practice, reading",
+  "@categoryKindExampleStudy": {
+    "description": "Examples under the Study kind. At most 28 characters"
+  },
+  "categoryKindExampleBill": "Rent, bills, subscriptions",
+  "@categoryKindExampleBill": {
+    "description": "Examples under the Bill kind. At most 28 characters"
+  },
+  "categoryKindExampleIncome": "Salary, paid invoices",
+  "@categoryKindExampleIncome": {
+    "description": "Examples under the Income kind. At most 28 characters"
+  },
+  "categoryKindExampleSocial": "Dinners, visits, dates",
+  "@categoryKindExampleSocial": {
+    "description": "Examples under the Social kind. At most 28 characters"
+  },
+  "categoryKindExampleAnniversary": "Birthdays, name days",
+  "@categoryKindExampleAnniversary": {
+    "description": "Examples under the Anniversary kind. At most 28 characters"
+  },
+  "categoryKindExampleChore": "Cleaning, laundry, groceries",
+  "@categoryKindExampleChore": {
+    "description": "Examples under the Chore kind. At most 28 characters"
+  },
+  "categoryKindExampleMaintenance": "Car service, boiler",
+  "@categoryKindExampleMaintenance": {
+    "description": "Examples under the Maintenance kind. At most 28 characters"
+  },
+  "categoryKindExampleExpiry": "Passport, ID, warranty",
+  "@categoryKindExampleExpiry": {
+    "description": "Examples under the Expiry kind. At most 28 characters"
+  },
+  "categoryKindExampleTrip": "Travel, weekends away",
+  "@categoryKindExampleTrip": {
+    "description": "Examples under the Trip kind. At most 28 characters"
+  },
+  "categoryKindExampleLeave": "Vacation, days off",
+  "@categoryKindExampleLeave": {
+    "description": "Examples under the Leave kind. At most 28 characters"
+  },
+  "categoryKindExampleCustom": "Anything else",
+  "@categoryKindExampleCustom": {
+    "description": "What the Custom kind holds. At most 28 characters"
+  },
+  "lifeAreaHealth": "Health",
+  "@lifeAreaHealth": {
+    "description": "Life area a category belongs to; also a group label in the kind picker"
+  },
+  "lifeAreaWork": "Work",
+  "@lifeAreaWork": {
+    "description": "Life area a category belongs to; also a group label in the kind picker"
+  },
+  "lifeAreaMoney": "Money",
+  "@lifeAreaMoney": {
+    "description": "Life area a category belongs to; also a group label in the kind picker"
+  },
+  "lifeAreaPeople": "People",
+  "@lifeAreaPeople": {
+    "description": "Life area a category belongs to; also a group label in the kind picker"
+  },
+  "lifeAreaHome": "Home",
+  "@lifeAreaHome": {
+    "description": "Life area a category belongs to; also a group label in the kind picker"
+  },
+  "lifeAreaLeisure": "Leisure",
+  "@lifeAreaLeisure": {
+    "description": "Life area a category belongs to; also a group label in the kind picker"
+  },
+  "lifeAreaOther": "Other",
+  "@lifeAreaOther": {
+    "description": "Life area a category belongs to; also a group label in the kind picker"
+  },
+  "categoryMarkLabel": "Mark",
+  "@categoryMarkLabel": {
+    "description": "Row label in the category editor: the word a kept mark is read as (Done, Paid, …)"
+  },
+  "categoryMarkOff": "Off",
+  "@categoryMarkOff": {
+    "description": "The Mark row's value and menu item when the category's events are not marked"
+  },
+  "categoryMarkOwn": "Own word…",
+  "@categoryMarkOwn": {
+    "description": "Mark menu item that opens a dialog for the owner's own word"
+  },
+  "categoryMarkOwnTitle": "Mark word",
+  "@categoryMarkOwnTitle": {
+    "description": "Title of the dialog where the owner types their own word for a kept mark"
+  },
+  "categoryMarkOwnHint": "e.g. Walked",
+  "@categoryMarkOwnHint": {
+    "description": "Hint in the mark word dialog's field"
+  },
+  "categoryAreaLabel": "Area",
+  "@categoryAreaLabel": {
+    "description": "Row label in the category editor: the life area the category's hours count toward"
+  },
+  "categoryMeasureLabel": "Measure",
+  "@categoryMeasureLabel": {
+    "description": "Row label in the category editor: the number the Report leads the category with"
+  },
+  "categoryMeasureAuto": "Auto",
+  "@categoryMeasureAuto": {
+    "description": "The Measure row's value while the kind's own measure leads, and the menu item for it"
+  },
+  "categoryMeasureAutoIs": "Auto is {measure}",
+  "@categoryMeasureAutoIs": {
+    "description": "Caption under the Measure row: the measure Auto stands for under the category's kind",
+    "placeholders": {
+      "measure": {
+        "type": "String",
+        "example": "Attendance"
+      }
+    }
+  },
+  "categoryMeasureAutoPerPeriod": "Auto picks per period",
+  "@categoryMeasureAutoPerPeriod": {
+    "description": "Caption under the Measure row for a Custom category: the Report picks the measure for each period it shows"
+  },
+  "categoryMeasureAutoWith": "Auto · {measure}",
+  "@categoryMeasureAutoWith": {
+    "description": "The Measure menu's first item: Auto, naming the measure it stands for",
+    "placeholders": {
+      "measure": {
+        "type": "String",
+        "example": "Attendance"
+      }
+    }
+  },
+  "categoryMeasureCount": "Count",
+  "@categoryMeasureCount": {
+    "description": "Measure: how many days the category's events took"
+  },
+  "categoryMeasureEvents": "Events",
+  "@categoryMeasureEvents": {
+    "description": "Measure: how many of the category's events happened"
+  },
+  "categoryMeasureHours": "Hours",
+  "@categoryMeasureHours": {
+    "description": "Measure: the hours the category's events took"
+  },
+  "categoryMeasureAttendance": "Attendance",
+  "@categoryMeasureAttendance": {
+    "description": "Measure: the share of tracked occurrences kept"
+  },
+  "categoryMeasureTasks": "Tasks",
+  "@categoryMeasureTasks": {
+    "description": "Measure: the task boxes ticked in the events' descriptions"
+  },
+  "categoryMeasureMoney": "Money",
+  "@categoryMeasureMoney": {
+    "description": "Measure: the money the events' linked notes record"
+  },
+  "categoryMeasureLastSeen": "Last seen",
+  "@categoryMeasureLastSeen": {
+    "description": "Measure: how long since the category last happened"
+  },
+  "categoryMeasureDaysUntil": "Days until",
+  "@categoryMeasureDaysUntil": {
+    "description": "Measure: how many days until the next occurrence (an expiry)"
+  },
+  "categoryMeasureCancelled": "Cancelled",
+  "@categoryMeasureCancelled": {
+    "description": "Measure: how many of the category's occurrences were cancelled; never offered as a primary, named when one is stored"
+  },
+  "categoryMeasureLeadTime": "Lead time",
+  "@categoryMeasureLeadTime": {
+    "description": "Measure: how far ahead the category's events were planned; never offered as a primary, named when one is stored"
+  },
+  "categoryMeasureTiming": "Timing",
+  "@categoryMeasureTiming": {
+    "description": "Measure: the time of day the category's events start; never offered as a primary, named when one is stored"
+  },
+  "categoryCountsAsLabel": "Counts as",
+  "@categoryCountsAsLabel": {
+    "description": "Row label in the category editor: how long an untimed event counts for in the hours"
+  },
+  "categoryCountsAsOff": "Off",
+  "@categoryCountsAsOff": {
+    "description": "The Counts as row's value and menu item when untimed events earn no hours"
+  },
+  "categoryCountsAsSuggested": "Suggested: {duration}",
+  "@categoryCountsAsSuggested": {
+    "description": "Caption under the Counts as row: the kind's suggested length, which applies only once picked",
+    "placeholders": {
+      "duration": {
+        "type": "String",
+        "example": "1 h"
+      }
+    }
+  },
+  "categoryCountsAsSuggestedItem": "{duration} · suggested",
+  "@categoryCountsAsSuggestedItem": {
+    "description": "Counts as menu item that is the kind's suggestion",
+    "placeholders": {
+      "duration": {
+        "type": "String",
+        "example": "1 h"
+      }
+    }
+  },
+  "categoryCountsAsScope": "For untimed events",
+  "@categoryCountsAsScope": {
+    "description": "Caption under the Counts as row when the kind suggests no length"
+  },
+  "categoryCountsAsSleep": "Sleep keeps its own hours",
+  "@categoryCountsAsSleep": {
+    "description": "Caption under the disabled Counts as row of a Sleep category"
+  },
+  "categoryCountsAsRepeats": "Repeats earn no counted hours",
+  "@categoryCountsAsRepeats": {
+    "description": "Caption under the disabled Counts as row of a category whose events all repeat untracked"
+  },
+  "categoryGoalLabel": "Goal",
+  "@categoryGoalLabel": {
+    "description": "Row label in the category editor that opens the goal sheet"
+  },
+  "categoryGoalNone": "No goal",
+  "@categoryGoalNone": {
+    "description": "Caption under the Goal row while no goal is set"
+  },
+  "categoryGoalNeedsMeasure": "Pick a measure first",
+  "@categoryGoalNeedsMeasure": {
+    "description": "Caption under the disabled Goal row while the measure is Auto on a Custom category"
+  },
+  "categoryGoalNotFor": "No goal for {measure}",
+  "@categoryGoalNotFor": {
+    "description": "Caption under the disabled Goal row when the measure takes no goal",
+    "placeholders": {
+      "measure": {
+        "type": "String",
+        "example": "Days until"
+      }
+    }
+  },
+  "categoryGoalTitle": "Goal",
+  "@categoryGoalTitle": {
+    "description": "Title of the goal sheet"
+  },
+  "categoryGoalTypeSection": "Type",
+  "@categoryGoalTypeSection": {
+    "description": "Section label in the goal sheet over the goal's types"
+  },
+  "categoryGoalTargetSection": "Target",
+  "@categoryGoalTargetSection": {
+    "description": "Section label in the goal sheet over the goal's value and period"
+  },
+  "categoryGoalTypeAtLeast": "At least",
+  "@categoryGoalTypeAtLeast": {
+    "description": "Goal type: at least this much per period"
+  },
+  "categoryGoalTypeAtMost": "At most",
+  "@categoryGoalTypeAtMost": {
+    "description": "Goal type: at most this much per period"
+  },
+  "categoryGoalTypeBudget": "Budget",
+  "@categoryGoalTypeBudget": {
+    "description": "Goal type on a money measure: at most this much money per period"
+  },
+  "categoryGoalTypeMaxGap": "Days between",
+  "@categoryGoalTypeMaxGap": {
+    "description": "Goal type: at most this many days between two occurrences"
+  },
+  "categoryGoalTypeNotForMeasure": "Not for this measure",
+  "@categoryGoalTypeNotForMeasure": {
+    "description": "Caption under a stored goal type the category's measure does not offer (synced from another device), shown checked so the goal can be kept or changed"
+  },
+  "categoryGoalUnitCount": "Count",
+  "@categoryGoalUnitCount": {
+    "description": "Label of the goal sheet's value row when the goal counts occurrences"
+  },
+  "categoryGoalUnitHours": "Hours",
+  "@categoryGoalUnitHours": {
+    "description": "Label of the goal sheet's value row when the goal counts hours"
+  },
+  "categoryGoalUnitTasks": "Tasks",
+  "@categoryGoalUnitTasks": {
+    "description": "Label of the goal sheet's value row when the goal counts tasks"
+  },
+  "categoryGoalUnitAmount": "Amount",
+  "@categoryGoalUnitAmount": {
+    "description": "Label of the goal sheet's value row when the goal counts money"
+  },
+  "categoryGoalUnitDays": "Days",
+  "@categoryGoalUnitDays": {
+    "description": "Label of the goal sheet's value row for a Days between goal"
+  },
+  "categoryGoalHours": "{hours} h",
+  "@categoryGoalHours": {
+    "description": "A goal's amount in hours, inside the goal's read-back; the number arrives formatted (1,200 or 7.5)",
+    "placeholders": {
+      "hours": {
+        "type": "String",
+        "example": "1,200"
+      }
+    }
+  },
+  "categoryGoalTasks": "{count, plural, =1{1 task} other{{count} tasks}}",
+  "@categoryGoalTasks": {
+    "description": "A goal's amount in tasks, inside the goal's read-back",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "categoryGoalLess": "Less",
+  "@categoryGoalLess": {
+    "description": "Tooltip of the goal value's minus button"
+  },
+  "categoryGoalMore": "More",
+  "@categoryGoalMore": {
+    "description": "Tooltip of the goal value's plus button"
+  },
+  "categoryGoalPeriodDay": "Day",
+  "@categoryGoalPeriodDay": {
+    "description": "Goal period chip"
+  },
+  "categoryGoalPeriodWeek": "Week",
+  "@categoryGoalPeriodWeek": {
+    "description": "Goal period chip"
+  },
+  "categoryGoalPeriodMonth": "Month",
+  "@categoryGoalPeriodMonth": {
+    "description": "Goal period chip"
+  },
+  "categoryGoalPeriodYear": "Year",
+  "@categoryGoalPeriodYear": {
+    "description": "Goal period chip"
+  },
+  "categoryGoalAtLeast": "At least {amount} {period, select, day{a day} week{a week} month{a month} year{a year} other{}}",
+  "@categoryGoalAtLeast": {
+    "description": "A goal read back: at least an amount per period",
+    "placeholders": {
+      "amount": {
+        "type": "String",
+        "example": "3"
+      },
+      "period": {
+        "type": "String"
+      }
+    }
+  },
+  "categoryGoalAtMost": "At most {amount} {period, select, day{a day} week{a week} month{a month} year{a year} other{}}",
+  "@categoryGoalAtMost": {
+    "description": "A goal read back: at most an amount per period",
+    "placeholders": {
+      "amount": {
+        "type": "String",
+        "example": "40 h"
+      },
+      "period": {
+        "type": "String"
+      }
+    }
+  },
+  "categoryGoalBudget": "Budget {amount} {period, select, day{a day} week{a week} month{a month} year{a year} other{}}",
+  "@categoryGoalBudget": {
+    "description": "A money goal read back: at most this much money per period",
+    "placeholders": {
+      "amount": {
+        "type": "String",
+        "example": "1,200"
+      },
+      "period": {
+        "type": "String"
+      }
+    }
+  },
+  "categoryGoalGap": "{days, plural, =1{At most 1 day between} other{At most {days} days between}}",
+  "@categoryGoalGap": {
+    "description": "A Days between goal read back",
+    "placeholders": {
+      "days": {
+        "type": "int"
+      }
+    }
+  },
+  "categoryGoalRemove": "Remove goal",
+  "@categoryGoalRemove": {
+    "description": "Destructive row at the foot of the goal sheet"
   }
 }

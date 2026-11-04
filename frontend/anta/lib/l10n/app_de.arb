@@ -3397,5 +3397,222 @@
   "eventCancelEvent": "Diesen Termin absagen",
   "eventCancelledState": "Abgesagt",
   "eventRestoreEvent": "Wiederherstellen",
-  "eventCancelled": "Termin abgesagt"
+  "eventCancelled": "Termin abgesagt",
+  "categoryReportSection": "Bericht",
+  "categoryMeasureGoalSection": "Messgröße & Ziel",
+  "categoryKindLabel": "Art",
+  "categoryKindRoutine": "Routine",
+  "categoryKindWorkout": "Training",
+  "categoryKindMedication": "Medikamente",
+  "categoryKindSleep": "Schlaf",
+  "categoryKindEpisode": "Episode",
+  "categoryKindAppointment": "Termin",
+  "categoryKindWork": "Arbeit",
+  "categoryKindMeeting": "Besprechung",
+  "categoryKindTask": "Aufgabe",
+  "categoryKindDeadline": "Frist",
+  "categoryKindStudy": "Lernen",
+  "categoryKindBill": "Rechnung",
+  "categoryKindIncome": "Einnahme",
+  "categoryKindSocial": "Soziales",
+  "categoryKindAnniversary": "Jahrestag",
+  "categoryKindChore": "Haushalt",
+  "categoryKindMaintenance": "Wartung",
+  "categoryKindExpiry": "Ablaufdatum",
+  "categoryKindTrip": "Reise",
+  "categoryKindLeave": "Urlaub",
+  "categoryKindCustom": "Eigene Art",
+  "categoryKindExampleRoutine": "Dehnen, Tagebuch",
+  "categoryKindExampleWorkout": "Studio, Laufen, Kurs",
+  "categoryKindExampleMedication": "Tabletten, Vitamine",
+  "categoryKindExampleSleep": "Die Nacht und ihre Dauer",
+  "categoryKindExampleEpisode": "Krankheit, Migräne, Zyklus",
+  "categoryKindExampleAppointment": "Arzt, Zahnarzt, Tierarzt",
+  "categoryKindExampleWork": "Schichten, Arbeitstage",
+  "categoryKindExampleMeeting": "Anrufe, Stand-ups, Reviews",
+  "categoryKindExampleTask": "To-dos, Besorgungen",
+  "categoryKindExampleDeadline": "Abgaben, Einreichungen",
+  "categoryKindExampleStudy": "Kurse, Üben, Lesen",
+  "categoryKindExampleBill": "Miete, Rechnungen, Abos",
+  "categoryKindExampleIncome": "Gehalt, Honorare",
+  "categoryKindExampleSocial": "Essen, Besuche, Dates",
+  "categoryKindExampleAnniversary": "Geburtstage, Namenstage",
+  "categoryKindExampleChore": "Putzen, Wäsche, Einkauf",
+  "categoryKindExampleMaintenance": "Autoservice, Heizung",
+  "categoryKindExampleExpiry": "Pass, Ausweis, Garantie",
+  "categoryKindExampleTrip": "Reisen, Wochenendausflüge",
+  "categoryKindExampleLeave": "Ferien, freie Tage",
+  "categoryKindExampleCustom": "Alles andere",
+  "lifeAreaHealth": "Gesundheit",
+  "lifeAreaWork": "Arbeit",
+  "lifeAreaMoney": "Geld",
+  "lifeAreaPeople": "Menschen",
+  "lifeAreaHome": "Zuhause",
+  "lifeAreaLeisure": "Freizeit",
+  "lifeAreaOther": "Sonstiges",
+  "categoryMarkLabel": "Markierung",
+  "categoryMarkOff": "Aus",
+  "categoryMarkOwn": "Eigenes Wort…",
+  "categoryMarkOwnTitle": "Eigenes Wort",
+  "categoryMarkOwnHint": "z. B. Spaziert",
+  "categoryAreaLabel": "Bereich",
+  "categoryMeasureLabel": "Messgröße",
+  "categoryMeasureAuto": "Auto",
+  "categoryMeasureAutoIs": "Auto ist {measure}",
+  "@categoryMeasureAutoIs": {
+    "description": "Caption under the Measure row: the measure Auto stands for under the category's kind",
+    "placeholders": {
+      "measure": {
+        "type": "String",
+        "example": "Attendance"
+      }
+    }
+  },
+  "categoryMeasureAutoPerPeriod": "Auto wählt je Zeitraum",
+  "categoryMeasureAutoWith": "Auto · {measure}",
+  "@categoryMeasureAutoWith": {
+    "description": "The Measure menu's first item: Auto, naming the measure it stands for",
+    "placeholders": {
+      "measure": {
+        "type": "String",
+        "example": "Attendance"
+      }
+    }
+  },
+  "categoryMeasureCount": "Anzahl",
+  "categoryMeasureEvents": "Termine",
+  "categoryMeasureHours": "Stunden",
+  "categoryMeasureAttendance": "Anwesenheit",
+  "categoryMeasureTasks": "Aufgaben",
+  "categoryMeasureMoney": "Geld",
+  "categoryMeasureLastSeen": "Zuletzt am",
+  "categoryMeasureDaysUntil": "Tage bis",
+  "categoryMeasureCancelled": "Abgesagt",
+  "categoryMeasureLeadTime": "Vorlauf",
+  "categoryMeasureTiming": "Uhrzeit",
+  "categoryCountsAsLabel": "Zählt als",
+  "categoryCountsAsOff": "Aus",
+  "categoryCountsAsSuggested": "Vorschlag: {duration}",
+  "@categoryCountsAsSuggested": {
+    "description": "Caption under the Counts as row: the kind's suggested length, which applies only once picked",
+    "placeholders": {
+      "duration": {
+        "type": "String",
+        "example": "1 h"
+      }
+    }
+  },
+  "categoryCountsAsSuggestedItem": "{duration} · Vorschlag",
+  "@categoryCountsAsSuggestedItem": {
+    "description": "Counts as menu item that is the kind's suggestion",
+    "placeholders": {
+      "duration": {
+        "type": "String",
+        "example": "1 h"
+      }
+    }
+  },
+  "categoryCountsAsScope": "Für Termine ohne Uhrzeit",
+  "categoryCountsAsSleep": "Schlaf zählt eigene Stunden",
+  "categoryCountsAsRepeats": "Wiederholungen zählen keine Stunden",
+  "categoryGoalLabel": "Ziel",
+  "categoryGoalNone": "Kein Ziel",
+  "categoryGoalNeedsMeasure": "Erst eine Messgröße wählen",
+  "categoryGoalNotFor": "Kein Ziel für {measure}",
+  "@categoryGoalNotFor": {
+    "description": "Caption under the disabled Goal row when the measure takes no goal",
+    "placeholders": {
+      "measure": {
+        "type": "String",
+        "example": "Days until"
+      }
+    }
+  },
+  "categoryGoalTitle": "Ziel",
+  "categoryGoalTypeSection": "Typ",
+  "categoryGoalTargetSection": "Zielwert",
+  "categoryGoalTypeAtLeast": "Mindestens",
+  "categoryGoalTypeAtMost": "Höchstens",
+  "categoryGoalTypeBudget": "Budget",
+  "categoryGoalTypeMaxGap": "Tage dazwischen",
+  "categoryGoalTypeNotForMeasure": "Nicht für diese Messgröße",
+  "categoryGoalUnitCount": "Anzahl",
+  "categoryGoalUnitHours": "Stunden",
+  "categoryGoalUnitTasks": "Aufgaben",
+  "categoryGoalUnitAmount": "Betrag",
+  "categoryGoalUnitDays": "Tage",
+  "categoryGoalHours": "{hours} h",
+  "@categoryGoalHours": {
+    "description": "A goal's amount in hours, inside the goal's read-back; the number arrives formatted (1,200 or 7.5)",
+    "placeholders": {
+      "hours": {
+        "type": "String",
+        "example": "1,200"
+      }
+    }
+  },
+  "categoryGoalTasks": "{count, plural, =1{1 Aufgabe} other{{count} Aufgaben}}",
+  "@categoryGoalTasks": {
+    "description": "A goal's amount in tasks, inside the goal's read-back",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "categoryGoalLess": "Weniger",
+  "categoryGoalMore": "Mehr",
+  "categoryGoalPeriodDay": "Tag",
+  "categoryGoalPeriodWeek": "Woche",
+  "categoryGoalPeriodMonth": "Monat",
+  "categoryGoalPeriodYear": "Jahr",
+  "categoryGoalAtLeast": "Mindestens {amount} {period, select, day{pro Tag} week{pro Woche} month{pro Monat} year{pro Jahr} other{}}",
+  "@categoryGoalAtLeast": {
+    "description": "A goal read back: at least an amount per period",
+    "placeholders": {
+      "amount": {
+        "type": "String",
+        "example": "3"
+      },
+      "period": {
+        "type": "String"
+      }
+    }
+  },
+  "categoryGoalAtMost": "Höchstens {amount} {period, select, day{pro Tag} week{pro Woche} month{pro Monat} year{pro Jahr} other{}}",
+  "@categoryGoalAtMost": {
+    "description": "A goal read back: at most an amount per period",
+    "placeholders": {
+      "amount": {
+        "type": "String",
+        "example": "40 h"
+      },
+      "period": {
+        "type": "String"
+      }
+    }
+  },
+  "categoryGoalBudget": "Budget {amount} {period, select, day{pro Tag} week{pro Woche} month{pro Monat} year{pro Jahr} other{}}",
+  "@categoryGoalBudget": {
+    "description": "A money goal read back: at most this much money per period",
+    "placeholders": {
+      "amount": {
+        "type": "String",
+        "example": "1,200"
+      },
+      "period": {
+        "type": "String"
+      }
+    }
+  },
+  "categoryGoalGap": "{days, plural, =1{Höchstens 1 Tag dazwischen} other{Höchstens {days} Tage dazwischen}}",
+  "@categoryGoalGap": {
+    "description": "A Days between goal read back",
+    "placeholders": {
+      "days": {
+        "type": "int"
+      }
+    }
+  },
+  "categoryGoalRemove": "Ziel entfernen"
 }

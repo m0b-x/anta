@@ -4,15 +4,18 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:anta/bloc/calendar/calendar_bloc.dart';
+import 'package:anta/constants/category_kinds.dart';
 import 'package:anta/constants/semantics_ids.dart';
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/models/calendar_category.dart';
 import 'package:anta/widgets/category_editor_sheet.dart';
 import 'package:anta/widgets/color_swatch_picker.dart';
 import 'package:anta/widgets/event_avatar.dart';
+import 'package:anta/widgets/form_menu_item.dart';
 import 'package:anta/widgets/form_rows.dart';
 import 'package:anta/widgets/icon_picker_sheet.dart';
 
+import 'category_kind_robot.dart';
 import 'swatch_robot.dart';
 
 /// What `CategoryEditorSheet.show` resolved to. Mutable, because the sheet is
@@ -113,10 +116,10 @@ class CategoryEditorRobot {
     return matches == 1;
   }
 
-  Future<void> _tap(Finder target) async {
+  Future<void> _tap(Finder target, {bool warnIfMissed = true}) async {
     await tester.ensureVisible(target);
     await tester.pumpAndSettle();
-    await tester.tap(target);
+    await tester.tap(target, warnIfMissed: warnIfMissed);
     await tester.pumpAndSettle();
   }
 
@@ -136,6 +139,7 @@ class CategoryEditorRobot {
     Size? surface,
     CalendarBloc? bloc,
     bool sandbox = false,
+    ThemeData? theme,
   }) async {
     if (surface != null) {
       addTearDown(tester.view.reset);
@@ -150,6 +154,7 @@ class CategoryEditorRobot {
           localizationsDelegates: AppLocalizations.localizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
           locale: locale,
+          theme: theme,
           builder: textScale == null
               ? null
               : (context, child) => MediaQuery(
@@ -391,6 +396,121 @@ class CategoryEditorRobot {
     for (var i = 0; i < _alertRows.length; i++)
       tester.getSize(_byId(SemanticsIds.categoryAlertRow(i))).height,
   ];
+
+  // --- The profile (analytics S3) --------------------------------------------
+
+  /// The six profile rows' ids, top to bottom.
+  static const List<String> profileRowIds = [
+    SemanticsIds.categoryEditorKind,
+    SemanticsIds.categoryEditorMark,
+    SemanticsIds.categoryEditorArea,
+    SemanticsIds.categoryEditorMeasure,
+    SemanticsIds.categoryEditorCountsAs,
+    SemanticsIds.categoryEditorGoal,
+  ];
+
+  /// The picker row a profile row is — the menu rows build one too.
+  FormPickerRow _rowOf(String id) => tester.widget<FormPickerRow>(
+    find.ancestor(of: _byId(id), matching: find.byType(FormPickerRow)).first,
+  );
+
+  String? valueOf(String id) => _rowOf(id).value;
+
+  String? captionOf(String id) => _rowOf(id).caption;
+
+  /// Whether the row takes a tap: a disabled one is drawn in place, dimmed.
+  bool enabledOf(String id) => _rowOf(id).enabled;
+
+  /// The texts of the sheet's section labels, top to bottom, as handed in.
+  List<String> get sectionLabels => [
+    for (final element in _in(find.byType(FormSectionLabel)).evaluate())
+      (element.widget as FormSectionLabel).text,
+  ];
+
+  double heightOf(String id) => tester.getSize(_byId(id)).height;
+
+  /// The box of the caption under the alerts group, its padding included.
+  Rect get alertsHintRect => tester.getRect(
+    _in(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is FormCaption && widget.text == _l10n.categoryAlertsHint,
+      ),
+    ),
+  );
+
+  /// The box of the section label reading [text], as handed in.
+  Rect sectionLabelRect(String text) => tester.getRect(
+    _in(
+      find.byWidgetPredicate(
+        (widget) => widget is FormSectionLabel && widget.text == text,
+      ),
+    ),
+  );
+
+  /// Every opacity drawn inside the row — a dimmed part's, or none.
+  List<double> opacitiesOf(String id) => [
+    for (final element
+        in find
+            .descendant(of: _byId(id), matching: find.byType(Opacity))
+            .evaluate())
+      (element.widget as Opacity).opacity,
+  ];
+
+  /// Taps a profile row: the kind picker, a menu or the goal sheet opens.
+  Future<void> tapRow(String id) => _tap(_byId(id));
+
+  /// A tap on a profile row while Save writes, when the row takes none and
+  /// the tap lands on the group under it.
+  Future<void> tapBlockedRow(String id) => _tap(_byId(id), warnIfMissed: false);
+
+  /// The open menu's items by their ids, top to bottom, with their labels.
+  Map<String, String> get menuItems => {
+    for (final row in [
+      for (final element in find.byType(FormMenuItemRow).evaluate())
+        element.widget as FormMenuItemRow,
+    ])
+      ?row.identifier: row.label,
+  };
+
+  /// The id of the open menu's checked item.
+  String? get checkedMenuItem {
+    for (final element in find.byType(FormMenuItemRow).evaluate()) {
+      final row = element.widget as FormMenuItemRow;
+      if (row.checked) return row.identifier;
+    }
+    return null;
+  }
+
+  /// Opens [rowId]'s menu and picks [itemId] in it.
+  Future<void> pick(String rowId, String itemId) async {
+    await tapRow(rowId);
+    await tester.tap(find.bySemanticsIdentifier(itemId));
+    await tester.pumpAndSettle();
+  }
+
+  /// Opens the kind picker and picks [kind] in it.
+  Future<void> pickKind(CategoryKind kind) async {
+    await tapRow(SemanticsIds.categoryEditorKind);
+    await CategoryKindRobot(tester).pick(kind);
+  }
+
+  /// The Mark menu's Own word…, then [word] typed and saved in its dialog.
+  Future<void> setMarkWord(String word) async {
+    await pick(SemanticsIds.categoryEditorMark, SemanticsIds.categoryMarkOwn);
+    await tester.enterText(
+      find.descendant(
+        of: find.bySemanticsIdentifier(SemanticsIds.categoryMarkWordField),
+        matching: find.byType(EditableText),
+      ),
+      word,
+    );
+    await tester.pump();
+    await tester.tap(
+      find.bySemanticsIdentifier(SemanticsIds.categoryMarkWordSave),
+    );
+    await tester.pumpAndSettle();
+  }
 
   // --- Geometry ---------------------------------------------------------------
 

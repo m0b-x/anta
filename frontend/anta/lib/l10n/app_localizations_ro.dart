@@ -7693,4 +7693,394 @@ class AppLocalizationsRo extends AppLocalizations {
 
   @override
   String get eventCancelled => 'Eveniment contramandat';
+
+  @override
+  String get categoryReportSection => 'Raport';
+
+  @override
+  String get categoryMeasureGoalSection => 'Măsură și obiectiv';
+
+  @override
+  String get categoryKindLabel => 'Tip';
+
+  @override
+  String get categoryKindRoutine => 'Rutină';
+
+  @override
+  String get categoryKindWorkout => 'Antrenament';
+
+  @override
+  String get categoryKindMedication => 'Medicație';
+
+  @override
+  String get categoryKindSleep => 'Somn';
+
+  @override
+  String get categoryKindEpisode => 'Episod';
+
+  @override
+  String get categoryKindAppointment => 'Programare';
+
+  @override
+  String get categoryKindWork => 'Muncă';
+
+  @override
+  String get categoryKindMeeting => 'Ședință';
+
+  @override
+  String get categoryKindTask => 'Sarcină';
+
+  @override
+  String get categoryKindDeadline => 'Termen';
+
+  @override
+  String get categoryKindStudy => 'Studiu';
+
+  @override
+  String get categoryKindBill => 'Factură';
+
+  @override
+  String get categoryKindIncome => 'Venit';
+
+  @override
+  String get categoryKindSocial => 'Social';
+
+  @override
+  String get categoryKindAnniversary => 'Aniversare';
+
+  @override
+  String get categoryKindChore => 'Treburi';
+
+  @override
+  String get categoryKindMaintenance => 'Întreținere';
+
+  @override
+  String get categoryKindExpiry => 'Expirare';
+
+  @override
+  String get categoryKindTrip => 'Călătorie';
+
+  @override
+  String get categoryKindLeave => 'Concediu';
+
+  @override
+  String get categoryKindCustom => 'Personalizat';
+
+  @override
+  String get categoryKindExampleRoutine => 'Întinderi, jurnal';
+
+  @override
+  String get categoryKindExampleWorkout => 'Sală, alergare, curs';
+
+  @override
+  String get categoryKindExampleMedication => 'Pastile, suplimente';
+
+  @override
+  String get categoryKindExampleSleep => 'Noaptea și durata ei';
+
+  @override
+  String get categoryKindExampleEpisode => 'Boală, migrenă, ciclu';
+
+  @override
+  String get categoryKindExampleAppointment => 'Medic, dentist, veterinar';
+
+  @override
+  String get categoryKindExampleWork => 'Ture, zile de lucru';
+
+  @override
+  String get categoryKindExampleMeeting => 'Apeluri, ședințe scurte';
+
+  @override
+  String get categoryKindExampleTask => 'De făcut, comisioane';
+
+  @override
+  String get categoryKindExampleDeadline => 'Predări, depuneri';
+
+  @override
+  String get categoryKindExampleStudy => 'Cursuri, exercițiu, citit';
+
+  @override
+  String get categoryKindExampleBill => 'Chirie, facturi, abonamente';
+
+  @override
+  String get categoryKindExampleIncome => 'Salariu, facturi încasate';
+
+  @override
+  String get categoryKindExampleSocial => 'Cine, vizite, întâlniri';
+
+  @override
+  String get categoryKindExampleAnniversary => 'Zile de naștere, onomastici';
+
+  @override
+  String get categoryKindExampleChore => 'Curățenie, rufe, cumpărături';
+
+  @override
+  String get categoryKindExampleMaintenance => 'Service auto, centrală';
+
+  @override
+  String get categoryKindExampleExpiry => 'Pașaport, buletin, garanție';
+
+  @override
+  String get categoryKindExampleTrip => 'Călătorii, weekenduri';
+
+  @override
+  String get categoryKindExampleLeave => 'Vacanță, zile libere';
+
+  @override
+  String get categoryKindExampleCustom => 'Orice altceva';
+
+  @override
+  String get lifeAreaHealth => 'Sănătate';
+
+  @override
+  String get lifeAreaWork => 'Muncă';
+
+  @override
+  String get lifeAreaMoney => 'Bani';
+
+  @override
+  String get lifeAreaPeople => 'Oameni';
+
+  @override
+  String get lifeAreaHome => 'Casă';
+
+  @override
+  String get lifeAreaLeisure => 'Timp liber';
+
+  @override
+  String get lifeAreaOther => 'Altele';
+
+  @override
+  String get categoryMarkLabel => 'Marcaj';
+
+  @override
+  String get categoryMarkOff => 'Oprit';
+
+  @override
+  String get categoryMarkOwn => 'Cuvânt propriu…';
+
+  @override
+  String get categoryMarkOwnTitle => 'Cuvânt de marcaj';
+
+  @override
+  String get categoryMarkOwnHint => 'ex. Plimbat';
+
+  @override
+  String get categoryAreaLabel => 'Domeniu';
+
+  @override
+  String get categoryMeasureLabel => 'Măsură';
+
+  @override
+  String get categoryMeasureAuto => 'Automat';
+
+  @override
+  String categoryMeasureAutoIs(String measure) {
+    return 'Automat: $measure';
+  }
+
+  @override
+  String get categoryMeasureAutoPerPeriod => 'Ales automat pe perioadă';
+
+  @override
+  String categoryMeasureAutoWith(String measure) {
+    return 'Automat · $measure';
+  }
+
+  @override
+  String get categoryMeasureCount => 'Număr';
+
+  @override
+  String get categoryMeasureEvents => 'Evenimente';
+
+  @override
+  String get categoryMeasureHours => 'Ore';
+
+  @override
+  String get categoryMeasureAttendance => 'Prezență';
+
+  @override
+  String get categoryMeasureTasks => 'Sarcini';
+
+  @override
+  String get categoryMeasureMoney => 'Bani';
+
+  @override
+  String get categoryMeasureLastSeen => 'Ultima dată';
+
+  @override
+  String get categoryMeasureDaysUntil => 'Zile rămase';
+
+  @override
+  String get categoryMeasureCancelled => 'Contramandate';
+
+  @override
+  String get categoryMeasureLeadTime => 'Timp în avans';
+
+  @override
+  String get categoryMeasureTiming => 'Ora din zi';
+
+  @override
+  String get categoryCountsAsLabel => 'Contează ca';
+
+  @override
+  String get categoryCountsAsOff => 'Oprit';
+
+  @override
+  String categoryCountsAsSuggested(String duration) {
+    return 'Sugerat: $duration';
+  }
+
+  @override
+  String categoryCountsAsSuggestedItem(String duration) {
+    return '$duration · sugerat';
+  }
+
+  @override
+  String get categoryCountsAsScope => 'Pentru evenimente fără oră';
+
+  @override
+  String get categoryCountsAsSleep => 'Somnul își numără orele';
+
+  @override
+  String get categoryCountsAsRepeats => 'Repetările nu adună ore';
+
+  @override
+  String get categoryGoalLabel => 'Obiectiv';
+
+  @override
+  String get categoryGoalNone => 'Fără obiectiv';
+
+  @override
+  String get categoryGoalNeedsMeasure => 'Alege întâi o măsură';
+
+  @override
+  String categoryGoalNotFor(String measure) {
+    return 'Fără obiectiv pentru $measure';
+  }
+
+  @override
+  String get categoryGoalTitle => 'Obiectiv';
+
+  @override
+  String get categoryGoalTypeSection => 'Tip';
+
+  @override
+  String get categoryGoalTargetSection => 'Țintă';
+
+  @override
+  String get categoryGoalTypeAtLeast => 'Cel puțin';
+
+  @override
+  String get categoryGoalTypeAtMost => 'Cel mult';
+
+  @override
+  String get categoryGoalTypeBudget => 'Buget';
+
+  @override
+  String get categoryGoalTypeMaxGap => 'Interval în zile';
+
+  @override
+  String get categoryGoalTypeNotForMeasure => 'Nu pentru această măsură';
+
+  @override
+  String get categoryGoalUnitCount => 'Număr';
+
+  @override
+  String get categoryGoalUnitHours => 'Ore';
+
+  @override
+  String get categoryGoalUnitTasks => 'Sarcini';
+
+  @override
+  String get categoryGoalUnitAmount => 'Sumă';
+
+  @override
+  String get categoryGoalUnitDays => 'Zile';
+
+  @override
+  String categoryGoalHours(String hours) {
+    return '$hours h';
+  }
+
+  @override
+  String categoryGoalTasks(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count de sarcini',
+      few: '$count sarcini',
+      one: '1 sarcină',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get categoryGoalLess => 'Mai puțin';
+
+  @override
+  String get categoryGoalMore => 'Mai mult';
+
+  @override
+  String get categoryGoalPeriodDay => 'Zi';
+
+  @override
+  String get categoryGoalPeriodWeek => 'Săptămână';
+
+  @override
+  String get categoryGoalPeriodMonth => 'Lună';
+
+  @override
+  String get categoryGoalPeriodYear => 'An';
+
+  @override
+  String categoryGoalAtLeast(String amount, String period) {
+    String _temp0 = intl.Intl.selectLogic(period, {
+      'day': 'pe zi',
+      'week': 'pe săptămână',
+      'month': 'pe lună',
+      'year': 'pe an',
+      'other': '',
+    });
+    return 'Cel puțin $amount $_temp0';
+  }
+
+  @override
+  String categoryGoalAtMost(String amount, String period) {
+    String _temp0 = intl.Intl.selectLogic(period, {
+      'day': 'pe zi',
+      'week': 'pe săptămână',
+      'month': 'pe lună',
+      'year': 'pe an',
+      'other': '',
+    });
+    return 'Cel mult $amount $_temp0';
+  }
+
+  @override
+  String categoryGoalBudget(String amount, String period) {
+    String _temp0 = intl.Intl.selectLogic(period, {
+      'day': 'pe zi',
+      'week': 'pe săptămână',
+      'month': 'pe lună',
+      'year': 'pe an',
+      'other': '',
+    });
+    return 'Buget $amount $_temp0';
+  }
+
+  @override
+  String categoryGoalGap(int days) {
+    String _temp0 = intl.Intl.pluralLogic(
+      days,
+      locale: localeName,
+      other: 'Cel mult $days de zile între ele',
+      few: 'Cel mult $days zile între ele',
+      one: 'Cel mult 1 zi între ele',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get categoryGoalRemove => 'Șterge obiectivul';
 }

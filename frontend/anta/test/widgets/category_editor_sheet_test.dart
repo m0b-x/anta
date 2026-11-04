@@ -9,20 +9,27 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:get_it/get_it.dart';
 
 import 'package:anta/bloc/calendar/calendar_bloc.dart';
+import 'package:anta/constants/app_theme.dart';
 import 'package:anta/constants/calendar_categories.dart';
 import 'package:anta/constants/calendar_icons.dart';
+import 'package:anta/constants/category_kinds.dart';
 import 'package:anta/constants/category_name.dart';
+import 'package:anta/constants/category_profiles.dart';
 import 'package:anta/constants/event_alerts.dart';
 import 'package:anta/constants/form_metrics.dart';
+import 'package:anta/constants/row_metrics.dart';
 import 'package:anta/constants/semantics_ids.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/models/app_permission.dart';
 import 'package:anta/models/calendar_category.dart';
 import 'package:anta/models/calendar_event.dart';
 import 'package:anta/models/category_alert.dart';
+import 'package:anta/models/category_profile.dart';
 import 'package:anta/models/event_alert.dart';
+import 'package:anta/models/recurrence_rule.dart';
 import 'package:anta/services/calendar_event_service.dart';
 import 'package:anta/services/calendar_palette_service.dart';
+import 'package:anta/services/category_profile_service.dart';
 import 'package:anta/services/category_service.dart';
 import 'package:anta/services/event_alert_service.dart';
 import 'package:anta/services/permission_service.dart';
@@ -34,6 +41,8 @@ import '../database/support/db_test_support.dart';
 import '../services/permission_support.dart';
 import 'support/alert_sheet_robot.dart';
 import 'support/category_editor_robot.dart';
+import 'support/category_goal_robot.dart';
+import 'support/category_kind_robot.dart';
 import 'support/layout_errors.dart';
 
 /// The category editor writes inside the sheet and hands the written row
@@ -1440,6 +1449,847 @@ void main() {
       expect(robot.alertRowHeights, heights);
     });
   });
+
+  // The analytics profile (S3): two sections under the alerts, drafted here
+  // and in the kind picker and the goal sheet, written through the real
+  // profile service on Save.
+  group('profile', () {
+    late CategoryProfileService profiles;
+
+    const kind = SemanticsIds.categoryEditorKind;
+    const mark = SemanticsIds.categoryEditorMark;
+    const area = SemanticsIds.categoryEditorArea;
+    const measure = SemanticsIds.categoryEditorMeasure;
+    const countsAs = SemanticsIds.categoryEditorCountsAs;
+    const goal = SemanticsIds.categoryEditorGoal;
+
+    setUp(() async {
+      CategoryProfileService.reset();
+      profiles = await CategoryProfileService.forTesting(db);
+    });
+
+    tearDown(CategoryProfileService.reset);
+
+    /// A custom category holding [profile], or none.
+    Future<CalendarCategory> profiled(
+      String name, {
+      CategoryKind? as,
+      LifeArea? area,
+      ReportMeasure? measure,
+      int? nominalMinutes,
+      String? markVerb,
+      ReportTarget? target,
+    }) async {
+      final category = await custom(name);
+      if (as != null) {
+        await profiles.save(
+          CategoryProfile(
+            id: '',
+            categoryId: category.id,
+            kind: as,
+            area: area,
+            measure: measure,
+            nominalMinutes: nominalMinutes,
+            markVerb: markVerb,
+            target: target,
+          ),
+        );
+      }
+      return category;
+    }
+
+    const weekly3 = ReportTarget(
+      kind: TargetKind.atLeast,
+      value: 3,
+      period: TargetPeriod.week,
+    );
+
+    testWidgets('an unprofiled category reads today\'s editor and then the '
+        'six rows in their default state', (tester) async {
+      final robot = CategoryEditorRobot(tester);
+      await robot.show(initial: await profiled('Stretching'));
+
+      expect(robot.sectionLabels, ['Alerts', 'Report', 'Measure & goal']);
+      expect(robot.valueOf(kind), 'Custom');
+      expect(robot.captionOf(kind), 'Anything else');
+      expect(robot.valueOf(mark), 'Off');
+      expect(robot.captionOf(mark), isNull);
+      expect(robot.valueOf(area), 'Other');
+      expect(robot.captionOf(area), isNull);
+      expect(robot.valueOf(measure), 'Auto');
+      expect(robot.captionOf(measure), 'Auto picks per period');
+      expect(robot.valueOf(countsAs), 'Off');
+      expect(robot.captionOf(countsAs), 'For untimed events');
+      expect(robot.valueOf(goal), isNull);
+      expect(robot.captionOf(goal), 'Pick a measure first');
+      // Disabled in place, never hidden: Custom on Auto has no unit.
+      expect(robot.enabledOf(goal), isFalse);
+      for (final id in CategoryEditorRobot.profileRowIds.take(5)) {
+        expect(robot.enabledOf(id), isTrue, reason: id);
+      }
+      // The new sections come after everything the editor had.
+      expect(
+        robot.targetOf(kind).top,
+        greaterThan(robot.targetOf(SemanticsIds.categoryAlertAdd).bottom),
+      );
+      // Opening and closing an unprofiled sheet writes no profile.
+      await robot.close();
+      expect(CategoryProfiles.all, isEmpty);
+    });
+
+    testWidgets('a kind pick fills the rows from the kind and Save stores the '
+        'kind alone through the service', (tester) async {
+      final category = await profiled('Gym days');
+      final robot = CategoryEditorRobot(tester);
+      final outcome = await robot.show(initial: category);
+
+      await robot.pickKind(CategoryKind.workout);
+
+      expect(robot.valueOf(kind), 'Workout');
+      expect(robot.captionOf(kind), 'Gym, run, swim, class');
+      expect(robot.valueOf(mark), 'Attended');
+      expect(robot.valueOf(area), 'Health');
+      expect(robot.valueOf(measure), 'Auto');
+      expect(robot.captionOf(measure), 'Auto is Attendance');
+      expect(robot.valueOf(countsAs), 'Off');
+      expect(robot.captionOf(countsAs), 'Suggested: 1 h');
+      expect(robot.enabledOf(goal), isTrue);
+      expect(robot.captionOf(goal), 'No goal');
+      // Nothing stored until Save.
+      expect(CategoryProfiles.profileFor(category.id), isNull);
+
+      await robot.save();
+
+      expect(outcome.result?.id, category.id);
+      final stored = CategoryProfiles.profileFor(category.id)!;
+      expect(stored.kind, CategoryKind.workout);
+      expect(stored.hasOverrides, isFalse);
+    });
+
+    testWidgets('the menus write the draft and Save persists every override', (
+      tester,
+    ) async {
+      final category = await profiled('Gym days', as: CategoryKind.workout);
+      final robot = CategoryEditorRobot(tester);
+      await robot.show(initial: category);
+
+      await robot.pick(area, SemanticsIds.categoryArea('people'));
+      expect(robot.valueOf(area), 'People');
+
+      await robot.tapRow(measure);
+      // Auto names what it stands for and is not offered twice.
+      expect(robot.menuItems.keys, [
+        SemanticsIds.categoryMeasureAuto,
+        for (final name in [
+          'count',
+          'events',
+          'hours',
+          'tasks',
+          'money',
+          'lastSeen',
+          'daysUntil',
+        ])
+          SemanticsIds.categoryMeasure(name),
+      ]);
+      expect(
+        robot.menuItems[SemanticsIds.categoryMeasureAuto],
+        'Auto · Attendance',
+      );
+      expect(robot.checkedMenuItem, SemanticsIds.categoryMeasureAuto);
+      await tester.tap(
+        find.bySemanticsIdentifier(SemanticsIds.categoryMeasure('hours')),
+      );
+      await tester.pumpAndSettle();
+      expect(robot.valueOf(measure), 'Hours');
+      expect(robot.captionOf(measure), 'Auto is Attendance');
+
+      await robot.tapRow(countsAs);
+      expect(
+        robot.menuItems[SemanticsIds.categoryCountsAs(60)],
+        '1 h · suggested',
+      );
+      expect(robot.menuItems[SemanticsIds.categoryCountsAs(30)], '30 min');
+      expect(robot.checkedMenuItem, SemanticsIds.categoryCountsAsOff);
+      await tester.tap(
+        find.bySemanticsIdentifier(SemanticsIds.categoryCountsAs(30)),
+      );
+      await tester.pumpAndSettle();
+      expect(robot.valueOf(countsAs), '30 min');
+
+      await robot.save();
+
+      final stored = CategoryProfiles.profileFor(category.id)!;
+      expect(stored.kind, CategoryKind.workout);
+      expect(stored.area, LifeArea.people);
+      expect(stored.measure, ReportMeasure.hours);
+      expect(stored.nominalMinutes, 30);
+    });
+
+    testWidgets('a kind pick resets the area, measure and mark, keeps the '
+        'counts-as and a goal that still fits, and drops one that does not', (
+      tester,
+    ) async {
+      final category = await profiled(
+        'Gym days',
+        as: CategoryKind.workout,
+        area: LifeArea.work,
+        measure: ReportMeasure.events,
+        markVerb: 'Lifted',
+        nominalMinutes: 60,
+        target: weekly3,
+      );
+      final robot = CategoryEditorRobot(tester);
+      await robot.show(initial: category);
+      expect(robot.valueOf(area), 'Work');
+      expect(robot.valueOf(mark), 'Lifted');
+      expect(robot.captionOf(goal), 'At least 3 a week');
+
+      // Routine leads with Attendance, a count like Events: the goal stays.
+      await robot.pickKind(CategoryKind.routine);
+      expect(robot.valueOf(area), 'Health');
+      expect(robot.valueOf(measure), 'Auto');
+      expect(robot.valueOf(mark), 'Done');
+      expect(robot.valueOf(countsAs), '1 h');
+      expect(robot.captionOf(goal), 'At least 3 a week');
+
+      // Work leads with Hours: three occurrences are not three hours.
+      await robot.pickKind(CategoryKind.work);
+      expect(robot.valueOf(mark), 'Off');
+      expect(robot.valueOf(countsAs), '1 h');
+      expect(robot.captionOf(goal), 'No goal');
+
+      await robot.save();
+      final stored = CategoryProfiles.profileFor(category.id)!;
+      expect(stored.kind, CategoryKind.work);
+      expect(stored.area, isNull);
+      expect(stored.measure, isNull);
+      expect(stored.markVerb, isNull);
+      expect(stored.nominalMinutes, 60);
+      expect(stored.target, isNull);
+    });
+
+    testWidgets('a measure pick that changes the goal\'s unit clears it', (
+      tester,
+    ) async {
+      final category = await profiled(
+        'Gym days',
+        as: CategoryKind.workout,
+        target: weekly3,
+      );
+      final robot = CategoryEditorRobot(tester);
+      await robot.show(initial: category);
+
+      await robot.pick(measure, SemanticsIds.categoryMeasure('events'));
+      expect(robot.captionOf(goal), 'At least 3 a week');
+
+      await robot.pick(measure, SemanticsIds.categoryMeasure('money'));
+      expect(robot.captionOf(goal), 'No goal');
+    });
+
+    testWidgets('Counts as is disabled with its reason under Sleep, its value '
+        'still shown', (tester) async {
+      final category = await profiled(
+        'Nights',
+        as: CategoryKind.sleep,
+        nominalMinutes: 480,
+      );
+      final robot = CategoryEditorRobot(tester);
+      await robot.show(initial: category);
+
+      expect(robot.enabledOf(countsAs), isFalse);
+      expect(robot.valueOf(countsAs), '8 h');
+      expect(robot.captionOf(countsAs), 'Sleep keeps its own hours');
+      expect(
+        robot.nodeOf(countsAs).flagsCollection.isEnabled,
+        Tristate.isFalse,
+      );
+      // The menu does not open.
+      await robot.tapRow(countsAs);
+      expect(robot.menuItems, isEmpty);
+    });
+
+    testWidgets('Counts as is disabled with its reason when every event of '
+        'the category is a plain repeat', (tester) async {
+      final category = await profiled('Standup', as: CategoryKind.meeting);
+      final bloc = CalendarBloc(
+        service: Completer<CalendarEventService>().future,
+        alertReconciler: (_, _) async {},
+        alertWriter: (_, _, {knownIds}) async {},
+      );
+      addTearDown(bloc.close);
+      CalendarEvent event(String id, RecurrenceRule rule) => CalendarEvent(
+        id: id,
+        title: id,
+        categoryId: category.id,
+        startDate: DateTime.utc(2026, 9, 1),
+        rule: rule,
+      );
+      // ignore: invalid_use_of_visible_for_testing_member
+      bloc.emit(
+        CalendarPageLoaded(
+          allEvents: [
+            event('a', const DailyRecurrence()),
+            event('b', const DailyRecurrence(interval: 2)),
+          ],
+          focusedDay: DateTime(2026, 9, 1),
+          selectedDay: DateTime(2026, 9, 1),
+        ),
+      );
+      final robot = CategoryEditorRobot(tester);
+      await robot.show(initial: category, bloc: bloc);
+
+      expect(robot.enabledOf(countsAs), isFalse);
+      expect(robot.captionOf(countsAs), 'Repeats earn no counted hours');
+      await robot.close();
+
+      // One dated event among them, and the hours can count.
+      // ignore: invalid_use_of_visible_for_testing_member
+      bloc.emit(
+        CalendarPageLoaded(
+          allEvents: [
+            event('a', const DailyRecurrence()),
+            event('c', const OneTimeRecurrence()),
+          ],
+          focusedDay: DateTime(2026, 9, 2),
+          selectedDay: DateTime(2026, 9, 2),
+        ),
+      );
+      await robot.show(initial: category, bloc: bloc);
+      expect(robot.enabledOf(countsAs), isTrue);
+      expect(robot.captionOf(countsAs), 'Suggested: 30 min');
+    });
+
+    testWidgets('the Goal row is disabled with its reason when the primary '
+        'takes no goal, and stays reachable when a goal is stored', (
+      tester,
+    ) async {
+      final robot = CategoryEditorRobot(tester);
+      await robot.show(
+        initial: await profiled('Passport', as: CategoryKind.expiry),
+      );
+      expect(robot.enabledOf(goal), isFalse);
+      expect(robot.captionOf(goal), 'No goal for Days until');
+      expect(robot.nodeOf(goal).flagsCollection.isEnabled, Tristate.isFalse);
+      await robot.close();
+
+      await robot.show(
+        initial: await profiled(
+          'Renewals',
+          as: CategoryKind.expiry,
+          target: const ReportTarget(kind: TargetKind.maxGap, value: 30),
+        ),
+      );
+      expect(robot.enabledOf(goal), isTrue);
+      expect(robot.captionOf(goal), 'At most 30 days between');
+    });
+
+    testWidgets('the goal sheet\'s Done lands in the Goal caption and Save '
+        'stores it; Remove goal clears it', (tester) async {
+      final category = await profiled('Gym days', as: CategoryKind.workout);
+      final robot = CategoryEditorRobot(tester);
+      final goalSheet = CategoryGoalRobot(tester);
+      await robot.show(initial: category);
+
+      await robot.tapRow(goal);
+      expect(goalSheet.isOpen, isTrue);
+      expect(goalSheet.removeShown, isFalse);
+      await goalSheet.done();
+      expect(robot.captionOf(goal), 'At least 3 a week');
+
+      await robot.save();
+      expect(CategoryProfiles.profileFor(category.id)!.target, weekly3);
+
+      await robot.show(initial: CalendarCategories.byId(category.id)!);
+      await robot.tapRow(goal);
+      expect(goalSheet.removeShown, isTrue);
+      await goalSheet.remove();
+      expect(robot.captionOf(goal), 'No goal');
+      await robot.save();
+      expect(CategoryProfiles.profileFor(category.id)!.target, isNull);
+    });
+
+    testWidgets('the Mark menu: the kind\'s verb, the owner\'s word through '
+        'the dialog, and Off', (tester) async {
+      final category = await profiled('Walks', as: CategoryKind.routine);
+      final robot = CategoryEditorRobot(tester);
+      await robot.show(initial: category);
+
+      await robot.tapRow(mark);
+      expect(robot.menuItems, {
+        SemanticsIds.categoryMarkKind: 'Done',
+        SemanticsIds.categoryMarkOwn: 'Own word…',
+        SemanticsIds.categoryMarkOff: 'Off',
+      });
+      expect(robot.checkedMenuItem, SemanticsIds.categoryMarkKind);
+      await tester.tapAt(const Offset(5, 5));
+      await tester.pumpAndSettle();
+
+      await robot.setMarkWord('  Walked  ');
+      expect(robot.valueOf(mark), 'Walked');
+      await robot.tapRow(mark);
+      expect(robot.menuItems[SemanticsIds.categoryMarkOwn], 'Walked');
+      expect(robot.checkedMenuItem, SemanticsIds.categoryMarkOwn);
+      await tester.tapAt(const Offset(5, 5));
+      await tester.pumpAndSettle();
+
+      await robot.save();
+      expect(CategoryProfiles.profileFor(category.id)!.markVerb, 'Walked');
+
+      // The kind's own word typed back is no override; Off on a marking
+      // kind stores the empty word.
+      await robot.show(initial: CalendarCategories.byId(category.id)!);
+      await robot.setMarkWord('Done');
+      expect(robot.valueOf(mark), 'Done');
+      await robot.save();
+      expect(CategoryProfiles.profileFor(category.id)!.markVerb, isNull);
+
+      await robot.show(initial: CalendarCategories.byId(category.id)!);
+      await robot.pick(mark, SemanticsIds.categoryMarkOff);
+      expect(robot.valueOf(mark), 'Off');
+      await robot.save();
+      expect(CategoryProfiles.profileFor(category.id)!.markVerb, '');
+    });
+
+    testWidgets('Save writes the category, then the profile, then the '
+        'alerts', (tester) async {
+      EventAlertService.reset();
+      await EventAlertService.forTesting(db);
+      addTearDown(EventAlertService.reset);
+      final robot = CategoryEditorRobot(tester);
+      final alertSheet = AlertSheetRobot(tester);
+      final outcome = await robot.show();
+      await robot.typeName('Training');
+      await robot.pickKind(CategoryKind.workout);
+      await robot.addAlert();
+      await alertSheet.save();
+      writes.statements.clear();
+
+      await robot.save();
+
+      int first(String table) =>
+          writes.statements.indexWhere((s) => s.contains('"$table"'));
+      final category = first('calendar_categories');
+      final profile = first('calendar_category_profiles');
+      final alerts = first('calendar_category_alerts');
+      expect(category, isNonNegative);
+      expect(profile, greaterThan(category));
+      expect(alerts, greaterThan(profile));
+      // A new category's profile is keyed to the id its create minted.
+      expect(
+        CategoryProfiles.profileFor(outcome.result!.id)!.kind,
+        CategoryKind.workout,
+      );
+    });
+
+    testWidgets('a failed profile write keeps the sheet open, says so, and '
+        '✕ hands back the category the save did write', (tester) async {
+      final category = await profiled('Gym days');
+      final robot = CategoryEditorRobot(tester);
+      final outcome = await robot.show(initial: category);
+      await robot.pickKind(CategoryKind.workout);
+
+      writes
+        ..fail = true
+        ..failOnly = 'calendar_category_profiles';
+      await robot.save();
+
+      expect(robot.isOpen, isTrue);
+      expect(robot.saveFailureShown, isTrue);
+      expect(CategoryProfiles.profileFor(category.id), isNull);
+
+      // The draft still holds what was not stored: ✕ asks first.
+      writes.fail = false;
+      await robot.close();
+      expect(robot.discardAsked, isTrue);
+      await robot.discard();
+      expect(outcome.result?.id, category.id);
+    });
+
+    testWidgets('a failed profile write skips the alerts\' write, and the '
+        'retry writes both', (tester) async {
+      EventAlertService.reset();
+      await EventAlertService.forTesting(db);
+      addTearDown(EventAlertService.reset);
+      final category = await profiled('Gym days');
+      final robot = CategoryEditorRobot(tester);
+      final alertSheet = AlertSheetRobot(tester);
+      final outcome = await robot.show(initial: category);
+      await robot.pickKind(CategoryKind.workout);
+      await robot.addAlert();
+      await alertSheet.save();
+      writes
+        ..fail = true
+        ..failOnly = 'calendar_category_profiles';
+      writes.statements.clear();
+
+      await robot.save();
+
+      expect(robot.isOpen, isTrue);
+      expect(robot.saveFailureShown, isTrue);
+      expect(
+        writes.statements.where((s) => s.contains('calendar_category_alerts')),
+        isEmpty,
+      );
+      expect(EventAlerts.categoryAlertsFor(category.id), isEmpty);
+
+      writes.fail = false;
+      await robot.save();
+
+      expect(robot.isOpen, isFalse);
+      expect(outcome.result?.id, category.id);
+      expect(
+        CategoryProfiles.profileFor(category.id)!.kind,
+        CategoryKind.workout,
+      );
+      expect(EventAlerts.categoryAlertsFor(category.id), hasLength(1));
+    });
+
+    testWidgets('a kind turned back after a save whose alerts failed is '
+        'written: the store holds the kind the draft says', (tester) async {
+      EventAlertService.reset();
+      await EventAlertService.forTesting(db);
+      addTearDown(EventAlertService.reset);
+      final category = await profiled('Bills', as: CategoryKind.bill);
+      final robot = CategoryEditorRobot(tester);
+      final alertSheet = AlertSheetRobot(tester);
+      await robot.show(initial: category);
+      await robot.addAlert();
+      await alertSheet.save();
+      await robot.pickKind(CategoryKind.workout);
+      writes
+        ..fail = true
+        ..failOnly = 'calendar_category_alerts';
+
+      await robot.save();
+
+      // The category and the profile wrote; the alerts did not.
+      expect(robot.isOpen, isTrue);
+      expect(robot.saveFailureShown, isTrue);
+      expect(
+        CategoryProfiles.profileFor(category.id)!.kind,
+        CategoryKind.workout,
+      );
+
+      await robot.pickKind(CategoryKind.bill);
+      writes.fail = false;
+      await robot.save();
+
+      expect(robot.isOpen, isFalse);
+      expect(CategoryProfiles.profileFor(category.id)!.kind, CategoryKind.bill);
+      expect(EventAlerts.categoryAlertsFor(category.id), hasLength(1));
+    });
+
+    testWidgets('nothing opens while Save writes: the Kind row and a menu row '
+        'take no tap, and the save pops with what it wrote', (tester) async {
+      final robot = CategoryEditorRobot(tester);
+      final outcome = await robot.show();
+      await robot.typeName('Yoga');
+      writes.holdNext('calendar_categories');
+
+      await robot.save();
+      expect(writes.held, isTrue);
+
+      await robot.tapBlockedRow(kind);
+      expect(CategoryKindRobot(tester).isOpen, isFalse);
+      await robot.tapBlockedRow(area);
+      expect(robot.menuItems, isEmpty);
+
+      writes.release();
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      expect(robot.isOpen, isFalse);
+      expect(outcome.result?.name, 'Yoga');
+    });
+
+    testWidgets('a kind pick clears the flags no row shows too, so Custom '
+        'with nothing on screen overridden clears the stored row', (
+      tester,
+    ) async {
+      final category = await custom('Gym days');
+      await profiles.save(
+        CategoryProfile(
+          id: '',
+          categoryId: category.id,
+          kind: CategoryKind.workout,
+          countsHours: false,
+        ),
+      );
+      final robot = CategoryEditorRobot(tester);
+      await robot.show(initial: category);
+
+      await robot.pickKind(CategoryKind.custom);
+      await robot.save();
+
+      expect(CategoryProfiles.profileFor(category.id), isNull);
+    });
+
+    testWidgets('a stored measure the editor never offers reads as its own '
+        'name and is listed, checked, in the menu', (tester) async {
+      final robot = CategoryEditorRobot(tester);
+      await robot.show(
+        initial: await profiled(
+          'Gym days',
+          as: CategoryKind.workout,
+          measure: ReportMeasure.cancelled,
+        ),
+      );
+
+      expect(robot.valueOf(measure), 'Cancelled');
+      await robot.tapRow(measure);
+      expect(
+        robot.menuItems[SemanticsIds.categoryMeasure('cancelled')],
+        'Cancelled',
+      );
+      expect(robot.checkedMenuItem, SemanticsIds.categoryMeasure('cancelled'));
+      expect(
+        robot.menuItems.keys,
+        isNot(contains(SemanticsIds.categoryMeasure('leadTime'))),
+      );
+    });
+
+    testWidgets('a picked kind makes the sheet dirty; Custom picked on an '
+        'unprofiled category does not, and writes nothing', (tester) async {
+      final category = await profiled('Gym days');
+      final robot = CategoryEditorRobot(tester);
+      final outcome = await robot.show(initial: category);
+
+      await robot.pickKind(CategoryKind.custom);
+      await robot.close();
+      expect(robot.discardAsked, isFalse);
+      expect(outcome.returned, isTrue);
+
+      await robot.show(initial: category);
+      await robot.pickKind(CategoryKind.bill);
+      await robot.close();
+      expect(robot.discardAsked, isTrue);
+      await robot.keepEditing();
+      // Back to Custom: the draft says what it opened with.
+      await robot.pickKind(CategoryKind.custom);
+      await robot.close();
+      expect(robot.discardAsked, isFalse);
+      expect(CategoryProfiles.all, isEmpty);
+    });
+
+    testWidgets('back to Custom with nothing overridden clears a stored '
+        'profile', (tester) async {
+      final category = await profiled('Bills', as: CategoryKind.bill);
+      final robot = CategoryEditorRobot(tester);
+      await robot.show(initial: category);
+
+      await robot.pickKind(CategoryKind.custom);
+      await robot.save();
+
+      expect(CategoryProfiles.profileFor(category.id), isNull);
+    });
+
+    testWidgets('sandbox: the rows work and Save writes no profile', (
+      tester,
+    ) async {
+      final category = await profiled('Gym days');
+      final robot = CategoryEditorRobot(tester);
+      final outcome = await robot.show(initial: category, sandbox: true);
+
+      await robot.pickKind(CategoryKind.workout);
+      expect(robot.valueOf(kind), 'Workout');
+      await robot.save();
+
+      expect(outcome.result?.id, category.id);
+      expect(CategoryProfiles.all, isEmpty);
+    });
+
+    // The read-back captions the record names, in the three languages at
+    // the three scales; the caption wraps freely, so each is whole.
+    for (final (locale, texts) in [
+      (
+        'en',
+        [
+          'At least 3 a week',
+          'At most 40 h a week',
+          'At most 180 days between',
+          'Budget 1,200 a month',
+          'No goal',
+        ],
+      ),
+      (
+        'de',
+        [
+          'Mindestens 3 pro Woche',
+          'Höchstens 40 h pro Woche',
+          'Höchstens 180 Tage dazwischen',
+          'Budget 1.200 pro Monat',
+          'Kein Ziel',
+        ],
+      ),
+      (
+        'ro',
+        [
+          'Cel puțin 3 pe săptămână',
+          'Cel mult 40 h pe săptămână',
+          'Cel mult 180 de zile între ele',
+          'Buget 1.200 pe lună',
+          'Fără obiectiv',
+        ],
+      ),
+    ]) {
+      for (final scale in [1.0, 1.3, 2.0]) {
+        testWidgets('the Goal caption reads the goal back in $locale at '
+            '$scale, whole', (tester) async {
+          final cases = [
+            await profiled('A', as: CategoryKind.workout, target: weekly3),
+            await profiled(
+              'B',
+              as: CategoryKind.work,
+              target: const ReportTarget(
+                kind: TargetKind.atMost,
+                value: 40 * 60,
+                period: TargetPeriod.week,
+              ),
+            ),
+            await profiled(
+              'C',
+              as: CategoryKind.maintenance,
+              target: const ReportTarget(kind: TargetKind.maxGap, value: 180),
+            ),
+            await profiled(
+              'D',
+              as: CategoryKind.bill,
+              target: const ReportTarget(
+                kind: TargetKind.budget,
+                value: 1200 * 100,
+                period: TargetPeriod.month,
+              ),
+            ),
+            await profiled('E', as: CategoryKind.workout),
+          ];
+          final robot = CategoryEditorRobot(tester);
+          for (final (index, category) in cases.indexed) {
+            final errors = await layoutErrorsDuring(() async {
+              await robot.show(
+                initial: category,
+                locale: Locale(locale),
+                textScale: scale,
+                surface: const Size(360, 780),
+              );
+              await tester.ensureVisible(
+                find.bySemanticsIdentifier(goal).first,
+              );
+              await tester.pumpAndSettle();
+              expect(robot.captionOf(goal), texts[index]);
+              expect(robot.textWhole(texts[index]), isTrue);
+            });
+            expect(errors, isEmpty);
+            await robot.close();
+          }
+        });
+      }
+    }
+
+    testWidgets('German at 2.0 on 360 × 780: every profile row whole and '
+        'inside the sheet, at 48 dp or more', (tester) async {
+      final robot = CategoryEditorRobot(tester);
+      final errors = await layoutErrorsDuring(() async {
+        await robot.show(
+          initial: await profiled(
+            'Gym days',
+            as: CategoryKind.workout,
+            target: weekly3,
+          ),
+          locale: const Locale('de'),
+          textScale: 2.0,
+          surface: const Size(360, 780),
+        );
+        for (final id in CategoryEditorRobot.profileRowIds) {
+          await tester.ensureVisible(find.bySemanticsIdentifier(id).first);
+          await tester.pumpAndSettle();
+          final rect = robot.targetOf(id);
+          expect(rect.left, greaterThanOrEqualTo(robot.sheetRect.left));
+          expect(rect.right, lessThanOrEqualTo(robot.sheetRect.right));
+          expect(rect.height, greaterThanOrEqualTo(FormMetrics.rowMinHeight));
+        }
+        for (final id in CategoryEditorRobot.profileRowIds) {
+          final caption = robot.captionOf(id);
+          if (caption != null) {
+            expect(robot.textWhole(caption), isTrue, reason: caption);
+          }
+        }
+        expect(robot.captionOf(kind), 'Studio, Laufen, Kurs');
+        expect(robot.captionOf(measure), 'Auto ist Anwesenheit');
+        expect(robot.captionOf(goal), 'Mindestens 3 pro Woche');
+      });
+      expect(errors, isEmpty);
+    });
+
+    for (final (locale, scale, dark) in [
+      ('en', 1.0, false),
+      ('de', 2.0, true),
+    ]) {
+      testWidgets('$locale at $scale${dark ? ' dark' : ''}: the profile rows '
+          'meet the tap-target, label and contrast guidelines', (tester) async {
+        final handle = tester.ensureSemantics();
+        final robot = CategoryEditorRobot(tester);
+        await robot.show(
+          initial: await profiled('Gym days', as: CategoryKind.workout),
+          locale: Locale(locale),
+          textScale: scale,
+          surface: const Size(360, 780),
+          theme: dark ? AppTheme.dark() : null,
+        );
+        await tester.ensureVisible(find.bySemanticsIdentifier(goal).first);
+        await tester.pumpAndSettle();
+
+        await expectLater(tester, meetsGuideline(androidTapTargetGuideline));
+        await expectLater(tester, meetsGuideline(labeledTapTargetGuideline));
+        await expectLater(tester, meetsGuideline(textContrastGuideline));
+        handle.dispose();
+      });
+    }
+
+    for (final (locale, scale) in [('en', 1.0), ('de', 2.0)]) {
+      testWidgets('$locale at $scale: the Report label stands a group gap '
+          'under the alerts caption', (tester) async {
+        final robot = CategoryEditorRobot(tester);
+        await robot.show(
+          initial: await profiled('Gym days', as: CategoryKind.workout),
+          locale: Locale(locale),
+          textScale: scale,
+          surface: const Size(360, 780),
+        );
+        final label = robot.sectionLabels[1];
+        expect(
+          robot.sectionLabelRect(label).top - robot.alertsHintRect.bottom,
+          moreOrLessEquals(RowMetrics.groupGap, epsilon: 0.01),
+        );
+      });
+    }
+
+    testWidgets('while Save writes no row dims: every profile row is drawn as '
+        'it was before the tap', (tester) async {
+      final robot = CategoryEditorRobot(tester);
+      await robot.show(
+        initial: await profiled('Sleep', as: CategoryKind.sleep),
+        surface: const Size(360, 780),
+      );
+      await robot.typeName('Sleep well');
+      final before = {
+        for (final id in CategoryEditorRobot.profileRowIds)
+          id: robot.opacitiesOf(id),
+      };
+      // Counts as is disabled under Sleep, so a dimmed row is in the set.
+      expect(before[countsAs], contains(FormMetrics.disabledOpacity));
+      writes.holdNext('calendar_categories');
+
+      await robot.save();
+      expect(writes.held, isTrue);
+      for (final id in CategoryEditorRobot.profileRowIds) {
+        expect(robot.opacitiesOf(id), before[id], reason: id);
+      }
+
+      writes.release();
+      await tester.pumpAndSettle();
+      expect(robot.isOpen, isFalse);
+    });
+  });
 }
 
 class _RecordingObserver extends BlocObserver {
@@ -1512,6 +2362,10 @@ class _WriteFailure extends _ReadGate {
   bool fail = false;
   String? failOnly;
 
+  /// Every insert and update that went through, in order — the save order
+  /// read off the database itself.
+  final List<String> statements = [];
+
   bool _fails(String statement) =>
       fail && (failOnly == null || statement.contains(failOnly!));
 
@@ -1522,6 +2376,7 @@ class _WriteFailure extends _ReadGate {
     List<Object?> args,
   ) {
     if (_fails(statement)) return Future.error(StateError('the write failed'));
+    statements.add(statement);
     return super.runInsert(executor, statement, args);
   }
 
@@ -1532,6 +2387,7 @@ class _WriteFailure extends _ReadGate {
     List<Object?> args,
   ) {
     if (_fails(statement)) return Future.error(StateError('the write failed'));
+    statements.add(statement);
     return super.runUpdate(executor, statement, args);
   }
 }

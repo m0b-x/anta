@@ -1,0 +1,53 @@
+# The category editor's Report section and its kind picker (analytics S3,
+# docs/calendar-analytics-roadmap.md §7): the seeded Strength opens
+# unprofiled, the picker opens from the Kind row on its groups with Custom
+# last, a ✕ leaves it, Workout is picked and the rows under it follow, the
+# Mark menu lists the kind's verb, the own word and Off; the draft is left
+# unsaved through the guard, so the seed is untouched.
+# - Reached as flow 18 reaches it. The profile rows sit below the fold since
+#   S3; every scroll names the scroll view it moves (`--in`), never the
+#   dump's first scrollable.
+# - The picker is clamp-tall and opens at the top: Routine and Workout are on
+#   its first screen, Custom is scrolled to inside its list.
+# - A picked kind makes the draft dirty: ✕ asks, and the flow discards.
+tap id:calendar-more
+wait id:calendar-settings-open
+tap id:calendar-settings-open
+wait id:calendar-add-event --gone
+tap id:calendar-categories-open
+wait id:category-add
+scroll-to id:category-row-qa-cal-strength
+tap id:category-row-qa-cal-strength
+wait id:category-editor-name
+scroll-to id:category-editor-area --in id:category-editor-form
+expect id:category-editor-kind id:category-editor-mark id:category-editor-area
+shot 30_category_report_unprofiled
+tap id:category-editor-kind
+wait id:category-kind-close
+expect id:category-kind-routine id:category-kind-workout
+shot 30_category_kind_picker
+scroll-to id:category-kind-custom --in id:category-kind-list
+expect id:category-kind-custom
+tap id:category-kind-close
+wait id:category-kind-close --gone
+tap id:category-editor-kind
+wait id:category-kind-close
+tap id:category-kind-workout
+wait id:category-kind-close --gone
+scroll-to id:category-editor-goal --in id:category-editor-form
+expect id:category-editor-mark id:category-editor-area id:category-editor-measure id:category-editor-counts-as id:category-editor-goal
+shot 30_category_report_workout
+tap id:category-editor-mark
+wait id:category-mark-kind
+expect id:category-mark-own id:category-mark-off
+tap id:category-mark-kind
+wait id:category-mark-kind --gone
+tap id:category-editor-close
+wait id:unsaved-discard
+tap id:unsaved-discard
+wait id:category-add
+key back
+wait id:calendar-categories-open
+key back
+wait id:calendar-add-event
+errors

@@ -83,6 +83,11 @@ abstract final class FormMetrics {
   /// "9 weeks" becomes "10 weeks".
   static const double stepperValueMinWidth = 96;
 
+  /// The room between a typeable stepper value and the underline that says
+  /// it can be typed into, above and below the digits alike so they keep
+  /// the line a plain value sits on.
+  static const double stepperFieldUnderlineGap = 2;
+
   /// The box a row's leading widget sits in — an `EventAvatar`'s diameter —
   /// so a row that carries one keeps the title row's 56 dp shape and its
   /// divider indent whatever the widget draws.

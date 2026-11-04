@@ -7564,4 +7564,392 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get eventCancelled => 'Event cancelled';
+
+  @override
+  String get categoryReportSection => 'Report';
+
+  @override
+  String get categoryMeasureGoalSection => 'Measure & goal';
+
+  @override
+  String get categoryKindLabel => 'Kind';
+
+  @override
+  String get categoryKindRoutine => 'Routine';
+
+  @override
+  String get categoryKindWorkout => 'Workout';
+
+  @override
+  String get categoryKindMedication => 'Medication';
+
+  @override
+  String get categoryKindSleep => 'Sleep';
+
+  @override
+  String get categoryKindEpisode => 'Episode';
+
+  @override
+  String get categoryKindAppointment => 'Appointment';
+
+  @override
+  String get categoryKindWork => 'Work';
+
+  @override
+  String get categoryKindMeeting => 'Meeting';
+
+  @override
+  String get categoryKindTask => 'Task';
+
+  @override
+  String get categoryKindDeadline => 'Deadline';
+
+  @override
+  String get categoryKindStudy => 'Study';
+
+  @override
+  String get categoryKindBill => 'Bill';
+
+  @override
+  String get categoryKindIncome => 'Income';
+
+  @override
+  String get categoryKindSocial => 'Social';
+
+  @override
+  String get categoryKindAnniversary => 'Anniversary';
+
+  @override
+  String get categoryKindChore => 'Chore';
+
+  @override
+  String get categoryKindMaintenance => 'Maintenance';
+
+  @override
+  String get categoryKindExpiry => 'Expiry';
+
+  @override
+  String get categoryKindTrip => 'Trip';
+
+  @override
+  String get categoryKindLeave => 'Leave';
+
+  @override
+  String get categoryKindCustom => 'Custom';
+
+  @override
+  String get categoryKindExampleRoutine => 'Stretching, journaling';
+
+  @override
+  String get categoryKindExampleWorkout => 'Gym, run, swim, class';
+
+  @override
+  String get categoryKindExampleMedication => 'Pills, supplements';
+
+  @override
+  String get categoryKindExampleSleep => 'The night and its length';
+
+  @override
+  String get categoryKindExampleEpisode => 'Illness, migraine, cycle';
+
+  @override
+  String get categoryKindExampleAppointment => 'Doctor, dentist, vet';
+
+  @override
+  String get categoryKindExampleWork => 'Shifts, working days';
+
+  @override
+  String get categoryKindExampleMeeting => 'Calls, stand-ups, reviews';
+
+  @override
+  String get categoryKindExampleTask => 'To-dos, errands';
+
+  @override
+  String get categoryKindExampleDeadline => 'Submissions, filings';
+
+  @override
+  String get categoryKindExampleStudy => 'Courses, practice, reading';
+
+  @override
+  String get categoryKindExampleBill => 'Rent, bills, subscriptions';
+
+  @override
+  String get categoryKindExampleIncome => 'Salary, paid invoices';
+
+  @override
+  String get categoryKindExampleSocial => 'Dinners, visits, dates';
+
+  @override
+  String get categoryKindExampleAnniversary => 'Birthdays, name days';
+
+  @override
+  String get categoryKindExampleChore => 'Cleaning, laundry, groceries';
+
+  @override
+  String get categoryKindExampleMaintenance => 'Car service, boiler';
+
+  @override
+  String get categoryKindExampleExpiry => 'Passport, ID, warranty';
+
+  @override
+  String get categoryKindExampleTrip => 'Travel, weekends away';
+
+  @override
+  String get categoryKindExampleLeave => 'Vacation, days off';
+
+  @override
+  String get categoryKindExampleCustom => 'Anything else';
+
+  @override
+  String get lifeAreaHealth => 'Health';
+
+  @override
+  String get lifeAreaWork => 'Work';
+
+  @override
+  String get lifeAreaMoney => 'Money';
+
+  @override
+  String get lifeAreaPeople => 'People';
+
+  @override
+  String get lifeAreaHome => 'Home';
+
+  @override
+  String get lifeAreaLeisure => 'Leisure';
+
+  @override
+  String get lifeAreaOther => 'Other';
+
+  @override
+  String get categoryMarkLabel => 'Mark';
+
+  @override
+  String get categoryMarkOff => 'Off';
+
+  @override
+  String get categoryMarkOwn => 'Own word…';
+
+  @override
+  String get categoryMarkOwnTitle => 'Mark word';
+
+  @override
+  String get categoryMarkOwnHint => 'e.g. Walked';
+
+  @override
+  String get categoryAreaLabel => 'Area';
+
+  @override
+  String get categoryMeasureLabel => 'Measure';
+
+  @override
+  String get categoryMeasureAuto => 'Auto';
+
+  @override
+  String categoryMeasureAutoIs(String measure) {
+    return 'Auto is $measure';
+  }
+
+  @override
+  String get categoryMeasureAutoPerPeriod => 'Auto picks per period';
+
+  @override
+  String categoryMeasureAutoWith(String measure) {
+    return 'Auto · $measure';
+  }
+
+  @override
+  String get categoryMeasureCount => 'Count';
+
+  @override
+  String get categoryMeasureEvents => 'Events';
+
+  @override
+  String get categoryMeasureHours => 'Hours';
+
+  @override
+  String get categoryMeasureAttendance => 'Attendance';
+
+  @override
+  String get categoryMeasureTasks => 'Tasks';
+
+  @override
+  String get categoryMeasureMoney => 'Money';
+
+  @override
+  String get categoryMeasureLastSeen => 'Last seen';
+
+  @override
+  String get categoryMeasureDaysUntil => 'Days until';
+
+  @override
+  String get categoryMeasureCancelled => 'Cancelled';
+
+  @override
+  String get categoryMeasureLeadTime => 'Lead time';
+
+  @override
+  String get categoryMeasureTiming => 'Timing';
+
+  @override
+  String get categoryCountsAsLabel => 'Counts as';
+
+  @override
+  String get categoryCountsAsOff => 'Off';
+
+  @override
+  String categoryCountsAsSuggested(String duration) {
+    return 'Suggested: $duration';
+  }
+
+  @override
+  String categoryCountsAsSuggestedItem(String duration) {
+    return '$duration · suggested';
+  }
+
+  @override
+  String get categoryCountsAsScope => 'For untimed events';
+
+  @override
+  String get categoryCountsAsSleep => 'Sleep keeps its own hours';
+
+  @override
+  String get categoryCountsAsRepeats => 'Repeats earn no counted hours';
+
+  @override
+  String get categoryGoalLabel => 'Goal';
+
+  @override
+  String get categoryGoalNone => 'No goal';
+
+  @override
+  String get categoryGoalNeedsMeasure => 'Pick a measure first';
+
+  @override
+  String categoryGoalNotFor(String measure) {
+    return 'No goal for $measure';
+  }
+
+  @override
+  String get categoryGoalTitle => 'Goal';
+
+  @override
+  String get categoryGoalTypeSection => 'Type';
+
+  @override
+  String get categoryGoalTargetSection => 'Target';
+
+  @override
+  String get categoryGoalTypeAtLeast => 'At least';
+
+  @override
+  String get categoryGoalTypeAtMost => 'At most';
+
+  @override
+  String get categoryGoalTypeBudget => 'Budget';
+
+  @override
+  String get categoryGoalTypeMaxGap => 'Days between';
+
+  @override
+  String get categoryGoalTypeNotForMeasure => 'Not for this measure';
+
+  @override
+  String get categoryGoalUnitCount => 'Count';
+
+  @override
+  String get categoryGoalUnitHours => 'Hours';
+
+  @override
+  String get categoryGoalUnitTasks => 'Tasks';
+
+  @override
+  String get categoryGoalUnitAmount => 'Amount';
+
+  @override
+  String get categoryGoalUnitDays => 'Days';
+
+  @override
+  String categoryGoalHours(String hours) {
+    return '$hours h';
+  }
+
+  @override
+  String categoryGoalTasks(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count tasks',
+      one: '1 task',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get categoryGoalLess => 'Less';
+
+  @override
+  String get categoryGoalMore => 'More';
+
+  @override
+  String get categoryGoalPeriodDay => 'Day';
+
+  @override
+  String get categoryGoalPeriodWeek => 'Week';
+
+  @override
+  String get categoryGoalPeriodMonth => 'Month';
+
+  @override
+  String get categoryGoalPeriodYear => 'Year';
+
+  @override
+  String categoryGoalAtLeast(String amount, String period) {
+    String _temp0 = intl.Intl.selectLogic(period, {
+      'day': 'a day',
+      'week': 'a week',
+      'month': 'a month',
+      'year': 'a year',
+      'other': '',
+    });
+    return 'At least $amount $_temp0';
+  }
+
+  @override
+  String categoryGoalAtMost(String amount, String period) {
+    String _temp0 = intl.Intl.selectLogic(period, {
+      'day': 'a day',
+      'week': 'a week',
+      'month': 'a month',
+      'year': 'a year',
+      'other': '',
+    });
+    return 'At most $amount $_temp0';
+  }
+
+  @override
+  String categoryGoalBudget(String amount, String period) {
+    String _temp0 = intl.Intl.selectLogic(period, {
+      'day': 'a day',
+      'week': 'a week',
+      'month': 'a month',
+      'year': 'a year',
+      'other': '',
+    });
+    return 'Budget $amount $_temp0';
+  }
+
+  @override
+  String categoryGoalGap(int days) {
+    String _temp0 = intl.Intl.pluralLogic(
+      days,
+      locale: localeName,
+      other: 'At most $days days between',
+      one: 'At most 1 day between',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get categoryGoalRemove => 'Remove goal';
 }

@@ -1001,6 +1001,58 @@ abstract final class SemanticsIds {
   static const String categoryEditorName = 'category-editor-name';
   static const String categoryEditorIcon = 'category-editor-icon';
 
+  /// The category editor's body scroll view, a container id like
+  /// [eventForm]: the profile rows sit below the fold since S3, and a flow
+  /// scrolls to them inside it.
+  static const String categoryEditorForm = 'category-editor-form';
+
+  /// The category editor's profile rows (analytics S3): Report's Kind, Mark
+  /// and Area, Measure & goal's Measure, Counts as and Goal.
+  static const String categoryEditorKind = 'category-editor-kind';
+  static const String categoryEditorMark = 'category-editor-mark';
+  static const String categoryEditorArea = 'category-editor-area';
+  static const String categoryEditorMeasure = 'category-editor-measure';
+  static const String categoryEditorCountsAs = 'category-editor-counts-as';
+  static const String categoryEditorGoal = 'category-editor-goal';
+
+  /// The Mark menu's items — the kind's verb, the owner's word (or "Own
+  /// word…"), Off — and its word dialog's field and Save.
+  static const String categoryMarkKind = 'category-mark-kind';
+  static const String categoryMarkOwn = 'category-mark-own';
+  static const String categoryMarkOff = 'category-mark-off';
+  static const String categoryMarkWordField = 'category-mark-word-field';
+  static const String categoryMarkWordSave = 'category-mark-word-save';
+
+  /// The Area menu's items, by `LifeArea` name.
+  static String categoryArea(String area) => 'category-area-$area';
+
+  /// The Measure menu's Auto and its measures, by `ReportMeasure` name.
+  static const String categoryMeasureAuto = 'category-measure-auto';
+  static String categoryMeasure(String measure) => 'category-measure-$measure';
+
+  /// The Counts as menu's Off and its durations, by minutes.
+  static const String categoryCountsAsOff = 'category-counts-as-off';
+  static String categoryCountsAs(int minutes) => 'category-counts-as-$minutes';
+
+  /// The kind picker's ✕, its body scroll view and its rows, by
+  /// `CategoryKind` name.
+  static const String categoryKindClose = 'category-kind-close';
+  static const String categoryKindList = 'category-kind-list';
+  static String categoryKind(String kind) => 'category-kind-$kind';
+
+  /// The goal sheet's ✕ and Done, its type rows by `TargetKind` name, the
+  /// value's stepper and field, its period chips by `TargetPeriod` name and
+  /// Remove goal.
+  static const String categoryGoalClose = 'category-goal-close';
+  static const String categoryGoalDone = 'category-goal-done';
+  static String categoryGoalType(String kind) => 'category-goal-type-$kind';
+  static const String categoryGoalLess = 'category-goal-less';
+  static const String categoryGoalMore = 'category-goal-more';
+  static const String categoryGoalValue = 'category-goal-value';
+  static String categoryGoalPeriod(String period) =>
+      'category-goal-period-$period';
+  static const String categoryGoalRemove = 'category-goal-remove';
+
   /// The Categories page's create button and each category's row, keyed by
   /// the category's id — a container above the row's own buttons.
   static const String categoryAdd = 'category-add';

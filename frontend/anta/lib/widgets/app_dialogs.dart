@@ -202,6 +202,7 @@ class AppDialogs {
               : Listenable.merge([controller, warningRefresh]),
           builder: (context, _) {
             final warning = warningFor?.call(controller.text);
+            final colorScheme = Theme.of(context).colorScheme;
             final field = TextField(
               controller: controller,
               autofocus: true,
@@ -213,11 +214,14 @@ class AppDialogs {
                 labelText: labelText,
                 border: const OutlineInputBorder(),
                 // The helper line's default is the counter's `bodySmall`;
-                // only the colour changes.
+                // only the colour changes, and only while a warning is up.
+                // The counter takes its colour from the helper's style, so
+                // it is set apart or it reads red beside no warning at all.
                 helperText: warning,
-                helperStyle: TextStyle(
-                  color: Theme.of(context).colorScheme.error,
-                ),
+                helperStyle: warning == null
+                    ? null
+                    : TextStyle(color: colorScheme.error),
+                counterStyle: TextStyle(color: colorScheme.onSurfaceVariant),
               ),
               onSubmitted: (_) => confirm(ctx),
             );

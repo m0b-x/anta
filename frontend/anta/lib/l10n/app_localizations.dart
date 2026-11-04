@@ -12201,6 +12201,672 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Event cancelled'**
   String get eventCancelled;
+
+  /// Section label in the category editor over the Kind, Mark and Area rows: what the Report treats the category as
+  ///
+  /// In en, this message translates to:
+  /// **'Report'**
+  String get categoryReportSection;
+
+  /// Section label in the category editor over the Measure, Counts as and Goal rows
+  ///
+  /// In en, this message translates to:
+  /// **'Measure & goal'**
+  String get categoryMeasureGoalSection;
+
+  /// Row label in the category editor, and the title of the kind picker: what the category is for (Workout, Bill, …)
+  ///
+  /// In en, this message translates to:
+  /// **'Kind'**
+  String get categoryKindLabel;
+
+  /// Category kind: a habit kept on a rhythm
+  ///
+  /// In en, this message translates to:
+  /// **'Routine'**
+  String get categoryKindRoutine;
+
+  /// Category kind: training sessions
+  ///
+  /// In en, this message translates to:
+  /// **'Workout'**
+  String get categoryKindWorkout;
+
+  /// Category kind: pills and supplements taken
+  ///
+  /// In en, this message translates to:
+  /// **'Medication'**
+  String get categoryKindMedication;
+
+  /// Category kind: the night's sleep and its length
+  ///
+  /// In en, this message translates to:
+  /// **'Sleep'**
+  String get categoryKindSleep;
+
+  /// Category kind: an illness, a symptom, a cycle
+  ///
+  /// In en, this message translates to:
+  /// **'Episode'**
+  String get categoryKindEpisode;
+
+  /// Category kind: doctor, dentist and other appointments
+  ///
+  /// In en, this message translates to:
+  /// **'Appointment'**
+  String get categoryKindAppointment;
+
+  /// Category kind: shifts and working days
+  ///
+  /// In en, this message translates to:
+  /// **'Work'**
+  String get categoryKindWork;
+
+  /// Category kind: calls and meetings
+  ///
+  /// In en, this message translates to:
+  /// **'Meeting'**
+  String get categoryKindMeeting;
+
+  /// Category kind: to-dos and errands
+  ///
+  /// In en, this message translates to:
+  /// **'Task'**
+  String get categoryKindTask;
+
+  /// Category kind: submissions and filings due on a day
+  ///
+  /// In en, this message translates to:
+  /// **'Deadline'**
+  String get categoryKindDeadline;
+
+  /// Category kind: courses, practice, reading
+  ///
+  /// In en, this message translates to:
+  /// **'Study'**
+  String get categoryKindStudy;
+
+  /// Category kind: rent, bills, subscriptions to pay
+  ///
+  /// In en, this message translates to:
+  /// **'Bill'**
+  String get categoryKindBill;
+
+  /// Category kind: salary and payments received
+  ///
+  /// In en, this message translates to:
+  /// **'Income'**
+  String get categoryKindIncome;
+
+  /// Category kind: time with people
+  ///
+  /// In en, this message translates to:
+  /// **'Social'**
+  String get categoryKindSocial;
+
+  /// Category kind: birthdays and name days
+  ///
+  /// In en, this message translates to:
+  /// **'Anniversary'**
+  String get categoryKindAnniversary;
+
+  /// Category kind: housework
+  ///
+  /// In en, this message translates to:
+  /// **'Chore'**
+  String get categoryKindChore;
+
+  /// Category kind: car service, boiler and other upkeep
+  ///
+  /// In en, this message translates to:
+  /// **'Maintenance'**
+  String get categoryKindMaintenance;
+
+  /// Category kind: documents and warranties that expire
+  ///
+  /// In en, this message translates to:
+  /// **'Expiry'**
+  String get categoryKindExpiry;
+
+  /// Category kind: travel
+  ///
+  /// In en, this message translates to:
+  /// **'Trip'**
+  String get categoryKindTrip;
+
+  /// Category kind: vacation and days off
+  ///
+  /// In en, this message translates to:
+  /// **'Leave'**
+  String get categoryKindLeave;
+
+  /// Category kind: anything else, the kind of a category nobody set one for
+  ///
+  /// In en, this message translates to:
+  /// **'Custom'**
+  String get categoryKindCustom;
+
+  /// Examples under the Routine kind. At most 28 characters and three items
+  ///
+  /// In en, this message translates to:
+  /// **'Stretching, journaling'**
+  String get categoryKindExampleRoutine;
+
+  /// Examples under the Workout kind. At most 28 characters
+  ///
+  /// In en, this message translates to:
+  /// **'Gym, run, swim, class'**
+  String get categoryKindExampleWorkout;
+
+  /// Examples under the Medication kind. At most 28 characters
+  ///
+  /// In en, this message translates to:
+  /// **'Pills, supplements'**
+  String get categoryKindExampleMedication;
+
+  /// What the Sleep kind holds. At most 28 characters
+  ///
+  /// In en, this message translates to:
+  /// **'The night and its length'**
+  String get categoryKindExampleSleep;
+
+  /// Examples under the Episode kind. At most 28 characters
+  ///
+  /// In en, this message translates to:
+  /// **'Illness, migraine, cycle'**
+  String get categoryKindExampleEpisode;
+
+  /// Examples under the Appointment kind. At most 28 characters
+  ///
+  /// In en, this message translates to:
+  /// **'Doctor, dentist, vet'**
+  String get categoryKindExampleAppointment;
+
+  /// Examples under the Work kind. At most 28 characters
+  ///
+  /// In en, this message translates to:
+  /// **'Shifts, working days'**
+  String get categoryKindExampleWork;
+
+  /// Examples under the Meeting kind. At most 28 characters
+  ///
+  /// In en, this message translates to:
+  /// **'Calls, stand-ups, reviews'**
+  String get categoryKindExampleMeeting;
+
+  /// Examples under the Task kind. At most 28 characters
+  ///
+  /// In en, this message translates to:
+  /// **'To-dos, errands'**
+  String get categoryKindExampleTask;
+
+  /// Examples under the Deadline kind. At most 28 characters
+  ///
+  /// In en, this message translates to:
+  /// **'Submissions, filings'**
+  String get categoryKindExampleDeadline;
+
+  /// Examples under the Study kind. At most 28 characters
+  ///
+  /// In en, this message translates to:
+  /// **'Courses, practice, reading'**
+  String get categoryKindExampleStudy;
+
+  /// Examples under the Bill kind. At most 28 characters
+  ///
+  /// In en, this message translates to:
+  /// **'Rent, bills, subscriptions'**
+  String get categoryKindExampleBill;
+
+  /// Examples under the Income kind. At most 28 characters
+  ///
+  /// In en, this message translates to:
+  /// **'Salary, paid invoices'**
+  String get categoryKindExampleIncome;
+
+  /// Examples under the Social kind. At most 28 characters
+  ///
+  /// In en, this message translates to:
+  /// **'Dinners, visits, dates'**
+  String get categoryKindExampleSocial;
+
+  /// Examples under the Anniversary kind. At most 28 characters
+  ///
+  /// In en, this message translates to:
+  /// **'Birthdays, name days'**
+  String get categoryKindExampleAnniversary;
+
+  /// Examples under the Chore kind. At most 28 characters
+  ///
+  /// In en, this message translates to:
+  /// **'Cleaning, laundry, groceries'**
+  String get categoryKindExampleChore;
+
+  /// Examples under the Maintenance kind. At most 28 characters
+  ///
+  /// In en, this message translates to:
+  /// **'Car service, boiler'**
+  String get categoryKindExampleMaintenance;
+
+  /// Examples under the Expiry kind. At most 28 characters
+  ///
+  /// In en, this message translates to:
+  /// **'Passport, ID, warranty'**
+  String get categoryKindExampleExpiry;
+
+  /// Examples under the Trip kind. At most 28 characters
+  ///
+  /// In en, this message translates to:
+  /// **'Travel, weekends away'**
+  String get categoryKindExampleTrip;
+
+  /// Examples under the Leave kind. At most 28 characters
+  ///
+  /// In en, this message translates to:
+  /// **'Vacation, days off'**
+  String get categoryKindExampleLeave;
+
+  /// What the Custom kind holds. At most 28 characters
+  ///
+  /// In en, this message translates to:
+  /// **'Anything else'**
+  String get categoryKindExampleCustom;
+
+  /// Life area a category belongs to; also a group label in the kind picker
+  ///
+  /// In en, this message translates to:
+  /// **'Health'**
+  String get lifeAreaHealth;
+
+  /// Life area a category belongs to; also a group label in the kind picker
+  ///
+  /// In en, this message translates to:
+  /// **'Work'**
+  String get lifeAreaWork;
+
+  /// Life area a category belongs to; also a group label in the kind picker
+  ///
+  /// In en, this message translates to:
+  /// **'Money'**
+  String get lifeAreaMoney;
+
+  /// Life area a category belongs to; also a group label in the kind picker
+  ///
+  /// In en, this message translates to:
+  /// **'People'**
+  String get lifeAreaPeople;
+
+  /// Life area a category belongs to; also a group label in the kind picker
+  ///
+  /// In en, this message translates to:
+  /// **'Home'**
+  String get lifeAreaHome;
+
+  /// Life area a category belongs to; also a group label in the kind picker
+  ///
+  /// In en, this message translates to:
+  /// **'Leisure'**
+  String get lifeAreaLeisure;
+
+  /// Life area a category belongs to; also a group label in the kind picker
+  ///
+  /// In en, this message translates to:
+  /// **'Other'**
+  String get lifeAreaOther;
+
+  /// Row label in the category editor: the word a kept mark is read as (Done, Paid, …)
+  ///
+  /// In en, this message translates to:
+  /// **'Mark'**
+  String get categoryMarkLabel;
+
+  /// The Mark row's value and menu item when the category's events are not marked
+  ///
+  /// In en, this message translates to:
+  /// **'Off'**
+  String get categoryMarkOff;
+
+  /// Mark menu item that opens a dialog for the owner's own word
+  ///
+  /// In en, this message translates to:
+  /// **'Own word…'**
+  String get categoryMarkOwn;
+
+  /// Title of the dialog where the owner types their own word for a kept mark
+  ///
+  /// In en, this message translates to:
+  /// **'Mark word'**
+  String get categoryMarkOwnTitle;
+
+  /// Hint in the mark word dialog's field
+  ///
+  /// In en, this message translates to:
+  /// **'e.g. Walked'**
+  String get categoryMarkOwnHint;
+
+  /// Row label in the category editor: the life area the category's hours count toward
+  ///
+  /// In en, this message translates to:
+  /// **'Area'**
+  String get categoryAreaLabel;
+
+  /// Row label in the category editor: the number the Report leads the category with
+  ///
+  /// In en, this message translates to:
+  /// **'Measure'**
+  String get categoryMeasureLabel;
+
+  /// The Measure row's value while the kind's own measure leads, and the menu item for it
+  ///
+  /// In en, this message translates to:
+  /// **'Auto'**
+  String get categoryMeasureAuto;
+
+  /// Caption under the Measure row: the measure Auto stands for under the category's kind
+  ///
+  /// In en, this message translates to:
+  /// **'Auto is {measure}'**
+  String categoryMeasureAutoIs(String measure);
+
+  /// Caption under the Measure row for a Custom category: the Report picks the measure for each period it shows
+  ///
+  /// In en, this message translates to:
+  /// **'Auto picks per period'**
+  String get categoryMeasureAutoPerPeriod;
+
+  /// The Measure menu's first item: Auto, naming the measure it stands for
+  ///
+  /// In en, this message translates to:
+  /// **'Auto · {measure}'**
+  String categoryMeasureAutoWith(String measure);
+
+  /// Measure: how many days the category's events took
+  ///
+  /// In en, this message translates to:
+  /// **'Count'**
+  String get categoryMeasureCount;
+
+  /// Measure: how many of the category's events happened
+  ///
+  /// In en, this message translates to:
+  /// **'Events'**
+  String get categoryMeasureEvents;
+
+  /// Measure: the hours the category's events took
+  ///
+  /// In en, this message translates to:
+  /// **'Hours'**
+  String get categoryMeasureHours;
+
+  /// Measure: the share of tracked occurrences kept
+  ///
+  /// In en, this message translates to:
+  /// **'Attendance'**
+  String get categoryMeasureAttendance;
+
+  /// Measure: the task boxes ticked in the events' descriptions
+  ///
+  /// In en, this message translates to:
+  /// **'Tasks'**
+  String get categoryMeasureTasks;
+
+  /// Measure: the money the events' linked notes record
+  ///
+  /// In en, this message translates to:
+  /// **'Money'**
+  String get categoryMeasureMoney;
+
+  /// Measure: how long since the category last happened
+  ///
+  /// In en, this message translates to:
+  /// **'Last seen'**
+  String get categoryMeasureLastSeen;
+
+  /// Measure: how many days until the next occurrence (an expiry)
+  ///
+  /// In en, this message translates to:
+  /// **'Days until'**
+  String get categoryMeasureDaysUntil;
+
+  /// Measure: how many of the category's occurrences were cancelled; never offered as a primary, named when one is stored
+  ///
+  /// In en, this message translates to:
+  /// **'Cancelled'**
+  String get categoryMeasureCancelled;
+
+  /// Measure: how far ahead the category's events were planned; never offered as a primary, named when one is stored
+  ///
+  /// In en, this message translates to:
+  /// **'Lead time'**
+  String get categoryMeasureLeadTime;
+
+  /// Measure: the time of day the category's events start; never offered as a primary, named when one is stored
+  ///
+  /// In en, this message translates to:
+  /// **'Timing'**
+  String get categoryMeasureTiming;
+
+  /// Row label in the category editor: how long an untimed event counts for in the hours
+  ///
+  /// In en, this message translates to:
+  /// **'Counts as'**
+  String get categoryCountsAsLabel;
+
+  /// The Counts as row's value and menu item when untimed events earn no hours
+  ///
+  /// In en, this message translates to:
+  /// **'Off'**
+  String get categoryCountsAsOff;
+
+  /// Caption under the Counts as row: the kind's suggested length, which applies only once picked
+  ///
+  /// In en, this message translates to:
+  /// **'Suggested: {duration}'**
+  String categoryCountsAsSuggested(String duration);
+
+  /// Counts as menu item that is the kind's suggestion
+  ///
+  /// In en, this message translates to:
+  /// **'{duration} · suggested'**
+  String categoryCountsAsSuggestedItem(String duration);
+
+  /// Caption under the Counts as row when the kind suggests no length
+  ///
+  /// In en, this message translates to:
+  /// **'For untimed events'**
+  String get categoryCountsAsScope;
+
+  /// Caption under the disabled Counts as row of a Sleep category
+  ///
+  /// In en, this message translates to:
+  /// **'Sleep keeps its own hours'**
+  String get categoryCountsAsSleep;
+
+  /// Caption under the disabled Counts as row of a category whose events all repeat untracked
+  ///
+  /// In en, this message translates to:
+  /// **'Repeats earn no counted hours'**
+  String get categoryCountsAsRepeats;
+
+  /// Row label in the category editor that opens the goal sheet
+  ///
+  /// In en, this message translates to:
+  /// **'Goal'**
+  String get categoryGoalLabel;
+
+  /// Caption under the Goal row while no goal is set
+  ///
+  /// In en, this message translates to:
+  /// **'No goal'**
+  String get categoryGoalNone;
+
+  /// Caption under the disabled Goal row while the measure is Auto on a Custom category
+  ///
+  /// In en, this message translates to:
+  /// **'Pick a measure first'**
+  String get categoryGoalNeedsMeasure;
+
+  /// Caption under the disabled Goal row when the measure takes no goal
+  ///
+  /// In en, this message translates to:
+  /// **'No goal for {measure}'**
+  String categoryGoalNotFor(String measure);
+
+  /// Title of the goal sheet
+  ///
+  /// In en, this message translates to:
+  /// **'Goal'**
+  String get categoryGoalTitle;
+
+  /// Section label in the goal sheet over the goal's types
+  ///
+  /// In en, this message translates to:
+  /// **'Type'**
+  String get categoryGoalTypeSection;
+
+  /// Section label in the goal sheet over the goal's value and period
+  ///
+  /// In en, this message translates to:
+  /// **'Target'**
+  String get categoryGoalTargetSection;
+
+  /// Goal type: at least this much per period
+  ///
+  /// In en, this message translates to:
+  /// **'At least'**
+  String get categoryGoalTypeAtLeast;
+
+  /// Goal type: at most this much per period
+  ///
+  /// In en, this message translates to:
+  /// **'At most'**
+  String get categoryGoalTypeAtMost;
+
+  /// Goal type on a money measure: at most this much money per period
+  ///
+  /// In en, this message translates to:
+  /// **'Budget'**
+  String get categoryGoalTypeBudget;
+
+  /// Goal type: at most this many days between two occurrences
+  ///
+  /// In en, this message translates to:
+  /// **'Days between'**
+  String get categoryGoalTypeMaxGap;
+
+  /// Caption under a stored goal type the category's measure does not offer (synced from another device), shown checked so the goal can be kept or changed
+  ///
+  /// In en, this message translates to:
+  /// **'Not for this measure'**
+  String get categoryGoalTypeNotForMeasure;
+
+  /// Label of the goal sheet's value row when the goal counts occurrences
+  ///
+  /// In en, this message translates to:
+  /// **'Count'**
+  String get categoryGoalUnitCount;
+
+  /// Label of the goal sheet's value row when the goal counts hours
+  ///
+  /// In en, this message translates to:
+  /// **'Hours'**
+  String get categoryGoalUnitHours;
+
+  /// Label of the goal sheet's value row when the goal counts tasks
+  ///
+  /// In en, this message translates to:
+  /// **'Tasks'**
+  String get categoryGoalUnitTasks;
+
+  /// Label of the goal sheet's value row when the goal counts money
+  ///
+  /// In en, this message translates to:
+  /// **'Amount'**
+  String get categoryGoalUnitAmount;
+
+  /// Label of the goal sheet's value row for a Days between goal
+  ///
+  /// In en, this message translates to:
+  /// **'Days'**
+  String get categoryGoalUnitDays;
+
+  /// A goal's amount in hours, inside the goal's read-back; the number arrives formatted (1,200 or 7.5)
+  ///
+  /// In en, this message translates to:
+  /// **'{hours} h'**
+  String categoryGoalHours(String hours);
+
+  /// A goal's amount in tasks, inside the goal's read-back
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 task} other{{count} tasks}}'**
+  String categoryGoalTasks(int count);
+
+  /// Tooltip of the goal value's minus button
+  ///
+  /// In en, this message translates to:
+  /// **'Less'**
+  String get categoryGoalLess;
+
+  /// Tooltip of the goal value's plus button
+  ///
+  /// In en, this message translates to:
+  /// **'More'**
+  String get categoryGoalMore;
+
+  /// Goal period chip
+  ///
+  /// In en, this message translates to:
+  /// **'Day'**
+  String get categoryGoalPeriodDay;
+
+  /// Goal period chip
+  ///
+  /// In en, this message translates to:
+  /// **'Week'**
+  String get categoryGoalPeriodWeek;
+
+  /// Goal period chip
+  ///
+  /// In en, this message translates to:
+  /// **'Month'**
+  String get categoryGoalPeriodMonth;
+
+  /// Goal period chip
+  ///
+  /// In en, this message translates to:
+  /// **'Year'**
+  String get categoryGoalPeriodYear;
+
+  /// A goal read back: at least an amount per period
+  ///
+  /// In en, this message translates to:
+  /// **'At least {amount} {period, select, day{a day} week{a week} month{a month} year{a year} other{}}'**
+  String categoryGoalAtLeast(String amount, String period);
+
+  /// A goal read back: at most an amount per period
+  ///
+  /// In en, this message translates to:
+  /// **'At most {amount} {period, select, day{a day} week{a week} month{a month} year{a year} other{}}'**
+  String categoryGoalAtMost(String amount, String period);
+
+  /// A money goal read back: at most this much money per period
+  ///
+  /// In en, this message translates to:
+  /// **'Budget {amount} {period, select, day{a day} week{a week} month{a month} year{a year} other{}}'**
+  String categoryGoalBudget(String amount, String period);
+
+  /// A Days between goal read back
+  ///
+  /// In en, this message translates to:
+  /// **'{days, plural, =1{At most 1 day between} other{At most {days} days between}}'**
+  String categoryGoalGap(int days);
+
+  /// Destructive row at the foot of the goal sheet
+  ///
+  /// In en, this message translates to:
+  /// **'Remove goal'**
+  String get categoryGoalRemove;
 }
 
 class _AppLocalizationsDelegate

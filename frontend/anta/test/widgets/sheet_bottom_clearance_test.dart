@@ -34,8 +34,12 @@ import 'package:anta/models/calendar_grid_filters.dart';
 import 'package:anta/widgets/calendar_date_picker_sheet.dart';
 import 'package:anta/widgets/calendar_filter_sheet.dart';
 import 'package:anta/services/category_service.dart';
+import 'package:anta/constants/category_kinds.dart';
+import 'package:anta/models/category_profile.dart';
 import 'package:anta/widgets/category_delete_sheet.dart';
 import 'package:anta/widgets/category_editor_sheet.dart';
+import 'package:anta/widgets/category_goal_sheet.dart';
+import 'package:anta/widgets/category_kind_sheet.dart';
 import 'package:anta/widgets/category_picker_sheet.dart';
 import 'package:anta/widgets/form_rows.dart' show FormCaptionSlot;
 import 'package:anta/widgets/digest_editor_sheet.dart';
@@ -486,13 +490,80 @@ void main() {
     sizeSurfaceWithNavBar(tester);
     await openFrom(tester, (context) => CategoryEditorSheet.show(context));
 
-    // The colour strip is the last row, and a sheet as tall as its rows
-    // ends right under it: exactly what a nav bar eats.
+    // The Goal row is the last row since the profile sections (analytics
+    // S3) and the sheet is clamp-tall: scrolled to its end, the row must
+    // stop above what a nav bar eats.
+    expect(scrollBottomPadding(tester), greaterThanOrEqualTo(navBar));
+    await tester.drag(
+      find.byType(SingleChildScrollView).first,
+      const Offset(0, -2000),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .getRect(find.bySemanticsIdentifier(SemanticsIds.categoryEditorGoal))
+          .bottom,
+      lessThanOrEqualTo(surface.height - navBar),
+      reason: 'the Goal row ran under the gesture bar',
+    );
+  });
+
+  testWidgets('the category kind picker clears the navigation bar', (
+    tester,
+  ) async {
+    sizeSurfaceWithNavBar(tester);
+    await openFrom(
+      tester,
+      (context) =>
+          CategoryKindSheet.show(context, selected: CategoryKind.workout),
+    );
+
+    // Custom is the last row, under the Other label.
+    expect(scrollBottomPadding(tester), greaterThanOrEqualTo(navBar));
+    await tester.drag(
+      find.byType(SingleChildScrollView).first,
+      const Offset(0, -3000),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .getRect(
+            find.bySemanticsIdentifier(
+              SemanticsIds.categoryKind(CategoryKind.custom.name),
+            ),
+          )
+          .bottom,
+      lessThanOrEqualTo(surface.height - navBar),
+      reason: 'the Custom row ran under the gesture bar',
+    );
+  });
+
+  testWidgets('the category goal sheet clears the navigation bar', (
+    tester,
+  ) async {
+    sizeSurfaceWithNavBar(tester);
+    await openFrom(
+      tester,
+      (context) => CategoryGoalSheet.show(
+        context,
+        initial: const ReportTarget(
+          kind: TargetKind.atLeast,
+          value: 3,
+          period: TargetPeriod.week,
+        ),
+        primary: ReportMeasure.attendance,
+        presets: const [TargetPreset(TargetKind.atLeast, TargetPeriod.week)],
+      ),
+    );
+
+    // Content-tall, Remove goal last: exactly what a nav bar eats.
     expect(scrollBottomPadding(tester), greaterThanOrEqualTo(navBar));
     expect(
-      tester.getRect(find.bySemanticsIdentifier(SemanticsIds.swatchRow)).bottom,
+      tester
+          .getRect(find.bySemanticsIdentifier(SemanticsIds.categoryGoalRemove))
+          .bottom,
       lessThanOrEqualTo(surface.height - navBar),
-      reason: 'the colour strip ran under the gesture bar',
+      reason: 'Remove goal ran under the gesture bar',
     );
   });
 

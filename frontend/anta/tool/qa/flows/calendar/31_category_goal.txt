@@ -1,0 +1,73 @@
+# The category editor's Measure & goal section and its goal sheet
+# (analytics S3, docs/calendar-analytics-roadmap.md §7, §6.6): the seeded
+# Strength is made a Workout, its Measure and Counts as menus are opened and
+# picked, the goal sheet is opened from the Goal row — its types, the value's
+# stepper and field and the period chips by id — Days between and back, one
+# step up, Month, Done; the editor is saved, reopened, and the stored goal is
+# removed through the sheet's Remove goal and the draft discarded.
+# - Reached as flow 18 reaches it; every scroll names the editor's form
+#   (`--in`), as flow 30 does.
+# - The goal sheet is content-tall and never scrolls: every control is on
+#   its one screen. Its field is never focused here, so no keyboard rises.
+# - Remove goal is only listed on a sheet opened over a stored goal.
+# - The flow saves, so it changes the seed's Strength; the suite reseeds
+#   before every flow.
+tap id:calendar-more
+wait id:calendar-settings-open
+tap id:calendar-settings-open
+wait id:calendar-add-event --gone
+tap id:calendar-categories-open
+wait id:category-add
+scroll-to id:category-row-qa-cal-strength
+tap id:category-row-qa-cal-strength
+wait id:category-editor-name
+scroll-to id:category-editor-kind --in id:category-editor-form
+tap id:category-editor-kind
+wait id:category-kind-close
+tap id:category-kind-workout
+wait id:category-kind-close --gone
+scroll-to id:category-editor-goal --in id:category-editor-form
+tap id:category-editor-measure
+wait id:category-measure-auto
+expect id:category-measure-hours id:category-measure-count
+tap id:category-measure-auto
+wait id:category-measure-auto --gone
+tap id:category-editor-counts-as
+wait id:category-counts-as-off
+expect id:category-counts-as-30 id:category-counts-as-60
+tap id:category-counts-as-60
+wait id:category-counts-as-60 --gone
+tap id:category-editor-goal
+wait id:category-goal-close
+expect id:category-goal-type-atLeast id:category-goal-type-atMost id:category-goal-type-maxGap id:category-goal-value id:category-goal-less id:category-goal-more id:category-goal-period-week id:category-goal-done --absent id:category-goal-remove
+shot 31_category_goal_sheet
+tap id:category-goal-type-maxGap
+expect id:category-goal-period-month
+shot 31_category_goal_gap
+tap id:category-goal-type-atLeast
+tap id:category-goal-more
+tap id:category-goal-period-month
+tap id:category-goal-done
+wait id:category-goal-close --gone
+expect id:category-editor-goal
+shot 31_category_goal_set
+tap id:category-editor-save
+wait id:category-editor-save --gone
+wait id:category-add
+scroll-to id:category-row-qa-cal-strength
+tap id:category-row-qa-cal-strength
+wait id:category-editor-name
+scroll-to id:category-editor-goal --in id:category-editor-form
+tap id:category-editor-goal
+wait id:category-goal-remove
+tap id:category-goal-remove
+wait id:category-goal-close --gone
+tap id:category-editor-close
+wait id:unsaved-discard
+tap id:unsaved-discard
+wait id:category-add
+key back
+wait id:calendar-categories-open
+key back
+wait id:calendar-add-event
+errors

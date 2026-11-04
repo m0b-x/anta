@@ -1151,8 +1151,9 @@ class FormPickerRow extends FormDividedRow {
   /// extents — where a row's height must never depend on its text.
   final bool singleLine;
 
-  /// False draws the row at the disabled opacity with no ink and no tap and
-  /// marks its one node disabled — a control the form has switched off, the
+  /// False draws the row at the disabled opacity — all but its [caption],
+  /// which says why and stays readable — with no ink and no tap, and marks
+  /// its one node disabled: a control the form has switched off, the
   /// shape `FormMenuRow` takes without a handler. A read row (the next
   /// occurrences) passes `onTap: null` instead and stays fully drawn, so a
   /// value the user cannot act on never looks like one they may not.
@@ -1211,6 +1212,12 @@ class FormPickerRow extends FormDividedRow {
     final avatar = leading;
     final captionText = caption;
     final tap = enabled ? onTap : null;
+    // A disabled row dims what it offers — the glyph, the label, the value,
+    // the chevron — and keeps its caption whole: the caption is what says
+    // why the row is off, and at 38 % it read at under 2:1.
+    Widget dim(Widget child) => enabled
+        ? child
+        : Opacity(opacity: FormMetrics.disabledOpacity, child: child);
     final pair = FormLabelValue(
       label: label,
       value: value,
@@ -1230,7 +1237,7 @@ class FormPickerRow extends FormDividedRow {
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
-              pair,
+              dim(pair),
               FormCaption(
                 text: captionText,
                 maxLines: captionMaxLines ?? 2,
@@ -1240,23 +1247,25 @@ class FormPickerRow extends FormDividedRow {
               ),
             ],
           )
-        : pair;
+        : dim(pair);
     final content = Row(
       children: [
         if (avatar != null) ...[
-          SizedBox.square(
-            dimension: FormMetrics.rowLeadingSize,
-            child: Center(child: avatar),
+          dim(
+            SizedBox.square(
+              dimension: FormMetrics.rowLeadingSize,
+              child: Center(child: avatar),
+            ),
           ),
           const SizedBox(width: FormMetrics.gap),
         ] else if (glyph case final icon?) ...[
-          FormGlyph(icon: icon, color: glyphColor),
+          dim(FormGlyph(icon: icon, color: glyphColor)),
           const SizedBox(width: FormMetrics.gap),
         ],
         Expanded(child: text),
         if (button == null && showChevron) ...[
           const SizedBox(width: FormMetrics.gap),
-          const FormChevron(),
+          dim(const FormChevron()),
         ],
       ],
     );
@@ -1323,9 +1332,6 @@ class FormPickerRow extends FormDividedRow {
       // Inside the merge below, so the flag lands on the row's one node
       // beside its id and its label.
       well = Semantics(enabled: false, child: well);
-    }
-    if (!enabled) {
-      well = Opacity(opacity: FormMetrics.disabledOpacity, child: well);
     }
     if (identifier case final id?) {
       well = AutomationId(identifier: id, child: well);
@@ -2374,6 +2380,12 @@ class FormStepperRow extends FormDividedRow {
   /// than that wraps inside the box). Left out, the box is
   /// [FormMetrics.stepperValueMinWidth] and grows with a wider value.
   final String? widestValue;
+
+  /// Every label the row can carry in its place, for a row whose label
+  /// changes under the finger (the goal sheet's unit, Aufgaben or Tage):
+  /// the longest word among them decides beside or stacked, so a switch
+  /// between them never moves the buttons. Left out, [label] decides.
+  final String? widestLabel;
   final VoidCallback? onDecrement;
   final VoidCallback? onIncrement;
   final String decrementTooltip;
@@ -2384,21 +2396,112 @@ class FormStepperRow extends FormDividedRow {
   final String? decrementIdentifier;
   final String? incrementIdentifier;
 
+  /// Makes the value typeable: the box holds a collapsed digits-only field
+  /// over [controller] in place of the text, in the same style and the same
+  /// box, so a stepper that can also be typed into moves nothing (the goal
+  /// sheet's amount, where seven digits are too many to step). [value] is
+  /// then unread; the caller steps by rewriting the controller.
+  final TextEditingController? controller;
+  final FocusNode? focusNode;
+
+  /// The most digits the field takes.
+  final int? maxDigits;
+
+  /// A `SemanticsIds` value for the field's own node, the one a script
+  /// types into.
+  final String? fieldIdentifier;
+
   const FormStepperRow({
     super.key,
     required this.label,
     required this.value,
     this.widestValue,
+    this.widestLabel,
     required this.onDecrement,
     required this.onIncrement,
     required this.decrementTooltip,
     required this.incrementTooltip,
     this.decrementIdentifier,
     this.incrementIdentifier,
-  });
+    this.controller,
+    this.focusNode,
+    this.maxDigits,
+    this.fieldIdentifier,
+  }) : assert(
+         controller == null || widestValue != null,
+         'A field needs the fixed box widestValue gives it.',
+       ),
+       assert(
+         controller == null || focusNode != null,
+         'A tap on the field\'s box focuses it through its node.',
+       );
 
   @override
   double get dividerIndent => FormMetrics.dividerIndentPlain;
+
+  /// The text, or the field standing in for it. The field is named by the
+  /// row's label, as a title field is by its hint: the value it shows is
+  /// not a name.
+  ///
+  /// The field wears an underline, the text field's own mark, so it reads
+  /// as typeable beside the stepped text it otherwise matches; and its box
+  /// is the buttons' height, every point of it focusing the field — the
+  /// digits alone were a 20 dp target.
+  Widget _buildValue(TextStyle style, ColorScheme colorScheme) {
+    final field = controller;
+    if (field == null) {
+      return Text(value, textAlign: TextAlign.center, style: style);
+    }
+    UnderlineInputBorder underline(Color color, double width) =>
+        UnderlineInputBorder(
+          borderSide: BorderSide(color: color, width: width),
+        );
+    Widget input = TextField(
+      controller: field,
+      focusNode: focusNode,
+      autofocus: false,
+      keyboardType: TextInputType.number,
+      textInputAction: TextInputAction.done,
+      textAlign: TextAlign.center,
+      style: style,
+      inputFormatters: [
+        FilteringTextInputFormatter.digitsOnly,
+        if (maxDigits case final digits?)
+          LengthLimitingTextInputFormatter(digits),
+      ],
+      decoration: InputDecoration(
+        isDense: true,
+        contentPadding: const EdgeInsets.symmetric(
+          vertical: FormMetrics.stepperFieldUnderlineGap,
+        ),
+        border: underline(colorScheme.onSurfaceVariant, 1),
+        enabledBorder: underline(colorScheme.onSurfaceVariant, 1),
+        focusedBorder: underline(colorScheme.primary, 2),
+      ),
+      onTapOutside: (_) => FocusManager.instance.primaryFocus?.unfocus(),
+    );
+    // A tap region of the field's own, so a tap on the box around a focused
+    // field is not a tap outside it that drops the keyboard to raise it again.
+    input = TextFieldTapRegion(
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: focusNode!.requestFocus,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(
+            minHeight: FormMetrics.trailingButtonSize,
+          ),
+          child: Center(child: input),
+        ),
+      ),
+    );
+    input = MergeSemantics(
+      child: Semantics(label: label, textField: true, child: input),
+    );
+    if (fieldIdentifier case final id?) {
+      input = AutomationId(identifier: id, child: input);
+    }
+    return input;
+  }
 
   /// [text] laid out as its `Text` lays it out here — the ambient default
   /// style and bold-text setting merged in, the text scale, the direction —
@@ -2438,10 +2541,10 @@ class FormStepperRow extends FormDividedRow {
       painter.dispose();
     }
     // The widest run the label cannot break: its longest word, as the text
-    // engine sees it.
+    // engine sees it — or the longest of every label the row can carry.
     final labelPainter = _measure(
       context,
-      label,
+      widestLabel == null ? label : '$label $widestLabel',
       FormLabelValue.labelStyle(colorScheme.onSurface),
     );
     final labelWordWidth = labelPainter.minIntrinsicWidth;
@@ -2479,11 +2582,7 @@ class FormStepperRow extends FormDividedRow {
                   constraints: widestValue == null
                       ? BoxConstraints(minWidth: boxWidth)
                       : BoxConstraints.tightFor(width: boxWidth),
-                  child: Text(
-                    value,
-                    textAlign: TextAlign.center,
-                    style: valueStyle,
-                  ),
+                  child: _buildValue(valueStyle, colorScheme),
                 ),
                 FormTrailingButton(
                   icon: Icons.add_rounded,
@@ -3311,6 +3410,12 @@ class FormMenuRow<T> extends FormDividedRow {
   final double menuWidth;
   final String? identifier;
 
+  /// The [FormPickerRow.caption] of the row it builds — what Auto resolves
+  /// to, a disabled row's reason — kept at full strength while the rest of
+  /// a disabled row dims, since it is the line that explains the state.
+  final String? caption;
+  final int? captionMaxLines;
+
   const FormMenuRow({
     super.key,
     required this.glyph,
@@ -3321,6 +3426,8 @@ class FormMenuRow<T> extends FormDividedRow {
     required this.onSelected,
     required this.menuWidth,
     this.identifier,
+    this.caption,
+    this.captionMaxLines,
   });
 
   @override
@@ -3335,6 +3442,8 @@ class FormMenuRow<T> extends FormDividedRow {
         label: label,
         value: value,
         identifier: identifier,
+        caption: caption,
+        captionMaxLines: captionMaxLines,
         enabled: onSelected != null,
         onTap: () => _open(rowContext),
       ),

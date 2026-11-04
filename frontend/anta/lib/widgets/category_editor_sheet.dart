@@ -10,7 +10,9 @@ import '../bloc/calendar/calendar_bloc.dart';
 import '../constants/app_constants.dart';
 import '../constants/calendar_categories.dart';
 import '../constants/calendar_icons.dart';
+import '../constants/category_kinds.dart';
 import '../constants/category_name.dart';
+import '../constants/category_profiles.dart';
 import '../constants/event_alerts.dart';
 import '../constants/row_metrics.dart';
 import '../constants/semantics_ids.dart';
@@ -18,32 +20,61 @@ import '../controllers/alert_permission_check.dart';
 import '../l10n/app_localizations.dart';
 import '../models/calendar_category.dart';
 import '../models/calendar_event.dart';
+import '../models/calendar_report.dart' show ReportShape, shapeOf;
 import '../models/category_alert.dart';
+import '../models/category_profile.dart';
 import '../models/recurrence_rule.dart';
 import '../services/alert_scheduler.dart';
+import '../services/category_profile_service.dart';
 import '../services/category_service.dart';
 import '../services/event_alert_service.dart';
 import '../services/event_time_formatter.dart';
 import '../services/folder_search_service.dart' show normalizeForSearch;
+import '../utils/category_profile_labels.dart';
+import '../utils/mark_verb_labels.dart' show markVerbLabel;
 import 'alert_editor_sheet.dart';
 import 'app_dialogs.dart';
 import 'automation_id.dart';
+import 'category_goal_sheet.dart';
+import 'category_kind_sheet.dart';
 import 'color_swatch_picker.dart';
 import 'event_avatar.dart';
 import 'form_rows.dart';
 import 'icon_picker_sheet.dart';
 import 'overlay_snackbar.dart';
+import 'value_change_highlight.dart';
 
 const int _defaultCategoryColor = 0xFFFB8C00;
 const String _defaultCategoryIconKey = 'event';
 
+/// The Mark menu's three items: the kind's own verb, the owner's word, off.
+enum _MarkChoice { kind, own, off }
+
+/// A menu value that may be "none" — Auto, Off. `showFormMenu` answers null
+/// for a dismissed menu, so a null choice rides inside this box instead.
+final class _Choice<T> {
+  final T? value;
+
+  const _Choice(this.value);
+
+  @override
+  bool operator ==(Object other) => other is _Choice<T> && other.value == value;
+
+  @override
+  int get hashCode => value.hashCode;
+}
+
 /// The form for creating or editing a [CalendarCategory]: a sub-sheet of the
 /// UI language (Tier 3, D12) in the quick alarm's shape — ✕ · title · Save
 /// over one group of the name, an Icon row and the colour strip, then the
-/// category's alerts (**v42**), which every event in it inherits.
+/// category's alerts (**v42**), which every event in it inherits, then its
+/// analytics profile (S3 of `docs/calendar-analytics-roadmap.md`): Report's
+/// Kind, Mark and Area and Measure & goal's Measure, Counts as and Goal.
+/// The profile sections come last, so nothing they do moves a row above.
 ///
-/// Persists through [CategoryService] — and the alerts through
-/// [EventAlertService] — inside the sheet and returns the saved category, or
+/// Persists through [CategoryService] — the profile through
+/// [CategoryProfileService] and the alerts through [EventAlertService] —
+/// inside the sheet and returns the saved category, or
 /// `null` when dismissed before anything was written. The row is written
 /// before the pop because the callers rely on it: the categories page
 /// refreshes from the service, the picker ticks the returned id. A built-in
@@ -124,6 +155,10 @@ class _CategoryEditorSheetState extends State<CategoryEditorSheet> {
   final FormHeaderHairline _hairline = FormHeaderHairline();
   late int _colorValue;
   late String _iconKey;
+
+  /// Held while Save writes. Nothing opens under it — no sub-sheet, menu or
+  /// dialog: Save ends in a pop of the top route, which would close that
+  /// one with the editor's result instead of the sheet.
   bool _saving = false;
 
   /// The category's alerts as the sheet is editing them, seeded from the
@@ -141,6 +176,29 @@ class _CategoryEditorSheetState extends State<CategoryEditorSheet> {
   /// Held while the alert sheet is up, so a second tap on a row or on Add
   /// alert during its opening animation cannot stack a second sheet.
   bool _alertSheetOpen = false;
+
+  /// The category's analytics profile as the sheet is editing it, seeded
+  /// from the facade as the alerts are; null is no profile — Custom with
+  /// nothing overridden. Every row of the two profile sections reads its
+  /// resolution, [_effective].
+  CategoryProfile? _profile;
+  late final CategoryProfile? _openedProfile;
+
+  /// The profile as this sheet last knew it stored: [_openedProfile] until
+  /// a Save writes one, then what that write stored. A Save whose alerts
+  /// then failed has moved the store, so a draft turned back to the opened
+  /// profile is a change to write, not an untouched one.
+  late CategoryProfile? _profileBaseline;
+
+  /// Whether every live event of the category is a plain repeat, which the
+  /// report never gives counted hours: Counts as is then disabled with its
+  /// reason. Read once at open, from the calendar's events where the app
+  /// has them in scope.
+  late final bool _repeatsOnly;
+
+  /// Held while the kind picker or the goal sheet is up, [_alertSheetOpen]'s
+  /// twin.
+  bool _profileSheetOpen = false;
 
   /// The category a create wrote before its alerts failed to, so the next
   /// Save updates that row rather than creating a second one.
@@ -196,10 +254,32 @@ class _CategoryEditorSheetState extends State<CategoryEditorSheet> {
         ? const []
         : List<CategoryAlert>.of(EventAlerts.categoryAlertsFor(initial.id));
     _seededAlertIds = {for (final alert in _alerts) alert.id};
+    _profile = initial == null ? null : CategoryProfiles.profileFor(initial.id);
+    _openedProfile = _profile;
+    _profileBaseline = _profile;
+    _repeatsOnly = _readRepeatsOnly();
     _openedName = _nameController.text.trim();
     _openedColor = _colorValue;
     _openedIconKey = _iconKey;
     _openedAlerts = _alerts;
+  }
+
+  /// A category with no events is not repeat-only: its next event may be
+  /// anything. Nothing in scope reads as nothing known.
+  bool _readRepeatsOnly() {
+    final initial = widget.initial;
+    if (initial == null) return false;
+    final state = context.read<CalendarBloc?>()?.state;
+    if (state is! CalendarPageLoaded) return false;
+    var any = false;
+    for (final event in state.allEvents) {
+      if (CalendarCategories.resolve(event.categoryId).id != initial.id) {
+        continue;
+      }
+      if (shapeOf(event) != ReportShape.repeat) return false;
+      any = true;
+    }
+    return any;
   }
 
   @override
@@ -278,7 +358,32 @@ class _CategoryEditorSheetState extends State<CategoryEditorSheet> {
       _nameController.text.trim() != _openedName ||
       _colorValue != _openedColor ||
       _iconKey != _openedIconKey ||
-      !listEquals(_alerts, _openedAlerts);
+      !listEquals(_alerts, _openedAlerts) ||
+      !_sameProfile(_profile, _openedProfile);
+
+  /// What a profile says, its identity and stamps left out; a Custom
+  /// profile with nothing overridden says what no profile does, so picking
+  /// Custom on an unprofiled category changes nothing.
+  static List<Object?> _meaningOf(CategoryProfile? profile) {
+    if (profile == null ||
+        (profile.kind == CategoryKind.custom && !profile.hasOverrides)) {
+      return const [];
+    }
+    return [
+      profile.kind,
+      profile.area,
+      profile.measure,
+      profile.nominalMinutes,
+      profile.markVerb,
+      profile.marksNew,
+      profile.assumeAbsentNew,
+      profile.countsHours,
+      profile.target,
+    ];
+  }
+
+  static bool _sameProfile(CategoryProfile? a, CategoryProfile? b) =>
+      listEquals(_meaningOf(a), _meaningOf(b));
 
   /// Serves ✕, back, the system back gesture, the barrier and a dismissing
   /// drag. Nothing leaves while Save is writing: its own pop is on the way,
@@ -301,15 +406,17 @@ class _CategoryEditorSheetState extends State<CategoryEditorSheet> {
   }
 
   /// Whether the draft differs from what the partial save at [written]
-  /// stored: the row against the row, the alerts against the set the facade
-  /// holds for it, which the failed alert write left as it was.
+  /// stored: the row against the row, the alerts and the profile against
+  /// what the facades hold for it, which a failed write left as it was.
   bool _differsFrom(CalendarCategory written) =>
       (!_isBuiltIn && _nameController.text.trim() != written.name) ||
       _colorValue != written.colorValue ||
       _iconKey != written.iconKey ||
-      !listEquals(_alerts, EventAlerts.categoryAlertsFor(written.id));
+      !listEquals(_alerts, EventAlerts.categoryAlertsFor(written.id)) ||
+      !_sameProfile(_profile, CategoryProfiles.profileFor(written.id));
 
   Future<void> _pickIcon() async {
+    if (_saving) return;
     // Before the picker opens: the route under it remembers a focused name
     // field as its focused child and hands the focus — and the keyboard —
     // straight back when the picker closes, over a sheet the user had left
@@ -347,7 +454,7 @@ class _CategoryEditorSheetState extends State<CategoryEditorSheet> {
   /// user saves. Never offers Remove there: closing the sheet already means
   /// "no". Not a settings-default pre-fill (D7): the draft's own defaults.
   Future<void> _addAlert() async {
-    if (_alertSheetOpen) return;
+    if (_alertSheetOpen || _saving) return;
     _blur();
     if (_alerts.length >= kMaxAlertsPerCategory) return;
     _alertSheetOpen = true;
@@ -376,7 +483,7 @@ class _CategoryEditorSheetState extends State<CategoryEditorSheet> {
   }
 
   Future<void> _editAlert(CategoryAlert alert) async {
-    if (_alertSheetOpen) return;
+    if (_alertSheetOpen || _saving) return;
     _blur();
     _alertSheetOpen = true;
     final AlertEditorResult? answer;
@@ -415,6 +522,7 @@ class _CategoryEditorSheetState extends State<CategoryEditorSheet> {
   /// The category's own switch for one alert (D5): off pauses it for every
   /// event in the category, and keeps it here to switch back on.
   void _setAlertEnabled(CategoryAlert alert, bool enabled) {
+    if (_saving) return;
     setState(() {
       _alertsTouched = true;
       _alerts = [
@@ -423,6 +531,179 @@ class _CategoryEditorSheetState extends State<CategoryEditorSheet> {
               ? existing.copyWith(enabled: enabled)
               : existing,
       ];
+    });
+  }
+
+  EffectiveProfile get _effective => CategoryProfile.effectiveOf(_profile);
+
+  /// The kind's own row, the one the overrides are laid over.
+  CategoryKindRow get _kindRow => CategoryKinds.of(_effective.kind);
+
+  /// The draft to change: the profile, or a fresh Custom one. Its id is the
+  /// service's to mint, and its category is set on Save.
+  CategoryProfile get _draft =>
+      _profile ?? CategoryProfile(id: '', categoryId: _alertCategoryId);
+
+  /// [next] with its goal kept only while the goal still means the same
+  /// thing under its primary (the S3 spec's F): the same unit and a type the
+  /// primary takes. A gap counts days under any primary.
+  CategoryProfile _keepingValidTarget(CategoryProfile next) {
+    final target = _profile?.target;
+    if (target == null) return next;
+    final from = _effective.primary;
+    final to = next.effective.primary;
+    final keeps =
+        CategoryGoalLimits.allows(to, target.kind) &&
+        (target.kind == TargetKind.maxGap ||
+            CategoryGoalLimits.unitOf(from) == CategoryGoalLimits.unitOf(to));
+    return keeps
+        ? next.copyWith(target: target)
+        : next.copyWith(clearTarget: true);
+  }
+
+  /// A new kind starts from its own defaults (F) — area, measure, verb and
+  /// the three new-event and hours flags no row shows yet, so Custom with
+  /// nothing on screen overridden is no profile; the confirmed counts-as
+  /// stays, and so does a goal that still fits.
+  Future<void> _pickKind() async {
+    if (_profileSheetOpen || _saving) return;
+    _blur();
+    _profileSheetOpen = true;
+    final CategoryKind? picked;
+    try {
+      picked = await CategoryKindSheet.show(context, selected: _effective.kind);
+    } finally {
+      _profileSheetOpen = false;
+    }
+    if (picked == null || !mounted) return;
+    setState(() {
+      _profile = _keepingValidTarget(
+        _draft.copyWith(
+          kind: picked,
+          clearArea: true,
+          clearMeasure: true,
+          clearMarkVerb: true,
+          clearMarksNew: true,
+          clearAssumeAbsentNew: true,
+          clearCountsHours: true,
+        ),
+      );
+    });
+  }
+
+  _MarkChoice get _markInEffect {
+    final effective = _effective;
+    if (effective.customVerb != null) return _MarkChoice.own;
+    return effective.marks ? _MarkChoice.kind : _MarkChoice.off;
+  }
+
+  /// The kind's verb in the owner's language, or null for a kind that does
+  /// not mark.
+  String? _kindVerbWord(AppLocalizations l10n) {
+    final kind = _effective.kind;
+    if (CategoryKinds.of(kind).verb == null) return null;
+    return markVerbLabel(
+      l10n,
+      CategoryProfile(id: '', categoryId: '', kind: kind).effective,
+    );
+  }
+
+  Future<void> _pickMark(_MarkChoice choice) async {
+    switch (choice) {
+      case _MarkChoice.kind:
+        setState(() => _profile = _draft.copyWith(clearMarkVerb: true));
+      case _MarkChoice.off:
+        // `''` turns a marking kind off; a kind that never marks is off
+        // with no override at all.
+        setState(() {
+          _profile = _kindRow.verb != null
+              ? _draft.copyWith(markVerb: '')
+              : _draft.copyWith(clearMarkVerb: true);
+        });
+      case _MarkChoice.own:
+        await _askMarkWord();
+    }
+  }
+
+  /// The owner's own word, which outranks the kind's verb. The kind's own
+  /// word typed back is no override.
+  Future<void> _askMarkWord() async {
+    if (_saving) return;
+    final l10n = AppLocalizations.of(context)!;
+    final kindWord = _kindVerbWord(l10n);
+    final word = await AppDialogs.textInput(
+      context,
+      title: l10n.categoryMarkOwnTitle,
+      hintText: l10n.categoryMarkOwnHint,
+      initialValue: _effective.customVerb ?? kindWord ?? '',
+      maxLength: kCategoryMarkWordMaxLength,
+      selectAll: true,
+      allowEmpty: false,
+      fieldIdentifier: SemanticsIds.categoryMarkWordField,
+      confirmIdentifier: SemanticsIds.categoryMarkWordSave,
+    );
+    final trimmed = word?.trim() ?? '';
+    if (trimmed.isEmpty || !mounted) return;
+    setState(() {
+      _profile = trimmed == kindWord
+          ? _draft.copyWith(clearMarkVerb: true)
+          : _draft.copyWith(markVerb: trimmed);
+    });
+  }
+
+  void _pickArea(LifeArea area) {
+    setState(() {
+      _profile = area == _kindRow.area
+          ? _draft.copyWith(clearArea: true)
+          : _draft.copyWith(area: area);
+    });
+  }
+
+  void _pickMeasure(_Choice<ReportMeasure> choice) {
+    final measure = choice.value;
+    setState(() {
+      _profile = _keepingValidTarget(
+        measure == null || measure == _kindRow.primary
+            ? _draft.copyWith(clearMeasure: true)
+            : _draft.copyWith(measure: measure),
+      );
+    });
+  }
+
+  /// The pick is the confirmation (record §5 I): a suggestion never counts
+  /// until it is picked here.
+  void _pickCountsAs(_Choice<int> choice) {
+    final minutes = choice.value;
+    setState(() {
+      _profile = minutes == null
+          ? _draft.copyWith(clearNominalMinutes: true)
+          : _draft.copyWith(nominalMinutes: minutes);
+    });
+  }
+
+  Future<void> _pickGoal() async {
+    if (_profileSheetOpen || _saving) return;
+    _blur();
+    final effective = _effective;
+    _profileSheetOpen = true;
+    final CategoryGoalResult? answer;
+    try {
+      answer = await CategoryGoalSheet.show(
+        context,
+        initial: effective.target,
+        primary: effective.primary,
+        presets: effective.targetPresets,
+      );
+    } finally {
+      _profileSheetOpen = false;
+    }
+    final result = answer;
+    if (result == null || !mounted) return;
+    setState(() {
+      _profile = switch (result) {
+        CategoryGoalSaved(:final target) => _draft.copyWith(target: target),
+        CategoryGoalRemoved() => _draft.copyWith(clearTarget: true),
+      };
     });
   }
 
@@ -436,8 +717,9 @@ class _CategoryEditorSheetState extends State<CategoryEditorSheet> {
   /// callback goes through the categories page's `_guarded`; this is that
   /// wrapper's counterpart for the one write the sheet owns.
   ///
-  /// The alerts are written after the category, which a new one needs for
-  /// its id, and a failure there reads as the category's: the sheet stays
+  /// The profile and then the alerts are written after the category, which
+  /// a new one needs for its id, and a failure there reads as the
+  /// category's: the sheet stays
   /// open on the draft, the next Save updates the row the write left, and ✕
   /// hands that row back ([_written]).
   ///
@@ -489,6 +771,7 @@ class _CategoryEditorSheetState extends State<CategoryEditorSheet> {
         saved = updated;
       }
       _written = saved;
+      await _saveProfile(saved.id);
       if (_alertsTouched) {
         final alerts = await EventAlertService.getInstance();
         await alerts.replaceForCategory(
@@ -520,6 +803,28 @@ class _CategoryEditorSheetState extends State<CategoryEditorSheet> {
       setState(() => _saving = false);
       _raiseSaveFailed(l10n);
     }
+  }
+
+  /// Writes the profile between the category, whose id a new one needs, and
+  /// the alerts — only when the owner changed it here since it was last
+  /// stored ([_profileBaseline]) and it still differs from what is stored,
+  /// so a pull that landed under an untouched draft is never overwritten,
+  /// and a retry after a failed alert write does not write it twice. Back
+  /// to Custom with nothing overridden is a [CategoryProfileService.clear]:
+  /// the category is unprofiled again.
+  Future<void> _saveProfile(String categoryId) async {
+    final draft = _profile;
+    if (_sameProfile(draft, _profileBaseline) ||
+        _sameProfile(draft, CategoryProfiles.profileFor(categoryId))) {
+      return;
+    }
+    final service = await CategoryProfileService.getInstance();
+    if (draft == null || _meaningOf(draft).isEmpty) {
+      await service.clear(categoryId);
+    } else {
+      await service.save(draft.copyWith(categoryId: categoryId));
+    }
+    _profileBaseline = draft;
   }
 
   /// The category a sandboxed Save hands back: what [_onSave] would have
@@ -608,33 +913,56 @@ class _CategoryEditorSheetState extends State<CategoryEditorSheet> {
       body: [
         Flexible(
           child: _hairline.watch(
-            child: SingleChildScrollView(
-              padding: EdgeInsets.fromLTRB(
-                RowMetrics.groupInset,
-                FormMetrics.bodyTop,
-                RowMetrics.groupInset,
-                FormMetrics.bodyBottom + clearance,
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  FormRowGroup(
-                    children: [
-                      _buildNameRow(l10n),
-                      _buildIconRow(l10n),
-                      _buildColorRow(),
-                    ],
-                  ),
-                  FormSectionLabel(text: l10n.eventAlerts),
-                  FormRowGroup(
-                    trailingGap: false,
-                    children: _buildAlertRows(l10n),
-                  ),
-                  FormCaption(
-                    text: l10n.categoryAlertsHint,
-                    padding: FormMetrics.groupCaptionPadding,
-                  ),
-                ],
+            child: Semantics(
+              identifier: SemanticsIds.categoryEditorForm,
+              child: SingleChildScrollView(
+                padding: EdgeInsets.fromLTRB(
+                  RowMetrics.groupInset,
+                  FormMetrics.bodyTop,
+                  RowMetrics.groupInset,
+                  FormMetrics.bodyBottom + clearance,
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    FormRowGroup(
+                      children: [
+                        _buildNameRow(l10n),
+                        _buildIconRow(l10n),
+                        _buildColorRow(),
+                      ],
+                    ),
+                    FormSectionLabel(text: l10n.eventAlerts),
+                    FormRowGroup(
+                      trailingGap: false,
+                      children: _buildAlertRows(l10n),
+                    ),
+                    FormCaption(
+                      text: l10n.categoryAlertsHint,
+                      padding: FormMetrics.groupCaptionPadding,
+                    ),
+                    // A section label has no top padding of its own and the
+                    // caption no bottom one: the gap a group would leave.
+                    const SizedBox(height: RowMetrics.groupGap),
+                    FormSectionLabel(text: l10n.categoryReportSection),
+                    FormRowGroup(
+                      children: [
+                        _buildKindRow(l10n),
+                        _buildMarkRow(l10n),
+                        _buildAreaRow(l10n),
+                      ],
+                    ),
+                    FormSectionLabel(text: l10n.categoryMeasureGoalSection),
+                    FormRowGroup(
+                      trailingGap: false,
+                      children: [
+                        _buildMeasureRow(l10n),
+                        _buildCountsAsRow(l10n),
+                        _buildGoalRow(l10n),
+                      ],
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
@@ -736,6 +1064,222 @@ class _CategoryEditorSheetState extends State<CategoryEditorSheet> {
           ),
         ),
     ];
+  }
+
+  /// A profile row a sub-sheet or a menu writes to: it flashes when the pick
+  /// lands, and the wrapper keeps its hairline at the glyph indent. While
+  /// Save writes it takes no tap but is drawn as it was — a row dimmed for
+  /// the save window alone would flicker on every Save.
+  Widget _highlighted(Object? value, Widget row) => FormIndentedRow(
+    dividerIndent: FormMetrics.dividerIndentGlyph,
+    child: IgnorePointer(
+      ignoring: _saving,
+      child: ValueChangeHighlight(value: value, child: row),
+    ),
+  );
+
+  Widget _buildKindRow(AppLocalizations l10n) {
+    final kind = _effective.kind;
+    return _highlighted(
+      kind,
+      FormPickerRow(
+        glyph: Icons.category_outlined,
+        label: l10n.categoryKindLabel,
+        value: categoryKindName(l10n, kind),
+        caption: categoryKindExample(l10n, kind),
+        identifier: SemanticsIds.categoryEditorKind,
+        onTap: _pickKind,
+      ),
+    );
+  }
+
+  Widget _buildMarkRow(AppLocalizations l10n) {
+    final effective = _effective;
+    final kindWord = _kindVerbWord(l10n);
+    final customWord = effective.customVerb;
+    return _highlighted(
+      effective.marks ? markVerbLabel(l10n, effective) : null,
+      FormMenuRow<_MarkChoice>(
+        glyph: Icons.task_alt_rounded,
+        label: l10n.categoryMarkLabel,
+        value: effective.marks
+            ? markVerbLabel(l10n, effective)
+            : l10n.categoryMarkOff,
+        selected: _markInEffect,
+        menuWidth: FormMetrics.menuWidth,
+        identifier: SemanticsIds.categoryEditorMark,
+        items: [
+          if (kindWord != null)
+            FormMenuItem(
+              value: _MarkChoice.kind,
+              label: kindWord,
+              identifier: SemanticsIds.categoryMarkKind,
+            ),
+          FormMenuItem(
+            value: _MarkChoice.own,
+            label: customWord ?? l10n.categoryMarkOwn,
+            identifier: SemanticsIds.categoryMarkOwn,
+          ),
+          FormMenuItem(
+            value: _MarkChoice.off,
+            label: l10n.categoryMarkOff,
+            identifier: SemanticsIds.categoryMarkOff,
+          ),
+        ],
+        onSelected: _pickMark,
+      ),
+    );
+  }
+
+  Widget _buildAreaRow(AppLocalizations l10n) {
+    final area = _effective.area;
+    return _highlighted(
+      area,
+      FormMenuRow<LifeArea>(
+        glyph: Icons.donut_large_rounded,
+        label: l10n.categoryAreaLabel,
+        value: lifeAreaName(l10n, area),
+        selected: area,
+        menuWidth: FormMetrics.menuWidth,
+        identifier: SemanticsIds.categoryEditorArea,
+        items: [
+          for (final choice in LifeArea.values)
+            FormMenuItem(
+              value: choice,
+              label: lifeAreaName(l10n, choice),
+              identifier: SemanticsIds.categoryArea(choice.name),
+            ),
+        ],
+        onSelected: _pickArea,
+      ),
+    );
+  }
+
+  /// Auto is the kind's own measure and is named as such; a Custom
+  /// category's Auto is resolved by the report per period (the S3 spec's O),
+  /// so the editor does not guess it.
+  Widget _buildMeasureRow(AppLocalizations l10n) {
+    final measure = _profile?.measure;
+    final auto = _kindRow.primary;
+    return _highlighted(
+      measure,
+      FormMenuRow<_Choice<ReportMeasure>>(
+        glyph: Icons.insights_rounded,
+        label: l10n.categoryMeasureLabel,
+        value: measure == null
+            ? l10n.categoryMeasureAuto
+            : reportMeasureName(l10n, measure),
+        caption: auto == null
+            ? l10n.categoryMeasureAutoPerPeriod
+            : l10n.categoryMeasureAutoIs(reportMeasureName(l10n, auto)),
+        selected: _Choice(measure),
+        menuWidth: FormMetrics.menuWidth,
+        identifier: SemanticsIds.categoryEditorMeasure,
+        items: [
+          FormMenuItem(
+            value: const _Choice<ReportMeasure>(null),
+            label: auto == null
+                ? l10n.categoryMeasureAuto
+                : l10n.categoryMeasureAutoWith(reportMeasureName(l10n, auto)),
+            identifier: SemanticsIds.categoryMeasureAuto,
+          ),
+          for (final choice in CategoryKinds.headlineMeasures)
+            if (choice != auto)
+              FormMenuItem(
+                value: _Choice(choice),
+                label: reportMeasureName(l10n, choice),
+                identifier: SemanticsIds.categoryMeasure(choice.name),
+              ),
+          // A stored measure the editor never offers (sync, a later build)
+          // is listed, checked, so the menu says what is in effect.
+          if (measure != null &&
+              !CategoryKinds.headlineMeasures.contains(measure))
+            FormMenuItem(
+              value: _Choice(measure),
+              label: reportMeasureName(l10n, measure),
+              identifier: SemanticsIds.categoryMeasure(measure.name),
+            ),
+        ],
+        onSelected: _pickMeasure,
+      ),
+    );
+  }
+
+  /// Disabled where no counts-as could ever reach a total — Sleep keeps its
+  /// own hours, a plain repeat earns none — with the stored value still on
+  /// show and the reason as its caption.
+  Widget _buildCountsAsRow(AppLocalizations l10n) {
+    final effective = _effective;
+    final nominal = effective.nominalMinutes;
+    final suggested = effective.suggestedMinutes;
+    final sleep = effective.kind == CategoryKind.sleep;
+    final disabled = sleep || _repeatsOnly;
+    String duration(int minutes) =>
+        EventTimeFormatter.formatDuration(minutes, l10n);
+    final caption = sleep
+        ? l10n.categoryCountsAsSleep
+        : _repeatsOnly
+        ? l10n.categoryCountsAsRepeats
+        : suggested != null
+        ? l10n.categoryCountsAsSuggested(duration(suggested))
+        : l10n.categoryCountsAsScope;
+    return _highlighted(
+      nominal,
+      FormMenuRow<_Choice<int>>(
+        glyph: Icons.timelapse_rounded,
+        label: l10n.categoryCountsAsLabel,
+        value: nominal == null ? l10n.categoryCountsAsOff : duration(nominal),
+        caption: caption,
+        selected: _Choice(nominal),
+        menuWidth: FormMetrics.menuWidth,
+        identifier: SemanticsIds.categoryEditorCountsAs,
+        items: [
+          FormMenuItem(
+            value: const _Choice<int>(null),
+            label: l10n.categoryCountsAsOff,
+            identifier: SemanticsIds.categoryCountsAsOff,
+          ),
+          for (final minutes in CategoryKinds.countsAsChoices)
+            FormMenuItem(
+              value: _Choice(minutes),
+              label: minutes == suggested
+                  ? l10n.categoryCountsAsSuggestedItem(duration(minutes))
+                  : duration(minutes),
+              identifier: SemanticsIds.categoryCountsAs(minutes),
+            ),
+        ],
+        onSelected: disabled ? null : _pickCountsAs,
+      ),
+    );
+  }
+
+  /// The goal read back as the row's caption, which wraps freely where a
+  /// value is clamped at two lines. A primary that takes no goal disables
+  /// the row with the reason — unless a goal is stored, which stays
+  /// reachable so it can be removed.
+  Widget _buildGoalRow(AppLocalizations l10n) {
+    final effective = _effective;
+    final target = effective.target;
+    final primary = effective.primary;
+    final blocked = !CategoryGoalLimits.takesGoal(primary);
+    final caption = target != null
+        ? categoryGoalReadBack(l10n, target, primary)
+        : !blocked
+        ? l10n.categoryGoalNone
+        : primary == null
+        ? l10n.categoryGoalNeedsMeasure
+        : l10n.categoryGoalNotFor(reportMeasureName(l10n, primary));
+    return _highlighted(
+      target,
+      FormPickerRow(
+        glyph: Icons.flag_outlined,
+        label: l10n.categoryGoalLabel,
+        caption: caption,
+        identifier: SemanticsIds.categoryEditorGoal,
+        enabled: !blocked || target != null,
+        onTap: _pickGoal,
+      ),
+    );
   }
 
   /// No default dot: a category *is* the colour everything else falls back

@@ -183,6 +183,24 @@ void main() {
     expect(answers, ['Taken']);
   });
 
+  testWidgets('the counter is onSurfaceVariant, never the warning\'s red, '
+      'with no warning up', (tester) async {
+    for (final warningFor in <String? Function(String)?>[
+      null,
+      (text) => text == 'Taken' ? 'Already exists' : null,
+    ]) {
+      await open(tester, maxLength: 60, warningFor: warningFor);
+      await tester.enterText(field(), 'Free');
+      await tester.pump();
+      expect(
+        resolvedStyle(tester, '4/60').color,
+        Theme.of(tester.element(field())).colorScheme.onSurfaceVariant,
+      );
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+    }
+  });
+
   testWidgets('beside a counter the warning takes the counter\'s line: the '
       'dialog does not grow', (tester) async {
     await open(

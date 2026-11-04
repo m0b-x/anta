@@ -2263,5 +2263,222 @@
   "eventCancelEvent": "Contramandează evenimentul",
   "eventCancelledState": "Contramandat",
   "eventRestoreEvent": "Restaurează",
-  "eventCancelled": "Eveniment contramandat"
+  "eventCancelled": "Eveniment contramandat",
+  "categoryReportSection": "Raport",
+  "categoryMeasureGoalSection": "Măsură și obiectiv",
+  "categoryKindLabel": "Tip",
+  "categoryKindRoutine": "Rutină",
+  "categoryKindWorkout": "Antrenament",
+  "categoryKindMedication": "Medicație",
+  "categoryKindSleep": "Somn",
+  "categoryKindEpisode": "Episod",
+  "categoryKindAppointment": "Programare",
+  "categoryKindWork": "Muncă",
+  "categoryKindMeeting": "Ședință",
+  "categoryKindTask": "Sarcină",
+  "categoryKindDeadline": "Termen",
+  "categoryKindStudy": "Studiu",
+  "categoryKindBill": "Factură",
+  "categoryKindIncome": "Venit",
+  "categoryKindSocial": "Social",
+  "categoryKindAnniversary": "Aniversare",
+  "categoryKindChore": "Treburi",
+  "categoryKindMaintenance": "Întreținere",
+  "categoryKindExpiry": "Expirare",
+  "categoryKindTrip": "Călătorie",
+  "categoryKindLeave": "Concediu",
+  "categoryKindCustom": "Personalizat",
+  "categoryKindExampleRoutine": "Întinderi, jurnal",
+  "categoryKindExampleWorkout": "Sală, alergare, curs",
+  "categoryKindExampleMedication": "Pastile, suplimente",
+  "categoryKindExampleSleep": "Noaptea și durata ei",
+  "categoryKindExampleEpisode": "Boală, migrenă, ciclu",
+  "categoryKindExampleAppointment": "Medic, dentist, veterinar",
+  "categoryKindExampleWork": "Ture, zile de lucru",
+  "categoryKindExampleMeeting": "Apeluri, ședințe scurte",
+  "categoryKindExampleTask": "De făcut, comisioane",
+  "categoryKindExampleDeadline": "Predări, depuneri",
+  "categoryKindExampleStudy": "Cursuri, exercițiu, citit",
+  "categoryKindExampleBill": "Chirie, facturi, abonamente",
+  "categoryKindExampleIncome": "Salariu, facturi încasate",
+  "categoryKindExampleSocial": "Cine, vizite, întâlniri",
+  "categoryKindExampleAnniversary": "Zile de naștere, onomastici",
+  "categoryKindExampleChore": "Curățenie, rufe, cumpărături",
+  "categoryKindExampleMaintenance": "Service auto, centrală",
+  "categoryKindExampleExpiry": "Pașaport, buletin, garanție",
+  "categoryKindExampleTrip": "Călătorii, weekenduri",
+  "categoryKindExampleLeave": "Vacanță, zile libere",
+  "categoryKindExampleCustom": "Orice altceva",
+  "lifeAreaHealth": "Sănătate",
+  "lifeAreaWork": "Muncă",
+  "lifeAreaMoney": "Bani",
+  "lifeAreaPeople": "Oameni",
+  "lifeAreaHome": "Casă",
+  "lifeAreaLeisure": "Timp liber",
+  "lifeAreaOther": "Altele",
+  "categoryMarkLabel": "Marcaj",
+  "categoryMarkOff": "Oprit",
+  "categoryMarkOwn": "Cuvânt propriu…",
+  "categoryMarkOwnTitle": "Cuvânt de marcaj",
+  "categoryMarkOwnHint": "ex. Plimbat",
+  "categoryAreaLabel": "Domeniu",
+  "categoryMeasureLabel": "Măsură",
+  "categoryMeasureAuto": "Automat",
+  "categoryMeasureAutoIs": "Automat: {measure}",
+  "@categoryMeasureAutoIs": {
+    "description": "Caption under the Measure row: the measure Auto stands for under the category's kind",
+    "placeholders": {
+      "measure": {
+        "type": "String",
+        "example": "Attendance"
+      }
+    }
+  },
+  "categoryMeasureAutoPerPeriod": "Ales automat pe perioadă",
+  "categoryMeasureAutoWith": "Automat · {measure}",
+  "@categoryMeasureAutoWith": {
+    "description": "The Measure menu's first item: Auto, naming the measure it stands for",
+    "placeholders": {
+      "measure": {
+        "type": "String",
+        "example": "Attendance"
+      }
+    }
+  },
+  "categoryMeasureCount": "Număr",
+  "categoryMeasureEvents": "Evenimente",
+  "categoryMeasureHours": "Ore",
+  "categoryMeasureAttendance": "Prezență",
+  "categoryMeasureTasks": "Sarcini",
+  "categoryMeasureMoney": "Bani",
+  "categoryMeasureLastSeen": "Ultima dată",
+  "categoryMeasureDaysUntil": "Zile rămase",
+  "categoryMeasureCancelled": "Contramandate",
+  "categoryMeasureLeadTime": "Timp în avans",
+  "categoryMeasureTiming": "Ora din zi",
+  "categoryCountsAsLabel": "Contează ca",
+  "categoryCountsAsOff": "Oprit",
+  "categoryCountsAsSuggested": "Sugerat: {duration}",
+  "@categoryCountsAsSuggested": {
+    "description": "Caption under the Counts as row: the kind's suggested length, which applies only once picked",
+    "placeholders": {
+      "duration": {
+        "type": "String",
+        "example": "1 h"
+      }
+    }
+  },
+  "categoryCountsAsSuggestedItem": "{duration} · sugerat",
+  "@categoryCountsAsSuggestedItem": {
+    "description": "Counts as menu item that is the kind's suggestion",
+    "placeholders": {
+      "duration": {
+        "type": "String",
+        "example": "1 h"
+      }
+    }
+  },
+  "categoryCountsAsScope": "Pentru evenimente fără oră",
+  "categoryCountsAsSleep": "Somnul își numără orele",
+  "categoryCountsAsRepeats": "Repetările nu adună ore",
+  "categoryGoalLabel": "Obiectiv",
+  "categoryGoalNone": "Fără obiectiv",
+  "categoryGoalNeedsMeasure": "Alege întâi o măsură",
+  "categoryGoalNotFor": "Fără obiectiv pentru {measure}",
+  "@categoryGoalNotFor": {
+    "description": "Caption under the disabled Goal row when the measure takes no goal",
+    "placeholders": {
+      "measure": {
+        "type": "String",
+        "example": "Days until"
+      }
+    }
+  },
+  "categoryGoalTitle": "Obiectiv",
+  "categoryGoalTypeSection": "Tip",
+  "categoryGoalTargetSection": "Țintă",
+  "categoryGoalTypeAtLeast": "Cel puțin",
+  "categoryGoalTypeAtMost": "Cel mult",
+  "categoryGoalTypeBudget": "Buget",
+  "categoryGoalTypeMaxGap": "Interval în zile",
+  "categoryGoalTypeNotForMeasure": "Nu pentru această măsură",
+  "categoryGoalUnitCount": "Număr",
+  "categoryGoalUnitHours": "Ore",
+  "categoryGoalUnitTasks": "Sarcini",
+  "categoryGoalUnitAmount": "Sumă",
+  "categoryGoalUnitDays": "Zile",
+  "categoryGoalHours": "{hours} h",
+  "@categoryGoalHours": {
+    "description": "A goal's amount in hours, inside the goal's read-back; the number arrives formatted (1,200 or 7.5)",
+    "placeholders": {
+      "hours": {
+        "type": "String",
+        "example": "1,200"
+      }
+    }
+  },
+  "categoryGoalTasks": "{count, plural, =1{1 sarcină} few{{count} sarcini} other{{count} de sarcini}}",
+  "@categoryGoalTasks": {
+    "description": "A goal's amount in tasks, inside the goal's read-back",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "categoryGoalLess": "Mai puțin",
+  "categoryGoalMore": "Mai mult",
+  "categoryGoalPeriodDay": "Zi",
+  "categoryGoalPeriodWeek": "Săptămână",
+  "categoryGoalPeriodMonth": "Lună",
+  "categoryGoalPeriodYear": "An",
+  "categoryGoalAtLeast": "Cel puțin {amount} {period, select, day{pe zi} week{pe săptămână} month{pe lună} year{pe an} other{}}",
+  "@categoryGoalAtLeast": {
+    "description": "A goal read back: at least an amount per period",
+    "placeholders": {
+      "amount": {
+        "type": "String",
+        "example": "3"
+      },
+      "period": {
+        "type": "String"
+      }
+    }
+  },
+  "categoryGoalAtMost": "Cel mult {amount} {period, select, day{pe zi} week{pe săptămână} month{pe lună} year{pe an} other{}}",
+  "@categoryGoalAtMost": {
+    "description": "A goal read back: at most an amount per period",
+    "placeholders": {
+      "amount": {
+        "type": "String",
+        "example": "40 h"
+      },
+      "period": {
+        "type": "String"
+      }
+    }
+  },
+  "categoryGoalBudget": "Buget {amount} {period, select, day{pe zi} week{pe săptămână} month{pe lună} year{pe an} other{}}",
+  "@categoryGoalBudget": {
+    "description": "A money goal read back: at most this much money per period",
+    "placeholders": {
+      "amount": {
+        "type": "String",
+        "example": "1,200"
+      },
+      "period": {
+        "type": "String"
+      }
+    }
+  },
+  "categoryGoalGap": "{days, plural, =1{Cel mult 1 zi între ele} few{Cel mult {days} zile între ele} other{Cel mult {days} de zile între ele}}",
+  "@categoryGoalGap": {
+    "description": "A Days between goal read back",
+    "placeholders": {
+      "days": {
+        "type": "int"
+      }
+    }
+  },
+  "categoryGoalRemove": "Șterge obiectivul"
 }

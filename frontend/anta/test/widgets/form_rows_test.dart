@@ -2469,13 +2469,18 @@ void main() {
           ),
         ),
       );
-      final opacity = tester.widget<Opacity>(
-        find.descendant(
-          of: find.byType(FormMenuRow<int>),
-          matching: find.byType(Opacity),
-        ),
-      );
-      expect(opacity.opacity, FormMetrics.disabledOpacity);
+      // The glyph, the label, the value and the chevron each fade.
+      for (final part in [
+        find.byIcon(Icons.no_food_rounded),
+        find.text('Fasting rows'),
+        find.text('Periods'),
+        find.byIcon(Icons.chevron_right),
+      ]) {
+        final opacity = tester.widget<Opacity>(
+          find.ancestor(of: part, matching: find.byType(Opacity)),
+        );
+        expect(opacity.opacity, FormMetrics.disabledOpacity, reason: '$part');
+      }
       final well = tester.widget<InkWell>(
         find.descendant(
           of: find.byType(FormMenuRow<int>),
@@ -2495,6 +2500,72 @@ void main() {
 
       expect(find.byType(FormMenuChoiceItem<int>), findsNothing);
       expect(find.text('Every day'), findsNothing);
+    });
+
+    testWidgets('a menu row\'s caption is a line of its one node, and keeps '
+        'full onSurfaceVariant while the rest of a disabled row dims: it is '
+        'the reason the row is off', (tester) async {
+      FormMenuRow<int> countsAs({ValueChanged<int>? onSelected}) =>
+          FormMenuRow<int>(
+            glyph: Icons.timelapse_rounded,
+            label: 'Counts as',
+            value: 'Off',
+            caption: 'Suggested: 1 h',
+            selected: 0,
+            identifier: 'category-editor-counts-as',
+            menuWidth: 220,
+            items: const [FormMenuItem(value: 0, label: 'Off')],
+            onSelected: onSelected,
+          );
+      await tester.pumpWidget(sheetLike(countsAs(onSelected: (_) {})));
+      final data = dataOf(tester, 'category-editor-counts-as');
+      expect(data.label, contains('Counts as'));
+      expect(data.label, contains('Off'));
+      expect(data.label, contains('Suggested: 1 h'));
+      expect(data.hasAction(SemanticsAction.tap), isTrue);
+      final caption = find.text('Suggested: 1 h');
+      expect(
+        find.ancestor(of: caption, matching: find.byType(Opacity)),
+        findsNothing,
+      );
+      final enabledHeight = tester
+          .getSize(find.bySemanticsIdentifier('category-editor-counts-as'))
+          .height;
+
+      await tester.pumpWidget(sheetLike(countsAs()));
+      expect(
+        find.ancestor(of: caption, matching: find.byType(Opacity)),
+        findsNothing,
+      );
+      final colorScheme = Theme.of(tester.element(caption)).colorScheme;
+      expect(
+        tester.widget<Text>(caption).style?.color,
+        colorScheme.onSurfaceVariant,
+      );
+      expect(colorScheme.onSurfaceVariant.a, 1.0);
+      // The label beside it does fade.
+      expect(
+        tester
+            .widget<Opacity>(
+              find.ancestor(
+                of: find.text('Counts as'),
+                matching: find.byType(Opacity),
+              ),
+            )
+            .opacity,
+        FormMetrics.disabledOpacity,
+      );
+      expect(
+        dataOf(tester, 'category-editor-counts-as').label,
+        contains('Suggested: 1 h'),
+      );
+      // Disabled in place: the caption keeps its line.
+      expect(
+        tester
+            .getSize(find.bySemanticsIdentifier('category-editor-counts-as'))
+            .height,
+        enabledHeight,
+      );
     });
   });
 
@@ -2754,6 +2825,164 @@ void main() {
       final less = tester.getRect(find.byTooltip('Weniger Vorlauf'));
       expect(less.top, lessThan(label.bottom));
       expect(less.left, greaterThanOrEqualTo(label.right));
+    });
+
+    group('with an editable value', () {
+      late TextEditingController controller;
+      late FocusNode focusNode;
+
+      setUp(() {
+        controller = TextEditingController(text: '3');
+        focusNode = FocusNode();
+      });
+      tearDown(() {
+        controller.dispose();
+        focusNode.dispose();
+      });
+
+      FormStepperRow amount({bool editable = true}) => FormStepperRow(
+        label: 'Count',
+        value: '3',
+        widestValue: '9999',
+        controller: editable ? controller : null,
+        focusNode: editable ? focusNode : null,
+        maxDigits: 3,
+        fieldIdentifier: editable ? 'category-goal-value' : null,
+        decrementTooltip: 'Less',
+        incrementTooltip: 'More',
+        onDecrement: () {},
+        onIncrement: () {},
+      );
+
+      double box(WidgetTester tester) =>
+          tester.getRect(find.byTooltip('More')).left -
+          tester.getRect(find.byTooltip('Less')).right;
+
+      testWidgets('the field stands in the text\'s box: the same width, the '
+          'same row height, the buttons where they were', (tester) async {
+        await tester.pumpWidget(host(amount(editable: false)));
+        final width = box(tester);
+        final height = tester.getSize(find.byType(FormStepperRow)).height;
+        final less = tester.getRect(find.byTooltip('Less'));
+        final textRect = tester.getRect(find.text('3'));
+
+        await tester.pumpWidget(host(amount()));
+        expect(find.byType(TextField), findsOneWidget);
+        expect(box(tester), width);
+        expect(tester.getSize(find.byType(FormStepperRow)).height, height);
+        expect(tester.getRect(find.byTooltip('Less')), less);
+        // The typed digits sit on the line the text sat on.
+        expect(
+          tester.getRect(find.byType(EditableText)).center.dy,
+          moreOrLessEquals(textRect.center.dy, epsilon: 1),
+        );
+        final style = tester.widget<EditableText>(find.byType(EditableText));
+        expect(style.style.fontSize, FormMetrics.labelSize);
+        expect(style.style.fontWeight, FontWeight.w500);
+        expect(style.textAlign, TextAlign.center);
+      });
+
+      testWidgets('the field is named by the row\'s label, carries its id and '
+          'takes digits only, up to its limit', (tester) async {
+        await tester.pumpWidget(host(amount()));
+        final data = dataOf(tester, 'category-goal-value');
+        expect(data.flagsCollection.isTextField, isTrue);
+        expect(data.label, contains('Count'));
+
+        await tester.enterText(find.byType(TextField), '12a45');
+        expect(controller.text, '124');
+        final field = tester.widget<TextField>(find.byType(TextField));
+        expect(field.keyboardType, TextInputType.number);
+        expect(field.autofocus, isFalse);
+      });
+
+      testWidgets('the field\'s box is a 48 dp target, a tap at its corner '
+          'focuses it, and an underline in onSurfaceVariant says it can be '
+          'typed into', (tester) async {
+        final handle = tester.ensureSemantics();
+        await tester.pumpWidget(host(amount()));
+        final node = tester.getSemantics(
+          find.bySemanticsIdentifier('category-goal-value'),
+        );
+        expect(
+          node.rect.height,
+          greaterThanOrEqualTo(FormMetrics.trailingButtonSize),
+        );
+        final box = tester.getRect(
+          find.bySemanticsIdentifier('category-goal-value'),
+        );
+        expect(
+          box.height,
+          greaterThanOrEqualTo(FormMetrics.trailingButtonSize),
+        );
+        final corner = box.topLeft + const Offset(2, 2);
+        // Outside the field's own text box: the box around it takes the tap.
+        expect(
+          tester.getRect(find.byType(TextField)).contains(corner),
+          isFalse,
+        );
+
+        await tester.tapAt(corner);
+        await tester.pump();
+        expect(focusNode.hasFocus, isTrue);
+
+        final decoration = tester
+            .widget<TextField>(find.byType(TextField))
+            .decoration!;
+        final colorScheme = Theme.of(
+          tester.element(find.byType(TextField)),
+        ).colorScheme;
+        expect(
+          (decoration.enabledBorder! as UnderlineInputBorder).borderSide.color,
+          colorScheme.onSurfaceVariant,
+        );
+        expect(
+          (decoration.focusedBorder! as UnderlineInputBorder).borderSide.color,
+          colorScheme.primary,
+        );
+        handle.dispose();
+      });
+    });
+
+    testWidgets('widestLabel decides beside or stacked for every label the '
+        'row can carry, so a short label stacks as the long one does and '
+        'the buttons do not move between them', (tester) async {
+      FormStepperRow unit(String label, {String? widestLabel}) =>
+          FormStepperRow(
+            label: label,
+            value: '3',
+            widestValue: '99',
+            widestLabel: widestLabel,
+            decrementTooltip: 'Weniger',
+            incrementTooltip: 'Mehr',
+            onDecrement: () {},
+            onIncrement: () {},
+          );
+
+      // Alone, the short label sits beside the stepper and the long one
+      // stacks it: the jump a switch of label made.
+      await pumpOnNarrowPhoneAtDouble(tester, unit('Tag'));
+      final besideLess = tester.getRect(find.byTooltip('Weniger'));
+      expect(besideLess.top, lessThan(tester.getRect(find.text('Tag')).bottom));
+      await pumpOnNarrowPhoneAtDouble(tester, unit('Aufgaben'));
+      final stackedLess = tester.getRect(find.byTooltip('Weniger'));
+      expect(
+        stackedLess.top,
+        greaterThanOrEqualTo(tester.getRect(find.text('Aufgaben')).bottom),
+      );
+
+      for (final label in ['Tag', 'Aufgaben']) {
+        await pumpOnNarrowPhoneAtDouble(
+          tester,
+          unit(label, widestLabel: 'Aufgaben Tag'),
+        );
+        expect(tester.takeException(), isNull);
+        expect(
+          tester.getRect(find.byTooltip('Weniger')),
+          stackedLess,
+          reason: label,
+        );
+      }
     });
   });
 

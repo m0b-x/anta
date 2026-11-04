@@ -442,6 +442,104 @@ abstract final class CategoryKinds {
     for (final row in all)
       if (row.area == area) row,
   ];
+
+  /// The durations the editor's Counts as menu offers, in minutes (record
+  /// §5 I, the S3 spec's M): a pick is the owner's confirmation, so a menu
+  /// of round lengths is the whole control. Every kind's suggestion is one.
+  static const List<int> countsAsChoices = [15, 30, 45, 60, 90, 120, 240, 480];
+
+  /// The measures the editor offers as a category's primary, in the enum's
+  /// order (the S3 spec's D): Cancelled, Lead time and Timing describe a
+  /// category but cannot lead it.
+  static const List<ReportMeasure> headlineMeasures = [
+    ReportMeasure.count,
+    ReportMeasure.events,
+    ReportMeasure.hours,
+    ReportMeasure.attendance,
+    ReportMeasure.tasks,
+    ReportMeasure.money,
+    ReportMeasure.lastSeen,
+    ReportMeasure.daysUntil,
+  ];
+}
+
+/// What a goal's amount is counted in, read off the primary measure
+/// (record §6.6): the unit the goal sheet's value row names and converts.
+enum CategoryGoalUnit { count, hours, tasks, money }
+
+/// The goal sheet's bounds, units and seeds (the S3 spec's J): whole
+/// numbers stepped by one from [min], each unit capped by its digits.
+abstract final class CategoryGoalLimits {
+  static const int min = 1;
+  static const int step = 1;
+
+  /// A gap's days, whatever the primary.
+  static const int dayDigits = 4;
+  static const int seedDays = 30;
+
+  static int maxDigits(CategoryGoalUnit unit) => switch (unit) {
+    CategoryGoalUnit.count || CategoryGoalUnit.tasks => 3,
+    CategoryGoalUnit.hours => 4,
+    CategoryGoalUnit.money => 7,
+  };
+
+  /// The amount a fresh goal opens on, in the unit's whole numbers.
+  static int seed(CategoryGoalUnit unit) => switch (unit) {
+    CategoryGoalUnit.count || CategoryGoalUnit.tasks => 3,
+    CategoryGoalUnit.hours => 8,
+    CategoryGoalUnit.money => 100,
+  };
+
+  /// How many stored units one of the sheet's whole numbers is: a target
+  /// stores minutes and cents (record §6.6), the sheet steps hours and
+  /// whole money.
+  static int scaleOf(CategoryGoalUnit? unit) => switch (unit) {
+    CategoryGoalUnit.hours => 60,
+    CategoryGoalUnit.money => 100,
+    _ => 1,
+  };
+
+  /// The largest number [digits] digits hold.
+  static int maxFor(int digits) {
+    var max = 0;
+    for (var i = 0; i < digits; i++) {
+      max = max * 10 + 9;
+    }
+    return max;
+  }
+
+  /// What a stored target's value counts, for [primary]; null when an
+  /// amount means nothing for it — Last seen takes a gap alone, and no
+  /// primary (Auto) or Days until takes no goal.
+  static CategoryGoalUnit? unitOf(ReportMeasure? primary) => switch (primary) {
+    ReportMeasure.count ||
+    ReportMeasure.events ||
+    ReportMeasure.attendance => CategoryGoalUnit.count,
+    ReportMeasure.hours => CategoryGoalUnit.hours,
+    ReportMeasure.tasks => CategoryGoalUnit.tasks,
+    ReportMeasure.money => CategoryGoalUnit.money,
+    _ => null,
+  };
+
+  /// Whether [primary] can carry a goal at all (record §5 J, AD).
+  static bool takesGoal(ReportMeasure? primary) =>
+      primary != null && primary != ReportMeasure.daysUntil;
+
+  /// The three types the goal sheet lists for [primary], canonical order:
+  /// Budget stands where At most would on a Money primary (J).
+  static List<TargetKind> listedFor(ReportMeasure? primary) =>
+      primary == ReportMeasure.money
+      ? const [TargetKind.atLeast, TargetKind.budget, TargetKind.maxGap]
+      : const [TargetKind.atLeast, TargetKind.atMost, TargetKind.maxGap];
+
+  /// Whether [primary] takes a target of [kind]: a gap on anything that
+  /// takes a goal, an amount only where the amount has a unit.
+  static bool allows(ReportMeasure? primary, TargetKind kind) {
+    if (!takesGoal(primary)) return false;
+    if (kind == TargetKind.maxGap) return true;
+    if (unitOf(primary) == null) return false;
+    return listedFor(primary).contains(kind);
+  }
 }
 
 /// The JSON keys one category profile round-trips through — the backup
