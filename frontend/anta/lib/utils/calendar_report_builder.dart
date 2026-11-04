@@ -669,20 +669,25 @@ abstract final class CalendarReportBuilder {
     }
     final tagList = [
       for (final MapEntry(:key, value: tag) in tags.entries)
-        ReportTag(
-          key: key,
-          label: tag.label,
-          events: tag.events.length,
-          count: tag.count,
-          minutes: tag.minutes,
-          spentCents: tag.spentCents,
-          receivedCents: tag.receivedCents,
-          lastSeenDay: tag.lastSeen,
-          categoryIds: List.unmodifiable(tag.categoryIds),
-          kind: _tagKindOf(input, tag.categoryIds),
-          rows: List.unmodifiable(tag.rows),
-          medianGapDays: tag.gaps.isEmpty ? null : _lowerMedian(tag.gaps),
-        ),
+        if (_tagKindOf(input, tag.categoryIds) case (
+          :final kind,
+          :final categoryId,
+        ))
+          ReportTag(
+            key: key,
+            label: tag.label,
+            events: tag.events.length,
+            count: tag.count,
+            minutes: tag.minutes,
+            spentCents: tag.spentCents,
+            receivedCents: tag.receivedCents,
+            lastSeenDay: tag.lastSeen,
+            categoryIds: List.unmodifiable(tag.categoryIds),
+            kind: kind,
+            kindCategoryId: categoryId,
+            rows: List.unmodifiable(tag.rows),
+            medianGapDays: tag.gaps.isEmpty ? null : _lowerMedian(tag.gaps),
+          ),
     ];
     tagList.sort((a, b) {
       final byEvents = b.events.compareTo(a.events);
@@ -1555,15 +1560,21 @@ abstract final class CalendarReportBuilder {
   static EffectiveProfile _profileOf(ReportInput input, String categoryId) =>
       input.profiles[categoryId] ?? EffectiveProfile.unprofiled;
 
-  /// A tag's noun: the first profiled of its [categoryIds] — the catalogue
-  /// seeds Other first, so the plain first id would let an uncategorised
-  /// event erase a Social tag's person.
-  static CategoryKind _tagKindOf(ReportInput input, List<String> categoryIds) {
+  /// A tag's noun and the category it is read from: the first profiled of
+  /// its [categoryIds] — the catalogue seeds Other first, so the plain first
+  /// id would let an uncategorised event erase a Social tag's person — else
+  /// the first id under no kind.
+  static ({CategoryKind kind, String categoryId}) _tagKindOf(
+    ReportInput input,
+    List<String> categoryIds,
+  ) {
     for (final categoryId in categoryIds) {
       final profile = _profileOf(input, categoryId);
-      if (!profile.isUnprofiled) return profile.kind;
+      if (!profile.isUnprofiled) {
+        return (kind: profile.kind, categoryId: categoryId);
+      }
     }
-    return CategoryKind.custom;
+    return (kind: CategoryKind.custom, categoryId: categoryIds.first);
   }
 
   /// [categoryId]'s lookback and lookahead samples, oldest first, that the

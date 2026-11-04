@@ -110,10 +110,16 @@ class ReportGroupRows {
   final ReportMeasures? measures;
 
   /// The tag a By tag group stands for (`ReportGroupStack.tagGroups`): the
-  /// header names it and wears its first category's avatar and colour (P),
-  /// and every id is the tag's, since a tag's row can also be a Categories
-  /// row. Null on every other card.
+  /// header names it and wears the avatar and colour of the category its
+  /// noun is read from ([ReportTag.kindCategoryId], P), and every id is the
+  /// tag's, since a tag's row can also be a Categories row. Null on every
+  /// other card.
   final ReportTag? tag;
+
+  /// The stack's measured tag captions, which outlive this builder so a
+  /// fold's rebuild lays no unchanged header out again; null measures in a
+  /// memo of this builder's own, one build long.
+  final ReportTagCaptions? tagCaptions;
 
   ReportGroupRows({
     required this.card,
@@ -135,6 +141,7 @@ class ReportGroupRows {
     this.trailingGap = true,
     this.measures,
     this.tag,
+    this.tagCaptions,
   });
 
   /// Read for a dated row's icon, colour and title only: the row's subtitle
@@ -144,7 +151,7 @@ class ReportGroupRows {
   );
 
   late final CalendarCategory _category = CalendarCategories.resolve(
-    tag?.categoryIds.firstOrNull ?? group.categoryId,
+    tag?.kindCategoryId ?? group.categoryId,
   );
 
   /// What the header and the disclosure rows name: the category, or the
@@ -152,6 +159,13 @@ class ReportGroupRows {
   late final String _groupName = switch (tag) {
     final tag? => '#${tag.label}',
     null => CalendarCategories.labelOf(_category, labels.l10n),
+  };
+
+  /// [_groupName] as the disclosure rows speak it: "tag ana", since a '#'
+  /// would be read as a number sign.
+  late final String _spokenName = switch (tag) {
+    final tag? => labels.l10n.reportTagName(tag.label),
+    null => _groupName,
   };
 
   /// The group's rows shown under the open header.
@@ -245,7 +259,7 @@ class ReportGroupRows {
         glyph: Icons.chevron_right_rounded,
         label: labels.l10n.reportShowAsList,
         onTap: onShowAsList,
-        semanticsLabel: labels.l10n.reportGroupListSpoken(_groupName),
+        semanticsLabel: labels.l10n.reportGroupListSpoken(_spokenName),
         identifier: switch (tag) {
           final tag? => SemanticsIds.reportTagList(tag.key),
           null => SemanticsIds.reportGroupList(card.name, group.categoryId),
@@ -306,9 +320,11 @@ class ReportGroupRows {
       leading: _avatar,
       label: _groupName,
       caption: words.caption,
-      captionLines: reportCaptionLines(
-        words.templates,
-        style: DefaultTextStyle.of(context).style.merge(reportCaptionStyle),
+      captionLines: (tagCaptions ?? ReportTagCaptions()).linesOf(
+        tag,
+        labels: labels,
+        spansMonths: spansMonths,
+        style: reportCaptionStyleOf(context),
         scaler: MediaQuery.textScalerOf(context),
         direction: Directionality.of(context),
         // The caption runs from the text column's start to the fold glyph.
@@ -398,7 +414,7 @@ class ReportGroupRows {
   /// id both ways.
   Widget _disclosure() {
     final l10n = labels.l10n;
-    final name = _groupName;
+    final name = _spokenName;
     final id = switch (tag) {
       final tag? => SemanticsIds.reportTagMore(tag.key),
       null => SemanticsIds.reportGroupMore(card.name, group.categoryId),
@@ -432,6 +448,132 @@ const TextStyle reportCaptionStyle = TextStyle(
   fontSize: FormMetrics.captionSize,
   height: FormMetrics.captionLineHeight / FormMetrics.captionSize,
 );
+
+/// [reportCaptionStyle] over [context]'s ambient style as the row's caption
+/// `Text` will draw it: bold under the bold-text setting, whose wider
+/// glyphs would wrap a caption measured without it past its reserved lines.
+TextStyle reportCaptionStyleOf(BuildContext context) {
+  final style = DefaultTextStyle.of(context).style.merge(reportCaptionStyle);
+  return MediaQuery.boldTextOf(context)
+      ? style.merge(const TextStyle(fontWeight: FontWeight.bold))
+      : style;
+}
+
+/// The By tag headers' caption lines (S5 §2.2), measured once and kept by
+/// the stack that draws the headers: a fold's `setState` rebuilds every
+/// header, and one whose tag, width and spans are unchanged lays nothing
+/// out. The widest short weekday and month names the templates are built
+/// with are laid out once per locale, scale and style rather than per
+/// header. A change of locale, currency, scale, style or direction measures
+/// everything again; entries are per tag key, so the memo never outgrows
+/// the card's tags ([retain]).
+class ReportTagCaptions {
+  /// What [_widest] and [_lines] were measured in.
+  ({
+    String locale,
+    String currencySymbol,
+    bool currencySuffix,
+    TextScaler scaler,
+    TextStyle style,
+    TextDirection direction,
+  })?
+  _measuredIn;
+
+  /// The widest of a list of names, by the names joined.
+  final Map<String, String> _widest = {};
+
+  final Map<
+    String,
+    ({ReportTag tag, bool spansMonths, double width, int lines})
+  >
+  _lines = {};
+
+  /// The lines [tag]'s header reserves at a caption [width] wide: the most
+  /// its `ReportLabels.tagTemplates` wraps to, the names in them measured
+  /// in [style] — the bold-aware [reportCaptionStyleOf].
+  int linesOf(
+    ReportTag tag, {
+    required ReportLabels labels,
+    required bool spansMonths,
+    required TextStyle style,
+    required TextScaler scaler,
+    required TextDirection direction,
+    required double width,
+  }) {
+    final measuredIn = (
+      locale: labels.l10n.localeName,
+      currencySymbol: labels.currencySymbol,
+      currencySuffix: labels.currencySuffix,
+      scaler: scaler,
+      style: style,
+      direction: direction,
+    );
+    if (measuredIn != _measuredIn) {
+      _measuredIn = measuredIn;
+      _widest.clear();
+      _lines.clear();
+    }
+    final kept = _lines[tag.key];
+    if (kept != null &&
+        kept.width == width &&
+        kept.spansMonths == spansMonths &&
+        kept.tag == tag) {
+      return kept.lines;
+    }
+    final lines = reportCaptionLines(
+      labels.tagTemplates(
+        tag,
+        spansMonths: spansMonths,
+        widest: (names) => _widest.putIfAbsent(
+          names.join('\n'),
+          () => _widestOf(names, style, scaler, direction),
+        ),
+      ),
+      style: style,
+      scaler: scaler,
+      direction: direction,
+      width: width,
+    );
+    _lines[tag.key] = (
+      tag: tag,
+      spansMonths: spansMonths,
+      width: width,
+      lines: lines,
+    );
+    return lines;
+  }
+
+  /// Drops the lines of every tag [tags] no longer holds.
+  void retain(Map<String, ReportTag> tags) =>
+      _lines.removeWhere((key, _) => !tags.containsKey(key));
+
+  /// The name of [names] that draws widest — not the longest: German
+  /// "Mo." is wider than "So.", English "Wed" than "Sun". A tie keeps the
+  /// first.
+  static String _widestOf(
+    Iterable<String> names,
+    TextStyle style,
+    TextScaler scaler,
+    TextDirection direction,
+  ) {
+    var widest = '';
+    var most = -1.0;
+    for (final name in names) {
+      final painter = TextPainter(
+        text: TextSpan(text: name, style: style),
+        textScaler: scaler,
+        textDirection: direction,
+      )..layout();
+      final width = painter.width;
+      painter.dispose();
+      if (width > most) {
+        most = width;
+        widest = name;
+      }
+    }
+    return widest;
+  }
+}
 
 /// The lines a [FormMeterRow]'s `captionLines` reserves (S4 D): the most
 /// any of [templates] wraps to at the caption's [width] — at least one. The

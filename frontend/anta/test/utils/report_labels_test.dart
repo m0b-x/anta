@@ -14,6 +14,7 @@ import 'package:anta/models/category_profile.dart';
 import 'package:anta/models/date_range.dart';
 import 'package:anta/models/overview_period.dart';
 import 'package:anta/models/recurrence_rule.dart';
+import 'package:anta/services/event_time_formatter.dart';
 import 'package:anta/utils/report_labels.dart';
 
 /// The report's words about its numbers (D36): durations under an hour,
@@ -167,6 +168,30 @@ void main() {
       expect(
         labelsIn('ro').caption(empty, periodName: 'iunie 2025'),
         'iunie 2025${ReportLabels.separator}Nu s-a întâmplat nimic',
+      );
+    });
+
+    test('an empty caption keeps the view it is drawn beside', () {
+      final empty = report(
+        span: (start: DateTime.utc(2025, 6, 1), end: DateTime.utc(2025, 6, 30)),
+        today: DateTime.utc(2026, 10, 30),
+      );
+      const sep = ReportLabels.separator;
+      expect(
+        labelsIn('en').caption(
+          empty,
+          periodName: 'June 2025',
+          against: 'May 2025',
+          beside: 'Work / Life',
+        ),
+        'June 2025${sep}Nothing happened${sep}beside Work / Life',
+      );
+      expect(
+        labelsIn(
+          'en',
+        ).caption(empty, periodName: 'June 2025', against: 'May 2025'),
+        'June 2025${sep}Nothing happened',
+        reason: 'no "against" fact on an empty span',
       );
     });
 
@@ -2663,6 +2688,32 @@ void main() {
       );
     });
 
+    test('a net under half a unit is no money fact (A1)', () {
+      for (final (spent, received) in [(49, 0), (1, 0), (0, 49), (100, 51)]) {
+        expect(
+          caption(
+            tag(
+              kind: CategoryKind.maintenance,
+              spentCents: spent,
+              receivedCents: received,
+              lastSeenDay: saturday,
+            ),
+          ),
+          '3${nb}services${sep}last Sat${nb}24',
+          reason: '$spent spent, $received received',
+        );
+      }
+      expect(
+        caption(tag(kind: CategoryKind.bill, spentCents: 49)),
+        '3${nb}times',
+      );
+      // Half a unit draws "1" and stays money.
+      expect(
+        caption(tag(kind: CategoryKind.maintenance, spentCents: 50)),
+        '3${nb}services${sep}1',
+      );
+    });
+
     test('last seen: today, yesterday, the day, the month across months', () {
       expect(caption(tag(lastSeenDay: today)), '3${nb}times${sep}today');
       expect(
@@ -2684,43 +2735,130 @@ void main() {
       );
     });
 
-    test('the templates are written in 8s and never follow the value', () {
-      final en = labelsIn('en');
-      List<String> templates(ReportTag tag, {bool spansMonths = false}) =>
-          en.tagWords(tag, spansMonths: spansMonths, today: today).templates;
+    group('templates follow the row\'s own shape (A1)', () {
+      // Picks a name no length rule would, so the test sees it was used.
+      String wednesdayOrMay(Iterable<String> names) =>
+          names.contains('Wed') ? 'Wed' : 'May';
+      List<String> templates(
+        ReportTag tag, {
+        String locale = 'en',
+        bool spansMonths = false,
+        String Function(Iterable<String> names)? widest,
+      }) => labelsIn(locale).tagTemplates(
+        tag,
+        spansMonths: spansMonths,
+        widest: widest ?? wednesdayOrMay,
+      );
 
-      expect(templates(tag(lastSeenDay: saturday)), [
-        '888${nb}times${sep}today',
-        '888${nb}times${sep}yesterday',
-        '888${nb}times${sep}last Sun${nb}28',
-        '888${nb}times',
-      ]);
-      expect(
-        templates(tag(count: 47, lastSeenDay: today)),
-        templates(tag(count: 1)),
-      );
-      expect(
-        templates(tag(lastSeenDay: saturday), spansMonths: true),
-        contains('888${nb}times${sep}last Sun${nb}28${nb}Jan'),
-      );
-      expect(templates(tag(kind: CategoryKind.trip, events: 1, count: 2)), [
-        '888${nb}trips${sep}888${nb}days',
-      ]);
-      // Money keeps the real figure's digit count, in 8s.
-      final spent = templates(
-        tag(kind: CategoryKind.maintenance, spentCents: 124000),
-      );
-      expect(spent.first, '888${nb}services${sep}8,888');
-      expect(
-        templates(tag(kind: CategoryKind.maintenance, spentCents: 999900)),
-        spent,
-      );
-      expect(
-        templates(
-          tag(kind: CategoryKind.maintenance, receivedCents: 124000),
-        ).first,
-        '888${nb}services$sep+8,888',
-      );
+      test('a Trip: its events and its days, each at its digit count', () {
+        expect(
+          templates(tag(kind: CategoryKind.trip, events: 12, count: 145)),
+          ['88${nb}trips${sep}888${nb}days'],
+        );
+        // One event also reserves "1 trip".
+        expect(templates(tag(kind: CategoryKind.trip, events: 2, count: 5)), [
+          '8${nb}trips${sep}8${nb}days',
+          '1${nb}trip${sep}8${nb}days',
+        ]);
+      });
+
+      test('money: the figure\'s digit count, "+" for money received', () {
+        expect(
+          templates(
+            tag(kind: CategoryKind.maintenance, count: 14, spentCents: 124000),
+          ),
+          ['88${nb}services${sep}8,888'],
+        );
+        expect(
+          templates(
+            tag(kind: CategoryKind.bill, count: 14, receivedCents: 999900),
+          ),
+          ['88${nb}times$sep+8,888'],
+        );
+        expect(
+          templates(
+            tag(kind: CategoryKind.maintenance, count: 14, spentCents: 4999),
+          ),
+          ['88${nb}services${sep}88'],
+        );
+      });
+
+      test('money at 0 or under half a unit reserves the last-seen line', () {
+        final lastSeen = [
+          '88${nb}services${sep}today',
+          '88${nb}services${sep}yesterday',
+          '88${nb}services${sep}last Wed${nb}28',
+        ];
+        for (final (spent, received) in [(5000, 5000), (49, 0), (0, 1)]) {
+          expect(
+            templates(
+              tag(
+                kind: CategoryKind.maintenance,
+                count: 14,
+                spentCents: spent,
+                receivedCents: received,
+                lastSeenDay: saturday,
+              ),
+            ),
+            lastSeen,
+            reason: '$spent spent, $received received',
+          );
+        }
+        // With no day seen, the count alone.
+        expect(
+          templates(
+            tag(kind: CategoryKind.maintenance, count: 14, spentCents: 30),
+          ),
+          ['88${nb}services'],
+        );
+      });
+
+      test('last seen: one shape for today, yesterday and a weekday', () {
+        final expected = [
+          '88${nb}times${sep}today',
+          '88${nb}times${sep}yesterday',
+          '88${nb}times${sep}last Wed${nb}28',
+        ];
+        for (final seen in [today, DateTime.utc(2026, 10, 29), saturday]) {
+          expect(templates(tag(count: 47, lastSeenDay: seen)), expected);
+        }
+        expect(
+          templates(tag(count: 47, lastSeenDay: saturday), spansMonths: true),
+          [
+            '88${nb}times${sep}today',
+            '88${nb}times${sep}yesterday',
+            '88${nb}times${sep}last Wed${nb}28${nb}May',
+          ],
+        );
+        expect(templates(tag(count: 47)), ['88${nb}times']);
+      });
+
+      test('the count takes the row\'s digit count and its "1" form', () {
+        expect(templates(tag(count: 3)), ['8${nb}times', 'once']);
+        expect(templates(tag(count: 1)), templates(tag(count: 9)));
+        expect(templates(tag(count: 123)), ['888${nb}times']);
+        expect(templates(tag(count: 3), locale: 'de'), ['8-mal', 'einmal']);
+      });
+
+      test('widest is asked for the short names the rows write', () {
+        final asked = <List<String>>[];
+        String first(Iterable<String> names) {
+          asked.add([...names]);
+          return names.first;
+        }
+
+        final de = templates(
+          tag(count: 47, lastSeenDay: saturday),
+          locale: 'de',
+          spansMonths: true,
+          widest: first,
+        );
+        expect(asked, hasLength(2));
+        expect(asked.first, hasLength(7));
+        expect(asked.first, containsAll(['Mo.', 'So.']));
+        expect(asked.last, hasLength(12));
+        expect(de.last, '88-mal${sep}zuletzt So., 28.${nb}Jan.');
+      });
     });
 
     test('the spoken label says the day in full and never "#"', () {
@@ -2761,6 +2899,9 @@ void main() {
         busiestHour: hour,
       );
 
+      // The word joiner that binds the range's dash to both times (A1).
+      final wj = String.fromCharCode(0x2060);
+
       test('24-hour and 12-hour, the row read from the week start', () {
         final en = labelsIn('en');
         final words = en.whenWords(
@@ -2768,22 +2909,39 @@ void main() {
           weekStart: CalendarWeekStart.monday,
           use24Hour: true,
         )!;
-        expect(words.caption, 'Busiest: Tuesday · 18:00–19:00');
+        expect(words.caption, 'Busiest: Tuesday · 18:00$wj–${wj}19:00');
         expect(
           words.spoken,
           'When. Busiest day Tuesday, busiest hour 18:00 to 19:00, over 34 '
           'timed days.',
         );
+        final twelve = en.whenWords(
+          when(),
+          weekStart: CalendarWeekStart.monday,
+          use24Hour: false,
+        )!;
+        // The calendar's clock, as the dated rows write a time.
         expect(
-          en
-              .whenWords(
-                when(),
-                weekStart: CalendarWeekStart.monday,
-                use24Hour: false,
-              )!
-              .caption,
-          'Busiest: Tuesday · 6${nb}PM–7${nb}PM',
+          twelve.caption,
+          'Busiest: Tuesday · 6:00${nb}PM$wj–${wj}7:00${nb}PM',
         );
+        expect(
+          EventTimeFormatter.formatMinuteFor(
+            18 * 60,
+            localeName: 'en',
+            use24Hour: false,
+          ),
+          '6:00 PM',
+        );
+        expect(
+          twelve.spoken,
+          'When. Busiest day Tuesday, busiest hour 6:00 PM to 7:00 PM, over '
+          '34 timed days.',
+        );
+      });
+
+      test('the last hour runs to midnight on either clock', () {
+        final en = labelsIn('en');
         expect(
           en
               .whenWords(
@@ -2792,7 +2950,17 @@ void main() {
                 use24Hour: true,
               )!
               .caption,
-          'Busiest: Sunday · 23:00–00:00',
+          'Busiest: Sunday · 23:00$wj–${wj}00:00',
+        );
+        expect(
+          en
+              .whenWords(
+                when(weekday: 0, hour: 23),
+                weekStart: CalendarWeekStart.sunday,
+                use24Hour: false,
+              )!
+              .caption,
+          'Busiest: Sunday · 11:00${nb}PM$wj–${wj}12:00${nb}AM',
         );
       });
 
@@ -2805,7 +2973,7 @@ void main() {
                 use24Hour: false,
               )!
               .caption,
-          'Meist: Dienstag · 18:00–19:00',
+          'Meist: Dienstag · 18:00$wj–${wj}19:00',
         );
         expect(
           labelsIn('ro')
@@ -2815,7 +2983,7 @@ void main() {
                 use24Hour: true,
               )!
               .caption,
-          'Cel mai des: duminică · 18:00–19:00',
+          'Cel mai des: duminică · 18:00$wj–${wj}19:00',
         );
       });
 
@@ -2834,38 +3002,82 @@ void main() {
 
     test('balance: hours and the share per locale, and the spoken form', () {
       const minutes = 38 * 60;
-      const total = 57 * 60;
       final en = labelsIn(
         'en',
-      ).balanceWords(LifeArea.work, minutes, totalMinutes: total);
+      ).balanceWords(LifeArea.work, minutes, percent: 67);
       expect(en.caption, '38${nb}h${sep}67$nb%');
       expect(en.spoken, 'Work, 38 hours, 67 percent of the hours');
       expect(
         labelsIn(
           'de',
-        ).balanceWords(LifeArea.work, minutes, totalMinutes: total).caption,
+        ).balanceWords(LifeArea.work, minutes, percent: 67).caption,
         '38${nb}Std.${sep}67$nb%',
       );
       final ro = labelsIn(
         'ro',
-      ).balanceWords(LifeArea.work, minutes, totalMinutes: total);
+      ).balanceWords(LifeArea.work, minutes, percent: 67);
       expect(ro.caption, '38${nb}h${sep}67$nb%');
       expect(ro.spoken, 'Muncă, 38 de ore, 67 la sută din ore');
       expect(
-        labelsIn('en').balanceWords(LifeArea.home, 0, totalMinutes: 0).caption,
+        labelsIn('en').balanceWords(LifeArea.home, 0, percent: 0).caption,
         '0${nb}min${sep}0$nb%',
       );
+      // The share is the caller's: a row the sum rounded down says so.
       expect(
-        labelsIn('en')
-            .balanceWords(
-              LifeArea.work,
-              minutes,
-              totalMinutes: total,
-              areaName: 'Office',
-            )
-            .spoken,
-        startsWith('Office, '),
+        labelsIn(
+          'en',
+        ).balanceWords(LifeArea.work, minutes, percent: 66).caption,
+        '38${nb}h${sep}66$nb%',
       );
+    });
+
+    test('shares sum to 100 by the largest remainder (A1)', () {
+      // The reviewer's six areas: rounded one by one they read 101.
+      const parts = [546, 206, 136, 66, 34, 12];
+      final total = parts.fold<int>(0, (sum, part) => sum + part);
+      expect(
+        parts
+            .map((part) => (part * 100 / total).round())
+            .fold<int>(0, (sum, share) => sum + share),
+        101,
+      );
+      final shares = ReportLabels.shares(parts);
+      expect(shares.fold<int>(0, (sum, share) => sum + share), 100);
+      // 54.6, 20.6, 13.6 and 6.6 tie; the earlier three take the points.
+      expect(shares, [55, 21, 14, 6, 3, 1]);
+
+      expect(ReportLabels.shares(const [42]), [100]);
+      expect(ReportLabels.shares(const []), isEmpty);
+      expect(ReportLabels.shares(const [0, 0, 0]), [0, 0, 0]);
+      expect(ReportLabels.shares(const [5, 0]), [100, 0]);
+      // A tie goes to the earlier part; a tiny part may read 0.
+      expect(ReportLabels.shares(const [1, 1, 1]), [34, 33, 33]);
+      expect(ReportLabels.shares(const [1000, 1]), [100, 0]);
+    });
+
+    test('the tag disclosures never say "#" (A1)', () {
+      final en = lookupAppLocalizations(const Locale('en'));
+      final de = lookupAppLocalizations(const Locale('de'));
+      final ro = lookupAppLocalizations(const Locale('ro'));
+      expect(en.reportTagName('ana'), 'tag ana');
+      expect(de.reportTagName('ana'), 'Schlagwort ana');
+      expect(ro.reportTagName('ana'), 'eticheta ana');
+      expect(
+        en.reportGroupMoreSpoken(2, en.reportTagName('ana')),
+        '2 more in tag ana',
+      );
+
+      expect(en.reportTagsMoreSpoken(1), '1 more tag');
+      expect(en.reportTagsMoreSpoken(4), '4 more tags');
+      expect(de.reportTagsMoreSpoken(1), '1 weiteres Schlagwort');
+      expect(de.reportTagsMoreSpoken(4), '4 weitere Schlagwörter');
+      expect(ro.reportTagsMoreSpoken(1), 'Încă o etichetă');
+      expect(ro.reportTagsMoreSpoken(4), 'Încă 4 etichete');
+      expect(ro.reportTagsMoreSpoken(20), 'Încă 20 de etichete');
+
+      expect(en.reportTagsLessSpoken, 'Show fewer tags');
+      expect(de.reportTagsLessSpoken, 'Weniger Schlagwörter anzeigen');
+      expect(ro.reportTagsLessSpoken, 'Arată mai puține etichete');
     });
 
     test('compare names', () {

@@ -136,7 +136,7 @@ class _ReportGoalsCardState extends State<ReportGoalsCard> {
     BuildContext context,
     double cardWidth,
   ) {
-    final style = DefaultTextStyle.of(context).style.merge(reportCaptionStyle);
+    final style = reportCaptionStyleOf(context);
     final scaler = MediaQuery.textScalerOf(context);
     final direction = Directionality.of(context);
     // The caption runs from the text column's start to the row's end; the
@@ -570,13 +570,14 @@ class ReportBalanceCard extends StatelessWidget {
         final byMinutes = b.value.compareTo(a.value);
         return byMinutes != 0 ? byMinutes : a.key.index - b.key.index;
       });
-    final total = areas.fold<int>(0, (sum, area) => sum + area.value);
+    // Shared out once over the shown order, so the rows sum to 100.
+    final shares = ReportLabels.shares([for (final area in areas) area.value]);
     final largest = areas.first.value;
     return FormRowGroup(
       trailingGap: false,
       children: [
-        for (final MapEntry(key: area, value: minutes) in areas)
-          _row(scheme, area, minutes, total: total, largest: largest),
+        for (final (i, MapEntry(key: area, value: minutes)) in areas.indexed)
+          _row(scheme, area, minutes, percent: shares[i], largest: largest),
       ],
     );
   }
@@ -585,10 +586,10 @@ class ReportBalanceCard extends StatelessWidget {
     ColorScheme scheme,
     LifeArea area,
     int minutes, {
-    required int total,
+    required int percent,
     required int largest,
   }) {
-    final words = labels.balanceWords(area, minutes, totalMinutes: total);
+    final words = labels.balanceWords(area, minutes, percent: percent);
     return FormMeterRow(
       leading: _LeadingGlyph(
         icon: CalendarIcons.areaIcon(area),

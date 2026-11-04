@@ -194,6 +194,17 @@ class ReportGroupStackState extends State<ReportGroupStack> {
   /// the built rows through it.
   final Map<String, GlobalKey> _lists = {};
 
+  /// The By tag headers' measured captions, kept across folds and refolds.
+  final ReportTagCaptions _tagCaptions = ReportTagCaptions();
+
+  @override
+  void didUpdateWidget(ReportGroupStack oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.tags, widget.tags)) {
+      _tagCaptions.retain(widget.tags);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final card = widget.card;
@@ -240,6 +251,7 @@ class ReportGroupStackState extends State<ReportGroupStack> {
                   ? widget.measures[group.categoryId]
                   : null,
               tag: widget.tags[group.categoryId],
+              tagCaptions: _tagCaptions,
             ),
           ),
         if (previews)
@@ -257,17 +269,16 @@ class ReportGroupStackState extends State<ReportGroupStack> {
 
   /// The card's "n more ▾" under its preview, "Show less ▴" under every
   /// group — one id both ways, the look of the Categories card's "n more
-  /// categories" row.
+  /// categories" row, spoken "4 more tags" and "Show fewer tags".
   Widget _moreGroups(int hidden, bool expanded) {
     final l10n = widget.labels.l10n;
-    final section = l10n.reportSectionTags;
     if (expanded) {
       return FormActionRow.disclosure(
         glyph: Icons.expand_less_rounded,
         label: l10n.reportGroupLess,
         onTap: _toggleCard,
         expanded: true,
-        semanticsLabel: l10n.reportGroupLessSpoken(section),
+        semanticsLabel: l10n.reportTagsLessSpoken,
         identifier: SemanticsIds.reportTagsMore,
       );
     }
@@ -276,7 +287,7 @@ class ReportGroupStackState extends State<ReportGroupStack> {
       label: l10n.reportGroupMore(hidden),
       onTap: _toggleCard,
       expanded: false,
-      semanticsLabel: l10n.reportGroupMoreSpoken(hidden, section),
+      semanticsLabel: l10n.reportTagsMoreSpoken(hidden),
       identifier: SemanticsIds.reportTagsMore,
     );
   }

@@ -317,6 +317,7 @@ void main() {
     bool disableAnimations = false,
     ReportMeasures? measures,
     ReportTag? tag,
+    bool boldText = false,
   }) async {
     addTearDown(tester.view.reset);
     tester.view.devicePixelRatio = 1.0;
@@ -335,6 +336,7 @@ void main() {
             textScaler: TextScaler.linear(textScale),
             alwaysUse24HourFormat: true,
             disableAnimations: disableAnimations,
+            boldText: boldText,
           ),
           child: child!,
         ),
@@ -1136,7 +1138,7 @@ void main() {
     ];
 
     /// A tag first seen in [categoryId], last seen on Saturday 24 October,
-    /// six days before today.
+    /// six days before today, unless [lastSeenDay] says otherwise.
     ReportTag tagOf({
       String label = 'ana',
       CategoryKind kind = CategoryKind.social,
@@ -1145,6 +1147,7 @@ void main() {
       int? count,
       int spentCents = 0,
       List<ReportDatedRow>? rows,
+      DateTime? lastSeenDay,
     }) {
       final days = rows ?? tagDays(6);
       return ReportTag(
@@ -1154,7 +1157,7 @@ void main() {
         count: count ?? days.length,
         minutes: 0,
         spentCents: spentCents,
-        lastSeenDay: DateTime.utc(2026, 10, 24),
+        lastSeenDay: lastSeenDay ?? DateTime.utc(2026, 10, 24),
         categoryIds: [categoryId, 'other'],
         kind: kind,
         rows: days,
@@ -1190,6 +1193,7 @@ void main() {
       double textScale = 1.0,
       Size surface = const Size(360, 780),
       Brightness brightness = Brightness.light,
+      bool boldText = false,
     }) => pump(
       tester,
       groupFor(tag),
@@ -1202,6 +1206,7 @@ void main() {
       textScale: textScale,
       surface: surface,
       brightness: brightness,
+      boldText: boldText,
     );
 
     final noBreak = String.fromCharCode(0x00A0);
@@ -1209,7 +1214,7 @@ void main() {
     String captionOf(WidgetTester tester) =>
         tester.widget<FormMeterRow>(headerRow()).caption!;
 
-    testWidgets('the header: "#ana" in its first category\'s avatar and '
+    testWidgets('the header: "#ana" in its noun\'s category\'s avatar and '
         'meter colour, two facts, spoken "tag ana", closed, report-tag-ana', (
       tester,
     ) async {
@@ -1322,7 +1327,7 @@ void main() {
       final id = SemanticsIds.reportTagMore('ana');
       expect(id, 'report-tag-more-ana');
       var data = tester.getSemantics(byId(id)).getSemanticsData();
-      expect(data.label, '2 more in #ana');
+      expect(data.label, '2 more in tag ana');
       expect(data.flagsCollection.isExpanded, Tristate.isFalse);
       await tester.tap(byId(id));
       await tester.pumpAndSettle();
@@ -1332,7 +1337,7 @@ void main() {
         findsOneWidget,
       );
       data = tester.getSemantics(byId(id)).getSemanticsData();
-      expect(data.label, 'Show less of #ana');
+      expect(data.label, 'Show less of tag ana');
       expect(data.flagsCollection.isExpanded, Tristate.isTrue);
       await tester.tap(byId(id));
       await tester.pumpAndSettle();
@@ -1365,12 +1370,86 @@ void main() {
       );
       expect(
         tester.getSemantics(byId(id)).getSemanticsData().label,
-        'Show #ana as a list',
+        'Show tag ana as a list',
       );
       await tester.tap(byId(id));
       await tester.pumpAndSettle();
       expect(log.showAsList, 1);
       handle.dispose();
+    });
+
+    testWidgets('the disclosures speak the tag\'s name, never "#", in every '
+        'locale', (tester) async {
+      final handle = tester.ensureSemantics();
+      final long = tagOf(rows: tagDays(201));
+      for (final locale in const ['en', 'de', 'ro']) {
+        final l10n = lookupAppLocalizations(Locale(locale));
+        final name = l10n.reportTagName('ana');
+        await pumpTag(
+          tester,
+          long,
+          open: true,
+          locale: Locale(locale),
+          surface: const Size(360, 1600),
+        );
+        final more = byId(SemanticsIds.reportTagMore('ana'));
+        expect(
+          tester.getSemantics(more).label,
+          l10n.reportGroupMoreSpoken(197, name),
+          reason: locale,
+        );
+        await tester.tap(more);
+        await tester.pumpAndSettle();
+        await tester.scrollUntilVisible(
+          more,
+          500,
+          scrollable: find.byType(Scrollable),
+        );
+        final list = byId(SemanticsIds.reportTagList('ana'));
+        final spoken = [
+          tester.getSemantics(more).label,
+          tester.getSemantics(list).label,
+        ];
+        expect(spoken, [
+          l10n.reportGroupLessSpoken(name),
+          l10n.reportGroupListSpoken(name),
+        ], reason: locale);
+        expect(spoken.join(), isNot(contains('#')), reason: locale);
+      }
+      handle.dispose();
+    });
+
+    testWidgets('the header wears the category its noun is read from: one '
+        'uncategorised event beside Trip\'s reads "2 trips" under Trip\'s '
+        'avatar', (tester) async {
+      final trip = ReportTag(
+        key: 'rome',
+        label: 'Rome',
+        events: 2,
+        count: 5,
+        minutes: 0,
+        lastSeenDay: DateTime.utc(2026, 10, 24),
+        // The catalogue's order: Other first.
+        categoryIds: const ['other', 'holiday'],
+        kind: CategoryKind.trip,
+        kindCategoryId: 'holiday',
+        rows: tagDays(5),
+      );
+      await pumpTag(tester, trip);
+      final holiday = CalendarCategories.resolve('holiday');
+      expect(captionOf(tester).replaceAll(noBreak, ' '), '2 trips · 5 days');
+      final avatar = tester.widget<EventAvatar>(find.byType(EventAvatar));
+      expect(avatar.icon, CalendarIcons.forKey(holiday.iconKey));
+      expect(avatar.color, holiday.color);
+      expect(
+        tester.widget<FormMeterRow>(headerRow()).meterColor,
+        holiday.color,
+      );
+      expect(
+        holiday.color,
+        isNot(CalendarCategories.resolve('other').color),
+        reason: 'the case tells the two apart',
+      );
     });
 
     /// The header's caption paragraph: drawn whole on its reserved lines,
@@ -1388,12 +1467,11 @@ void main() {
       expect(paragraph.didExceedMaxLines, isFalse, reason: reason);
     }
 
-    // §2.2's heights: the caption's lines follow the tag's template shape,
-    // measured beside the fold glyph, never its value. Where they differ
-    // from the spec's table the glyph's 38 dp is why: Romanian's
-    // cross-month "last …" takes two lines at 1.0, and Maintenance reserves
-    // its last-seen fallback, three lines in Romanian at 2.0 — the one-line
-    // 104 is a Trip's at 412.
+    // §2.2's heights: the caption's lines follow the templates of the shape
+    // the tag shows (A1), measured beside the fold glyph with the widest
+    // names, never its value. Romanian's cross-month "last …" keeps one line
+    // at 1.0; English cross-month takes two at 1.3; Maintenance showing its
+    // money reserves no last-seen fallback, one line in Romanian at 2.0.
     for (final (scale, cells) in [
       (
         1.0,
@@ -1402,7 +1480,7 @@ void main() {
           ('de', ana, false, 360.0, 66.0),
           ('ro', ana, false, 360.0, 66.0),
           ('de', ana, true, 360.0, 66.0),
-          ('ro', ana, true, 360.0, 84.0),
+          ('ro', ana, true, 360.0, 66.0),
           ('ro', ana, true, 412.0, 66.0),
         ],
       ),
@@ -1410,7 +1488,7 @@ void main() {
         1.3,
         [
           ('en', ana, false, 360.0, 77.4),
-          ('de', ana, false, 360.0, 100.8),
+          ('de', ana, false, 360.0, 77.4),
           ('en', ana, true, 360.0, 100.8),
           ('de', ana, false, 412.0, 77.4),
         ],
@@ -1420,8 +1498,8 @@ void main() {
         [
           ('en', rome, false, 412.0, 104.0),
           ('en', ana, false, 360.0, 140.0),
-          ('de', ana, true, 360.0, 176.0),
-          ('ro', car, false, 360.0, 176.0),
+          ('de', ana, true, 360.0, 140.0),
+          ('ro', car, false, 360.0, 104.0),
         ],
       ),
     ]) {
@@ -1462,6 +1540,93 @@ void main() {
                 );
                 expectWholeCaption(tester, reason);
                 expect(tester.takeException(), isNull, reason: reason);
+              }
+            }
+          }
+        }
+      });
+    }
+
+    // The reviewers' probe: Romanian at 1.0 on 360, a Maintenance tag seen
+    // 120 times, cut under bold text while its lines were measured regular.
+    final car120 = tagOf(
+      label: 'car',
+      kind: CategoryKind.maintenance,
+      categoryId: 'other',
+      count: 120,
+      spentCents: 124000,
+      rows: tagDays(120),
+    );
+
+    testWidgets('under bold text the caption is measured bold: no tag '
+        'caption shrinks or cuts, 1.0 to 2.0, at 360 and 412', (tester) async {
+      for (final scale in const [1.0, 1.3, 2.0]) {
+        for (final width in const [360.0, 412.0]) {
+          for (final locale in const ['en', 'de', 'ro']) {
+            for (final tag in [ana, rome, car, car120]) {
+              for (final spansMonths in const [false, true]) {
+                final reason =
+                    '${tag.key} ${tag.count} $locale $scale $width '
+                    'cross-month $spansMonths';
+                await pumpTag(
+                  tester,
+                  tag,
+                  locale: Locale(locale),
+                  textScale: scale,
+                  spansMonths: spansMonths,
+                  surface: Size(width, 1600),
+                  boldText: true,
+                );
+                final paragraph = tester.renderObject<RenderParagraph>(
+                  find.descendant(
+                    of: headerRow(),
+                    matching: find.text(captionOf(tester)),
+                  ),
+                );
+                expect(paragraph.text.style?.fontWeight, FontWeight.bold);
+                expectWholeCaption(tester, reason);
+              }
+            }
+          }
+        }
+      }
+    });
+
+    // Seven days of one week, then the 28th of each of the twelve months
+    // before today: whichever weekday and month the tag was last seen on,
+    // the reserved lines hold it.
+    final seenDays = [
+      for (var day = 19; day <= 25; day++) DateTime.utc(2026, 10, day),
+      for (var month = 0; month < 12; month++)
+        DateTime.utc(2025, 11 + month, 28),
+    ];
+    // Every 4 dp from 320 to 440, 360 and 412 among them: a name compared
+    // by length rather than drawn ("Sun" for "Mon") cuts at 340 in German
+    // at 1.0 and at 332 in English at 1.3, between the phone widths.
+    final sweepWidths = [
+      for (var width = 320.0; width <= 440; width += 4) width,
+    ];
+    for (final scale in const [1.0, 1.3]) {
+      testWidgets('at $scale the last-seen caption is never cut, whatever '
+          'its weekday and month, from 320 to 440, in en, de and ro', (
+        tester,
+      ) async {
+        for (final width in sweepWidths) {
+          for (final locale in const ['en', 'de', 'ro']) {
+            for (final spansMonths in const [false, true]) {
+              for (final seen in seenDays) {
+                final reason =
+                    '${seen.toIso8601String().substring(0, 10)} $locale '
+                    '$width cross-month $spansMonths';
+                await pumpTag(
+                  tester,
+                  tagOf(lastSeenDay: seen),
+                  locale: Locale(locale),
+                  textScale: scale,
+                  spansMonths: spansMonths,
+                  surface: Size(width, 1600),
+                );
+                expectWholeCaption(tester, reason);
               }
             }
           }

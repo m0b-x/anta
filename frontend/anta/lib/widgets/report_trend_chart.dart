@@ -502,6 +502,9 @@ class _TrendPainter extends CustomPainter {
     );
     final ringInset = _snap(ReportMetrics.trendLastYearRing);
     final tickHeight = _snap(ReportMetrics.trendLastYearTick);
+    // A tick at the peak or near the baseline would sit across a hairline and
+    // its ring would cut the rule; the band stays between the two.
+    final lowestTop = math.max(hairline, height - hairline - ringHeight);
     for (
       var index = 0;
       index < math.min(ticks.length, buckets.length);
@@ -510,7 +513,9 @@ class _TrendPainter extends CustomPainter {
       final count = ticks[index];
       if (count <= 0) continue;
       final (left, right) = span(index);
-      final top = _snap(height - count * perUnit - ringHeight / 2);
+      final top = _snap(
+        height - count * perUnit - ringHeight / 2,
+      ).clamp(hairline, lowestTop);
       canvas.drawRect(Rect.fromLTRB(left, top, right, top + ringHeight), ring);
       final tickTop = top + ringInset;
       canvas.drawRect(

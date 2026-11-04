@@ -711,11 +711,12 @@ void main() {
         );
         expect(tick.height, ReportMetrics.trendLastYearTick);
         expect(tick.center.dy, closeTo(ring.center.dy, 0.01));
-        expect(
-          tick.center.dy,
-          closeTo(ReportMetrics.chartPlotHeight - count * perUnit, 0.5),
-          reason: 'month $index',
+        // March's 5 is the peak: its band is held below the top hairline.
+        final level = (ReportMetrics.chartPlotHeight - count * perUnit).clamp(
+          1 + ring.height / 2,
+          ReportMetrics.chartPlotHeight - 1 - ring.height / 2,
         );
+        expect(tick.center.dy, closeTo(level, 0.5), reason: 'month $index');
         expect(
           tick.width,
           closeTo(296 / 12 - ReportMetrics.columnGap, 1),
@@ -729,6 +730,27 @@ void main() {
         }
       }
     });
+
+    for (final ratio in [1.0, 3.0]) {
+      testWidgets('a tick at the peak keeps its band inside the hairlines at '
+          '${ratio}x', (tester) async {
+        await pump(tester, yearWithLastYear(), year, devicePixelRatio: ratio);
+        final calls = plotCalls(tester);
+        final top = calls[0].invocation.positionalArguments[0] as Rect;
+        final bottom = calls[1].invocation.positionalArguments[0] as Rect;
+        final drawn = bands(tester);
+        // March's 5 is the plot's peak; its ring follows January's two bands
+        // and starts just under the top hairline instead of crossing it.
+        final march = 2 * lastYearCounts.take(2).where((n) => n > 0).length;
+        final peakRing = drawn[march].$1;
+        expect(peakRing.top, closeTo(top.bottom, 0.001));
+        expect(peakRing.width, closeTo(drawn.first.$1.width, 0.001));
+        for (final (band, _) in drawn) {
+          expect(band.top, greaterThanOrEqualTo(top.bottom - 0.001));
+          expect(band.bottom, lessThanOrEqualTo(bottom.top + 0.001));
+        }
+      });
+    }
 
     testWidgets('the peak follows last year\'s largest count', (tester) async {
       await pump(tester, yearWithLastYear(), year);

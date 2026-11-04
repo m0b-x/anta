@@ -11234,6 +11234,28 @@
       }
     }
   },
+  "reportTagName": "tag {name}",
+  "@reportTagName": {
+    "description": "Screen reader name of a report By tag row's tag, without the # sign, in its disclosures and Show as list, e.g. 2 more in tag ana",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "reportTagsMoreSpoken": "{count, plural, =1{1 more tag} other{{count} more tags}}",
+  "@reportTagsMoreSpoken": {
+    "description": "Screen reader label of the report By tag card's disclosure that shows the remaining tags",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "reportTagsLessSpoken": "Show fewer tags",
+  "@reportTagsLessSpoken": {
+    "description": "Screen reader label of the report By tag card's disclosure that folds the tags back to the first four"
+  },
   "reportWhenBusiest": "Busiest: {weekday} · {hours}",
   "@reportWhenBusiest": {
     "description": "Caption under the report's When heatmap: the weekday and the hour with the most minutes, e.g. Busiest: Tuesday · 18:00–19:00",

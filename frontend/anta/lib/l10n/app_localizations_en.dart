@@ -8730,6 +8730,25 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String reportTagName(String name) {
+    return 'tag $name';
+  }
+
+  @override
+  String reportTagsMoreSpoken(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count more tags',
+      one: '1 more tag',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get reportTagsLessSpoken => 'Show fewer tags';
+
+  @override
   String reportWhenBusiest(String weekday, String hours) {
     return 'Busiest: $weekday · $hours';
   }

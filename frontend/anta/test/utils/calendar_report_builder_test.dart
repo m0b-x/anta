@@ -2262,6 +2262,35 @@ void main() {
         CategoryKind.custom,
       );
     });
+
+    test('the noun\'s category is the one the kind was read from, else the '
+        'first', () {
+      // One uncategorised event beside two in a category profiled as a Trip
+      // — Friends, which this catalogue sorts after Other.
+      final events = [
+        ev('call', 'other', day(2026, 9, 1)).copyWith(title: 'Call #rome'),
+        ev('fly', 'friends', day(2026, 9, 2)).copyWith(title: 'Fly #rome'),
+        ev('walk', 'friends', day(2026, 9, 3)).copyWith(title: 'Walk #rome'),
+      ];
+      final trip = foldFacts(
+        events,
+        firstThree,
+        later,
+        profiles: {
+          'friends': CategoryProfile(
+            id: 'p',
+            categoryId: 'friends',
+            kind: CategoryKind.trip,
+          ).effective,
+        },
+      ).tags.single;
+      expect(trip.categoryIds, ['other', 'friends']);
+      expect(trip.kind, CategoryKind.trip);
+      expect(trip.kindCategoryId, 'friends', reason: 'the Trip\'s avatar');
+      final plain = foldFacts(events, firstThree, later).tags.single;
+      expect(plain.kind, CategoryKind.custom);
+      expect(plain.kindCategoryId, 'other');
+    });
   });
 
   // The goals, Due soon, Balance and When (S2a-ii): each state on its own

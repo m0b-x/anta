@@ -13443,6 +13443,24 @@ abstract class AppLocalizations {
   /// **'tag {name}, {facts}'**
   String reportTagSpoken(String name, String facts);
 
+  /// Screen reader name of a report By tag row's tag, without the # sign, in its disclosures and Show as list, e.g. 2 more in tag ana
+  ///
+  /// In en, this message translates to:
+  /// **'tag {name}'**
+  String reportTagName(String name);
+
+  /// Screen reader label of the report By tag card's disclosure that shows the remaining tags
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 more tag} other{{count} more tags}}'**
+  String reportTagsMoreSpoken(int count);
+
+  /// Screen reader label of the report By tag card's disclosure that folds the tags back to the first four
+  ///
+  /// In en, this message translates to:
+  /// **'Show fewer tags'**
+  String get reportTagsLessSpoken;
+
   /// Caption under the report's When heatmap: the weekday and the hour with the most minutes, e.g. Busiest: Tuesday · 18:00–19:00
   ///
   /// In en, this message translates to:

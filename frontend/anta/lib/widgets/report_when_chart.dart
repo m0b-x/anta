@@ -80,11 +80,11 @@ class ReportWhenChart extends StatelessWidget {
       weekStart: weekStart,
       use24Hour: use24Hour,
     );
-    final weekday = DateFormat.E(locale);
+    final formats = _WhenFormats.of(locale);
     // January 2024 opens on a Monday, so its day N is weekday N.
     final rowNames = [
       for (var row = 0; row < DateTime.daysPerWeek; row++)
-        weekday.format(
+        formats.weekday.format(
           DateTime.utc(
             2024,
             1,
@@ -121,7 +121,7 @@ class ReportWhenChart extends StatelessWidget {
                     context,
                     constraints.maxWidth,
                     rowNames: rowNames,
-                    hourLabels: _hourLabels(locale, use24Hour: use24Hour),
+                    hourLabels: _hourLabels(formats, use24Hour: use24Hour),
                     fills: fills,
                     measured: measuredStyle,
                     drawn: captionStyle,
@@ -144,16 +144,16 @@ class ReportWhenChart extends StatelessWidget {
   /// hour alone where the clock writes a day period ("6 PM"), as the
   /// caption's words do; else the bare hour ("18").
   static Map<int, String> _hourLabels(
-    String locale, {
+    _WhenFormats formats, {
     required bool use24Hour,
   }) {
-    final dayPeriod =
-        !use24Hour && (DateFormat.jm(locale).pattern ?? '').contains('a');
-    final hourOnly = DateFormat.j(locale);
+    final dayPeriod = !use24Hour && formats.dayPeriod;
     final every = ReportMetrics.whenHourSteps.first;
     return {
       for (var hour = 0; hour < ReportWhen.hoursPerDay; hour += every)
-        hour: dayPeriod ? hourOnly.format(DateTime(2000, 1, 1, hour)) : '$hour',
+        hour: dayPeriod
+            ? formats.hourOnly.format(DateTime(2000, 1, 1, hour))
+            : '$hour',
     };
   }
 
@@ -211,9 +211,18 @@ class ReportWhenChart extends StatelessWidget {
     for (final minutes in when.cells) {
       if (minutes > peakCell) peakCell = minutes;
     }
+    // From 1.3 a weekday label is taller than its row and centred on it, so
+    // the last one drawn can end below the grid; its box must never overlap
+    // the hour axis's row. The gap is the grid's: the axis keeps it below
+    // the cells, and starts flush under a label box that reaches past it.
+    final lastRow = (DateTime.daysPerWeek - 1) ~/ labelEvery * labelEvery;
+    final axisTop = math.max(
+      gridHeight + ReportMetrics.axisGap,
+      (lastRow + 0.5) * rowPitch + line / 2,
+    );
 
     return SizedBox(
-      height: gridHeight + ReportMetrics.axisGap + line,
+      height: axisTop + line,
       child: Stack(
         clipBehavior: Clip.none,
         children: [
@@ -249,8 +258,9 @@ class ReportWhenChart extends StatelessWidget {
               _hourLabel(
                 textWidth: math.min(measure(text), width),
                 centre: labelColumn + (hour + 0.5) * pitch,
+                start: labelColumn,
                 width: width,
-                top: gridHeight + ReportMetrics.axisGap,
+                top: axisTop,
                 line: line,
                 child: label(text),
               ),
@@ -259,17 +269,20 @@ class ReportWhenChart extends StatelessWidget {
     );
   }
 
-  /// An hour label centred under its column and kept inside the card.
+  /// An hour label centred under its column and kept between the grid's
+  /// [start] and the card's edge: "12 AM" centred on hour 0 would otherwise
+  /// begin under the weekday names.
   static Widget _hourLabel({
     required double textWidth,
     required double centre,
+    required double start,
     required double width,
     required double top,
     required double line,
     required Widget child,
   }) {
     final left = math.min(
-      math.max(0.0, centre - textWidth / 2),
+      math.max(start, centre - textWidth / 2),
       math.max(0.0, width - textWidth),
     );
     return Positioned(
@@ -280,6 +293,30 @@ class ReportWhenChart extends StatelessWidget {
       child: child,
     );
   }
+}
+
+/// The card's date formats for a locale, built once per locale rather than
+/// on every build and layout; the app speaks three languages, so the cache
+/// stays that small.
+class _WhenFormats {
+  _WhenFormats._(String locale)
+    : weekday = DateFormat.E(locale),
+      hourOnly = DateFormat.j(locale),
+      dayPeriod = (DateFormat.jm(locale).pattern ?? '').contains('a');
+
+  static final Map<String, _WhenFormats> _byLocale = {};
+
+  factory _WhenFormats.of(String locale) =>
+      _byLocale.putIfAbsent(locale, () => _WhenFormats._(locale));
+
+  /// The weekday column's short names.
+  final DateFormat weekday;
+
+  /// The hour alone, with its day period where the clock writes one.
+  final DateFormat hourOnly;
+
+  /// Whether the locale's 12-hour clock writes a day period ("6 PM").
+  final bool dayPeriod;
 }
 
 /// The cells, row-major as [ReportWhen.cells] holds them. Bounds and

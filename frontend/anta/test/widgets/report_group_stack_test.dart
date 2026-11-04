@@ -97,6 +97,7 @@ void main() {
     double room = 0,
     Size surface = const Size(360, 780),
     Key? key,
+    Locale locale = const Locale('en'),
   }) async {
     addTearDown(tester.view.reset);
     tester.view.devicePixelRatio = 1.0;
@@ -107,7 +108,7 @@ void main() {
         theme: AppTheme.light(),
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
-        locale: const Locale('en'),
+        locale: locale,
         home: Scaffold(
           body: Builder(
             builder: (context) => CustomScrollView(
@@ -220,7 +221,7 @@ void main() {
     }
     expect(find.text('4 more'), findsOneWidget);
     var data = tester.getSemantics(more()).getSemanticsData();
-    expect(data.label, '4 more in By tag');
+    expect(data.label, '4 more tags');
     expect(data.flagsCollection.isExpanded, Tristate.isFalse);
     expect(SemanticsIds.reportTagsMore, 'report-tags-more');
 
@@ -229,7 +230,7 @@ void main() {
     expect(headers(), findsNWidgets(8));
     expect(find.text('Show less'), findsOneWidget);
     data = tester.getSemantics(more()).getSemanticsData();
-    expect(data.label, 'Show less of By tag');
+    expect(data.label, 'Show fewer tags');
     expect(data.flagsCollection.isExpanded, Tristate.isTrue);
     expect(folds.isTagsExpanded, isTrue);
     expect(shrinks, isEmpty, reason: 'expanding never shrinks');
@@ -240,6 +241,29 @@ void main() {
     expect(headers(), findsNWidgets(4));
     expect(find.text('4 more'), findsOneWidget);
     expect(folds.isTagsExpanded, isFalse);
+    handle.dispose();
+  });
+
+  testWidgets('the card\'s disclosure speaks of tags in every locale, never '
+      'of the section', (tester) async {
+    final handle = tester.ensureSemantics();
+    for (final (locale, more4, fewer) in const [
+      ('en', '4 more tags', 'Show fewer tags'),
+      ('de', '4 weitere Schlagwörter', 'Weniger Schlagwörter anzeigen'),
+      ('ro', 'Încă 4 etichete', 'Arată mai puține etichete'),
+    ]) {
+      folds = ReportGroupFolds();
+      await pumpStack(
+        tester,
+        locale: Locale(locale),
+        surface: const Size(360, 1200),
+        key: UniqueKey(),
+      );
+      expect(tester.getSemantics(more()).label, more4, reason: locale);
+      await tester.tap(more());
+      await tester.pumpAndSettle();
+      expect(tester.getSemantics(more()).label, fewer, reason: locale);
+    }
     handle.dispose();
   });
 

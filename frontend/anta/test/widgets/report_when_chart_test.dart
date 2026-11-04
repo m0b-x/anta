@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show RenderCustomPaint;
 import 'package:flutter_test/flutter_test.dart';
@@ -148,17 +150,30 @@ void main() {
       if (weekdays.contains(text)) text,
   ];
 
-  /// The hour labels, left to right: the texts on the grid's last line.
-  List<String> hourLabels(WidgetTester tester) {
+  /// The hour labels with their boxes, left to right: the texts below the
+  /// grid's last line.
+  List<(String, Rect)> hourAxis(WidgetTester tester) {
     final grid = cells(tester);
     final plotTop = tester.getRect(plot()).top;
     final gridBottom = plotTop + grid.last.$1.bottom;
-    final axis = [
+    return [
       for (final (text, rect) in texts(tester))
         if (rect.top > gridBottom && !text.contains('Busiest')) (text, rect),
     ]..sort((a, b) => a.$2.left.compareTo(b.$2.left));
-    return [for (final (text, _) in axis) text];
   }
+
+  /// The hour labels, left to right.
+  List<String> hourLabels(WidgetTester tester) => [
+    for (final (text, _) in hourAxis(tester)) text,
+  ];
+
+  /// The grid's left edge on screen: where the first hour's pitch starts,
+  /// to within the half pixel the painter's snapped cell edge moves it.
+  double gridLeft(WidgetTester tester) =>
+      tester.getRect(plot()).left +
+      cells(tester).first.$1.left -
+      ReportMetrics.columnGap / 2 -
+      0.5;
 
   group('geometry', () {
     testWidgets('360 en 1.0: the spec\'s grid, every weekday, step 3', (
@@ -206,6 +221,7 @@ void main() {
 
     testWidgets('360 en 1.3: every other weekday, step 3', (tester) async {
       await pump(tester, peakWhen, textScale: 1.3);
+      // Sunday's label ends about 1 dp past the grid, inside the axis gap.
       expect(tester.getSize(card()).height, closeTo(234.3, 1));
       expect(weekdayLabels(tester), ['Mon', 'Wed', 'Fri', 'Sun']);
       expect(hourLabels(tester), hasLength(8));
@@ -215,7 +231,9 @@ void main() {
       tester,
     ) async {
       await pump(tester, peakWhen, textScale: 2.0);
-      expect(tester.getSize(card()).height, closeTo(285.3, 1));
+      // Sunday's label ends about 8 dp past the grid, past the axis gap;
+      // the axis starts flush under it.
+      expect(tester.getSize(card()).height, closeTo(289.5, 1));
       final grid = cells(tester);
       expect(
         grid[ReportWhen.hoursPerDay].$1.top - grid.first.$1.top,
@@ -223,6 +241,19 @@ void main() {
       );
       expect(weekdayLabels(tester), ['Mon', 'Wed', 'Fri', 'Sun']);
       expect(hourLabels(tester), ['0', '6', '12', '18']);
+    });
+
+    testWidgets('360 en 2.0: no weekday label reaches into the hour axis', (
+      tester,
+    ) async {
+      await pump(tester, peakWhen, textScale: 2.0);
+      final axis = hourAxis(tester);
+      expect(axis, isNotEmpty);
+      final axisTop = axis.map((label) => label.$2.top).reduce(math.min);
+      for (final (text, rect) in texts(tester)) {
+        if (!weekdays.contains(text)) continue;
+        expect(rect.bottom, lessThanOrEqualTo(axisTop + 0.01), reason: text);
+      }
     });
 
     testWidgets('412 en 1.0: a wider pitch, the same card', (tester) async {
@@ -239,7 +270,7 @@ void main() {
       }
     });
 
-    for (final (locale, height) in [('de', 293.8), ('ro', 281.2)]) {
+    for (final (locale, height) in [('de', 297.4), ('ro', 285.7)]) {
       testWidgets('360 $locale 2.0: the card is $height', (tester) async {
         await pump(tester, peakWhen, locale: Locale(locale), textScale: 2.0);
         expect(tester.getSize(card()).height, closeTo(height, 1));
@@ -280,6 +311,18 @@ void main() {
       await pump(tester, peakWhen, use24Hour: false, textScale: 2.0);
       expect(hourLabels(tester), [hour(0), hour(12)]);
     });
+
+    for (final scale in [1.0, 2.0]) {
+      testWidgets('every hour label starts at or after the grid at $scale', (
+        tester,
+      ) async {
+        await pump(tester, peakWhen, use24Hour: false, textScale: scale);
+        final left = gridLeft(tester);
+        for (final (text, rect) in hourAxis(tester)) {
+          expect(rect.left, greaterThanOrEqualTo(left - 0.01), reason: text);
+        }
+      });
+    }
   });
 
   group('ramp', () {

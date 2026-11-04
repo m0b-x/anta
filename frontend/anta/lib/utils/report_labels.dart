@@ -55,6 +55,10 @@ enum _GoalShape {
   planned,
 }
 
+/// The second fact a By tag header shows (S5 §2.2), which its templates
+/// follow; a header with none shows the count alone.
+enum _TagFact { days, money, lastSeen }
+
 /// Every word the report says about its numbers — tiles, deltas, the
 /// caption, the band's subtitle, the spoken tile labels — in one place, so
 /// the page, the report digest's words and the share read alike (S4, S5
@@ -105,13 +109,6 @@ class ReportLabels {
   late final DateFormat _rowDayOfMonth = DateFormat.d(l10n.localeName);
   late final DateSymbols _rowSymbols = _rowDayOfMonth.dateSymbols;
 
-  // The When card's clock (S5), built on first use. The hour-only clock
-  // follows `EventTimeFormatter`'s rule for a day period — the locale's `jm`
-  // writes one — so "6 PM" stands where "6:00 PM" would.
-  late final bool _clockHasDayPeriod =
-      (DateFormat.jm(l10n.localeName).pattern ?? '').contains('a');
-  late final DateFormat _hourOnly = DateFormat('h a', l10n.localeName);
-
   /// The names already worded by this instance: a build names the shown
   /// period three times and each `menuValue` builds a `DateFormat`.
   final Map<OverviewPeriod, String> _periodNames = {};
@@ -127,6 +124,10 @@ class ReportLabels {
 
   /// What binds a figure to the word beside it (W).
   static const String _noBreak = '\u00a0';
+
+  /// What binds a range's dash to the times on both sides of it, where a
+  /// no-break space would draw a gap.
+  static const String _wordJoiner = '\u2060';
 
   /// A figure, signed or not, with the locale's decimal mark, or the dash —
   /// what the value line draws large; everything else is a unit.
@@ -347,7 +348,8 @@ class ReportLabels {
   ///
   /// [beside] names a saved view compared as a second Totals card (S5
   /// §2.5): "beside Work / Life" takes the "against …" fact's place, since
-  /// the two cards cover one span and no delta is drawn.
+  /// the two cards cover one span and no delta is drawn. An empty span
+  /// keeps it, as the view's card is still drawn beside the empty one.
   String? caption(
     CalendarReport report, {
     required String periodName,
@@ -366,6 +368,7 @@ class ReportLabels {
     if (report.isEmpty) {
       return [
         '$periodName$separator${l10n.reportCaptionNothing}',
+        if (beside != null) l10n.reportCaptionBeside(beside),
         ...days,
       ].join(separator);
     }
@@ -1419,10 +1422,26 @@ class ReportLabels {
     _ => 'other',
   };
 
-  /// The longest of [names] by length: the template's stand-in for the
-  /// widest; the row measures the real width.
-  static String _longest(List<String> names) =>
-      names.reduce((a, b) => b.length > a.length ? b : a);
+  /// A net amount in [money]'s whole units: the figure its fact draws.
+  static int _netUnits(int net) => (net.abs() / 100).round();
+
+  /// The second fact [tag]'s header shows: a Trip's days; Maintenance and
+  /// Bill their net money when it draws at least one whole unit — under
+  /// half a unit [money] writes "0"; every other kind, and those without
+  /// money, the day last seen; null with none.
+  static _TagFact? _tagFact(ReportTag tag) {
+    if (tag.kind == CategoryKind.trip) return _TagFact.days;
+    final money =
+        tag.kind == CategoryKind.maintenance || tag.kind == CategoryKind.bill;
+    if (money && _netUnits(tag.spentCents - tag.receivedCents) != 0) {
+      return _TagFact.money;
+    }
+    return tag.lastSeenDay == null ? null : _TagFact.lastSeen;
+  }
+
+  /// What [tag]'s count counts: a Trip its events, as its days follow.
+  static int _tagCount(ReportTag tag) =>
+      tag.kind == CategoryKind.trip ? tag.events : tag.count;
 
   /// [day] as a screen reader hears it on a tag ("Saturday 24 October"):
   /// the row's template with the long names, the month always, as no span
@@ -1451,80 +1470,42 @@ class ReportLabels {
   /// received is signed "+", so it never reads as spending.
   String _netMoney(int net) => net < 0 ? '+${money(-net)}' : money(net);
 
-  /// A By tag header's words (S5 §2.2): the caption's two facts, the
-  /// template lines its height is reserved from, and the spoken label.
+  /// A By tag header's words (S5 §2.2): the caption's two facts and the
+  /// spoken label.
   ///
   /// The count leads with the noun of [ReportTag.kind] — a Trip counts its
   /// events ("2 trips") because its second fact is the days ("5 days").
   /// Maintenance and Bill follow with the net money ("1,240", "+1,240"
-  /// received only), every other kind — and money at 0 — with the day last
-  /// seen as the dated rows write it, the month only when [spansMonths];
-  /// with no day seen up to [today] the count stands alone.
-  ///
-  /// [templates] is one line per shape the caption can take, every count
-  /// written as 888 and the day as the locale's longest names, so the row
-  /// reserves its lines from the shapes and a refold never changes its
-  /// height (S4 D). A money line keeps the real figure's digit count. The
-  /// spoken label says the day in full and never the '#'.
-  ({String caption, List<String> templates, String spoken}) tagWords(
+  /// received only), every other kind — and money under one whole unit —
+  /// with the day last seen as the dated rows write it, the month only when
+  /// [spansMonths]; with no day seen up to [today] the count stands alone.
+  /// The spoken label says the day in full and never the '#'.
+  ({String caption, String spoken}) tagWords(
     ReportTag tag, {
     required bool spansMonths,
     required DateTime today,
   }) {
-    final noun = _tagNoun(tag.kind);
-    final trip = tag.kind == CategoryKind.trip;
-    final money =
-        tag.kind == CategoryKind.maintenance || tag.kind == CategoryKind.bill;
-    final net = tag.spentCents - tag.receivedCents;
-    final seen = tag.lastSeenDay;
-    final counted = l10n.reportTagCount(noun, trip ? tag.events : tag.count);
+    final counted = l10n.reportTagCount(_tagNoun(tag.kind), _tagCount(tag));
     final String? drawn;
     final String? heard;
-    if (trip) {
-      drawn = heard = l10n.reportTagDays(tag.count);
-    } else if (money && net != 0) {
-      drawn = heard = _netMoney(net);
-    } else if (seen != null) {
-      drawn = _tagLastSeen(
-        seen,
-        today,
-        _rowDay(seen, spansMonths: spansMonths),
-      );
-      heard = _tagLastSeen(seen, today, _rowDaySpoken(seen));
-    } else {
-      drawn = heard = null;
+    switch (_tagFact(tag)) {
+      case _TagFact.days:
+        drawn = heard = l10n.reportTagDays(tag.count);
+      case _TagFact.money:
+        drawn = heard = _netMoney(tag.spentCents - tag.receivedCents);
+      case _TagFact.lastSeen:
+        final seen = tag.lastSeenDay!;
+        drawn = _tagLastSeen(
+          seen,
+          today,
+          _rowDay(seen, spansMonths: spansMonths),
+        );
+        heard = _tagLastSeen(seen, today, _rowDaySpoken(seen));
+      case null:
+        drawn = heard = null;
     }
-
-    final widest = l10n.reportTagCount(noun, _eights(3));
-    String template(String? fact) =>
-        [widest, ?fact].map(_bindNumbers).join(separator);
-    final weekday = _longest(_rowSymbols.SHORTWEEKDAYS);
-    final ofMonth = _rowDayOfMonth.format(DateTime.utc(2026, 1, 28));
-    final lastSeen = [
-      l10n.reportTagLastSeen('today', ''),
-      l10n.reportTagLastSeen('yesterday', ''),
-      l10n.reportTagLastSeen(
-        'other',
-        spansMonths
-            ? l10n.reportRowDayMonth(
-                weekday,
-                ofMonth,
-                _longest(_rowSymbols.SHORTMONTHS),
-              )
-            : l10n.reportRowDay(weekday, ofMonth),
-      ),
-    ];
-    final moneyTemplate = _eights('${(net.abs() / 100).round()}'.length) * 100;
     return (
       caption: [counted, ?drawn].map(_bindNumbers).join(separator),
-      templates: trip
-          ? [template(l10n.reportTagDays(_eights(3)))]
-          : [
-              if (money)
-                template(_netMoney(net < 0 ? -moneyTemplate : moneyTemplate)),
-              for (final fact in lastSeen) template(fact),
-              template(null),
-            ],
       spoken: l10n.reportTagSpoken(
         tag.label,
         [counted, ?heard].join(spokenSeparator),
@@ -1532,21 +1513,74 @@ class ReportLabels {
     );
   }
 
-  /// [hour] (0–24) on the phone's clock, the hour alone where it reads with
-  /// a day period ("6 PM"), else as the rows write it ("18:00").
-  String _hourOf(int hour, {required bool use24Hour}) =>
-      !use24Hour && _clockHasDayPeriod
-      ? _hourOnly.format(DateTime(2000, 1, 1, hour % Duration.hoursPerDay))
-      : EventTimeFormatter.formatMinuteFor(
-          hour * Duration.minutesPerHour,
-          localeName: l10n.localeName,
-          use24Hour: use24Hour,
-        );
+  /// The caption lines a By tag header reserves its height from (S5 §2.2,
+  /// S4 D): every form its caption takes within the shape it shows, so the
+  /// value never decides. The count is written in 8s at the row's own digit
+  /// count, beside its "1" form at one digit (German "einmal" is wider than
+  /// "8-mal"). Then the fact the row shows: a Trip's days in 8s at their
+  /// digit count; the net money in 8s at its figure's, "+" kept for money
+  /// received; or the day last seen as "today", "yesterday" and "last"
+  /// with the [widest] short weekday, day 28 and, when [spansMonths], the
+  /// [widest] short month — a row seen today reserves the line a refold to
+  /// another day takes. A row with no second fact reserves the count alone.
+  ///
+  /// [widest] is the header's: it lays the names out in the caption's style
+  /// and returns the widest, which a name's length does not say ("Mo."
+  /// draws wider than "So."). A refold that changes a figure's digit count
+  /// or the fact's kind may change the row's height, accepted as for the
+  /// goal rows.
+  List<String> tagTemplates(
+    ReportTag tag, {
+    required bool spansMonths,
+    required String Function(Iterable<String> names) widest,
+  }) {
+    final noun = _tagNoun(tag.kind);
+    final digits = '${_tagCount(tag)}'.length;
+    final counts = [
+      l10n.reportTagCount(noun, _eights(digits)),
+      if (digits == 1) l10n.reportTagCount(noun, 1),
+    ];
+    final List<String?> facts;
+    switch (_tagFact(tag)) {
+      case _TagFact.days:
+        facts = [l10n.reportTagDays(_eights('${tag.count}'.length))];
+      case _TagFact.money:
+        final net = tag.spentCents - tag.receivedCents;
+        final figure = _eights('${_netUnits(net)}'.length) * 100;
+        facts = [_netMoney(net < 0 ? -figure : figure)];
+      case _TagFact.lastSeen:
+        final weekday = widest(_rowSymbols.SHORTWEEKDAYS);
+        final ofMonth = _rowDayOfMonth.format(DateTime.utc(2026, 1, 28));
+        facts = [
+          l10n.reportTagLastSeen('today', ''),
+          l10n.reportTagLastSeen('yesterday', ''),
+          l10n.reportTagLastSeen(
+            'other',
+            spansMonths
+                ? l10n.reportRowDayMonth(
+                    weekday,
+                    ofMonth,
+                    widest(_rowSymbols.SHORTMONTHS),
+                  )
+                : l10n.reportRowDay(weekday, ofMonth),
+          ),
+        ];
+      case null:
+        facts = [null];
+    }
+    return [
+      for (final count in counts)
+        for (final fact in facts)
+          [count, ?fact].map(_bindNumbers).join(separator),
+    ];
+  }
 
   /// The When card's words (S5 §2.3): "Busiest: Tuesday · 18:00–19:00" and
   /// the spoken summary with the timed days it was drawn from; null while
   /// the fold names no busiest day. The fold's row counts from
-  /// [weekStart], so the weekday is resolved through it.
+  /// [weekStart], so the weekday is resolved through it. The hours are in
+  /// the calendar's time format ("6:00 PM–7:00 PM"), the dash joined to
+  /// both, so a wrapped caption never ends on "6:00 PM–".
   ({String caption, String spoken})? whenWords(
     ReportWhen when, {
     required CalendarWeekStart weekStart,
@@ -1558,10 +1592,18 @@ class ReportLabels {
     final weekday = (weekStart.weekday - 1 + row) % DateTime.daysPerWeek + 1;
     // January 2024 opens on a Monday, so its day N is weekday N.
     final name = _weekday.format(DateTime.utc(2024, 1, weekday));
-    final from = _hourOf(hour, use24Hour: use24Hour);
-    final to = _hourOf(hour + 1, use24Hour: use24Hour);
+    String time(int hour) => EventTimeFormatter.formatMinuteFor(
+      hour * Duration.minutesPerHour,
+      localeName: l10n.localeName,
+      use24Hour: use24Hour,
+    );
+    final from = time(hour);
+    final to = time(hour + 1);
     return (
-      caption: l10n.reportWhenBusiest(name, _bindNumbers('$from–$to')),
+      caption: l10n.reportWhenBusiest(
+        name,
+        _bindNumbers('$from$_wordJoiner–$_wordJoiner$to'),
+      ),
       spoken: l10n.reportWhenSpoken(name, from, to, when.timedDays),
     );
   }
@@ -1569,31 +1611,45 @@ class ReportLabels {
   /// [area]'s name, S3's words.
   String areaName(LifeArea area) => lifeAreaName(l10n, area);
 
-  /// A Balance row's words (S5 §2.4): "38 h · 67 %" — the share of
-  /// [totalMinutes], the hours the card shows, 0 % with none, written as
-  /// the Attended tile writes its share — and "Work, 38 hours, 67 percent
-  /// of the hours". [areaName] defaults to [ReportLabels.areaName] of
-  /// [area].
+  /// Each of [parts]' share of their sum in whole percent, by the largest
+  /// remainder, so the Balance rows sum to 100 where rounding each alone
+  /// reads 101 (55 + 21 + 14 + 7 + 3 + 1); a tie goes to the earlier part,
+  /// and a tiny part may read 0. All zeros with nothing to share.
+  static List<int> shares(List<int> parts) {
+    final total = parts.fold<int>(0, (sum, part) => sum + part);
+    if (total <= 0) return List.filled(parts.length, 0);
+    final result = [for (final part in parts) part * 100 ~/ total];
+    final left = 100 - result.fold<int>(0, (sum, share) => sum + share);
+    int remainder(int i) => parts[i] * 100 % total;
+    final order = List.generate(parts.length, (i) => i)
+      ..sort((a, b) {
+        final byRemainder = remainder(b).compareTo(remainder(a));
+        return byRemainder != 0 ? byRemainder : a - b;
+      });
+    for (final i in order.take(left)) {
+      result[i]++;
+    }
+    return result;
+  }
+
+  /// A Balance row's words (S5 §2.4): "38 h · 67 %" — [percent] the area's
+  /// share of the hours the card shows, from [shares], written as the
+  /// Attended tile writes its share — and "Work, 38 hours, 67 percent of
+  /// the hours".
   ({String caption, String spoken}) balanceWords(
     LifeArea area,
     int minutes, {
-    required int totalMinutes,
-    String? areaName,
-  }) {
-    final percent = totalMinutes > 0
-        ? (minutes * 100 / totalMinutes).round()
-        : 0;
-    return (
-      caption: _bindNumbers(
-        [hours(minutes), l10n.reportPercent('$percent')].join(separator),
-      ),
-      spoken: l10n.reportBalanceSpoken(
-        areaName ?? this.areaName(area),
-        hoursSpoken(minutes),
-        l10n.reportPercentSpoken('$percent'),
-      ),
-    );
-  }
+    required int percent,
+  }) => (
+    caption: _bindNumbers(
+      [hours(minutes), l10n.reportPercent('$percent')].join(separator),
+    ),
+    spoken: l10n.reportBalanceSpoken(
+      areaName(area),
+      hoursSpoken(minutes),
+      l10n.reportPercentSpoken('$percent'),
+    ),
+  );
 
   /// What the footer's Compare with row names: the choice, or for a view
   /// its [viewName] — "No saved views" when the view is gone.

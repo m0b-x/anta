@@ -8924,6 +8924,26 @@ class AppLocalizationsRo extends AppLocalizations {
   }
 
   @override
+  String reportTagName(String name) {
+    return 'eticheta $name';
+  }
+
+  @override
+  String reportTagsMoreSpoken(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Încă $count de etichete',
+      few: 'Încă $count etichete',
+      one: 'Încă o etichetă',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get reportTagsLessSpoken => 'Arată mai puține etichete';
+
+  @override
   String reportWhenBusiest(String weekday, String hours) {
     return 'Cel mai des: $weekday · $hours';
   }

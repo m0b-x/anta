@@ -8794,6 +8794,25 @@ class AppLocalizationsDe extends AppLocalizations {
   }
 
   @override
+  String reportTagName(String name) {
+    return 'Schlagwort $name';
+  }
+
+  @override
+  String reportTagsMoreSpoken(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count weitere Schlagwörter',
+      one: '1 weiteres Schlagwort',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get reportTagsLessSpoken => 'Weniger Schlagwörter anzeigen';
+
+  @override
   String reportWhenBusiest(String weekday, String hours) {
     return 'Meist: $weekday · $hours';
   }

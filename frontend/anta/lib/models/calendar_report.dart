@@ -666,6 +666,15 @@ class ReportTag extends Equatable {
   /// the noun. Nothing is typed on the tag itself.
   final CategoryKind kind;
 
+  /// The category whose effective kind named [kind]'s noun — the first
+  /// profiled of [categoryIds], else the first of them — so the header's
+  /// avatar and meter wear the category its sentence counts in: one
+  /// uncategorised event beside Trip's reads "2 trips" under Trip's avatar,
+  /// not Other's. Left out, the first of [categoryIds], as [kind] left out
+  /// reads no profile.
+  String get kindCategoryId => _kindCategoryId ?? categoryIds.first;
+  final String? _kindCategoryId;
+
   /// The tagged kept days as dated rows, oldest first, at most
   /// `ReportMetrics.maxListRows`.
   final List<ReportDatedRow> rows;
@@ -686,9 +695,10 @@ class ReportTag extends Equatable {
     this.lastSeenDay,
     required this.categoryIds,
     this.kind = CategoryKind.custom,
+    String? kindCategoryId,
     required this.rows,
     this.medianGapDays,
-  });
+  }) : _kindCategoryId = kindCategoryId;
 
   @override
   List<Object?> get props => [
@@ -702,6 +712,7 @@ class ReportTag extends Equatable {
     lastSeenDay,
     categoryIds,
     kind,
+    kindCategoryId,
     rows,
     medianGapDays,
   ];

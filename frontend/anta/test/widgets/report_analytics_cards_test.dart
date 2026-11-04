@@ -229,6 +229,7 @@ void main() {
     Brightness brightness = Brightness.light,
     bool tappable = true,
     bool Function(ReportGoal goal)? canTap,
+    bool boldText = false,
   }) async {
     addTearDown(tester.view.reset);
     tester.view.devicePixelRatio = 1.0;
@@ -243,9 +244,10 @@ void main() {
         supportedLocales: AppLocalizations.supportedLocales,
         locale: locale,
         builder: (context, child) => MediaQuery(
-          data: MediaQuery.of(
-            context,
-          ).copyWith(textScaler: TextScaler.linear(textScale)),
+          data: MediaQuery.of(context).copyWith(
+            textScaler: TextScaler.linear(textScale),
+            boldText: boldText,
+          ),
           child: child!,
         ),
         home: Scaffold(
@@ -365,6 +367,35 @@ void main() {
           heightsSeen.add(tester.getRect(rowOf(goal)).height);
         }
         expect(heightsSeen, hasLength(1), reason: 'at $scale');
+      }
+    });
+
+    testWidgets('under bold text every caption is measured bold and drawn '
+        'whole on its lines', (tester) async {
+      for (final locale in const ['en', 'de', 'ro']) {
+        for (final scale in heights.keys) {
+          for (final report in [current, past, fourWeekReport, future, month]) {
+            await pump(
+              tester,
+              report,
+              locale: Locale(locale),
+              textScale: scale,
+              boldText: true,
+            );
+            for (final goal in report.goals) {
+              final row = rowWidget(tester, goal);
+              final paragraph = tester.renderObject<RenderParagraph>(
+                find.descendant(
+                  of: rowOf(goal),
+                  matching: find.text(row.caption!),
+                ),
+              );
+              final reason = '${goal.categoryId} $locale $scale';
+              expect(paragraph.text.style?.fontWeight, FontWeight.bold);
+              expect(paragraph.didExceedMaxLines, isFalse, reason: reason);
+            }
+          }
+        }
       }
     });
 
@@ -960,6 +991,7 @@ void main() {
     ScrollController? scroll,
     double room = 0,
     Size surface = const Size(360, 780),
+    bool boldText = false,
   }) async {
     addTearDown(tester.view.reset);
     tester.view.devicePixelRatio = 1.0;
@@ -976,9 +1008,10 @@ void main() {
         // colour read right after it is the new theme's.
         themeAnimationStyle: AnimationStyle.noAnimation,
         builder: (context, child) => MediaQuery(
-          data: MediaQuery.of(
-            context,
-          ).copyWith(textScaler: TextScaler.linear(textScale)),
+          data: MediaQuery.of(context).copyWith(
+            textScaler: TextScaler.linear(textScale),
+            boldText: boldText,
+          ),
           child: child!,
         ),
         home: Scaffold(
@@ -1664,7 +1697,9 @@ void main() {
 
   group('balance', () {
     // Written out of order: the card sorts. Work is 38 h, two thirds of the
-    // 57 h shown; Health and Leisure tie at 5 h.
+    // 57 h shown; Health and Leisure tie at 5 h. Shared to 100 by the
+    // largest remainder, two thirds read 66 % beside Home's 16 and 9 each:
+    // rounded alone they would read 67 + 16 + 9 + 9 = 101.
     const balance = {
       LifeArea.leisure: 300,
       LifeArea.health: 300,
@@ -1677,7 +1712,12 @@ void main() {
       LifeArea.health,
       LifeArea.leisure,
     ];
-    const total = 3420;
+    const percents = {
+      LifeArea.work: 66,
+      LifeArea.home: 16,
+      LifeArea.health: 9,
+      LifeArea.leisure: 9,
+    };
 
     Future<void> pumpBalance(
       WidgetTester tester, {
@@ -1686,6 +1726,7 @@ void main() {
       double textScale = 1.0,
       Brightness brightness = Brightness.light,
       double width = 360,
+      bool boldText = false,
     }) => pumpCard(
       tester,
       (labels) => ReportBalanceCard(
@@ -1696,6 +1737,7 @@ void main() {
       textScale: textScale,
       brightness: brightness,
       surface: Size(width, 780),
+      boldText: boldText,
     );
 
     String balanceId(LifeArea area) => SemanticsIds.reportBalance(area.name);
@@ -1725,7 +1767,7 @@ void main() {
     });
 
     testWidgets('each row: the area\'s glyph in onSurfaceVariant, its name, '
-        '"38 h · 67 %", and the share of the largest in primary', (
+        '"38 h · 66 %", and the share of the largest in primary', (
       tester,
     ) async {
       for (final brightness in Brightness.values) {
@@ -1743,7 +1785,7 @@ void main() {
           expect(
             row.caption,
             labels
-                .balanceWords(area, balance[area]!, totalMinutes: total)
+                .balanceWords(area, balance[area]!, percent: percents[area]!)
                 .caption,
           );
           expect(row.captionLines, isNull, reason: 'the one-line slot');
@@ -1759,13 +1801,37 @@ void main() {
             .widget<FormMeterRow>(rowOf(LifeArea.work))
             .caption!
             .replaceAll(noBreakSpace, ' '),
-        '38 h · 67 %',
+        '38 h · 66 %',
       );
       expect(tester.widget<FormMeterRow>(rowOf(LifeArea.work)).label, 'Work');
     });
 
+    testWidgets('the shares sum to 100: six areas read 55 / 21 / 14 / 6 / 3 '
+        '/ 1, where rounding each alone reads 101', (tester) async {
+      // Most first, so the card's order is the map's.
+      const six = {
+        LifeArea.work: 546,
+        LifeArea.health: 206,
+        LifeArea.home: 136,
+        LifeArea.leisure: 66,
+        LifeArea.people: 34,
+        LifeArea.money: 12,
+      };
+      await pumpBalance(tester, areas: six);
+      final read = [
+        for (final area in six.keys)
+          tester
+              .widget<FormMeterRow>(rowOf(area))
+              .caption!
+              .replaceAll(noBreakSpace, ' ')
+              .split(' · ')
+              .last,
+      ];
+      expect(read, ['55 %', '21 %', '14 %', '6 %', '3 %', '1 %']);
+    });
+
     testWidgets('one node per row, report-balance-<area>, spoken "Work, 38 '
-        'hours, 67 percent of the hours", no button', (tester) async {
+        'hours, 66 percent of the hours", no button', (tester) async {
       final handle = tester.ensureSemantics();
       expect(balanceId(LifeArea.work), 'report-balance-work');
       await pumpBalance(tester);
@@ -1778,7 +1844,9 @@ void main() {
         expect(separateChildren(node), 0, reason: area.name);
         expect(
           data.label,
-          labels.balanceWords(area, balance[area]!, totalMinutes: total).spoken,
+          labels
+              .balanceWords(area, balance[area]!, percent: percents[area]!)
+              .spoken,
         );
         expect(data.flagsCollection.isButton, isFalse, reason: area.name);
         expect(data.hasAction(SemanticsAction.tap), isFalse);
@@ -1788,7 +1856,7 @@ void main() {
             .getSemantics(find.bySemanticsIdentifier(balanceId(LifeArea.work)))
             .label
             .replaceAll(noBreakSpace, ' '),
-        'Work, 38 hours, 67 percent of the hours',
+        'Work, 38 hours, 66 percent of the hours',
       );
       handle.dispose();
     });
@@ -1857,6 +1925,44 @@ void main() {
             lessThanOrEqualTo(tester.getSize(slot).width + 0.01),
             reason: '${area.name} at $width',
           );
+        }
+      }
+    });
+
+    testWidgets('under bold text no caption shrinks or cuts, at 360 and 412, '
+        '1.0 to 2.0, in every locale', (tester) async {
+      for (final scale in const [1.0, 1.3, 2.0]) {
+        for (final width in const [360.0, 412.0]) {
+          for (final locale in const ['en', 'de', 'ro']) {
+            await pumpBalance(
+              tester,
+              locale: Locale(locale),
+              textScale: scale,
+              width: width,
+              boldText: true,
+            );
+            for (final area in order) {
+              final reason = '${area.name} $locale $scale $width';
+              final caption = find.descendant(
+                of: rowOf(area),
+                matching: find.text(
+                  tester.widget<FormMeterRow>(rowOf(area)).caption!,
+                ),
+              );
+              final paragraph = tester.renderObject<RenderParagraph>(caption);
+              expect(paragraph.text.style?.fontWeight, FontWeight.bold);
+              expect(paragraph.didExceedMaxLines, isFalse, reason: reason);
+              final slot = find.ancestor(
+                of: caption,
+                matching: find.byType(FittedBox),
+              );
+              expect(
+                tester.getSize(caption).width,
+                lessThanOrEqualTo(tester.getSize(slot).width + 0.01),
+                reason: reason,
+              );
+            }
+          }
         }
       }
     });
