@@ -260,6 +260,20 @@ otherwise the guard alone (`sheet-chrome.md`). `initialName` is clamped to
 draft and a dirty draft. Archive and Delete stay out of the editor (the row
 menu owns them), as the `subsystems.md` rule says.
 
+*Addendum (2026-11-05, the analytics record
+`docs/calendar-analytics-roadmap.md`, its S3).* After Alerts the sheet
+gained two labelled groups: **Report** — Kind (a `FormPickerRow` opening
+`CategoryKindSheet`, the catalogue's 21 kinds with a one-line example
+each), Mark (the kind's verb · an own word · Off) and Area — and **Measure
+& goal** — Measure, Counts as (disabled in place with its reason under
+Sleep or a repeat-only category) and Goal (a `FormPickerRow` opening
+`CategoryGoalSheet`: type, target, period, the read-back). They write the
+category's `CategoryProfile` (its S0: `calendar_category_profiles`,
+soft-deleted with the category, backup v8's `categoryProfiles`, a synced
+table). The guard, the page, the delete sheet and the Sort confirm are
+untouched; the analytics record's §7 and its S3 note hold the anatomy and
+the pins.
+
 ### 4.5 Service and model
 
 - `CalendarCategories.resolve(id)` → `_byId[id] ?? _byId[kFallbackCategoryId] ?? fallback` (K4), with a test that recolours Other and resolves an unknown id.

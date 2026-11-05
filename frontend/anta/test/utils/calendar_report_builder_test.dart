@@ -1754,6 +1754,20 @@ void main() {
       expect(kindsOf(bare), isNot(contains(ReportTile.hours)));
     });
 
+    test('a counts-as never fills a Sleep day', () {
+      final events = [
+        ev('nap', 'rest', day(2026, 9, 1), rule: daily, tracked: true),
+      ];
+      int minutesUnder(CategoryKind kind) => foldFacts(
+        events,
+        firstThree,
+        later,
+        profiles: {'rest': kindOf(kind, nominal: 30)},
+      ).measures['rest']!.minutes;
+      expect(minutesUnder(CategoryKind.sleep), 0);
+      expect(minutesUnder(CategoryKind.custom), 90);
+    });
+
     test('a counts-as fills a one-off, never a repeat', () {
       final report = foldFacts(
         [
@@ -3370,6 +3384,32 @@ void main() {
       expect(fired(on(2), InsightRule.g2), isEmpty, reason: 'at the cap');
     });
 
+    test('G2: a budget over in its current month', () {
+      CalendarReport on(int net) => foldFacts(
+        [ev('rent', 'birthday', day(2026, 11, 1)).copyWith(noteId: 'n1')],
+        november,
+        mid,
+        profiles: {
+          'birthday': targeted(
+            CategoryKind.bill,
+            const ReportTarget(
+              kind: TargetKind.budget,
+              value: 10000,
+              period: TargetPeriod.month,
+            ),
+          ),
+        },
+        money: {'rent': net},
+      );
+      final g2 = one(on(-12000), InsightRule.g2);
+      expect(
+        (g2.severity, g2.categoryId, g2.n1, g2.n2, g2.n3),
+        (2, 'birthday', 12000, 10000, 2000),
+      );
+      expect((g2.day, g2.dayEnd), (day(2026, 11, 1), day(2026, 11, 30)));
+      expect(fired(on(-10000), InsightRule.g2), isEmpty, reason: 'at the cap');
+    });
+
     test('G3: a goal met before its period ends', () {
       CalendarReport on(int kept) => foldFacts(
         [
@@ -3621,6 +3661,28 @@ void main() {
         (3, 'rent', day(2026, 11, 1), 1, 14, InsightTarget.dueSoon),
       );
       expect(fired(on(missed: false), InsightRule.d4), isEmpty);
+    });
+
+    test('D4: a Deadline day passed unmarked', () {
+      CalendarReport on({required bool missed}) => foldFacts(
+        [ev('tax', 'competition', day(2026, 11, 12), tracked: true)],
+        november,
+        mid,
+        missed: {
+          if (missed) 'tax': [day(2026, 11, 12)],
+        },
+        profiles: {'competition': kindOf(CategoryKind.deadline)},
+      );
+      final d4 = one(on(missed: true), InsightRule.d4);
+      expect(
+        (d4.severity, d4.categoryId, d4.eventId, d4.day, d4.n1, d4.n2),
+        (3, 'competition', 'tax', day(2026, 11, 12), 1, 3),
+      );
+      expect(
+        fired(on(missed: false), InsightRule.d4),
+        isEmpty,
+        reason: 'a kept Deadline',
+      );
     });
 
     test('D4: once per event — the latest unmarked day and the count', () {
@@ -4228,6 +4290,25 @@ void main() {
       expect(report.measures['other']!.leadTimeEvents, 4);
       final l1 = one(report, InsightRule.l1);
       expect((l1.severity, l1.n1, l1.n2), (0, 1, 4));
+      expect(fired(on(3), InsightRule.l1), isEmpty);
+    });
+
+    test('L1: Social events booked a day ahead', () {
+      CalendarReport on(int n) => foldFacts(
+        [
+          for (var i = 0; i < n; i++)
+            ev(
+              's$i',
+              'friends',
+              day(2026, 11, 2 + i),
+            ).copyWith(createdAt: day(2026, 11, 1 + i)),
+        ],
+        week,
+        later,
+        profiles: {'friends': kindOf(CategoryKind.social)},
+      );
+      final l1 = one(on(4), InsightRule.l1);
+      expect((l1.severity, l1.categoryId, l1.n1, l1.n2), (0, 'friends', 1, 4));
       expect(fired(on(3), InsightRule.l1), isEmpty);
     });
 
@@ -5375,6 +5456,18 @@ void main() {
         ...fired(view, InsightRule.t2),
       ], isEmpty);
       expect(on(ReportCompare.previous, profiles: const {}).insights, isEmpty);
+    });
+
+    test('T2: a move under 30 % against last year is silent', () {
+      CalendarReport on(int now) => against(
+        visits(10, now),
+        november,
+        october,
+        ReportCompare.lastYear,
+        profiles: {'gym': counted},
+      );
+      expect(fired(on(13), InsightRule.t2), hasLength(1));
+      expect(fired(on(12), InsightRule.t2), isEmpty, reason: 'up 20 %');
     });
 
     test('T3: a Bill\'s spending up 10 % fires on its latest money event, '

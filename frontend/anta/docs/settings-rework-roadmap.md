@@ -362,6 +362,18 @@ the kit, title `fastingSettingsTitle` "Fasting":
 
 ### 4.7 Calendar settings after the moves
 
+*Addendum (2026-11-05, the analytics record
+`docs/calendar-analytics-roadmap.md`, its S8 — decision W).* The Settings
+group gained a fifth row after Alert settings: "Report cards"
+(`calendarSettingsReportTitle`, "Which cards the report shows, and in which
+order", id `calendar-settings-report-open`) opening
+`CalendarReportSettingsPage` (`lib/pages/calendar_report_settings_page.dart`,
+bar id `settings-bar-report-cards`) — on the kit: one "Cards" group of
+switch rows with reorder handles and "Reset to default" as its last row.
+The order and the off set persist as `SettingsKeys.reportCards` (the
+`ReportCards` grammar, in the backup's settings allowlist); nothing else on
+the page moved.
+
 Title `calendarSettings` → "Calendar settings" (the drawer row key
 `calendarSettingsRow` retires once the drawer row is gone); sections:
 Holidays (`calendarSection` → "Holidays"; the profile row with the N99

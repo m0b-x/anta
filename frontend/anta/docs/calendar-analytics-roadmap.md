@@ -13,7 +13,11 @@ lead. §12.2 records each slice as built; this line moves to COMMITTED when
 S9's device pass is green. **COMMITTED 2026-11-05: S0–S9** (the last code commit
 `b12314b4`; the device pass 35 of 35 calendar flows and 5 of 5 alerts
 flows on `emulator-5558` — the S9 note at the end of §12.2; what stays
-with the owner is listed there).
+with the owner is listed there). **The closing review ran 2026-11-05**
+(§13.1): every line of §13 checked at `94a55179` from the Fable lead
+session; the closing commit — the first after `94a55179` — carries the
+five rule-branch tests it found missing, the two sister records' addenda
+and the §6 lines brought to the code.
 
 This record extends `docs/calendar-report-roadmap.md` (the Report, COMMITTED
 2026-10-31) and never replaces it: one page, one pure builder, one model.
@@ -54,8 +58,11 @@ of done · 14 Deferred.
   readers on `ReportRequest` (the guide's seam), `ReportMarkdown` for an
   unprofiled report (amended 2026-11-05 by S7: a calendar with no profile
   but a `#` word in a title gains the By tag section, the one exception the
-  page itself has made since S5 — a tag needs no profile), the digest's
-  generic line; the overview's totals slot;
+  page itself has made since S5 — a tag needs no profile; the closing
+  review names the other, older one: When draws for any calendar with ten
+  timed samples, §6.10, so the page and the share of an unprofiled
+  calendar with that many timed days gain the When card and section too),
+  the digest's generic line; the overview's totals slot;
   `qa pass calendar` (30 flows) and `qa pass alerts` green; presence, skip
   and description semantics (soft deletes, CRDT fields, `noteId == ''`
   for global counters); the `gym_notes` directory; backup import of every
@@ -340,7 +347,7 @@ the skips add per sample, and three readers (`moneyFor`, `createdAtOf`,
 | **Money** | Σ net cents of linked notes whose event's start day is in the span | cents, global currency; spent / received split | `moneyFor` | any event with a `noteId` |
 | **Last seen** | days from the last kept day before today to today | days | samples + one lookback probe | one-offs and repeats; the gap target's input |
 | **Lead time** | median of (first occurrence day − `createdAt` day) | days | `createdAtOf` | one-offs |
-| **Timing** | median start minute; days after the kind's late line; weekday histogram | minutes, count, 7 bins | timed samples | timed events |
+| **Timing** | median start minute; days after the late line (*as built, S2a: one line for every kind, `AnalyticsMetrics.workLateMinute`*); weekday histogram | minutes, count, 7 bins | timed samples | timed events |
 | **Days until** | days from today to the next occurrence | days | ahead samples | Expiry, the next of anything |
 
 Rules: a missed day contributes to Attendance's denominator only; a
@@ -389,7 +396,7 @@ target        kind: atLeast | atMost | maxGap | budget
               period: day | week | month | year   (absent for maxGap)
 ReportGoal    categoryId, measure, target
               periods: [start, end, value, expected, state]
-                state: met | onPace | behind | over | notDue | future
+                state: met | onPace | behind | over | missed | notDue | future
               streak: consecutive complete periods met, back from the
                       last complete one, inside the 366-day lookback
               gap (maxGap): daysSince, limit, state: within | due | overdue
@@ -402,7 +409,12 @@ periodDays`, rounded up. *At least*: met when value ≥ target, on pace when
 value ≥ expected, else behind. *At most* and *budget*: within when value ≤
 expected, over when value > target. *Max gap*: within when daysSince ≤
 limit, due inside the limit's last fifth, overdue past it. A period's first
-day with nothing yet is notDue; a period after today is future.
+day with nothing yet is notDue; a period after today is future. *As built
+(S2a-ii; the closing review brought this paragraph to `_goalState`):* a
+closed *at least* period under its target is `missed`; *at most* and
+*budget* read onPace while value ≤ expected, behind above expected but
+still within the target, met when a closed period stayed within, over past
+the target.
 
 ### 6.7 Insights (L)
 
@@ -434,7 +446,7 @@ initial values.
 | **P6** | a Workout category has a rest gap ≥ 10 days in the span | 1 | "Run · 12 days without a run in October" |
 | **T1** | the primary moved ≥ 30 % against the previous period, ≥ 5 occurrences or ≥ 2 h either side | 1 | "Work · 31 h, up 35 % on last month" |
 | **T2** | the primary moved ≥ 30 % against the same period last year (Compare: last year chosen) | 1 | "Friends · 4 evenings, half of last October" |
-| **T3** | a Bill's amount moved against its previous occurrence by ≥ 10 % | 2 | "Electricity · 312, up 18 % on last month" |
+| **T3** | a Bill's amount moved against its previous occurrence by ≥ 10 % (*as built, decision AT: the Bill category's spent cents against the compared span, `billDelta`*) | 2 | "Electricity · 312, up 18 % on last month" |
 | **M1** | Bills ahead in the next 30 days | 0 | "Bills · 2,140 due in the next 30 days" |
 | **M2** | a yearly span: recurring Bills' twelve-month total | 0 | "Subscriptions · 1,428 a year across 6" |
 | **R1** | a tag's last-seen exceeds the category's gap limit, or 3× its median gap | 2 | "#ana · 41 days since the last dinner" |
@@ -454,7 +466,11 @@ exists: rows ordered overdue → due → upcoming, each "Car service · overdue
 32 days", "Passport · 42 days", "Rent · 1 Nov · not marked"; a leading state
 glyph (never colour alone); tap opens the event's detail sheet. Capped at
 `AnalyticsMetrics.dueSoonRows` (6) with "n more ▾". In the future tense the
-card lists the span's Expiries and Bills only.
+card lists the span's Expiries and Bills only. *As built (S2a-ii):* four
+states, `overdue → due → unmarked → upcoming` — an unmarked Bill or
+Deadline is its own tier; only a gap target produces `due`, an Expiry
+inside its 60 days is `upcoming` and past its day `overdue`, a Bill planned
+in the span `upcoming`.
 
 ### 6.9 By tag (C, Y)
 
@@ -2374,8 +2390,133 @@ suite count and result, uncommitted files, open findings, what §14 gained.
   pointing here; the calendar-events and calendar-ui references describe
   kinds, marks on one-offs and the new cards as built.
 
+### 13.1 The closing check (2026-11-05)
+
+Run from the Fable lead session at `94a55179` with the suite alone, the
+second line's audit by one read-only Opus 5.5 reviewer, the fixes by one
+implementer; one entry per line of §13, in order.
+
+1. **Unprofiled, byte-for-byte** — holds, with the two by-design exceptions
+   §1 now names (By tag for a `#` word, When at ten timed samples). The
+   goldens, all in the default run: `calendar_report_builder_test.dart`
+   "the unprofiled golden (§13)" (no goal, no Due soon row, no insight;
+   Balance all `other`), `digest_notification_content_test.dart` "no goal,
+   due row or insight: the lines are byte-identical",
+   `report_markdown_test.dart` "an unprofiled fold with a #tag adds By tag
+   and nothing else", `calendar_report_service_test.dart` "every scoped
+   category resolves its profile, unprofiled too" with its month report
+   that reads as before S4, and the page suite's real-font pins.
+2. **Fixture pairs** — holds at the item level: the 11 measures, the 7 goal
+   states and 3 gap states, the 4 due states and the 27 insight rules (ids
+   one for one with §6.7) each fire and stay silent in a named case of the
+   builder suite; `effective()` is checked for all 21 kinds
+   (`category_profile_test.dart` loops `CategoryKinds.all`,
+   `category_kinds_test.dart` pins each row to §6.2). Four arms inside
+   rules had no firing case — G2's budget arm, D4's Deadline arm, L1's
+   Social arm, the Sleep counts-as guard of §6.3 — and T2 had no
+   below-threshold negative; the closing commit adds the five ("a counts-as
+   never fills a Sleep day", "G2: a budget over in its current month", "D4:
+   a Deadline day passed unmarked", "L1: Social events booked a day ahead",
+   "T2: a move under 30 % against last year is silent"; the file 216
+   cases). The audit also found §6's text behind the code in four places —
+   the goal states' `missed` and the at-most / budget arms (§6.6), the
+   four due states and the Expiry rule (§6.8), T3 as decision AT (§6.7),
+   Timing's one late line (§6.3) — amended in place as *as built* notes.
+3. **One-off** — holds: `event_skip_service_test.dart` "cancelling a
+   one-off clears its mark", `calendar_bloc_skip_test.dart` "a one-off is
+   cancelled and restored through the bloc", the detail sheet's cancel,
+   Undo and Done-again cases, `event_presence_service_test.dart` "an
+   explicit missed mark on a one-off reads missed", the editor's "a tracked
+   one-time event is offered it too" (assume absent),
+   `mark_verb_labels_test.dart` for the verb; `shapeOf` pinned in the
+   builder and service suites; the presence and skip suites green in the
+   gate below.
+4. **Cost** — holds as revised; the device half was never measured. The pin
+   as built is the timed ratio profiled / unprofiled ≤ 1.75 (1.5 → 1.75 in
+   S2b-ii, the compared fold being a second fold by design),
+   `benchmark`-tagged, run today: 1.45 (6.7 ms against 4.6 ms, fastest of
+   20, this host); the year fixture with the previous year folded: 114.6 ms
+   on its first run (the test VM's warm-up included), 0.4 ms from the memo.
+   No frame timing was taken on `emulator-5556` in S0–S9 — §14.
+5. **Backup and sync** — holds: `backup_service_calendar_round_trip_test.dart`
+   "a v7 archive without the key imports with no profiles", "profiles
+   round-trip under their own key" (v8), "an archive without categories
+   keeps the profiles"; `calendar_category_profiles_merge_test.dart` "a
+   newer profile lands every payload column as received", "a newer row
+   moves the profile to another category", "another device's profile for
+   the same category is kept".
+6. **Device pass** — holds: 35 of 35 calendar flows (34 in the full pass,
+   flow 34 green on its repointed re-run) and 5 of 5 alerts flows on
+   `emulator-5558`, `qa errors` clean — the S9 note; `anta_qa_1` refused
+   the install for storage, so `emulator-5556` was not the device.
+7. **Rendered and reviewed** — holds as the notes record it: one
+   `design-reviewer` pass per visual slice — S3 (the kind picker and the
+   goal sheet: the pins hold, four severity-2 findings taken), S4 (18
+   real-font renders across the matrix, contrast from tokens, the three
+   guideline matchers; measured at 360 / 412, light / dark, en / de / ro;
+   no 3–4), S5 (the tags, When, Balance, Compare; no 3–4), S6 (the year
+   cards; no 3–4), S8 (the cards page; the off name's 3.26:1 fixed to full
+   strength). No colour alone: Due soon's leading glyph (§6.8), the goal
+   rows' state glyph beside words, the When card's caption as its one
+   semantics node — the heatmap's ramp carries a quantity, not a state, and
+   the designer's M gives it no legend. The device-only looks the three
+   reviews listed stay with the owner (the S9 note).
+8. **Docs** — the report record carried two addenda (S1 / S2a at its
+   pending rule; S1 at §4.1 / D31); the categories and settings records
+   carried none — the closing commit adds one each (§4.4 the editor sheet;
+   §4.7 Calendar settings); `calendar-events` (SKILL "Analytics",
+   `references/subsystems.md` "The analytics layer") describes kinds, marks
+   on one-offs and the cards; `calendar-ui` has no `references/` directory
+   — its SKILL.md file table now lists the analytics widgets;
+   `ui-language/references/row-primitives.md` now names `FormMeterRow`'s
+   five new members.
+
+**The closing gate** — `dart analyze lib` clean; `dart format` clean on
+every analytics file (the repo-wide drift is §14's); the whole suite twice,
+alone: `+13461 ~12 -5` both times — the four known red cases (the
+Windows-only `host_devices_test` case and §14's three guide clock cases)
+and one more, new since S8's gate (`+13457 ~12 -4`):
+`backup_service_calendar_round_trip_test.dart` "category alerts import
+right after the categories" times out at 30 s under the suite's load with a
+Drift isolate channel closed mid-transaction, and is green alone (24 of 24)
+and in this session's first full run — §14 carries it. The must-not-change
+list re-read against `d8836132..HEAD`: the 30 original flows green in S9,
+the presence, skip and `noteId == ''` semantics untouched (the S0 and S1
+notes), `gym_notes` unchanged, the v1 and v7 archive cases of the backup
+suites green.
+
 ## 14. Deferred
 
+- **The backup round-trip suite's isolate flake (2026-11-05)** —
+  `backup_service_calendar_round_trip_test.dart` "category alerts and
+  digests (v42) › category alerts import right after the categories" went
+  red in two of three whole-suite runs at the closing review (a 30 s
+  timeout: the import's insert found the Drift isolate channel closed,
+  `CouldNotRollBackException … connection was closed`), green alone (24 of
+  24) and at S8's gate; nothing in the closing commit touches backup or
+  that suite. Intended fix: find what closes the isolate-backed database
+  while the import still runs — a neighbouring case's teardown or a
+  `DatabaseLifecycle` reset racing it — and make the case independent of
+  scheduling. Until then the gate reads `-5` honestly beside the four
+  known cases.
+- **The fold's frame on a device** — §13's fourth line asks for the
+  366-day, 50-event fold "inside one frame on `emulator-5556`"; S0–S9
+  measured it on the host only (the tagged benchmark: profiled 6.7 ms
+  against unprofiled 4.6 ms, fastest of 20; the year fixture with the
+  previous year folded 114.6 ms on its first, warm-up run, 0.4 ms from the
+  memo). The fold runs on the UI isolate inside the bloc's handler (R
+  below stays deferred). To close it: a QA build that `debugPrint`s
+  `CalendarReportService.report`'s elapsed time on the year report's first
+  open on a fleet guest, read through `qa logs`; if it misses a frame, R is
+  the remedy.
+- **Formatter drift (2026-11-05)** — `dart format --set-exit-if-changed lib
+  test` on this machine's Dart 3.12.2 would change 167 files, almost all
+  untouched since October (`alert_skip_action.dart`, `sync_bloc.dart`, the
+  DAOs): the tree was formatted by an earlier formatter and the newer one
+  splits method chains differently. Not the analytics' (its files are
+  clean; the builder suite's one drifted line was formatted in the closing
+  commit); a repo-wide format is the owner's one-commit call, best made on
+  a quiet tree so no slice's diff carries it.
 - **The guide try-cards suite's clock** — `test/widgets/calendar_guide_try_cards_test.dart` opens its stages on `DateTime.now` (only the fasting topic is pinned by `fixedNowFor`), so three cases went red on 2026-11-05 at the pre-S5 commit as well: "a stage never changes height at text scale 2.0 — screen: every panel mode" (the day timeline overflowed twice on that day's sandbox data; the case tolerates one) and "the tap-target and text-contrast guidelines — screen 360 / 412 light" (the sampler read the report stage's "2 events" caption off its rect). Intended fix: pin `now` for every stage in `fixedNowFor` (and the finding topic's 2026-11-01 case alike), then re-pin the two cases; a product check whether the stage should ever draw a day whose timeline overflows. Not S5's; carried here so the gate's "whole suite green" reads honestly until the pin lands.
 - **The digest's currency** — `digestNotificationContent` builds `ReportLabels(strings)` with no currency, so a money goal in the digest reads "1,340" where the page reads "€1,340" (pre-dates S7; the scheduler would read `moneyCurrencySymbol` / `moneyCurrencySuffix` with the settings it already loads).
 - **The slack rule and a saved-view compare** — picking a view adds the view's Totals card within the same look, a shape change `_sameShapes` does not count (Totals is treated as fixed); a reader at the scroll's end who picks a view could see the end spring back (S8 II-B's note).
