@@ -10,8 +10,8 @@ the work needs, and named the same Fable session the lead: one Opus 5.5
 implementer and one reviewer per slice (the `delegation` roster), the
 designer and design-reviewer around the visual slices, the suite from the
 lead. §12.2 records each slice as built; this line moves to COMMITTED when
-S9's device pass is green. **In progress: S0–S5 committed by 2026-11-05**
-(S4 `f3571ecf`, S5 `8855bf29` last; the next session resumes at S6 — see
+S9's device pass is green. **In progress: S0–S6 committed by 2026-11-05**
+(S5 `8855bf29`, S6 `9327da13` last; the next session resumes at S7 — see
 "Where the next session starts" at the head of §12.2).
 
 This record extends `docs/calendar-report-roadmap.md` (the Report, COMMITTED
@@ -766,26 +766,30 @@ warning; a sync between two devices converges on the newer profile.
 verified, the reviewer's findings and their fate, the uncommitted file count
 at the boundary)*
 
-**Where the next session starts (rewritten 2026-11-05 after S5).**
+**Where the next session starts (rewritten 2026-11-05 after S6).**
 Done and on `origin/main`: S0 (`2661c8de`), S1 (`6a586668`), S2a
 (`0f5fae29`), S2b-i (`66efe1f1`), S3 (`fb9ae486`), S2b-ii (`f29edf64`),
-S4 (`f3571ecf`) and **S5** (seven code commits from `0abb2f69` to
-`8855bf29`, listed in the S5 note's gate line, then the docs commit).
-Next, in order: **S6** (year in review — the model is built:
-`CalendarReport.year` with `records`, `months`, `spans`, `goalTallies`,
-and `balanceLastYear` under Compare: last year; the Months card iterates
-`categories` and looks `months` up, a category whose every day was missed
-has no entry — the S2b-ii note; the accepted spec is
-`docs/calendar-analytics-specs/s6-design-spec.md`, whose decision H — the
-refold anchor is the nearest section label above the viewport — S5's fix
-pass B2 already built; the worktree `C:\Temp\anta-wt-s5` sits on
-`analytics-s6` at `main`), then **S7**, **S8**, **S9** (S9's device
-bucket from S5's design review is in the S5 note; flow 32 lists Same
-period last year but cannot pick it on the seed). Each slice: implementer
-runs of ≤ 8 ids by layer (words → primitives and cards → page), the whole
-suite from the lead, two code reviewers and the design-reviewer told to
-report by turn 60, fix passes grouped by file, commit. The process that
-worked in S5 beyond S4's: a parallel sub-slice in a worktree at a short
+S4 (`f3571ecf`), **S5** (`0abb2f69` … `8855bf29`, docs `1e344277`) and
+**S6** (`46680e15` … `9327da13` — the eight code commits in the S6 note's
+gate line, the last being the fix passes A with the glue — then the docs
+commit). Next, in order: **S7** (digests and share — in flight when this
+was written: S7-i the report digest's Goals / Due / top-insight lines in
+`lib/utils/digest_notification_content.dart` with their ARB keys, S7-ii
+`ReportMarkdown`'s Goals, Insights, Due soon, Records, Months, By tag,
+When and Balance sections plus the saved view's Totals column under
+`beside`; then one reviewer, fixes, the gate, the commit), **S8**
+(Settings → Calendar → Report cards with switches and drag handles (W),
+the calendar-events and calendar-ui references, the feature doc's
+addendum, the report record's §4.1 / D31 addendum, the guide decision V),
+**S9** (the device pass: the new flows 30–33, `qa pass calendar` and `qa
+pass alerts` green; the device buckets from the S5 and S6 design reviews
+are in their notes; flow 32 lists Same period last year but cannot pick it
+on the seed, flow 33 picks This year because the seed has no last-year
+data). Each slice: implementer runs of ≤ 8 ids by layer (words →
+primitives and cards → page), the whole suite from the lead, two code
+reviewers and the design-reviewer told to report by turn 60, fix passes
+grouped by file, commit. The process that worked in S5 and S6 beyond
+S4's: a parallel sub-slice in a worktree at a short
 path (`C:\Temp\anta-wt-<id>`, `firebase_options.dart` copied, the branch
 committed and squash-merged, the generated plugin registrants never
 staged); where both sides touched one file, commit the branch, `git diff
@@ -1876,7 +1880,142 @@ periodic goal), `ReportRecord(kind, categoryId?, eventId?, value, start,
 end?)` with ties to the earliest, `CalendarReport.balanceLastYear` under
 Compare: last year.
 
-*(The build, the two reviews and the gate follow at the boundary.)*
+**Built 2026-11-05 by layer**, each layer committed after the whole suite
+(green apart from the Windows host case and the three date-bound guide
+cases of the S5 note): S6a words, constants and ids `46680e15` (21 ARB
+keys × 3 — the record names in de "Stärkster Monat … Längste Lücke", in
+ro "Luna de vârf … Pauză maximă" with "Socializare maximă" for the social
+month, since the spec's ro draft ran 20 characters against its own
+18-character rule; `ReportLabels.recordName` / `recordWords` / `yearSpan`
+/ `yearSpanTemplates(widest:)` / `yearSpanSpoken` / `yearMonthsSpoken` /
+`goalYearWords` / `balanceLastYearWords`; `ReportMetrics.year*`,
+`FormMetrics.meterMarker*`; the §2.7 ids); S6b-i `ec8642d4` in the
+worktree (`FormMeterRow.chart` and `marker` with their asserts — a chart
+and a fraction never together, a marker only on a meter —, the marker a 2
+× 10 dp `onSurfaceVariant` bar with its 1 dp `rowGroup` ring painted
+outside the 4 dp track so the row's height never changes, the chart row
+78 / 89.4 / 116; the three constants added on both sides and deduped at
+the merge); S6b-ii `a4231338` (`lib/widgets/report_year_cards.dart`:
+`ReportRecordsCard`, `ReportMonthsCard`, the axis row and
+`ReportYearStripPainter`, which reuses the When chart's `fillFor` /
+`stepFor`; `ReportGroupFolds.isRecordsExpanded` / `isMonthsExpanded`; the
+Goals card's year reading with the meter met / closed; Balance's
+last-year path — the union of both spans' areas, the scale over both, the
+marker, `balanceLastYearWords`); S6c-i `6269288e` in the worktree
+(`ReportPeriodChoice.lastYear` after This year, `choiceLabel`, the page's
+`today_rounded` glyph and `report-period-last-year`, the bloc's `_keptOf`
+`lastYear → thisYear`; the eleven-row menu 496 ±1 dp at en 1.0, never
+scrolling at 360 × 780); S6c-ii (the body's year block after the Totals
+caption, the strip tap to its group, flow `33_report_year.txt`) and the
+week-name words fix — the hashes in the hand-off.
+
+**Measured against the spec:** Records row 62 / 67.4 / 130, disclosure
+48 / 48 / 52, card 426 / 458.4 / 838 (ro 2.0 842, not 1,038: a wrapped
+name adds 4 dp under the reserved caption lines, not 40); Months axis 30
+/ 35.4 / 48 in the **narrow** month names at every scale on a 360 or 412
+pitch (the trend's own rule: "Jan" is wider than pitch − 4), step 1 / 1 /
+2, strip row 78 / 89.4 / 116, a six-strip card 504 / 577.8 / 750, tiles
+18.67 / 20.17 / 23 × 16, the ramp's step 1 ≥ 2:1 against `rowGroup`
+(1.77 / 2.61 against the empty tile); Goals year rows 66 / 84 at 1.0,
+100.8 at 1.3, 140 / 176 at 2.0 (ro 176 / 140, card 422, not 530);
+Balance with last year 267 at 1.0 and 563 at de 2.0. **One defect found
+by the build itself:** the busiest-week caption carried the year ("Jun 16
+– Jun 22, 2025 · 11 events") and was cut in the one line reserved below
+1.6 at 1.3 on 360 — the week is now named without the year (the band
+shows it).
+
+**Decisions (continuing S5's lettering):** BW the busiest week reads
+"Jun 16 – Jun 22", no year · BX Today returns to the picked year — the
+home rule D36.7 that Last week and Last month already follow; the spec's
+"Today returns to This year" amended; the report still reopens on This
+year · BY the Months axis in narrow names wherever the short ones do not
+fit the pitch (the trend's rule, not a scale threshold) · BZ the Months
+cap is `AnalyticsMetrics.yearMonthsStripCategories` (7; the spec's
+`maxCategoryRows` is the same number) · CA under a chart with
+`captionLines` the words keep their reserved box and the chart sits
+below, so a strip row never changes height with its caption · CB a strip
+needs both a `months` and a `spans` entry; Balance with last year draws
+from two areas across both years · CC `onCategoryTap` is optional, so the
+guide's stage draws read strips.
+
+**The reviews** (two code reviewers and the design-reviewer, from a
+`59bad68c` snapshot; no finding at severity 3–4) and their fate:
+- CONFIRMED, fixed: a refold at the scroll's end that grows Records or
+  Months while content below leaves corrected 163 dp past the new end and
+  kept sliding — the page's slack-arming rule compared only the cards above
+  Totals; it now also compares the record count and the strip set (rows
+  never change height, so count and set suffice); a busiest week across a
+  month was still cut below 1.6 (ro 1.3 "29 sept. – 5 oct. · 12
+  evenimente") — the Records rows take `captionLines` from measured
+  `recordTemplates(widest:)` like Months and Goals, no longer from the
+  scale alone; a year goal with no closed period read "0 of 0 weeks met"
+  with an empty meter — with `closed == 0` the card keeps S4's reading;
+  `_weekSpan` recomputed the week from a `weekStart` and ignored
+  `record.end` (a year-end week counted to 31 Dec read "Dec 28 – Jan 3")
+  — the record's own days are named and `weekStart` left `recordWords`;
+  the busiest week was spoken as drawn ("Dez. – Jan.") — spoken through
+  `yearSpanSpoken`; a money-month record under half a unit read "June · 0"
+  — skipped by the builder; `yearSpan` compared days with `==` across UTC
+  and local — by y/m/d; the strip's spoken list said "November 0, December
+  0" for months still ahead and eleven zeros for one kept day —
+  `yearMonthsSpoken(aheadFrom:)` stops at today's month and skips zero
+  months; "Weniger anzeigen" wrapped at de 2.0 / 360 and grew the expanded
+  disclosure from 52 to 92 dp — de `reportGroupLess` is "Weniger"; count
+  phrases split ("9 in / Folge") — bound whole; hours group their
+  thousands ("1,720 h", the spec's copy; nothing under 1,000 changes);
+  Balance's last-year marker sat at the track's start for an area with no
+  time last year — no marker at 0; the marker's ring reached 1 dp outside
+  the track at 0 and 1 — clamped; the axis row laid out up to 24
+  `TextPainter`s per layout and a `RegExp` per record row per build —
+  memoised / static; a strip could be a button that does nothing on a
+  surface wiring only one of `onReveal` / `onMoreCategories` —
+  `ReportMonthsCard.canTap` per strip, as the Goals card guards; a leaving
+  anchor label corrected nothing — the anchor is picked among the labels
+  the new build keeps; flow 33's comment overclaimed (Last year folds the
+  previous year until about 9 February because `qa-cal-checkup` starts at
+  `{{today-40}}`) and its shots waited on a tile drawn before the pick —
+  corrected; stale docs on `checkedFor`, `_AnchoredLabel` and the slack
+  rule.
+- Accepted, noted: steady routines saturate the strip (linear steps to the
+  strip's own peak, S5 D / S6 F; a quartile ramp was the rejected
+  alternative — judge on a device); the axis at 2.0 reads "J M M J S N" —
+  the short names are now tried at each thinning step before the narrow
+  ones, so 412 at 2.0 gains them where they fit; "Biggest spend" is bare
+  without a ledger currency (the ledger's display config, as S5's money
+  fact); the 22 dp compact glyph beside 26 px text at 2.0 (S4's rule);
+  Balance's templates follow each figure's digit count (S5's rule, a
+  refold past 999 h may add a line); no pixel golden exists for the report
+  (the October page is pinned by geometry); a Custom range equal to a year
+  draws the cards and steps by 365 days (the existing custom-step rule).
+- **For S9's device pass**: ink on a strip row with the tiles; TalkBack on
+  a strip (the months list's length, no "0" for November and December);
+  the menu's deepest row near the 3-button bar at de 2.0; the refold
+  anchor's timing when a strip appears under the finger; real de / ro copy
+  and ro diacritics ("Săptămâna de vârf", "16.–22. Juni", "16–22 iun.");
+  "Weniger ▴" under the finger at de 2.0; Android's 200 % font curve on the
+  Records and Months cards.
+
+**The fix passes amended the build**: Records rows reserve the lines
+their measured template takes (62 / 67.4 / 94 for one caption line at
+1.0 / 1.3 / 2.0, a further line 18 / 23.4 / 36), so the 2.0 card is 730
+in en / de (734 ro), not the spec's 838 / 1,038 — the two reserved lines
+from 1.6 were the blank band the design review called out on S5's tags;
+the axis tries the short names at each step, which 412 at 2.0 gains in de
+only ("May" misses the pitch by 0.7 px in en, "sept." in ro); the leaving
+anchor hands over to the first label *after* it that the new build draws
+(holding the nearest surviving label *above* would have moved everything
+below the leaving card), with the correction clamped at the scroll's
+start; the slack arms when the goals, insights, due rows, the records
+drawn (by kind and subject, not value) or the strip set change.
+
+**Gate (S6).** `dart analyze lib test` clean; `dart format` clean on the
+slice's files; `flutter gen-l10n` reproduces the generated files,
+`untranslated.txt` empty; the whole suite `+13333 ~12 -4` on 2026-11-05
+(the Windows host case and the three real-clock guide cases of the S5
+note). S6 is on `main` as `46680e15` (S6a), `ec8642d4` (S6b-i),
+`a4231338` (S6b-ii), `6269288e` (S6c-i), `616101c1` (S6c-ii), `59bad68c`
+(the week name), `2c7606b1` (fix pass B) and the fix passes A with the
+glue (the hash in the hand-off); the docs commit follows.
 
 ### 12.3 The kick-off prompt — written 2026-11-03, NOT RUN
 
