@@ -12,9 +12,11 @@
 # - Totals is the card toggled because its tiles stand on the report's
 #   first screen, so `expect --absent` is checked where they would be. The
 #   band's nav title stands before the report has loaded, so the shot at
-#   the top is the evidence, and the Strength group scrolled to after it
-#   proves the body drew its cards: the seed's Lifting repeats on today's
-#   weekday, so This month always holds it.
+#   the top is the evidence, and the footer's Show as list scrolled to
+#   after it proves the body drew its cards. No group id is a stable
+#   target: before the day's Lifting session today's occurrence is pending,
+#   so Strength sits under Ahead, after it under Categories (the report
+#   record's D31) — a pass before 6 PM found no Categories group.
 # - Reset sits past the last card, below the fold on a phone, and is held
 #   while the list is the default: the widget suite covers it.
 tap id:calendar-more
@@ -40,7 +42,8 @@ wait id:report-body
 wait id:report-nav-title
 expect --absent id:report-tile-events
 shot 34_report_without_totals
-scroll-to id:report-group-categories-qa-cal-strength --in id:report-body --max 20
+scroll-to id:report-show-list --in id:report-body --max 30
+expect id:report-show-list id:report-share id:report-send
 tap id:calendar-view-menu
 wait id:calendar-view-calendar
 tap id:calendar-view-calendar

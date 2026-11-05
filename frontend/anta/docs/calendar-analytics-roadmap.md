@@ -10,9 +10,10 @@ the work needs, and named the same Fable session the lead: one Opus 5.5
 implementer and one reviewer per slice (the `delegation` roster), the
 designer and design-reviewer around the visual slices, the suite from the
 lead. §12.2 records each slice as built; this line moves to COMMITTED when
-S9's device pass is green. **In progress: S0–S8 committed by 2026-11-05**
-(S7 `3885ef3d`, S8 `b12314b4` last; S9's device pass is the remaining
-step — see "Where the next session starts" at the head of §12.2).
+S9's device pass is green. **COMMITTED 2026-11-05: S0–S9** (the last code commit
+`b12314b4`; the device pass 35 of 35 calendar flows and 5 of 5 alerts
+flows on `emulator-5558` — the S9 note at the end of §12.2; what stays
+with the owner is listed there).
 
 This record extends `docs/calendar-report-roadmap.md` (the Report, COMMITTED
 2026-10-31) and never replaces it: one page, one pure builder, one model.
@@ -769,28 +770,25 @@ warning; a sync between two devices converges on the newer profile.
 verified, the reviewer's findings and their fate, the uncommitted file count
 at the boundary)*
 
-**Where the next session starts (rewritten 2026-11-05 after S8).**
-Done and on `origin/main`: S0 (`2661c8de`), S1 (`6a586668`), S2a
-(`0f5fae29`), S2b-i (`66efe1f1`), S3 (`fb9ae486`), S2b-ii (`f29edf64`),
-S4 (`f3571ecf`), **S5** (`0abb2f69` … `8855bf29`, docs `1e344277`), **S6**
-(`46680e15` … `9327da13`, docs `bf868227`), **S7** (`8202b736`,
-`e19abc3a`, the fix pass `3885ef3d`) and **S8** (`c09ef7a7` …
-`b12314b4`, the last being the fix passes II; S8c's six documents and
-the S7 / S8 notes in the docs commit after it). Next: **S9** — the device
-pass through `qa-runner` on `emulator-5556`: `qa fleet install --build`,
-`qa pass calendar` (35 flows: 30 and 31 the category editor's Kind
-section and goal sheet, 32 the report's tag header and Compare with — Same
-period last year stays dimmed, no seed event lies a year back —, 33 the
-year cards on This year and the Last year preset, 34 the Report cards
-page toggling Totals off and the report showing it gone), `qa pass
-alerts`, then the three design reviews' device buckets (the S5, S6 and
-S8 notes: TalkBack on a tag header, a strip and the handle; the compare
-and period menus near the bottom inset at de 2.0; a drag on the Report
-cards page; real de / ro copy at 200 %); a red flow re-run once with
-`--only`; the pass report into the S9 note, and this record's status line
-to COMMITTED when the pass is green. The known reds of the whole suite
-(2026-11-05): the Windows-only host-devices case and three real-clock
-guide cases (§14). Each slice: implementer runs of ≤ 8 ids by layer (words →
+**Where the next session starts (rewritten 2026-11-05 after S9 —
+the roadmap is COMMITTED).** Done and on `origin/main`: S0 (`2661c8de`),
+S1 (`6a586668`), S2a (`0f5fae29`), S2b-i (`66efe1f1`), S3 (`fb9ae486`),
+S2b-ii (`f29edf64`), S4 (`f3571ecf`), **S5** (`0abb2f69` … `8855bf29`,
+docs `1e344277`), **S6** (`46680e15` … `9327da13`, docs `bf868227`),
+**S7** (`8202b736`, `e19abc3a`, the fix pass `3885ef3d`), **S8**
+(`c09ef7a7` … `b12314b4`; S8c's six documents and the S7 / S8 notes in
+`ed010ff5`) and **S9** (the device pass: calendar 35 of 35 and alerts 5
+of 5 on `emulator-5558`; flow 34's repoint and the S9 note in the last
+commit). Nothing is queued. What stays with the owner: the Firestore
+rules deploy before a v44+ build syncs from a phone (the S0 note); the
+guide try-cards suite's clock pin (§14 — three cases red on the real
+clock since 2026-11-05, with the Windows-only host-devices case the
+suite's known noise); `anta_qa_1`'s storage (the install refused with
+539 MB free); the device-only looks the three design reviews listed (the
+S5, S6 and S8 notes); and §14's deferred items. A later session that
+touches the analytics loads `calendar-events` (its Analytics section
+points at `references/subsystems.md` "The analytics layer") and reads
+this record by section. Each slice ran as: implementer runs of ≤ 8 ids by layer (words →
 primitives and cards → page), the whole suite from the lead, two code
 reviewers and the design-reviewer told to report by turn 60, fix passes
 grouped by file, commit. The process that worked in S5 and S6 beyond
@@ -2226,6 +2224,65 @@ regenerated. S8 is on `main` as `c09ef7a7` (S8a), `9cfd9b99` (S8b-i),
 `c83061de` (S8b-ii with the goldens), `35ded696` (fix pass I) and the fix
 passes II (the hash in the hand-off); the docs commit follows with S8c's
 six documents.
+
+#### S9 — the device pass (2026-11-05)
+
+**Run by `qa-runner`** on the fleet: `anta_qa_1` (`emulator-5556`) refused
+the install — `Requested internal only, but not enough space` with 539 MB
+free against a 259 MB debug APK — so the pass ran on `anta_qa_2`
+(`emulator-5558`, 3.2 GB free) with the `ed010ff5` build; `anta_qa_1` was
+stopped, nothing the owner booted was touched (the guest's storage is the
+owner's fleet chore — the 2026-10-31 health-check memory scripts the wipe).
+**`qa pass calendar`: 34 of 35 green in 629 s**, the new
+`30_category_kind`, `31_category_goal`, `32_report_cards` and
+`33_report_year` among them; **`34_report_cards` red twice** at its last
+step, `scroll-to id:report-group-categories-qa-cal-strength`: the run
+fell before the day's 6 PM Lifting session, so today's occurrence was
+pending and Strength sat under Ahead, not Categories (D31) — a flow
+assumption bound to the time of day, not an app defect; the step now
+scrolls to the footer's Show as list, which is always drawn, and the
+comment says why (the re-run's verdict below). **`qa pass alerts`: 5 of 5
+green** in 284 s. `qa errors` clean on both. The reports:
+`build/qa/pass/calendar_20261105_035327_889_emulator-5558/report.json`
+and `alerts_20261105_040533_124_emulator-5558/report.json`; the shots in
+`build/qa/shots/`.
+
+**The device buckets** (the three design reviews'): a tag header is one
+button node, "tag ana, once, last Monday 2 November", and its tap lists
+`report-tag-row-ana-qa-cal-coffee-2026-11-02` ("Coffee with #ana / Mon 2
+Nov · 10:30 AM · 45 min") — the dump exposes no expanded flag (the widget
+suite asserts it); the When card is one node, "When. Busiest day
+Saturday, busiest hour 6:00 PM to 7:00 PM, over 12 timed days.", with no
+cell nodes; the Compare with menu at the scroll's end opens with Previous
+period checked, Same period last year disabled and "Strength only", ends
+at y ≈ 2685 of 2856 and neither scrolls nor flips; on This year the
+Strength strip reads "Strength, from October 8 to October 31. By month:
+October 7." and the Records rows read "Busiest month: October, 7
+events", "Busiest week: from November 2 to November 8, 5 events",
+"Longest streak: Lifting session, 6 in a row"; on the Report cards page
+the handle is one node "Reorder Goals" and the switch a Switch node
+"Goals" (`click, checked`), a 700 ms hold-drag of the Goals handle down
+two rows landed it third and a quick tap on a name toggled without a
+drag; in de, dark, 2.0 the period menu's eleventh row ends at y = 2244 of
+2856, clearing the 3-button bar, and the cards page's rows reflow to a
+195 px pitch. **Not reached by the dump or the turn budget**: a Balance
+row's node, the handle's Move up / Move down actions (the dump carries no
+actions field), mid-drag frames of the group, a visual read of the three
+de / dark shots, the When card fully on screen (it sits at the scroll's
+end). The tag header's expanded state and the custom actions are pinned
+by the widget suites; the rest is for the owner's eye on a device.
+
+**The re-run**: `qa pass calendar --only 34_report_cards -d
+emulator-5558` on the repointed flow — 1 of 1 green in 29 s, `qa errors`
+clean (`build/qa/pass/calendar_20261105_041506_137_emulator-5558/report.json`);
+with the earlier full pass the calendar suite is **35 of 35** and alerts
+**5 of 5**. The flow's repoint and this note are the roadmap's last
+commit; the status line at the head of this record reads COMMITTED from
+it. What stays with the owner: the Firestore rules deploy before a v44+
+build syncs from a phone (the S0 note), the guide try-cards suite's clock
+pin (§14), `anta_qa_1`'s storage, and the device-only looks the three
+design reviews listed (ink, TalkBack phrasing, the drag's seam, the AOSP
+200 % curve) — the S5, S6 and S8 notes carry them.
 
 ### 12.3 The kick-off prompt — written 2026-11-03, NOT RUN
 
