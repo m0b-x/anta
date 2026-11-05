@@ -7,6 +7,7 @@ import 'package:anta/database/crdt/crdt_merge.dart';
 import 'package:anta/database/crdt/crdt_write.dart';
 import 'package:anta/database/crdt/hlc.dart';
 import 'package:anta/database/crdt/merge_outcome.dart';
+import 'package:anta/database/daos/folder_dao.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/models/item_label.dart';
 import 'package:anta/repositories/note_repository.dart';
@@ -770,6 +771,86 @@ void main() {
       expect(entry.rowKey, folder.id);
       expect(entry.hlc, folder.hlcTimestamp);
     });
+
+    test(
+      'importFolders places and queues each row as importFolder would',
+      () async {
+        final existing = await db.folderDao.createFolder(name: 'Existing');
+        await db.folderDao.createFolder(name: 'Kid', parentId: existing.id);
+        // A tombstone above the live child: positions append after live rows
+        // only, as importFolder's own query does.
+        final gone = await db.folderDao.createFolder(
+          name: 'Gone',
+          parentId: existing.id,
+        );
+        await db.folderDao.softDeleteFolder(gone.id);
+        await db.syncOutboxDao.clear();
+
+        FolderImportEntry entry(
+          String name, {
+          String? id,
+          String? parentId,
+          DateTime? updatedAt,
+        }) => (
+          archivedId: id,
+          parentId: parentId,
+          name: name,
+          createdAt: DateTime.utc(2024),
+          updatedAt: updatedAt,
+          noteSortOrder: null,
+          subfolderSortOrder: null,
+          label: ItemLabel.none,
+          ownerId: null,
+        );
+        final before = DateTime.now().subtract(const Duration(seconds: 1));
+        final ids = await db.folderDao.importFolders([
+          entry('A', id: 'a'),
+          entry('B', id: 'b', parentId: 'a', updatedAt: DateTime.utc(2025)),
+          entry('C', id: 'c', parentId: 'a'),
+          entry('D', parentId: existing.id),
+          entry('E', id: 'e', parentId: 'missing'),
+          entry('F', parentId: existing.id),
+        ]);
+        final after = DateTime.now().add(const Duration(seconds: 1));
+
+        final rows = [for (final id in ids) await folderRow(id)];
+        expect(
+          [for (final row in rows) row.name],
+          ['A', 'B', 'C', 'D', 'E', 'F'],
+        );
+        expect(
+          [for (final row in rows) row.parentId],
+          [null, ids[0], ids[0], existing.id, 'missing', existing.id],
+        );
+        expect([for (final row in rows) row.position], [1, 0, 1, 1, 0, 2]);
+        expect(
+          rows.every(
+            (row) => row.createdAt.isAtSameMomentAs(DateTime.utc(2024)),
+          ),
+          isTrue,
+        );
+        expect(rows[1].updatedAt.isAtSameMomentAs(DateTime.utc(2025)), isTrue);
+        expect(
+          rows[0].updatedAt.isAfter(before) &&
+              rows[0].updatedAt.isBefore(after),
+          isTrue,
+          reason: 'an entry without an mtime records the import as its write',
+        );
+        for (final row in rows) {
+          expect(row.deviceId, db.deviceId);
+          expect(row.version, 1);
+          expect(row.isDeleted, isFalse);
+        }
+
+        final entries = {
+          for (final row in await queued('folders')) row.rowKey: row.hlc,
+        };
+        expect(entries, {for (final row in rows) row.id: row.hlcTimestamp});
+        final stamps = [for (final row in rows) row.hlcTimestamp];
+        expect(stamps, [...stamps]..sort(), reason: 'minted in entry order');
+        expect(stamps.toSet(), hasLength(stamps.length));
+      },
+    );
   });
 
   test('a write that throws inside its transaction leaves no entry', () async {

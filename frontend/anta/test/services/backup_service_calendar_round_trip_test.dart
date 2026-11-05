@@ -1,3 +1,8 @@
+// An isolate-backed file database: the calendar round trip's slowest case
+// ran 14 s in its own file and past 30 s under whole-suite load.
+@Timeout(Duration(minutes: 2))
+library;
+
 import 'dart:convert';
 import 'dart:io';
 
@@ -446,7 +451,13 @@ void main() {
             'registrations mirror one phone\'s OS scheduler and are never '
             'carried to another device',
       );
-      return jsonEncode(exported);
+      // An import appends copies of every folder and note, so each test here
+      // would double what the groups above left; none of them is asserted.
+      return jsonEncode({
+        ...exported,
+        'folders': const <Object>[],
+        'notes': const <Object>[],
+      });
     }
 
     Future<void> wipe() async {
@@ -565,7 +576,10 @@ void main() {
         8,
         reason: 'views are additive; only the profiles moved the version',
       );
-      return jsonDecode(jsonEncode(exported)) as Map<String, dynamic>;
+      // The event alerts group's reason: no test here asserts the browser.
+      return (jsonDecode(jsonEncode(exported)) as Map<String, dynamic>)
+        ..['folders'] = const <Object>[]
+        ..['notes'] = const <Object>[];
     }
 
     test('views round-trip under their own key', () async {
@@ -616,7 +630,10 @@ void main() {
       final settings = await SettingsService.getInstance();
       await settings.setReportCards(cards);
       final backup = await BackupService.getInstance();
-      final exported = await backup.exportAllData();
+      // The event alerts group's reason: no test here asserts the browser.
+      final exported = await backup.exportAllData()
+        ..['folders'] = const <Object>[]
+        ..['notes'] = const <Object>[];
       expect(
         (exported['settings']
             as Map<String, dynamic>)[SettingsKeys.reportCards],
@@ -639,7 +656,9 @@ void main() {
       final settings = await SettingsService.getInstance();
       await settings.setReportCards(ReportCards.defaults);
       final backup = await BackupService.getInstance();
-      final exported = await backup.exportAllData();
+      final exported = await backup.exportAllData()
+        ..['folders'] = const <Object>[]
+        ..['notes'] = const <Object>[];
       expect(
         (exported['settings'] as Map<String, dynamic>).containsKey(
           SettingsKeys.reportCards,
@@ -718,7 +737,10 @@ void main() {
         8,
         reason: 'both keys are additive; only the profiles moved the version',
       );
-      return jsonDecode(jsonEncode(exported)) as Map<String, dynamic>;
+      // The event alerts group's reason: no test here asserts the browser.
+      return (jsonDecode(jsonEncode(exported)) as Map<String, dynamic>)
+        ..['folders'] = const <Object>[]
+        ..['notes'] = const <Object>[];
     }
 
     Future<void> wipe() async {

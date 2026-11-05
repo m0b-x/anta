@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:get_it/get_it.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
+import '../database/daos/folder_dao.dart';
 import '../database/database.dart';
 import '../database/database_lifecycle.dart';
 import '../constants/calendar_categories.dart';
@@ -419,24 +420,28 @@ class BackupService {
       await binding.unbind();
       onUnbound(binding);
 
-      for (final map in _foldersParentsFirst(folders)) {
-        final archivedParent = map[JsonKeys.parentId] as String?;
-        final folder = await _db.folderDao.importFolder(
-          name: map[JsonKeys.name] as String,
-          parentId: archivedParent == null
-              ? null
-              : folderIdMap[archivedParent] ?? archivedParent,
-          createdAt: _archivedDate(map[JsonKeys.createdAt]) ?? DateTime.now(),
-          updatedAt: _archivedDate(map[JsonKeys.updatedAt]),
-          noteSortOrder: map[JsonKeys.noteSortOrder] as String?,
-          subfolderSortOrder: map[JsonKeys.subfolderSortOrder] as String?,
-          label: ItemLabel.fromName(map[JsonKeys.label] as String?),
-          ownerId: JsonKeys.ownerIdOf(map),
-        );
-        final archivedId = map[JsonKeys.id];
-        if (archivedId is String) folderIdMap[archivedId] = folder.id;
-        foldersImported++;
+      final folderEntries = <FolderImportEntry>[
+        for (final map in _foldersParentsFirst(folders))
+          (
+            archivedId: map[JsonKeys.id] is String
+                ? map[JsonKeys.id] as String
+                : null,
+            parentId: map[JsonKeys.parentId] as String?,
+            name: map[JsonKeys.name] as String,
+            createdAt: _archivedDate(map[JsonKeys.createdAt]) ?? DateTime.now(),
+            updatedAt: _archivedDate(map[JsonKeys.updatedAt]),
+            noteSortOrder: map[JsonKeys.noteSortOrder] as String?,
+            subfolderSortOrder: map[JsonKeys.subfolderSortOrder] as String?,
+            label: ItemLabel.fromName(map[JsonKeys.label] as String?),
+            ownerId: JsonKeys.ownerIdOf(map),
+          ),
+      ];
+      final folderIds = await _db.folderDao.importFolders(folderEntries);
+      for (var i = 0; i < folderEntries.length; i++) {
+        final archivedId = folderEntries[i].archivedId;
+        if (archivedId != null) folderIdMap[archivedId] = folderIds[i];
       }
+      foldersImported = folderIds.length;
 
       for (final noteData in notes) {
         final map = noteData as Map<String, dynamic>;

@@ -1,3 +1,8 @@
+// An isolate-backed file database: the calendar round trip's slowest case
+// ran 14 s in its own file and past 30 s under whole-suite load.
+@Timeout(Duration(minutes: 2))
+library;
+
 import 'dart:convert';
 import 'dart:io';
 

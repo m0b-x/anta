@@ -9,6 +9,21 @@ import 'sync_dao.dart';
 
 part 'folder_dao.g.dart';
 
+/// One folder of a backup restore, for [FolderDao.importFolders]: the
+/// archived identity it is copied from, then [FolderDao.importFolder]'s
+/// arguments.
+typedef FolderImportEntry = ({
+  String? archivedId,
+  String? parentId,
+  String name,
+  DateTime createdAt,
+  DateTime? updatedAt,
+  String? noteSortOrder,
+  String? subfolderSortOrder,
+  ItemLabel label,
+  String? ownerId,
+});
+
 @DriftAccessor(tables: [Folders])
 class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
   FolderDao(super.db);
@@ -209,17 +224,7 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
       final now = DateTime.now();
       final id = db.generateId();
       final stamp = await db.stampLocal(folders, id);
-
-      final maxPosQuery = selectOnly(folders)
-        ..addColumns([folders.position.max()]);
-      if (parentId == null) {
-        maxPosQuery.where(folders.parentId.isNull());
-      } else {
-        maxPosQuery.where(folders.parentId.equals(parentId));
-      }
-      maxPosQuery.where(folders.isDeleted.equals(false));
-      final maxPosResult = await maxPosQuery.getSingle();
-      final maxPos = maxPosResult.read(folders.position.max()) ?? -1;
+      final maxPos = await _maxLivePosition(parentId);
 
       final companion = FoldersCompanion(
         id: Value(id),
@@ -246,6 +251,95 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
 
       return insertFolder(companion);
     });
+  }
+
+  /// [importFolder] for a whole backup restore, in one transaction and one
+  /// batch: one transaction per row made a large tree's restore pay a commit
+  /// and a handful of isolate round trips per folder.
+  ///
+  /// [entries] come parents first; an entry's `parentId` names an earlier
+  /// entry by its `archivedId` (the copy that entry became), else an
+  /// existing folder as written. Positions append to each parent exactly as
+  /// [importFolder] row by row would, stamps are minted in entry order.
+  /// Returns each entry's new id, in entry order.
+  Future<List<String>> importFolders(List<FolderImportEntry> entries) {
+    if (entries.isEmpty) return Future.value(const []);
+    return transaction(() async {
+      final now = DateTime.now();
+      final copies = <String, String>{};
+      final created = <String>{};
+      final nextPosition = <String?, int>{};
+      final ids = <String>[];
+      final companions = <FoldersCompanion>[];
+      for (final entry in entries) {
+        final archivedParent = entry.parentId;
+        final parentId = archivedParent == null
+            ? null
+            : copies[archivedParent] ?? archivedParent;
+        if (!nextPosition.containsKey(parentId)) {
+          nextPosition[parentId] = created.contains(parentId)
+              ? 0
+              : await _maxLivePosition(parentId) + 1;
+        }
+        final position = nextPosition[parentId]!;
+        nextPosition[parentId] = position + 1;
+
+        final id = db.generateId();
+        created.add(id);
+        ids.add(id);
+        final archivedId = entry.archivedId;
+        if (archivedId != null) copies[archivedId] = id;
+        companions.add(
+          FoldersCompanion(
+            id: Value(id),
+            name: Value(entry.name),
+            parentId: Value(parentId),
+            label: Value(entry.label.storageValue),
+            position: Value(position),
+            createdAt: Value(entry.createdAt),
+            updatedAt: Value(entry.updatedAt ?? now),
+            noteSortOrder: entry.noteSortOrder != null
+                ? Value(entry.noteSortOrder)
+                : const Value.absent(),
+            subfolderSortOrder: entry.subfolderSortOrder != null
+                ? Value(entry.subfolderSortOrder)
+                : const Value.absent(),
+            ownerId: Value(entry.ownerId),
+            version: const Value(1),
+            isDeleted: const Value(false),
+          ),
+        );
+      }
+
+      final stamps = [for (final _ in companions) db.newStamp()];
+      await batch((b) {
+        for (var i = 0; i < companions.length; i++) {
+          final stamp = stamps[i];
+          b.insert(
+            folders,
+            companions[i].copyWith(
+              hlcTimestamp: Value(stamp.hlc),
+              deviceId: Value(stamp.deviceId),
+            ),
+          );
+          db.enqueueIn(b, folders, ids[i], stamp.hlc);
+        }
+      });
+      return ids;
+    });
+  }
+
+  Future<int> _maxLivePosition(String? parentId) async {
+    final maxPosQuery = selectOnly(folders)
+      ..addColumns([folders.position.max()]);
+    if (parentId == null) {
+      maxPosQuery.where(folders.parentId.isNull());
+    } else {
+      maxPosQuery.where(folders.parentId.equals(parentId));
+    }
+    maxPosQuery.where(folders.isDeleted.equals(false));
+    final maxPosResult = await maxPosQuery.getSingle();
+    return maxPosResult.read(folders.position.max()) ?? -1;
   }
 
   Future<Folder?> updateFolder({
