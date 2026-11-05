@@ -23,6 +23,7 @@ import '../models/calendar_appearance.dart';
 import '../models/calendar_report.dart';
 import '../models/overview_period.dart';
 import '../models/overview_view.dart';
+import '../models/report_cards.dart';
 import '../models/report_period_choice.dart';
 import '../utils/date_span_label.dart';
 import '../utils/report_insight_filter.dart';
@@ -229,7 +230,7 @@ class _ReportBandState extends State<ReportBand> {
 
 /// The Report view's body — Goals, Insights, Due soon, Totals, on a whole
 /// year Records and Months, Categories, By tag, Over time, When, Balance,
-/// Missed, Ahead and the footer, ending in
+/// Missed and Ahead in [cards]' order, then the footer, ending in
 /// the [EndSlackSliver] — drawn by the report page and by the guide's screen
 /// stage over plain inputs, so the two never drift (D74, the owner's
 /// one-copy rule D59). It writes nothing and owns no data.
@@ -269,7 +270,14 @@ class ReportBody extends StatefulWidget {
     this.foldedCompareView,
     this.views = const [],
     this.onCompare,
+    this.cards = ReportCards.defaults,
   });
+
+  /// The cards drawn, in their order, as Settings → Calendar → Report cards
+  /// holds them (W): an off card is absent with its label and its gap,
+  /// never collapsed, and a tap that would land in it has none. The footer
+  /// is no card and always closes the body.
+  final ReportCards cards;
 
   /// The report drawn; null before the first.
   final CalendarReport? report;
@@ -463,31 +471,57 @@ class _ReportBodyState extends State<ReportBody> {
       _refolds++;
       final scroll = _scroll;
       _anchor = scroll.hasClients
-          ? _anchors.heldFor(scroll.position.pixels, among: _labelIds(report))
+          ? _anchors.heldFor(
+              scroll.position.pixels,
+              among: _labelIds(report, widget.cards),
+            )
           : null;
     }
   }
 
-  /// The ids of the section labels a build of [report] draws, by the same
-  /// conditions the build reads. A saved view's label is listed whenever
-  /// one is folded: side by side it shares the Totals row and is never laid
-  /// out on its own, so it can never be picked.
-  static Set<Object> _labelIds(CalendarReport report) => {
-    if (report.goals.isNotEmpty) #goals,
-    if (_pageInsights(report).isNotEmpty) #insights,
-    if (report.dueSoon.isNotEmpty) #dueSoon,
-    #totals,
-    if (report.compare == ReportCompare.view && report.compared != null) #view,
-    if (report.year?.records.isNotEmpty ?? false) #records,
-    if (ReportBody.stripIds(report).isNotEmpty) #months,
-    if (report.categories.isNotEmpty) ReportCard.categories,
-    if (report.tags.isNotEmpty) #tags,
-    if (report.trend != null) #overTime,
-    if (report.when?.busiestWeekday != null) #when,
-    if (report.balance.length >= AnalyticsMetrics.balanceMinAreas) #balance,
-    if (report.missed.isNotEmpty) ReportCard.missed,
-    if (report.ahead.isNotEmpty) ReportCard.ahead,
+  /// The ids of the section labels a build of [report] under [cards]
+  /// draws, in its order and by the same conditions the build reads. A
+  /// saved view's label is listed whenever one is folded: side by side it
+  /// shares the Totals row and is never laid out on its own, so it can
+  /// never be picked.
+  static Set<Object> _labelIds(CalendarReport report, ReportCards cards) => {
+    for (final kind in cards.shown)
+      ...switch (kind) {
+        ReportCardKind.goals => [if (report.goals.isNotEmpty) #goals],
+        ReportCardKind.insights => [
+          if (_pageInsights(report).isNotEmpty) #insights,
+        ],
+        ReportCardKind.dueSoon => [if (report.dueSoon.isNotEmpty) #dueSoon],
+        ReportCardKind.totals => [
+          #totals,
+          if (report.compare == ReportCompare.view && report.compared != null)
+            #view,
+        ],
+        ReportCardKind.records => [
+          if (report.year?.records.isNotEmpty ?? false) #records,
+        ],
+        ReportCardKind.months => [
+          if (ReportBody.stripIds(report).isNotEmpty) #months,
+        ],
+        ReportCardKind.categories => [
+          if (report.categories.isNotEmpty) ReportCard.categories,
+        ],
+        ReportCardKind.tags => [if (report.tags.isNotEmpty) #tags],
+        ReportCardKind.overTime => [if (report.trend != null) #overTime],
+        ReportCardKind.when => [if (report.when?.busiestWeekday != null) #when],
+        ReportCardKind.balance => [
+          if (report.balance.length >= AnalyticsMetrics.balanceMinAreas)
+            #balance,
+        ],
+        ReportCardKind.missed => [
+          if (report.missed.isNotEmpty) ReportCard.missed,
+        ],
+        ReportCardKind.ahead => [if (report.ahead.isNotEmpty) ReportCard.ahead],
+      },
   };
+
+  /// Whether the owner's cards draw [kind].
+  bool _shows(ReportCardKind kind) => !widget.cards.off.contains(kind);
 
   /// The insights the Insights card draws: the page's filter, which drops
   /// what Goals and Due soon already say; none in a plan, where nothing has
@@ -593,10 +627,55 @@ class _ReportBodyState extends State<ReportBody> {
           );
     final clearance = widget.bottomClearance;
     final slack = widget.slack;
-    final analytics = report == null
-        ? const <Widget>[]
-        : _analyticsCards(l10n, labels, report);
+    // The body's own width, not the screen's, decides how a saved view's
+    // card stands (S5 §2.5); read around the Totals block alone, so a
+    // change of height rebuilds no other card. Keyed: the cards above may
+    // change their count of slivers, and the anchors inside keep their last
+    // layout (R).
+    final totals = SliverLayoutBuilder(
+      key: const ValueKey(#totals),
+      builder: (context, constraints) {
+        final sideBySide =
+            constraints.crossAxisExtent + 2 * RowMetrics.groupInset >=
+            _compareSideBySideWidth;
+        final built = _totalsBlock;
+        if (built != null && built.sideBySide == sideBySide) {
+          return built.block;
+        }
+        final block = SliverMainAxisGroup(
+          slivers: _totalsCards(
+            l10n,
+            labels,
+            report,
+            compared: compared,
+            viewName: viewName,
+            against: against,
+            caption: caption,
+            sideBySide: sideBySide,
+          ),
+        );
+        _totalsBlock = (sideBySide: sideBySide, block: block);
+        return block;
+      },
+    );
     _totalsBlock = null;
+    final footer = period == null || report == null
+        ? const <Widget>[]
+        : [
+            SliverToBoxAdapter(
+              child: RepaintBoundary(
+                child: _buildFooter(
+                  l10n,
+                  labels,
+                  report,
+                  period: period,
+                  categoryIds: widget.categoryIds,
+                  against: against,
+                  beside: beside,
+                ),
+              ),
+            ),
+          ];
     return Semantics(
       container: true,
       identifier: SemanticsIds.reportBody,
@@ -611,141 +690,11 @@ class _ReportBodyState extends State<ReportBody> {
               FormMetrics.bodyBottom + clearance,
             ),
             sliver: SliverMainAxisGroup(
-              slivers: [
-                ...analytics,
-                if (analytics.isNotEmpty)
-                  const SliverToBoxAdapter(
-                    child: SizedBox(height: RowMetrics.groupGap),
-                  ),
-                // The body's own width, not the screen's, decides how a
-                // saved view's card stands (S5 §2.5); read around the
-                // Totals block alone, so a change of height rebuilds no
-                // other card. Keyed: the cards above may change their
-                // count of slivers, and the anchors inside keep their last
-                // layout (R).
-                SliverLayoutBuilder(
-                  key: const ValueKey(#totals),
-                  builder: (context, constraints) {
-                    final sideBySide =
-                        constraints.crossAxisExtent +
-                            2 * RowMetrics.groupInset >=
-                        _compareSideBySideWidth;
-                    final built = _totalsBlock;
-                    if (built != null && built.sideBySide == sideBySide) {
-                      return built.block;
-                    }
-                    final block = SliverMainAxisGroup(
-                      slivers: _totalsCards(
-                        l10n,
-                        labels,
-                        report,
-                        compared: compared,
-                        viewName: viewName,
-                        against: against,
-                        caption: caption,
-                        sideBySide: sideBySide,
-                      ),
-                    );
-                    _totalsBlock = (sideBySide: sideBySide, block: block);
-                    return block;
-                  },
-                ),
-                if (report != null) ...[
-                  ..._yearCards(l10n, labels, report),
-                  ..._buildCard(
-                    ReportCard.categories,
-                    l10n.reportSectionCategories,
-                    report,
-                    labels,
-                  ),
-                  ..._tagsCard(l10n, labels, report),
-                ],
-                // The builder already left the trend out below the
-                // threshold and for a plan (Q, T).
-                if (report case CalendarReport(:final trend?, :final span)) ...[
-                  const SliverToBoxAdapter(
-                    child: SizedBox(height: RowMetrics.groupGap),
-                  ),
-                  _sectionLabel(#overTime, l10n.reportSectionOverTime),
-                  SliverToBoxAdapter(
-                    child: RepaintBoundary(
-                      child: ReportTrendChart(
-                        trend: trend,
-                        labels: labels,
-                        weekStart: widget.weekStart,
-                        span: span,
-                      ),
-                    ),
-                  ),
-                ],
-                // Under the model's timed-day threshold, and in a plan,
-                // which keeps no day, When has no busiest day (S5 §2.1).
-                if (report?.when case final hours?
-                    when hours.busiestWeekday != null) ...[
-                  const SliverToBoxAdapter(
-                    child: SizedBox(height: RowMetrics.groupGap),
-                  ),
-                  _sectionLabel(#when, l10n.reportSectionWhen),
-                  SliverToBoxAdapter(
-                    child: RepaintBoundary(
-                      child: ReportWhenChart(
-                        when: hours,
-                        labels: labels,
-                        weekStart: widget.weekStart,
-                      ),
-                    ),
-                  ),
-                ],
-                // An unprofiled calendar counts no area's hours, so it
-                // inserts no Balance.
-                if (report != null &&
-                    report.balance.length >=
-                        AnalyticsMetrics.balanceMinAreas) ...[
-                  const SliverToBoxAdapter(
-                    child: SizedBox(height: RowMetrics.groupGap),
-                  ),
-                  _sectionLabel(#balance, l10n.reportSectionBalance),
-                  SliverToBoxAdapter(
-                    child: RepaintBoundary(
-                      child: ReportBalanceCard(report: report, labels: labels),
-                    ),
-                  ),
-                ],
-                // A plan has no Missed and no Ahead (T): the builder
-                // leaves both empty, and an empty card is not drawn (H).
-                if (report != null) ...[
-                  ..._buildCard(
-                    ReportCard.missed,
-                    l10n.reportSectionMissed,
-                    report,
-                    labels,
-                  ),
-                  ..._buildCard(
-                    ReportCard.ahead,
-                    l10n.reportSectionAhead,
-                    report,
-                    labels,
-                  ),
-                ],
-                if (period != null && report != null) ...[
-                  const SliverToBoxAdapter(
-                    child: SizedBox(height: RowMetrics.groupGap),
-                  ),
-                  SliverToBoxAdapter(
-                    child: RepaintBoundary(
-                      child: _buildFooter(
-                        l10n,
-                        labels,
-                        report,
-                        period: period,
-                        categoryIds: widget.categoryIds,
-                        against: against,
-                        beside: beside,
-                      ),
-                    ),
-                  ),
-                ],
-              ],
+              slivers: _spaced([
+                for (final kind in widget.cards.shown)
+                  _card(kind, l10n, labels, report, totals: totals),
+                footer,
+              ]),
             ),
           ),
           if (slack == null)
@@ -868,64 +817,168 @@ class _ReportBodyState extends State<ReportBody> {
     ];
   }
 
-  /// The year in review between the Totals caption and Categories (S6
-  /// §2.1): Records, then Months, each under its label after the gap
-  /// between cards and absent with it when the card would draw nothing —
-  /// the card's own rule, so a label never stands over an empty card. The
-  /// model folds no year for a month, a week or a plan (A): they insert
-  /// nothing. A strip's tap lands on its Categories group (G); with no way
-  /// there wired, as on the guide's stage, the strips are read rows.
-  List<Widget> _yearCards(
+  /// The gap between two cards, and between the last card and the footer.
+  static const Widget _gap = SliverToBoxAdapter(
+    child: SizedBox(height: RowMetrics.groupGap),
+  );
+
+  /// [blocks] with the gap before every one but the first drawn: an absent
+  /// card, or the first one shown, carries none (W).
+  static List<Widget> _spaced(Iterable<List<Widget>> blocks) => [
+    for (final (index, block) in blocks.where((b) => b.isNotEmpty).indexed) ...[
+      if (index > 0) _gap,
+      ...block,
+    ],
+  ];
+
+  /// [kind]'s slivers, its label first, with no gap; none when the card has
+  /// nothing to show (H), so a label never stands over an empty card.
+  /// Before the first report only [totals], the frame with dashes, is
+  /// drawn.
+  List<Widget> _card(
+    ReportCardKind kind,
+    AppLocalizations l10n,
+    ReportLabels labels,
+    CalendarReport? report, {
+    required Widget totals,
+  }) {
+    if (report == null) {
+      return kind == ReportCardKind.totals ? [totals] : const [];
+    }
+    return switch (kind) {
+      ReportCardKind.goals => _goalsCard(l10n, labels, report),
+      ReportCardKind.insights => _insightsCard(l10n, labels, report),
+      ReportCardKind.dueSoon => _dueSoonCard(l10n, labels, report),
+      ReportCardKind.totals => [totals],
+      ReportCardKind.records => _recordsCard(l10n, labels, report),
+      ReportCardKind.months => _monthsCard(l10n, labels, report),
+      ReportCardKind.categories => _buildCard(
+        ReportCard.categories,
+        l10n.reportSectionCategories,
+        report,
+        labels,
+      ),
+      ReportCardKind.tags => _tagsCard(l10n, labels, report),
+      // The builder already left the trend out below the threshold and for
+      // a plan (Q, T).
+      ReportCardKind.overTime => [
+        if (report.trend case final trend?)
+          ..._labelled(
+            #overTime,
+            l10n.reportSectionOverTime,
+            ReportTrendChart(
+              trend: trend,
+              labels: labels,
+              weekStart: widget.weekStart,
+              span: report.span,
+            ),
+          ),
+      ],
+      // Under the model's timed-day threshold, and in a plan, which keeps
+      // no day, When has no busiest day (S5 §2.1).
+      ReportCardKind.when => [
+        if (report.when case final hours? when hours.busiestWeekday != null)
+          ..._labelled(
+            #when,
+            l10n.reportSectionWhen,
+            ReportWhenChart(
+              when: hours,
+              labels: labels,
+              weekStart: widget.weekStart,
+            ),
+          ),
+      ],
+      // An unprofiled calendar counts no area's hours, so it inserts no
+      // Balance.
+      ReportCardKind.balance => [
+        if (report.balance.length >= AnalyticsMetrics.balanceMinAreas)
+          ..._labelled(
+            #balance,
+            l10n.reportSectionBalance,
+            ReportBalanceCard(report: report, labels: labels),
+          ),
+      ],
+      // A plan has no Missed and no Ahead (T): the builder leaves both
+      // empty, and an empty card is not drawn (H).
+      ReportCardKind.missed => _buildCard(
+        ReportCard.missed,
+        l10n.reportSectionMissed,
+        report,
+        labels,
+      ),
+      ReportCardKind.ahead => _buildCard(
+        ReportCard.ahead,
+        l10n.reportSectionAhead,
+        report,
+        labels,
+      ),
+    };
+  }
+
+  /// [card] under the section [label], an anchor candidate under [id].
+  List<Widget> _labelled(
+    Object id,
+    String label,
+    Widget card, {
+    Key? labelKey,
+  }) => [
+    _anchored(id, FormSectionLabel(key: labelKey, text: label)),
+    SliverToBoxAdapter(child: RepaintBoundary(child: card)),
+  ];
+
+  /// The year in review's Records (S6 §2.1), absent when it would draw
+  /// nothing. The model folds no year for a month, a week or a plan (A):
+  /// they insert nothing.
+  List<Widget> _recordsCard(
     AppLocalizations l10n,
     ReportLabels labels,
     CalendarReport report,
   ) {
-    final year = report.year;
-    if (year == null) return const [];
-    final hasStrips = ReportBody.stripIds(report).isNotEmpty;
-    final reachable =
-        widget.onReveal != null || widget.onMoreCategories != null;
-    return [
-      if (year.records.isNotEmpty) ...[
-        const SliverToBoxAdapter(child: SizedBox(height: RowMetrics.groupGap)),
-        _sectionLabel(#records, l10n.reportSectionRecords),
-        SliverToBoxAdapter(
-          child: RepaintBoundary(
-            child: ReportRecordsCard(
-              report: report,
-              labels: labels,
-              folds: widget.folds,
-              onShrink: widget.onShrink,
-              scroll: _scroll,
-            ),
-          ),
-        ),
-      ],
-      if (hasStrips) ...[
-        const SliverToBoxAdapter(child: SizedBox(height: RowMetrics.groupGap)),
-        _sectionLabel(#months, l10n.reportSectionMonths),
-        SliverToBoxAdapter(
-          child: RepaintBoundary(
-            child: ReportMonthsCard(
-              report: report,
-              labels: labels,
-              folds: widget.folds,
-              onShrink: widget.onShrink,
-              scroll: _scroll,
-              onCategoryTap: reachable
-                  ? (categoryId) => _toGroup(report, categoryId)?.call()
-                  : null,
-              canTap: (categoryId) => _toGroup(report, categoryId) != null,
-            ),
-          ),
-        ),
-      ],
-    ];
+    if (!(report.year?.records.isNotEmpty ?? false)) return const [];
+    return _labelled(
+      #records,
+      l10n.reportSectionRecords,
+      ReportRecordsCard(
+        report: report,
+        labels: labels,
+        folds: widget.folds,
+        onShrink: widget.onShrink,
+        scroll: _scroll,
+      ),
+    );
   }
 
-  /// The By tag card under its label (S5 §2.2), after the gap between
-  /// cards: its tags are slivers of the page's one scroll, opened closed,
-  /// with the card's own "n more"; nothing when no event carries a tag.
+  /// The year in review's Months (S6 §2.1), absent with no strip — the
+  /// card's own rule. A strip's tap lands on its Categories group (G); with
+  /// no way there wired, as on the guide's stage, the strips are read rows.
+  List<Widget> _monthsCard(
+    AppLocalizations l10n,
+    ReportLabels labels,
+    CalendarReport report,
+  ) {
+    if (ReportBody.stripIds(report).isEmpty) return const [];
+    final reachable =
+        widget.onReveal != null || widget.onMoreCategories != null;
+    return _labelled(
+      #months,
+      l10n.reportSectionMonths,
+      ReportMonthsCard(
+        report: report,
+        labels: labels,
+        folds: widget.folds,
+        onShrink: widget.onShrink,
+        scroll: _scroll,
+        onCategoryTap: reachable
+            ? (categoryId) => _toGroup(report, categoryId)?.call()
+            : null,
+        canTap: (categoryId) => _toGroup(report, categoryId) != null,
+      ),
+    );
+  }
+
+  /// The By tag card under its label (S5 §2.2): its tags are slivers of
+  /// the page's one scroll, opened closed, with the card's own "n more";
+  /// nothing when no event carries a tag.
   List<Widget> _tagsCard(
     AppLocalizations l10n,
     ReportLabels labels,
@@ -936,7 +989,6 @@ class _ReportBodyState extends State<ReportBody> {
     final span = report.span;
     final onShowAsList = widget.onShowAsList;
     return [
-      const SliverToBoxAdapter(child: SizedBox(height: RowMetrics.groupGap)),
       _sectionLabel(#tags, l10n.reportSectionTags),
       ReportGroupStack(
         key: _tags,
@@ -966,77 +1018,78 @@ class _ReportBodyState extends State<ReportBody> {
     ];
   }
 
-  /// Goals, Insights and Due soon above Totals (S4 §2.1), each under its
-  /// label after the gap between cards, the first with none; a card with
-  /// nothing to show is absent with its label (H), so an unprofiled report
-  /// inserts no sliver and opens on Totals as it always has. Insights are
-  /// [_pageInsights].
-  List<Widget> _analyticsCards(
+  /// Goals (S4 §2.1), absent with nothing to show (H), so an unprofiled
+  /// report inserts no sliver and opens on Totals as it always has.
+  List<Widget> _goalsCard(
+    AppLocalizations l10n,
+    ReportLabels labels,
+    CalendarReport report,
+  ) {
+    if (report.goals.isEmpty) return const [];
+    return _labelled(
+      #goals,
+      l10n.reportSectionGoals,
+      ReportGoalsCard(
+        report: report,
+        labels: labels,
+        canTap: (goal) => _toGroup(report, goal.categoryId) != null,
+        onGoalTap: (goal) => _toGroup(report, goal.categoryId)?.call(),
+      ),
+    );
+  }
+
+  /// Insights (S4 §2.1): [_pageInsights], absent when the filter leaves
+  /// none.
+  List<Widget> _insightsCard(
     AppLocalizations l10n,
     ReportLabels labels,
     CalendarReport report,
   ) {
     final insights = _pageInsights(report);
-    final cards = [
-      if (report.goals.isNotEmpty)
-        (
-          id: #goals,
-          label: l10n.reportSectionGoals,
-          labelKey: null,
-          card: ReportGoalsCard(
-            report: report,
-            labels: labels,
-            canTap: (goal) => _toGroup(report, goal.categoryId) != null,
-            onGoalTap: (goal) => _toGroup(report, goal.categoryId)?.call(),
-          ),
-        ),
-      if (insights.isNotEmpty)
-        (
-          id: #insights,
-          label: l10n.reportSectionInsights,
-          labelKey: null,
-          card: ReportInsightsCard(
-            insights: insights,
-            report: report,
-            labels: labels,
-            weekStart: widget.weekStart,
-            canTap: (insight) => _toInsight(report, insight) != null,
-            onInsightTap: (insight) => _toInsight(report, insight)?.call(),
-          ),
-        ),
-      if (report.dueSoon.isNotEmpty)
-        (
-          id: #dueSoon,
-          label: l10n.reportSectionDueSoon,
-          labelKey: _dueSoonLabel,
-          card: ReportDueSoonCard(
-            report: report,
-            labels: labels,
-            folds: widget.folds,
-            onDueTap: widget.onDueTap,
-            onShrink: widget.onShrink,
-            scroll: _scroll,
-          ),
-        ),
-    ];
-    return [
-      for (final (index, (:id, :label, :labelKey, :card)) in cards.indexed) ...[
-        if (index > 0)
-          const SliverToBoxAdapter(
-            child: SizedBox(height: RowMetrics.groupGap),
-          ),
-        _anchored(id, FormSectionLabel(key: labelKey, text: label)),
-        SliverToBoxAdapter(child: RepaintBoundary(child: card)),
-      ],
-    ];
+    if (insights.isEmpty) return const [];
+    return _labelled(
+      #insights,
+      l10n.reportSectionInsights,
+      ReportInsightsCard(
+        insights: insights,
+        report: report,
+        labels: labels,
+        weekStart: widget.weekStart,
+        canTap: (insight) => _toInsight(report, insight) != null,
+        onInsightTap: (insight) => _toInsight(report, insight)?.call(),
+      ),
+    );
+  }
+
+  /// Due soon (S4 §2.1), its label keyed for an insight's scroll to it.
+  List<Widget> _dueSoonCard(
+    AppLocalizations l10n,
+    ReportLabels labels,
+    CalendarReport report,
+  ) {
+    if (report.dueSoon.isEmpty) return const [];
+    return _labelled(
+      #dueSoon,
+      l10n.reportSectionDueSoon,
+      labelKey: _dueSoonLabel,
+      ReportDueSoonCard(
+        report: report,
+        labels: labels,
+        folds: widget.folds,
+        onDueTap: widget.onDueTap,
+        onShrink: widget.onShrink,
+        scroll: _scroll,
+      ),
+    );
   }
 
   /// Where a tap about [categoryId]'s group lands (G): a group the card
   /// shows opens and scrolls to the top; one past the cap opens the "n more
   /// categories" sheet, as the cap row does. Null — a row with no tap —
-  /// when the category has no group, or the surface wired no way there.
+  /// when the category has no group, when the owner turned Categories off,
+  /// or when the surface wired no way there.
   VoidCallback? _toGroup(CalendarReport report, String? categoryId) {
-    if (categoryId == null) return null;
+    if (categoryId == null || !_shows(ReportCardKind.categories)) return null;
     final groups = report.categories;
     final index = groups.indexWhere((group) => group.categoryId == categoryId);
     if (index < 0) return null;
@@ -1061,8 +1114,10 @@ class _ReportBodyState extends State<ReportBody> {
   /// group, the Due soon card's label at the top, or the overview's list on
   /// its days — over its category, else the page's allowlist. A tag's rows
   /// are its header in the By tag card, opened and scrolled to; a tag past
-  /// the card's [AnalyticsMetrics.tagRows] has none there, so it reads its
-  /// first category's group. Null when the target cannot be reached.
+  /// the card's [AnalyticsMetrics.tagRows] has none there, and neither has
+  /// any tag with By tag turned off, so it reads its first category's
+  /// group. Null when the target cannot be reached, a card turned off
+  /// included.
   VoidCallback? _toInsight(CalendarReport report, ReportInsight insight) {
     switch (insight.target) {
       case InsightTarget.categoryGroup:
@@ -1073,7 +1128,7 @@ class _ReportBodyState extends State<ReportBody> {
         );
         if (index < 0) return null;
         final tag = report.tags[index];
-        if (index >= AnalyticsMetrics.tagRows) {
+        if (index >= AnalyticsMetrics.tagRows || !_shows(ReportCardKind.tags)) {
           return _toGroup(report, tag.categoryIds.firstOrNull);
         }
         final onReveal = widget.onReveal;
@@ -1084,7 +1139,11 @@ class _ReportBodyState extends State<ReportBody> {
         };
       case InsightTarget.dueSoon:
         final onReveal = widget.onReveal;
-        if (onReveal == null || report.dueSoon.isEmpty) return null;
+        if (onReveal == null ||
+            report.dueSoon.isEmpty ||
+            !_shows(ReportCardKind.dueSoon)) {
+          return null;
+        }
         return () {
           onReveal();
           revealAtTop(
@@ -1112,8 +1171,8 @@ class _ReportBodyState extends State<ReportBody> {
         span.start.month != span.end.month;
   }
 
-  /// [card]'s groups under their [label], after the gap between cards;
-  /// nothing when the card has no group (H). Categories shows its first
+  /// [card]'s groups under their [label]; nothing when the card has no
+  /// group (H). Categories shows its first
   /// [ReportMetrics.maxCategoryRows] groups and a row for the rest (V). The
   /// groups are a [ReportGroupStack], keyed by card so a card leaving never
   /// hands its fold machinery to the next one.
@@ -1144,7 +1203,6 @@ class _ReportBodyState extends State<ReportBody> {
         : span.start;
     final onShowAsList = widget.onShowAsList;
     return [
-      const SliverToBoxAdapter(child: SizedBox(height: RowMetrics.groupGap)),
       _sectionLabel(card, label),
       ReportGroupStack(
         // Still one key per card: Categories' is the one a goal reaches.

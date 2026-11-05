@@ -26,6 +26,7 @@ import '../models/calendar_report.dart';
 import '../models/event_digest.dart';
 import '../models/export_format.dart';
 import '../models/overview_period.dart';
+import '../models/report_cards.dart';
 import '../models/report_look.dart';
 import '../models/report_period_choice.dart';
 import '../services/alert_keep_notice.dart';
@@ -520,7 +521,11 @@ class _ReportViewState extends State<_ReportView>
       if (!sameLook) {
         _slack.value = (arms: slack.arms, releases: slack.releases + 1);
       } else if (landed.any(_heardMissed.contains) ||
-          !_sameCardsAboveAnchors(before, report)) {
+          !_sameCardsAboveAnchors(
+            before,
+            report,
+            shown?.cards ?? ReportCards.defaults,
+          )) {
         _slack.value = (arms: slack.arms + 1, releases: slack.releases);
       }
     }
@@ -538,13 +543,22 @@ class _ReportViewState extends State<_ReportView>
   /// they show — a trip's, a streak's or a gap's row measures its title —
   /// never with a figure, so which records and which strips are drawn
   /// suffice: comparing the whole year would arm on every month value a
-  /// refold moves, the worse harm above.
-  static bool _sameCardsAboveAnchors(CalendarReport a, CalendarReport b) =>
-      listEquals(a.goals, b.goals) &&
-      listEquals(a.insights, b.insights) &&
-      listEquals(a.dueSoon, b.dueSoon) &&
-      listEquals(_recordIds(a), _recordIds(b)) &&
-      setEquals(ReportBody.stripIds(a), ReportBody.stripIds(b));
+  /// refold moves, the worse harm above. A card the owner turned off is
+  /// not drawn (W), so its change moves nothing.
+  static bool _sameCardsAboveAnchors(
+    CalendarReport a,
+    CalendarReport b,
+    ReportCards cards,
+  ) {
+    bool off(ReportCardKind kind) => cards.off.contains(kind);
+    return (off(ReportCardKind.goals) || listEquals(a.goals, b.goals)) &&
+        (off(ReportCardKind.insights) || listEquals(a.insights, b.insights)) &&
+        (off(ReportCardKind.dueSoon) || listEquals(a.dueSoon, b.dueSoon)) &&
+        (off(ReportCardKind.records) ||
+            listEquals(_recordIds(a), _recordIds(b))) &&
+        (off(ReportCardKind.months) ||
+            setEquals(ReportBody.stripIds(a), ReportBody.stripIds(b)));
+  }
 
   /// The records [report]'s year shows, by what names each row, not by its
   /// value.
@@ -762,6 +776,7 @@ class _ReportViewState extends State<_ReportView>
           : (compare, view) => context.read<CalendarReportBloc>().add(
               ReportComparePicked(compare, view: view),
             ),
+      cards: shown?.cards ?? ReportCards.defaults,
     );
   }
 

@@ -21,6 +21,7 @@ import 'package:anta/models/date_range.dart';
 import 'package:anta/models/overview_period.dart';
 import 'package:anta/models/overview_view.dart';
 import 'package:anta/models/recurrence_rule.dart';
+import 'package:anta/models/report_cards.dart';
 import 'package:anta/services/app_navigator.dart';
 import 'package:anta/services/calendar_report_service.dart';
 import 'package:anta/utils/calendar_report_builder.dart';
@@ -29,6 +30,7 @@ import 'package:anta/utils/event_agenda.dart';
 import 'package:anta/utils/report_labels.dart';
 import 'package:anta/widgets/agenda_period_nav.dart';
 import 'package:anta/widgets/form_rows.dart';
+import 'package:anta/widgets/report_analytics_cards.dart';
 import 'package:anta/widgets/report_body.dart';
 import 'package:anta/widgets/report_group_stack.dart';
 import 'package:anta/widgets/report_totals_card.dart';
@@ -211,6 +213,7 @@ void main() {
       required String? beside,
     })?
     onShare,
+    ReportCards cards = ReportCards.defaults,
   }) async {
     addTearDown(tester.view.reset);
     tester.view.devicePixelRatio = 1.0;
@@ -265,6 +268,7 @@ void main() {
                       onReveal: onReveal,
                       onMoreCategories: onMoreCategories,
                       onShare: onShare,
+                      cards: cards,
                     ),
                   ),
                 ],
@@ -2565,6 +2569,399 @@ void main() {
       expect(bodyScrollable(), findsOneWidget);
       await scrollThrough(tester, () => expect(tester.takeException(), isNull));
       expect(byId(SemanticsIds.reportCompare), findsOneWidget);
+    });
+  });
+
+  group('the owner\'s cards (W)', () {
+    // Every built-in category with an event, so Categories caps at seven
+    // and draws its "n more" row; a daily routine assumed absent, so 2026
+    // so far has Missed rows and the rest of the year Ahead ones. The rest
+    // of the cards are laid on.
+    const year = OverviewYearPeriod(2026);
+    final seeds = CalendarCategories.builtInSeeds;
+    final daily = CalendarEvent(
+      id: 'e-daily',
+      title: 'Stretch',
+      categoryId: seeds.first.id,
+      startDate: DateTime.utc(2025, 1, 1),
+      rule: const DailyRecurrence(),
+      time: const EventTime(startMinute: 7 * 60, durationMinutes: 30),
+      tracksPresence: true,
+      assumeAbsent: true,
+    );
+    final goal = ReportGoal(
+      categoryId: seeds.first.id,
+      measure: ReportMeasure.count,
+      target: const ReportTarget(
+        kind: TargetKind.atLeast,
+        value: 5,
+        period: TargetPeriod.week,
+      ),
+      periods: [
+        ReportGoalPeriod(
+          start: DateTime.utc(2026, 10, 26),
+          end: DateTime.utc(2026, 11, 1),
+          value: 0,
+          expected: 4,
+          state: GoalState.behind,
+        ),
+      ],
+    );
+    ReportInsight insight(String categoryId) => ReportInsight(
+      rule: InsightRule.t1,
+      severity: 1,
+      categoryId: categoryId,
+      target: InsightTarget.categoryGroup,
+      n1: 8,
+      n2: 5,
+      ratio: 0.6,
+    );
+    final due = ReportDueRow(
+      categoryId: seeds.first.id,
+      eventId: daily.id,
+      day: DateTime.utc(2026, 10, 29),
+      kind: ReportDueKind.unmarked,
+      state: ReportDueState.unmarked,
+      days: 1,
+    );
+    final tag = ReportTag(
+      key: 'morning',
+      label: 'morning',
+      events: 1,
+      count: 2,
+      minutes: 60,
+      categoryIds: [seeds.first.id],
+      rows: [
+        ReportDatedRow(eventId: daily.id, day: DateTime.utc(2026, 10, 1)),
+        ReportDatedRow(eventId: daily.id, day: DateTime.utc(2026, 10, 2)),
+      ],
+    );
+    final when = ReportWhen(
+      cells: [
+        for (var i = 0; i < ReportWhen.cellCount; i++)
+          i % ReportWhen.hoursPerDay == 7 ? 30 : 0,
+      ],
+      timedDays: 60,
+      busiestWeekday: 1,
+      busiestHour: 7,
+    );
+    final reviewed = ReportYear(
+      records: [
+        ReportRecord(
+          kind: ReportRecordKind.busiestMonth,
+          value: 31,
+          start: DateTime.utc(2026, 3, 1),
+          end: DateTime.utc(2026, 3, 31),
+        ),
+      ],
+      months: {
+        seeds.first.id: const [31, 28, 31, 30, 31, 30, 31, 31, 30, 30, 0, 0],
+      },
+      spans: {
+        seeds.first.id: (
+          first: DateTime.utc(2026, 1, 1),
+          last: DateTime.utc(2026, 10, 30),
+        ),
+      },
+    );
+
+    late CalendarReport folded;
+
+    setUp(() {
+      folded = CalendarReportBuilder.fold(
+        CalendarReportService.sampleInput(
+          ReportRequest(
+            span: year.resolve(today: today, yearBounds: years),
+            events: [
+              for (final (index, seed) in seeds.indexed)
+                CalendarEvent(
+                  id: 'e-$index',
+                  title: 'Event $index',
+                  categoryId: seed.id,
+                  startDate: DateTime.utc(2026, 3, 1 + index),
+                ),
+              daily,
+            ],
+            today: today,
+            weekStart: CalendarWeekStart.monday,
+          ),
+        ),
+      );
+    });
+
+    /// [folded] with every card's content laid on, [insights] the Insights
+    /// card's.
+    CalendarReport everything({List<String> insights = const ['work']}) =>
+        CalendarReport(
+          span: folded.span,
+          today: folded.today,
+          tense: folded.tense,
+          countedTo: folded.countedTo,
+          previousSpan: folded.previousSpan,
+          previousCounted: folded.previousCounted,
+          events: folded.events,
+          tiles: folded.tiles,
+          skippedDays: folded.skippedDays,
+          aheadCount: folded.aheadCount,
+          categories: folded.categories,
+          trend: folded.trend,
+          missed: folded.missed,
+          ahead: folded.ahead,
+          measures: folded.measures,
+          goals: [goal],
+          insights: [for (final id in insights) insight(id)],
+          dueSoon: [due],
+          tags: [tag],
+          when: when,
+          balance: const {
+            LifeArea.health: 900,
+            LifeArea.work: 2400,
+            LifeArea.people: 300,
+          },
+          year: reviewed,
+        );
+
+    /// Each card's first sliver under the defaults.
+    const heads = {
+      ReportCardKind.goals: 'label Goals',
+      ReportCardKind.insights: 'label Insights',
+      ReportCardKind.dueSoon: 'label Due soon',
+      ReportCardKind.totals: 'label Totals',
+      ReportCardKind.records: 'label Records',
+      ReportCardKind.months: 'label Months',
+      ReportCardKind.categories: 'label Categories',
+      ReportCardKind.tags: 'label By tag',
+      ReportCardKind.overTime: 'label Over time',
+      ReportCardKind.when: 'label When',
+      ReportCardKind.balance: 'label Balance',
+      ReportCardKind.missed: 'label Missed',
+      ReportCardKind.ahead: 'label Ahead',
+    };
+    const footer = ['FormRowGroup'];
+
+    /// The body's slivers cut at the gaps between cards: a leading gap, or
+    /// two gaps with nothing between, reads as an empty block.
+    List<List<String>> blocksOf(WidgetTester tester) {
+      final blocks = <List<String>>[[]];
+      for (final word in sliverSequence(tester)) {
+        if (word == 'SizedBox') {
+          blocks.add([]);
+        } else {
+          blocks.last.add(word);
+        }
+      }
+      return blocks;
+    }
+
+    /// The defaults' blocks by their card, each one's slivers whole.
+    Future<Map<ReportCardKind, List<String>>> byCard(
+      WidgetTester tester,
+    ) async {
+      await pumpBody(tester, period: year, shown: everything());
+      final blocks = blocksOf(tester);
+      expect(blocks.last, footer);
+      expect(
+        [for (final block in blocks) block.first],
+        [...heads.values, ...footer],
+      );
+      return {
+        for (final (index, kind) in heads.keys.indexed) kind: blocks[index],
+      };
+    }
+
+    /// The body under [cards] draws [defaults]' blocks in [cards]' order,
+    /// the off ones absent, one gap between each and none before the first.
+    void expectArranged(
+      WidgetTester tester,
+      ReportCards cards,
+      Map<ReportCardKind, List<String>> defaults,
+    ) {
+      expect(blocksOf(tester), [
+        for (final kind in cards.shown) defaults[kind],
+        footer,
+      ]);
+    }
+
+    Finder bodyScrollable() => find.descendant(
+      of: byId(SemanticsIds.reportBody),
+      matching: find.byType(Scrollable),
+    );
+
+    test('the fold holds what the cases read', () {
+      expect(
+        folded.categories.length,
+        greaterThan(ReportMetrics.maxCategoryRows),
+      );
+      expect(folded.trend, isNotNull);
+      expect(folded.missed, isNotEmpty);
+      expect(folded.ahead, isNotEmpty);
+    });
+
+    testWidgets('the defaults draw every card in the page\'s order, a gap '
+        'between each and none above the first', (tester) async {
+      final defaults = await byCard(tester);
+      expect(defaults[ReportCardKind.totals], [
+        'label Totals',
+        'ReportTotalsCard',
+        'FormCaption',
+      ]);
+      expect(defaults[ReportCardKind.categories], [
+        'label Categories',
+        'ReportGroupStack',
+        'FormRowShell',
+      ]);
+      expectArranged(tester, ReportCards.defaults, defaults);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('Over time moved above Categories is drawn there, with no '
+        'double gap and no leading gap', (tester) async {
+      final defaults = await byCard(tester);
+      final order = ReportCards.defaults.order;
+      final cards = ReportCards.defaults.moved(
+        order.indexOf(ReportCardKind.overTime),
+        order.indexOf(ReportCardKind.categories),
+      );
+      await pumpBody(tester, period: year, shown: everything(), cards: cards);
+      expectArranged(tester, cards, defaults);
+      final words = sliverSequence(tester);
+      expect(
+        words.indexOf('label Over time'),
+        lessThan(words.indexOf('label Categories')),
+      );
+      expect(tester.takeException(), isNull);
+    });
+
+    for (final kind in ReportCardKind.values) {
+      testWidgets('${kind.name} off is absent with its label and its gap, '
+          'nothing standing in for it', (tester) async {
+        final defaults = await byCard(tester);
+        final cards = ReportCards.defaults.toggled(kind, false);
+        await pumpBody(tester, period: year, shown: everything(), cards: cards);
+        expectArranged(tester, cards, defaults);
+        expect(sliverSequence(tester), isNot(contains(heads[kind])));
+        expect(bodyScrollable(), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      });
+    }
+
+    testWidgets('Totals off takes its caption with it; Categories off its '
+        '"n more categories" row', (tester) async {
+      await pumpBody(
+        tester,
+        period: year,
+        shown: everything(),
+        cards: ReportCards.defaults
+            .toggled(ReportCardKind.totals, false)
+            .toggled(ReportCardKind.categories, false),
+      );
+      final words = sliverSequence(tester);
+      expect(words, isNot(contains('FormCaption')));
+      expect(words, isNot(contains('ReportTotalsCard')));
+      expect(words, isNot(contains('FormRowShell')));
+      expect(byId(SemanticsIds.reportCategoriesMore), findsNothing);
+    });
+
+    testWidgets('every card off leaves the footer alone, in one scroll', (
+      tester,
+    ) async {
+      var cards = ReportCards.defaults;
+      for (final kind in ReportCardKind.values) {
+        cards = cards.toggled(kind, false);
+      }
+      await pumpBody(tester, period: year, shown: everything(), cards: cards);
+      expect(sliverSequence(tester), footer);
+      expect(bodyScrollable(), findsOneWidget);
+      expect(byId(SemanticsIds.reportShowList), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('with Categories off a goal\'s and an insight\'s rows have no '
+        'tap: there is no group to land on', (tester) async {
+      Future<void> pump(ReportCards cards) => pumpBody(
+        tester,
+        period: year,
+        shown: everything(insights: [seeds.first.id]),
+        cards: cards,
+        onReveal: () {},
+      );
+      bool goalTaps() => tester
+          .widget<ReportGoalsCard>(find.byType(ReportGoalsCard))
+          .canTap!(goal);
+      bool insightTaps() => tester
+          .widget<ReportInsightsCard>(find.byType(ReportInsightsCard))
+          .canTap!(insight(seeds.first.id));
+
+      await pump(ReportCards.defaults);
+      expect(goalTaps(), isTrue);
+      expect(insightTaps(), isTrue);
+
+      await pump(
+        ReportCards.defaults.toggled(ReportCardKind.categories, false),
+      );
+      expect(goalTaps(), isFalse);
+      expect(insightTaps(), isFalse);
+    });
+
+    testWidgets('a refold with Over time first holds the Categories label '
+        'under the viewport\'s top (R): the anchors follow the order', (
+      tester,
+    ) async {
+      const short = Size(360, 520);
+      final cards = ReportCards.defaults.moved(
+        ReportCards.defaults.order.indexOf(ReportCardKind.overTime),
+        0,
+      );
+      Finder categoriesLabel() => find.byWidgetPredicate(
+        (widget) => widget is FormSectionLabel && widget.text == 'Categories',
+        skipOffstage: false,
+      );
+      double bodyTop() => tester.getTopLeft(byId(SemanticsIds.reportBody)).dy;
+      await pumpBody(
+        tester,
+        surface: short,
+        period: year,
+        shown: everything(),
+        cards: cards,
+      );
+      final position = tester.state<ScrollableState>(bodyScrollable()).position;
+      position.jumpTo(tester.getTopLeft(categoriesLabel()).dy - bodyTop() + 40);
+      await tester.pump();
+      final label = tester.getTopLeft(categoriesLabel()).dy;
+      final offset = position.pixels;
+
+      // One more insight: the Insights card above grows.
+      await pumpBody(
+        tester,
+        surface: short,
+        period: year,
+        shown: everything(insights: const ['work', 'people']),
+        cards: cards,
+      );
+      expect(position.pixels, greaterThan(offset));
+      expect(tester.getTopLeft(categoriesLabel()).dy, closeTo(label, 0.01));
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('de at 2.0 on 360 × 780 lays a reversed order out with no '
+        'exception, in one scroll', (tester) async {
+      var cards = ReportCards.defaults;
+      final last = ReportCardKind.values.length - 1;
+      for (var i = 0; i < last; i++) {
+        cards = cards.moved(last, i);
+      }
+      expect(cards.order, ReportCardKind.values.reversed);
+      await pumpBody(
+        tester,
+        locale: const Locale('de'),
+        textScale: 2,
+        period: year,
+        shown: everything(),
+        cards: cards,
+      );
+      expect(bodyScrollable(), findsOneWidget);
+      await scrollThrough(tester, () => expect(tester.takeException(), isNull));
+      expect(byId(SemanticsIds.reportShowList), findsOneWidget);
     });
   });
 }

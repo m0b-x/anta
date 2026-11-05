@@ -39,6 +39,7 @@ import 'package:anta/models/overview_list_options.dart';
 import 'package:anta/models/overview_period.dart';
 import 'package:anta/models/overview_view.dart';
 import 'package:anta/models/recurrence_rule.dart';
+import 'package:anta/models/report_cards.dart';
 import 'package:anta/pages/calendar_report_page.dart';
 import 'package:anta/repositories/folder_repository.dart';
 import 'package:anta/repositories/note_repository.dart';
@@ -58,6 +59,7 @@ import 'package:anta/widgets/agenda_period_nav.dart';
 import 'package:anta/widgets/event_detail_sheet.dart';
 import 'package:anta/widgets/form_menu_item.dart';
 import 'package:anta/widgets/form_rows.dart';
+import 'package:anta/widgets/report_body.dart';
 import 'package:anta/widgets/report_more_categories_sheet.dart';
 import 'package:anta/widgets/report_totals_card.dart';
 import 'package:anta/widgets/report_trend_chart.dart';
@@ -4119,6 +4121,91 @@ void main() {
           find.ancestor(of: header, matching: find.byType(FormMeterRow)).first,
         );
         expect(row.caption, startsWith(hours));
+      });
+    });
+
+    group('the owner\'s cards (W)', () {
+      /// The three cards above Totals, each with content.
+      CalendarReport three(CalendarReport folded) => shaped(
+        folded,
+        goals: [threeGoals.first],
+        insights: const [insight],
+        dueSoon: [due],
+      );
+
+      ReportBody body(WidgetTester tester) =>
+          tester.widget<ReportBody>(find.byType(ReportBody));
+
+      Finder dueIds() => find.bySemanticsIdentifier(RegExp('^report-due'));
+
+      testWidgets('with Due soon off the page draws no due row; Goals, '
+          'Insights and Totals stand', (tester) async {
+        service = _ShapingReportService(three);
+        await open(tester);
+        expect(dueIds(), findsWidgets);
+        await tester.pumpWidget(const SizedBox.shrink());
+
+        final cards = ReportCards.defaults.toggled(
+          ReportCardKind.dueSoon,
+          false,
+        );
+        await settings.setReportCards(cards);
+        final robot = await open(tester);
+        final l10n = robot.l10n;
+        expect(body(tester).cards, cards);
+        expect(dueIds(), findsNothing);
+        expect(label(l10n.reportSectionDueSoon), findsNothing);
+        for (final text in [
+          l10n.reportSectionGoals,
+          l10n.reportSectionInsights,
+          l10n.reportSectionTotals,
+        ]) {
+          expect(label(text), findsOneWidget, reason: text);
+        }
+        expect(tester.takeException(), isNull);
+      });
+
+      testWidgets('a resume with new cards re-arranges the body over the '
+          'same report: no refold', (tester) async {
+        // The service's memo hands a resume the very fold it answered
+        // before; the shaping keeps that, as the real report would.
+        CalendarReport? base;
+        late CalendarReport answered;
+        service = _ShapingReportService(
+          (folded) => identical(folded, base)
+              ? answered
+              : answered = three(base = folded),
+        );
+        final robot = await open(tester);
+        final l10n = robot.l10n;
+        final drawn = body(tester).report;
+        expect(label(l10n.reportSectionDueSoon), findsOneWidget);
+        expect(
+          tester.getTopLeft(label(l10n.reportSectionGoals)).dy,
+          lessThan(tester.getTopLeft(label(l10n.reportSectionTotals)).dy),
+        );
+
+        final cards = ReportCards.defaults
+            .toggled(ReportCardKind.dueSoon, false)
+            .moved(ReportCardKind.totals.index, 0);
+        await settings.setReportCards(cards);
+        tester.binding.handleAppLifecycleStateChanged(
+          AppLifecycleState.inactive,
+        );
+        tester.binding.handleAppLifecycleStateChanged(
+          AppLifecycleState.resumed,
+        );
+        await tester.pumpAndSettle();
+        expect(robot.state, isA<ReportReady>());
+        expect(body(tester).cards, cards);
+        expect(identical(body(tester).report, drawn), isTrue);
+        expect(label(l10n.reportSectionDueSoon), findsNothing);
+        expect(dueIds(), findsNothing);
+        expect(
+          tester.getTopLeft(label(l10n.reportSectionTotals)).dy,
+          lessThan(tester.getTopLeft(label(l10n.reportSectionGoals)).dy),
+        );
+        expect(tester.takeException(), isNull);
       });
     });
   });
