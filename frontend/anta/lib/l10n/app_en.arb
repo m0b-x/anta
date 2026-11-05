@@ -7052,6 +7052,113 @@
       }
     }
   },
+  "reportDigestGoalsLead": "Goals",
+  "@reportDigestGoalsLead": {
+    "description": "Opens the goals line of a report notification, before up to three goals joined by middle dots (Goals · Gym 3 of 3 ✓ · Work 42 h (over 40))"
+  },
+  "reportDigestDueLead": "Due",
+  "@reportDigestDueLead": {
+    "description": "Opens the due-soon line of a report notification, before up to two events joined by middle dots (Due · Dentist in 18 days · Rent not marked)"
+  },
+  "reportDigestGoalMet": "{name} {value} of {target} ✓",
+  "@reportDigestGoalMet": {
+    "description": "One met goal in a report notification's goals line: the category, its value and the target, then a check mark",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Gym"
+      },
+      "value": {
+        "type": "String",
+        "example": "3"
+      },
+      "target": {
+        "type": "String",
+        "example": "3"
+      }
+    }
+  },
+  "reportDigestGoalOver": "{name} {value} (over {target})",
+  "@reportDigestGoalOver": {
+    "description": "One at-most or budget goal past its target in a report notification's goals line: the category, its value, then the target it went over",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Work"
+      },
+      "value": {
+        "type": "String",
+        "example": "42 h"
+      },
+      "target": {
+        "type": "String",
+        "example": "40"
+      }
+    }
+  },
+  "reportDigestGoalPace": "{name} {value} of {target}",
+  "@reportDigestGoalPace": {
+    "description": "One goal neither met nor over in a report notification's goals line: the category, its value and the target",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Friends"
+      },
+      "value": {
+        "type": "String",
+        "example": "1"
+      },
+      "target": {
+        "type": "String",
+        "example": "2"
+      }
+    }
+  },
+  "reportDigestGoalGap": "{name} {since} (limit {limit})",
+  "@reportDigestGoalGap": {
+    "description": "One most-days-between goal in a report notification's goals line: the category, the time since it last happened (reportGoalGapDays, lowercase), then the most days allowed",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Dentist"
+      },
+      "since": {
+        "type": "String",
+        "example": "23 days"
+      },
+      "limit": {
+        "type": "int"
+      }
+    }
+  },
+  "reportDigestGoalPeriods": "{name} {periods}",
+  "@reportDigestGoalPeriods": {
+    "description": "One goal in a report notification's goals line when the report spans several of its periods: the category, then how many periods met it (reportGoalPeriodsMet)",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Gym"
+      },
+      "periods": {
+        "type": "String",
+        "example": "3 of 4 weeks met"
+      }
+    }
+  },
+  "reportDigestDueItem": "{title} {phrase}",
+  "@reportDigestDueItem": {
+    "description": "One event in a report notification's due-soon line: its title, then when it is due or that it is not marked (in 18 days, overdue 32 days, not marked)",
+    "placeholders": {
+      "title": {
+        "type": "String",
+        "example": "Dentist"
+      },
+      "phrase": {
+        "type": "String",
+        "example": "in 18 days"
+      }
+    }
+  },
   "alertsDoneAction": "Done",
   "@alertsDoneAction": {
     "description": "First action of a reminder's notification, which takes the reminder down; and first action of the session chip, which ends the session and takes the chip down. Snooze, or Open note, follows it"

@@ -4,10 +4,12 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/date_symbol_data_local.dart';
 
 import 'package:anta/constants/calendar_categories.dart';
+import 'package:anta/constants/category_kinds.dart';
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/models/calendar_appearance.dart';
 import 'package:anta/models/calendar_event.dart';
 import 'package:anta/models/calendar_report.dart';
+import 'package:anta/models/category_profile.dart';
 import 'package:anta/models/event_digest.dart';
 import 'package:anta/models/recurrence_rule.dart';
 import 'package:anta/services/recurrence_formatter.dart';
@@ -16,6 +18,7 @@ import 'package:anta/utils/calendar_report_builder.dart';
 import 'package:anta/utils/digest_notification_content.dart';
 import 'package:anta/utils/digest_planner.dart';
 import 'package:anta/utils/event_agenda.dart';
+import 'package:anta/utils/report_insight_filter.dart';
 import 'package:anta/utils/report_labels.dart';
 
 /// A digest's words, written once when it is armed (§3.6). Every day is
@@ -420,6 +423,10 @@ void main() {
       'birthday' => 'Birthday',
       'other' => 'To do',
       'mobility' => 'Mobility',
+      'work' => 'Work',
+      'dentist' => 'Dentist',
+      'car' => 'Car',
+      'holiday' => 'Trips',
       _ => id,
     };
 
@@ -695,6 +702,336 @@ void main() {
       expect(content.lines, hasLength(5));
       expect(content.lines.first, content.text);
       expect(content.summary, '+3 more');
+    });
+
+    group('the goals, due and insight lines (S7)', () {
+      const nb = ' ';
+      final summary = '2 of 3 attended${sep}4.5 h${sep}1 missed';
+      final dentist = reportEvent(
+        'Dentist',
+        'dentist',
+        DateTime.utc(2026, 5, 4),
+      );
+      final carService = reportEvent(
+        'Car service',
+        'car',
+        DateTime.utc(2026, 3, 2),
+      );
+      final rent = reportEvent('Rent', 'other', DateTime.utc(2026, 10, 1));
+
+      /// The week's report as the builder folds it, the judgments laid over
+      /// it by hand: the lines read the model, however it was folded.
+      CalendarReport judged({
+        List<ReportGoal> goals = const [],
+        List<ReportDueRow> dueSoon = const [],
+        List<ReportInsight> insights = const [],
+      }) {
+        final base = reportOf(
+          week6,
+          missed: {gym.id: DateTime.utc(2026, 10, 23)},
+        );
+        return CalendarReport(
+          span: base.span,
+          today: base.today,
+          tense: base.tense,
+          countedTo: base.countedTo,
+          events: {
+            ...base.events,
+            for (final event in [dentist, carService, rent]) event.id: event,
+          },
+          tiles: base.tiles,
+          skippedDays: base.skippedDays,
+          aheadCount: base.aheadCount,
+          categories: base.categories,
+          missed: base.missed,
+          ahead: base.ahead,
+          goals: goals,
+          dueSoon: dueSoon,
+          insights: insights,
+        );
+      }
+
+      // The report's one week, closed.
+      ReportGoal weekly(
+        String categoryId,
+        int value,
+        GoalState state, {
+        TargetKind kind = TargetKind.atLeast,
+        ReportMeasure measure = ReportMeasure.count,
+        int target = 3,
+      }) => ReportGoal(
+        categoryId: categoryId,
+        measure: measure,
+        target: ReportTarget(
+          kind: kind,
+          value: target,
+          period: TargetPeriod.week,
+        ),
+        periods: [
+          ReportGoalPeriod(
+            start: week.start,
+            end: week.end,
+            value: value,
+            expected: target,
+            state: state,
+          ),
+        ],
+      );
+
+      ReportGoal gapGoal(String categoryId, int days, GapState state) =>
+          ReportGoal(
+            categoryId: categoryId,
+            measure: ReportMeasure.lastSeen,
+            target: const ReportTarget(kind: TargetKind.maxGap, value: 180),
+            gap: ReportGapState(daysSince: days, limit: 180, state: state),
+          );
+
+      ReportDueRow dueRow(
+        CalendarEvent event,
+        ReportDueKind kind,
+        ReportDueState state,
+        int days,
+      ) => ReportDueRow(
+        categoryId: event.categoryId,
+        eventId: event.id,
+        day: DateTime.utc(2026, 10, 30),
+        kind: kind,
+        state: state,
+        days: days,
+      );
+
+      ReportInsight gapOverdue(String categoryId) => ReportInsight(
+        rule: InsightRule.d1,
+        severity: 3,
+        categoryId: categoryId,
+        target: InsightTarget.categoryGroup,
+        n1: 212,
+        n2: 180,
+      );
+
+      final met = weekly('mobility', 1, GoalState.met, target: 1);
+      final missedGym = weekly('gym', 2, GoalState.missed);
+      final dueGap = gapGoal('dentist', 162, GapState.due);
+      final overWork = weekly(
+        'work',
+        42 * 60,
+        GoalState.over,
+        kind: TargetKind.atMost,
+        measure: ReportMeasure.hours,
+        target: 40 * 60,
+      );
+      final dueRows = [
+        dueRow(carService, ReportDueKind.gap, ReportDueState.overdue, 32),
+        dueRow(dentist, ReportDueKind.gap, ReportDueState.due, 18),
+        dueRow(rent, ReportDueKind.unmarked, ReportDueState.unmarked, 25),
+      ];
+      // Ranked as the builder ranks; the first two are what Goals and Due
+      // already say, so the page's filter leaves the third on top.
+      final insights = [
+        ReportInsight(
+          rule: InsightRule.g1,
+          severity: 3,
+          categoryId: 'gym',
+          target: InsightTarget.categoryGroup,
+          n1: 2,
+          n2: 3,
+          n3: 1,
+        ),
+        gapOverdue('car'),
+        gapOverdue('holiday'),
+        gapOverdue('mobility'),
+      ];
+      CalendarReport full() => judged(
+        goals: [met, missedGym, dueGap, overWork],
+        dueSoon: dueRows,
+        insights: insights,
+      );
+
+      final goalsLine =
+          'Goals${sep}Gym${nb}2${nb}of${nb}3'
+          '${sep}Work${nb}42${nb}h (over${nb}40)'
+          '${sep}Dentist${nb}162${nb}days (limit${nb}180)';
+      final dueLine =
+          'Due${sep}Car service overdue${nb}32${nb}days'
+          '${sep}Dentist in${nb}18${nb}days';
+      final insightLine =
+          'Trips${sep}212${nb}days since the last, the limit is${nb}180';
+
+      test('summary, Goals, Due and the insight, then the categories; the '
+          'cap and "n more" count the new lines', () {
+        final content = reportContent(reportFire(), report: full());
+
+        expect(content.text, summary);
+        expect(content.lines, [
+          summary,
+          goalsLine,
+          dueLine,
+          insightLine,
+          'Birthday${sep}2${sep}Ana, Mihai',
+        ]);
+        // Eight lines: the three judgments and four categories after the
+        // summary, five shown.
+        expect(content.summary, '+3 more');
+      });
+
+      test('no goal, due row or insight: the lines are byte-identical to '
+          "the report's alone", () {
+        final content = reportContent(reportFire(), report: judged());
+
+        expect(content.text, summary);
+        expect(content.lines, [
+          summary,
+          'Birthday${sep}2${sep}Ana, Mihai',
+          'Gym${sep}2 of 3${sep}2.5 h',
+          'To do${sep}2${sep}2 of 3 tasks',
+          'Mobility${sep}1${sep}2 h',
+        ]);
+        expect(content.summary, isNull);
+      });
+
+      test('at most three goals, by severity: behind and over before due '
+          'soon, a met goal last', () {
+        final four = reportContent(
+          reportFire(),
+          report: judged(goals: [met, missedGym, dueGap, overWork]),
+        );
+        final two = reportContent(
+          reportFire(),
+          report: judged(goals: [met, missedGym]),
+        );
+
+        expect(four.lines[1], goalsLine);
+        expect(
+          two.lines[1],
+          'Goals${sep}Gym${nb}2${nb}of${nb}3'
+          '${sep}Mobility${nb}1${nb}of${nb}1$nb✓',
+        );
+      });
+
+      test('hours in hours, money in whole units, a met at-most goal with '
+          'its check', () {
+        final content = reportContent(
+          reportFire(),
+          report: judged(
+            goals: [
+              weekly(
+                'work',
+                38 * 60,
+                GoalState.met,
+                kind: TargetKind.atMost,
+                measure: ReportMeasure.hours,
+                target: 40 * 60,
+              ),
+              weekly(
+                'other',
+                134000,
+                GoalState.over,
+                kind: TargetKind.budget,
+                measure: ReportMeasure.money,
+                target: 120000,
+              ),
+              weekly(
+                'gym',
+                30,
+                GoalState.missed,
+                measure: ReportMeasure.hours,
+                target: 2 * 60,
+              ),
+            ],
+          ),
+        );
+
+        expect(
+          content.lines[1],
+          'Goals${sep}To do${nb}1,340$nb(over${nb}1,200)'
+          '${sep}Gym${nb}0.5${nb}h of${nb}2'
+          '${sep}Work${nb}38${nb}h of${nb}40$nb✓',
+        );
+      });
+
+      test("at most two due rows in the model's order, in the card's "
+          'phrases', () {
+        final labels = ReportLabels(en);
+        final report = judged(dueSoon: dueRows);
+
+        final content = reportContent(reportFire(), report: report);
+
+        expect(content.lines[1], dueLine);
+        // The page's own phrase, after the title rather than under it.
+        expect(labels.dueCaption(dueRows[1], report), 'Due in${nb}18${nb}days');
+        expect(
+          reportContent(
+            reportFire(),
+            report: judged(dueSoon: dueRows.sublist(2)),
+          ).lines[1],
+          'Due${sep}Rent not marked',
+        );
+      });
+
+      test("the insight line is the Insights card's top row in its words", () {
+        final labels = ReportLabels(en);
+        final report = full();
+        final top = ReportInsightFilter.forPage(report).first;
+
+        final content = reportContent(reportFire(), report: report);
+
+        expect(top, insights[2]);
+        expect(
+          content.lines[3],
+          [
+            labels.insightSubject(top, report, category: 'Trips'),
+            labels.insightDetail(
+              top,
+              report,
+              category: 'Trips',
+              weekStart: CalendarWeekStart.monday,
+            ),
+          ].join(sep),
+        );
+        expect(content.lines[3], insightLine);
+      });
+
+      test('an insight the page drops adds no line', () {
+        final content = reportContent(
+          reportFire(),
+          report: judged(goals: [missedGym], insights: [insights.first]),
+        );
+
+        expect(content.lines, [
+          summary,
+          'Goals${sep}Gym${nb}2${nb}of${nb}3',
+          'Birthday${sep}2${sep}Ana, Mihai',
+          'Gym${sep}2 of 3${sep}2.5 h',
+          'To do${sep}2${sep}2 of 3 tasks',
+        ]);
+        expect(content.summary, '+1 more');
+      });
+
+      test('in German and Romanian', () {
+        final german = reportContent(reportFire(), report: full(), strings: de);
+        final romanian = reportContent(
+          reportFire(),
+          report: full(),
+          strings: ro,
+        );
+
+        expect(german.lines.sublist(1, 4), [
+          'Ziele${sep}Gym${nb}2${nb}von${nb}3'
+              '${sep}Work${nb}42${nb}Std. (über${nb}40)'
+              '${sep}Dentist${nb}162${nb}Tage (max.${nb}180)',
+          'Fällig${sep}Car service${nb}32${nb}Tage überfällig'
+              '${sep}Dentist in${nb}18${nb}Tagen',
+          'Trips${sep}212${nb}Tage seit dem letzten Mal, das Limit '
+              'ist${nb}180',
+        ]);
+        expect(romanian.lines.sublist(1, 3), [
+          'Obiective${sep}Gym${nb}2${nb}din${nb}3'
+              '${sep}Work${nb}42${nb}h (peste${nb}40)'
+              '${sep}Dentist${nb}162${nb}de zile (limită${nb}180)',
+          'Scadente${sep}Car service${nb}32${nb}de zile întârziere'
+              '${sep}Dentist peste${nb}18${nb}zile',
+        ]);
+      });
     });
   });
 }

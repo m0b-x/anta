@@ -5542,6 +5542,42 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String get reportDigestGoalsLead => 'Goals';
+
+  @override
+  String get reportDigestDueLead => 'Due';
+
+  @override
+  String reportDigestGoalMet(String name, String value, String target) {
+    return '$name $value of $target ✓';
+  }
+
+  @override
+  String reportDigestGoalOver(String name, String value, String target) {
+    return '$name $value (over $target)';
+  }
+
+  @override
+  String reportDigestGoalPace(String name, String value, String target) {
+    return '$name $value of $target';
+  }
+
+  @override
+  String reportDigestGoalGap(String name, String since, int limit) {
+    return '$name $since (limit $limit)';
+  }
+
+  @override
+  String reportDigestGoalPeriods(String name, String periods) {
+    return '$name $periods';
+  }
+
+  @override
+  String reportDigestDueItem(String title, String phrase) {
+    return '$title $phrase';
+  }
+
+  @override
   String get alertsDoneAction => 'Done';
 
   @override

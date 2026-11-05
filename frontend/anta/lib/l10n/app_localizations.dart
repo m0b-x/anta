@@ -9334,6 +9334,54 @@ abstract class AppLocalizations {
   /// **'{categories} — {facts}'**
   String digestReportSummary(String categories, String facts);
 
+  /// Opens the goals line of a report notification, before up to three goals joined by middle dots (Goals · Gym 3 of 3 ✓ · Work 42 h (over 40))
+  ///
+  /// In en, this message translates to:
+  /// **'Goals'**
+  String get reportDigestGoalsLead;
+
+  /// Opens the due-soon line of a report notification, before up to two events joined by middle dots (Due · Dentist in 18 days · Rent not marked)
+  ///
+  /// In en, this message translates to:
+  /// **'Due'**
+  String get reportDigestDueLead;
+
+  /// One met goal in a report notification's goals line: the category, its value and the target, then a check mark
+  ///
+  /// In en, this message translates to:
+  /// **'{name} {value} of {target} ✓'**
+  String reportDigestGoalMet(String name, String value, String target);
+
+  /// One at-most or budget goal past its target in a report notification's goals line: the category, its value, then the target it went over
+  ///
+  /// In en, this message translates to:
+  /// **'{name} {value} (over {target})'**
+  String reportDigestGoalOver(String name, String value, String target);
+
+  /// One goal neither met nor over in a report notification's goals line: the category, its value and the target
+  ///
+  /// In en, this message translates to:
+  /// **'{name} {value} of {target}'**
+  String reportDigestGoalPace(String name, String value, String target);
+
+  /// One most-days-between goal in a report notification's goals line: the category, the time since it last happened (reportGoalGapDays, lowercase), then the most days allowed
+  ///
+  /// In en, this message translates to:
+  /// **'{name} {since} (limit {limit})'**
+  String reportDigestGoalGap(String name, String since, int limit);
+
+  /// One goal in a report notification's goals line when the report spans several of its periods: the category, then how many periods met it (reportGoalPeriodsMet)
+  ///
+  /// In en, this message translates to:
+  /// **'{name} {periods}'**
+  String reportDigestGoalPeriods(String name, String periods);
+
+  /// One event in a report notification's due-soon line: its title, then when it is due or that it is not marked (in 18 days, overdue 32 days, not marked)
+  ///
+  /// In en, this message translates to:
+  /// **'{title} {phrase}'**
+  String reportDigestDueItem(String title, String phrase);
+
   /// First action of a reminder's notification, which takes the reminder down; and first action of the session chip, which ends the session and takes the chip down. Snooze, or Open note, follows it
   ///
   /// In en, this message translates to:

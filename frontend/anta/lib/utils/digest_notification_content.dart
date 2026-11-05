@@ -1,4 +1,5 @@
 import '../constants/alert_constants.dart';
+import '../constants/analytics_metrics.dart';
 import '../l10n/app_localizations.dart';
 import '../models/calendar_appearance.dart';
 import '../models/calendar_report.dart';
@@ -7,6 +8,7 @@ import '../services/recurrence_formatter.dart';
 import 'alert_labels.dart';
 import 'digest_planner.dart';
 import 'event_agenda.dart';
+import 'report_insight_filter.dart';
 import 'report_labels.dart';
 
 /// The words of one digest notification, written when it is armed.
@@ -62,6 +64,7 @@ DigestNotificationContent digestNotificationContent(
       strings,
       report,
       categoryLabel: categoryLabel,
+      weekStart: weekStart,
     );
   }
   final title = digestTitleOf(
@@ -106,16 +109,18 @@ DigestNotificationContent digestNotificationContent(
   );
 }
 
-/// A report digest's words (P): "Weekly report · Gym" over the summary line
-/// and one line per category in the report's order, worded by the same
-/// [ReportLabels] the page uses so the two never read a number two ways.
-/// Without [report] the body is the one generic line — never a zero that
-/// only means "not counted yet".
+/// A report digest's words (P): "Weekly report · Gym" over the summary line,
+/// the judgments (F: the goals, the due-soon rows and the top insight, each
+/// line present only with something to say), then one line per category in
+/// the report's order — all worded by the same [ReportLabels] the page uses
+/// so the two never read a number two ways. Without [report] the body is
+/// the one generic line — never a zero that only means "not counted yet".
 DigestNotificationContent _reportContent(
   EventDigest digest,
   AppLocalizations strings,
   CalendarReport? report, {
   required String Function(String categoryId) categoryLabel,
+  required CalendarWeekStart weekStart,
 }) {
   final weekly = digest.cadence == DigestCadence.weeklyReport;
   final title = [
@@ -143,6 +148,14 @@ DigestNotificationContent _reportContent(
               strings,
               categoryLabel: categoryLabel,
             ),
+    ),
+    ?_goalsLine(report, words, categoryLabel: categoryLabel),
+    ?_dueLine(report, words),
+    ?_insightLine(
+      report,
+      words,
+      categoryLabel: categoryLabel,
+      weekStart: weekStart,
     ),
     for (final group in report.categories)
       _reportCategoryLine(
@@ -195,6 +208,75 @@ String _reportSummary(
   return categories == null
       ? joined
       : l10n.digestReportSummary(categories, joined);
+}
+
+/// "Goals · Gym 3 of 3 ✓ · Work 42 h (over 40) · Friends 1 of 2": the
+/// goals by their state's urgency — the report's order among equals — up
+/// to [AnalyticsMetrics.digestGoalLines]; null without a goal.
+String? _goalsLine(
+  CalendarReport report,
+  ReportLabels words, {
+  required String Function(String categoryId) categoryLabel,
+}) {
+  final goals = report.goals;
+  if (goals.isEmpty) return null;
+  final ranked =
+      [
+        for (final (index, goal) in goals.indexed)
+          (rank: words.goalRank(goal, report), index: index, goal: goal),
+      ]..sort((a, b) {
+        final byRank = a.rank.compareTo(b.rank);
+        return byRank != 0 ? byRank : a.index.compareTo(b.index);
+      });
+  return [
+    words.l10n.reportDigestGoalsLead,
+    for (final entry in ranked.take(AnalyticsMetrics.digestGoalLines))
+      words.goalDigest(
+        categoryLabel(entry.goal.categoryId),
+        entry.goal,
+        report,
+      ),
+  ].join(ReportLabels.separator);
+}
+
+/// "Due · Dentist in 18 days · Rent not marked": the Due soon card's first
+/// [AnalyticsMetrics.digestDueLines] rows in its order, overdue first;
+/// null without one.
+String? _dueLine(CalendarReport report, ReportLabels words) {
+  final rows = report.dueSoon;
+  if (rows.isEmpty) return null;
+  return [
+    words.l10n.reportDigestDueLead,
+    for (final row in rows.take(AnalyticsMetrics.digestDueLines))
+      words.dueDigest(report.events[row.eventId]?.title ?? row.eventId, row),
+  ].join(ReportLabels.separator);
+}
+
+/// The page's top insight as its row reads, "{subject} · {detail}": the
+/// Insights card's own filter, so the line never repeats what the goals
+/// and due lines above it already say; null when none is left.
+String? _insightLine(
+  CalendarReport report,
+  ReportLabels words, {
+  required String Function(String categoryId) categoryLabel,
+  required CalendarWeekStart weekStart,
+}) {
+  final insight = ReportInsightFilter.forPage(
+    report,
+  ).take(AnalyticsMetrics.insightsInDigest).firstOrNull;
+  if (insight == null) return null;
+  final categoryId = insight.categoryId;
+  // With no one category the labels' own nouns stand in, as on the page.
+  final category = categoryId == null ? '' : categoryLabel(categoryId);
+  return [
+    words.insightSubject(insight, report, category: category),
+    words.insightDetail(
+      insight,
+      report,
+      category: category,
+      weekStart: weekStart,
+    ),
+  ].join(ReportLabels.separator);
 }
 
 /// One category's line, worded by the shape with the most occurrences in it

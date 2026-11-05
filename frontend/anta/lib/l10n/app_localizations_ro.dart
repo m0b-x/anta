@@ -5634,6 +5634,42 @@ class AppLocalizationsRo extends AppLocalizations {
   }
 
   @override
+  String get reportDigestGoalsLead => 'Obiective';
+
+  @override
+  String get reportDigestDueLead => 'Scadente';
+
+  @override
+  String reportDigestGoalMet(String name, String value, String target) {
+    return '$name $value din $target ✓';
+  }
+
+  @override
+  String reportDigestGoalOver(String name, String value, String target) {
+    return '$name $value (peste $target)';
+  }
+
+  @override
+  String reportDigestGoalPace(String name, String value, String target) {
+    return '$name $value din $target';
+  }
+
+  @override
+  String reportDigestGoalGap(String name, String since, int limit) {
+    return '$name $since (limită $limit)';
+  }
+
+  @override
+  String reportDigestGoalPeriods(String name, String periods) {
+    return '$name $periods';
+  }
+
+  @override
+  String reportDigestDueItem(String title, String phrase) {
+    return '$title $phrase';
+  }
+
+  @override
   String get alertsDoneAction => 'Gata';
 
   @override

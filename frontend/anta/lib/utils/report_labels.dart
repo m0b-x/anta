@@ -178,6 +178,14 @@ class ReportLabels {
   static String _bindNumbers(String text) =>
       text.replaceAll(_numberSpace, _noBreak);
 
+  /// [phrase] with its first letter lowered: a card's caption opens its
+  /// line ("Overdue 32 days"), the digest's item follows a name ("Car
+  /// service overdue 32 days"). No phrase lowered here opens on a noun in
+  /// any of the three languages.
+  static String _lowerFirst(String phrase) => phrase.isEmpty
+      ? phrase
+      : '${phrase[0].toLowerCase()}${phrase.substring(1)}';
+
   /// [minutes] as decimal hours ("18.5 h"), or under an hour in minutes
   /// ("40 min") through the duration grammar the event rows use.
   String hours(int minutes) => minutes < Duration.minutesPerHour
@@ -1075,6 +1083,63 @@ class ReportLabels {
     ].join(separator);
   }
 
+  /// Where [goal] stands in the report digest's Goals line, 0 first (S7):
+  /// what is past its limit, over or behind leads, a goal not started
+  /// trails — ranked by the state word the glyph says, so the line and the
+  /// card never judge a goal two ways.
+  int goalRank(ReportGoal goal, CalendarReport report) =>
+      switch (_goalWord(goal, report)) {
+        _GoalWord.pastLimit ||
+        _GoalWord.over ||
+        _GoalWord.behind ||
+        _GoalWord.missed => 0,
+        _GoalWord.dueSoon => 1,
+        _GoalWord.onPace || _GoalWord.within => 2,
+        _GoalWord.met => 3,
+        _GoalWord.planned => 4,
+        _GoalWord.notStarted => 5,
+      };
+
+  /// [goal] as one item of the report digest's Goals line (S7, §7): "Gym 3
+  /// of 3 ✓", "Work 42 h (over 40)", "Friends 1 of 2", "Dentist 23 days
+  /// (limit 14)", or a past span of several periods "Gym 3 of 4 weeks met"
+  /// — the period the card reads, in the card's units, [name] the
+  /// category's. The gap's figures sit in brackets because the line's own
+  /// [separator] parts its items. Every number is bound to its words (W).
+  String goalDigest(String name, ReportGoal goal, CalendarReport report) {
+    final target = goal.target;
+    final period = target.period;
+    if (target.kind == TargetKind.maxGap || period == null) {
+      final gap = goal.gap;
+      final since = _gapFacts(
+        days: gap?.daysSince,
+        long: gap?.beyondLookback ?? false,
+        limit: target.value,
+      ).first;
+      return _bindNumbers(
+        l10n.reportDigestGoalGap(name, _lowerFirst(since), target.value),
+      );
+    }
+    if (_readsPeriodsMet(goal, report)) {
+      final closed = closedPeriods(goal, report);
+      final met = closed.where((p) => p.state == GoalState.met).length;
+      return _bindNumbers(
+        l10n.reportDigestGoalPeriods(
+          name,
+          l10n.reportGoalPeriodsMet(met, closed.length, period.name),
+        ),
+      );
+    }
+    final measure = goal.measure;
+    final value = _goalValue(measure, goalPeriod(goal, report)?.value ?? 0);
+    final figure = _goalFigure(measure, target.value);
+    return _bindNumbers(switch (_goalWord(goal, report)) {
+      _GoalWord.met => l10n.reportDigestGoalMet(name, value, figure),
+      _GoalWord.over => l10n.reportDigestGoalOver(name, value, figure),
+      _ => l10n.reportDigestGoalPace(name, value, figure),
+    });
+  }
+
   /// Every caption [goal] can show in [report], each figure written in
   /// [ReportMetrics.goalTemplateDigit] at the target's digit count — one
   /// more for the met and over states, hours with the locale's decimal
@@ -1438,6 +1503,33 @@ class ReportLabels {
   /// [title] the event's.
   String dueSpoken(String title, ReportDueRow row, CalendarReport report) =>
       '$title$spokenSeparator${dueCaption(row, report)}';
+
+  /// A Due soon row as one item of the report digest's Due line (S7, §7):
+  /// "Dentist in 18 days", "Car service overdue 32 days", "Passport expires
+  /// in 42 days", "Rent not marked" — [dueCaption]'s phrases after the
+  /// event's [title], without the day a caption names beside it: the line
+  /// leads with "Due" and its [separator] parts the items. Numbers are
+  /// bound to their words (W).
+  String dueDigest(String title, ReportDueRow row) {
+    final days = row.days;
+    final overdue = row.state == ReportDueState.overdue;
+    final phrase = row.kind == ReportDueKind.gap && row.beyondLookback
+        ? _lowerFirst(l10n.reportDueLong)
+        : switch (row.kind) {
+            ReportDueKind.gap =>
+              overdue
+                  ? _lowerFirst(l10n.reportDueOverdue(days))
+                  : l10n.reportDaysUntil(days),
+            ReportDueKind.expiry => _lowerFirst(
+              overdue
+                  ? l10n.reportDueExpired(days)
+                  : l10n.reportDueExpires(days),
+            ),
+            ReportDueKind.unmarked => l10n.reportDueNotMarked,
+            ReportDueKind.upcoming => l10n.reportDaysUntil(days),
+          };
+    return _bindNumbers(l10n.reportDigestDueItem(title, phrase));
+  }
 
   /// The `reportTagCount` noun of a tag whose first category is of [kind]
   /// (S5 §2.2, B): four kinds name what the tag was seen at, every other —

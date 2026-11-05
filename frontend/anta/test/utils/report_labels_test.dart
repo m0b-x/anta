@@ -1964,6 +1964,206 @@ void main() {
     });
   });
 
+  group("the digest's goal and due items (S7)", () {
+    late final en = labelsIn('en');
+    final report = analytics();
+    ReportGapState gap(int days, GapState state, {bool long = false}) =>
+        ReportGapState(
+          daysSince: days,
+          limit: 14,
+          state: state,
+          beyondLookback: long,
+        );
+
+    test('the rank follows the state word: what needs acting on first, a '
+        'goal not started last', () {
+      int rankOf(ReportGoal goal, [CalendarReport? shown]) =>
+          en.goalRank(goal, shown ?? report);
+      final past = analytics(span: lastWeek);
+
+      for (final goal in [
+        atLeast([period(thisWeek, 0, GoalState.behind)]),
+        atMostHours([period(thisWeek, 44 * 60, GoalState.over)]),
+        maxGap(gap(23, GapState.overdue)),
+      ]) {
+        expect(rankOf(goal), 0);
+      }
+      expect(rankOf(atLeast([period(lastWeek, 1, GoalState.missed)]), past), 0);
+      expect(rankOf(maxGap(gap(12, GapState.due))), 1);
+      expect(rankOf(atLeast([period(thisWeek, 2, GoalState.onPace)])), 2);
+      expect(rankOf(maxGap(gap(3, GapState.within))), 2);
+      expect(rankOf(atLeast([period(thisWeek, 3, GoalState.met)])), 3);
+      expect(rankOf(atLeast([period(thisWeek, 0, GoalState.future)])), 4);
+      expect(rankOf(atLeast([period(thisWeek, 0, GoalState.notDue)])), 5);
+      expect(rankOf(maxGap(null)), 5);
+    });
+
+    test('a goal item: met with its check, over with its target, else the '
+        'value of the target, in the card units', () {
+      expect(
+        en.goalDigest(
+          'Gym',
+          atLeast([period(thisWeek, 3, GoalState.met)]),
+          report,
+        ),
+        'Gym${nb}3${nb}of${nb}3$nb✓',
+      );
+      expect(
+        en.goalDigest(
+          'Work',
+          atMostHours([period(thisWeek, 44 * 60, GoalState.over)]),
+          report,
+        ),
+        'Work${nb}44${nb}h (over${nb}40)',
+      );
+      expect(
+        en.goalDigest(
+          'Work',
+          atMostHours([period(thisWeek, 31 * 60 + 30, GoalState.onPace)]),
+          report,
+        ),
+        'Work${nb}31.5${nb}h of${nb}40',
+      );
+      expect(
+        en.goalDigest(
+          'Gym',
+          atLeast([period(thisWeek, 1, GoalState.behind)]),
+          report,
+        ),
+        'Gym${nb}1${nb}of${nb}3',
+      );
+    });
+
+    test('a gap goal says the days since in brackets with its limit', () {
+      expect(
+        en.goalDigest('Car', maxGap(gap(23, GapState.overdue)), report),
+        'Car${nb}23${nb}days (limit${nb}14)',
+      );
+      expect(
+        en.goalDigest('Car', maxGap(null), report),
+        'Car none yet (limit${nb}14)',
+      );
+      expect(
+        en.goalDigest(
+          'Car',
+          maxGap(gap(366, GapState.overdue, long: true)),
+          report,
+        ),
+        'Car over a year (limit${nb}14)',
+      );
+      expect(
+        labelsIn('de').goalDigest('Auto', maxGap(null), report),
+        'Auto noch nie (max.${nb}14)',
+      );
+    });
+
+    test('a past span of several periods counts the periods met', () {
+      DateRange week(int day) => (
+        start: DateTime.utc(2026, 10, day),
+        end: DateTime.utc(2026, 10, day + 6),
+      );
+      final goal = atLeast([
+        period(week(5), 3, GoalState.met),
+        period(week(12), 3, GoalState.met),
+        period(week(19), 1, GoalState.missed),
+        period(week(26), 4, GoalState.met),
+      ]);
+      final october = analytics(
+        span: (
+          start: DateTime.utc(2026, 10, 1),
+          end: DateTime.utc(2026, 10, 31),
+        ),
+      );
+
+      expect(
+        en.goalDigest('Gym', goal, october),
+        'Gym${nb}3${nb}of${nb}4${nb}weeks met',
+      );
+      expect(
+        labelsIn('ro').goalDigest('Sală', goal, october),
+        'Sală atins în${nb}3${nb}din${nb}4${nb}săptămâni',
+      );
+    });
+
+    test("a due item is the event's title over the card's phrase, the "
+        'day left to the card', () {
+      ReportDueRow row(
+        ReportDueKind kind,
+        ReportDueState state,
+        int days, {
+        bool long = false,
+      }) => ReportDueRow(
+        categoryId: 'car',
+        eventId: 'e',
+        day: DateTime.utc(2026, 11, 1),
+        kind: kind,
+        state: state,
+        days: days,
+        beyondLookback: long,
+      );
+
+      expect(
+        en.dueDigest('Dentist', row(ReportDueKind.gap, ReportDueState.due, 18)),
+        'Dentist in${nb}18${nb}days',
+      );
+      expect(
+        en.dueDigest(
+          'Car service',
+          row(ReportDueKind.gap, ReportDueState.overdue, 32),
+        ),
+        'Car service overdue${nb}32${nb}days',
+      );
+      expect(
+        en.dueDigest(
+          'Car service',
+          row(ReportDueKind.gap, ReportDueState.overdue, 400, long: true),
+        ),
+        'Car service over a year ago',
+      );
+      expect(
+        en.dueDigest(
+          'Passport',
+          row(ReportDueKind.expiry, ReportDueState.upcoming, 42),
+        ),
+        'Passport expires in${nb}42${nb}days',
+      );
+      expect(
+        en.dueDigest(
+          'Insurance',
+          row(ReportDueKind.expiry, ReportDueState.overdue, 3),
+        ),
+        'Insurance expired${nb}3${nb}days ago',
+      );
+      expect(
+        en.dueDigest(
+          'Rent',
+          row(ReportDueKind.unmarked, ReportDueState.unmarked, 3),
+        ),
+        'Rent not marked',
+      );
+      expect(
+        en.dueDigest(
+          'Rent',
+          row(ReportDueKind.upcoming, ReportDueState.upcoming, 12),
+        ),
+        'Rent in${nb}12${nb}days',
+      );
+      expect(
+        labelsIn('de').dueDigest(
+          'Zahnarzt',
+          row(ReportDueKind.gap, ReportDueState.overdue, 32),
+        ),
+        'Zahnarzt${nb}32${nb}Tage überfällig',
+      );
+      expect(
+        labelsIn(
+          'ro',
+        ).dueDigest('Dentist', row(ReportDueKind.gap, ReportDueState.due, 18)),
+        'Dentist peste${nb}18${nb}zile',
+      );
+    });
+  });
+
   group('profiled headers (§2.5, N)', () {
     late final en = labelsIn('en');
     const group = ReportCategoryGroup(
