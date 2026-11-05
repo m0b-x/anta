@@ -10,9 +10,9 @@ the work needs, and named the same Fable session the lead: one Opus 5.5
 implementer and one reviewer per slice (the `delegation` roster), the
 designer and design-reviewer around the visual slices, the suite from the
 lead. §12.2 records each slice as built; this line moves to COMMITTED when
-S9's device pass is green. **In progress: S0–S6 committed by 2026-11-05**
-(S5 `8855bf29`, S6 `9327da13` last; the next session resumes at S7 — see
-"Where the next session starts" at the head of §12.2).
+S9's device pass is green. **In progress: S0–S8 committed by 2026-11-05**
+(S7 `3885ef3d`, S8 `b12314b4` last; S9's device pass is the remaining
+step — see "Where the next session starts" at the head of §12.2).
 
 This record extends `docs/calendar-report-roadmap.md` (the Report, COMMITTED
 2026-10-31) and never replaces it: one page, one pure builder, one model.
@@ -51,7 +51,10 @@ of done · 14 Deferred.
 - **Must not change.** Everything the report record's §8 pins: the card
   order for a category with no profile, the memo contract, the four nullable
   readers on `ReportRequest` (the guide's seam), `ReportMarkdown` for an
-  unprofiled report, the digest's generic line; the overview's totals slot;
+  unprofiled report (amended 2026-11-05 by S7: a calendar with no profile
+  but a `#` word in a title gains the By tag section, the one exception the
+  page itself has made since S5 — a tag needs no profile), the digest's
+  generic line; the overview's totals slot;
   `qa pass calendar` (30 flows) and `qa pass alerts` green; presence, skip
   and description semantics (soft deletes, CRDT fields, `noteId == ''`
   for global counters); the `gym_notes` directory; backup import of every
@@ -766,26 +769,28 @@ warning; a sync between two devices converges on the newer profile.
 verified, the reviewer's findings and their fate, the uncommitted file count
 at the boundary)*
 
-**Where the next session starts (rewritten 2026-11-05 after S6).**
+**Where the next session starts (rewritten 2026-11-05 after S8).**
 Done and on `origin/main`: S0 (`2661c8de`), S1 (`6a586668`), S2a
 (`0f5fae29`), S2b-i (`66efe1f1`), S3 (`fb9ae486`), S2b-ii (`f29edf64`),
-S4 (`f3571ecf`), **S5** (`0abb2f69` … `8855bf29`, docs `1e344277`) and
-**S6** (`46680e15` … `9327da13` — the eight code commits in the S6 note's
-gate line, the last being the fix passes A with the glue — then the docs
-commit). Next, in order: **S7** (digests and share — in flight when this
-was written: S7-i the report digest's Goals / Due / top-insight lines in
-`lib/utils/digest_notification_content.dart` with their ARB keys, S7-ii
-`ReportMarkdown`'s Goals, Insights, Due soon, Records, Months, By tag,
-When and Balance sections plus the saved view's Totals column under
-`beside`; then one reviewer, fixes, the gate, the commit), **S8**
-(Settings → Calendar → Report cards with switches and drag handles (W),
-the calendar-events and calendar-ui references, the feature doc's
-addendum, the report record's §4.1 / D31 addendum, the guide decision V),
-**S9** (the device pass: the new flows 30–33, `qa pass calendar` and `qa
-pass alerts` green; the device buckets from the S5 and S6 design reviews
-are in their notes; flow 32 lists Same period last year but cannot pick it
-on the seed, flow 33 picks This year because the seed has no last-year
-data). Each slice: implementer runs of ≤ 8 ids by layer (words →
+S4 (`f3571ecf`), **S5** (`0abb2f69` … `8855bf29`, docs `1e344277`), **S6**
+(`46680e15` … `9327da13`, docs `bf868227`), **S7** (`8202b736`,
+`e19abc3a`, the fix pass `3885ef3d`) and **S8** (`c09ef7a7` …
+`b12314b4`, the last being the fix passes II; S8c's six documents and
+the S7 / S8 notes in the docs commit after it). Next: **S9** — the device
+pass through `qa-runner` on `emulator-5556`: `qa fleet install --build`,
+`qa pass calendar` (35 flows: 30 and 31 the category editor's Kind
+section and goal sheet, 32 the report's tag header and Compare with — Same
+period last year stays dimmed, no seed event lies a year back —, 33 the
+year cards on This year and the Last year preset, 34 the Report cards
+page toggling Totals off and the report showing it gone), `qa pass
+alerts`, then the three design reviews' device buckets (the S5, S6 and
+S8 notes: TalkBack on a tag header, a strip and the handle; the compare
+and period menus near the bottom inset at de 2.0; a drag on the Report
+cards page; real de / ro copy at 200 %); a red flow re-run once with
+`--only`; the pass report into the S9 note, and this record's status line
+to COMMITTED when the pass is green. The known reds of the whole suite
+(2026-11-05): the Windows-only host-devices case and three real-clock
+guide cases (§14). Each slice: implementer runs of ≤ 8 ids by layer (words →
 primitives and cards → page), the whole suite from the lead, two code
 reviewers and the design-reviewer told to report by turn 60, fix passes
 grouped by file, commit. The process that worked in S5 and S6 beyond
@@ -2017,6 +2022,211 @@ note). S6 is on `main` as `46680e15` (S6a), `ec8642d4` (S6b-i),
 (the week name), `2c7606b1` (fix pass B) and the fix passes A with the
 glue (the hash in the hand-off); the docs commit follows.
 
+#### S7 — digests and share (built 2026-11-05)
+
+**Built as two halves on disjoint files** — S7-i the report digest in a
+worktree, S7-ii the shared Markdown in the main tree — each gated by the
+whole suite and committed: **S7-ii `8202b736`** — `ReportMarkdown.render`
+writes, in the page's order and each only with content, `## Goals` ("-
+Gym: 14 of 12 · Met" through the new `ReportLabels.goalSharedCaption`:
+the card's caption then the state word where the caption does not say
+it, the spoken forms' rule), `## Insights` (the page's filter and cap,
+never in a plan), `## Due soon` (every row, "- Gym: Due in 3 days"),
+Totals as before with, under `beside`, a `### {view}` sub-list of the
+compared tiles without deltas (the column S5 deferred), on a whole year
+`## Records` ("- Longest trip: \*Sibiu\* · 6 days") and `## Months` ("-
+Gym: Jan 2 – Oct 29 · Jan 9 · Feb 8 · Mar — · …" through the new
+`yearMonthsLine`, months still ahead left out, a zero month the dash),
+Categories as before, `## By tag` ("### #leg\_day · 6 evenings · last Fri
+24" then the dated rows as a group's), Over time as before, `## When`
+(the caption), `## Balance` ("- Work: 38 h · 67 %", the last-year form
+under Compare), Missed and Ahead as before; `render(weekStart:)` so the
+shared weekday names follow the app's week start (the page passes the
+shown state's); a new `_escapeInline` escapes Markdown's syntax mid-line
+without the list-marker rule, so a user title inside a caption never
+shows a stray backslash and a "# Plan" title never becomes a heading; the
+unprofiled golden byte-identical. **S7-i `e19abc3a`** — the weekly /
+monthly report digest's body gains, after its unchanged summary line and
+before the category lines, within `kDigestMaxLines`: "Goals · Gym 2 of 3
+· Work 42 h (over 40) · Dentist 162 days (limit 180)" (≤
+`digestGoalLines` 3, ranked by the state word — past the limit / over /
+behind / missed first, then due soon, on pace, met, planned, not started
+—, the items through the new `goalRank` / `goalDigest`: met "✓", over in
+brackets, a gap's figures in brackets because the line's own dot parts
+its items, a past span of several periods "Gym 3 of 4 weeks met"), "Due ·
+Car service overdue 32 days · Dentist in 18 days" (≤ `digestDueLines` 2,
+the card's phrases lowered and without their date through `dueDigest`),
+then the top insight ("Trips · 212 days since the last, the limit is
+180", the page's filter taken to `insightsInDigest` 1); eight
+`reportDigest*` keys × 3 (de "Ziele" / "Fällig", ro "Obiective" /
+"Scadente"); a digest with none of them byte-identical to before; the
+words live in `ReportLabels` so the page and the digest never judge a
+goal two ways. The two halves met in `report_labels.dart` (both appended
+methods after `goalSpoken`); the merge kept both.
+
+**The review** (one reviewer, from an `e19abc3a` snapshot; nothing
+severe) and its fate:
+- **A decision, not a defect:** a calendar with no profile but a `#` word
+  in a title now shares a `## By tag` section, so §1's "`ReportMarkdown`
+  for an unprofiled report" is amended — the unprofiled share changes only
+  by By tag, the exception the page has made since S5 (a tag is untyped
+  and needs no profile; §7 asks for the section). The golden's fixture has
+  no tag, so the fix pass adds a builder-folded unprofiled report with and
+  without a tag.
+- CONFIRMED, fixed: an empty goal caption left " · not started" in the
+  share while the digest said "0 of 3" — empty parts dropped, the digest
+  item becomes the state word; `insightsInDigest` was honoured only to one
+  line (`.take(n).firstOrNull`); the tag, view and group headings escaped
+  with the list-marker rule ("### #\-x", "### 1\. Morning") — headings take
+  `_escapeInline`; the view's column was lost when the own tiles were
+  empty; the shared goal line put the state word after the streak while
+  the spoken form says it before; `reportDigestGoalGap` repeated
+  `reportGoalLimit`'s words — composed from the card's phrase; stale docs
+  (`ReportInsightFilter` "the digest reads insights whole", the digest's
+  "never repeats what the lines above say" — it drops insights about every
+  goal and due row, shown or not, which stays).
+- Deduplicated: `aheadFromMonth` on the model (the Months card, its spoken
+  label and the Markdown computed it apart), the Balance order in one place
+  for the card and the share, the category-name fall-back, `dueDigest` on
+  `dueCaption`'s own parts.
+- Noted, not changed: the digest's `ReportLabels(strings)` has no currency,
+  so a money goal reads "1,340" where the page may read "€1,340" — pre-
+  dates S7, §14; the digest's insight filter drops more than the three
+  goals and two due rows it shows (an insight about a fourth goal is never
+  said) — the brief's rule, kept.
+
+**Gate (S7).** `dart analyze lib test` clean; `dart format` clean on the
+slice's files; `flutter gen-l10n` reproduces the generated files,
+`untranslated.txt` empty; the whole suite `+13414 ~12 -4` on 2026-11-05
+(the Windows host case and the three real-clock guide cases). S7 is on
+`main` as `8202b736` (S7-ii), `e19abc3a` (S7-i) and `3885ef3d` (the fix
+pass: headings through `_escapeInline`, the view column outside the
+tiles guard, one digest line per insight up to `insightsInDigest`, the
+state word before the streak, the gap phrase from `reportGoalLimit`, the
+Balance section gated on `balanceRows()` as the card is, the shared
+`CalendarReport.aheadFromMonth` / `balanceRows()` and
+`ReportLabels.insightCategory` / `_duePhrases`, the ten new cases); the
+docs commit follows S8's.
+
+#### S8 — the report cards setting, the settings page, the docs (built 2026-11-05)
+
+**Built in three layers**: **S8a `c09ef7a7`** — `lib/models/report_cards.dart`:
+`ReportCardKind` in the page's default order (goals, insights, dueSoon,
+totals, records, months, categories, tags, overTime, when, balance,
+missed, ahead; the footer is no card) and `ReportCards` (`order` + `off`,
+`shown`, `defaults`, `encode` / `decode` in the grammar
+"goals,insights,-dueSoon,…" — unknown names skipped, missing names
+appended in the default order, a repeated name keeps its first place;
+`moved(oldIndex, newIndex)` with `onReorderItem`'s indices, `toggled`),
+`SettingsKeys.reportCards` ("calendar_report_cards";
+`setReportCards(defaults)` deletes the key, so a card a later version adds
+lands in its own place), `getCalendarReportSettings` → `cards`,
+`ReportShown.cards` refreshed on every re-read (a resume re-emits Ready
+with the new list and no `ReportFolding`), the ids
+`calendar-settings-report-open`, `report-card-switch-<kind>` /
+`-handle-<kind>` (the enum's camelCase name), `report-cards-reset`, four
+strings (Totals reuses `reportSectionTotals`). **S8b-i `9cfd9b99`** — the
+body walks `cards.shown` through one `switch` per card, each card keeping
+its own gate and slivers, a single gap rule (`_spaced`: a gap before every
+drawn block but the first — no leading, double or orphan gap), the Totals
+block one card (its caption leaves with it), `_labelIds` on the same walk
+so the anchors follow the order; a tap that would land in an off card has
+no tap (goals, category insights and strips with Categories off; a tag
+insight with By tag off falls back to the category's group); the page's
+slack rule reads the cards and skips the off ones; with every card off the
+footer alone remains; under `defaults` every pre-S8 sliver pin holds
+unchanged. **S8b-ii** (merged with the gate below) —
+`CalendarReportSettingsPage` under Settings → Calendar → **Report cards**
+(the row after Alerts: `bar_chart_rounded`, the title, the description,
+the thirteen names as search keywords, `calendar-settings-report-open`;
+`AppNavigator.toCalendarReportSettings`, `NavDestinationKind.reportSettings`
+appended and restored): `SettingsAppBar`, the kit's group drawn by hand
+because its `ListView` holds no reorderable sliver — the description as
+the group's intro, a `SliverReorderableList` of thirteen rows (the shared
+`FormDragHandle` 48 × 48, the name wrapping at 2.0, a `Switch` the single
+spoken control; an off row dims to `switchedOffOpacity`), then a Reset to
+default row disabled on the defaults, writing them with the snackbar;
+every move and toggle writes at once; the fasting page's shape; flow
+`34_report_cards` (Settings from the calendar's ⋮, the row, a card off and
+on). **S8c** — the docs: `calendar-events` SKILL.md (an Analytics rules
+block and a reading-map row), its `references/subsystems.md` ("The
+analytics layer"), `calendar-ui` SKILL.md (the id families and flows
+30–34), `docs/calendar-events-feature.md` (the 2026-11-05 addendum),
+`docs/calendar-report-roadmap.md` (§4.1 and D31 addenda); the guide is
+untouched (V).
+
+**Decisions (continuing S7's lettering):** CD the cards setting's grammar
+and the defaults-deletes-the-key rule · CE the page's camelCase id suffix
+· CF the settings page draws the kit's group by hand around a
+`SliverReorderableList` · CG the `FormDragHandle` and the reused "Reorder
+{name}" spoken label · CH a tap on the name toggles; the switch is the one
+spoken control · CI no confirmation on Reset · CJ a tap into an off card
+has no tap · CK the slack rule skips off cards.
+
+**The reviews** (one code reviewer and the design-reviewer, from a
+`c83061de` snapshot; nothing severe) and their fate, through three fix
+passes (I `35ded696`; II-A the page and II-B the data side, merged with
+the gate below):
+- CONFIRMED, fixed: `SettingsKeys.reportCards` was missing from the
+  backup's settings allowlist, so a reordered or hidden list did not
+  survive a round-trip — exported as the other display preferences are;
+  an off card's dimmed name fell to 3.26:1 in light (`switchedOffOpacity`
+  on a live control, the Alerts hub's token) — the off name is
+  `onSurfaceVariant` at full strength, the switch says off; the group came
+  apart while a row was dragged (each row painted its own ground, the
+  drag gap showed `pageGround`, the foot un-rounded when the last row
+  lifted) — the group's `rowGroup` is painted behind the whole list and
+  the gap sits after it, so the last row's drag threshold is every row's;
+  the dividers sat at the glyph indent 52 where the kit draws 16; no
+  level-2 header over the group and the Reset row's group unlabelled —
+  one group under "Cards" with Reset as its last row; the intro's column
+  did not meet the names'; fix pass I's Move up / Move down wrapper gave
+  the handle a merged child node repeating its id — one node per handle;
+  flow 34 never checked the off state nor the card gone from the report —
+  it toggles Totals off, returns to the report and expects the tile ids
+  absent; `decode` read "- goals" as unknown — trimmed after the dash;
+  the stale docs on the slack rule and `_heard`; the card-name mapping
+  written twice; `ReportShown.cards` optional while every sibling is
+  required.
+- PLAUSIBLE, fixed: the slack rule still compared the default positions
+  — it now compares every shown card's shape in the owner's order (an off
+  card never arms; By tag first and its tags changing arms); the Totals
+  placeholder frame drew, vanished and returned on open with Totals off —
+  the loading frame is not a card the owner can turn off; a failed fold
+  re-emitted the last Ready with its old cards — re-carded; the settings
+  page's load or write could fail silently on the spinner — caught and
+  logged with the defaults as the fall-back; Insights still hid what an
+  off Goals or Due soon card "already said" — `ReportInsightFilter.forPage`
+  takes the shown cards (the Markdown and the digest keep the defaults:
+  they write their own Goals and Due lines).
+- Accepted, noted: with Categories off a goal or insight on a category
+  past the cap loses the "n more categories" sheet too (CJ: a tap into an
+  off card has no tap); a future card lands at the end of a list the
+  owner reordered or toggled (CD), and a downgrade drops a future card's
+  name on its next write; the handle's spoken label reuses "Reorder
+  {name}" with a widened ARB description; "Nach Schlagwort" wraps to two
+  lines at de 2.0 on 360 (the row grows with its text, never at runtime);
+  the disabled Reset row's 38 % is WCAG's inactive-control exemption.
+- **For S9's device pass**: a drag on `emulator-5556` (the seam during the
+  drag, the last row's travel, auto-scroll at 2.0, a quick tap on the
+  name toggling without a drag), the lifted row's shadow and corners in
+  both themes, the ripple on the name and the switch in dark, TalkBack on
+  the switch ("<card>, switch, on / off" once), on the handle ("Reorder
+  <card>" with Move up / Move down), on the disabled Reset row and its
+  snackbar, the off names in sunlight at the system font, de / ro at 200 %
+  with Android's non-linear scale.
+
+**Gate (S8).** `dart analyze lib test` clean; `dart format` clean on the
+slice's files (the backup round-trip suite carries three pre-existing
+unformatted hunks, left as found); `flutter gen-l10n` reproduces the
+generated files, `untranslated.txt` empty; the whole suite `+13457 ~12
+-4` on 2026-11-05 (the Windows host case and the three real-clock guide
+cases); the two Calendar settings goldens where the new row is in view
+regenerated. S8 is on `main` as `c09ef7a7` (S8a), `9cfd9b99` (S8b-i),
+`c83061de` (S8b-ii with the goldens), `35ded696` (fix pass I) and the fix
+passes II (the hash in the hand-off); the docs commit follows with S8c's
+six documents.
+
 ### 12.3 The kick-off prompt — written 2026-11-03, NOT RUN
 
 The owner pastes this into a **fresh interactive Opus 5.5 session** from
@@ -2110,7 +2320,10 @@ suite count and result, uncommitted files, open findings, what §14 gained.
 ## 14. Deferred
 
 - **The guide try-cards suite's clock** — `test/widgets/calendar_guide_try_cards_test.dart` opens its stages on `DateTime.now` (only the fasting topic is pinned by `fixedNowFor`), so three cases went red on 2026-11-05 at the pre-S5 commit as well: "a stage never changes height at text scale 2.0 — screen: every panel mode" (the day timeline overflowed twice on that day's sandbox data; the case tolerates one) and "the tap-target and text-contrast guidelines — screen 360 / 412 light" (the sampler read the report stage's "2 events" caption off its rect). Intended fix: pin `now` for every stage in `fixedNowFor` (and the finding topic's 2026-11-01 case alike), then re-pin the two cases; a product check whether the stage should ever draw a day whose timeline overflows. Not S5's; carried here so the gate's "whole suite green" reads honestly until the pin lands.
-- **The saved view's own column in the shared Markdown** — `ReportMarkdown.render(beside:)` writes "beside {view}" and omits the deltas (S5 BR); the view's Totals column itself joins the Markdown with S7's new sections.
+- **The digest's currency** — `digestNotificationContent` builds `ReportLabels(strings)` with no currency, so a money goal in the digest reads "1,340" where the page reads "€1,340" (pre-dates S7; the scheduler would read `moneyCurrencySymbol` / `moneyCurrencySuffix` with the settings it already loads).
+- **The slack rule and a saved-view compare** — picking a view adds the view's Totals card within the same look, a shape change `_sameShapes` does not count (Totals is treated as fixed); a reader at the scroll's end who picks a view could see the end spring back (S8 II-B's note).
+- **Small leftovers noted by the S7 / S8 reviews** — `_GoalShape.planned => ''` in `_periodFacts` is unreachable (the planned shape returns earlier); the Insights label's presence in `_labelIds` reads the unfiltered page list while the card draws the first `insightsOnPage` (consistent today); with Categories off a goal or insight on a category past the cap loses the "n more categories" sheet too (CJ); a card a later version adds lands at the end of a list the owner reordered or toggled (CD), and a downgrade drops a future card's name on its next write; `_resume`'s null-`_request()` branch has no test (no way found to make the request null after a Ready).
+- **The saved view's own column in the shared Markdown** — done in S7 (`### {view}` under Totals); kept here only as the pointer the S5 note gives.
 - **Per-event overrides** (A, D) — a counts-as or an exclusion on one event;
   only if a category's events prove too mixed.
 - **Task weighting** — minutes per ticked task; after counts-as has been

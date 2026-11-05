@@ -206,6 +206,14 @@ week, a 365-day span's thirteenth month); V's folds and caps are the page's —
 the model is complete and the share prints it whole; the usual band's two
 medians come from the same samples (timed with a duration).
 
+*Addendum (2026-11-05, the analytics record S1 / S2a).* The pending rule
+extends to a tracked one-off: today's unmarked one-off under a marking
+kind is pending — in Ahead, in no tile — and an explicit mark counts at
+once; a past unmarked one is missed and joins the Missed card (decision
+AM). The kind's "assume absent" is the Expiry default too (AN), so a
+renewal never marked reads as lapsed, and the guide's stage reads the
+same readers (`profileOf` joined `ReportRequest`'s nullable seam).
+
 **D32–D34 (2026-10-30, the lead, from the S1b review).**
 
 - **D32 The allowlist is the overview's.** The report scopes events by the
@@ -572,6 +580,15 @@ Public holidays and fasting days are not events and never appear. A skipped
 day is not an occurrence (skips are subtracted inside `occursOnUtcDay`). A
 tracked `SpecificDatesRecurrence` event is a routine: `EventPresence.appliesTo`
 is the one gate and routine wins over the one-off column (D31).
+
+*Addendum (2026-11-05, the analytics record S1 — "one mark for every
+shape").* A one-off whose category's kind marks (Task, Appointment, Bill,
+Deadline, Medication, Expiry … the catalogue's `marks` kinds) is tracked
+and assumes absent, so it yields attended / missed like a routine; the
+verb comes from the kind (`MarkVerb`: done, attended, taken, paid,
+received, met, renewed) and the one-off has a cancel beside a routine's.
+The two gates above are unchanged — a kind only decides what a new or
+switched one-off defaults to; the Missed card lists a missed one-off.
 
 ### 4.2 The page
 

@@ -7705,3 +7705,71 @@ every skip; `27_guide_lessons` is unchanged in its ids. Gate at
 device pass and the design review are recorded in §7.7's G6 note. No
 data semantics changed; nothing a demo does writes. The strings are
 `calendarGuide*` keys in the three ARBs (§8.5 of the record).
+
+## Addendum (2026-11-04 → 05): the analytics — kinds, measures, goals, insights, the year in review
+
+The record is `docs/calendar-analytics-roadmap.md` (the owner's eight
+answers in §4, decisions A–Z and AA–CC, the model in §6, the as-built notes
+per slice in §12.2, the designer's specs for S3–S6 in
+`docs/calendar-analytics-specs/`). It extends the Report page of the
+2026-10-31 addendum and never replaces it: one page, one pure builder, one
+model, read by the page, the digest and the share.
+
+- **A category has a kind, and the kind gives it a measure, a verb, an area
+  and a suggested goal.** The category editor gains a Kind section (a
+  grouped picker over the catalogue: Health, Work, Money, People, Home,
+  Leisure, Other; Custom last) and a Measure & goal section (Measure with
+  Auto's resolution as its caption, Counts as, Mark — the verb —, Area, and
+  a Goal row opening the goal sheet: kind, value in the measure's unit,
+  period, "Remove goal"). The profile is stored in
+  `calendar_category_profiles` (v44, synced, backup v8), one row per
+  category, absent until the owner sets a kind; `effective()` fills every
+  unset field from the kind, so the fold never asks twice.
+- **One mark for every shape.** A one-off under a marking kind is tracked
+  and assumes absent: it can be marked done, attended, taken, paid, met or
+  renewed from the detail sheet, the day rail and the day list, and
+  cancelled where a routine has its own cancel. The presence gate stays
+  `EventPresence.appliesTo` plus `CalendarEvent.withExplicitDates`; nothing
+  about routines changed.
+- **The report page grew nine cards and a footer row** (every card absent
+  without content, so a calendar that never set a kind reads the
+  2026-10-31 page): **Goals** (one meter row per goal — pace, left,
+  streak; on a whole year "41 of 52 weeks met · longest streak 11"),
+  **Insights** (the top three of a rule library, each with a glyph by
+  severity and a tap to its target), **Due soon** (overdue, due, unmarked,
+  upcoming — six rows then "n more" in place), **Totals** as before plus a
+  saved view's second card under Compare with, **Records** and **Months**
+  on a whole calendar year (busiest month and week, the most social month,
+  the biggest spend, the longest trip, streak and gap; a twelve-tile strip
+  per category in the `primary` ramp, months still ahead hollow, the kept
+  span as its caption), **By tag** (`#` words from titles and descriptions
+  as groups with a noun from the first profiled category's kind — "6
+  evenings · last Fri 24", "2 trips · 5 days", "3 services · 1,240" —
+  closed by default, four shown then "n more"), **Over time** with a
+  last-year tick under Compare: Same period last year, **When** (a 7 × 24
+  heatmap of kept timed days, Sleep left out, the caption "Busiest: Tuesday
+  · 18:00–19:00"), **Balance** (hours by life area, shares that sum to 100,
+  a last-year marker under Compare), then Missed and Ahead; the footer's
+  first row **Compare with** (Previous period · Same period last year ·
+  each saved overview view). The period menu gains **Last year**.
+  Settings → Calendar → **Report cards** lists the cards with a switch and
+  a drag handle each; an off card is absent, never collapsed.
+- **The digest and the share carry the judgments.** The weekly / monthly
+  report digest adds, after its unchanged summary line, "Goals · Gym 2 of 3
+  · Work 42 h (over 40) · …" (three by severity), "Due · Car service overdue
+  32 days · Dentist in 18 days" (two) and the top insight; Share report
+  writes every card's section in the page's order and the saved view's
+  column. No new alert kind was added (decision F).
+- **How it holds together.** The fold is one pure pass that also produces
+  the compared span (a memo entry like any other; the benchmark bound is
+  1.75× the cold service); every row's height comes from measured
+  templates, never from its value, so a refold never moves the finger; the
+  refold anchor is the nearest section label above the viewport, and the
+  end slack arms whenever the cards above it change shape; every word —
+  caption, template, spoken label, digest item, shared line — is
+  `ReportLabels`', in en, de and ro. The guide is untouched (decision V):
+  its screen stage renders the real report over a seed with no profiles.
+- **Device pass**: flows `30_category_kind`, `31_category_goal`,
+  `32_report_cards`, `33_report_year` and `34_report_cards` join the
+  calendar suite (S9 runs them; the two design reviews' device buckets are
+  in the record's S5 and S6 notes).
