@@ -41,10 +41,7 @@ void main() {
 
     for (final table in ['folders', 'notes', 'counter_values']) {
       expect(await db.syncDao.getValue(SyncDao.keyPullCursor(table)), isNull);
-      expect(
-        await db.syncDao.getValue(SyncDao.keyPullSeen(table)),
-        's-$table',
-      );
+      expect(await db.syncDao.getValue(SyncDao.keyPullSeen(table)), 's-$table');
     }
     expect(await db.syncDao.getValue('pullXcursor.notes'), 'kept');
     expect(await db.syncDao.getValue(SyncDao.keyBindFloor), 'floor');

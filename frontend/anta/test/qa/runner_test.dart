@@ -27,15 +27,17 @@ void main() {
     });
 
     test('--no-qa drops only the QA defines', () {
-      final args =
-          buildFlutterArgs(command: 'run', deviceId: 'x', qa: false);
+      final args = buildFlutterArgs(command: 'run', deviceId: 'x', qa: false);
       expect(args, isNot(contains('--dart-define=ANTA_QA=true')));
       expect(args, containsAllInOrder(['-t', driverTarget]));
     });
 
     test('--no-driver drops only the driver target', () {
-      final args =
-          buildFlutterArgs(command: 'run', deviceId: 'x', driver: false);
+      final args = buildFlutterArgs(
+        command: 'run',
+        deviceId: 'x',
+        driver: false,
+      );
       expect(args, isNot(contains('-t')));
       expect(args, contains('--dart-define=ANTA_QA=true'));
     });
@@ -66,10 +68,7 @@ void main() {
 
     test('backdates by the clock-skew margin', () {
       final now = DateTime(2026, 9, 13, 17, 42, 3, 7);
-      expect(
-        logcatStamp(now),
-        rawLogcatStamp(now.subtract(logcatStampMargin)),
-      );
+      expect(logcatStamp(now), rawLogcatStamp(now.subtract(logcatStampMargin)));
       expect(logcatStamp(now), '09-13 17:41:48.007');
     });
 
@@ -216,9 +215,18 @@ void main() {
     test('what two devices could collide on is named per device', () {
       final paths = QaPaths('/repo');
       String name(String path) => path.split(RegExp(r'[\\/]')).last;
-      expect(name(paths.lastDumpFor('emulator-5556')), 'last_dump_emulator-5556.txt');
-      expect(name(paths.seedResolvedFor('emulator-5556')), 'seed_resolved_emulator-5556.json');
-      expect(name(paths.installedJsonFor('192.168.1.5:5555')), 'installed_192.168.1.5_5555.json');
+      expect(
+        name(paths.lastDumpFor('emulator-5556')),
+        'last_dump_emulator-5556.txt',
+      );
+      expect(
+        name(paths.seedResolvedFor('emulator-5556')),
+        'seed_resolved_emulator-5556.json',
+      );
+      expect(
+        name(paths.installedJsonFor('192.168.1.5:5555')),
+        'installed_192.168.1.5_5555.json',
+      );
       expect(name(paths.emulatorPidFor('anta_qa_1')), 'emulator_anta_qa_1.pid');
       expect(name(paths.emulatorLogFor('anta_qa_1')), 'emulator_anta_qa_1.log');
       expect(name(paths.emulatorErrFor('anta_qa_1')), 'emulator_anta_qa_1.err');
@@ -228,7 +236,10 @@ void main() {
         name(paths.passDirFor('calendar', '20261023_101500', 'emulator-5556')),
         'calendar_20261023_101500_emulator-5556',
       );
-      expect(paths.passDirFor('calendar', 's', 'd'), startsWith(paths.passRoot));
+      expect(
+        paths.passDirFor('calendar', 's', 'd'),
+        startsWith(paths.passRoot),
+      );
       expect(name(paths.latestPassFor('calendar')), 'latest_calendar.txt');
     });
 
@@ -241,8 +252,10 @@ void main() {
       final paths = QaPaths(Directory.current.path);
       final absolute = File('pubspec.yaml').absolute.path;
       expect(paths.resolve(absolute), absolute);
-      expect(paths.resolve('tool/qa/fixtures/basic.json'),
-          startsWith(paths.projectRoot));
+      expect(
+        paths.resolve('tool/qa/fixtures/basic.json'),
+        startsWith(paths.projectRoot),
+      );
     });
   });
 
@@ -278,43 +291,64 @@ void main() {
         '/data/local/tmp/anta_qa_seed.json',
         '/data/user/0/com.alexzamfir.anta/app_flutter/qa_seed.json',
       ]);
-      expect(commands[2], ['shell', 'rm', '-f', '/data/local/tmp/anta_qa_seed.json']);
+      expect(commands[2], [
+        'shell',
+        'rm',
+        '-f',
+        '/data/local/tmp/anta_qa_seed.json',
+      ]);
     });
 
     test('the staging file never lands in the app sandbox directly', () {
-      final commands =
-          markerPushCommands(localPath: 'x.json', markerName: seedMarker);
+      final commands = markerPushCommands(
+        localPath: 'x.json',
+        markerName: seedMarker,
+      );
       expect(commands.first[2], startsWith(stagingDir));
       expect(commands.first[2], isNot(contains(antaDocsDir)));
     });
 
-    test('applyCommands sends each vector through adb with the serial', () async {
-      final fake = FakeProcessRunner();
-      final adb =
-          Adb(executable: 'adb', runner: fake, serial: 'emulator-5554');
-      await applyCommands(adb, resetMarkerCommands());
-      expect(fake.lines.single,
+    test(
+      'applyCommands sends each vector through adb with the serial',
+      () async {
+        final fake = FakeProcessRunner();
+        final adb = Adb(
+          executable: 'adb',
+          runner: fake,
+          serial: 'emulator-5554',
+        );
+        await applyCommands(adb, resetMarkerCommands());
+        expect(
+          fake.lines.single,
           'adb -s emulator-5554 shell run-as com.alexzamfir.anta touch '
-          '/data/user/0/com.alexzamfir.anta/app_flutter/qa_reset');
-    });
+          '/data/user/0/com.alexzamfir.anta/app_flutter/qa_reset',
+        );
+      },
+    );
 
     test('a run-as refusal is reported as a device failure', () async {
       final fake = FakeProcessRunner(
         defaultOutcome: const RunOutcome(
-            0, '', 'run-as: package not debuggable: com.alexzamfir.anta'),
+          0,
+          '',
+          'run-as: package not debuggable: com.alexzamfir.anta',
+        ),
       );
       final adb = Adb(executable: 'adb', runner: fake, serial: 'e');
       expect(
         () => applyCommands(adb, resetMarkerCommands()),
-        throwsA(isA<DeviceFailure>()
-            .having((e) => e.code, 'code', exitDevice)
-            .having((e) => e.message, 'message', contains('debug build'))),
+        throwsA(
+          isA<DeviceFailure>()
+              .having((e) => e.code, 'code', exitDevice)
+              .having((e) => e.message, 'message', contains('debug build')),
+        ),
       );
     });
 
     test('a non-zero exit is reported as a device failure', () async {
-      final fake =
-          FakeProcessRunner(defaultOutcome: const RunOutcome(1, '', 'boom'));
+      final fake = FakeProcessRunner(
+        defaultOutcome: const RunOutcome(1, '', 'boom'),
+      );
       final adb = Adb(executable: 'adb', runner: fake, serial: 'e');
       expect(
         () => applyCommands(adb, resetMarkerCommands()),

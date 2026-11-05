@@ -412,15 +412,14 @@ class CalendarDayCell extends StatelessWidget {
       // over the child and insets nothing — the same trick the rail already
       // uses to outline its own lane. The 1px it overlaps the stripe with is
       // the point: the outline stays unbroken.
-      final foreground = (wash != null && cellStyle == CalendarCellStyle.outline)
+      final foreground =
+          (wash != null && cellStyle == CalendarCellStyle.outline)
           ? BoxDecoration(
               borderRadius: radius,
               border: Border.all(
                 color: wash.withValues(
-                  alpha: (wash.a * CalendarColors.outlineStyleBorderScale).clamp(
-                    0.0,
-                    1.0,
-                  ),
+                  alpha: (wash.a * CalendarColors.outlineStyleBorderScale)
+                      .clamp(0.0, 1.0),
                 ),
                 width: 1,
               ),

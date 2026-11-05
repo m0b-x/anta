@@ -217,9 +217,7 @@ void main() {
     expect(result.value?.removeAfterAlert, isFalse);
   });
 
-  testWidgets('the switch off is reported, and back on again', (
-    tester,
-  ) async {
+  testWidgets('the switch off is reported, and back on again', (tester) async {
     final sheet = QuickAlarmRobot(tester);
     var result = await openSheet(tester);
 

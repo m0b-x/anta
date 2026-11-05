@@ -212,21 +212,21 @@ void main() {
     });
 
     test('rejects a day the month does not have instead of rolling over', () {
-      expect(
-        UpcomingAgendaFilters.decodeRange('20260231|20260315'),
-        (null, null),
-      );
-      expect(
-        UpcomingAgendaFilters.decodeRange('20260229|20260315'),
-        (null, null),
-      );
+      expect(UpcomingAgendaFilters.decodeRange('20260231|20260315'), (
+        null,
+        null,
+      ));
+      expect(UpcomingAgendaFilters.decodeRange('20260229|20260315'), (
+        null,
+        null,
+      ));
     });
 
     test('accepts a leap day in a leap year', () {
-      expect(
-        UpcomingAgendaFilters.decodeRange('20280229|20280301'),
-        (DateTime.utc(2028, 2, 29), DateTime.utc(2028, 3, 1)),
-      );
+      expect(UpcomingAgendaFilters.decodeRange('20280229|20280301'), (
+        DateTime.utc(2028, 2, 29),
+        DateTime.utc(2028, 3, 1),
+      ));
     });
   });
 

@@ -33,7 +33,8 @@ void main() {
             else
               SliverList(
                 delegate: SliverChildBuilderDelegate(
-                  (context, index) => SizedBox(height: 40, child: Text('$index')),
+                  (context, index) =>
+                      SizedBox(height: 40, child: Text('$index')),
                   childCount: 40,
                 ),
               ),
@@ -118,7 +119,8 @@ void main() {
     expect(
       loadMoreCalls,
       greaterThan(0),
-      reason: 'a rebuilt page hands over a new controller; the sliver has to '
+      reason:
+          'a rebuilt page hands over a new controller; the sliver has to '
           'rebind rather than keep listening to the old one',
     );
   });

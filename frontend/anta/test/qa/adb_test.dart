@@ -34,8 +34,10 @@ void main() {
 
     test('ignores the header and daemon chatter', () {
       expect(
-        parseDevices('* daemon not running; starting now at tcp:5037\n'
-            'List of devices attached\n\n'),
+        parseDevices(
+          '* daemon not running; starting now at tcp:5037\n'
+          'List of devices attached\n\n',
+        ),
         isEmpty,
       );
     });
@@ -58,14 +60,22 @@ void main() {
     u0a217:com.alexzamfir.anta +12ms running, 3 wakeups, 3 alarms: 0 fgs
 ''';
       expect(countArmedAlarms(dumpsys, 'com.alexzamfir.anta'), 2);
-      expect(countArmedAlarms(dumpsys.replaceAll('RTC_WAKEUP #3', 'gone'), 'com.alexzamfir.anta'), 0);
+      expect(
+        countArmedAlarms(
+          dumpsys.replaceAll('RTC_WAKEUP #3', 'gone'),
+          'com.alexzamfir.anta',
+        ),
+        0,
+      );
     });
   });
 
   group('selectSerial', () {
     final one = parseDevices(_devicesOutput);
-    final two = parseDevices('List of devices attached\n'
-        'emulator-5554\tdevice\nemulator-5556\tdevice\n');
+    final two = parseDevices(
+      'List of devices attached\n'
+      'emulator-5554\tdevice\nemulator-5556\tdevice\n',
+    );
 
     test('an explicit -d wins over everything', () {
       expect(
@@ -79,8 +89,10 @@ void main() {
     });
 
     test('ANTA_QA_DEVICE is next', () {
-      expect(selectSerial(envValue: 'emulator-5556', available: two),
-          'emulator-5556');
+      expect(
+        selectSerial(envValue: 'emulator-5556', available: two),
+        'emulator-5556',
+      );
     });
 
     test('the sole attached device is next', () {
@@ -90,60 +102,89 @@ void main() {
     test('two devices with no hint is a device failure listing both', () {
       expect(
         () => selectSerial(available: two),
-        throwsA(isA<DeviceFailure>()
-            .having((e) => e.message, 'message', contains('emulator-5554'))
-            .having((e) => e.message, 'message', contains('emulator-5556'))),
+        throwsA(
+          isA<DeviceFailure>()
+              .having((e) => e.message, 'message', contains('emulator-5554'))
+              .having((e) => e.message, 'message', contains('emulator-5556')),
+        ),
       );
     });
 
     test('nothing attached names the verb that fixes it', () {
       expect(
         () => selectSerial(available: const []),
-        throwsA(isA<DeviceFailure>().having(
-          (e) => e.message,
-          'message',
-          'no device attached — run `qa boot`',
-        )),
+        throwsA(
+          isA<DeviceFailure>().having(
+            (e) => e.message,
+            'message',
+            'no device attached — run `qa boot`',
+          ),
+        ),
       );
     });
 
     test('an offline device is explained, not silently defaulted', () {
-      final offline =
-          parseDevices('List of devices attached\nemulator-5554\toffline\n');
+      final offline = parseDevices(
+        'List of devices attached\nemulator-5554\toffline\n',
+      );
       expect(
         () => selectSerial(available: offline),
-        throwsA(isA<DeviceFailure>()
-            .having((e) => e.message, 'message', contains('is offline'))
-            .having((e) => e.message, 'message', contains('cold-boot'))),
+        throwsA(
+          isA<DeviceFailure>()
+              .having((e) => e.message, 'message', contains('is offline'))
+              .having((e) => e.message, 'message', contains('cold-boot')),
+        ),
       );
     });
 
     test('an unauthorized device points at the on-device prompt', () {
-      final blocked =
-          parseDevices('List of devices attached\nR58M\tunauthorized\n');
+      final blocked = parseDevices(
+        'List of devices attached\nR58M\tunauthorized\n',
+      );
       expect(
         () => selectSerial(available: blocked),
-        throwsA(isA<DeviceFailure>().having(
-            (e) => e.message, 'message', contains('USB-debugging prompt'))),
+        throwsA(
+          isA<DeviceFailure>().having(
+            (e) => e.message,
+            'message',
+            contains('USB-debugging prompt'),
+          ),
+        ),
       );
     });
 
     test('an explicit serial that is attached but unusable says which', () {
-      final offline =
-          parseDevices('List of devices attached\nemulator-5554\toffline\n');
+      final offline = parseDevices(
+        'List of devices attached\nemulator-5554\toffline\n',
+      );
       expect(
         () => selectSerial(explicit: 'emulator-5554', available: offline),
-        throwsA(isA<DeviceFailure>()
-            .having((e) => e.message, 'message', contains('is offline'))),
+        throwsA(
+          isA<DeviceFailure>().having(
+            (e) => e.message,
+            'message',
+            contains('is offline'),
+          ),
+        ),
       );
     });
 
     test('an explicit serial that is not attached lists what is', () {
       expect(
         () => selectSerial(explicit: 'nosuch', available: one),
-        throwsA(isA<DeviceFailure>()
-            .having((e) => e.message, 'message', contains('nosuch is not attached'))
-            .having((e) => e.message, 'message', contains('emulator-5554 (device)'))),
+        throwsA(
+          isA<DeviceFailure>()
+              .having(
+                (e) => e.message,
+                'message',
+                contains('nosuch is not attached'),
+              )
+              .having(
+                (e) => e.message,
+                'message',
+                contains('emulator-5554 (device)'),
+              ),
+        ),
       );
     });
 
@@ -163,8 +204,7 @@ void main() {
 
     test('every call carries -s <serial>', () async {
       await adb.shell(['input', 'tap', '10', '20']);
-      expect(fake.lines.single,
-          'adb -s emulator-5554 shell input tap 10 20');
+      expect(fake.lines.single, 'adb -s emulator-5554 shell input tap 10 20');
     });
 
     test('devices is asked without a serial', () async {
@@ -180,17 +220,23 @@ void main() {
       expect(fake.lines.single, 'adb -s emulator-5554 exec-out screencap -p');
     });
 
-    test('a failing shell throws, a lenient shell returns the message',
-        () async {
-      final failing = Adb(
-        executable: 'adb',
-        runner: FakeProcessRunner(
-            defaultOutcome: const RunOutcome(1, '', 'device offline')),
-        serial: 'e',
-      );
-      expect(() => failing.shell(['true']), throwsA(isA<DeviceFailure>()));
-      expect(await failing.shellLenient(['true']), contains('device offline'));
-    });
+    test(
+      'a failing shell throws, a lenient shell returns the message',
+      () async {
+        final failing = Adb(
+          executable: 'adb',
+          runner: FakeProcessRunner(
+            defaultOutcome: const RunOutcome(1, '', 'device offline'),
+          ),
+          serial: 'e',
+        );
+        expect(() => failing.shell(['true']), throwsA(isA<DeviceFailure>()));
+        expect(
+          await failing.shellLenient(['true']),
+          contains('device offline'),
+        );
+      },
+    );
 
     test('withSerial rebinds without losing the runner', () async {
       await adb.withSerial('other').shell(['echo']);
@@ -199,8 +245,7 @@ void main() {
   });
 
   group('AndroidDevice', () {
-    test('screenSize reads the physical size, density and override',
-        () async {
+    test('screenSize reads the physical size, density and override', () async {
       final fake = FakeProcessRunner(
         defaultOutcome: const RunOutcome(
           0,
@@ -209,8 +254,9 @@ void main() {
           '',
         ),
       );
-      final device =
-          AndroidDevice(Adb(executable: 'adb', runner: fake, serial: 'e'));
+      final device = AndroidDevice(
+        Adb(executable: 'adb', runner: fake, serial: 'e'),
+      );
       final size = await device.screenSize();
       expect(size.physicalWidth, 1280);
       expect(size.physicalHeight, 2856);
@@ -231,30 +277,33 @@ void main() {
           '',
         ),
       );
-      final size =
-          await AndroidDevice(Adb(executable: 'adb', runner: fake, serial: 'e'))
-              .screenSize();
+      final size = await AndroidDevice(
+        Adb(executable: 'adb', runner: fake, serial: 'e'),
+      ).screenSize();
       expect(size.isOverridden, isFalse);
       expect(size.widthDp, 427);
     });
 
     test('typeTextChecked escapes before it reaches adb', () async {
       final fake = FakeProcessRunner();
-      await AndroidDevice(Adb(executable: 'adb', runner: fake, serial: 'e'))
-          .typeTextChecked('bench press');
+      await AndroidDevice(
+        Adb(executable: 'adb', runner: fake, serial: 'e'),
+      ).typeTextChecked('bench press');
       expect(fake.lines.single, contains("input text 'bench%spress'"));
       expect(fake.lines.single, contains('mInputShown'));
     });
 
     test('key resolves the alias before it reaches adb', () async {
       final fake = FakeProcessRunner();
-      await AndroidDevice(Adb(executable: 'adb', runner: fake, serial: 'e'))
-          .key('back');
+      await AndroidDevice(
+        Adb(executable: 'adb', runner: fake, serial: 'e'),
+      ).key('back');
       expect(fake.lines.single, 'adb -s e shell input keyevent KEYCODE_BACK');
     });
 
     test('forwardedPortsOf reads only this serial\'s tcp forwards', () {
-      const listing = 'emulator-5554 tcp:51000 tcp:51000\r\n'
+      const listing =
+          'emulator-5554 tcp:51000 tcp:51000\r\n'
           'emulator-5556 tcp:52000 tcp:52000\r\n'
           'emulator-5556 tcp:52010 tcp:52010\r\n'
           'emulator-5556 localabstract:x tcp:1\r\n';
@@ -262,47 +311,81 @@ void main() {
       expect(forwardedPortsOf(listing, 'emulator-5554'), [51000]);
     });
 
-    test('a launch removes the previous forward only when it is this device\'s',
-        () async {
-      final fake = FakeProcessRunner();
-      fake.script('adb -s e forward --list',
-          const RunOutcome(0, 'e tcp:40000 tcp:40000\nother tcp:41000 tcp:41000', ''));
-      final device = AndroidDevice(Adb(executable: 'adb', runner: fake, serial: 'e'));
-      await device.launchApp(vmServicePort: 42000, previousVmServicePort: 40000);
-      expect(fake.lines, contains('adb -s e forward --remove tcp:40000'));
-      expect(fake.lines.last, 'adb -s e forward tcp:42000 tcp:42000');
-      fake.calls.clear();
-      await device.launchApp(vmServicePort: 43000, previousVmServicePort: 41000);
-      expect(fake.lines.where((l) => l.contains('--remove')), isEmpty,
-          reason: 'tcp:41000 is another device\'s listener');
-    });
+    test(
+      'a launch removes the previous forward only when it is this device\'s',
+      () async {
+        final fake = FakeProcessRunner();
+        fake.script(
+          'adb -s e forward --list',
+          const RunOutcome(
+            0,
+            'e tcp:40000 tcp:40000\nother tcp:41000 tcp:41000',
+            '',
+          ),
+        );
+        final device = AndroidDevice(
+          Adb(executable: 'adb', runner: fake, serial: 'e'),
+        );
+        await device.launchApp(
+          vmServicePort: 42000,
+          previousVmServicePort: 40000,
+        );
+        expect(fake.lines, contains('adb -s e forward --remove tcp:40000'));
+        expect(fake.lines.last, 'adb -s e forward tcp:42000 tcp:42000');
+        fake.calls.clear();
+        await device.launchApp(
+          vmServicePort: 43000,
+          previousVmServicePort: 41000,
+        );
+        expect(
+          fake.lines.where((l) => l.contains('--remove')),
+          isEmpty,
+          reason: 'tcp:41000 is another device\'s listener',
+        );
+      },
+    );
 
-    test('removeForwards keeps the live one and never uses --remove-all', () async {
-      final fake = FakeProcessRunner();
-      fake.script('adb -s e forward --list',
-          const RunOutcome(0, 'e tcp:1 tcp:1\ne tcp:2 tcp:2\ne tcp:3 tcp:3', ''));
-      final device = AndroidDevice(Adb(executable: 'adb', runner: fake, serial: 'e'));
-      expect(await device.removeForwards(keep: 2), 2);
-      expect(fake.lines.where((l) => l.contains('--remove')),
-          ['adb -s e forward --remove tcp:1', 'adb -s e forward --remove tcp:3']);
-      expect(fake.lines.any((l) => l.contains('--remove-all')), isFalse);
-    });
+    test(
+      'removeForwards keeps the live one and never uses --remove-all',
+      () async {
+        final fake = FakeProcessRunner();
+        fake.script(
+          'adb -s e forward --list',
+          const RunOutcome(
+            0,
+            'e tcp:1 tcp:1\ne tcp:2 tcp:2\ne tcp:3 tcp:3',
+            '',
+          ),
+        );
+        final device = AndroidDevice(
+          Adb(executable: 'adb', runner: fake, serial: 'e'),
+        );
+        expect(await device.removeForwards(keep: 2), 2);
+        expect(fake.lines.where((l) => l.contains('--remove')), [
+          'adb -s e forward --remove tcp:1',
+          'adb -s e forward --remove tcp:3',
+        ]);
+        expect(fake.lines.any((l) => l.contains('--remove-all')), isFalse);
+      },
+    );
 
     test('appPid returns null when the app is not running', () async {
       final fake = FakeProcessRunner();
-      final pid =
-          await AndroidDevice(Adb(executable: 'adb', runner: fake, serial: 'e'))
-              .appPid();
+      final pid = await AndroidDevice(
+        Adb(executable: 'adb', runner: fake, serial: 'e'),
+      ).appPid();
       expect(pid, isNull);
     });
 
     test('appPid parses the first pid', () async {
       final fake = FakeProcessRunner();
-      fake.script('adb -s e shell pidof com.alexzamfir.anta',
-          const RunOutcome(0, '8421 8500', ''));
-      final pid =
-          await AndroidDevice(Adb(executable: 'adb', runner: fake, serial: 'e'))
-              .appPid();
+      fake.script(
+        'adb -s e shell pidof com.alexzamfir.anta',
+        const RunOutcome(0, '8421 8500', ''),
+      );
+      final pid = await AndroidDevice(
+        Adb(executable: 'adb', runner: fake, serial: 'e'),
+      ).appPid();
       expect(pid, 8421);
     });
   });
@@ -330,7 +413,9 @@ void main() {
     test('with no SDK variable, the SDK above the adb on PATH is the root', () {
       final separator = Platform.isWindows ? ';' : ':';
       final sep = Platform.pathSeparator;
-      final sdk = Platform.isWindows ? r'D:\SDKs\Android\Sdk' : '/opt/android/sdk';
+      final sdk = Platform.isWindows
+          ? r'D:\SDKs\Android\Sdk'
+          : '/opt/android/sdk';
       final tools = '$sdk${sep}platform-tools';
       final adb = Platform.isWindows ? 'adb.exe' : 'adb';
       final emulator = Platform.isWindows ? 'emulator.exe' : 'emulator';
@@ -347,7 +432,10 @@ void main() {
       final sep = Platform.pathSeparator;
       final adb = Platform.isWindows ? 'adb.exe' : 'adb';
       final tools = SdkTools(
-        environment: {'ANDROID_SDK_ROOT': 'home-sdk', 'PATH': 'path-sdk${sep}platform-tools'},
+        environment: {
+          'ANDROID_SDK_ROOT': 'home-sdk',
+          'PATH': 'path-sdk${sep}platform-tools',
+        },
         exists: (p) => p == 'path-sdk${sep}platform-tools$sep$adb',
       );
       expect(tools.sdkRoots(), isNot(contains('path-sdk')));
@@ -364,12 +452,19 @@ void main() {
     });
 
     test('requireAdb explains how to fix a missing adb', () {
-      final tools =
-          SdkTools(environment: const {'PATH': ''}, exists: (_) => false);
+      final tools = SdkTools(
+        environment: const {'PATH': ''},
+        exists: (_) => false,
+      );
       expect(
         tools.requireAdb,
-        throwsA(isA<DeviceFailure>()
-            .having((e) => e.message, 'message', contains('ANDROID_HOME'))),
+        throwsA(
+          isA<DeviceFailure>().having(
+            (e) => e.message,
+            'message',
+            contains('ANDROID_HOME'),
+          ),
+        ),
       );
     });
   });

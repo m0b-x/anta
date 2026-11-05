@@ -127,9 +127,7 @@ void main() {
     expect(find.text('3 events exported'), findsOneWidget);
   });
 
-  testWidgets('a failure is reported with the service message', (
-    tester,
-  ) async {
+  testWidgets('a failure is reported with the service message', (tester) async {
     final calendar = CalendarExportController();
     final overview = CalendarExportController();
     await pumpPages(tester, calendar: calendar, overview: overview);

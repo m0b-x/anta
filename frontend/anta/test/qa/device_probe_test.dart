@@ -34,28 +34,42 @@ void main() {
       expect(size.heightDp, 952);
     });
 
-    test('an override wins for the working size but keeps the physical one', () {
-      final size = parseScreenSize(
-        'Physical size: 1280x2856\nOverride size: 1080x2400',
-        'Physical density: 480',
-      );
-      expect(size.isOverridden, isTrue);
-      expect(size.width, 1080);
-      expect(size.physicalWidth, 1280);
-      expect(size.toString(), contains('override of 1280x2856'));
-    });
+    test(
+      'an override wins for the working size but keeps the physical one',
+      () {
+        final size = parseScreenSize(
+          'Physical size: 1280x2856\nOverride size: 1080x2400',
+          'Physical density: 480',
+        );
+        expect(size.isOverridden, isTrue);
+        expect(size.width, 1080);
+        expect(size.physicalWidth, 1280);
+        expect(size.toString(), contains('override of 1280x2856'));
+      },
+    );
 
-    test('unreadable output is a device failure that quotes what came back', () {
-      expect(
-        () => parseScreenSize('cmd: not found', ''),
-        throwsA(isA<DeviceFailure>()
-            .having((e) => e.message, 'message', contains('cmd: not found'))),
-      );
-    });
+    test(
+      'unreadable output is a device failure that quotes what came back',
+      () {
+        expect(
+          () => parseScreenSize('cmd: not found', ''),
+          throwsA(
+            isA<DeviceFailure>().having(
+              (e) => e.message,
+              'message',
+              contains('cmd: not found'),
+            ),
+          ),
+        );
+      },
+    );
 
-    test('a missing density falls back to 160 rather than dividing by zero', () {
-      expect(parseScreenSize('Physical size: 100x200', '').density, 160);
-    });
+    test(
+      'a missing density falls back to 160 rather than dividing by zero',
+      () {
+        expect(parseScreenSize('Physical size: 100x200', '').density, 160);
+      },
+    );
   });
 
   group('parseResumedActivity', () {
@@ -69,7 +83,8 @@ void main() {
     test('reads the older mResumedActivity wording too', () {
       expect(
         parseResumedActivity(
-            '  mResumedActivity: ActivityRecord{1 u0 com.foo/.Bar t1}'),
+          '  mResumedActivity: ActivityRecord{1 u0 com.foo/.Bar t1}',
+        ),
         'com.foo/.Bar',
       );
     });
@@ -172,8 +187,9 @@ void main() {
           '',
         ),
       );
-      final device =
-          AndroidDevice(Adb(executable: 'adb', runner: fake, serial: 'e'));
+      final device = AndroidDevice(
+        Adb(executable: 'adb', runner: fake, serial: 'e'),
+      );
       expect((await device.screenSize()).width, 1280);
       expect((await device.screenSize()).width, 1280);
       expect(fake.calls, hasLength(1));
@@ -187,8 +203,9 @@ void main() {
           '',
         ),
       );
-      final device =
-          AndroidDevice(Adb(executable: 'adb', runner: fake, serial: 'e'));
+      final device = AndroidDevice(
+        Adb(executable: 'adb', runner: fake, serial: 'e'),
+      );
       final probe = await device.probe();
       expect(probe.appPid, 8911);
       await device.screenSize();
@@ -198,30 +215,42 @@ void main() {
     test('isInstalled reads pm path', () async {
       final fake = FakeProcessRunner(
         defaultOutcome: const RunOutcome(
-            0, 'package:/data/app/~~abc==/base.apk', ''),
+          0,
+          'package:/data/app/~~abc==/base.apk',
+          '',
+        ),
       );
-      final device =
-          AndroidDevice(Adb(executable: 'adb', runner: fake, serial: 'e'));
+      final device = AndroidDevice(
+        Adb(executable: 'adb', runner: fake, serial: 'e'),
+      );
       expect(await device.isInstalled(), isTrue);
       expect(fake.lines.single, 'adb -s e shell pm path com.alexzamfir.anta');
     });
 
     test('isInstalled is false when pm path says nothing', () async {
-      final device = AndroidDevice(Adb(
-        executable: 'adb',
-        runner: FakeProcessRunner(defaultOutcome: const RunOutcome(1, '', '')),
-        serial: 'e',
-      ));
+      final device = AndroidDevice(
+        Adb(
+          executable: 'adb',
+          runner: FakeProcessRunner(
+            defaultOutcome: const RunOutcome(1, '', ''),
+          ),
+          serial: 'e',
+        ),
+      );
       expect(await device.isInstalled(), isFalse);
     });
 
     test('typeTextChecked batches the IME probe with the typing', () async {
       final fake = FakeProcessRunner(
         defaultOutcome: const RunOutcome(
-            0, '  mInputShown=true\n__QA_SEP__\n__QA_SEP__\n', ''),
+          0,
+          '  mInputShown=true\n__QA_SEP__\n__QA_SEP__\n',
+          '',
+        ),
       );
-      final device =
-          AndroidDevice(Adb(executable: 'adb', runner: fake, serial: 'e'));
+      final device = AndroidDevice(
+        Adb(executable: 'adb', runner: fake, serial: 'e'),
+      );
       expect(await device.typeTextChecked('squat'), isTrue);
       expect(fake.calls, hasLength(1));
       expect(fake.lines.single, contains("input text 'squat'"));
@@ -231,10 +260,14 @@ void main() {
     test('typeTextChecked reports a missing keyboard', () async {
       final fake = FakeProcessRunner(
         defaultOutcome: const RunOutcome(
-            0, '  mInputShown=false\n__QA_SEP__\n__QA_SEP__\n', ''),
+          0,
+          '  mInputShown=false\n__QA_SEP__\n__QA_SEP__\n',
+          '',
+        ),
       );
-      final device =
-          AndroidDevice(Adb(executable: 'adb', runner: fake, serial: 'e'));
+      final device = AndroidDevice(
+        Adb(executable: 'adb', runner: fake, serial: 'e'),
+      );
       expect(await device.typeTextChecked('squat'), isFalse);
     });
   });

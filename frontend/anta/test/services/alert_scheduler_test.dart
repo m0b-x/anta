@@ -2179,8 +2179,9 @@ void main() {
         await scheduler.reconcileAll(AlertReconcileReason.launch);
         gateway.resetCalls();
 
-        await (await SettingsService.getInstance())
-            .setAlertSilenceAfterMinutes(2);
+        await (await SettingsService.getInstance()).setAlertSilenceAfterMinutes(
+          2,
+        );
         await scheduler.reconcileAll(AlertReconcileReason.eventChanged);
 
         expect(gateway.scheduled, hasLength(1));
@@ -3743,8 +3744,8 @@ void main() {
         DateTime(2026, 9, 21, 9),
         DateTime(2026, 9, 28, 9),
       ]);
-      AlertPayload spanFrom(DateTime start) => gateway.platform.values
-          .firstWhere(
+      AlertPayload spanFrom(DateTime start) =>
+          gateway.platform.values.firstWhere(
             (payload) => payload.spanStartMs == start.millisecondsSinceEpoch,
           );
       final gym = CalendarCategories.labelOf(

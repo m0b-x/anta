@@ -170,11 +170,12 @@ class EventOccurrenceDao extends DatabaseAccessor<AppDatabase>
     if (descriptions.isEmpty) return Future.value();
     return transaction(() async {
       final existing = {
-        for (final row in await (select(eventOccurrenceDescriptions)..where(
-              (o) =>
-                  o.eventId.equals(eventId) & o.day.isIn(descriptions.keys),
-            ))
-            .get())
+        for (final row
+            in await (select(eventOccurrenceDescriptions)..where(
+                  (o) =>
+                      o.eventId.equals(eventId) & o.day.isIn(descriptions.keys),
+                ))
+                .get())
           dayMs(row.day): row,
       };
       final now = DateTime.now();
@@ -213,11 +214,9 @@ class EventOccurrenceDao extends DatabaseAccessor<AppDatabase>
           );
         }
       });
-      await db.enqueueMany(
-        eventOccurrenceDescriptions,
-        [for (final day in descriptions.keys) dayRowKey(eventId, day)],
-        stamp.hlc,
-      );
+      await db.enqueueMany(eventOccurrenceDescriptions, [
+        for (final day in descriptions.keys) dayRowKey(eventId, day),
+      ], stamp.hlc);
     });
   }
 

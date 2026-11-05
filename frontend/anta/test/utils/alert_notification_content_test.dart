@@ -421,22 +421,24 @@ void main() {
       digestSummary: '+1 more',
     );
 
-    test('places the title, the text, the lines and the summary it carries',
-        () {
-      for (final strings in [en, de]) {
-        final content = alertNotificationContent(
-          AlertNotificationKind.digest,
-          digest,
-          strings,
-        );
-        expect(content.title, 'Birthdays');
-        expect(content.text, digest.digestText);
-        expect(content.lines, digest.digestLines);
-        expect(content.summary, '+1 more');
-        expect(content.expandedText, isNull);
-        expect(content.actions, isEmpty);
-      }
-    });
+    test(
+      'places the title, the text, the lines and the summary it carries',
+      () {
+        for (final strings in [en, de]) {
+          final content = alertNotificationContent(
+            AlertNotificationKind.digest,
+            digest,
+            strings,
+          );
+          expect(content.title, 'Birthdays');
+          expect(content.text, digest.digestText);
+          expect(content.lines, digest.digestLines);
+          expect(content.summary, '+1 more');
+          expect(content.expandedText, isNull);
+          expect(content.actions, isEmpty);
+        }
+      },
+    );
 
     test('a payload that lost its words is an empty line, never a crash', () {
       final bare = AlertPayload.fromJson(

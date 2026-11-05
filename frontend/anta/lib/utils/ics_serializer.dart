@@ -190,10 +190,7 @@ abstract final class IcsSerializer {
     final hours = (total % _minutesPerDay) ~/ Duration.minutesPerHour;
     final rest = total % Duration.minutesPerHour;
     final date = days > 0 ? '${days}D' : '';
-    final time = [
-      if (hours > 0) '${hours}H',
-      if (rest > 0) '${rest}M',
-    ].join();
+    final time = [if (hours > 0) '${hours}H', if (rest > 0) '${rest}M'].join();
     return '${sign}P$date${time.isEmpty ? '' : 'T$time'}';
   }
 

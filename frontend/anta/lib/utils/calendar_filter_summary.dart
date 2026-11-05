@@ -129,10 +129,9 @@ abstract final class CalendarFilterSummary {
           label: single != null
               ? EventPriorities.labelOf(single, l10n)
               : named
-              ? namesReadBack(
-                  [for (final p in ascending) EventPriorities.labelOf(p, l10n)],
-                  l10n,
-                )
+              ? namesReadBack([
+                  for (final p in ascending) EventPriorities.labelOf(p, l10n),
+                ], l10n)
               : '${l10n.upcomingPriority} (${filters.priorities.length})',
           without: filters.copyWith(priorities: const {}),
         ),
@@ -273,10 +272,7 @@ abstract final class CalendarFilterSummary {
   /// that hides nothing, which a preset can still hold: a blob written by a
   /// newer build, or one corrupted in storage, decodes to exactly that rather
   /// than throwing, and the row must still say something true.
-  static String describe(
-    CalendarGridFilters filters,
-    AppLocalizations l10n,
-  ) {
+  static String describe(CalendarGridFilters filters, AppLocalizations l10n) {
     final facets = facetsOf(filters, l10n, named: true);
     if (facets.isEmpty) return l10n.calendarFilterShowsEverything;
     return facets.map((facet) => facet.label).join(' · ');
@@ -336,10 +332,9 @@ abstract final class CalendarFilterSummary {
     ];
     if (shown.isEmpty) return l10n.calendarFilterNoCategories;
     if (named || shown.length <= namedLimit) {
-      return namesReadBack(
-        [for (final c in shown) CalendarCategories.labelOf(c, l10n)],
-        l10n,
-      );
+      return namesReadBack([
+        for (final c in shown) CalendarCategories.labelOf(c, l10n),
+      ], l10n);
     }
     return '${l10n.calendarCategories} (${shown.length})';
   }

@@ -82,7 +82,9 @@ void main() {
     });
 
     test('two shown read the same in both registers', () {
-      const twoHidden = CalendarGridFilters(hiddenCategoryIds: {'swim', 'yoga'});
+      const twoHidden = CalendarGridFilters(
+        hiddenCategoryIds: {'swim', 'yoga'},
+      );
       expect(
         CalendarFilterSummary.facetsOf(twoHidden, l10n).single.label,
         'Gym, Running',

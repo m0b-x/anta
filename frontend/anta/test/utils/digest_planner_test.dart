@@ -488,10 +488,9 @@ void main() {
         digestOf(id: 'b', sortOrder: 3),
       ];
 
-      expect(
-        DigestPlanner.overCapIds(digests: digests, horizon: horizon),
-        {'b'},
-      );
+      expect(DigestPlanner.overCapIds(digests: digests, horizon: horizon), {
+        'b',
+      });
       expect(
         DigestPlanner.overCapIds(
           digests: digests.take(2).toList(),

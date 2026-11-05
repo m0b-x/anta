@@ -175,9 +175,7 @@ void main() {
 
   // U2 T15: the fence predicate reaches the field, so a box drawn on a
   // fenced line takes no tap.
-  testWidgets('the field knows a fenced line from a plain one', (
-    tester,
-  ) async {
+  testWidgets('the field knows a fenced line from a plain one', (tester) async {
     await tester.pumpWidget(wrap());
     await tester.pumpAndSettle();
     descriptionOf(tester).text = '```\n- [ ] code\n```\n- [ ] after';

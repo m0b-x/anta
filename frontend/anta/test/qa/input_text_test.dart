@@ -42,9 +42,11 @@ void main() {
       for (final text in ['ăsta', 'grün', 'naïve', 'emoji 🙂']) {
         expect(
           () => escapeForInputText(text),
-          throwsA(isA<UsageFailure>()
-              .having((e) => e.message, 'message', contains('ASCII only'))
-              .having((e) => e.message, 'message', contains('enter_text'))),
+          throwsA(
+            isA<UsageFailure>()
+                .having((e) => e.message, 'message', contains('ASCII only'))
+                .having((e) => e.message, 'message', contains('enter_text')),
+          ),
           reason: text,
         );
       }
@@ -53,16 +55,26 @@ void main() {
     test('rejects a line break and names the key verb instead', () {
       expect(
         () => escapeForInputText('one\ntwo'),
-        throwsA(isA<UsageFailure>()
-            .having((e) => e.message, 'message', contains('key enter'))),
+        throwsA(
+          isA<UsageFailure>().having(
+            (e) => e.message,
+            'message',
+            contains('key enter'),
+          ),
+        ),
       );
     });
 
     test('rejects a tab and names the key verb instead', () {
       expect(
         () => escapeForInputText('one\ttwo'),
-        throwsA(isA<UsageFailure>()
-            .having((e) => e.message, 'message', contains('key tab'))),
+        throwsA(
+          isA<UsageFailure>().having(
+            (e) => e.message,
+            'message',
+            contains('key tab'),
+          ),
+        ),
       );
     });
 

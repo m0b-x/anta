@@ -217,7 +217,10 @@ void main() {
 
     test('a new event whose alert is already behind says nothing', () {
       expect(
-        saidAfter(event: eventOf(startDate: today), alerts: [reminder]),
+        saidAfter(
+          event: eventOf(startDate: today),
+          alerts: [reminder],
+        ),
         isNull,
       );
     });

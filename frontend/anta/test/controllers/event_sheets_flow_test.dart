@@ -127,8 +127,7 @@ void main() {
 
   Finder busyBars() => find.byWidgetPredicate(
     (widget) =>
-        widget is Semantics &&
-        widget.properties.label == 'Already has events',
+        widget is Semantics && widget.properties.label == 'Already has events',
   );
 
   testWidgets('the editor\'s date picker marks a day whose only event is '

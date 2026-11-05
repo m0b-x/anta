@@ -156,7 +156,10 @@ void main() {
 
     final sheet = tester.getSize(find.byType(FilterCheckListSheet));
     final screen = tester.getSize(find.byType(MaterialApp));
-    expect(sheet.height, lessThan(screen.height * FormMetrics.sheetHeightFactor));
+    expect(
+      sheet.height,
+      lessThan(screen.height * FormMetrics.sheetHeightFactor),
+    );
     expect(
       tester.getTopLeft(find.byIcon(Icons.close_rounded)).dy,
       lessThan(tester.getTopLeft(find.text('Tracked')).dy),

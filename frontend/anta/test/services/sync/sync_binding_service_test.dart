@@ -289,7 +289,10 @@ void main() {
 
       expect(outcomes.whereType<StateError>(), hasLength(1));
       expect((await service.read())!.accountUid, 'account-1');
-      expect((await db.folderDao.getFolderById(folder.id))!.ownerId, 'account-1');
+      expect(
+        (await db.folderDao.getFolderById(folder.id))!.ownerId,
+        'account-1',
+      );
     });
 
     test('clears the quota pause and the last-run times', () async {

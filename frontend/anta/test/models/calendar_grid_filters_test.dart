@@ -56,7 +56,10 @@ void main() {
       final events = [event()];
 
       expect(
-        identical(CalendarGridFilters.none.apply(events, todayUtc: today), events),
+        identical(
+          CalendarGridFilters.none.apply(events, todayUtc: today),
+          events,
+        ),
         isTrue,
       );
     });
@@ -166,11 +169,17 @@ void main() {
     test('hide-ended drops only events whose end date is past', () {
       const filters = CalendarGridFilters(hideEnded: true);
 
-      expect(allows(filters, event(endDate: DateTime.utc(2026, 8, 31))), isFalse);
+      expect(
+        allows(filters, event(endDate: DateTime.utc(2026, 8, 31))),
+        isFalse,
+      );
       // Ending today is not ended: the event still occurs on the day the
       // calendar is showing.
       expect(allows(filters, event(endDate: today)), isTrue);
-      expect(allows(filters, event(endDate: DateTime.utc(2026, 12, 31))), isTrue);
+      expect(
+        allows(filters, event(endDate: DateTime.utc(2026, 12, 31))),
+        isTrue,
+      );
       expect(allows(filters, event()), isTrue);
     });
 
@@ -184,7 +193,10 @@ void main() {
     test('with-description ignores an empty string', () {
       const filters = CalendarGridFilters(withDescriptionOnly: true);
 
-      expect(allows(filters, event(description: 'focus on hamstrings')), isTrue);
+      expect(
+        allows(filters, event(description: 'focus on hamstrings')),
+        isTrue,
+      );
       expect(allows(filters, event(description: '')), isFalse);
       expect(allows(filters, event()), isFalse);
     });
@@ -246,10 +258,7 @@ void main() {
   group('layers and the panel opt-out', () {
     test('a layer counts only while it is off', () {
       expect(CalendarGridFilters.none.activeCount, 0);
-      expect(
-        const CalendarGridFilters(showFasting: false).activeCount,
-        1,
-      );
+      expect(const CalendarGridFilters(showFasting: false).activeCount, 1);
       expect(
         const CalendarGridFilters(
           showHolidays: false,
@@ -370,17 +379,15 @@ void main() {
     test('an array of priorities decodes like the comma string', () {
       final fromString = CalendarGridFilters.decode('{"priorities":"1,2"}');
 
-      expect(
-        CalendarGridFilters.decode('{"priorities":[1,2]}'),
-        fromString,
-      );
+      expect(CalendarGridFilters.decode('{"priorities":[1,2]}'), fromString);
       expect(
         CalendarGridFilters.decode('{"priorities":["1"," 2 "]}'),
         fromString,
       );
       expect(
-        CalendarGridFilters.decode('{"priorities":[0,2,9,"x",null,true]}')
-            .priorities,
+        CalendarGridFilters.decode(
+          '{"priorities":[0,2,9,"x",null,true]}',
+        ).priorities,
         {2},
       );
       expect(fromString.encode(), '{"priorities":"1,2"}');
@@ -407,7 +414,10 @@ void main() {
       );
       // Every other event fails on exactly one axis.
       expect(
-        allows(filters, event(categoryId: 'gym', priority: 1, tracksPresence: true)),
+        allows(
+          filters,
+          event(categoryId: 'gym', priority: 1, tracksPresence: true),
+        ),
         isFalse,
       );
       expect(

@@ -120,10 +120,11 @@ void main() {
       NotesCompanion(updatedAt: Value(stamp.add(const Duration(hours: 1)))),
     );
 
-    expect(
-      await page(sortField: NoteSortField.updatedAt, offset: 0),
-      ['n002', 'n000', 'n001'],
-    );
+    expect(await page(sortField: NoteSortField.updatedAt, offset: 0), [
+      'n002',
+      'n000',
+      'n001',
+    ]);
   });
 
   /// Inserts one note per entry, so a test can state the exact `(label,

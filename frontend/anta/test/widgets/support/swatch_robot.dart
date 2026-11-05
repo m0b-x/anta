@@ -39,7 +39,8 @@ class SwatchRobot {
   /// colour — so a default wearing the same colour cannot be mistaken for it.
   Finder _swatch(int argb) => _scope(
     find.byWidgetPredicate(
-      (w) => w is ColorSwatchDot && w.semanticLabel == CalendarPalette.hexOf(argb),
+      (w) =>
+          w is ColorSwatchDot && w.semanticLabel == CalendarPalette.hexOf(argb),
     ),
   );
 

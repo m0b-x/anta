@@ -766,7 +766,10 @@ void main() {
 
       // The tiles came from marks alone: one call for the year, the row
       // resolver untouched.
-      expect(marks.first, (DateTime.utc(2026, 1, 1), DateTime.utc(2026, 12, 31)));
+      expect(marks.first, (
+        DateTime.utc(2026, 1, 1),
+        DateTime.utc(2026, 12, 31),
+      ));
       expect(spy.calls, isEmpty);
       expect(robot.announcesTile('Feb 2026, 1 entry'), isTrue);
 

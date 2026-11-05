@@ -322,19 +322,21 @@ void main() {
       expect(queue.drain().single.dedupeKey, 2);
     });
 
-    test('a drain that accepts nothing hands back nothing and forgets nothing',
-        () {
-      queue.enqueue(OpenAlarmIntent(payload: payloadOf(1)));
-      queue.drain();
+    test(
+      'a drain that accepts nothing hands back nothing and forgets nothing',
+      () {
+        queue.enqueue(OpenAlarmIntent(payload: payloadOf(1)));
+        queue.drain();
 
-      queue.enqueue(const QuickAlarmIntent());
-      expect(queue.drain(where: alarmsOnly), isEmpty);
-      expect(queue.length, 1);
+        queue.enqueue(const QuickAlarmIntent());
+        expect(queue.drain(where: alarmsOnly), isEmpty);
+        expect(queue.length, 1);
 
-      // The echo memory of the earlier drain is intact.
-      queue.enqueue(OpenAlarmIntent(payload: payloadOf(1)));
-      expect(queue.length, 1);
-    });
+        // The echo memory of the earlier drain is intact.
+        queue.enqueue(OpenAlarmIntent(payload: payloadOf(1)));
+        expect(queue.length, 1);
+      },
+    );
 
     test('a second ring during the hold is handed over at once', () {
       queue.enqueue(const OpenAlertsHubIntent());
@@ -364,23 +366,27 @@ void main() {
     expect(queue.length, 1);
   });
 
-  test("a session intent dedupes against itself, not the alarm's other intents",
-      () {
-    queue.enqueue(OpenSessionIntent(payload: payloadOf(17)));
-    queue.enqueue(OpenSessionIntent(payload: payloadOf(17)));
-    queue.enqueue(OpenEventIntent(payload: payloadOf(17)));
+  test(
+    "a session intent dedupes against itself, not the alarm's other intents",
+    () {
+      queue.enqueue(OpenSessionIntent(payload: payloadOf(17)));
+      queue.enqueue(OpenSessionIntent(payload: payloadOf(17)));
+      queue.enqueue(OpenEventIntent(payload: payloadOf(17)));
 
-    expect(queue.length, 2);
-    expect(OpenSessionIntent(payload: payloadOf(17)).dedupeKey, 'session:17');
-  });
+      expect(queue.length, 2);
+      expect(OpenSessionIntent(payload: payloadOf(17)).dedupeKey, 'session:17');
+    },
+  );
 
-  test("a session intent decodes the chip's payload and refuses anything else",
-      () {
-    expect(OpenSessionIntent.fromPlatform(payloadOf(21).encode())?.osId, 21);
-    expect(OpenSessionIntent.fromPlatform(null), isNull);
-    expect(OpenSessionIntent.fromPlatform(42), isNull);
-    expect(OpenSessionIntent.fromPlatform('not json'), isNull);
-  });
+  test(
+    "a session intent decodes the chip's payload and refuses anything else",
+    () {
+      expect(OpenSessionIntent.fromPlatform(payloadOf(21).encode())?.osId, 21);
+      expect(OpenSessionIntent.fromPlatform(null), isNull);
+      expect(OpenSessionIntent.fromPlatform(42), isNull);
+      expect(OpenSessionIntent.fromPlatform('not json'), isNull);
+    },
+  );
 
   test('a quick-alarm intent dedupes against itself and nothing else', () {
     // The tile's cold start is recorded by the activity and, if the engine
@@ -467,7 +473,10 @@ void main() {
 
   test('the app-wide instance is a singleton', () {
     expect(
-      identical(PendingNavigationQueue.instance, PendingNavigationQueue.instance),
+      identical(
+        PendingNavigationQueue.instance,
+        PendingNavigationQueue.instance,
+      ),
       isTrue,
     );
   });

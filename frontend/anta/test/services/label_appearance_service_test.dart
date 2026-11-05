@@ -58,14 +58,17 @@ void main() {
     expect(LabelAppearance.style.value, LabelStyle.stripe);
   });
 
-  test('an unknown stored name reads as the dot rather than throwing', () async {
-    await db.userSettingsDao.setValue(SettingsKeys.labelStyle, 'hologram');
+  test(
+    'an unknown stored name reads as the dot rather than throwing',
+    () async {
+      await db.userSettingsDao.setValue(SettingsKeys.labelStyle, 'hologram');
 
-    final service = await LabelAppearanceService.getInstance();
+      final service = await LabelAppearanceService.getInstance();
 
-    expect(service.style, LabelStyle.dot);
-    expect(LabelAppearance.style.value, LabelStyle.dot);
-  });
+      expect(service.style, LabelStyle.dot);
+      expect(LabelAppearance.style.value, LabelStyle.dot);
+    },
+  );
 
   test('setStyle persists and publishes, in that order', () async {
     final service = await LabelAppearanceService.getInstance();
@@ -86,36 +89,38 @@ void main() {
   /// the database has already received is reading the state of the world at
   /// the instant of publication. A row repainting off a value the store then
   /// failed to take would be lying about the next launch.
-  test('the store has the row before any listener sees the new value',
-      () async {
-    LabelAppearanceService.reset();
-    SettingsService.reset();
-    final counter = StatementCounter();
-    final counted = await openTestDatabase(interceptor: counter);
-    addTearDown(counted.close);
-    SettingsService.forTesting(counted);
-    final service = await LabelAppearanceService.getInstance();
+  test(
+    'the store has the row before any listener sees the new value',
+    () async {
+      LabelAppearanceService.reset();
+      SettingsService.reset();
+      final counter = StatementCounter();
+      final counted = await openTestDatabase(interceptor: counter);
+      addTearDown(counted.close);
+      SettingsService.forTesting(counted);
+      final service = await LabelAppearanceService.getInstance();
 
-    bool labelStyleWritten() => counter.captured.any(
-      (statement) =>
-          !statement.isSelect &&
-          statement.args.contains(SettingsKeys.labelStyle),
-    );
+      bool labelStyleWritten() => counter.captured.any(
+        (statement) =>
+            !statement.isSelect &&
+            statement.args.contains(SettingsKeys.labelStyle),
+      );
 
-    counter.reset();
-    bool? writtenAtPublish;
-    void listener() => writtenAtPublish ??= labelStyleWritten();
-    LabelAppearance.style.addListener(listener);
-    addTearDown(() => LabelAppearance.style.removeListener(listener));
+      counter.reset();
+      bool? writtenAtPublish;
+      void listener() => writtenAtPublish ??= labelStyleWritten();
+      LabelAppearance.style.addListener(listener);
+      addTearDown(() => LabelAppearance.style.removeListener(listener));
 
-    await service.setStyle(LabelStyle.stripe);
+      await service.setStyle(LabelStyle.stripe);
 
-    expect(writtenAtPublish, isTrue, reason: 'the write lands first');
-    expect(
-      await counted.userSettingsDao.getValue(SettingsKeys.labelStyle),
-      LabelStyle.stripe.name,
-    );
-  });
+      expect(writtenAtPublish, isTrue, reason: 'the write lands first');
+      expect(
+        await counted.userSettingsDao.getValue(SettingsKeys.labelStyle),
+        LabelStyle.stripe.name,
+      );
+    },
+  );
 
   test('setting the style it already has still writes the row, and notifies '
       'nobody', () async {
@@ -173,20 +178,22 @@ void main() {
   /// the reset lands: the generation it captured is already stale by the time
   /// it looks, so it discards itself and hands its caller the service the
   /// *next* creation installs, rather than one bound to the closed database.
-  test('a reset while the first getInstance is in flight discards that one',
-      () async {
-    await settings.setLabelStyle(LabelStyle.stripe);
+  test(
+    'a reset while the first getInstance is in flight discards that one',
+    () async {
+      await settings.setLabelStyle(LabelStyle.stripe);
 
-    final inFlight = LabelAppearanceService.getInstance();
-    LabelAppearanceService.reset();
-    final service = await inFlight;
+      final inFlight = LabelAppearanceService.getInstance();
+      LabelAppearanceService.reset();
+      final service = await inFlight;
 
-    expect(
-      identical(await LabelAppearanceService.getInstance(), service),
-      isTrue,
-      reason: 'the discarded creation must not be handed out to anyone',
-    );
-    expect(service.style, LabelStyle.stripe);
-    expect(LabelAppearance.style.value, LabelStyle.stripe);
-  });
+      expect(
+        identical(await LabelAppearanceService.getInstance(), service),
+        isTrue,
+        reason: 'the discarded creation must not be handed out to anyone',
+      );
+      expect(service.style, LabelStyle.stripe);
+      expect(LabelAppearance.style.value, LabelStyle.stripe);
+    },
+  );
 }

@@ -645,25 +645,28 @@ void main() {
       store.disposed = true;
     }
 
-    for (final (name, press) in <(String, Future<void> Function(AlertRingController))>[
-      ('Stop', (controller) => controller.stop()),
-      ('Snooze', (controller) => controller.snooze()),
-    ]) {
-      test('$name comes back to a closed page and tells nobody who is gone',
-          () async {
-        final store = _Store(teaTimer);
-        final controller = await ringing(store);
+    for (final (name, press)
+        in <(String, Future<void> Function(AlertRingController))>[
+          ('Stop', (controller) => controller.stop()),
+          ('Snooze', (controller) => controller.snooze()),
+        ]) {
+      test(
+        '$name comes back to a closed page and tells nobody who is gone',
+        () async {
+          final store = _Store(teaTimer);
+          final controller = await ringing(store);
 
-        gateway.hold();
-        final pressed = press(controller);
-        await pumpEventQueue();
-        expect(controller.busy, isTrue, reason: 'held on the chain');
+          gateway.hold();
+          final pressed = press(controller);
+          await pumpEventQueue();
+          expect(controller.busy, isTrue, reason: 'held on the chain');
 
-        await endElsewhereAndClose(controller, store);
-        gateway.release();
+          await endElsewhereAndClose(controller, store);
+          gateway.release();
 
-        await expectLater(pressed, completes);
-      });
+          await expectLater(pressed, completes);
+        },
+      );
     }
   });
 }

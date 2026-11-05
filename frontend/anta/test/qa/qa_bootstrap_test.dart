@@ -205,24 +205,27 @@ void main() {
   });
 
   group('log', () {
-    test('every [qa] line is kept in order for the agent to hand back', () async {
-      await marker('qa_reset').writeAsString('');
-      await marker('qa_seed.json').writeAsString('{"version": 7}');
-      final bootstrap = build();
-      await bootstrap.applyResetMarker();
-      await bootstrap.applySeedMarker();
-      await bootstrap.applyOnboardingSkip();
-      expect(QaBootstrap.log, [
-        'reset: cleared preferences and qa.db',
-        'seed: ok',
-        'onboarding marked completed',
-      ]);
-      expect(QaBootstrap.entries.map((e) => (e.kind, e.ok)), [
-        ('reset', true),
-        ('seed', true),
-        ('onboarding', true),
-      ]);
-    });
+    test(
+      'every [qa] line is kept in order for the agent to hand back',
+      () async {
+        await marker('qa_reset').writeAsString('');
+        await marker('qa_seed.json').writeAsString('{"version": 7}');
+        final bootstrap = build();
+        await bootstrap.applyResetMarker();
+        await bootstrap.applySeedMarker();
+        await bootstrap.applyOnboardingSkip();
+        expect(QaBootstrap.log, [
+          'reset: cleared preferences and qa.db',
+          'seed: ok',
+          'onboarding marked completed',
+        ]);
+        expect(QaBootstrap.entries.map((e) => (e.kind, e.ok)), [
+          ('reset', true),
+          ('seed', true),
+          ('onboarding', true),
+        ]);
+      },
+    );
 
     test('a seed that throws is a typed failure, not a wording', () async {
       seedThrows = true;
@@ -231,7 +234,11 @@ void main() {
       final entry = QaBootstrap.entries.single;
       expect(entry.kind, 'seed');
       expect(entry.ok, isFalse);
-      expect(entry.toJson(), {'kind': 'seed', 'ok': false, 'message': entry.message});
+      expect(entry.toJson(), {
+        'kind': 'seed',
+        'ok': false,
+        'message': entry.message,
+      });
     });
 
     test('a refused reset is logged too', () async {

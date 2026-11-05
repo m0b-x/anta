@@ -11,10 +11,10 @@ void main() {
     });
 
     test('double quotes group a label with spaces', () {
-      expect(
-        splitShellWords('tap "Search all notes"'),
-        ['tap', 'Search all notes'],
-      );
+      expect(splitShellWords('tap "Search all notes"'), [
+        'tap',
+        'Search all notes',
+      ]);
     });
 
     test('single quotes group too, and keep backslashes literal', () {
@@ -31,7 +31,10 @@ void main() {
     });
 
     test('quotes can sit inside a word', () {
-      expect(splitShellWords('tap id:"search-open"'), ['tap', 'id:search-open']);
+      expect(splitShellWords('tap id:"search-open"'), [
+        'tap',
+        'id:search-open',
+      ]);
     });
 
     test('an empty quoted argument survives as an empty token', () {
@@ -44,8 +47,14 @@ void main() {
     });
 
     test('an unbalanced quote is a usage failure, not a silent truncation', () {
-      expect(() => splitShellWords('tap "Search'), throwsA(isA<UsageFailure>()));
-      expect(() => splitShellWords("tap 'Search"), throwsA(isA<UsageFailure>()));
+      expect(
+        () => splitShellWords('tap "Search'),
+        throwsA(isA<UsageFailure>()),
+      );
+      expect(
+        () => splitShellWords("tap 'Search"),
+        throwsA(isA<UsageFailure>()),
+      );
     });
 
     test('a dangling backslash is a usage failure', () {
@@ -53,18 +62,23 @@ void main() {
     });
 
     test('an option after the target stays its own token', () {
-      expect(
-        splitShellWords('tap "All notes" --shot after --dump'),
-        ['tap', 'All notes', '--shot', 'after', '--dump'],
-      );
+      expect(splitShellWords('tap "All notes" --shot after --dump'), [
+        'tap',
+        'All notes',
+        '--shot',
+        'after',
+        '--dump',
+      ]);
     });
   });
 
   group('parseStepLines', () {
     test('drops blank lines and # comments', () {
       expect(
-        parseStepLines('# a flow\n\ntap "Training"\n\n  # nested comment\n'
-            'key back\n'),
+        parseStepLines(
+          '# a flow\n\ntap "Training"\n\n  # nested comment\n'
+          'key back\n',
+        ),
         ['tap "Training"', 'key back'],
       );
     });

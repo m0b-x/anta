@@ -903,10 +903,8 @@ void main() {
         throwsArgumentError,
       );
       expect(
-        () => db.syncOutboxDao.requeueRow(
-          'content_chunks',
-          '${note.id}_chunk_0',
-        ),
+        () =>
+            db.syncOutboxDao.requeueRow('content_chunks', '${note.id}_chunk_0'),
         throwsArgumentError,
       );
       expect(await db.syncOutboxDao.count(), 0);

@@ -16,30 +16,44 @@ void main() {
     });
 
     test('rejects anything else', () {
-      expect(() => parseSwipeDirection('sideways'),
-          throwsA(isA<UsageFailure>()));
+      expect(
+        () => parseSwipeDirection('sideways'),
+        throwsA(isA<UsageFailure>()),
+      );
     });
   });
 
   group('buildSwipe direction vectors', () {
     test('up moves the finger towards the top', () {
       final path = buildSwipe(
-          width: width, height: height, direction: SwipeDirection.up);
+        width: width,
+        height: height,
+        direction: SwipeDirection.up,
+      );
       expect(path.x1, path.x2);
       expect(path.y2, lessThan(path.y1));
     });
 
     test('down moves the finger towards the bottom', () {
       final path = buildSwipe(
-          width: width, height: height, direction: SwipeDirection.down);
+        width: width,
+        height: height,
+        direction: SwipeDirection.down,
+      );
       expect(path.y2, greaterThan(path.y1));
     });
 
     test('left and right move only on x', () {
       final left = buildSwipe(
-          width: width, height: height, direction: SwipeDirection.left);
+        width: width,
+        height: height,
+        direction: SwipeDirection.left,
+      );
       final right = buildSwipe(
-          width: width, height: height, direction: SwipeDirection.right);
+        width: width,
+        height: height,
+        direction: SwipeDirection.right,
+      );
       expect(left.y1, left.y2);
       expect(left.x2, lessThan(left.x1));
       expect(right.x2, greaterThan(right.x1));
@@ -47,7 +61,10 @@ void main() {
 
     test('starts at the centre by default', () {
       final path = buildSwipe(
-          width: width, height: height, direction: SwipeDirection.up);
+        width: width,
+        height: height,
+        direction: SwipeDirection.up,
+      );
       expect(path.x1, width ~/ 2);
       expect(path.y1, height ~/ 2);
     });

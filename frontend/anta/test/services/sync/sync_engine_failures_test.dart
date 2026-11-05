@@ -105,13 +105,12 @@ List<SyncTableBinding<Object>> _foldersFailingLoad(Set<String> keys) => [
 /// refuses for the row keys in [refused] — an error that is neither a
 /// constraint nor the end of the transaction, so the savepoint rolls back
 /// and only the error's type decides the page.
-List<SyncTableBinding<Object>> _foldersRefusingStatement(Set<String> refused) =>
-    [
-      for (final binding in syncTableBindings)
-        binding.table == 'folders'
-            ? _RefusedStatement(binding, refused)
-            : binding,
-    ];
+List<SyncTableBinding<Object>> _foldersRefusingStatement(
+  Set<String> refused,
+) => [
+  for (final binding in syncTableBindings)
+    binding.table == 'folders' ? _RefusedStatement(binding, refused) : binding,
+];
 
 class _RefusedStatement extends _FaultyMerge {
   final Set<String> _refused;
@@ -158,7 +157,10 @@ void main() {
       final report = await a().sync();
 
       expect(report.failure, SyncGatewayFailure.offline);
-      expect(a().engine.current.lastFailure?.failure, SyncGatewayFailure.offline);
+      expect(
+        a().engine.current.lastFailure?.failure,
+        SyncGatewayFailure.offline,
+      );
       expect(a().scheduler.pending, [const Duration(seconds: 30)]);
       expect(spaceFolders(), isEmpty);
 
@@ -260,9 +262,17 @@ void main() {
       expect(report.parked, 1);
       expect(spaceFolders().keys.toSet(), {folders[0].id, folders[2].id});
       expect(a().engine.current.parkedCount, 1);
-      expect(await a().db.syncOutboxDao.count(), 1, reason: 'retried next launch');
+      expect(
+        await a().db.syncOutboxDao.count(),
+        1,
+        reason: 'retried next launch',
+      );
 
-      expect((await a().sync()).pushedRows, 0, reason: 'parked for the session');
+      expect(
+        (await a().sync()).pushedRows,
+        0,
+        reason: 'parked for the session',
+      );
     });
 
     test('a row the rules refuse, with the space readable at this schema, '
@@ -323,23 +333,26 @@ void main() {
       expect(await a().db.syncOutboxDao.count(), 0);
     });
 
-    test('more than twenty refused rows in one drain means no access', () async {
-      for (var i = 0; i < 25; i++) {
-        final folder = await a().db.folderDao.createFolder(name: 'F$i');
-        pair.gateway.refuse(
-          'folders',
-          folder.id,
-          SyncGatewayFailure.permissionDenied,
-        );
-      }
+    test(
+      'more than twenty refused rows in one drain means no access',
+      () async {
+        for (var i = 0; i < 25; i++) {
+          final folder = await a().db.folderDao.createFolder(name: 'F$i');
+          pair.gateway.refuse(
+            'folders',
+            folder.id,
+            SyncGatewayFailure.permissionDenied,
+          );
+        }
 
-      final report = await a().sync();
+        final report = await a().sync();
 
-      expect(report.failure, SyncGatewayFailure.permissionDenied);
-      expect(a().engine.current.pause, SyncPause.noAccess);
-      expect(a().engine.current.parkedCount, 21);
-      expect((await a().sync()).skipped, SyncRunSkip.noAccess);
-    });
+        expect(report.failure, SyncGatewayFailure.permissionDenied);
+        expect(a().engine.current.pause, SyncPause.noAccess);
+        expect(a().engine.current.parkedCount, 21);
+        expect((await a().sync()).skipped, SyncRunSkip.noAccess);
+      },
+    );
   });
 
   test('a drain with two rows the rules refuse reads the space once', () async {
@@ -463,7 +476,10 @@ void main() {
 
       await a().sync();
 
-      expect((await a().db.folderDao.getFolderById('far'))!.hlcTimestamp, ahead);
+      expect(
+        (await a().db.folderDao.getFolderById('far'))!.hlcTimestamp,
+        ahead,
+      );
       final seed = await a().db.syncDao.getValue(SyncDao.keyLastHlc);
       expect(seed, isNotNull);
       expect(seed!.compareTo(ahead), greaterThanOrEqualTo(0));
@@ -554,9 +570,10 @@ void main() {
         'its row parks, the others apply, the cursor moves', () async {
       await pair.close();
       pair = await SyncPair.open(
-        tables: _foldersFaulting({
-          'partway': () => StateError('after its write'),
-        }, partWay: {'partway'}),
+        tables: _foldersFaulting(
+          {'partway': () => StateError('after its write')},
+          partWay: {'partway'},
+        ),
       );
       for (final (i, id) in ['first', 'partway', 'last'].indexed) {
         pair.gateway.plant(
@@ -578,28 +595,31 @@ void main() {
       );
     });
 
-    test('a parked key that merges later is no longer counted parked', () async {
-      pair.gateway.plant(
-        pair.space,
-        folderEnvelope(
-          'late',
-          '000000000001:0000:C',
-          data: {JsonKeys.id: 'late'},
-        ),
-      );
-      expect((await a().sync()).parked, 1);
-      expect(a().engine.current.parkedCount, 1);
+    test(
+      'a parked key that merges later is no longer counted parked',
+      () async {
+        pair.gateway.plant(
+          pair.space,
+          folderEnvelope(
+            'late',
+            '000000000001:0000:C',
+            data: {JsonKeys.id: 'late'},
+          ),
+        );
+        expect((await a().sync()).parked, 1);
+        expect(a().engine.current.parkedCount, 1);
 
-      pair.gateway.plant(
-        pair.space,
-        folderEnvelope('late', '000000000002:0000:C'),
-      );
-      final report = await a().sync();
+        pair.gateway.plant(
+          pair.space,
+          folderEnvelope('late', '000000000002:0000:C'),
+        );
+        final report = await a().sync();
 
-      expect(report.parked, 0);
-      expect(await a().db.folderDao.getFolderById('late'), isNotNull);
-      expect(a().engine.current.parkedCount, 0);
-    });
+        expect(report.parked, 0);
+        expect(await a().db.folderDao.getFolderById('late'), isNotNull);
+        expect(a().engine.current.parkedCount, 0);
+      },
+    );
 
     // Every wait is the engine's own (`sync` awaits `whenIdle`): a background
     // database answers a round trip later than an in-memory one, which a
@@ -690,18 +710,21 @@ void main() {
       });
     }
 
-    test('an entry whose row was hard-deleted is retired, nothing pushed', () async {
-      final folder = await a().db.folderDao.createFolder(name: 'Wiped');
-      await a().db.customStatement('DELETE FROM folders WHERE id = ?', [
-        folder.id,
-      ]);
+    test(
+      'an entry whose row was hard-deleted is retired, nothing pushed',
+      () async {
+        final folder = await a().db.folderDao.createFolder(name: 'Wiped');
+        await a().db.customStatement('DELETE FROM folders WHERE id = ?', [
+          folder.id,
+        ]);
 
-      final report = await a().sync();
+        final report = await a().sync();
 
-      expect(report.pushedRows, 0);
-      expect(pair.gateway.pushes, isEmpty);
-      expect(await a().db.syncOutboxDao.count(), 0);
-    });
+        expect(report.pushedRows, 0);
+        expect(pair.gateway.pushes, isEmpty);
+        expect(await a().db.syncOutboxDao.count(), 0);
+      },
+    );
 
     test('a load fault is bisected to its own rows: the rest of the table '
         'still pushes', () async {
@@ -764,21 +787,27 @@ void main() {
       // row of any table is ever pushed again.
       expect(second.failure, isNull);
       expect(second.pushedRows, 1);
-      expect(pair.gateway.rowsOf(pair.space, 'calendar_events'), contains('e1'));
-    });
-
-    test('a batch goes out in the queue\'s order, not table by table', () async {
-      final first = await a().db.folderDao.createFolder(name: 'First');
-      await a().db.calendarEventDao.upsert(eventRow('e1'));
-      final last = await a().db.folderDao.createFolder(name: 'Last');
-
-      await a().sync();
-
       expect(
-        [for (final envelope in pair.gateway.pushes.single) envelope.rowKey],
-        [first.id, 'e1', last.id],
+        pair.gateway.rowsOf(pair.space, 'calendar_events'),
+        contains('e1'),
       );
     });
+
+    test(
+      'a batch goes out in the queue\'s order, not table by table',
+      () async {
+        final first = await a().db.folderDao.createFolder(name: 'First');
+        await a().db.calendarEventDao.upsert(eventRow('e1'));
+        final last = await a().db.folderDao.createFolder(name: 'Last');
+
+        await a().sync();
+
+        expect(
+          [for (final envelope in pair.gateway.pushes.single) envelope.rowKey],
+          [first.id, 'e1', last.id],
+        );
+      },
+    );
 
     test('an edit landing during the push keeps its entry queued, and the '
         'next drain sends it', () async {
@@ -832,12 +861,12 @@ void main() {
       expect(report.parked, 1);
       expect(spaceFolders().keys, [folder.id]);
       expect(pair.gateway.rowsOf(pair.space, 'notes'), isEmpty);
-      expect(pair.gateway.calls.where((c) => c.startsWith('push')), hasLength(1));
-      expect(a().engine.current.parkedCount, 1);
       expect(
-        (await a().db.syncOutboxDao.pending()).single.rowKey,
-        note.id,
+        pair.gateway.calls.where((c) => c.startsWith('push')),
+        hasLength(1),
       );
+      expect(a().engine.current.parkedCount, 1);
+      expect((await a().db.syncOutboxDao.pending()).single.rowKey, note.id);
     });
 
     test('a drain cuts its batch at about 8 MiB of row data: ten notes of '
@@ -861,32 +890,38 @@ void main() {
       expect(await a().db.syncOutboxDao.count(), 0);
     });
 
-    test('a key parked on pull keeps its local edit out of the drain', () async {
-      final faults = <String, Object Function()>{};
-      await pair.close();
-      pair = await SyncPair.open(tables: _foldersFaulting(faults));
-      final b = pair.b;
-      final folder = await a().db.folderDao.createFolder(name: 'Y');
-      await a().sync();
-      await b.sync();
-      await b.db.folderDao.updateFolder(id: folder.id, name: 'Y from B');
-      await b.sync();
-      await a().db.folderDao.updateFolder(id: folder.id, name: 'Y from A');
-      faults[folder.id] = () => StateError('a local fault on A');
+    test(
+      'a key parked on pull keeps its local edit out of the drain',
+      () async {
+        final faults = <String, Object Function()>{};
+        await pair.close();
+        pair = await SyncPair.open(tables: _foldersFaulting(faults));
+        final b = pair.b;
+        final folder = await a().db.folderDao.createFolder(name: 'Y');
+        await a().sync();
+        await b.sync();
+        await b.db.folderDao.updateFolder(id: folder.id, name: 'Y from B');
+        await b.sync();
+        await a().db.folderDao.updateFolder(id: folder.id, name: 'Y from A');
+        faults[folder.id] = () => StateError('a local fault on A');
 
-      final report = await a().sync();
+        final report = await a().sync();
 
-      expect(report.parked, 1);
-      expect(
-        spaceFolders()[folder.id]?.data?[JsonKeys.name],
-        'Y from B',
-        reason: 'A lacks the space\'s version, which may be the newer one',
-      );
-      expect(
-        [for (final entry in await a().db.syncOutboxDao.pending()) entry.rowKey],
-        [folder.id],
-      );
-    });
+        expect(report.parked, 1);
+        expect(
+          spaceFolders()[folder.id]?.data?[JsonKeys.name],
+          'Y from B',
+          reason: 'A lacks the space\'s version, which may be the newer one',
+        );
+        expect(
+          [
+            for (final entry in await a().db.syncOutboxDao.pending())
+              entry.rowKey,
+          ],
+          [folder.id],
+        );
+      },
+    );
   });
 
   group('faults under the floor', () {
@@ -919,14 +954,11 @@ void main() {
       expect(report.parked, 1);
       String? name(SyncEnvelope? e) => e?.data?[JsonKeys.name] as String?;
       expect(name(spaceFolders()[folder.id]), 'Y from A');
-      expect(
-        [
-          for (final batch in pair.gateway.pushes)
-            for (final e in batch)
-              if (e.rowKey == folder.id) name(e),
-        ],
-        isNot(contains('Y from B')),
-      );
+      expect([
+        for (final batch in pair.gateway.pushes)
+          for (final e in batch)
+            if (e.rowKey == folder.id) name(e),
+      ], isNot(contains('Y from B')));
       expect(
         [
           for (final entry in await b().db.syncOutboxDao.pending())

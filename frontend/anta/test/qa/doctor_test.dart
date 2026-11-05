@@ -15,20 +15,20 @@ import 'fake_process_runner.dart';
 DeviceProbe _probe({
   String size = 'Physical size: 1280x2856',
   String pid = '8911',
-  String activity = '  topResumedActivity=ActivityRecord{1 u0 '
+  String activity =
+      '  topResumedActivity=ActivityRecord{1 u0 '
       'com.alexzamfir.anta/.MainActivity t59}',
   String wake = '  mWakefulness=Awake',
   String keyguard = '    isKeyguardShowing=false',
-}) =>
-    parseDeviceProbe([
-      size,
-      'Physical density: 480',
-      pid,
-      activity,
-      wake,
-      keyguard,
-      '      mInputShown=false',
-    ]);
+}) => parseDeviceProbe([
+  size,
+  'Physical density: 480',
+  pid,
+  activity,
+  wake,
+  keyguard,
+  '      mInputShown=false',
+]);
 
 void main() {
   _newPlatformChecks();
@@ -37,82 +37,134 @@ void main() {
     FleetLaunches worn(int count, {String bootId = boot}) =>
         FleetLaunches(count: count, sinceBoot: true, bootId: bootId);
 
-    test('past 40 on this boot the owner\'s emulator warns with the owner\'s remedy', () {
-      final result = checkEmulatorLaunches('emulator-5554', worn(47),
-          bootId: boot, created: const [1], avd: 'Pixel_9_Pro')!;
-      expect(result.status, CheckStatus.warn);
-      expect(result.detail, startsWith('emulator-5554: 47 app launches since its boot'));
-      expect(result.fix, contains('close the emulator, then `qa boot --avd Pixel_9_Pro --cold`'));
-      expect(result.fix, contains('never a QA agent\'s'));
-      expect(result.fixVerb, isNull, reason: '--fix never acts on it');
-    });
+    test(
+      'past 40 on this boot the owner\'s emulator warns with the owner\'s remedy',
+      () {
+        final result = checkEmulatorLaunches(
+          'emulator-5554',
+          worn(47),
+          bootId: boot,
+          created: const [1],
+          avd: 'Pixel_9_Pro',
+        )!;
+        expect(result.status, CheckStatus.warn);
+        expect(
+          result.detail,
+          startsWith('emulator-5554: 47 app launches since its boot'),
+        );
+        expect(
+          result.fix,
+          contains(
+            'close the emulator, then `qa boot --avd Pixel_9_Pro --cold`',
+          ),
+        );
+        expect(result.fix, contains('never a QA agent\'s'));
+        expect(result.fixVerb, isNull, reason: '--fix never acts on it');
+      },
+    );
 
-    test('silent at 40, for an earlier boot, on a phone and on a fleet guest', () {
-      CheckResult? check(String serial, FleetLaunches launches) =>
-          checkEmulatorLaunches(serial, launches, bootId: boot, created: const [1]);
-      expect(check('emulator-5554', worn(40)), isNull);
-      expect(check('emulator-5554', worn(47, bootId: 'stale')), isNull);
-      expect(check('R5CT30ABCDE', worn(47)), isNull);
-      expect(check('emulator-5556', worn(47)), isNull);
-    });
+    test(
+      'silent at 40, for an earlier boot, on a phone and on a fleet guest',
+      () {
+        CheckResult? check(String serial, FleetLaunches launches) =>
+            checkEmulatorLaunches(
+              serial,
+              launches,
+              bootId: boot,
+              created: const [1],
+            );
+        expect(check('emulator-5554', worn(40)), isNull);
+        expect(check('emulator-5554', worn(47, bootId: 'stale')), isNull);
+        expect(check('R5CT30ABCDE', worn(47)), isNull);
+        expect(check('emulator-5556', worn(47)), isNull);
+      },
+    );
 
-    test('a fleet port without its anta_qa_N AVD is the owner\'s, not the fleet\'s', () {
-      expect(isFleetGuest('emulator-5556', const [1]), isTrue);
-      expect(isFleetGuest('emulator-5562', const [1, 2, 3]), isFalse);
-      expect(isFleetGuest('emulator-5554', const [1]), isFalse);
-      expect(
-        checkEmulatorLaunches('emulator-5562', worn(47), bootId: boot, created: const [1, 2, 3])
-            ?.detail,
-        startsWith('emulator-5562: 47 app launches'),
-      );
-    });
+    test(
+      'a fleet port without its anta_qa_N AVD is the owner\'s, not the fleet\'s',
+      () {
+        expect(isFleetGuest('emulator-5556', const [1]), isTrue);
+        expect(isFleetGuest('emulator-5562', const [1, 2, 3]), isFalse);
+        expect(isFleetGuest('emulator-5554', const [1]), isFalse);
+        expect(
+          checkEmulatorLaunches(
+            'emulator-5562',
+            worn(47),
+            bootId: boot,
+            created: const [1, 2, 3],
+          )?.detail,
+          startsWith('emulator-5562: 47 app launches'),
+        );
+      },
+    );
 
-    test('the doctor only reads the owner\'s emulators: their boot id and AVD name', () async {
-      final temp = Directory.systemTemp.createTempSync('anta_qa_doctor_');
-      addTearDown(() => temp.deleteSync(recursive: true));
-      final paths = QaPaths(temp.path);
-      for (final (serial, count) in [
-        ('emulator-5554', 47),
-        ('emulator-5562', 40),
-        ('emulator-5564', 52),
-        ('R5CT30ABCDE', 47),
-        ('emulator-5556', 47),
-      ]) {
-        File(paths.launchesJsonFor(serial))
-          ..parent.createSync(recursive: true)
-          ..writeAsStringSync(jsonEncode({'launches': count, 'sinceBoot': true, 'bootId': boot}));
-      }
-      final runner = FakeProcessRunner();
-      for (final (serial, avd) in [('emulator-5554', 'Pixel_9_Pro'), ('emulator-5564', 'Pixel_7')]) {
-        runner
-          ..script('adb -s $serial shell cat /proc/sys/kernel/random/boot_id',
-              const RunOutcome(0, '$boot\n', ''))
-          ..script('adb -s $serial emu avd name', RunOutcome(0, '$avd\r\nOK', ''));
-      }
-      final results = await ownerEmulatorLaunchChecks(
-        Adb(executable: 'adb', runner: runner),
-        const [
-          AdbDevice('emulator-5554', 'device', null),
-          AdbDevice('emulator-5562', 'device', null),
-          AdbDevice('emulator-5564', 'device', null),
-          AdbDevice('R5CT30ABCDE', 'device', 'SM_S918B'),
-          AdbDevice('emulator-5556', 'device', null),
-        ],
-        paths,
-        created: const [1],
-      );
-      expect(results.map((r) => r.detail), [
-        startsWith('emulator-5554: 47 app launches'),
-        startsWith('emulator-5564: 52 app launches'),
-      ], reason: 'emulator-5562 is silent at 40, not skipped as the fleet\'s');
-      expect(results.first.fix, contains('qa boot --avd Pixel_9_Pro --cold'));
-      expect(runner.lines, [
-        'adb -s emulator-5554 shell cat /proc/sys/kernel/random/boot_id',
-        'adb -s emulator-5554 emu avd name',
-        'adb -s emulator-5564 shell cat /proc/sys/kernel/random/boot_id',
-        'adb -s emulator-5564 emu avd name',
-      ]);
-    });
+    test(
+      'the doctor only reads the owner\'s emulators: their boot id and AVD name',
+      () async {
+        final temp = Directory.systemTemp.createTempSync('anta_qa_doctor_');
+        addTearDown(() => temp.deleteSync(recursive: true));
+        final paths = QaPaths(temp.path);
+        for (final (serial, count) in [
+          ('emulator-5554', 47),
+          ('emulator-5562', 40),
+          ('emulator-5564', 52),
+          ('R5CT30ABCDE', 47),
+          ('emulator-5556', 47),
+        ]) {
+          File(paths.launchesJsonFor(serial))
+            ..parent.createSync(recursive: true)
+            ..writeAsStringSync(
+              jsonEncode({
+                'launches': count,
+                'sinceBoot': true,
+                'bootId': boot,
+              }),
+            );
+        }
+        final runner = FakeProcessRunner();
+        for (final (serial, avd) in [
+          ('emulator-5554', 'Pixel_9_Pro'),
+          ('emulator-5564', 'Pixel_7'),
+        ]) {
+          runner
+            ..script(
+              'adb -s $serial shell cat /proc/sys/kernel/random/boot_id',
+              const RunOutcome(0, '$boot\n', ''),
+            )
+            ..script(
+              'adb -s $serial emu avd name',
+              RunOutcome(0, '$avd\r\nOK', ''),
+            );
+        }
+        final results = await ownerEmulatorLaunchChecks(
+          Adb(executable: 'adb', runner: runner),
+          const [
+            AdbDevice('emulator-5554', 'device', null),
+            AdbDevice('emulator-5562', 'device', null),
+            AdbDevice('emulator-5564', 'device', null),
+            AdbDevice('R5CT30ABCDE', 'device', 'SM_S918B'),
+            AdbDevice('emulator-5556', 'device', null),
+          ],
+          paths,
+          created: const [1],
+        );
+        expect(
+          results.map((r) => r.detail),
+          [
+            startsWith('emulator-5554: 47 app launches'),
+            startsWith('emulator-5564: 52 app launches'),
+          ],
+          reason: 'emulator-5562 is silent at 40, not skipped as the fleet\'s',
+        );
+        expect(results.first.fix, contains('qa boot --avd Pixel_9_Pro --cold'));
+        expect(runner.lines, [
+          'adb -s emulator-5554 shell cat /proc/sys/kernel/random/boot_id',
+          'adb -s emulator-5554 emu avd name',
+          'adb -s emulator-5564 shell cat /proc/sys/kernel/random/boot_id',
+          'adb -s emulator-5564 emu avd name',
+        ]);
+      },
+    );
   });
 
   group('checkAdbServer', () {
@@ -137,8 +189,11 @@ void main() {
     });
 
     test('a healthy server is ok and reports the path', () {
-      final result =
-          checkAdbServer(adbPath: 'C:/sdk/adb.exe', failure: null, deviceCount: 1);
+      final result = checkAdbServer(
+        adbPath: 'C:/sdk/adb.exe',
+        failure: null,
+        deviceCount: 1,
+      );
       expect(result.status, CheckStatus.ok);
       expect(result.detail, contains('C:/sdk/adb.exe'));
     });
@@ -195,8 +250,7 @@ void main() {
     });
 
     test('locked fails even when the screen is on', () {
-      final result =
-          checkAwake(_probe(keyguard: '    isKeyguardShowing=true'));
+      final result = checkAwake(_probe(keyguard: '    isKeyguardShowing=true'));
       expect(result.status, CheckStatus.fail);
       expect(result.detail, contains('locked=yes'));
     });
@@ -212,9 +266,9 @@ void main() {
     });
 
     test('an override warns and offers unphone', () {
-      final result = checkScreenOverride(_probe(
-        size: 'Physical size: 1280x2856\nOverride size: 1080x2400',
-      ));
+      final result = checkScreenOverride(
+        _probe(size: 'Physical size: 1280x2856\nOverride size: 1080x2400'),
+      );
       expect(result.status, CheckStatus.warn);
       expect(result.fixVerb, DoctorFix.unphone);
     });
@@ -255,8 +309,7 @@ void main() {
     });
 
     test('no process warns with both restart paths', () {
-      final result =
-          checkAppRunning(_probe(pid: ''), 'com.alexzamfir.anta');
+      final result = checkAppRunning(_probe(pid: ''), 'com.alexzamfir.anta');
       expect(result.status, CheckStatus.warn);
       expect(result.fix, contains('qa relaunch'));
     });
@@ -264,7 +317,8 @@ void main() {
     test('another app on top warns and names it', () {
       final result = checkAppRunning(
         _probe(
-          activity: '  topResumedActivity=ActivityRecord{1 u0 '
+          activity:
+              '  topResumedActivity=ActivityRecord{1 u0 '
               'com.google.android.apps.nexuslauncher/.NexusLauncherActivity t1}',
         ),
         'com.alexzamfir.anta',
@@ -388,8 +442,10 @@ void main() {
   group('checkDtd', () {
     test('a recorded URI with a healthy log is ok', () {
       expect(
-        checkDtd(dtd: 'ws://127.0.0.1:1/x=', runLogTail: 'Syncing files')
-            .status,
+        checkDtd(
+          dtd: 'ws://127.0.0.1:1/x=',
+          runLogTail: 'Syncing files',
+        ).status,
         CheckStatus.ok,
       );
     });
@@ -410,8 +466,11 @@ void main() {
 
   group('checkExeFreshness', () {
     test('no exe warns with build-exe', () {
-      final result =
-          checkExeFreshness(exists: false, stale: false, staleSource: null);
+      final result = checkExeFreshness(
+        exists: false,
+        stale: false,
+        staleSource: null,
+      );
       expect(result.status, CheckStatus.warn);
       expect(result.fix, contains('qa build-exe'));
     });

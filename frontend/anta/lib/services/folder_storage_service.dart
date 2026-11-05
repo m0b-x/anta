@@ -260,15 +260,9 @@ class FolderStorageService {
 
   /// Writes one folder's colour label. Returns the refreshed folder, or null
   /// when it is gone or tombstoned.
-  Future<model.Folder?> setFolderLabel(
-    String folderId,
-    ItemLabel label,
-  ) async {
+  Future<model.Folder?> setFolderLabel(String folderId, ItemLabel label) async {
     await initialize();
-    final folder = await _repository.setLabel(
-      folderId: folderId,
-      label: label,
-    );
+    final folder = await _repository.setLabel(folderId: folderId, label: label);
     return folder == null ? null : _folderToModel(folder);
   }
 

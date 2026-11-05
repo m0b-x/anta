@@ -44,49 +44,51 @@ void main() {
     } catch (_) {}
   });
 
-  test('a restored note carries the generated preview, not a raw slice',
-      () async {
-    const content =
-        '# Wednesday heavy\n'
-        '- 5 x 3 @ 140kg\n'
-        '> [!note] belt on the last set\n'
-        r'$+ 45.00 chalk and tape';
-    const title = 'Restored heavy day';
+  test(
+    'a restored note carries the generated preview, not a raw slice',
+    () async {
+      const content =
+          '# Wednesday heavy\n'
+          '- 5 x 3 @ 140kg\n'
+          '> [!note] belt on the last set\n'
+          r'$+ 45.00 chalk and tape';
+      const title = 'Restored heavy day';
 
-    final archive = jsonEncode({
-      'version': 1,
-      'folders': <Map<String, dynamic>>[
-        {JsonKeys.name: 'Training', JsonKeys.parentId: null},
-      ],
-      'notes': <Map<String, dynamic>>[
-        {
-          JsonKeys.folderId: 'root',
-          JsonKeys.title: title,
-          JsonKeys.content: content,
-          JsonKeys.preview: 'a stale archived preview',
-        },
-      ],
-      'settings': <String, dynamic>{},
-    });
+      final archive = jsonEncode({
+        'version': 1,
+        'folders': <Map<String, dynamic>>[
+          {JsonKeys.name: 'Training', JsonKeys.parentId: null},
+        ],
+        'notes': <Map<String, dynamic>>[
+          {
+            JsonKeys.folderId: 'root',
+            JsonKeys.title: title,
+            JsonKeys.content: content,
+            JsonKeys.preview: 'a stale archived preview',
+          },
+        ],
+        'settings': <String, dynamic>{},
+      });
 
-    final backup = await BackupService.getInstance();
-    final result = await backup.importFromJson(archive);
-    expect(result.success, isTrue, reason: 'error: ${result.error}');
+      final backup = await BackupService.getInstance();
+      final result = await backup.importFromJson(archive);
+      expect(result.success, isTrue, reason: 'error: ${result.error}');
 
-    final db = await AppDatabase.getInstance();
-    final notes = await db.noteDao.getAllNotes(includeDeleted: false);
-    final restored = notes.firstWhere((n) => n.title == title);
+      final db = await AppDatabase.getInstance();
+      final notes = await db.noteDao.getAllNotes(includeDeleted: false);
+      final restored = notes.firstWhere((n) => n.title == title);
 
-    expect(restored.preview, NoteMetadata.generatePreview(content));
-    expect(
-      restored.preview,
-      'Wednesday heavy 5 x 3 @ 140kg Note belt on the last set 45.00 chalk '
-      'and tape',
-    );
-    expect(restored.preview, isNot(contains('\n')));
-    expect(restored.preview, isNot(contains('#')));
-    expect(restored.preview, isNot(contains('[!')));
-  });
+      expect(restored.preview, NoteMetadata.generatePreview(content));
+      expect(
+        restored.preview,
+        'Wednesday heavy 5 x 3 @ 140kg Note belt on the last set 45.00 chalk '
+        'and tape',
+      );
+      expect(restored.preview, isNot(contains('\n')));
+      expect(restored.preview, isNot(contains('#')));
+      expect(restored.preview, isNot(contains('[!')));
+    },
+  );
 
   test('a long note is capped exactly like an editor save', () async {
     final content = List.generate(60, (i) => '- item number $i').join('\n');

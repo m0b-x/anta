@@ -33,9 +33,7 @@ void main() {
   test('a two-folder cycle returns rather than hangs', () async {
     final (rootId, childId) = await seedCycle();
 
-    final ids = await db.folderDao
-        .getAllDescendantIds(rootId)
-        .timeout(budget);
+    final ids = await db.folderDao.getAllDescendantIds(rootId).timeout(budget);
 
     expect(ids, contains(childId));
     expect(

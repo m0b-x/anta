@@ -17,11 +17,11 @@ import '../core/qa/qa_mode.dart';
 /// [kIsWeb] is checked first because `dart:io`'s [Platform] throws on web.
 abstract final class SyncAvailability {
   static bool get isSupported => resolve(
-        web: kIsWeb,
-        phone: !kIsWeb && (Platform.isAndroid || Platform.isIOS),
-        qaBuild: QaMode.enabled,
-        qaAllowsCloud: QaMode.allowCloud,
-      );
+    web: kIsWeb,
+    phone: !kIsWeb && (Platform.isAndroid || Platform.isIOS),
+    qaBuild: QaMode.enabled,
+    qaAllowsCloud: QaMode.allowCloud,
+  );
 
   static bool resolve({
     required bool web,

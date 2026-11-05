@@ -251,10 +251,11 @@ class EventAbsenceDao extends DatabaseAccessor<AppDatabase>
       // `DateTime`: drift hands that back in local time, so a UTC date-only
       // key would never match it in Dart ([EventSkipDao.applySkipDiff]).
       final existing = {
-        for (final row in await (select(eventAbsences)..where(
-              (a) => a.eventId.equals(eventId) & a.day.isIn(marks.keys),
-            ))
-            .get())
+        for (final row
+            in await (select(eventAbsences)..where(
+                  (a) => a.eventId.equals(eventId) & a.day.isIn(marks.keys),
+                ))
+                .get())
           dayMs(row.day): row,
       };
       final now = DateTime.now();
@@ -293,11 +294,9 @@ class EventAbsenceDao extends DatabaseAccessor<AppDatabase>
           );
         }
       });
-      await db.enqueueMany(
-        eventAbsences,
-        [for (final day in marks.keys) dayRowKey(eventId, day)],
-        stamp.hlc,
-      );
+      await db.enqueueMany(eventAbsences, [
+        for (final day in marks.keys) dayRowKey(eventId, day),
+      ], stamp.hlc);
     });
   }
 

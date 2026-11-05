@@ -572,7 +572,10 @@ class ColorSwatchDot extends StatelessWidget {
         onTap: onTap,
         onLongPress: onLongPress,
         customBorder: const CircleBorder(),
-        child: SizedBox.square(dimension: footprint, child: Center(child: dot)),
+        child: SizedBox.square(
+          dimension: footprint,
+          child: Center(child: dot),
+        ),
       ),
     );
     if (identifier case final id?) {

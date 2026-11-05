@@ -70,10 +70,7 @@ void main() {
 
     test('de and ro name the same days in their own words', () {
       expect(format(DateTime(2026, 9, 5), 'de', AppLocalizationsDe()), 'Sa');
-      expect(
-        format(DateTime(2026, 9, 1), 'ro', AppLocalizationsRo()),
-        'mar.',
-      );
+      expect(format(DateTime(2026, 9, 1), 'ro', AppLocalizationsRo()), 'mar.');
     });
 
     test('the sixth day back is still a weekday, the seventh a date', () {

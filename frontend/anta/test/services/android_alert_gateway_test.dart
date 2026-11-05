@@ -93,15 +93,21 @@ void main() {
       expect(decoded.osId, 7);
     });
 
-    test('a truncated or foreign payload reads as "not ours", never throws', () {
-      // Every one of these arrives inside a platform callback, where an
-      // exception would take the ring down with it.
-      expect(AlertPayload.decode(null), isNull);
-      expect(AlertPayload.decode(''), isNull);
-      expect(AlertPayload.decode('{"db":"gym_notes"'), isNull);
-      expect(AlertPayload.decode('"a string"'), isNull);
-      expect(AlertPayload.decode('{"db":"gym_notes","eventId":"e1"}'), isNull);
-    });
+    test(
+      'a truncated or foreign payload reads as "not ours", never throws',
+      () {
+        // Every one of these arrives inside a platform callback, where an
+        // exception would take the ring down with it.
+        expect(AlertPayload.decode(null), isNull);
+        expect(AlertPayload.decode(''), isNull);
+        expect(AlertPayload.decode('{"db":"gym_notes"'), isNull);
+        expect(AlertPayload.decode('"a string"'), isNull);
+        expect(
+          AlertPayload.decode('{"db":"gym_notes","eventId":"e1"}'),
+          isNull,
+        );
+      },
+    );
 
     test('the test-alarm sentinel is recognised on both sides', () {
       const test = AlertPayload(
@@ -151,7 +157,10 @@ void main() {
       );
       // Android notification ids and the `alarm` package's ids are both
       // signed 32-bit.
-      expect(seed('gym_notes', AlertKind.scheduled), inInclusiveRange(0, kAlertOsIdMask));
+      expect(
+        seed('gym_notes', AlertKind.scheduled),
+        inInclusiveRange(0, kAlertOsIdMask),
+      );
     });
 
     test('a "Missed" notice never lands on a live registration id', () {
@@ -165,32 +174,41 @@ void main() {
       }
     });
 
-    test('an upcoming notice id never lands on a live entry or a Missed one', () {
-      for (final osId in [0, 1, 4242, 0x4d495353, kAlertOsIdMask]) {
-        final notice = noticeNotificationId(osId);
-        expect(notice, isNot(osId));
-        expect(notice, isNot(missedNotificationId(osId)));
-        expect(notice, inInclusiveRange(0, kAlertOsIdMask));
-        expect(noticeNotificationId(osId), notice);
-      }
-    });
+    test(
+      'an upcoming notice id never lands on a live entry or a Missed one',
+      () {
+        for (final osId in [0, 1, 4242, 0x4d495353, kAlertOsIdMask]) {
+          final notice = noticeNotificationId(osId);
+          expect(notice, isNot(osId));
+          expect(notice, isNot(missedNotificationId(osId)));
+          expect(notice, inInclusiveRange(0, kAlertOsIdMask));
+          expect(noticeNotificationId(osId), notice);
+        }
+      },
+    );
 
-    test('an upcoming notice dies at the instant of the alarm it announces', () {
-      // A ring stopped or snoozed natively with no Dart running cancels
-      // nothing on this side, so the notice's own timeout is what keeps its
-      // Skip from cancelling an occurrence that already happened.
-      expect(
-        noticeTimeoutMillis(
-          noticeAt: DateTime(2026, 9, 20, 16),
-          fireAt: DateTime(2026, 9, 20, 18),
-        ),
-        const Duration(hours: 2).inMilliseconds,
-      );
-    });
+    test(
+      'an upcoming notice dies at the instant of the alarm it announces',
+      () {
+        // A ring stopped or snoozed natively with no Dart running cancels
+        // nothing on this side, so the notice's own timeout is what keeps its
+        // Skip from cancelling an occurrence that already happened.
+        expect(
+          noticeTimeoutMillis(
+            noticeAt: DateTime(2026, 9, 20, 16),
+            fireAt: DateTime(2026, 9, 20, 18),
+          ),
+          const Duration(hours: 2).inMilliseconds,
+        );
+      },
+    );
 
     test('a tap on an upcoming notice is told apart, and carries its flag', () {
       final notice = payload.copyWith(notice: true);
-      expect(isNoticeNotification(noticeNotificationId(payload.osId), notice), isTrue);
+      expect(
+        isNoticeNotification(noticeNotificationId(payload.osId), notice),
+        isTrue,
+      );
       expect(isNoticeNotification(payload.osId, notice), isFalse);
       expect(isNoticeNotification(null, notice), isTrue);
       expect(isNoticeNotification(null, payload), isFalse);
@@ -249,10 +267,7 @@ void main() {
       // Null is how the `alarm` package says "the device's default alarm
       // sound", which is what keeps this value following the Clock app instead
       // of freezing the sound it named on the day it was chosen.
-      expect(
-        alarmAssetPathFor(const AlertSoundSystemDefault()),
-        isNull,
-      );
+      expect(alarmAssetPathFor(const AlertSoundSystemDefault()), isNull);
     });
 
     test('a picked sound arms verbatim', () {
@@ -295,21 +310,36 @@ void main() {
       expect(alertRingVolumeFor(1), AlertRingVolume.follow);
     });
 
-    test('the arm signature ends in the fork token for the alarm tier only', () {
-      // OS-1: the token is what re-arms, once, every alarm-tier row a
-      // pre-fork build left standing — armed the old way and, for a picked
-      // sound, pointed at a copied file this build deletes. A reminder's
-      // token must not move: nothing about how one is armed changed.
-      expect(kAlertArmClockToken, '~clock');
-      expect(
-        alertArmSignature(context: 'alarm', fire: fireWith(), snoozeMinutes: 10, noticeLeadMinutes: 120, silenceAfterMinutes: 10),
-        contains(kAlertArmClockToken),
-      );
-      expect(
-        alertArmSignature(context: 'alarm', fire: fireWith(mode: AlertMode.notify), snoozeMinutes: 10, noticeLeadMinutes: 120, silenceAfterMinutes: 10),
-        'alarm',
-      );
-    });
+    test(
+      'the arm signature ends in the fork token for the alarm tier only',
+      () {
+        // OS-1: the token is what re-arms, once, every alarm-tier row a
+        // pre-fork build left standing — armed the old way and, for a picked
+        // sound, pointed at a copied file this build deletes. A reminder's
+        // token must not move: nothing about how one is armed changed.
+        expect(kAlertArmClockToken, '~clock');
+        expect(
+          alertArmSignature(
+            context: 'alarm',
+            fire: fireWith(),
+            snoozeMinutes: 10,
+            noticeLeadMinutes: 120,
+            silenceAfterMinutes: 10,
+          ),
+          contains(kAlertArmClockToken),
+        );
+        expect(
+          alertArmSignature(
+            context: 'alarm',
+            fire: fireWith(mode: AlertMode.notify),
+            snoozeMinutes: 10,
+            noticeLeadMinutes: 120,
+            silenceAfterMinutes: 10,
+          ),
+          'alarm',
+        );
+      },
+    );
 
     test('the snooze length stays under the in-flight grace', () {
       // OS-2 review: a native snooze taken with no Dart running moves the
@@ -329,16 +359,48 @@ void main() {
       // changed lead — off included — has to re-arm the alarm for its notice
       // to move or go; a reminder never has one.
       expect(
-        alertArmSignature(context: 'alarm', fire: fireWith(), snoozeMinutes: 10, noticeLeadMinutes: 0, silenceAfterMinutes: 10),
+        alertArmSignature(
+          context: 'alarm',
+          fire: fireWith(),
+          snoozeMinutes: 10,
+          noticeLeadMinutes: 0,
+          silenceAfterMinutes: 10,
+        ),
         'alarm#system:default~clock~10~n0~s10',
       );
       expect(
-        alertArmSignature(context: 'alarm', fire: fireWith(), snoozeMinutes: 10, noticeLeadMinutes: 60, silenceAfterMinutes: 10),
-        isNot(alertArmSignature(context: 'alarm', fire: fireWith(), snoozeMinutes: 10, noticeLeadMinutes: 120, silenceAfterMinutes: 10)),
+        alertArmSignature(
+          context: 'alarm',
+          fire: fireWith(),
+          snoozeMinutes: 10,
+          noticeLeadMinutes: 60,
+          silenceAfterMinutes: 10,
+        ),
+        isNot(
+          alertArmSignature(
+            context: 'alarm',
+            fire: fireWith(),
+            snoozeMinutes: 10,
+            noticeLeadMinutes: 120,
+            silenceAfterMinutes: 10,
+          ),
+        ),
       );
       expect(
-        alertArmSignature(context: 'alarm', fire: fireWith(mode: AlertMode.notify), snoozeMinutes: 10, noticeLeadMinutes: 0, silenceAfterMinutes: 10),
-        alertArmSignature(context: 'alarm', fire: fireWith(mode: AlertMode.notify), snoozeMinutes: 10, noticeLeadMinutes: 120, silenceAfterMinutes: 10),
+        alertArmSignature(
+          context: 'alarm',
+          fire: fireWith(mode: AlertMode.notify),
+          snoozeMinutes: 10,
+          noticeLeadMinutes: 0,
+          silenceAfterMinutes: 10,
+        ),
+        alertArmSignature(
+          context: 'alarm',
+          fire: fireWith(mode: AlertMode.notify),
+          snoozeMinutes: 10,
+          noticeLeadMinutes: 120,
+          silenceAfterMinutes: 10,
+        ),
       );
     });
 
@@ -348,13 +410,31 @@ void main() {
       // standing alarm the way a changed sound does — and a reminder, which
       // snoozes from the payload alone, must not be re-armed for it.
       expect(
-        alertArmSignature(context: 'alarm', fire: fireWith(), snoozeMinutes: 10, noticeLeadMinutes: 120, silenceAfterMinutes: 10),
+        alertArmSignature(
+          context: 'alarm',
+          fire: fireWith(),
+          snoozeMinutes: 10,
+          noticeLeadMinutes: 120,
+          silenceAfterMinutes: 10,
+        ),
         'alarm#system:default~clock~10~n120~s10',
       );
       expect(
-        alertArmSignature(context: 'alarm', fire: fireWith(), snoozeMinutes: 5, noticeLeadMinutes: 120, silenceAfterMinutes: 10),
+        alertArmSignature(
+          context: 'alarm',
+          fire: fireWith(),
+          snoozeMinutes: 5,
+          noticeLeadMinutes: 120,
+          silenceAfterMinutes: 10,
+        ),
         isNot(
-          alertArmSignature(context: 'alarm', fire: fireWith(), snoozeMinutes: 10, noticeLeadMinutes: 120, silenceAfterMinutes: 10),
+          alertArmSignature(
+            context: 'alarm',
+            fire: fireWith(),
+            snoozeMinutes: 10,
+            noticeLeadMinutes: 120,
+            silenceAfterMinutes: 10,
+          ),
         ),
       );
       expect(
@@ -381,16 +461,48 @@ void main() {
       // alarm the way a changed snooze length does. A reminder's ring has no
       // length to silence.
       expect(
-        alertArmSignature(context: 'alarm', fire: fireWith(), snoozeMinutes: 10, noticeLeadMinutes: 120, silenceAfterMinutes: 2),
+        alertArmSignature(
+          context: 'alarm',
+          fire: fireWith(),
+          snoozeMinutes: 10,
+          noticeLeadMinutes: 120,
+          silenceAfterMinutes: 2,
+        ),
         'alarm#system:default~clock~10~n120~s2',
       );
       expect(
-        alertArmSignature(context: 'alarm', fire: fireWith(), snoozeMinutes: 10, noticeLeadMinutes: 120, silenceAfterMinutes: 2),
-        isNot(alertArmSignature(context: 'alarm', fire: fireWith(), snoozeMinutes: 10, noticeLeadMinutes: 120, silenceAfterMinutes: 10)),
+        alertArmSignature(
+          context: 'alarm',
+          fire: fireWith(),
+          snoozeMinutes: 10,
+          noticeLeadMinutes: 120,
+          silenceAfterMinutes: 2,
+        ),
+        isNot(
+          alertArmSignature(
+            context: 'alarm',
+            fire: fireWith(),
+            snoozeMinutes: 10,
+            noticeLeadMinutes: 120,
+            silenceAfterMinutes: 10,
+          ),
+        ),
       );
       expect(
-        alertArmSignature(context: 'alarm', fire: fireWith(mode: AlertMode.notify), snoozeMinutes: 10, noticeLeadMinutes: 120, silenceAfterMinutes: 2),
-        alertArmSignature(context: 'alarm', fire: fireWith(mode: AlertMode.notify), snoozeMinutes: 10, noticeLeadMinutes: 120, silenceAfterMinutes: 10),
+        alertArmSignature(
+          context: 'alarm',
+          fire: fireWith(mode: AlertMode.notify),
+          snoozeMinutes: 10,
+          noticeLeadMinutes: 120,
+          silenceAfterMinutes: 2,
+        ),
+        alertArmSignature(
+          context: 'alarm',
+          fire: fireWith(mode: AlertMode.notify),
+          snoozeMinutes: 10,
+          noticeLeadMinutes: 120,
+          silenceAfterMinutes: 10,
+        ),
       );
     });
 
@@ -401,7 +513,13 @@ void main() {
       // every standing alarm once the asset was gone — none may stay pointed
       // at a file the new build no longer carries.
       expect(
-        alertArmSignature(context: 'alarm', fire: fireWith(), snoozeMinutes: 10, noticeLeadMinutes: 120, silenceAfterMinutes: 10),
+        alertArmSignature(
+          context: 'alarm',
+          fire: fireWith(),
+          snoozeMinutes: 10,
+          noticeLeadMinutes: 120,
+          silenceAfterMinutes: 10,
+        ),
         'alarm#system:default~clock~10~n120~s10',
       );
       // A reminder plays through a channel whose sound Android froze at
@@ -439,7 +557,15 @@ void main() {
           noticeLeadMinutes: 120,
           silenceAfterMinutes: 10,
         ),
-        isNot(alertArmSignature(context: 'alarm', fire: fireWith(), snoozeMinutes: 10, noticeLeadMinutes: 120, silenceAfterMinutes: 10)),
+        isNot(
+          alertArmSignature(
+            context: 'alarm',
+            fire: fireWith(),
+            snoozeMinutes: 10,
+            noticeLeadMinutes: 120,
+            silenceAfterMinutes: 10,
+          ),
+        ),
       );
       // Stable: equal inputs, equal token, or the diff cancels and re-arms the
       // same set on every pass.
@@ -501,23 +627,25 @@ void main() {
       nativelySnoozed: nativelySnoozed,
     );
 
-    test('an unstamped payload changes only its id, whatever the plugin says',
-        () {
-      // `payload` carries no due instant: armed before the field existed.
-      // There is nothing to compare the plugin's time with, and its page
-      // goes on drawing what it always drew — even for a ring this process
-      // knows was snoozed.
-      final reported = report(
-        payload,
-        rangAt: DateTime(2026, 9, 20, 7, 10),
-        nativelySnoozed: true,
-      );
+    test(
+      'an unstamped payload changes only its id, whatever the plugin says',
+      () {
+        // `payload` carries no due instant: armed before the field existed.
+        // There is nothing to compare the plugin's time with, and its page
+        // goes on drawing what it always drew — even for a ring this process
+        // knows was snoozed.
+        final reported = report(
+          payload,
+          rangAt: DateTime(2026, 9, 20, 7, 10),
+          nativelySnoozed: true,
+        );
 
-      expect(reported, payload.copyWith(osId: 77));
-      expect(reported.timeLabel, '07:00');
-      expect(reported.fireAtMs, isNull);
-      expect(reported.reRing, isFalse);
-    });
+        expect(reported, payload.copyWith(osId: 77));
+        expect(reported.timeLabel, '07:00');
+        expect(reported.fireAtMs, isNull);
+        expect(reported.reRing, isFalse);
+      },
+    );
 
     test('a stamped payload that rang when it was due changes only its id', () {
       expect(report(stamped, rangAt: dueAt), stamped.copyWith(osId: 77));
@@ -583,16 +711,18 @@ void main() {
       );
     });
 
-    test('a deferral inside the minute moves the instant and nothing drawn',
-        () {
-      final rangAt = DateTime(2026, 9, 20, 7, 0, 30);
-      final reported = report(stamped, rangAt: rangAt);
+    test(
+      'a deferral inside the minute moves the instant and nothing drawn',
+      () {
+        final rangAt = DateTime(2026, 9, 20, 7, 0, 30);
+        final reported = report(stamped, rangAt: rangAt);
 
-      expect(reported.fireAtMs, rangAt.millisecondsSinceEpoch);
-      expect(reported.timeLabel, '07:00');
-      // Rescued here, the caption would repeat the clock above it.
-      expect(reported.whenLabel, '');
-    });
+        expect(reported.fireAtMs, rangAt.millisecondsSinceEpoch);
+        expect(reported.timeLabel, '07:00');
+        // Rescued here, the caption would repeat the clock above it.
+        expect(reported.whenLabel, '');
+      },
+    );
 
     test('a test ring that was snoozed gains no event time', () {
       final test = AlertPayload(

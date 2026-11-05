@@ -143,31 +143,35 @@ void main() {
       },
     );
 
-    test('a delete that landed under the open sheet is not resurrected',
-        () async {
-      // C150: `_sameContent` is false for a tombstone, so every id the caller
-      // still lists fell into the update branch, which clears `is_deleted`
-      // under a fresh stamp — a pull's delete, re-upserted live by a Save
-      // that was only showing its mount-time snapshot, lost on every paired
-      // device. `knownIds` makes it exact: the caller opened on `a2`.
-      await service.replaceForEvent('e1', [alertOf('a1'), alertOf('a2')]);
-      final seeded = {for (final alert in EventAlerts.alertsFor('e1')) alert.id};
-      // The pull: `a2` is tombstoned elsewhere and the app reloads.
-      await service.replaceForEvent('e1', [alertOf('a1')]);
-      await service.reload();
-      final tombstone = await rowFor('a2');
+    test(
+      'a delete that landed under the open sheet is not resurrected',
+      () async {
+        // C150: `_sameContent` is false for a tombstone, so every id the caller
+        // still lists fell into the update branch, which clears `is_deleted`
+        // under a fresh stamp — a pull's delete, re-upserted live by a Save
+        // that was only showing its mount-time snapshot, lost on every paired
+        // device. `knownIds` makes it exact: the caller opened on `a2`.
+        await service.replaceForEvent('e1', [alertOf('a1'), alertOf('a2')]);
+        final seeded = {
+          for (final alert in EventAlerts.alertsFor('e1')) alert.id,
+        };
+        // The pull: `a2` is tombstoned elsewhere and the app reloads.
+        await service.replaceForEvent('e1', [alertOf('a1')]);
+        await service.reload();
+        final tombstone = await rowFor('a2');
 
-      // Save: the form's own set, still carrying `a2`.
-      await service.replaceForEvent('e1', [
-        alertOf('a1'),
-        alertOf('a2'),
-      ], knownIds: seeded);
+        // Save: the form's own set, still carrying `a2`.
+        await service.replaceForEvent('e1', [
+          alertOf('a1'),
+          alertOf('a2'),
+        ], knownIds: seeded);
 
-      final row = await rowFor('a2');
-      expect(row.isDeleted, isTrue);
-      expect(row.version, tombstone.version);
-      expect(row.hlcTimestamp, tombstone.hlcTimestamp);
-    });
+        final row = await rowFor('a2');
+        expect(row.isDeleted, isTrue);
+        expect(row.version, tombstone.version);
+        expect(row.hlcTimestamp, tombstone.hlcTimestamp);
+      },
+    );
 
     test('an empty list tombstones every alert of the event', () async {
       await service.replaceForEvent('e1', [alertOf('a1'), alertOf('a2')]);
@@ -619,8 +623,7 @@ void main() {
       expect((await categoryRow('c2')).isDeleted, isTrue);
     });
 
-    test('a category delete under the open sheet is not resurrected',
-        () async {
+    test('a category delete under the open sheet is not resurrected', () async {
       // C150's category half: the same update branch, one table over.
       await service.replaceForCategory('birthday', [
         categoryAlertOf('c1'),

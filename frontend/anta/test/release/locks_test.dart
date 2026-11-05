@@ -17,10 +17,12 @@ void main() {
 
   setUp(() {
     root = Directory.systemTemp.createTempSync('anta_locks');
-    Directory('${root.path}/android/gradle/wrapper')
-        .createSync(recursive: true);
-    File('${root.path}/android/gradle/wrapper/gradle-wrapper.properties')
-        .writeAsStringSync(
+    Directory(
+      '${root.path}/android/gradle/wrapper',
+    ).createSync(recursive: true);
+    File(
+      '${root.path}/android/gradle/wrapper/gradle-wrapper.properties',
+    ).writeAsStringSync(
       'distributionUrl=https\\://services.gradle.org/distributions/'
       'gradle-9.3.1-all.zip\n',
     );
@@ -28,8 +30,9 @@ void main() {
 
   tearDown(() => root.deleteSync(recursive: true));
 
-  FakeProcessRunner posixRunner() => FakeProcessRunner()
-    ..script('ps -eo pid=,command=', const RunOutcome(0, _rows, ''));
+  FakeProcessRunner posixRunner() =>
+      FakeProcessRunner()
+        ..script('ps -eo pid=,command=', const RunOutcome(0, _rows, ''));
 
   test('staleOnly keeps the wrapper-version daemon warm', () async {
     final killed = <int>[];
@@ -111,7 +114,10 @@ void main() {
     });
 
     test('the counting variant quits nothing', () {
-      expect(explorerScript(r'D:\x\build', close: false), isNot(contains('Quit')));
+      expect(
+        explorerScript(r'D:\x\build', close: false),
+        isNot(contains('Quit')),
+      );
     });
   });
 }

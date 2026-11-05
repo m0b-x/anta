@@ -1378,9 +1378,8 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
               // cards keep their instances across the keyboard animation.
               SliverToBoxAdapter(
                 child: Builder(
-                  builder: (context) => SizedBox(
-                    height: MediaQuery.viewInsetsOf(context).bottom,
-                  ),
+                  builder: (context) =>
+                      SizedBox(height: MediaQuery.viewInsetsOf(context).bottom),
                 ),
               ),
             ],

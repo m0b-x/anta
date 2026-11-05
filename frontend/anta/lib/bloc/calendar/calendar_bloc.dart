@@ -946,9 +946,7 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
     } catch (e) {
       debugPrint('[CalendarBloc] Money ledger refresh error: $e');
     }
-    unawaited(
-      _reconcileAlerts(restored.id, AlertReconcileReason.eventChanged),
-    );
+    unawaited(_reconcileAlerts(restored.id, AlertReconcileReason.eventChanged));
     _invalidateDayCache();
     final latest = state;
     if (latest is! CalendarPageLoaded) return;

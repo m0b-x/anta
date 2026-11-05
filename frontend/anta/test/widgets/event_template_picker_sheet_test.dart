@@ -72,22 +72,22 @@ void main() {
   setUp(CalendarTemplates.resetCache);
   tearDown(CalendarTemplates.resetCache);
 
-  testWidgets('offers the quick alarm above the blank event with no templates',
-      (tester) async {
-    expect(CalendarTemplates.isEmpty, isTrue, reason: 'precondition');
-    final result = await openSheet(tester);
+  testWidgets(
+    'offers the quick alarm above the blank event with no templates',
+    (tester) async {
+      expect(CalendarTemplates.isEmpty, isTrue, reason: 'precondition');
+      final result = await openSheet(tester);
 
-    final alarm = tester.getTopLeft(find.text('Alarm…'));
-    final blank = tester.getTopLeft(find.text('Blank event'));
-    expect(alarm.dy, lessThan(blank.dy));
+      final alarm = tester.getTopLeft(find.text('Alarm…'));
+      final blank = tester.getTopLeft(find.text('Blank event'));
+      expect(alarm.dy, lessThan(blank.dy));
 
-    await tester.tap(
-      find.bySemanticsIdentifier(SemanticsIds.quickAlarmRow),
-    );
-    await tester.pumpAndSettle();
+      await tester.tap(find.bySemanticsIdentifier(SemanticsIds.quickAlarmRow));
+      await tester.pumpAndSettle();
 
-    expect(result.value, isA<EventTemplateQuickAlarm>());
-  });
+      expect(result.value, isA<EventTemplateQuickAlarm>());
+    },
+  );
 
   testWidgets('the blank row still opens the form', (tester) async {
     final result = await openSheet(tester);

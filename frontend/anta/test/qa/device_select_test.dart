@@ -21,11 +21,15 @@ const SimDevice _shutdownPro = SimDevice(
   isAvailable: true,
 );
 
-const AdbDevice _emulator = AdbDevice('emulator-5554', 'device', 'sdk_gphone64');
+const AdbDevice _emulator = AdbDevice(
+  'emulator-5554',
+  'device',
+  'sdk_gphone64',
+);
 
 Matcher _failsWith(String fragment) => throwsA(
-      isA<DeviceFailure>().having((e) => e.message, 'message', contains(fragment)),
-    );
+  isA<DeviceFailure>().having((e) => e.message, 'message', contains(fragment)),
+);
 
 void main() {
   group('selectDevice without a hint', () {

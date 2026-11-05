@@ -8,7 +8,8 @@ import '../../tool/qa/src/errors.dart';
 import '../../tool/qa/src/paths.dart';
 import '../../tool/qa/src/shots.dart';
 
-Future<List<int>> Function() _shotOf(List<int> png) => () async => png;
+Future<List<int>> Function() _shotOf(List<int> png) =>
+    () async => png;
 
 Uint8List _png(int width, int height) =>
     img.encodePng(img.Image(width: width, height: height));
@@ -27,7 +28,10 @@ void main() {
   group('shotStamp and sanitiseName', () {
     test('the stamp sorts chronologically as a file name', () {
       expect(shotStamp(DateTime(2026, 9, 13, 17, 4, 5)), '20260913_170405_000');
-      expect(shotStamp(DateTime(2026, 1, 2, 3, 4, 5, 7)), '20260102_030405_007');
+      expect(
+        shotStamp(DateTime(2026, 1, 2, 3, 4, 5, 7)),
+        '20260102_030405_007',
+      );
     });
 
     test('two shots in one second do not share a stamp', () {
@@ -74,8 +78,11 @@ void main() {
     test("a pass's scale writes the device's PNG byte for byte", () async {
       final png = _png(200, 400);
       final path = await captureShot(_shotOf(png), paths, scale: passShotScale);
-      expect(File(path).readAsBytesSync(), png,
-          reason: 'no decode, resize or encode is what makes a pass shot cheap');
+      expect(
+        File(path).readAsBytesSync(),
+        png,
+        reason: 'no decode, resize or encode is what makes a pass shot cheap',
+      );
       expect(defaultShotScale, 0.5);
     });
 
@@ -91,10 +98,14 @@ void main() {
 
     test('rejects a scale outside (0, 1]', () async {
       final device = _shotOf(_png(100, 100));
-      expect(() => captureShot(device, paths, scale: 0),
-          throwsA(isA<UsageFailure>()));
-      expect(() => captureShot(device, paths, scale: 1.5),
-          throwsA(isA<UsageFailure>()));
+      expect(
+        () => captureShot(device, paths, scale: 0),
+        throwsA(isA<UsageFailure>()),
+      );
+      expect(
+        () => captureShot(device, paths, scale: 1.5),
+        throwsA(isA<UsageFailure>()),
+      );
     });
 
     test('an empty screencap is a device failure', () async {

@@ -297,10 +297,8 @@ class AlertPayload extends Equatable {
   bool get isTest => eventId == testEventId;
 
   /// The occurrence day, rebuilt as the date-only UTC day it was stored as.
-  DateTime get dayUtc => DateTime.fromMillisecondsSinceEpoch(
-    dayUtcMs,
-    isUtc: true,
-  );
+  DateTime get dayUtc =>
+      DateTime.fromMillisecondsSinceEpoch(dayUtcMs, isUtc: true);
 
   bool get isAlarm => mode == AlertMode.ring;
 
@@ -456,8 +454,7 @@ class AlertPayload extends Equatable {
       categoryId: map[AlertPayloadKeys.categoryId] is String
           ? map[AlertPayloadKeys.categoryId] as String
           : CalendarCategories.fallback.id,
-      removeAfterAlert:
-          map[AlertPayloadKeys.removeAfterAlert] == true,
+      removeAfterAlert: map[AlertPayloadKeys.removeAfterAlert] == true,
       snooze: map[AlertPayloadKeys.snooze] == true,
       snoozeMinutes: map[AlertPayloadKeys.snoozeMinutes] is int
           ? (map[AlertPayloadKeys.snoozeMinutes] as int).clamp(

@@ -110,6 +110,7 @@ void main() {
       switched++;
       seen.add(database);
     }
+
     DatabaseLifecycle.registerSwitchedHandler(onSwitched);
     DatabaseLifecycle.registerSwitchedHandler(onSwitched);
     addTearDown(() => DatabaseLifecycle.unregisterSwitchedHandler(onSwitched));

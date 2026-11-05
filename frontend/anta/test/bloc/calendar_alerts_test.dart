@@ -380,37 +380,40 @@ void main() {
       },
     );
 
-    test("resolves to nothing when a recurring event's alert is gone or off", () {
-      // A notice for an alert since deleted or switched off must not cancel
-      // the whole occurrence.
-      final event = eventOf(rule: const DailyRecurrence());
-      final payload = payloadFor(event, DateTime.utc(2026, 9, 22));
-      final today = DateTime.utc(2026, 9, 22);
+    test(
+      "resolves to nothing when a recurring event's alert is gone or off",
+      () {
+        // A notice for an alert since deleted or switched off must not cancel
+        // the whole occurrence.
+        final event = eventOf(rule: const DailyRecurrence());
+        final payload = payloadFor(event, DateTime.utc(2026, 9, 22));
+        final today = DateTime.utc(2026, 9, 22);
 
-      EventAlerts.updateCache(byEvent: const {});
-      expect(
-        AlertSkipAction.resolve(event: event, payload: payload, today: today),
-        isNull,
-      );
-      EventAlerts.updateCache(
-        byEvent: {
-          event.id: [alarmOf(event).copyWith(enabled: false)],
-        },
-      );
-      expect(
-        AlertSkipAction.resolve(event: event, payload: payload, today: today),
-        isNull,
-      );
-      EventAlerts.updateCache(
-        byEvent: {
-          event.id: [alarmOf(event)],
-        },
-      );
-      expect(
-        AlertSkipAction.resolve(event: event, payload: payload, today: today),
-        isNotNull,
-      );
-    });
+        EventAlerts.updateCache(byEvent: const {});
+        expect(
+          AlertSkipAction.resolve(event: event, payload: payload, today: today),
+          isNull,
+        );
+        EventAlerts.updateCache(
+          byEvent: {
+            event.id: [alarmOf(event).copyWith(enabled: false)],
+          },
+        );
+        expect(
+          AlertSkipAction.resolve(event: event, payload: payload, today: today),
+          isNull,
+        );
+        EventAlerts.updateCache(
+          byEvent: {
+            event.id: [alarmOf(event)],
+          },
+        );
+        expect(
+          AlertSkipAction.resolve(event: event, payload: payload, today: today),
+          isNotNull,
+        );
+      },
+    );
 
     test(
       "resolves to nothing when a one-time event's alert is gone or off",

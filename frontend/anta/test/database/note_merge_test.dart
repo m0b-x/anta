@@ -232,10 +232,7 @@ void main() {
     test('is named above the floor', () async {
       final local = await seed(body: 'edited after the unbind');
 
-      final outcome = await merge(
-        remote(local.id, newerHlc),
-        floor: olderHlc,
-      );
+      final outcome = await merge(remote(local.id, newerHlc), floor: olderHlc);
 
       expect(outcome.loserContent, 'edited after the unbind');
     });

@@ -147,10 +147,7 @@ void main() {
       await service.markSkipped('e1', otherDay);
       await service.unskip('e1', otherDay);
 
-      expect(
-        await service.setSkips('e1', {otherDay, thirdDay}),
-        isTrue,
-      );
+      expect(await service.setSkips('e1', {otherDay, thirdDay}), isTrue);
 
       expect(EventSkips.daysFor('e1'), {otherDay, thirdDay});
       final rows = await allRows();

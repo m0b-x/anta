@@ -254,10 +254,7 @@ class _Pusher {
   /// A denied push is believed only after the space is read (record §3.5):
   /// gone or unreadable is `noAccess`, a newer schema is `appOutdated`;
   /// otherwise the rules refused a row, which the caller isolates.
-  Future<void> _diagnose(
-    SyncBinding bound,
-    SyncGatewayException denied,
-  ) async {
+  Future<void> _diagnose(SyncBinding bound, SyncGatewayException denied) async {
     final SyncSpaceInfo? info;
     try {
       info = await _e._gateway.readSpace(_e._spaceOf(bound));

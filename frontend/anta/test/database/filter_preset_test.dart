@@ -130,7 +130,10 @@ void main() {
       final after = await db
           .customSelect('SELECT version FROM calendar_filter_presets')
           .get();
-      expect(after.single.read<int>('version'), raw.single.read<int>('version'));
+      expect(
+        after.single.read<int>('version'),
+        raw.single.read<int>('version'),
+      );
     });
 
     /// Ids are caller-supplied and a re-imported id must not collide, so an

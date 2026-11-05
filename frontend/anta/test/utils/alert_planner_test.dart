@@ -166,10 +166,7 @@ void main() {
 
   group('all-day events', () {
     test('days before and an explicit minute', () {
-      final event = eventOf(
-        startDate: DateTime.utc(2026, 9, 20),
-        time: null,
-      );
+      final event = eventOf(startDate: DateTime.utc(2026, 9, 20), time: null);
       final plan = planOf(
         events: [event],
         alerts: {
@@ -185,10 +182,7 @@ void main() {
     });
 
     test('a null dayMinute takes the settings default', () {
-      final event = eventOf(
-        startDate: DateTime.utc(2026, 9, 20),
-        time: null,
-      );
+      final event = eventOf(startDate: DateTime.utc(2026, 9, 20), time: null);
       final plan = planOf(
         events: [event],
         alerts: {
@@ -203,10 +197,7 @@ void main() {
     });
 
     test('a null dayMinute falls back to 09:00 with no default set', () {
-      final event = eventOf(
-        startDate: DateTime.utc(2026, 9, 20),
-        time: null,
-      );
+      final event = eventOf(startDate: DateTime.utc(2026, 9, 20), time: null);
       final plan = AlertPlanner.plan(
         events: [event],
         alertsByEvent: {
@@ -231,8 +222,12 @@ void main() {
       // One alert carrying *both* offset sets, planned twice: once for a timed
       // event and once for the same event flipped to all-day. Nothing is
       // rewritten between the two, which is the whole reason both are stored.
-      final alert = alertOf('a1', offsetMinutes: 30, daysBefore: 1,
-          dayMinute: 18 * 60);
+      final alert = alertOf(
+        'a1',
+        offsetMinutes: 30,
+        daysBefore: 1,
+        dayMinute: 18 * 60,
+      );
       final timed = eventOf(startDate: DateTime.utc(2026, 9, 20));
       final allDay = timed.copyWith(clearTime: true);
 
@@ -274,10 +269,10 @@ void main() {
         now: DateTime(2026, 9, 15, 12),
       );
 
-      expect(
-        plan.map((fire) => fire.day),
-        [DateTime.utc(2026, 9, 16), DateTime.utc(2026, 9, 18)],
-      );
+      expect(plan.map((fire) => fire.day), [
+        DateTime.utc(2026, 9, 16),
+        DateTime.utc(2026, 9, 18),
+      ]);
     });
 
     test('a skipped occurrence is never planned', () {
@@ -298,10 +293,10 @@ void main() {
         now: DateTime(2026, 9, 15, 12),
       );
 
-      expect(
-        plan.map((fire) => fire.day),
-        [DateTime.utc(2026, 9, 18), DateTime.utc(2026, 9, 21)],
-      );
+      expect(plan.map((fire) => fire.day), [
+        DateTime.utc(2026, 9, 18),
+        DateTime.utc(2026, 9, 21),
+      ]);
     });
 
     test('a cancelled one-off is never planned', () {
@@ -389,10 +384,12 @@ void main() {
 
       // Two alerts × two occurrence days each, never four days of one alert.
       expect(plan, hasLength(4));
-      expect(
-        plan.map((fire) => '${fire.alert.id}@${fire.day.day}').toSet(),
-        {'a1@16', 'a1@17', 'a2@16', 'a2@17'},
-      );
+      expect(plan.map((fire) => '${fire.alert.id}@${fire.day.day}').toSet(), {
+        'a1@16',
+        'a1@17',
+        'a2@16',
+        'a2@17',
+      });
     });
 
     test('days bounds the walk', () {
@@ -424,8 +421,7 @@ void main() {
           ),
       ];
       final alerts = {
-        for (var i = 0; i < 5; i++)
-          'e$i': [alertOf('a$i', eventId: 'e$i')],
+        for (var i = 0; i < 5; i++) 'e$i': [alertOf('a$i', eventId: 'e$i')],
       };
       final plan = planOf(
         events: events,
@@ -455,10 +451,7 @@ void main() {
 
       expect(plan, hasLength(5));
       // Soonest first: the largest offset fires earliest.
-      expect(
-        plan.map((fire) => fire.alert.id),
-        ['a4', 'a3', 'a2', 'a1', 'a0'],
-      );
+      expect(plan.map((fire) => fire.alert.id), ['a4', 'a3', 'a2', 'a1', 'a0']);
     });
   });
 
@@ -521,10 +514,10 @@ void main() {
         now: DateTime(2026, 9, 15, 12),
       );
 
-      expect(
-        plan.map((fire) => fire.day),
-        [DateTime.utc(2026, 9, 21), DateTime.utc(2026, 9, 28)],
-      );
+      expect(plan.map((fire) => fire.day), [
+        DateTime.utc(2026, 9, 21),
+        DateTime.utc(2026, 9, 28),
+      ]);
       expect(CalendarEvent.debugOccursOnCalls, 2);
     });
 
@@ -550,10 +543,10 @@ void main() {
         now: DateTime(2026, 9, 15, 12),
       );
 
-      expect(
-        plan.map((fire) => fire.day),
-        [DateTime.utc(2026, 9, 20), DateTime.utc(2026, 9, 25)],
-      );
+      expect(plan.map((fire) => fire.day), [
+        DateTime.utc(2026, 9, 20),
+        DateTime.utc(2026, 9, 25),
+      ]);
       expect(CalendarEvent.debugOccursOnCalls, 2);
     });
 
@@ -573,10 +566,10 @@ void main() {
         now: DateTime(2026, 9, 15, 12),
       );
 
-      expect(
-        plan.map((fire) => fire.day),
-        [DateTime.utc(2026, 9, 16), DateTime.utc(2026, 9, 17)],
-      );
+      expect(plan.map((fire) => fire.day), [
+        DateTime.utc(2026, 9, 16),
+        DateTime.utc(2026, 9, 17),
+      ]);
       expect(CalendarEvent.debugOccursOnCalls, 3);
     });
   });
@@ -620,8 +613,7 @@ void main() {
       DateTime.utc(2026, 3, 8),
       DateTime.utc(2026, 11, 1),
     ]) {
-      test('a 07:00 timed alert fires at 07:00 on ${date.toIso8601String()}',
-          () {
+      test('a 07:00 timed alert fires at 07:00 on ${date.toIso8601String()}', () {
         final event = eventOf(
           startDate: date,
           time: const EventTime(startMinute: 7 * 60),

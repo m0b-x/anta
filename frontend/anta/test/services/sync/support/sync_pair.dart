@@ -50,10 +50,7 @@ class SyncDevice {
   final StatementCounter statements;
   final SettingsService settings;
   final SyncBindingService binding;
-  late final SyncStatusService status = SyncStatusService.detached(
-    db,
-    binding,
-  );
+  late final SyncStatusService status = SyncStatusService.detached(db, binding);
   final RecordingSyncApplyHooks hooks = RecordingSyncApplyHooks();
   final ManualSyncScheduler scheduler = ManualSyncScheduler();
   final StreamController<AppUser?> auth = StreamController.broadcast();
@@ -226,11 +223,12 @@ class SyncPair {
     for (final binding in syncTableBindings) {
       final synced = syncedTables.singleWhere((t) => t.name == binding.table);
       final keys = [
-        for (final row in await device.db
-            .customSelect(
-              'SELECT ${synced.rowKeySql} AS k FROM ${binding.table}',
-            )
-            .get())
+        for (final row
+            in await device.db
+                .customSelect(
+                  'SELECT ${synced.rowKeySql} AS k FROM ${binding.table}',
+                )
+                .get())
           row.read<String>('k'),
       ];
       if (keys.isEmpty) continue;

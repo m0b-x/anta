@@ -727,9 +727,7 @@ void main() {
       tester,
     ) async {
       String? edited;
-      final summary = window.copyWith(
-        eventDisplay: AgendaEventDisplay.summary,
-      );
+      final summary = window.copyWith(eventDisplay: AgendaEventDisplay.summary);
       await pumpView(
         tester,
         anchorDay: anchor,
@@ -760,9 +758,7 @@ void main() {
     testWidgets('a pencil on a row this view no longer lists still reaches '
         'the caller', (tester) async {
       final edits = <String>[];
-      final summary = window.copyWith(
-        eventDisplay: AgendaEventDisplay.summary,
-      );
+      final summary = window.copyWith(eventDisplay: AgendaEventDisplay.summary);
       await pumpView(
         tester,
         anchorDay: anchor,
@@ -862,9 +858,7 @@ void main() {
       tester,
     ) async {
       publishGym(0xFF1E88E5);
-      final summary = window.copyWith(
-        eventDisplay: AgendaEventDisplay.summary,
-      );
+      final summary = window.copyWith(eventDisplay: AgendaEventDisplay.summary);
       await pumpView(tester, anchorDay: anchor, filters: summary);
       expect(avatarColorOf(tester, 'Gym'), const Color(0xFF1E88E5));
 
@@ -1250,7 +1244,10 @@ void main() {
     testWidgets('the text query excludes a past occurrence too', (
       tester,
     ) async {
-      final dayList = await openThisYear(tester, summary.copyWith(query: 'leg'));
+      final dayList = await openThisYear(
+        tester,
+        summary.copyWith(query: 'leg'),
+      );
 
       expect(dayList.announcesTile('${januaryTile()}, 31 entries'), isTrue);
 
@@ -1416,7 +1413,10 @@ void main() {
         await dayList.tapDay(14);
         await dayList.scrollMonthBody();
 
-        expect(dayList.entryOpacity('Leg day'), CalendarColors.missedEventAlpha);
+        expect(
+          dayList.entryOpacity('Leg day'),
+          CalendarColors.missedEventAlpha,
+        );
       },
     );
 

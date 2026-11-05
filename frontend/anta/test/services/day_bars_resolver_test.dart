@@ -291,7 +291,10 @@ void main() {
         showMoney: false,
       );
 
-      expect(all.providers.whereType<PublicHolidayDayBarProvider>(), isNotEmpty);
+      expect(
+        all.providers.whereType<PublicHolidayDayBarProvider>(),
+        isNotEmpty,
+      );
       expect(all.providers.whereType<FastingDayBarProvider>(), isNotEmpty);
       expect(all.providers.whereType<MoneyDayBarProvider>(), isNotEmpty);
 

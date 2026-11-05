@@ -40,15 +40,18 @@ void main() {
       }
     });
 
-    test('the empty string is the phone default, spelled the long way back', () {
-      // `''` is what the setting ships with and what older builds wrote for
-      // the sound the app used to bundle. Both read as the phone's default,
-      // and writing that back normalises it to the literal.
-      final decoded = AlertSound.decode('');
+    test(
+      'the empty string is the phone default, spelled the long way back',
+      () {
+        // `''` is what the setting ships with and what older builds wrote for
+        // the sound the app used to bundle. Both read as the phone's default,
+        // and writing that back normalises it to the literal.
+        final decoded = AlertSound.decode('');
 
-      expect(decoded, isA<AlertSoundSystemDefault>());
-      expect(decoded.stored, AlertSound.systemDefaultValue);
-    });
+        expect(decoded, isA<AlertSoundSystemDefault>());
+        expect(decoded.stored, AlertSound.systemDefaultValue);
+      },
+    );
 
     test('everything unreadable is the phone default, never an exception', () {
       const garbage = <String>[

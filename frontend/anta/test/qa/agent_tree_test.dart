@@ -18,65 +18,82 @@ Map<String, Object?> _node(
   String id = '',
   List<int> rect = const [0, 0, 100, 100],
   List<String> flags = const [],
-}) =>
-    {
-      AgentNodeKeys.index: index,
-      AgentNodeKeys.parent: parent,
-      AgentNodeKeys.depth: depth,
-      AgentNodeKeys.label: label,
-      AgentNodeKeys.value: value,
-      AgentNodeKeys.hint: hint,
-      AgentNodeKeys.tooltip: tooltip,
-      AgentNodeKeys.identifier: id,
-      AgentNodeKeys.rect: rect,
-      AgentNodeKeys.flags: flags,
-    };
+}) => {
+  AgentNodeKeys.index: index,
+  AgentNodeKeys.parent: parent,
+  AgentNodeKeys.depth: depth,
+  AgentNodeKeys.label: label,
+  AgentNodeKeys.value: value,
+  AgentNodeKeys.hint: hint,
+  AgentNodeKeys.tooltip: tooltip,
+  AgentNodeKeys.identifier: id,
+  AgentNodeKeys.rect: rect,
+  AgentNodeKeys.flags: flags,
+};
 
 String _dump(List<Map<String, Object?>> nodes) => jsonEncode({
-      AgentKeys.ok: true,
-      AgentKeys.dpr: 3.0,
-      AgentKeys.width: 1320,
-      AgentKeys.height: 2868,
-      AgentKeys.nodes: [
-        _node(0, parent: -1, depth: 0, rect: [0, 0, 1320, 2868]),
-        ...nodes,
-      ],
-    });
+  AgentKeys.ok: true,
+  AgentKeys.dpr: 3.0,
+  AgentKeys.width: 1320,
+  AgentKeys.height: 2868,
+  AgentKeys.nodes: [
+    _node(0, parent: -1, depth: 0, rect: [0, 0, 1320, 2868]),
+    ...nodes,
+  ],
+});
 
 void main() {
   group('UiTree.fromAgentJson', () {
-    test('maps label, tooltip, value and identifier like the Android bridge', () {
-      final tree = UiTree.fromAgentJson(
-        _dump([
-          _node(1, tooltip: 'Search all notes', id: 'search-open',
-              rect: [992, 156, 1136, 300], flags: [AgentFlags.click, AgentFlags.button]),
-          _node(2, label: 'All notes\n3', id: 'drawer-all-notes',
-              rect: [0, 462, 1320, 609], flags: [AgentFlags.click]),
-          _node(3, label: 'Query', value: 'squat', hint: 'Search',
+    test(
+      'maps label, tooltip, value and identifier like the Android bridge',
+      () {
+        final tree = UiTree.fromAgentJson(
+          _dump([
+            _node(
+              1,
+              tooltip: 'Search all notes',
+              id: 'search-open',
+              rect: [992, 156, 1136, 300],
+              flags: [AgentFlags.click, AgentFlags.button],
+            ),
+            _node(
+              2,
+              label: 'All notes\n3',
+              id: 'drawer-all-notes',
+              rect: [0, 462, 1320, 609],
+              flags: [AgentFlags.click],
+            ),
+            _node(
+              3,
+              label: 'Query',
+              value: 'squat',
+              hint: 'Search',
               rect: [0, 0, 500, 80],
-              flags: [AgentFlags.textField, AgentFlags.focused]),
-        ]),
-        appPackage: 'com.alexzamfir.anta',
-      );
-      expect(tree.source, UiTreeSource.agent);
-      expect(tree.nodes, hasLength(4));
-      final search = tree.byIndex(1)!;
-      expect(search.contentDesc, 'Search all notes');
-      expect(search.shortId, 'search-open');
-      expect(search.shortClass, 'Button');
-      expect(search.clickable, isTrue);
-      expect(search.bounds.centreX, 1064);
-      final row = tree.byIndex(2)!;
-      expect(row.label, 'All notes\n3');
-      expect(row.shortClass, 'View');
-      final field = tree.byIndex(3)!;
-      expect(field.shortClass, 'EditText');
-      expect(field.text, 'squat');
-      expect(field.hint, 'Search');
-      expect(field.focused, isTrue);
-      expect(field.describe(), contains('hint="Search"'));
-      expect(tree.foregroundPackage, 'com.alexzamfir.anta');
-    });
+              flags: [AgentFlags.textField, AgentFlags.focused],
+            ),
+          ]),
+          appPackage: 'com.alexzamfir.anta',
+        );
+        expect(tree.source, UiTreeSource.agent);
+        expect(tree.nodes, hasLength(4));
+        final search = tree.byIndex(1)!;
+        expect(search.contentDesc, 'Search all notes');
+        expect(search.shortId, 'search-open');
+        expect(search.shortClass, 'Button');
+        expect(search.clickable, isTrue);
+        expect(search.bounds.centreX, 1064);
+        final row = tree.byIndex(2)!;
+        expect(row.label, 'All notes\n3');
+        expect(row.shortClass, 'View');
+        final field = tree.byIndex(3)!;
+        expect(field.shortClass, 'EditText');
+        expect(field.text, 'squat');
+        expect(field.hint, 'Search');
+        expect(field.focused, isTrue);
+        expect(field.describe(), contains('hint="Search"'));
+        expect(tree.foregroundPackage, 'com.alexzamfir.anta');
+      },
+    );
 
     test('a label and a tooltip that differ are joined the Android way', () {
       final tree = UiTree.fromAgentJson(
@@ -86,34 +103,49 @@ void main() {
       expect(tree.byIndex(1)!.contentDesc, 'Inbox\nOpen folder');
     });
 
-    test('hidden nodes stay in the tree but out of the interesting listing', () {
-      final tree = UiTree.fromAgentJson(
-        _dump([
-          _node(1, label: 'Visible row', flags: [AgentFlags.click]),
-          _node(2, label: 'Scrolled away',
-              rect: [0, 3000, 1320, 3100], flags: [AgentFlags.click, AgentFlags.hidden]),
-        ]),
-        appPackage: 'x',
-      );
-      expect(tree.byIndex(2)!.hidden, isTrue);
-      expect(tree.byIndex(2)!.interesting, isFalse);
-      expect(tree.byIndex(2)!.flags, contains('hidden'));
-      expect(tree.interestingLabels(), ['Visible row']);
-      final resolved = TargetResolver(tree).resolve('Scrolled away');
-      expect(resolved.node!.hidden, isTrue);
-    });
+    test(
+      'hidden nodes stay in the tree but out of the interesting listing',
+      () {
+        final tree = UiTree.fromAgentJson(
+          _dump([
+            _node(1, label: 'Visible row', flags: [AgentFlags.click]),
+            _node(
+              2,
+              label: 'Scrolled away',
+              rect: [0, 3000, 1320, 3100],
+              flags: [AgentFlags.click, AgentFlags.hidden],
+            ),
+          ]),
+          appPackage: 'x',
+        );
+        expect(tree.byIndex(2)!.hidden, isTrue);
+        expect(tree.byIndex(2)!.interesting, isFalse);
+        expect(tree.byIndex(2)!.flags, contains('hidden'));
+        expect(tree.interestingLabels(), ['Visible row']);
+        final resolved = TargetResolver(tree).resolve('Scrolled away');
+        expect(resolved.node!.hidden, isTrue);
+      },
+    );
 
     test('flags map onto the uiautomator vocabulary', () {
       final tree = UiTree.fromAgentJson(
         _dump([
-          _node(1, label: 'Dark mode', flags: [
-            AgentFlags.click,
-            AgentFlags.checkable,
-            AgentFlags.checked,
-            AgentFlags.toggle,
-          ]),
+          _node(
+            1,
+            label: 'Dark mode',
+            flags: [
+              AgentFlags.click,
+              AgentFlags.checkable,
+              AgentFlags.checked,
+              AgentFlags.toggle,
+            ],
+          ),
           _node(2, label: 'List', flags: [AgentFlags.scroll]),
-          _node(3, label: 'Off', flags: [AgentFlags.disabled, AgentFlags.selected, AgentFlags.long]),
+          _node(
+            3,
+            label: 'Off',
+            flags: [AgentFlags.disabled, AgentFlags.selected, AgentFlags.long],
+          ),
         ]),
         appPackage: 'x',
       );
@@ -138,7 +170,10 @@ void main() {
     });
 
     test('an agent dump without ids (a v1 agent) leaves them null', () {
-      final tree = UiTree.fromAgentJson(_dump([_node(1, label: 'Row')]), appPackage: 'x');
+      final tree = UiTree.fromAgentJson(
+        _dump([_node(1, label: 'Row')]),
+        appPackage: 'x',
+      );
       expect(tree.byIndex(1)!.semanticsId, isNull);
       expect(tree.byIndex(1)!.toJson().containsKey('semanticsId'), isFalse);
     });
@@ -157,7 +192,10 @@ void main() {
 
   group('classForAgentFlags', () {
     test('picks the most specific role', () {
-      expect(UiTree.classForAgentFlags({AgentFlags.textField, AgentFlags.click}), 'EditText');
+      expect(
+        UiTree.classForAgentFlags({AgentFlags.textField, AgentFlags.click}),
+        'EditText',
+      );
       expect(UiTree.classForAgentFlags({AgentFlags.button}), 'Button');
       expect(UiTree.classForAgentFlags({AgentFlags.checkable}), 'CheckBox');
       expect(UiTree.classForAgentFlags({AgentFlags.header}), 'Header');
@@ -170,9 +208,13 @@ void main() {
 
   group('parseDumpText', () {
     test('detects the agent JSON and falls back to XML', () {
-      final json = parseDumpText(_dump([_node(1, label: 'x')]), appPackage: 'pkg');
+      final json = parseDumpText(
+        _dump([_node(1, label: 'x')]),
+        appPackage: 'pkg',
+      );
       expect(json.source, UiTreeSource.agent);
-      const xml = '<?xml version="1.0"?><hierarchy rotation="0">'
+      const xml =
+          '<?xml version="1.0"?><hierarchy rotation="0">'
           '<node index="0" text="" class="android.widget.FrameLayout" '
           'package="com.alexzamfir.anta" content-desc="" bounds="[0,0][100,100]" '
           'clickable="false" enabled="true" scrollable="false" /></hierarchy>';

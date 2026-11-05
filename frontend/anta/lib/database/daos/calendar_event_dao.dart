@@ -221,9 +221,7 @@ class CalendarEventDao extends DatabaseAccessor<AppDatabase>
   /// The stamp [upsert] writes under: its own, queued by [CrdtWrite], or the
   /// cascade's, which [restoreEventCascade] has already queued.
   Future<CrdtStamp> _stampFor(String id, CrdtStamp? shared) =>
-      shared == null
-      ? db.stampLocal(calendarEvents, id)
-      : Future.value(shared);
+      shared == null ? db.stampLocal(calendarEvents, id) : Future.value(shared);
 
   Future<void> _tombstone(String id, CrdtStamp stamp) async {
     final existing = await _byId(id);

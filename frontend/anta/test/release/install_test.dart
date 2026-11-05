@@ -4,14 +4,18 @@ import '../../tool/qa/src/adb.dart';
 import '../../tool/qa/src/errors.dart';
 import '../../tool/release/src/install.dart';
 
-const String _mismatch = 'adb: failed to install app-release.apk: Failure '
+const String _mismatch =
+    'adb: failed to install app-release.apk: Failure '
     '[INSTALL_FAILED_UPDATE_INCOMPATIBLE: Existing package com.alexzamfir.anta '
     'signatures do not match newer version; ignoring!]';
 
 void main() {
   group('classifyInstallFailure', () {
     test('a signature mismatch is the Mac-built APK over the Windows app', () {
-      expect(classifyInstallFailure(_mismatch), InstallProblem.signatureMismatch);
+      expect(
+        classifyInstallFailure(_mismatch),
+        InstallProblem.signatureMismatch,
+      );
     });
 
     test('the other adb verdicts map one to one', () {
@@ -71,7 +75,9 @@ void main() {
     test('an emulator alone is fine', () {
       expect(
         selectInstallSerial(
-          devices: parseDevices('List of devices attached\nemulator-5554\tdevice\n'),
+          devices: parseDevices(
+            'List of devices attached\nemulator-5554\tdevice\n',
+          ),
         ),
         'emulator-5554',
       );
@@ -80,18 +86,26 @@ void main() {
     test('two phones need -d', () {
       expect(
         () => selectInstallSerial(
-          devices: parseDevices('List of devices attached\nA\tdevice\nB\tdevice\n'),
+          devices: parseDevices(
+            'List of devices attached\nA\tdevice\nB\tdevice\n',
+          ),
         ),
         throwsA(
-          isA<DeviceFailure>()
-              .having((e) => e.message, 'message', contains('-d <serial>')),
+          isA<DeviceFailure>().having(
+            (e) => e.message,
+            'message',
+            contains('-d <serial>'),
+          ),
         ),
       );
     });
 
     test('an explicit serial must be attached and usable', () {
       expect(
-        selectInstallSerial(explicit: 'emulator-5554', devices: phoneAndEmulator),
+        selectInstallSerial(
+          explicit: 'emulator-5554',
+          devices: phoneAndEmulator,
+        ),
         'emulator-5554',
       );
       expect(
@@ -104,8 +118,11 @@ void main() {
           devices: parseDevices('List of devices attached\nX\tunauthorized\n'),
         ),
         throwsA(
-          isA<DeviceFailure>()
-              .having((e) => e.message, 'message', contains('unauthorized')),
+          isA<DeviceFailure>().having(
+            (e) => e.message,
+            'message',
+            contains('unauthorized'),
+          ),
         ),
       );
     });
@@ -114,8 +131,11 @@ void main() {
       expect(
         () => selectInstallSerial(devices: const []),
         throwsA(
-          isA<DeviceFailure>()
-              .having((e) => e.message, 'message', contains('USB debugging')),
+          isA<DeviceFailure>().having(
+            (e) => e.message,
+            'message',
+            contains('USB debugging'),
+          ),
         ),
       );
     });

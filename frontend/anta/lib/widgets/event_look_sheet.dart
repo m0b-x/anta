@@ -262,7 +262,9 @@ class _IconRow extends FormDividedRow {
             children: [
               EventAvatar(icon: icon, color: color),
               const SizedBox(width: FormMetrics.gap),
-              Expanded(child: FormLabelValue(label: label, value: value)),
+              Expanded(
+                child: FormLabelValue(label: label, value: value),
+              ),
               if (button == null) ...[
                 const SizedBox(width: FormMetrics.gap),
                 const FormChevron(),

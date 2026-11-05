@@ -229,9 +229,13 @@ void main() {
       expect(k.caret, 0);
       // The keyboard removed `(` alone; without this push it would still
       // hold `)` and its next key would edit text that is gone.
-      final pushed = tester.testTextInput.log
-          .lastWhere((call) => call.method == 'TextInput.setEditingState')
-          .arguments as Map;
+      final pushed =
+          tester.testTextInput.log
+                  .lastWhere(
+                    (call) => call.method == 'TextInput.setEditingState',
+                  )
+                  .arguments
+              as Map;
       expect(pushed['text'], '​');
       expect(pushed['selectionBase'], 1);
       expect(pushed['selectionExtent'], 1);
@@ -347,7 +351,10 @@ class _Keyboard {
 
   /// [composing] is in the input method's view (the prefix at 0), as a
   /// keyboard that composes a word sends it.
-  Future<void> type(String text, {TextRange composing = TextRange.empty}) async {
+  Future<void> type(
+    String text, {
+    TextRange composing = TextRange.empty,
+  }) async {
     final selection = controller.selection;
     final start = selection.startOffset + 1;
     final end = selection.endOffset + 1;

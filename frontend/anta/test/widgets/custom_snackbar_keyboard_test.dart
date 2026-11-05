@@ -116,7 +116,8 @@ void main() {
       expect(
         find.byType(OverlaySnackbarBody),
         findsOneWidget,
-        reason: 'a page that lays itself out around the IME raises its bars '
+        reason:
+            'a page that lays itself out around the IME raises its bars '
             'in the overlay, the road that can follow the keyboard',
       );
       expect(find.byType(SnackBar), findsNothing);
@@ -147,7 +148,8 @@ void main() {
     expect(
       barRect(tester).bottom,
       closeTo(screenHeight - navBar - AppSpacing.lg, 0.01),
-      reason: 'with the IME gone only the navigation bar and the margin '
+      reason:
+          'with the IME gone only the navigation bar and the margin '
           'separate the pill from the bottom of the screen',
     );
 
@@ -473,10 +475,7 @@ void main() {
     for (final resize in [false, true]) {
       final road = resize ? 'the Scaffold road' : 'the overlay road';
 
-      Future<void> showAction(
-        WidgetTester tester, {
-        Duration? duration,
-      }) async {
+      Future<void> showAction(WidgetTester tester, {Duration? duration}) async {
         sizeSurface(tester);
         await pumpHost(
           tester,

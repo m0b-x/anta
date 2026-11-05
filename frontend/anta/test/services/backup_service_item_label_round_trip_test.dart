@@ -76,9 +76,7 @@ void main() {
     expect(result.success, isTrue, reason: 'error: ${result.error}');
 
     final folders = await db.folderDao.getAllFolders(includeDeleted: false);
-    final restoredFolders = folders.where(
-      (f) => f.name == 'Labelled folder',
-    );
+    final restoredFolders = folders.where((f) => f.name == 'Labelled folder');
     expect(restoredFolders, hasLength(2), reason: 'import appends a copy');
     expect(
       restoredFolders.every(

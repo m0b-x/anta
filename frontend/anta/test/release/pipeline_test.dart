@@ -8,10 +8,11 @@ const Toolchain _tools = Toolchain(flutter: 'flutter', dart: 'dart');
 void main() {
   test('the default build is incremental: codegen, l10n, then the APK', () {
     final steps = planBuild(const BuildOptions(), _tools);
-    expect(
-      steps.map((s) => s.kind),
-      [StepKind.codegen, StepKind.l10n, StepKind.buildApk],
-    );
+    expect(steps.map((s) => s.kind), [
+      StepKind.codegen,
+      StepKind.l10n,
+      StepKind.buildApk,
+    ]);
     expect(
       steps.last.line,
       'flutter build apk --release --obfuscate '
@@ -34,34 +35,54 @@ void main() {
   });
 
   test('a narrowed ABI passes --target-platform', () {
-    final step = planBuild(const BuildOptions(abi: TargetAbi.arm64), _tools).last;
-    expect(step.arguments, containsAllInOrder(['--target-platform', 'android-arm64']));
+    final step = planBuild(
+      const BuildOptions(abi: TargetAbi.arm64),
+      _tools,
+    ).last;
+    expect(
+      step.arguments,
+      containsAllInOrder(['--target-platform', 'android-arm64']),
+    );
     expect(step.label, contains('arm64-v8a'));
   });
 
   test('--allow-debug-signing reaches Gradle as a -P project property', () {
-    final step = planBuild(const BuildOptions(allowDebugSigning: true), _tools).last;
+    final step = planBuild(
+      const BuildOptions(allowDebugSigning: true),
+      _tools,
+    ).last;
     expect(step.arguments.last, '-PantaAllowDebugSigning=true');
-    expect(step.arguments, isNot(contains('ORG_GRADLE_PROJECT_antaAllowDebugSigning')));
-  });
-
-  test('build_runner keeps --delete-conflicting-outputs for older versions', () {
     expect(
-      codegenStep(_tools).line,
-      'dart run build_runner build --delete-conflicting-outputs',
+      step.arguments,
+      isNot(contains('ORG_GRADLE_PROJECT_antaAllowDebugSigning')),
     );
   });
+
+  test(
+    'build_runner keeps --delete-conflicting-outputs for older versions',
+    () {
+      expect(
+        codegenStep(_tools).line,
+        'dart run build_runner build --delete-conflicting-outputs',
+      );
+    },
+  );
 
   test('gen --watch is build_runner watch alone', () {
-    expect(planGen(_tools, watch: true).map((s) => s.kind), [StepKind.codegenWatch]);
-    expect(
-      planGen(_tools, watch: false).map((s) => s.kind),
-      [StepKind.codegen, StepKind.l10n],
-    );
+    expect(planGen(_tools, watch: true).map((s) => s.kind), [
+      StepKind.codegenWatch,
+    ]);
+    expect(planGen(_tools, watch: false).map((s) => s.kind), [
+      StepKind.codegen,
+      StepKind.l10n,
+    ]);
   });
 
   test('clean is flutter clean then pub get', () {
-    expect(planClean(_tools).map((s) => s.kind), [StepKind.clean, StepKind.pubGet]);
+    expect(planClean(_tools).map((s) => s.kind), [
+      StepKind.clean,
+      StepKind.pubGet,
+    ]);
   });
 
   test('withAbi keeps the other options', () {

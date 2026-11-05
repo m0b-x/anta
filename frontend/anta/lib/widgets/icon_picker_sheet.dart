@@ -333,7 +333,10 @@ class _IconPickerSheetState extends State<IconPickerSheet> {
       padding: const EdgeInsets.only(bottom: RowMetrics.groupGap),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
-        children: [FormSectionLabel(text: label), _buildWrap(entries)],
+        children: [
+          FormSectionLabel(text: label),
+          _buildWrap(entries),
+        ],
       ),
     );
   }

@@ -778,42 +778,44 @@ void main() {
       h.dispose();
     });
 
-    test('typing below a trailing backslash conceals it, never revealing it', () {
-      final builder = MarkdownEditorSpanBuilder();
-      final h = _Harness('a\\\n');
-      builder.bind(h.editor);
-      final context = EditorRenderContext(
-        style: TextStyle(fontSize: 10),
-        baseColor: Color(0xFF000000),
-        primary: Color(0xFF0000FF),
-        isDark: false,
-      );
-      TextSpan? first() => builder.build(
-        context: context,
-        index: 0,
-        codeLine: h.editor.codeLines[0],
-      );
-      bool concealed(TextSpan span) =>
-          span.children!.whereType<TextSpan>().any(
-            (leaf) => leaf.text == r'\' && leaf.style?.fontSize == 0.01,
-          );
+    test(
+      'typing below a trailing backslash conceals it, never revealing it',
+      () {
+        final builder = MarkdownEditorSpanBuilder();
+        final h = _Harness('a\\\n');
+        builder.bind(h.editor);
+        final context = EditorRenderContext(
+          style: TextStyle(fontSize: 10),
+          baseColor: Color(0xFF000000),
+          primary: Color(0xFF0000FF),
+          isDark: false,
+        );
+        TextSpan? first() => builder.build(
+          context: context,
+          index: 0,
+          codeLine: h.editor.codeLines[0],
+        );
+        bool concealed(TextSpan span) => span.children!
+            .whereType<TextSpan>()
+            .any((leaf) => leaf.text == r'\' && leaf.style?.fontSize == 0.01);
 
-      h.editor.selection = const CodeLineSelection.collapsed(
-        index: 1,
-        offset: 0,
-      );
-      expect(first(), isNull, reason: 'no line follows yet: `\\` is text');
+        h.editor.selection = const CodeLineSelection.collapsed(
+          index: 1,
+          offset: 0,
+        );
+        expect(first(), isNull, reason: 'no line follows yet: `\\` is text');
 
-      h.insertAt(1, 0, 'b');
+        h.insertAt(1, 0, 'b');
 
-      expect(h.lines, [r'a\', 'b']);
-      expect(h.editor.selection.extentIndex, 1);
-      final span = first();
-      expect(span, isNotNull);
-      expect(concealed(span!), isTrue, reason: 'off-caret: concealed');
+        expect(h.lines, [r'a\', 'b']);
+        expect(h.editor.selection.extentIndex, 1);
+        final span = first();
+        expect(span, isNotNull);
+        expect(concealed(span!), isTrue, reason: 'off-caret: concealed');
 
-      h.dispose();
-    });
+        h.dispose();
+      },
+    );
 
     // C1 fix pass T4 — the page hands the render controller's block state
     // through the tracker; a fence-only answer would wrap this comment.

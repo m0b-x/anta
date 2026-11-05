@@ -127,10 +127,13 @@ class EventSkipDao extends DatabaseAccessor<AppDatabase>
       // `DateTime`: drift hands that back in local time, so a UTC date-only
       // key would never match it in Dart ([getByDayKeysIncludingDeleted]).
       final existing = {
-        for (final row in await (select(eventSkips)..where(
-              (a) => a.eventId.equals(eventId) & a.day.isIn({...add, ...remove}),
-            ))
-            .get())
+        for (final row
+            in await (select(eventSkips)..where(
+                  (a) =>
+                      a.eventId.equals(eventId) &
+                      a.day.isIn({...add, ...remove}),
+                ))
+                .get())
           dayMs(row.day): row,
       };
 
@@ -200,13 +203,9 @@ class EventSkipDao extends DatabaseAccessor<AppDatabase>
         }
       });
 
-      await db.enqueueMany(
-        eventSkips,
-        [
-          for (final day in [...inserted, ...revived]) dayRowKey(eventId, day),
-        ],
-        shared.hlc,
-      );
+      await db.enqueueMany(eventSkips, [
+        for (final day in [...inserted, ...revived]) dayRowKey(eventId, day),
+      ], shared.hlc);
       await db.enqueueMany(
         eventSkips,
         [for (final day in tombstoned) dayRowKey(eventId, day)],

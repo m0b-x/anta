@@ -12,9 +12,8 @@ void main() {
     ),
   );
 
-  double scaleOf(WidgetTester tester) => MediaQuery.textScalerOf(
-    tester.element(find.text('scaled')),
-  ).scale(10);
+  double scaleOf(WidgetTester tester) =>
+      MediaQuery.textScalerOf(tester.element(find.text('scaled'))).scale(10);
 
   testWidgets('passes the platform scale through while no override is set', (
     tester,

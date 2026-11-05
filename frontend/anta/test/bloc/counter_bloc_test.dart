@@ -51,19 +51,17 @@ void main() {
     await pumpEventQueue();
     bloc.add(LoadCounterForNote(counterId: laps, noteId: 'n1'));
     await pumpEventQueue();
-    expect(
-      (bloc.state as CounterLoaded).pickedNoteValues,
-      {(counterId: laps, noteId: 'n1'): 2},
-    );
+    expect((bloc.state as CounterLoaded).pickedNoteValues, {
+      (counterId: laps, noteId: 'n1'): 2,
+    });
 
     await db.counterDao.upsertValue(laps, 'n1', 7);
     await service.reload();
     await pumpEventQueue();
 
-    expect(
-      (bloc.state as CounterLoaded).pickedNoteValues,
-      {(counterId: laps, noteId: 'n1'): 7},
-    );
+    expect((bloc.state as CounterLoaded).pickedNoteValues, {
+      (counterId: laps, noteId: 'n1'): 7,
+    });
   });
 
   test('a reload before the first load leaves the bloc unloaded', () async {

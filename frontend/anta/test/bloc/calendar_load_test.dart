@@ -122,29 +122,32 @@ void main() {
     expect((bloc.state as CalendarPageLoaded).allEvents, hasLength(1));
   });
 
-  test('a reload keeps the month, the day and the format the user is on', () async {
-    await dispatch(const LoadCalendarEvents());
-    final christmas = DateTime.utc(2026, 12, 25);
-    await dispatch(
-      SelectCalendarDay(
-        day: christmas,
-        focusedDay: christmas,
-        source: CalendarSelectionSource.navigation,
-      ),
-    );
-    await dispatch(const ChangeCalendarFormat(format: CalendarFormat.week));
+  test(
+    'a reload keeps the month, the day and the format the user is on',
+    () async {
+      await dispatch(const LoadCalendarEvents());
+      final christmas = DateTime.utc(2026, 12, 25);
+      await dispatch(
+        SelectCalendarDay(
+          day: christmas,
+          focusedDay: christmas,
+          source: CalendarSelectionSource.navigation,
+        ),
+      );
+      await dispatch(const ChangeCalendarFormat(format: CalendarFormat.week));
 
-    // A reload after a settings return, a removed holiday or a restore: the
-    // store may even come back value-equal, and the emit must still land —
-    // with the user where they were, not snapped back to today.
-    await dispatch(const LoadCalendarEvents());
+      // A reload after a settings return, a removed holiday or a restore: the
+      // store may even come back value-equal, and the emit must still land —
+      // with the user where they were, not snapped back to today.
+      await dispatch(const LoadCalendarEvents());
 
-    final state = bloc.state as CalendarPageLoaded;
-    expect(state.selectedDay, christmas);
-    expect(state.focusedDay, christmas);
-    expect(state.format, CalendarFormat.week);
-    expect(state.membershipRevision, 1);
-  });
+      final state = bloc.state as CalendarPageLoaded;
+      expect(state.selectedDay, christmas);
+      expect(state.focusedDay, christmas);
+      expect(state.format, CalendarFormat.week);
+      expect(state.membershipRevision, 1);
+    },
+  );
 
   test('the bloc resolves its service from an unawaited future', () async {
     await dispatch(const LoadCalendarEvents());

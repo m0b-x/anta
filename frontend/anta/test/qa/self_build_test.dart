@@ -100,12 +100,14 @@ void main() {
     setUp(() {
       temp = Directory.systemTemp.createTempSync('anta_qa_sources_');
       paths = QaPaths(temp.path);
-      Directory(joinPath(paths.toolQaDir, ['src']))
-          .createSync(recursive: true);
+      Directory(joinPath(paths.toolQaDir, ['src'])).createSync(recursive: true);
       File(joinPath(paths.toolQaDir, ['qa.dart'])).writeAsStringSync('void x;');
-      File(joinPath(paths.toolQaDir, ['src', 'adb.dart']))
-          .writeAsStringSync('void y;');
-      File(joinPath(paths.toolQaDir, ['qa.cmd'])).writeAsStringSync('@echo off');
+      File(
+        joinPath(paths.toolQaDir, ['src', 'adb.dart']),
+      ).writeAsStringSync('void y;');
+      File(
+        joinPath(paths.toolQaDir, ['qa.cmd']),
+      ).writeAsStringSync('@echo off');
       File(paths.pubspecLock).writeAsStringSync('# lock');
     });
 
@@ -113,10 +115,11 @@ void main() {
 
     test('covers every Dart file under tool/qa plus pubspec.lock', () {
       final times = qaSourceTimes(paths);
-      expect(
-        times.keys.map((p) => p.split(RegExp(r'[\\/]')).last).toSet(),
-        {'qa.dart', 'adb.dart', 'pubspec.lock'},
-      );
+      expect(times.keys.map((p) => p.split(RegExp(r'[\\/]')).last).toSet(), {
+        'qa.dart',
+        'adb.dart',
+        'pubspec.lock',
+      });
     });
 
     test('ignores the wrapper scripts, which the exe does not embed', () {

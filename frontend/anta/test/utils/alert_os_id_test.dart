@@ -137,18 +137,12 @@ void main() {
 
   group('the probe', () {
     test('returns the seed when the slot is free', () {
-      expect(
-        resolveAlertOsId(seed: 42, isTaken: (_) => false),
-        42,
-      );
+      expect(resolveAlertOsId(seed: 42, isTaken: (_) => false), 42);
     });
 
     test('walks forward past taken slots', () {
       const taken = {42, 43, 44};
-      expect(
-        resolveAlertOsId(seed: 42, isTaken: taken.contains),
-        45,
-      );
+      expect(resolveAlertOsId(seed: 42, isTaken: taken.contains), 45);
     });
 
     test('wraps inside the 31-bit space', () {

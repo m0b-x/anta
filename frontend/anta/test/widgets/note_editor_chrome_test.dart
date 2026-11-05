@@ -96,10 +96,7 @@ void main() {
 
     testWidgets('takes the few and other forms in Romanian', (tester) async {
       await tester.pumpWidget(
-        host(
-          locale: const Locale('ro'),
-          stats: (lineCount: 3, charCount: 20),
-        ),
+        host(locale: const Locale('ro'), stats: (lineCount: 3, charCount: 20)),
       );
       await tester.pumpAndSettle();
       expect(find.text('20 de caractere · 3 linii'), findsOneWidget);

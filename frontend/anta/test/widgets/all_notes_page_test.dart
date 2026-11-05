@@ -253,9 +253,7 @@ void main() {
     ) async {
       await pumpPage(tester);
 
-      final byTitle = {
-        for (final row in rows(tester)) row.metadata.title: row,
-      };
+      final byTitle = {for (final row in rows(tester)) row.metadata.title: row};
       expect(byTitle['Plan']!.pathLabel, 'Training');
       final session = byTitle.entries.firstWhere(
         (entry) => entry.key.startsWith('Session '),
@@ -274,9 +272,7 @@ void main() {
       // The move, the rename-uniqueness check and the push all read this;
       // a flat list that handed every row one folder id would send them all
       // to the wrong place.
-      final byTitle = {
-        for (final row in rows(tester)) row.metadata.title: row,
-      };
+      final byTitle = {for (final row in rows(tester)) row.metadata.title: row};
       expect(byTitle['Plan']!.folderId, training.id);
       expect(
         byTitle.entries

@@ -30,6 +30,7 @@ void main() {
   late CounterService counters;
   late List<String> calls;
   late AppSyncApplyHooks hooks;
+
   /// The notes an open editor is holding unsaved, for the copy D3 leaves to
   /// the editor (R99), and how often the copy's language was resolved (R104).
   late Set<String> editorNotes;
@@ -51,7 +52,8 @@ void main() {
     stringsResolved = 0;
     stringsFailure = null;
     calendarFailure = null;
-    Future<void> Function() record(String name) => () async => calls.add(name);
+    Future<void> Function() record(String name) =>
+        () async => calls.add(name);
     hooks = AppSyncApplyHooks(
       notes: () => notes,
       folders: () => folders,
@@ -102,10 +104,9 @@ void main() {
       final applied = await db.noteDao.createNote(folderId: 'f1', title: 'B');
       final gone = await db.noteDao.createNote(folderId: 'f2', title: 'C');
       final kept = await db.noteDao.createNote(folderId: 'f1', title: 'D');
-      await db.customStatement(
-        'UPDATE notes SET is_deleted = 1 WHERE id = ?',
-        [gone.id],
-      );
+      await db.customStatement('UPDATE notes SET is_deleted = 1 WHERE id = ?', [
+        gone.id,
+      ]);
       final changes = <NoteChange>[];
       final subscription = notes.noteChanges.listen(changes.add);
       addTearDown(subscription.cancel);
@@ -127,7 +128,10 @@ void main() {
           gone.id: (NoteChangeType.deleted, 'f2'),
         },
       );
-      expect(changes.firstWhere((c) => c.noteId == applied.id).note!.title, 'B');
+      expect(
+        changes.firstWhere((c) => c.noteId == applied.id).note!.title,
+        'B',
+      );
       expect(changes.every((c) => c.remote), isTrue);
     });
 
@@ -144,20 +148,17 @@ void main() {
       await hooks.afterPage('notes', [row(note.id, MergeResult.applied)]);
       await pumpEventQueue();
 
-      expect([for (final c in changes) (c.type, c.remote)], [
-        (NoteChangeType.created, false),
-        (NoteChangeType.updated, true),
-      ]);
+      expect(
+        [for (final c in changes) (c.type, c.remote)],
+        [(NoteChangeType.created, false), (NoteChangeType.updated, true)],
+      );
     });
 
     test('a note merged into another folder is announced as moved from the '
         'old one beside the update', () async {
       final note = await db.noteDao.createNote(folderId: 'f1', title: 'Log');
       final outcome = await db.noteDao.mergeNoteDocument(
-        note.copyWith(
-          folderId: 'f2',
-          hlcTimestamp: 'ffffffffffff:0000:remote',
-        ),
+        note.copyWith(folderId: 'f2', hlcTimestamp: 'ffffffffffff:0000:remote'),
         'body',
       );
       expect((outcome.moved, outcome.previousParent), (true, 'f1'));
@@ -187,86 +188,94 @@ void main() {
       );
     });
 
-    test('a folder merged out of the root is announced as moved from it', () async {
-      final parent = await db.folderDao.createFolder(name: 'Parent');
-      final folder = await db.folderDao.createFolder(name: 'Child');
-      final outcome = await db.folderDao.mergeFolder(
-        folder.copyWith(
-          parentId: Value(parent.id),
+    test(
+      'a folder merged out of the root is announced as moved from it',
+      () async {
+        final parent = await db.folderDao.createFolder(name: 'Parent');
+        final folder = await db.folderDao.createFolder(name: 'Child');
+        final outcome = await db.folderDao.mergeFolder(
+          folder.copyWith(
+            parentId: Value(parent.id),
+            hlcTimestamp: 'ffffffffffff:0000:remote',
+          ),
+        );
+        expect((outcome.moved, outcome.previousParent), (true, null));
+        final changes = <FolderChange>[];
+        final subscription = folders.folderChanges.listen(changes.add);
+        addTearDown(subscription.cancel);
+
+        await hooks.afterPage('folders', [
+          row(
+            folder.id,
+            outcome.result,
+            moved: outcome.moved,
+            previousParent: outcome.previousParent,
+          ),
+        ]);
+        await pumpEventQueue();
+
+        expect(
+          [
+            for (final c in changes)
+              (c.type, c.parentId, c.sourceParentId, c.remote),
+          ],
+          [
+            (FolderChangeType.updated, parent.id, null, true),
+            (FolderChangeType.moved, parent.id, null, true),
+          ],
+        );
+      },
+    );
+
+    test(
+      'a note merged live over its tombstone is announced as updated',
+      () async {
+        final note = await db.noteDao.createNote(folderId: 'f1', title: 'Log');
+        await db.noteDao.softDeleteNote(note.id);
+        final remote = (await db.noteDao.getNoteById(note.id))!.copyWith(
+          isDeleted: false,
           hlcTimestamp: 'ffffffffffff:0000:remote',
-        ),
-      );
-      expect((outcome.moved, outcome.previousParent), (true, null));
-      final changes = <FolderChange>[];
-      final subscription = folders.folderChanges.listen(changes.add);
-      addTearDown(subscription.cancel);
+        );
+        final outcome = await db.noteDao.mergeNoteDocument(remote, 'back');
+        final changes = <NoteChange>[];
+        final subscription = notes.noteChanges.listen(changes.add);
+        addTearDown(subscription.cancel);
 
-      await hooks.afterPage('folders', [
-        row(
-          folder.id,
-          outcome.result,
-          moved: outcome.moved,
-          previousParent: outcome.previousParent,
-        ),
-      ]);
-      await pumpEventQueue();
+        await hooks.afterPage('notes', [row(note.id, outcome.result)]);
+        await pumpEventQueue();
 
-      expect(
-        [
-          for (final c in changes)
-            (c.type, c.parentId, c.sourceParentId, c.remote),
-        ],
-        [
-          (FolderChangeType.updated, parent.id, null, true),
-          (FolderChangeType.moved, parent.id, null, true),
-        ],
-      );
-    });
+        expect(outcome.result, MergeResult.applied);
+        expect([for (final c in changes) c.type], [NoteChangeType.updated]);
+      },
+    );
 
-    test('a note merged live over its tombstone is announced as updated', () async {
-      final note = await db.noteDao.createNote(folderId: 'f1', title: 'Log');
-      await db.noteDao.softDeleteNote(note.id);
-      final remote = (await db.noteDao.getNoteById(note.id))!.copyWith(
-        isDeleted: false,
-        hlcTimestamp: 'ffffffffffff:0000:remote',
-      );
-      final outcome = await db.noteDao.mergeNoteDocument(remote, 'back');
-      final changes = <NoteChange>[];
-      final subscription = notes.noteChanges.listen(changes.add);
-      addTearDown(subscription.cancel);
+    test(
+      'drops a merged note\'s cached row and body before announcing',
+      () async {
+        final note = await storage.createNote(
+          folderId: 'f1',
+          title: 'Log',
+          content: 'mine',
+        );
+        expect(await notes.loadContent(note.id), 'mine');
+        // A pull replaced the row and its chunks beneath the repository.
+        final merged = (await db.noteDao.getNoteById(
+          note.id,
+        ))!.copyWith(title: 'Merged', hlcTimestamp: 'ffffffffffff:0000:remote');
+        await db.noteDao.mergeNoteDocument(merged, 'theirs');
+        String? seenContent;
+        final subscription = notes.noteChanges.listen((_) async {
+          seenContent = await notes.loadContent(note.id);
+        });
+        addTearDown(subscription.cancel);
 
-      await hooks.afterPage('notes', [row(note.id, outcome.result)]);
-      await pumpEventQueue();
+        await hooks.afterPage('notes', [row(note.id, MergeResult.applied)]);
+        await pumpEventQueue();
 
-      expect(outcome.result, MergeResult.applied);
-      expect([for (final c in changes) c.type], [NoteChangeType.updated]);
-    });
-
-    test('drops a merged note\'s cached row and body before announcing', () async {
-      final note = await storage.createNote(
-        folderId: 'f1',
-        title: 'Log',
-        content: 'mine',
-      );
-      expect(await notes.loadContent(note.id), 'mine');
-      // A pull replaced the row and its chunks beneath the repository.
-      final merged = (await db.noteDao.getNoteById(note.id))!.copyWith(
-        title: 'Merged',
-        hlcTimestamp: 'ffffffffffff:0000:remote',
-      );
-      await db.noteDao.mergeNoteDocument(merged, 'theirs');
-      String? seenContent;
-      final subscription = notes.noteChanges.listen((_) async {
-        seenContent = await notes.loadContent(note.id);
-      });
-      addTearDown(subscription.cancel);
-
-      await hooks.afterPage('notes', [row(note.id, MergeResult.applied)]);
-      await pumpEventQueue();
-
-      expect(seenContent, 'theirs');
-      expect((await notes.getNoteById(note.id))!.title, 'Merged');
-    });
+        expect(seenContent, 'theirs');
+        expect((await notes.getNoteById(note.id))!.title, 'Merged');
+      },
+    );
 
     test('the body a merged row carries is what the announcement hands the '
         'editor, and it is not cached (R4, R6)', () async {
@@ -307,10 +316,13 @@ void main() {
       ]);
       await pumpEventQueue();
 
-      expect({for (final c in changes) c.folderId: c.type}, {
-        inserted.id: FolderChangeType.created,
-        gone.id: FolderChangeType.deleted,
-      });
+      expect(
+        {for (final c in changes) c.folderId: c.type},
+        {
+          inserted.id: FolderChangeType.created,
+          gone.id: FolderChangeType.deleted,
+        },
+      );
     });
 
     test('a counter page reloads the counters right after it, keeping a '
@@ -347,7 +359,9 @@ void main() {
       final subscription = notes.noteChanges.listen(changes.add);
       addTearDown(subscription.cancel);
 
-      await hooks.afterPage('calendar_events', [row('e1', MergeResult.applied)]);
+      await hooks.afterPage('calendar_events', [
+        row('e1', MergeResult.applied),
+      ]);
       await pumpEventQueue();
 
       expect(changes, isEmpty);
@@ -377,14 +391,17 @@ void main() {
   });
 
   group('afterRun', () {
-    test('the calendar reloads once, then the alerts are reconciled once', () async {
-      await hooks.afterRun({
-        SyncInvalidation.calendar,
-        SyncInvalidation.alerts,
-      });
+    test(
+      'the calendar reloads once, then the alerts are reconciled once',
+      () async {
+        await hooks.afterRun({
+          SyncInvalidation.calendar,
+          SyncInvalidation.alerts,
+        });
 
-      expect(calls, ['calendar', 'reconcile']);
-    });
+        expect(calls, ['calendar', 'reconcile']);
+      },
+    );
 
     test('alerts alone reload the alert services, then reconcile', () async {
       await hooks.afterRun({SyncInvalidation.alerts});
@@ -470,10 +487,9 @@ void main() {
       return note;
     }
 
-    Future<List<Note>> copies() async =>
-        (await db.noteDao.getNotesByFolder('f1'))
-            .where((n) => n.title.startsWith('Squat log ('))
-            .toList();
+    Future<List<Note>> copies() async => (await db.noteDao.getNotesByFolder(
+      'f1',
+    )).where((n) => n.title.startsWith('Squat log (')).toList();
 
     const stamp = 'Oct 24, 2026 09:05';
 
@@ -539,7 +555,10 @@ void main() {
       );
 
       expect(stringsResolved, 1);
-      expect((await copies()).single.title, 'Squat log (conflict copy, $stamp)');
+      expect(
+        (await copies()).single.title,
+        'Squat log (conflict copy, $stamp)',
+      );
     });
 
     test('a language that cannot be read fails the page before its '
@@ -610,9 +629,10 @@ void main() {
       await hooks.afterPage('notes', [row(id, MergeResult.inserted)]);
       await pumpEventQueue();
 
-      expect([for (final c in changes) (c.type, c.noteId)], [
-        (NoteChangeType.created, id),
-      ]);
+      expect(
+        [for (final c in changes) (c.type, c.noteId)],
+        [(NoteChangeType.created, id)],
+      );
     });
 
     Future<Note> noteIn(String folderId) => db.noteDao.createNote(
@@ -633,27 +653,30 @@ void main() {
       return (await db.noteDao.getNoteById(id!))!;
     }
 
-    test("files the copy in the nearest live ancestor when the loser's "
-        'folder was deleted, even while the folder is cached as live', () async {
-      final kept = await db.folderDao.createFolder(name: 'Training');
-      final gone = await db.folderDao.createFolder(
-        name: 'Old',
-        parentId: kept.id,
-      );
-      final deeper = await db.folderDao.createFolder(
-        name: 'Older',
-        parentId: gone.id,
-      );
-      expect((await folders.getFolderById(deeper.id))!.isDeleted, isFalse);
-      final note = await noteIn(deeper.id);
-      await tombstone(gone.id);
-      await tombstone(deeper.id);
+    test(
+      "files the copy in the nearest live ancestor when the loser's "
+      'folder was deleted, even while the folder is cached as live',
+      () async {
+        final kept = await db.folderDao.createFolder(name: 'Training');
+        final gone = await db.folderDao.createFolder(
+          name: 'Old',
+          parentId: kept.id,
+        );
+        final deeper = await db.folderDao.createFolder(
+          name: 'Older',
+          parentId: gone.id,
+        );
+        expect((await folders.getFolderById(deeper.id))!.isDeleted, isFalse);
+        final note = await noteIn(deeper.id);
+        await tombstone(gone.id);
+        await tombstone(deeper.id);
 
-      final copy = await copyOf(note);
+        final copy = await copyOf(note);
 
-      expect(copy.folderId, kept.id);
-      expect(await db.contentChunkDao.loadContent(copy.id), 'mine');
-    });
+        expect(copy.folderId, kept.id);
+        expect(await db.contentChunkDao.loadContent(copy.id), 'mine');
+      },
+    );
 
     test('a page that rolls back leaves no folder it read cached as '
         'deleted (S4a review L11)', () async {

@@ -99,10 +99,7 @@ void main() {
       await service.toggleNoteValuePin(laps, 'n1', true);
       await service.flush();
       final before = await service.exportData();
-      expect(jsonDecode(before['globalValues'] as String), {
-        sets: 3,
-        laps: 1,
-      });
+      expect(jsonDecode(before['globalValues'] as String), {sets: 3, laps: 1});
       expect(jsonDecode(before['noteValues'] as String), {
         'n1': {laps: 2},
       });
@@ -200,19 +197,30 @@ void main() {
   });
 
   group('taps pending across a sync page (S3c review H1)', () {
-    test('a tap in the reload window lands on top of the merged value', () async {
-      final id = await service.addCounter(name: 'Sets', startValue: 3);
-      // The page merged another device's 8 beneath the service.
-      await db.counterDao.upsertValue(id, '', 8);
+    test(
+      'a tap in the reload window lands on top of the merged value',
+      () async {
+        final id = await service.addCounter(name: 'Sets', startValue: 3);
+        // The page merged another device's 8 beneath the service.
+        await db.counterDao.upsertValue(id, '', 8);
 
-      expect(await service.incrementGlobal(id), 4, reason: 'not reloaded yet');
-      await service.reload();
+        expect(
+          await service.incrementGlobal(id),
+          4,
+          reason: 'not reloaded yet',
+        );
+        await service.reload();
 
-      expect(service.getGlobalValue(id), 9);
-      expect(await db.counterDao.getValue(id, ''), 8, reason: 'still pending');
-      await service.flush();
-      expect(await db.counterDao.getValue(id, ''), 9);
-    });
+        expect(service.getGlobalValue(id), 9);
+        expect(
+          await db.counterDao.getValue(id, ''),
+          8,
+          reason: 'still pending',
+        );
+        await service.flush();
+        expect(await db.counterDao.getValue(id, ''), 9);
+      },
+    );
 
     test('flushed before the page, tapped, reloaded after: merged plus the '
         'taps', () async {
@@ -243,22 +251,25 @@ void main() {
       expect(service.getGlobalValue(id), 9);
     });
 
-    test('a per-note tap survives the reload that dropped its note cache', () async {
-      final id = await service.addCounter(
-        name: 'Laps',
-        scope: CounterScope.perNote,
-      );
-      await service.setValueForNote(id, 2, noteId: 'n1');
-      await service.flush();
-      await service.increment(id, noteId: 'n1');
-      await db.counterDao.upsertValue(id, 'n1', 6);
+    test(
+      'a per-note tap survives the reload that dropped its note cache',
+      () async {
+        final id = await service.addCounter(
+          name: 'Laps',
+          scope: CounterScope.perNote,
+        );
+        await service.setValueForNote(id, 2, noteId: 'n1');
+        await service.flush();
+        await service.increment(id, noteId: 'n1');
+        await db.counterDao.upsertValue(id, 'n1', 6);
 
-      await service.reload();
+        await service.reload();
 
-      expect(await service.getValueForNote(id, 'n1'), 7);
-      await service.flush();
-      expect(await db.counterDao.getValue(id, 'n1'), 7);
-    });
+        expect(await service.getValueForNote(id, 'n1'), 7);
+        await service.flush();
+        expect(await db.counterDao.getValue(id, 'n1'), 7);
+      },
+    );
 
     test('a pending reset stays a reset over the merged value', () async {
       final id = await service.addCounter(name: 'Sets', startValue: 3);

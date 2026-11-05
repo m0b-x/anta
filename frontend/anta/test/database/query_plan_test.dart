@@ -624,7 +624,8 @@ void main() {
       expect(
         sql,
         contains('event_id = ?'),
-        reason: 'only the id is bound; the tombstone filter must stay literal '
+        reason:
+            'only the id is bound; the tombstone filter must stay literal '
             'or the partial index stops matching on the shipped SQLite',
       );
     });

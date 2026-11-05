@@ -184,9 +184,15 @@ void main() {
 
       // Tapping either changes nothing: no menu opens, the switch stays off.
       await tap(tester, id(SemanticsIds.agendaFilterFastingRows));
-      expect(find.byType(FormMenuChoiceItem<AgendaFastingDisplay>), findsNothing);
+      expect(
+        find.byType(FormMenuChoiceItem<AgendaFastingDisplay>),
+        findsNothing,
+      );
       await tap(tester, id(SemanticsIds.agendaFilterFasting));
-      expect(switchRow(tester, SemanticsIds.agendaFilterFasting).value, isFalse);
+      expect(
+        switchRow(tester, SemanticsIds.agendaFilterFasting).value,
+        isFalse,
+      );
 
       await apply(tester);
 
@@ -273,21 +279,22 @@ void main() {
       expect(applied.value!.fastingDisplay, AgendaFastingDisplay.periods);
     });
 
-    testWidgets('Reset returns the event presentation to the category summary', (
-      tester,
-    ) async {
-      final applied = await openSheet(
-        tester,
-        const UpcomingAgendaFilters(
-          eventDisplay: AgendaEventDisplay.everyOccurrence,
-        ),
-      );
+    testWidgets(
+      'Reset returns the event presentation to the category summary',
+      (tester) async {
+        final applied = await openSheet(
+          tester,
+          const UpcomingAgendaFilters(
+            eventDisplay: AgendaEventDisplay.everyOccurrence,
+          ),
+        );
 
-      await tap(tester, id(SemanticsIds.agendaFilterReset));
-      await apply(tester);
+        await tap(tester, id(SemanticsIds.agendaFilterReset));
+        await apply(tester);
 
-      expect(applied.value!.eventDisplay, AgendaEventDisplay.summary);
-    });
+        expect(applied.value!.eventDisplay, AgendaEventDisplay.summary);
+      },
+    );
   });
 
   group('with a tradition configured', () {
@@ -388,52 +395,57 @@ void main() {
       SemanticsIds.agendaFilterPeriodCustom,
     ];
 
-    testWidgets('its six items carry their ids and the current one is checked', (
-      tester,
-    ) async {
-      await openSheet(tester, const UpcomingAgendaFilters());
-      expect(pickerRow(tester, SemanticsIds.agendaFilterPeriod).value, '30 days');
-
-      await tap(tester, id(SemanticsIds.agendaFilterPeriod));
-
-      for (final item in sixItems) {
-        expect(id(item), findsOneWidget);
-        expect(dataOf(tester, item).role, SemanticsRole.menuItemRadio);
+    testWidgets(
+      'its six items carry their ids and the current one is checked',
+      (tester) async {
+        await openSheet(tester, const UpcomingAgendaFilters());
         expect(
-          isChecked(tester, item),
-          item == SemanticsIds.agendaFilterPeriod30,
-          reason: item,
+          pickerRow(tester, SemanticsIds.agendaFilterPeriod).value,
+          '30 days',
         );
-      }
-      expect(find.text('Custom range…'), findsOneWidget);
-      expect(tester.takeException(), isNull);
-    });
 
-    testWidgets('a pinned range checks Custom range… and reads the range back', (
-      tester,
-    ) async {
-      final start = DateTime.utc(2026, 5, 1);
-      final end = DateTime.utc(2026, 5, 15);
-      await openSheet(
-        tester,
-        UpcomingAgendaFilters(customStart: start, customEnd: end),
-      );
+        await tap(tester, id(SemanticsIds.agendaFilterPeriod));
 
-      expect(
-        pickerRow(tester, SemanticsIds.agendaFilterPeriod).value,
-        AgendaListView.rangeLabel('en', start, end),
-      );
+        for (final item in sixItems) {
+          expect(id(item), findsOneWidget);
+          expect(dataOf(tester, item).role, SemanticsRole.menuItemRadio);
+          expect(
+            isChecked(tester, item),
+            item == SemanticsIds.agendaFilterPeriod30,
+            reason: item,
+          );
+        }
+        expect(find.text('Custom range…'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      },
+    );
 
-      await tap(tester, id(SemanticsIds.agendaFilterPeriod));
+    testWidgets(
+      'a pinned range checks Custom range… and reads the range back',
+      (tester) async {
+        final start = DateTime.utc(2026, 5, 1);
+        final end = DateTime.utc(2026, 5, 15);
+        await openSheet(
+          tester,
+          UpcomingAgendaFilters(customStart: start, customEnd: end),
+        );
 
-      for (final item in sixItems) {
         expect(
-          isChecked(tester, item),
-          item == SemanticsIds.agendaFilterPeriodCustom,
-          reason: item,
+          pickerRow(tester, SemanticsIds.agendaFilterPeriod).value,
+          AgendaListView.rangeLabel('en', start, end),
         );
-      }
-    });
+
+        await tap(tester, id(SemanticsIds.agendaFilterPeriod));
+
+        for (final item in sixItems) {
+          expect(
+            isChecked(tester, item),
+            item == SemanticsIds.agendaFilterPeriodCustom,
+            reason: item,
+          );
+        }
+      },
+    );
 
     /// A window another build stored is read back as its own count rather
     /// than snapped to the nearest preset, so the row never claims a choice
@@ -441,7 +453,10 @@ void main() {
     testWidgets('a stored window outside the presets reads its count and '
         'checks nothing', (tester) async {
       await openSheet(tester, const UpcomingAgendaFilters(rangeDays: 14));
-      expect(pickerRow(tester, SemanticsIds.agendaFilterPeriod).value, '14 days');
+      expect(
+        pickerRow(tester, SemanticsIds.agendaFilterPeriod).value,
+        '14 days',
+      );
 
       await tap(tester, id(SemanticsIds.agendaFilterPeriod));
 
@@ -551,7 +566,10 @@ void main() {
 
       expect(find.byType(CalendarDatePickerSheet), findsNothing);
       expect(find.byType(AgendaFiltersSheet), findsOneWidget);
-      expect(pickerRow(tester, SemanticsIds.agendaFilterPeriod).value, '30 days');
+      expect(
+        pickerRow(tester, SemanticsIds.agendaFilterPeriod).value,
+        '30 days',
+      );
 
       await apply(tester);
 
@@ -630,13 +648,20 @@ void main() {
       ]) {
         expect(pickerRow(tester, row).enabled, isFalse, reason: row);
         expect(pickerRow(tester, row).onTap, isNull, reason: row);
-        expect(opacityOf(tester, row), FormMetrics.disabledOpacity, reason: row);
+        expect(
+          opacityOf(tester, row),
+          FormMetrics.disabledOpacity,
+          reason: row,
+        );
         final data = dataOf(tester, row);
         expect(data.flagsCollection.isEnabled, Tristate.isFalse, reason: row);
         expect(data.hasAction(SemanticsAction.tap), isFalse, reason: row);
       }
       // Present with their values, inert: a tap opens nothing.
-      expect(pickerRow(tester, SemanticsIds.agendaFilterCategories).value, 'All');
+      expect(
+        pickerRow(tester, SemanticsIds.agendaFilterCategories).value,
+        'All',
+      );
       expect(pickerRow(tester, SemanticsIds.agendaFilterPriority).value, 'Any');
       await tap(tester, id(SemanticsIds.agendaFilterCategories));
       expect(find.byType(CategoryPickerSheet), findsNothing);
@@ -829,7 +854,10 @@ void main() {
       );
 
       await tap(tester, id(SemanticsIds.agendaFilterHolidays));
-      expect(switchRow(tester, SemanticsIds.agendaFilterHolidays).value, isTrue);
+      expect(
+        switchRow(tester, SemanticsIds.agendaFilterHolidays).value,
+        isTrue,
+      );
       expect(resetRow(tester).onTap, isNotNull);
       expect(opacityOf(tester, SemanticsIds.agendaFilterReset), 1);
 
@@ -837,7 +865,10 @@ void main() {
 
       expect(find.byType(AgendaFiltersSheet), findsOneWidget);
       expect(applied.returned, isFalse);
-      expect(switchRow(tester, SemanticsIds.agendaFilterHolidays).value, isFalse);
+      expect(
+        switchRow(tester, SemanticsIds.agendaFilterHolidays).value,
+        isFalse,
+      );
       expect(resetRow(tester).onTap, isNull);
 
       await apply(tester);

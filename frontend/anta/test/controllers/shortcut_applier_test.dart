@@ -201,25 +201,32 @@ void main() {
     });
 
     // U2 T15: the fence predicate reaches the rewrite through apply.
-    test('forwards isFenceLine: a fenced line takes no heading or marker', () async {
-      for (final s in [
-        shortcut(insertType: 'header', id: 'header_level_2', beforeText: '## '),
-        shortcut(
-          insertType: 'wrap',
-          id: 'default_bullet_list',
-          beforeText: '- ',
-        ),
-      ]) {
-        final controller = controllerWith('```\ncode\n```', line: 1);
-        await ShortcutApplier.apply(
-          controller: controller,
-          shortcut: s,
-          mutateCounter: noCounter,
-          isFenceLine: (index) => index <= 2,
-        );
-        expect(controller.text, '```\ncode\n```', reason: s.id);
-      }
-    });
+    test(
+      'forwards isFenceLine: a fenced line takes no heading or marker',
+      () async {
+        for (final s in [
+          shortcut(
+            insertType: 'header',
+            id: 'header_level_2',
+            beforeText: '## ',
+          ),
+          shortcut(
+            insertType: 'wrap',
+            id: 'default_bullet_list',
+            beforeText: '- ',
+          ),
+        ]) {
+          final controller = controllerWith('```\ncode\n```', line: 1);
+          await ShortcutApplier.apply(
+            controller: controller,
+            shortcut: s,
+            mutateCounter: noCounter,
+            isFenceLine: (index) => index <= 2,
+          );
+          expect(controller.text, '```\ncode\n```', reason: s.id);
+        }
+      },
+    );
   });
 
   group('toggleWrap', () {

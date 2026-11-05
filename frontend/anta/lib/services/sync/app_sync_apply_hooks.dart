@@ -134,9 +134,7 @@ class AppSyncApplyHooks implements SyncApplyHooks {
                   in previousParents.entries)
                 id: ?folder,
             },
-            bodies: {
-              for (final row in changed) row.rowKey: ?row.content,
-            },
+            bodies: {for (final row in changed) row.rowKey: ?row.content},
           ),
         );
       case 'folders':
@@ -223,12 +221,11 @@ class AppSyncApplyHooks implements SyncApplyHooks {
     final strings = _pageStrings ?? await _strings();
     final now = _now();
     var title = conflictCopyTitle(strings, loser.title, now);
-    for (var n = 2;
-        await storage.noteTitleExistsInFolder(
-          folderId: folderId,
-          title: title,
-        );
-        n++) {
+    for (
+      var n = 2;
+      await storage.noteTitleExistsInFolder(folderId: folderId, title: title);
+      n++
+    ) {
       title = conflictCopyTitle(strings, loser.title, now, copy: n);
     }
     final copy = await _notes().createMergedCopy(

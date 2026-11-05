@@ -1217,118 +1217,114 @@ class _AgendaCard extends StatelessWidget {
     // full-strength card must not be wrapped at all: only a missed row pays
     // for the fade.
     final body = Stack(
-          children: [
-            Positioned(
-              left: 0,
-              top: 0,
-              bottom: 0,
-              width: 4,
-              child: Container(color: entry.stripeColor),
+      children: [
+        Positioned(
+          left: 0,
+          top: 0,
+          bottom: 0,
+          width: 4,
+          child: Container(color: entry.stripeColor),
+        ),
+        Padding(
+          padding: const EdgeInsets.only(left: 4),
+          child: ListTile(
+            leading: CircleAvatar(
+              backgroundColor: entry.color.withValues(alpha: 0.16),
+              foregroundColor: entry.color,
+              child: Icon(entry.icon),
             ),
-            Padding(
-              padding: const EdgeInsets.only(left: 4),
-              child: ListTile(
-                leading: CircleAvatar(
-                  backgroundColor: entry.color.withValues(alpha: 0.16),
-                  foregroundColor: entry.color,
-                  child: Icon(entry.icon),
+            title: Row(
+              children: [
+                Flexible(
+                  child: Text(entry.title, overflow: TextOverflow.ellipsis),
                 ),
-                title: Row(
-                  children: [
-                    Flexible(
-                      child: Text(entry.title, overflow: TextOverflow.ellipsis),
+                if (description != null) ...[
+                  const SizedBox(width: 6),
+                  Tooltip(
+                    message: l10n.eventHasDescription,
+                    child: Icon(
+                      Icons.notes_rounded,
+                      size: 14,
+                      color: theme.colorScheme.onSurfaceVariant,
                     ),
-                    if (description != null) ...[
-                      const SizedBox(width: 6),
-                      Tooltip(
-                        message: l10n.eventHasDescription,
-                        child: Icon(
-                          Icons.notes_rounded,
-                          size: 14,
-                          color: theme.colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-                    ],
-                    if (entry.event case final event?)
-                      EventAlertBadges(event: event),
-                  ],
-                ),
-                subtitle:
-                    (subtitle.isEmpty && range == null && description == null)
-                    ? null
-                    : Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          if (subtitle.isNotEmpty)
-                            Text(
-                              subtitle,
-                              maxLines: range == null ? null : 1,
-                              overflow: range == null
-                                  ? null
-                                  : TextOverflow.ellipsis,
-                            ),
-                          if (range != null)
-                            Text(
-                              range,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          if (description != null)
-                            Padding(
-                              padding: const EdgeInsets.only(top: 2),
-                              child: MarkdownInlineText(
-                                data: description,
-                                colorPalette: colorPalette,
-                                style: theme.textTheme.bodySmall?.copyWith(
-                                  color: theme.colorScheme.onSurfaceVariant,
-                                ),
-                              ),
-                            ),
-                        ],
-                      ),
-                isThreeLine: description != null || range != null,
-                // A per-day holiday or fasting row carries no event and no
-                // drill-down, so it gets no trailing strip at all rather
-                // than an empty one.
-                trailing:
-                    onOpenNote == null && onEdit == null && onShowAll == null
-                    ? null
-                    : Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          if (onOpenNote != null)
-                            IconButton(
-                              tooltip: l10n.eventOpenLinkedNote,
-                              icon: const Icon(Icons.sticky_note_2_outlined),
-                              onPressed: onOpenNote,
-                            ),
-                          if (onEdit != null)
-                            IconButton(
-                              tooltip: l10n.upcomingEditEvent,
-                              icon: const Icon(Icons.edit_outlined),
-                              onPressed: onEdit,
-                            ),
-                          if (onShowAll != null)
-                            // Keyed by the card: every summary card's button
-                            // wears this tooltip, and a flow opens one.
-                            AutomationId(
-                              identifier: SemanticsIds.agendaCardDays(
-                                entry.key,
-                              ),
-                              child: IconButton(
-                                tooltip: l10n.upcomingShowAllDays,
-                                icon: const Icon(Icons.list_rounded),
-                                onPressed: onShowAll,
-                              ),
-                            ),
-                        ],
-                      ),
-                onTap: onTap,
-              ),
+                  ),
+                ],
+                if (entry.event case final event?)
+                  EventAlertBadges(event: event),
+              ],
             ),
-          ],
-        );
+            subtitle: (subtitle.isEmpty && range == null && description == null)
+                ? null
+                : Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (subtitle.isNotEmpty)
+                        Text(
+                          subtitle,
+                          maxLines: range == null ? null : 1,
+                          overflow: range == null
+                              ? null
+                              : TextOverflow.ellipsis,
+                        ),
+                      if (range != null)
+                        Text(
+                          range,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      if (description != null)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 2),
+                          child: MarkdownInlineText(
+                            data: description,
+                            colorPalette: colorPalette,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+            isThreeLine: description != null || range != null,
+            // A per-day holiday or fasting row carries no event and no
+            // drill-down, so it gets no trailing strip at all rather
+            // than an empty one.
+            trailing: onOpenNote == null && onEdit == null && onShowAll == null
+                ? null
+                : Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (onOpenNote != null)
+                        IconButton(
+                          tooltip: l10n.eventOpenLinkedNote,
+                          icon: const Icon(Icons.sticky_note_2_outlined),
+                          onPressed: onOpenNote,
+                        ),
+                      if (onEdit != null)
+                        IconButton(
+                          tooltip: l10n.upcomingEditEvent,
+                          icon: const Icon(Icons.edit_outlined),
+                          onPressed: onEdit,
+                        ),
+                      if (onShowAll != null)
+                        // Keyed by the card: every summary card's button
+                        // wears this tooltip, and a flow opens one.
+                        AutomationId(
+                          identifier: SemanticsIds.agendaCardDays(entry.key),
+                          child: IconButton(
+                            tooltip: l10n.upcomingShowAllDays,
+                            icon: const Icon(Icons.list_rounded),
+                            onPressed: onShowAll,
+                          ),
+                        ),
+                    ],
+                  ),
+            onTap: onTap,
+          ),
+        ),
+      ],
+    );
 
     return Card(
       // The browser's row-group tone over the panel's page ground — see

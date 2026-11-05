@@ -59,10 +59,7 @@ void main() {
 
     expect(find.byIcon(Icons.alarm_rounded), findsOneWidget);
     expect(find.byIcon(Icons.notifications_active_rounded), findsNothing);
-    expect(
-      tester.widget<Tooltip>(find.byType(Tooltip)).message,
-      'At start',
-    );
+    expect(tester.widget<Tooltip>(find.byType(Tooltip)).message, 'At start');
   });
 
   testWidgets('a reminder badges in the bell, and both show both', (
@@ -85,12 +82,7 @@ void main() {
 
   testWidgets('a disabled alert badges nothing', (tester) async {
     publish(const [
-      EventAlert(
-        id: 'a1',
-        eventId: 'e1',
-        mode: AlertMode.ring,
-        enabled: false,
-      ),
+      EventAlert(id: 'a1', eventId: 'e1', mode: AlertMode.ring, enabled: false),
     ]);
     await pumpBadges(tester);
 

@@ -162,11 +162,7 @@ class VocabularyService {
         isEnabled: Value(isEnabled),
       ),
     );
-    await _dao.saveItems(
-      vocabularyId: id,
-      terms: terms,
-      snapshot: snapshot,
-    );
+    await _dao.saveItems(vocabularyId: id, terms: terms, snapshot: snapshot);
     await _load();
   }
 

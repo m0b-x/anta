@@ -64,7 +64,10 @@ class SyncOutboxDao extends DatabaseAccessor<AppDatabase>
   /// deletes — never re-arm the trigger they just satisfied.
   Stream<void> watchQueued() => db
       .tableUpdates(
-        TableUpdateQuery.onTable(syncOutbox, limitUpdateKind: UpdateKind.insert),
+        TableUpdateQuery.onTable(
+          syncOutbox,
+          limitUpdateKind: UpdateKind.insert,
+        ),
       )
       .map((_) {});
 

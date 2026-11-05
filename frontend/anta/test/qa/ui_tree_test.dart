@@ -59,31 +59,37 @@ void main() {
     });
 
     test('keeps the clickable and long-clickable flags', () {
-      final training =
-          tree.nodes.firstWhere((n) => n.contentDesc.startsWith('Training'));
+      final training = tree.nodes.firstWhere(
+        (n) => n.contentDesc.startsWith('Training'),
+      );
       expect(training.clickable, isTrue);
       expect(training.longClickable, isTrue);
       expect(training.enabled, isTrue);
     });
 
     test('records parent links so an ancestor can be walked to', () {
-      final menu =
-          tree.nodes.firstWhere((n) => n.contentDesc == 'Open navigation menu');
+      final menu = tree.nodes.firstWhere(
+        (n) => n.contentDesc == 'Open navigation menu',
+      );
       expect(menu.parentIndex, greaterThanOrEqualTo(0));
       expect(tree.parentOf(menu), isNotNull);
       expect(tree.clickableSelfOrAncestor(menu), same(menu));
     });
 
     test('describe() is one compact line', () {
-      final search =
-          tree.nodes.firstWhere((n) => n.contentDesc == 'Search all notes');
-      expect(search.describe(),
-          '#${search.index}  Button  "Search all notes"  [992,156][1136,300]  click');
+      final search = tree.nodes.firstWhere(
+        (n) => n.contentDesc == 'Search all notes',
+      );
+      expect(
+        search.describe(),
+        '#${search.index}  Button  "Search all notes"  [992,156][1136,300]  click',
+      );
     });
 
     test('shortClass and shortId strip their prefixes', () {
-      final content =
-          tree.nodes.firstWhere((n) => n.resourceId == 'android:id/content');
+      final content = tree.nodes.firstWhere(
+        (n) => n.resourceId == 'android:id/content',
+      );
       expect(content.shortId, 'content');
       expect(content.shortClass, 'FrameLayout');
     });
@@ -95,7 +101,9 @@ void main() {
     setUp(() => tree = UiTree.parse(_fixture('search_results_dump.xml')));
 
     test('reads the text attribute of the focused field', () {
-      final field = tree.nodes.firstWhere((n) => n.className.endsWith('EditText'));
+      final field = tree.nodes.firstWhere(
+        (n) => n.className.endsWith('EditText'),
+      );
       expect(field.text, 'squat');
       expect(field.focused, isTrue);
     });
@@ -136,8 +144,9 @@ void main() {
     });
 
     test('a row deep inside the list resolves to a clickable ancestor', () {
-      final row =
-          tree.nodes.firstWhere((n) => n.contentDesc.startsWith('Injury notes'));
+      final row = tree.nodes.firstWhere(
+        (n) => n.contentDesc.startsWith('Injury notes'),
+      );
       expect(tree.clickableSelfOrAncestor(row), isNotNull);
     });
   });
@@ -151,14 +160,16 @@ void main() {
     });
 
     test('skips the uiautomator banner before the declaration', () {
-      final banner = 'UI hierchary dumped to: /dev/tty\n'
+      final banner =
+          'UI hierchary dumped to: /dev/tty\n'
           '${_fixture('folder_root_dump.xml')}';
       expect(UiTree.parse(banner).nodes, isNotEmpty);
     });
 
     test('rejects truncated XML', () {
       expect(
-        () => UiTree.parse('<?xml version="1.0"?><hierarchy><node bounds="[0,0]'),
+        () =>
+            UiTree.parse('<?xml version="1.0"?><hierarchy><node bounds="[0,0]'),
         throwsA(isA<DeviceFailure>()),
       );
     });
@@ -217,41 +228,45 @@ void main() {
 
   group('interestingLabels', () {
     test('lists the real labels of the folder root, in tree order', () {
-      final labels = UiTree.parse(_fixture('folder_root_dump.xml'))
-          .interestingLabels();
+      final labels = UiTree.parse(
+        _fixture('folder_root_dump.xml'),
+      ).interestingLabels();
       expect(labels, contains('Search all notes'));
-      expect(labels.indexOf('Search all notes'),
-          lessThan(labels.indexOf('New folder')));
-    });
-
-    test('id-only nodes come after every labelled one', () {
-      final labels = UiTree.parse(_fixture('folder_root_dump.xml'))
-          .interestingLabels();
-      final firstId = labels.indexWhere((l) => l.startsWith('id:'));
-      if (firstId == -1) return;
       expect(
-        labels.sublist(firstId).every((l) => l.startsWith('id:')),
-        isTrue,
+        labels.indexOf('Search all notes'),
+        lessThan(labels.indexOf('New folder')),
       );
     });
 
+    test('id-only nodes come after every labelled one', () {
+      final labels = UiTree.parse(
+        _fixture('folder_root_dump.xml'),
+      ).interestingLabels();
+      final firstId = labels.indexWhere((l) => l.startsWith('id:'));
+      if (firstId == -1) return;
+      expect(labels.sublist(firstId).every((l) => l.startsWith('id:')), isTrue);
+    });
+
     test('a multi-line label is flattened with a separator', () {
-      final labels = UiTree.parse(_fixture('folder_root_dump.xml'))
-          .interestingLabels();
+      final labels = UiTree.parse(
+        _fixture('folder_root_dump.xml'),
+      ).interestingLabels();
       expect(labels.any((l) => l.contains(' / ')), isTrue);
       expect(labels.every((l) => !l.contains('\n')), isTrue);
     });
 
     test('honours the limit and the clip', () {
-      final labels = UiTree.parse(_fixture('launcher_dump.xml'))
-          .interestingLabels(limit: 5, clip: 8);
+      final labels = UiTree.parse(
+        _fixture('launcher_dump.xml'),
+      ).interestingLabels(limit: 5, clip: 8);
       expect(labels, hasLength(5));
       expect(labels.every((l) => l.length <= 8), isTrue);
     });
 
     test('never repeats a label', () {
-      final labels = UiTree.parse(_fixture('folder_list_dump.xml'))
-          .interestingLabels(limit: 100);
+      final labels = UiTree.parse(
+        _fixture('folder_list_dump.xml'),
+      ).interestingLabels(limit: 100);
       expect(labels.toSet(), hasLength(labels.length));
     });
   });

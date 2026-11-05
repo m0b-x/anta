@@ -594,10 +594,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     } catch (e) {
       debugPrint('[main] skip not applied: $e');
     }
-    await AppNavigator.toCalendarOccurrence(
-      day: payload.dayUtc,
-      eventId: null,
-    );
+    await AppNavigator.toCalendarOccurrence(day: payload.dayUtc, eventId: null);
   }
 
   /// Whether the gateway still counts [osId] as ringing. A binding that

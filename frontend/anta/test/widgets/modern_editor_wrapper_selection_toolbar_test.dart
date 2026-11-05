@@ -180,7 +180,10 @@ void main() {
       // platform's own items lead.
       final selectAllX = tester.getTopLeft(find.text('Select all')).dx;
       expect(tester.getTopLeft(find.text('Paste')).dx, lessThan(selectAllX));
-      expect(tester.getTopLeft(find.text(l10n.bold)).dx, greaterThan(selectAllX));
+      expect(
+        tester.getTopLeft(find.text(l10n.bold)).dx,
+        greaterThan(selectAllX),
+      );
       await teardownEditor(tester);
     });
 

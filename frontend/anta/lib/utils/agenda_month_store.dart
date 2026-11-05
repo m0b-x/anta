@@ -42,8 +42,7 @@ class AgendaMonthStore {
   static DateTime monthOfKey(int key) =>
       DateTime.utc(key ~/ 12, key % 12 + 1, 1);
 
-  static DateTime monthOf(DateTime day) =>
-      DateTime.utc(day.year, day.month, 1);
+  static DateTime monthOf(DateTime day) => DateTime.utc(day.year, day.month, 1);
 
   static int monthOrder(DateTime month) => month.year * 12 + month.month;
 

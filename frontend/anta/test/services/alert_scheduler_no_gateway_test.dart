@@ -69,19 +69,21 @@ void main() {
     } catch (_) {}
   });
 
-  test('reconcileEventById opens nothing when no gateway is registered',
-      () async {
-    await AlertScheduler.reconcileEventById(
-      'e1',
-      AlertReconcileReason.eventChanged,
-    );
+  test(
+    'reconcileEventById opens nothing when no gateway is registered',
+    () async {
+      await AlertScheduler.reconcileEventById(
+        'e1',
+        AlertReconcileReason.eventChanged,
+      );
 
-    expect(
-      pathProviderCalls,
-      0,
-      reason: 'a database cannot be opened without path_provider',
-    );
-  });
+      expect(
+        pathProviderCalls,
+        0,
+        reason: 'a database cannot be opened without path_provider',
+      );
+    },
+  );
 
   test('getInstance refuses before touching a database', () async {
     await expectLater(AlertScheduler.getInstance(), throwsStateError);
@@ -89,19 +91,21 @@ void main() {
     expect(pathProviderCalls, 0);
   });
 
-  test('a failed resolve leaves no singleton behind to poison the next call',
-      () async {
-    await AlertScheduler.reconcileEventById(
-      'e1',
-      AlertReconcileReason.eventChanged,
-    );
-    await AlertScheduler.reconcileEventById(
-      'e2',
-      AlertReconcileReason.eventChanged,
-    );
+  test(
+    'a failed resolve leaves no singleton behind to poison the next call',
+    () async {
+      await AlertScheduler.reconcileEventById(
+        'e1',
+        AlertReconcileReason.eventChanged,
+      );
+      await AlertScheduler.reconcileEventById(
+        'e2',
+        AlertReconcileReason.eventChanged,
+      );
 
-    expect(pathProviderCalls, 0);
-  });
+      expect(pathProviderCalls, 0);
+    },
+  );
 
   // Last, because it genuinely opens the app-wide database: the control that
   // shows the guard is what stopped the three above, and not some other

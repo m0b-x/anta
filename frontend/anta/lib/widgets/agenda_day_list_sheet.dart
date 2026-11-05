@@ -301,7 +301,8 @@ class _AgendaDayListSheetState extends State<AgendaDayListSheet> {
     final months = AgendaMonthStore.monthsOfYear(year);
     _store.ensureTallies(months);
     return _tilesByYear[year] = [
-      for (final month in months) AgendaYearTile.ofTally(_store.tallyFor(month)),
+      for (final month in months)
+        AgendaYearTile.ofTally(_store.tallyFor(month)),
     ];
   }
 
@@ -392,7 +393,11 @@ class _AgendaDayListSheetState extends State<AgendaDayListSheet> {
     final inMonthMode = _mode == AgendaDayListMode.month;
     final initial = inMonthMode
         ? _month
-        : DateTime.utc(_year, _year == widget.today.year ? widget.today.month : 1, 1);
+        : DateTime.utc(
+            _year,
+            _year == widget.today.year ? widget.today.month : 1,
+            1,
+          );
     final picked = await MonthYearPickerSheet.show(
       context,
       initialDate: initial,

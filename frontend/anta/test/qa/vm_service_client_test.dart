@@ -21,7 +21,9 @@ class _FakeVmService {
     server.listen((request) async {
       final socket = await WebSocketTransformer.upgrade(request);
       sockets.add(socket);
-      socket.listen((data) => _handle(socket, jsonDecode(data as String) as Map));
+      socket.listen(
+        (data) => _handle(socket, jsonDecode(data as String) as Map),
+      );
     });
   }
 
@@ -53,7 +55,12 @@ class _FakeVmService {
         };
       case 'getIsolate':
         result = params['isolateId'] == 'isolates/main'
-            ? {'extensionRPCs': ['ext.flutter.inspector.show', driverExtensionMethod]}
+            ? {
+                'extensionRPCs': [
+                  'ext.flutter.inspector.show',
+                  driverExtensionMethod,
+                ],
+              }
             : {'type': 'Sentinel', 'kind': 'Collected'};
       case driverExtensionMethod:
         final message = params['message'] as String? ?? '';
@@ -61,18 +68,28 @@ class _FakeVmService {
         result = {
           'isError': false,
           'response': {
-            'message': agentReplies[op] ??
-                jsonEncode({AgentKeys.ok: false, AgentKeys.error: 'no script for $op'}),
+            'message':
+                agentReplies[op] ??
+                jsonEncode({
+                  AgentKeys.ok: false,
+                  AgentKeys.error: 'no script for $op',
+                }),
           },
         };
       default:
-        error = {'code': -32601, 'message': 'Method not found', 'data': {'method': method}};
+        error = {
+          'code': -32601,
+          'message': 'Method not found',
+          'data': {'method': method},
+        };
     }
-    socket.add(jsonEncode({
-      'jsonrpc': '2.0',
-      'id': id,
-      if (error != null) 'error': error else 'result': result,
-    }));
+    socket.add(
+      jsonEncode({
+        'jsonrpc': '2.0',
+        'id': id,
+        if (error != null) 'error': error else 'result': result,
+      }),
+    );
   }
 
   Future<void> close() async {
@@ -109,13 +126,19 @@ void main() {
 
     test('rejects anything that is not a service URI', () {
       expect(() => vmServiceWebSocketUri(''), throwsA(isA<UsageFailure>()));
-      expect(() => vmServiceWebSocketUri('ftp://x'), throwsA(isA<UsageFailure>()));
+      expect(
+        () => vmServiceWebSocketUri('ftp://x'),
+        throwsA(isA<UsageFailure>()),
+      );
     });
   });
 
-  test('vmServiceHttpUri is the shape the engine serves without auth codes', () {
-    expect(vmServiceHttpUri('127.0.0.1', 5000), 'http://127.0.0.1:5000/');
-  });
+  test(
+    'vmServiceHttpUri is the shape the engine serves without auth codes',
+    () {
+      expect(vmServiceHttpUri('127.0.0.1', 5000), 'http://127.0.0.1:5000/');
+    },
+  );
 
   test('pickFreePort returns a bindable loopback port', () async {
     final port = await pickFreePort();
@@ -137,40 +160,48 @@ void main() {
       final client = await VmServiceClient.connect(service.httpUri);
       expect(await client.driverIsolateId(), 'isolates/main');
       expect(await client.driverIsolateId(), 'isolates/main');
-      final isolateLookups =
-          service.requests.where((r) => r['method'] == 'getIsolate').length;
-      expect(isolateLookups, 2, reason: 'the id is cached after the first walk');
+      final isolateLookups = service.requests
+          .where((r) => r['method'] == 'getIsolate')
+          .length;
+      expect(
+        isolateLookups,
+        2,
+        reason: 'the id is cached after the first walk',
+      );
       await client.close();
     });
 
-    test('request_data carries the message to the extension and back', () async {
-      service.agentReplies[AgentOps.info] = jsonEncode({
-        AgentKeys.ok: true,
-        AgentKeys.platform: 'iOS',
-        AgentKeys.dpr: 3.0,
-        AgentKeys.width: 1320,
-        AgentKeys.height: 2868,
-        AgentKeys.lifecycle: 'resumed',
-        AgentKeys.semantics: true,
-        AgentKeys.qaMode: true,
-        AgentKeys.database: 'qa',
-        AgentKeys.qaLog: ['reset: cleared preferences and qa.db'],
-      });
-      final client = await VmServiceClient.connect(service.httpUri);
-      final agent = AgentClient(client, appPackage: 'com.alexzamfir.anta');
-      final info = await agent.info();
-      expect(info.platform, 'iOS');
-      expect(info.screen.width, 1320);
-      expect(info.screen.density, 480);
-      expect(info.qaLogText, '[qa] reset: cleared preferences and qa.db');
-      expect(info.describe(), contains('lifecycle=resumed'));
-      final driverCall = service.requests.lastWhere(
-        (r) => r['method'] == driverExtensionMethod,
-      );
-      expect((driverCall['params'] as Map)['command'], 'request_data');
-      expect((driverCall['params'] as Map)['isolateId'], 'isolates/main');
-      await client.close();
-    });
+    test(
+      'request_data carries the message to the extension and back',
+      () async {
+        service.agentReplies[AgentOps.info] = jsonEncode({
+          AgentKeys.ok: true,
+          AgentKeys.platform: 'iOS',
+          AgentKeys.dpr: 3.0,
+          AgentKeys.width: 1320,
+          AgentKeys.height: 2868,
+          AgentKeys.lifecycle: 'resumed',
+          AgentKeys.semantics: true,
+          AgentKeys.qaMode: true,
+          AgentKeys.database: 'qa',
+          AgentKeys.qaLog: ['reset: cleared preferences and qa.db'],
+        });
+        final client = await VmServiceClient.connect(service.httpUri);
+        final agent = AgentClient(client, appPackage: 'com.alexzamfir.anta');
+        final info = await agent.info();
+        expect(info.platform, 'iOS');
+        expect(info.screen.width, 1320);
+        expect(info.screen.density, 480);
+        expect(info.qaLogText, '[qa] reset: cleared preferences and qa.db');
+        expect(info.describe(), contains('lifecycle=resumed'));
+        final driverCall = service.requests.lastWhere(
+          (r) => r['method'] == driverExtensionMethod,
+        );
+        expect((driverCall['params'] as Map)['command'], 'request_data');
+        expect((driverCall['params'] as Map)['isolateId'], 'isolates/main');
+        await client.close();
+      },
+    );
 
     test('an agent error becomes the matching QaException', () async {
       service.agentReplies[AgentOps.type] = jsonEncode({
@@ -190,12 +221,20 @@ void main() {
       });
       final client = await VmServiceClient.connect(service.httpUri);
       final agent = AgentClient(client, appPackage: 'x');
-      await expectLater(() => agent.typeText('a'), throwsA(isA<TargetFailure>()));
+      await expectLater(
+        () => agent.typeText('a'),
+        throwsA(isA<TargetFailure>()),
+      );
       await expectLater(() => agent.key('zz'), throwsA(isA<UsageFailure>()));
       await expectLater(
         () => agent.tap(1, 1),
-        throwsA(isA<DeviceFailure>()
-            .having((e) => e.message, 'message', contains('frame 1'))),
+        throwsA(
+          isA<DeviceFailure>().having(
+            (e) => e.message,
+            'message',
+            contains('frame 1'),
+          ),
+        ),
       );
       await client.close();
     });
@@ -204,8 +243,13 @@ void main() {
       final client = await VmServiceClient.connect(service.httpUri);
       await expectLater(
         () => client.call('noSuchMethod'),
-        throwsA(isA<DeviceFailure>()
-            .having((e) => e.message, 'message', contains('Method not found'))),
+        throwsA(
+          isA<DeviceFailure>().having(
+            (e) => e.message,
+            'message',
+            contains('Method not found'),
+          ),
+        ),
       );
       await client.close();
     });
@@ -214,8 +258,13 @@ void main() {
       final port = await pickFreePort();
       await expectLater(
         () => VmServiceClient.connect('http://127.0.0.1:$port/'),
-        throwsA(isA<DeviceFailure>()
-            .having((e) => e.message, 'message', contains('$port'))),
+        throwsA(
+          isA<DeviceFailure>().having(
+            (e) => e.message,
+            'message',
+            contains('$port'),
+          ),
+        ),
       );
     });
 
@@ -228,29 +277,43 @@ void main() {
           interval: const Duration(milliseconds: 10),
           stillWorthWaiting: () async => false,
         ),
-        throwsA(isA<DeviceFailure>()
-            .having((e) => e.message, 'message', contains('exited'))),
+        throwsA(
+          isA<DeviceFailure>().having(
+            (e) => e.message,
+            'message',
+            contains('exited'),
+          ),
+        ),
       );
     });
 
-    test('a port that accepts and hangs up reads as not ready, never as a crash', () async {
-      final forwarder = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
-      forwarder.listen((socket) => socket.destroy());
-      addTearDown(forwarder.close);
-      await expectLater(
-        () => VmServiceClient.connect('http://127.0.0.1:${forwarder.port}/'),
-        throwsA(isA<DeviceFailure>()),
-      );
-    });
+    test(
+      'a port that accepts and hangs up reads as not ready, never as a crash',
+      () async {
+        final forwarder = await ServerSocket.bind(
+          InternetAddress.loopbackIPv4,
+          0,
+        );
+        forwarder.listen((socket) => socket.destroy());
+        addTearDown(forwarder.close);
+        await expectLater(
+          () => VmServiceClient.connect('http://127.0.0.1:${forwarder.port}/'),
+          throwsA(isA<DeviceFailure>()),
+        );
+      },
+    );
 
-    test('waitForVmService returns a client once the service answers', () async {
-      final client = await waitForVmService(
-        service.httpUri,
-        timeout: const Duration(seconds: 5),
-      );
-      expect(await client.driverIsolateId(), 'isolates/main');
-      await client.close();
-    });
+    test(
+      'waitForVmService returns a client once the service answers',
+      () async {
+        final client = await waitForVmService(
+          service.httpUri,
+          timeout: const Duration(seconds: 5),
+        );
+        expect(await client.driverIsolateId(), 'isolates/main');
+        await client.close();
+      },
+    );
 
     group('a closed agent is never handed out', () {
       late Directory root;
@@ -260,9 +323,15 @@ void main() {
       setUp(() {
         root = Directory.systemTemp.createTempSync('anta_qa_closed_agent_');
         native = _NativeDriver();
-        final globals = QaCommandRunner().argParser.parse(['-d', 'emulator-5556']);
-        ctx = _LaunchContext(globals,
-            paths: QaPaths(root.path), dev: _FailingLaunchDevice(native));
+        final globals = QaCommandRunner().argParser.parse([
+          '-d',
+          'emulator-5556',
+        ]);
+        ctx = _LaunchContext(
+          globals,
+          paths: QaPaths(root.path),
+          dev: _FailingLaunchDevice(native),
+        );
       });
 
       tearDown(() => root.deleteSync(recursive: true));
@@ -272,22 +341,30 @@ void main() {
         final adopted = await ctx.adoptAgent(vm);
         expect(await ctx.driver(), same(adopted));
         await vm.close();
-        expect(await ctx.driver(), same(native),
-            reason: 'no VM recorded, so auto falls back to the native layer');
+        expect(
+          await ctx.driver(),
+          same(native),
+          reason: 'no VM recorded, so auto falls back to the native layer',
+        );
       });
 
-      test('a launch that throws after the force-stop forgets the agent', () async {
-        final vm = await VmServiceClient.connect(service.httpUri);
-        final command = _Launch(vm);
-        await expectLater(
-          QaCommandRunner(contextFactory: (_) => ctx, commands: [command])
-              .run(['-d', 'emulator-5556', 'launch-test']),
-          throwsA(isA<DeviceFailure>()),
-        );
-        expect(command.adopted, isNotNull);
-        expect(vm.isClosed, isTrue);
-        expect(await ctx.driver(), same(native));
-      });
+      test(
+        'a launch that throws after the force-stop forgets the agent',
+        () async {
+          final vm = await VmServiceClient.connect(service.httpUri);
+          final command = _Launch(vm);
+          await expectLater(
+            QaCommandRunner(
+              contextFactory: (_) => ctx,
+              commands: [command],
+            ).run(['-d', 'emulator-5556', 'launch-test']),
+            throwsA(isA<DeviceFailure>()),
+          );
+          expect(command.adopted, isNotNull);
+          expect(vm.isClosed, isTrue);
+          expect(await ctx.driver(), same(native));
+        },
+      );
     });
   });
 }
@@ -320,15 +397,21 @@ class _FailingLaunchDevice implements Device {
   UiDriver? get nativeDriver => native;
 
   @override
-  Future<AppLaunch> launchApp({required int vmServicePort, int? previousVmServicePort}) =>
-      throw DeviceFailure('am start failed');
+  Future<AppLaunch> launchApp({
+    required int vmServicePort,
+    int? previousVmServicePort,
+  }) => throw DeviceFailure('am start failed');
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 class _LaunchContext extends QaContext {
-  _LaunchContext(super.globalResults, {required super.paths, required this.dev});
+  _LaunchContext(
+    super.globalResults, {
+    required super.paths,
+    required this.dev,
+  });
 
   final Device dev;
 

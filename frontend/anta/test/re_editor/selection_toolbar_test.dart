@@ -385,8 +385,12 @@ void main() {
     double barTop() => tester.getTopLeft(find.byKey(barKey)).dy;
     final rowTop = top.dy + render.lineHeight;
     final caretRowBottom =
-        rowTop + render.lineHeight * (wrapped.length * kTestFontSize /
-                tester.getSize(find.byType(CodeEditor)).width).ceil();
+        rowTop +
+        render.lineHeight *
+            (wrapped.length *
+                    kTestFontSize /
+                    tester.getSize(find.byType(CodeEditor)).width)
+                .ceil();
     // Keeps the wrapped paragraph's first row inside the shrunk field and
     // its caret row below it.
     final inset = barTop() - (rowTop + caretRowBottom) / 2;

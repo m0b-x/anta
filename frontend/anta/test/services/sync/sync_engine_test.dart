@@ -47,9 +47,9 @@ void main() {
   test('a folder, a 14 KB note, an event, a presence day, a counter and a '
       'term created on A reach B whole', () async {
     final folder = await a().db.folderDao.createFolder(name: 'Training');
-    final body = [for (var i = 0; i < 800; i++) 'Line $i of the log.'].join(
-      '\n',
-    );
+    final body = [
+      for (var i = 0; i < 800; i++) 'Line $i of the log.',
+    ].join('\n');
     expect(body.length, greaterThan(14000));
     final note = await writeNote(
       a(),
@@ -140,7 +140,9 @@ void main() {
     await a().sync();
 
     for (final device in [a(), b()]) {
-      final event = await device.db.select(device.db.calendarEvents).getSingle();
+      final event = await device.db
+          .select(device.db.calendarEvents)
+          .getSingle();
       expect(event.title, 'From B', reason: device.id);
     }
     await expectConverged();
@@ -259,7 +261,12 @@ void main() {
     /// A's unpushed edit of the note is about to lose to B's newer one.
     setUp(() async {
       folder = await a().db.folderDao.createFolder(name: 'Training');
-      note = await writeNote(a(), folderId: folder.id, title: 'Log', body: 'base');
+      note = await writeNote(
+        a(),
+        folderId: folder.id,
+        title: 'Log',
+        body: 'base',
+      );
       await a().sync();
       await b().sync();
       await editNote(a(), note.id, 'typed on A');
@@ -272,37 +279,34 @@ void main() {
         '${e.syncedTable}/${e.rowKey}',
     ];
 
-    test('a copy that fails rolls its page back: the local note, its chunks, '
-        'its queue entry and the cursor stay, and the next run files it', () async {
-      final cursor = await a().db.syncDao.getValue(
-        SyncDao.keyPullCursor('notes'),
-      );
-      a().hooks.onConflict = (_) async => throw StateError('title clash');
+    test(
+      'a copy that fails rolls its page back: the local note, its chunks, '
+      'its queue entry and the cursor stay, and the next run files it',
+      () async {
+        final cursor = await a().db.syncDao.getValue(
+          SyncDao.keyPullCursor('notes'),
+        );
+        a().hooks.onConflict = (_) async => throw StateError('title clash');
 
-      final report = await a().sync();
+        final report = await a().sync();
 
-      expect(report.failure, SyncGatewayFailure.unknown);
-      expect(
-        await a().db.contentChunkDao.loadContent(note.id),
-        'typed on A',
-      );
-      expect(await queuedOnA(), contains('notes/${note.id}'));
-      expect(
-        await a().db.syncDao.getValue(SyncDao.keyPullCursor('notes')),
-        cursor,
-      );
-      final remote = pair.gateway.rowsOf(pair.space, 'notes')[note.id]!;
-      expect(remote.deviceId, 'B', reason: 'the losing edit was not pushed');
+        expect(report.failure, SyncGatewayFailure.unknown);
+        expect(await a().db.contentChunkDao.loadContent(note.id), 'typed on A');
+        expect(await queuedOnA(), contains('notes/${note.id}'));
+        expect(
+          await a().db.syncDao.getValue(SyncDao.keyPullCursor('notes')),
+          cursor,
+        );
+        final remote = pair.gateway.rowsOf(pair.space, 'notes')[note.id]!;
+        expect(remote.deviceId, 'B', reason: 'the losing edit was not pushed');
 
-      a().hooks.onConflict = null;
-      await a().sync();
+        a().hooks.onConflict = null;
+        await a().sync();
 
-      expect(a().hooks.conflicts.single.loserContent, 'typed on A');
-      expect(
-        await a().db.contentChunkDao.loadContent(note.id),
-        'typed on B',
-      );
-    });
+        expect(a().hooks.conflicts.single.loserContent, 'typed on A');
+        expect(await a().db.contentChunkDao.loadContent(note.id), 'typed on B');
+      },
+    );
 
     test('a rolled-back page leaves the clock where it was, and the retry '
         'moves it', () async {
@@ -359,8 +363,9 @@ void main() {
         await a().db.syncDao.getValue(SyncDao.keyPullCursor('notes')),
         isNot(cursor),
       );
-      final copy = (await a().db.noteDao.getNotesByFolder(folder.id))
-          .singleWhere((n) => n.title == 'Log (copy)');
+      final copy = (await a().db.noteDao.getNotesByFolder(
+        folder.id,
+      )).singleWhere((n) => n.title == 'Log (copy)');
       expect(await a().db.contentChunkDao.loadContent(copy.id), 'typed on A');
     });
 
@@ -443,10 +448,7 @@ void main() {
       expect(await a().db.contentChunkDao.loadContent(copy.id), 'typed on A');
       // Stamped and queued like any local note, so the same run pushed it and
       // the other device receives the losing text too (record §3.9).
-      expect(
-        pair.gateway.rowsOf(pair.space, 'notes').keys,
-        contains(copy.id),
-      );
+      expect(pair.gateway.rowsOf(pair.space, 'notes').keys, contains(copy.id));
     });
 
     test('a page that rolls back hands its copy to no afterPage', () async {
@@ -466,13 +468,10 @@ void main() {
       await a().sync();
 
       expect(filed, isNotNull);
-      expect(
-        [
-          for (final (_, rows) in a().hooks.pages)
-            for (final row in rows) row.rowKey,
-        ],
-        isNot(contains(filed)),
-      );
+      expect([
+        for (final (_, rows) in a().hooks.pages)
+          for (final row in rows) row.rowKey,
+      ], isNot(contains(filed)));
       expect(await a().db.noteDao.getNoteById(filed!), isNull);
     });
   });
@@ -514,25 +513,28 @@ void main() {
     expect(await SyncPair.snapshot(b()), isNot(await SyncPair.snapshot(a())));
   });
 
-  test('a folder deleted with its two notes on A is deleted whole on B', () async {
-    final folder = await a().db.folderDao.createFolder(name: 'Old');
-    final notes = [
-      for (final title in ['One', 'Two'])
-        await writeNote(a(), folderId: folder.id, title: title, body: title),
-    ];
-    await a().sync();
-    await b().sync();
+  test(
+    'a folder deleted with its two notes on A is deleted whole on B',
+    () async {
+      final folder = await a().db.folderDao.createFolder(name: 'Old');
+      final notes = [
+        for (final title in ['One', 'Two'])
+          await writeNote(a(), folderId: folder.id, title: title, body: title),
+      ];
+      await a().sync();
+      await b().sync();
 
-    await a().db.folderDao.softDeleteFolderWithDescendants(folder.id);
-    await a().sync();
-    await b().sync();
+      await a().db.folderDao.softDeleteFolderWithDescendants(folder.id);
+      await a().sync();
+      await b().sync();
 
-    expect((await folderOn(b(), folder.id)).isDeleted, isTrue);
-    for (final note in notes) {
-      expect((await b().db.noteDao.getNoteById(note.id))!.isDeleted, isTrue);
-    }
-    await expectConverged();
-  });
+      expect((await folderOn(b(), folder.id)).isDeleted, isTrue);
+      for (final note in notes) {
+        expect((await b().db.noteDao.getNoteById(note.id))!.isDeleted, isTrue);
+      }
+      await expectConverged();
+    },
+  );
 
   test('a newer upsert over a tombstone resurrects the row on both', () async {
     final folder = await a().db.folderDao.createFolder(name: 'Kept');
@@ -577,7 +579,12 @@ void main() {
     // stamp — a phone that edited offline and pushes now.
     await const FoldersBinding().mergeRemote(
       b().db,
-      folderEnvelope('late', '000000000001:0000:B', name: 'Late', deviceId: 'B'),
+      folderEnvelope(
+        'late',
+        '000000000001:0000:B',
+        name: 'Late',
+        deviceId: 'B',
+      ),
     );
     await b().db.syncOutboxDao.requeueRow('folders', 'late');
     expect((await b().sync()).pushedRows, 1);
@@ -735,7 +742,10 @@ void main() {
         await b().binding.unbind();
         await b().engine.start();
         await b().settle();
-        await b().db.folderDao.updateFolder(id: kept.id, name: 'X after unbind');
+        await b().db.folderDao.updateFolder(
+          id: kept.id,
+          name: 'X after unbind',
+        );
         await pair.bind(b());
       });
 
@@ -749,25 +759,28 @@ void main() {
         await expectConverged();
       }
 
-      test('going to the background pushes nothing before the floor pull', () async {
-        pair.gateway.calls.clear();
+      test(
+        'going to the background pushes nothing before the floor pull',
+        () async {
+          pair.gateway.calls.clear();
 
-        final report = await b().engine.onAppBackgrounded();
+          final report = await b().engine.onAppBackgrounded();
 
-        // Named, not merely a drain that pushed nothing: the caller has to
-        // tell this apart from a drain that ran (R56, A7 review R142).
-        expect(report.skipped, SyncRunSkip.initialMergePending);
-        expect(pair.gateway.calls, isEmpty);
-        expect(spaceName(yielded.id), 'Y from A');
-        expect(
-          await b().db.syncDao.getValue(SyncDao.keyBindMergePending),
-          isNotNull,
-        );
+          // Named, not merely a drain that pushed nothing: the caller has to
+          // tell this apart from a drain that ran (R56, A7 review R142).
+          expect(report.skipped, SyncRunSkip.initialMergePending);
+          expect(pair.gateway.calls, isEmpty);
+          expect(spaceName(yielded.id), 'Y from A');
+          expect(
+            await b().db.syncDao.getValue(SyncDao.keyBindMergePending),
+            isNotNull,
+          );
 
-        b().engine.onAppResumed();
-        await b().settle();
-        await expectNewerEverywhere();
-      });
+          b().engine.onAppResumed();
+          await b().settle();
+          await expectNewerEverywhere();
+        },
+      );
 
       test('the debounced drain pulls everything under the floor before it '
           'pushes', () async {
@@ -821,10 +834,7 @@ void main() {
         if (s.sql.contains('sync_metadata') && s.args.contains('last_hlc')) s,
     ];
     expect(clockWrites, hasLength(2));
-    expect(
-      a().hooks.calls.where((c) => c == 'before:folders'),
-      hasLength(2),
-    );
+    expect(a().hooks.calls.where((c) => c == 'before:folders'), hasLength(2));
     expect(
       await a().db.syncDao.getValue(SyncDao.keyPullCursor('folders')),
       '${pair.gateway.maxBatch + 1}',
@@ -858,27 +868,30 @@ void main() {
     );
   });
 
-  test('"hasMore, then an empty page" ends the table without a write', () async {
-    pair.gateway.looseHasMore = true;
-    for (var i = 0; i < pair.gateway.maxBatch; i++) {
-      pair.gateway.plant(
-        pair.space,
-        folderEnvelope(
-          'f$i',
-          '000000000100:${i.toRadixString(16).padLeft(4, '0')}:C',
-        ),
+  test(
+    '"hasMore, then an empty page" ends the table without a write',
+    () async {
+      pair.gateway.looseHasMore = true;
+      for (var i = 0; i < pair.gateway.maxBatch; i++) {
+        pair.gateway.plant(
+          pair.space,
+          folderEnvelope(
+            'f$i',
+            '000000000100:${i.toRadixString(16).padLeft(4, '0')}:C',
+          ),
+        );
+      }
+      a().statements.reset();
+      pair.gateway.calls.clear();
+
+      final report = await a().sync();
+
+      expect(report.pulledRows, pair.gateway.maxBatch);
+      expect(
+        pair.gateway.calls.where((c) => c == 'pull:folders'),
+        hasLength(2),
       );
-    }
-    a().statements.reset();
-    pair.gateway.calls.clear();
-
-    final report = await a().sync();
-
-    expect(report.pulledRows, pair.gateway.maxBatch);
-    expect(pair.gateway.calls.where((c) => c == 'pull:folders'), hasLength(2));
-    expect(
-      a().hooks.calls.where((c) => c == 'before:folders'),
-      hasLength(1),
-    );
-  });
+      expect(a().hooks.calls.where((c) => c == 'before:folders'), hasLength(1));
+    },
+  );
 }

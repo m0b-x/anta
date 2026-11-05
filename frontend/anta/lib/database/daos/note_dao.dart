@@ -1028,9 +1028,8 @@ class NoteDao extends DatabaseAccessor<AppDatabase> with _$NoteDaoMixin {
       );
       if (body == null) return merge;
       return switch (merge.result) {
-        MergeResult.inserted || MergeResult.applied => merge.withMergedContent(
-          body,
-        ),
+        MergeResult.inserted ||
+        MergeResult.applied => merge.withMergedContent(body),
         MergeResult.keptLocal || MergeResult.unchanged => merge,
       };
     });

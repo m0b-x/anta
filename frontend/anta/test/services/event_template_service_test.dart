@@ -409,7 +409,8 @@ void main() {
       expect(
         CalendarCategories.byId(event.categoryId),
         isNotNull,
-        reason: 'a dead id is dropped by every category allowlist and '
+        reason:
+            'a dead id is dropped by every category allowlist and '
             'exported as that uuid in .ics',
       );
     });

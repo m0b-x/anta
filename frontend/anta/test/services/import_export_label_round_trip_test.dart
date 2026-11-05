@@ -140,41 +140,40 @@ void main() {
     );
   });
 
-  test('a folder archive carries the folder label through importArchive', ()
-      async {
-    final root = await db.folderDao.createFolder(
-      name: 'Training',
-      label: ItemLabel.blue,
-    );
-    final note = await noteStorage.createNote(
-      folderId: root.id,
-      title: 'Session 1',
-      content: 'squat',
-    );
-    await db.noteDao.updateNoteLabel(id: note.id, label: ItemLabel.teal);
-    final destination = await db.folderDao.createFolder(name: 'Destination');
+  test(
+    'a folder archive carries the folder label through importArchive',
+    () async {
+      final root = await db.folderDao.createFolder(
+        name: 'Training',
+        label: ItemLabel.blue,
+      );
+      final note = await noteStorage.createNote(
+        folderId: root.id,
+        title: 'Session 1',
+        content: 'squat',
+      );
+      await db.noteDao.updateNoteLabel(id: note.id, label: ItemLabel.teal);
+      final destination = await db.folderDao.createFolder(name: 'Destination');
 
-    final exported = await service.exportFolder(folderId: root.id);
-    final result = await service.importArchive(
-      filePath: exported.filePath,
-      targetParentFolderId: destination.id,
-    );
+      final exported = await service.exportFolder(folderId: root.id);
+      final result = await service.importArchive(
+        filePath: exported.filePath,
+        targetParentFolderId: destination.id,
+      );
 
-    expect(result.foldersImported, 1);
-    expect(result.notesImported, 1);
-    final recreated = await db.folderDao.getFoldersByParent(destination.id);
-    expect(recreated, hasLength(1));
-    expect(
-      ItemLabel.fromStorage(recreated.single.label),
-      ItemLabel.blue,
-      reason: '`_folder.json` is where a folder\'s colour travels',
-    );
-    final importedNotes = await notesIn(recreated.single.id);
-    expect(
-      ItemLabel.fromStorage(importedNotes.single.label),
-      ItemLabel.teal,
-    );
-  });
+      expect(result.foldersImported, 1);
+      expect(result.notesImported, 1);
+      final recreated = await db.folderDao.getFoldersByParent(destination.id);
+      expect(recreated, hasLength(1));
+      expect(
+        ItemLabel.fromStorage(recreated.single.label),
+        ItemLabel.blue,
+        reason: '`_folder.json` is where a folder\'s colour travels',
+      );
+      final importedNotes = await notesIn(recreated.single.id);
+      expect(ItemLabel.fromStorage(importedNotes.single.label), ItemLabel.teal);
+    },
+  );
 
   test('a note whose label is a number imports unlabelled and does not abort '
       'the archive', () async {
@@ -225,10 +224,7 @@ void main() {
 
     final imported = await notesIn(recreated.single.id);
     final byTitle = {for (final note in imported) note.title: note};
-    expect(
-      ItemLabel.fromStorage(byTitle['Broken']!.label),
-      ItemLabel.none,
-    );
+    expect(ItemLabel.fromStorage(byTitle['Broken']!.label), ItemLabel.none);
     expect(
       ItemLabel.fromStorage(byTitle['Fine']!.label),
       ItemLabel.green,

@@ -252,7 +252,10 @@ void main() {
       );
 
       expect(resolver.providers.whereType<FastingCellTintProvider>(), isEmpty);
-      expect(resolver.providers.whereType<EventCellTintProvider>(), hasLength(1));
+      expect(
+        resolver.providers.whereType<EventCellTintProvider>(),
+        hasLength(1),
+      );
     });
 
     /// With the event wash off too there is no source left, so the resolver

@@ -12,7 +12,8 @@ import 'qa_mode.dart';
 
 /// Imports a full-backup JSON document and reports whether it succeeded and
 /// a one-line description of what happened, for the `[qa]` log.
-typedef QaSeedImporter = Future<(bool ok, String message)> Function(String json);
+typedef QaSeedImporter =
+    Future<(bool ok, String message)> Function(String json);
 
 /// One `[qa]` line, typed: what it was about, whether it went well, and the
 /// wording that was printed. The driver branches on [ok], never on the text.
@@ -168,7 +169,7 @@ class QaBootstrap {
         'reset',
         false,
         'reset refused: ANTA_QA_DB is "$_ownerDatabaseName", '
-        'which is the owner database',
+            'which is the owner database',
       );
       await _deleteQuietly(marker);
       return false;

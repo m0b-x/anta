@@ -4,7 +4,8 @@ import 'package:flutter_test/flutter_test.dart';
 
 import '../../tool/release/src/signing.dart';
 
-const String _complete = 'storePassword=pw\n'
+const String _complete =
+    'storePassword=pw\n'
     'keyPassword=pw\n'
     'keyAlias=anta\n'
     'storeFile=release-keystore.jks\n';
@@ -20,24 +21,27 @@ void main() {
     });
 
     test('accepts the colon separator and keeps later separators', () {
-      expect(
-        parseKeyProperties(r'storeFile: C:\keys\anta.jks'),
-        {'storeFile': r'C:\keys\anta.jks'},
-      );
+      expect(parseKeyProperties(r'storeFile: C:\keys\anta.jks'), {
+        'storeFile': r'C:\keys\anta.jks',
+      });
     });
   });
 
   group('resolveKeystorePath', () {
-    test('a relative storeFile lives in the app module, like Gradle file()', () {
-      expect(
-        resolveKeystorePath('release-keystore.jks', appModuleDir: 'app'),
-        'app${Platform.pathSeparator}release-keystore.jks',
-      );
-    });
+    test(
+      'a relative storeFile lives in the app module, like Gradle file()',
+      () {
+        expect(
+          resolveKeystorePath('release-keystore.jks', appModuleDir: 'app'),
+          'app${Platform.pathSeparator}release-keystore.jks',
+        );
+      },
+    );
 
     test('an absolute storeFile is kept', () {
-      final absolute =
-          Platform.isWindows ? r'C:\keys\anta.jks' : '/keys/anta.jks';
+      final absolute = Platform.isWindows
+          ? r'C:\keys\anta.jks'
+          : '/keys/anta.jks';
       expect(resolveKeystorePath(absolute, appModuleDir: 'app'), absolute);
     });
   });

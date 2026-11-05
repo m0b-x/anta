@@ -184,10 +184,7 @@ class CounterService {
 
   void _scheduleDirtyFlush() {
     _flushTimer?.cancel();
-    _flushTimer = Timer(
-      _flushDelay,
-      () => unawaited(_serialized(_flushDirty)),
-    );
+    _flushTimer = Timer(_flushDelay, () => unawaited(_serialized(_flushDirty)));
   }
 
   /// A tap or a decrement: [delta] on top of whatever the value is when it
@@ -210,8 +207,7 @@ class CounterService {
   /// written plus any tap made while the write ran.
   Future<void> _flushDirty() async {
     final pending = <(String, String), _PendingCount>{
-      for (final MapEntry(key: id, value: change)
-          in _dirtyGlobalValues.entries)
+      for (final MapEntry(key: id, value: change) in _dirtyGlobalValues.entries)
         (id, ''): change,
       ..._dirtyNoteValues,
     };
@@ -530,11 +526,7 @@ class CounterService {
 
     final noteValues = await getNoteValues(noteId);
     noteValues[counterId] = counter.startValue;
-    _recordAbsolute(
-      _dirtyNoteValues,
-      (counterId, noteId),
-      counter.startValue,
-    );
+    _recordAbsolute(_dirtyNoteValues, (counterId, noteId), counter.startValue);
     _scheduleDirtyFlush();
   }
 

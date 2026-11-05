@@ -176,29 +176,31 @@ void main() {
   /// overtook finishes against the closing database, publishes its digests
   /// and installs itself, so every later caller holds a dead handle: the hub
   /// lists nothing and every write throws until the next switch.
-  test('a switch while the first construction is in flight discards it',
-      () async {
-    await save();
-    final other = await openTestDatabase();
-    addTearDown(other.close);
-    DatabaseLifecycle.notifyDatabaseSwitching();
+  test(
+    'a switch while the first construction is in flight discards it',
+    () async {
+      await save();
+      final other = await openTestDatabase();
+      addTearDown(other.close);
+      DatabaseLifecycle.notifyDatabaseSwitching();
 
-    final leaving = EventDigestService.forTesting(db);
-    EventDigestService.reset();
-    final arrived = await EventDigestService.forTesting(other);
-    final discarded = await leaving;
+      final leaving = EventDigestService.forTesting(db);
+      EventDigestService.reset();
+      final arrived = await EventDigestService.forTesting(other);
+      final discarded = await leaving;
 
-    expect(
-      identical(discarded, arrived),
-      isTrue,
-      reason: 'the construction the switch overtook must not be handed out',
-    );
-    expect(
-      EventDigests.all,
-      isEmpty,
-      reason: "the closing database's digests must never be published",
-    );
-  });
+      expect(
+        identical(discarded, arrived),
+        isTrue,
+        reason: 'the construction the switch overtook must not be handed out',
+      );
+      expect(
+        EventDigests.all,
+        isEmpty,
+        reason: "the closing database's digests must never be published",
+      );
+    },
+  );
 
   /// A sync pull landing during a switch, or a transient sqlite lock. An
   /// empty facade is not "no digests" to the reconcile that follows: it would

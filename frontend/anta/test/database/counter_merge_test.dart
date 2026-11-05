@@ -196,10 +196,10 @@ void main() {
       'c3',
     ]);
 
-    expect({for (final r in rows) r.id: r.isDeleted}, {
-      'c1': false,
-      'c2': true,
-    });
+    expect(
+      {for (final r in rows) r.id: r.isDeleted},
+      {'c1': false, 'c2': true},
+    );
   });
 
   test('a newer counter overwrites every data column', () async {

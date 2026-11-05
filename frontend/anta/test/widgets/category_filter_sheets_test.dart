@@ -70,7 +70,8 @@ void main() {
 
   /// The picker's own Done — by id, since the host sheet under it may carry
   /// the same word.
-  Finder pickerApply() => find.bySemanticsIdentifier(SemanticsIds.categoryPickDone);
+  Finder pickerApply() =>
+      find.bySemanticsIdentifier(SemanticsIds.categoryPickDone);
 
   /// One row inside the sub-sheet. The row behind it names the selection too,
   /// so a bare text finder is ambiguous while the picker is open.
@@ -286,19 +287,13 @@ void main() {
         const CalendarGridFilters(hiddenCategoryIds: {'arch'}),
       );
 
-      expect(
-        row(tester, SemanticsIds.filterCategories).value,
-        'No categories',
-      );
+      expect(row(tester, SemanticsIds.filterCategories).value, 'No categories');
 
       await tap(tester, id(SemanticsIds.filterCategories));
       expect(find.byType(FormCheckRow), findsNothing);
       await tap(tester, pickerApply());
 
-      expect(
-        row(tester, SemanticsIds.filterCategories).value,
-        'No categories',
-      );
+      expect(row(tester, SemanticsIds.filterCategories).value, 'No categories');
 
       await tap(tester, id(SemanticsIds.filterApply));
 
@@ -347,10 +342,7 @@ void main() {
       // dismissal.
       await tap(tester, pickerApply());
 
-      expect(
-        row(tester, SemanticsIds.filterCategories).value,
-        'No categories',
-      );
+      expect(row(tester, SemanticsIds.filterCategories).value, 'No categories');
 
       await tap(tester, id(SemanticsIds.filterApply));
 
@@ -470,7 +462,10 @@ void main() {
       seed(3);
       final applied = await open(tester, CalendarGridFilters.none);
 
-      expect(switchRow(tester, SemanticsIds.filterFasting).onChanged, isNotNull);
+      expect(
+        switchRow(tester, SemanticsIds.filterFasting).onChanged,
+        isNotNull,
+      );
       await tap(tester, id(SemanticsIds.filterFasting));
       await tap(tester, id(SemanticsIds.filterApply));
 

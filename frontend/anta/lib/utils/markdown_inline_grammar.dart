@@ -867,8 +867,7 @@ class MarkdownInlineGrammar {
     if ((value >= 0xFDD0 && value <= 0xFDEF) || value >= 0xFFFE) {
       return false;
     }
-    return value < 0x7F ||
-        !_invisibleUnit.hasMatch(String.fromCharCode(value));
+    return value < 0x7F || !_invisibleUnit.hasMatch(String.fromCharCode(value));
   }
 
   /// Unicode categories Cc, Cf, Zl, Zp and M. Consulted only for a

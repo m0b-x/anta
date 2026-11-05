@@ -237,7 +237,9 @@ class _OverlaySnackbarBodyState extends State<OverlaySnackbarBody> {
                         // Material's own close tooltip instead of throwing.
                         tooltip:
                             AppLocalizations.of(context)?.close ??
-                            MaterialLocalizations.of(context).closeButtonTooltip,
+                            MaterialLocalizations.of(
+                              context,
+                            ).closeButtonTooltip,
                         onPressed: widget.onDismiss,
                         padding: EdgeInsets.zero,
                         constraints: const BoxConstraints(

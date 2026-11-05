@@ -37,9 +37,7 @@ void main() {
     removeAfterAlert: true,
   );
 
-  const alerts = [
-    EventAlert(id: 'a1', eventId: 'e1', mode: AlertMode.ring),
-  ];
+  const alerts = [EventAlert(id: 'a1', eventId: 'e1', mode: AlertMode.ring)];
 
   final notice = AlertRemovalNotice.instance;
 
@@ -146,62 +144,61 @@ void main() {
       expect(offered?.alerts, alerts);
     });
 
-    test('undo puts back all four row sets the cascade took, under one stamp',
-        () async {
-      // C112: the notice used to carry the alerts alone, so the Undo restored
-      // an event whose attendance marks, day descriptions and cancelled days
-      // were gone for good — on this device and, since the tombstones carry
-      // their own HLC, on every paired one.
-      final marked = DateTime.utc(2026, 9, 20);
-      final cancelled = DateTime.utc(2026, 9, 22);
-      await events.upsert(
-        event.copyWith(
-          rule: const DailyRecurrence(),
-          tracksPresence: true,
-        ),
-      );
-      await presence.setStatus('e1', marked, PresenceStatus.present);
-      await occurrences.setDescription('e1', marked, 'ran 5k');
-      await skips.markSkipped('e1', cancelled);
+    test(
+      'undo puts back all four row sets the cascade took, under one stamp',
+      () async {
+        // C112: the notice used to carry the alerts alone, so the Undo restored
+        // an event whose attendance marks, day descriptions and cancelled days
+        // were gone for good — on this device and, since the tombstones carry
+        // their own HLC, on every paired one.
+        final marked = DateTime.utc(2026, 9, 20);
+        final cancelled = DateTime.utc(2026, 9, 22);
+        await events.upsert(
+          event.copyWith(rule: const DailyRecurrence(), tracksPresence: true),
+        );
+        await presence.setStatus('e1', marked, PresenceStatus.present);
+        await occurrences.setDescription('e1', marked, 'ran 5k');
+        await skips.markSkipped('e1', cancelled);
 
-      expect(await AlertAcknowledgement.apply(payloadOf()), isTrue);
-      expect(EventPresence.marksFor('e1'), isEmpty);
-      expect(OccurrenceDescriptions.overridesFor('e1'), isEmpty);
-      expect(EventSkips.daysFor('e1'), isEmpty);
+        expect(await AlertAcknowledgement.apply(payloadOf()), isTrue);
+        expect(EventPresence.marksFor('e1'), isEmpty);
+        expect(OccurrenceDescriptions.overridesFor('e1'), isEmpty);
+        expect(EventSkips.daysFor('e1'), isEmpty);
 
-      final offered = notice.take()!;
-      await events.restoreCascade(
-        offered.event,
-        marks: offered.marks,
-        descriptions: offered.descriptions,
-        skips: offered.skips,
-        alerts: offered.alerts,
-      );
+        final offered = notice.take()!;
+        await events.restoreCascade(
+          offered.event,
+          marks: offered.marks,
+          descriptions: offered.descriptions,
+          skips: offered.skips,
+          alerts: offered.alerts,
+        );
 
-      expect(events.events.single.id, 'e1');
-      expect(EventAlerts.alertsFor('e1'), alerts);
-      expect(EventPresence.marksFor('e1'), {marked: PresenceStatus.present});
-      expect(OccurrenceDescriptions.overridesFor('e1'), {marked: 'ran 5k'});
-      expect(EventSkips.daysFor('e1'), {cancelled});
+        expect(events.events.single.id, 'e1');
+        expect(EventAlerts.alertsFor('e1'), alerts);
+        expect(EventPresence.marksFor('e1'), {marked: PresenceStatus.present});
+        expect(OccurrenceDescriptions.overridesFor('e1'), {marked: 'ran 5k'});
+        expect(EventSkips.daysFor('e1'), {cancelled});
 
-      // One act, so one HLC across the five tables: the restore merges as a
-      // single ordered change rather than five another device can interleave.
-      final stamps = await db
-          .customSelect(
-            'SELECT hlc_timestamp FROM calendar_events WHERE id = ? '
-            'UNION SELECT hlc_timestamp FROM calendar_event_absences '
-            'WHERE event_id = ? AND is_deleted = 0 '
-            'UNION SELECT hlc_timestamp FROM calendar_event_occurrences '
-            'WHERE event_id = ? AND is_deleted = 0 '
-            'UNION SELECT hlc_timestamp FROM calendar_event_skips '
-            'WHERE event_id = ? AND is_deleted = 0 '
-            'UNION SELECT hlc_timestamp FROM calendar_event_alerts '
-            'WHERE event_id = ? AND is_deleted = 0',
-            variables: [for (var i = 0; i < 5; i++) Variable<String>('e1')],
-          )
-          .get();
-      expect(stamps, hasLength(1));
-    });
+        // One act, so one HLC across the five tables: the restore merges as a
+        // single ordered change rather than five another device can interleave.
+        final stamps = await db
+            .customSelect(
+              'SELECT hlc_timestamp FROM calendar_events WHERE id = ? '
+              'UNION SELECT hlc_timestamp FROM calendar_event_absences '
+              'WHERE event_id = ? AND is_deleted = 0 '
+              'UNION SELECT hlc_timestamp FROM calendar_event_occurrences '
+              'WHERE event_id = ? AND is_deleted = 0 '
+              'UNION SELECT hlc_timestamp FROM calendar_event_skips '
+              'WHERE event_id = ? AND is_deleted = 0 '
+              'UNION SELECT hlc_timestamp FROM calendar_event_alerts '
+              'WHERE event_id = ? AND is_deleted = 0',
+              variables: [for (var i = 0; i < 5; i++) Variable<String>('e1')],
+            )
+            .get();
+        expect(stamps, hasLength(1));
+      },
+    );
 
     test('a reminder never does', () async {
       // Tapping a "10 min before" reminder is someone looking at the event.
@@ -279,30 +276,32 @@ void main() {
       expect(offered.alerts, alerts);
     });
 
-    test('an acknowledged alarm asks for its chip before A3 runs; a reminder never',
-        () async {
-      final gateway = _ChipGateway();
-      SessionChip.instance.configureForTesting(
-        gateway: () => gateway,
-        activeDatabase: () async => 'gym_notes',
-        findEvent: (id) async {
-          for (final candidate in events.events) {
-            if (candidate.id == id) return candidate;
-          }
-          return null;
-        },
-        clock: () => DateTime(2026, 9, 20, 7),
-      );
-      addTearDown(SessionChip.instance.resetForTesting);
+    test(
+      'an acknowledged alarm asks for its chip before A3 runs; a reminder never',
+      () async {
+        final gateway = _ChipGateway();
+        SessionChip.instance.configureForTesting(
+          gateway: () => gateway,
+          activeDatabase: () async => 'gym_notes',
+          findEvent: (id) async {
+            for (final candidate in events.events) {
+              if (candidate.id == id) return candidate;
+            }
+            return null;
+          },
+          clock: () => DateTime(2026, 9, 20, 7),
+        );
+        addTearDown(SessionChip.instance.resetForTesting);
 
-      expect(await AlertAcknowledgement.apply(payloadOf()), isTrue);
-      // Composed while the event was still there: its os id, its title.
-      expect(gateway.chips.single.eventId, 'e1');
-      expect(events.events, isEmpty);
+        expect(await AlertAcknowledgement.apply(payloadOf()), isTrue);
+        // Composed while the event was still there: its os id, its title.
+        expect(gateway.chips.single.eventId, 'e1');
+        expect(events.events, isEmpty);
 
-      await AlertAcknowledgement.apply(payloadOf(mode: AlertMode.notify));
-      expect(gateway.chips, hasLength(1));
-    });
+        await AlertAcknowledgement.apply(payloadOf(mode: AlertMode.notify));
+        expect(gateway.chips, hasLength(1));
+      },
+    );
   });
 }
 

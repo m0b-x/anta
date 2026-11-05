@@ -405,7 +405,10 @@ void main() {
     test('sounds without peeking, on the digest channel', () {
       expect(details.channelId, 'alerts_digest');
       expect(details.channelName, 'Digests');
-      expect(details.channelDescription, 'Bundled summaries of upcoming events');
+      expect(
+        details.channelDescription,
+        'Bundled summaries of upcoming events',
+      );
       expect(details.importance, Importance.defaultImportance);
       expect(details.priority, Priority.defaultPriority);
       expect(details.category, AndroidNotificationCategory.event);

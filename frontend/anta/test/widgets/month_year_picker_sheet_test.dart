@@ -237,7 +237,9 @@ void main() {
       isFalse,
     );
     final wheel = tester.getRect(
-      find.ancestor(of: august, matching: find.byType(ListWheelScrollView)).first,
+      find
+          .ancestor(of: august, matching: find.byType(ListWheelScrollView))
+          .first,
     );
     expect(tester.getRect(august).left, greaterThanOrEqualTo(wheel.left));
     expect(tester.getRect(august).right, lessThanOrEqualTo(wheel.right));

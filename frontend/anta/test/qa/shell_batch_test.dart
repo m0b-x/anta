@@ -67,28 +67,33 @@ void main() {
     });
 
     test('ignores whitespace around the separator', () {
-      expect(
-        splitBatchOutput('x\n  __QA_SEP__  \ny\n\t__QA_SEP__\n', 2),
-        ['x', 'y'],
-      );
+      expect(splitBatchOutput('x\n  __QA_SEP__  \ny\n\t__QA_SEP__\n', 2), [
+        'x',
+        'y',
+      ]);
     });
   });
 
   group('Adb.shellBatch', () {
     test('is one adb invocation carrying the whole script', () async {
       final fake = FakeProcessRunner(
-        defaultOutcome:
-            const RunOutcome(0, 'one\n__QA_SEP__\ntwo\n__QA_SEP__\n', ''),
+        defaultOutcome: const RunOutcome(
+          0,
+          'one\n__QA_SEP__\ntwo\n__QA_SEP__\n',
+          '',
+        ),
       );
-      final adb =
-          Adb(executable: 'adb', runner: fake, serial: 'emulator-5554');
+      final adb = Adb(executable: 'adb', runner: fake, serial: 'emulator-5554');
       final outputs = await adb.shellBatch(const [
         ShellCommand(['echo', 'one']),
         ShellCommand(['echo', 'two']),
       ]);
       expect(fake.calls, hasLength(1));
-      expect(fake.calls.single.arguments.take(3).toList(),
-          ['-s', 'emulator-5554', 'shell']);
+      expect(fake.calls.single.arguments.take(3).toList(), [
+        '-s',
+        'emulator-5554',
+        'shell',
+      ]);
       expect(fake.calls.single.arguments, hasLength(4));
       expect(outputs, ['one', 'two']);
     });
@@ -105,7 +110,12 @@ void main() {
         defaultOutcome: const RunOutcome(1, '', 'boom\n__QA_SEP__\n'),
       );
       final adb = Adb(executable: 'adb', runner: fake);
-      expect(await adb.shellBatch(const [ShellCommand(['true'])]), ['boom']);
+      expect(
+        await adb.shellBatch(const [
+          ShellCommand(['true']),
+        ]),
+        ['boom'],
+      );
     });
   });
 }

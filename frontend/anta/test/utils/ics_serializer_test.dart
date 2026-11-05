@@ -145,7 +145,11 @@ void main() {
       final ics = export(
         event(
           rule: SpecificDatesRecurrence(
-            dates: {anchor, DateTime.utc(2026, 9, 14), DateTime.utc(2026, 8, 20)},
+            dates: {
+              anchor,
+              DateTime.utc(2026, 9, 14),
+              DateTime.utc(2026, 8, 20),
+            },
           ),
         ),
       );
@@ -210,9 +214,7 @@ void main() {
       expect(property(open, 'DTEND'), isNull);
 
       final closed = export(
-        event(
-          time: const EventTime(startMinute: 18 * 60, durationMinutes: 90),
-        ),
+        event(time: const EventTime(startMinute: 18 * 60, durationMinutes: 90)),
       );
       expect(property(closed, 'DTEND'), 'DTEND:20260803T193000');
     });
@@ -298,7 +300,8 @@ void main() {
       final ics = export(
         event(
           title: diacritics,
-          description: 'Încălzire, apoi genuflexiuni și împins cu bara, '
+          description:
+              'Încălzire, apoi genuflexiuni și împins cu bara, '
               'urmate de tracțiuni la bară fixă și o plimbare lungă.',
           rule: const WeeklyRecurrence(weekdays: {DateTime.monday}),
         ),

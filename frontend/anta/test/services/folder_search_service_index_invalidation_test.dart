@@ -94,26 +94,28 @@ void main() {
 
     tearDown(() async => search.close());
 
-    test('a note written outside the bloc is found by the next full search',
-        () async {
-      // Restore, import and sync all land here: storage, never
-      // `OptimizedNoteBloc`, so `updateIndex` is never called for them.
-      await notes.createNote(
-        folderId: folder.id,
-        title: 'Session 2',
-        content: 'zercher carry and sled',
-      );
+    test(
+      'a note written outside the bloc is found by the next full search',
+      () async {
+        // Restore, import and sync all land here: storage, never
+        // `OptimizedNoteBloc`, so `updateIndex` is never called for them.
+        await notes.createNote(
+          folderId: folder.id,
+          title: 'Session 2',
+          content: 'zercher carry and sled',
+        );
 
-      final results = await search.search('zercher');
+        final results = await search.search('zercher');
 
-      expect(
-        results.map((r) => r.metadata.title),
-        contains('Session 2'),
-        reason:
-            'the index is built once per session; without invalidation it '
-            'answers for the database as it was at launch',
-      );
-    });
+        expect(
+          results.map((r) => r.metadata.title),
+          contains('Session 2'),
+          reason:
+              'the index is built once per session; without invalidation it '
+              'answers for the database as it was at launch',
+        );
+      },
+    );
 
     test('an edit outside the bloc is reflected, old words and new', () async {
       final page = await notes.loadNotesPaginated(pageSize: 10);
@@ -125,7 +127,8 @@ void main() {
       expect(
         await search.search('squat'),
         isEmpty,
-        reason: 'a refreshed note replaces its terms rather than adding to them',
+        reason:
+            'a refreshed note replaces its terms rather than adding to them',
       );
     });
 

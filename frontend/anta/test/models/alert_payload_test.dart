@@ -439,8 +439,7 @@ void main() {
       expect(json['dsm'], '+2 more');
     });
 
-    test("an alert's payload carries none of them, and reads as no digest",
-        () {
+    test("an alert's payload carries none of them, and reads as no digest", () {
       final json = payloadOf().toJson();
       for (final key in ['dg', 'di', 'ss', 'se', 'cat', 'dtx', 'dln', 'dsm']) {
         expect(json.containsKey(key), isFalse, reason: key);

@@ -86,18 +86,21 @@ void main() {
     expect(daemonListingCommand(windows: false).line, 'ps -eo pid=,command=');
   });
 
-  test('listGradleDaemons parses the listing; a failed listing is empty', () async {
-    final runner = FakeProcessRunner()
-      ..script('ps -eo pid=,command=', const RunOutcome(0, _posixRows, ''));
-    expect(
-      (await listGradleDaemons(runner, windows: false)).map((d) => d.pid),
-      [512, 600],
-    );
-    final broken = FakeProcessRunner(
-      defaultOutcome: const RunOutcome(1, '', 'no ps'),
-    );
-    expect(await listGradleDaemons(broken, windows: false), isEmpty);
-  });
+  test(
+    'listGradleDaemons parses the listing; a failed listing is empty',
+    () async {
+      final runner = FakeProcessRunner()
+        ..script('ps -eo pid=,command=', const RunOutcome(0, _posixRows, ''));
+      expect(
+        (await listGradleDaemons(runner, windows: false)).map((d) => d.pid),
+        [512, 600],
+      );
+      final broken = FakeProcessRunner(
+        defaultOutcome: const RunOutcome(1, '', 'no ps'),
+      );
+      expect(await listGradleDaemons(broken, windows: false), isEmpty);
+    },
+  );
 
   test('stopDaemons reports only the pids the kill accepted', () {
     final killed = <int>[];

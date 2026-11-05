@@ -55,10 +55,8 @@ DateTime _utcDayOf(DateTime local) =>
 
 int _minuteOf(DateTime local) => local.hour * 60 + local.minute;
 
-QuickAlarmMoment _momentOf(DateTime local) => (
-  day: _utcDayOf(local),
-  minute: _minuteOf(local),
-);
+QuickAlarmMoment _momentOf(DateTime local) =>
+    (day: _utcDayOf(local), minute: _minuteOf(local));
 
 /// The moment the sheet opens on: the next quarter hour strictly after [now]
 /// (10:00:00 → 10:15, 10:14 → 10:15, 23:50 → 00:00 the next day).
@@ -86,7 +84,13 @@ QuickAlarmMoment quickAlarmAfter(DateTime now, Duration offset) {
 
 /// Tonight at [kQuickAlarmTonightMinute], or null once that has passed.
 QuickAlarmMoment? quickAlarmTonightFor(DateTime now) {
-  final at = DateTime(now.year, now.month, now.day, 0, kQuickAlarmTonightMinute);
+  final at = DateTime(
+    now.year,
+    now.month,
+    now.day,
+    0,
+    kQuickAlarmTonightMinute,
+  );
   return at.isAfter(now) ? _momentOf(at) : null;
 }
 
@@ -127,7 +131,10 @@ DateTime quickAlarmDayFor({
 
 /// The one-time event a quick alarm is: the fallback category, the alarm
 /// icon, a point in time, and the remove-after flag for the alarm tier.
-CalendarEvent buildQuickAlarmEvent(QuickAlarmDraft draft, {required String id}) {
+CalendarEvent buildQuickAlarmEvent(
+  QuickAlarmDraft draft, {
+  required String id,
+}) {
   return CalendarEvent(
     id: id,
     title: draft.name,

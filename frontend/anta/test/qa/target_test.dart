@@ -94,8 +94,13 @@ void main() {
     test('no match at all is a target failure naming the target', () {
       expect(
         () => resolver.resolve('Nothing like this'),
-        throwsA(isA<TargetFailure>().having(
-            (e) => e.message, 'message', contains('Nothing like this'))),
+        throwsA(
+          isA<TargetFailure>().having(
+            (e) => e.message,
+            'message',
+            contains('Nothing like this'),
+          ),
+        ),
       );
     });
   });
@@ -119,11 +124,13 @@ void main() {
     test('several substring matches error and list the candidates', () {
       expect(
         () => ambiguous.resolve('elete'),
-        throwsA(isA<TargetFailure>()
-            .having((e) => e.message, 'message', contains('ambiguous'))
-            .having((e) => e.message, 'message', contains('3 matches'))
-            .having((e) => e.message, 'message', contains('--nth 0'))
-            .having((e) => e.message, 'message', contains('--nth 2'))),
+        throwsA(
+          isA<TargetFailure>()
+              .having((e) => e.message, 'message', contains('ambiguous'))
+              .having((e) => e.message, 'message', contains('3 matches'))
+              .having((e) => e.message, 'message', contains('--nth 0'))
+              .having((e) => e.message, 'message', contains('--nth 2')),
+        ),
       );
     });
 
@@ -145,8 +152,13 @@ void main() {
     test('--nth out of range is a target failure', () {
       expect(
         () => ambiguous.resolve('elete', nth: 7),
-        throwsA(isA<TargetFailure>()
-            .having((e) => e.message, 'message', contains('out of range'))),
+        throwsA(
+          isA<TargetFailure>().having(
+            (e) => e.message,
+            'message',
+            contains('out of range'),
+          ),
+        ),
       );
     });
 
@@ -188,10 +200,19 @@ void main() {
     test('a missed label says which package and what was there', () {
       expect(
         () => resolver.resolve('Nothing here at all'),
-        throwsA(isA<TargetFailure>()
-            .having((e) => e.message, 'message',
-                contains('on screen (com.alexzamfir.anta)'))
-            .having((e) => e.message, 'message', contains('Search all notes'))),
+        throwsA(
+          isA<TargetFailure>()
+              .having(
+                (e) => e.message,
+                'message',
+                contains('on screen (com.alexzamfir.anta)'),
+              )
+              .having(
+                (e) => e.message,
+                'message',
+                contains('Search all notes'),
+              ),
+        ),
       );
     });
 
@@ -205,22 +226,22 @@ void main() {
 }
 
 UiNode _node(int index, {String desc = '', String text = ''}) => UiNode(
-      index: index,
-      parentIndex: -1,
-      depth: 0,
-      className: 'android.view.View',
-      text: text,
-      contentDesc: desc,
-      resourceId: '',
-      packageName: 'com.alexzamfir.anta',
-      bounds: UiRect(0, index * 100, 100, index * 100 + 100),
-      clickable: true,
-      longClickable: false,
-      enabled: true,
-      focused: false,
-      focusable: true,
-      checked: false,
-      checkable: false,
-      selected: false,
-      scrollable: false,
-    );
+  index: index,
+  parentIndex: -1,
+  depth: 0,
+  className: 'android.view.View',
+  text: text,
+  contentDesc: desc,
+  resourceId: '',
+  packageName: 'com.alexzamfir.anta',
+  bounds: UiRect(0, index * 100, 100, index * 100 + 100),
+  clickable: true,
+  longClickable: false,
+  enabled: true,
+  focused: false,
+  focusable: true,
+  checked: false,
+  checkable: false,
+  selected: false,
+  scrollable: false,
+);

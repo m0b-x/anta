@@ -114,9 +114,12 @@ void main() {
     await runV39();
 
     expect(
-      ItemLabel.fromStorage((await rowsOf('folders')).single.read<int>('label')),
+      ItemLabel.fromStorage(
+        (await rowsOf('folders')).single.read<int>('label'),
+      ),
       ItemLabel.teal,
-      reason: 'the PRAGMA guard must skip the ALTER, not re-add a zeroed column',
+      reason:
+          'the PRAGMA guard must skip the ALTER, not re-add a zeroed column',
     );
     expect(
       ItemLabel.fromStorage((await rowsOf('notes')).single.read<int>('label')),
@@ -133,13 +136,16 @@ void main() {
     expect(await columnNames('folders'), contains('label'));
   });
 
-  test('an insert that omits the column relies on the frozen default', () async {
-    await dropLabels();
-    await runV39();
-    await insertLegacyFolder('later');
-    await insertLegacyNote('later-note');
+  test(
+    'an insert that omits the column relies on the frozen default',
+    () async {
+      await dropLabels();
+      await runV39();
+      await insertLegacyFolder('later');
+      await insertLegacyNote('later-note');
 
-    expect((await rowsOf('folders')).single.read<int>('label'), 0);
-    expect((await rowsOf('notes')).single.read<int>('label'), 0);
-  });
+      expect((await rowsOf('folders')).single.read<int>('label'), 0);
+      expect((await rowsOf('notes')).single.read<int>('label'), 0);
+    },
+  );
 }

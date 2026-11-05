@@ -90,8 +90,10 @@ void main() {
   VoidCallback? doneAction(WidgetTester tester) =>
       tester.widget<TextButton>(done()).onPressed;
 
-  Finder stepButton(String tooltip) =>
-      find.ancestor(of: find.byTooltip(tooltip).hitTestable(), matching: find.byType(IconButton));
+  Finder stepButton(String tooltip) => find.ancestor(
+    of: find.byTooltip(tooltip).hitTestable(),
+    matching: find.byType(IconButton),
+  );
 
   VoidCallback? stepAction(WidgetTester tester, String tooltip) =>
       tester.widget<IconButton>(stepButton(tooltip)).onPressed;
@@ -349,9 +351,7 @@ void main() {
     expect(shown('Repeat every'), findsNothing);
   });
 
-  testWidgets('the weekday caption reads the picked days back', (
-    tester,
-  ) async {
+  testWidgets('the weekday caption reads the picked days back', (tester) async {
     await open(
       tester,
       const EventRepeatDraft(
@@ -511,10 +511,7 @@ void main() {
       const EventRepeatDraft(recurring: true, kind: RepeatKind.monthly),
     );
 
-    expect(
-      shown('Shows on matching days before Sep 25, 2026'),
-      findsOneWidget,
-    );
+    expect(shown('Shows on matching days before Sep 25, 2026'), findsOneWidget);
     final toggle = tester.widget<Switch>(find.byType(Switch).hitTestable());
     expect(toggle.value, isFalse);
 
@@ -543,10 +540,7 @@ void main() {
     );
 
     expect(find.text('Also in earlier years'), findsOneWidget);
-    expect(
-      shown('Shows on matching days before Sep 25, 2026'),
-      findsNothing,
-    );
+    expect(shown('Shows on matching days before Sep 25, 2026'), findsNothing);
     expect(
       tester.widget<Switch>(find.byType(Switch).hitTestable()).value,
       isTrue,
@@ -555,10 +549,7 @@ void main() {
     await tap(tester, find.text('Monthly'));
 
     expect(find.text('Also in earlier years'), findsNothing);
-    expect(
-      shown('Shows on matching days before Sep 25, 2026'),
-      findsOneWidget,
-    );
+    expect(shown('Shows on matching days before Sep 25, 2026'), findsOneWidget);
   });
 
   testWidgets('the retroactive switch is offered for every recurring kind', (
@@ -1069,11 +1060,11 @@ void main() {
     expect(a.copyWith(kind: RepeatKind.daily), isNot(b));
     expect(a.isValid, isTrue);
     expect(a.copyWith(weekdays: const {}).isValid, isFalse);
+    expect(a.copyWith(weekdays: const {}, recurring: false).isValid, isTrue);
     expect(
-      a.copyWith(weekdays: const {}, recurring: false).isValid,
+      a.copyWith(weekdays: const {}, kind: RepeatKind.daily).isValid,
       isTrue,
     );
-    expect(a.copyWith(weekdays: const {}, kind: RepeatKind.daily).isValid, isTrue);
     for (final kind in RepeatKind.values) {
       expect(
         kind.supportsInterval,

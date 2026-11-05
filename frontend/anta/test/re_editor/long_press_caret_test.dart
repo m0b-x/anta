@@ -40,9 +40,7 @@ void main() {
     await teardownEditor(tester);
   });
 
-  testWidgets('a long press on a word still selects the word', (
-    tester,
-  ) async {
+  testWidgets('a long press on a word still selects the word', (tester) async {
     final e = await pumpZoneEditor(tester, text: document);
     e.focusNode.requestFocus();
     await tester.pump();

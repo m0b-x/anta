@@ -37,19 +37,22 @@ void main() {
 
     test('accepts the devtools_launcher wording as well', () {
       final uris = extractUris(
-          'Serving the Dart Tooling Daemon at ws://127.0.0.1:1234/tok=.');
+        'Serving the Dart Tooling Daemon at ws://127.0.0.1:1234/tok=.',
+      );
       expect(uris.dtd, 'ws://127.0.0.1:1234/tok=');
     });
 
     test('accepts the older debug-service wording for the VM service', () {
-      final uris =
-          extractUris('Debug service listening on ws://127.0.0.1:5/x=/ws');
+      final uris = extractUris(
+        'Debug service listening on ws://127.0.0.1:5/x=/ws',
+      );
       expect(uris.vmService, 'ws://127.0.0.1:5/x=/ws');
     });
 
     test('a trailing full stop is trimmed off', () {
       final uris = extractUris(
-          'The Dart Tooling Daemon is available at: ws://127.0.0.1:1/a=.');
+        'The Dart Tooling Daemon is available at: ws://127.0.0.1:1/a=.',
+      );
       expect(uris.dtd, 'ws://127.0.0.1:1/a=');
     });
 
@@ -90,15 +93,17 @@ E/AndroidRuntime( 1): FATAL EXCEPTION: main
   });
 
   group('launchFailureLine', () {
-    test('catches a Gradle failure so the run does not wait out its timeout',
-        () {
-      final line = launchFailureLine(
-        "Running Gradle task 'assembleDebug'...\n"
-        'FAILURE: Build failed with an exception.\n'
-        'Error: Gradle task assembleDebug failed with exit code 1\n',
-      );
-      expect(line, contains('FAILURE: Build failed'));
-    });
+    test(
+      'catches a Gradle failure so the run does not wait out its timeout',
+      () {
+        final line = launchFailureLine(
+          "Running Gradle task 'assembleDebug'...\n"
+          'FAILURE: Build failed with an exception.\n'
+          'Error: Gradle task assembleDebug failed with exit code 1\n',
+        );
+        expect(line, contains('FAILURE: Build failed'));
+      },
+    );
 
     test('catches a kernel snapshot failure', () {
       expect(
@@ -242,8 +247,10 @@ E/AndroidRuntime( 1): FATAL EXCEPTION: main
   group('emulatorFatalLine', () {
     test('catches the PANIC the emulator prints for a broken AVD', () {
       expect(
-        emulatorFatalLine('emulator: Android emulator version 35.1\n'
-            'PANIC: Cannot find AVD system path.\n'),
+        emulatorFatalLine(
+          'emulator: Android emulator version 35.1\n'
+          'PANIC: Cannot find AVD system path.\n',
+        ),
         'PANIC: Cannot find AVD system path.',
       );
     });
@@ -259,10 +266,7 @@ E/AndroidRuntime( 1): FATAL EXCEPTION: main
     });
 
     test('catches a hypervisor failure', () {
-      expect(
-        emulatorFatalLine('emulator: WHPX is not installed\n'),
-        isNotNull,
-      );
+      expect(emulatorFatalLine('emulator: WHPX is not installed\n'), isNotNull);
     });
 
     test('catches a port clash', () {

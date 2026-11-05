@@ -52,24 +52,30 @@ void main() {
     expect(engine.calls, isEmpty);
   });
 
-  test('a leave after a lone inactive still drains once and resumes once', () async {
-    await send([AppLifecycleState.inactive, AppLifecycleState.resumed]);
-    await send([
-      AppLifecycleState.inactive,
-      AppLifecycleState.hidden,
-      AppLifecycleState.paused,
-      AppLifecycleState.hidden,
-    ]);
-    await send([AppLifecycleState.inactive, AppLifecycleState.resumed]);
+  test(
+    'a leave after a lone inactive still drains once and resumes once',
+    () async {
+      await send([AppLifecycleState.inactive, AppLifecycleState.resumed]);
+      await send([
+        AppLifecycleState.inactive,
+        AppLifecycleState.hidden,
+        AppLifecycleState.paused,
+        AppLifecycleState.hidden,
+      ]);
+      await send([AppLifecycleState.inactive, AppLifecycleState.resumed]);
 
-    expect(engine.calls, ['backgrounded', 'resumed']);
-  });
+      expect(engine.calls, ['backgrounded', 'resumed']);
+    },
+  );
 
-  test('a resume without a leave, as the launch reports, does nothing', () async {
-    await send([AppLifecycleState.resumed]);
+  test(
+    'a resume without a leave, as the launch reports, does nothing',
+    () async {
+      await send([AppLifecycleState.resumed]);
 
-    expect(engine.calls, isEmpty);
-  });
+      expect(engine.calls, isEmpty);
+    },
+  );
 
   test('detached is neither', () async {
     await send([AppLifecycleState.detached]);
@@ -95,22 +101,32 @@ void main() {
     ]);
   });
 
-  test('a bridge built while the app is away hears the return as one', () async {
-    for (final initial in [AppLifecycleState.hidden, AppLifecycleState.paused]) {
-      final away = StreamController<AppLifecycleState>();
-      final seeded = FakeSyncEngine()..isStarted = true;
-      final built = SyncLifecycleBridge(seeded, away.stream, initial: initial);
+  test(
+    'a bridge built while the app is away hears the return as one',
+    () async {
+      for (final initial in [
+        AppLifecycleState.hidden,
+        AppLifecycleState.paused,
+      ]) {
+        final away = StreamController<AppLifecycleState>();
+        final seeded = FakeSyncEngine()..isStarted = true;
+        final built = SyncLifecycleBridge(
+          seeded,
+          away.stream,
+          initial: initial,
+        );
 
-      away
-        ..add(AppLifecycleState.inactive)
-        ..add(AppLifecycleState.resumed);
-      await pumpEventQueue();
+        away
+          ..add(AppLifecycleState.inactive)
+          ..add(AppLifecycleState.resumed);
+        await pumpEventQueue();
 
-      expect(seeded.calls, ['resumed'], reason: '$initial');
-      await built.dispose();
-      await away.close();
-    }
-  });
+        expect(seeded.calls, ['resumed'], reason: '$initial');
+        await built.dispose();
+        await away.close();
+      }
+    },
+  );
 
   test('after dispose nothing reaches the engine', () async {
     await bridge.dispose();

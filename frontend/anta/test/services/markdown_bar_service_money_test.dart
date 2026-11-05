@@ -23,16 +23,19 @@ void main() {
       if (!DefaultMarkdownShortcuts.moneyIds.contains(s.id)) s,
   ];
 
-  test('a new install hides the ten money shortcuts in its default bar', () async {
-    final db = await openTestDatabase();
-    addTearDown(db.close);
-    final service = await MarkdownBarService.forTesting(db);
+  test(
+    'a new install hides the ten money shortcuts in its default bar',
+    () async {
+      final db = await openTestDatabase();
+      addTearDown(db.close);
+      final service = await MarkdownBarService.forTesting(db);
 
-    final money = moneyOf(service.profiles.single).toList();
+      final money = moneyOf(service.profiles.single).toList();
 
-    expect(money, hasLength(10));
-    expect(money.every((s) => !s.isVisible), isTrue);
-  });
+      expect(money, hasLength(10));
+      expect(money.every((s) => !s.isVisible), isTrue);
+    },
+  );
 
   test('the switch shows and hides them in every profile and touches '
       'nothing else', () async {

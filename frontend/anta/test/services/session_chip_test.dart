@@ -67,7 +67,10 @@ void main() {
   group('sessionProgress', () {
     final start = DateTime(2026, 9, 20, 18);
     test('is indeterminate with no end, and clamped at both ends', () {
-      expect(sessionProgress(startedAt: start, endsAt: null, now: start), isNull);
+      expect(
+        sessionProgress(startedAt: start, endsAt: null, now: start),
+        isNull,
+      );
       final end = start.add(const Duration(minutes: 90));
       expect(sessionProgress(startedAt: start, endsAt: end, now: start), 0);
       expect(
@@ -103,10 +106,7 @@ void main() {
     test('is the day plus the end minute in local time, or nothing', () {
       expect(sessionEndFor(eventOf(), day), DateTime(2026, 9, 20, 19, 30));
       expect(sessionEndFor(eventOf(durationMinutes: null), day), isNull);
-      expect(
-        sessionEndFor(eventOf().copyWith(clearTime: true), day),
-        isNull,
-      );
+      expect(sessionEndFor(eventOf().copyWith(clearTime: true), day), isNull);
     });
 
     test('is wall-clock time on the day the clocks change', () {
@@ -124,33 +124,35 @@ void main() {
   });
 
   group('linkedSessionNote', () {
-    test('finds the linked note with its metadata, and never a tombstone',
-        () async {
-      final db = await openTestDatabase();
-      addTearDown(db.close);
-      final notes = NoteRepository(database: db);
-      final note = await notes.createNote(
-        folderId: 'f1',
-        title: 'Session 1',
-        content: '# Session 1',
-        preview: '# Session 1',
-        contentLength: 11,
-        chunkCount: 1,
-        isCompressed: false,
-      );
-      final event = eventOf().copyWith(noteId: note.id);
+    test(
+      'finds the linked note with its metadata, and never a tombstone',
+      () async {
+        final db = await openTestDatabase();
+        addTearDown(db.close);
+        final notes = NoteRepository(database: db);
+        final note = await notes.createNote(
+          folderId: 'f1',
+          title: 'Session 1',
+          content: '# Session 1',
+          preview: '# Session 1',
+          contentLength: 11,
+          chunkCount: 1,
+          isCompressed: false,
+        );
+        final event = eventOf().copyWith(noteId: note.id);
 
-      final linked = await linkedSessionNote(event, notes);
-      expect(linked?.noteId, note.id);
-      expect(linked?.folderId, 'f1');
-      expect(linked?.metadata.title, 'Session 1');
+        final linked = await linkedSessionNote(event, notes);
+        expect(linked?.noteId, note.id);
+        expect(linked?.folderId, 'f1');
+        expect(linked?.metadata.title, 'Session 1');
 
-      await notes.deleteNote(note.id);
-      expect(await linkedSessionNote(event, notes), isNull);
+        await notes.deleteNote(note.id);
+        expect(await linkedSessionNote(event, notes), isNull);
 
-      expect(await linkedSessionNote(eventOf(), notes), isNull);
-      expect(await linkedSessionNote(null, notes), isNull);
-    });
+        expect(await linkedSessionNote(eventOf(), notes), isNull);
+        expect(await linkedSessionNote(null, notes), isNull);
+      },
+    );
   });
 
   test('a stopped alarm posts one chip, with the event\'s end', () async {
@@ -212,28 +214,32 @@ void main() {
     expect(gateway.shown.single.progress, isNull);
   });
 
-  test('a reminder, a test alarm and another database\'s alarm post nothing',
-      () async {
-    await chip.show(payloadOf(mode: AlertMode.notify));
-    await chip.show(
-      payloadOf(eventId: AlertPayload.testEventId, database: 'gym_notes'),
-    );
-    await chip.show(payloadOf(database: 'work'));
+  test(
+    'a reminder, a test alarm and another database\'s alarm post nothing',
+    () async {
+      await chip.show(payloadOf(mode: AlertMode.notify));
+      await chip.show(
+        payloadOf(eventId: AlertPayload.testEventId, database: 'gym_notes'),
+      );
+      await chip.show(payloadOf(database: 'work'));
 
-    expect(gateway.shown, isEmpty);
-    expect(chip.shownOsId, isNull);
-  });
+      expect(gateway.shown, isEmpty);
+      expect(chip.shownOsId, isNull);
+    },
+  );
 
-  test('two routes acknowledging the same ring post one chip between them',
-      () async {
-    // Both arrive before either has resolved the database — the shape a
-    // Stop on the platform's notification produces, when `main.dart` settles
-    // the ring end alongside it.
-    await Future.wait([chip.show(payloadOf()), chip.show(payloadOf())]);
-    await chip.show(payloadOf());
+  test(
+    'two routes acknowledging the same ring post one chip between them',
+    () async {
+      // Both arrive before either has resolved the database — the shape a
+      // Stop on the platform's notification produces, when `main.dart` settles
+      // the ring end alongside it.
+      await Future.wait([chip.show(payloadOf()), chip.show(payloadOf())]);
+      await chip.show(payloadOf());
 
-    expect(gateway.shown, hasLength(1));
-  });
+      expect(gateway.shown, hasLength(1));
+    },
+  );
 
   test('a session already over posts nothing', () async {
     now = DateTime(2026, 9, 20, 19, 31);
@@ -363,12 +369,14 @@ void main() {
     });
   });
 
-  test('a clear always reaches the platform, even with nothing remembered',
-      () async {
-    await chip.clear();
+  test(
+    'a clear always reaches the platform, even with nothing remembered',
+    () async {
+      await chip.clear();
 
-    expect(gateway.cleared, 1);
-  });
+      expect(gateway.cleared, 1);
+    },
+  );
 
   test('a new ring\'s chip replaces the old one', () async {
     await chip.show(payloadOf(osId: 7));

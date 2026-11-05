@@ -35,9 +35,9 @@ abstract final class AlertSkipAction {
     required DateTime today,
   }) {
     if (payload.dayUtc.isBefore(today)) return null;
-    final alert = EventAlerts.effectiveFor(event)
-        .where((candidate) => candidate.id == payload.alertId)
-        .firstOrNull;
+    final alert = EventAlerts.effectiveFor(
+      event,
+    ).where((candidate) => candidate.id == payload.alertId).firstOrNull;
     if (alert == null || !alert.enabled) return null;
     if (event.rule is OneTimeRecurrence) {
       if (alert.categoryId != null) {

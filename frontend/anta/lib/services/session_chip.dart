@@ -98,7 +98,8 @@ class SessionChip {
   AlertGateway? Function() _gateway = _registeredGateway;
   Future<String?> Function() _activeDatabase = _registeredDatabase;
   Future<CalendarEvent?> Function(String eventId) _findEvent = _registeredEvent;
-  Future<bool> Function(CalendarEvent event) _noteLinked = _registeredNoteLinked;
+  Future<bool> Function(CalendarEvent event) _noteLinked =
+      _registeredNoteLinked;
   DateTime Function() _clock = DateTime.now;
 
   int? _shownOsId;
@@ -136,7 +137,9 @@ class SessionChip {
       }
       final startedAt = _clock();
       final event = await _findEvent(payload.eventId);
-      final endsAt = event == null ? null : sessionEndFor(event, payload.dayUtc);
+      final endsAt = event == null
+          ? null
+          : sessionEndFor(event, payload.dayUtc);
       if (endsAt != null && !endsAt.isAfter(startedAt)) {
         _shownOsId = previous;
         return;
@@ -149,7 +152,10 @@ class SessionChip {
       _linkedNote = linkedNote;
       if (!await _post(gateway)) return;
       if (endsAt != null) {
-        _endTimer = Timer(endsAt.difference(startedAt), () => unawaited(clear()));
+        _endTimer = Timer(
+          endsAt.difference(startedAt),
+          () => unawaited(clear()),
+        );
         _refresh = Timer.periodic(
           refreshEvery,
           (_) => unawaited(_post(gateway, refresh: true)),

@@ -58,7 +58,12 @@ void main() {
 
   test('a seed meant for one device is resolved into its own file', () {
     final source = fixture('{"calendarEvents":[{"startDateMs":"{{today}}"}]}');
-    final first = prepareSeed(paths, source.path, deviceId: 'emulator-5554', now: now);
+    final first = prepareSeed(
+      paths,
+      source.path,
+      deviceId: 'emulator-5554',
+      now: now,
+    );
     final second = prepareSeed(
       paths,
       source.path,
@@ -77,7 +82,11 @@ void main() {
 
   test('a seed without a settings map gains one', () {
     final source = fixture('{"folders":[]}');
-    final prepared = prepareSeed(paths, source.path, settings: const ['locale=ro']);
+    final prepared = prepareSeed(
+      paths,
+      source.path,
+      settings: const ['locale=ro'],
+    );
     final out = jsonDecode(File(prepared.path).readAsStringSync()) as Map;
     expect(out['settings'], {'locale': 'ro'});
   });

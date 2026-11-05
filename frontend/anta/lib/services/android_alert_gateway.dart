@@ -1304,7 +1304,9 @@ class AndroidAlertGateway extends AlertGateway {
     try {
       await Alarm.acknowledgeEvent(event);
     } catch (e) {
-      debugPrint('[AndroidAlertGateway] acknowledgeEvent(${event.id}) failed: $e');
+      debugPrint(
+        '[AndroidAlertGateway] acknowledgeEvent(${event.id}) failed: $e',
+      );
     }
   }
 
@@ -1525,8 +1527,7 @@ class AndroidAlertGateway extends AlertGateway {
     _silenceTimers.remove(osId)?.cancel();
     int minutes = SettingsKeys.defaultAlertSilenceAfterMinutes;
     try {
-      minutes = (await (await SettingsService.getInstance())
-              .getAlertSettings())
+      minutes = (await (await SettingsService.getInstance()).getAlertSettings())
           .silenceAfterMinutes;
     } catch (_) {
       // The shipped default is a better answer than ringing forever.
@@ -1653,7 +1654,9 @@ class AndroidAlertGateway extends AlertGateway {
     // without this a tap on it would open the ring page for a session that
     // ended hours ago and mark a cancelled row `fired`. It opens the event.
     if (isMissedNotification(response.id, payload)) {
-      PendingNavigationQueue.instance.enqueue(OpenEventIntent(payload: payload));
+      PendingNavigationQueue.instance.enqueue(
+        OpenEventIntent(payload: payload),
+      );
       return;
     }
     // A handled full-screen-intent notification keeps the right to relaunch
@@ -2067,7 +2070,9 @@ class AndroidAlertGateway extends AlertGateway {
     } on AlarmException catch (e) {
       // Typed `Future<bool>` and still throws since 5.9.0 (§10.5). A refusal
       // records nothing, so the next reconcile simply tries again.
-      debugPrint('[AndroidAlertGateway] Alarm.set refused: ${e.code} ${e.message}');
+      debugPrint(
+        '[AndroidAlertGateway] Alarm.set refused: ${e.code} ${e.message}',
+      );
       return false;
     } catch (e) {
       debugPrint('[AndroidAlertGateway] Alarm.set failed: $e');
@@ -2103,9 +2108,7 @@ class AndroidAlertGateway extends AlertGateway {
     final l10n = _l10n;
     final alarmTier = payload.isAlarm;
     try {
-      final silenceAfter = alarmTier
-          ? await _silenceAfterMillis()
-          : null;
+      final silenceAfter = alarmTier ? await _silenceAfterMillis() : null;
       final decor = await _decorFor(payload);
       final content = alertNotificationContent(
         alarmTier
@@ -2162,8 +2165,7 @@ class AndroidAlertGateway extends AlertGateway {
   Future<int> _silenceAfterMillis() async {
     var minutes = SettingsKeys.defaultAlertSilenceAfterMinutes;
     try {
-      minutes = (await (await SettingsService.getInstance())
-              .getAlertSettings())
+      minutes = (await (await SettingsService.getInstance()).getAlertSettings())
           .silenceAfterMinutes;
     } catch (_) {
       // The shipped default rather than a ring with no end.
@@ -2257,7 +2259,9 @@ class AndroidAlertGateway extends AlertGateway {
         entries[request.id] = payload.copyWith(osId: request.id);
       }
     } catch (e) {
-      debugPrint('[AndroidAlertGateway] pendingNotificationRequests failed: $e');
+      debugPrint(
+        '[AndroidAlertGateway] pendingNotificationRequests failed: $e',
+      );
     }
     return [
       for (final entry in entries.entries)
@@ -2551,19 +2555,23 @@ int missedNotificationId(int osId) =>
 /// [missedNotificationId]. A response with no id (a pre-10 plugin entry)
 /// reads as the registration, which is the only kind that could exist.
 bool isMissedNotification(int? notificationId, AlertPayload payload) =>
-    notificationId != null && notificationId == missedNotificationId(payload.osId);
+    notificationId != null &&
+    notificationId == missedNotificationId(payload.osId);
 
 /// The id an upcoming-alarm notice is posted under (OS-3), derived from the
 /// alarm it announces: cancelled with it, never landing on it or on its
 /// Missed notice.
-int noticeNotificationId(int osId) => (osId ^ kAlertNoticeIdSalt) & kAlertOsIdMask;
+int noticeNotificationId(int osId) =>
+    (osId ^ kAlertNoticeIdSalt) & kAlertOsIdMask;
 
 /// How long an upcoming notice may stay in the shade once posted: until the
 /// alarm it announces is due. Pure, so the rule is pinned rather than
 /// trusted — a notice that outlives its alarm is one whose Skip cancels an
 /// occurrence that already happened.
-int noticeTimeoutMillis({required DateTime noticeAt, required DateTime fireAt}) =>
-    fireAt.difference(noticeAt).inMilliseconds;
+int noticeTimeoutMillis({
+  required DateTime noticeAt,
+  required DateTime fireAt,
+}) => fireAt.difference(noticeAt).inMilliseconds;
 
 /// Whether a notification response came from the upcoming notice posted for
 /// [payload]'s alarm rather than from the alarm itself. The id decides, like
@@ -2571,5 +2579,5 @@ int noticeTimeoutMillis({required DateTime noticeAt, required DateTime fireAt}) 
 /// response with no id would need, and both say the same thing.
 bool isNoticeNotification(int? notificationId, AlertPayload payload) =>
     notificationId == null
-        ? payload.notice
-        : notificationId == noticeNotificationId(payload.osId);
+    ? payload.notice
+    : notificationId == noticeNotificationId(payload.osId);

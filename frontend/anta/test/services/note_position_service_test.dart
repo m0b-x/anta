@@ -85,14 +85,17 @@ void main() {
       expect(restored.editorLineIndex, 3);
     });
 
-    test('a non-bool isPreviewMode falls back per field, keeping the caret', () {
-      final restored = _decodeOrDefault(
-        jsonEncode(const {'isPreviewMode': 'true', 'editorLineIndex': 2}),
-      );
+    test(
+      'a non-bool isPreviewMode falls back per field, keeping the caret',
+      () {
+        final restored = _decodeOrDefault(
+          jsonEncode(const {'isPreviewMode': 'true', 'editorLineIndex': 2}),
+        );
 
-      expect(restored.isPreviewMode, isFalse);
-      expect(restored.editorLineIndex, 2);
-    });
+        expect(restored.isPreviewMode, isFalse);
+        expect(restored.editorLineIndex, 2);
+      },
+    );
 
     test('non-numeric caret fields fall back without dropping the rest', () {
       final restored = _decodeOrDefault(

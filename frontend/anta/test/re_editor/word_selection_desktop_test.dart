@@ -50,10 +50,7 @@ void main() {
     );
     await settle(tester);
     focusNode.requestFocus();
-    controller.selection = CodeLineSelection.collapsed(
-      index: 0,
-      offset: caret,
-    );
+    controller.selection = CodeLineSelection.collapsed(index: 0, offset: caret);
     await settle(tester);
     return controller;
   }
@@ -71,8 +68,9 @@ void main() {
     await settle(tester, 4);
   }
 
-  testWidgets('Shift+Ctrl+Right extends the selection to the next word end',
-      (tester) async {
+  testWidgets('Shift+Ctrl+Right extends the selection to the next word end', (
+    tester,
+  ) async {
     final controller = await pumpEditor(tester, caret: 3);
 
     await chord(tester, LogicalKeyboardKey.arrowRight, shift: true);
@@ -82,8 +80,9 @@ void main() {
     await teardownEditor(tester);
   });
 
-  testWidgets('Shift+Ctrl+Left extends the selection to the word start',
-      (tester) async {
+  testWidgets('Shift+Ctrl+Left extends the selection to the word start', (
+    tester,
+  ) async {
     final controller = await pumpEditor(tester, caret: 7);
 
     await chord(tester, LogicalKeyboardKey.arrowLeft, shift: true);

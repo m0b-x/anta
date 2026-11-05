@@ -199,10 +199,7 @@ class SyncBloc extends Bloc<SyncEvent, SyncState> {
   /// state has moved on: a sign-in in flight or a failure owns the screen,
   /// and an account the identity no longer reports is about to be replaced,
   /// while the engine reads its status for the current one.
-  void _onEngineStatus(
-    SyncEngineStatusChanged event,
-    Emitter<SyncState> emit,
-  ) {
+  void _onEngineStatus(SyncEngineStatusChanged event, Emitter<SyncState> emit) {
     final current = _authService.currentUser;
     switch (state) {
       case SyncSignedIn(:final user) when user.uid == current?.uid:

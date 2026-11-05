@@ -414,25 +414,23 @@ void main() {
           removeAfterAlert: true,
         ),
       );
-      await (await EventAlertService.getInstance()).replaceForEvent(
-        'alerted-event',
-        const [
-          EventAlert(
-            id: 'alert-1',
-            eventId: 'alerted-event',
-            mode: AlertMode.ring,
-            offsetMinutes: 15,
-            sound: 'chime',
-          ),
-          EventAlert(
-            id: 'alert-2',
-            eventId: 'alerted-event',
-            daysBefore: 1,
-            dayMinute: 1200,
-            enabled: false,
-          ),
-        ],
-      );
+      await (await EventAlertService.getInstance())
+          .replaceForEvent('alerted-event', const [
+            EventAlert(
+              id: 'alert-1',
+              eventId: 'alerted-event',
+              mode: AlertMode.ring,
+              offsetMinutes: 15,
+              sound: 'chime',
+            ),
+            EventAlert(
+              id: 'alert-2',
+              eventId: 'alerted-event',
+              daysBefore: 1,
+              dayMinute: 1200,
+              enabled: false,
+            ),
+          ]);
 
       backup = await BackupService.getInstance();
       final exported = await backup.exportAllData();
@@ -444,7 +442,8 @@ void main() {
       expect(
         exported.keys,
         isNot(contains('alertRegistrations')),
-        reason: 'registrations mirror one phone\'s OS scheduler and are never '
+        reason:
+            'registrations mirror one phone\'s OS scheduler and are never '
             'carried to another device',
       );
       return jsonEncode(exported);
@@ -534,7 +533,8 @@ void main() {
       expect(
         event.removeAfterAlert,
         isFalse,
-        reason: 'an install that could not set an alarm could not have asked '
+        reason:
+            'an install that could not set an alarm could not have asked '
             'to be deleted by one',
       );
     });
@@ -1180,4 +1180,3 @@ void main() {
     });
   });
 }
-

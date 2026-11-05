@@ -90,9 +90,11 @@ void main() {
       // An endless rule emits an `RRULE` with no `UNTIL`, so the horizon the
       // workdays and holidays expansions need is no bound at all here: the
       // importing calendar would fire on a day the user cancelled.
-      final beyond = DateTime.utc(2026, 8, 3).add(
-        const Duration(days: IcsSerializer.expansionHorizonDays + 7),
-      );
+      final beyond = DateTime.utc(
+        2026,
+        8,
+        3,
+      ).add(const Duration(days: IcsSerializer.expansionHorizonDays + 7));
       skip([beyond]);
 
       final ics = export(event(rule: const DailyRecurrence()));

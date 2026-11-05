@@ -273,8 +273,14 @@ void main() {
   test('the month keys round-trip across a year boundary', () {
     final december = DateTime.utc(2025, 12, 1);
     final january = DateTime.utc(2026, 1, 1);
-    expect(AgendaMonthStore.keyOf(january), AgendaMonthStore.keyOf(december) + 1);
-    expect(AgendaMonthStore.monthOfKey(AgendaMonthStore.keyOf(january)), january);
+    expect(
+      AgendaMonthStore.keyOf(january),
+      AgendaMonthStore.keyOf(december) + 1,
+    );
+    expect(
+      AgendaMonthStore.monthOfKey(AgendaMonthStore.keyOf(january)),
+      january,
+    );
     expect(AgendaMonthStore.monthOf(DateTime.utc(2026, 1, 31)), january);
   });
 }

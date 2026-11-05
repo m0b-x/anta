@@ -46,46 +46,45 @@ UiNode _node(
   int? semanticsId,
   int parent = 0,
   UiRect bounds = const UiRect(0, 0, 100, 100),
-}) =>
-    UiNode(
-      index: index,
-      parentIndex: parent,
-      depth: parent == -1 ? 0 : 1,
-      className: className,
-      text: text,
-      contentDesc: desc,
-      resourceId: id,
-      packageName: 'com.alexzamfir.anta',
-      bounds: bounds,
-      clickable: clickable,
-      longClickable: false,
-      enabled: true,
-      focused: false,
-      focusable: clickable,
-      checked: false,
-      checkable: false,
-      selected: false,
-      scrollable: scrollable,
-      hidden: hidden,
-      offscreen: offscreen,
-      semanticsId: semanticsId,
-    );
+}) => UiNode(
+  index: index,
+  parentIndex: parent,
+  depth: parent == -1 ? 0 : 1,
+  className: className,
+  text: text,
+  contentDesc: desc,
+  resourceId: id,
+  packageName: 'com.alexzamfir.anta',
+  bounds: bounds,
+  clickable: clickable,
+  longClickable: false,
+  enabled: true,
+  focused: false,
+  focusable: clickable,
+  checked: false,
+  checkable: false,
+  selected: false,
+  scrollable: scrollable,
+  hidden: hidden,
+  offscreen: offscreen,
+  semanticsId: semanticsId,
+);
 
 /// A "Walk" row as the review's probes drew them: clickable, 100 px tall at
 /// [top], its semantics id [sid].
 UiNode _walk(int index, {bool hidden = false, int top = 0, int? sid}) => _node(
-      index,
-      desc: 'Walk',
-      clickable: true,
-      hidden: hidden,
-      semanticsId: sid,
-      bounds: UiRect(0, top, 1000, top + 100),
-    );
+  index,
+  desc: 'Walk',
+  clickable: true,
+  hidden: hidden,
+  semanticsId: sid,
+  bounds: UiRect(0, top, 1000, top + 100),
+);
 
-UiTree _agentTree(List<UiNode> rows) => UiTree(
-      [_node(0, parent: -1, bounds: const UiRect(0, 0, 1000, 2000)), ...rows],
-      source: UiTreeSource.agent,
-    );
+UiTree _agentTree(List<UiNode> rows) => UiTree([
+  _node(0, parent: -1, bounds: const UiRect(0, 0, 1000, 2000)),
+  ...rows,
+], source: UiTreeSource.agent);
 
 void main() {
   _hardeningTests();
@@ -122,31 +121,50 @@ void main() {
       // order is the tree's, as the browser's selection mode needs.
       final rows = UiTree([
         _node(0, parent: -1, bounds: const UiRect(0, 0, 1000, 2000)),
-        _node(1, desc: 'Inbox\n2 notes', bounds: const UiRect(0, 900, 1000, 1000)),
+        _node(
+          1,
+          desc: 'Inbox\n2 notes',
+          bounds: const UiRect(0, 900, 1000, 1000),
+        ),
         _node(2, desc: 'Money', bounds: const UiRect(0, 100, 1000, 200)),
         _node(3, desc: 'Training', hidden: true),
       ]);
 
       test('passes when the targets come in traversal order', () {
         expect(
-          expectMisses(rows,
-              present: ['Inbox', 'Money', 'Training'], absent: [], ordered: true),
+          expectMisses(
+            rows,
+            present: ['Inbox', 'Money', 'Training'],
+            absent: [],
+            ordered: true,
+          ),
           isEmpty,
         );
       });
 
       test('names the pair that is out of order', () {
         expect(
-          expectMisses(rows,
-              present: ['Training', 'Inbox', 'Money'], absent: [], ordered: true),
-          ['out of order: "Inbox" (node 1) comes before "Training" (node 3), '
-              'not after it'],
+          expectMisses(
+            rows,
+            present: ['Training', 'Inbox', 'Money'],
+            absent: [],
+            ordered: true,
+          ),
+          [
+            'out of order: "Inbox" (node 1) comes before "Training" (node 3), '
+                'not after it',
+          ],
         );
       });
 
       test('a missing target is reported once, not as an order miss', () {
         expect(
-          expectMisses(rows, present: ['Inbox', 'Gym', 'Money'], absent: [], ordered: true),
+          expectMisses(
+            rows,
+            present: ['Inbox', 'Gym', 'Money'],
+            absent: [],
+            ordered: true,
+          ),
           ['missing "Gym"'],
         );
       });
@@ -171,7 +189,12 @@ void main() {
         'raster': {'p50': 2.0, 'p90': 4.0, 'max': 9.0},
         'total': {'p50': 4.0, 'p90': 8.0, 'max': 24.0},
       });
-      expect(text, startsWith('frames=120 over 2000 ms  jank=2 (build or raster over 16.7 ms)'));
+      expect(
+        text,
+        startsWith(
+          'frames=120 over 2000 ms  jank=2 (build or raster over 16.7 ms)',
+        ),
+      );
       expect(text, contains('build p50 1.2 ms  p90 3.4 ms  max 18.0 ms'));
       expect(text, isNot(contains('still recording')));
       expect(describePerf({'recording': true}), contains('[still recording]'));
@@ -181,11 +204,15 @@ void main() {
   group('hotReloadOutcome', () {
     test('recognises a finished reload and a restart', () {
       expect(
-        hotReloadOutcome('Performing hot reload...\nReloaded 1 of 812 libraries in 412ms.\n'),
+        hotReloadOutcome(
+          'Performing hot reload...\nReloaded 1 of 812 libraries in 412ms.\n',
+        ),
         (true, 'Reloaded 1 of 812 libraries in 412ms.'),
       );
       expect(
-        hotReloadOutcome('Performing hot restart...\nRestarted application in 1,203ms.\n'),
+        hotReloadOutcome(
+          'Performing hot restart...\nRestarted application in 1,203ms.\n',
+        ),
         (true, 'Restarted application in 1,203ms.'),
       );
     });
@@ -204,7 +231,8 @@ void main() {
 
   group('vmServiceUriFromLog', () {
     test('takes the last announced URI and strips trailing punctuation', () {
-      const log = '09-16 21:00:01.000 I/flutter (123): The Dart VM service is listening on http://127.0.0.1:41234/abc=/.\n'
+      const log =
+          '09-16 21:00:01.000 I/flutter (123): The Dart VM service is listening on http://127.0.0.1:41234/abc=/.\n'
           '09-16 21:05:01.000 I/flutter (456): The Dart VM service is listening on http://127.0.0.1:45678/xyz=/\n';
       expect(vmServiceUriFromLog(log), 'http://127.0.0.1:45678/xyz=/');
     });
@@ -244,7 +272,9 @@ void main() {
 
     test('a lock older than the ttl is reclaimed', () {
       final lock = File('${temp.path}/rebuild.lock')..createSync();
-      final later = DateTime.now().add(rebuildLockTtl + const Duration(seconds: 1));
+      final later = DateTime.now().add(
+        rebuildLockTtl + const Duration(seconds: 1),
+      );
       expect(acquireRebuildLock(lock, now: later), isTrue);
     });
 
@@ -256,30 +286,58 @@ void main() {
   group('annotated screenshots', () {
     final tree = UiTree([
       _node(0, parent: -1, bounds: const UiRect(0, 0, 1000, 2000)),
-      _node(1, desc: 'Search', className: 'android.widget.Button', clickable: true,
-          bounds: const UiRect(800, 100, 900, 200)),
-      _node(2, text: 'squat', className: 'android.widget.EditText',
-          bounds: const UiRect(100, 100, 700, 180)),
+      _node(
+        1,
+        desc: 'Search',
+        className: 'android.widget.Button',
+        clickable: true,
+        bounds: const UiRect(800, 100, 900, 200),
+      ),
+      _node(
+        2,
+        text: 'squat',
+        className: 'android.widget.EditText',
+        bounds: const UiRect(100, 100, 700, 180),
+      ),
       _node(3, scrollable: true, bounds: const UiRect(0, 300, 1000, 2000)),
-      _node(4, desc: 'Off screen', clickable: true, hidden: true,
-          bounds: const UiRect(0, 2500, 1000, 2600)),
+      _node(
+        4,
+        desc: 'Off screen',
+        clickable: true,
+        hidden: true,
+        bounds: const UiRect(0, 2500, 1000, 2600),
+      ),
       _node(5, bounds: const UiRect(0, 0, 1, 1)),
     ]);
 
-    test('badgesFor scales, skips hidden and tiny nodes, and types the rest', () {
-      final badges = badgesFor(tree, scale: 0.5, imageWidth: 500, imageHeight: 1000);
-      expect(badges.map((b) => b.index), [1, 2, 3]);
-      final search = badges.first;
-      expect((search.left, search.top, search.right, search.bottom), (400, 50, 450, 100));
-      expect(search.kind, 'click');
-      expect(badges[1].kind, 'text');
-      expect(badges[2].kind, 'scroll');
-    });
+    test(
+      'badgesFor scales, skips hidden and tiny nodes, and types the rest',
+      () {
+        final badges = badgesFor(
+          tree,
+          scale: 0.5,
+          imageWidth: 500,
+          imageHeight: 1000,
+        );
+        expect(badges.map((b) => b.index), [1, 2, 3]);
+        final search = badges.first;
+        expect(
+          (search.left, search.top, search.right, search.bottom),
+          (400, 50, 450, 100),
+        );
+        expect(search.kind, 'click');
+        expect(badges[1].kind, 'text');
+        expect(badges[2].kind, 'scroll');
+      },
+    );
 
     test('drawBadges paints the box outline and the tag', () {
       final image = img.Image(width: 500, height: 1000);
       img.fill(image, color: img.ColorRgb8(255, 255, 255));
-      drawBadges(image, badgesFor(tree, scale: 0.5, imageWidth: 500, imageHeight: 1000));
+      drawBadges(
+        image,
+        badgesFor(tree, scale: 0.5, imageWidth: 500, imageHeight: 1000),
+      );
       final onOutline = image.getPixel(400, 75);
       expect(onOutline.r, 255);
       expect(onOutline.g, 92);
@@ -305,7 +363,9 @@ void main() {
         now: DateTime(2026, 9, 16, 21, 0, 0),
       );
       expect(path, endsWith('20260916_210000_000_root.png'));
-      final decoded = img.decodePng(Uint8List.fromList(File(path).readAsBytesSync()))!;
+      final decoded = img.decodePng(
+        Uint8List.fromList(File(path).readAsBytesSync()),
+      )!;
       expect(decoded.width, 500);
       expect(decoded.height, 1000);
       expect(decoded.getPixel(400, 75).g, 92);
@@ -329,52 +389,66 @@ void main() {
       }
     }
 
-    test('no vector a fleet verb emits deletes, wipes, clears or uninstalls', () {
-      for (var index = 1; index <= fleetMaxIndex; index++) {
-        expectHarmless(fleetEmulatorArgs(index), 'the emulator vector');
+    test(
+      'no vector a fleet verb emits deletes, wipes, clears or uninstalls',
+      () {
+        for (var index = 1; index <= fleetMaxIndex; index++) {
+          expectHarmless(fleetEmulatorArgs(index), 'the emulator vector');
+          expectHarmless(
+            avdCreateArgs(
+              fleetName(index),
+              'system-images;android-36;google_apis_playstore;x86_64',
+            ),
+            'the avdmanager vector',
+          );
+          expectHarmless(
+            fleetPassChildArgs(
+              serial: fleetSerial(index),
+              suite: 'calendar',
+              shard: (1, index),
+              jsonPath: 'shard.json',
+              label: 'label',
+              stopOnFail: true,
+              via: 'agent',
+              verbose: true,
+            ),
+            'a pass child',
+          );
+          expectHarmless(
+            fleetInstallChildArgs(fleetSerial(index)),
+            'an install child',
+          );
+          expectHarmless([
+            pinScript(1000 + index, mask: 0xFFFF, priority: 'BelowNormal'),
+          ], 'the pin script');
+          expectHarmless([
+            minimizeWindowScript(1000 + index),
+          ], 'the minimize script');
+        }
+        expectHarmless([qemuWindowScript], 'the window script');
+        for (final grant in passGrants) {
+          expectHarmless(grant.command, 'the ${grant.what} grant');
+        }
+        expectHarmless(fleetBuildChildArgs(verbose: true), 'the build child');
         expectHarmless(
-          avdCreateArgs(
-            fleetName(index),
-            'system-images;android-36;google_apis_playstore;x86_64',
-          ),
-          'the avdmanager vector',
+          fleetBootChildArgs(fleetName(1), verbose: true),
+          'the boot child',
         );
-        expectHarmless(
-          fleetPassChildArgs(
-            serial: fleetSerial(index),
-            suite: 'calendar',
-            shard: (1, index),
-            jsonPath: 'shard.json',
-            label: 'label',
-            stopOnFail: true,
-            via: 'agent',
-            verbose: true,
-          ),
-          'a pass child',
-        );
-        expectHarmless(fleetInstallChildArgs(fleetSerial(index)), 'an install child');
-        expectHarmless(
-          [pinScript(1000 + index, mask: 0xFFFF, priority: 'BelowNormal')],
-          'the pin script',
-        );
-        expectHarmless([minimizeWindowScript(1000 + index)], 'the minimize script');
-      }
-      expectHarmless([qemuWindowScript], 'the window script');
-      for (final grant in passGrants) {
-        expectHarmless(grant.command, 'the ${grant.what} grant');
-      }
-      expectHarmless(fleetBuildChildArgs(verbose: true), 'the build child');
-      expectHarmless(fleetBootChildArgs(fleetName(1), verbose: true), 'the boot child');
-      expectHarmless([gpuMemoryScript([1, 2]), cpuSecondsScript(1)], 'the health scripts');
-      expectHarmless(emuAvdNameArgs, 'emu avd name');
-      expectHarmless(bootIdArgs, 'the boot id read');
-      expectHarmless(emuKillArgs, 'emu kill');
-      expectHarmless(
-        [qemuListScript, cpuTopologyScript, avdCreateStdin],
-        'the PowerShell scripts',
-      );
-      expect(avdCreateArgs('anta_qa_1', 'image'), isNot(contains('--force')));
-    });
+        expectHarmless([
+          gpuMemoryScript([1, 2]),
+          cpuSecondsScript(1),
+        ], 'the health scripts');
+        expectHarmless(emuAvdNameArgs, 'emu avd name');
+        expectHarmless(bootIdArgs, 'the boot id read');
+        expectHarmless(emuKillArgs, 'emu kill');
+        expectHarmless([
+          qemuListScript,
+          cpuTopologyScript,
+          avdCreateStdin,
+        ], 'the PowerShell scripts');
+        expect(avdCreateArgs('anta_qa_1', 'image'), isNot(contains('--force')));
+      },
+    );
 
     test('fleet.dart spells a destructive command only in its two guarded '
         'stops', () {
@@ -433,27 +507,29 @@ void _hardeningTests() {
 
   group('MarkerReport', () {
     AgentInfo info(List<QaOutcome> outcomes) => AgentInfo(
-          platform: 'iOS',
-          dpr: 3,
-          width: 1,
-          height: 1,
-          lifecycle: 'resumed',
-          semanticsEnabled: true,
-          textClient: false,
-          documentsPath: null,
-          qaMode: true,
-          database: 'qa',
-          qaLog: outcomes.map((o) => o.message).toList(),
-          qaOutcomes: outcomes,
-          uptimeMs: 0,
-          protocolVersion: 1,
-        );
+      platform: 'iOS',
+      dpr: 3,
+      width: 1,
+      height: 1,
+      lifecycle: 'resumed',
+      semanticsEnabled: true,
+      textClient: false,
+      documentsPath: null,
+      qaMode: true,
+      database: 'qa',
+      qaLog: outcomes.map((o) => o.message).toList(),
+      qaOutcomes: outcomes,
+      uptimeMs: 0,
+      protocolVersion: 1,
+    );
 
     test('typed outcomes decide success, not wording', () {
-      final report = MarkerReport.fromOutcomes(info(const [
-        QaOutcome(kind: 'reset', ok: true, message: 'reset: whatever'),
-        QaOutcome(kind: 'seed', ok: false, message: 'seed: rejected'),
-      ]));
+      final report = MarkerReport.fromOutcomes(
+        info(const [
+          QaOutcome(kind: 'reset', ok: true, message: 'reset: whatever'),
+          QaOutcome(kind: 'seed', ok: false, message: 'seed: rejected'),
+        ]),
+      );
       expect(report.hasReset, isTrue);
       expect(report.hasSeed, isTrue);
       expect(report.seedFailed, isTrue);
@@ -463,9 +539,15 @@ void _hardeningTests() {
     });
 
     test('a refused reset is a failure even though a reset line exists', () {
-      final report = MarkerReport.fromOutcomes(info(const [
-        QaOutcome(kind: 'reset', ok: false, message: 'reset refused: owner db'),
-      ]));
+      final report = MarkerReport.fromOutcomes(
+        info(const [
+          QaOutcome(
+            kind: 'reset',
+            ok: false,
+            message: 'reset refused: owner db',
+          ),
+        ]),
+      );
       expect(report.hasReset, isTrue);
       expect(report.resetFailed, isTrue);
       final text = MarkerReport.fromText(
@@ -479,7 +561,7 @@ void _hardeningTests() {
     test('log text still works when the agent is not there', () {
       final report = MarkerReport.fromText(
         'I/flutter: [qa] reset: cleared preferences and qa.db\n'
-        'I/flutter: [qa] seed: imported 4 folders, 3 notes\n',
+            'I/flutter: [qa] seed: imported 4 folders, 3 notes\n',
         'logcat',
       );
       expect(report.lines, hasLength(2));
@@ -493,7 +575,10 @@ void _hardeningTests() {
       expect(QaContext.probesFor(null), (true, true));
       expect(QaContext.probesFor('macos'), (false, false));
       expect(QaContext.probesFor('ios'), (false, true));
-      expect(QaContext.probesFor('B57A8680-5A8F-4010-96BE-7524481996B1'), (false, true));
+      expect(QaContext.probesFor('B57A8680-5A8F-4010-96BE-7524481996B1'), (
+        false,
+        true,
+      ));
       expect(QaContext.probesFor('android'), (true, false));
       expect(QaContext.probesFor('emulator-5554'), (true, false));
       expect(QaContext.probesFor('192.168.1.5:5555'), (true, false));
@@ -504,11 +589,26 @@ void _hardeningTests() {
   group('hidden nodes and targets', () {
     final tree = UiTree([
       _node(0, parent: -1, bounds: const UiRect(0, 0, 1000, 2000)),
-      _node(1, desc: 'Row', clickable: true, bounds: const UiRect(0, 100, 1000, 200)),
-      _node(2, desc: 'Row', clickable: true, hidden: true,
-          bounds: const UiRect(0, 2500, 1000, 2600)),
-      _node(3, desc: 'Cached only', clickable: true, hidden: true,
-          bounds: const UiRect(0, 2600, 1000, 2700)),
+      _node(
+        1,
+        desc: 'Row',
+        clickable: true,
+        bounds: const UiRect(0, 100, 1000, 200),
+      ),
+      _node(
+        2,
+        desc: 'Row',
+        clickable: true,
+        hidden: true,
+        bounds: const UiRect(0, 2500, 1000, 2600),
+      ),
+      _node(
+        3,
+        desc: 'Cached only',
+        clickable: true,
+        hidden: true,
+        bounds: const UiRect(0, 2600, 1000, 2700),
+      ),
     ]);
 
     test('a visible match wins over a hidden duplicate', () {
@@ -522,26 +622,27 @@ void _hardeningTests() {
 
     test('expect counts a node scrolled out of view as present', () {
       expect(expectMisses(tree, present: ['Cached only'], absent: []), isEmpty);
-      expect(
-        expectMisses(tree, present: [], absent: ['Cached only']),
-        ['unexpected "Cached only" is present (scrolled out of view)'],
-      );
+      expect(expectMisses(tree, present: [], absent: ['Cached only']), [
+        'unexpected "Cached only" is present (scrolled out of view)',
+      ]);
     });
 
     test('--absent passes only when no node resolves at all', () {
       expect(expectMisses(tree, present: [], absent: ['Never drawn']), isEmpty);
-      expect(
-        expectMisses(tree, present: ['Never drawn'], absent: ['Row']),
-        ['missing "Never drawn"', 'unexpected "Row" is on screen'],
-      );
+      expect(expectMisses(tree, present: ['Never drawn'], absent: ['Row']), [
+        'missing "Never drawn"',
+        'unexpected "Row" is on screen',
+      ]);
     });
 
     test('wait finds a scrolled-out node and says where it is', () {
       final found = presentMatch(tree, 'Cached only', gone: false)!;
       expect(found.node!.index, 3);
       expect(describeFound(found), endsWith('  (scrolled out of view)'));
-      expect(describeFound(presentMatch(tree, 'Row', gone: false)!),
-          isNot(contains('scrolled out')));
+      expect(
+        describeFound(presentMatch(tree, 'Row', gone: false)!),
+        isNot(contains('scrolled out')),
+      );
     });
 
     test('wait --gone is satisfied only when nothing resolves', () {
@@ -556,58 +657,63 @@ void _hardeningTests() {
         _node(1, desc: 'Same', bounds: const UiRect(0, 0, 100, 100)),
         _node(2, desc: 'Same', bounds: const UiRect(0, 100, 100, 200)),
       ]);
-      expect(() => presentMatch(twice, 'Same', gone: false),
-          throwsA(isA<TargetFailure>()));
+      expect(
+        () => presentMatch(twice, 'Same', gone: false),
+        throwsA(isA<TargetFailure>()),
+      );
       expect(presentMatch(twice, 'Same', gone: false, nth: 1)!.node!.index, 2);
     });
   });
 
   group('resolveRevealing', () {
     UiNode row({required bool hidden, int top = 2600}) => UiNode(
-          index: 3,
-          parentIndex: 0,
-          depth: 1,
-          className: 'View',
-          text: '',
-          contentDesc: '',
-          resourceId: 'fasting-extra-days',
-          packageName: 'com.alexzamfir.anta',
-          bounds: UiRect(0, top, 1000, top + 100),
-          clickable: true,
-          longClickable: false,
-          enabled: true,
-          focused: false,
-          focusable: true,
-          checked: false,
-          checkable: false,
-          selected: false,
-          scrollable: false,
-          hidden: hidden,
-          semanticsId: 88,
-        );
+      index: 3,
+      parentIndex: 0,
+      depth: 1,
+      className: 'View',
+      text: '',
+      contentDesc: '',
+      resourceId: 'fasting-extra-days',
+      packageName: 'com.alexzamfir.anta',
+      bounds: UiRect(0, top, 1000, top + 100),
+      clickable: true,
+      longClickable: false,
+      enabled: true,
+      focused: false,
+      focusable: true,
+      checked: false,
+      checkable: false,
+      selected: false,
+      scrollable: false,
+      hidden: hidden,
+      semanticsId: 88,
+    );
     UiTree screen(UiNode node) => UiTree([
-          _node(0, parent: -1, bounds: const UiRect(0, 0, 1000, 2000)),
-          node,
-        ], source: UiTreeSource.agent);
+      _node(0, parent: -1, bounds: const UiRect(0, 0, 1000, 2000)),
+      node,
+    ], source: UiTreeSource.agent);
 
-    test('a hidden match is revealed by its id, then read from the new dump', () async {
-      final revealed = <int?>[];
-      var dumps = 0;
-      final outcome = await resolveRevealing(
-        'id:fasting-extra-days',
-        screen(row(hidden: true)),
-        reveal: (node) async => revealed.add(node.semanticsId),
-        redump: () async {
-          dumps++;
-          return screen(row(hidden: false, top: 1500));
-        },
-      );
-      expect(revealed, [88]);
-      expect(dumps, 1);
-      expect(outcome.revealed, isTrue);
-      expect(outcome.onScreen, isTrue);
-      expect(outcome.resolved.y, 1550);
-    });
+    test(
+      'a hidden match is revealed by its id, then read from the new dump',
+      () async {
+        final revealed = <int?>[];
+        var dumps = 0;
+        final outcome = await resolveRevealing(
+          'id:fasting-extra-days',
+          screen(row(hidden: true)),
+          reveal: (node) async => revealed.add(node.semanticsId),
+          redump: () async {
+            dumps++;
+            return screen(row(hidden: false, top: 1500));
+          },
+        );
+        expect(revealed, [88]);
+        expect(dumps, 1);
+        expect(outcome.revealed, isTrue);
+        expect(outcome.onScreen, isTrue);
+        expect(outcome.resolved.y, 1550);
+      },
+    );
 
     test('a visible match is acted on without asking the app', () async {
       final outcome = await resolveRevealing(
@@ -620,19 +726,26 @@ void _hardeningTests() {
       expect(outcome.resolved.y, 350);
     });
 
-    test('a node still hidden after the reveal is reported, not tapped', () async {
-      final outcome = await resolveRevealing(
-        'id:fasting-extra-days',
-        screen(row(hidden: true)),
-        reveal: (_) async {},
-        redump: () async => screen(row(hidden: true)),
-      );
-      expect(outcome.revealed, isTrue);
-      expect(outcome.onScreen, isFalse);
-      expect(offScreenAfterReveal('id:fasting-extra-days'),
-          startsWith('"id:fasting-extra-days" is off screen even after asking '
-              'the app to scroll it into view; scroll-to it first'));
-    });
+    test(
+      'a node still hidden after the reveal is reported, not tapped',
+      () async {
+        final outcome = await resolveRevealing(
+          'id:fasting-extra-days',
+          screen(row(hidden: true)),
+          reveal: (_) async {},
+          redump: () async => screen(row(hidden: true)),
+        );
+        expect(outcome.revealed, isTrue);
+        expect(outcome.onScreen, isFalse);
+        expect(
+          offScreenAfterReveal('id:fasting-extra-days'),
+          startsWith(
+            '"id:fasting-extra-days" is off screen even after asking '
+            'the app to scroll it into view; scroll-to it first',
+          ),
+        );
+      },
+    );
 
     test('the adb path has no reveal and keeps the hidden match', () async {
       final outcome = await resolveRevealing(
@@ -660,21 +773,35 @@ void _hardeningTests() {
 
   group('chooseDriver', () {
     test('auto picks the agent only when it can be reached', () {
-      expect(chooseDriver(hasNative: true, vmRecorded: true, agentAnswers: true),
-          ViaMode.agent);
-      expect(chooseDriver(hasNative: true, vmRecorded: true, agentAnswers: false),
-          ViaMode.native);
-      expect(chooseDriver(hasNative: true, vmRecorded: false, agentAnswers: false),
-          ViaMode.native);
-      expect(chooseDriver(hasNative: true, vmRecorded: false, agentAnswers: true),
-          ViaMode.native);
+      expect(
+        chooseDriver(hasNative: true, vmRecorded: true, agentAnswers: true),
+        ViaMode.agent,
+      );
+      expect(
+        chooseDriver(hasNative: true, vmRecorded: true, agentAnswers: false),
+        ViaMode.native,
+      );
+      expect(
+        chooseDriver(hasNative: true, vmRecorded: false, agentAnswers: false),
+        ViaMode.native,
+      );
+      expect(
+        chooseDriver(hasNative: true, vmRecorded: false, agentAnswers: true),
+        ViaMode.native,
+      );
     });
 
     test('without a native layer the agent is the only choice', () {
       for (final vm in [true, false]) {
         for (final answers in [true, false]) {
-          expect(chooseDriver(hasNative: false, vmRecorded: vm, agentAnswers: answers),
-              ViaMode.agent);
+          expect(
+            chooseDriver(
+              hasNative: false,
+              vmRecorded: vm,
+              agentAnswers: answers,
+            ),
+            ViaMode.agent,
+          );
         }
       }
     });
@@ -682,13 +809,22 @@ void _hardeningTests() {
 
   group('runLogSkipNote', () {
     test('run.log is evidence only for the device its flutter run serves', () {
-      expect(runLogSkipNote(runDevice: 'emulator-5556', deviceId: 'emulator-5556'), isNull);
-      expect(runLogSkipNote(runDevice: 'emulator-5554', deviceId: 'emulator-5556'),
-          'run.log: belongs to emulator-5554, skipped');
-      expect(runLogSkipNote(runDevice: null, deviceId: 'emulator-5556'),
-          'run.log: belongs to no recorded run, skipped');
-      expect(runLogSkipNote(runDevice: '', deviceId: 'emulator-5556'),
-          'run.log: belongs to no recorded run, skipped');
+      expect(
+        runLogSkipNote(runDevice: 'emulator-5556', deviceId: 'emulator-5556'),
+        isNull,
+      );
+      expect(
+        runLogSkipNote(runDevice: 'emulator-5554', deviceId: 'emulator-5556'),
+        'run.log: belongs to emulator-5554, skipped',
+      );
+      expect(
+        runLogSkipNote(runDevice: null, deviceId: 'emulator-5556'),
+        'run.log: belongs to no recorded run, skipped',
+      );
+      expect(
+        runLogSkipNote(runDevice: '', deviceId: 'emulator-5556'),
+        'run.log: belongs to no recorded run, skipped',
+      );
     });
   });
 
@@ -730,110 +866,162 @@ void _reviewProbeTests() {
       });
     }
 
-    test('a hidden duplicate of a visible label is reachable by --nth', () async {
-      final duplicate = _agentTree([
-        _walk(1, top: 300, sid: 21),
-        _walk(2, hidden: true, top: 2700, sid: 22),
-      ]);
-      expect(TargetResolver(duplicate).resolve('Walk').node!.semanticsId, 21,
-          reason: 'without --nth the row on screen still wins');
-      final outcome = await resolveRevealing(
-        'Walk',
-        duplicate,
-        nth: 1,
-        reveal: (_) async {},
-        redump: () async => _agentTree([
-          _walk(1, hidden: true, top: -500, sid: 21),
-          _walk(2, top: 1400, sid: 22),
-        ]),
-      );
-      expect(outcome.resolved.node!.semanticsId, 22);
-      expect(outcome.resolved.y, 1450);
-    });
+    test(
+      'a hidden duplicate of a visible label is reachable by --nth',
+      () async {
+        final duplicate = _agentTree([
+          _walk(1, top: 300, sid: 21),
+          _walk(2, hidden: true, top: 2700, sid: 22),
+        ]);
+        expect(
+          TargetResolver(duplicate).resolve('Walk').node!.semanticsId,
+          21,
+          reason: 'without --nth the row on screen still wins',
+        );
+        final outcome = await resolveRevealing(
+          'Walk',
+          duplicate,
+          nth: 1,
+          reveal: (_) async {},
+          redump: () async => _agentTree([
+            _walk(1, hidden: true, top: -500, sid: 21),
+            _walk(2, top: 1400, sid: 22),
+          ]),
+        );
+        expect(outcome.resolved.node!.semanticsId, 22);
+        expect(outcome.resolved.y, 1450);
+      },
+    );
 
-    test('--nth counts in traversal order, and the ambiguity listing agrees', () {
-      final mixed = _agentTree([
-        _walk(1, hidden: true, top: 2500, sid: 31),
-        _walk(2, top: 300, sid: 32),
-        _walk(3, top: 500, sid: 33),
-      ]);
-      expect(TargetResolver(mixed).resolve('Walk', nth: 0).node!.semanticsId, 31);
-      expect(
-        () => TargetResolver(mixed).resolve('Walk'),
-        throwsA(isA<TargetFailure>().having((e) => e.message, 'message',
-            allOf(contains('2 matches'), contains('--nth 1  #2'), contains('--nth 2  #3')))),
-      );
-    });
+    test(
+      '--nth counts in traversal order, and the ambiguity listing agrees',
+      () {
+        final mixed = _agentTree([
+          _walk(1, hidden: true, top: 2500, sid: 31),
+          _walk(2, top: 300, sid: 32),
+          _walk(3, top: 500, sid: 33),
+        ]);
+        expect(
+          TargetResolver(mixed).resolve('Walk', nth: 0).node!.semanticsId,
+          31,
+        );
+        expect(
+          () => TargetResolver(mixed).resolve('Walk'),
+          throwsA(
+            isA<TargetFailure>().having(
+              (e) => e.message,
+              'message',
+              allOf(
+                contains('2 matches'),
+                contains('--nth 1  #2'),
+                contains('--nth 2  #3'),
+              ),
+            ),
+          ),
+        );
+      },
+    );
 
-    test('an id gone after the reveal falls back to the label once, and says so', () async {
-      final outcome = await resolveRevealing(
-        'Walk',
-        threeHidden,
-        nth: 2,
-        reveal: (_) async {},
-        redump: () async => _agentTree([
-          _walk(1, top: 300, sid: 41),
-          _walk(2, top: 500, sid: 42),
-          _walk(3, top: 700, sid: 43),
-        ]),
-      );
-      expect(outcome.resolved.node!.semanticsId, 43);
-      expect(outcome.note, contains('(semantics id 13) is not in the new dump'));
-    });
+    test(
+      'an id gone after the reveal falls back to the label once, and says so',
+      () async {
+        final outcome = await resolveRevealing(
+          'Walk',
+          threeHidden,
+          nth: 2,
+          reveal: (_) async {},
+          redump: () async => _agentTree([
+            _walk(1, top: 300, sid: 41),
+            _walk(2, top: 500, sid: 42),
+            _walk(3, top: 700, sid: 43),
+          ]),
+        );
+        expect(outcome.resolved.node!.semanticsId, 43);
+        expect(
+          outcome.note,
+          contains('(semantics id 13) is not in the new dump'),
+        );
+      },
+    );
 
-    test('a hidden #N is revealed by its id; from a uiautomator dump it is not', () async {
-      final revealed = <int?>[];
-      final outcome = await resolveRevealing(
-        '#2',
-        threeHidden,
-        reveal: (node) async => revealed.add(node.semanticsId),
-        redump: () async => afterReveal,
-      );
-      expect(revealed, [12]);
-      expect(outcome.onScreen, isTrue);
-      expect(outcome.resolved.y, 1550);
+    test(
+      'a hidden #N is revealed by its id; from a uiautomator dump it is not',
+      () async {
+        final revealed = <int?>[];
+        final outcome = await resolveRevealing(
+          '#2',
+          threeHidden,
+          reveal: (node) async => revealed.add(node.semanticsId),
+          redump: () async => afterReveal,
+        );
+        expect(revealed, [12]);
+        expect(outcome.onScreen, isTrue);
+        expect(outcome.resolved.y, 1550);
 
-      final uiautomator = UiTree([
-        _node(0, parent: -1, bounds: const UiRect(0, 0, 1000, 2000)),
-        _node(1, desc: 'Walk', hidden: true),
-      ]);
-      final kept = await resolveRevealing(
-        '#1',
-        uiautomator,
-        reveal: (_) async => fail('no id to reveal by'),
-        redump: () async => fail('no second dump'),
-      );
-      expect(kept.revealed, isFalse);
-      expect(kept.onScreen, isFalse);
+        final uiautomator = UiTree([
+          _node(0, parent: -1, bounds: const UiRect(0, 0, 1000, 2000)),
+          _node(1, desc: 'Walk', hidden: true),
+        ]);
+        final kept = await resolveRevealing(
+          '#1',
+          uiautomator,
+          reveal: (_) async => fail('no id to reveal by'),
+          redump: () async => fail('no second dump'),
+        );
+        expect(kept.revealed, isFalse);
+        expect(kept.onScreen, isFalse);
 
-      await expectLater(
-        resolveRevealing('#2', threeHidden, reveal: (_) async {}, redump: () async => _agentTree([])),
-        throwsA(isA<TargetFailure>()),
-      );
-    });
+        await expectLater(
+          resolveRevealing(
+            '#2',
+            threeHidden,
+            reveal: (_) async {},
+            redump: () async => _agentTree([]),
+          ),
+          throwsA(isA<TargetFailure>()),
+        );
+      },
+    );
 
-    test('drag reads the dragged row again by its id after the drop target scrolled', () {
-      final before = TargetLookup(
-        resolved: TargetResolver(afterReveal).resolve('Walk', nth: 1),
-        tree: afterReveal,
-      );
-      final scrolled = _agentTree([
-        _walk(1, top: 200, sid: 11),
-        _walk(2, top: 400, sid: 12),
-        _walk(3, hidden: true, top: 2600, sid: 13),
-      ]);
-      final notes = <String>[];
-      final again = DragCommand.afterDropReveal('Walk', before, scrolled, 1, note: notes.add);
-      expect(again.resolved.node!.semanticsId, 12);
-      expect(again.resolved.y, 450);
-      expect(notes, isEmpty);
+    test(
+      'drag reads the dragged row again by its id after the drop target scrolled',
+      () {
+        final before = TargetLookup(
+          resolved: TargetResolver(afterReveal).resolve('Walk', nth: 1),
+          tree: afterReveal,
+        );
+        final scrolled = _agentTree([
+          _walk(1, top: 200, sid: 11),
+          _walk(2, top: 400, sid: 12),
+          _walk(3, hidden: true, top: 2600, sid: 13),
+        ]);
+        final notes = <String>[];
+        final again = DragCommand.afterDropReveal(
+          'Walk',
+          before,
+          scrolled,
+          1,
+          note: notes.add,
+        );
+        expect(again.resolved.node!.semanticsId, 12);
+        expect(again.resolved.y, 450);
+        expect(notes, isEmpty);
 
-      final renumbered = _agentTree([_walk(1, top: 200, sid: 51), _walk(2, top: 400, sid: 52)]);
-      final fallback =
-          DragCommand.afterDropReveal('Walk', before, renumbered, 1, note: notes.add);
-      expect(fallback.resolved.node!.semanticsId, 52);
-      expect(notes.single, contains('semantics id 12'));
-    });
+        final renumbered = _agentTree([
+          _walk(1, top: 200, sid: 51),
+          _walk(2, top: 400, sid: 52),
+        ]);
+        final fallback = DragCommand.afterDropReveal(
+          'Walk',
+          before,
+          renumbered,
+          1,
+          note: notes.add,
+        );
+        expect(fallback.resolved.node!.semanticsId, 52);
+        expect(notes.single, contains('semantics id 12'));
+      },
+    );
   });
 
   group('an ambiguous match is never gone (the --gone probe)', () {
@@ -847,71 +1035,131 @@ void _reviewProbeTests() {
       expect(presentMatch(twoHidden, 'Run', gone: true), isNull);
     });
 
-    test('--absent reports an all-hidden ambiguous label as scrolled out of view', () {
-      expect(expectMisses(twoHidden, present: [], absent: ['Walk']),
-          ['unexpected "Walk" is present (scrolled out of view)']);
-      final oneShown = _agentTree([_walk(1, top: 300), _walk(2, hidden: true, top: 2700)]);
-      expect(expectMisses(oneShown, present: [], absent: ['Walk']),
-          ['unexpected "Walk" is on screen']);
-    });
+    test(
+      '--absent reports an all-hidden ambiguous label as scrolled out of view',
+      () {
+        expect(expectMisses(twoHidden, present: [], absent: ['Walk']), [
+          'unexpected "Walk" is present (scrolled out of view)',
+        ]);
+        final oneShown = _agentTree([
+          _walk(1, top: 300),
+          _walk(2, hidden: true, top: 2700),
+        ]);
+        expect(expectMisses(oneShown, present: [], absent: ['Walk']), [
+          'unexpected "Walk" is on screen',
+        ]);
+      },
+    );
   });
 
   group('presence: hidden by the framework vs outside the screen', () {
     UiTree screenWith(UiNode node) => _agentTree([node]);
-    final sliding = _node(1, desc: 'Event', clickable: true, offscreen: true, semanticsId: 7,
-        bounds: const UiRect(1100, 300, 2000, 400));
-    final scrolledOut = _node(1, desc: 'Event', clickable: true, hidden: true, semanticsId: 7,
-        bounds: const UiRect(0, 2500, 1000, 2600));
-    final both = _node(1, desc: 'Event', clickable: true, hidden: true, offscreen: true,
-        semanticsId: 7, bounds: const UiRect(0, 2500, 1000, 2600));
+    final sliding = _node(
+      1,
+      desc: 'Event',
+      clickable: true,
+      offscreen: true,
+      semanticsId: 7,
+      bounds: const UiRect(1100, 300, 2000, 400),
+    );
+    final scrolledOut = _node(
+      1,
+      desc: 'Event',
+      clickable: true,
+      hidden: true,
+      semanticsId: 7,
+      bounds: const UiRect(0, 2500, 1000, 2600),
+    );
+    final both = _node(
+      1,
+      desc: 'Event',
+      clickable: true,
+      hidden: true,
+      offscreen: true,
+      semanticsId: 7,
+      bounds: const UiRect(0, 2500, 1000, 2600),
+    );
 
-    test('a node only outside the screen does not count yet, so wait polls on', () {
-      expect(presentMatch(screenWith(sliding), 'Event', gone: false), isNull);
-      expect(expectMisses(screenWith(sliding), present: ['Event'], absent: []),
-          ['missing "Event"']);
-    });
+    test(
+      'a node only outside the screen does not count yet, so wait polls on',
+      () {
+        expect(presentMatch(screenWith(sliding), 'Event', gone: false), isNull);
+        expect(
+          expectMisses(screenWith(sliding), present: ['Event'], absent: []),
+          ['missing "Event"'],
+        );
+      },
+    );
 
-    test('a node the framework hides counts, with or without an off-screen rect', () {
-      for (final node in [scrolledOut, both]) {
-        expect(presentMatch(screenWith(node), 'Event', gone: false), isNotNull);
-        expect(expectMisses(screenWith(node), present: ['Event'], absent: []), isEmpty);
-      }
-    });
+    test(
+      'a node the framework hides counts, with or without an off-screen rect',
+      () {
+        for (final node in [scrolledOut, both]) {
+          expect(
+            presentMatch(screenWith(node), 'Event', gone: false),
+            isNotNull,
+          );
+          expect(
+            expectMisses(screenWith(node), present: ['Event'], absent: []),
+            isEmpty,
+          );
+        }
+      },
+    );
 
     test('absence still means no match at all', () {
       expect(presentMatch(screenWith(sliding), 'Event', gone: true), isNotNull);
-      expect(expectMisses(screenWith(sliding), present: [], absent: ['Event']), hasLength(1));
+      expect(
+        expectMisses(screenWith(sliding), present: [], absent: ['Event']),
+        hasLength(1),
+      );
     });
 
-    test('both kinds are out of view: listed apart, revealed before acting', () async {
-      expect(sliding.outOfView, isTrue);
-      expect(sliding.interesting, isFalse);
-      expect(sliding.flags, contains('offscreen'));
-      expect(sliding.flags, isNot(contains('hidden')));
-      expect(sliding.toJson()['offscreen'], isTrue);
-      final revealed = <int?>[];
-      await resolveRevealing('Event', screenWith(sliding),
+    test(
+      'both kinds are out of view: listed apart, revealed before acting',
+      () async {
+        expect(sliding.outOfView, isTrue);
+        expect(sliding.interesting, isFalse);
+        expect(sliding.flags, contains('offscreen'));
+        expect(sliding.flags, isNot(contains('hidden')));
+        expect(sliding.toJson()['offscreen'], isTrue);
+        final revealed = <int?>[];
+        await resolveRevealing(
+          'Event',
+          screenWith(sliding),
           reveal: (node) async => revealed.add(node.semanticsId),
-          redump: () async => screenWith(_node(1, desc: 'Event', semanticsId: 7)));
-      expect(revealed, [7]);
-    });
+          redump: () async =>
+              screenWith(_node(1, desc: 'Event', semanticsId: 7)),
+        );
+        expect(revealed, [7]);
+      },
+    );
 
-    test('the agent dump carries the two flags apart; an older dump reads as before', () {
-      UiNode parse(List<String> flags) => UiTree.fromAgentMap({
-            AgentKeys.nodes: [
-              {
-                AgentNodeKeys.index: 0,
-                AgentNodeKeys.rect: [0, 0, 10, 10],
-                AgentNodeKeys.label: 'x',
-                AgentNodeKeys.flags: flags,
-              },
-            ],
-          }, appPackage: 'com.alexzamfir.anta').nodes.single;
-      final split = parse([AgentFlags.offscreen]);
-      expect((split.hidden, split.offscreen, split.countsAsPresent), (false, true, false));
-      final old = parse([AgentFlags.hidden]);
-      expect((old.hidden, old.offscreen, old.countsAsPresent), (true, false, true));
-    });
+    test(
+      'the agent dump carries the two flags apart; an older dump reads as before',
+      () {
+        UiNode parse(List<String> flags) => UiTree.fromAgentMap({
+          AgentKeys.nodes: [
+            {
+              AgentNodeKeys.index: 0,
+              AgentNodeKeys.rect: [0, 0, 10, 10],
+              AgentNodeKeys.label: 'x',
+              AgentNodeKeys.flags: flags,
+            },
+          ],
+        }, appPackage: 'com.alexzamfir.anta').nodes.single;
+        final split = parse([AgentFlags.offscreen]);
+        expect(
+          (split.hidden, split.offscreen, split.countsAsPresent),
+          (false, true, false),
+        );
+        final old = parse([AgentFlags.hidden]);
+        expect(
+          (old.hidden, old.offscreen, old.countsAsPresent),
+          (true, false, true),
+        );
+      },
+    );
   });
 
   group('the auto driver', () {
@@ -921,8 +1169,10 @@ void _reviewProbeTests() {
         'note: driver auto → adb (the agent did not answer within 2 s; '
         '`qa relaunch` brings it back)',
       );
-      expect(autoFallbackNote(vmRecorded: false, deviceId: 'emulator-5556'),
-          contains('no VM URI is recorded for emulator-5556'));
+      expect(
+        autoFallbackNote(vmRecorded: false, deviceId: 'emulator-5556'),
+        contains('no VM URI is recorded for emulator-5556'),
+      );
     });
   });
 
@@ -932,13 +1182,19 @@ void _reviewProbeTests() {
     test("a plain boot waits only on emulator.pid, never a fleet AVD's", () {
       expect(bootPidPath(paths, null), paths.emulatorPid);
       expect(bootPidPath(paths, ''), paths.emulatorPid);
-      expect(bootPidPath(paths, 'anta_qa_1'), paths.emulatorPidFor('anta_qa_1'));
+      expect(
+        bootPidPath(paths, 'anta_qa_1'),
+        paths.emulatorPidFor('anta_qa_1'),
+      );
       expect(bootPidPath(paths, 'anta_qa_1'), isNot(paths.emulatorPid));
     });
 
     test('every AVD boots through its own wrapper script', () {
       expect(emulatorWrapperName('Pixel_9_Pro'), 'emulator_cmd_Pixel_9_Pro');
-      expect(emulatorWrapperName('anta_qa_1'), isNot(emulatorWrapperName('anta_qa_2')));
+      expect(
+        emulatorWrapperName('anta_qa_1'),
+        isNot(emulatorWrapperName('anta_qa_2')),
+      );
     });
   });
 }
@@ -993,7 +1249,8 @@ void _harnessSourceScan() {
           scanHarnessSources({'tool/qa/src/x.dart': source});
 
       test('flags the one-string and the argv-list spelling alike', () {
-        expect(scan('''
+        expect(
+          scan('''
 Future<void> wipe(Adb adb) async {
   await adb.shell(['pm', 'clear', antaPackage]);
   await adb.raw(['emu', 'kill']);
@@ -1005,24 +1262,27 @@ Future<void> wipe(Adb adb) async {
   await run('adb', ['uninstall', 'com.x']);
   await run('taskkill', ['/PID', '1']);
 }
-'''), {
-          'tool/qa/src/x.dart': {
-            'wipe': {
-              'pm clear',
-              'emu kill',
-              'rm -rf',
-              'Stop-Process',
-              'delete avd',
-              '-wipe-data',
-              'uninstall',
-              'taskkill',
+'''),
+          {
+            'tool/qa/src/x.dart': {
+              'wipe': {
+                'pm clear',
+                'emu kill',
+                'rm -rf',
+                'Stop-Process',
+                'delete avd',
+                '-wipe-data',
+                'uninstall',
+                'taskkill',
+              },
             },
           },
-        });
+        );
       });
 
       test('follows a constant that holds a vector to where it is used', () {
-        expect(scan('''
+        expect(
+          scan('''
 const List<String> killArgs = ['emu', 'kill'];
 
 class Host {
@@ -1030,34 +1290,42 @@ class Host {
 
   Future<void> list() => adb.raw(['devices']);
 }
-'''), {
-          'tool/qa/src/x.dart': {
-            'killArgs': {'emu kill'},
-            'Host.stop': {'emu kill'},
+'''),
+          {
+            'tool/qa/src/x.dart': {
+              'killArgs': {'emu kill'},
+              'Host.stop': {'emu kill'},
+            },
           },
-        });
+        );
       });
 
       test('flags Process.killPid in code, never in a comment or a string', () {
-        expect(scan('''
+        expect(
+          scan('''
 // Process.killPid(1) is how not to do it.
 void reap(int pid) {
   final note = 'Process.killPid is refused';
   Process.killPid(pid, ProcessSignal.sigkill);
 }
-'''), {
-          'tool/qa/src/x.dart': {
-            'reap': {'Process.killPid'},
+'''),
+          {
+            'tool/qa/src/x.dart': {
+              'reap': {'Process.killPid'},
+            },
           },
-        });
+        );
       });
 
       test('ignores comments, unrelated words and interpolated code', () {
-        expect(scan('''
+        expect(
+          scan('''
 /// Never `pm clear` and never `emu kill` by hand.
 String clearLine(String pm) => '\${pm} cleared, killed nothing';
 const List<String> grant = ['pm', 'grant', 'x'];
-'''), isEmpty);
+'''),
+          isEmpty,
+        );
       });
     });
   });
@@ -1070,10 +1338,14 @@ final Map<String, RegExp> _destructive = {
   'pm clear': RegExp(r'\bpm\s+clear\b', caseSensitive: false),
   'uninstall': RegExp('uninstall', caseSensitive: false),
   '-wipe-data': RegExp('-wipe-data', caseSensitive: false),
-  'delete avd': RegExp(r'\bdelete\s+avd\b|\bavdmanager\b.*\bdelete\b',
-      caseSensitive: false),
-  'rm -rf': RegExp(r'\brm\s+(?:-\w*r\w*f|-\w*f\w*r|-r\s+-f|-f\s+-r)',
-      caseSensitive: false),
+  'delete avd': RegExp(
+    r'\bdelete\s+avd\b|\bavdmanager\b.*\bdelete\b',
+    caseSensitive: false,
+  ),
+  'rm -rf': RegExp(
+    r'\brm\s+(?:-\w*r\w*f|-\w*f\w*r|-r\s+-f|-f\s+-r)',
+    caseSensitive: false,
+  ),
   'emu kill': RegExp(r'\bemu\s+kill\b', caseSensitive: false),
   'Stop-Process': RegExp('stop-process', caseSensitive: false),
   'taskkill': RegExp('taskkill', caseSensitive: false),
@@ -1093,10 +1365,8 @@ Map<String, Map<String, Set<String>>> scanHarnessSources(
   Map<String, String> sources,
 ) {
   final found = <String, Map<String, Set<String>>>{};
-  void add(String file, String owner, String rule) => found
-      .putIfAbsent(file, () => {})
-      .putIfAbsent(owner, () => {})
-      .add(rule);
+  void add(String file, String owner, String rule) =>
+      found.putIfAbsent(file, () => {}).putIfAbsent(owner, () => {}).add(rule);
 
   final lexed = <String, _Lexed>{};
   final constants = <String, Set<String>>{};
@@ -1168,6 +1438,7 @@ class _Lexed {
   late final String code;
   late final List<int> _codeUnits;
   late final List<bool> _inside;
+
   /// Every literal; a [nested] one sits inside another's interpolation.
   final List<({int start, int end, String text, bool nested})> strings = [];
   var _nesting = 0;
@@ -1223,7 +1494,10 @@ class _Lexed {
       if (!raw && c == r'\' && j + 1 < source.length) {
         text.write(source[j + 1]);
         j += 2;
-      } else if (!raw && c == r'$' && j + 1 < source.length && source[j + 1] == '{') {
+      } else if (!raw &&
+          c == r'$' &&
+          j + 1 < source.length &&
+          source[j + 1] == '{') {
         _nesting++;
         j = _interpolation(j + 2);
         _nesting--;
@@ -1233,7 +1507,12 @@ class _Lexed {
         j++;
       }
     }
-    strings.add((start: start, end: j, text: text.toString(), nested: _nesting > 0));
+    strings.add((
+      start: start,
+      end: j,
+      text: text.toString(),
+      nested: _nesting > 0,
+    ));
     return _blank(start, j);
   }
 
@@ -1284,12 +1563,15 @@ class _Lexed {
         ).firstMatch(trimmed);
         if (type != null) {
           owner = currentClass = type.group(1);
-        } else if (!RegExp(r'^(?:import|export|part|library)\b').hasMatch(trimmed)) {
+        } else if (!RegExp(
+          r'^(?:import|export|part|library)\b',
+        ).hasMatch(trimmed)) {
           final name = _declarationName(trimmed);
           if (name != null) {
             currentClass = null;
             owner = name;
-            if (RegExp(r'^(?:const|final)\b').hasMatch(trimmed)) _constants.add(name);
+            if (RegExp(r'^(?:const|final)\b').hasMatch(trimmed))
+              _constants.add(name);
           }
         }
       } else if (indent == 2 && currentClass != null) {
@@ -1306,7 +1588,14 @@ class _Lexed {
   }
 
   static const Set<String> _keywords = {
-    'if', 'for', 'while', 'switch', 'return', 'catch', 'assert', 'await',
+    'if',
+    'for',
+    'while',
+    'switch',
+    'return',
+    'catch',
+    'assert',
+    'await',
   };
 
   static String? _declarationName(String line) {
@@ -1318,7 +1607,9 @@ class _Lexed {
       r'^(?:static\s+)?(?:const|final|var|late)\b.*?(\w+)\s*=(?![=>])',
     ).firstMatch(line);
     if (variable != null) return variable.group(1);
-    for (final match in RegExp(r'(\w+)\s*(?:<[^()]*>)?\s*\(').allMatches(line)) {
+    for (final match in RegExp(
+      r'(\w+)\s*(?:<[^()]*>)?\s*\(',
+    ).allMatches(line)) {
       final name = match.group(1)!;
       if (!_keywords.contains(name)) return name;
     }
@@ -1355,15 +1646,19 @@ class _Lexed {
       ..sort((a, b) => a.start.compareTo(b.start));
     var runStart = 0;
     for (var k = 0; k <= ordered.length; k++) {
-      final joins = k > 0 &&
+      final joins =
+          k > 0 &&
           k < ordered.length &&
-          RegExp(r'^[\s,\[(]*$').hasMatch(code.substring(ordered[k - 1].end, ordered[k].start));
+          RegExp(
+            r'^[\s,\[(]*$',
+          ).hasMatch(code.substring(ordered[k - 1].end, ordered[k].start));
       if (k > 0 && !joins) {
         final run = ordered.sublist(runStart, k);
         final owner = ownerAt(run.first.start) ?? '(top)';
         final joined = run.map((s) => s.text).join(' ');
         for (final entry in _destructive.entries) {
-          if (entry.value.hasMatch(joined)) yield (owner: owner, rule: entry.key);
+          if (entry.value.hasMatch(joined))
+            yield (owner: owner, rule: entry.key);
         }
         runStart = k;
       }

@@ -90,26 +90,33 @@ void main() {
   test('every event lands, in a category the picker can show', () async {
     final service = await CalendarEventService.getInstance();
     final events = service.events;
-    expect(events.map((e) => e.title), containsAll(<String>[
-      'Lifting session',
-      'Morning walk',
-      'Physio',
-      "Mara's birthday",
-      'Standup',
-      'Old checkup',
-      'Archived plan',
-    ]));
+    expect(
+      events.map((e) => e.title),
+      containsAll(<String>[
+        'Lifting session',
+        'Morning walk',
+        'Physio',
+        "Mara's birthday",
+        'Standup',
+        'Old checkup',
+        'Archived plan',
+      ]),
+    );
     for (final event in events) {
       expect(
         CalendarCategories.byId(event.categoryId),
         isNotNull,
-        reason: '${event.title} names category ${event.categoryId}, '
+        reason:
+            '${event.title} names category ${event.categoryId}, '
             'which the import did not produce',
       );
     }
     final hidden = CalendarCategories.byId('qa-cal-hidden');
     expect(hidden?.isHidden, isTrue);
-    expect(CalendarCategories.visible.map((c) => c.id), isNot(contains('qa-cal-hidden')));
+    expect(
+      CalendarCategories.visible.map((c) => c.id),
+      isNot(contains('qa-cal-hidden')),
+    );
   });
 
   test('the relative dates put the fixture around today', () async {
@@ -119,11 +126,18 @@ void main() {
     final lift = byTitle['Lifting session']!;
     expect(lift.occursOn(today), isTrue, reason: 'weekly on today\'s weekday');
     expect(lift.occursOn(day(2)), isTrue);
-    expect(lift.occursOn(day(7)), isFalse, reason: 'that occurrence is skipped');
+    expect(
+      lift.occursOn(day(7)),
+      isFalse,
+      reason: 'that occurrence is skipped',
+    );
     expect(EventSkips.isSkipped(lift.id, day(7)), isTrue);
     expect(EventPresence.marksFor(lift.id)[day(-7)], PresenceStatus.missed);
     expect(EventPresence.marksFor(lift.id)[day(-14)], PresenceStatus.present);
-    expect(OccurrenceDescriptions.overrideFor(lift.id, today), 'Deload: 3×5 at 80 %.');
+    expect(
+      OccurrenceDescriptions.overrideFor(lift.id, today),
+      'Deload: 3×5 at 80 %.',
+    );
     final notes = await db.noteDao.getAllNotes(includeDeleted: false);
     final session = notes.firstWhere((n) => n.title == 'Session 1');
     expect(
@@ -134,13 +148,19 @@ void main() {
 
     final walk = byTitle['Morning walk']!;
     expect(walk.occursOn(today), isTrue);
-    expect(EventAlerts.alertsFor(walk.id), hasLength(5),
-        reason: 'the five-alert cap check needs an event at the cap');
+    expect(
+      EventAlerts.alertsFor(walk.id),
+      hasLength(5),
+      reason: 'the five-alert cap check needs an event at the cap',
+    );
 
     final physio = byTitle['Physio']!;
     final rule = physio.rule;
     expect(rule, isA<SpecificDatesRecurrence>());
-    expect(<DateTime>{physio.startDate, ...(rule as SpecificDatesRecurrence).dates}, hasLength(6));
+    expect(<DateTime>{
+      physio.startDate,
+      ...(rule as SpecificDatesRecurrence).dates,
+    }, hasLength(6));
     expect(physio.occursOn(day(1)), isTrue);
     expect(physio.occursOn(day(29)), isTrue);
     expect(physio.occursOn(today), isFalse);
@@ -177,14 +197,19 @@ void main() {
 
   test('the seeded settings are what the flows assume', () async {
     expect(await db.userSettingsDao.getValue('holiday_profile'), 'germany');
-    expect(await db.userSettingsDao.getValue('calendar_fasting_traditions'), 'orthodox');
+    expect(
+      await db.userSettingsDao.getValue('calendar_fasting_traditions'),
+      'orthodox',
+    );
     expect(await db.userSettingsDao.getValue('money_ledger_enabled'), 'true');
     // One colour of the user's own, so the palette's rows, its reorder and
     // the swatch menu are reachable.
-    expect(await db.userSettingsDao.getValue('calendar_custom_colors'), '4282339765');
     expect(
-      (await CalendarPaletteService.getInstance()).customColors,
-      [0xFF3F51B5],
+      await db.userSettingsDao.getValue('calendar_custom_colors'),
+      '4282339765',
     );
+    expect((await CalendarPaletteService.getInstance()).customColors, [
+      0xFF3F51B5,
+    ]);
   });
 }

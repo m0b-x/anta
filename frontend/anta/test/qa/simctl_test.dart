@@ -63,19 +63,27 @@ void main() {
     });
 
     test('rejects JSON without a devices map', () {
-      expect(() => parseSimctlDevices('{"runtimes": []}'),
-          throwsA(isA<DeviceFailure>()));
+      expect(
+        () => parseSimctlDevices('{"runtimes": []}'),
+        throwsA(isA<DeviceFailure>()),
+      );
     });
   });
 
   group('simRuntimeLabel', () {
     test('turns the runtime identifier into a readable version', () {
-      expect(simRuntimeLabel('com.apple.CoreSimulator.SimRuntime.iOS-26-2'),
-          'iOS 26.2');
-      expect(simRuntimeLabel('com.apple.CoreSimulator.SimRuntime.iOS-18-0-1'),
-          'iOS 18.0.1');
-      expect(simRuntimeLabel('com.apple.CoreSimulator.SimRuntime.watchOS-26-0'),
-          'watchOS 26.0');
+      expect(
+        simRuntimeLabel('com.apple.CoreSimulator.SimRuntime.iOS-26-2'),
+        'iOS 26.2',
+      );
+      expect(
+        simRuntimeLabel('com.apple.CoreSimulator.SimRuntime.iOS-18-0-1'),
+        'iOS 18.0.1',
+      );
+      expect(
+        simRuntimeLabel('com.apple.CoreSimulator.SimRuntime.watchOS-26-0'),
+        'watchOS 26.0',
+      );
     });
 
     test('passes anything unrecognised through untouched', () {
@@ -95,7 +103,8 @@ void main() {
   });
 
   group('parseLaunchctlPid', () {
-    const listing = '1392\t0\tUIKitApplication:com.apple.Spotlight[2861][rb-legacy]\n'
+    const listing =
+        '1392\t0\tUIKitApplication:com.apple.Spotlight[2861][rb-legacy]\n'
         '4272\t0\tUIKitApplication:com.alexzamfir.anta[360d][rb-legacy]\n'
         '-\t0\tcom.apple.something\n';
 
@@ -106,8 +115,10 @@ void main() {
 
     test('a bundle that is listed without a pid reads as not running', () {
       expect(
-        parseLaunchctlPid('-\t0\tUIKitApplication:com.alexzamfir.anta[1][x]',
-            'com.alexzamfir.anta'),
+        parseLaunchctlPid(
+          '-\t0\tUIKitApplication:com.alexzamfir.anta[1][x]',
+          'com.alexzamfir.anta',
+        ),
         isNull,
       );
     });
@@ -131,16 +142,20 @@ void main() {
         appArguments: const ['--vm-service-port=1234'],
       );
       expect(pid, 99);
-      expect(fake.lines.single,
-          'xcrun simctl launch --terminate-running-process UDID com.alexzamfir.anta --vm-service-port=1234');
+      expect(
+        fake.lines.single,
+        'xcrun simctl launch --terminate-running-process UDID com.alexzamfir.anta --vm-service-port=1234',
+      );
     });
 
     test('launch without terminate brings a running app forward', () async {
       final fake = FakeProcessRunner(
         defaultOutcome: const RunOutcome(0, 'com.alexzamfir.anta: 99', ''),
       );
-      await Simctl(runner: fake, xcrun: 'xcrun')
-          .launch('UDID', 'com.alexzamfir.anta', terminateRunning: false);
+      await Simctl(
+        runner: fake,
+        xcrun: 'xcrun',
+      ).launch('UDID', 'com.alexzamfir.anta', terminateRunning: false);
       expect(fake.lines.single, isNot(contains('--terminate-running-process')));
     });
 
@@ -150,8 +165,13 @@ void main() {
       );
       expect(
         () => Simctl(runner: fake, xcrun: 'xcrun').launch('UDID', 'x'),
-        throwsA(isA<DeviceFailure>()
-            .having((e) => e.message, 'message', contains('Unable to launch'))),
+        throwsA(
+          isA<DeviceFailure>().having(
+            (e) => e.message,
+            'message',
+            contains('Unable to launch'),
+          ),
+        ),
       );
     });
 
@@ -160,8 +180,10 @@ void main() {
         defaultOutcome: const RunOutcome(2, '', 'No such file or directory'),
       );
       expect(
-        await Simctl(runner: fake, xcrun: 'xcrun')
-            .appContainer('UDID', 'x', 'data'),
+        await Simctl(
+          runner: fake,
+          xcrun: 'xcrun',
+        ).appContainer('UDID', 'x', 'data'),
         isNull,
       );
     });
@@ -172,20 +194,33 @@ void main() {
         'xcrun simctl io UDID screenshot --type=png -',
         const RunOutcome(0, '', '', bytes: [0x89, 0x50]),
       );
-      final bytes = await Simctl(runner: fake, xcrun: 'xcrun').screenshotPng('UDID');
+      final bytes = await Simctl(
+        runner: fake,
+        xcrun: 'xcrun',
+      ).screenshotPng('UDID');
       expect(bytes, [0x89, 0x50]);
       expect(fake.calls.single.binary, isTrue);
     });
 
     test('logShow reads the last minutes at info and debug level', () async {
-      final fake = FakeProcessRunner(defaultOutcome: const RunOutcome(0, 'line', ''));
-      await Simctl(runner: fake, xcrun: 'xcrun').logShow(
-        'UDID',
-        predicate: 'p',
-        last: const Duration(minutes: 3),
+      final fake = FakeProcessRunner(
+        defaultOutcome: const RunOutcome(0, 'line', ''),
       );
-      expect(fake.calls.single.arguments,
-          containsAllInOrder(['log', 'show', '--last', '3m', '--info', '--debug']));
+      await Simctl(
+        runner: fake,
+        xcrun: 'xcrun',
+      ).logShow('UDID', predicate: 'p', last: const Duration(minutes: 3));
+      expect(
+        fake.calls.single.arguments,
+        containsAllInOrder([
+          'log',
+          'show',
+          '--last',
+          '3m',
+          '--info',
+          '--debug',
+        ]),
+      );
     });
   });
 }

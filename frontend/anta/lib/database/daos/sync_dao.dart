@@ -85,10 +85,9 @@ class SyncDao extends DatabaseAccessor<AppDatabase> with _$SyncDaoMixin {
     if (prefix.isEmpty) {
       throw ArgumentError.value(prefix, 'prefix', 'must not be empty');
     }
-    return (delete(syncMetadata)..where(
-          (s) => s.key.substr(1, prefix.length).equals(prefix),
-        ))
-        .go();
+    return (delete(
+      syncMetadata,
+    )..where((s) => s.key.substr(1, prefix.length).equals(prefix))).go();
   }
 
   Future<String?> getLastSyncTimestamp() => getValue(keyLastSyncTimestamp);

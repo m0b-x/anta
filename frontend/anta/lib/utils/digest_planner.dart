@@ -263,9 +263,7 @@ abstract final class DigestPlanner {
     ];
     if (enabled.length <= horizon.maxDigests) return const {};
     enabled.sort(_byDisplayOrder);
-    return {
-      for (final digest in enabled.skip(horizon.maxDigests)) digest.id,
-    };
+    return {for (final digest in enabled.skip(horizon.maxDigests)) digest.id};
   }
 
   static int _byDisplayOrder(EventDigest a, EventDigest b) {

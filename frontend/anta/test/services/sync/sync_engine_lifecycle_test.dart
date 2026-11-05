@@ -32,22 +32,25 @@ void main() {
   }
 
   group('the signal', () {
-    test('after B pushes, a started A pulls only the tables B touched', () async {
-      await a().engine.start();
-      await a().settle();
-      await b().db.folderDao.createFolder(name: 'From B');
-      pair.gateway.calls.clear();
+    test(
+      'after B pushes, a started A pulls only the tables B touched',
+      () async {
+        await a().engine.start();
+        await a().settle();
+        await b().db.folderDao.createFolder(name: 'From B');
+        pair.gateway.calls.clear();
 
-      await b().sync();
-      await a().settle();
+        await b().sync();
+        await a().settle();
 
-      expect(callsAfterPushOfB(), ['pull:folders']);
-      expect(await a().db.select(a().db.folders).get(), hasLength(1));
-      expect(
-        await a().db.syncDao.getValue(SyncDao.keyPullSeen('folders')),
-        isNotNull,
-      );
-    });
+        expect(callsAfterPushOfB(), ['pull:folders']);
+        expect(await a().db.select(a().db.folders).get(), hasLength(1));
+        expect(
+          await a().db.syncDao.getValue(SyncDao.keyPullSeen('folders')),
+          isNotNull,
+        );
+      },
+    );
 
     test('a space written at a newer schema pauses a started A', () async {
       await a().engine.start();
@@ -123,20 +126,23 @@ void main() {
       expect(pair.gateway.readSpaceCalls, 1);
     });
 
-    test('a signal stream that ends is attached afresh by the next run', () async {
-      await a().engine.start();
-      await a().settle();
+    test(
+      'a signal stream that ends is attached afresh by the next run',
+      () async {
+        await a().engine.start();
+        await a().settle();
 
-      pair.gateway.endWatches(pair.space);
-      await a().settle();
-      await a().sync();
-      await b().db.folderDao.createFolder(name: 'From B');
-      pair.gateway.calls.clear();
-      await b().sync();
-      await a().settle();
+        pair.gateway.endWatches(pair.space);
+        await a().settle();
+        await a().sync();
+        await b().db.folderDao.createFolder(name: 'From B');
+        pair.gateway.calls.clear();
+        await b().sync();
+        await a().settle();
 
-      expect(callsAfterPushOfB(), ['pull:folders']);
-    });
+        expect(callsAfterPushOfB(), ['pull:folders']);
+      },
+    );
 
     test('a failing signal re-attaches on its own growing back-off and '
         'pulls nothing', () async {
@@ -153,11 +159,14 @@ void main() {
         await pumpEventQueue();
       }
 
-      expect([for (final timer in a().scheduler.timers) timer.delay], const [
-        Duration(seconds: 30),
-        Duration(minutes: 1),
-        Duration(minutes: 2),
-      ]);
+      expect(
+        [for (final timer in a().scheduler.timers) timer.delay],
+        const [
+          Duration(seconds: 30),
+          Duration(minutes: 1),
+          Duration(minutes: 2),
+        ],
+      );
       expect(pair.gateway.calls, isEmpty);
     });
 
@@ -225,29 +234,32 @@ void main() {
       expect(await a().db.folderDao.getFolderById(second.id), isNotNull);
     });
 
-    test('a debounced drain without a snapshot pulls every table first', () async {
-      await pair.close();
-      pair = await SyncPair.open(
-        timing: const SyncEngineTiming(pushDebounce: Duration(minutes: 7)),
-      );
-      await a().engine.start();
-      await a().settle();
-      pair.gateway.failWatches(pair.space, SyncGatewayFailure.unknown);
-      await a().settle();
-      await a().db.folderDao.createFolder(name: 'Queued');
-      await pumpEventQueue();
-      pair.gateway.calls.clear();
+    test(
+      'a debounced drain without a snapshot pulls every table first',
+      () async {
+        await pair.close();
+        pair = await SyncPair.open(
+          timing: const SyncEngineTiming(pushDebounce: Duration(minutes: 7)),
+        );
+        await a().engine.start();
+        await a().settle();
+        pair.gateway.failWatches(pair.space, SyncGatewayFailure.unknown);
+        await a().settle();
+        await a().db.folderDao.createFolder(name: 'Queued');
+        await pumpEventQueue();
+        pair.gateway.calls.clear();
 
-      // The run's own attach fails too, so no snapshot arrives before it.
-      pair.gateway.failNextWith(SyncGatewayFailure.unknown);
-      expect(a().scheduler.fire(const Duration(minutes: 7)), 1);
-      await a().settle();
+        // The run's own attach fails too, so no snapshot arrives before it.
+        pair.gateway.failNextWith(SyncGatewayFailure.unknown);
+        expect(a().scheduler.fire(const Duration(minutes: 7)), 1);
+        await a().settle();
 
-      expect(pair.gateway.calls, [
-        for (final binding in syncTableBindings) 'pull:${binding.table}',
-        'push:A',
-      ]);
-    });
+        expect(pair.gateway.calls, [
+          for (final binding in syncTableBindings) 'pull:${binding.table}',
+          'push:A',
+        ]);
+      },
+    );
 
     test('the signal keeps its own back-off apart from the runs\'', () async {
       await pair.close();
@@ -282,7 +294,8 @@ void main() {
       await a().settle();
       final restore = Completer<void>();
       a().hooks.onBeforePage = (table) async {
-        if (table == 'folders') unawaited(SyncSuspension.run(() => restore.future));
+        if (table == 'folders')
+          unawaited(SyncSuspension.run(() => restore.future));
       };
 
       await b().db.folderDao.createFolder(name: 'From B');
@@ -344,7 +357,8 @@ void main() {
       await b().sync();
       final restore = Completer<void>();
       a().hooks.onBeforePage = (table) async {
-        if (table == 'folders') unawaited(SyncSuspension.run(() => restore.future));
+        if (table == 'folders')
+          unawaited(SyncSuspension.run(() => restore.future));
       };
 
       final report = await a().sync();
@@ -360,25 +374,28 @@ void main() {
       expect((await a().sync()).skipped, isNull);
     });
 
-    test('a database switch cancels the signal, the trigger and the timers', () async {
-      SyncEngine.registerForTesting(a().engine);
-      await a().engine.start();
-      await a().settle();
-      await a().db.folderDao.createFolder(name: 'Queued');
-      await pumpEventQueue();
-      expect(a().scheduler.pending, [const Duration(seconds: 30)]);
+    test(
+      'a database switch cancels the signal, the trigger and the timers',
+      () async {
+        SyncEngine.registerForTesting(a().engine);
+        await a().engine.start();
+        await a().settle();
+        await a().db.folderDao.createFolder(name: 'Queued');
+        await pumpEventQueue();
+        expect(a().scheduler.pending, [const Duration(seconds: 30)]);
 
-      SyncEngine.reset();
-      await a().engine.whenIdle;
-      pair.gateway.calls.clear();
-      await b().db.folderDao.createFolder(name: 'From B');
-      await b().sync();
-      await Future<void>.delayed(Duration.zero);
+        SyncEngine.reset();
+        await a().engine.whenIdle;
+        pair.gateway.calls.clear();
+        await b().db.folderDao.createFolder(name: 'From B');
+        await b().sync();
+        await Future<void>.delayed(Duration.zero);
 
-      expect(a().scheduler.pending, isEmpty);
-      expect(callsAfterPushOfB(), isEmpty);
-      expect((await a().engine.syncNow()).skipped, SyncRunSkip.stopped);
-    });
+        expect(a().scheduler.pending, isEmpty);
+        expect(callsAfterPushOfB(), isEmpty);
+        expect((await a().engine.syncNow()).skipped, SyncRunSkip.stopped);
+      },
+    );
 
     test('the outbox trigger drains after the debounce', () async {
       await a().engine.start();
@@ -431,37 +448,42 @@ void main() {
       expect(await a().db.select(a().db.counterValues).get(), isEmpty);
     });
 
-    test('a leave cutting a pull drains before the caches hear of the pull', () async {
-      await a().sync();
-      await b().db.folderDao.createFolder(name: 'From B');
-      await b().db.counterDao.upsertValue('c1', '', 3);
-      await b().sync();
-      final hold = Completer<void>();
-      var held = false;
-      a().hooks.onBeforePage = (table) async {
-        if (table != 'folders' || held) return;
-        held = true;
-        await hold.future;
-      };
-      int? pushesAtAfterRun;
-      a().hooks.onAfterRun = () async => pushesAtAfterRun ??= pair.gateway.calls
-          .where((c) => c == 'push:A')
-          .length;
-      await a().engine.start();
-      while (!held) {
-        await Future<void>.delayed(Duration.zero);
-      }
-      await a().db.folderDao.createFolder(name: 'Mine');
-      pair.gateway.calls.clear();
+    test(
+      'a leave cutting a pull drains before the caches hear of the pull',
+      () async {
+        await a().sync();
+        await b().db.folderDao.createFolder(name: 'From B');
+        await b().db.counterDao.upsertValue('c1', '', 3);
+        await b().sync();
+        final hold = Completer<void>();
+        var held = false;
+        a().hooks.onBeforePage = (table) async {
+          if (table != 'folders' || held) return;
+          held = true;
+          await hold.future;
+        };
+        int? pushesAtAfterRun;
+        a().hooks.onAfterRun = () async => pushesAtAfterRun ??= pair
+            .gateway
+            .calls
+            .where((c) => c == 'push:A')
+            .length;
+        await a().engine.start();
+        while (!held) {
+          await Future<void>.delayed(Duration.zero);
+        }
+        await a().db.folderDao.createFolder(name: 'Mine');
+        pair.gateway.calls.clear();
 
-      final background = a().engine.onAppBackgrounded();
-      hold.complete();
-      await background.timeout(const Duration(seconds: 5));
-      await a().settle();
+        final background = a().engine.onAppBackgrounded();
+        hold.complete();
+        await background.timeout(const Duration(seconds: 5));
+        await a().settle();
 
-      expect(a().hooks.runs.single, contains(SyncInvalidation.folders));
-      expect(pushesAtAfterRun, 1);
-    });
+        expect(a().hooks.runs.single, contains(SyncInvalidation.folders));
+        expect(pushesAtAfterRun, 1);
+      },
+    );
 
     test('a stop and a start across a leave and a return follow the space '
         'again', () async {
@@ -553,24 +575,27 @@ void main() {
       }
     });
 
-    test('resume and background do nothing before start and after stop', () async {
-      await a().db.folderDao.createFolder(name: 'Queued');
+    test(
+      'resume and background do nothing before start and after stop',
+      () async {
+        await a().db.folderDao.createFolder(name: 'Queued');
 
-      a().engine.onAppResumed();
-      await a().engine.onAppBackgrounded();
-      await a().settle();
-      expect(pair.gateway.calls, isEmpty);
+        a().engine.onAppResumed();
+        await a().engine.onAppBackgrounded();
+        await a().settle();
+        expect(pair.gateway.calls, isEmpty);
 
-      await a().engine.start();
-      await a().settle();
-      await a().engine.stop();
-      pair.gateway.calls.clear();
-      await a().db.folderDao.createFolder(name: 'Later');
-      a().engine.onAppResumed();
-      await a().engine.onAppBackgrounded();
-      await a().settle();
-      expect(pair.gateway.calls, isEmpty);
-    });
+        await a().engine.start();
+        await a().settle();
+        await a().engine.stop();
+        pair.gateway.calls.clear();
+        await a().db.folderDao.createFolder(name: 'Later');
+        a().engine.onAppResumed();
+        await a().engine.onAppBackgrounded();
+        await a().settle();
+        expect(pair.gateway.calls, isEmpty);
+      },
+    );
 
     test('a stop during start attaches nothing, and a later start attaches '
         'once', () async {
@@ -624,11 +649,7 @@ void main() {
     test('a stop and a start clear the pause, the quota hold, the back-off '
         'and the parked sets', () async {
       final folder = await a().db.folderDao.createFolder(name: 'Refused');
-      pair.gateway.refuse(
-        'folders',
-        folder.id,
-        SyncGatewayFailure.invalidData,
-      );
+      pair.gateway.refuse('folders', folder.id, SyncGatewayFailure.invalidData);
       await a().engine.start();
       await a().settle();
       expect(a().engine.current.parkedCount, 1, reason: 'parked on the push');
@@ -710,23 +731,26 @@ void main() {
   });
 
   group('hooks', () {
-    test('an event moving alone touches calendar and alerts, page by page', () async {
-      await b().db.calendarEventDao.upsert(eventRow('e1'));
-      await b().sync();
+    test(
+      'an event moving alone touches calendar and alerts, page by page',
+      () async {
+        await b().db.calendarEventDao.upsert(eventRow('e1'));
+        await b().sync();
 
-      await a().sync();
+        await a().sync();
 
-      expect(a().hooks.calls, [
-        'before:calendar_events',
-        'after:calendar_events',
-        'run',
-      ]);
-      expect(a().hooks.pages.single.$2.single.result, MergeResult.inserted);
-      expect(a().hooks.runs.single, {
-        SyncInvalidation.calendar,
-        SyncInvalidation.alerts,
-      });
-    });
+        expect(a().hooks.calls, [
+          'before:calendar_events',
+          'after:calendar_events',
+          'run',
+        ]);
+        expect(a().hooks.pages.single.$2.single.result, MergeResult.inserted);
+        expect(a().hooks.runs.single, {
+          SyncInvalidation.calendar,
+          SyncInvalidation.alerts,
+        });
+      },
+    );
 
     test('a page of notes and folders names both classes', () async {
       final folder = await b().db.folderDao.createFolder(name: 'Training');
@@ -743,28 +767,31 @@ void main() {
   });
 
   group('status', () {
-    test('the stream goes pulling, pushing, idle and ends with the counts', () async {
-      await a().db.folderDao.createFolder(name: 'Training');
+    test(
+      'the stream goes pulling, pushing, idle and ends with the counts',
+      () async {
+        await a().db.folderDao.createFolder(name: 'Training');
 
-      await a().sync();
+        await a().sync();
 
-      final activities = <SyncActivity>[];
-      for (final status in a().statuses) {
-        if (activities.isEmpty || activities.last != status.activity) {
-          activities.add(status.activity);
+        final activities = <SyncActivity>[];
+        for (final status in a().statuses) {
+          if (activities.isEmpty || activities.last != status.activity) {
+            activities.add(status.activity);
+          }
         }
-      }
-      expect(activities, [
-        SyncActivity.pulling,
-        SyncActivity.pushing,
-        SyncActivity.idle,
-      ]);
-      final last = a().engine.current;
-      expect(last.pendingCount, 0);
-      expect(last.lastPushAt, isNotNull);
-      expect(last.lastPullAt, isNotNull);
-      expect(last.binding?.spaceId, pair.space.spaceId);
-    });
+        expect(activities, [
+          SyncActivity.pulling,
+          SyncActivity.pushing,
+          SyncActivity.idle,
+        ]);
+        final last = a().engine.current;
+        expect(last.pendingCount, 0);
+        expect(last.lastPushAt, isNotNull);
+        expect(last.lastPullAt, isNotNull);
+        expect(last.binding?.spaceId, pair.space.spaceId);
+      },
+    );
 
     test('signed out and another account skip with their reasons', () async {
       a().user = null;
@@ -776,19 +803,22 @@ void main() {
       expect(a().engine.current.pause, SyncPause.accountMismatch);
     });
 
-    test('signing back in as the bound account resumes a started engine', () async {
-      a().user = null;
-      await a().engine.start();
-      await a().settle();
-      final folder = await a().db.folderDao.createFolder(name: 'Queued');
+    test(
+      'signing back in as the bound account resumes a started engine',
+      () async {
+        a().user = null;
+        await a().engine.start();
+        await a().settle();
+        final folder = await a().db.folderDao.createFolder(name: 'Queued');
 
-      a().user = const AppUser(uid: syncUid);
-      a().auth.add(a().user);
-      await a().settle();
+        a().user = const AppUser(uid: syncUid);
+        a().auth.add(a().user);
+        await a().settle();
 
-      expect(pair.gateway.rowsOf(pair.space, 'folders').keys, [folder.id]);
-      expect(a().engine.current.pause, SyncPause.none);
-    });
+        expect(pair.gateway.rowsOf(pair.space, 'folders').keys, [folder.id]);
+        expect(a().engine.current.pause, SyncPause.none);
+      },
+    );
 
     test('the emitted pause follows pauseOver: a sign-out shows over the '
         'no-access pause the engine still holds (S4b-1 review L14)', () async {
@@ -816,42 +846,42 @@ void main() {
     // beyond the empty one — the four properties the A1c probe proved and the
     // four a later fix session could quietly break (A1c review R41).
     for (final signedIn in [true, false]) {
-      test(
-        'an unbound database is inert end to end, '
-        '${signedIn ? 'signed in' : 'signed out'}',
-        () async {
-          await a().binding.unbind();
-          if (!signedIn) {
-            a().user = null;
-            a().auth.add(null);
-            await a().settle();
-          }
-          pair.gateway.calls.clear();
-          pair.gateway.readSpaceCalls = 0;
-          a().statements.reset();
-          a().statuses.clear();
-
-          await a().engine.start();
+      test('an unbound database is inert end to end, '
+          '${signedIn ? 'signed in' : 'signed out'}', () async {
+        await a().binding.unbind();
+        if (!signedIn) {
+          a().user = null;
+          a().auth.add(null);
           await a().settle();
+        }
+        pair.gateway.calls.clear();
+        pair.gateway.readSpaceCalls = 0;
+        a().statements.reset();
+        a().statuses.clear();
 
-          expect(pair.gateway.calls, isEmpty);
-          expect(pair.gateway.readSpaceCalls, 0);
-          expect(a().scheduler.pending, isEmpty);
-          expect(a().statements.captured.where((c) => !c.isSelect), isEmpty);
-          expect(a().engine.current, SyncStatus.empty);
-          expect(a().statuses, isEmpty);
-        },
-      );
+        await a().engine.start();
+        await a().settle();
+
+        expect(pair.gateway.calls, isEmpty);
+        expect(pair.gateway.readSpaceCalls, 0);
+        expect(a().scheduler.pending, isEmpty);
+        expect(a().statements.captured.where((c) => !c.isSelect), isEmpty);
+        expect(a().engine.current, SyncStatus.empty);
+        expect(a().statuses, isEmpty);
+      });
     }
 
-    test('a failed call is cleared from the status by the next success', () async {
-      pair.gateway.failNextWith(SyncGatewayFailure.offline);
-      await a().sync();
-      expect(a().engine.current.lastFailure, isNotNull);
+    test(
+      'a failed call is cleared from the status by the next success',
+      () async {
+        pair.gateway.failNextWith(SyncGatewayFailure.offline);
+        await a().sync();
+        expect(a().engine.current.lastFailure, isNotNull);
 
-      await a().sync();
+        await a().sync();
 
-      expect(a().engine.current.lastFailure, isNull);
-    });
+        expect(a().engine.current.lastFailure, isNull);
+      },
+    );
   });
 }

@@ -414,21 +414,24 @@ void main() {
       ]);
     });
 
-    test('fires after an import and a clear, never after its own writes', () async {
-      var fired = 0;
-      final subscription = service.changes.listen((_) => fired++);
-      addTearDown(subscription.cancel);
+    test(
+      'fires after an import and a clear, never after its own writes',
+      () async {
+        var fired = 0;
+        final subscription = service.changes.listen((_) => fired++);
+        addTearDown(subscription.cancel);
 
-      final created = await service.createVocabulary(name: 'Exercises');
-      await service.setEnabled(created.id, false);
-      await service.deleteVocabulary(created.id);
-      await pumpEventQueue();
-      expect(fired, 0);
+        final created = await service.createVocabulary(name: 'Exercises');
+        await service.setEnabled(created.id, false);
+        await service.deleteVocabulary(created.id);
+        await pumpEventQueue();
+        expect(fired, 0);
 
-      await service.importData(await service.exportData());
-      await service.clearAllForImport();
-      await pumpEventQueue();
-      expect(fired, 2);
-    });
+        await service.importData(await service.exportData());
+        await service.clearAllForImport();
+        await pumpEventQueue();
+        expect(fired, 2);
+      },
+    );
   });
 }

@@ -39,7 +39,8 @@ void main() {
 
     const device = 'emulator-5556';
     const emptyTree = '<hierarchy rotation="0"></hierarchy>';
-    String fixture(String name) => File('test/qa/fixtures/$name').readAsStringSync();
+    String fixture(String name) =>
+        File('test/qa/fixtures/$name').readAsStringSync();
 
     test('nothing cached reads as null', () {
       expect(readDumpCache(paths, device), isNull);
@@ -56,10 +57,7 @@ void main() {
       writeDumpCache(paths, device, fixture('folder_root_dump.xml'));
       final cached = readDumpCache(paths, device)!;
       expect(cached.tree.nodes, isNotEmpty);
-      expect(
-        cached.ageFrom(DateTime.now()).inSeconds,
-        lessThan(10),
-      );
+      expect(cached.ageFrom(DateTime.now()).inSeconds, lessThan(10));
     });
 
     test('writing twice keeps only the newest tree', () {
@@ -71,7 +69,10 @@ void main() {
     test('the cache lives under build/qa, one file per device', () {
       writeDumpCache(paths, device, emptyTree);
       expect(paths.lastDumpFor(device), startsWith(paths.buildQa));
-      expect(paths.lastDumpFor(device), endsWith('last_dump_emulator-5556.txt'));
+      expect(
+        paths.lastDumpFor(device),
+        endsWith('last_dump_emulator-5556.txt'),
+      );
       expect(File(paths.lastDumpFor(device)).existsSync(), isTrue);
       expect(File(paths.lastDump).existsSync(), isFalse);
     });
@@ -83,37 +84,47 @@ void main() {
       expect(readDumpCache(paths, device)!.tree.nodes, isEmpty);
     });
 
-    test('a shared dump from an older tool resolves until the device writes its own', () {
-      paths.ensureBuildQa();
-      File(paths.lastDump).writeAsStringSync(fixture('folder_root_dump.xml'));
-      expect(readDumpCache(paths, device)!.tree.nodes, isNotEmpty);
-      expect(readDumpCache(paths, null)!.tree.nodes, isNotEmpty);
+    test(
+      'a shared dump from an older tool resolves until the device writes its own',
+      () {
+        paths.ensureBuildQa();
+        File(paths.lastDump).writeAsStringSync(fixture('folder_root_dump.xml'));
+        expect(readDumpCache(paths, device)!.tree.nodes, isNotEmpty);
+        expect(readDumpCache(paths, null)!.tree.nodes, isNotEmpty);
 
-      writeDumpCache(paths, device, emptyTree);
-      expect(File(paths.lastDump).existsSync(), isFalse);
-      expect(readDumpCache(paths, device)!.tree.nodes, isEmpty);
-    });
+        writeDumpCache(paths, device, emptyTree);
+        expect(File(paths.lastDump).existsSync(), isFalse);
+        expect(readDumpCache(paths, device)!.tree.nodes, isEmpty);
+      },
+    );
 
-    test('with no device it reads the newest per-device dump, then the shared ones', () {
-      writeDumpCache(paths, 'emulator-5556', fixture('folder_root_dump.xml'));
-      writeDumpCache(paths, 'emulator-5558', emptyTree);
-      File(paths.lastDumpFor('emulator-5556'))
-          .setLastModifiedSync(DateTime.now().subtract(const Duration(minutes: 5)));
-      expect(readDumpCache(paths, null)!.tree.nodes, isEmpty);
+    test(
+      'with no device it reads the newest per-device dump, then the shared ones',
+      () {
+        writeDumpCache(paths, 'emulator-5556', fixture('folder_root_dump.xml'));
+        writeDumpCache(paths, 'emulator-5558', emptyTree);
+        File(paths.lastDumpFor('emulator-5556')).setLastModifiedSync(
+          DateTime.now().subtract(const Duration(minutes: 5)),
+        );
+        expect(readDumpCache(paths, null)!.tree.nodes, isEmpty);
 
-      File(paths.lastDumpFor('emulator-5558'))
-          .setLastModifiedSync(DateTime.now().subtract(const Duration(minutes: 10)));
-      expect(readDumpCache(paths, null)!.tree.nodes, isNotEmpty);
+        File(paths.lastDumpFor('emulator-5558')).setLastModifiedSync(
+          DateTime.now().subtract(const Duration(minutes: 10)),
+        );
+        expect(readDumpCache(paths, null)!.tree.nodes, isNotEmpty);
 
-      File(paths.lastDumpFor('emulator-5556')).deleteSync();
-      File(paths.lastDumpFor('emulator-5558')).deleteSync();
-      File(paths.lastDump).writeAsStringSync(fixture('folder_root_dump.xml'));
-      expect(readDumpCache(paths, null)!.tree.nodes, isNotEmpty);
-    });
+        File(paths.lastDumpFor('emulator-5556')).deleteSync();
+        File(paths.lastDumpFor('emulator-5558')).deleteSync();
+        File(paths.lastDump).writeAsStringSync(fixture('folder_root_dump.xml'));
+        expect(readDumpCache(paths, null)!.tree.nodes, isNotEmpty);
+      },
+    );
 
     test('the oldest shared name, last_dump.xml, still counts', () {
       paths.ensureBuildQa();
-      File(paths.legacyLastDump).writeAsStringSync(fixture('folder_root_dump.xml'));
+      File(
+        paths.legacyLastDump,
+      ).writeAsStringSync(fixture('folder_root_dump.xml'));
       expect(readDumpCache(paths, device)!.tree.nodes, isNotEmpty);
       writeDumpCache(paths, device, emptyTree);
       expect(File(paths.legacyLastDump).existsSync(), isFalse);

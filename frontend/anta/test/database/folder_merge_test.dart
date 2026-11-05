@@ -116,8 +116,10 @@ void main() {
 
     // The deleting device stored the delete time; before this the merging
     // one kept the last edit's and the two never converged (A7 R67).
-    expect((await db.folderDao.getFolderById(local.id))!.updatedAt,
-        tombstone.deletedAt);
+    expect(
+      (await db.folderDao.getFolderById(local.id))!.updatedAt,
+      tombstone.deletedAt,
+    );
   });
 
   group('the parent a merge leaves behind', () {
@@ -178,10 +180,9 @@ void main() {
 
       expect((await db.folderDao.getFolderById(y.id))!.parentId, isNull);
       expect((await db.folderDao.getFolderById(x.id))!.parentId, y.id);
-      expect(
-        [for (final f in await db.folderDao.getFoldersByParent(null)) f.id],
-        contains(y.id),
-      );
+      expect([
+        for (final f in await db.folderDao.getFoldersByParent(null)) f.id,
+      ], contains(y.id));
       await expectRepairQueued(y.id, movedHlc);
     });
 
@@ -242,15 +243,17 @@ void main() {
       expect(db.hlc.last.wallTime, HlcTimestamp.parse(farHlc).wallTime);
     });
 
-    test('a live row whose ancestors are all tombstoned goes to the root',
-        () async {
-      final parent = await db.folderDao.createFolder(name: 'Parent');
-      await db.folderDao.softDeleteFolder(parent.id);
+    test(
+      'a live row whose ancestors are all tombstoned goes to the root',
+      () async {
+        final parent = await db.folderDao.createFolder(name: 'Parent');
+        await db.folderDao.softDeleteFolder(parent.id);
 
-      await db.folderDao.mergeFolder(under('pulled', parent.id, newerHlc));
+        await db.folderDao.mergeFolder(under('pulled', parent.id, newerHlc));
 
-      expect((await db.folderDao.getFolderById('pulled'))!.parentId, isNull);
-    });
+        expect((await db.folderDao.getFolderById('pulled'))!.parentId, isNull);
+      },
+    );
 
     test('a parent this device has not received is kept', () async {
       await db.folderDao.mergeFolder(under('pulled', 'not-here', newerHlc));

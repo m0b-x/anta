@@ -55,7 +55,11 @@ void main() {
   test('a schedule is accepted and holds nothing', () async {
     expect(await gateway.schedule(fire, payload), isTrue);
     expect(
-      await gateway.schedule(fire, payload, noticeAt: DateTime(2026, 9, 20, 16)),
+      await gateway.schedule(
+        fire,
+        payload,
+        noticeAt: DateTime(2026, 9, 20, 16),
+      ),
       isTrue,
     );
     expect(await gateway.pendingEntries(), isEmpty);
@@ -112,10 +116,7 @@ void main() {
   });
 
   test('availability is the SyncAvailability rule, phones only', () {
-    expect(
-      AlertAvailability.isSupported,
-      Platform.isAndroid || Platform.isIOS,
-    );
+    expect(AlertAvailability.isSupported, Platform.isAndroid || Platform.isIOS);
     // The test host is a desktop, so this is also the assertion that desktop
     // stays plan-only.
     expect(AlertAvailability.isSupported, isFalse);

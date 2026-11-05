@@ -859,12 +859,10 @@ void main() {
       expect(railRect.left - cellRect.left, CalendarDayCell.railLeft);
       expect(CalendarDayCell.railLeft, greaterThanOrEqualTo(4.5));
       expect(
-        tester
-            .widgetList<DecoratedBox>(find.byType(DecoratedBox))
-            .where((b) {
-              final decoration = b.decoration;
-              return decoration is BoxDecoration && decoration.color == green;
-            }),
+        tester.widgetList<DecoratedBox>(find.byType(DecoratedBox)).where((b) {
+          final decoration = b.decoration;
+          return decoration is BoxDecoration && decoration.color == green;
+        }),
         hasLength(1),
       );
     });
@@ -884,7 +882,9 @@ void main() {
     ) async {
       await pumpCell(
         tester,
-        cell(tint: const DayCellTint(wash: Color(0x33FF5722), edge: green)),
+        cell(
+          tint: const DayCellTint(wash: Color(0x33FF5722), edge: green),
+        ),
       );
 
       // The rail widget now owns the stripe outright in `line` style, so it
@@ -1082,54 +1082,58 @@ void main() {
       );
     });
 
-    testWidgets('the line rail runs the full row — the strip never reaches it', (
-      tester,
-    ) async {
-      const strip = 16.0;
-      final laneHeight = CalendarDayCell.railLaneHeight(
-        rowHeight: 62,
-        stripHeight: strip,
-        railStyle: DayRailStyle.line,
-      );
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: Center(
-              child: SizedBox(
-                width: 51.43,
-                height: 62,
-                child: CalendarDayCell(
-                  day: DateTime.utc(2026, 8, 30),
-                  isToday: false,
-                  isSelected: false,
-                  isOutside: false,
-                  isWeekend: false,
-                  todayStyle: CalendarTodayStyle.tonal,
-                  highlightWeekends: false,
-                  accent: const Color(0xFF1A73E8),
-                  railMarks: [mark('a', red)],
-                  railStyle: DayRailStyle.line,
-                  railHeight: laneHeight,
+    testWidgets(
+      'the line rail runs the full row — the strip never reaches it',
+      (tester) async {
+        const strip = 16.0;
+        final laneHeight = CalendarDayCell.railLaneHeight(
+          rowHeight: 62,
+          stripHeight: strip,
+          railStyle: DayRailStyle.line,
+        );
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: Center(
+                child: SizedBox(
+                  width: 51.43,
+                  height: 62,
+                  child: CalendarDayCell(
+                    day: DateTime.utc(2026, 8, 30),
+                    isToday: false,
+                    isSelected: false,
+                    isOutside: false,
+                    isWeekend: false,
+                    todayStyle: CalendarTodayStyle.tonal,
+                    highlightWeekends: false,
+                    accent: const Color(0xFF1A73E8),
+                    railMarks: [mark('a', red)],
+                    railStyle: DayRailStyle.line,
+                    railHeight: laneHeight,
+                  ),
                 ),
               ),
             ),
           ),
-        ),
-      );
+        );
 
-      // The edge lane ends at 4.5 and the strip starts at 6, so the line rail
-      // owes the strip no vertical clearance and gets the row's whole height
-      // — 51px against the inset lane's 38, which is why it can afford the
-      // fasting band without losing a mark slot.
-      final cellRect = tester.getRect(find.byType(CalendarDayCell));
-      final railRect = tester.getRect(find.byType(CalendarDayRail));
-      expect(laneHeight, 62 - CalendarDayCell.edgeLaneInset * 2);
-      expect(cellRect.bottom - railRect.bottom, CalendarDayCell.edgeLaneInset);
-      expect(
-        CalendarDayCell.edgeLaneLeft + CalendarDayCell.edgeLaneWidth,
-        lessThanOrEqualTo(CalendarDayBars.defaultHorizontalInset),
-      );
-    });
+        // The edge lane ends at 4.5 and the strip starts at 6, so the line rail
+        // owes the strip no vertical clearance and gets the row's whole height
+        // — 51px against the inset lane's 38, which is why it can afford the
+        // fasting band without losing a mark slot.
+        final cellRect = tester.getRect(find.byType(CalendarDayCell));
+        final railRect = tester.getRect(find.byType(CalendarDayRail));
+        expect(laneHeight, 62 - CalendarDayCell.edgeLaneInset * 2);
+        expect(
+          cellRect.bottom - railRect.bottom,
+          CalendarDayCell.edgeLaneInset,
+        );
+        expect(
+          CalendarDayCell.edgeLaneLeft + CalendarDayCell.edgeLaneWidth,
+          lessThanOrEqualTo(CalendarDayBars.defaultHorizontalInset),
+        );
+      },
+    );
 
     testWidgets('marks without a height are a loud caller bug', (tester) async {
       await tester.pumpWidget(

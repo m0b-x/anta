@@ -21,8 +21,12 @@ class FakeProcessRunner implements ProcessRunner {
     String? workingDirectory,
     String? stdin,
   }) async {
-    final request =
-        RunRequest(executable, arguments, binary: binary, stdin: stdin);
+    final request = RunRequest(
+      executable,
+      arguments,
+      binary: binary,
+      stdin: stdin,
+    );
     calls.add(request);
     return scripted[request.line] ?? defaultOutcome;
   }

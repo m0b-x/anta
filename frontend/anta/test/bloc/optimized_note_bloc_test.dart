@@ -186,10 +186,8 @@ void main() {
     searchService = _FakeSearchService();
   });
 
-  OptimizedNoteBloc buildBloc() => OptimizedNoteBloc(
-    storageService: storage,
-    searchService: searchService,
-  );
+  OptimizedNoteBloc buildBloc() =>
+      OptimizedNoteBloc(storageService: storage, searchService: searchService);
 
   List<String> idsIn(OptimizedNoteState state) => [
     for (final note in (state as OptimizedNoteLoaded).paginatedNotes.notes)
@@ -406,10 +404,8 @@ void main() {
         hasLength(1),
         reason: 'the event ends in a RefreshNotes so the row repaints',
       );
-      final first = (bloc.state as OptimizedNoteLoaded)
-          .paginatedNotes
-          .notes
-          .first;
+      final first =
+          (bloc.state as OptimizedNoteLoaded).paginatedNotes.notes.first;
       expect(first.label, ItemLabel.red);
       await bloc.close();
     });
@@ -430,11 +426,11 @@ void main() {
       expect(storage.bulkLabels.single.ids, ['n000', 'n001', 'n002']);
       expect(storage.bulkLabels.single.label, ItemLabel.blue);
       expect(storage.loads, hasLength(1));
-      expect(
-        idsIn(bloc.state).take(3),
-        ['n000', 'n001', 'n002'],
-        reason: 'a colour never reorders the list',
-      );
+      expect(idsIn(bloc.state).take(3), [
+        'n000',
+        'n001',
+        'n002',
+      ], reason: 'a colour never reorders the list');
       await bloc.close();
     });
 
