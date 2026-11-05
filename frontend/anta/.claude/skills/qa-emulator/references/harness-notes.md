@@ -114,7 +114,9 @@ per device:
 5554 + 2N, so serial `emulator-5556` for `anta_qa_1`), created from the
 `pixel_9_pro` profile and the image the owner's `Pixel_9_Pro/config.ini`
 names (the same 1280 × 2856 @ 480 screen, so every coordinate in a flow holds)
-with `hw.ramSize=2048`, `hw.cpu.ncore=4`, a 6 GB data partition, host GPU and
+with `hw.ramSize=2048`, `hw.cpu.ncore=4`, a 16 GB data partition (6 GB until 2026-11-05, when
+Google's self-updates filled `anta_qa_1`; `anta_qa_2` / `_3` keep 6 GB until
+they are deleted and re-created), host GPU and
 cold boots. `fleet create [--count N] [--force] [--retune]` makes the missing
 ones (the capacity rule `max(1, (threads − 8 for flutter test − the owner's 4
 vCPU) ÷ 4)` is 3 on the 24-thread machine and is the cap unless `--force`;

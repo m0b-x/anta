@@ -53,12 +53,15 @@ const String ownerReferenceAvd = 'Pixel_9_Pro';
 const String avdCreateStdin = 'no\n';
 
 /// The `config.ini` keys a fleet AVD is held to: the Pixel 9 Pro screen,
-/// 2 GB, four vCPUs, a 6 GB data partition and a cold boot every time, so
-/// there is no quick-boot snapshot to degrade.
+/// 2 GB, four vCPUs, a 16 GB data partition and a cold boot every time, so
+/// there is no quick-boot snapshot to degrade. 16 GB because the Play image
+/// lets about two dozen Google apps update themselves into `/data/app`:
+/// that churn filled `anta_qa_1`'s 6 GB until a 259 MB debug APK no longer
+/// installed (2026-11-05), and a data partition only grows through a wipe.
 const Map<String, String> fleetConfigSpec = {
   'hw.ramSize': '2048',
   'hw.cpu.ncore': '4',
-  'disk.dataPartition.size': '6G',
+  'disk.dataPartition.size': '16G',
   'hw.gpu.enabled': 'yes',
   'hw.gpu.mode': 'auto',
   'hw.keyboard': 'yes',

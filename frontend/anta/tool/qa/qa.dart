@@ -4524,7 +4524,7 @@ class FleetCreateCommand extends FleetSubcommand {
   @override
   String get description =>
       'Make the missing fleet AVDs with avdmanager: the image $ownerReferenceAvd '
-      'uses, the $fleetDeviceProfile profile, 2 GB, 4 vCPU, 6 GB data, cold '
+      'uses, the $fleetDeviceProfile profile, 2 GB, 4 vCPU, 16 GB data, cold '
       'boot. Existing AVDs are reported (and with --retune retuned), never '
       'replaced or removed.';
 
