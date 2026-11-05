@@ -897,7 +897,6 @@ class _ReportBodyState extends State<ReportBody> {
               folds: widget.folds,
               onShrink: widget.onShrink,
               scroll: _scroll,
-              weekStart: widget.weekStart,
             ),
           ),
         ),
@@ -916,6 +915,7 @@ class _ReportBodyState extends State<ReportBody> {
               onCategoryTap: reachable
                   ? (categoryId) => _toGroup(report, categoryId)?.call()
                   : null,
+              canTap: (categoryId) => _toGroup(report, categoryId) != null,
             ),
           ),
         ),

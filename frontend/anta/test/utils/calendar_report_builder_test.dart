@@ -5999,6 +5999,23 @@ void main() {
       ]);
     });
 
+    test('a spend under half a unit is no money record', () {
+      List<String> money(int cents) => [
+        for (final line in recordsOf(
+          foldFacts(
+            [ev('fee', 'other', day(2025, 6, 2))],
+            y2025,
+            today,
+            money: {'fee': -cents},
+          ),
+        ))
+          if (line.startsWith('moneyMonth')) line,
+      ];
+      // 49 cents reads "June · 0"; 50 rounds to one unit, as the row reads.
+      expect(money(49), isEmpty);
+      expect(money(50), ['moneyMonth null null 50 6-1..6-30']);
+    });
+
     test('streaks: three in a row is a record, two is not; the longest '
         'first, then the earliest', () {
       final tue = ev('tue', 'gym', jan1, rule: weekly({2}), tracked: true);

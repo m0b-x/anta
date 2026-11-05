@@ -74,7 +74,7 @@ class ReportLabels {
     this.l10n, {
     this.currencySymbol = '',
     this.currencySuffix = false,
-  }) : _hours = NumberFormat('0.#', l10n.localeName),
+  }) : _hours = NumberFormat('#,##0.#', l10n.localeName),
        _countedTo = DateFormat.MMMMd(l10n.localeName);
 
   final AppLocalizations l10n;
@@ -134,11 +134,13 @@ class ReportLabels {
   /// no-break space would draw a gap.
   static const String _wordJoiner = '\u2060';
 
-  /// A figure, signed or not, with the locale's decimal mark, or the dash —
-  /// what the value line draws large; everything else is a unit.
-  static final RegExp _figure = RegExp(r'[+−\-±]?\d+(?:[.,]\d+)?|—');
+  /// A figure, signed or not, with the locale's grouping and decimal marks
+  /// ("1,720.5", "1.720,5"), or the dash — what the value line draws large;
+  /// everything else is a unit.
+  static final RegExp _figure = RegExp(r'[+−\-±]?\d+(?:[.,]\d+)*|—');
 
-  /// [hours] with the locale's decimal mark, a trailing ".0" dropped.
+  /// [hours] with the locale's grouping and decimal mark ("1,720.5", de
+  /// "1.720,5"), a trailing ".0" dropped.
   String hoursFigure(num hours) => _hours.format(hours);
 
   /// A count with the locale's grouping, for the words that print one bare.
@@ -553,7 +555,7 @@ class ReportLabels {
       return l10n.reportMinutesSpoken(minutes);
     }
     final figure = hoursFigure(minutes / Duration.minutesPerHour);
-    final whole = int.tryParse(figure);
+    final whole = int.tryParse(figure.replaceAll(_hours.symbols.GROUP_SEP, ''));
     return whole != null
         ? l10n.reportWholeHoursSpoken(whole)
         : l10n.reportHoursSpoken(figure);
@@ -1678,63 +1680,118 @@ class ReportLabels {
 
   /// A Records row's words (S6 §2.2): "June · 31 events" and "Busiest
   /// month: June, 31 events". The week is named by its two days
-  /// ([_weekSpan]), a trip and a streak by their event's title (the id
-  /// while the report holds no such event), a gap by its category. Only
-  /// the value and the week's days are bound (W): a title is the user's
-  /// text.
+  /// ([_weekSpan]) and spoken in full ("from June 16 to June 22"), a trip
+  /// and a streak by their event's title (the id while the report holds no
+  /// such event), a gap by its category. The value is bound whole and the
+  /// week's days by their numbers (W): a title is the user's text.
   ({String caption, String spoken}) recordWords(
     ReportRecord record,
-    CalendarReport report, {
-    required CalendarWeekStart weekStart,
-  }) {
+    CalendarReport report,
+  ) {
     final start = record.start;
     String title() {
       final id = record.eventId ?? '';
       return report.events[id]?.title ?? id;
     }
 
-    final subject = switch (record.kind) {
+    final weekEnd = record.end ?? _addDays(start, DateTime.daysPerWeek - 1);
+    String subject({required bool spoken}) => switch (record.kind) {
       ReportRecordKind.busiestMonth ||
       ReportRecordKind.socialMonth ||
       ReportRecordKind.moneyMonth => _monthName.format(start),
-      ReportRecordKind.busiestWeek => _weekSpan(start, weekStart),
+      ReportRecordKind.busiestWeek =>
+        spoken ? yearSpanSpoken(start, weekEnd) : _weekSpan(start, weekEnd),
       ReportRecordKind.longestTrip || ReportRecordKind.longestStreak => title(),
       ReportRecordKind.longestGap => CalendarCategories.labelOf(
         CalendarCategories.resolve(record.categoryId ?? ''),
         l10n,
       ),
     };
-    final value = switch (record.kind) {
-      ReportRecordKind.busiestMonth ||
-      ReportRecordKind.busiestWeek => l10n.reportEventCount(record.value),
-      ReportRecordKind.socialMonth => l10n.reportTagCount(
-        CategoryKind.social.name,
-        record.value,
-      ),
-      ReportRecordKind.moneyMonth => money(record.value),
-      ReportRecordKind.longestTrip ||
-      ReportRecordKind.longestGap => l10n.reportTagDays(record.value),
-      ReportRecordKind.longestStreak => l10n.reportGoalStreak(record.value),
-    };
+    final value = _recordValue(record.kind, record.value);
     return (
-      caption: l10n.reportRecordCaption(subject, _bindNumbers(value)),
-      spoken: l10n.reportRecordSpoken(recordName(record.kind), subject, value),
+      caption: l10n.reportRecordCaption(subject(spoken: false), _bound(value)),
+      spoken: l10n.reportRecordSpoken(
+        recordName(record.kind),
+        subject(spoken: true),
+        value,
+      ),
     );
   }
 
-  /// The busiest week by its two days, the month named once when they
-  /// share it ("Jun 16 – 22", else "Jun 30 – Jul 6"): the week holding
-  /// [day] on [weekStart], so the row names the week the band would page
-  /// to. Unlike the band's title it leaves the year out: the page is that
-  /// year's, and the caption has the one line the row keeps below text
-  /// scale 1.6 (S6 §2.2). The month is the date symbols' format form, as
-  /// the group rows' is: German writes "Juni" in a date, never "Jun".
-  String _weekSpan(DateTime day, CalendarWeekStart weekStart) {
-    final week =
-        OverviewPeriod.thisWeek(today: day, weekStart: weekStart)
-            as OverviewWeekPeriod;
-    final (first, last) = (week.start, week.end);
-    if (first.year != last.year || first.month != last.month) {
+  /// A record's value in its kind's unit: "31 events", "6 evenings",
+  /// "€1,340", "6 days", "14 in a row".
+  String _recordValue(ReportRecordKind kind, int value) => switch (kind) {
+    ReportRecordKind.busiestMonth ||
+    ReportRecordKind.busiestWeek => l10n.reportEventCount(value),
+    ReportRecordKind.socialMonth => l10n.reportTagCount(
+      CategoryKind.social.name,
+      value,
+    ),
+    ReportRecordKind.moneyMonth => money(value),
+    ReportRecordKind.longestTrip ||
+    ReportRecordKind.longestGap => l10n.reportTagDays(value),
+    ReportRecordKind.longestStreak => l10n.reportGoalStreak(value),
+  };
+
+  /// The caption lines a Records row reserves its height from (S4 D), in
+  /// [tagTemplates]' style: the widest caption [kind] takes. A week reads
+  /// across two months, both days the 28th of the [widest] month, as
+  /// [yearSpanTemplates]; a month record the [widest] month's name. The
+  /// value is in 8s: three digits for a count and a day count, two for a
+  /// streak, four for the money, or [value]'s own digit count (the
+  /// record's, in its kind's unit) where that is wider.
+  ///
+  /// A trip, a streak and a gap are named by a title or a category, which
+  /// no template can know: theirs is the value alone. The card measures
+  /// every template at the caption's width, and for those three the row's
+  /// real subject joined to the value template, capped at
+  /// [ReportMetrics.yearRecordCaptionLinesCompact] lines.
+  List<String> recordTemplates(
+    ReportRecordKind kind, {
+    required String Function(Iterable<String> names) widest,
+    int? value,
+  }) {
+    final money = kind == ReportRecordKind.moneyMonth;
+    final digits = switch (kind) {
+      ReportRecordKind.moneyMonth => 4,
+      ReportRecordKind.longestStreak => 2,
+      _ => 3,
+    };
+    final figure = value == null
+        ? 0
+        : money
+        ? (value / 100).round().abs()
+        : value.abs();
+    final eights = _eights(math.max(digits, '$figure'.length));
+    final phrase = _bound(_recordValue(kind, money ? eights * 100 : eights));
+    final subject = switch (kind) {
+      ReportRecordKind.busiestWeek => yearSpanTemplates(widest: widest).single,
+      ReportRecordKind.busiestMonth ||
+      ReportRecordKind.socialMonth ||
+      ReportRecordKind.moneyMonth => widest([
+        for (var m = DateTime.january; m <= DateTime.december; m++)
+          _monthName.format(DateTime.utc(2026, m)),
+      ]),
+      ReportRecordKind.longestTrip ||
+      ReportRecordKind.longestStreak ||
+      ReportRecordKind.longestGap => null,
+    };
+    return [
+      subject == null ? phrase : l10n.reportRecordCaption(subject, phrase),
+    ];
+  }
+
+  /// The busiest week by its two days, [first] to [last], the month named
+  /// once when they share it ("Jun 16 – 22", else "Jun 30 – Jul 6", one
+  /// day alone when the year's end cut the week to it). Unlike the band's
+  /// title it leaves the year out: the page is that year's, and the
+  /// caption has the one line the row keeps below text scale 1.6 (S6
+  /// §2.2). The month is the date symbols' format form, as the group rows'
+  /// is: German writes "Juni" in a date, never "Jun".
+  String _weekSpan(DateTime first, DateTime last) {
+    if (_sameDay(first, last) ||
+        first.year != last.year ||
+        first.month != last.month) {
       return yearSpan(first, last);
     }
     return _bindNumbers(
@@ -1746,10 +1803,20 @@ class ReportLabels {
     );
   }
 
+  /// [day] moved by [days] calendar days, in [day]'s own zone.
+  static DateTime _addDays(DateTime day, int days) => day.isUtc
+      ? DateTime.utc(day.year, day.month, day.day + days)
+      : DateTime(day.year, day.month, day.day + days);
+
+  /// Whether [a] and [b] are one calendar date: a local and a UTC midnight
+  /// of the same day are not `==`.
+  static bool _sameDay(DateTime a, DateTime b) =>
+      a.year == b.year && a.month == b.month && a.day == b.day;
+
   /// A Months row's caption (S6 §2.3, D): the category's first and last
   /// kept day, "Jan 2 – Dec 30", or the one day alone.
   String yearSpan(DateTime first, DateTime last) => _bindNumbers(
-    first == last
+    _sameDay(first, last)
         ? _dayMonth.format(first)
         : l10n.reportYearSpan(_dayMonth.format(first), _dayMonth.format(last)),
   );
@@ -1771,7 +1838,7 @@ class ReportLabels {
 
   /// A Months row's span as a screen reader hears it: "from 2 January to
   /// 30 December", or "on 2 January" for one kept day.
-  String yearSpanSpoken(DateTime first, DateTime last) => first == last
+  String yearSpanSpoken(DateTime first, DateTime last) => _sameDay(first, last)
       ? l10n.reportYearDaySpoken(_countedTo.format(first))
       : l10n.reportYearSpanSpoken(
           _countedTo.format(first),
@@ -1780,28 +1847,41 @@ class ReportLabels {
 
   /// What a screen reader hears for a Months row, the strip's table twin:
   /// "Gym, from 2 January to 30 December. By month: January 9, February 8,
-  /// …". Each of the twelve [months] is said in [primary]'s unit, as
-  /// [groupSpoken] says a header's ("31 hours", "€1,340"), a count bare.
+  /// …". Each of [months] with a value is said in [primary]'s unit, as
+  /// [groupSpoken] says a header's ("31 hours", "€1,340"), a count bare;
+  /// a month with nothing (or money under half a unit, which reads "0") is
+  /// left out, as are the months from [aheadFrom] on — the 1-based month
+  /// after today's in the current year, null for a past one — which have
+  /// not happened. With no month left the sentence ends after [span].
   String yearMonthsSpoken({
     required String category,
     required String span,
     required List<int> months,
     required ReportMeasure primary,
-  }) => l10n.reportYearMonthsSpoken(
-    category,
-    span,
-    [
+    int? aheadFrom,
+  }) {
+    final said = [
       for (final (i, value) in months.indexed)
-        l10n.reportYearMonthValue(
-          _monthName.format(DateTime.utc(2026, i + 1)),
-          switch (primary) {
-            ReportMeasure.hours => hoursSpoken(value),
-            ReportMeasure.money => money(value),
-            _ => count(value),
-          },
-        ),
-    ].join(spokenSeparator),
-  );
+        if ((aheadFrom == null || i + 1 < aheadFrom) &&
+            (primary == ReportMeasure.money
+                ? (value / 100).round() != 0
+                : value != 0))
+          l10n.reportYearMonthValue(
+            _monthName.format(DateTime.utc(2026, i + 1)),
+            switch (primary) {
+              ReportMeasure.hours => hoursSpoken(value),
+              ReportMeasure.money => money(value),
+              _ => count(value),
+            },
+          ),
+    ];
+    if (said.isEmpty) return [category, span].join(spokenSeparator);
+    return l10n.reportYearMonthsSpoken(
+      category,
+      span,
+      said.join(spokenSeparator),
+    );
+  }
 
   /// A periodic goal's row on a whole year (S6 §2.4): "41 of 52 weeks met
   /// · longest streak 11", the streak absent at 0; its templates in 8s
@@ -1840,9 +1920,9 @@ class ReportLabels {
     );
   }
 
-  /// A Balance row under Compare: Same period last year (S6 §2.5): "1720 h
-  /// · last year 1650 h", its template with each figure in 8s at its own
-  /// digit count and the decimal written too ("8888.8 h", S5's rule), and
+  /// A Balance row under Compare: Same period last year (S6 §2.5): "1,720
+  /// h · last year 1,650 h", its template with each figure in 8s at its own
+  /// digit count and the decimal written too ("8,888.8 h", S5's rule), and
   /// "Work, 1720 hours, last year 1650 hours".
   ({String caption, List<String> templates, String spoken})
   balanceLastYearWords(LifeArea area, int minutes, int lastYearMinutes) {

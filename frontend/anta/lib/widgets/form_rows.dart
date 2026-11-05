@@ -2196,9 +2196,10 @@ class FormMeterRow extends FormDividedRow {
 
   /// A share 0 to 1 of the track where an upright bar marks a reference
   /// value — last year's share on the year in review's Balance card —
-  /// clamped like [fraction] and kept inside the track at both ends. It
-  /// overhangs the meter into the air around it, so it never changes the
-  /// row's height. Only on a meter: a marker without [fraction] asserts.
+  /// clamped like [fraction] and kept inside the track at both ends, its
+  /// ring included. It overhangs the meter into the air around it, so it
+  /// never changes the row's height. Only on a meter: a marker without
+  /// [fraction] asserts.
   final double? marker;
 
   /// A widget in the meter's place, after [FormMetrics.meterGap] at the text
@@ -2503,18 +2504,18 @@ class _FormMeter extends StatelessWidget {
           const ring = FormMetrics.meterMarkerRing;
           const barWidth = FormMetrics.meterMarkerWidth;
           final position = at.isFinite ? at.clamp(0.0, 1.0) : 0.0;
-          // Centred on its share, then held inside the track, so a marker at
-          // either end still shows whole.
-          final start = (position * width - barWidth / 2).clamp(
-            0.0,
-            math.max(0.0, width - barWidth),
-          );
+          // The bar centred on its share, then its ring held inside the
+          // track, so a marker at either end still shows whole and neither
+          // the bar nor its ring reaches past the track's ends.
+          final start = (position * width - barWidth / 2 - ring)
+              .clamp(0.0, math.max(0.0, width - barWidth - 2 * ring))
+              .toDouble();
           return Stack(
             clipBehavior: Clip.none,
             children: [
               meter,
               PositionedDirectional(
-                start: start - ring,
+                start: start,
                 top: -FormMetrics.meterMarkerOverhang - ring,
                 width: barWidth + 2 * ring,
                 height:

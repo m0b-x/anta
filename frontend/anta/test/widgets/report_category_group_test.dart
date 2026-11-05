@@ -685,8 +685,10 @@ void main() {
       handle.dispose();
     });
 
-    testWidgets('German at 2.0 wraps "Weniger anzeigen" to two lines with no '
-        'overflow', (tester) async {
+    testWidgets('German at 2.0 reads "Weniger" on one line, and the '
+        'disclosure is 52 in both fold states with no overflow', (
+      tester,
+    ) async {
       await pump(
         tester,
         groupOf(gymDays(6)),
@@ -694,20 +696,28 @@ void main() {
         textScale: 2.0,
         surface: const Size(360, 1600),
       );
-      await tester.tap(byId(more(ReportCard.categories, 'gym')));
+      final id = more(ReportCard.categories, 'gym');
+      double disclosure() => tester
+          .getRect(
+            find.ancestor(
+              of: find.descendant(of: byId(id), matching: find.byType(Text)),
+              matching: find.byType(FormActionRow),
+            ),
+          )
+          .height;
+      expect(disclosure(), closeTo(52, 0.5), reason: 'folded');
+      await tester.tap(byId(id));
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
-      final label = tester.renderObject<RenderParagraph>(
-        find.text('Weniger anzeigen'),
-      );
+      final label = tester.renderObject<RenderParagraph>(find.text('Weniger'));
       final painter = TextPainter(
         text: label.text,
         textScaler: label.textScaler,
         textDirection: TextDirection.ltr,
       )..layout(maxWidth: label.size.width);
       addTearDown(painter.dispose);
-      expect(painter.computeLineMetrics(), hasLength(2));
-      expect(label.size.height, closeTo(painter.height, 0.5));
+      expect(painter.computeLineMetrics(), hasLength(1));
+      expect(disclosure(), closeTo(52, 0.5), reason: 'expanded');
     });
   });
 

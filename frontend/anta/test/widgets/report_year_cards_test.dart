@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/date_symbol_data_local.dart';
+import 'package:intl/intl.dart' show DateFormat;
 
 import 'package:anta/constants/analytics_metrics.dart';
 import 'package:anta/constants/app_colors.dart';
@@ -15,7 +16,6 @@ import 'package:anta/constants/report_metrics.dart';
 import 'package:anta/constants/row_metrics.dart';
 import 'package:anta/constants/semantics_ids.dart';
 import 'package:anta/l10n/app_localizations.dart';
-import 'package:anta/models/calendar_appearance.dart';
 import 'package:anta/models/calendar_category.dart';
 import 'package:anta/models/calendar_event.dart';
 import 'package:anta/models/calendar_report.dart';
@@ -334,7 +334,6 @@ void main() {
         folds: folds,
         onShrink: () => shrinks.add(folds.isRecordsExpanded),
         scroll: scroll,
-        weekStart: CalendarWeekStart.monday,
       ),
       locale: locale,
       textScale: textScale,
@@ -466,11 +465,7 @@ void main() {
         for (final record in records) {
           final id = idOf(record);
           final row = tester.widget<FormMeterRow>(rowWithId(id));
-          final words = labels.recordWords(
-            record,
-            report,
-            weekStart: CalendarWeekStart.monday,
-          );
+          final words = labels.recordWords(record, report);
           final icon = tester.widget<Icon>(
             find.descendant(of: rowWithId(id), matching: find.byType(Icon)),
           );
@@ -511,15 +506,14 @@ void main() {
       handle.dispose();
     });
 
-    for (final (scale, row, disclosure, card) in const [
-      (1.0, 62.0, 48.0, 426.0),
-      (1.3, 67.4, 48.0, 458.4),
-      (2.0, 130.0, 52.0, 838.0),
+    for (final (scale, row, line, disclosure) in const [
+      (1.0, 62.0, 18.0, 48.0),
+      (1.3, 67.4, 23.4, 48.0),
+      (2.0, 94.0, 36.0, 52.0),
     ]) {
-      testWidgets('at $scale a row is $row, the disclosure $disclosure and '
-          'six rows with "3 more" $card, en and de at 360 and 412', (
-        tester,
-      ) async {
+      testWidgets('at $scale a one-line row is $row, each further caption '
+          'line adds $line and the disclosure is $disclosure, en and de at '
+          '360 and 412', (tester) async {
         for (final locale in const ['en', 'de']) {
           for (final width in const [360.0, 412.0]) {
             await pumpRecords(
@@ -530,9 +524,12 @@ void main() {
             );
             final reason = '$locale $width';
             for (final record in records.take(6)) {
+              final lines = tester
+                  .widget<FormMeterRow>(rowWithId(idOf(record)))
+                  .captionLines!;
               expect(
                 tester.getRect(rowWithId(idOf(record))).height,
-                closeTo(row, 1),
+                closeTo(row + (lines - 1) * line, 1),
                 reason: '${record.kind.name} $reason',
               );
             }
@@ -541,50 +538,86 @@ void main() {
               closeTo(disclosure, 1),
               reason: reason,
             );
-            expect(
-              tester.getRect(cardGroup()).height,
-              closeTo(card, 1),
-              reason: reason,
-            );
           }
         }
       });
     }
 
-    testWidgets('Romanian at 1.0 and 1.3 is the table\'s; at 2.0 its one '
-        'wrapped name grows its row by 4', (tester) async {
-      for (final (scale, card) in const [(1.0, 426.0), (1.3, 458.4)]) {
-        await pumpRecords(tester, locale: const Locale('ro'), textScale: scale);
+    // Six rows and "3 more": each row reserves what its template wraps to.
+    for (final (locale, scale, width, card) in const [
+      ('en', 1.0, 360.0, 426.0),
+      ('de', 1.0, 412.0, 426.0),
+      ('ro', 1.0, 360.0, 426.0),
+      ('en', 1.3, 360.0, 458.4),
+      ('de', 1.3, 360.0, 481.8),
+      ('de', 1.3, 412.0, 458.4),
+      ('ro', 1.3, 360.0, 505.2),
+      ('ro', 1.3, 412.0, 481.8),
+      ('en', 2.0, 360.0, 730.0),
+      ('en', 2.0, 412.0, 658.0),
+      ('de', 2.0, 360.0, 730.0),
+      ('ro', 2.0, 412.0, 694.0),
+    ]) {
+      testWidgets('$locale at $scale and $width: six rows with "3 more" '
+          'take $card', (tester) async {
+        await pumpRecords(
+          tester,
+          locale: Locale(locale),
+          textScale: scale,
+          width: width,
+        );
         expect(tester.getRect(cardGroup()).height, closeTo(card, 1));
-      }
+      });
+    }
+
+    testWidgets('Romanian at 2.0 and 360: its one wrapped name grows its '
+        'row by 4', (tester) async {
       await pumpRecords(tester, locale: const Locale('ro'), textScale: 2.0);
       // A wrapped name takes the second label line under a one-line
       // caption: the row reserves two caption lines below the label's
       // first, so a name on two lines adds 4, not 40.
       for (final record in records.take(6)) {
+        final lines = tester
+            .widget<FormMeterRow>(rowWithId(idOf(record)))
+            .captionLines!;
         expect(
           tester.getRect(rowWithId(idOf(record))).height,
-          closeTo(record.kind == ReportRecordKind.socialMonth ? 134 : 130, 1),
+          closeTo(
+            94 +
+                (lines - 1) * 36 +
+                (record.kind == ReportRecordKind.socialMonth ? 4 : 0),
+            1,
+          ),
           reason: record.kind.name,
         );
       }
-      expect(tester.getRect(cardGroup()).height, closeTo(842, 1));
+      expect(
+        tester.widget<FormMeterRow>(rowWithId(idOf(records[2]))).captionLines,
+        2,
+      );
+      expect(tester.getRect(cardGroup()).height, closeTo(734, 1));
     });
 
-    testWidgets('below 1.6 one caption line, from 1.6 two and the glyph '
-        'in the compact box with the hairline at the glyph indent', (
-      tester,
-    ) async {
-      await pumpRecords(tester, textScale: 1.3);
-      var row = tester.widget<FormMeterRow>(rowWithId(idOf(records[0])));
-      expect(row.captionLines, 1);
+    testWidgets('the lines come from the kind\'s template at the caption\'s '
+        'width, never from the scale; from 1.6 the glyph in the compact box '
+        'with the hairline at the glyph indent', (tester) async {
+      int linesOf(ReportRecord record) =>
+          tester.widget<FormMeterRow>(rowWithId(idOf(record))).captionLines!;
+      // German at 1.3 on the small phone: the week's two months wrap, the
+      // month's one name does not.
+      await pumpRecords(tester, locale: const Locale('de'), textScale: 1.3);
+      expect(linesOf(records[0]), 1);
+      expect(linesOf(records[1]), 2);
       expect(
         tester.widget<Divider>(find.byType(Divider).first).indent,
         FormMetrics.dividerIndentTitle,
       );
-      await pumpRecords(tester, textScale: 2.0);
-      row = tester.widget<FormMeterRow>(rowWithId(idOf(records[0])));
-      expect(row.captionLines, ReportMetrics.yearRecordCaptionLinesCompact);
+      // At 2.0 on the wide phone a month fits one line, the week two.
+      await pumpRecords(tester, textScale: 2.0, width: 412);
+      expect(linesOf(records[0]), 1);
+      expect(linesOf(records[1]), 2);
+      expect(linesOf(records[3]), 1, reason: 'the money month');
+      final row = tester.widget<FormMeterRow>(rowWithId(idOf(records[0])));
       expect(row.compactLeading, isNotNull);
       expect(
         tester.widget<Divider>(find.byType(Divider).first).indent,
@@ -592,12 +625,136 @@ void main() {
       );
     });
 
+    testWidgets('a title\'s caption is measured with the title, at most '
+        'two lines with an ellipsis beyond', (tester) async {
+      final long = ReportRecord(
+        kind: ReportRecordKind.longestTrip,
+        categoryId: 'holiday',
+        eventId: 'e-long',
+        value: 12,
+        start: DateTime.utc(2025, 8, 4),
+        end: DateTime.utc(2025, 8, 15),
+      );
+      final base = yearReport(withRecords: [long]);
+      CalendarReport titled(String title) => CalendarReport(
+        span: base.span,
+        today: base.today,
+        tense: base.tense,
+        countedTo: base.countedTo,
+        events: {
+          ...events,
+          'e-long': CalendarEvent(
+            id: 'e-long',
+            title: title,
+            categoryId: 'holiday',
+            startDate: DateTime.utc(2025, 1, 1),
+            rule: const OneTimeRecurrence(),
+          ),
+        },
+        tiles: const [],
+        skippedDays: 0,
+        aheadCount: 0,
+        categories: base.categories,
+        missed: const [],
+        ahead: const [],
+        measures: base.measures,
+        year: base.year,
+      );
+      FormMeterRow row() => tester.widget<FormMeterRow>(rowWithId(idOf(long)));
+      await pumpRecords(tester, report: titled('Rome'));
+      expect(row().captionLines, 1);
+      await pumpRecords(
+        tester,
+        report: titled('The long summer road trip along the coast'),
+      );
+      expect(row().captionLines, 2);
+      await pumpRecords(tester, report: titled('Road trip ' * 12));
+      expect(
+        row().captionLines,
+        ReportMetrics.yearRecordCaptionLinesCompact,
+        reason: 'capped',
+      );
+      final paragraph = tester.renderObject<RenderParagraph>(
+        find.descendant(
+          of: rowWithId(idOf(long)),
+          matching: find.text(row().caption!),
+        ),
+      );
+      expect(paragraph.didExceedMaxLines, isTrue, reason: 'the ellipsis');
+    });
+
+    testWidgets('a busiest week across two months with 188 events is never '
+        'cut: ro 1.3, de 1.5 and bold en 1.5 at 360', (tester) async {
+      final week = ReportRecord(
+        kind: ReportRecordKind.busiestWeek,
+        value: 188,
+        start: DateTime.utc(2025, 9, 29),
+        end: DateTime.utc(2025, 10, 5),
+      );
+      for (final (locale, scale, bold) in const [
+        ('ro', 1.3, false),
+        ('de', 1.5, false),
+        ('en', 1.5, true),
+        ('en', 1.5, false),
+        ('de', 2.0, true),
+      ]) {
+        await pumpRecords(
+          tester,
+          report: yearReport(withRecords: [week]),
+          locale: Locale(locale),
+          textScale: scale,
+          boldText: bold,
+        );
+        final row = tester.widget<FormMeterRow>(rowWithId(idOf(week)));
+        final paragraph = tester.renderObject<RenderParagraph>(
+          find.descendant(
+            of: rowWithId(idOf(week)),
+            matching: find.text(row.caption!),
+          ),
+        );
+        expect(
+          paragraph.didExceedMaxLines,
+          isFalse,
+          reason: '"${row.caption}" $locale $scale bold $bold',
+        );
+      }
+    });
+
+    testWidgets('an unchanged rebuild, a fold and an unfold lay no caption '
+        'out again; a new scale measures again', (tester) async {
+      await pumpRecords(tester);
+      final first = ReportRecordsCard.measurementCount;
+      await pumpRecords(tester);
+      expect(ReportRecordsCard.measurementCount, first, reason: 'rebuilt');
+      await tester.tap(more());
+      await tester.pump();
+      final unfolded = ReportRecordsCard.measurementCount;
+      expect(unfolded, greaterThan(first), reason: 'the folded rows');
+      await tester.tap(more());
+      await tester.pump();
+      await tester.tap(more());
+      await tester.pump();
+      expect(ReportRecordsCard.measurementCount, unfolded);
+      await pumpRecords(tester, textScale: 1.3);
+      expect(ReportRecordsCard.measurementCount, greaterThan(unfolded));
+    });
+
+    testWidgets('German at 2.0 and 360: the disclosure is 52 folded and '
+        'expanded, "Weniger" on one line', (tester) async {
+      await pumpRecords(tester, locale: const Locale('de'), textScale: 2.0);
+      expect(tester.getRect(find.byType(FormActionRow)).height, closeTo(52, 1));
+      await tester.tap(more());
+      await tester.pump();
+      expect(find.text('Weniger'), findsOneWidget);
+      expect(tester.getRect(find.byType(FormActionRow)).height, closeTo(52, 1));
+    });
+
     for (final bold in [false, true]) {
       testWidgets('${bold ? 'under bold text ' : ''}no name and no caption '
           'is cut, in every locale and scale, at 360 and 412', (tester) async {
         folds.setRecordsExpanded(true);
         for (final locale in const ['en', 'de', 'ro']) {
-          for (final scale in const [1.0, 1.3, 2.0]) {
+          for (final scale in const [1.0, 1.3, 1.5, 2.0]) {
             for (final width in const [360.0, 412.0]) {
               await pumpRecords(
                 tester,
@@ -647,6 +804,7 @@ void main() {
       double width = 360,
       bool boldText = false,
       bool tappable = true,
+      bool Function(String categoryId)? canTap,
       ScrollController? scroll,
     }) => pump(
       tester,
@@ -657,6 +815,7 @@ void main() {
         onShrink: () => shrinks.add(folds.isMonthsExpanded),
         scroll: scroll,
         onCategoryTap: tappable ? tapped.add : null,
+        canTap: canTap,
       ),
       locale: locale,
       textScale: textScale,
@@ -834,7 +993,7 @@ void main() {
         data.label.replaceAll(noBreakSpace, ' '),
         startsWith(
           '$name, from January 2 to December 30. By month: January 9, '
-          'February 8, March 0',
+          'February 8, April 4',
         ),
       );
       final cardio = tester
@@ -850,6 +1009,39 @@ void main() {
           .getSemantics(find.bySemanticsIdentifier('report-year-months-gym'))
           .getSemanticsData();
       expect(read.flagsCollection.isButton, isFalse);
+      handle.dispose();
+    });
+
+    testWidgets('a strip canTap refuses is a read row; the others stay '
+        'buttons', (tester) async {
+      final handle = tester.ensureSemantics();
+      await pumpMonths(tester, canTap: (id) => id != 'gym');
+      expect(tester.widget<FormMeterRow>(strip('gym')).onTap, isNull);
+      final gym = tester
+          .getSemantics(find.bySemanticsIdentifier('report-year-months-gym'))
+          .getSemanticsData();
+      expect(gym.flagsCollection.isButton, isFalse);
+      expect(gym.hasAction(SemanticsAction.tap), isFalse);
+      expect(tester.widget<FormMeterRow>(strip('cardio')).onTap, isNotNull);
+      await tester.tap(strip('gym'), warnIfMissed: false);
+      await tester.tap(strip('cardio'));
+      expect(tapped, ['cardio']);
+      handle.dispose();
+    });
+
+    testWidgets('the spoken list stops at today\'s month in the current '
+        'year and runs to December in a past one', (tester) async {
+      final handle = tester.ensureSemantics();
+      String spoken() => tester
+          .getSemantics(find.bySemanticsIdentifier('report-year-months-gym'))
+          .label
+          .replaceAll(noBreakSpace, ' ');
+      await pumpMonths(tester, report: yearReport(span: year2026));
+      expect(spoken(), endsWith('September 3, October 1.'));
+      expect(spoken(), isNot(contains('November')));
+      expect(spoken(), isNot(contains('December 9')));
+      await pumpMonths(tester);
+      expect(spoken(), endsWith('November 8, December 9.'));
       handle.dispose();
     });
 
@@ -1024,6 +1216,7 @@ void main() {
         (360.0, 1.3),
         (360.0, 2.0),
         (412.0, 1.0),
+        (412.0, 2.0),
         (480.0, 1.0),
       ]) {
         await pumpMonths(tester, width: width, textScale: scale);
@@ -1061,7 +1254,8 @@ void main() {
           }
         }
         // "Jan" is wider than a pitch less the gap even at 412, so the
-        // phones read the narrow names, 2.0 every other; a wider screen
+        // phones read the narrow names, 2.0 every other — even at 412,
+        // whose two pitches miss "May" by under a pixel; a wider screen
         // has room for the short ones.
         expect(names, switch ((width, scale)) {
           (480, _) => const [
@@ -1085,6 +1279,76 @@ void main() {
           ],
         }, reason: '$width $scale');
       }
+    });
+
+    testWidgets('the axis in every locale at 2.0: 360 keeps the narrow '
+        'names every other month; at 412 the short ones where they fit '
+        'two pitches', (tester) async {
+      for (final locale in const ['en', 'de', 'ro']) {
+        final short = [
+          for (var month = 1; month <= 11; month += 2)
+            DateFormat.MMM(locale).format(DateTime.utc(2026, month)),
+        ];
+        await pumpMonths(tester, locale: Locale(locale), textScale: 2.0);
+        expect(axisNames(tester), hasLength(6), reason: locale);
+        expect(
+          axisNames(tester).every((name) => name.length == 1),
+          isTrue,
+          reason: '$locale 360',
+        );
+        await pumpMonths(
+          tester,
+          locale: Locale(locale),
+          textScale: 2.0,
+          width: 412,
+        );
+        // German's short names fit two pitches with the gap; English "May"
+        // misses by under a pixel and Romanian "sept." by more, so they
+        // keep the narrow names.
+        expect(
+          axisNames(tester),
+          locale == 'de'
+              ? short
+              : [for (final name in short) name[0].toUpperCase()],
+          reason: '$locale 412',
+        );
+      }
+    });
+
+    testWidgets('an unchanged rebuild and a fold lay no axis name out '
+        'again; a new width measures again', (tester) async {
+      await pumpMonths(tester, report: yearReport(categories: categoryOrder));
+      final first = ReportMonthsCard.axisMeasurementCount;
+      await pumpMonths(tester, report: yearReport(categories: categoryOrder));
+      expect(ReportMonthsCard.axisMeasurementCount, first, reason: 'rebuilt');
+      await tester.tap(more());
+      await tester.pump();
+      await tester.tap(more());
+      await tester.pump();
+      expect(ReportMonthsCard.axisMeasurementCount, first, reason: 'folds');
+      await pumpMonths(
+        tester,
+        report: yearReport(categories: categoryOrder),
+        width: 412,
+      );
+      expect(ReportMonthsCard.axisMeasurementCount, first + 1);
+    });
+
+    testWidgets('German at 2.0 and 360: the disclosure is 52 folded and '
+        'expanded, "Weniger" on one line', (tester) async {
+      await pumpMonths(
+        tester,
+        report: yearReport(categories: categoryOrder),
+        locale: const Locale('de'),
+        textScale: 2.0,
+      );
+      expect(tester.getRect(find.byType(FormActionRow)).height, closeTo(52, 1));
+      await tester.ensureVisible(more());
+      await tester.pump();
+      await tester.tap(more());
+      await tester.pump();
+      expect(find.text('Weniger'), findsOneWidget);
+      expect(tester.getRect(find.byType(FormActionRow)).height, closeTo(52, 1));
     });
 
     testWidgets('under bold text no span caption is cut, in every locale '
@@ -1131,7 +1395,6 @@ void main() {
                       report: report,
                       labels: labels,
                       folds: folds,
-                      weekStart: CalendarWeekStart.monday,
                     ),
                     ReportMonthsCard(
                       report: report,

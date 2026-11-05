@@ -176,9 +176,9 @@ abstract final class ReportMetrics {
   /// six rows keep the card under the Totals on one 780 dp screen at 1.0.
   static const int yearRecordRows = 6;
 
-  /// The caption lines a Records row reserves from
-  /// `RowMetrics.compactLeadingTextScale` (S6 §2.2, S4 D): a week's span
-  /// beside its count wraps there, and one line below it fits every locale.
+  /// The most caption lines a Records row named by a title or a category —
+  /// a trip, a streak, a gap — keeps of its measured caption (S6 §2.2),
+  /// with an ellipsis beyond: a long name never grows the row past two.
   static const int yearRecordCaptionLinesCompact = 2;
 
   /// A Months strip tile's height (S6 §2.3): the When card's cell at 1.0,

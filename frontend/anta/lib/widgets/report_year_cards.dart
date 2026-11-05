@@ -19,7 +19,6 @@ import '../constants/report_metrics.dart';
 import '../constants/row_metrics.dart';
 import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
-import '../models/calendar_appearance.dart';
 import '../models/calendar_report.dart';
 import '../utils/report_labels.dart';
 import 'event_avatar.dart';
@@ -34,10 +33,14 @@ import 'report_when_chart.dart';
 /// disclosure row expands the card in place and folds it back, as Due soon
 /// does.
 ///
-/// The caption keeps one line below [RowMetrics.compactLeadingTextScale]
-/// and reserves [ReportMetrics.yearRecordCaptionLinesCompact] from it,
-/// decided by the scale and never by the record, so a refold that swaps a
-/// record keeps every row's height.
+/// A row reserves the caption lines its kind's template wraps to at the
+/// caption's width (S4 D) — the widest month, the value in 8s at the
+/// record's digit count — so a week across two months is never cut. A
+/// trip, a streak and a gap are named by a title or a category no template
+/// can know: theirs is measured with the row's own subject, at most
+/// [ReportMetrics.yearRecordCaptionLinesCompact] lines with an ellipsis
+/// beyond, and a refold that swaps such a record may change its row's
+/// height, as S5's digit-count rule may.
 class ReportRecordsCard extends StatefulWidget {
   const ReportRecordsCard({
     super.key,
@@ -46,7 +49,6 @@ class ReportRecordsCard extends StatefulWidget {
     required this.folds,
     this.onShrink,
     this.scroll,
-    required this.weekStart,
   });
 
   /// The report whose [CalendarReport.year] records the card draws.
@@ -66,9 +68,13 @@ class ReportRecordsCard extends StatefulWidget {
   /// that leave (S); null moves nothing.
   final ScrollController? scroll;
 
-  /// The app's week start, which names the busiest week as the band names
-  /// a week page: the report does not carry it.
-  final CalendarWeekStart weekStart;
+  static int _measurements = 0;
+
+  /// How many captions the cards have laid out to count their lines — the
+  /// misses of the card's memo — so a test can pin that an unchanged
+  /// rebuild lays out none.
+  @visibleForTesting
+  static int get measurementCount => _measurements;
 
   @override
   State<ReportRecordsCard> createState() => _ReportRecordsCardState();
@@ -78,41 +84,193 @@ class _ReportRecordsCardState extends State<ReportRecordsCard> {
   final GlobalKey _firstFolded = GlobalKey();
   final GlobalKey _disclosureKey = GlobalKey();
 
+  /// What [_widest] and [_lines] were measured in; a change of any of these
+  /// measures every row again — the money month's template carries the
+  /// currency symbol.
+  ({
+    double width,
+    TextScaler scaler,
+    String locale,
+    String currencySymbol,
+    bool currencySuffix,
+    TextStyle style,
+    TextDirection direction,
+  })?
+  _measuredIn;
+
+  /// The widest of a list of names, by the names joined.
+  final Map<String, String> _widest = {};
+
+  /// Each measured row's caption lines, kept for the last build's records
+  /// only, so the memo never outgrows the card.
+  Map<({ReportRecordKind kind, int digits, String? subject}), int> _lines =
+      const {};
+
   @override
   Widget build(BuildContext context) {
     final records = widget.report.year?.records ?? const <ReportRecord>[];
     if (records.isEmpty) return const SizedBox.shrink();
     final scheme = Theme.of(context).colorScheme;
-    final captionLines =
-        FormMeterRow.isCompact(MediaQuery.textScalerOf(context))
-        ? ReportMetrics.yearRecordCaptionLinesCompact
-        : 1;
     const cap = ReportMetrics.yearRecordRows;
     final capped = records.length > cap;
     final expanded = capped && widget.folds.isRecordsExpanded;
     final shown = capped && !expanded ? records.take(cap) : records;
-    return FormRowGroup(
-      trailingGap: false,
-      children: [
-        for (final (index, record) in shown.indexed)
-          _row(
-            scheme,
-            record,
-            captionLines,
-            key: expanded && index == cap ? _firstFolded : null,
-          ),
-        if (capped)
-          _yearDisclosure(
-            widget.labels.l10n,
-            key: _disclosureKey,
-            section: widget.labels.l10n.reportSectionRecords,
-            hidden: records.length - cap,
-            expanded: expanded,
-            onTap: _toggle,
-            identifier: SemanticsIds.reportYearRecordsMore,
-          ),
-      ],
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final lines = _captionLinesFor(
+          context,
+          constraints.maxWidth,
+          records,
+          shown.length,
+        );
+        return FormRowGroup(
+          trailingGap: false,
+          children: [
+            for (final (index, record) in shown.indexed)
+              _row(
+                scheme,
+                record,
+                lines[_lineKeyOf(record)] ?? 1,
+                key: expanded && index == cap ? _firstFolded : null,
+              ),
+            if (capped)
+              _yearDisclosure(
+                widget.labels.l10n,
+                key: _disclosureKey,
+                section: widget.labels.l10n.reportSectionRecords,
+                hidden: records.length - cap,
+                expanded: expanded,
+                onTap: _toggle,
+                identifier: SemanticsIds.reportYearRecordsMore,
+              ),
+          ],
+        );
+      },
     );
+  }
+
+  /// The caption lines of the first [shown] of [records] at [cardWidth]:
+  /// its kind's template, joined to the row's own subject where a title or
+  /// a category names the record, measured as the caption draws it.
+  Map<({ReportRecordKind kind, int digits, String? subject}), int>
+  _captionLinesFor(
+    BuildContext context,
+    double cardWidth,
+    List<ReportRecord> records,
+    int shown,
+  ) {
+    final labels = widget.labels;
+    final style = reportCaptionStyleOf(context);
+    final scaler = MediaQuery.textScalerOf(context);
+    final direction = Directionality.of(context);
+    final measuredIn = (
+      width: cardWidth - _textColumnStart(scaler) - FormMetrics.rowEndPadding,
+      scaler: scaler,
+      locale: labels.l10n.localeName,
+      currencySymbol: labels.currencySymbol,
+      currencySuffix: labels.currencySuffix,
+      style: style,
+      direction: direction,
+    );
+    if (measuredIn != _measuredIn) {
+      _measuredIn = measuredIn;
+      _widest.clear();
+      _lines = const {};
+    }
+    final previous = _lines;
+    final lines =
+        <({ReportRecordKind kind, int digits, String? subject}), int>{};
+    // A folded row keeps its count, so folding and unfolding measures
+    // nothing twice; only a shown row is measured.
+    for (final (index, record) in records.indexed) {
+      final key = _lineKeyOf(record);
+      if (lines.containsKey(key)) continue;
+      final kept = previous[key];
+      if (kept == null && index >= shown) continue;
+      lines[key] =
+          kept ??
+          _measure(
+            record,
+            key.subject,
+            width: measuredIn.width,
+            style: style,
+            scaler: scaler,
+            direction: direction,
+          );
+    }
+    return _lines = lines;
+  }
+
+  int _measure(
+    ReportRecord record,
+    String? subject, {
+    required double width,
+    required TextStyle style,
+    required TextScaler scaler,
+    required TextDirection direction,
+  }) {
+    ReportRecordsCard._measurements++;
+    final labels = widget.labels;
+    final templates = labels.recordTemplates(
+      record.kind,
+      widest: (names) => _widest.putIfAbsent(
+        names.join('\n'),
+        () => ReportTagCaptions.widestOf(names, style, scaler, direction),
+      ),
+      value: record.value,
+    );
+    final lines = reportCaptionLines(
+      [
+        for (final template in templates)
+          subject == null
+              ? template
+              : labels.l10n.reportRecordCaption(subject, template),
+      ],
+      style: style,
+      scaler: scaler,
+      direction: direction,
+      width: width,
+    );
+    return subject == null
+        ? lines
+        : math.min(lines, ReportMetrics.yearRecordCaptionLinesCompact);
+  }
+
+  /// A row's memo key: its kind, its value's digit count in the kind's unit
+  /// (the template's 8s) and, for a record named by a title or a category,
+  /// that subject.
+  ({ReportRecordKind kind, int digits, String? subject}) _lineKeyOf(
+    ReportRecord record,
+  ) {
+    final figure = record.kind == ReportRecordKind.moneyMonth
+        ? (record.value / 100).round().abs()
+        : record.value.abs();
+    return (
+      kind: record.kind,
+      digits: '$figure'.length,
+      subject: _subjectOf(record),
+    );
+  }
+
+  /// The title or the category a trip, a streak or a gap is named by, as
+  /// the labels' caption names it; null for a kind its template names.
+  String? _subjectOf(ReportRecord record) {
+    final l10n = widget.labels.l10n;
+    switch (record.kind) {
+      case ReportRecordKind.longestTrip || ReportRecordKind.longestStreak:
+        final id = record.eventId ?? '';
+        return widget.report.events[id]?.title ?? id;
+      case ReportRecordKind.longestGap:
+        return CalendarCategories.labelOf(
+          CalendarCategories.resolve(record.categoryId ?? ''),
+          l10n,
+        );
+      case ReportRecordKind.busiestMonth ||
+          ReportRecordKind.busiestWeek ||
+          ReportRecordKind.socialMonth ||
+          ReportRecordKind.moneyMonth:
+        return null;
+    }
   }
 
   Widget _row(
@@ -122,11 +280,7 @@ class _ReportRecordsCardState extends State<ReportRecordsCard> {
     Key? key,
   }) {
     final labels = widget.labels;
-    final words = labels.recordWords(
-      record,
-      widget.report,
-      weekStart: widget.weekStart,
-    );
+    final words = labels.recordWords(record, widget.report);
     final glyph = FormGlyph(
       icon: _recordIcon(record.kind),
       color: scheme.onSurfaceVariant,
@@ -167,11 +321,13 @@ class _ReportRecordsCardState extends State<ReportRecordsCard> {
     ),
     _ => SemanticsIds.reportYearRecord(
       record.kind.name.replaceAllMapped(
-        RegExp('[A-Z]'),
+        _capital,
         (match) => '-${match[0]!.toLowerCase()}',
       ),
     ),
   };
+
+  static final RegExp _capital = RegExp('[A-Z]');
 
   void _toggle() {
     final folds = widget.folds;
@@ -201,6 +357,7 @@ class ReportMonthsCard extends StatefulWidget {
     this.onShrink,
     this.scroll,
     this.onCategoryTap,
+    this.canTap,
   });
 
   /// The report whose [CalendarReport.year] months the card draws.
@@ -223,6 +380,18 @@ class ReportMonthsCard extends StatefulWidget {
   /// A strip's tap, with its category id: the page opens that category's
   /// Categories group (S4 G). Null draws read rows.
   final ValueChanged<String>? onCategoryTap;
+
+  /// Whether a strip answers [onCategoryTap]: false for a category with no
+  /// group to open, which then reads as a read row — no tap and no button
+  /// in its semantics, as the Goals card's. Null taps every strip.
+  final bool Function(String categoryId)? canTap;
+
+  static int _axisMeasurements = 0;
+
+  /// How many times the axis has laid its month names out — the misses of
+  /// its memo — so a test can pin that an unchanged rebuild lays out none.
+  @visibleForTesting
+  static int get axisMeasurementCount => _axisMeasurements;
 
   @override
   State<ReportMonthsCard> createState() => _ReportMonthsCardState();
@@ -352,7 +521,9 @@ class _ReportMonthsCardState extends State<ReportMonthsCard> {
     final category = CalendarCategories.resolve(categoryId);
     final name = CalendarCategories.labelOf(category, labels.l10n);
     final icon = CalendarIcons.forKey(category.iconKey) ?? Icons.event_rounded;
-    final onCategoryTap = widget.onCategoryTap;
+    final onCategoryTap = widget.canTap?.call(categoryId) ?? true
+        ? widget.onCategoryTap
+        : null;
     return FormMeterRow(
       key: key,
       leading: EventAvatar(icon: icon, color: category.color),
@@ -367,6 +538,11 @@ class _ReportMonthsCardState extends State<ReportMonthsCard> {
         span: labels.yearSpanSpoken(span.first, span.last),
         months: months,
         primary: report.measures[categoryId]?.primary ?? ReportMeasure.count,
+        // The list stops at today's month in the current year: the months
+        // after it have not happened.
+        aheadFrom: report.span.start.year == report.today.year
+            ? report.today.month + 1
+            : null,
       ),
       identifier: SemanticsIds.reportYearMonths(categoryId),
     );
@@ -393,12 +569,12 @@ double _textColumnStart(TextScaler scaler) =>
     FormMetrics.gap;
 
 /// The Months card's first row (N): the twelve month names, each centred
-/// on its tile at the strips' x. Short names where every one fits its
-/// tile's pitch less [ReportMetrics.axisLabelMinGap], else the narrow ones
-/// — the Over time axis's rule — then every step-th name, the smallest of
-/// [ReportMetrics.yearAxisSteps] that keeps the gap. Measured as the
-/// caption draws, bold included. Decoration: the strips' spoken lists are
-/// its twin.
+/// on its tile at the strips' x. Every step-th name, at the smallest of
+/// [ReportMetrics.yearAxisSteps] whose names keep
+/// [ReportMetrics.axisLabelMinGap]: the short names at a step, else the
+/// narrow ones at it — the Over time axis's rule at each step. Measured as
+/// the caption draws, bold included. Decoration: the strips' spoken lists
+/// are its twin.
 class _MonthAxisRow extends FormDividedRow {
   const _MonthAxisRow({required this.locale});
 
@@ -434,9 +610,9 @@ class _MonthAxisRow extends FormDividedRow {
         child: SizedBox(
           height: line,
           child: LayoutBuilder(
-            builder: (context, constraints) => _names(
-              context,
-              constraints.maxWidth,
+            builder: (context, constraints) => _MonthAxisNames(
+              width: constraints.maxWidth,
+              locale: locale,
               measured: measured,
               drawn: drawn,
               scaler: scaler,
@@ -447,22 +623,91 @@ class _MonthAxisRow extends FormDividedRow {
       ),
     );
   }
+}
 
-  Widget _names(
-    BuildContext context,
-    double width, {
-    required TextStyle measured,
-    required TextStyle drawn,
-    required TextScaler scaler,
-    required double line,
-  }) {
+/// The axis's names at [width], measured once per width, scale, locale,
+/// style and direction and kept in the state, so a rebuild of the card — a
+/// fold, a tap — lays no name out again.
+class _MonthAxisNames extends StatefulWidget {
+  const _MonthAxisNames({
+    required this.width,
+    required this.locale,
+    required this.measured,
+    required this.drawn,
+    required this.scaler,
+    required this.line,
+  });
+
+  final double width;
+  final String locale;
+  final TextStyle measured;
+  final TextStyle drawn;
+  final TextScaler scaler;
+  final double line;
+
+  @override
+  State<_MonthAxisNames> createState() => _MonthAxisNamesState();
+}
+
+class _MonthAxisNamesState extends State<_MonthAxisNames> {
+  ({
+    double width,
+    TextScaler scaler,
+    String locale,
+    TextStyle style,
+    TextDirection direction,
+  })?
+  _key;
+
+  /// The names drawn, every step-th month's, with each one's width.
+  List<({int month, String name, double width})> _shown = const [];
+
+  @override
+  Widget build(BuildContext context) {
+    final width = widget.width;
     if (width <= 0) return const SizedBox.shrink();
-    final direction = Directionality.of(context);
+    final key = (
+      width: width,
+      scaler: widget.scaler,
+      locale: widget.locale,
+      style: widget.measured,
+      direction: Directionality.of(context),
+    );
+    if (key != _key) {
+      _key = key;
+      _shown = _layOut(key.direction);
+    }
+    final pitch = _YearStripGeometry.pitchOf(width);
+    final tile = pitch - ReportMetrics.columnGap;
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        for (final shown in _shown)
+          _name(
+            shown.name,
+            textWidth: math.min(shown.width, width),
+            centre: shown.month * pitch + tile / 2,
+            width: width,
+            line: widget.line,
+            style: widget.drawn,
+          ),
+      ],
+    );
+  }
+
+  /// The short names at each of [ReportMetrics.yearAxisSteps] before the
+  /// narrow ones — so a wide phone at 2.0 keeps German's "Jan Mär Mai",
+  /// whose short names fit every other tile — the first that keeps the
+  /// gap, else the narrow names at the last step.
+  List<({int month, String name, double width})> _layOut(
+    TextDirection direction,
+  ) {
+    ReportMonthsCard._axisMeasurements++;
     final widths = <String, double>{};
     double measure(String text) => widths.putIfAbsent(text, () {
       final painter = TextPainter(
-        text: TextSpan(text: text, style: measured),
-        textScaler: scaler,
+        text: TextSpan(text: text, style: widget.measured),
+        textScaler: widget.scaler,
         textDirection: direction,
         maxLines: 1,
       )..layout();
@@ -471,33 +716,28 @@ class _MonthAxisRow extends FormDividedRow {
       return measuredWidth;
     });
 
-    final pitch = _YearStripGeometry.pitchOf(width);
-    final formats = _AxisFormats.of(locale);
-    final short = formats.short;
-    final room = pitch - ReportMetrics.axisLabelMinGap;
-    final names = short.every((name) => measure(name) <= room)
-        ? short
-        : formats.narrow;
-    final widest = names.map(measure).reduce(math.max);
-    final step = ReportMetrics.yearAxisSteps.firstWhere(
-      (step) => step * pitch >= widest + ReportMetrics.axisLabelMinGap,
-      orElse: () => ReportMetrics.yearAxisSteps.last,
-    );
-    final tile = pitch - ReportMetrics.columnGap;
-    return Stack(
-      clipBehavior: Clip.none,
-      children: [
-        for (var month = 0; month < names.length; month += step)
-          _name(
-            names[month],
-            textWidth: math.min(measure(names[month]), width),
-            centre: month * pitch + tile / 2,
-            width: width,
-            line: line,
-            style: drawn,
-          ),
-      ],
-    );
+    final pitch = _YearStripGeometry.pitchOf(widget.width);
+    final formats = _AxisFormats.of(widget.locale);
+    final shortWidest = formats.short.map(measure).reduce(math.max);
+    final narrowWidest = formats.narrow.map(measure).reduce(math.max);
+    bool fits(double widest, int step) =>
+        step * pitch >= widest + ReportMetrics.axisLabelMinGap;
+    var names = formats.narrow;
+    var step = ReportMetrics.yearAxisSteps.last;
+    for (final candidate in ReportMetrics.yearAxisSteps) {
+      if (fits(shortWidest, candidate)) {
+        (names, step) = (formats.short, candidate);
+        break;
+      }
+      if (fits(narrowWidest, candidate)) {
+        (names, step) = (formats.narrow, candidate);
+        break;
+      }
+    }
+    return [
+      for (var month = 0; month < names.length; month += step)
+        (month: month, name: names[month], width: measure(names[month])),
+    ];
   }
 
   /// A name centred on its tile and kept inside the strip, in a box of one

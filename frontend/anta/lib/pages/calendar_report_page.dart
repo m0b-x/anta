@@ -534,15 +534,26 @@ class _ReportViewState extends State<_ReportView>
   /// hold: the Goals, Insights and Due soon rows above Totals, and the year
   /// block's Records and Months above Categories. Only a change there moves
   /// an anchor's preceding extent, so only then can the refold anchor
-  /// correct the offset. A year's rows never change height, so its record
-  /// count and its strips' categories suffice: comparing the whole year
-  /// would arm on every month value a refold moves, the worse harm above.
+  /// correct the offset. A year's rows change height only with the record
+  /// they show — a trip's, a streak's or a gap's row measures its title —
+  /// never with a figure, so which records and which strips are drawn
+  /// suffice: comparing the whole year would arm on every month value a
+  /// refold moves, the worse harm above.
   static bool _sameCardsAboveAnchors(CalendarReport a, CalendarReport b) =>
       listEquals(a.goals, b.goals) &&
       listEquals(a.insights, b.insights) &&
       listEquals(a.dueSoon, b.dueSoon) &&
-      a.year?.records.length == b.year?.records.length &&
+      listEquals(_recordIds(a), _recordIds(b)) &&
       setEquals(ReportBody.stripIds(a), ReportBody.stripIds(b));
+
+  /// The records [report]'s year shows, by what names each row, not by its
+  /// value.
+  static List<(ReportRecordKind, String?, String?)> _recordIds(
+    CalendarReport report,
+  ) => [
+    for (final record in report.year?.records ?? const <ReportRecord>[])
+      (record.kind, record.eventId, record.categoryId),
+  ];
 
   /// Arms the slack before a frame that may shrink the content under the
   /// finger: a header close, "Show less".

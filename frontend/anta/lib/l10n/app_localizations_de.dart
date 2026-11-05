@@ -7403,7 +7403,7 @@ class AppLocalizationsDe extends AppLocalizations {
   }
 
   @override
-  String get reportGroupLess => 'Weniger anzeigen';
+  String get reportGroupLess => 'Weniger';
 
   @override
   String reportGroupLessSpoken(String category) {

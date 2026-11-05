@@ -1094,6 +1094,79 @@ void main() {
       expect(pushes.pushes, 0);
       expect(tester.takeException(), isNull);
     });
+
+    /// The strip of [categoryId], scrolled on screen, and its row.
+    Future<(Finder, FormMeterRow)> stripOf(
+      WidgetTester tester,
+      String categoryId,
+    ) async {
+      // Either way from where the last tap left the scroll.
+      final strip = find.bySemanticsIdentifier(
+        SemanticsIds.reportYearMonths(categoryId),
+        skipOffstage: false,
+      );
+      await tester.ensureVisible(strip);
+      await tester.pumpAndSettle();
+      final row = tester.widget<FormMeterRow>(
+        find.ancestor(of: strip, matching: find.byType(FormMeterRow)).first,
+      );
+      return (strip, row);
+    }
+
+    testWidgets('with only onMoreCategories a strip inside the Categories cap '
+        'is a read row, and one past it still opens the sheet', (tester) async {
+      final inside = wide.categories.first.categoryId;
+      final past = wide.categories[ReportMetrics.maxCategoryRows].categoryId;
+      folds.setMonthsExpanded(true);
+      var sheets = 0;
+      await pumpBody(
+        tester,
+        shown: wide,
+        period: year,
+        onMoreCategories: (_, {required largest, required spansMonths}) =>
+            sheets++,
+      );
+      final (insideStrip, insideRow) = await stripOf(tester, inside);
+      expect(insideRow.onTap, isNull);
+      await tester.tap(insideStrip);
+      await tester.pumpAndSettle();
+      expect(sheets, 0);
+
+      final (pastStrip, pastRow) = await stripOf(tester, past);
+      expect(pastRow.onTap, isNotNull);
+      await tester.tap(pastStrip);
+      await tester.pumpAndSettle();
+      expect(sheets, 1);
+      expect(pushes.pushes, 0);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('with only onReveal a strip inside the Categories cap opens '
+        'its group, and one past it is a read row', (tester) async {
+      final inside = wide.categories.first.categoryId;
+      final past = wide.categories[ReportMetrics.maxCategoryRows].categoryId;
+      folds.setMonthsExpanded(true);
+      var reveals = 0;
+      await pumpBody(
+        tester,
+        shown: wide,
+        period: year,
+        onReveal: () => reveals++,
+      );
+      final (pastStrip, pastRow) = await stripOf(tester, past);
+      expect(pastRow.onTap, isNull);
+      await tester.tap(pastStrip);
+      await tester.pumpAndSettle();
+      expect(reveals, 0);
+
+      final (insideStrip, insideRow) = await stripOf(tester, inside);
+      expect(insideRow.onTap, isNotNull);
+      await tester.tap(insideStrip);
+      await tester.pumpAndSettle();
+      expect(reveals, 1);
+      expect(pushes.pushes, 0);
+      expect(tester.takeException(), isNull);
+    });
   });
 
   group('the year in review (S6 §2.1)', () {

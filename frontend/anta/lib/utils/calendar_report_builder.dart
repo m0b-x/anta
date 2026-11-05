@@ -751,6 +751,11 @@ abstract final class CalendarReportBuilder {
         if (values[m] > values[best]) best = m;
       }
       if (values[best] == 0) return;
+      // A spend under half a unit would read "June · 0": no record.
+      if (kind == ReportRecordKind.moneyMonth &&
+          (values[best] / 100).round() == 0) {
+        return;
+      }
       records.add(
         ReportRecord(
           kind: kind,

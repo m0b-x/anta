@@ -944,31 +944,45 @@ void main() {
       handle.dispose();
     });
 
-    testWidgets('no closed period fills nothing', (tester) async {
+    testWidgets('a tally with no closed period keeps S4\'s caption, meter, '
+        'lines and spoken label, never "0 of 0 weeks met"', (tester) async {
+      final handle = tester.ensureSemantics();
       final report = yearOf();
+      CalendarReport withTally(ReportYear? year) => CalendarReport(
+        span: report.span,
+        today: report.today,
+        tense: report.tense,
+        countedTo: report.countedTo,
+        events: const {},
+        tiles: const [],
+        skippedDays: 0,
+        aheadCount: 0,
+        categories: const [],
+        missed: const [],
+        ahead: const [],
+        goals: [weekly],
+        year: year,
+      );
+      await pump(tester, withTally(null));
+      final s4 = rowWidget(tester, weekly);
+      final s4Spoken = tester.getSemantics(rowOf(weekly)).label;
       await pump(
         tester,
-        CalendarReport(
-          span: report.span,
-          today: report.today,
-          tense: report.tense,
-          countedTo: report.countedTo,
-          events: const {},
-          tiles: const [],
-          skippedDays: 0,
-          aheadCount: 0,
-          categories: const [],
-          missed: const [],
-          ahead: const [],
-          goals: [weekly],
-          year: const ReportYear(
+        withTally(
+          const ReportYear(
             goalTallies: {
               'gym': ReportGoalTally(met: 0, closed: 0, longestStreak: 0),
             },
           ),
         ),
       );
-      expect(rowWidget(tester, weekly).fraction, 0);
+      final row = rowWidget(tester, weekly);
+      expect(row.caption, s4.caption);
+      expect(row.caption, isNot(contains('0 of 0')));
+      expect(row.fraction, s4.fraction);
+      expect(row.captionLines, s4.captionLines);
+      expect(tester.getSemantics(rowOf(weekly)).label, s4Spoken);
+      handle.dispose();
     });
 
     testWidgets('the glyph stays S4\'s: the same as the span without a '
@@ -2296,7 +2310,40 @@ void main() {
         expect(tester.widget<FormMeterRow>(rowOf(LifeArea.work)).marker, 1);
       });
 
-      testWidgets('each row: "1720 h · last year 1800 h", the spoken twin, '
+      testWidgets('an area with no time last year draws no marker; one with '
+          'time does', (tester) async {
+        const withNew = {...these, LifeArea.health: 40 * hour};
+        await pumpBalance(tester, areas: withNew, lastYear: last);
+        expect(last.containsKey(LifeArea.health), isFalse);
+        expect(
+          tester.widget<FormMeterRow>(rowOf(LifeArea.health)).marker,
+          isNull,
+          reason: 'a tick at the start would read as a real 0',
+        );
+        expect(
+          tester.widget<FormMeterRow>(rowOf(LifeArea.health)).fraction,
+          40 / 1800,
+        );
+        for (final area in last.keys) {
+          expect(
+            tester.widget<FormMeterRow>(rowOf(area)).marker,
+            isNotNull,
+            reason: area.name,
+          );
+        }
+        await pumpBalance(
+          tester,
+          areas: these,
+          lastYear: {...last, LifeArea.leisure: 0},
+        );
+        expect(
+          tester.widget<FormMeterRow>(rowOf(LifeArea.leisure)).marker,
+          isNull,
+          reason: 'zero minutes is no time',
+        );
+      });
+
+      testWidgets('each row: "1,720 h · last year 1,800 h", the spoken twin, '
           'the S5 id, read rows', (tester) async {
         final handle = tester.ensureSemantics();
         await pumpBalance(tester, areas: these, lastYear: last);
@@ -2322,7 +2369,7 @@ void main() {
               .widget<FormMeterRow>(rowOf(LifeArea.work))
               .caption!
               .replaceAll(noBreakSpace, ' '),
-          '1720 h · last year 1800 h',
+          '1,720 h · last year 1,800 h',
         );
         expect(
           tester

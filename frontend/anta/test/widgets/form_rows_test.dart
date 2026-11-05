@@ -5287,7 +5287,7 @@ void main() {
       ('dark', AppTheme.dark()),
     ]) {
       testWidgets('the marker is an onSurfaceVariant bar in a rowGroup ring, '
-          'inside the track at both ends, in $name', (tester) async {
+          'the ring inside the track at both ends, in $name', (tester) async {
         final scheme = theme.colorScheme;
         for (final (marker, end) in [
           (0.0, 'start'),
@@ -5309,13 +5309,14 @@ void main() {
           );
           expect(bar.center.dy, closeTo(track.center.dy, 0.01));
           expect(ring, bar.inflate(FormMetrics.meterMarkerRing));
-          expect(bar.left, greaterThanOrEqualTo(track.left - 0.01));
-          expect(bar.right, lessThanOrEqualTo(track.right + 0.01));
+          // Neither the bar nor its ring reaches past the track's ends.
+          expect(ring.left, greaterThanOrEqualTo(track.left - 0.01));
+          expect(ring.right, lessThanOrEqualTo(track.right + 0.01));
           switch (end) {
             case 'start':
-              expect(bar.left, closeTo(track.left, 0.01), reason: '$marker');
+              expect(ring.left, closeTo(track.left, 0.01), reason: '$marker');
             case 'end':
-              expect(bar.right, closeTo(track.right, 0.01), reason: '$marker');
+              expect(ring.right, closeTo(track.right, 0.01), reason: '$marker');
             default:
               expect(bar.center.dx, closeTo(track.center.dx, 0.01));
           }

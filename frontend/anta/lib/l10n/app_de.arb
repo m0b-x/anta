@@ -3349,7 +3349,7 @@
   "reportMoreCategories": "{count, plural, one {1 weitere Kategorie} other {{count} weitere Kategorien}}",
   "reportMoreCategoriesTitle": "Weitere Kategorien",
   "reportGroupMoreSpoken": "{count, plural, one {1 weiterer in {category}} other {{count} weitere in {category}}}",
-  "reportGroupLess": "Weniger anzeigen",
+  "reportGroupLess": "Weniger",
   "reportGroupLessSpoken": "Weniger von {category} anzeigen",
   "reportAttendedOf": "{total, plural, one {{attended} von 1 anwesend} other {{attended} von {total} anwesend}}",
   "reportTasksOf": "{total, plural, one {{ticked} von 1 Aufgabe} other {{ticked} von {total} Aufgaben}}",

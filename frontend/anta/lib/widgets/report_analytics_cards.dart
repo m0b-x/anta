@@ -211,15 +211,23 @@ class _ReportGoalsCardState extends State<ReportGoalsCard> {
 
   /// A periodic goal's whole-year reading (S6 §2.4, B) — "41 of 52 weeks
   /// met · longest streak 11" — or null where the report holds no tally
-  /// for it: any span but a whole year, a year-period goal, a gap goal.
+  /// for it: any span but a whole year, a year-period goal, a gap goal —
+  /// or none of its periods has closed yet, where "0 of 0 weeks met" would
+  /// say nothing and the current period's reading still does.
   /// The templates do not depend on [name], so the measuring pass omits it.
   ({String caption, List<String> templates, String spoken})? _yearWords(
     ReportGoal goal, {
     String name = '',
   }) {
-    final tally = report.year?.goalTallies[goal.categoryId];
+    final tally = _yearTally(goal);
     if (tally == null) return null;
     return labels.goalYearWords(goal, tally, report, name: name);
+  }
+
+  /// [goal]'s whole-year tally once one of its periods has closed.
+  ReportGoalTally? _yearTally(ReportGoal goal) {
+    final tally = report.year?.goalTallies[goal.categoryId];
+    return tally == null || tally.closed == 0 ? null : tally;
   }
 
   /// The closed periods a past span of several counts met (F), or null
@@ -271,7 +279,7 @@ class _ReportGoalsCardState extends State<ReportGoalsCard> {
   double _fractionOf(ReportGoal goal) {
     double share(int part, int whole) =>
         whole <= 0 ? 0 : (part / whole).clamp(0.0, 1.0);
-    if (report.year?.goalTallies[goal.categoryId] case final tally?) {
+    if (_yearTally(goal) case final tally?) {
       return share(tally.met, tally.closed);
     }
     if (goal.target.kind == TargetKind.maxGap) {
@@ -631,9 +639,10 @@ class ReportBalanceCard extends StatelessWidget {
   /// Balance under Compare: Same period last year (S6 §2.5, G): the areas
   /// of both spans, by this span's hours, then last span's, then
   /// [LifeArea]'s order; each meter and its last-year marker against the
-  /// most hours either span holds, so a marker never clips; "1720 h · last
-  /// year 1650 h" in place of the share, on the lines its template wraps to
-  /// (S4 D), measured as the caption draws it.
+  /// most hours either span holds, so a marker never clips, and none where
+  /// the area had no time last year; "1,720 h · last year 1,650 h" in place
+  /// of the share, on the lines its template wraps to (S4 D), measured as
+  /// the caption draws it.
   Widget _withLastYear(
     BuildContext context,
     Map<LifeArea, int> balance,
@@ -705,7 +714,9 @@ class ReportBalanceCard extends StatelessWidget {
       caption: words.caption,
       captionLines: lines(words.templates),
       fraction: share(minutes),
-      marker: share(lastYearMinutes),
+      // No time last year draws no marker: a tick at the track's start
+      // would read as a real "0".
+      marker: lastYearMinutes > 0 ? share(lastYearMinutes) : null,
       onTap: null,
       semanticsLabel: words.spoken,
       identifier: SemanticsIds.reportBalance(area.name),
