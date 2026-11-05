@@ -11,15 +11,14 @@ import 'runner.dart';
 List<String> buildApkArgs({
   bool driver = true,
   List<String> extraDefines = const [],
-}) =>
-    [
-      'build',
-      'apk',
-      '--debug',
-      if (driver) ...['-t', driverTarget],
-      for (final define in qaDefines) '--dart-define=$define',
-      for (final define in extraDefines) '--dart-define=$define',
-    ];
+}) => [
+  'build',
+  'apk',
+  '--debug',
+  if (driver) ...['-t', driverTarget],
+  for (final define in qaDefines) '--dart-define=$define',
+  for (final define in extraDefines) '--dart-define=$define',
+];
 
 /// The `adb` arguments that put [apk] on a device over what is there:
 /// `-r` keeps the app's data (the QA database and the owner's alike), `-t`
@@ -41,17 +40,17 @@ class ApkRecord {
   });
 
   factory ApkRecord.fromJson(Map<String, dynamic> json) => ApkRecord(
-        apk: json['apk'] as String,
-        gitHash: json['gitHash'] as String?,
-        dirty: json['dirty'] as bool? ?? false,
-        builtAt: DateTime.parse(json['builtAt'] as String),
-        defines: (json['defines'] as List? ?? const []).cast<String>(),
-        installedAt: json['installedAt'] == null
-            ? null
-            : DateTime.parse(json['installedAt'] as String),
-        driver: json['driver'] as bool?,
-        qa: json['qa'] as bool?,
-      );
+    apk: json['apk'] as String,
+    gitHash: json['gitHash'] as String?,
+    dirty: json['dirty'] as bool? ?? false,
+    builtAt: DateTime.parse(json['builtAt'] as String),
+    defines: (json['defines'] as List? ?? const []).cast<String>(),
+    installedAt: json['installedAt'] == null
+        ? null
+        : DateTime.parse(json['installedAt'] as String),
+    driver: json['driver'] as bool?,
+    qa: json['qa'] as bool?,
+  );
 
   final String apk;
 
@@ -77,31 +76,34 @@ class ApkRecord {
   bool get isQaDriverBuild => driver == true && qa == true;
 
   ApkRecord installed(DateTime at) => ApkRecord(
-        apk: apk,
-        gitHash: gitHash,
-        dirty: dirty,
-        builtAt: builtAt,
-        defines: defines,
-        installedAt: at,
-        driver: driver,
-        qa: qa,
-      );
+    apk: apk,
+    gitHash: gitHash,
+    dirty: dirty,
+    builtAt: builtAt,
+    defines: defines,
+    installedAt: at,
+    driver: driver,
+    qa: qa,
+  );
 
   Map<String, dynamic> toJson() => {
-        'apk': apk,
-        'gitHash': gitHash,
-        'dirty': dirty,
-        'builtAt': builtAt.toUtc().toIso8601String(),
-        'defines': defines,
-        if (installedAt != null) 'installedAt': installedAt!.toUtc().toIso8601String(),
-        'driver': driver,
-        'qa': qa,
-      };
+    'apk': apk,
+    'gitHash': gitHash,
+    'dirty': dirty,
+    'builtAt': builtAt.toUtc().toIso8601String(),
+    'defines': defines,
+    if (installedAt != null)
+      'installedAt': installedAt!.toUtc().toIso8601String(),
+    'driver': driver,
+    'qa': qa,
+  };
 
   void write(String path) {
     final file = File(path);
     file.parent.createSync(recursive: true);
-    file.writeAsStringSync(const JsonEncoder.withIndent('  ').convert(toJson()));
+    file.writeAsStringSync(
+      const JsonEncoder.withIndent('  ').convert(toJson()),
+    );
   }
 
   /// The record at [path], or null when there is none or it is unreadable.
@@ -120,8 +122,10 @@ class ApkRecord {
   /// [path]'s record, or a usage failure naming the verb that writes it.
   static ApkRecord require(String path) =>
       read(path) ??
-      (throw UsageFailure('no build recorded at $path — run `qa build` first, '
-          'or pass --apk <path>'));
+      (throw UsageFailure(
+        'no build recorded at $path — run `qa build` first, '
+        'or pass --apk <path>',
+      ));
 }
 
 /// The files and directories whose contents end up in the APK: the app,
@@ -145,7 +149,8 @@ List<String> apkSourceRoots(QaPaths paths) {
   ];
   return [
     for (final path in candidates)
-      if (FileSystemEntity.typeSync(path) != FileSystemEntityType.notFound) path,
+      if (FileSystemEntity.typeSync(path) != FileSystemEntityType.notFound)
+        path,
   ];
 }
 
@@ -168,11 +173,15 @@ const List<String> apkGitPathspec = [
 /// regenerates — which would otherwise make every installed build look
 /// stale the moment it was made.
 bool _isBuildByproduct(String relative) {
-  final segments = relative.split(RegExp(r'[\\/]')).where((s) => s.isNotEmpty).toList();
+  final segments = relative
+      .split(RegExp(r'[\\/]'))
+      .where((s) => s.isNotEmpty)
+      .toList();
   if (segments.isEmpty) return false;
   if (segments.any((s) => s == 'build' || s.startsWith('.'))) return true;
   final name = segments.last;
-  return name == 'local.properties' || name.startsWith('GeneratedPluginRegistrant');
+  return name == 'local.properties' ||
+      name.startsWith('GeneratedPluginRegistrant');
 }
 
 /// The most recently modified file under [roots] (each a directory or a
@@ -208,11 +217,17 @@ Future<({String? hash, bool dirty})> gitBuildState(
   ProcessRunner runner,
   String projectRoot,
 ) async {
-  final hash = await runner.run('git', ['rev-parse', '--short', 'HEAD'],
-      workingDirectory: projectRoot);
-  final status = await runner.run(
-      'git', ['status', '--porcelain', '--', ...apkGitPathspec],
-      workingDirectory: projectRoot);
+  final hash = await runner.run('git', [
+    'rev-parse',
+    '--short',
+    'HEAD',
+  ], workingDirectory: projectRoot);
+  final status = await runner.run('git', [
+    'status',
+    '--porcelain',
+    '--',
+    ...apkGitPathspec,
+  ], workingDirectory: projectRoot);
   return (
     hash: hash.ok && hash.stdout.trim().isNotEmpty ? hash.stdout.trim() : null,
     dirty: status.ok && status.stdout.trim().isNotEmpty,
@@ -231,17 +246,16 @@ ApkRecord installedRecordForRun({
   required DateTime installedAt,
   required bool driver,
   required bool qa,
-}) =>
-    ApkRecord(
-      apk: File(paths.debugApk).absolute.path,
-      gitHash: git.hash,
-      dirty: git.dirty,
-      builtAt: runStarted,
-      defines: defines,
-      installedAt: installedAt,
-      driver: driver,
-      qa: qa,
-    );
+}) => ApkRecord(
+  apk: File(paths.debugApk).absolute.path,
+  gitHash: git.hash,
+  dirty: git.dirty,
+  builtAt: runStarted,
+  defines: defines,
+  installedAt: installedAt,
+  driver: driver,
+  qa: qa,
+);
 
 /// Why `qa build` must not start now, or null: the `flutter run` behind
 /// `run.pid` writes the same `build/app` and races `flutter build` on
@@ -272,7 +286,9 @@ String? staleBuildWarning(
   if (newest == null || !newest.modified.isAfter(build.builtAt)) return null;
   var shown = newest.path;
   if (projectRoot != null && shown.startsWith(projectRoot)) {
-    shown = shown.substring(projectRoot.length).replaceFirst(RegExp(r'^[\\/]'), '');
+    shown = shown
+        .substring(projectRoot.length)
+        .replaceFirst(RegExp(r'^[\\/]'), '');
   }
   return 'warning: a source of the APK changed after the installed build '
       '($shown at ${newest.modified.toIso8601String()}, built '

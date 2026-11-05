@@ -43,11 +43,11 @@ class BuildOptions {
   final bool allowDebugSigning;
 
   BuildOptions withAbi(TargetAbi abi) => BuildOptions(
-        abi: abi,
-        clean: clean,
-        codegen: codegen,
-        allowDebugSigning: allowDebugSigning,
-      );
+    abi: abi,
+    clean: clean,
+    codegen: codegen,
+    allowDebugSigning: allowDebugSigning,
+  );
 }
 
 /// Where `flutter build apk` leaves the release APK, whatever the ABI set.
@@ -68,61 +68,59 @@ const String debugInfoDir = 'build/debug-info';
 const String allowDebugSigningProperty = 'antaAllowDebugSigning';
 
 Step cleanStep(Toolchain tools) => Step(
-      StepKind.clean,
-      'Cleaning the previous build',
-      tools.flutter,
-      const ['clean'],
-    );
+  StepKind.clean,
+  'Cleaning the previous build',
+  tools.flutter,
+  const ['clean'],
+);
 
 Step codegenStep(Toolchain tools, {bool watch = false}) => Step(
-      watch ? StepKind.codegenWatch : StepKind.codegen,
-      watch
-          ? 'Watching Drift sources (Ctrl+C to stop)'
-          : 'Generating Drift code',
-      tools.dart,
-      [
-        'run',
-        'build_runner',
-        watch ? 'watch' : 'build',
-        '--delete-conflicting-outputs',
-      ],
-    );
+  watch ? StepKind.codegenWatch : StepKind.codegen,
+  watch ? 'Watching Drift sources (Ctrl+C to stop)' : 'Generating Drift code',
+  tools.dart,
+  [
+    'run',
+    'build_runner',
+    watch ? 'watch' : 'build',
+    '--delete-conflicting-outputs',
+  ],
+);
 
 Step l10nStep(Toolchain tools) => Step(
-      StepKind.l10n,
-      'Generating localizations',
-      tools.flutter,
-      const ['gen-l10n'],
-    );
+  StepKind.l10n,
+  'Generating localizations',
+  tools.flutter,
+  const ['gen-l10n'],
+);
 
 Step pubGetStep(Toolchain tools) => Step(
-      StepKind.pubGet,
-      'Fetching packages',
-      tools.flutter,
-      const ['pub', 'get'],
-    );
+  StepKind.pubGet,
+  'Fetching packages',
+  tools.flutter,
+  const ['pub', 'get'],
+);
 
 Step buildApkStep(Toolchain tools, BuildOptions options) => Step(
-      StepKind.buildApk,
-      'Building the release APK (${options.abi.label})',
-      tools.flutter,
-      [
-        'build',
-        'apk',
-        '--release',
-        ...options.abi.buildFlags,
-        '--obfuscate',
-        '--split-debug-info=$debugInfoDir',
-        if (options.allowDebugSigning) '-P$allowDebugSigningProperty=true',
-      ],
-    );
+  StepKind.buildApk,
+  'Building the release APK (${options.abi.label})',
+  tools.flutter,
+  [
+    'build',
+    'apk',
+    '--release',
+    ...options.abi.buildFlags,
+    '--obfuscate',
+    '--split-debug-info=$debugInfoDir',
+    if (options.allowDebugSigning) '-P$allowDebugSigningProperty=true',
+  ],
+);
 
 List<Step> planBuild(BuildOptions options, Toolchain tools) => [
-      if (options.clean) cleanStep(tools),
-      if (options.codegen) codegenStep(tools),
-      if (options.codegen) l10nStep(tools),
-      buildApkStep(tools, options),
-    ];
+  if (options.clean) cleanStep(tools),
+  if (options.codegen) codegenStep(tools),
+  if (options.codegen) l10nStep(tools),
+  buildApkStep(tools, options),
+];
 
 List<Step> planGen(Toolchain tools, {required bool watch}) => watch
     ? [codegenStep(tools, watch: true)]

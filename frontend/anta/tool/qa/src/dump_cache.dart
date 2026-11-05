@@ -53,14 +53,16 @@ void writeDumpCache(QaPaths paths, String deviceId, String xml) {
 /// per-device dump is the one the reader most likely just took.
 CachedDump? readDumpCache(QaPaths paths, String? deviceId) {
   final candidates = [
-    if (deviceId != null) paths.lastDumpFor(deviceId) else ?_newestDeviceDump(paths),
+    if (deviceId != null)
+      paths.lastDumpFor(deviceId)
+    else
+      ?_newestDeviceDump(paths),
     paths.lastDump,
     paths.legacyLastDump,
   ];
-  final file = candidates.map(File.new).firstWhere(
-        (f) => f.existsSync(),
-        orElse: () => File(candidates.last),
-      );
+  final file = candidates
+      .map(File.new)
+      .firstWhere((f) => f.existsSync(), orElse: () => File(candidates.last));
   if (!file.existsSync()) return null;
   final String xml;
   try {

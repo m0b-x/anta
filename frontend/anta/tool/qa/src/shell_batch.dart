@@ -17,8 +17,8 @@ class ShellCommand {
   const ShellCommand(this.args) : raw = null;
 
   const ShellCommand.raw(String fragment)
-      : raw = fragment,
-        args = const <String>[];
+    : raw = fragment,
+      args = const <String>[];
 
   final List<String> args;
   final String? raw;

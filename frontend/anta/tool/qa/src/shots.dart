@@ -124,28 +124,30 @@ List<ShotBadge> badgesFor(
     final kind = node.shortClass == 'EditText'
         ? 'text'
         : node.clickable
-            ? 'click'
-            : node.scrollable
-                ? 'scroll'
-                : 'other';
-    badges.add(ShotBadge(
-      index: node.index,
-      left: left,
-      top: top,
-      right: right,
-      bottom: bottom,
-      kind: kind,
-    ));
+        ? 'click'
+        : node.scrollable
+        ? 'scroll'
+        : 'other';
+    badges.add(
+      ShotBadge(
+        index: node.index,
+        left: left,
+        top: top,
+        right: right,
+        bottom: bottom,
+        kind: kind,
+      ),
+    );
   }
   return badges;
 }
 
 img.Color _badgeColor(String kind) => switch (kind) {
-      'click' => img.ColorRgb8(255, 92, 0),
-      'text' => img.ColorRgb8(0, 122, 255),
-      'scroll' => img.ColorRgb8(0, 160, 90),
-      _ => img.ColorRgb8(130, 130, 130),
-    };
+  'click' => img.ColorRgb8(255, 92, 0),
+  'text' => img.ColorRgb8(0, 122, 255),
+  'scroll' => img.ColorRgb8(0, 160, 90),
+  _ => img.ColorRgb8(130, 130, 130),
+};
 
 /// Draws each badge's outline and its `#index` tag onto [image].
 ///
@@ -181,14 +183,7 @@ void drawBadges(img.Image image, List<ShotBadge> badges) {
       y2: (y + tagHeight).clamp(0, image.height - 1),
       color: _badgeColor(badge.kind),
     );
-    img.drawString(
-      image,
-      label,
-      font: font,
-      x: x + 3,
-      y: y + 1,
-      color: white,
-    );
+    img.drawString(image, label, font: font, x: x + 3, y: y + 1, color: white);
   }
 }
 

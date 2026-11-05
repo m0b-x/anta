@@ -43,7 +43,9 @@ class ScreenSize {
   @override
   String toString() {
     final base = '${width}x$height @${density}dpi ($widthDp x $heightDp dp)';
-    return isOverridden ? '$base [override of ${physicalWidth}x$physicalHeight]' : base;
+    return isOverridden
+        ? '$base [override of ${physicalWidth}x$physicalHeight]'
+        : base;
   }
 }
 
@@ -94,17 +96,17 @@ DeviceProbe agentProbe({
   required String packageId,
   bool? awake,
   bool? locked,
-}) =>
-    DeviceProbe(
-      screen: agent?.screen,
-      appPid: pid,
-      resumedActivity:
-          pid != null && agent?.lifecycle == 'resumed' ? packageId : null,
-      awake: awake,
-      locked: locked,
-      imeShown: agent?.textClient,
-      lifecycle: agent?.lifecycle,
-    );
+}) => DeviceProbe(
+  screen: agent?.screen,
+  appPid: pid,
+  resumedActivity: pid != null && agent?.lifecycle == 'resumed'
+      ? packageId
+      : null,
+  awake: awake,
+  locked: locked,
+  imeShown: agent?.textClient,
+  lifecycle: agent?.lifecycle,
+);
 
 /// Waits until [pid] reports nothing, for a stop that must be over before a
 /// launch races it.
@@ -160,23 +162,21 @@ const String killLeftoverUiautomator = "pkill -f '[u]iautomator' || true";
 /// dropped because `dumpsys` complains loudly when `grep -m1` closes the pipe
 /// on it.
 List<ShellCommand> deviceProbeCommands(String packageId) => [
-      const ShellCommand(['wm', 'size']),
-      const ShellCommand(['wm', 'density']),
-      ShellCommand(['pidof', packageId]),
-      const ShellCommand.raw(
-        'dumpsys activity activities 2>/dev/null | '
-        "grep -m1 -E 'mResumedActivity|topResumedActivity'",
-      ),
-      const ShellCommand.raw(
-        'dumpsys power 2>/dev/null | grep -m1 mWakefulness',
-      ),
-      const ShellCommand.raw(
-        'dumpsys window 2>/dev/null | grep -m1 isKeyguardShowing',
-      ),
-      const ShellCommand.raw(
-        'dumpsys input_method 2>/dev/null | grep -m1 mInputShown',
-      ),
-    ];
+  const ShellCommand(['wm', 'size']),
+  const ShellCommand(['wm', 'density']),
+  ShellCommand(['pidof', packageId]),
+  const ShellCommand.raw(
+    'dumpsys activity activities 2>/dev/null | '
+    "grep -m1 -E 'mResumedActivity|topResumedActivity'",
+  ),
+  const ShellCommand.raw('dumpsys power 2>/dev/null | grep -m1 mWakefulness'),
+  const ShellCommand.raw(
+    'dumpsys window 2>/dev/null | grep -m1 isKeyguardShowing',
+  ),
+  const ShellCommand.raw(
+    'dumpsys input_method 2>/dev/null | grep -m1 mInputShown',
+  ),
+];
 
 /// Turns the seven probe outputs into one [DeviceProbe].
 DeviceProbe parseDeviceProbe(List<String> outputs) {
@@ -224,19 +224,17 @@ ViaMode chooseDriver({
 /// flaky flows instead of a missing agent.
 String autoFallbackNote({required bool vmRecorded, required String deviceId}) =>
     vmRecorded
-        ? 'note: driver auto → adb (the agent did not answer within 2 s; '
-            '`qa relaunch` brings it back)'
-        : 'note: driver auto → adb (no VM URI is recorded for $deviceId; '
-            '`qa relaunch` brings the agent back)';
+    ? 'note: driver auto → adb (the agent did not answer within 2 s; '
+          '`qa relaunch` brings it back)'
+    : 'note: driver auto → adb (no VM URI is recorded for $deviceId; '
+          '`qa relaunch` brings the agent back)';
 
 ViaMode parseViaMode(String? raw) => switch ((raw ?? '').trim().toLowerCase()) {
-      '' || 'auto' => ViaMode.auto,
-      'agent' => ViaMode.agent,
-      'native' || 'adb' => ViaMode.native,
-      _ => throw UsageFailure(
-          '--via must be auto, agent or native (got "$raw")',
-        ),
-    };
+  '' || 'auto' => ViaMode.auto,
+  'agent' => ViaMode.agent,
+  'native' || 'adb' => ViaMode.native,
+  _ => throw UsageFailure('--via must be auto, agent or native (got "$raw")'),
+};
 
 /// One accessibility capture: the raw text that goes into the cache and the
 /// tree parsed from it.
@@ -277,7 +275,14 @@ abstract class UiDriver {
 
   Future<void> swipePath(SwipePath path);
 
-  Future<void> drag(int x1, int y1, int x2, int y2, {required int holdMs, required int moveMs});
+  Future<void> drag(
+    int x1,
+    int y1,
+    int x2,
+    int y2, {
+    required int holdMs,
+    required int moveMs,
+  });
 
   Future<TypeOutcome> typeText(String text, {bool replace = false});
 
@@ -328,7 +333,10 @@ abstract class Device {
   /// Starts the app with its VM service on [vmServicePort];
   /// [previousVmServicePort] is the port the last launch recorded, whose
   /// host forward (Android) this launch no longer needs.
-  Future<AppLaunch> launchApp({required int vmServicePort, int? previousVmServicePort});
+  Future<AppLaunch> launchApp({
+    required int vmServicePort,
+    int? previousVmServicePort,
+  });
 
   Future<void> bringToFront();
 
@@ -378,7 +386,8 @@ class AndroidDevice implements Device {
   String get installHint => 'run `qa run`';
 
   @override
-  String get logName => lastQaLogPid == null ? 'logcat' : 'logcat(pid $lastQaLogPid)';
+  String get logName =>
+      lastQaLogPid == null ? 'logcat' : 'logcat(pid $lastQaLogPid)';
 
   @override
   bool get hasNativeCapture => true;
@@ -485,10 +494,9 @@ class AndroidDevice implements Device {
   /// have to guess or spend a call finding out.
   Future<String> _dumpFailureCause() async {
     try {
-      final leftover = await adb.shellLenient(
-        [leftoverUiautomatorProbe],
-        timeout: const Duration(seconds: 10),
-      );
+      final leftover = await adb.shellLenient([
+        leftoverUiautomatorProbe,
+      ], timeout: const Duration(seconds: 10));
       if (leftover.trim().isNotEmpty) {
         return 'A leftover uiautomator is registered (pid '
             '${leftover.trim().split(RegExp(r'\s+')).join(', ')}) — run '
@@ -503,21 +511,26 @@ class AndroidDevice implements Device {
   }
 
   Future<String> _rawDump() async {
-    final direct = await adb.raw(
-      ['exec-out', 'uiautomator', 'dump', '/dev/tty'],
-      timeout: const Duration(seconds: 45),
-    );
+    final direct = await adb.raw([
+      'exec-out',
+      'uiautomator',
+      'dump',
+      '/dev/tty',
+    ], timeout: const Duration(seconds: 45));
     if (direct.ok && direct.stdout.contains('<hierarchy')) return direct.stdout;
-    await adb.shellLenient(
-      ['uiautomator', 'dump', '/sdcard/window_dump.xml'],
-      timeout: const Duration(seconds: 45),
-    );
+    await adb.shellLenient([
+      'uiautomator',
+      'dump',
+      '/sdcard/window_dump.xml',
+    ], timeout: const Duration(seconds: 45));
     return adb.shellLenient(['cat', '/sdcard/window_dump.xml']);
   }
 
   @override
-  Future<List<int>> screencapPng() =>
-      adb.execOutBytes(['screencap', '-p'], timeout: const Duration(seconds: 60));
+  Future<List<int>> screencapPng() => adb.execOutBytes([
+    'screencap',
+    '-p',
+  ], timeout: const Duration(seconds: 60));
 
   @override
   Future<int?> appPid() async {
@@ -532,28 +545,45 @@ class AndroidDevice implements Device {
     await awaitStopped(appPid);
   }
 
-  Future<void> launchActivity(String component, {List<String> extras = const []}) async {
-    final out = await adb.shellLenient(['am', 'start', '-n', component, ...extras]);
+  Future<void> launchActivity(
+    String component, {
+    List<String> extras = const [],
+  }) async {
+    final out = await adb.shellLenient([
+      'am',
+      'start',
+      '-n',
+      component,
+      ...extras,
+    ]);
     if (out.contains('Error')) {
       throw DeviceFailure('am start -n $component failed: $out');
     }
   }
 
   @override
-  Future<AppLaunch> launchApp({required int vmServicePort, int? previousVmServicePort}) async {
+  Future<AppLaunch> launchApp({
+    required int vmServicePort,
+    int? previousVmServicePort,
+  }) async {
     // Every launch forwards a new port; left alone, each one stayed (179
     // on one guest after a day of passes). Only a port adb lists for this
     // serial is removed: a host port is one listener for every device.
-    if (previousVmServicePort != null && previousVmServicePort != vmServicePort) {
+    if (previousVmServicePort != null &&
+        previousVmServicePort != vmServicePort) {
       if ((await forwardedPorts()).contains(previousVmServicePort)) {
         await removeForward(previousVmServicePort);
       }
     }
-    await launchActivity(antaActivity, extras: androidLaunchExtras(vmServicePort));
-    final forward = await adb.raw(
-      ['forward', 'tcp:$vmServicePort', 'tcp:$vmServicePort'],
-      timeout: const Duration(seconds: 20),
+    await launchActivity(
+      antaActivity,
+      extras: androidLaunchExtras(vmServicePort),
     );
+    final forward = await adb.raw([
+      'forward',
+      'tcp:$vmServicePort',
+      'tcp:$vmServicePort',
+    ], timeout: const Duration(seconds: 20));
     if (!forward.ok) {
       throw DeviceFailure(
         'adb forward tcp:$vmServicePort failed: ${forward.combined}',
@@ -561,7 +591,8 @@ class AndroidDevice implements Device {
     }
     return AppLaunch(
       vmServiceUri: 'http://127.0.0.1:$vmServicePort/',
-      description: 'am start -n $antaActivity (vm-service-port $vmServicePort, '
+      description:
+          'am start -n $antaActivity (vm-service-port $vmServicePort, '
           'forwarded to the host)',
     );
   }
@@ -570,14 +601,18 @@ class AndroidDevice implements Device {
   /// lists every device's forwards whatever `-s` says, so the serial
   /// column picks this one's.
   Future<List<int>> forwardedPorts() async {
-    final result = await adb.raw(['forward', '--list'], timeout: const Duration(seconds: 20));
+    final result = await adb.raw([
+      'forward',
+      '--list',
+    ], timeout: const Duration(seconds: 20));
     return result.ok ? forwardedPortsOf(result.stdout, id) : const [];
   }
 
-  Future<void> removeForward(int port) => adb.raw(
-        ['forward', '--remove', 'tcp:$port'],
-        timeout: const Duration(seconds: 20),
-      );
+  Future<void> removeForward(int port) => adb.raw([
+    'forward',
+    '--remove',
+    'tcp:$port',
+  ], timeout: const Duration(seconds: 20));
 
   /// Removes this device's forwards but [keep] (the live launch's), one
   /// port at a time, and returns how many went. Never `forward
@@ -598,7 +633,8 @@ class AndroidDevice implements Device {
   Future<void> bringToFront() => launchActivity(antaActivity);
 
   @override
-  Future<void> dropResetMarker() => markers.dropResetMarker(adb, packageId: packageId);
+  Future<void> dropResetMarker() =>
+      markers.dropResetMarker(adb, packageId: packageId);
 
   @override
   Future<void> pushSeed(String localPath) =>
@@ -608,16 +644,13 @@ class AndroidDevice implements Device {
   /// space inside a `-T "MM-DD HH:MM:SS.mmm"` timestamp into two arguments.
   @override
   Future<String> readLog({String? sinceStamp}) async {
-    final result = await adb.raw(
-      [
-        'logcat',
-        '-d',
-        '-v',
-        'time',
-        if (sinceStamp != null) ...['-T', sinceStamp],
-      ],
-      timeout: const Duration(seconds: 60),
-    );
+    final result = await adb.raw([
+      'logcat',
+      '-d',
+      '-v',
+      'time',
+      if (sinceStamp != null) ...['-T', sinceStamp],
+    ], timeout: const Duration(seconds: 60));
     return result.combined;
   }
 
@@ -628,22 +661,24 @@ class AndroidDevice implements Device {
   Future<String> qaLogText({String? stamp, String? since}) async {
     final pid = await appPid();
     lastQaLogPid = pid;
-    final result = await adb.raw(
-      [
-        'logcat',
-        '-d',
-        '-v',
-        'time',
-        if (pid != null) ...[
-          '--pid=$pid',
-          if (since != null) ...['-T', since],
-        ] else if ((since ?? stamp) case final from?)
-          ...['-T', from, '-s', 'flutter:V']
-        else
-          ...['-s', 'flutter:V'],
+    final result = await adb.raw([
+      'logcat',
+      '-d',
+      '-v',
+      'time',
+      if (pid != null) ...[
+        '--pid=$pid',
+        if (since != null) ...['-T', since],
+      ] else if ((since ?? stamp) case final from?) ...[
+        '-T',
+        from,
+        '-s',
+        'flutter:V',
+      ] else ...[
+        '-s',
+        'flutter:V',
       ],
-      timeout: const Duration(seconds: 60),
-    );
+    ], timeout: const Duration(seconds: 60));
     return result.combined;
   }
 
@@ -653,28 +688,36 @@ class AndroidDevice implements Device {
   Future<String?> discoverVmServiceUri() async {
     final pid = await appPid();
     if (pid == null) return null;
-    final log = await adb.raw(
-      ['logcat', '-d', '-v', 'time', '--pid=$pid'],
-      timeout: const Duration(seconds: 60),
-    );
+    final log = await adb.raw([
+      'logcat',
+      '-d',
+      '-v',
+      'time',
+      '--pid=$pid',
+    ], timeout: const Duration(seconds: 60));
     final announced = vmServiceUriFromLog(log.combined);
     if (announced == null) return null;
     final port = Uri.tryParse(announced)?.port;
     if (port == null || port == 0) return null;
-    final forward = await adb.raw(
-      ['forward', 'tcp:$port', 'tcp:$port'],
-      timeout: const Duration(seconds: 20),
-    );
+    final forward = await adb.raw([
+      'forward',
+      'tcp:$port',
+      'tcp:$port',
+    ], timeout: const Duration(seconds: 20));
     if (!forward.ok) return null;
-    return Uri.parse(announced).replace(host: '127.0.0.1', port: port).toString();
+    return Uri.parse(
+      announced,
+    ).replace(host: '127.0.0.1', port: port).toString();
   }
 
   @override
   Future<List<String>> pendingMarkers() async {
-    final listing = await adb.shellLenient(
-      ['run-as', packageId, 'ls', markers.antaDocsDir],
-      timeout: const Duration(seconds: 20),
-    );
+    final listing = await adb.shellLenient([
+      'run-as',
+      packageId,
+      'ls',
+      markers.antaDocsDir,
+    ], timeout: const Duration(seconds: 20));
     return [
       for (final name in const [markers.resetMarker, markers.seedMarker])
         if (listing.split(RegExp(r'\s+')).contains(name)) name,
@@ -688,11 +731,11 @@ class AndroidDevice implements Device {
 /// The host ports of [serial]'s `tcp:` forwards in `adb forward --list`
 /// output (`<serial> tcp:<host> tcp:<device>` per line).
 List<int> forwardedPortsOf(String listing, String serial) => [
-      for (final line in listing.split('\n'))
-        if (RegExp(r'^(\S+)\s+tcp:(\d+)(?:\s|$)').firstMatch(line.trim())
-            case final match? when match.group(1) == serial)
-          ?int.tryParse(match.group(2)!),
-    ];
+  for (final line in listing.split('\n'))
+    if (RegExp(r'^(\S+)\s+tcp:(\d+)(?:\s|$)').firstMatch(line.trim())
+        case final match? when match.group(1) == serial)
+      ?int.tryParse(match.group(2)!),
+];
 
 /// The `uiautomator` + `input` layer, which works on any Android build.
 class AdbUiDriver implements UiDriver {
@@ -729,9 +772,18 @@ class AdbUiDriver implements UiDriver {
   Future<void> swipePath(SwipePath path) => device.swipePath(path);
 
   @override
-  Future<void> drag(int x1, int y1, int x2, int y2, {required int holdMs, required int moveMs}) =>
-      throw UnsupportedOnPlatform('drag', 'the adb input path',
-          instead: 'use `--via agent` (the driver build from `qa run`)');
+  Future<void> drag(
+    int x1,
+    int y1,
+    int x2,
+    int y2, {
+    required int holdMs,
+    required int moveMs,
+  }) => throw UnsupportedOnPlatform(
+    'drag',
+    'the adb input path',
+    instead: 'use `--via agent` (the driver build from `qa run`)',
+  );
 
   @override
   Future<TypeOutcome> typeText(String text, {bool replace = false}) async {
@@ -746,8 +798,11 @@ class AdbUiDriver implements UiDriver {
   }
 
   @override
-  Future<void> clear() => throw UnsupportedOnPlatform('clear', 'the adb input path',
-      instead: 'use `--via agent`, or `key del` repeatedly');
+  Future<void> clear() => throw UnsupportedOnPlatform(
+    'clear',
+    'the adb input path',
+    instead: 'use `--via agent`, or `key del` repeatedly',
+  );
 
   @override
   Future<String> key(String name) async {

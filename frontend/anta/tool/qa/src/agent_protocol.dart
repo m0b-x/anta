@@ -124,6 +124,7 @@ abstract final class AgentFlags {
   static const String checked = 'checked';
   static const String toggle = 'toggle';
   static const String selected = 'selected';
+
   /// The framework's `isHidden`: kept in the tree while scrolled out.
   static const String hidden = 'hidden';
 
@@ -159,7 +160,7 @@ const int agentProtocolVersion = 2;
 String? agentVersionMismatch(int installed) => installed >= agentProtocolVersion
     ? null
     : 'installed agent is v$installed, this tool needs v$agentProtocolVersion '
-        '— `qa build` then `qa install`';
+          '— `qa build` then `qa install`';
 
 /// How long the agent waits after an action for the app to stop scheduling
 /// frames. A ripple keeps frames coming, so most taps pay the whole cap,

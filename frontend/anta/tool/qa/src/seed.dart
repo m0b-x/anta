@@ -29,7 +29,9 @@ class PreparedSeed {
   String describe() {
     final parts = <String>[];
     if (placeholders > 0) {
-      parts.add('$placeholders placeholder${placeholders == 1 ? '' : 's'} resolved');
+      parts.add(
+        '$placeholders placeholder${placeholders == 1 ? '' : 's'} resolved',
+      );
     }
     if (settings.isNotEmpty) parts.add('settings: ${settings.join(', ')}');
     return parts.isEmpty ? '' : ' (${parts.join('; ')})';

@@ -5,13 +5,17 @@ import 'errors.dart';
 
 /// The device a pass ran on.
 class PassDevice {
-  const PassDevice({required this.id, required this.label, required this.platform});
+  const PassDevice({
+    required this.id,
+    required this.label,
+    required this.platform,
+  });
 
   factory PassDevice.fromJson(Map<String, dynamic> json) => PassDevice(
-        id: json['id'] as String,
-        label: json['label'] as String,
-        platform: json['platform'] as String,
-      );
+    id: json['id'] as String,
+    label: json['label'] as String,
+    platform: json['platform'] as String,
+  );
 
   final String id;
   final String label;
@@ -19,7 +23,11 @@ class PassDevice {
   /// `android`, `ios` or `macos`.
   final String platform;
 
-  Map<String, dynamic> toJson() => {'id': id, 'label': label, 'platform': platform};
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'label': label,
+    'platform': platform,
+  };
 }
 
 /// One step of a flow as it ran.
@@ -33,12 +41,12 @@ class StepRecord {
   });
 
   factory StepRecord.fromJson(Map<String, dynamic> json) => StepRecord(
-        n: json['n'] as int,
-        line: json['line'] as String,
-        ms: json['ms'] as int,
-        ok: json['status'] == 'ok',
-        output: json['output'] as String? ?? '',
-      );
+    n: json['n'] as int,
+    line: json['line'] as String,
+    ms: json['ms'] as int,
+    ok: json['status'] == 'ok',
+    output: json['output'] as String? ?? '',
+  );
 
   /// 1-based position in the flow file's step lines.
   final int n;
@@ -57,13 +65,13 @@ class StepRecord {
   }
 
   Map<String, dynamic> toJson() => {
-        'n': n,
-        'line': line,
-        'verb': verb,
-        'ms': ms,
-        'status': ok ? 'ok' : 'failed',
-        'output': output,
-      };
+    'n': n,
+    'line': line,
+    'verb': verb,
+    'ms': ms,
+    'status': ok ? 'ok' : 'failed',
+    'output': output,
+  };
 }
 
 /// Where and why a flow stopped. [step] is 0 when the reseed or the
@@ -80,14 +88,14 @@ class FlowFailure {
   });
 
   factory FlowFailure.fromJson(Map<String, dynamic> json) => FlowFailure(
-        step: json['step'] as int,
-        line: json['line'] as String,
-        exitCode: json['exitCode'] as int,
-        message: json['message'] as String? ?? '',
-        shot: json['shot'] as String?,
-        dump: json['dump'] as String?,
-        errors: json['errors'] as String?,
-      );
+    step: json['step'] as int,
+    line: json['line'] as String,
+    exitCode: json['exitCode'] as int,
+    message: json['message'] as String? ?? '',
+    shot: json['shot'] as String?,
+    dump: json['dump'] as String?,
+    errors: json['errors'] as String?,
+  );
 
   final int step;
   final String line;
@@ -109,14 +117,14 @@ class FlowFailure {
       );
 
   Map<String, dynamic> toJson() => {
-        'step': step,
-        'line': line,
-        'exitCode': exitCode,
-        'message': message,
-        'shot': shot,
-        'dump': dump,
-        'errors': errors,
-      };
+    'step': step,
+    'line': line,
+    'exitCode': exitCode,
+    'message': message,
+    'shot': shot,
+    'dump': dump,
+    'errors': errors,
+  };
 }
 
 /// A flow's verdict; `skipped` is a flow the pass never started, after
@@ -136,19 +144,21 @@ class FlowRecord {
   });
 
   factory FlowRecord.fromJson(Map<String, dynamic> json) => FlowRecord(
-        name: json['name'] as String,
-        status: FlowStatus.values.byName(json['status'] as String),
-        durationMs: json['durationMs'] as int? ?? 0,
-        reseedMs: json['reseedMs'] as int?,
-        preludeMs: json['preludeMs'] as int?,
-        steps: [
-          for (final step in (json['steps'] as List? ?? const []))
-            StepRecord.fromJson((step as Map).cast<String, dynamic>()),
-        ],
-        failure: json['failure'] == null
-            ? null
-            : FlowFailure.fromJson((json['failure'] as Map).cast<String, dynamic>()),
-      );
+    name: json['name'] as String,
+    status: FlowStatus.values.byName(json['status'] as String),
+    durationMs: json['durationMs'] as int? ?? 0,
+    reseedMs: json['reseedMs'] as int?,
+    preludeMs: json['preludeMs'] as int?,
+    steps: [
+      for (final step in (json['steps'] as List? ?? const []))
+        StepRecord.fromJson((step as Map).cast<String, dynamic>()),
+    ],
+    failure: json['failure'] == null
+        ? null
+        : FlowFailure.fromJson(
+            (json['failure'] as Map).cast<String, dynamic>(),
+          ),
+  );
 
   final String name;
   final FlowStatus status;
@@ -161,14 +171,14 @@ class FlowRecord {
   final FlowFailure? failure;
 
   Map<String, dynamic> toJson() => {
-        'name': name,
-        'status': status.name,
-        'durationMs': durationMs,
-        'reseedMs': reseedMs,
-        'preludeMs': preludeMs,
-        'steps': [for (final step in steps) step.toJson()],
-        'failure': failure?.toJson(),
-      };
+    'name': name,
+    'status': status.name,
+    'durationMs': durationMs,
+    'reseedMs': reseedMs,
+    'preludeMs': preludeMs,
+    'steps': [for (final step in steps) step.toJson()],
+    'failure': failure?.toJson(),
+  };
 }
 
 /// How long one verb took across a pass.
@@ -195,8 +205,12 @@ class VerbStat {
   final int p95Ms;
   final int maxMs;
 
-  Map<String, dynamic> toJson() =>
-      {'count': count, 'p50Ms': p50Ms, 'p95Ms': p95Ms, 'maxMs': maxMs};
+  Map<String, dynamic> toJson() => {
+    'count': count,
+    'p50Ms': p50Ms,
+    'p95Ms': p95Ms,
+    'maxMs': maxMs,
+  };
 }
 
 /// Nearest-rank percentile of already sorted [sorted]: always one of the
@@ -263,7 +277,9 @@ class PassReport {
       label: json['label'] as String?,
       device: json['device'] == null
           ? null
-          : PassDevice.fromJson((json['device'] as Map).cast<String, dynamic>()),
+          : PassDevice.fromJson(
+              (json['device'] as Map).cast<String, dynamic>(),
+            ),
       devices: json['devices'] == null
           ? null
           : [
@@ -273,7 +289,9 @@ class PassReport {
       host: json['host'] as String,
       started: DateTime.parse(json['started'] as String),
       finished: DateTime.parse(json['finished'] as String),
-      shard: shard == null ? null : (shard['index'] as int, shard['count'] as int),
+      shard: shard == null
+          ? null
+          : (shard['index'] as int, shard['count'] as int),
       reseed: json['reseed'] as String,
       fixture: json['fixture'] as String?,
       prelude: json['prelude'] as String?,
@@ -366,40 +384,41 @@ class PassReport {
       !partial && flows.isNotEmpty && count(FlowStatus.passed) == flows.length;
 
   Map<String, dynamic> toJson() => {
-        'schema': schemaVersion,
-        'suite': suite,
-        'label': label,
-        'device': device?.toJson(),
-        if (devices != null) 'devices': [for (final d in devices!) d.toJson()],
-        'host': host,
-        'started': started.toUtc().toIso8601String(),
-        'finished': finished.toUtc().toIso8601String(),
-        'durationMs': durationMs,
-        'partial': partial,
-        'shard': shard == null ? null : {'index': shard!.$1, 'count': shard!.$2},
-        'reseed': reseed,
-        'fixture': fixture,
-        'prelude': prelude,
-        'build': build,
-        'quietMs': quietMs,
-        'quietAlarms': quietAlarms,
-        'quietFailure': quietFailure,
-        'quietSkipped': quietSkipped,
-        'quietDevices': quietDevices,
-        'quietUncounted': quietUncounted,
-        if (recycle != null) 'recycle': {'reason': recycle!.reason, 'ms': recycle!.ms},
-        'summary': {
-          'flows': flows.length,
-          'passed': count(FlowStatus.passed),
-          'failed': count(FlowStatus.failed),
-          'skipped': count(FlowStatus.skipped),
-        },
-        'flows': [for (final flow in flows) flow.toJson()],
-        'verbStats': {
-          for (final entry in computeVerbStats(flows).entries)
-            entry.key: entry.value.toJson(),
-        },
-      };
+    'schema': schemaVersion,
+    'suite': suite,
+    'label': label,
+    'device': device?.toJson(),
+    if (devices != null) 'devices': [for (final d in devices!) d.toJson()],
+    'host': host,
+    'started': started.toUtc().toIso8601String(),
+    'finished': finished.toUtc().toIso8601String(),
+    'durationMs': durationMs,
+    'partial': partial,
+    'shard': shard == null ? null : {'index': shard!.$1, 'count': shard!.$2},
+    'reseed': reseed,
+    'fixture': fixture,
+    'prelude': prelude,
+    'build': build,
+    'quietMs': quietMs,
+    'quietAlarms': quietAlarms,
+    'quietFailure': quietFailure,
+    'quietSkipped': quietSkipped,
+    'quietDevices': quietDevices,
+    'quietUncounted': quietUncounted,
+    if (recycle != null)
+      'recycle': {'reason': recycle!.reason, 'ms': recycle!.ms},
+    'summary': {
+      'flows': flows.length,
+      'passed': count(FlowStatus.passed),
+      'failed': count(FlowStatus.failed),
+      'skipped': count(FlowStatus.skipped),
+    },
+    'flows': [for (final flow in flows) flow.toJson()],
+    'verbStats': {
+      for (final entry in computeVerbStats(flows).entries)
+        entry.key: entry.value.toJson(),
+    },
+  };
 
   String encode() => const JsonEncoder.withIndent('  ').convert(toJson());
 
@@ -438,7 +457,9 @@ PassReport mergeReports(List<PassReport> reports) {
   if (reports.isEmpty) throw UsageFailure('--merge needs at least one report');
   final suites = reports.map((r) => r.suite).toSet();
   if (suites.length > 1) {
-    throw UsageFailure('--merge takes reports of one suite (got ${suites.join(', ')})');
+    throw UsageFailure(
+      '--merge takes reports of one suite (got ${suites.join(', ')})',
+    );
   }
   final devices = <String, PassDevice>{};
   for (final report in reports) {
@@ -464,8 +485,12 @@ PassReport mergeReports(List<PassReport> reports) {
     device: null,
     devices: devices.values.toList(),
     host: first.host,
-    started: reports.map((r) => r.started).reduce((a, b) => a.isBefore(b) ? a : b),
-    finished: reports.map((r) => r.finished).reduce((a, b) => a.isAfter(b) ? a : b),
+    started: reports
+        .map((r) => r.started)
+        .reduce((a, b) => a.isBefore(b) ? a : b),
+    finished: reports
+        .map((r) => r.finished)
+        .reduce((a, b) => a.isAfter(b) ? a : b),
     shard: null,
     reseed: first.reseed,
     fixture: first.fixture,
@@ -473,20 +498,36 @@ PassReport mergeReports(List<PassReport> reports) {
     build: first.build,
     flows: byName.values.toList()..sort((a, b) => a.name.compareTo(b.name)),
     partial: reports.any((r) => r.partial),
-    quietMs: reports.map((r) => r.quietMs).nonNulls.fold<int?>(
-        null, (slowest, ms) => slowest == null ? ms : math.max(slowest, ms)),
-    quietAlarms: reports.map((r) => r.quietAlarms).nonNulls.fold<int?>(
-        null, (sum, count) => (sum ?? 0) + count),
+    quietMs: reports
+        .map((r) => r.quietMs)
+        .nonNulls
+        .fold<int?>(
+          null,
+          (slowest, ms) => slowest == null ? ms : math.max(slowest, ms),
+        ),
+    quietAlarms: reports
+        .map((r) => r.quietAlarms)
+        .nonNulls
+        .fold<int?>(null, (sum, count) => (sum ?? 0) + count),
     quietFailure: quietFailures.isEmpty ? null : quietFailures.join('; '),
     quietSkipped: skipped.isEmpty ? null : skipped.join('; '),
     quietDevices: !anyRan
         ? null
-        : ran.fold<int>(0, (sum, r) => sum + (r.quietDevices ??
-            (r.quietAlarms == 0 ? deviceCount(r) : 0))),
+        : ran.fold<int>(
+            0,
+            (sum, r) =>
+                sum +
+                (r.quietDevices ?? (r.quietAlarms == 0 ? deviceCount(r) : 0)),
+          ),
     quietUncounted: !anyRan
         ? null
-        : ran.fold<int>(0, (sum, r) => sum + (r.quietUncounted ??
-            (r.quietAlarms == null ? deviceCount(r) : 0))),
+        : ran.fold<int>(
+            0,
+            (sum, r) =>
+                sum +
+                (r.quietUncounted ??
+                    (r.quietAlarms == null ? deviceCount(r) : 0)),
+          ),
   );
 }
 
@@ -524,7 +565,11 @@ String? quietLine(PassReport report) {
 /// after 5s:" and names the miss below), and capped so a wait's listing of
 /// the whole screen does not swamp the table. The report keeps it whole.
 String headline(String message, {int max = 160}) {
-  final lines = message.split('\n').map((l) => l.trim()).where((l) => l.isNotEmpty).toList();
+  final lines = message
+      .split('\n')
+      .map((l) => l.trim())
+      .where((l) => l.isNotEmpty)
+      .toList();
   if (lines.isEmpty) return '';
   var text = lines.first;
   if (text.endsWith(':') && lines.length > 1) text = '$text ${lines[1]}';
@@ -552,17 +597,23 @@ List<String> summaryLines(PassReport report, {required String reportPath}) {
     final tail = failure == null
         ? ''
         : '  step ${failure.step}: ${failure.line} — ${headline(failure.message)}';
-    lines.add('$mark  ${flow.name.padRight(width)}  ${ms.padLeft(9)}$tail'.trimRight());
+    lines.add(
+      '$mark  ${flow.name.padRight(width)}  ${ms.padLeft(9)}$tail'.trimRight(),
+    );
   }
   final ids = report.device != null
       ? report.device!.id
       : (report.devices ?? const []).map((d) => d.id).join(', ');
   final seconds = (report.durationMs / 1000).toStringAsFixed(1);
-  lines.add('pass: ${report.count(FlowStatus.passed)}/${report.flows.length} '
-      'green in $seconds s on $ids — report $reportPath');
+  lines.add(
+    'pass: ${report.count(FlowStatus.passed)}/${report.flows.length} '
+    'green in $seconds s on $ids — report $reportPath',
+  );
   final recycle = report.recycle;
   if (recycle != null) {
-    lines.add('recycled in ${(recycle.ms / 1000).toStringAsFixed(1)} s: ${recycle.reason}');
+    lines.add(
+      'recycled in ${(recycle.ms / 1000).toStringAsFixed(1)} s: ${recycle.reason}',
+    );
   }
   if (report.partial) lines.add(partialLine);
   final quiet = quietLine(report);
@@ -570,11 +621,15 @@ List<String> summaryLines(PassReport report, {required String reportPath}) {
   final stats = computeVerbStats(report.flows);
   if (stats.isNotEmpty) {
     final verbWidth = stats.keys.fold<int>(4, (w, v) => math.max(w, v.length));
-    lines.add('${'verb'.padRight(verbWidth)}  count    p50    p95    max  (ms)');
+    lines.add(
+      '${'verb'.padRight(verbWidth)}  count    p50    p95    max  (ms)',
+    );
     stats.forEach((verb, stat) {
-      lines.add('${verb.padRight(verbWidth)}  ${'${stat.count}'.padLeft(5)}  '
-          '${'${stat.p50Ms}'.padLeft(5)}  ${'${stat.p95Ms}'.padLeft(5)}  '
-          '${'${stat.maxMs}'.padLeft(5)}');
+      lines.add(
+        '${verb.padRight(verbWidth)}  ${'${stat.count}'.padLeft(5)}  '
+        '${'${stat.p50Ms}'.padLeft(5)}  ${'${stat.p95Ms}'.padLeft(5)}  '
+        '${'${stat.maxMs}'.padLeft(5)}',
+      );
     });
   }
   return lines;

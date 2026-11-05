@@ -84,9 +84,12 @@ class Host {
     final (executable, arguments) = Platform.isWindows
         ? ('explorer.exe', [path])
         : Platform.isMacOS
-            ? ('open', [path])
-            : ('xdg-open', [path]);
-    Process.start(executable, arguments, mode: ProcessStartMode.detached)
-        .ignore();
+        ? ('open', [path])
+        : ('xdg-open', [path]);
+    Process.start(
+      executable,
+      arguments,
+      mode: ProcessStartMode.detached,
+    ).ignore();
   }
 }

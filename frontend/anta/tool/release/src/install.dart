@@ -46,20 +46,22 @@ String installFailureMessage(
 }) {
   final said = output.trim().isEmpty ? '' : ' adb said: ${output.trim()}';
   return switch (problem) {
-    InstallProblem.signatureMismatch => 'the APK is signed with a different '
-        'key than the $antaPackage already on $serial, so Android refuses '
-        'it.$said\nEither this machine has no release keystore and built a '
-        'debug-signed APK (run `release doctor`), or its keystore is not the '
-        'one that built the installed app. $signingRemedy',
-    InstallProblem.versionDowngrade => 'the installed $antaPackage has a '
-        'higher versionCode than this APK; raise the build number in '
-        'pubspec.yaml (version: x.y.z+N).$said',
+    InstallProblem.signatureMismatch =>
+      'the APK is signed with a different '
+          'key than the $antaPackage already on $serial, so Android refuses '
+          'it.$said\nEither this machine has no release keystore and built a '
+          'debug-signed APK (run `release doctor`), or its keystore is not the '
+          'one that built the installed app. $signingRemedy',
+    InstallProblem.versionDowngrade =>
+      'the installed $antaPackage has a '
+          'higher versionCode than this APK; raise the build number in '
+          'pubspec.yaml (version: x.y.z+N).$said',
     InstallProblem.insufficientStorage =>
       '$serial has no room for the APK.$said',
-    InstallProblem.userRestricted => '$serial blocks installs over USB; on '
-        'MIUI enable "Install via USB" under Developer options.$said',
-    InstallProblem.deviceGone =>
-      '$serial went away during the install.$said',
+    InstallProblem.userRestricted =>
+      '$serial blocks installs over USB; on '
+          'MIUI enable "Install via USB" under Developer options.$said',
+    InstallProblem.deviceGone => '$serial went away during the install.$said',
     InstallProblem.unknown => 'adb install failed on $serial.$said',
   };
 }

@@ -54,7 +54,8 @@ final RegExp _softLaunchFailure = RegExp(
 ///
 /// Without this the driver would sit out its whole timeout waiting for URIs
 /// that a broken build is never going to print.
-String? launchFailureLine(String logText) => _firstMatching(logText, _launchFailure);
+String? launchFailureLine(String logText) =>
+    _firstMatching(logText, _launchFailure);
 
 /// A line that usually but not always means the run is dead — the VM service
 /// handshake can lose one race and still come up. The caller gives these a
@@ -260,16 +261,36 @@ final RegExp _hotReloadFailed = RegExp(
 
 final List<(RegExp, String)> _secretPatterns = [
   (RegExp(r'AIza[0-9A-Za-z_-]{20,}'), 'AIza…[redacted-api-key]'),
-  (RegExp(r'[0-9]{6,}-[0-9a-z]{16,}\.apps\.googleusercontent\.com'),
-      '[redacted-oauth-client].apps.googleusercontent.com'),
-  (RegExp(r'\b1:[0-9]{6,}:(android|ios|web):[0-9a-f]{8,}'), '[redacted-firebase-app-id]'),
+  (
+    RegExp(r'[0-9]{6,}-[0-9a-z]{16,}\.apps\.googleusercontent\.com'),
+    '[redacted-oauth-client].apps.googleusercontent.com',
+  ),
+  (
+    RegExp(r'\b1:[0-9]{6,}:(android|ios|web):[0-9a-f]{8,}'),
+    '[redacted-firebase-app-id]',
+  ),
   (RegExp(r'ya29\.[0-9A-Za-z_-]{10,}'), '[redacted-oauth-token]'),
-  (RegExp(r'eyJ[0-9A-Za-z_-]{8,}\.[0-9A-Za-z_-]{8,}\.[0-9A-Za-z_-]{8,}'), '[redacted-jwt]'),
-  (RegExp(r'(bearer|authorization:?)\s+[0-9A-Za-z._~+/=-]{16,}', caseSensitive: false),
-      '[redacted-credential]'),
-  (RegExp(r'-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----'),
-      '[redacted-private-key]'),
-  (RegExp(r'[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}'), '[redacted-email]'),
+  (
+    RegExp(r'eyJ[0-9A-Za-z_-]{8,}\.[0-9A-Za-z_-]{8,}\.[0-9A-Za-z_-]{8,}'),
+    '[redacted-jwt]',
+  ),
+  (
+    RegExp(
+      r'(bearer|authorization:?)\s+[0-9A-Za-z._~+/=-]{16,}',
+      caseSensitive: false,
+    ),
+    '[redacted-credential]',
+  ),
+  (
+    RegExp(
+      r'-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----',
+    ),
+    '[redacted-private-key]',
+  ),
+  (
+    RegExp(r'[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}'),
+    '[redacted-email]',
+  ),
 ];
 
 /// Masks credentials and personal identifiers in text the tool is about to

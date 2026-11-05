@@ -30,33 +30,35 @@ class AgentInfo {
   });
 
   factory AgentInfo.fromJson(Map<String, dynamic> json) => AgentInfo(
-        platform: '${json[AgentKeys.platform] ?? '?'}',
-        dpr: (json[AgentKeys.dpr] as num? ?? 1).toDouble(),
-        width: (json[AgentKeys.width] as num? ?? 0).toInt(),
-        height: (json[AgentKeys.height] as num? ?? 0).toInt(),
-        lifecycle: json[AgentKeys.lifecycle] as String?,
-        semanticsEnabled: json[AgentKeys.semantics] == true,
-        textClient: json[AgentKeys.textClient] == true,
-        documentsPath: json[AgentKeys.documentsPath] as String?,
-        qaMode: json[AgentKeys.qaMode] == true,
-        database: json[AgentKeys.database] as String?,
-        qaLog: ((json[AgentKeys.qaLog] as List?) ?? const [])
-            .map((line) => '$line')
-            .toList(),
-        qaOutcomes: ((json[AgentKeys.qaOutcomes] as List?) ?? const [])
-            .whereType<Map>()
-            .map((e) => QaOutcome(
-                  kind: '${e['kind'] ?? ''}',
-                  ok: e['ok'] == true,
-                  message: '${e['message'] ?? ''}',
-                ))
-            .toList(),
-        uptimeMs: (json[AgentKeys.uptimeMs] as num? ?? 0).toInt(),
-        protocolVersion: (json[AgentKeys.agentVersion] as num? ?? 0).toInt(),
-        firstFrame: json[AgentKeys.firstFrame] != false,
-        cloud: json[AgentKeys.cloud] as bool?,
-        textScale: (json[AgentKeys.textScale] as num?)?.toDouble(),
-      );
+    platform: '${json[AgentKeys.platform] ?? '?'}',
+    dpr: (json[AgentKeys.dpr] as num? ?? 1).toDouble(),
+    width: (json[AgentKeys.width] as num? ?? 0).toInt(),
+    height: (json[AgentKeys.height] as num? ?? 0).toInt(),
+    lifecycle: json[AgentKeys.lifecycle] as String?,
+    semanticsEnabled: json[AgentKeys.semantics] == true,
+    textClient: json[AgentKeys.textClient] == true,
+    documentsPath: json[AgentKeys.documentsPath] as String?,
+    qaMode: json[AgentKeys.qaMode] == true,
+    database: json[AgentKeys.database] as String?,
+    qaLog: ((json[AgentKeys.qaLog] as List?) ?? const [])
+        .map((line) => '$line')
+        .toList(),
+    qaOutcomes: ((json[AgentKeys.qaOutcomes] as List?) ?? const [])
+        .whereType<Map>()
+        .map(
+          (e) => QaOutcome(
+            kind: '${e['kind'] ?? ''}',
+            ok: e['ok'] == true,
+            message: '${e['message'] ?? ''}',
+          ),
+        )
+        .toList(),
+    uptimeMs: (json[AgentKeys.uptimeMs] as num? ?? 0).toInt(),
+    protocolVersion: (json[AgentKeys.agentVersion] as num? ?? 0).toInt(),
+    firstFrame: json[AgentKeys.firstFrame] != false,
+    cloud: json[AgentKeys.cloud] as bool?,
+    textScale: (json[AgentKeys.textScale] as num?)?.toDouble(),
+  );
 
   final String platform;
 
@@ -86,10 +88,10 @@ class AgentInfo {
   final bool? cloud;
 
   ScreenSize get screen => ScreenSize(
-        physicalWidth: width,
-        physicalHeight: height,
-        density: (dpr * 160).round(),
-      );
+    physicalWidth: width,
+    physicalHeight: height,
+    density: (dpr * 160).round(),
+  );
 
   /// The `[qa]` lines as they would read in a log, so the same parser works.
   String get qaLogText => qaLog.map((line) => '[qa] $line').join('\n');
@@ -105,7 +107,11 @@ class AgentInfo {
 
 /// One typed `[qa]` outcome, as `QaBootstrap.entries` records it.
 class QaOutcome {
-  const QaOutcome({required this.kind, required this.ok, required this.message});
+  const QaOutcome({
+    required this.kind,
+    required this.ok,
+    required this.message,
+  });
 
   final String kind;
   final bool ok;
@@ -161,8 +167,10 @@ class AgentClient implements UiDriver {
     try {
       decoded = jsonDecode(raw);
     } on FormatException {
-      throw DeviceFailure('the agent answered $op with something other than '
-          'JSON: ${raw.length > 200 ? '${raw.substring(0, 200)}…' : raw}');
+      throw DeviceFailure(
+        'the agent answered $op with something other than '
+        'JSON: ${raw.length > 200 ? '${raw.substring(0, 200)}…' : raw}',
+      );
     }
     if (decoded is! Map<String, dynamic>) {
       throw DeviceFailure('the agent answered $op with $decoded');
@@ -218,7 +226,11 @@ class AgentClient implements UiDriver {
 
   @override
   Future<void> longPress(int x, int y, int ms) async {
-    await op(AgentOps.longPress, {AgentKeys.x: x, AgentKeys.y: y, AgentKeys.ms: ms});
+    await op(AgentOps.longPress, {
+      AgentKeys.x: x,
+      AgentKeys.y: y,
+      AgentKeys.ms: ms,
+    });
   }
 
   @override
@@ -281,7 +293,11 @@ class AgentClient implements UiDriver {
   }
 
   Future<List<int>> screenshotPng() async {
-    final result = await op(AgentOps.screenshot, const {}, const Duration(seconds: 60));
+    final result = await op(
+      AgentOps.screenshot,
+      const {},
+      const Duration(seconds: 60),
+    );
     final png = result[AgentKeys.png];
     if (png is! String || png.isEmpty) {
       throw DeviceFailure('the agent returned no screenshot');

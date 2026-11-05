@@ -88,7 +88,9 @@ class TargetResolver {
           .where((n) => n.resourceId == wanted || n.shortId == wanted)
           .toList();
       return _pick(
-        matches.map((n) => TargetMatch(n, MatchPass.exact, MatchField.resourceId)).toList(),
+        matches
+            .map((n) => TargetMatch(n, MatchPass.exact, MatchField.resourceId))
+            .toList(),
         trimmed,
         nth,
       );
@@ -139,16 +141,18 @@ class TargetResolver {
   }
 
   static String _valueOf(UiNode node, MatchField field) => switch (field) {
-        MatchField.contentDesc => node.contentDesc,
-        MatchField.text => node.text,
-        MatchField.resourceId => node.shortId,
-      };
+    MatchField.contentDesc => node.contentDesc,
+    MatchField.text => node.text,
+    MatchField.resourceId => node.shortId,
+  };
 
   static bool _matches(String value, String label, MatchPass pass) =>
       switch (pass) {
         MatchPass.exact => value == label,
         MatchPass.caseInsensitive => value.toLowerCase() == label.toLowerCase(),
-        MatchPass.substring => value.toLowerCase().contains(label.toLowerCase()),
+        MatchPass.substring => value.toLowerCase().contains(
+          label.toLowerCase(),
+        ),
       };
 
   /// What is on screen right now, phrased for an error message.
@@ -169,11 +173,10 @@ class TargetResolver {
   /// changes which of them are on screen.
   ResolvedTarget _pick(List<TargetMatch> all, String target, int? nth) {
     if (all.isEmpty) {
-      throw TargetFailure(
-        'no node matches "$target". ${onScreenListing()}',
-      );
+      throw TargetFailure('no node matches "$target". ${onScreenListing()}');
     }
-    final ordered = [...all]..sort((a, b) => a.node.index.compareTo(b.node.index));
+    final ordered = [...all]
+      ..sort((a, b) => a.node.index.compareTo(b.node.index));
     if (nth != null) {
       if (nth < 0 || nth >= ordered.length) {
         throw TargetFailure(
@@ -201,11 +204,11 @@ class TargetResolver {
   /// [node] as a target, for a caller that already holds the node (found
   /// again by its semantics id after a reveal) rather than a target string.
   ResolvedTarget fromNode(UiNode node) => ResolvedTarget(
-        x: node.bounds.centreX,
-        y: node.bounds.centreY,
-        description: node.describe(),
-        node: node,
-      );
+    x: node.bounds.centreX,
+    y: node.bounds.centreY,
+    description: node.describe(),
+    node: node,
+  );
 }
 
 /// A target resolved for acting on, after the app was asked to bring it
@@ -275,14 +278,17 @@ Future<RevealOutcome> resolveRevealing(
     );
   }
   if (indexTarget) {
-    throw TargetFailure('$target (semantics id $id) is not in the dump taken '
-        'after revealing it — `look` again and pick its new #N');
+    throw TargetFailure(
+      '$target (semantics id $id) is not in the dump taken '
+      'after revealing it — `look` again and pick its new #N',
+    );
   }
   return RevealOutcome(
     resolved: TargetResolver(fresh).resolve(target, nth: nth),
     tree: fresh,
     revealed: true,
-    note: 'the revealed node (semantics id $id) is not in the new dump; '
+    note:
+        'the revealed node (semantics id $id) is not in the new dump; '
         '"$target" was resolved again by its label',
   );
 }

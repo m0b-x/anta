@@ -8,13 +8,13 @@ export '../../qa/src/doctor.dart' show CheckResult, CheckStatus, anyFailed;
 /// A launcher the pipeline needs was located.
 CheckResult checkTool(String name, String? path, {required String fix}) =>
     path == null
-        ? CheckResult(
-            name: name,
-            status: CheckStatus.fail,
-            detail: 'not found',
-            fix: fix,
-          )
-        : CheckResult.ok(name, path);
+    ? CheckResult(
+        name: name,
+        status: CheckStatus.fail,
+        detail: 'not found',
+        fix: fix,
+      )
+    : CheckResult.ok(name, path);
 
 /// A release build would be signed with the release keystore.
 CheckResult checkSigning(SigningStatus status) => status.ready
@@ -36,7 +36,8 @@ CheckResult checkFirebaseConfig(List<String> missing) => missing.isEmpty
         name: 'firebase config',
         status: CheckStatus.fail,
         detail: 'missing ${missing.join(', ')}',
-        fix: 'run `flutterfire configure --platforms=android,ios` (the files '
+        fix:
+            'run `flutterfire configure --platforms=android,ios` (the files '
             'are gitignored), or copy them from another checkout',
       );
 
@@ -58,7 +59,8 @@ CheckResult checkGradleDaemons({
   return CheckResult(
     name: 'gradle daemons',
     status: CheckStatus.warn,
-    detail: '${stale.length} of ${daemons.length} serve another Gradle than '
+    detail:
+        '${stale.length} of ${daemons.length} serve another Gradle than '
         "the wrapper's $version (pid ${stale.map((d) => d.pid).join(', ')}); "
         'they keep build/ files open and make the next R8 pass fail',
     fix: '`release doctor --fix` stops them (`release build` does so too)',
@@ -83,7 +85,8 @@ CheckResult checkInstallTarget(List<AdbDevice> devices) {
     detail: devices.isEmpty
         ? 'nothing attached'
         : devices.map((d) => '${d.serial} ${d.state}').join(', '),
-    fix: 'only `release install` needs one: plug the phone in with USB '
+    fix:
+        'only `release install` needs one: plug the phone in with USB '
         'debugging on',
   );
 }
@@ -94,7 +97,8 @@ CheckResult checkExplorerWindows(int count) => count == 0
     : CheckResult(
         name: 'explorer windows',
         status: CheckStatus.warn,
-        detail: '$count open under build\\, which stops `flutter clean` from '
+        detail:
+            '$count open under build\\, which stops `flutter clean` from '
             'removing it',
         fix: 'close them, or let `release build --clean` do it',
       );

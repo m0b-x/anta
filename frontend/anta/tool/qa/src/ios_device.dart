@@ -81,7 +81,10 @@ class IosDevice implements Device {
   }
 
   @override
-  Future<AppLaunch> launchApp({required int vmServicePort, int? previousVmServicePort}) async {
+  Future<AppLaunch> launchApp({
+    required int vmServicePort,
+    int? previousVmServicePort,
+  }) async {
     final pid = await simctl.launch(
       sim.udid,
       packageId,
@@ -90,7 +93,8 @@ class IosDevice implements Device {
     return AppLaunch(
       pid: pid,
       vmServiceUri: vmServiceHttpUri('127.0.0.1', vmServicePort),
-      description: 'xcrun simctl launch $packageId '
+      description:
+          'xcrun simctl launch $packageId '
           '(vm-service-port $vmServicePort)',
     );
   }
@@ -112,10 +116,10 @@ class IosDevice implements Device {
 
   @override
   Future<String> readLog({String? sinceStamp}) => simctl.logShow(
-        sim.udid,
-        predicate: iosLogPredicate(executableName),
-        last: const Duration(minutes: 10),
-      );
+    sim.udid,
+    predicate: iosLogPredicate(executableName),
+    last: const Duration(minutes: 10),
+  );
 
   /// Scoped to the running process where there is one, so a previous
   /// launch's `[qa]` lines cannot be mistaken for this one's.
@@ -136,7 +140,8 @@ class IosDevice implements Device {
     if (await appPid() == null) return null;
     final log = await simctl.logShow(
       sim.udid,
-      predicate: 'processImagePath ENDSWITH "$executableName" AND '
+      predicate:
+          'processImagePath ENDSWITH "$executableName" AND '
           'eventMessage CONTAINS "VM"',
       last: const Duration(minutes: 30),
     );
@@ -154,20 +159,26 @@ class IosDevice implements Device {
 
   @override
   Future<DeviceProbe> probe([AgentInfo? agent]) async => agentProbe(
-        pid: await appPid(),
-        agent: agent,
-        packageId: packageId,
-        awake: sim.booted,
-      );
+    pid: await appPid(),
+    agent: agent,
+    packageId: packageId,
+    awake: sim.booted,
+  );
 }
 
 /// Width and height from a PNG header, without decoding the image.
 (int, int)? pngSize(List<int> bytes) {
   if (bytes.length < 24) return null;
-  if (bytes[0] != 0x89 || bytes[1] != 0x50 || bytes[2] != 0x4E || bytes[3] != 0x47) {
+  if (bytes[0] != 0x89 ||
+      bytes[1] != 0x50 ||
+      bytes[2] != 0x4E ||
+      bytes[3] != 0x47) {
     return null;
   }
   int read(int offset) =>
-      (bytes[offset] << 24) | (bytes[offset + 1] << 16) | (bytes[offset + 2] << 8) | bytes[offset + 3];
+      (bytes[offset] << 24) |
+      (bytes[offset + 1] << 16) |
+      (bytes[offset + 2] << 8) |
+      bytes[offset + 3];
   return (read(16), read(20));
 }

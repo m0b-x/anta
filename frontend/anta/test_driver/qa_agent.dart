@@ -80,7 +80,8 @@ class QaAgent {
   void _onFrameTimings(List<ui.FrameTiming> timings) {
     if (!_recordingFrames) return;
     _timings.addAll(timings);
-    if (_timings.length > 20000) _timings.removeRange(0, _timings.length - 20000);
+    if (_timings.length > 20000)
+      _timings.removeRange(0, _timings.length - 20000);
   }
 
   LiveWidgetController get _controller =>
@@ -111,11 +112,11 @@ class QaAgent {
   }
 
   String _fail(String message, String kind, {String? stack}) => jsonEncode({
-        AgentKeys.ok: false,
-        AgentKeys.error: message,
-        AgentKeys.errorKind: kind,
-        AgentKeys.stack: ?stack,
-      });
+    AgentKeys.ok: false,
+    AgentKeys.error: message,
+    AgentKeys.errorKind: kind,
+    AgentKeys.stack: ?stack,
+  });
 
   Future<Map<String, Object?>> _dispatch(
     String op,
@@ -168,10 +169,7 @@ class QaAgent {
       case AgentOps.reveal:
         return _reveal(_int(request, AgentNodeKeys.semanticsId, -1));
     }
-    throw QaAgentException(
-      'unknown op "$op"',
-      kind: AgentErrorKinds.usage,
-    );
+    throw QaAgentException('unknown op "$op"', kind: AgentErrorKinds.usage);
   }
 
   Offset _point(
@@ -199,7 +197,10 @@ class QaAgent {
   String _string(Map<String, dynamic> request, String key) {
     final value = request[key];
     if (value is! String) {
-      throw QaAgentException('$key must be a string', kind: AgentErrorKinds.usage);
+      throw QaAgentException(
+        '$key must be a string',
+        kind: AgentErrorKinds.usage,
+      );
     }
     return value;
   }
@@ -276,7 +277,9 @@ class QaAgent {
     if (wantsLocale || wantsTheme) {
       final context = AppNavigator.navigatorKey.currentContext;
       if (context == null) {
-        throw QaAgentException('the app has no navigator yet (still starting?)');
+        throw QaAgentException(
+          'the app has no navigator yet (still starting?)',
+        );
       }
       bloc = context.read<AppSettingsBloc>();
     }
@@ -384,8 +387,9 @@ class QaAgent {
         });
       }
       if (node.mergeAllDescendantsIntoThisNode) return;
-      for (final child in node
-          .debugListChildrenInOrder(DebugSemanticsDumpOrder.traversalOrder)) {
+      for (final child in node.debugListChildrenInOrder(
+        DebugSemanticsDumpOrder.traversalOrder,
+      )) {
         if (child.isMergedIntoParent) continue;
         visit(child, transform, myIndex, childDepth);
       }
@@ -402,7 +406,8 @@ class QaAgent {
 
   static List<String> _flagsOf(SemanticsData data, {required bool offscreen}) {
     final f = data.flagsCollection;
-    final scrolls = f.hasImplicitScrolling ||
+    final scrolls =
+        f.hasImplicitScrolling ||
         data.hasAction(SemanticsAction.scrollUp) ||
         data.hasAction(SemanticsAction.scrollDown) ||
         data.hasAction(SemanticsAction.scrollLeft) ||
@@ -526,7 +531,8 @@ class QaAgent {
   Map<String, Object?> _perfReport() {
     final since = _recordingSince;
     Map<String, Object?> stats(Iterable<Duration> values) {
-      final sorted = values.map((d) => d.inMicroseconds / 1000).toList()..sort();
+      final sorted = values.map((d) => d.inMicroseconds / 1000).toList()
+        ..sort();
       if (sorted.isEmpty) return const {'p50': 0, 'p90': 0, 'max': 0};
       double at(double q) => sorted[((sorted.length - 1) * q).round()];
       return {
@@ -559,7 +565,10 @@ class QaAgent {
     return const {};
   }
 
-  Future<Map<String, Object?>> _type(String text, {required bool replace}) async {
+  Future<Map<String, Object?>> _type(
+    String text, {
+    required bool replace,
+  }) async {
     _requireTextClient();
     if (text.isEmpty && !replace) {
       throw QaAgentException('nothing to type', kind: AgentErrorKinds.usage);
@@ -574,9 +583,12 @@ class QaAgent {
       );
     } else {
       final selection = _selectionOf(current);
-      next = current.replaced(selection, text).copyWith(
-            selection:
-                TextSelection.collapsed(offset: selection.start + text.length),
+      next = current
+          .replaced(selection, text)
+          .copyWith(
+            selection: TextSelection.collapsed(
+              offset: selection.start + text.length,
+            ),
             composing: TextRange.empty,
           );
     }
@@ -610,7 +622,10 @@ class QaAgent {
         kind: AgentErrorKinds.usage,
       );
     }
-    final runs = text.replaceAll('\r\n', '\n').replaceAll('\r', '\n').split('\n');
+    final runs = text
+        .replaceAll('\r\n', '\n')
+        .replaceAll('\r', '\n')
+        .split('\n');
     for (var i = 0; i < runs.length; i++) {
       if (i > 0) {
         final line = _currentValue();
@@ -697,7 +712,9 @@ class QaAgent {
           AgentKeys.selection: _selectionOf(left).extentOffset,
         };
       }
-      final next = current.replaced(selection, '').copyWith(
+      final next = current
+          .replaced(selection, '')
+          .copyWith(
             selection: TextSelection.collapsed(offset: selection.start),
             composing: TextRange.empty,
           );
@@ -860,9 +877,16 @@ class QaAgent {
   }
 
   Future<Map<String, Object?>> _chord(String spec) async {
-    final parts = spec.split('+').map((p) => p.trim()).where((p) => p.isNotEmpty).toList();
+    final parts = spec
+        .split('+')
+        .map((p) => p.trim())
+        .where((p) => p.isNotEmpty)
+        .toList();
     if (parts.length < 2) {
-      throw QaAgentException('a chord needs modifier+key, got "$spec"', kind: AgentErrorKinds.usage);
+      throw QaAgentException(
+        'a chord needs modifier+key, got "$spec"',
+        kind: AgentErrorKinds.usage,
+      );
     }
     final modifiers = <LogicalKeyboardKey>[];
     for (final part in parts.sublist(0, parts.length - 1)) {
@@ -897,9 +921,11 @@ class QaAgent {
 
   LogicalKeyboardKey _lookupKey(String name) {
     final alias = agentKeyAliases[name.toLowerCase()];
-    if (alias != null && _logicalKeys.containsKey(alias)) return _logicalKeys[alias]!;
+    if (alias != null && _logicalKeys.containsKey(alias))
+      return _logicalKeys[alias]!;
     for (final key in LogicalKeyboardKey.knownLogicalKeys) {
-      if (key.keyLabel.toLowerCase() == name.toLowerCase() && key.keyLabel.isNotEmpty) {
+      if (key.keyLabel.toLowerCase() == name.toLowerCase() &&
+          key.keyLabel.isNotEmpty) {
         return key;
       }
     }
@@ -1026,9 +1052,9 @@ bool routeClosing() => find
 /// A pager turned by `animateToPage` or a list scrolled by `animateTo`;
 /// a finger-driven fling counts too, which is what a swipe waits out.
 bool scrollAnimating() => find.byType(Scrollable).evaluate().any((element) {
-      final state = (element as StatefulElement).state as ScrollableState;
-      return state.position.isScrollingNotifier.value;
-    });
+  final state = (element as StatefulElement).state as ScrollableState;
+  return state.position.isScrollingNotifier.value;
+});
 
 class _InspectorShots with WidgetInspectorService {
   Future<ui.Image?> capture(
@@ -1036,6 +1062,10 @@ class _InspectorShots with WidgetInspectorService {
     required double width,
     required double height,
     required double pixelRatio,
-  }) =>
-      screenshot(target, width: width, height: height, maxPixelRatio: pixelRatio);
+  }) => screenshot(
+    target,
+    width: width,
+    height: height,
+    maxPixelRatio: pixelRatio,
+  );
 }

@@ -39,11 +39,11 @@ Future<void> main(List<String> arguments) async {
 
 class ReleaseCommandRunner extends CommandRunner<int> {
   ReleaseCommandRunner()
-      : super(
-          'release',
-          'Builds and installs the ANTA release APK, the same way on Windows '
-              'and macOS.',
-        ) {
+    : super(
+        'release',
+        'Builds and installs the ANTA release APK, the same way on Windows '
+            'and macOS.',
+      ) {
     argParser.addFlag(
       'verbose',
       abbr: 'v',
@@ -63,8 +63,7 @@ abstract class _ReleaseCommand extends Command<int> {
 
   late final QaPaths paths = QaPaths.locate();
 
-  late final Host host =
-      Host(projectRoot: paths.projectRoot, verbose: verbose);
+  late final Host host = Host(projectRoot: paths.projectRoot, verbose: verbose);
 
   late final ProcessRunner processes = RealProcessRunner(verbose: verbose);
 
@@ -132,7 +131,8 @@ void _addBuildOptions(ArgParser parser, {required bool forInstall}) {
     ..addFlag(
       'clean',
       negatable: false,
-      help: '`flutter clean` first (cold Gradle and build_runner, about twice '
+      help:
+          '`flutter clean` first (cold Gradle and build_runner, about twice '
           'as slow).',
     )
     ..addFlag(
@@ -143,7 +143,8 @@ void _addBuildOptions(ArgParser parser, {required bool forInstall}) {
     ..addFlag(
       'allow-debug-signing',
       negatable: false,
-      help: 'Build without the release keystore. The APK is debug-signed and '
+      help:
+          'Build without the release keystore. The APK is debug-signed and '
           'cannot install over the real app.',
     );
 }
@@ -153,8 +154,8 @@ BuildOptions _buildOptions(ArgResults results, {required TargetAbi fallback}) {
   final abi = results['arm64'] == true
       ? TargetAbi.arm64
       : abiOption == null
-          ? fallback
-          : TargetAbi.parse(abiOption);
+      ? fallback
+      : TargetAbi.parse(abiOption);
   return BuildOptions(
     abi: abi,
     clean: results['clean'] as bool,
@@ -183,8 +184,7 @@ class BuildCommand extends _ReleaseCommand {
   @override
   Future<int> run() async {
     final results = argResults!;
-    final apk =
-        await buildApk(_buildOptions(results, fallback: TargetAbi.all));
+    final apk = await buildApk(_buildOptions(results, fallback: TargetAbi.all));
     if (results['open'] as bool) host.openFolder(apk.parent.path);
     return 0;
   }
@@ -196,7 +196,8 @@ class InstallCommand extends _ReleaseCommand {
     argParser.addOption(
       'device',
       abbr: 'd',
-      help: 'adb serial to install on. Default: the only phone attached '
+      help:
+          'adb serial to install on. Default: the only phone attached '
           '(an emulator only when no phone is).',
     );
   }
@@ -220,8 +221,10 @@ class InstallCommand extends _ReleaseCommand {
     final device = adb.withSerial(serial);
     var options = _buildOptions(results, fallback: TargetAbi.all);
     if (results['abi'] == null && results['arm64'] != true) {
-      final reported =
-          await device.shellLenient(['getprop', 'ro.product.cpu.abi']);
+      final reported = await device.shellLenient([
+        'getprop',
+        'ro.product.cpu.abi',
+      ]);
       final abi = TargetAbi.fromDeviceAbi(reported);
       if (abi == null) {
         stdout.writeln(
@@ -240,10 +243,11 @@ class InstallCommand extends _ReleaseCommand {
     final apk = await buildApk(options);
     stdout.writeln();
     stdout.writeln('Installing on $serial...');
-    final result = await device.raw(
-      ['install', '-r', apk.path],
-      timeout: const Duration(minutes: 5),
-    );
+    final result = await device.raw([
+      'install',
+      '-r',
+      apk.path,
+    ], timeout: const Duration(minutes: 5));
     final output = result.combined;
     if (!result.ok || output.contains('Failure')) {
       throw DeviceFailure(
@@ -292,10 +296,14 @@ class DoctorCommand extends _ReleaseCommand {
       checkSigning(readSigningStatus(root)),
       checkFirebaseConfig(missingFirebaseFiles(root)),
     ];
-    final wrapper = File(joinPath(
-      root,
-      ['android', 'gradle', 'wrapper', 'gradle-wrapper.properties'],
-    ));
+    final wrapper = File(
+      joinPath(root, [
+        'android',
+        'gradle',
+        'wrapper',
+        'gradle-wrapper.properties',
+      ]),
+    );
     final version = wrapper.existsSync()
         ? wrapperVersion(wrapper.readAsStringSync())
         : null;
@@ -309,11 +317,15 @@ class DoctorCommand extends _ReleaseCommand {
     }
     results.add(checkGradleDaemons(wrapperVersion: version, daemons: daemons));
     if (Platform.isWindows) {
-      results.add(checkExplorerWindows(await explorerWindowsUnder(
-        joinPath(root, ['build']),
-        processes,
-        close: false,
-      )));
+      results.add(
+        checkExplorerWindows(
+          await explorerWindowsUnder(
+            joinPath(root, ['build']),
+            processes,
+            close: false,
+          ),
+        ),
+      );
     }
     final adbPath = SdkTools().findAdb();
     List<AdbDevice> devices = const [];
@@ -326,11 +338,13 @@ class DoctorCommand extends _ReleaseCommand {
       }
     }
     results
-      ..add(checkAdbServer(
-        adbPath: adbPath,
-        failure: adbFailure,
-        deviceCount: devices.length,
-      ))
+      ..add(
+        checkAdbServer(
+          adbPath: adbPath,
+          failure: adbFailure,
+          deviceCount: devices.length,
+        ),
+      )
       ..add(checkInstallTarget(devices));
     for (final result in results) {
       stdout.writeln(result.describe());

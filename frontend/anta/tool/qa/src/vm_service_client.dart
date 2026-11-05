@@ -53,7 +53,9 @@ class VmServiceClient {
         'cannot reach the VM service at $uri: ${e.osError?.message ?? e.message}',
       );
     } on WebSocketException catch (e) {
-      throw DeviceFailure('the VM service at $uri refused the socket: ${e.message}');
+      throw DeviceFailure(
+        'the VM service at $uri refused the socket: ${e.message}',
+      );
     } on IOException catch (e) {
       throw DeviceFailure('the VM service at $uri is not answering yet: $e');
     }
@@ -84,12 +86,14 @@ class VmServiceClient {
     final id = _nextId++;
     final completer = Completer<Map<String, dynamic>>();
     _pending[id] = completer;
-    _socket.add(jsonEncode({
-      'jsonrpc': '2.0',
-      'id': id,
-      'method': method,
-      'params': params,
-    }));
+    _socket.add(
+      jsonEncode({
+        'jsonrpc': '2.0',
+        'id': id,
+        'method': method,
+        'params': params,
+      }),
+    );
     try {
       return await completer.future.timeout(timeout);
     } on TimeoutException {
@@ -115,10 +119,12 @@ class VmServiceClient {
     final error = decoded['error'];
     if (error is Map) {
       final detail = error['data'];
-      completer.completeError(DeviceFailure(
-        'VM service error ${error['code']}: ${error['message']}'
-        '${detail == null ? '' : ' $detail'}',
-      ));
+      completer.completeError(
+        DeviceFailure(
+          'VM service error ${error['code']}: ${error['message']}'
+          '${detail == null ? '' : ' $detail'}',
+        ),
+      );
       return;
     }
     final result = decoded['result'];
@@ -179,11 +185,10 @@ class VmServiceClient {
     Duration timeout = const Duration(seconds: 30),
   }) async {
     final isolate = await driverIsolateId();
-    final result = await call(
-      driverExtensionMethod,
-      {'isolateId': isolate, ...params},
-      timeout,
-    );
+    final result = await call(driverExtensionMethod, {
+      'isolateId': isolate,
+      ...params,
+    }, timeout);
     if (result['isError'] == true) {
       throw DeviceFailure('driver: ${result['response']}');
     }
@@ -194,10 +199,10 @@ class VmServiceClient {
     String message, {
     Duration timeout = const Duration(seconds: 30),
   }) async {
-    final result = await driverCommand(
-      {'command': 'request_data', 'message': message},
-      timeout: timeout,
-    );
+    final result = await driverCommand({
+      'command': 'request_data',
+      'message': message,
+    }, timeout: timeout);
     final response = result['response'];
     if (response is Map) return '${response['message'] ?? ''}';
     return '$response';
@@ -205,10 +210,7 @@ class VmServiceClient {
 
   Future<void> close() async {
     _closed = true;
-    await _socket.close().timeout(
-      const Duration(seconds: 1),
-      onTimeout: () {},
-    );
+    await _socket.close().timeout(const Duration(seconds: 1), onTimeout: () {});
   }
 }
 

@@ -38,11 +38,15 @@ class SimDevice {
 
 String simRuntimeLabel(String identifier) {
   final last = identifier.split('.').last;
-  final match = RegExp(r'^([A-Za-z]+)-(\d+)(?:-(\d+))?(?:-(\d+))?$').firstMatch(last);
+  final match = RegExp(
+    r'^([A-Za-z]+)-(\d+)(?:-(\d+))?(?:-(\d+))?$',
+  ).firstMatch(last);
   if (match == null) return last;
-  final parts = [match.group(2), match.group(3), match.group(4)]
-      .whereType<String>()
-      .join('.');
+  final parts = [
+    match.group(2),
+    match.group(3),
+    match.group(4),
+  ].whereType<String>().join('.');
   return '${match.group(1)} $parts';
 }
 
@@ -63,14 +67,16 @@ List<SimDevice> parseSimctlDevices(String json) {
       if (entry is! Map) continue;
       final udid = entry['udid'];
       if (udid is! String) continue;
-      devices.add(SimDevice(
-        udid: udid,
-        name: '${entry['name'] ?? udid}',
-        state: '${entry['state'] ?? 'unknown'}',
-        runtime: simRuntimeLabel('$runtime'),
-        isAvailable: entry['isAvailable'] == true,
-        dataPath: entry['dataPath'] as String?,
-      ));
+      devices.add(
+        SimDevice(
+          udid: udid,
+          name: '${entry['name'] ?? udid}',
+          state: '${entry['state'] ?? 'unknown'}',
+          runtime: simRuntimeLabel('$runtime'),
+          isAvailable: entry['isAvailable'] == true,
+          dataPath: entry['dataPath'] as String?,
+        ),
+      );
     }
   });
   devices.sort((a, b) {
@@ -81,7 +87,10 @@ List<SimDevice> parseSimctlDevices(String json) {
 }
 
 int? parseSimctlLaunchPid(String output) {
-  final match = RegExp(r':\s*(\d+)\s*$', multiLine: true).firstMatch(output.trim());
+  final match = RegExp(
+    r':\s*(\d+)\s*$',
+    multiLine: true,
+  ).firstMatch(output.trim());
   return match == null ? null : int.tryParse(match.group(1)!);
 }
 
@@ -122,7 +131,10 @@ class Simctl {
   }
 
   Future<void> boot(String udid) async {
-    final result = await _run(['boot', udid], timeout: const Duration(seconds: 90));
+    final result = await _run([
+      'boot',
+      udid,
+    ], timeout: const Duration(seconds: 90));
     if (!result.ok && !result.combined.contains('current state: Booted')) {
       throw DeviceFailure('xcrun simctl boot $udid failed: ${result.combined}');
     }
@@ -141,11 +153,13 @@ class Simctl {
   }
 
   Future<void> openSimulatorApp(String udid) async {
-    await runner.run(
-      '/usr/bin/open',
-      ['-a', 'Simulator', '--args', '-CurrentDeviceUDID', udid],
-      timeout: const Duration(seconds: 30),
-    );
+    await runner.run('/usr/bin/open', [
+      '-a',
+      'Simulator',
+      '--args',
+      '-CurrentDeviceUDID',
+      udid,
+    ], timeout: const Duration(seconds: 30));
   }
 
   Future<String?> appContainer(
@@ -165,16 +179,13 @@ class Simctl {
     List<String> appArguments = const [],
     bool terminateRunning = true,
   }) async {
-    final result = await _run(
-      [
-        'launch',
-        if (terminateRunning) '--terminate-running-process',
-        udid,
-        bundleId,
-        ...appArguments,
-      ],
-      timeout: const Duration(seconds: 90),
-    );
+    final result = await _run([
+      'launch',
+      if (terminateRunning) '--terminate-running-process',
+      udid,
+      bundleId,
+      ...appArguments,
+    ], timeout: const Duration(seconds: 90));
     if (!result.ok) {
       throw DeviceFailure(
         'xcrun simctl launch $bundleId failed: ${result.combined}',
@@ -184,7 +195,11 @@ class Simctl {
   }
 
   Future<void> terminate(String udid, String bundleId) async {
-    await _run(['terminate', udid, bundleId], timeout: const Duration(seconds: 30));
+    await _run([
+      'terminate',
+      udid,
+      bundleId,
+    ], timeout: const Duration(seconds: 30));
   }
 
   Future<List<int>> screenshotPng(String udid) async {
@@ -194,7 +209,9 @@ class Simctl {
       binary: true,
     );
     if (!result.ok) {
-      throw DeviceFailure('xcrun simctl io screenshot failed: ${result.stderr}');
+      throw DeviceFailure(
+        'xcrun simctl io screenshot failed: ${result.stderr}',
+      );
     }
     return result.bytes ?? const [];
   }
@@ -210,23 +227,20 @@ class Simctl {
     Duration last = const Duration(minutes: 5),
   }) async {
     final minutes = last.inMinutes < 1 ? 1 : last.inMinutes;
-    final result = await _run(
-      [
-        'spawn',
-        udid,
-        'log',
-        'show',
-        '--last',
-        '${minutes}m',
-        '--info',
-        '--debug',
-        '--style',
-        'compact',
-        '--predicate',
-        predicate,
-      ],
-      timeout: const Duration(seconds: 90),
-    );
+    final result = await _run([
+      'spawn',
+      udid,
+      'log',
+      'show',
+      '--last',
+      '${minutes}m',
+      '--info',
+      '--debug',
+      '--style',
+      'compact',
+      '--predicate',
+      predicate,
+    ], timeout: const Duration(seconds: 90));
     return result.ok ? result.stdout : result.combined;
   }
 }

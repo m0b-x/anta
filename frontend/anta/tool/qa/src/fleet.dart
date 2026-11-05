@@ -109,7 +109,7 @@ int parseFleetArgument(String argument, {bool serials = false}) {
   final index = bare != null
       ? (bare >= 1 && bare <= fleetMaxIndex ? bare : null)
       : (fleetIndexOf(trimmed) ??
-          (serials ? fleetIndexOfSerial(trimmed) : null));
+            (serials ? fleetIndexOfSerial(trimmed) : null));
   if (index == null) {
     throw UsageFailure(
       '"$argument" is not a fleet AVD — the fleet is ${fleetName(1)}, '
@@ -123,9 +123,9 @@ int parseFleetArgument(String argument, {bool serials = false}) {
 /// How many fleet AVDs this host runs at once: the threads left after
 /// `flutter test` and the owner's emulator, at [fleetVcpus] each.
 int fleetCapacity(int threads) => math.max(
-      1,
-      (threads - fleetReservedThreads - ownerEmulatorThreads) ~/ fleetVcpus,
-    );
+  1,
+  (threads - fleetReservedThreads - ownerEmulatorThreads) ~/ fleetVcpus,
+);
 
 /// The count `fleet create` works to: [requested] or the capacity, and
 /// above the capacity only with [force].
@@ -186,13 +186,13 @@ List<String> tuneConfig(List<String> lines) {
 
 /// Where [lines] differ from [fleetConfigSpec], one entry per key.
 List<String> configDrift(List<String> lines) => [
-      for (final entry in fleetConfigSpec.entries)
-        if (configValue(lines, entry.key) case final value
-            when value != entry.value)
-          value == null
-              ? '${entry.key} unset (fleet: ${entry.value})'
-              : '${entry.key}=$value (fleet: ${entry.value})',
-    ];
+  for (final entry in fleetConfigSpec.entries)
+    if (configValue(lines, entry.key) case final value
+        when value != entry.value)
+      value == null
+          ? '${entry.key} unset (fleet: ${entry.value})'
+          : '${entry.key}=$value (fleet: ${entry.value})',
+];
 
 /// `config.ini` text as lines, without the line ends or trailing blanks.
 List<String> splitConfig(String text) {
@@ -215,8 +215,10 @@ String joinConfig(List<String> lines, {required bool crlf}) {
 String? imagePackageFromConfig(List<String> lines) {
   final sysdir = configValue(lines, 'image.sysdir.1');
   if (sysdir == null) return null;
-  final parts =
-      sysdir.split(RegExp(r'[\\/]')).where((p) => p.isNotEmpty).toList();
+  final parts = sysdir
+      .split(RegExp(r'[\\/]'))
+      .where((p) => p.isNotEmpty)
+      .toList();
   if (parts.length != 4 || parts.first != 'system-images') return null;
   return parts.join(';');
 }
@@ -228,7 +230,9 @@ String chooseFleetImage({
   required List<String>? ownerConfig,
   required List<String> installedApis,
 }) {
-  final owner = ownerConfig == null ? null : imagePackageFromConfig(ownerConfig);
+  final owner = ownerConfig == null
+      ? null
+      : imagePackageFromConfig(ownerConfig);
   if (owner != null) return owner;
   if (installedApis.length == 1) {
     return 'system-images;${installedApis.single};$fleetImageTag;$fleetImageAbi';
@@ -236,25 +240,25 @@ String chooseFleetImage({
   throw DeviceFailure(
     installedApis.isEmpty
         ? 'no system-images/*/$fleetImageTag/$fleetImageAbi image is installed '
-            'and $ownerReferenceAvd names none — install one with sdkmanager'
+              'and $ownerReferenceAvd names none — install one with sdkmanager'
         : 'more than one $fleetImageTag/$fleetImageAbi image is installed '
-            '(${installedApis.join(', ')}) and $ownerReferenceAvd names none '
-            'to choose by',
+              '(${installedApis.join(', ')}) and $ownerReferenceAvd names none '
+              'to choose by',
   );
 }
 
 /// The `avdmanager` vector that makes a fleet AVD; it never carries
 /// `--force`, so an existing AVD of that name is never overwritten.
 List<String> avdCreateArgs(String name, String image) => [
-      'create',
-      'avd',
-      '-n',
-      name,
-      '-k',
-      image,
-      '-d',
-      fleetDeviceProfile,
-    ];
+  'create',
+  'avd',
+  '-n',
+  name,
+  '-k',
+  image,
+  '-d',
+  fleetDeviceProfile,
+];
 
 /// The emulator vector for fleet AVD [index]: on its own port, with no
 /// snapshot to load or save. `-gpu host` keeps the frame times of the
@@ -264,17 +268,17 @@ List<String> avdCreateArgs(String name, String image) => [
 /// spinning at 100 % while the guest idles (1.2 cores at boot, 2.2 after
 /// hours of passes, against 0.14 minimized), whatever the other flags.
 List<String> fleetEmulatorArgs(int index) => [
-      '-avd',
-      fleetName(index),
-      '-port',
-      '${fleetPort(index)}',
-      '-no-audio',
-      '-no-boot-anim',
-      '-no-snapshot',
-      '-no-metrics',
-      '-gpu',
-      'host',
-    ];
+  '-avd',
+  fleetName(index),
+  '-port',
+  '${fleetPort(index)}',
+  '-no-audio',
+  '-no-boot-anim',
+  '-no-snapshot',
+  '-no-metrics',
+  '-gpu',
+  'host',
+];
 
 /// Asks an emulator's console which AVD it runs.
 const List<String> emuAvdNameArgs = ['emu', 'avd', 'name'];
@@ -300,7 +304,12 @@ const List<List<String>> fleetKeepAwakeCommands = [
 const List<({String what, List<String> command})> passGrants = [
   (
     what: 'POST_NOTIFICATIONS',
-    command: ['pm', 'grant', antaPackage, 'android.permission.POST_NOTIFICATIONS'],
+    command: [
+      'pm',
+      'grant',
+      antaPackage,
+      'android.permission.POST_NOTIFICATIONS',
+    ],
   ),
 ];
 
@@ -310,8 +319,10 @@ const List<({String what, List<String> command})> passGrants = [
 /// fleet's when its console names a fleet AVD ([consoleAvd], from
 /// `adb emu avd name`), never by its port: the owner's AVD can land on
 /// 5556 when it boots second.
-bool grantsPassPermissions({required bool asked, required String? consoleAvd}) =>
-    asked || (consoleAvd != null && fleetIndexOf(consoleAvd) != null);
+bool grantsPassPermissions({
+  required bool asked,
+  required String? consoleAvd,
+}) => asked || (consoleAvd != null && fleetIndexOf(consoleAvd) != null);
 
 /// Applies [passGrants] on [device] (an [Adb] narrowed to [serial]) and
 /// returns one `granted: …` or `not granted: …` line per grant.
@@ -320,9 +331,11 @@ Future<List<String>> applyPassGrants(Adb device, String serial) async {
   for (final grant in passGrants) {
     final result = await device.raw(['shell', ...grant.command]);
     final said = result.combined.trim();
-    lines.add(result.ok && said.isEmpty
-        ? 'granted: ${grant.what} on $serial'
-        : 'not granted: ${grant.what} on $serial — ${said.isEmpty ? 'exit ${result.exitCode}' : said}');
+    lines.add(
+      result.ok && said.isEmpty
+          ? 'granted: ${grant.what} on $serial'
+          : 'not granted: ${grant.what} on $serial — ${said.isEmpty ? 'exit ${result.exitCode}' : said}',
+    );
   }
   return lines;
 }
@@ -370,8 +383,10 @@ int parseAffinityMask(String raw) {
   final text = raw.trim().toLowerCase().replaceFirst(RegExp('^0x'), '');
   final mask = int.tryParse(text, radix: 16);
   if (mask == null || mask <= 0) {
-    throw UsageFailure('$fleetAffinityEnv must be a non-zero hex mask such '
-        'as 0xFFFF (got "$raw")');
+    throw UsageFailure(
+      '$fleetAffinityEnv must be a non-zero hex mask such '
+      'as 0xFFFF (got "$raw")',
+    );
   }
   return mask;
 }
@@ -404,7 +419,10 @@ const String fleetAffinityEnv = 'ANTA_QA_FLEET_AFFINITY';
   }
   final mask = hybridAffinityMask(cores: cores, threads: threads);
   return mask == null
-      ? (mask: null, reason: 'not a hybrid CPU ($cores cores, $threads threads)')
+      ? (
+          mask: null,
+          reason: 'not a hybrid CPU ($cores cores, $threads threads)',
+        )
       : (mask: mask, reason: 'P-cores of $cores cores / $threads threads');
 }
 
@@ -482,7 +500,8 @@ const String _user32Type =
 /// PowerShell that prints every running qemu as its pid and its window:
 /// `headless` for the `-headless` binary, `minimized` or `visible` for a
 /// window, `pending` while a windowed one has not opened it yet.
-const String qemuWindowScript = '$_user32Type'
+const String qemuWindowScript =
+    '$_user32Type'
     r"Get-Process -Name 'qemu-system*' -ErrorAction SilentlyContinue | ForEach-Object { "
     r"$h = $_.MainWindowHandle; $w = 'pending'; "
     r"if ($_.ProcessName -like '*headless*') { $w = 'headless' } "
@@ -494,7 +513,8 @@ const String qemuWindowScript = '$_user32Type'
 /// kept it up, `pending` when no window opened within 20 s, `gone` when
 /// the process ended. A minimized qemu stays minimized across relaunches
 /// of the app inside it.
-String minimizeWindowScript(int pid) => '$_user32Type'
+String minimizeWindowScript(int pid) =>
+    '$_user32Type'
     '\$deadline = (Get-Date).AddSeconds(20); \$h = [IntPtr]::Zero\n'
     'while ((Get-Date) -lt \$deadline) { '
     '\$p = Get-Process -Id $pid -ErrorAction SilentlyContinue; '
@@ -509,9 +529,7 @@ String minimizeWindowScript(int pid) => '$_user32Type'
 /// line per GPU adapter instance (`pid_<pid>_luid_…_phys_0 <bytes>`); the
 /// trailing `_` keeps `pid_12*` from matching pid 123.
 String gpuMemoryScript(List<int> pids) =>
-    '(Get-Counter -Counter @(${[
-      for (final pid in pids) "'\\GPU Process Memory(pid_${pid}_*)\\Dedicated Usage'",
-    ].join(',')}) -ErrorAction SilentlyContinue).CounterSamples | '
+    '(Get-Counter -Counter @(${[for (final pid in pids) "'\\GPU Process Memory(pid_${pid}_*)\\Dedicated Usage'"].join(',')}) -ErrorAction SilentlyContinue).CounterSamples | '
     r"ForEach-Object { $_.InstanceName + ' ' + [int64]$_.CookedValue }";
 
 /// [gpuMemoryScript]'s output as bytes per pid, the adapters summed.
@@ -578,8 +596,8 @@ String forceStopScript(int pid, String avd) =>
 /// [script] as `powershell -EncodedCommand` takes it (base64 of UTF-16LE),
 /// which carries double quotes that `-Command` would get mangled on Windows.
 String encodePowerShell(String script) => base64.encode([
-      for (final unit in script.codeUnits) ...[unit & 0xFF, unit >> 8],
-    ]);
+  for (final unit in script.codeUnits) ...[unit & 0xFF, unit >> 8],
+]);
 
 /// What a fleet qemu shows on the host desktop.
 enum QemuWindow {
@@ -594,10 +612,10 @@ enum QemuWindow {
 
 /// The windows [qemuWindowScript] printed, by pid.
 Map<int, QemuWindow> parseQemuWindows(String output) => {
-      for (final line in output.split('\n'))
-        if (RegExp(r'^\s*(\d+)\s+(\w+)\s*$').firstMatch(line) case final match?)
-          int.parse(match.group(1)!): ?QemuWindow.parse(match.group(2)!),
-    };
+  for (final line in output.split('\n'))
+    if (RegExp(r'^\s*(\d+)\s+(\w+)\s*$').firstMatch(line) case final match?)
+      int.parse(match.group(1)!): ?QemuWindow.parse(match.group(2)!),
+};
 
 /// One running emulator's qemu, found by its command line.
 class QemuProcess {
@@ -628,22 +646,28 @@ class QemuProcess {
   final QemuWindow? window;
 
   QemuProcess withWindow(QemuWindow? value) => QemuProcess(
-        pid: pid,
-        avd: avd,
-        port: port,
-        affinity: affinity,
-        window: value ?? window,
-        priority: priority,
-      );
+    pid: pid,
+    avd: avd,
+    port: port,
+    affinity: affinity,
+    window: value ?? window,
+    priority: priority,
+  );
 }
 
-QemuProcess? _qemuFrom(int pid, String commandLine, int? affinity, {String? priority}) {
+QemuProcess? _qemuFrom(
+  int pid,
+  String commandLine,
+  int? affinity, {
+  String? priority,
+}) {
   if (!commandLine.contains('qemu-system')) return null;
   final avd = RegExp(r'-avd\s+"?([^\s"]+)').firstMatch(commandLine)?.group(1);
   if (avd == null) return null;
   final port = RegExp(r'-port\s+(\d+)').firstMatch(commandLine)?.group(1);
-  final headless = RegExp(r'qemu-system-[\w]+-headless|\s-no-window\b')
-      .hasMatch(commandLine);
+  final headless = RegExp(
+    r'qemu-system-[\w]+-headless|\s-no-window\b',
+  ).hasMatch(commandLine);
   return QemuProcess(
     pid: pid,
     avd: avd,
@@ -760,16 +784,16 @@ class FleetMember {
   final String? bootId;
 
   FleetMember withGpu(int? bytes) => FleetMember(
-        index: index,
-        created: created,
-        state: state,
-        qemu: qemu,
-        installed: installed,
-        heldBy: heldBy,
-        launches: launches,
-        gpuBytes: bytes,
-        bootId: bootId,
-      );
+    index: index,
+    created: created,
+    state: state,
+    qemu: qemu,
+    installed: installed,
+    heldBy: heldBy,
+    launches: launches,
+    gpuBytes: bytes,
+    bootId: bootId,
+  );
 
   String get name => fleetName(index);
   String get serial => fleetSerial(index);
@@ -778,26 +802,25 @@ class FleetMember {
   /// Up, booted and answering as itself: what `install` and `pass` use.
   bool get ready => state == FleetState.device && heldBy == null;
 
-  String get stateText =>
-      heldBy == null ? state.label : 'port held by $heldBy';
+  String get stateText => heldBy == null ? state.label : 'port held by $heldBy';
 
   Map<String, Object?> toJson(ApkRecord? built) => {
-        'name': name,
-        'serial': serial,
-        'port': port,
-        'state': heldBy == null ? state.label : 'held',
-        'heldBy': heldBy,
-        'app': created ? appStatus(installed, built) : null,
-        'installed': installed?.toJson(),
-        'qemuPid': qemu?.pid,
-        'affinity': qemu?.affinity == null ? null : hexMask(qemu!.affinity!),
-        'priority': qemu?.priority,
-        'window': qemu?.window?.name,
-        'launches': launches?.count,
-        'launchesSinceBoot': launches?.sinceBoot,
-        'gpuMb': gpuBytes == null ? null : megabytes(gpuBytes!),
-        'bootId': bootId,
-      };
+    'name': name,
+    'serial': serial,
+    'port': port,
+    'state': heldBy == null ? state.label : 'held',
+    'heldBy': heldBy,
+    'app': created ? appStatus(installed, built) : null,
+    'installed': installed?.toJson(),
+    'qemuPid': qemu?.pid,
+    'affinity': qemu?.affinity == null ? null : hexMask(qemu!.affinity!),
+    'priority': qemu?.priority,
+    'window': qemu?.window?.name,
+    'launches': launches?.count,
+    'launchesSinceBoot': launches?.sinceBoot,
+    'gpuMb': gpuBytes == null ? null : megabytes(gpuBytes!),
+    'bootId': bootId,
+  };
 }
 
 /// Whether [installed] is the build `apk.json` records (or a newer one),
@@ -842,7 +865,11 @@ const int fleetRecycleGpuBytes = 8 * 1024 * 1024 * 1024;
 /// counts every start there. [sinceBoot] is false when the first launch
 /// the counter saw came on a boot already under way.
 class FleetLaunches {
-  const FleetLaunches({required this.count, required this.sinceBoot, this.bootId});
+  const FleetLaunches({
+    required this.count,
+    required this.sinceBoot,
+    this.bootId,
+  });
 
   final int count;
   final bool sinceBoot;
@@ -882,17 +909,22 @@ class FleetLaunches {
   static void _write(String path, FleetLaunches value, DateTime at) {
     File(path)
       ..parent.createSync(recursive: true)
-      ..writeAsStringSync(jsonEncode({
-        'launches': value.count,
-        'sinceBoot': value.sinceBoot,
-        'bootId': value.bootId,
-        'updated': at.toUtc().toIso8601String(),
-      }));
+      ..writeAsStringSync(
+        jsonEncode({
+          'launches': value.count,
+          'sinceBoot': value.sinceBoot,
+          'bootId': value.bootId,
+          'updated': at.toUtc().toIso8601String(),
+        }),
+      );
   }
 
   /// Zero, from a boot `fleet boot` just made.
   static void reset(String path, DateTime at, {String? bootId}) => _write(
-      path, FleetLaunches(count: 0, sinceBoot: true, bootId: bootId), at);
+    path,
+    FleetLaunches(count: 0, sinceBoot: true, bootId: bootId),
+    at,
+  );
 
   /// One launch more on the boot [bootId] names; returns the new count.
   /// A different boot from the stored one starts again at one, not marked
@@ -902,7 +934,8 @@ class FleetLaunches {
   /// boot, and a file from before the key is taken for this boot.
   static FleetLaunches record(String path, DateTime at, {String? bootId}) {
     final before = read(path);
-    final rebooted = before?.bootId != null && bootId != null && before!.bootId != bootId;
+    final rebooted =
+        before?.bootId != null && bootId != null && before!.bootId != bootId;
     final after = rebooted
         ? FleetLaunches(count: 1, sinceBoot: false, bootId: bootId)
         : FleetLaunches(
@@ -946,8 +979,10 @@ String? recycleReason(FleetMember member) {
       recycle.add(member);
       lines.add('recycling ${member.name} (${member.serial}): $reason');
     } else {
-      lines.add('warning: ${member.name} (${member.serial}) is due a recycle '
-          '($reason) — --no-recycle keeps it running');
+      lines.add(
+        'warning: ${member.name} (${member.serial}) is due a recycle '
+        '($reason) — --no-recycle keeps it running',
+      );
     }
   }
   return (recycle: recycle, lines: lines);
@@ -986,7 +1021,7 @@ String fleetStatusLine(
   final affinity = !showAffinity || qemu == null
       ? ''
       : ' affinity=${qemu.affinity == null ? '?' : hexMask(qemu.affinity!)}'
-          ' priority=${qemu.priority ?? '?'}';
+            ' priority=${qemu.priority ?? '?'}';
   final window = qemu?.window == null ? '' : ' window=${qemu!.window!.name}';
   final launches = member.launches;
   final gpu = member.gpuBytes;
@@ -1061,15 +1096,11 @@ CheckResult checkFleet(List<FleetMember> members, {int? pinMask}) {
         '${worn.join(', ')} ${worn.length == 1 ? 'is' : 'are'} past the '
             'health threshold ($fleetRecycleLaunches launches or '
             '${megabytes(fleetRecycleGpuBytes)} MB of GPU memory) — `qa pass`, '
-            '`qa fleet pass` and `qa fleet install` recycle it first; by hand: ${[
-          for (final name in worn) '`qa fleet stop $name`, `qa fleet boot $name`',
-        ].join('; ')}',
+            '`qa fleet pass` and `qa fleet install` recycle it first; by hand: ${[for (final name in worn) '`qa fleet stop $name`, `qa fleet boot $name`'].join('; ')}',
       if (headless.isNotEmpty)
         '${headless.join(', ')} ${headless.length == 1 ? 'runs' : 'run'} '
             'headless, which spins a host core while idle — re-boot it '
-            'windowed: ${[
-          for (final name in headless) '`qa fleet stop $name`, `qa fleet boot $name`',
-        ].join('; ')}',
+            'windowed: ${[for (final name in headless) '`qa fleet stop $name`, `qa fleet boot $name`'].join('; ')}',
       if (unpinned.isNotEmpty)
         '`qa fleet boot ${unpinned.join(' ')}` pins a running fleet AVD to '
             'the P-cores (${hexMask(pinMask!)}) without restarting it',
@@ -1099,9 +1130,11 @@ CheckResult? checkEmulatorLaunches(
   return CheckResult(
     name: 'launches',
     status: CheckStatus.warn,
-    detail: '$serial: ${current.label} app launches since its boot — the '
+    detail:
+        '$serial: ${current.label} app launches since its boot — the '
         'quick-boot snapshot and the GPU accounting degrade with every launch',
-    fix: 'the owner\'s hygiene: close the emulator, then `qa boot --avd '
+    fix:
+        'the owner\'s hygiene: close the emulator, then `qa boot --avd '
         '${avd ?? '<its AVD>'} --cold` (`boot` never restarts a running '
         'one) — never a QA agent\'s',
   );
@@ -1210,8 +1243,10 @@ FleetPick pickPassDevices({
     for (final index in wanted) {
       final member = members.where((m) => m.index == index).firstOrNull;
       if (member == null || !member.ready) {
-        refused.add('${fleetName(index)}: not up '
-            '(${member?.stateText ?? 'not created'}) — `qa fleet boot ${fleetName(index)}`');
+        refused.add(
+          '${fleetName(index)}: not up '
+          '(${member?.stateText ?? 'not created'}) — `qa fleet boot ${fleetName(index)}`',
+        );
         continue;
       }
       if (!candidates.contains(member)) candidates.add(member);
@@ -1221,29 +1256,38 @@ FleetPick pickPassDevices({
   for (final member in candidates) {
     final installed = member.installed;
     if (installed == null) {
-      refused.add('${member.name} (${member.serial}): nothing installed — '
-          '`qa fleet install`');
+      refused.add(
+        '${member.name} (${member.serial}): nothing installed — '
+        '`qa fleet install`',
+      );
       continue;
     }
     if (!installed.isQaDriverBuild) {
-      refused.add('${member.name} (${member.serial}): '
-          '${notDriverBuildWarning.replaceFirst('warning: ', '')} — '
-          '`qa fleet install --build`');
+      refused.add(
+        '${member.name} (${member.serial}): '
+        '${notDriverBuildWarning.replaceFirst('warning: ', '')} — '
+        '`qa fleet install --build`',
+      );
       continue;
     }
     if (built == null) {
-      warnings.add('warning: no build/qa/apk.json — cannot tell whether '
-          '${member.name} runs the current build (${_buildName(installed)})');
+      warnings.add(
+        'warning: no build/qa/apk.json — cannot tell whether '
+        '${member.name} runs the current build (${_buildName(installed)})',
+      );
     } else if (!isCurrentInstall(installed, built)) {
-      warnings.add('warning: ${member.name} runs ${_buildName(installed)} '
-          'built ${_stamp(installed.builtAt)}, older than apk.json\'s '
-          '${_buildName(built)} — `qa fleet install` to test the newer one');
+      warnings.add(
+        'warning: ${member.name} runs ${_buildName(installed)} '
+        'built ${_stamp(installed.builtAt)}, older than apk.json\'s '
+        '${_buildName(built)} — `qa fleet install` to test the newer one',
+      );
     }
     picked.add(member);
   }
   String? note;
   if (!shardable && picked.length > 1) {
-    note = '"$suite" says shard=no — its flows share one seed in order, so '
+    note =
+        '"$suite" says shard=no — its flows share one seed in order, so '
         'it runs whole on ${picked.first.name} (${picked.first.serial}) only';
     picked.removeRange(1, picked.length);
   }
@@ -1257,37 +1301,48 @@ FleetPick pickPassDevices({
 
 /// The global options a child `qa` inherits: its device, and the parent's
 /// `--via` and `--verbose`.
-List<String> qaChildGlobals({String? serial, String? via, bool verbose = false}) => [
-      if (serial != null) ...['-d', serial],
-      if (via != null) '--via=$via',
-      if (verbose) '--verbose',
-    ];
+List<String> qaChildGlobals({
+  String? serial,
+  String? via,
+  bool verbose = false,
+}) => [
+  if (serial != null) ...['-d', serial],
+  if (via != null) '--via=$via',
+  if (verbose) '--verbose',
+];
 
 /// The `qa build` a `fleet install --build` runs first, with no device: one
 /// APK serves every guest.
-List<String> fleetBuildChildArgs({String? via, bool verbose = false}) =>
-    [...qaChildGlobals(via: via, verbose: verbose), 'build'];
+List<String> fleetBuildChildArgs({String? via, bool verbose = false}) => [
+  ...qaChildGlobals(via: via, verbose: verbose),
+  'build',
+];
 
 /// One guest's `qa -d <serial> install`, run in parallel with the others.
 List<String> fleetInstallChildArgs(
   String serial, {
   String? via,
   bool verbose = false,
-}) =>
-    [...qaChildGlobals(serial: serial, via: via, verbose: verbose), 'install'];
+}) => [
+  ...qaChildGlobals(serial: serial, via: via, verbose: verbose),
+  'install',
+];
 
 /// The `qa fleet boot <name>` a recycle runs after its stop: the boot path
 /// with its pin, its minimized window and its launch-count reset, and the
 /// [priority] word the guest ran with ([priorityOptionOf]) so a recycle
 /// does not undo the owner's choice.
-List<String> fleetBootChildArgs(String name, {bool verbose = false, String? priority}) =>
-    [
-      ...qaChildGlobals(verbose: verbose),
-      'fleet',
-      'boot',
-      name,
-      if (priority != null) '--priority=$priority',
-    ];
+List<String> fleetBootChildArgs(
+  String name, {
+  bool verbose = false,
+  String? priority,
+}) => [
+  ...qaChildGlobals(verbose: verbose),
+  'fleet',
+  'boot',
+  name,
+  if (priority != null) '--priority=$priority',
+];
 
 /// One shard of a fleet pass: `qa -d <serial> pass <suite> --shard i/n`,
 /// its report also written to [jsonPath] so the parent can merge it
@@ -1304,18 +1359,17 @@ List<String> fleetPassChildArgs({
   bool keepState = false,
   String? via,
   bool verbose = false,
-}) =>
-    [
-      ...qaChildGlobals(serial: serial, via: via, verbose: verbose),
-      'pass',
-      suite,
-      if (shard != null) '--shard=${shard.$1}/${shard.$2}',
-      '--json=$jsonPath',
-      '--no-recycle',
-      if (label != null && label.isNotEmpty) '--label=$label',
-      if (stopOnFail) '--stop-on-fail',
-      if (keepState) '--keep-state',
-    ];
+}) => [
+  ...qaChildGlobals(serial: serial, via: via, verbose: verbose),
+  'pass',
+  suite,
+  if (shard != null) '--shard=${shard.$1}/${shard.$2}',
+  '--json=$jsonPath',
+  '--no-recycle',
+  if (label != null && label.isNotEmpty) '--label=$label',
+  if (stopOnFail) '--stop-on-fail',
+  if (keepState) '--keep-state',
+];
 
 /// The lines of a child pass worth echoing live: each flow's verdict, the
 /// shard's own verdict line, whether it left its device quiet (or why it
@@ -1397,9 +1451,9 @@ Future<ChildOutcome> runQaChild({
   }
   unawaited(process.stdin.close());
   Future<void> pump(Stream<List<int>> stream, bool isError) => stream
-          .transform(const Utf8Decoder(allowMalformed: true))
-          .transform(const LineSplitter())
-          .forEach((line) {
+      .transform(const Utf8Decoder(allowMalformed: true))
+      .transform(const LineSplitter())
+      .forEach((line) {
         log?.writeln(isError ? '! $line' : line);
         onLine(line, isError);
       });
@@ -1491,7 +1545,9 @@ class FleetHost {
     final latest = _sdkFile(['cmdline-tools', 'latest', 'bin', name]);
     if (latest != null) return latest;
     final root = sdkRoot;
-    final tools = root == null ? null : Directory(joinPath(root, ['cmdline-tools']));
+    final tools = root == null
+        ? null
+        : Directory(joinPath(root, ['cmdline-tools']));
     if (tools != null && tools.existsSync()) {
       final versions = tools.listSync().whereType<Directory>().toList()
         ..sort((a, b) => b.path.compareTo(a.path));
@@ -1512,13 +1568,15 @@ class FleetHost {
     if (!images.existsSync()) return const [];
     return [
       for (final api in images.listSync().whereType<Directory>())
-        if (Directory(joinPath(api.path, [fleetImageTag, fleetImageAbi]))
-            .existsSync())
+        if (Directory(
+          joinPath(api.path, [fleetImageTag, fleetImageAbi]),
+        ).existsSync())
           api.uri.pathSegments.where((s) => s.isNotEmpty).last,
     ]..sort();
   }
 
-  String configPath(String avd) => joinPath(avdHome, ['$avd.avd', 'config.ini']);
+  String configPath(String avd) =>
+      joinPath(avdHome, ['$avd.avd', 'config.ini']);
 
   bool isCreated(String avd) =>
       File(joinPath(avdHome, ['$avd.ini'])).existsSync() &&
@@ -1537,21 +1595,23 @@ class FleetHost {
 
   /// The fleet indices that exist, in order.
   List<int> createdIndices() => [
-        for (final name in avdNames())
-          if (fleetIndexOf(name) case final index? when isCreated(name)) index,
-      ]..sort();
+    for (final name in avdNames())
+      if (fleetIndexOf(name) case final index? when isCreated(name)) index,
+  ]..sort();
 
   Future<RunOutcome> _powershell(String script) => runner.run(
-        'powershell.exe',
-        ['-NoProfile', '-NonInteractive', '-Command', script],
-        timeout: const Duration(seconds: 30),
-      );
+    'powershell.exe',
+    ['-NoProfile', '-NonInteractive', '-Command', script],
+    timeout: const Duration(seconds: 30),
+  );
 
-  Future<RunOutcome> _powershellEncoded(String script) => runner.run(
-        'powershell.exe',
-        ['-NoProfile', '-NonInteractive', '-EncodedCommand', encodePowerShell(script)],
-        timeout: const Duration(seconds: 40),
-      );
+  Future<RunOutcome> _powershellEncoded(String script) =>
+      runner.run('powershell.exe', [
+        '-NoProfile',
+        '-NonInteractive',
+        '-EncodedCommand',
+        encodePowerShell(script),
+      ], timeout: const Duration(seconds: 40));
 
   /// Every running qemu; with [windowStates] on Windows, each windowed
   /// one also says whether it is minimized (one more PowerShell call, so
@@ -1560,7 +1620,9 @@ class FleetHost {
     final result = windows
         ? await _powershell(qemuListScript)
         : await runner.run('/bin/ps', ['-axww', '-o', 'pid=,command=']);
-    final found = result.ok ? parseQemuList(result.stdout) : const <QemuProcess>[];
+    final found = result.ok
+        ? parseQemuList(result.stdout)
+        : const <QemuProcess>[];
     if (!windowStates || !windows || found.isEmpty) return found;
     final states = await _powershellEncoded(qemuWindowScript);
     if (!states.ok) return found;
@@ -1591,7 +1653,9 @@ class FleetHost {
     int? mask,
     String? priority,
   }) async {
-    final result = await _powershell(pinScript(pid, mask: mask, priority: priority));
+    final result = await _powershell(
+      pinScript(pid, mask: mask, priority: priority),
+    );
     return result.ok ? parsePinReadback(result.stdout) : null;
   }
 
@@ -1605,8 +1669,10 @@ class FleetHost {
   /// display settings.
   Future<void> keepAwake(String serial) async {
     if (fleetIndexOfSerial(serial) == null) {
-      throw UsageFailure('$serial is not a fleet serial — its display '
-          'settings are left alone');
+      throw UsageFailure(
+        '$serial is not a fleet serial — its display '
+        'settings are left alone',
+      );
     }
     final device = adb.withSerial(serial);
     for (final command in fleetKeepAwakeCommands) {
@@ -1639,29 +1705,34 @@ class FleetHost {
         if (reported != name) {
           heldBy = reported ?? 'an emulator that does not name its AVD';
         } else {
-          final props = await adb
-              .withSerial(serial)
-              .shellLenient(['getprop', 'sys.boot_completed']);
+          final props = await adb.withSerial(serial).shellLenient([
+            'getprop',
+            'sys.boot_completed',
+          ]);
           bootCompleted = props.trim() == '1';
           if (bootCompleted) bootId = await adb.withSerial(serial).bootId();
         }
       }
       final qemu = processes.where((q) => q.avd == name).firstOrNull;
-      members.add(FleetMember(
-        index: index,
-        created: created.contains(index),
-        state: fleetStateOf(
+      members.add(
+        FleetMember(
+          index: index,
           created: created.contains(index),
-          adbState: row?.state,
-          bootCompleted: bootCompleted,
-          qemuAlive: qemu != null,
+          state: fleetStateOf(
+            created: created.contains(index),
+            adbState: row?.state,
+            bootCompleted: bootCompleted,
+            qemuAlive: qemu != null,
+          ),
+          qemu: qemu,
+          installed: ApkRecord.read(paths.installedJsonFor(serial)),
+          heldBy: heldBy,
+          launches: FleetLaunches.read(
+            paths.launchesJsonFor(serial),
+          )?.ofBoot(bootId),
+          bootId: bootId,
         ),
-        qemu: qemu,
-        installed: ApkRecord.read(paths.installedJsonFor(serial)),
-        heldBy: heldBy,
-        launches: FleetLaunches.read(paths.launchesJsonFor(serial))?.ofBoot(bootId),
-        bootId: bootId,
-      ));
+      );
     }
     return members;
   }
@@ -1675,7 +1746,8 @@ class FleetHost {
     if (!result.ok) return members;
     final byPid = parseGpuMemory(result.stdout);
     return [
-      for (final m in members) m.qemu == null ? m : m.withGpu(byPid[m.qemu!.pid]),
+      for (final m in members)
+        m.qemu == null ? m : m.withGpu(byPid[m.qemu!.pid]),
     ];
   }
 
@@ -1714,7 +1786,8 @@ class FleetHost {
     if (package == null) {
       throw DeviceFailure('no system image to create $name from');
     }
-    final avdmanager = avdmanagerPath ??
+    final avdmanager =
+        avdmanagerPath ??
         (throw DeviceFailure(
           'avdmanager not found under ${sdkRoot ?? 'the Android SDK'} '
           '(cmdline-tools/latest/bin) — install the command-line tools',
@@ -1745,17 +1818,26 @@ class FleetHost {
   /// Stops fleet AVD [index] through its console, only after the console
   /// says it runs that AVD, and waits until adb and the process list no
   /// longer show it.
-  Future<String> stop(int index, {Duration timeout = const Duration(seconds: 60)}) async {
+  Future<String> stop(
+    int index, {
+    Duration timeout = const Duration(seconds: 60),
+  }) async {
     final name = fleetName(index);
     final serial = fleetSerial(index);
     final started = DateTime.now();
-    final row = (await adb.devices()).where((d) => d.serial == serial).firstOrNull;
+    final row = (await adb.devices())
+        .where((d) => d.serial == serial)
+        .firstOrNull;
     if (row == null) {
-      final qemu = (await qemuProcesses()).where((q) => q.avd == name).firstOrNull;
+      final qemu = (await qemuProcesses())
+          .where((q) => q.avd == name)
+          .firstOrNull;
       if (qemu != null) {
-        throw DeviceFailure('$name (qemu ${qemu.pid}) is still coming up and '
-            'not on adb yet — stop it once `qa fleet status` shows it, or, '
-            'when it is hung, `qa fleet stop $name --force`');
+        throw DeviceFailure(
+          '$name (qemu ${qemu.pid}) is still coming up and '
+          'not on adb yet — stop it once `qa fleet status` shows it, or, '
+          'when it is hung, `qa fleet stop $name --force`',
+        );
       }
       return 'stopped: $name was not running';
     }
@@ -1779,8 +1861,10 @@ class FleetHost {
       break;
     }
     if (!gone) {
-      throw DeviceFailure('$name was asked to stop but $serial is still '
-          'there after ${timeout.inSeconds} s');
+      throw DeviceFailure(
+        '$name was asked to stop but $serial is still '
+        'there after ${timeout.inSeconds} s',
+      );
     }
     final seconds = DateTime.now().difference(started).inMilliseconds / 1000;
     return 'stopped: $name ($serial) in ${seconds.toStringAsFixed(1)} s';
@@ -1792,12 +1876,19 @@ class FleetHost {
   /// killed — only when adb does not list it as usable, and only after the
   /// process's own command line names this AVD on its fleet port. The one
   /// process kill the fleet does; a guest adb lists goes the console way.
-  Future<String> forceStop(int index, {Duration timeout = const Duration(seconds: 60)}) async {
+  Future<String> forceStop(
+    int index, {
+    Duration timeout = const Duration(seconds: 60),
+  }) async {
     final name = fleetName(index);
     final serial = fleetSerial(index);
-    final row = (await adb.devices()).where((d) => d.serial == serial).firstOrNull;
+    final row = (await adb.devices())
+        .where((d) => d.serial == serial)
+        .firstOrNull;
     if (row != null && row.usable) return stop(index, timeout: timeout);
-    final qemu = (await qemuProcesses()).where((q) => q.avd == name).firstOrNull;
+    final qemu = (await qemuProcesses())
+        .where((q) => q.avd == name)
+        .firstOrNull;
     if (qemu == null) return 'stopped: $name was not running';
     final refusal = forceStopRefusal(qemu, index);
     if (refusal != null) throw DeviceFailure(refusal);
@@ -1806,14 +1897,20 @@ class FleetHost {
       final result = await _powershell(forceStopScript(qemu.pid, name));
       final said = result.stdout.trim();
       if (said == 'mismatch') {
-        throw DeviceFailure('qemu ${qemu.pid} no longer names $name — left running');
+        throw DeviceFailure(
+          'qemu ${qemu.pid} no longer names $name — left running',
+        );
       }
       if (!result.ok || (said != 'killed' && said != 'gone')) {
-        throw DeviceFailure('could not kill qemu ${qemu.pid} of $name: '
-            '${result.combined.isEmpty ? 'exit ${result.exitCode}' : result.combined}');
+        throw DeviceFailure(
+          'could not kill qemu ${qemu.pid} of $name: '
+          '${result.combined.isEmpty ? 'exit ${result.exitCode}' : result.combined}',
+        );
       }
     } else {
-      final again = (await qemuProcesses()).where((q) => q.pid == qemu.pid).firstOrNull;
+      final again = (await qemuProcesses())
+          .where((q) => q.pid == qemu.pid)
+          .firstOrNull;
       if (again == null) return 'stopped: $name was not running';
       final stillRefused = forceStopRefusal(again, index);
       if (stillRefused != null) throw DeviceFailure(stillRefused);
@@ -1822,13 +1919,16 @@ class FleetHost {
     final deadline = started.add(timeout);
     while (DateTime.now().isBefore(deadline)) {
       if (!(await qemuProcesses()).any((q) => q.avd == name)) {
-        final seconds = DateTime.now().difference(started).inMilliseconds / 1000;
+        final seconds =
+            DateTime.now().difference(started).inMilliseconds / 1000;
         return 'stopped: $name (qemu ${qemu.pid} killed, it was not on adb) '
             'in ${seconds.toStringAsFixed(1)} s';
       }
       await Future<void>.delayed(pollEvery);
     }
-    throw DeviceFailure('qemu ${qemu.pid} of $name was killed but is still '
-        'listed after ${timeout.inSeconds} s');
+    throw DeviceFailure(
+      'qemu ${qemu.pid} of $name was killed but is still '
+      'listed after ${timeout.inSeconds} s',
+    );
   }
 }

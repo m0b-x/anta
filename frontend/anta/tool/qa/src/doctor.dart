@@ -16,9 +16,9 @@ class CheckResult {
   });
 
   const CheckResult.ok(this.name, this.detail)
-      : status = CheckStatus.ok,
-        fix = null,
-        fixVerb = null;
+    : status = CheckStatus.ok,
+      fix = null,
+      fixVerb = null;
 
   final String name;
   final CheckStatus status;
@@ -31,10 +31,10 @@ class CheckResult {
   final DoctorFix? fixVerb;
 
   String get label => switch (status) {
-        CheckStatus.ok => 'ok  ',
-        CheckStatus.warn => 'warn',
-        CheckStatus.fail => 'FAIL',
-      };
+    CheckStatus.ok => 'ok  ',
+    CheckStatus.warn => 'warn',
+    CheckStatus.fail => 'FAIL',
+  };
 
   String describe() {
     final line = '$label  ${name.padRight(22)}  $detail';
@@ -42,11 +42,11 @@ class CheckResult {
   }
 
   Map<String, Object?> toJson() => {
-        'check': name,
-        'status': status.name,
-        'detail': detail,
-        'fix': fix,
-      };
+    'check': name,
+    'status': status.name,
+    'detail': detail,
+    'fix': fix,
+  };
 }
 
 /// Repairs `doctor --fix` is allowed to attempt.
@@ -125,7 +125,8 @@ CheckResult checkBootProps({
   return CheckResult(
     name: 'boot',
     status: CheckStatus.fail,
-    detail: 'boot_completed=${bootCompleted.trim().isEmpty ? '?' : bootCompleted.trim()} '
+    detail:
+        'boot_completed=${bootCompleted.trim().isEmpty ? '?' : bootCompleted.trim()} '
         'provisioned=${provisioned.trim().isEmpty ? '?' : provisioned.trim()}',
     fix: 'the guest is still coming up — wait, or `qa boot`',
   );
@@ -141,7 +142,8 @@ CheckResult checkAwake(DeviceProbe probe) {
   return CheckResult(
     name: 'awake',
     status: CheckStatus.fail,
-    detail: 'awake=${DeviceProbe.flag(probe.awake, 'yes', 'no')} '
+    detail:
+        'awake=${DeviceProbe.flag(probe.awake, 'yes', 'no')} '
         'locked=${DeviceProbe.flag(probe.locked, 'yes', 'no')}',
     fix: 'run `qa wake`',
     fixVerb: DoctorFix.wake,
@@ -219,17 +221,23 @@ CheckResult checkAppRunning(DeviceProbe probe, String packageId) {
         fix: 'run `qa launch` to bring it back to the front',
       );
     }
-    return CheckResult.ok('app running', 'pid ${probe.appPid}, lifecycle resumed');
+    return CheckResult.ok(
+      'app running',
+      'pid ${probe.appPid}, lifecycle resumed',
+    );
   }
   final foreground = probe.foregroundPackage;
-  if (probe.resumedActivity == null && probe.awake != null && foreground == null) {
+  if (probe.resumedActivity == null &&
+      probe.awake != null &&
+      foreground == null) {
     return CheckResult.ok('app running', 'pid ${probe.appPid}');
   }
   if (foreground != packageId) {
     return CheckResult(
       name: 'app running',
       status: CheckStatus.warn,
-      detail: 'pid ${probe.appPid}, but the foreground is '
+      detail:
+          'pid ${probe.appPid}, but the foreground is '
           '${foreground ?? 'unknown'}',
       fix: 'run `qa launch` to bring it back to the front',
     );
@@ -264,7 +272,8 @@ CheckResult checkUiautomator({
     return CheckResult(
       name: 'uiautomator',
       status: CheckStatus.warn,
-      detail: 'dump ok in ${took.inMilliseconds} ms, but a uiautomator '
+      detail:
+          'dump ok in ${took.inMilliseconds} ms, but a uiautomator '
           'process is still registered ($stale)',
       fix: 'kill the leftover: `qa doctor --fix`',
       fixVerb: DoctorFix.killUiautomator,
@@ -291,7 +300,8 @@ CheckResult checkDataSpace(String dfOutput) {
     name: '/data space',
     status: CheckStatus.warn,
     detail: '$freeMb MB free',
-    fix: 'the AVD data partition cannot grow in place — wipe and restore, see '
+    fix:
+        'the AVD data partition cannot grow in place — wipe and restore, see '
         'the storage note in the qa-emulator skill',
   );
 }
@@ -309,7 +319,8 @@ CheckResult checkForwards(String serial, int count) {
     name: 'adb forwards',
     status: CheckStatus.warn,
     detail: detail,
-    fix: 'a `qa pass` on $serial removes the stale ones when it leaves the '
+    fix:
+        'a `qa pass` on $serial removes the stale ones when it leaves the '
         'device quiet',
   );
 }
@@ -451,7 +462,8 @@ CheckResult checkAgent({
       name: 'agent',
       status: CheckStatus.warn,
       detail: 'no VM service URI recorded',
-      fix: 'run `qa run` or `qa relaunch` — every verb on this platform goes '
+      fix:
+          'run `qa run` or `qa relaunch` — every verb on this platform goes '
           'through the agent',
     );
   }
@@ -476,7 +488,8 @@ CheckResult checkAgent({
       name: 'agent',
       status: CheckStatus.warn,
       detail: 'answered, and this QA build can reach Firebase: $summary',
-      fix: 'it acts as whoever is signed in on this install — rebuild '
+      fix:
+          'it acts as whoever is signed in on this install — rebuild '
           'without ANTA_QA_CLOUD unless sync itself is under test',
     );
   }
@@ -484,7 +497,8 @@ CheckResult checkAgent({
     return CheckResult(
       name: 'agent',
       status: CheckStatus.warn,
-      detail: 'answered, but the installed agent is v$protocolVersion and this '
+      detail:
+          'answered, but the installed agent is v$protocolVersion and this '
           'tool needs v$agentProtocolVersion (off-screen rows are not '
           'revealed): $summary',
       fix: '`qa build` then `qa install`',
@@ -505,7 +519,8 @@ CheckResult checkPendingMarkers(List<String> pending) {
     name: 'markers',
     status: CheckStatus.warn,
     detail: '${pending.join(', ')} pending in the documents directory',
-    fix: 'the next QA launch applies them (a non-QA build ignores them); '
+    fix:
+        'the next QA launch applies them (a non-QA build ignores them); '
         '`qa relaunch` now, or delete them if they are stale',
   );
 }

@@ -28,8 +28,9 @@ class UiRect {
   String toString() => '[$left,$top][$right,$bottom]';
 
   static UiRect? tryParse(String raw) {
-    final match =
-        RegExp(r'\[(-?\d+),(-?\d+)\]\[(-?\d+),(-?\d+)\]').firstMatch(raw);
+    final match = RegExp(
+      r'\[(-?\d+),(-?\d+)\]\[(-?\d+),(-?\d+)\]',
+    ).firstMatch(raw);
     if (match == null) return null;
     return UiRect(
       int.parse(match.group(1)!),
@@ -129,9 +130,8 @@ class UiNode {
   }
 
   /// The best human label for this node: content description, then text.
-  String get label => contentDesc.isNotEmpty
-      ? contentDesc
-      : (text.isNotEmpty ? text : shortId);
+  String get label =>
+      contentDesc.isNotEmpty ? contentDesc : (text.isNotEmpty ? text : shortId);
 
   bool get hasLabel =>
       contentDesc.isNotEmpty || text.isNotEmpty || resourceId.isNotEmpty;
@@ -168,28 +168,28 @@ class UiNode {
   }
 
   Map<String, Object?> toJson() => {
-        'index': index,
-        'parent': parentIndex,
-        'depth': depth,
-        'class': className,
-        'text': text,
-        'desc': contentDesc,
-        if (hint.isNotEmpty) 'hint': hint,
-        'id': resourceId,
-        'package': packageName,
-        'bounds': [bounds.left, bounds.top, bounds.right, bounds.bottom],
-        'centre': [bounds.centreX, bounds.centreY],
-        'clickable': clickable,
-        'longClickable': longClickable,
-        'enabled': enabled,
-        'focused': focused,
-        'checked': checked,
-        'selected': selected,
-        'scrollable': scrollable,
-        'hidden': hidden,
-        'offscreen': offscreen,
-        if (semanticsId != null) 'semanticsId': semanticsId,
-      };
+    'index': index,
+    'parent': parentIndex,
+    'depth': depth,
+    'class': className,
+    'text': text,
+    'desc': contentDesc,
+    if (hint.isNotEmpty) 'hint': hint,
+    'id': resourceId,
+    'package': packageName,
+    'bounds': [bounds.left, bounds.top, bounds.right, bounds.bottom],
+    'centre': [bounds.centreX, bounds.centreY],
+    'clickable': clickable,
+    'longClickable': longClickable,
+    'enabled': enabled,
+    'focused': focused,
+    'checked': checked,
+    'selected': selected,
+    'scrollable': scrollable,
+    'hidden': hidden,
+    'offscreen': offscreen,
+    if (semanticsId != null) 'semanticsId': semanticsId,
+  };
 }
 
 /// A parsed, flattened accessibility hierarchy.
@@ -354,26 +354,28 @@ class UiTree {
         final bounds = UiRect.tryParse(_attr(element, 'bounds'));
         if (bounds != null && !bounds.isEmpty) {
           myIndex = counter++;
-          nodes.add(UiNode(
-            index: myIndex,
-            parentIndex: parentIndex,
-            depth: depth,
-            className: _attr(element, 'class'),
-            text: _attr(element, 'text'),
-            contentDesc: _attr(element, 'content-desc'),
-            resourceId: _attr(element, 'resource-id'),
-            packageName: _attr(element, 'package'),
-            bounds: bounds,
-            clickable: _flag(element, 'clickable'),
-            longClickable: _flag(element, 'long-clickable'),
-            enabled: _flag(element, 'enabled', fallback: true),
-            focused: _flag(element, 'focused'),
-            focusable: _flag(element, 'focusable'),
-            checked: _flag(element, 'checked'),
-            checkable: _flag(element, 'checkable'),
-            selected: _flag(element, 'selected'),
-            scrollable: _flag(element, 'scrollable'),
-          ));
+          nodes.add(
+            UiNode(
+              index: myIndex,
+              parentIndex: parentIndex,
+              depth: depth,
+              className: _attr(element, 'class'),
+              text: _attr(element, 'text'),
+              contentDesc: _attr(element, 'content-desc'),
+              resourceId: _attr(element, 'resource-id'),
+              packageName: _attr(element, 'package'),
+              bounds: bounds,
+              clickable: _flag(element, 'clickable'),
+              longClickable: _flag(element, 'long-clickable'),
+              enabled: _flag(element, 'enabled', fallback: true),
+              focused: _flag(element, 'focused'),
+              focusable: _flag(element, 'focusable'),
+              checked: _flag(element, 'checked'),
+              checkable: _flag(element, 'checkable'),
+              selected: _flag(element, 'selected'),
+              scrollable: _flag(element, 'scrollable'),
+            ),
+          );
           childDepth = depth + 1;
         }
       }
@@ -404,7 +406,10 @@ class UiTree {
   }
 
   /// The same, from a reply that is already decoded.
-  static UiTree fromAgentMap(Map<dynamic, dynamic> decoded, {required String appPackage}) {
+  static UiTree fromAgentMap(
+    Map<dynamic, dynamic> decoded, {
+    required String appPackage,
+  }) {
     if (decoded[AgentKeys.nodes] is! List) {
       throw DeviceFailure('the agent dump has no nodes');
     }
@@ -429,30 +434,32 @@ class UiTree {
           : (label.isEmpty ? tooltip : '$label\n$tooltip');
       final clickable = flags.contains(AgentFlags.click);
       final textField = flags.contains(AgentFlags.textField);
-      nodes.add(UiNode(
-        index: (entry[AgentNodeKeys.index] as num).toInt(),
-        parentIndex: (entry[AgentNodeKeys.parent] as num? ?? -1).toInt(),
-        depth: (entry[AgentNodeKeys.depth] as num? ?? 0).toInt(),
-        className: classForAgentFlags(flags),
-        text: '${entry[AgentNodeKeys.value] ?? ''}',
-        contentDesc: contentDesc,
-        resourceId: '${entry[AgentNodeKeys.identifier] ?? ''}',
-        packageName: appPackage,
-        bounds: bounds,
-        clickable: clickable,
-        longClickable: flags.contains(AgentFlags.long),
-        enabled: !flags.contains(AgentFlags.disabled),
-        focused: flags.contains(AgentFlags.focused),
-        focusable: clickable || textField,
-        checked: flags.contains(AgentFlags.checked),
-        checkable: flags.contains(AgentFlags.checkable),
-        selected: flags.contains(AgentFlags.selected),
-        scrollable: flags.contains(AgentFlags.scroll),
-        hidden: flags.contains(AgentFlags.hidden),
-        offscreen: flags.contains(AgentFlags.offscreen),
-        hint: '${entry[AgentNodeKeys.hint] ?? ''}',
-        semanticsId: (entry[AgentNodeKeys.semanticsId] as num?)?.toInt(),
-      ));
+      nodes.add(
+        UiNode(
+          index: (entry[AgentNodeKeys.index] as num).toInt(),
+          parentIndex: (entry[AgentNodeKeys.parent] as num? ?? -1).toInt(),
+          depth: (entry[AgentNodeKeys.depth] as num? ?? 0).toInt(),
+          className: classForAgentFlags(flags),
+          text: '${entry[AgentNodeKeys.value] ?? ''}',
+          contentDesc: contentDesc,
+          resourceId: '${entry[AgentNodeKeys.identifier] ?? ''}',
+          packageName: appPackage,
+          bounds: bounds,
+          clickable: clickable,
+          longClickable: flags.contains(AgentFlags.long),
+          enabled: !flags.contains(AgentFlags.disabled),
+          focused: flags.contains(AgentFlags.focused),
+          focusable: clickable || textField,
+          checked: flags.contains(AgentFlags.checked),
+          checkable: flags.contains(AgentFlags.checkable),
+          selected: flags.contains(AgentFlags.selected),
+          scrollable: flags.contains(AgentFlags.scroll),
+          hidden: flags.contains(AgentFlags.hidden),
+          offscreen: flags.contains(AgentFlags.offscreen),
+          hint: '${entry[AgentNodeKeys.hint] ?? ''}',
+          semanticsId: (entry[AgentNodeKeys.semanticsId] as num?)?.toInt(),
+        ),
+      );
     }
     return UiTree(nodes, source: UiTreeSource.agent);
   }

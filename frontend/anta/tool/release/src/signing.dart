@@ -47,15 +47,16 @@ class SigningStatus {
 
   /// One line saying what a release build would be signed with, and why.
   String describe() => switch (state) {
-        SigningState.ready =>
-          'release keystore $keystorePath (alias $keyAlias)',
-        SigningState.noProperties => '$keyPropertiesRelative is missing, so '
-            'Gradle would sign the "release" APK with the debug key',
-        SigningState.incompleteProperties =>
-          '$keyPropertiesRelative lacks ${missingKeys.join(', ')}',
-        SigningState.keystoreMissing => '$keyPropertiesRelative points at '
-            '$keystorePath, which does not exist',
-      };
+    SigningState.ready => 'release keystore $keystorePath (alias $keyAlias)',
+    SigningState.noProperties =>
+      '$keyPropertiesRelative is missing, so '
+          'Gradle would sign the "release" APK with the debug key',
+    SigningState.incompleteProperties =>
+      '$keyPropertiesRelative lacks ${missingKeys.join(', ')}',
+    SigningState.keystoreMissing =>
+      '$keyPropertiesRelative points at '
+          '$keystorePath, which does not exist',
+  };
 }
 
 /// Parses the `key=value` subset of Java properties that key.properties uses.
@@ -66,8 +67,9 @@ Map<String, String> parseKeyProperties(String text) {
     if (line.isEmpty || line.startsWith('#') || line.startsWith('!')) continue;
     final separator = line.indexOf(RegExp('[=:]'));
     if (separator <= 0) continue;
-    map[line.substring(0, separator).trim()] =
-        line.substring(separator + 1).trim();
+    map[line.substring(0, separator).trim()] = line
+        .substring(separator + 1)
+        .trim();
   }
   return map;
 }
@@ -118,8 +120,9 @@ SigningStatus signingStatus({
 SigningStatus readSigningStatus(String projectRoot) {
   final properties = File(joinPath(projectRoot, ['android', 'key.properties']));
   return signingStatus(
-    propertiesText:
-        properties.existsSync() ? properties.readAsStringSync() : null,
+    propertiesText: properties.existsSync()
+        ? properties.readAsStringSync()
+        : null,
     appModuleDir: joinPath(projectRoot, ['android', 'app']),
     exists: (path) => File(path).existsSync(),
   );

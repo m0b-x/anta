@@ -91,7 +91,8 @@ class SuiteManifest {
         case 'fixture':
           fixture = value;
         case 'reseed':
-          reseed = ReseedMode.values.where((m) => m.name == value).firstOrNull ??
+          reseed =
+              ReseedMode.values.where((m) => m.name == value).firstOrNull ??
               (throw UsageFailure(
                 '$where: reseed must be flow, suite or none (got "$value")',
               ));
@@ -100,8 +101,8 @@ class SuiteManifest {
             'yes' => true,
             'no' => false,
             _ => throw UsageFailure(
-                '$where: shard must be yes or no (got "$value")',
-              ),
+              '$where: shard must be yes or no (got "$value")',
+            ),
           };
         case 'settings':
           try {
@@ -154,8 +155,14 @@ String flowNameOf(String fileName) => fileName.endsWith('.txt')
   // tryParse: a digit run past 64 bits is a typo to refuse, not a crash.
   final index = match == null ? null : int.tryParse(match.group(1)!);
   final count = match == null ? null : int.tryParse(match.group(2)!);
-  if (index == null || count == null || count < 1 || index < 1 || index > count) {
-    throw UsageFailure('--shard takes i/n with 1 <= i <= n (got "$raw"), e.g. --shard 2/3');
+  if (index == null ||
+      count == null ||
+      count < 1 ||
+      index < 1 ||
+      index > count) {
+    throw UsageFailure(
+      '--shard takes i/n with 1 <= i <= n (got "$raw"), e.g. --shard 2/3',
+    );
   }
   return (index, count);
 }
@@ -164,9 +171,9 @@ String flowNameOf(String fileName) => fileName.endsWith('.txt')
 /// position modulo [count] is `index - 1`, so shards interleave and each
 /// gets a spread of short and long flows rather than one block.
 List<T> shardOf<T>(List<T> flows, int index, int count) => [
-      for (var i = 0; i < flows.length; i++)
-        if (i % count == index - 1) flows[i],
-    ];
+  for (var i = 0; i < flows.length; i++)
+    if (i % count == index - 1) flows[i],
+];
 
 /// Picks the flows a pass runs out of [available] (flow names, any order):
 /// all of them, or those [wanted] names, sorted by name, then the shard.

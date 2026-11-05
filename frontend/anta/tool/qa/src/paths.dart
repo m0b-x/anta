@@ -29,6 +29,7 @@ class QaPaths {
       _join(buildQa, ['dtd_${safeId(deviceId)}.txt']);
   String vmTxtFor(String deviceId) =>
       _join(buildQa, ['vm_${safeId(deviceId)}.txt']);
+
   /// The dump `#N` targets resolve against, one per device so two `qa`
   /// processes on two devices never read each other's tree.
   String lastDumpFor(String deviceId) =>
@@ -48,9 +49,12 @@ class QaPaths {
 
   /// The emulator's own files, per AVD when its name is known, so two
   /// emulators booted by this tool keep their logs and pids apart.
-  String emulatorLogFor(String? avd) => _join(buildQa, ['${_emulatorBase(avd)}.log']);
-  String emulatorErrFor(String? avd) => _join(buildQa, ['${_emulatorBase(avd)}.err']);
-  String emulatorPidFor(String? avd) => _join(buildQa, ['${_emulatorBase(avd)}.pid']);
+  String emulatorLogFor(String? avd) =>
+      _join(buildQa, ['${_emulatorBase(avd)}.log']);
+  String emulatorErrFor(String? avd) =>
+      _join(buildQa, ['${_emulatorBase(avd)}.err']);
+  String emulatorPidFor(String? avd) =>
+      _join(buildQa, ['${_emulatorBase(avd)}.pid']);
 
   static String _emulatorBase(String? avd) =>
       avd == null || avd.isEmpty ? 'emulator' : 'emulator_${safeId(avd)}';
@@ -88,14 +92,16 @@ class QaPaths {
       _join(buildQa, ['launches_${safeId(deviceId)}.json']);
 
   /// The APK `flutter build apk --debug` writes.
-  String get debugApk => _join(
-        projectRoot,
-        ['build', 'app', 'outputs', 'flutter-apk', 'app-debug.apk'],
-      );
+  String get debugApk => _join(projectRoot, [
+    'build',
+    'app',
+    'outputs',
+    'flutter-apk',
+    'app-debug.apk',
+  ]);
 
   /// Compiled tool, and the two names the in-place self-rebuild swaps through.
-  String get qaExe =>
-      _join(buildQa, [Platform.isWindows ? 'qa.exe' : 'qa']);
+  String get qaExe => _join(buildQa, [Platform.isWindows ? 'qa.exe' : 'qa']);
   String get qaExeNew => '$qaExe.new';
   String get rebuildLock => _join(buildQa, ['rebuild.lock']);
   String get qaExeOld => '$qaExe.old';
@@ -105,14 +111,20 @@ class QaPaths {
 
   /// [id] made safe for a file name: a serial with a colon (`host:5555`)
   /// still gives one flat name.
-  static String safeId(String id) => id.replaceAll(RegExp(r'[^A-Za-z0-9_.-]+'), '_');
+  static String safeId(String id) =>
+      id.replaceAll(RegExp(r'[^A-Za-z0-9_.-]+'), '_');
 
-  String get macosAppInfo => _join(projectRoot, ['macos', 'Runner', 'Configs', 'AppInfo.xcconfig']);
+  String get macosAppInfo =>
+      _join(projectRoot, ['macos', 'Runner', 'Configs', 'AppInfo.xcconfig']);
 
-  String macosBundle(String productName) => _join(
-        projectRoot,
-        ['build', 'macos', 'Build', 'Products', 'Debug', '$productName.app'],
-      );
+  String macosBundle(String productName) => _join(projectRoot, [
+    'build',
+    'macos',
+    'Build',
+    'Products',
+    'Debug',
+    '$productName.app',
+  ]);
 
   Directory ensureBuildQa() => Directory(buildQa)..createSync(recursive: true);
 

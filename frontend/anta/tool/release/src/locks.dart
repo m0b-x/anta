@@ -30,20 +30,26 @@ Future<List<String>> releaseBuildLocks({
 }) async {
   final onWindows = windows ?? Platform.isWindows;
   final notes = <String>[];
-  final wrapper = File(joinPath(
-    projectRoot,
-    ['android', 'gradle', 'wrapper', 'gradle-wrapper.properties'],
-  ));
-  final version =
-      wrapper.existsSync() ? wrapperVersion(wrapper.readAsStringSync()) : null;
+  final wrapper = File(
+    joinPath(projectRoot, [
+      'android',
+      'gradle',
+      'wrapper',
+      'gradle-wrapper.properties',
+    ]),
+  );
+  final version = wrapper.existsSync()
+      ? wrapperVersion(wrapper.readAsStringSync())
+      : null;
   final daemons = await listGradleDaemons(runner, windows: onWindows);
   final targets = staleDaemons(
     daemons,
     keepVersion: scope == DaemonScope.all ? null : version,
   );
   if (targets.isNotEmpty) {
-    final stopped =
-        kill == null ? stopDaemons(targets) : stopDaemons(targets, kill: kill);
+    final stopped = kill == null
+        ? stopDaemons(targets)
+        : stopDaemons(targets, kill: kill);
     final why = scope == DaemonScope.all
         ? 'before the clean build'
         : 'not running Gradle ${version ?? '?'}';
@@ -58,7 +64,8 @@ Future<List<String>> releaseBuildLocks({
       runner,
       close: true,
     );
-    if (closed > 0) notes.add('closed $closed Explorer window(s) under build\\');
+    if (closed > 0)
+      notes.add('closed $closed Explorer window(s) under build\\');
   }
   return notes;
 }
@@ -70,16 +77,12 @@ Future<int> explorerWindowsUnder(
   ProcessRunner runner, {
   required bool close,
 }) async {
-  final result = await runner.run(
-    'powershell.exe',
-    [
-      '-NoProfile',
-      '-NonInteractive',
-      '-Command',
-      explorerScript(directory, close: close),
-    ],
-    timeout: const Duration(seconds: 40),
-  );
+  final result = await runner.run('powershell.exe', [
+    '-NoProfile',
+    '-NonInteractive',
+    '-Command',
+    explorerScript(directory, close: close),
+  ], timeout: const Duration(seconds: 40));
   return result.ok ? int.tryParse(result.stdout.trim()) ?? 0 : 0;
 }
 

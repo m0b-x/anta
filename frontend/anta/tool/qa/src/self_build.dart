@@ -92,8 +92,7 @@ String findDart({Map<String, String>? environment}) {
   }
   final flutterBin = _flutterBinOnPath(env, separator);
   if (flutterBin != null) {
-    final candidate =
-        joinPath(flutterBin, ['cache', 'dart-sdk', 'bin', name]);
+    final candidate = joinPath(flutterBin, ['cache', 'dart-sdk', 'bin', name]);
     if (File(candidate).existsSync()) return candidate;
   }
   throw DeviceFailure(
@@ -209,8 +208,7 @@ Future<String?> refreshQaExe({
     stderr.writeln(skipped);
     return skipped;
   }
-  final message =
-      'qa: sources changed since qa.exe was built — rebuilding…';
+  final message = 'qa: sources changed since qa.exe was built — rebuilding…';
   stderr.writeln(message);
   try {
     await compileQaExe(paths: paths, runner: runner, output: paths.qaExeNew);

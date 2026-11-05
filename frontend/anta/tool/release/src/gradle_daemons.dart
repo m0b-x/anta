@@ -23,8 +23,8 @@ class GradleDaemon {
 
 /// The Gradle version `gradle-wrapper.properties` pins, or null.
 String? wrapperVersion(String wrapperPropertiesText) => RegExp(
-      r'distributionUrl=.*?gradle-([0-9][0-9A-Za-z.\-]*?)-(?:all|bin)\.zip',
-    ).firstMatch(wrapperPropertiesText)?.group(1);
+  r'distributionUrl=.*?gradle-([0-9][0-9A-Za-z.\-]*?)-(?:all|bin)\.zip',
+).firstMatch(wrapperPropertiesText)?.group(1);
 
 /// Reads `<pid> <command line>` rows, keeping only Gradle daemons.
 List<GradleDaemon> parseDaemonRows(String output) {
@@ -49,10 +49,9 @@ List<GradleDaemon> parseDaemonRows(String output) {
 List<GradleDaemon> staleDaemons(
   List<GradleDaemon> daemons, {
   required String? keepVersion,
-}) =>
-    keepVersion == null
-        ? daemons
-        : daemons.where((d) => !d.runsVersion(keepVersion)).toList();
+}) => keepVersion == null
+    ? daemons
+    : daemons.where((d) => !d.runsVersion(keepVersion)).toList();
 
 /// The command that lists Gradle daemon JVMs with their command lines.
 RunRequest daemonListingCommand({required bool windows}) => windows
@@ -64,7 +63,8 @@ RunRequest daemonListingCommand({required bool windows}) => windows
       ])
     : const RunRequest('ps', ['-eo', 'pid=,command=']);
 
-const String _powershellListing = 'Get-CimInstance Win32_Process | '
+const String _powershellListing =
+    'Get-CimInstance Win32_Process | '
     "Where-Object { \$_.Name -eq 'java.exe' -and "
     "\$_.CommandLine -like '*GradleDaemon*' } | "
     'ForEach-Object { \$_.ProcessId.ToString() + [char]9 + \$_.CommandLine }';
@@ -86,10 +86,9 @@ Future<List<GradleDaemon>> listGradleDaemons(
 List<int> stopDaemons(
   Iterable<GradleDaemon> daemons, {
   bool Function(int pid) kill = _terminate,
-}) =>
-    [
-      for (final daemon in daemons)
-        if (kill(daemon.pid)) daemon.pid,
-    ];
+}) => [
+  for (final daemon in daemons)
+    if (kill(daemon.pid)) daemon.pid,
+];
 
 bool _terminate(int pid) => Process.killPid(pid, ProcessSignal.sigterm);

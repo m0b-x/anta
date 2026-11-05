@@ -37,8 +37,8 @@ List<List<String>> markerPushCommands({
 
 /// The `adb` argument vector that drops the empty `qa_reset` marker.
 List<List<String>> resetMarkerCommands({String packageId = antaPackage}) => [
-      ['shell', 'run-as', packageId, 'touch', '$antaDocsDir/$resetMarker'],
-    ];
+  ['shell', 'run-as', packageId, 'touch', '$antaDocsDir/$resetMarker'],
+];
 
 Future<void> applyCommands(Adb adb, List<List<String>> commands) async {
   for (final args in commands) {
@@ -77,9 +77,14 @@ Future<void> pushSeed(
 
 /// Drops the reset marker straight into a documents directory on the host
 /// filesystem — the iOS simulator's data container, or the macOS sandbox.
-Future<void> dropResetMarkerAt(String documentsDir, {bool mustExist = false}) async {
+Future<void> dropResetMarkerAt(
+  String documentsDir, {
+  bool mustExist = false,
+}) async {
   final dir = await _markerDirectory(documentsDir, mustExist: mustExist);
-  await File('${dir.path}${Platform.pathSeparator}$resetMarker').writeAsBytes(const []);
+  await File(
+    '${dir.path}${Platform.pathSeparator}$resetMarker',
+  ).writeAsBytes(const []);
 }
 
 /// Copies a seed fixture into a documents directory on the host filesystem.
@@ -96,7 +101,10 @@ Future<void> pushSeedTo(
   await file.copy('${dir.path}${Platform.pathSeparator}$seedMarker');
 }
 
-Future<Directory> _markerDirectory(String path, {required bool mustExist}) async {
+Future<Directory> _markerDirectory(
+  String path, {
+  required bool mustExist,
+}) async {
   final dir = Directory(path);
   if (await dir.exists()) return dir;
   if (mustExist || !await dir.parent.exists()) {
@@ -110,6 +118,6 @@ Future<Directory> _markerDirectory(String path, {required bool mustExist}) async
 
 /// Which marker files are waiting in a documents directory on the host.
 List<String> pendingMarkersAt(String documentsDir) => [
-      for (final name in const [resetMarker, seedMarker])
-        if (File('$documentsDir${Platform.pathSeparator}$name').existsSync()) name,
-    ];
+  for (final name in const [resetMarker, seedMarker])
+    if (File('$documentsDir${Platform.pathSeparator}$name').existsSync()) name,
+];

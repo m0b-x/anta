@@ -17,7 +17,9 @@ String? parseXcconfigValue(String text, String key) {
   for (final raw in text.split('\n')) {
     final line = raw.trim();
     if (line.startsWith('//') || !line.startsWith(key)) continue;
-    final match = RegExp('^${RegExp.escape(key)}\\s*=\\s*(.*)\$').firstMatch(line);
+    final match = RegExp(
+      '^${RegExp.escape(key)}\\s*=\\s*(.*)\$',
+    ).firstMatch(line);
     if (match != null) return match.group(1)!.trim();
   }
   return null;
@@ -41,13 +43,13 @@ List<int> parsePsPids(String output, String executable) {
 
 /// The default sandbox container documents folder for a bundle id.
 String macosContainerDocuments(String home, String bundleId) => [
-      home,
-      'Library',
-      'Containers',
-      bundleId,
-      'Data',
-      'Documents',
-    ].join(Platform.pathSeparator);
+  home,
+  'Library',
+  'Containers',
+  bundleId,
+  'Data',
+  'Documents',
+].join(Platform.pathSeparator);
 
 /// The desktop app: a host process, so the tool starts it, signals it and
 /// reads its stdout directly; screenshots and input come from the agent.
@@ -71,7 +73,9 @@ class MacosDevice implements Device {
     return MacosDevice(
       paths: paths,
       runner: runner,
-      productName: name == null || name.isEmpty ? macosDefaultProductName : name,
+      productName: name == null || name.isEmpty
+          ? macosDefaultProductName
+          : name,
     );
   }
 
@@ -103,18 +107,21 @@ class MacosDevice implements Device {
 
   String get bundlePath => paths.macosBundle(productName);
 
-  String get executablePath =>
-      [bundlePath, 'Contents', 'MacOS', productName].join(Platform.pathSeparator);
+  String get executablePath => [
+    bundlePath,
+    'Contents',
+    'MacOS',
+    productName,
+  ].join(Platform.pathSeparator);
 
   @override
   Future<bool> isInstalled() async => File(executablePath).existsSync();
 
   Future<List<int>> appPids() async {
-    final result = await runner.run(
-      '/bin/ps',
-      ['-axo', 'pid=,comm='],
-      timeout: const Duration(seconds: 15),
-    );
+    final result = await runner.run('/bin/ps', [
+      '-axo',
+      'pid=,comm=',
+    ], timeout: const Duration(seconds: 15));
     return parsePsPids(result.stdout, executablePath);
   }
 
@@ -129,7 +136,10 @@ class MacosDevice implements Device {
     final pids = await appPids();
     if (pids.isEmpty) return;
     for (final pid in pids) {
-      await runner.run('/bin/kill', ['-TERM', '$pid'], timeout: const Duration(seconds: 10));
+      await runner.run('/bin/kill', [
+        '-TERM',
+        '$pid',
+      ], timeout: const Duration(seconds: 10));
     }
     final gone = await pollUntil<bool>(
       timeout: const Duration(seconds: 4),
@@ -143,12 +153,18 @@ class MacosDevice implements Device {
     );
     if (gone == true) return;
     for (final pid in pids) {
-      await runner.run('/bin/kill', ['-KILL', '$pid'], timeout: const Duration(seconds: 10));
+      await runner.run('/bin/kill', [
+        '-KILL',
+        '$pid',
+      ], timeout: const Duration(seconds: 10));
     }
   }
 
   @override
-  Future<AppLaunch> launchApp({required int vmServicePort, int? previousVmServicePort}) async {
+  Future<AppLaunch> launchApp({
+    required int vmServicePort,
+    int? previousVmServicePort,
+  }) async {
     if (!await isInstalled()) {
       throw DeviceFailure(
         '$bundlePath is not built — $installHint (a `flutter run -d macos` '
@@ -176,14 +192,17 @@ class MacosDevice implements Device {
     return AppLaunch(
       pid: pid,
       vmServiceUri: vmServiceHttpUri('127.0.0.1', vmServicePort),
-      description: '$executablePath (vm-service-port $vmServicePort, log '
+      description:
+          '$executablePath (vm-service-port $vmServicePort, log '
           '${paths.appLog})',
     );
   }
 
   @override
   Future<void> bringToFront() async {
-    await runner.run('/usr/bin/open', [bundlePath], timeout: const Duration(seconds: 30));
+    await runner.run('/usr/bin/open', [
+      bundlePath,
+    ], timeout: const Duration(seconds: 30));
   }
 
   /// Where the app keeps its documents: what the agent last reported, else
@@ -209,11 +228,12 @@ class MacosDevice implements Device {
 
   @override
   Future<List<int>> screencapPng() => throw UnsupportedOnPlatform(
-        'a native screenshot',
-        'the macOS desktop app',
-        instead: 'the agent renders the Flutter view instead, which `shot` '
-            'does by default here',
-      );
+    'a native screenshot',
+    'the macOS desktop app',
+    instead:
+        'the agent renders the Flutter view instead, which `shot` '
+        'does by default here',
+  );
 
   @override
   Future<String> readLog({String? sinceStamp}) async =>
@@ -235,10 +255,10 @@ class MacosDevice implements Device {
 
   @override
   Future<DeviceProbe> probe([AgentInfo? agent]) async => agentProbe(
-        pid: await appPid(),
-        agent: agent,
-        packageId: packageId,
-        awake: true,
-        locked: false,
-      );
+    pid: await appPid(),
+    agent: agent,
+    packageId: packageId,
+    awake: true,
+    locked: false,
+  );
 }

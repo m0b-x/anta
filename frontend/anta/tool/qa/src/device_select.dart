@@ -6,10 +6,10 @@ enum DeviceKind { android, ios, macos }
 
 extension DeviceKindLabel on DeviceKind {
   String get label => switch (this) {
-        DeviceKind.android => 'android',
-        DeviceKind.ios => 'ios',
-        DeviceKind.macos => 'macos',
-      };
+    DeviceKind.android => 'android',
+    DeviceKind.ios => 'ios',
+    DeviceKind.macos => 'macos',
+  };
 }
 
 const String macosDeviceId = 'macos';
@@ -75,7 +75,9 @@ DeviceRef _selectExplicit(
   final lower = wanted.toLowerCase();
   if (lower == macosDeviceId) {
     if (!hostIsMac) {
-      throw DeviceFailure('the macOS desktop app can only be driven from a Mac');
+      throw DeviceFailure(
+        'the macOS desktop app can only be driven from a Mac',
+      );
     }
     return const DeviceRef(
       kind: DeviceKind.macos,
@@ -100,23 +102,27 @@ DeviceRef _selectExplicit(
   if (lower == 'android') {
     final usable = adbDevices.where((d) => d.usable).toList();
     if (usable.length == 1) return _androidRef(usable.single);
-    return _androidRef(AdbDevice(
-      selectSerial(available: adbDevices),
-      'device',
-      null,
-    ));
+    return _androidRef(
+      AdbDevice(selectSerial(available: adbDevices), 'device', null),
+    );
   }
   for (final device in adbDevices) {
     if (device.serial == wanted) {
-      return _androidRef(AdbDevice(
-        selectSerial(explicit: wanted, available: adbDevices),
-        device.state,
-        device.model,
-      ));
+      return _androidRef(
+        AdbDevice(
+          selectSerial(explicit: wanted, available: adbDevices),
+          device.state,
+          device.model,
+        ),
+      );
     }
   }
-  final byUdid = simulators.where((s) => s.udid.toLowerCase() == lower).toList();
-  final byName = simulators.where((s) => s.name.toLowerCase() == lower).toList();
+  final byUdid = simulators
+      .where((s) => s.udid.toLowerCase() == lower)
+      .toList();
+  final byName = simulators
+      .where((s) => s.name.toLowerCase() == lower)
+      .toList();
   final matches = byUdid.isNotEmpty ? byUdid : byName;
   if (matches.isNotEmpty) {
     final booted = matches.where((s) => s.booted).toList();
@@ -133,29 +139,28 @@ DeviceRef _selectExplicit(
     );
   }
   if (adbDevices.isEmpty && simulators.isEmpty) {
-    throw DeviceFailure('$wanted is not attached. Nothing is attached — run `qa boot`.');
+    throw DeviceFailure(
+      '$wanted is not attached. Nothing is attached — run `qa boot`.',
+    );
   }
   throw DeviceFailure(
     '$wanted is not attached. Attached: '
-    '${[
-      ...adbDevices.map((d) => '${d.serial} (${d.state})'),
-      ...simulators.where((s) => s.booted).map((s) => '${s.name} (${s.udid})'),
-    ].join(', ')}'
+    '${[...adbDevices.map((d) => '${d.serial} (${d.state})'), ...simulators.where((s) => s.booted).map((s) => '${s.name} (${s.udid})')].join(', ')}'
     '${hostIsMac ? '; the desktop app is `-d macos`' : ''}',
   );
 }
 
 DeviceRef _androidRef(AdbDevice device) => DeviceRef(
-      kind: DeviceKind.android,
-      id: device.serial,
-      label: device.model == null ? 'Android' : 'Android ${device.model}',
-    );
+  kind: DeviceKind.android,
+  id: device.serial,
+  label: device.model == null ? 'Android' : 'Android ${device.model}',
+);
 
 DeviceRef _iosRef(SimDevice sim) => DeviceRef(
-      kind: DeviceKind.ios,
-      id: sim.udid,
-      label: '${sim.name} (${sim.runtime})',
-    );
+  kind: DeviceKind.ios,
+  id: sim.udid,
+  label: '${sim.name} (${sim.runtime})',
+);
 
 String? _firstNonEmpty(String? a, String? b) {
   if (a != null && a.isNotEmpty) return a;
@@ -172,17 +177,23 @@ List<String> describeDevices({
 }) {
   final lines = <String>[];
   for (final device in adbDevices) {
-    lines.add('android  ${device.serial.padRight(38)}  ${device.state.padRight(9)}'
-        '${device.model == null ? '' : '  model:${device.model}'}');
+    lines.add(
+      'android  ${device.serial.padRight(38)}  ${device.state.padRight(9)}'
+      '${device.model == null ? '' : '  model:${device.model}'}',
+    );
   }
   for (final sim in simulators) {
     if (!all && !sim.booted) continue;
-    lines.add('ios      ${sim.udid.padRight(38)}  ${sim.state.padRight(9)}  '
-        '${sim.name} (${sim.runtime})');
+    lines.add(
+      'ios      ${sim.udid.padRight(38)}  ${sim.state.padRight(9)}  '
+      '${sim.name} (${sim.runtime})',
+    );
   }
   if (hostIsMac) {
-    lines.add('macos    ${macosDeviceId.padRight(38)}  ${'desktop'.padRight(9)}  '
-        'pass -d macos${macosBuilt == null ? '' : '  ($macosBuilt)'}');
+    lines.add(
+      'macos    ${macosDeviceId.padRight(38)}  ${'desktop'.padRight(9)}  '
+      'pass -d macos${macosBuilt == null ? '' : '  ($macosBuilt)'}',
+    );
   }
   return lines;
 }

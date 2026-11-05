@@ -31,9 +31,9 @@ class TargetFailure extends QaException {
 
 class UnsupportedOnPlatform extends QaException {
   UnsupportedOnPlatform(String what, String platform, {String? instead})
-      : super(
-          '$what is not available on $platform'
-          '${instead == null ? '' : ' — $instead'}',
-          exitUsage,
-        );
+    : super(
+        '$what is not available on $platform'
+        '${instead == null ? '' : ' — $instead'}',
+        exitUsage,
+      );
 }

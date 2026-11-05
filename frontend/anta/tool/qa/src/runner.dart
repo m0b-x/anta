@@ -7,10 +7,7 @@ import 'paths.dart';
 import 'process_runner.dart';
 
 /// Dart-defines that switch the app into its isolated QA mode.
-const List<String> qaDefines = [
-  'ANTA_QA=true',
-  'ANTA_QA_DB=qa',
-];
+const List<String> qaDefines = ['ANTA_QA=true', 'ANTA_QA_DB=qa'];
 
 /// Entry point that installs the Flutter Driver extension.
 const String driverTarget = 'test_driver/main_driver.dart';
@@ -28,18 +25,18 @@ const List<String> _engineSwitches = [
 
 /// `am start` extras: the Android embedding reads these from the intent.
 List<String> androidLaunchExtras(int vmServicePort) => [
-      for (final flag in _engineSwitches) ...['--ez', flag, 'true'],
-      '--ei',
-      'vm-service-port',
-      '$vmServicePort',
-    ];
+  for (final flag in _engineSwitches) ...['--ez', flag, 'true'],
+  '--ei',
+  'vm-service-port',
+  '$vmServicePort',
+];
 
 /// App argv for `xcrun simctl launch`: the iOS embedding reads switches from
 /// `NSProcessInfo.arguments`.
 List<String> iosLaunchArguments(int vmServicePort) => [
-      for (final flag in _engineSwitches) '--$flag',
-      '--vm-service-port=$vmServicePort',
-    ];
+  for (final flag in _engineSwitches) '--$flag',
+  '--vm-service-port=$vmServicePort',
+];
 
 /// Environment for a desktop launch: the embedding reads
 /// `FLUTTER_ENGINE_SWITCHES` and `FLUTTER_ENGINE_SWITCH_<n>`.
@@ -99,7 +96,8 @@ const Duration logcatStampMargin = Duration(seconds: 15);
 
 /// Timestamp in the `MM-DD HH:MM:SS.mmm` shape `adb logcat -T` accepts,
 /// already backdated by [logcatStampMargin].
-String logcatStamp(DateTime now) => rawLogcatStamp(now.subtract(logcatStampMargin));
+String logcatStamp(DateTime now) =>
+    rawLogcatStamp(now.subtract(logcatStampMargin));
 
 /// The same format with no margin applied, for tests and for callers that
 /// have their own clock-skew story.
@@ -120,15 +118,14 @@ File writeLaunchWrapper({
   required QaPaths paths,
   required String flutterExecutable,
   required List<String> arguments,
-}) =>
-    writeWrapperScript(
-      paths: paths,
-      baseName: 'run_cmd',
-      executable: flutterExecutable,
-      arguments: arguments,
-      posixLogPath: paths.runLog,
-      idleStdin: true,
-    );
+}) => writeWrapperScript(
+  paths: paths,
+  baseName: 'run_cmd',
+  executable: flutterExecutable,
+  arguments: arguments,
+  posixLogPath: paths.runLog,
+  idleStdin: true,
+);
 
 /// Writes one wrapper script that a detached start can own.
 ///
@@ -182,8 +179,7 @@ File writeWrapperScript({
   return file;
 }
 
-String _quote(String arg) =>
-    arg.contains(' ') || arg.isEmpty ? '"$arg"' : arg;
+String _quote(String arg) => arg.contains(' ') || arg.isEmpty ? '"$arg"' : arg;
 
 /// Finds the `flutter` launcher, preferring the one on PATH.
 String findFlutter({Map<String, String>? environment}) {
@@ -249,21 +245,17 @@ Future<int> startWrapperDetached({
   String quote(String value) => value.replaceAll("'", "''");
   final pidFile = File(pidPath);
   if (pidFile.existsSync()) pidFile.deleteSync();
-  await Process.start(
-    'powershell.exe',
-    [
-      '-NoProfile',
-      '-NonInteractive',
-      '-Command',
-      "\$p = Start-Process -FilePath 'cmd.exe' "
-          "-ArgumentList '/c','\"${quote(wrapper.path)}\"' "
-          "-RedirectStandardOutput '${quote(logPath)}' "
-          "-RedirectStandardError '${quote(errPath)}' "
-          '-PassThru; '
-          "Set-Content -Path '${quote(pidPath)}' -Value \$p.Id",
-    ],
-    mode: ProcessStartMode.normal,
-  );
+  await Process.start('powershell.exe', [
+    '-NoProfile',
+    '-NonInteractive',
+    '-Command',
+    "\$p = Start-Process -FilePath 'cmd.exe' "
+        "-ArgumentList '/c','\"${quote(wrapper.path)}\"' "
+        "-RedirectStandardOutput '${quote(logPath)}' "
+        "-RedirectStandardError '${quote(errPath)}' "
+        '-PassThru; '
+        "Set-Content -Path '${quote(pidPath)}' -Value \$p.Id",
+  ], mode: ProcessStartMode.normal);
   final deadline = DateTime.now().add(const Duration(seconds: 60));
   while (DateTime.now().isBefore(deadline)) {
     await Future<void>.delayed(const Duration(milliseconds: 200));
@@ -280,24 +272,19 @@ Future<int> startWrapperDetached({
 /// wait instead of sitting out six minutes.
 Future<bool> isProcessAlive(int pid, ProcessRunner runner) async {
   if (Platform.isWindows) {
-    final result = await runner.run(
-      'powershell.exe',
-      [
-        '-NoProfile',
-        '-NonInteractive',
-        '-Command',
-        'if (Get-Process -Id $pid -ErrorAction SilentlyContinue) '
-            "{ 'alive' } else { 'gone' }",
-      ],
-      timeout: const Duration(seconds: 20),
-    );
+    final result = await runner.run('powershell.exe', [
+      '-NoProfile',
+      '-NonInteractive',
+      '-Command',
+      'if (Get-Process -Id $pid -ErrorAction SilentlyContinue) '
+          "{ 'alive' } else { 'gone' }",
+    ], timeout: const Duration(seconds: 20));
     return result.stdout.contains('alive');
   }
-  final result = await runner.run(
-    '/bin/sh',
-    ['-c', 'kill -0 $pid'],
-    timeout: const Duration(seconds: 10),
-  );
+  final result = await runner.run('/bin/sh', [
+    '-c',
+    'kill -0 $pid',
+  ], timeout: const Duration(seconds: 10));
   return result.ok;
 }
 
@@ -408,8 +395,12 @@ Future<int?> killRecordedRun(QaPaths paths, ProcessRunner runner) async {
   file.deleteSync();
   if (pid == null) return null;
   if (Platform.isWindows) {
-    await runner.run('taskkill', ['/PID', '$pid', '/T', '/F'],
-        timeout: const Duration(seconds: 20));
+    await runner.run('taskkill', [
+      '/PID',
+      '$pid',
+      '/T',
+      '/F',
+    ], timeout: const Duration(seconds: 20));
   } else {
     final alive = await isProcessAlive(pid, runner);
     if (!alive) return null;
@@ -460,22 +451,22 @@ List<int> parseOrphanedServices(String psOutput) {
 /// Orphaned development services, listed without killing anything.
 Future<List<int>> listOrphanedServices(ProcessRunner runner) async {
   if (Platform.isWindows) {
-    final result = await runner.run(
-      'powershell.exe',
-      ['-NoProfile', '-NonInteractive', '-Command', orphanedDdsListScript],
-      timeout: const Duration(seconds: 30),
-    );
+    final result = await runner.run('powershell.exe', [
+      '-NoProfile',
+      '-NonInteractive',
+      '-Command',
+      orphanedDdsListScript,
+    ], timeout: const Duration(seconds: 30));
     return result.stdout
         .split('\n')
         .map((line) => int.tryParse(line.trim()))
         .whereType<int>()
         .toList();
   }
-  final result = await runner.run(
-    '/bin/ps',
-    ['-axo', 'pid=,ppid=,command='],
-    timeout: const Duration(seconds: 15),
-  );
+  final result = await runner.run('/bin/ps', [
+    '-axo',
+    'pid=,ppid=,command=',
+  ], timeout: const Duration(seconds: 15));
   return parseOrphanedServices(result.stdout);
 }
 
@@ -490,16 +481,19 @@ Future<List<int>> reapOrphanedServices(ProcessRunner runner) async {
   if (!Platform.isWindows) {
     final orphans = await listOrphanedServices(runner);
     for (final pid in orphans) {
-      await runner.run('/bin/kill', ['-KILL', '$pid'],
-          timeout: const Duration(seconds: 10));
+      await runner.run('/bin/kill', [
+        '-KILL',
+        '$pid',
+      ], timeout: const Duration(seconds: 10));
     }
     return orphans;
   }
-  final result = await runner.run(
-    'powershell.exe',
-    ['-NoProfile', '-NonInteractive', '-Command', _orphanedDdsScript],
-    timeout: const Duration(seconds: 30),
-  );
+  final result = await runner.run('powershell.exe', [
+    '-NoProfile',
+    '-NonInteractive',
+    '-Command',
+    _orphanedDdsScript,
+  ], timeout: const Duration(seconds: 30));
   return result.stdout
       .split('\n')
       .map((line) => int.tryParse(line.trim()))
@@ -517,10 +511,10 @@ String readEmulatorLog(QaPaths paths, [String? avd]) =>
 
 /// Both halves of a captured process log, joined; a missing or unreadable
 /// half is simply absent.
-String readLogPair(String outPath, String errPath) =>
-    [_readFile(outPath), _readFile(errPath)]
-        .where((text) => text.isNotEmpty)
-        .join('\n');
+String readLogPair(String outPath, String errPath) => [
+  _readFile(outPath),
+  _readFile(errPath),
+].where((text) => text.isNotEmpty).join('\n');
 
 /// The bytes a log gained since [offset], for a wait that polls a growing
 /// file without re-reading what it has already seen.

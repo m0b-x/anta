@@ -16,7 +16,8 @@ SwipeDirection parseSwipeDirection(String raw) {
     'left' => SwipeDirection.left,
     'right' => SwipeDirection.right,
     _ => throw UsageFailure(
-        'direction must be one of up, down, left, right (got "$raw")'),
+      'direction must be one of up, down, left, right (got "$raw")',
+    ),
   };
 }
 

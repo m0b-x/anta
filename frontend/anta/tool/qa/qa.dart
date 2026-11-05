@@ -74,7 +74,9 @@ Future<void> _refreshSelf(List<String> arguments) async {
       runner: const RealProcessRunner(),
     );
   } on QaException catch (e) {
-    stderr.writeln('qa: self-rebuild failed, running the old exe: ${e.message}');
+    stderr.writeln(
+      'qa: self-rebuild failed, running the old exe: ${e.message}',
+    );
   }
 }
 
@@ -85,27 +87,29 @@ class QaCommandRunner extends CommandRunner<int> {
   QaCommandRunner({
     QaContext Function(ArgResults globals)? contextFactory,
     List<Command<int>>? commands,
-  })  : _contextFactory = contextFactory ?? QaContext.new,
-        super(
-          'qa',
-          'Drive the ANTA app on an Android emulator, an iOS simulator or the '
-              'macOS desktop build from the command line.\n'
-              'Fast path: ./tool/qa/qa <verb> (tool\\qa\\qa.cmd on Windows; '
-              'compiles itself on first use)\n'
-              'Portable: dart run tool/qa/qa.dart <verb>',
-        ) {
+  }) : _contextFactory = contextFactory ?? QaContext.new,
+       super(
+         'qa',
+         'Drive the ANTA app on an Android emulator, an iOS simulator or the '
+             'macOS desktop build from the command line.\n'
+             'Fast path: ./tool/qa/qa <verb> (tool\\qa\\qa.cmd on Windows; '
+             'compiles itself on first use)\n'
+             'Portable: dart run tool/qa/qa.dart <verb>',
+       ) {
     argParser
       ..addOption(
         'device',
         abbr: 'd',
-        help: 'Android serial, simulator UDID or name, `ios`, `android` or '
+        help:
+            'Android serial, simulator UDID or name, `ios`, `android` or '
             '`macos`. Falls back to ANTA_QA_DEVICE, then the sole attached '
             'device (a booted simulator or an adb device).',
       )
       ..addOption(
         'via',
         allowed: ['auto', 'agent', 'native'],
-        help: 'See-and-act layer: the in-app agent over the VM service, or '
+        help:
+            'See-and-act layer: the in-app agent over the VM service, or '
             'the native one (adb + uiautomator, Android only). `auto` is the '
             'agent wherever it answers on the VM URI a launch recorded, and '
             'adb on Android when it does not; ANTA_QA_VIA overrides. Given '
@@ -171,14 +175,15 @@ class QaCommandRunner extends CommandRunner<int> {
   /// under kept apart, so `pass` can keep a log and attribute output to the
   /// step that printed it.
   void Function(String line, {required String prefix, required bool isError})?
-      lineSink;
+  lineSink;
 
   /// The single context every verb in this process shares.
   ///
   /// One device resolution, one `Device`, one agent connection, one
   /// screen-size cache, one dump cache — which is the whole point of running
   /// several verbs per process.
-  QaContext contextFor(ArgResults globals) => _context ??= _contextFactory(globals);
+  QaContext contextFor(ArgResults globals) =>
+      _context ??= _contextFactory(globals);
 
   Future<void> dispose() async => _context?.dispose();
 }
@@ -234,8 +239,7 @@ class QaContext {
   late final bool verbose = globalResults['verbose'] as bool? ?? false;
   late final ProcessRunner runner = RealProcessRunner(verbose: verbose);
   late final SdkTools sdk = SdkTools();
-  late final Simctl? simctl =
-      xcrunAvailable() ? Simctl(runner: runner) : null;
+  late final Simctl? simctl = xcrunAvailable() ? Simctl(runner: runner) : null;
   late final ViaMode via = parseViaMode(
     globalResults['via'] as String? ?? Platform.environment['ANTA_QA_VIA'],
   );
@@ -315,12 +319,15 @@ class QaContext {
     if (cached != null) return cached;
     final adbPath = sdk.findAdb();
     if (adbPath == null) {
-      adbFailure = 'adb not found (set ANDROID_HOME / ANDROID_SDK_ROOT or put it on PATH)';
+      adbFailure =
+          'adb not found (set ANDROID_HOME / ANDROID_SDK_ROOT or put it on PATH)';
       return _adbDevices = const [];
     }
     try {
-      return _adbDevices = await Adb(executable: adbPath, runner: runner)
-          .devices(timeout: const Duration(seconds: 20));
+      return _adbDevices = await Adb(
+        executable: adbPath,
+        runner: runner,
+      ).devices(timeout: const Duration(seconds: 20));
     } on QaException catch (e) {
       adbFailure = e.message;
       return _adbDevices = const [];
@@ -417,7 +424,9 @@ class QaContext {
       case DeviceKind.android:
         return _device = AndroidDevice(await adb());
       case DeviceKind.ios:
-        final sim = (await simulators()).firstWhere((s) => s.udid == selected.id);
+        final sim = (await simulators()).firstWhere(
+          (s) => s.udid == selected.id,
+        );
         return _device = IosDevice(simctl: simctl!, sim: sim);
       case DeviceKind.macos:
         return _device = MacosDevice.locate(paths: paths, runner: runner);
@@ -427,7 +436,11 @@ class QaContext {
   Future<AndroidDevice> android() async {
     final dev = await device();
     if (dev is AndroidDevice) return dev;
-    throw UnsupportedOnPlatform('this verb', dev.label, instead: 'it is Android only');
+    throw UnsupportedOnPlatform(
+      'this verb',
+      dev.label,
+      instead: 'it is Android only',
+    );
   }
 
   /// The URIs the last `run`, `attach` or `relaunch` recorded for **this**
@@ -465,7 +478,10 @@ class QaContext {
     DeviceFailure? failure;
     if (recorded != null) {
       try {
-        vm = await VmServiceClient.connect(recorded, timeout: const Duration(seconds: 4));
+        vm = await VmServiceClient.connect(
+          recorded,
+          timeout: const Duration(seconds: 4),
+        );
       } on DeviceFailure catch (e) {
         failure = e;
       }
@@ -502,11 +518,16 @@ class QaContext {
     }
     if (announced == null || announced == recorded) return null;
     try {
-      final vm = await VmServiceClient.connect(announced, timeout: const Duration(seconds: 3));
+      final vm = await VmServiceClient.connect(
+        announced,
+        timeout: const Duration(seconds: 3),
+      );
       await vm.call('getVM', const {}, const Duration(seconds: 5));
       await recordUris(vm: announced, dtd: await recordedDtdUri());
-      stderr.writeln('qa: recovered the VM service URI from the ${dev.kind.label} '
-          'log ($announced) — recorded for ${dev.id}');
+      stderr.writeln(
+        'qa: recovered the VM service URI from the ${dev.kind.label} '
+        'log ($announced) — recorded for ${dev.id}',
+      );
       return vm;
     } on DeviceFailure {
       return null;
@@ -580,7 +601,10 @@ class QaContext {
   Future<int?> armedAppAlarms() async {
     final dev = await device();
     if (dev is! AndroidDevice) return null;
-    return countArmedAlarms(await dev.adb.shell(['dumpsys', 'alarm']), dev.packageId);
+    return countArmedAlarms(
+      await dev.adb.shell(['dumpsys', 'alarm']),
+      dev.packageId,
+    );
   }
 
   Future<AgentClient?> agentOrNull() async {
@@ -603,9 +627,17 @@ class QaContext {
       final client = await agent();
       final info = await client.info(refresh: refresh);
       await rememberDocuments(info);
-      return (info: info, failure: null, ms: DateTime.now().difference(started).inMilliseconds);
+      return (
+        info: info,
+        failure: null,
+        ms: DateTime.now().difference(started).inMilliseconds,
+      );
     } on QaException catch (e) {
-      return (info: null, failure: e.message, ms: DateTime.now().difference(started).inMilliseconds);
+      return (
+        info: null,
+        failure: e.message,
+        ms: DateTime.now().difference(started).inMilliseconds,
+      );
     }
   }
 
@@ -618,7 +650,8 @@ class QaContext {
       _autoDriver = null;
     }
     final existing = _driver;
-    if (existing != null && !(existing is AgentClient && existing.vm.isClosed)) {
+    if (existing != null &&
+        !(existing is AgentClient && existing.vm.isClosed)) {
       return existing;
     }
     return _driver = await _driverFor(via);
@@ -633,7 +666,8 @@ class QaContext {
           throw UnsupportedOnPlatform(
             '--via native',
             dev.label,
-            instead: 'this platform has no native input path; the agent is '
+            instead:
+                'this platform has no native input path; the agent is '
                 'the only layer here',
           );
         }
@@ -646,14 +680,18 @@ class QaContext {
         final decided = _autoDriver;
         if (decided != null) return decided;
         final recorded = await recordedVmUri();
-        final answering = recorded == null ? null : await _agentIfAnswering(recorded);
+        final answering = recorded == null
+            ? null
+            : await _agentIfAnswering(recorded);
         final choice = chooseDriver(
           hasNative: true,
           vmRecorded: recorded != null,
           agentAnswers: answering != null,
         );
         if (choice == ViaMode.agent) return _autoDriver = answering!;
-        notice?.call(autoFallbackNote(vmRecorded: recorded != null, deviceId: dev.id));
+        notice?.call(
+          autoFallbackNote(vmRecorded: recorded != null, deviceId: dev.id),
+        );
         return _autoDriver = native;
     }
   }
@@ -664,7 +702,9 @@ class QaContext {
     final native = (await device()).nativeDriver;
     if (native == null || _autoDriver != null) return;
     final agent = _agent;
-    _autoDriver = agentAnswered && agent != null && !agent.vm.isClosed ? agent : native;
+    _autoDriver = agentAnswered && agent != null && !agent.vm.isClosed
+        ? agent
+        : native;
   }
 
   /// The agent when it answers `info` within [_autoProbe] on the [recorded]
@@ -709,13 +749,16 @@ class QaContext {
     return switch (via) {
       ViaMode.native => 'adb',
       ViaMode.agent => 'agent',
-      ViaMode.auto => '${await driver() is AgentClient ? 'agent' : 'adb'} (auto)',
+      ViaMode.auto =>
+        '${await driver() is AgentClient ? 'agent' : 'adb'} (auto)',
     };
   }
 
   Future<DeviceProbe> probe() async {
     final dev = await device();
-    final info = dev.nativeDriver == null ? await agentInfoOrNull(refresh: true) : null;
+    final info = dev.nativeDriver == null
+        ? await agentInfoOrNull(refresh: true)
+        : null;
     return dev.probe(info);
   }
 
@@ -763,7 +806,11 @@ class QaContext {
   /// a `#N` whose dump carries its semantics id — is brought in first on
   /// the agent path (see [resolveOnScreen]). [reveal] off is for a verb
   /// that only reads (`text`), which must not scroll the app.
-  Future<TargetLookup> lookup(String target, {int? nth, bool reveal = true}) async {
+  Future<TargetLookup> lookup(
+    String target, {
+    int? nth,
+    bool reveal = true,
+  }) async {
     if (isPointTarget(target)) {
       return TargetLookup(
         resolved: const TargetResolver(UiTree([])).resolve(target),
@@ -777,7 +824,8 @@ class QaContext {
         );
       }
       final tree = cached.tree;
-      final provenance = '($target from the dump '
+      final provenance =
+          '($target from the dump '
           '${describeAge(cached.ageFrom(DateTime.now()))})';
       if (!reveal) {
         return TargetLookup(
@@ -788,8 +836,12 @@ class QaContext {
       }
       // The new dump stays out of the cache: the `#N` numbers the reader
       // holds mean the dump they read.
-      final outcome = await resolveOnScreen(target, tree,
-          nth: nth, redump: () => dump(cache: false));
+      final outcome = await resolveOnScreen(
+        target,
+        tree,
+        nth: nth,
+        redump: () => dump(cache: false),
+      );
       if (outcome.revealed && !outcome.onScreen) {
         throw TargetFailure(offScreenAfterReveal(target));
       }
@@ -802,7 +854,10 @@ class QaContext {
     }
     final tree = await dump();
     if (!reveal) {
-      return TargetLookup(resolved: TargetResolver(tree).resolve(target, nth: nth), tree: tree);
+      return TargetLookup(
+        resolved: TargetResolver(tree).resolve(target, nth: nth),
+        tree: tree,
+      );
     }
     final outcome = await resolveOnScreen(target, tree, nth: nth);
     if (outcome.revealed && !outcome.onScreen) {
@@ -838,8 +893,10 @@ class QaContext {
     await agent.requireCurrentProtocol();
     final id = node.semanticsId;
     if (id == null) {
-      throw DeviceFailure('the dump names no semantics id for '
-          '${node.describe()}, so the app cannot be asked to show it');
+      throw DeviceFailure(
+        'the dump names no semantics id for '
+        '${node.describe()}, so the app cannot be asked to show it',
+      );
     }
     await agent.reveal(id);
   }
@@ -857,7 +914,8 @@ class QaContext {
     while (true) {
       final tree = (await dumpWhileStarting(until: deadline)).tree;
       final found = presentMatch(tree, wanted, gone: gone, nth: nth);
-      final done = (gone && found == null) ||
+      final done =
+          (gone && found == null) ||
           (!gone && found != null) ||
           !DateTime.now().isBefore(deadline);
       if (done) {
@@ -889,7 +947,10 @@ class QaContext {
   /// A `wait` right after a relaunch otherwise failed at once instead of
   /// polling for its timeout. [cache] keeps it as the dump later `#N`
   /// targets mean, as [dump] does.
-  Future<UiDump> dumpWhileStarting({required DateTime until, bool cache = false}) async {
+  Future<UiDump> dumpWhileStarting({
+    required DateTime until,
+    bool cache = false,
+  }) async {
     while (true) {
       try {
         final captured = await (await driver()).dump();
@@ -917,8 +978,9 @@ abstract class QaCommand extends Command<int> {
   QaContext get context {
     final globals = globalResults!;
     final ctx = (runner! as QaCommandRunner).contextFor(globals);
-    ctx.stepVia =
-        globals.wasParsed('via') ? parseViaMode(globals['via'] as String?) : null;
+    ctx.stepVia = globals.wasParsed('via')
+        ? parseViaMode(globals['via'] as String?)
+        : null;
     ctx.notice = warn;
     return ctx;
   }
@@ -954,8 +1016,10 @@ abstract class QaCommand extends Command<int> {
     if (tree == null || tree.source != UiTreeSource.uiautomator) return;
     final package = tree.foregroundPackage;
     if (package == null || package == antaPackage) return;
-    warn('warning: foreground is $package, not $antaPackage '
-        '(crashed? keyguard? a system dialog?)');
+    warn(
+      'warning: foreground is $package, not $antaPackage '
+      '(crashed? keyguard? a system dialog?)',
+    );
   }
 
   int? intOption(String name) {
@@ -977,19 +1041,29 @@ abstract class QaCommand extends Command<int> {
 /// that acts on the app, so acting and verifying cost one call instead of two.
 void addPostActionOptions(ArgParser parser) {
   parser
-    ..addOption('wait',
-        help: 'After acting, poll until this target appears.')
-    ..addOption('wait-gone',
-        help: 'After acting, poll until this target disappears.')
-    ..addOption('wait-timeout',
-        defaultsTo: '10', help: 'Seconds --wait/--wait-gone polls for.')
-    ..addOption('settle',
-        help: 'Milliseconds to pause before --shot/--dump when not waiting '
-            '(default 300 on the adb path, 0 on the agent path, which '
-            'already waits for the frame).')
+    ..addOption('wait', help: 'After acting, poll until this target appears.')
+    ..addOption(
+      'wait-gone',
+      help: 'After acting, poll until this target disappears.',
+    )
+    ..addOption(
+      'wait-timeout',
+      defaultsTo: '10',
+      help: 'Seconds --wait/--wait-gone polls for.',
+    )
+    ..addOption(
+      'settle',
+      help:
+          'Milliseconds to pause before --shot/--dump when not waiting '
+          '(default 300 on the adb path, 0 on the agent path, which '
+          'already waits for the frame).',
+    )
     ..addOption('shot', help: 'Take a screenshot afterwards, under this name.')
-    ..addFlag('dump',
-        negatable: false, help: 'Print the interesting nodes afterwards.');
+    ..addFlag(
+      'dump',
+      negatable: false,
+      help: 'Print the interesting nodes afterwards.',
+    );
 }
 
 /// The act-then-verify tail shared by every acting verb.
@@ -997,7 +1071,8 @@ mixin PostActions on QaCommand {
   Future<void> runPostActions() async {
     final waitTarget = argResults!['wait'] as String?;
     final goneTarget = argResults!['wait-gone'] as String?;
-    if ((waitTarget?.isNotEmpty ?? false) && (goneTarget?.isNotEmpty ?? false)) {
+    if ((waitTarget?.isNotEmpty ?? false) &&
+        (goneTarget?.isNotEmpty ?? false)) {
       throw UsageFailure('pass --wait or --wait-gone, not both');
     }
     final ctx = context;
@@ -1013,7 +1088,9 @@ mixin PostActions on QaCommand {
         timeout: Duration(seconds: seconds),
       );
       if (outcome.satisfied) {
-        out(gone ? 'gone: "$wanted"' : 'found: ${describeFound(outcome.found!)}');
+        out(
+          gone ? 'gone: "$wanted"' : 'found: ${describeFound(outcome.found!)}',
+        );
       } else {
         warnIfForeign(outcome.lastTree);
         waitFailure = waitTimeoutMessage(
@@ -1024,7 +1101,8 @@ mixin PostActions on QaCommand {
         );
       }
     } else {
-      final settle = intOption('settle') ??
+      final settle =
+          intOption('settle') ??
           (await ctx.driver()).settleAfterAction.inMilliseconds;
       if (settle > 0) {
         await Future<void>.delayed(Duration(milliseconds: settle));
@@ -1034,13 +1112,15 @@ mixin PostActions on QaCommand {
     final shotName = argResults!['shot'] as String?;
     var tookShot = false;
     if (shotName != null && shotName.isNotEmpty) {
-      out(await captureShot(
-        ctx.screenshotPng,
-        ctx.paths,
-        name: shotName,
-        scale: ctx.shotScaleOverride ?? defaultShotScale,
-        outDir: ctx.shotsDirOverride,
-      ));
+      out(
+        await captureShot(
+          ctx.screenshotPng,
+          ctx.paths,
+          name: shotName,
+          scale: ctx.shotScaleOverride ?? defaultShotScale,
+          outDir: ctx.shotsDirOverride,
+        ),
+      );
       tookShot = true;
     }
     if (argResults!['dump'] as bool) {
@@ -1054,7 +1134,7 @@ mixin PostActions on QaCommand {
       throw TargetFailure(
         tookShot
             ? '$waitFailure The screenshot above was taken after the timeout, '
-                'so it shows what the screen was actually on.'
+                  'so it shows what the screen was actually on.'
             : waitFailure,
       );
     }
@@ -1117,8 +1197,11 @@ String waitTimeoutMessage({
 
 class DevicesCommand extends QaCommand {
   DevicesCommand() {
-    argParser.addFlag('all',
-        negatable: false, help: 'Include simulators that are shut down.');
+    argParser.addFlag(
+      'all',
+      negatable: false,
+      help: 'Include simulators that are shut down.',
+    );
   }
 
   @override
@@ -1188,37 +1271,45 @@ class StateCommand extends QaCommand {
     final driverName = await ctx.driverLabel();
 
     if (argResults!['json'] as bool) {
-      out(const JsonEncoder.withIndent('  ').convert({
-        'device': device.id,
-        'kind': device.kind.label,
-        'label': device.label,
-        'pid': probe.appPid,
-        'resumedActivity': probe.resumedActivity,
-        'foreground': probe.foregroundPackage,
-        'lifecycle': probe.lifecycle,
-        'awake': probe.awake,
-        'locked': probe.locked,
-        'ime': probe.imeShown,
-        'physical': size == null ? null : '${size.physicalWidth}x${size.physicalHeight}',
-        'override': size != null && size.isOverridden ? '${size.width}x${size.height}' : null,
-        'density': size?.density,
-        'dp': size == null ? null : '${size.widthDp}x${size.heightDp}',
-        'driver': driverName,
-        'runLog': logExists ? ctx.paths.runLog : null,
-        'dtd': dtd.isEmpty ? null : dtd,
-        'vm': vm.isEmpty ? null : vm,
-      }));
+      out(
+        const JsonEncoder.withIndent('  ').convert({
+          'device': device.id,
+          'kind': device.kind.label,
+          'label': device.label,
+          'pid': probe.appPid,
+          'resumedActivity': probe.resumedActivity,
+          'foreground': probe.foregroundPackage,
+          'lifecycle': probe.lifecycle,
+          'awake': probe.awake,
+          'locked': probe.locked,
+          'ime': probe.imeShown,
+          'physical': size == null
+              ? null
+              : '${size.physicalWidth}x${size.physicalHeight}',
+          'override': size != null && size.isOverridden
+              ? '${size.width}x${size.height}'
+              : null,
+          'density': size?.density,
+          'dp': size == null ? null : '${size.widthDp}x${size.heightDp}',
+          'driver': driverName,
+          'runLog': logExists ? ctx.paths.runLog : null,
+          'dtd': dtd.isEmpty ? null : dtd,
+          'vm': vm.isEmpty ? null : vm,
+        }),
+      );
       return 0;
     }
-    out('device=${device.id} (${device.kind.label})  '
-        'app=${probe.appPid == null ? 'not running' : 'pid ${probe.appPid}'}  '
-        '${probe.lifecycle == null ? 'resumed=${probe.resumedActivity ?? 'unknown'}  ' : 'lifecycle=${probe.lifecycle}  '}'
-        'foreground=${probe.foregroundPackage ?? 'unknown'}  '
-        'awake=${DeviceProbe.flag(probe.awake, 'yes', 'no')}  '
-        'locked=${DeviceProbe.flag(probe.locked, 'yes', 'no')}  '
-        'ime=${DeviceProbe.flag(probe.imeShown, 'up', 'down')}  '
-        'screen=${size ?? '? (agent down)'}  driver=$driverName  run.log=${logExists ? 'yes' : 'no'}  '
-        'dtd=${dtd.isEmpty ? 'no' : dtd}  vm=${vm.isEmpty ? 'no' : vm}');
+    out(
+      'device=${device.id} (${device.kind.label})  '
+      'app=${probe.appPid == null ? 'not running' : 'pid ${probe.appPid}'}  '
+      '${probe.lifecycle == null ? 'resumed=${probe.resumedActivity ?? 'unknown'}  ' : 'lifecycle=${probe.lifecycle}  '}'
+      'foreground=${probe.foregroundPackage ?? 'unknown'}  '
+      'awake=${DeviceProbe.flag(probe.awake, 'yes', 'no')}  '
+      'locked=${DeviceProbe.flag(probe.locked, 'yes', 'no')}  '
+      'ime=${DeviceProbe.flag(probe.imeShown, 'up', 'down')}  '
+      'screen=${size ?? '? (agent down)'}  driver=$driverName  run.log=${logExists ? 'yes' : 'no'}  '
+      'dtd=${dtd.isEmpty ? 'no' : dtd}  vm=${vm.isEmpty ? 'no' : vm}',
+    );
     return 0;
   }
 }
@@ -1226,16 +1317,28 @@ class StateCommand extends QaCommand {
 class BootCommand extends QaCommand {
   BootCommand() {
     argParser
-      ..addOption('avd',
-          help: 'Android AVD name; selects the Android path. Defaults to the '
-              'only AVD installed when no simulator tooling exists.')
-      ..addOption('sim',
-          help: 'iOS simulator name or UDID to boot (ANTA_QA_SIM). Required '
-              'when none is booted and more than one is installed.')
-      ..addFlag('cold', negatable: false, help: 'Android: cold boot (no snapshot).')
-      ..addFlag('phone',
-          negatable: false,
-          help: 'Android: override the resolution to 1080x2400 (360x800 dp).');
+      ..addOption(
+        'avd',
+        help:
+            'Android AVD name; selects the Android path. Defaults to the '
+            'only AVD installed when no simulator tooling exists.',
+      )
+      ..addOption(
+        'sim',
+        help:
+            'iOS simulator name or UDID to boot (ANTA_QA_SIM). Required '
+            'when none is booted and more than one is installed.',
+      )
+      ..addFlag(
+        'cold',
+        negatable: false,
+        help: 'Android: cold boot (no snapshot).',
+      )
+      ..addFlag(
+        'phone',
+        negatable: false,
+        help: 'Android: override the resolution to 1080x2400 (360x800 dp).',
+      );
   }
 
   @override
@@ -1250,23 +1353,31 @@ class BootCommand extends QaCommand {
   Future<int> run() async {
     final ctx = context;
     final avd = argResults!['avd'] as String?;
-    final sim = argResults!['sim'] as String? ?? Platform.environment['ANTA_QA_SIM'];
+    final sim =
+        argResults!['sim'] as String? ?? Platform.environment['ANTA_QA_SIM'];
     final hint = ctx.explicitDevice;
     final (hintAdb, hintSims) = QaContext.probesFor(hint);
     if (hint != null && hintAdb && !hintSims) return _bootAndroid(ctx, avd);
     if (hint != null && !hintAdb && !hintSims) {
-      throw UnsupportedOnPlatform('boot', 'the macOS desktop app',
-          instead: '`qa run -d macos` builds and starts it');
+      throw UnsupportedOnPlatform(
+        'boot',
+        'the macOS desktop app',
+        instead: '`qa run -d macos` builds and starts it',
+      );
     }
-    final wantsAndroid = (avd != null && avd.isNotEmpty) ||
+    final wantsAndroid =
+        (avd != null && avd.isNotEmpty) ||
         ctx.simctl == null ||
         (sim == null &&
             !(hint != null && hintSims && !hintAdb) &&
             (await ctx.adbDevices()).any((d) => d.usable));
     if (wantsAndroid) return _bootAndroid(ctx, avd);
     if (argResults!['cold'] as bool || argResults!['phone'] as bool) {
-      throw UnsupportedOnPlatform('--cold / --phone', 'the iOS simulator',
-          instead: 'pick a different simulator with --sim');
+      throw UnsupportedOnPlatform(
+        '--cold / --phone',
+        'the iOS simulator',
+        instead: 'pick a different simulator with --sim',
+      );
     }
     return _bootSimulator(ctx, sim);
   }
@@ -1279,7 +1390,10 @@ class BootCommand extends QaCommand {
     if (wanted != null && wanted.isNotEmpty) {
       final lower = wanted.toLowerCase();
       final matches = sims
-          .where((s) => s.udid.toLowerCase() == lower || s.name.toLowerCase() == lower)
+          .where(
+            (s) =>
+                s.udid.toLowerCase() == lower || s.name.toLowerCase() == lower,
+          )
           .toList();
       if (matches.isEmpty) {
         throw UsageFailure(
@@ -1302,8 +1416,10 @@ class BootCommand extends QaCommand {
       }
     }
     if (target.booted) {
-      out('simulator already up: ${target.name} (${target.udid}) — never '
-          'shut down or restarted by this tool');
+      out(
+        'simulator already up: ${target.name} (${target.udid}) — never '
+        'shut down or restarted by this tool',
+      );
     } else {
       out('booting ${target.name} (${target.udid})…');
       await simctl.boot(target.udid);
@@ -1319,15 +1435,19 @@ class BootCommand extends QaCommand {
     final attached = await bare.devices();
     final usable = attached.where((d) => d.usable).toList();
     if (avd != null && avd.isNotEmpty && fleetIndexOf(avd) != null) {
-      throw UsageFailure('$avd is a fleet AVD — `qa fleet boot $avd` boots it '
-          'on its own port, pinned and minimized');
+      throw UsageFailure(
+        '$avd is a fleet AVD — `qa fleet boot $avd` boots it '
+        'on its own port, pinned and minimized',
+      );
     }
     if (avd != null && avd.isNotEmpty && attached.isNotEmpty) {
       return _bootNamedBeside(ctx, bare, avd, attached);
     }
     if (usable.isNotEmpty) {
-      out('emulator already up: ${usable.map((d) => d.serial).join(', ')} '
-          '(never killed or restarted by this tool)');
+      out(
+        'emulator already up: ${usable.map((d) => d.serial).join(', ')} '
+        '(never killed or restarted by this tool)',
+      );
     } else if (attached.isNotEmpty) {
       final booting = await _emulatorStartedHere(ctx, avd);
       if (booting == null) {
@@ -1337,16 +1457,32 @@ class BootCommand extends QaCommand {
           'the emulator window and cold-boot it.',
         );
       }
-      out('emulator pid ${booting.pid} (started by this tool) is still booting — waiting');
-      await awaitEmulatorBoot(ctx, bare, booting.pid, booting.avd, progress: warn);
+      out(
+        'emulator pid ${booting.pid} (started by this tool) is still booting — waiting',
+      );
+      await awaitEmulatorBoot(
+        ctx,
+        bare,
+        booting.pid,
+        booting.avd,
+        progress: warn,
+      );
     } else {
       final started = await _startEmulator(ctx, avd);
-      await awaitEmulatorBoot(ctx, bare, started.pid, started.avd, progress: warn);
+      await awaitEmulatorBoot(
+        ctx,
+        bare,
+        started.pid,
+        started.avd,
+        progress: warn,
+      );
     }
     final adb = await ctx.adb();
     if (argResults!['phone'] as bool) {
       await adb.shellLenient(['wm', 'size', '1080x2400']);
-      out('wm size set to 1080x2400 (360x800 dp) — run `unphone` before you finish');
+      out(
+        'wm size set to 1080x2400 (360x800 dp) — run `unphone` before you finish',
+      );
     }
     final device = AndroidDevice(adb);
     out('ready: ${device.id}  ${await device.screenSize()}');
@@ -1372,36 +1508,56 @@ class BootCommand extends QaCommand {
         (await bare.withSerial(device.serial).raw(emuAvdNameArgs)).stdout,
       );
       if (named == avd) {
-        throw UsageFailure('$avd is already up on ${device.serial} — `boot` '
-            'never restarts an emulator; drive it with -d ${device.serial}');
+        throw UsageFailure(
+          '$avd is already up on ${device.serial} — `boot` '
+          'never restarts an emulator; drive it with -d ${device.serial}',
+        );
       }
     }
     final host = ctx.fleetHost();
     final qemus = await host.qemuProcesses();
     final running = qemus.where((q) => q.avd == avd).firstOrNull;
     if (running != null) {
-      throw DeviceFailure('$avd has a qemu (pid ${running.pid}) that is not on '
-          'adb — still booting, or hung; it is the owner\'s to close');
+      throw DeviceFailure(
+        '$avd has a qemu (pid ${running.pid}) that is not on '
+        'adb — still booting, or hung; it is the owner\'s to close',
+      );
     }
     taken.addAll(qemus.map((q) => q.port).nonNulls);
-    final reserved = {for (final index in host.createdIndices()) fleetPort(index)};
-    final port = freeConsolePort(taken: taken, reserved: reserved) ??
+    final reserved = {
+      for (final index in host.createdIndices()) fleetPort(index),
+    };
+    final port =
+        freeConsolePort(taken: taken, reserved: reserved) ??
         (throw DeviceFailure('no free emulator console port for $avd'));
     final serial = 'emulator-$port';
     final started = await _startEmulator(ctx, avd, port: port);
     // Beside other emulators the hypervisor lines that look fatal are not
     // (the WHPX trap); the process exiting is the verdict.
-    await awaitEmulatorBoot(ctx, bare, started.pid, started.avd,
-        serial: serial, fatalLogLines: false, progress: warn);
-    final named = parseEmuAvdName((await bare.withSerial(serial).raw(emuAvdNameArgs)).stdout);
+    await awaitEmulatorBoot(
+      ctx,
+      bare,
+      started.pid,
+      started.avd,
+      serial: serial,
+      fatalLogLines: false,
+      progress: warn,
+    );
+    final named = parseEmuAvdName(
+      (await bare.withSerial(serial).raw(emuAvdNameArgs)).stdout,
+    );
     if (named != avd) {
-      throw DeviceFailure('$serial came up as ${named ?? 'an emulator that '
-          'does not name its AVD'}, not $avd');
+      throw DeviceFailure(
+        '$serial came up as ${named ?? 'an emulator that '
+                'does not name its AVD'}, not $avd',
+      );
     }
     final device = AndroidDevice(bare.withSerial(serial));
     if (argResults!['phone'] as bool) {
       await device.adb.shellLenient(['wm', 'size', '1080x2400']);
-      out('wm size set to 1080x2400 (360x800 dp) — run `unphone` before you finish');
+      out(
+        'wm size set to 1080x2400 (360x800 dp) — run `unphone` before you finish',
+      );
     }
     out('ready: $serial  ${await device.screenSize()}');
     return 0;
@@ -1438,8 +1594,9 @@ class BootCommand extends QaCommand {
     final emulator = ctx.sdk.requireEmulator();
     var avd = requested;
     if (avd == null || avd.isEmpty) {
-      final listed = await ctx.runner.run(emulator, ['-list-avds'],
-          timeout: const Duration(seconds: 30));
+      final listed = await ctx.runner.run(emulator, [
+        '-list-avds',
+      ], timeout: const Duration(seconds: 30));
       final names = listed.stdout
           .split('\n')
           .map((l) => l.trim())
@@ -1549,17 +1706,20 @@ Future<void> awaitEmulatorBoot(
       );
     }
     final all = await bare.devices();
-    final devices =
-        serial == null ? all : all.where((d) => d.serial == serial).toList();
+    final devices = serial == null
+        ? all
+        : all.where((d) => d.serial == serial).toList();
     final usable = devices.where((d) => d.usable).toList();
     final state = usable.isNotEmpty
         ? 'device up, waiting for boot_completed'
         : (devices.isEmpty
-            ? 'device offline, still waiting'
-            : 'device ${devices.first.state}, still waiting');
+              ? 'device offline, still waiting'
+              : 'device ${devices.first.state}, still waiting');
     if (DateTime.now().difference(lastProgress).inSeconds >= 15) {
       lastProgress = DateTime.now();
-      progress('boot: ${DateTime.now().difference(started).inSeconds} s — $state');
+      progress(
+        'boot: ${DateTime.now().difference(started).inSeconds} s — $state',
+      );
     }
     if (usable.isEmpty) continue;
     final adb = bare.withSerial(usable.first.serial);
@@ -1590,9 +1750,11 @@ class WakeCommand extends QaCommand {
     final device = await ctx.android();
     await device.wake();
     final probe = await device.probe();
-    out('awake=${DeviceProbe.flag(probe.awake, 'yes', 'no')}  '
-        'locked=${DeviceProbe.flag(probe.locked, 'yes', 'no')}  '
-        'foreground=${probe.foregroundPackage ?? 'unknown'}');
+    out(
+      'awake=${DeviceProbe.flag(probe.awake, 'yes', 'no')}  '
+      'locked=${DeviceProbe.flag(probe.locked, 'yes', 'no')}  '
+      'foreground=${probe.foregroundPackage ?? 'unknown'}',
+    );
     return 0;
   }
 }
@@ -1602,7 +1764,8 @@ class UnphoneCommand extends QaCommand {
   String get name => 'unphone';
 
   @override
-  String get description => 'Android: reset any `wm size` override back to physical.';
+  String get description =>
+      'Android: reset any `wm size` override back to physical.';
 
   @override
   Future<int> run() async {
@@ -1615,17 +1778,25 @@ class UnphoneCommand extends QaCommand {
 abstract class LaunchingCommand extends QaCommand {
   LaunchingCommand() {
     argParser
-      ..addFlag('qa',
-          defaultsTo: true,
-          help: 'Pass the ANTA_QA dart-defines (isolated qa database).')
-      ..addFlag('driver',
-          defaultsTo: true,
-          help: 'Use $driverTarget so the QA agent and Flutter Driver work.')
-      ..addMultiOption('define',
-          help: 'Extra --dart-define, as K=V. Repeatable.')
-      ..addFlag('kill-previous',
-          defaultsTo: true,
-          help: 'Kill the run recorded in run.pid before starting a new one.');
+      ..addFlag(
+        'qa',
+        defaultsTo: true,
+        help: 'Pass the ANTA_QA dart-defines (isolated qa database).',
+      )
+      ..addFlag(
+        'driver',
+        defaultsTo: true,
+        help: 'Use $driverTarget so the QA agent and Flutter Driver work.',
+      )
+      ..addMultiOption(
+        'define',
+        help: 'Extra --dart-define, as K=V. Repeatable.',
+      )
+      ..addFlag(
+        'kill-previous',
+        defaultsTo: true,
+        help: 'Kill the run recorded in run.pid before starting a new one.',
+      );
   }
 
   /// Clears anything a previous run left behind that would block a new one.
@@ -1639,7 +1810,10 @@ abstract class LaunchingCommand extends QaCommand {
     }
   }
 
-  Future<int> launch(String command, {List<String> extraArgs = const []}) async {
+  Future<int> launch(
+    String command, {
+    List<String> extraArgs = const [],
+  }) async {
     final ctx = context;
     final device = await ctx.device();
     final args = [
@@ -1686,13 +1860,13 @@ class MarkerReport {
   });
 
   factory MarkerReport.fromOutcomes(AgentInfo info) => MarkerReport(
-        lines: info.qaLog,
-        hasReset: info.qaOutcomes.any((o) => o.kind == 'reset'),
-        hasSeed: info.qaOutcomes.any((o) => o.kind == 'seed'),
-        seedFailed: info.qaOutcomes.any((o) => o.kind == 'seed' && !o.ok),
-        resetFailed: info.qaOutcomes.any((o) => o.kind == 'reset' && !o.ok),
-        source: 'agent',
-      );
+    lines: info.qaLog,
+    hasReset: info.qaOutcomes.any((o) => o.kind == 'reset'),
+    hasSeed: info.qaOutcomes.any((o) => o.kind == 'seed'),
+    seedFailed: info.qaOutcomes.any((o) => o.kind == 'seed' && !o.ok),
+    resetFailed: info.qaOutcomes.any((o) => o.kind == 'reset' && !o.ok),
+    source: 'agent',
+  );
 
   factory MarkerReport.fromText(String text, String source) {
     final parsed = parseQaMarkers(text);
@@ -1722,18 +1896,26 @@ class MarkerReport {
 mixin QaMarkers on QaCommand {
   void addMarkerOptions(ArgParser parser) {
     parser
-      ..addFlag('fresh',
-          negatable: false,
-          help: 'Drop the qa_reset marker so the next QA launch wipes the qa db.')
-      ..addOption('seed',
-          help: 'Full-backup JSON to push as qa_seed.json '
-              '(relative paths resolve against the package root). '
-              '{{today+N}} / {{day+N}} / {{weekday+N}} placeholders are '
-              'resolved against the run\'s clock first.')
-      ..addMultiOption('setting',
-          help: 'Override a settings key in the seed before it is pushed, as '
-              'key=value; repeatable. E.g. --setting locale=de '
-              '--setting theme_mode=dark.');
+      ..addFlag(
+        'fresh',
+        negatable: false,
+        help: 'Drop the qa_reset marker so the next QA launch wipes the qa db.',
+      )
+      ..addOption(
+        'seed',
+        help:
+            'Full-backup JSON to push as qa_seed.json '
+            '(relative paths resolve against the package root). '
+            '{{today+N}} / {{day+N}} / {{weekday+N}} placeholders are '
+            'resolved against the run\'s clock first.',
+      )
+      ..addMultiOption(
+        'setting',
+        help:
+            'Override a settings key in the seed before it is pushed, as '
+            'key=value; repeatable. E.g. --setting locale=de '
+            '--setting theme_mode=dark.',
+      );
   }
 
   bool get wantsFresh => argResults!['fresh'] as bool;
@@ -1873,14 +2055,17 @@ mixin InstalledLaunch on QaCommand {
     final previous = Uri.tryParse(await ctx.recordedVmUri() ?? '')?.port;
     final launch = await device.launchApp(
       vmServicePort: port,
-      previousVmServicePort: previous == null || previous == 0 ? null : previous,
+      previousVmServicePort: previous == null || previous == 0
+          ? null
+          : previous,
     );
     if (device is AndroidDevice) {
       final warning = await recordLaunch(
         device.adb,
         device.id,
         ctx.paths,
-        fleetGuest: () => isFleetGuest(device.id, ctx.fleetHost().createdIndices()),
+        fleetGuest: () =>
+            isFleetGuest(device.id, ctx.fleetHost().createdIndices()),
       );
       if (warning != null) warn(warning);
     }
@@ -1892,7 +2077,8 @@ mixin InstalledLaunch on QaCommand {
         launch.vmServiceUri,
         timeout: vmTimeout,
         stillWorthWaiting: () async {
-          if (DateTime.now().difference(startedAt) < const Duration(seconds: 6)) {
+          if (DateTime.now().difference(startedAt) <
+              const Duration(seconds: 6)) {
             return true;
           }
           return await device.appPid() != null;
@@ -1904,9 +2090,11 @@ mixin InstalledLaunch on QaCommand {
       // driver it would fail every later step of this process.
       await ctx.forgetAgent();
       if (device.nativeDriver != null) {
-        warn('warning: the VM service never answered on port $port (${e.message}) '
-            '— not a debug build? The adb path still works; `qa run` installs '
-            'the driver build.');
+        warn(
+          'warning: the VM service never answered on port $port (${e.message}) '
+          '— not a debug build? The adb path still works; `qa run` installs '
+          'the driver build.',
+        );
         return null;
       }
       throw DeviceFailure(
@@ -1916,8 +2104,10 @@ mixin InstalledLaunch on QaCommand {
       );
     }
     await ctx.recordUris(vm: launch.vmServiceUri, dtd: null);
-    out('vm=${launch.vmServiceUri}  (no DTD after a bare launch — `qa attach` '
-        'when you need hot reload or the Dart MCP)');
+    out(
+      'vm=${launch.vmServiceUri}  (no DTD after a bare launch — `qa attach` '
+      'when you need hot reload or the Dart MCP)',
+    );
     final agent = await ctx.adoptAgent(vm);
     vm.driverWait = const Duration(seconds: 15);
     try {
@@ -1932,23 +2122,31 @@ mixin InstalledLaunch on QaCommand {
           },
         );
         if (drawn == null) {
-          warn('warning: the app has not drawn a frame ${20}s after launch — '
-              'verbs may fail until it does');
+          warn(
+            'warning: the app has not drawn a frame ${20}s after launch — '
+            'verbs may fail until it does',
+          );
         } else {
           info = drawn;
         }
       }
       await ctx.rememberDocuments(info);
-      out('agent: ${info.describe()}  (first frame after '
-          '${DateTime.now().difference(startedAt).inMilliseconds} ms)');
+      out(
+        'agent: ${info.describe()}  (first frame after '
+        '${DateTime.now().difference(startedAt).inMilliseconds} ms)',
+      );
       if (!info.qaMode) {
-        warn('warning: the running build is NOT a QA build — it is reading the '
-            'owner database. Install one with `qa run`.');
+        warn(
+          'warning: the running build is NOT a QA build — it is reading the '
+          'owner database. Install one with `qa run`.',
+        );
       }
       if (info.cloud ?? false) {
-        warn('warning: this build can reach Firebase (ANTA_QA_CLOUD) — it acts '
-            'as whoever is signed in on this install. Do not screenshot or '
-            'dump account screens, and do not touch pairing.');
+        warn(
+          'warning: this build can reach Firebase (ANTA_QA_CLOUD) — it acts '
+          'as whoever is signed in on this install. Do not screenshot or '
+          'dump account screens, and do not touch pairing.',
+        );
       }
       return agent;
     } on DeviceFailure catch (e) {
@@ -1958,8 +2156,10 @@ mixin InstalledLaunch on QaCommand {
           'agent, so install the driver build with `qa run`.',
         );
       }
-      warn('warning: no QA agent in the running build (${e.message}) — the adb '
-          'path still works; `qa run` installs the driver build');
+      warn(
+        'warning: no QA agent in the running build (${e.message}) — the adb '
+        'path still works; `qa run` installs the driver build',
+      );
       await ctx.forgetAgent();
       return null;
     }
@@ -2000,7 +2200,11 @@ class RunAppCommand extends LaunchingCommand with QaMarkers {
   /// `flutter run` built and installed the debug APK, so the device now
   /// carries this tree, not whatever `qa install` put there before: without
   /// this record a later `pass` warned about a stale build that was not.
-  Future<void> _recordInstalled(QaContext ctx, Device device, DateTime started) async {
+  Future<void> _recordInstalled(
+    QaContext ctx,
+    Device device,
+    DateTime started,
+  ) async {
     final extra = argResults!['define'] as List<String>;
     installedRecordForRun(
       paths: ctx.paths,
@@ -2043,8 +2247,10 @@ class RelaunchCommand extends QaCommand
     if (File(ctx.paths.runPid).existsSync() &&
         runDevice.existsSync() &&
         runDevice.readAsStringSync().trim() == device.id) {
-      out('note: the flutter run behind run.log has lost the app — '
-          '`qa attach` when you need DTD again');
+      out(
+        'note: the flutter run behind run.log has lost the app — '
+        '`qa attach` when you need DTD again',
+      );
     }
     await runPostActions();
     return 0;
@@ -2107,13 +2313,17 @@ Future<List<String>> endRecordedRun(QaContext ctx) async {
   if (pid != null) lines.add('killed run pid $pid');
   final orphans = await reapOrphanedServices(ctx.runner);
   if (orphans.isNotEmpty) {
-    lines.add('reaped orphaned dart development-service: ${orphans.join(', ')}');
+    lines.add(
+      'reaped orphaned dart development-service: ${orphans.join(', ')}',
+    );
   }
   final deviceFile = File(ctx.paths.deviceTxt);
   final runVmFile = File(ctx.paths.runVmTxt);
   if (deviceFile.existsSync()) {
     final id = deviceFile.readAsStringSync().trim();
-    final runVm = runVmFile.existsSync() ? runVmFile.readAsStringSync().trim() : '';
+    final runVm = runVmFile.existsSync()
+        ? runVmFile.readAsStringSync().trim()
+        : '';
     deviceFile.deleteSync();
     if (runVmFile.existsSync()) runVmFile.deleteSync();
     final vmFile = File(ctx.paths.vmTxtFor(id));
@@ -2122,13 +2332,17 @@ Future<List<String>> endRecordedRun(QaContext ctx) async {
       vmFile.writeAsStringSync('');
       final dtdFile = File(ctx.paths.dtdTxtFor(id));
       if (dtdFile.existsSync()) dtdFile.writeAsStringSync('');
-      lines.add('forgot the URIs recorded for $id (they died with the run — '
-          '`qa relaunch -d $id` brings the agent back in seconds)');
+      lines.add(
+        'forgot the URIs recorded for $id (they died with the run — '
+        '`qa relaunch -d $id` brings the agent back in seconds)',
+      );
     } else if (id.isNotEmpty && current.isNotEmpty) {
       final dtdFile = File(ctx.paths.dtdTxtFor(id));
       if (dtdFile.existsSync()) dtdFile.writeAsStringSync('');
-      lines.add('kept the VM URI for $id (a relaunch recorded it, not this run); '
-          'the DTD is gone with the run');
+      lines.add(
+        'kept the VM URI for $id (a relaunch recorded it, not this run); '
+        'the DTD is gone with the run',
+      );
     }
   }
   return lines;
@@ -2160,8 +2374,11 @@ class KillRunCommand extends QaCommand {
 
 class DtdCommand extends QaCommand {
   DtdCommand() {
-    argParser.addFlag('vm',
-        negatable: false, help: 'Print the VM service URI instead.');
+    argParser.addFlag(
+      'vm',
+      negatable: false,
+      help: 'Print the VM service URI instead.',
+    );
   }
 
   @override
@@ -2178,7 +2395,9 @@ class DtdCommand extends QaCommand {
     if (argResults!['vm'] as bool) {
       final vm = await ctx.recordedVmUri();
       if (vm == null) {
-        throw DeviceFailure('no VM URI recorded yet — run `qa run`, `qa attach` or `qa relaunch` first');
+        throw DeviceFailure(
+          'no VM URI recorded yet — run `qa run`, `qa attach` or `qa relaunch` first',
+        );
       }
       out(vm);
       return 0;
@@ -2190,7 +2409,7 @@ class DtdCommand extends QaCommand {
         vm == null
             ? 'no URI recorded yet — run `qa run` or `qa attach` first'
             : 'no DTD after a bare launch (the VM service is $vm; `qa dtd --vm` '
-                'prints it) — run `qa attach` for a DTD',
+                  'prints it) — run `qa attach` for a DTD',
       );
     }
     out(dtd);
@@ -2230,14 +2449,25 @@ class LaunchCommand extends QaCommand with PostActions, InstalledLaunch {
 class ShotCommand extends QaCommand {
   ShotCommand() {
     argParser
-      ..addOption('scale', defaultsTo: '0.5', help: 'Downscale factor, 0 < f <= 1.')
-      ..addFlag('full', negatable: false, help: 'No downscale (same as --scale 1).')
+      ..addOption(
+        'scale',
+        defaultsTo: '0.5',
+        help: 'Downscale factor, 0 < f <= 1.',
+      )
+      ..addFlag(
+        'full',
+        negatable: false,
+        help: 'No downscale (same as --scale 1).',
+      )
       ..addOption('out', help: 'Directory to write into.')
-      ..addOption('via',
-          allowed: ['native', 'agent'],
-          help: 'native: the device capture (adb screencap, simctl io); agent: '
-              'the Flutter view rendered by the app. Default native where '
-              'it exists, agent on macOS.');
+      ..addOption(
+        'via',
+        allowed: ['native', 'agent'],
+        help:
+            'native: the device capture (adb screencap, simctl io); agent: '
+            'the Flutter view rendered by the app. Default native where '
+            'it exists, agent on macOS.',
+      );
   }
 
   @override
@@ -2254,9 +2484,9 @@ class ShotCommand extends QaCommand {
     final scale = (argResults!['full'] as bool)
         ? 1.0
         : !argResults!.wasParsed('scale') && ctx.shotScaleOverride != null
-            ? ctx.shotScaleOverride!
-            : (double.tryParse(argResults!['scale'] as String) ??
-                (throw UsageFailure('--scale must be a number')));
+        ? ctx.shotScaleOverride!
+        : (double.tryParse(argResults!['scale'] as String) ??
+              (throw UsageFailure('--scale must be a number')));
     final via = parseViaMode(argResults!['via'] as String?);
     final path = await captureShot(
       () => ctx.screenshotPng(via: via),
@@ -2273,13 +2503,19 @@ class ShotCommand extends QaCommand {
 class DumpCommand extends QaCommand {
   DumpCommand() {
     argParser
-      ..addFlag('all',
-          negatable: false, help: 'Include nodes with no label and no flags, and hidden ones.')
+      ..addFlag(
+        'all',
+        negatable: false,
+        help: 'Include nodes with no label and no flags, and hidden ones.',
+      )
       ..addFlag('json', negatable: false, help: 'Emit the nodes as JSON.')
-      ..addFlag('cached',
-          negatable: false,
-          help: "Print the device's last dump from "
-              'build/qa/last_dump_<device>.txt without touching the device.');
+      ..addFlag(
+        'cached',
+        negatable: false,
+        help:
+            "Print the device's last dump from "
+            'build/qa/last_dump_<device>.txt without touching the device.',
+      );
   }
 
   @override
@@ -2308,33 +2544,45 @@ class DumpCommand extends QaCommand {
     }
     warnIfForeign(tree);
     final all = argResults!['all'] as bool;
-    final nodes = all ? tree.nodes : tree.nodes.where((n) => n.interesting).toList();
+    final nodes = all
+        ? tree.nodes
+        : tree.nodes.where((n) => n.interesting).toList();
     if (argResults!['json'] as bool) {
-      out(const JsonEncoder.withIndent('  ')
-          .convert(nodes.map((n) => n.toJson()).toList()));
+      out(
+        const JsonEncoder.withIndent(
+          '  ',
+        ).convert(nodes.map((n) => n.toJson()).toList()),
+      );
       return 0;
     }
     for (final node in nodes) {
       out(node.describe());
     }
     final hidden = tree.nodes.where((n) => n.outOfView).length;
-    out('${nodes.length} node(s) of ${tree.nodes.length}'
-        '${all ? '' : ' (pass --all for the rest${hidden == 0 ? '' : ', $hidden off screen'})'}'
-        '${age == null ? '' : '  [cached, taken $age]'}'
-        '${tree.source == UiTreeSource.agent ? '  [agent]' : ''}');
+    out(
+      '${nodes.length} node(s) of ${tree.nodes.length}'
+      '${all ? '' : ' (pass --all for the rest${hidden == 0 ? '' : ', $hidden off screen'})'}'
+      '${age == null ? '' : '  [cached, taken $age]'}'
+      '${tree.source == UiTreeSource.agent ? '  [agent]' : ''}',
+    );
     return 0;
   }
 }
 
 abstract class TargetCommand extends QaCommand {
   TargetCommand() {
-    argParser.addOption('nth',
-        help: 'Pick the Nth match (0-based) when a label is ambiguous.');
+    argParser.addOption(
+      'nth',
+      help: 'Pick the Nth match (0-based) when a label is ambiguous.',
+    );
   }
 
   Future<TargetLookup> target({bool reveal = true}) async {
-    final lookup = await context.lookup(requireRest('a target'),
-        nth: intOption('nth'), reveal: reveal);
+    final lookup = await context.lookup(
+      requireRest('a target'),
+      nth: intOption('nth'),
+      reveal: reveal,
+    );
     if (lookup.revealed) out('revealed: ${lookup.resolved.description}');
     final note = lookup.revealNote;
     if (note != null) warn('note: $note');
@@ -2351,8 +2599,7 @@ class TapCommand extends TargetCommand with PostActions {
   String get name => 'tap';
 
   @override
-  String get description =>
-      'Tap a target: a label, `id:foo`, `#12` or `x,y`.';
+  String get description => 'Tap a target: a label, `id:foo`, `#12` or `x,y`.';
 
   @override
   Future<int> run() async {
@@ -2402,8 +2649,10 @@ class LongPressCommand extends TargetCommand with PostActions {
     final resolved = lookup.resolved;
     final ms = intOption('ms') ?? 800;
     await (await ctx.driver()).longPress(resolved.x, resolved.y, ms);
-    out('long-pressed ${resolved.x},${resolved.y} for ${ms}ms  '
-        '${lookup.description}');
+    out(
+      'long-pressed ${resolved.x},${resolved.y} for ${ms}ms  '
+      '${lookup.description}',
+    );
     await runPostActions();
     return 0;
   }
@@ -2461,12 +2710,14 @@ class WaitCommand extends TargetCommand {
       out(gone ? 'gone: "$wanted"' : 'found: ${describeFound(outcome.found!)}');
       return 0;
     }
-    throw TargetFailure(waitTimeoutMessage(
-      wanted: wanted,
-      gone: gone,
-      seconds: seconds,
-      tree: outcome.lastTree,
-    ));
+    throw TargetFailure(
+      waitTimeoutMessage(
+        wanted: wanted,
+        gone: gone,
+        seconds: seconds,
+        tree: outcome.lastTree,
+      ),
+    );
   }
 }
 
@@ -2480,8 +2731,11 @@ class ScrollToCommand extends TargetCommand {
     argParser
       ..addOption('max', defaultsTo: '8', help: 'Maximum swipes to try.')
       ..addOption('in', help: 'Target naming the scrollable to swipe inside.')
-      ..addFlag('up',
-          negatable: false, help: 'Scroll backwards (towards the top) instead.');
+      ..addFlag(
+        'up',
+        negatable: false,
+        help: 'Scroll backwards (towards the top) instead.',
+      );
   }
 
   @override
@@ -2499,8 +2753,9 @@ class ScrollToCommand extends TargetCommand {
     final wanted = requireRest('a target');
     final maxSwipes = intOption('max') ?? 8;
     final container = argResults!['in'] as String?;
-    final direction =
-        (argResults!['up'] as bool) ? SwipeDirection.down : SwipeDirection.up;
+    final direction = (argResults!['up'] as bool)
+        ? SwipeDirection.down
+        : SwipeDirection.up;
     final driver = await ctx.driver();
     final nth = intOption('nth');
 
@@ -2508,8 +2763,10 @@ class ScrollToCommand extends TargetCommand {
     var revealTried = false;
     final starting = DateTime.now().add(QaContext.startingGrace);
     for (var attempt = 0; attempt <= maxSwipes; attempt++) {
-      var screen = tree =
-          (await ctx.dumpWhileStarting(until: starting, cache: true)).tree;
+      var screen = tree = (await ctx.dumpWhileStarting(
+        until: starting,
+        cache: true,
+      )).tree;
       if (attempt == 0) warnIfForeign(screen);
       try {
         final found = TargetResolver(screen).resolve(wanted, nth: nth);
@@ -2580,12 +2837,14 @@ class ScrollToCommand extends TargetCommand {
 class TypeCommand extends QaCommand with PostActions {
   TypeCommand() {
     argParser
-      ..addFlag('enter',
-          negatable: false, help: 'Send ENTER after the text.')
-      ..addFlag('replace',
-          negatable: false,
-          help: 'Agent path: replace the field content instead of inserting '
-              'at the caret.');
+      ..addFlag('enter', negatable: false, help: 'Send ENTER after the text.')
+      ..addFlag(
+        'replace',
+        negatable: false,
+        help:
+            'Agent path: replace the field content instead of inserting '
+            'at the caret.',
+      );
     addPostActionOptions(argParser);
   }
 
@@ -2612,10 +2871,14 @@ class TypeCommand extends QaCommand with PostActions {
     final field = outcome.text == null
         ? ''
         : '  → field: "${outcome.text}" (caret ${outcome.selection})';
-    out('typed "$text"${enter ? ' + ENTER${sent == null ? '' : ' ($sent)'}' : ''}$field');
+    out(
+      'typed "$text"${enter ? ' + ENTER${sent == null ? '' : ' ($sent)'}' : ''}$field',
+    );
     if (outcome.imeShown == false) {
-      warn('warning: no keyboard is up — the text may go nowhere '
-          '(tap a field first)');
+      warn(
+        'warning: no keyboard is up — the text may go nowhere '
+        '(tap a field first)',
+      );
     }
     await runPostActions();
     return 0;
@@ -2649,7 +2912,10 @@ class SwipeCommand extends QaCommand with PostActions {
   SwipeCommand() {
     argParser
       ..addOption('from', help: 'Start point as x,y. Defaults to the centre.')
-      ..addOption('dist', help: 'Travel in pixels. Defaults to half the screen.')
+      ..addOption(
+        'dist',
+        help: 'Travel in pixels. Defaults to half the screen.',
+      )
       ..addOption('ms', defaultsTo: '300', help: 'Duration of the gesture.');
     addPostActionOptions(argParser);
   }
@@ -2675,7 +2941,9 @@ class SwipeCommand extends QaCommand with PostActions {
       if (parts.length != 2) throw UsageFailure('--from must be x,y');
       fromX = int.tryParse(parts[0].trim());
       fromY = int.tryParse(parts[1].trim());
-      if (fromX == null || fromY == null) throw UsageFailure('--from must be x,y');
+      if (fromX == null || fromY == null) {
+        throw UsageFailure('--from must be x,y');
+      }
     }
     final path = buildSwipe(
       width: size.width,
@@ -2696,11 +2964,16 @@ class SwipeCommand extends QaCommand with PostActions {
 class DragCommand extends QaCommand with PostActions {
   DragCommand() {
     argParser
-      ..addOption('hold',
-          defaultsTo: '600',
-          help: 'Milliseconds to hold before moving (a reorder needs > 500).')
+      ..addOption(
+        'hold',
+        defaultsTo: '600',
+        help: 'Milliseconds to hold before moving (a reorder needs > 500).',
+      )
       ..addOption('ms', defaultsTo: '400', help: 'Milliseconds the move takes.')
-      ..addOption('nth', help: 'Pick the Nth match when the first target is ambiguous.');
+      ..addOption(
+        'nth',
+        help: 'Pick the Nth match when the first target is ambiguous.',
+      );
     addPostActionOptions(argParser);
   }
 
@@ -2730,14 +3003,24 @@ class DragCommand extends QaCommand with PostActions {
     if (isPointTarget(rest[1]) || isIndexTarget(rest[1])) {
       to = await ctx.lookup(rest[1]);
     } else {
-      final outcome =
-          await ctx.resolveOnScreen(rest[1], from.tree ?? await ctx.dump());
+      final outcome = await ctx.resolveOnScreen(
+        rest[1],
+        from.tree ?? await ctx.dump(),
+      );
       if (outcome.revealed) {
-        if (!outcome.onScreen) throw TargetFailure(offScreenAfterReveal(rest[1]));
+        if (!outcome.onScreen) {
+          throw TargetFailure(offScreenAfterReveal(rest[1]));
+        }
         out('revealed: ${outcome.resolved.description}');
         final toNote = outcome.note;
         if (toNote != null) warn('note: $toNote');
-        from = afterDropReveal(rest[0], from, outcome.tree, nth, note: (line) => warn('note: $line'));
+        from = afterDropReveal(
+          rest[0],
+          from,
+          outcome.tree,
+          nth,
+          note: (line) => warn('note: $line'),
+        );
       }
       to = TargetLookup(resolved: outcome.resolved, tree: outcome.tree);
     }
@@ -2749,9 +3032,11 @@ class DragCommand extends QaCommand with PostActions {
       holdMs: intOption('hold') ?? 600,
       moveMs: intOption('ms') ?? 400,
     );
-    out('dragged ${from.resolved.x},${from.resolved.y} -> '
-        '${to.resolved.x},${to.resolved.y}  ${from.description}  onto  '
-        '${to.resolved.description}');
+    out(
+      'dragged ${from.resolved.x},${from.resolved.y} -> '
+      '${to.resolved.x},${to.resolved.y}  ${from.description}  onto  '
+      '${to.resolved.description}',
+    );
     await runPostActions();
     return 0;
   }
@@ -2776,19 +3061,25 @@ class DragCommand extends QaCommand with PostActions {
     if (byId != null) {
       again = TargetResolver(tree).fromNode(byId);
     } else if (isIndexTarget(target)) {
-      throw TargetFailure('revealing the drop target scrolled the screen, so '
-          '$target from the earlier dump no longer names a row — name the '
-          'dragged row by label or id');
+      throw TargetFailure(
+        'revealing the drop target scrolled the screen, so '
+        '$target from the earlier dump no longer names a row — name the '
+        'dragged row by label or id',
+      );
     } else {
       if (id != null) {
-        note('the dragged row (semantics id $id) is not in the new dump; '
-            '"$target" was resolved again by its label');
+        note(
+          'the dragged row (semantics id $id) is not in the new dump; '
+          '"$target" was resolved again by its label',
+        );
       }
       again = TargetResolver(tree).resolve(target, nth: nth);
     }
     if (again.node?.outOfView ?? false) {
-      throw TargetFailure('"$target" and the drop target do not fit on '
-          'screen together — drag in two steps');
+      throw TargetFailure(
+        '"$target" and the drop target do not fit on '
+        'screen together — drag in two steps',
+      );
     }
     return TargetLookup(resolved: again, tree: tree);
   }
@@ -2803,8 +3094,7 @@ class ClearCommand extends QaCommand with PostActions {
   String get name => 'clear';
 
   @override
-  String get description =>
-      'Empty the focused text field (agent path).';
+  String get description => 'Empty the focused text field (agent path).';
 
   @override
   Future<int> run() async {
@@ -2818,11 +3108,23 @@ class ClearCommand extends QaCommand with PostActions {
 class LookCommand extends QaCommand {
   LookCommand() {
     argParser
-      ..addOption('scale', defaultsTo: '0.5', help: 'Downscale factor, 0 < f <= 1.')
+      ..addOption(
+        'scale',
+        defaultsTo: '0.5',
+        help: 'Downscale factor, 0 < f <= 1.',
+      )
       ..addFlag('full', negatable: false, help: 'No downscale.')
-      ..addFlag('all', negatable: false, help: 'Mark and list every node, not just the interesting ones.')
+      ..addFlag(
+        'all',
+        negatable: false,
+        help: 'Mark and list every node, not just the interesting ones.',
+      )
       ..addOption('out', help: 'Directory to write into.')
-      ..addOption('via', allowed: ['native', 'agent'], help: 'Which layer takes the picture.');
+      ..addOption(
+        'via',
+        allowed: ['native', 'agent'],
+        help: 'Which layer takes the picture.',
+      );
   }
 
   @override
@@ -2840,7 +3142,7 @@ class LookCommand extends QaCommand {
     final scale = (argResults!['full'] as bool)
         ? 1.0
         : (double.tryParse(argResults!['scale'] as String) ??
-            (throw UsageFailure('--scale must be a number')));
+              (throw UsageFailure('--scale must be a number')));
     final all = argResults!['all'] as bool;
     final via = parseViaMode(argResults!['via'] as String?);
     final results = await Future.wait<Object>([
@@ -2860,12 +3162,16 @@ class LookCommand extends QaCommand {
       outDir: argResults!['out'] as String? ?? ctx.shotsDirOverride,
     );
     out(path);
-    final nodes = all ? tree.nodes : tree.nodes.where((n) => n.interesting).toList();
+    final nodes = all
+        ? tree.nodes
+        : tree.nodes.where((n) => n.interesting).toList();
     for (final node in nodes) {
       out(node.describe());
     }
-    out('${nodes.length} node(s) marked; orange = tappable, blue = text field, '
-        'green = scrollable');
+    out(
+      '${nodes.length} node(s) marked; orange = tappable, blue = text field, '
+      'green = scrollable',
+    );
     return 0;
   }
 }
@@ -2873,15 +3179,25 @@ class LookCommand extends QaCommand {
 class ExpectCommand extends QaCommand {
   ExpectCommand() {
     argParser
-      ..addMultiOption('absent',
-          help: 'A target no node may match, scrolled out of view included. '
-              'Repeatable.')
-      ..addOption('timeout', defaultsTo: '5', help: 'Seconds to keep re-checking.')
-      ..addFlag('ordered',
-          negatable: false,
-          help: 'The present targets must also come in this order in the '
-              'dump (its traversal order, top to bottom): a list\'s rows '
-              'after a reorder.');
+      ..addMultiOption(
+        'absent',
+        help:
+            'A target no node may match, scrolled out of view included. '
+            'Repeatable.',
+      )
+      ..addOption(
+        'timeout',
+        defaultsTo: '5',
+        help: 'Seconds to keep re-checking.',
+      )
+      ..addFlag(
+        'ordered',
+        negatable: false,
+        help:
+            'The present targets must also come in this order in the '
+            'dump (its traversal order, top to bottom): a list\'s rows '
+            'after a reorder.',
+      );
   }
 
   @override
@@ -2912,7 +3228,12 @@ class ExpectCommand extends QaCommand {
     List<String> misses;
     while (true) {
       tree = (await ctx.dumpWhileStarting(until: deadline, cache: true)).tree;
-      misses = expectMisses(tree, present: present, absent: absent, ordered: ordered);
+      misses = expectMisses(
+        tree,
+        present: present,
+        absent: absent,
+        ordered: ordered,
+      );
       if (misses.isEmpty || !DateTime.now().isBefore(deadline)) break;
       await Future<void>.delayed(interval);
     }
@@ -2971,7 +3292,10 @@ List<String> expectMisses(
   final positions = <(String, int)>[];
   for (final target in present) {
     if (isPointTarget(target)) continue;
-    final first = resolver.matchingNodes(target).where((n) => n.countsAsPresent).firstOrNull;
+    final first = resolver
+        .matchingNodes(target)
+        .where((n) => n.countsAsPresent)
+        .firstOrNull;
     if (first == null) {
       misses.add('missing "$target"');
     } else {
@@ -2983,24 +3307,32 @@ List<String> expectMisses(
       final (before, at) = positions[i - 1];
       final (after, next) = positions[i];
       if (next <= at) {
-        misses.add('out of order: "$after" (node $next) comes before '
-            '"$before" (node $at), not after it');
+        misses.add(
+          'out of order: "$after" (node $next) comes before '
+          '"$before" (node $at), not after it',
+        );
       }
     }
   }
   for (final target in absent) {
     final matches = resolver.matchingNodes(target);
     if (matches.isEmpty) continue;
-    misses.add(matches.every((n) => n.outOfView)
-        ? 'unexpected "$target" is present (scrolled out of view)'
-        : 'unexpected "$target" is on screen');
+    misses.add(
+      matches.every((n) => n.outOfView)
+          ? 'unexpected "$target" is present (scrolled out of view)'
+          : 'unexpected "$target" is on screen',
+    );
   }
   return misses;
 }
 
 abstract class HotCodeCommand extends QaCommand with PostActions {
   HotCodeCommand() {
-    argParser.addOption('timeout', defaultsTo: '90', help: 'Seconds to wait for the tool to report.');
+    argParser.addOption(
+      'timeout',
+      defaultsTo: '90',
+      help: 'Seconds to wait for the tool to report.',
+    );
     addPostActionOptions(argParser);
   }
 
@@ -3013,11 +3345,14 @@ abstract class HotCodeCommand extends QaCommand with PostActions {
       throw UnsupportedOnPlatform(
         name,
         'Windows',
-        instead: 'use the Dart MCP `hot_reload`/`hot_restart` over the DTD from `qa dtd`',
+        instead:
+            'use the Dart MCP `hot_reload`/`hot_restart` over the DTD from `qa dtd`',
       );
     }
     final pidFile = File(ctx.paths.runPid);
-    final pid = pidFile.existsSync() ? int.tryParse(pidFile.readAsStringSync().trim()) : null;
+    final pid = pidFile.existsSync()
+        ? int.tryParse(pidFile.readAsStringSync().trim())
+        : null;
     if (pid == null || !await isProcessAlive(pid, ctx.runner)) {
       throw DeviceFailure(
         'no live `flutter run` to signal (run.pid ${pid == null ? 'missing' : '$pid is gone'}) '
@@ -3044,7 +3379,9 @@ abstract class HotCodeCommand extends QaCommand with PostActions {
           '${tailLines(appended, lines: 12)}',
         );
       }
-      out('${fullRestart ? 'restarted' : 'reloaded'} in $took ms: ${outcome.$2}');
+      out(
+        '${fullRestart ? 'restarted' : 'reloaded'} in $took ms: ${outcome.$2}',
+      );
       if (fullRestart) {
         final agent = await ctx.agentOrNull();
         if (agent != null) await agent.settle(ms: 800);
@@ -3198,13 +3535,15 @@ mixin StepLoop on QaCommand {
       final (code, message) = malformed == null
           ? await runOneStep(qaRunner, words)
           : _malformedStep(qaRunner, malformed);
-      onStepEnd?.call(StepRun(
-        n: index + 1,
-        line: line,
-        code: code,
-        elapsed: DateTime.now().difference(started),
-        message: message,
-      ));
+      onStepEnd?.call(
+        StepRun(
+          n: index + 1,
+          line: line,
+          code: code,
+          elapsed: DateTime.now().difference(started),
+          message: message,
+        ),
+      );
       if (code == 0) continue;
       if (firstFailure == 0) firstFailure = code;
       if (!keepGoing) {
@@ -3263,12 +3602,17 @@ mixin StepLoop on QaCommand {
 class StepsCommand extends QaCommand with StepLoop {
   StepsCommand() {
     argParser
-      ..addOption('file',
-          help: 'Read one step per line from this file; `-` reads stdin.')
-      ..addFlag('keep-going',
-          negatable: false,
-          help: 'Run every step even after one fails; exit with the first '
-              'non-zero code.');
+      ..addOption(
+        'file',
+        help: 'Read one step per line from this file; `-` reads stdin.',
+      )
+      ..addFlag(
+        'keep-going',
+        negatable: false,
+        help:
+            'Run every step even after one fails; exit with the first '
+            'non-zero code.',
+      );
   }
 
   @override
@@ -3286,16 +3630,17 @@ class StepsCommand extends QaCommand with StepLoop {
     final steps = <String>[...argResults!.rest];
     final file = argResults!['file'] as String?;
     if (file != null && file.isNotEmpty) {
-      steps.addAll(parseStepLines(
-        file == '-' ? _readAllStdin() : _readStepFile(ctx.paths.resolve(file)),
-      ));
+      steps.addAll(
+        parseStepLines(
+          file == '-'
+              ? _readAllStdin()
+              : _readStepFile(ctx.paths.resolve(file)),
+        ),
+      );
     }
     if (steps.isEmpty) throw UsageFailure('steps needs at least one step');
 
-    return runStepLines(
-      steps,
-      keepGoing: argResults!['keep-going'] as bool,
-    );
+    return runStepLines(steps, keepGoing: argResults!['keep-going'] as bool);
   }
 
   static String _readStepFile(String path) {
@@ -3323,16 +3668,25 @@ class StepsCommand extends QaCommand with StepLoop {
 class FlowsCommand extends QaCommand {
   FlowsCommand() {
     argParser
-      ..addFlag('keep-going',
-          negatable: false,
-          help: 'Run every flow even after one fails; exit with the first '
-              'non-zero code.')
-      ..addFlag('list',
-          negatable: false, help: 'List the flows without running them.')
-      ..addFlag('prelude',
-          negatable: false,
-          help: "Run the suite's prelude before a single flow too (it runs "
-              'by itself for a whole directory and for the first flow).');
+      ..addFlag(
+        'keep-going',
+        negatable: false,
+        help:
+            'Run every flow even after one fails; exit with the first '
+            'non-zero code.',
+      )
+      ..addFlag(
+        'list',
+        negatable: false,
+        help: 'List the flows without running them.',
+      )
+      ..addFlag(
+        'prelude',
+        negatable: false,
+        help:
+            "Run the suite's prelude before a single flow too (it runs "
+            'by itself for a whole directory and for the first flow).',
+      );
   }
 
   @override
@@ -3345,7 +3699,8 @@ class FlowsCommand extends QaCommand {
       '(`qa flows calendar/03_dates`).';
 
   @override
-  String get invocation => 'qa flows <directory>[/<flow>] [--keep-going] [--prelude]';
+  String get invocation =>
+      'qa flows <directory>[/<flow>] [--keep-going] [--prelude]';
 
   /// The step files a flow argument names, in name order.
   static List<File> resolveFlows(String flowsDir, String argument) {
@@ -3357,22 +3712,23 @@ class FlowsCommand extends QaCommand {
     if (!dir.existsSync()) {
       final known = Directory(flowsDir).existsSync()
           ? Directory(flowsDir)
-              .listSync()
-              .whereType<Directory>()
-              .map((d) => d.uri.pathSegments.where((s) => s.isNotEmpty).last)
-              .toList()
+                .listSync()
+                .whereType<Directory>()
+                .map((d) => d.uri.pathSegments.where((s) => s.isNotEmpty).last)
+                .toList()
           : const <String>[];
       throw UsageFailure(
         'no flow directory "$dirName" under $flowsDir'
         '${known.isEmpty ? '' : ' (known: ${known.join(', ')})'}',
       );
     }
-    final files = dir
-        .listSync()
-        .whereType<File>()
-        .where((f) => isFlowFileName(f.uri.pathSegments.last))
-        .toList()
-      ..sort((a, b) => a.path.compareTo(b.path));
+    final files =
+        dir
+            .listSync()
+            .whereType<File>()
+            .where((f) => isFlowFileName(f.uri.pathSegments.last))
+            .toList()
+          ..sort((a, b) => a.path.compareTo(b.path));
     if (flowName == null) {
       if (files.isEmpty) throw UsageFailure('no *.txt flows in ${dir.path}');
       return files;
@@ -3393,24 +3749,32 @@ class FlowsCommand extends QaCommand {
   /// the first flow starts where the prelude ends, so the documented
   /// `relaunch --fresh --seed …` then `flows calendar/00_open` still lands
   /// on the calendar. Any other single flow runs from wherever the app is.
-  static File? preludeFor(String flowsDir, String argument, {bool force = false}) {
+  static File? preludeFor(
+    String flowsDir,
+    String argument, {
+    bool force = false,
+  }) {
     final normalized = argument.replaceAll('\\', '/');
     final slash = normalized.indexOf('/');
     final suite = slash < 0 ? normalized : normalized.substring(0, slash);
     final manifest = File(joinPath(flowsDir, [suite, SuiteManifest.fileName]));
     if (!manifest.existsSync()) return null;
-    final prelude = SuiteManifest.parse(manifest.readAsStringSync(), suite: suite).prelude;
+    final prelude = SuiteManifest.parse(
+      manifest.readAsStringSync(),
+      suite: suite,
+    ).prelude;
     if (prelude == null) return null;
     if (slash >= 0 && !force) {
       final flow = flowNameOf(normalized.substring(slash + 1));
-      final names = Directory(joinPath(flowsDir, [suite]))
-          .listSync()
-          .whereType<File>()
-          .map((f) => f.uri.pathSegments.last)
-          .where(isFlowFileName)
-          .map(flowNameOf)
-          .toList()
-        ..sort();
+      final names =
+          Directory(joinPath(flowsDir, [suite]))
+              .listSync()
+              .whereType<File>()
+              .map((f) => f.uri.pathSegments.last)
+              .where(isFlowFileName)
+              .map(flowNameOf)
+              .toList()
+            ..sort();
       if (names.isEmpty || names.first != flow) return null;
     }
     return File(joinPath(flowsDir, [suite, prelude]));
@@ -3421,7 +3785,9 @@ class FlowsCommand extends QaCommand {
     final ctx = context;
     final rest = argResults!.rest;
     if (rest.length != 1) {
-      throw UsageFailure('flows takes exactly one argument, the flow directory');
+      throw UsageFailure(
+        'flows takes exactly one argument, the flow directory',
+      );
     }
     final files = resolveFlows(ctx.paths.flowsDir, rest.single);
     if (argResults!['list'] as bool) {
@@ -3431,8 +3797,11 @@ class FlowsCommand extends QaCommand {
       return 0;
     }
     final qaRunner = runner! as QaCommandRunner;
-    final prelude = preludeFor(ctx.paths.flowsDir, rest.single,
-        force: argResults!['prelude'] as bool);
+    final prelude = preludeFor(
+      ctx.paths.flowsDir,
+      rest.single,
+      force: argResults!['prelude'] as bool,
+    );
     if (prelude != null) {
       out('=== prelude: ${prelude.uri.pathSegments.last}');
       final code = await qaRunner.run(['steps', '--file', prelude.path]) ?? 0;
@@ -3451,7 +3820,9 @@ class FlowsCommand extends QaCommand {
       final started = DateTime.now();
       final code = await qaRunner.run(['steps', '--file', file.path]) ?? 0;
       final took = DateTime.now().difference(started).inMilliseconds;
-      out('=== $label: ${code == 0 ? 'ok' : 'FAILED (exit $code)'} in $took ms');
+      out(
+        '=== $label: ${code == 0 ? 'ok' : 'FAILED (exit $code)'} in $took ms',
+      );
       if (code == 0) continue;
       failed.add(label);
       if (firstFailure == 0) firstFailure = code;
@@ -3461,7 +3832,9 @@ class FlowsCommand extends QaCommand {
       }
     }
     if (failed.isNotEmpty) {
-      out('flows: ${failed.length} of ${files.length} failed: ${failed.join(', ')}');
+      out(
+        'flows: ${failed.length} of ${files.length} failed: ${failed.join(', ')}',
+      );
     } else {
       out('flows: all ${files.length} passed');
     }
@@ -3479,41 +3852,64 @@ typedef _Quiet = ({int ms, int? alarms, String? failure});
 class PassCommand extends QaCommand with StepLoop, FleetChildren {
   PassCommand() {
     argParser
-      ..addMultiOption('only',
-          splitCommas: false,
-          help: 'Run only this flow (its file name, with or without .txt). '
-              'Repeatable.')
-      ..addOption('shard',
-          help: 'i/n: run the flows whose 0-based index mod n is i-1, for one '
-              'of n devices. Refused when the suite says shard=no.')
-      ..addFlag('reseed',
-          defaultsTo: true,
-          help: 'Put the fixture back as the manifest says; --no-reseed runs '
-              'every flow on what the app holds now.')
-      ..addFlag('stop-on-fail',
-          negatable: false, help: 'Skip the remaining flows after a failure.')
-      ..addFlag('keep-state',
-          negatable: false,
-          help: 'Leave the app as the last flow left it, seed and armed '
-              'alarms included (to look at a red flow by hand), instead of '
-              'ending with `relaunch --fresh`.')
-      ..addFlag('recycle',
-          defaultsTo: true,
-          help: 'On a fleet guest past $fleetRecycleLaunches app launches or '
-              '${megabytes(fleetRecycleGpuBytes)} MB of GPU memory, restart it '
-              'before the first reseed (fleet stop + fleet boot, ≈ 20 s): a '
-              'worn guest slows every verb and heads for a hang. Never with '
-              '--shard (its fleet pass recycled) or --no-reseed (the flows '
-              'run on what the app holds).')
+      ..addMultiOption(
+        'only',
+        splitCommas: false,
+        help:
+            'Run only this flow (its file name, with or without .txt). '
+            'Repeatable.',
+      )
+      ..addOption(
+        'shard',
+        help:
+            'i/n: run the flows whose 0-based index mod n is i-1, for one '
+            'of n devices. Refused when the suite says shard=no.',
+      )
+      ..addFlag(
+        'reseed',
+        defaultsTo: true,
+        help:
+            'Put the fixture back as the manifest says; --no-reseed runs '
+            'every flow on what the app holds now.',
+      )
+      ..addFlag(
+        'stop-on-fail',
+        negatable: false,
+        help: 'Skip the remaining flows after a failure.',
+      )
+      ..addFlag(
+        'keep-state',
+        negatable: false,
+        help:
+            'Leave the app as the last flow left it, seed and armed '
+            'alarms included (to look at a red flow by hand), instead of '
+            'ending with `relaunch --fresh`.',
+      )
+      ..addFlag(
+        'recycle',
+        defaultsTo: true,
+        help:
+            'On a fleet guest past $fleetRecycleLaunches app launches or '
+            '${megabytes(fleetRecycleGpuBytes)} MB of GPU memory, restart it '
+            'before the first reseed (fleet stop + fleet boot, ≈ 20 s): a '
+            'worn guest slows every verb and heads for a hang. Never with '
+            '--shard (its fleet pass recycled) or --no-reseed (the flows '
+            'run on what the app holds).',
+      )
       ..addOption('json', help: 'Also write the report to this path.')
       ..addOption('label', help: 'Free text stored in the report.')
-      ..addOption('summary',
-          help: 'Print the summary of an existing report.json and exit.')
-      ..addFlag('merge',
-          negatable: false,
-          help: 'Merge the report.json files given as arguments (the shards '
-              'of one suite) into one report under build/qa/pass and print '
-              'it; warns about missing or repeated flows.');
+      ..addOption(
+        'summary',
+        help: 'Print the summary of an existing report.json and exit.',
+      )
+      ..addFlag(
+        'merge',
+        negatable: false,
+        help:
+            'Merge the report.json files given as arguments (the shards '
+            'of one suite) into one report under build/qa/pass and print '
+            'it; warns about missing or repeated flows.',
+      );
   }
 
   @override
@@ -3550,8 +3946,10 @@ class PassCommand extends QaCommand with StepLoop, FleetChildren {
     if (argResults!['merge'] as bool) return _merge(argResults!.rest);
     final rest = argResults!.rest;
     if (rest.length != 1) {
-      throw UsageFailure('pass takes exactly one argument, the suite '
-          '(e.g. `qa pass calendar`)');
+      throw UsageFailure(
+        'pass takes exactly one argument, the suite '
+        '(e.g. `qa pass calendar`)',
+      );
     }
     return _runPass(rest.single);
   }
@@ -3565,7 +3963,9 @@ class PassCommand extends QaCommand with StepLoop, FleetChildren {
   }
 
   int _merge(List<String> inputs) {
-    if (inputs.isEmpty) throw UsageFailure('--merge needs the report.json files to merge');
+    if (inputs.isEmpty) {
+      throw UsageFailure('--merge needs the report.json files to merge');
+    }
     final paths = context.paths;
     final files = [for (final input in inputs) File(paths.resolve(input))];
     for (final file in files) {
@@ -3577,19 +3977,24 @@ class PassCommand extends QaCommand with StepLoop, FleetChildren {
     final merged = mergeReports(reports);
     final repeated = duplicateFlowNames(reports);
     if (repeated.isNotEmpty) {
-      warn('warning: ${repeated.length} flow(s) appear in more than one '
-          'report; kept the one given last: ${repeated.join(', ')}');
+      warn(
+        'warning: ${repeated.length} flow(s) appear in more than one '
+        'report; kept the one given last: ${repeated.join(', ')}',
+      );
     }
     final missing = missingFromSuite(paths, merged);
     if (missing != null && missing.isNotEmpty) {
       warn(coverageWarning(merged.suite, missing));
     }
-    final target = File(joinPath(paths.passRoot, [
-      '${QaPaths.safeId(merged.suite)}_${shotStamp(DateTime.now())}_merged.json',
-    ]))
-      ..parent.createSync(recursive: true);
+    final target = File(
+      joinPath(paths.passRoot, [
+        '${QaPaths.safeId(merged.suite)}_${shotStamp(DateTime.now())}_merged.json',
+      ]),
+    )..parent.createSync(recursive: true);
     target.writeAsStringSync(merged.encode());
-    File(paths.latestPassFor(merged.suite)).writeAsStringSync(target.absolute.path);
+    File(
+      paths.latestPassFor(merged.suite),
+    ).writeAsStringSync(target.absolute.path);
     summaryLines(merged, reportPath: target.absolute.path).forEach(out);
     return passExitCode(merged);
   }
@@ -3603,13 +4008,17 @@ class PassCommand extends QaCommand with StepLoop, FleetChildren {
     final manifest = SuiteManifest.load(paths.flowsDir, suite);
     final fixture = manifest.fixture;
     if (fixture == null) {
-      throw UsageFailure('${SuiteManifest.fileName} of "$suite" names no '
-          'fixture= — `qa pass` needs one');
+      throw UsageFailure(
+        '${SuiteManifest.fileName} of "$suite" names no '
+        'fixture= — `qa pass` needs one',
+      );
     }
     final suiteDir = joinPath(paths.flowsDir, [suite]);
     final available = suiteFlowNames(paths.flowsDir, suite);
     final shardArg = argResults!['shard'] as String?;
-    final shard = shardArg == null || shardArg.isEmpty ? null : parseShard(shardArg);
+    final shard = shardArg == null || shardArg.isEmpty
+        ? null
+        : parseShard(shardArg);
     final selected = selectFlows(
       available,
       manifest: manifest,
@@ -3620,25 +4029,32 @@ class PassCommand extends QaCommand with StepLoop, FleetChildren {
       shard: shard,
     );
     if (selected.isEmpty) {
-      throw UsageFailure('nothing to run: shard ${shardArg ?? ''} of '
-          '${available.length} flow(s) in "$suite" is empty');
+      throw UsageFailure(
+        'nothing to run: shard ${shardArg ?? ''} of '
+        '${available.length} flow(s) in "$suite" is empty',
+      );
     }
     final preludeName = manifest.prelude;
     List<String>? prelude;
     if (preludeName != null) {
       final file = File(joinPath(suiteDir, [preludeName]));
       if (!file.existsSync()) {
-        throw UsageFailure('${SuiteManifest.fileName} of "$suite" names '
-            'prelude=$preludeName, which is not in $suiteDir');
+        throw UsageFailure(
+          '${SuiteManifest.fileName} of "$suite" names '
+          'prelude=$preludeName, which is not in $suiteDir',
+        );
       }
       prelude = parseStepLines(file.readAsStringSync());
     }
-    final reseed = (argResults!['reseed'] as bool) ? manifest.reseed : ReseedMode.none;
+    final reseed = (argResults!['reseed'] as bool)
+        ? manifest.reseed
+        : ReseedMode.none;
 
     final device = await ctx.device();
     final started = DateTime.now();
-    final passDir = Directory(paths.passDirFor(suite, shotStamp(started), device.id))
-      ..createSync(recursive: true);
+    final passDir = Directory(
+      paths.passDirFor(suite, shotStamp(started), device.id),
+    )..createSync(recursive: true);
     final log = File(joinPath(passDir.path, ['pass.log'])).openWrite();
     final qaRunner = runner! as QaCommandRunner;
     qaRunner.lineSink = (line, {required prefix, required isError}) {
@@ -3650,9 +4066,11 @@ class PassCommand extends QaCommand with StepLoop, FleetChildren {
     try {
       var installed = ApkRecord.read(paths.installedJsonFor(device.id));
       if (installed != null && !installed.isQaDriverBuild) {
-        warn('$notDriverBuildWarning (${paths.installedJsonFor(device.id)} '
-            'says driver=${installed.driver}, qa=${installed.qa}) — '
-            '`qa build` then `qa install`');
+        warn(
+          '$notDriverBuildWarning (${paths.installedJsonFor(device.id)} '
+          'says driver=${installed.driver}, qa=${installed.qa}) — '
+          '`qa build` then `qa install`',
+        );
         installed = null;
       }
       if (installed != null) {
@@ -3663,17 +4081,23 @@ class PassCommand extends QaCommand with StepLoop, FleetChildren {
         );
         if (stale != null) warn(stale);
       }
-      out('pass: $suite — ${selected.length} flow(s)'
-          '${shard == null ? '' : ' (shard ${shard.$1}/${shard.$2})'} on '
-          '${device.id}, reseed ${reseed.name} — ${passDir.path}');
+      out(
+        'pass: $suite — ${selected.length} flow(s)'
+        '${shard == null ? '' : ' (shard ${shard.$1}/${shard.$2})'} on '
+        '${device.id}, reseed ${reseed.name} — ${passDir.path}',
+      );
       ({String reason, int ms})? recycled;
-      if (shard == null && reseed != ReseedMode.none && argResults!['recycle'] as bool) {
+      if (shard == null &&
+          reseed != ReseedMode.none &&
+          argResults!['recycle'] as bool) {
         final guest = await _recycleOwnGuest(ctx, device);
         if (!guest.ready) {
           final name = fleetName(fleetIndexOfSerial(device.id)!);
-          warn('the guest did not come back after its recycle — '
-              '`qa fleet stop $name --force`, then `qa fleet boot $name`, '
-              'then run again');
+          warn(
+            'the guest did not come back after its recycle — '
+            '`qa fleet stop $name --force`, then `qa fleet boot $name`, '
+            'then run again',
+          );
           return exitDevice;
         }
         recycled = guest.recycled;
@@ -3692,7 +4116,11 @@ class PassCommand extends QaCommand with StepLoop, FleetChildren {
         final report = PassReport(
           suite: suite,
           label: argResults!['label'] as String?,
-          device: PassDevice(id: device.id, label: device.label, platform: device.kind.label),
+          device: PassDevice(
+            id: device.id,
+            label: device.label,
+            platform: device.kind.label,
+          ),
           host: Platform.operatingSystem,
           started: started,
           finished: DateTime.now(),
@@ -3711,7 +4139,9 @@ class PassCommand extends QaCommand with StepLoop, FleetChildren {
         );
         final encoded = report.encode();
         reportFile.writeAsStringSync(encoded);
-        File(paths.latestPassFor(suite)).writeAsStringSync(reportFile.absolute.path);
+        File(
+          paths.latestPassFor(suite),
+        ).writeAsStringSync(reportFile.absolute.path);
         if (copy != null && copy.isNotEmpty) {
           File(paths.resolve(copy))
             ..parent.createSync(recursive: true)
@@ -3733,7 +4163,8 @@ class PassCommand extends QaCommand with StepLoop, FleetChildren {
       final quietSkipped = quietSkipReason(
         keepState: argResults!['keep-state'] as bool,
         noReseed: !(argResults!['reseed'] as bool),
-        stoppedOnFail: argResults!['stop-on-fail'] as bool &&
+        stoppedOnFail:
+            argResults!['stop-on-fail'] as bool &&
             flows.any((f) => f.status == FlowStatus.failed),
       );
       final quiet = quietSkipped != null ? null : await _leaveQuiet(qaRunner);
@@ -3745,8 +4176,12 @@ class PassCommand extends QaCommand with StepLoop, FleetChildren {
       );
       summaryLines(report, reportPath: reportFile.absolute.path).forEach(out);
       if (report.allPassed) return 0;
-      final reseedBroke = flows.any((f) =>
-          f.failure != null && f.failure!.step == 0 && f.failure!.line.startsWith('relaunch '));
+      final reseedBroke = flows.any(
+        (f) =>
+            f.failure != null &&
+            f.failure!.step == 0 &&
+            f.failure!.line.startsWith('relaunch '),
+      );
       final nothingRan = flows.every((f) => f.steps.isEmpty);
       return reseedBroke && nothingRan ? exitDevice : exitTarget;
     } finally {
@@ -3773,7 +4208,9 @@ class PassCommand extends QaCommand with StepLoop, FleetChildren {
   ) async {
     const untouched = (ready: true, recycled: null);
     ({bool ready, ({String reason, int ms})? recycled}) unchecked(String why) {
-      warn('recycle: could not check the guest\'s wear, so it runs as it is — $why');
+      warn(
+        'recycle: could not check the guest\'s wear, so it runs as it is — $why',
+      );
       return untouched;
     }
 
@@ -3784,9 +4221,10 @@ class PassCommand extends QaCommand with StepLoop, FleetChildren {
     final String? reason;
     try {
       host = ctx.fleetHost();
-      final found = (await host.members(upTo: index, paths: ctx.paths))
-          .where((m) => m.index == index && m.ready)
-          .firstOrNull;
+      final found = (await host.members(
+        upTo: index,
+        paths: ctx.paths,
+      )).where((m) => m.index == index && m.ready).firstOrNull;
       if (found == null) return untouched;
       member = (await host.withGpu([found])).single;
       reason = recycleReason(member);
@@ -3804,11 +4242,16 @@ class PassCommand extends QaCommand with StepLoop, FleetChildren {
       final after = await recycleMeasured(ctx, host, [member], enabled: true);
       ready = after?.any((m) => m.index == index && m.ready) ?? false;
     } on QaException catch (e) {
-      warn('recycle: ${member.name} could not be read after its boot — ${e.message}');
+      warn(
+        'recycle: ${member.name} could not be read after its boot — ${e.message}',
+      );
     }
     return (
       ready: ready,
-      recycled: (reason: reason, ms: DateTime.now().difference(started).inMilliseconds),
+      recycled: (
+        reason: reason,
+        ms: DateTime.now().difference(started).inMilliseconds,
+      ),
     );
   }
 
@@ -3833,13 +4276,16 @@ class PassCommand extends QaCommand with StepLoop, FleetChildren {
       return (
         ms: took(),
         alarms: null,
-        failure: '${words.join(' ')}: ${message ?? _lastLine(printed) ?? 'exit $code'}',
+        failure:
+            '${words.join(' ')}: ${message ?? _lastLine(printed) ?? 'exit $code'}',
       );
     }
     int? alarms;
     try {
       alarms = await ctx.armedAppAlarms();
-      while (alarms != null && alarms > 0 && DateTime.now().difference(at) < _quietWait) {
+      while (alarms != null &&
+          alarms > 0 &&
+          DateTime.now().difference(at) < _quietWait) {
         await Future<void>.delayed(const Duration(seconds: 1));
         alarms = await ctx.armedAppAlarms();
       }
@@ -3853,7 +4299,9 @@ class PassCommand extends QaCommand with StepLoop, FleetChildren {
     if (device is AndroidDevice) {
       try {
         final keep = Uri.tryParse(await ctx.recordedVmUri() ?? '')?.port;
-        final removed = await device.removeForwards(keep: keep == 0 ? null : keep);
+        final removed = await device.removeForwards(
+          keep: keep == 0 ? null : keep,
+        );
         if (removed > 0) out('[quiet] removed $removed stale adb forward(s)');
       } on QaException catch (e) {
         warn('quiet: the stale adb forwards were not removed: ${e.message}');
@@ -3888,7 +4336,9 @@ class PassCommand extends QaCommand with StepLoop, FleetChildren {
       final flowStarted = DateTime.now();
       // What this flow's failure evidence may blame on it starts here: under
       // reseed=suite the app (and its error buffer) outlives earlier flows.
-      final errorsStamp = rawLogcatStamp(flowStarted.subtract(_flowStampMargin));
+      final errorsStamp = rawLogcatStamp(
+        flowStarted.subtract(_flowStampMargin),
+      );
       final runLogOffsets = (
         out: _lengthOf(ctx.paths.runLog),
         err: _lengthOf(ctx.paths.runErr),
@@ -3899,7 +4349,9 @@ class PassCommand extends QaCommand with StepLoop, FleetChildren {
       FlowFailure? failure;
       final steps = <StepRecord>[];
 
-      final reseeds = reseed == ReseedMode.flow || (reseed == ReseedMode.suite && index == 0);
+      final reseeds =
+          reseed == ReseedMode.flow ||
+          (reseed == ReseedMode.suite && index == 0);
       if (reseeds) {
         final words = [
           'relaunch',
@@ -3925,7 +4377,8 @@ class PassCommand extends QaCommand with StepLoop, FleetChildren {
         }
       }
 
-      final runsPrelude = prelude != null &&
+      final runsPrelude =
+          prelude != null &&
           failure == null &&
           (reseeds || (reseed == ReseedMode.none && index == 0));
       if (runsPrelude) {
@@ -3943,7 +4396,8 @@ class PassCommand extends QaCommand with StepLoop, FleetChildren {
                 step: 0,
                 line: '${manifest.prelude}: ${step.line}',
                 exitCode: step.code,
-                message: step.message ?? _lastLine(printed) ?? 'exit ${step.code}',
+                message:
+                    step.message ?? _lastLine(printed) ?? 'exit ${step.code}',
               );
             }
           },
@@ -3960,19 +4414,22 @@ class PassCommand extends QaCommand with StepLoop, FleetChildren {
           onStepStart: (_, _) => _capture = [],
           onStepEnd: (step) {
             final printed = _takeCapture();
-            steps.add(StepRecord(
-              n: step.n,
-              line: step.line,
-              ms: step.elapsed.inMilliseconds,
-              ok: step.code == 0,
-              output: printed.join('\n').trim(),
-            ));
+            steps.add(
+              StepRecord(
+                n: step.n,
+                line: step.line,
+                ms: step.elapsed.inMilliseconds,
+                ok: step.code == 0,
+                output: printed.join('\n').trim(),
+              ),
+            );
             if (step.code != 0) {
               failure = FlowFailure(
                 step: step.n,
                 line: step.line,
                 exitCode: step.code,
-                message: step.message ?? _lastLine(printed) ?? 'exit ${step.code}',
+                message:
+                    step.message ?? _lastLine(printed) ?? 'exit ${step.code}',
               );
             }
           },
@@ -3981,25 +4438,29 @@ class PassCommand extends QaCommand with StepLoop, FleetChildren {
 
       final took = DateTime.now().difference(flowStarted).inMilliseconds;
       final failed = failure;
-      out('=== $name: ${failed == null ? 'ok' : 'FAILED (exit ${failed.exitCode})'} in $took ms');
-      records.add(FlowRecord(
-        name: name,
-        status: failed == null ? FlowStatus.passed : FlowStatus.failed,
-        durationMs: took,
-        reseedMs: reseedMs,
-        preludeMs: preludeMs,
-        steps: steps,
-        failure: failed == null
-            ? null
-            : await _evidence(
-                qaRunner,
-                failed,
-                name,
-                passDir,
-                errorsStamp: errorsStamp,
-                runLogOffsets: runLogOffsets,
-              ),
-      ));
+      out(
+        '=== $name: ${failed == null ? 'ok' : 'FAILED (exit ${failed.exitCode})'} in $took ms',
+      );
+      records.add(
+        FlowRecord(
+          name: name,
+          status: failed == null ? FlowStatus.passed : FlowStatus.failed,
+          durationMs: took,
+          reseedMs: reseedMs,
+          preludeMs: preludeMs,
+          steps: steps,
+          failure: failed == null
+              ? null
+              : await _evidence(
+                  qaRunner,
+                  failed,
+                  name,
+                  passDir,
+                  errorsStamp: errorsStamp,
+                  runLogOffsets: runLogOffsets,
+                ),
+        ),
+      );
       onFlowDone?.call(List.unmodifiable(records));
       if (failed == null) {
         reseedFailures = 0;
@@ -4015,7 +4476,9 @@ class PassCommand extends QaCommand with StepLoop, FleetChildren {
         stopReason = 'two reseeds in a row failed';
       }
       if (stopReason.isNotEmpty) {
-        out('pass: skipping the remaining ${selected.length - index - 1} flow(s) — $stopReason');
+        out(
+          'pass: skipping the remaining ${selected.length - index - 1} flow(s) — $stopReason',
+        );
       }
     }
     return records;
@@ -4045,7 +4508,9 @@ class PassCommand extends QaCommand with StepLoop, FleetChildren {
         scale: passShotScale,
         outDir: passDir,
       );
-      shot = File(taken).renameSync(joinPath(passDir, ['$base.png'])).absolute.path;
+      shot = File(
+        taken,
+      ).renameSync(joinPath(passDir, ['$base.png'])).absolute.path;
     } on Object catch (e) {
       warn('pass: no failure screenshot ($e)');
     }
@@ -4053,7 +4518,10 @@ class PassCommand extends QaCommand with StepLoop, FleetChildren {
       final tree = await ctx.dump();
       final file = File(joinPath(passDir, ['${base}_dump.txt']))
         ..writeAsStringSync(
-          tree.nodes.where((n) => n.interesting).map((n) => n.describe()).join('\n'),
+          tree.nodes
+              .where((n) => n.interesting)
+              .map((n) => n.describe())
+              .join('\n'),
         );
       dump = file.absolute.path;
     } on Object catch (e) {
@@ -4142,14 +4610,20 @@ List<String>? missingFromSuite(QaPaths paths, PassReport merged) {
   final List<String> expected;
   try {
     final manifest = SuiteManifest.load(paths.flowsDir, merged.suite);
-    expected = selectFlows(suiteFlowNames(paths.flowsDir, merged.suite), manifest: manifest);
+    expected = selectFlows(
+      suiteFlowNames(paths.flowsDir, merged.suite),
+      manifest: manifest,
+    );
   } on UsageFailure {
     return null;
   } on FileSystemException {
     return null;
   }
   final have = {for (final flow in merged.flows) flow.name};
-  return [for (final name in expected) if (!have.contains(name)) name];
+  return [
+    for (final name in expected)
+      if (!have.contains(name)) name,
+  ];
 }
 
 String coverageWarning(String suite, List<String> missing) =>
@@ -4168,7 +4642,8 @@ Future<void> requireAndroidTarget(QaContext ctx, String verb) async {
   throw UnsupportedOnPlatform(
     verb,
     ref?.label ?? hint,
-    instead: 'it builds the Android APK; `qa run -d macos/ios` builds and '
+    instead:
+        'it builds the Android APK; `qa run -d macos/ios` builds and '
         'starts the app there',
   );
 }
@@ -4177,14 +4652,20 @@ Future<void> requireAndroidTarget(QaContext ctx, String verb) async {
 class BuildCommand extends QaCommand {
   BuildCommand() {
     argParser
-      ..addMultiOption('define',
-          help: 'Extra --dart-define, as K=V. Repeatable.')
-      ..addFlag('driver',
-          defaultsTo: true,
-          help: 'Build $driverTarget so the QA agent and Flutter Driver work.')
-      ..addFlag('force',
-          negatable: false,
-          help: 'Build even while the `flutter run` behind run.pid is up.');
+      ..addMultiOption(
+        'define',
+        help: 'Extra --dart-define, as K=V. Repeatable.',
+      )
+      ..addFlag(
+        'driver',
+        defaultsTo: true,
+        help: 'Build $driverTarget so the QA agent and Flutter Driver work.',
+      )
+      ..addFlag(
+        'force',
+        negatable: false,
+        help: 'Build even while the `flutter run` behind run.pid is up.',
+      );
   }
 
   @override
@@ -4203,16 +4684,24 @@ class BuildCommand extends QaCommand {
   Future<int> run() async {
     final ctx = context;
     await requireAndroidTarget(ctx, 'build');
-    final refusal = await buildRefusal(ctx.paths, ctx.runner,
-        force: argResults!['force'] as bool);
+    final refusal = await buildRefusal(
+      ctx.paths,
+      ctx.runner,
+      force: argResults!['force'] as bool,
+    );
     if (refusal != null) throw UsageFailure(refusal);
     final extra = argResults!['define'] as List<String>;
-    final args = buildApkArgs(driver: argResults!['driver'] as bool, extraDefines: extra);
+    final args = buildApkArgs(
+      driver: argResults!['driver'] as bool,
+      extraDefines: extra,
+    );
     final flutter = findFlutter();
     out('flutter ${args.join(' ')}');
     final started = DateTime.now();
     final heartbeat = Timer.periodic(const Duration(seconds: 20), (_) {
-      warn('still building (${DateTime.now().difference(started).inSeconds} s)');
+      warn(
+        'still building (${DateTime.now().difference(started).inSeconds} s)',
+      );
     });
     final RunOutcome result;
     try {
@@ -4227,12 +4716,16 @@ class BuildCommand extends QaCommand {
     }
     final seconds = DateTime.now().difference(started).inSeconds;
     if (!result.ok) {
-      throw DeviceFailure('flutter build apk failed (exit ${result.exitCode}) '
-          'after $seconds s:\n${tailLines(result.combined)}');
+      throw DeviceFailure(
+        'flutter build apk failed (exit ${result.exitCode}) '
+        'after $seconds s:\n${tailLines(result.combined)}',
+      );
     }
     final apk = File(ctx.paths.debugApk);
     if (!apk.existsSync()) {
-      throw DeviceFailure('flutter build apk succeeded but ${apk.path} is not there');
+      throw DeviceFailure(
+        'flutter build apk succeeded but ${apk.path} is not there',
+      );
     }
     final git = await gitBuildState(ctx.runner, ctx.paths.projectRoot);
     final record = ApkRecord(
@@ -4245,9 +4738,13 @@ class BuildCommand extends QaCommand {
       qa: true,
     )..write(ctx.paths.apkJson);
     final mb = (apk.lengthSync() / (1024 * 1024)).toStringAsFixed(0);
-    out('built ${record.apk} ($mb MB) in $seconds s at '
-        '${record.gitHash ?? 'no git hash'}${record.dirty ? ' (dirty tree)' : ''}');
-    out('recorded ${ctx.paths.apkJson} — `qa -d <serial> install` puts it on a device');
+    out(
+      'built ${record.apk} ($mb MB) in $seconds s at '
+      '${record.gitHash ?? 'no git hash'}${record.dirty ? ' (dirty tree)' : ''}',
+    );
+    out(
+      'recorded ${ctx.paths.apkJson} — `qa -d <serial> install` puts it on a device',
+    );
     return 0;
   }
 }
@@ -4257,12 +4754,18 @@ class BuildCommand extends QaCommand {
 class InstallCommand extends QaCommand with StepLoop {
   InstallCommand() {
     argParser
-      ..addOption('apk',
-          help: 'The APK to install; defaults to the one build/qa/apk.json records.')
-      ..addFlag('grant',
-          negatable: false,
-          help: 'Grant what a pass needs (POST_NOTIFICATIONS) on a device '
-              'outside the fleet too; a fleet guest always gets it.');
+      ..addOption(
+        'apk',
+        help:
+            'The APK to install; defaults to the one build/qa/apk.json records.',
+      )
+      ..addFlag(
+        'grant',
+        negatable: false,
+        help:
+            'Grant what a pass needs (POST_NOTIFICATIONS) on a device '
+            'outside the fleet too; a fleet guest always gets it.',
+      );
   }
 
   @override
@@ -4283,8 +4786,11 @@ class InstallCommand extends QaCommand with StepLoop {
     final ctx = context;
     final device = await ctx.device();
     if (device is! AndroidDevice) {
-      throw UnsupportedOnPlatform('install', device.label,
-          instead: '`qa run -d macos/ios` builds and installs there');
+      throw UnsupportedOnPlatform(
+        'install',
+        device.label,
+        instead: '`qa run -d macos/ios` builds and installs there',
+      );
     }
     final apkOption = argResults!['apk'] as String?;
     final ApkRecord record;
@@ -4292,7 +4798,9 @@ class InstallCommand extends QaCommand with StepLoop {
       final file = File(ctx.paths.resolve(apkOption));
       if (!file.existsSync()) throw UsageFailure('no APK at ${file.path}');
       final recorded = ApkRecord.read(ctx.paths.apkJson);
-      record = recorded != null && File(recorded.apk).absolute.path == file.absolute.path
+      record =
+          recorded != null &&
+              File(recorded.apk).absolute.path == file.absolute.path
           ? recorded
           : ApkRecord(
               apk: file.absolute.path,
@@ -4304,16 +4812,23 @@ class InstallCommand extends QaCommand with StepLoop {
     } else {
       record = ApkRecord.require(ctx.paths.apkJson);
       if (!File(record.apk).existsSync()) {
-        throw UsageFailure('${ctx.paths.apkJson} names ${record.apk}, which is '
-            'gone — run `qa build` again');
+        throw UsageFailure(
+          '${ctx.paths.apkJson} names ${record.apk}, which is '
+          'gone — run `qa build` again',
+        );
       }
     }
     final args = installApkArgs(record.apk);
     out('adb -s ${device.id} ${args.join(' ')}');
     final started = DateTime.now();
-    final result = await device.adb.raw(args, timeout: const Duration(minutes: 5));
+    final result = await device.adb.raw(
+      args,
+      timeout: const Duration(minutes: 5),
+    );
     if (!result.ok || !result.stdout.contains('Success')) {
-      throw DeviceFailure('adb install failed on ${device.id}: ${result.combined}');
+      throw DeviceFailure(
+        'adb install failed on ${device.id}: ${result.combined}',
+      );
     }
     out('installed in ${DateTime.now().difference(started).inMilliseconds} ms');
     final asked = argResults!['grant'] as bool;
@@ -4326,14 +4841,18 @@ class InstallCommand extends QaCommand with StepLoop {
     final qaRunner = runner! as QaCommandRunner;
     final (code, message) = await runOneStep(qaRunner, ['launch']);
     if (code != 0) {
-      throw DeviceFailure('installed, but the first launch failed: ${message ?? 'exit $code'}');
+      throw DeviceFailure(
+        'installed, but the first launch failed: ${message ?? 'exit $code'}',
+      );
     }
     await device.forceStop();
     out('stopped ${device.packageId} on ${device.label}');
     final installed = record.installed(DateTime.now())
       ..write(ctx.paths.installedJsonFor(device.id));
-    out('recorded ${ctx.paths.installedJsonFor(device.id)} '
-        '(${installed.gitHash ?? 'no git hash'}, built ${installed.builtAt.toIso8601String()})');
+    out(
+      'recorded ${ctx.paths.installedJsonFor(device.id)} '
+      '(${installed.gitHash ?? 'no git hash'}, built ${installed.builtAt.toIso8601String()})',
+    );
     return 0;
   }
 }
@@ -4341,12 +4860,12 @@ class InstallCommand extends QaCommand with StepLoop {
 /// The fleet's view of this host, from the SDK and AVD directory this
 /// context sees.
 FleetHost fleetHostFor(QaContext ctx) => FleetHost(
-      runner: ctx.runner,
-      adb: Adb(executable: ctx.sdk.requireAdb(), runner: ctx.runner),
-      avdHome: fleetAvdHome(Platform.environment, windows: Platform.isWindows),
-      sdkRoot: fleetSdkRoot(ctx.sdk),
-      windows: Platform.isWindows,
-    );
+  runner: ctx.runner,
+  adb: Adb(executable: ctx.sdk.requireAdb(), runner: ctx.runner),
+  avdHome: fleetAvdHome(Platform.environment, windows: Platform.isWindows),
+  sdkRoot: fleetSdkRoot(ctx.sdk),
+  windows: Platform.isWindows,
+);
 
 /// `qa fleet` — minimized emulators named `anta_qa_<N>`, each on its own
 /// port, so several agents can each own one and a pass can be sharded
@@ -4389,15 +4908,14 @@ mixin FleetChildren on QaCommand {
     required String tag,
     String? logPath,
     bool Function(String line, bool isError)? echo,
-  }) =>
-      ctx.runSelf(
-        arguments,
-        logPath: logPath,
-        onLine: (line, isError) {
-          if (echo != null && !echo(line, isError)) return;
-          isError ? warn('[$tag] $line') : out('[$tag] $line');
-        },
-      );
+  }) => ctx.runSelf(
+    arguments,
+    logPath: logPath,
+    onLine: (line, isError) {
+      if (echo != null && !echo(line, isError)) return;
+      isError ? warn('[$tag] $line') : out('[$tag] $line');
+    },
+  );
 
   /// Recycles each ready one of [members] past the health threshold
   /// ([planRecycle]) — `fleet stop`, then a `fleet boot` child, strictly
@@ -4421,7 +4939,10 @@ mixin FleetChildren on QaCommand {
     List<FleetMember> measured, {
     required bool enabled,
   }) async {
-    final plan = planRecycle(measured.where((m) => m.ready).toList(), enabled: enabled);
+    final plan = planRecycle(
+      measured.where((m) => m.ready).toList(),
+      enabled: enabled,
+    );
     for (final line in plan.lines) {
       line.startsWith('warning: ') ? warn(line) : out(line);
     }
@@ -4438,9 +4959,11 @@ mixin FleetChildren on QaCommand {
       if (await _recycle(ctx, host, member)) continue;
       final rest = plan.recycle.skip(index + 1).map((m) => m.name).toList();
       if (rest.isNotEmpty) {
-        warn('recycle: ${member.name} did not come back, so '
-            '${rest.join(', ')} ${rest.length == 1 ? 'is' : 'are'} left running '
-            'as they are');
+        warn(
+          'recycle: ${member.name} did not come back, so '
+          '${rest.join(', ')} ${rest.length == 1 ? 'is' : 'are'} left running '
+          'as they are',
+        );
       }
       break;
     }
@@ -4448,7 +4971,11 @@ mixin FleetChildren on QaCommand {
   }
 
   /// Whether [member] was stopped and booted again.
-  Future<bool> _recycle(QaContext ctx, FleetHost host, FleetMember member) async {
+  Future<bool> _recycle(
+    QaContext ctx,
+    FleetHost host,
+    FleetMember member,
+  ) async {
     final started = DateTime.now();
     try {
       out('[${member.name}] ${await host.stop(member.index)}');
@@ -4471,8 +4998,10 @@ mixin FleetChildren on QaCommand {
       out('recycled ${member.name} (${member.serial}) in $seconds s');
       return true;
     }
-    warn('recycle: ${member.name} did not boot again (exit ${outcome.exitCode}) '
-        '— `qa fleet boot ${member.name}`');
+    warn(
+      'recycle: ${member.name} did not boot again (exit ${outcome.exitCode}) '
+      '— `qa fleet boot ${member.name}`',
+    );
     return false;
   }
 }
@@ -4489,14 +5018,18 @@ abstract class FleetSubcommand extends QaCommand with FleetChildren {
       throw UsageFailure('fleet $verb takes AVD names or --all, not both');
     }
     if (!all && rest.isEmpty) {
-      throw UsageFailure('fleet $verb needs AVD names (anta_qa_2, or 2) or --all');
+      throw UsageFailure(
+        'fleet $verb needs AVD names (anta_qa_2, or 2) or --all',
+      );
     }
     final indices = all
         ? host.createdIndices()
         : ({for (final argument in rest) parseFleetArgument(argument)}.toList()
-          ..sort());
+            ..sort());
     if (indices.isEmpty) {
-      throw UsageFailure('no fleet AVD exists yet — `qa fleet create` makes them');
+      throw UsageFailure(
+        'no fleet AVD exists yet — `qa fleet create` makes them',
+      );
     }
     return indices;
   }
@@ -4505,17 +5038,26 @@ abstract class FleetSubcommand extends QaCommand with FleetChildren {
 class FleetCreateCommand extends FleetSubcommand {
   FleetCreateCommand() {
     argParser
-      ..addOption('count',
-          help: 'How many fleet AVDs (anta_qa_1..N). Defaults to what this '
-              'host runs at once: (threads - $fleetReservedThreads for flutter '
-              'test - $ownerEmulatorThreads for the owner\'s emulator) / '
-              '$fleetVcpus.')
-      ..addFlag('force',
-          negatable: false, help: 'Allow --count above that capacity.')
-      ..addFlag('retune',
-          negatable: false,
-          help: 'Rewrite the fleet keys of an existing AVD whose config.ini '
-              'drifted from the spec (it takes effect on its next boot).');
+      ..addOption(
+        'count',
+        help:
+            'How many fleet AVDs (anta_qa_1..N). Defaults to what this '
+            'host runs at once: (threads - $fleetReservedThreads for flutter '
+            'test - $ownerEmulatorThreads for the owner\'s emulator) / '
+            '$fleetVcpus.',
+      )
+      ..addFlag(
+        'force',
+        negatable: false,
+        help: 'Allow --count above that capacity.',
+      )
+      ..addFlag(
+        'retune',
+        negatable: false,
+        help:
+            'Rewrite the fleet keys of an existing AVD whose config.ini '
+            'drifted from the spec (it takes effect on its next boot).',
+      );
   }
 
   @override
@@ -4541,8 +5083,10 @@ class FleetCreateCommand extends FleetSubcommand {
       threads: threads,
       force: argResults!['force'] as bool,
     );
-    out('fleet: $count AVD(s) in ${host.avdHome} (this host runs '
-        '${fleetCapacity(threads)} at once on $threads threads)');
+    out(
+      'fleet: $count AVD(s) in ${host.avdHome} (this host runs '
+      '${fleetCapacity(threads)} at once on $threads threads)',
+    );
     String? image;
     var imageChosen = false;
     String? chooseImage() {
@@ -4550,8 +5094,9 @@ class FleetCreateCommand extends FleetSubcommand {
       imageChosen = true;
       final owner = File(host.configPath(ownerReferenceAvd));
       return image = chooseFleetImage(
-        ownerConfig:
-            owner.existsSync() ? splitConfig(owner.readAsStringSync()) : null,
+        ownerConfig: owner.existsSync()
+            ? splitConfig(owner.readAsStringSync())
+            : null,
         installedApis: host.installedImageApis(),
       );
     }
@@ -4559,11 +5104,13 @@ class FleetCreateCommand extends FleetSubcommand {
     var failed = false;
     for (var index = 1; index <= count; index++) {
       try {
-        out(await host.create(
-          index,
-          retune: argResults!['retune'] as bool,
-          image: chooseImage,
-        ));
+        out(
+          await host.create(
+            index,
+            retune: argResults!['retune'] as bool,
+            image: chooseImage,
+          ),
+        );
       } on QaException catch (e) {
         failed = true;
         warn('failed: ${fleetName(index)} — ${e.message}');
@@ -4577,20 +5124,28 @@ class FleetBootCommand extends FleetSubcommand {
   FleetBootCommand() {
     argParser
       ..addFlag('all', negatable: false, help: 'Every fleet AVD that exists.')
-      ..addFlag('affinity',
-          defaultsTo: true,
-          help: 'Windows: pin each fleet qemu to the P-cores of a hybrid CPU '
-              '($fleetAffinityEnv=<hex> sets the mask). --no-affinity leaves '
-              'the scheduler alone.')
-      ..addFlag('visible',
-          negatable: false,
-          help: 'Windows: leave the emulator window up instead of minimizing it.')
-      ..addOption('priority',
-          allowed: fleetPriorityClasses.keys.toList(),
-          defaultsTo: 'normal',
-          help: 'Windows: the qemu\'s priority class, set with the pin. '
-              '`below` lets a pass yield to the foreground; ignored off '
-              'Windows.');
+      ..addFlag(
+        'affinity',
+        defaultsTo: true,
+        help:
+            'Windows: pin each fleet qemu to the P-cores of a hybrid CPU '
+            '($fleetAffinityEnv=<hex> sets the mask). --no-affinity leaves '
+            'the scheduler alone.',
+      )
+      ..addFlag(
+        'visible',
+        negatable: false,
+        help: 'Windows: leave the emulator window up instead of minimizing it.',
+      )
+      ..addOption(
+        'priority',
+        allowed: fleetPriorityClasses.keys.toList(),
+        defaultsTo: 'normal',
+        help:
+            'Windows: the qemu\'s priority class, set with the pin. '
+            '`below` lets a pass yield to the foreground; ignored off '
+            'Windows.',
+      );
   }
 
   @override
@@ -4617,13 +5172,18 @@ class FleetBootCommand extends FleetSubcommand {
     final indices = namedIndices(host, verb: 'boot');
     for (final index in indices) {
       if (!host.isCreated(fleetName(index))) {
-        throw UsageFailure('${fleetName(index)} does not exist — '
-            '`qa fleet create --count $index` makes it');
+        throw UsageFailure(
+          '${fleetName(index)} does not exist — '
+          '`qa fleet create --count $index` makes it',
+        );
       }
     }
-    final emulator = host.emulatorPath ??
-        (throw DeviceFailure('emulator binary not found under '
-            '${host.sdkRoot ?? 'the Android SDK'}'));
+    final emulator =
+        host.emulatorPath ??
+        (throw DeviceFailure(
+          'emulator binary not found under '
+          '${host.sdkRoot ?? 'the Android SDK'}',
+        ));
     final topology = await host.cpuTopology();
     final affinity = fleetAffinity(
       windows: Platform.isWindows,
@@ -4632,16 +5192,20 @@ class FleetBootCommand extends FleetSubcommand {
       cores: topology?.cores,
       threads: topology?.threads,
     );
-    out(affinity.mask == null
-        ? 'affinity: not pinning — ${affinity.reason}'
-        : 'affinity: pinning to ${hexMask(affinity.mask!)} — ${affinity.reason}');
+    out(
+      affinity.mask == null
+          ? 'affinity: not pinning — ${affinity.reason}'
+          : 'affinity: pinning to ${hexMask(affinity.mask!)} — ${affinity.reason}',
+    );
     final priority = fleetPriority(
       windows: host.windows,
       option: argResults!['priority'] as String,
     );
-    out(priority.priority == null
-        ? 'priority: not set — ${priority.reason}'
-        : 'priority: ${priority.priority} — ${priority.reason}');
+    out(
+      priority.priority == null
+          ? 'priority: not set — ${priority.reason}'
+          : 'priority: ${priority.priority} — ${priority.reason}',
+    );
     final minimize = !(argResults!['visible'] as bool);
     for (var i = 0; i < indices.length; i++) {
       final index = indices[i];
@@ -4649,8 +5213,17 @@ class FleetBootCommand extends FleetSubcommand {
       // and a guest that dropped off adb meanwhile is not up any more.
       final devices = await host.adb.devices();
       final qemus = await host.qemuProcesses();
-      if (await _bootOne(ctx, host, emulator, index, devices, qemus,
-          affinity.mask, priority.priority, minimize: minimize)) {
+      if (await _bootOne(
+        ctx,
+        host,
+        emulator,
+        index,
+        devices,
+        qemus,
+        affinity.mask,
+        priority.priority,
+        minimize: minimize,
+      )) {
         continue;
       }
       // The next guest would start beside a hung qemu with a deadline of its
@@ -4658,10 +5231,12 @@ class FleetBootCommand extends FleetSubcommand {
       // not booting the rest.
       final name = fleetName(index);
       final rest = indices.skip(i + 1).map(fleetName).toList();
-      warn('stopped at $name'
-          '${rest.isEmpty ? '' : ' (${rest.join(', ')} not started)'} — '
-          '`qa fleet stop $name --force`, then '
-          '`qa fleet boot ${[name, ...rest].join(' ')}`');
+      warn(
+        'stopped at $name'
+        '${rest.isEmpty ? '' : ' (${rest.join(', ')} not started)'} — '
+        '`qa fleet stop $name --force`, then '
+        '`qa fleet boot ${[name, ...rest].join(' ')}`',
+      );
       return exitDevice;
     }
     return 0;
@@ -4692,31 +5267,51 @@ class FleetBootCommand extends FleetSubcommand {
       if (row != null) {
         final reported = await host.avdNameOn(serial);
         if (reported != name) {
-          throw DeviceFailure('$serial (port $port) is held by '
-              '${reported == null ? 'an emulator that does not name its AVD' : '"$reported"'}, '
-              'not $name — left alone');
+          throw DeviceFailure(
+            '$serial (port $port) is held by '
+            '${reported == null ? 'an emulator that does not name its AVD' : '"$reported"'}, '
+            'not $name — left alone',
+          );
         }
-        await awaitEmulatorBoot(ctx, host.adb, running?.pid, name,
-            serial: serial, fatalLogLines: false, progress: progress);
+        await awaitEmulatorBoot(
+          ctx,
+          host.adb,
+          running?.pid,
+          name,
+          serial: serial,
+          fatalLogLines: false,
+          progress: progress,
+        );
         how = 'already up';
       } else if (running != null) {
         if (running.port != null && running.port != port) {
-          throw DeviceFailure('$name already runs on port ${running.port} '
-              '(qemu ${running.pid}), not its fleet port $port — left alone');
+          throw DeviceFailure(
+            '$name already runs on port ${running.port} '
+            '(qemu ${running.pid}), not its fleet port $port — left alone',
+          );
         }
         final before = await host.cpuSeconds(running.pid);
         if (before != null) {
           await Future<void>.delayed(staleQemuSample);
           if (isIdleQemu(before, await host.cpuSeconds(running.pid))) {
-            throw DeviceFailure('qemu ${running.pid} of $name is not on adb '
-                'and idle — a hung guest, whose crash window keeps it from '
-                'booting again: `qa fleet stop $name --force`, then '
-                '`qa fleet boot $name`');
+            throw DeviceFailure(
+              'qemu ${running.pid} of $name is not on adb '
+              'and idle — a hung guest, whose crash window keeps it from '
+              'booting again: `qa fleet stop $name --force`, then '
+              '`qa fleet boot $name`',
+            );
           }
         }
         out('[$name] qemu ${running.pid} is already coming up — waiting');
-        await awaitEmulatorBoot(ctx, host.adb, running.pid, name,
-            serial: serial, fatalLogLines: false, progress: progress);
+        await awaitEmulatorBoot(
+          ctx,
+          host.adb,
+          running.pid,
+          name,
+          serial: serial,
+          fatalLogLines: false,
+          progress: progress,
+        );
         how = 'up after ${took()}';
       } else {
         ctx.paths.ensureBuildQa();
@@ -4739,10 +5334,22 @@ class FleetBootCommand extends FleetSubcommand {
           pidPath: ctx.paths.emulatorPidFor(name),
         );
         out('[$name] starting on $serial (pid $pid, log $logPath)');
-        final early = _onceUp(host, name,
-            mask: mask, priority: priority, minimize: minimize);
-        await awaitEmulatorBoot(ctx, host.adb, pid, name,
-            serial: serial, fatalLogLines: false, progress: progress);
+        final early = _onceUp(
+          host,
+          name,
+          mask: mask,
+          priority: priority,
+          minimize: minimize,
+        );
+        await awaitEmulatorBoot(
+          ctx,
+          host.adb,
+          pid,
+          name,
+          serial: serial,
+          fatalLogLines: false,
+          progress: progress,
+        );
         await early;
         how = 'booted in ${took()}';
       }
@@ -4750,9 +5357,11 @@ class FleetBootCommand extends FleetSubcommand {
       // name this AVD before its display settings are touched.
       final reported = await host.avdNameOn(serial);
       if (reported != name) {
-        throw DeviceFailure('$serial came up as '
-            '${reported == null ? 'an emulator that does not name its AVD' : '"$reported"'}, '
-            'not $name — left alone');
+        throw DeviceFailure(
+          '$serial came up as '
+          '${reported == null ? 'an emulator that does not name its AVD' : '"$reported"'}, '
+          'not $name — left alone',
+        );
       }
       if (how != 'already up') {
         FleetLaunches.reset(
@@ -4788,11 +5397,14 @@ class FleetBootCommand extends FleetSubcommand {
     required String? priority,
     required bool minimize,
   }) async {
-    if (mask == null && priority == null && (!minimize || !host.windows)) return;
+    if (mask == null && priority == null && (!minimize || !host.windows)) {
+      return;
+    }
     final deadline = DateTime.now().add(const Duration(seconds: 30));
     while (DateTime.now().isBefore(deadline)) {
-      final qemu =
-          (await host.qemuProcesses()).where((q) => q.avd == name).firstOrNull;
+      final qemu = (await host.qemuProcesses())
+          .where((q) => q.avd == name)
+          .firstOrNull;
       if (qemu != null) {
         if (mask != null || priority != null) {
           await host.pin(qemu.pid, mask: mask, priority: priority);
@@ -4808,11 +5420,15 @@ class FleetBootCommand extends FleetSubcommand {
   /// (again, since the emulator can bring it back while it boots), and
   /// says what the window is; a headless qemu stays headless until it is
   /// stopped and booted again.
-  Future<String> _window(FleetHost host, String name, {required bool minimize}) async {
+  Future<String> _window(
+    FleetHost host,
+    String name, {
+    required bool minimize,
+  }) async {
     if (!host.windows) return 'n/a';
-    final qemu = (await host.qemuProcesses(windowStates: true))
-        .where((q) => q.avd == name)
-        .firstOrNull;
+    final qemu = (await host.qemuProcesses(
+      windowStates: true,
+    )).where((q) => q.avd == name).firstOrNull;
     if (qemu == null) return '? (its qemu was not found)';
     if (qemu.window == QemuWindow.headless) {
       return 'headless (started -no-window; `qa fleet stop $name` then '
@@ -4826,25 +5442,37 @@ class FleetBootCommand extends FleetSubcommand {
 
   /// The `pinned=` (and, on Windows, `priority=`) words of the ready line,
   /// setting whichever of the two the qemu lacks in one PowerShell call.
-  Future<String> _pin(FleetHost host, String name, int? mask, String? priority) async {
+  Future<String> _pin(
+    FleetHost host,
+    String name,
+    int? mask,
+    String? priority,
+  ) async {
     if (mask == null && priority == null) return 'pinned=no';
-    final qemu =
-        (await host.qemuProcesses()).where((q) => q.avd == name).firstOrNull;
+    final qemu = (await host.qemuProcesses())
+        .where((q) => q.avd == name)
+        .firstOrNull;
     if (qemu == null) return 'pinned=no (its qemu was not found)';
     var readMask = qemu.affinity;
     var readPriority = qemu.priority;
     final setMask = mask != null && readMask != mask ? mask : null;
-    final setPriority = priority != null && readPriority != priority ? priority : null;
+    final setPriority = priority != null && readPriority != priority
+        ? priority
+        : null;
     if (setMask != null || setPriority != null) {
-      final read = await host.pin(qemu.pid, mask: setMask, priority: setPriority);
+      final read = await host.pin(
+        qemu.pid,
+        mask: setMask,
+        priority: setPriority,
+      );
       readMask = read?.mask;
       readPriority = read?.priority;
     }
     final pinned = mask == null
         ? 'no'
         : readMask == mask
-            ? hexMask(mask)
-            : 'no (Windows kept ${readMask == null ? 'its own mask' : hexMask(readMask)})';
+        ? hexMask(mask)
+        : 'no (Windows kept ${readMask == null ? 'its own mask' : hexMask(readMask)})';
     return priority == null
         ? 'pinned=$pinned'
         : 'pinned=$pinned priority=${readPriority ?? '?'}';
@@ -4853,7 +5481,11 @@ class FleetBootCommand extends FleetSubcommand {
 
 class FleetStatusCommand extends FleetSubcommand {
   FleetStatusCommand() {
-    argParser.addFlag('json', negatable: false, help: 'Emit the fleet as JSON.');
+    argParser.addFlag(
+      'json',
+      negatable: false,
+      help: 'Emit the fleet as JSON.',
+    );
   }
 
   @override
@@ -4880,23 +5512,28 @@ class FleetStatusCommand extends FleetSubcommand {
       await host.members(upTo: capacity, paths: ctx.paths, qemus: qemus),
     );
     final built = ApkRecord.read(ctx.paths.apkJson);
-    final owners = host.avdNames().where((n) => fleetIndexOf(n) == null).toList();
+    final owners = host
+        .avdNames()
+        .where((n) => fleetIndexOf(n) == null)
+        .toList();
     QemuProcess? qemuOf(String avd) =>
         qemus.where((q) => q.avd == avd).firstOrNull;
     if (argResults!['json'] as bool) {
-      out(const JsonEncoder.withIndent('  ').convert({
-        'fleet': [for (final member in members) member.toJson(built)],
-        'owner': [
-          for (final avd in owners)
-            {
-              'name': avd,
-              'running': qemuOf(avd) != null,
-              'qemuPid': qemuOf(avd)?.pid,
-              'port': qemuOf(avd)?.port,
-            },
-        ],
-        'build': built?.toJson(),
-      }));
+      out(
+        const JsonEncoder.withIndent('  ').convert({
+          'fleet': [for (final member in members) member.toJson(built)],
+          'owner': [
+            for (final avd in owners)
+              {
+                'name': avd,
+                'running': qemuOf(avd) != null,
+                'qemuPid': qemuOf(avd)?.pid,
+                'port': qemuOf(avd)?.port,
+              },
+          ],
+          'build': built?.toJson(),
+        }),
+      );
       return 0;
     }
     for (final member in members) {
@@ -4905,10 +5542,12 @@ class FleetStatusCommand extends FleetSubcommand {
     for (final avd in owners) {
       out(ownerStatusLine(avd, qemuOf(avd)));
     }
-    out(built == null
-        ? 'build: none recorded — `qa fleet install --build` makes one'
-        : 'build: ${built.gitHash ?? 'no git hash'}${built.dirty ? ' (dirty tree)' : ''} '
-            'built ${built.builtAt.toLocal().toIso8601String()} — ${ctx.paths.apkJson}');
+    out(
+      built == null
+          ? 'build: none recorded — `qa fleet install --build` makes one'
+          : 'build: ${built.gitHash ?? 'no git hash'}${built.dirty ? ' (dirty tree)' : ''} '
+                'built ${built.builtAt.toLocal().toIso8601String()} — ${ctx.paths.apkJson}',
+    );
     return 0;
   }
 }
@@ -4917,11 +5556,14 @@ class FleetStopCommand extends FleetSubcommand {
   FleetStopCommand() {
     argParser
       ..addFlag('all', negatable: false, help: 'Every fleet AVD that exists.')
-      ..addFlag('force',
-          negatable: false,
-          help: 'A hung guest (off adb, its console silent): kill its qemu, '
-              'only when the process\'s command line names that fleet AVD '
-              'on its fleet port. A guest on adb still stops gracefully.');
+      ..addFlag(
+        'force',
+        negatable: false,
+        help:
+            'A hung guest (off adb, its console silent): kill its qemu, '
+            'only when the process\'s command line names that fleet AVD '
+            'on its fleet port. A guest on adb still stops gracefully.',
+      );
   }
 
   @override
@@ -4956,14 +5598,20 @@ class FleetStopCommand extends FleetSubcommand {
 class FleetInstallCommand extends FleetSubcommand {
   FleetInstallCommand() {
     argParser
-      ..addFlag('build',
-          negatable: false,
-          help: 'Run `qa build` first (also done when build/qa/apk.json is missing).')
-      ..addFlag('recycle',
-          defaultsTo: true,
-          help: 'Restart a guest past $fleetRecycleLaunches app launches or '
-              '${megabytes(fleetRecycleGpuBytes)} MB of GPU memory before '
-              'installing (fleet stop + fleet boot, ≈ 20 s).');
+      ..addFlag(
+        'build',
+        negatable: false,
+        help:
+            'Run `qa build` first (also done when build/qa/apk.json is missing).',
+      )
+      ..addFlag(
+        'recycle',
+        defaultsTo: true,
+        help:
+            'Restart a guest past $fleetRecycleLaunches app launches or '
+            '${megabytes(fleetRecycleGpuBytes)} MB of GPU memory before '
+            'installing (fleet stop + fleet boot, ≈ 20 s).',
+      );
   }
 
   @override
@@ -4984,7 +5632,8 @@ class FleetInstallCommand extends FleetSubcommand {
     final ctx = context;
     final host = ctx.fleetHost();
     final found = await host.members(upTo: capacity, paths: ctx.paths);
-    final members = await recycleWorn(
+    final members =
+        await recycleWorn(
           ctx,
           host,
           found,
@@ -4993,31 +5642,44 @@ class FleetInstallCommand extends FleetSubcommand {
         found;
     final ready = members.where((m) => m.ready).toList();
     if (ready.isEmpty) {
-      throw DeviceFailure('no fleet device is up — `qa fleet boot --all` first');
+      throw DeviceFailure(
+        'no fleet device is up — `qa fleet boot --all` first',
+      );
     }
     var built = ApkRecord.read(ctx.paths.apkJson);
     if (argResults!['build'] as bool || built == null) {
-      out(built == null ? 'no build/qa/apk.json — building first' : 'building first');
+      out(
+        built == null
+            ? 'no build/qa/apk.json — building first'
+            : 'building first',
+      );
       final outcome = await runChild(
         ctx,
         fleetBuildChildArgs(via: _parentVia, verbose: _parentVerbose),
         tag: 'build',
       );
       if (outcome.exitCode != 0) {
-        throw DeviceFailure('qa build failed (exit ${outcome.exitCode}) — nothing installed');
+        throw DeviceFailure(
+          'qa build failed (exit ${outcome.exitCode}) — nothing installed',
+        );
       }
-      built = ApkRecord.read(ctx.paths.apkJson) ??
+      built =
+          ApkRecord.read(ctx.paths.apkJson) ??
           (throw DeviceFailure('qa build recorded no ${ctx.paths.apkJson}'));
     }
     final targets = <FleetMember>[];
     for (final member in ready) {
       if (isCurrentInstall(member.installed, built)) {
-        out('${member.serial}  ${member.name}  current: '
-            '${appStatus(member.installed, built)}');
+        out(
+          '${member.serial}  ${member.name}  current: '
+          '${appStatus(member.installed, built)}',
+        );
         // A guest that already carries the build still needs what a pass
         // needs granted; the install children grant on their own.
-        (await applyPassGrants(host.adb.withSerial(member.serial), member.serial))
-            .forEach(out);
+        (await applyPassGrants(
+          host.adb.withSerial(member.serial),
+          member.serial,
+        )).forEach(out);
       } else {
         targets.add(member);
       }
@@ -5027,8 +5689,11 @@ class FleetInstallCommand extends FleetSubcommand {
       for (final member in targets)
         runChild(
           ctx,
-          fleetInstallChildArgs(member.serial,
-              via: _parentVia, verbose: _parentVerbose),
+          fleetInstallChildArgs(
+            member.serial,
+            via: _parentVia,
+            verbose: _parentVerbose,
+          ),
           tag: member.serial,
         ),
     ]);
@@ -5037,9 +5702,11 @@ class FleetInstallCommand extends FleetSubcommand {
       final outcome = outcomes[i];
       final seconds = (outcome.took.inMilliseconds / 1000).toStringAsFixed(1);
       if (outcome.exitCode != 0) failed = true;
-      out('${targets[i].serial}  ${targets[i].name}  '
-          '${outcome.exitCode == 0 ? 'installed' : 'FAILED (exit ${outcome.exitCode})'} '
-          'in $seconds s');
+      out(
+        '${targets[i].serial}  ${targets[i].name}  '
+        '${outcome.exitCode == 0 ? 'installed' : 'FAILED (exit ${outcome.exitCode})'} '
+        'in $seconds s',
+      );
     }
     return failed ? exitDevice : 0;
   }
@@ -5048,23 +5715,34 @@ class FleetInstallCommand extends FleetSubcommand {
 class FleetPassCommand extends FleetSubcommand {
   FleetPassCommand() {
     argParser
-      ..addOption('devices',
-          help: 'Comma-separated fleet AVDs to use (anta_qa_1,2 or '
-              'emulator-5556); default every booted one.')
+      ..addOption(
+        'devices',
+        help:
+            'Comma-separated fleet AVDs to use (anta_qa_1,2 or '
+            'emulator-5556); default every booted one.',
+      )
       ..addOption('label', help: 'Free text stored in every report.')
-      ..addFlag('stop-on-fail',
-          negatable: false,
-          help: 'Each shard skips its remaining flows after a failure.')
-      ..addFlag('keep-state',
-          negatable: false,
-          help: 'Each shard leaves its app as its last flow left it instead '
-              'of ending on an empty QA database.')
-      ..addFlag('recycle',
-          defaultsTo: true,
-          help: 'Restart a guest past $fleetRecycleLaunches app launches or '
-              '${megabytes(fleetRecycleGpuBytes)} MB of GPU memory before the '
-              'pass (fleet stop + fleet boot, ≈ 20 s): a worn guest slows '
-              'every verb and heads for a hang.');
+      ..addFlag(
+        'stop-on-fail',
+        negatable: false,
+        help: 'Each shard skips its remaining flows after a failure.',
+      )
+      ..addFlag(
+        'keep-state',
+        negatable: false,
+        help:
+            'Each shard leaves its app as its last flow left it instead '
+            'of ending on an empty QA database.',
+      )
+      ..addFlag(
+        'recycle',
+        defaultsTo: true,
+        help:
+            'Restart a guest past $fleetRecycleLaunches app launches or '
+            '${megabytes(fleetRecycleGpuBytes)} MB of GPU memory before the '
+            'pass (fleet stop + fleet boot, ≈ 20 s): a worn guest slows '
+            'every verb and heads for a hang.',
+      );
   }
 
   @override
@@ -5085,9 +5763,13 @@ class FleetPassCommand extends FleetSubcommand {
   Future<int> run() async {
     final ctx = context;
     final rest = argResults!.rest;
-    if (rest.length != 1 || rest.single.contains('/') || rest.single.contains('\\')) {
-      throw UsageFailure('fleet pass takes exactly one suite (e.g. `qa fleet '
-          'pass calendar`); `qa -d <serial> pass <suite>/<flow>` runs one flow');
+    if (rest.length != 1 ||
+        rest.single.contains('/') ||
+        rest.single.contains('\\')) {
+      throw UsageFailure(
+        'fleet pass takes exactly one suite (e.g. `qa fleet '
+        'pass calendar`); `qa -d <serial> pass <suite>/<flow>` runs one flow',
+      );
     }
     final suite = rest.single;
     final manifest = SuiteManifest.load(ctx.paths.flowsDir, suite);
@@ -5096,17 +5778,18 @@ class FleetPassCommand extends FleetSubcommand {
         ? null
         : [
             for (final part in devicesArg.split(','))
-              if (part.trim().isNotEmpty) parseFleetArgument(part, serials: true),
+              if (part.trim().isNotEmpty)
+                parseFleetArgument(part, serials: true),
           ];
     final host = ctx.fleetHost();
     final built = ApkRecord.read(ctx.paths.apkJson);
     FleetPick pickFrom(List<FleetMember> members) => pickPassDevices(
-          members: members,
-          built: built,
-          suite: suite,
-          shardable: manifest.shard,
-          wanted: wanted,
-        );
+      members: members,
+      built: built,
+      suite: suite,
+      shardable: manifest.shard,
+      wanted: wanted,
+    );
     var pick = pickFrom(await host.members(upTo: capacity, paths: ctx.paths));
     // Only the guests the pass runs on are recycled; after a recycle the
     // pick is made again from what came back up.
@@ -5122,16 +5805,20 @@ class FleetPassCommand extends FleetSubcommand {
       warn('left out: $reason');
     }
     if (pick.members.isEmpty) {
-      throw DeviceFailure('no fleet device to run "$suite" on — '
-          '`qa fleet boot --all`, then `qa fleet install`');
+      throw DeviceFailure(
+        'no fleet device to run "$suite" on — '
+        '`qa fleet boot --all`, then `qa fleet install`',
+      );
     }
     if (pick.note != null) out(pick.note!);
     final dir = Directory(
       ctx.paths.passDirFor(suite, shotStamp(DateTime.now()), 'fleet'),
     )..createSync(recursive: true);
     final count = pick.members.length;
-    out('fleet pass: $suite over $count device(s) '
-        '(${pick.members.map((m) => m.serial).join(', ')}) — ${dir.path}');
+    out(
+      'fleet pass: $suite over $count device(s) '
+      '(${pick.members.map((m) => m.serial).join(', ')}) — ${dir.path}',
+    );
     final shards = [
       for (var i = 0; i < count; i++)
         (
@@ -5177,14 +5864,26 @@ class FleetPassCommand extends FleetSubcommand {
         }
       }
       if (report == null) {
-        couldNotRun.add('${shards[i].member.serial} (exit '
-            '${outcomes[i].exitCode}, log ${shards[i].log})');
+        couldNotRun.add(
+          '${shards[i].member.serial} (exit '
+          '${outcomes[i].exitCode}, log ${shards[i].log})',
+        );
       } else {
-        final expected = selectFlows(available, manifest: manifest, shard: shards[i].shard).length;
-        final why = shardIncompleteness(report, exitCode: outcomes[i].exitCode, expected: expected);
+        final expected = selectFlows(
+          available,
+          manifest: manifest,
+          shard: shards[i].shard,
+        ).length;
+        final why = shardIncompleteness(
+          report,
+          exitCode: outcomes[i].exitCode,
+          expected: expected,
+        );
         if (why != null) {
-          incomplete.add('INCOMPLETE ${shards[i].member.serial}: $why '
-              '(log ${shards[i].log})');
+          incomplete.add(
+            'INCOMPLETE ${shards[i].member.serial}: $why '
+            '(log ${shards[i].log})',
+          );
         }
       }
       reports.add(report);
@@ -5196,26 +5895,36 @@ class FleetPassCommand extends FleetSubcommand {
       merged = mergeReports(ran);
       final reportFile = File(joinPath(dir.path, ['report.json']))
         ..writeAsStringSync(merged.encode());
-      File(ctx.paths.latestPassFor(suite)).writeAsStringSync(reportFile.absolute.path);
+      File(
+        ctx.paths.latestPassFor(suite),
+      ).writeAsStringSync(reportFile.absolute.path);
       summaryLines(merged, reportPath: reportFile.absolute.path).forEach(out);
       missing = missingFromSuite(ctx.paths, merged);
-      if (missing != null && missing.isNotEmpty) warn(coverageWarning(suite, missing));
+      if (missing != null && missing.isNotEmpty) {
+        warn(coverageWarning(suite, missing));
+      }
     }
     out('per device:');
     for (var i = 0; i < shards.length; i++) {
       final shard = shards[i];
-      final seconds = (outcomes[i].took.inMilliseconds / 1000).toStringAsFixed(1);
+      final seconds = (outcomes[i].took.inMilliseconds / 1000).toStringAsFixed(
+        1,
+      );
       final flows = reports[i]?.flows.length;
-      out('  ${shard.member.serial}  ${shard.member.name}  '
-          '${shard.shard == null ? 'whole suite' : 'shard ${shard.shard!.$1}/${shard.shard!.$2}'}  '
-          '${flows ?? '-'} flow(s)  $seconds s  exit ${outcomes[i].exitCode}');
+      out(
+        '  ${shard.member.serial}  ${shard.member.name}  '
+        '${shard.shard == null ? 'whole suite' : 'shard ${shard.shard!.$1}/${shard.shard!.$2}'}  '
+        '${flows ?? '-'} flow(s)  $seconds s  exit ${outcomes[i].exitCode}',
+      );
     }
     incomplete.forEach(out);
     if (couldNotRun.isNotEmpty) {
       warn('could not run: ${couldNotRun.join('; ')}');
       return exitDevice;
     }
-    if (incomplete.isNotEmpty || (missing?.isNotEmpty ?? false)) return exitDevice;
+    if (incomplete.isNotEmpty || (missing?.isNotEmpty ?? false)) {
+      return exitDevice;
+    }
     return passExitCode(merged!);
   }
 }
@@ -5248,9 +5957,11 @@ class LogCommand extends QaCommand {
   LogCommand() {
     argParser
       ..addOption('lines', defaultsTo: '200', help: 'Tail this many lines.')
-      ..addFlag('since-launch',
-          negatable: false,
-          help: 'Android: only lines since the last `qa run`.')
+      ..addFlag(
+        'since-launch',
+        negatable: false,
+        help: 'Android: only lines since the last `qa run`.',
+      )
       ..addFlag('all', negatable: false, help: 'Do not filter to app lines.');
   }
 
@@ -5277,8 +5988,10 @@ class LogCommand extends QaCommand {
       }
       stamp = file.readAsStringSync().trim();
       if (device.kind != DeviceKind.android) {
-        warn('note: --since-launch is a logcat filter; the ${device.kind.label} '
-            'log covers the last ${device.kind == DeviceKind.ios ? '10 minutes' : 'launch'} instead');
+        warn(
+          'note: --since-launch is a logcat filter; the ${device.kind.label} '
+          'log covers the last ${device.kind == DeviceKind.ios ? '10 minutes' : 'launch'} instead',
+        );
       }
     }
     var lines = (await device.readLog(sinceStamp: stamp)).split('\n');
@@ -5297,12 +6010,16 @@ class ErrorsCommand extends QaCommand {
   ErrorsCommand() {
     argParser
       ..addOption('lines', defaultsTo: '50', help: 'Keep the last N hits.')
-      ..addFlag('all',
-          negatable: false,
-          help: 'Show the known-noise lines that are hidden by default.')
-      ..addFlag('clear',
-          negatable: false,
-          help: "Clear the agent's in-app error buffer after printing it.");
+      ..addFlag(
+        'all',
+        negatable: false,
+        help: 'Show the known-noise lines that are hidden by default.',
+      )
+      ..addFlag(
+        'clear',
+        negatable: false,
+        help: "Clear the agent's in-app error buffer after printing it.",
+      );
   }
 
   @override
@@ -5340,7 +6057,10 @@ class ErrorsCommand extends QaCommand {
         ].where((text) => text.isNotEmpty).join('\n');
         sources[ctx.paths.runLog] = errorLines(since, limit: limit);
       } else {
-        sources[ctx.paths.runLog] = errorLines(readRunLog(ctx.paths), limit: limit);
+        sources[ctx.paths.runLog] = errorLines(
+          readRunLog(ctx.paths),
+          limit: limit,
+        );
       }
     }
     final since = ctx.errorsSinceStamp;
@@ -5351,7 +6071,9 @@ class ErrorsCommand extends QaCommand {
     final agent = await ctx.agentOrNull();
     if (agent != null) {
       try {
-        final captured = await agent.errors(clear: argResults!['clear'] as bool);
+        final captured = await agent.errors(
+          clear: argResults!['clear'] as bool,
+        );
         sources['agent'] = captured.length > limit
             ? captured.sublist(captured.length - limit)
             : captured;
@@ -5364,17 +6086,23 @@ class ErrorsCommand extends QaCommand {
       final (real, noise) = partitionKnownNoise(hits);
       final shown = showAll ? hits : real;
       if (shown.isEmpty) {
-        out('no errors in $name'
-            '${noise.isEmpty ? '' : ' (${noise.length} known-noise line(s) '
-                'hidden; --all to show)'}');
+        out(
+          'no errors in $name'
+          '${noise.isEmpty ? '' : ' (${noise.length} known-noise line(s) '
+                    'hidden; --all to show)'}',
+        );
         return;
       }
       for (final line in shown) {
-        out('$name: ${redactSecrets(line)}'
-            '${!showAll || !isKnownNoise(line) ? '' : '  (known noise)'}');
+        out(
+          '$name: ${redactSecrets(line)}'
+          '${!showAll || !isKnownNoise(line) ? '' : '  (known noise)'}',
+        );
       }
       if (!showAll && noise.isNotEmpty) {
-        out('$name: ${noise.length} known-noise line(s) hidden (--all to show)');
+        out(
+          '$name: ${noise.length} known-noise line(s) hidden (--all to show)',
+        );
       }
     });
     return 0;
@@ -5428,8 +6156,10 @@ class AgentCommand extends QaCommand {
       return 0;
     }
     final info = AgentInfo.fromJson(result);
-    out('${info.describe()}  ($took ms round trip, protocol v${info.protocolVersion}, '
-        'up ${(info.uptimeMs / 1000).toStringAsFixed(1)} s)');
+    out(
+      '${info.describe()}  ($took ms round trip, protocol v${info.protocolVersion}, '
+      'up ${(info.uptimeMs / 1000).toStringAsFixed(1)} s)',
+    );
     out('documents: ${info.documentsPath ?? '?'}');
     final mismatch = agentVersionMismatch(info.protocolVersion);
     if (mismatch != null) warn('warning: $mismatch');
@@ -5494,11 +6224,15 @@ class SetCommand extends QaCommand {
         case 'theme-mode':
         case 'thememode':
           if (!const {'light', 'dark', 'system'}.contains(value)) {
-            throw UsageFailure('theme must be light, dark or system (got "$value")');
+            throw UsageFailure(
+              'theme must be light, dark or system (got "$value")',
+            );
           }
           args[AgentKeys.themeMode] = value;
         default:
-          throw UsageFailure('set does not know "$key" (text-scale, locale, theme)');
+          throw UsageFailure(
+            'set does not know "$key" (text-scale, locale, theme)',
+          );
       }
     }
     return args;
@@ -5511,9 +6245,11 @@ class SetCommand extends QaCommand {
     final agent = await ctx.agent();
     final result = await agent.op(AgentOps.set, args);
     final scale = result[AgentKeys.textScale];
-    out('set  text-scale=${scale ?? 'platform'}  '
-        'locale=${result[AgentKeys.locale] ?? 'system'}  '
-        'theme=${result[AgentKeys.themeMode] ?? '?'}');
+    out(
+      'set  text-scale=${scale ?? 'platform'}  '
+      'locale=${result[AgentKeys.locale] ?? 'system'}  '
+      'theme=${result[AgentKeys.themeMode] ?? '?'}',
+    );
     return 0;
   }
 }
@@ -5543,12 +6279,15 @@ class BuildExeCommand extends QaCommand {
 class DoctorCommand extends QaCommand {
   DoctorCommand() {
     argParser
-      ..addFlag('fix',
-          negatable: false,
-          help: 'Apply the safe repairs: wake, unphone, kill a leftover '
-              'uiautomator, clear a stale run.pid, reap orphaned services. '
-              'Never restarts a device, never stops the app, never touches '
-              'app data.')
+      ..addFlag(
+        'fix',
+        negatable: false,
+        help:
+            'Apply the safe repairs: wake, unphone, kill a leftover '
+            'uiautomator, clear a stale run.pid, reap orphaned services. '
+            'Never restarts a device, never stops the app, never touches '
+            'app data.',
+      )
       ..addFlag('json', negatable: false, help: 'Emit the checks as JSON.');
   }
 
@@ -5573,8 +6312,11 @@ class DoctorCommand extends QaCommand {
       }
     }
     if (argResults!['json'] as bool) {
-      out(const JsonEncoder.withIndent('  ')
-          .convert(results.map((r) => r.toJson()).toList()));
+      out(
+        const JsonEncoder.withIndent(
+          '  ',
+        ).convert(results.map((r) => r.toJson()).toList()),
+      );
     } else {
       for (final result in results) {
         out(result.describe());
@@ -5588,8 +6330,9 @@ class DoctorCommand extends QaCommand {
   /// The agent's `info`, asked once per run: `--fix` collects twice, and
   /// none of its repairs touches the app, so a second probe could only
   /// cost another wait on an agent that is not there.
-  Future<({AgentInfo? info, String? failure, int ms})> _agentInfo(QaContext ctx) async =>
-      _agentFetched ??= await ctx.agentInfoOrFailure(refresh: true);
+  Future<({AgentInfo? info, String? failure, int ms})> _agentInfo(
+    QaContext ctx,
+  ) async => _agentFetched ??= await ctx.agentInfoOrFailure(refresh: true);
 
   Future<List<CheckResult>> _collect() async {
     final ctx = context;
@@ -5600,18 +6343,22 @@ class DoctorCommand extends QaCommand {
     } on QaException catch (e) {
       final adbDevices = await ctx.adbDevices();
       if (ctx.adbFailure != null && ctx.sdk.findAdb() != null) {
-        results.add(checkAdbServer(
-          adbPath: ctx.sdk.findAdb(),
-          failure: ctx.adbFailure,
-          deviceCount: adbDevices.length,
-        ));
+        results.add(
+          checkAdbServer(
+            adbPath: ctx.sdk.findAdb(),
+            failure: ctx.adbFailure,
+            deviceCount: adbDevices.length,
+          ),
+        );
       }
-      results.add(CheckResult(
-        name: 'device',
-        status: CheckStatus.fail,
-        detail: e.message,
-        fix: 'run `qa devices` to see what is attached',
-      ));
+      results.add(
+        CheckResult(
+          name: 'device',
+          status: CheckStatus.fail,
+          detail: e.message,
+          fix: 'run `qa devices` to see what is attached',
+        ),
+      );
     }
     if (selected != null) {
       switch (selected.kind) {
@@ -5631,11 +6378,13 @@ class DoctorCommand extends QaCommand {
     final results = <CheckResult>[];
     final adbPath = ctx.sdk.findAdb();
     final devices = await ctx.adbDevices();
-    results.add(checkAdbServer(
-      adbPath: adbPath,
-      failure: ctx.adbFailure,
-      deviceCount: devices.length,
-    ));
+    results.add(
+      checkAdbServer(
+        adbPath: adbPath,
+        failure: ctx.adbFailure,
+        deviceCount: devices.length,
+      ),
+    );
     results.add(checkDeviceAttached(devices));
     if (!devices.any((d) => d.usable)) return results;
 
@@ -5649,10 +6398,9 @@ class DoctorCommand extends QaCommand {
       ShellCommand.raw(leftoverUiautomatorProbe),
       ShellCommand.raw('df /data | tail -1'),
     ]);
-    results.add(checkBootProps(
-      bootCompleted: outputs[0],
-      provisioned: outputs[1],
-    ));
+    results.add(
+      checkBootProps(bootCompleted: outputs[0], provisioned: outputs[1]),
+    );
     final probe = await device.probe();
     results.add(checkAwake(probe));
     results.add(checkScreenOverride(probe));
@@ -5667,24 +6415,30 @@ class DoctorCommand extends QaCommand {
     } on QaException {
       dumped = false;
     }
-    results.add(checkUiautomator(
-      dumped: dumped,
-      took: DateTime.now().difference(started),
-      leftoverPids: outputs[4],
-    ));
+    results.add(
+      checkUiautomator(
+        dumped: dumped,
+        took: DateTime.now().difference(started),
+        leftoverPids: outputs[4],
+      ),
+    );
     results.add(checkDataSpace(outputs[5]));
-    results.add(checkForwards(device.id, (await device.forwardedPorts()).length));
+    results.add(
+      checkForwards(device.id, (await device.forwardedPorts()).length),
+    );
     final vmUri = await ctx.recordedVmUri();
     final fetched = vmUri == null
         ? (info: null, failure: null, ms: 0)
         : await _agentInfo(ctx);
     await ctx.decideAutoFrom(agentAnswered: fetched.info != null);
-    results.add(_agentCheck(
-      vmUri,
-      fetched,
-      required: ctx.via == ViaMode.agent,
-      driver: await ctx.driverLabel(),
-    ));
+    results.add(
+      _agentCheck(
+        vmUri,
+        fetched,
+        required: ctx.via == ViaMode.agent,
+        driver: await ctx.driverLabel(),
+      ),
+    );
     results.add(await _markersCheck(device));
     return results;
   }
@@ -5701,23 +6455,34 @@ class DoctorCommand extends QaCommand {
     }
   }
 
-  Future<List<CheckResult>> _iosChecks(QaContext ctx, DeviceRef selected) async {
+  Future<List<CheckResult>> _iosChecks(
+    QaContext ctx,
+    DeviceRef selected,
+  ) async {
     final results = <CheckResult>[];
     results.add(checkXcrun(available: ctx.simctl != null));
     final device = await ctx.device() as IosDevice;
-    results.add(checkSimulator(
-      name: device.sim.name,
-      state: device.sim.state,
-      runtime: device.sim.runtime,
-    ));
-    results.add(checkAppBundle(
-      path: await device.appPath(),
-      platform: 'simulator ${device.sim.name}',
-      fix: device.installHint,
-    ));
+    results.add(
+      checkSimulator(
+        name: device.sim.name,
+        state: device.sim.state,
+        runtime: device.sim.runtime,
+      ),
+    );
+    results.add(
+      checkAppBundle(
+        path: await device.appPath(),
+        platform: 'simulator ${device.sim.name}',
+        fix: device.installHint,
+      ),
+    );
     final fetched = await _agentInfo(ctx);
-    results.add(checkAppRunning(await device.probe(fetched.info), device.packageId));
-    results.add(_agentCheck(await ctx.recordedVmUri(), fetched, required: true));
+    results.add(
+      checkAppRunning(await device.probe(fetched.info), device.packageId),
+    );
+    results.add(
+      _agentCheck(await ctx.recordedVmUri(), fetched, required: true),
+    );
     results.add(await _markersCheck(device));
     return results;
   }
@@ -5725,14 +6490,20 @@ class DoctorCommand extends QaCommand {
   Future<List<CheckResult>> _macosChecks(QaContext ctx) async {
     final results = <CheckResult>[];
     final device = await ctx.device() as MacosDevice;
-    results.add(checkAppBundle(
-      path: await device.isInstalled() ? device.bundlePath : null,
-      platform: 'macOS desktop build',
-      fix: device.installHint,
-    ));
+    results.add(
+      checkAppBundle(
+        path: await device.isInstalled() ? device.bundlePath : null,
+        platform: 'macOS desktop build',
+        fix: device.installHint,
+      ),
+    );
     final fetched = await _agentInfo(ctx);
-    results.add(checkAppRunning(await device.probe(fetched.info), device.packageId));
-    results.add(_agentCheck(await ctx.recordedVmUri(), fetched, required: true));
+    results.add(
+      checkAppRunning(await device.probe(fetched.info), device.packageId),
+    );
+    results.add(
+      _agentCheck(await ctx.recordedVmUri(), fetched, required: true),
+    );
     if (await device.isInstalled()) results.add(await _markersCheck(device));
     return results;
   }
@@ -5755,8 +6526,11 @@ class DoctorCommand extends QaCommand {
       );
       return required
           ? result
-          : CheckResult.ok('agent', 'not in use (driver=${driver ?? 'adb'}); '
-              '`qa relaunch` or `qa run` records a VM URI the agent answers on');
+          : CheckResult.ok(
+              'agent',
+              'not in use (driver=${driver ?? 'adb'}); '
+                  '`qa relaunch` or `qa run` records a VM URI the agent answers on',
+            );
     }
     final info = fetched.info;
     if (info != null) {
@@ -5764,7 +6538,8 @@ class DoctorCommand extends QaCommand {
         vmUri: vmUri,
         failure: null,
         roundTripMs: fetched.ms,
-        summary: '${info.describe()}${driver == null ? '' : '  driver=$driver'}',
+        summary:
+            '${info.describe()}${driver == null ? '' : '  driver=$driver'}',
         qaMode: info.qaMode,
         cloud: info.cloud,
         protocolVersion: info.protocolVersion,
@@ -5793,18 +6568,23 @@ class DoctorCommand extends QaCommand {
     final recordedPid = pidFile.existsSync()
         ? int.tryParse(pidFile.readAsStringSync().trim())
         : null;
-    final alive =
-        recordedPid == null ? false : await isProcessAlive(recordedPid, ctx.runner);
+    final alive = recordedPid == null
+        ? false
+        : await isProcessAlive(recordedPid, ctx.runner);
     final orphans = await listOrphanedServices(ctx.runner);
-    results.add(checkHostRun(
-      recordedPid: recordedPid,
-      pidAlive: alive,
-      orphanedServices: orphans,
-    ));
-    results.add(checkDtd(
-      dtd: kind == null ? '' : (await ctx.recordedDtdUri() ?? ''),
-      runLogTail: tailLines(readRunLog(ctx.paths), lines: 5),
-    ));
+    results.add(
+      checkHostRun(
+        recordedPid: recordedPid,
+        pidAlive: alive,
+        orphanedServices: orphans,
+      ),
+    );
+    results.add(
+      checkDtd(
+        dtd: kind == null ? '' : (await ctx.recordedDtdUri() ?? ''),
+        runLogTail: tailLines(readRunLog(ctx.paths), lines: 5),
+      ),
+    );
     final exe = File(ctx.paths.qaExe);
     final decision = decideRebuild(
       aot: true,
@@ -5812,11 +6592,13 @@ class DoctorCommand extends QaCommand {
       exeModified: exe.existsSync() ? exe.statSync().modified : null,
       sourceModified: qaSourceTimes(ctx.paths),
     );
-    results.add(checkExeFreshness(
-      exists: exe.existsSync(),
-      stale: decision.rebuild,
-      staleSource: decision.reason,
-    ));
+    results.add(
+      checkExeFreshness(
+        exists: exe.existsSync(),
+        stale: decision.rebuild,
+        staleSource: decision.reason,
+      ),
+    );
     final fleet = await _fleetCheck(ctx);
     if (fleet != null) results.add(fleet);
     results.addAll(await _ownerEmulatorChecks(ctx));
@@ -5854,11 +6636,13 @@ class DoctorCommand extends QaCommand {
         cores: topology?.cores,
         threads: topology?.threads,
       );
-      final members = await host.withGpu(await host.members(
-        upTo: fleetCapacity(Platform.numberOfProcessors),
-        paths: ctx.paths,
-        devices: await ctx.adbDevices(),
-      ));
+      final members = await host.withGpu(
+        await host.members(
+          upTo: fleetCapacity(Platform.numberOfProcessors),
+          paths: ctx.paths,
+          devices: await ctx.adbDevices(),
+        ),
+      );
       return checkFleet(members, pinMask: affinity.mask);
     } on QaException catch (e) {
       return CheckResult(

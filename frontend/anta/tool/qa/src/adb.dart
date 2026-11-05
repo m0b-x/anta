@@ -7,8 +7,8 @@ import 'shell_batch.dart';
 /// Locates the Android SDK command line tools without assuming PATH.
 class SdkTools {
   SdkTools({Map<String, String>? environment, bool Function(String)? exists})
-      : _env = environment ?? Platform.environment,
-        _exists = exists ?? _defaultExists;
+    : _env = environment ?? Platform.environment,
+      _exists = exists ?? _defaultExists;
 
   final Map<String, String> _env;
   final bool Function(String) _exists;
@@ -49,7 +49,11 @@ class SdkTools {
 
   String? _find(String sdkSubdir, String fileName) {
     for (final root in sdkRoots()) {
-      final candidate = [root, sdkSubdir, fileName].join(Platform.pathSeparator);
+      final candidate = [
+        root,
+        sdkSubdir,
+        fileName,
+      ].join(Platform.pathSeparator);
       if (_exists(candidate)) return candidate;
     }
     for (final dir in _pathEntries()) {
@@ -79,7 +83,9 @@ class SdkTools {
     final home = _env['LOCALAPPDATA'] ?? _env['HOME'] ?? _env['USERPROFILE'];
     if (home != null && home.isNotEmpty) {
       roots.add([home, 'Android', 'Sdk'].join(Platform.pathSeparator));
-      roots.add([home, 'Library', 'Android', 'sdk'].join(Platform.pathSeparator));
+      roots.add(
+        [home, 'Library', 'Android', 'sdk'].join(Platform.pathSeparator),
+      );
     }
     return roots;
   }
@@ -104,15 +110,15 @@ class SdkTools {
 }
 
 /// [Adb.bootId]'s read, one constant so the potent-verbs test can vet it.
-const List<String> bootIdArgs = ['shell', 'cat', '/proc/sys/kernel/random/boot_id'];
+const List<String> bootIdArgs = [
+  'shell',
+  'cat',
+  '/proc/sys/kernel/random/boot_id',
+];
 
 /// Thin typed wrapper over the `adb` executable for one serial.
 class Adb {
-  Adb({
-    required this.executable,
-    required this.runner,
-    this.serial,
-  });
+  Adb({required this.executable, required this.runner, this.serial});
 
   final String executable;
   final ProcessRunner runner;
@@ -158,10 +164,10 @@ class Adb {
     Duration timeout = const Duration(seconds: 45),
   }) async {
     if (commands.isEmpty) return const [];
-    final result = await raw(
-      ['shell', buildBatchScript(commands)],
-      timeout: timeout,
-    );
+    final result = await raw([
+      'shell',
+      buildBatchScript(commands),
+    ], timeout: timeout);
     return splitBatchOutput(
       result.ok ? result.stdout : result.combined,
       commands.length,
@@ -196,9 +202,14 @@ class Adb {
   /// timeout included: bookkeeping never fails the verb that asked.
   Future<String?> bootId() async {
     try {
-      final result = await raw(bootIdArgs, timeout: const Duration(seconds: 10));
+      final result = await raw(
+        bootIdArgs,
+        timeout: const Duration(seconds: 10),
+      );
       final id = result.stdout.trim();
-      return result.ok && RegExp(r'^[0-9a-f-]{32,36}$').hasMatch(id) ? id : null;
+      return result.ok && RegExp(r'^[0-9a-f-]{32,36}$').hasMatch(id)
+          ? id
+          : null;
     } on QaException {
       return null;
     }
@@ -208,7 +219,11 @@ class Adb {
     List<String> args, {
     Duration timeout = const Duration(seconds: 60),
   }) async {
-    final result = await raw(['exec-out', ...args], timeout: timeout, binary: true);
+    final result = await raw(
+      ['exec-out', ...args],
+      timeout: timeout,
+      binary: true,
+    );
     if (!result.ok) {
       throw DeviceFailure(
         'adb exec-out ${args.join(' ')} failed (${result.exitCode}): '
@@ -221,8 +236,11 @@ class Adb {
   Future<List<AdbDevice>> devices({
     Duration timeout = const Duration(seconds: 20),
   }) async {
-    final result = await raw(['devices', '-l'],
-        timeout: timeout, withSerial: false);
+    final result = await raw(
+      ['devices', '-l'],
+      timeout: timeout,
+      withSerial: false,
+    );
     if (!result.ok) {
       throw DeviceFailure('adb devices failed: ${result.combined}');
     }
@@ -288,14 +306,15 @@ String adbTimeoutMessage(Duration timeout, List<String> args) =>
 
 /// Explains one unusable `adb devices` state in terms of what to do next.
 String unusableDeviceMessage(String serial, String state) => switch (state) {
-      'offline' => '$serial is offline — adbd on the guest is wedged; the '
-          'owner has to close and cold-boot the emulator (this tool never '
-          'restarts it)',
-      'unauthorized' =>
-        '$serial is unauthorized — accept the USB-debugging prompt on the '
-            'device',
-      _ => '$serial is in state "$state", not "device"',
-    };
+  'offline' =>
+    '$serial is offline — adbd on the guest is wedged; the '
+        'owner has to close and cold-boot the emulator (this tool never '
+        'restarts it)',
+  'unauthorized' =>
+    '$serial is unauthorized — accept the USB-debugging prompt on the '
+        'device',
+  _ => '$serial is in state "$state", not "device"',
+};
 
 /// Chooses which serial to talk to: explicit flag, env, then the sole device.
 ///
@@ -332,9 +351,7 @@ String selectSerial({
     throw DeviceFailure('no device attached — run `qa boot`');
   }
   throw DeviceFailure(
-    available
-        .map((d) => unusableDeviceMessage(d.serial, d.state))
-        .join('; '),
+    available.map((d) => unusableDeviceMessage(d.serial, d.state)).join('; '),
   );
 }
 
