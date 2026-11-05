@@ -1,6 +1,6 @@
 ---
 name: flutter-principles
-description: How Dart and Flutter code is written in ANTA - the conventions the tree already follows (Flutter 3.44, Dart 3.10, flutter_bloc 9, Drift 2.30, get_it 9), the performance idioms on the hot paths, the widget-structure rules, the test patterns (robots, hand-written fakes, in-memory Drift), the error-handling shape, the platform gates for Android, Windows and macOS, and the smells to watch for. Load when writing or reviewing any Dart code, when a widget rebuilds too often or a list is slow, when adding a bloc, service, test or platform branch, and when a reviewer needs the house standard to judge against. Load together with the area skill.
+description: How Dart and Flutter code is written in ANTA - the conventions the tree already follows (Flutter 3.44.2, Dart 3.12.2, flutter_bloc 9, Drift 2.30, get_it 9), the performance idioms on the hot paths, the widget-structure rules, the test patterns (robots, hand-written fakes, in-memory Drift), the error-handling shape, the platform gates for Android, Windows and macOS, and the smells to watch for. Load when writing or reviewing any Dart code, when a widget rebuilds too often or a list is slow, when adding a bloc, service, test or platform branch, and when a reviewer needs the house standard to judge against. Load together with the area skill.
 ---
 
 # Flutter principles, as this tree practises them

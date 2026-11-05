@@ -15,9 +15,14 @@ S9's device pass is green. **COMMITTED 2026-11-05: S0–S9** (the last code comm
 flows on `emulator-5558` — the S9 note at the end of §12.2; what stays
 with the owner is listed there). **The closing review ran 2026-11-05**
 (§13.1): every line of §13 checked at `94a55179` from the Fable lead
-session; the closing commit — the first after `94a55179` — carries the
-five rule-branch tests it found missing, the two sister records' addenda
-and the §6 lines brought to the code.
+session; the closing commit `ab38ec61` carries the five rule-branch tests
+it found missing, the two sister records' addenda and the §6 lines brought
+to the code. **The closing fixes followed the same day** (§13.1's last
+paragraph): the format drift, the fleet's storage, the guide suite's
+clock with the timeline's overflow at 2.0 behind it, the backup import's
+folder batch, the digest's currency, the fold measured on the device —
+`985b7055` … `95f46b11`; what still waits for the owner is §14's first
+bullets.
 
 This record extends `docs/calendar-report-roadmap.md` (the Report, COMMITTED
 2026-10-31) and never replaces it: one page, one pure builder, one model.
@@ -2298,7 +2303,12 @@ it. What stays with the owner: the Firestore rules deploy before a v44+
 build syncs from a phone (the S0 note), the guide try-cards suite's clock
 pin (§14), `anta_qa_1`'s storage, and the device-only looks the three
 design reviews listed (ink, TalkBack phrasing, the drag's seam, the AOSP
-200 % curve) — the S5, S6 and S8 notes carry them.
+200 % curve) — the S5, S6 and S8 notes carry them. *Later on 2026-11-05:*
+`anta_qa_1`'s storage is resolved — the fleet spec's
+`disk.dataPartition.size` is 16G (`496bf931`; Google's self-updates had
+filled the 6 GB) and the guest boots on `emulator-5556` with a 16 GB data
+partition, 13 GB free, the app installed; it is the pass device again. The
+clock pin and the deploy moved to §13.1 and §14.
 
 ### 12.3 The kick-off prompt — written 2026-11-03, NOT RUN
 
@@ -2431,13 +2441,20 @@ implementer; one entry per line of §13, in order.
    `mark_verb_labels_test.dart` for the verb; `shapeOf` pinned in the
    builder and service suites; the presence and skip suites green in the
    gate below.
-4. **Cost** — holds as revised; the device half was never measured. The pin
-   as built is the timed ratio profiled / unprofiled ≤ 1.75 (1.5 → 1.75 in
-   S2b-ii, the compared fold being a second fold by design),
-   `benchmark`-tagged, run today: 1.45 (6.7 ms against 4.6 ms, fastest of
-   20, this host); the year fixture with the previous year folded: 114.6 ms
-   on its first run (the test VM's warm-up included), 0.4 ms from the memo.
-   No frame timing was taken on `emulator-5556` in S0–S9 — §14.
+4. **Cost** — holds on both halves. The pin as built is the timed ratio
+   profiled / unprofiled ≤ 1.75 (1.5 → 1.75 in S2b-ii, the compared fold
+   being a second fold by design), `benchmark`-tagged, run today: 1.45
+   (6.7 ms against 4.6 ms, fastest of 20, this host); the year fixture with
+   the previous year folded: 114.6 ms on its first run (the test VM's
+   warm-up included), 0.4 ms from the memo. The device half, measured later
+   the same day on `anta_qa_1` / `emulator-5556` with a profile build
+   (`flutter build apk --profile` with the QA defines and the driver entry
+   point, a temporary stopwatch around `_service.report` in the bloc, never
+   committed) seeded with the benchmark fixture's twin
+   (`tool/qa/perf/gen_perf_calendar.dart` — 50 events over five profiled,
+   tagged categories, the dailies' marks, the repeats' skips, the weeklies'
+   task lists): the Report's first fold (This month) **2.5 ms**, This year
+   with the previous year folded **12.1 ms** — inside one 16.7 ms frame.
 5. **Backup and sync** — holds: `backup_service_calendar_round_trip_test.dart`
    "a v7 archive without the key imports with no profiles", "profiles
    round-trip under their own key" (v8), "an archive without categories
@@ -2485,40 +2502,120 @@ the presence, skip and `noteId == ''` semantics untouched (the S0 and S1
 notes), `gym_notes` unchanged, the v1 and v7 archive cases of the backup
 suites green.
 
+**The closing fixes (later on 2026-11-05).** The owner's word was "finish
+what is left; make the decisions", so the review's leftovers were taken,
+each with one implementer, one code reviewer and — for the one visual
+change — the design-reviewer: the repo-wide format (`985b7055` lib and
+test, `e4ed8517` tool and test_driver, `95f46b11` the five test if-bodies
+the new wrapping exposed), the fleet's 16 GB data partition (`496bf931`;
+`anta_qa_1` is the pass device again), the guide suite's clock with the
+timeline's own overflow at 2.0 and the contrast sampler behind it
+(`1bea5b47`), the backup import's folder batch and the suites' timeouts
+(`325a9ae0`), the digest's currency (`e8563019`), the fold measured on the
+device (line 4 above; the seed generator `tool/qa/perf/
+gen_perf_calendar.dart`). Not taken, by the session's permission layer:
+the Firestore deploy and the AVD delete — §14 names the first with its
+tested command; the second became moot when the guest booted with the 16 GB
+partition. **The second gate**, at `95f46b11`: `dart analyze lib test`
+clean, `dart format` clean over lib, test, tool and test_driver, the whole
+suite alone `+13476 ~12 -1` in 3:50 — the one red the Windows-only
+`host_devices_test` case; the three guide cases and the backup case are
+green. **The device pass after it** (`qa-runner`, `anta_qa_1` on
+`emulator-5556`, the debug QA build of `95f46b11`): calendar 35 of 35
+green in 613 s, alerts 5 of 5 in 298 s, `qa errors` clean after each
+(`build/qa/pass/calendar_20261105_121402_969_emulator-5556/report.json`,
+`alerts_20261105_122420_553_emulator-5556/report.json`); the day timeline
+at text scale 2.0 in en and de
+(`build/qa/shots/20261105_122943_506_timeline_2x_en.png`,
+`20261105_122946_465_timeline_2x_de.png`): the blocks' titles whole at the
+clamped scale, nothing cut or overflowing, and the hour rail's stubs
+("7:0", "10:" / "07:", "10:") exactly as §14's bucket describes.
+
 ## 14. Deferred
 
-- **The backup round-trip suite's isolate flake (2026-11-05)** —
-  `backup_service_calendar_round_trip_test.dart` "category alerts and
-  digests (v42) › category alerts import right after the categories" went
-  red in two of three whole-suite runs at the closing review (a 30 s
-  timeout: the import's insert found the Drift isolate channel closed,
-  `CouldNotRollBackException … connection was closed`), green alone (24 of
-  24) and at S8's gate; nothing in the closing commit touches backup or
-  that suite. Intended fix: find what closes the isolate-backed database
-  while the import still runs — a neighbouring case's teardown or a
-  `DatabaseLifecycle` reset racing it — and make the case independent of
-  scheduling. Until then the gate reads `-5` honestly beside the four
-  known cases.
-- **The fold's frame on a device** — §13's fourth line asks for the
-  366-day, 50-event fold "inside one frame on `emulator-5556`"; S0–S9
-  measured it on the host only (the tagged benchmark: profiled 6.7 ms
-  against unprofiled 4.6 ms, fastest of 20; the year fixture with the
-  previous year folded 114.6 ms on its first, warm-up run, 0.4 ms from the
-  memo). The fold runs on the UI isolate inside the bloc's handler (R
-  below stays deferred). To close it: a QA build that `debugPrint`s
-  `CalendarReportService.report`'s elapsed time on the year report's first
-  open on a fleet guest, read through `qa logs`; if it misses a frame, R is
-  the remedy.
-- **Formatter drift (2026-11-05)** — `dart format --set-exit-if-changed lib
-  test` on this machine's Dart 3.12.2 would change 167 files, almost all
-  untouched since October (`alert_skip_action.dart`, `sync_bloc.dart`, the
-  DAOs): the tree was formatted by an earlier formatter and the newer one
-  splits method chains differently. Not the analytics' (its files are
-  clean; the builder suite's one drifted line was formatted in the closing
-  commit); a repo-wide format is the owner's one-commit call, best made on
-  a quiet tree so no slice's diff carries it.
-- **The guide try-cards suite's clock** — `test/widgets/calendar_guide_try_cards_test.dart` opens its stages on `DateTime.now` (only the fasting topic is pinned by `fixedNowFor`), so three cases went red on 2026-11-05 at the pre-S5 commit as well: "a stage never changes height at text scale 2.0 — screen: every panel mode" (the day timeline overflowed twice on that day's sandbox data; the case tolerates one) and "the tap-target and text-contrast guidelines — screen 360 / 412 light" (the sampler read the report stage's "2 events" caption off its rect). Intended fix: pin `now` for every stage in `fixedNowFor` (and the finding topic's 2026-11-01 case alike), then re-pin the two cases; a product check whether the stage should ever draw a day whose timeline overflows. Not S5's; carried here so the gate's "whole suite green" reads honestly until the pin lands.
-- **The digest's currency** — `digestNotificationContent` builds `ReportLabels(strings)` with no currency, so a money goal in the digest reads "1,340" where the page reads "€1,340" (pre-dates S7; the scheduler would read `moneyCurrencySymbol` / `moneyCurrencySuffix` with the settings it already loads).
+- **The day timeline at large text — the closing design review's
+  pre-existing bucket (2026-11-05), for a designer-led slice.** Measured
+  with real fonts on `DayTimelineView` while reviewing the block fix: (1)
+  the hour rail's labels — a 16 dp row in a 52 dp gutter — are cut: en
+  "9:00 AM" wraps to two lines at 1.0 and loses its AM / PM entirely (the
+  rail reads 9:00 … 12:00, 1:00 with nothing to tell morning from
+  afternoon), de / ro at 1.3 lose the line's descent, and at 2.0 every
+  locale shows "09:", "10:" stubs (about 60 % of each digit cut) —
+  severity 3 at 2.0, 2 for en at 1.0; (2) a block's tap target is fixed by
+  its duration — 69 × 28 for a 30-minute block, neighbours edge to edge —
+  below Android's 48 dp (WCAG 2.5.8's 24 passes), the design-practices §2
+  conflict that is the owner's call; (3) a missed block's whole-tile
+  `Opacity(0.35)` puts its title at 2.1:1 light / 2.8:1 dark
+  (`CalendarColors.missedEventAlpha`, an owner token); (4) the stripe
+  against its 16 % tint is 1.6:1 light for the holiday colour, and the
+  hour gridlines show through the translucent tint; (5) at 1.3 a 43–51
+  minute block holds one 21 dp title line over 13–20 dp of blank tint (the
+  time row rightly dropped; trimming the line box with a
+  `TextHeightBehavior` in both the measure and the drawn text would let it
+  back on). Device-only for a `qa-runner`: Android 14+'s non-linear 200 %
+  scale on the 30 / 45 / 60 / 120-minute blocks and the rail in en and de;
+  TalkBack's phrasing through the blocks at 100 % and 200 %; "Întâlnire"'s
+  circumflex at the top of a 28 dp block; the stripes on an OLED panel.
+- **The Firestore rules and index deploy — the owner's hands.** S0's
+  `firestore.rules` gained the `calendar_category_profiles` collection and
+  `firestore.indexes.json` its `data` field override; neither is deployed
+  until the owner runs it, and a v44+ build syncing from a phone needs
+  both. On 2026-11-05 the rules suite ran green against the local emulator
+  (`test/firestore/rules_test.dart`, 55 cases, `flutter test
+  test/firestore/rules_test.dart --tags firestore-rules --run-skipped` with
+  `firebase emulators:start --only firestore --project
+  alexs-note-tracking-app --config firebase.emulators.json` up), so the
+  files are ready; the lead's deploy was refused by the session's
+  permission layer as a production deploy. The command, from
+  `frontend/anta`, needs no `firebase.json` edit: `firebase deploy --only
+  firestore:rules,firestore:indexes --project alexs-note-tracking-app
+  --config firebase.emulators.json`.
+- **The backup round-trip suite's isolate flake (2026-11-05) — RESOLVED
+  the same day (the closing fixes, `325a9ae0`).** The red was a 30 s timeout, not a
+  race: the "connection was closed" error came after it, when the teardown
+  closed the database under a still-running import. The time went to the
+  FOLDER import — the file's groups exported with `folders` / `notes` left
+  in, every import appended copies, so the count doubled per case (16,384
+  folders by the red case, 12.9 s through `FolderDao.importFolder`, one
+  transaction per row on the isolate-backed file database). Fixed three
+  ways: `FolderDao.importFolders` batches an archive's folders in one
+  transaction (parents resolved through the copies made earlier in the
+  list, positions counted per parent from one live-max read, a stamp and
+  an outbox entry per row — parity pinned in `sync_outbox_test.dart`,
+  including a mutation probe that re-read the max per row and went red);
+  the v40, v41, report-cards and v42 groups strip `folders` / `notes` from
+  their exports as the profiles group already did (no assertion in them
+  reads either); `@Timeout(Duration(minutes: 2))` on the eight suites that
+  open the real `AppDatabase.getInstance()`, with the measured reason. The
+  file runs in 5 s (37 s before). One behaviour change, accepted: a
+  restore that throws partway through the folders now rolls back every
+  folder — the import reported failure either way. Left: `createFolder`
+  keeps its own copy of the max-position query (`_maxLivePosition` could
+  serve it).
+- **The fold's frame on a device — RESOLVED 2026-11-05 (§13.1, line 4).**
+  Measured on `emulator-5556` in a profile build seeded by
+  `tool/qa/perf/gen_perf_calendar.dart` (the benchmark fixture's twin):
+  This month 2.5 ms, This year with the previous year folded 12.1 ms, inside
+  one frame; R (an isolate fold) stays deferred with no measurement asking
+  for it. The recipe, should the fold grow: build the profile APK from a
+  worktree with a temporary `Stopwatch` + `debugPrint` around
+  `_service.report` in `calendar_report_bloc.dart` (`kotlin.incremental=
+  false` in that worktree's `android/gradle.properties` — the Kotlin
+  incremental caches would not close under `C:\Temp`), `qa -d <serial>
+  install --apk <path>`, `qa relaunch --fresh --seed <the generated json>`,
+  the flow 33 steps to This year, `qa log | grep perf`; then `qa fleet
+  install --build` puts the debug QA build back.
+- **Formatter drift (2026-11-05) — RESOLVED the same day, `985b7055`.**
+  `dart format --set-exit-if-changed lib test` on this machine's Flutter
+  3.44.2 / Dart 3.12.2 changed 166 files, almost all untouched since
+  October (`alert_skip_action.dart`, `sync_bloc.dart`, the DAOs): the tree
+  had been formatted by an earlier formatter and the newer one splits
+  method chains differently. Formatted in one whitespace-only commit of its
+  own, generated files untouched, after the closing commit so no slice's
+  diff carries it. Both machines must run the same SDK for the gate's
+  `dart format` to hold on the other one.
+- **The guide try-cards suite's clock — RESOLVED 2026-11-05 (the closing fixes, `1bea5b47`), and two real defects behind it.** The suite opened every stage but fasting and finding on `DateTime.now`, so three cases drifted with the date. Now one suite clock, `DateTime(2026, 10, 14, 10)` (the finding pin's Wednesday mid-month), `fixedNowFor` sends every topic but fasting to it, `open` defaults to it, and the five cases that read today were fixed under the pins (the kinds demo takes `now`; the fasting skip / force case pages the Dates sheet to each day's month through `FastingScheduleRobot.pickDates`; the setup first-day case reads the strip's own cells). What the drift had hidden: (1) **the calendar's own day timeline overflowed at text scale 2.0** — `_TimelineBlockCard` dropped its time row on a fixed 40 px threshold that ignored the scale, so short blocks overflowed; the block now shows the time row only where both lines fit at the ambient scale and clips a title taller than itself, geometry unchanged, pinned by the new `day_timeline_view_test.dart` (a crowded day at 360 and 412, 2.0: no exception, every block's rect equal to its 1.0 rect); the guide case expects zero exceptions, the tolerated one is gone. (2) **The contrast red was the sampler**, the 2026-11-01 trap proper: "2 events" draws at about 8.6:1, but the stock guideline's most-frequent-colour rule took the anti-aliasing step (the text starts at x = 130.7) for the ink; `GuideTextContrastGuideline` now takes the ground as the most frequent colour of the inflated box and the ink as the most contrasting colour inside the text's own box, inline `WidgetSpan`s excluded — dim text still fails (probed at 1.92:1, beside a black icon too). Accepted: the ro 2.0 360 Overview rows ellipsised at `FormPickerRow`'s two-line clamp, the acceptance the suite already had for the Upcoming body, widened to the Overview view's rows only. Still reading the wall clock without a seam, harmless in the app and the reason a pinned stage cannot pin everything: `CalendarDatePickerSheet`, `CalendarAppearancePreview`, `DayTimelineView._nowMinute`.
+- **The digest's currency — RESOLVED 2026-11-05 (the closing fixes, `e8563019`).** `digestNotificationContent` built `ReportLabels(strings)` with no currency, so a money goal in the digest read "1,340" where the page reads "€1,340". Now it takes `currencySymbol` / `currencySuffix` (defaults `''` / `false`, so every other caller and the generic line are byte-identical — pinned); the scheduler reads them once per reconcile through `SettingsService.getMoneyConfig()` beside its week-start read, the same keys and defaults `getCalendarReportSettings` resolves for the page, in its own try that falls back to the defaults (an amount's symbol is no reason to leave the pass unarmed); the content suite pins a prefix goal line ("To do €1,340 (over 1,200)"), a suffix one ("1,340 lei"), a money insight line (M1 "Bills €1,340 due in the next 30 days") and the generic lines unchanged; the scheduler suite pins the pass-through and a re-arm on a currency change. Left, the page's own rule: `ReportLabels` binds a no-break space only next to a digit, so a narrow notification could wrap between "To do" and "€1,340"; and `calendar_guide_try_report.dart` still builds `ReportLabels(l10n)` without a currency (the guide's stage, no money).
 - **The slack rule and a saved-view compare** — picking a view adds the view's Totals card within the same look, a shape change `_sameShapes` does not count (Totals is treated as fixed); a reader at the scroll's end who picks a view could see the end spring back (S8 II-B's note).
 - **Small leftovers noted by the S7 / S8 reviews** — `_GoalShape.planned => ''` in `_periodFacts` is unreachable (the planned shape returns earlier); the Insights label's presence in `_labelIds` reads the unfiltered page list while the card draws the first `insightsOnPage` (consistent today); with Categories off a goal or insight on a category past the cap loses the "n more categories" sheet too (CJ); a card a later version adds lands at the end of a list the owner reordered or toggled (CD), and a downgrade drops a future card's name on its next write; `_resume`'s null-`_request()` branch has no test (no way found to make the request null after a Ready).
 - **The saved view's own column in the shared Markdown** — done in S7 (`### {view}` under Totals); kept here only as the pointer the S5 note gives.
