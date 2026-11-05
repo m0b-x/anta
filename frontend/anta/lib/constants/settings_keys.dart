@@ -262,6 +262,12 @@ class SettingsKeys {
   /// ([calendarOverviewCategories]): a sorted CSV, empty = every category.
   static const String reportCategoryIds = 'calendar_report_categories';
 
+  /// The calendar report's cards, in `ReportCards.encode`'s grammar: every
+  /// `ReportCardKind` name once, in the page's order, comma-separated, an
+  /// off card prefixed with `-` (`goals,insights,-dueSoon,totals,…`).
+  /// Absent — the default — is the page's own order with every card on (W).
+  static const String reportCards = 'calendar_report_cards';
+
   /// Whether day-panel / agenda event rows mention the repeat pattern
   /// ("Daily", "Every 2 weeks", …) in their subtitle.
   static const String calendarShowRecurrenceLabels =

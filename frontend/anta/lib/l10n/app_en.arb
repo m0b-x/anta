@@ -11463,6 +11463,22 @@
   "@reportSectionMonths": {
     "description": "Section label of the report's Months card on a whole year: one strip of twelve months per category"
   },
+  "calendarSettingsReportTitle": "Report cards",
+  "@calendarSettingsReportTitle": {
+    "description": "Calendar settings row, and the title of the page it opens: which cards the calendar report shows and in which order"
+  },
+  "calendarSettingsReportDescription": "Which cards the report shows, and in which order",
+  "@calendarSettingsReportDescription": {
+    "description": "Subtitle of the Report cards row in Calendar settings"
+  },
+  "reportCardsReset": "Reset to default",
+  "@reportCardsReset": {
+    "description": "Report cards page action: puts the cards back in the report's own order with every card on"
+  },
+  "reportCardsResetDone": "Order and cards reset",
+  "@reportCardsResetDone": {
+    "description": "Snackbar after Reset to default on the Report cards page"
+  },
   "reportRecordBusiestMonth": "Busiest month",
   "@reportRecordBusiestMonth": {
     "description": "Report Records row name: the month with the most events in the year. Keep it short (18 characters at most)"

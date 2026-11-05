@@ -462,6 +462,19 @@ abstract final class SemanticsIds {
   static const String calendarSettingsFastingOpen =
       'calendar-settings-fasting-open';
 
+  /// Calendar settings' row that opens the Report cards page (W).
+  static const String calendarSettingsReportOpen =
+      'calendar-settings-report-open';
+
+  /// A Report cards row's switch and its drag handle, by its
+  /// `ReportCardKind` name: `report-card-switch-dueSoon`, … — one each per
+  /// card, so a flow can turn a card off or drag it without reading labels.
+  static String reportCardSwitch(String card) => 'report-card-switch-$card';
+  static String reportCardHandle(String card) => 'report-card-handle-$card';
+
+  /// The Report cards page's reset to the default order, every card on.
+  static const String reportCardsReset = 'report-cards-reset';
+
   /// Calendar settings' rows that had no id (D13): the holiday set's
   /// row, the filter chips switch, the description-limit slider and
   /// Delete all events.

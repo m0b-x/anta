@@ -8910,6 +8910,19 @@ class AppLocalizationsDe extends AppLocalizations {
   String get reportSectionMonths => 'Monate';
 
   @override
+  String get calendarSettingsReportTitle => 'Berichtskarten';
+
+  @override
+  String get calendarSettingsReportDescription =>
+      'Welche Karten der Bericht zeigt und in welcher Reihenfolge';
+
+  @override
+  String get reportCardsReset => 'Auf Standard zurücksetzen';
+
+  @override
+  String get reportCardsResetDone => 'Reihenfolge und Karten zurückgesetzt';
+
+  @override
   String get reportRecordBusiestMonth => 'Stärkster Monat';
 
   @override

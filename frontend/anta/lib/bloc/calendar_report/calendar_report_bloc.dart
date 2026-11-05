@@ -13,6 +13,7 @@ import '../../models/calendar_report.dart';
 import '../../models/date_range.dart';
 import '../../models/overview_period.dart';
 import '../../models/overview_view.dart';
+import '../../models/report_cards.dart';
 import '../../models/report_look.dart';
 import '../../models/report_period_choice.dart';
 import '../../services/calendar_report_service.dart';
@@ -87,6 +88,7 @@ class CalendarReportBloc extends Bloc<ReportEvent, ReportState> {
   OverviewPeriod? _period;
   OverviewPeriod? _home;
   Set<String> _categoryIds = const {};
+  ReportCards _cards = ReportCards.defaults;
   CalendarAppearance _appearance = const CalendarAppearance();
   MarkdownColorPalette _palette = MarkdownColorPalette.presets;
   bool _hapticFeedback = false;
@@ -203,6 +205,7 @@ class CalendarReportBloc extends Bloc<ReportEvent, ReportState> {
       _currencySuffix = loaded.currencySuffix;
       _period = _home = loaded.period;
       _categoryIds = loaded.categoryIds;
+      _cards = loaded.cards;
     } catch (e, st) {
       // An unreadable store opens the report on its defaults rather than
       // leaving the page on Loading for good.
@@ -292,7 +295,8 @@ class CalendarReportBloc extends Bloc<ReportEvent, ReportState> {
 
   /// Re-reads the calendar's appearance, whose week start may have moved in
   /// the settings while the page was covered or the app away, with the
-  /// palette and the haptic switch, which the settings move too.
+  /// palette, the haptic switch and the report's cards, which the settings
+  /// move too. The cards need no fold: the next Ready carries them.
   Future<void> _reread() async {
     final settings = _settings;
     if (!_settingsLoaded || settings == null) return;
@@ -301,6 +305,7 @@ class CalendarReportBloc extends Bloc<ReportEvent, ReportState> {
       if (loaded.appearance.weekStart != _appearance.weekStart) {
         _followWeekStart(loaded.appearance.weekStart);
       }
+      _cards = loaded.cards;
       _appearance = loaded.appearance;
       _palette = loaded.palette;
       _hapticFeedback = loaded.hapticFeedback;
@@ -415,6 +420,7 @@ class CalendarReportBloc extends Bloc<ReportEvent, ReportState> {
         period: _period!,
         home: _home!,
         categoryIds: _categoryIds,
+        cards: _cards,
         appearance: _appearance,
         palette: _palette,
         hapticFeedback: _hapticFeedback,
@@ -465,6 +471,7 @@ class CalendarReportBloc extends Bloc<ReportEvent, ReportState> {
       period: _period!,
       home: _home!,
       categoryIds: _categoryIds,
+      cards: _cards,
       appearance: _appearance,
       palette: _palette,
       hapticFeedback: _hapticFeedback,

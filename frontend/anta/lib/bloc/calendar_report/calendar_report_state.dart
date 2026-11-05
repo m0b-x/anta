@@ -5,6 +5,7 @@ import '../../models/calendar_appearance.dart';
 import '../../models/calendar_report.dart';
 import '../../models/overview_period.dart';
 import '../../models/overview_view.dart';
+import '../../models/report_cards.dart';
 import '../../utils/markdown_color_syntax.dart';
 
 sealed class ReportState extends Equatable {
@@ -28,9 +29,9 @@ final class ReportLoading extends ReportState {
 }
 
 /// What every state past loading knows besides its report: the period shown
-/// and the one picked, the allowlist, the calendar's appearance, the
-/// palette and the haptic switch, the day of the fold and the years a step
-/// may reach.
+/// and the one picked, the allowlist, the cards the page draws, the
+/// calendar's appearance, the palette and the haptic switch, the day of the
+/// fold and the years a step may reach.
 sealed class ReportShown extends ReportState {
   /// The period the report is on — the home, or a step away from it.
   final OverviewPeriod period;
@@ -40,6 +41,10 @@ sealed class ReportShown extends ReportState {
 
   /// The allowlist; empty is every category.
   final Set<String> categoryIds;
+
+  /// The cards the page draws, and in which order, as the settings hold
+  /// them (W). Not part of the fold: a change re-emits the report shown.
+  final ReportCards cards;
 
   /// The calendar's appearance: its week start decides This week and the
   /// trend's columns, and the range picker draws its grid in it.
@@ -84,6 +89,7 @@ sealed class ReportShown extends ReportState {
     required this.period,
     required this.home,
     required this.categoryIds,
+    this.cards = ReportCards.defaults,
     required this.appearance,
     required this.palette,
     required this.hapticFeedback,
@@ -108,6 +114,7 @@ sealed class ReportShown extends ReportState {
     period,
     home,
     categoryIds,
+    cards,
     appearance,
     palette,
     hapticFeedback,
@@ -156,6 +163,7 @@ final class ReportFolding extends ReportShown {
     required super.period,
     required super.home,
     required super.categoryIds,
+    super.cards,
     required super.appearance,
     required super.palette,
     required super.hapticFeedback,
@@ -191,6 +199,7 @@ final class ReportReady extends ReportShown {
     required super.period,
     required super.home,
     required super.categoryIds,
+    super.cards,
     required super.appearance,
     required super.palette,
     required super.hapticFeedback,

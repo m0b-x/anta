@@ -14,6 +14,7 @@ import 'package:anta/models/overview_list_options.dart';
 import 'package:anta/models/overview_period.dart';
 import 'package:anta/models/overview_view.dart';
 import 'package:anta/models/recurrence_rule.dart';
+import 'package:anta/models/report_cards.dart';
 import 'package:anta/models/report_period_choice.dart';
 import 'package:anta/models/calendar_appearance.dart';
 import 'package:anta/services/calendar_event_service.dart';
@@ -772,6 +773,38 @@ void main() {
     final ready = bloc.state as ReportReady;
     expect(ready.palette, MarkdownColorPalette.presets);
     expect(ready.hapticFeedback, isTrue);
+  });
+
+  test('every shown state carries the stored cards, and a resume re-reads '
+      'them without a refold', () async {
+    final saved = ReportCards.defaults.toggled(ReportCardKind.missed, false);
+    await settings.setReportCards(saved);
+    final bloc = build(_FakeReportService());
+    addTearDown(bloc.close);
+    final states = await openReady(bloc);
+    final shown = states.whereType<ReportShown>().toList();
+    expect(shown.whereType<ReportFolding>(), isNotEmpty);
+    for (final state in shown) {
+      expect(state.cards, saved);
+    }
+
+    final changed = saved.moved(3, 0).toggled(ReportCardKind.missed, true);
+    await settings.setReportCards(changed);
+    states.clear();
+    bloc.add(const ReportResumed());
+    await pumpEventQueue();
+    expect(states.whereType<ReportFolding>(), isEmpty);
+    final ready = bloc.state as ReportReady;
+    expect(ready.cards, changed);
+    expect(ready.cards.shown.first, ReportCardKind.totals);
+  });
+
+  test('a fresh install shows every card in the page order', () async {
+    final bloc = build(_FakeReportService());
+    addTearDown(bloc.close);
+    await openReady(bloc);
+
+    expect((bloc.state as ReportReady).cards, ReportCards.defaults);
   });
 
   test('every shown state carries the ledger\'s currency, the plain decimal '

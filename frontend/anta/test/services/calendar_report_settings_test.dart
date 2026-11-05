@@ -5,6 +5,7 @@ import 'package:anta/database/database.dart';
 import 'package:anta/database/database_lifecycle.dart';
 import 'package:anta/models/calendar_appearance.dart';
 import 'package:anta/models/overview_period.dart';
+import 'package:anta/models/report_cards.dart';
 import 'package:anta/services/settings_service.dart';
 import 'package:anta/utils/markdown_color_syntax.dart';
 
@@ -14,7 +15,7 @@ import '../database/support/db_test_support.dart';
 /// install opens on This month over every category, a stored kind decodes
 /// on the day it is read and the stored week start, All time and anything
 /// unreadable fall back to This month, a span that is not kept clears its
-/// key, and the allowlist round-trips.
+/// key, and the allowlist and the cards round-trip.
 void main() {
   late AppDatabase db;
   late StatementCounter counter;
@@ -49,6 +50,44 @@ void main() {
 
     expect(loaded.period, october);
     expect(loaded.categoryIds, isEmpty);
+    expect(loaded.cards, ReportCards.defaults);
+  });
+
+  test('the cards round-trip in their grammar; the defaults clear the '
+      'key', () async {
+    final cards = ReportCards.defaults
+        .moved(3, 0)
+        .toggled(ReportCardKind.dueSoon, false);
+    await settings.setReportCards(cards);
+    expect(
+      await db.userSettingsDao.getValue(SettingsKeys.reportCards),
+      cards.encode(),
+    );
+    expect(
+      (await settings.getCalendarReportSettings(today: today)).cards,
+      cards,
+    );
+
+    await settings.setReportCards(ReportCards.defaults);
+    expect(await db.userSettingsDao.getValue(SettingsKeys.reportCards), isNull);
+    expect(
+      (await settings.getCalendarReportSettings(today: today)).cards,
+      ReportCards.defaults,
+    );
+  });
+
+  test('a stored value decodes forward-compatibly', () async {
+    await db.userSettingsDao.setValue(
+      SettingsKeys.reportCards,
+      'ahead,someLaterCard,-goals',
+    );
+    final cards = (await settings.getCalendarReportSettings(
+      today: today,
+    )).cards;
+
+    expect(cards.order.take(2), [ReportCardKind.ahead, ReportCardKind.goals]);
+    expect(cards.order, hasLength(ReportCardKind.values.length));
+    expect(cards.off, {ReportCardKind.goals});
   });
 
   test('the read costs one statement', () async {

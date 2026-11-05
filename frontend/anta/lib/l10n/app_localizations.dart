@@ -13587,6 +13587,30 @@ abstract class AppLocalizations {
   /// **'Months'**
   String get reportSectionMonths;
 
+  /// Calendar settings row, and the title of the page it opens: which cards the calendar report shows and in which order
+  ///
+  /// In en, this message translates to:
+  /// **'Report cards'**
+  String get calendarSettingsReportTitle;
+
+  /// Subtitle of the Report cards row in Calendar settings
+  ///
+  /// In en, this message translates to:
+  /// **'Which cards the report shows, and in which order'**
+  String get calendarSettingsReportDescription;
+
+  /// Report cards page action: puts the cards back in the report's own order with every card on
+  ///
+  /// In en, this message translates to:
+  /// **'Reset to default'**
+  String get reportCardsReset;
+
+  /// Snackbar after Reset to default on the Report cards page
+  ///
+  /// In en, this message translates to:
+  /// **'Order and cards reset'**
+  String get reportCardsResetDone;
+
   /// Report Records row name: the month with the most events in the year. Keep it short (18 characters at most)
   ///
   /// In en, this message translates to:

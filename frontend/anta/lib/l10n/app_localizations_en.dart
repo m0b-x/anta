@@ -8846,6 +8846,19 @@ class AppLocalizationsEn extends AppLocalizations {
   String get reportSectionMonths => 'Months';
 
   @override
+  String get calendarSettingsReportTitle => 'Report cards';
+
+  @override
+  String get calendarSettingsReportDescription =>
+      'Which cards the report shows, and in which order';
+
+  @override
+  String get reportCardsReset => 'Reset to default';
+
+  @override
+  String get reportCardsResetDone => 'Order and cards reset';
+
+  @override
   String get reportRecordBusiestMonth => 'Busiest month';
 
   @override

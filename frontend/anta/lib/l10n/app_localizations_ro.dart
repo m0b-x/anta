@@ -9043,6 +9043,19 @@ class AppLocalizationsRo extends AppLocalizations {
   String get reportSectionMonths => 'Luni';
 
   @override
+  String get calendarSettingsReportTitle => 'Cardurile raportului';
+
+  @override
+  String get calendarSettingsReportDescription =>
+      'Ce carduri arată raportul și în ce ordine';
+
+  @override
+  String get reportCardsReset => 'Resetează la implicit';
+
+  @override
+  String get reportCardsResetDone => 'Ordinea și cardurile au fost resetate';
+
+  @override
   String get reportRecordBusiestMonth => 'Luna de vârf';
 
   @override

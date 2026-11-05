@@ -18,6 +18,7 @@ import '../models/label_style.dart';
 import '../models/nav_destination.dart';
 import '../models/overview_list_options.dart';
 import '../models/overview_period.dart';
+import '../models/report_cards.dart';
 import '../models/restore_location_mode.dart';
 import '../models/sync_binding.dart';
 import '../database/database.dart';
@@ -1358,6 +1359,7 @@ class SettingsService {
     ..._calendarAppearanceKeys,
     SettingsKeys.reportPeriod,
     SettingsKeys.reportCategoryIds,
+    SettingsKeys.reportCards,
     SettingsKeys.hapticFeedback,
     SettingsKeys.markdownCustomColors,
     SettingsKeys.moneyCurrencySymbol,
@@ -1365,17 +1367,18 @@ class SettingsService {
   ];
 
   /// What the calendar report remembers (D35), in one statement: its period,
-  /// its allowlist and the calendar's appearance — whose week start This
-  /// week and the trend's columns follow, and which the range picker draws
-  /// its grid in — with the palette a row's detail sheet renders the
-  /// description in, the haptic switch a presence mark obeys and the
-  /// ledger's global currency, which the report's amounts are written in
+  /// its allowlist, its cards (W) and the calendar's appearance — whose week
+  /// start This week and the trend's columns follow, and which the range
+  /// picker draws its grid in — with the palette a row's detail sheet
+  /// renders the description in, the haptic switch a presence mark obeys and
+  /// the ledger's global currency, which the report's amounts are written in
   /// (a note's own currency is not the report's: its sums cross notes).
   /// [today] (date-only) is what a stored `thisWeek` or `thisMonth` means.
   Future<
     ({
       OverviewPeriod period,
       Set<String> categoryIds,
+      ReportCards cards,
       CalendarAppearance appearance,
       MarkdownColorPalette palette,
       bool hapticFeedback,
@@ -1395,6 +1398,7 @@ class SettingsService {
       categoryIds: UpcomingAgendaFilters.decodeCategories(
         values[SettingsKeys.reportCategoryIds] ?? '',
       ),
+      cards: ReportCards.decode(values[SettingsKeys.reportCards]),
       appearance: appearance,
       palette: _decodeColorPalette(values[SettingsKeys.markdownCustomColors]),
       hapticFeedback: _decodeBool(
@@ -1453,6 +1457,20 @@ class SettingsService {
       SettingsKeys.reportCategoryIds,
       UpcomingAgendaFilters.encodeCategories(ids),
     );
+  }
+
+  /// Stores [cards] in [ReportCards.encode]'s grammar, or clears the key
+  /// when they are the defaults, so a card a later version adds lands in
+  /// its own place for an owner who never reordered.
+  Future<void> setReportCards(ReportCards cards) async {
+    if (cards == ReportCards.defaults) {
+      await _db.userSettingsDao.deleteValue(SettingsKeys.reportCards);
+    } else {
+      await _db.userSettingsDao.setValue(
+        SettingsKeys.reportCards,
+        cards.encode(),
+      );
+    }
   }
 
   /// Stores the order and the rows in one batch; Missed only is never
