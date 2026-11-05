@@ -35,6 +35,7 @@ import 'package:anta/pages/calendar_guide_page.dart';
 import 'package:anta/pages/calendar_overview_page.dart';
 import 'package:anta/pages/calendar_page.dart';
 import 'package:anta/pages/calendar_report_page.dart';
+import 'package:anta/pages/calendar_report_settings_page.dart';
 import 'package:anta/pages/calendar_settings_page.dart';
 import 'package:anta/pages/counter_management_page.dart';
 import 'package:anta/pages/counter_per_note_page.dart';
@@ -754,6 +755,38 @@ void main() {
         await teardownApp(tester);
       });
 
+      testWidgets('Report cards from any opener: stamped, a second '
+          'toCalendarReportSettings over it pushes nothing, and the arrow '
+          'pops to the opener with no drawer raised (D3, W)', (tester) async {
+        final opener = await pushOpener(tester);
+        unawaited(AppNavigator.toCalendarReportSettings(opener));
+        await settle(tester);
+        expect(
+          observer.pageRoutes.single.settings.arguments,
+          const NavDestination(NavDestinationKind.reportSettings),
+        );
+        observer.clear();
+
+        await AppNavigator.toCalendarReportSettings(
+          tester.element(find.byType(CalendarReportSettingsPage)),
+        );
+        await settle(tester);
+
+        expect(observer.pageRoutes, isEmpty);
+        expect(
+          find.byType(CalendarReportSettingsPage, skipOffstage: false),
+          findsOneWidget,
+        );
+
+        await tapArrow(tester);
+
+        expect(find.byType(CalendarReportSettingsPage), findsNothing);
+        expect(find.text('opener'), findsOneWidget);
+        expect(host().isDrawerOpen, isFalse);
+
+        await teardownApp(tester);
+      });
+
       testWidgets('the editor\'s Counters: the arrow pops null to the '
           'opener, no drawer raised (D3)', (tester) async {
         final opener = await pushOpener(tester);
@@ -1150,12 +1183,79 @@ void main() {
       await teardownApp(tester);
     });
 
+    testWidgets('Report cards opened from Calendar settings records '
+        '[calendarSettings, reportSettings], and the recorded chain restores '
+        'whole (W)', (tester) async {
+      await pumpApp(tester);
+      final navigator = AppNavigator.navigatorKey.currentContext!;
+      unawaited(
+        AppNavigator.push<void>(
+          navigator,
+          const _Opener(),
+          destination: const NavDestination(
+            NavDestinationKind.calendarSettings,
+          ),
+        ),
+      );
+      unawaited(AppNavigator.toCalendarReportSettings(navigator));
+
+      final recorded = history.stack;
+      expect(recorded, const [
+        NavDestination(NavDestinationKind.calendarSettings),
+        NavDestination(NavDestinationKind.reportSettings),
+      ]);
+      await teardownApp(tester);
+
+      await saveStack(tester, recorded);
+      await pumpApp(tester);
+      observer.clear();
+      await restore(tester);
+
+      expect(restoredDestinations(), recorded);
+      expect(
+        pageOf(observer.pageRoutes.last),
+        isA<CalendarReportSettingsPage>(),
+      );
+
+      await teardownApp(tester);
+    });
+
+    testWidgets('a stack stored before reportSettings existed restores '
+        'unchanged: the kind is appended after fastingSettings, so no stored '
+        'name moves', (tester) async {
+      expect(NavDestinationKind.values.last, NavDestinationKind.reportSettings);
+      final db = await tester.runAsync(AppDatabase.getInstance);
+      await tester.runAsync(
+        () => db!.userSettingsDao.setValue(
+          SettingsKeys.lastLocationStack,
+          jsonEncode({
+            'v': NavDestination.stackVersion,
+            'stack': [
+              {'k': 'calendarSettings'},
+              {'k': 'fastingSettings'},
+            ],
+          }),
+        ),
+      );
+      await pumpApp(tester);
+      observer.clear();
+
+      await restore(tester);
+
+      expect(restoredDestinations(), const [
+        NavDestination(NavDestinationKind.calendarSettings),
+        NavDestination(NavDestinationKind.fastingSettings),
+      ]);
+
+      await teardownApp(tester);
+    });
+
     testWidgets('a stack stored before fastingSettings existed restores '
         'unchanged, alertSettings in it included: the kind is appended, so no '
         'stored name moves', (tester) async {
       expect(
-        NavDestinationKind.values.last,
-        NavDestinationKind.fastingSettings,
+        NavDestinationKind.values.indexOf(NavDestinationKind.fastingSettings),
+        NavDestinationKind.values.indexOf(NavDestinationKind.alertSettings) + 1,
       );
       final db = await tester.runAsync(AppDatabase.getInstance);
       await tester.runAsync(
@@ -1525,6 +1625,7 @@ const _restorable = <NavDestinationKind, Type>{
   NavDestinationKind.developerOptions: DeveloperOptionsPage,
   NavDestinationKind.alertSettings: AlertSettingsPage,
   NavDestinationKind.fastingSettings: FastingSettingsPage,
+  NavDestinationKind.reportSettings: CalendarReportSettingsPage,
 };
 
 class _RecordingObserver extends NavigatorObserver {

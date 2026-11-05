@@ -32,6 +32,7 @@ import '../pages/calendar_guide_page.dart';
 import '../pages/calendar_guide_topic_page.dart';
 import '../pages/calendar_overview_page.dart';
 import '../pages/calendar_report_page.dart';
+import '../pages/calendar_report_settings_page.dart';
 import '../pages/event_templates_page.dart';
 import '../pages/vocabularies_page.dart';
 import '../pages/counter_management_page.dart';
@@ -650,6 +651,19 @@ abstract final class AppNavigator {
       context,
       const FastingSettingsPage(),
       destination: const NavDestination(NavDestinationKind.fastingSettings),
+    );
+  }
+
+  /// Report cards (W): stamped like Fasting settings, so a relaunch restores
+  /// it above Calendar settings.
+  static Future<void> toCalendarReportSettings(BuildContext context) {
+    if (_isOnTop(context, NavDestinationKind.reportSettings)) {
+      return Future<void>.value();
+    }
+    return push(
+      context,
+      const CalendarReportSettingsPage(),
+      destination: const NavDestination(NavDestinationKind.reportSettings),
     );
   }
 
@@ -1362,6 +1376,7 @@ abstract final class AppNavigator {
       NavDestinationKind.developerOptions => const DeveloperOptionsPage(),
       NavDestinationKind.alertSettings => const AlertSettingsPage(),
       NavDestinationKind.fastingSettings => const FastingSettingsPage(),
+      NavDestinationKind.reportSettings => const CalendarReportSettingsPage(),
     };
   }
 }

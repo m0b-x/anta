@@ -13,6 +13,7 @@ import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/models/fasting_appearance.dart';
 import 'package:anta/models/fasting_schedule.dart';
 import 'package:anta/models/nav_destination.dart';
+import 'package:anta/pages/calendar_report_settings_page.dart';
 import 'package:anta/pages/calendar_settings_page.dart';
 import 'package:anta/pages/fasting_settings_page.dart';
 import 'package:anta/services/calendar_event_service.dart';
@@ -26,7 +27,8 @@ import 'support/page_route_recorder.dart';
 /// Calendar settings' one Fasting row (D6): its value line names the
 /// traditions on, on one line, or "Off", it opens Fasting settings stamped,
 /// and it reads the traditions back when that page pops — the fasting rows
-/// themselves are `fasting_settings_page_test.dart`'s.
+/// themselves are `fasting_settings_page_test.dart`'s. The Report cards row
+/// beside it (W) has its cases at the end: its words, its id, its push.
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -239,5 +241,78 @@ void main() {
     expectRowSays('Catholic');
 
     await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  group('the Report cards row (W)', () {
+    Finder reportRow() =>
+        find.bySemanticsIdentifier(SemanticsIds.calendarSettingsReportOpen);
+
+    testWidgets('sits after Alert settings in the pages group, titled and '
+        'described', (tester) async {
+      await pumpPage(tester);
+
+      expect(reportRow(), findsOneWidget);
+      expect(
+        tester.getTopLeft(reportRow()).dy,
+        greaterThan(
+          tester
+              .getTopLeft(
+                find.bySemanticsIdentifier(
+                  SemanticsIds.calendarSettingsAlertsOpen,
+                ),
+              )
+              .dy,
+        ),
+      );
+      for (final text in const [
+        'Report cards',
+        'Which cards the report shows, and in which order',
+      ]) {
+        expect(
+          find.descendant(of: reportRow(), matching: find.text(text)),
+          findsOneWidget,
+          reason: text,
+        );
+      }
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('opens Report cards, stamped', (tester) async {
+      final observer = PageRouteRecorder();
+      await pumpPage(tester, observers: [observer]);
+      observer.pushed.clear();
+
+      await tester.ensureVisible(reportRow());
+      await tester.pump();
+      await tester.tap(reportRow());
+      await settle(tester);
+
+      expect(
+        observer.pushed.single.settings.arguments,
+        const NavDestination(NavDestinationKind.reportSettings),
+      );
+      expect(find.byType(CalendarReportSettingsPage), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('the page\'s search finds the row by a card\'s name', (
+      tester,
+    ) async {
+      await pumpPage(tester);
+      final field = find.descendant(
+        of: find.bySemanticsIdentifier(SemanticsIds.settingsSearch),
+        matching: find.byType(TextField),
+      );
+
+      await tester.enterText(field, 'Due soon');
+      await tester.pump();
+
+      expect(reportRow(), findsOneWidget);
+      expect(row(), findsNothing);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
   });
 }

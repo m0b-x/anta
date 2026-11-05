@@ -11,6 +11,7 @@ import '../l10n/app_localizations.dart';
 import '../models/calendar_appearance.dart';
 import '../models/event_alert.dart';
 import '../models/fasting_appearance.dart';
+import '../models/report_cards.dart';
 import '../constants/semantics_ids.dart';
 import '../services/app_navigator.dart';
 import '../services/calendar_event_service.dart';
@@ -27,6 +28,7 @@ import '../widgets/slider_setting_row.dart';
 import '../widgets/unified_app_bars.dart';
 import '../widgets/value_change_highlight.dart';
 import 'alert_settings_page.dart';
+import 'calendar_report_settings_page.dart';
 import 'fasting_settings_page.dart';
 
 /// Calendar settings: the holidays, filtering and events options, and one row
@@ -239,6 +241,7 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage>
         _categoriesEntry(colorScheme, l10n),
         _fastingEntry(colorScheme, l10n),
         _alertsEntry(context, colorScheme, l10n),
+        _reportEntry(colorScheme, l10n),
       ],
     );
   }
@@ -614,6 +617,32 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage>
           _onHapticFeedback();
           await AppNavigator.toAlertSettings(context);
           if (mounted) await _loadSettings();
+        },
+      ),
+    );
+  }
+
+  /// The row into [CalendarReportSettingsPage] (W). Its value line is the
+  /// page's description rather than a summary of the cards: nothing on this
+  /// page reads the report's setting, so nothing here goes stale.
+  SettingsEntry _reportEntry(ColorScheme colorScheme, AppLocalizations l10n) {
+    return SettingsEntry(
+      title: l10n.calendarSettingsReportTitle,
+      description: l10n.calendarSettingsReportDescription,
+      // The cards' own names, so this page's search finds the way to them.
+      keywords: [
+        for (final kind in ReportCardKind.values)
+          CalendarReportSettingsPage.cardName(kind, l10n),
+      ],
+      identifier: SemanticsIds.calendarSettingsReportOpen,
+      builder: (context, title, description) => ListTile(
+        leading: Icon(Icons.bar_chart_rounded, color: colorScheme.primary),
+        title: title,
+        subtitle: description,
+        trailing: const Icon(Icons.chevron_right_rounded),
+        onTap: () {
+          _onHapticFeedback();
+          AppNavigator.toCalendarReportSettings(context);
         },
       ),
     );

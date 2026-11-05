@@ -250,6 +250,7 @@ void main() {
           'developerOptions',
           'alertSettings',
           'fastingSettings',
+          'reportSettings',
         ]);
       },
     );

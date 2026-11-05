@@ -46,7 +46,8 @@ enum NavDestinationKind {
   counterPerNote,
   developerOptions,
   alertSettings,
-  fastingSettings;
+  fastingSettings,
+  reportSettings;
 
   /// Whether this destination belongs to the folder/note substrate rather
   /// than to the calendar or settings layered on top. Backs the "folders and
