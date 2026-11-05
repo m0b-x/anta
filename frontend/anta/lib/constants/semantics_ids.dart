@@ -164,6 +164,9 @@ abstract final class SemanticsIds {
   /// The Fasting settings page's bar title.
   static const String settingsBarFasting = 'settings-bar-fasting';
 
+  /// The Report cards settings page's bar title.
+  static const String settingsBarReportCards = 'settings-bar-report-cards';
+
   /// Markdown shortcuts' bar title.
   static const String settingsBarMarkdown = 'settings-bar-markdown';
 

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart' show CustomSemanticsAction;
 import 'package:flutter/services.dart';
 
 import '../constants/app_colors.dart';
@@ -85,6 +86,11 @@ class _CalendarReportSettingsPageState
     await _settings?.setReportCards(next);
   }
 
+  void _move(int oldIndex, int newIndex) {
+    _onHapticFeedback();
+    _apply(_cards.moved(oldIndex, newIndex));
+  }
+
   void _toggle(ReportCardKind kind, bool on) {
     _onHapticFeedback();
     _apply(_cards.toggled(kind, on));
@@ -124,7 +130,10 @@ class _CalendarReportSettingsPageState
 
     return Scaffold(
       backgroundColor: colorScheme.pageGround,
-      appBar: SettingsAppBar(title: l10n.calendarSettingsReportTitle),
+      appBar: SettingsAppBar(
+        title: l10n.calendarSettingsReportTitle,
+        identifier: SemanticsIds.settingsBarReportCards,
+      ),
       body: SafeArea(
         top: false,
         child: _isLoading
@@ -159,10 +168,7 @@ class _CalendarReportSettingsPageState
           sliver: SliverReorderableList(
             itemCount: order.length,
             proxyDecorator: _liftedRow,
-            onReorderItem: (oldIndex, newIndex) {
-              _onHapticFeedback();
-              _apply(_cards.moved(oldIndex, newIndex));
-            },
+            onReorderItem: _move,
             itemBuilder: (context, index) {
               final kind = order[index];
               return ReorderableDelayedDragStartListener(
@@ -177,6 +183,10 @@ class _CalendarReportSettingsPageState
                     index: index,
                     on: !_cards.off.contains(kind),
                     onChanged: (on) => _toggle(kind, on),
+                    onMoveUp: index == 0 ? null : () => _move(index, index - 1),
+                    onMoveDown: index == order.length - 1
+                        ? null
+                        : () => _move(index, index + 1),
                   ),
                 ),
               );
@@ -245,7 +255,9 @@ class _GroupIntro extends StatelessWidget {
 /// `≡ name ⟷` — one card: the handle at the row's start and the switch at
 /// its end, so neither moves with the name, which wraps rather than cuts.
 /// Two nodes besides the row's: the handle, named "Reorder …", and the
-/// switch, named by the card. An off card's name dims to
+/// switch, named by the card. The handle's name promises a reorder and a
+/// screen reader cannot drag, so its node carries the move as two actions,
+/// each absent where the row cannot go. An off card's name dims to
 /// [FormMetrics.switchedOffOpacity] — off, not disabled: the switch stays
 /// full, and the row stays a control to hold and drag.
 class _CardRow extends FormDividedRow {
@@ -254,6 +266,8 @@ class _CardRow extends FormDividedRow {
   final int index;
   final bool on;
   final ValueChanged<bool> onChanged;
+  final VoidCallback? onMoveUp;
+  final VoidCallback? onMoveDown;
 
   const _CardRow({
     required this.name,
@@ -261,6 +275,8 @@ class _CardRow extends FormDividedRow {
     required this.index,
     required this.on,
     required this.onChanged,
+    required this.onMoveUp,
+    required this.onMoveDown,
   });
 
   @override
@@ -286,10 +302,19 @@ class _CardRow extends FormDividedRow {
       constraints: const BoxConstraints(minHeight: FormMetrics.rowMinHeight),
       child: Row(
         children: [
-          FormDragHandle(
-            index: index,
-            label: l10n.categoryReorderLabel(name),
+          AutomationId(
             identifier: SemanticsIds.reportCardHandle(kind.name),
+            child: Semantics(
+              customSemanticsActions: {
+                CustomSemanticsAction(label: l10n.categoryMoveUp): ?onMoveUp,
+                CustomSemanticsAction(label: l10n.categoryMoveDown):
+                    ?onMoveDown,
+              },
+              child: FormDragHandle(
+                index: index,
+                label: l10n.categoryReorderLabel(name),
+              ),
+            ),
           ),
           const SizedBox(
             width: FormMetrics.dividerIndentGlyph - FormMetrics.dragHandleSlot,

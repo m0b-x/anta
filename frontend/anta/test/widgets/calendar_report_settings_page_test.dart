@@ -2,10 +2,12 @@ import 'dart:ui' show Tristate;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show RenderParagraph;
+import 'package:flutter/semantics.dart' show CustomSemanticsAction;
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:anta/constants/app_theme.dart';
 import 'package:anta/constants/form_metrics.dart';
+import 'package:anta/constants/semantics_ids.dart';
 import 'package:anta/constants/settings_keys.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/database/database_lifecycle.dart';
@@ -21,8 +23,8 @@ import 'support/report_settings_robot.dart';
 import 'support/settings_page_whole.dart' show expectBreaksBetweenWords;
 
 /// Report cards (W): the report's thirteen cards in their stored order,
-/// each with a handle and a switch; a toggle or a drag writes the setting at
-/// once, an off card keeps its row dimmed, Reset is held while the list is
+/// each with a handle and a switch; a toggle, a drag or a screen reader's
+/// move writes the setting at once, an off card keeps its row dimmed, Reset is held while the list is
 /// the default and puts it back with a message, and the large-text cases.
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -103,6 +105,10 @@ void main() {
       final robot = ReportSettingsRobot(tester);
 
       expect(find.text(l10n.calendarSettingsReportTitle), findsOneWidget);
+      expect(
+        find.bySemanticsIdentifier(SemanticsIds.settingsBarReportCards),
+        findsOneWidget,
+      );
       expect(ReportCardKind.values, hasLength(13));
       expect(robot.order(), ReportCardKind.values);
       final introTop = tester
@@ -275,6 +281,48 @@ void main() {
     expect(robot.isOn(ReportCardKind.records), isFalse);
 
     await teardownApp(tester);
+  });
+
+  testWidgets('Move up and Move down are the handle\'s actions, absent at '
+      'the ends; each writes the new order as a drag does', (tester) async {
+    final semantics = tester.ensureSemantics();
+    await tester.runAsync(
+      () => settings.setReportCards(
+        ReportCards.defaults.toggled(ReportCardKind.records, false),
+      ),
+    );
+    await pumpPage(tester);
+    final robot = ReportSettingsRobot(tester);
+    final up = CustomSemanticsAction(label: l10n.categoryMoveUp);
+    final down = CustomSemanticsAction(label: l10n.categoryMoveDown);
+    Set<CustomSemanticsAction> actionsOf(ReportCardKind kind) => {
+      for (final action in [up, down])
+        if (robot.offers(kind, action)) action,
+    };
+
+    expect(actionsOf(ReportCardKind.goals), {down});
+    expect(actionsOf(ReportCardKind.totals), {up, down});
+    expect(actionsOf(ReportCardKind.ahead), {up});
+
+    await robot.perform(ReportCardKind.goals, down);
+
+    var expected = ReportCards.defaults
+        .toggled(ReportCardKind.records, false)
+        .moved(0, 1);
+    expect(robot.order(), expected.order);
+    expect(await stored(tester), expected);
+    expect(actionsOf(ReportCardKind.goals), {up, down});
+    expect(actionsOf(ReportCardKind.insights), {down});
+
+    await robot.perform(ReportCardKind.ahead, up);
+
+    expected = expected.moved(12, 11);
+    expect(robot.order(), expected.order);
+    expect(await stored(tester), expected);
+    expect(robot.isOn(ReportCardKind.records), isFalse);
+
+    await teardownApp(tester);
+    semantics.dispose();
   });
 
   testWidgets('Reset is held on the defaults, takes a tap after a change, '

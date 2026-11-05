@@ -489,7 +489,7 @@ class _ReportBodyState extends State<ReportBody> {
       ...switch (kind) {
         ReportCardKind.goals => [if (report.goals.isNotEmpty) #goals],
         ReportCardKind.insights => [
-          if (_pageInsights(report).isNotEmpty) #insights,
+          if (_pageInsights(report, cards).isNotEmpty) #insights,
         ],
         ReportCardKind.dueSoon => [if (report.dueSoon.isNotEmpty) #dueSoon],
         ReportCardKind.totals => [
@@ -524,12 +524,14 @@ class _ReportBodyState extends State<ReportBody> {
   bool _shows(ReportCardKind kind) => !widget.cards.off.contains(kind);
 
   /// The insights the Insights card draws: the page's filter, which drops
-  /// what Goals and Due soon already say; none in a plan, where nothing has
-  /// happened to remark on.
-  static List<ReportInsight> _pageInsights(CalendarReport report) =>
-      report.tense == ReportTense.future
+  /// what Goals and Due soon already say when [cards] draws them; none in a
+  /// plan, where nothing has happened to remark on.
+  static List<ReportInsight> _pageInsights(
+    CalendarReport report,
+    ReportCards cards,
+  ) => report.tense == ReportTense.future
       ? const []
-      : ReportInsightFilter.forPage(report);
+      : ReportInsightFilter.forPage(report, cards: cards);
 
   @override
   void dispose() {
@@ -1045,7 +1047,7 @@ class _ReportBodyState extends State<ReportBody> {
     ReportLabels labels,
     CalendarReport report,
   ) {
-    final insights = _pageInsights(report);
+    final insights = _pageInsights(report, widget.cards);
     if (insights.isEmpty) return const [];
     return _labelled(
       #insights,

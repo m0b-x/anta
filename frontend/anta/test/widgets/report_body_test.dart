@@ -532,6 +532,65 @@ void main() {
       expect(sectionLabel('Insights'), findsNothing);
     });
 
+    testWidgets('with Goals off nothing says a goal\'s news, so its insight '
+        'shows', (tester) async {
+      final shown = profiled(goals: [gymGoal], insights: const [behind]);
+      await pumpBody(tester, shown: shown);
+      expect(sectionLabel('Insights'), findsNothing);
+
+      await pumpBody(
+        tester,
+        shown: shown,
+        cards: ReportCards.defaults.toggled(ReportCardKind.goals, false),
+      );
+      expect(sliverSequence(tester).take(3), [
+        'label Insights',
+        'ReportInsightsCard',
+        'SizedBox',
+      ]);
+      expect(
+        tester
+            .widget<ReportInsightsCard>(find.byType(ReportInsightsCard))
+            .insights,
+        const [behind],
+      );
+      expect(sectionLabel('Goals'), findsNothing);
+    });
+
+    testWidgets('with Due soon off nothing says a due row\'s news, so its '
+        'insight shows', (tester) async {
+      final unmarked = ReportInsight(
+        rule: InsightRule.d4,
+        severity: 3,
+        categoryId: 'gym',
+        eventId: gym.id,
+        target: InsightTarget.dueSoon,
+        day: gymDue.day,
+        n1: 1,
+      );
+      final shown = profiled(dueSoon: [gymDue], insights: [unmarked]);
+      await pumpBody(tester, shown: shown);
+      expect(sectionLabel('Insights'), findsNothing);
+
+      await pumpBody(
+        tester,
+        shown: shown,
+        cards: ReportCards.defaults.toggled(ReportCardKind.dueSoon, false),
+      );
+      expect(sliverSequence(tester).take(3), [
+        'label Insights',
+        'ReportInsightsCard',
+        'SizedBox',
+      ]);
+      expect(
+        tester
+            .widget<ReportInsightsCard>(find.byType(ReportInsightsCard))
+            .insights,
+        [unmarked],
+      );
+      expect(sectionLabel('Due soon'), findsNothing);
+    });
+
     testWidgets('a plan shows Goals then Due soon, and no Insights', (
       tester,
     ) async {

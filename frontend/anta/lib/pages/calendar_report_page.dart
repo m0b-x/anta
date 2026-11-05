@@ -535,15 +535,15 @@ class _ReportViewState extends State<_ReportView>
     _heardMissed = missed;
   }
 
-  /// Whether [a] and [b] draw the same cards above the labels a refold can
-  /// hold: the Goals, Insights and Due soon rows above Totals, and the year
-  /// block's Records and Months above Categories. Only a change there moves
-  /// an anchor's preceding extent, so only then can the refold anchor
-  /// correct the offset. A year's rows change height only with the record
-  /// they show — a trip's, a streak's or a gap's row measures its title —
-  /// never with a figure, so which records and which strips are drawn
-  /// suffice: comparing the whole year would arm on every month value a
-  /// refold moves, the worse harm above. A card the owner turned off is
+  /// Whether [a] and [b] draw the same Goals, Insights and Due soon rows and
+  /// the same year Records and Months. Wherever the owner's order (W) puts
+  /// one of them, a change in it while it stands before the label the
+  /// reader is under moves that anchor's preceding extent, which the refold
+  /// anchor corrects the offset by. A year's rows change height only with
+  /// the record they show — a trip's, a streak's or a gap's row measures
+  /// its title — never with a figure, so which records and which strips are
+  /// drawn suffice: comparing the whole year would arm on every month value
+  /// a refold moves, the worse harm above. A card the owner turned off is
   /// not drawn (W), so its change moves nothing.
   static bool _sameCardsAboveAnchors(
     CalendarReport a,

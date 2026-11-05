@@ -1,6 +1,7 @@
 import 'dart:ui' show Tristate;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart' show CustomSemanticsAction;
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:anta/constants/form_metrics.dart';
@@ -11,7 +12,8 @@ import 'package:anta/widgets/form_rows.dart' show FormActionRow;
 
 /// Drives [CalendarReportSettingsPage] for its suite: a card's handle and
 /// switch by their `SemanticsIds`, the order as the handles stand on screen,
-/// a drag as a finger on a handle makes it.
+/// a drag as a finger on a handle makes it, a move as a screen reader asks
+/// for it.
 ///
 /// The page reads and writes its setting through Drift, whose futures
 /// `FakeAsync` alone never completes, so every step interleaves real time
@@ -85,6 +87,36 @@ class ReportSettingsRobot {
     }
     await gesture.up();
     await tester.pumpAndSettle();
+    await settle();
+  }
+
+  /// Whether [kind]'s handle offers [action] to a screen reader.
+  bool offers(ReportCardKind kind, CustomSemanticsAction action) =>
+      tester
+          .getSemantics(handleOf(kind))
+          .getSemanticsData()
+          .customSemanticsActionIds
+          ?.contains(CustomSemanticsAction.getIdentifier(action)) ??
+      false;
+
+  /// Performs [action] on [kind]'s handle, as a screen reader's action
+  /// menu would, then lets the write land. Needs semantics on. The handle's
+  /// own merged node repeats the id; a screen reader only ever reaches the
+  /// node it is merged into.
+  Future<void> perform(
+    ReportCardKind kind,
+    CustomSemanticsAction action,
+  ) async {
+    tester.semantics.customAction(
+      find.semantics.byPredicate(
+        (node) =>
+            !node.isMergedIntoParent &&
+            node.getSemanticsData().identifier ==
+                SemanticsIds.reportCardHandle(kind.name),
+      ),
+      action,
+    );
+    await tester.pump();
     await settle();
   }
 

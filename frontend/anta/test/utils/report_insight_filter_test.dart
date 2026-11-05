@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:anta/constants/category_kinds.dart';
 import 'package:anta/models/calendar_report.dart';
 import 'package:anta/models/category_profile.dart';
+import 'package:anta/models/report_cards.dart';
 import 'package:anta/utils/report_insight_filter.dart';
 
 /// The page's Insights filter (S4 H) over hand-built reports: each rule the
@@ -214,5 +215,49 @@ void main() {
       ),
     );
     expect(shown, others);
+  });
+
+  group('the cards the owner draws (W)', () {
+    final g1 = insight(InsightRule.g1, categoryId: 'gym');
+    final g4 = insight(InsightRule.g4, categoryId: 'gym');
+    final gapD1 = insight(InsightRule.d1, categoryId: 'car');
+    final dueD2 = insight(InsightRule.d2, categoryId: 'dentist');
+    final d3 = insight(InsightRule.d3, eventId: 'licence');
+    final d4 = insight(InsightRule.d4, eventId: 'yoga');
+    final full = report(
+      goals: [goal('gym'), gapGoal('car')],
+      dueSoon: [
+        due(ReportDueKind.gap, category: 'dentist'),
+        due(ReportDueKind.expiry, id: 'licence'),
+        due(ReportDueKind.unmarked, id: 'yoga'),
+      ],
+      insights: [g1, g4, gapD1, dueD2, d3, d4],
+    );
+
+    test('the defaults drop what both cards say, as no cards passed does', () {
+      expect(
+        ReportInsightFilter.forPage(full, cards: ReportCards.defaults),
+        isEmpty,
+      );
+      expect(ReportInsightFilter.forPage(full), isEmpty);
+    });
+
+    test('with Goals off a goal row\'s insights stay, the due rows\' still '
+        'drop', () {
+      final shown = ReportInsightFilter.forPage(
+        full,
+        cards: ReportCards.defaults.toggled(ReportCardKind.goals, false),
+      );
+      expect(shown, [g1, g4, gapD1]);
+    });
+
+    test('with Due soon off a due row\'s insights stay, the goal rows\' '
+        'still drop', () {
+      final shown = ReportInsightFilter.forPage(
+        full,
+        cards: ReportCards.defaults.toggled(ReportCardKind.dueSoon, false),
+      );
+      expect(shown, [dueD2, d3, d4]);
+    });
   });
 }

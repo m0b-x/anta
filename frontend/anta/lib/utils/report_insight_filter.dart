@@ -1,5 +1,6 @@
 import '../constants/category_kinds.dart';
 import '../models/calendar_report.dart';
+import '../models/report_cards.dart';
 
 /// Which of a report's insights the page's Insights card shows (S4 H): a
 /// goal's or a due row's own news is already said on the card above, so
@@ -16,13 +17,24 @@ abstract final class ReportInsightFilter {
   /// an expiry row of that event, D4 an unmarked row of that event. Every
   /// due row counts, folded or not: what the card's "n more" opens never
   /// changes the insights. The card caps what is left.
-  static List<ReportInsight> forPage(CalendarReport report) {
+  ///
+  /// Only a card in [cards] says anything: with Goals or Due soon turned
+  /// off (W) its rows are not drawn, so the insights they would have said
+  /// stay. The page passes the owner's cards; the Markdown and the digest
+  /// write their own Goals and Due lines, so they keep the defaults.
+  static List<ReportInsight> forPage(
+    CalendarReport report, {
+    ReportCards cards = ReportCards.defaults,
+  }) {
     final insights = report.insights;
     if (insights.isEmpty) return insights;
     final goalCategories = <String>{};
     final periodicCategories = <String>{};
     final gapCategories = <String>{};
-    for (final goal in report.goals) {
+    final goals = cards.off.contains(ReportCardKind.goals)
+        ? const <ReportGoal>[]
+        : report.goals;
+    for (final goal in goals) {
       goalCategories.add(goal.categoryId);
       if (goal.target.kind == TargetKind.maxGap) {
         gapCategories.add(goal.categoryId);
@@ -32,7 +44,10 @@ abstract final class ReportInsightFilter {
     }
     final expiryEvents = <String>{};
     final unmarkedEvents = <String>{};
-    for (final row in report.dueSoon) {
+    final dueSoon = cards.off.contains(ReportCardKind.dueSoon)
+        ? const <ReportDueRow>[]
+        : report.dueSoon;
+    for (final row in dueSoon) {
       switch (row.kind) {
         case ReportDueKind.gap:
           gapCategories.add(row.categoryId);

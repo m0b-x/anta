@@ -5,8 +5,7 @@
 # seed's report is left as it was; then system back through Calendar
 # settings to the calendar.
 # - The row sits below the fold on a phone: scroll-to brings it up.
-# - The page's bar carries no id of its own; the first card's switch is
-#   what marks the page as up.
+# - The page's bar id marks the page as up; the cards are expected under it.
 # - Reset sits past the last card, below the fold on a phone, and is held
 #   while the list is the default: the widget suite covers it.
 tap id:calendar-more
@@ -15,8 +14,8 @@ tap id:calendar-settings-open
 wait id:calendar-add-event --gone
 scroll-to id:calendar-settings-report-open --max 14
 tap id:calendar-settings-report-open
-wait id:report-card-switch-goals
-expect id:report-card-handle-goals id:report-card-switch-dueSoon id:report-card-handle-dueSoon
+wait id:settings-bar-report-cards
+expect id:report-card-switch-goals id:report-card-handle-goals id:report-card-switch-dueSoon id:report-card-handle-dueSoon
 shot 34_report_cards
 tap id:report-card-switch-dueSoon
 expect id:report-card-switch-dueSoon
