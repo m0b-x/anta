@@ -1570,8 +1570,9 @@ class _Lexed {
           if (name != null) {
             currentClass = null;
             owner = name;
-            if (RegExp(r'^(?:const|final)\b').hasMatch(trimmed))
+            if (RegExp(r'^(?:const|final)\b').hasMatch(trimmed)) {
               _constants.add(name);
+            }
           }
         }
       } else if (indent == 2 && currentClass != null) {
@@ -1657,8 +1658,9 @@ class _Lexed {
         final owner = ownerAt(run.first.start) ?? '(top)';
         final joined = run.map((s) => s.text).join(' ');
         for (final entry in _destructive.entries) {
-          if (entry.value.hasMatch(joined))
+          if (entry.value.hasMatch(joined)) {
             yield (owner: owner, rule: entry.key);
+          }
         }
         runStart = k;
       }

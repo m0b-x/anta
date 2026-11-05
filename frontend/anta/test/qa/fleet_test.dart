@@ -1687,8 +1687,9 @@ void main() {
           ('emulator-5558', 'anta_qa_2'),
           ('emulator-5560', 'anta_qa_3'),
         ]) {
-          if (r.line == 'adb -s $serial emu avd name')
+          if (r.line == 'adb -s $serial emu avd name') {
             return RunOutcome(0, '$name\r\nOK', '');
+          }
           if (r.line.startsWith('adb -s $serial shell ') &&
               r.line.contains(batchSeparator)) {
             return const RunOutcome(

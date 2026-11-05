@@ -294,8 +294,9 @@ void main() {
       await a().settle();
       final restore = Completer<void>();
       a().hooks.onBeforePage = (table) async {
-        if (table == 'folders')
+        if (table == 'folders') {
           unawaited(SyncSuspension.run(() => restore.future));
+        }
       };
 
       await b().db.folderDao.createFolder(name: 'From B');
@@ -357,8 +358,9 @@ void main() {
       await b().sync();
       final restore = Completer<void>();
       a().hooks.onBeforePage = (table) async {
-        if (table == 'folders')
+        if (table == 'folders') {
           unawaited(SyncSuspension.run(() => restore.future));
+        }
       };
 
       final report = await a().sync();
