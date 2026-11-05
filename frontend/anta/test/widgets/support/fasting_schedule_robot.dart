@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/intl.dart';
+import 'package:table_calendar/table_calendar.dart';
 
 import 'package:anta/constants/semantics_ids.dart';
 import 'package:anta/l10n/app_localizations.dart';
@@ -329,10 +330,35 @@ class FastingScheduleRobot {
 
   bool get datesSheetOpen => _shown(_datesSheet);
 
-  /// Ticks [days] on the open Dates sheet's month grid and saves. The days
-  /// have to be in the month the sheet opened on.
+  /// Ticks [days] on the open Dates sheet's month grid and saves, paging the
+  /// grid to each day's month first: an empty sheet opens on the wall
+  /// clock's month, and a suite on a pinned clock picks in its own.
   Future<void> pickDates(Iterable<DateTime> days) async {
     for (final day in days) {
+      final grid = find.descendant(
+        of: _datesSheet,
+        matching: find.byWidgetPredicate((w) => w is TableCalendar),
+      );
+      final shown = (tester.widget(grid) as TableCalendar).focusedDay;
+      final steps =
+          (day.year - shown.year) * DateTime.monthsPerYear +
+          day.month -
+          shown.month;
+      for (var i = 0; i < steps.abs(); i++) {
+        await tester.tap(
+          find
+              .descendant(
+                of: _datesSheet,
+                matching: find.byIcon(
+                  steps > 0
+                      ? Icons.chevron_right_rounded
+                      : Icons.chevron_left_rounded,
+                ),
+              )
+              .first,
+        );
+        await tester.pumpAndSettle();
+      }
       await tester.tap(
         find.descendant(
           of: _datesSheet,

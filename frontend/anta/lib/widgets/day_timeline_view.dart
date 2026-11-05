@@ -59,8 +59,9 @@ class DayTimelineView extends StatefulWidget {
   /// Horizontal gap between two side-by-side overlapping blocks.
   static const double columnGap = 4;
 
-  /// Smallest drawn block height, so a short event stays readable and
-  /// tappable even at a low [hourHeight].
+  /// Smallest drawn block height, for a lower [hourHeight]: at this one the
+  /// layout's floor of [DayTimelineLayout.minBlockMinutes] already draws
+  /// every block at least 28 dp tall, so this never applies.
   static const double minBlockHeight = 26;
 
   /// Vertical slack above the first gridline and below the last one. Hour
@@ -166,6 +167,7 @@ class _DayTimelineViewState extends State<DayTimelineView> {
     final totalHeight =
         (layout.endHour - layout.startHour) * DayTimelineView.hourHeight;
     final nowMinute = _nowMinute();
+    final blockText = _BlockText.of(context);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -245,6 +247,7 @@ class _DayTimelineViewState extends State<DayTimelineView> {
                               child: _TimelineBlockCard(
                                 block: block,
                                 color: _colorFor(block.event),
+                                text: blockText,
                                 onTap: switch (widget.onEventTap) {
                                   final onTap? => () => onTap(block.event),
                                   null => null,
@@ -364,9 +367,72 @@ class _HourRow extends StatelessWidget {
   }
 }
 
+/// A block's two text styles and their line heights, measured once per
+/// [DayTimelineView] build — they depend on the theme, the ambient style and
+/// the text scale, never on a block.
+class _BlockText {
+  final TextStyle titleStyle;
+  final TextStyle timeStyle;
+
+  /// One line of each style at no text scaling.
+  final double titleLine;
+  final double timeLine;
+
+  /// One line of each style at the ambient text scale.
+  final double scaledTitleLine;
+  final double scaledTimeLine;
+
+  const _BlockText._({
+    required this.titleStyle,
+    required this.timeStyle,
+    required this.titleLine,
+    required this.timeLine,
+    required this.scaledTitleLine,
+    required this.scaledTimeLine,
+  });
+
+  factory _BlockText.of(BuildContext context) {
+    final theme = Theme.of(context);
+    final ambient = DefaultTextStyle.of(context).style;
+    final titleStyle = ambient.merge(
+      theme.textTheme.labelMedium?.copyWith(fontWeight: FontWeight.w600),
+    );
+    final timeStyle = ambient.merge(
+      theme.textTheme.labelSmall?.copyWith(
+        color: theme.colorScheme.onSurfaceVariant,
+      ),
+    );
+    final direction = Directionality.of(context);
+    final scaler = MediaQuery.textScalerOf(context);
+    double line(TextStyle style, TextScaler scaler) {
+      final painter = TextPainter(
+        text: TextSpan(style: style),
+        textDirection: direction,
+        textScaler: scaler,
+      );
+      final height = painter.preferredLineHeight;
+      painter.dispose();
+      return height;
+    }
+
+    final titleLine = line(titleStyle, TextScaler.noScaling);
+    final timeLine = line(timeStyle, TextScaler.noScaling);
+    final unscaled = scaler == TextScaler.noScaling;
+    return _BlockText._(
+      titleStyle: titleStyle,
+      timeStyle: timeStyle,
+      titleLine: titleLine,
+      timeLine: timeLine,
+      scaledTitleLine: unscaled ? titleLine : line(titleStyle, scaler),
+      scaledTimeLine: unscaled ? timeLine : line(timeStyle, scaler),
+    );
+  }
+}
+
 class _TimelineBlockCard extends StatelessWidget {
   final TimelineBlock block;
   final Color color;
+  final _BlockText text;
 
   /// Null leaves the block inert.
   final VoidCallback? onTap;
@@ -374,58 +440,77 @@ class _TimelineBlockCard extends StatelessWidget {
   const _TimelineBlockCard({
     required this.block,
     required this.color,
+    required this.text,
     required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final time = block.event.time!;
-    final compact = _blockIsCompact();
+    final time = EventTimeFormatter.formatRangeOfContext(
+      block.event.time!,
+      context,
+    );
 
-    return Material(
-      color: color.withValues(alpha: 0.16),
-      borderRadius: BorderRadius.circular(6),
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: onTap,
-        child: Container(
-          decoration: BoxDecoration(
-            border: Border(left: BorderSide(color: color, width: 3)),
-          ),
-          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                block.event.title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.labelMedium?.copyWith(
-                  fontWeight: FontWeight.w600,
-                ),
+    // One node whichever lines are drawn: a block too short for its time row
+    // still says when the event is.
+    return Semantics(
+      label: '${block.event.title}, $time',
+      button: onTap != null,
+      child: Material(
+        color: color.withValues(alpha: 0.16),
+        borderRadius: BorderRadius.circular(6),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          child: Container(
+            decoration: BoxDecoration(
+              border: Border(left: BorderSide(color: color, width: 3)),
+            ),
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+            child: LayoutBuilder(
+              builder: (context, constraints) => ExcludeSemantics(
+                child: _content(time, constraints.maxHeight),
               ),
-              if (!compact)
-                Text(
-                  EventTimeFormatter.formatRangeOfContext(time, context),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.labelSmall?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
-                ),
-            ],
+            ),
           ),
         ),
       ),
     );
   }
 
-  /// Blocks shorter than roughly two text lines drop the time row so the
-  /// title never overflows its own box.
-  bool _blockIsCompact() =>
-      block.durationMinutes / 60 * DayTimelineView.hourHeight < 40;
+  /// The block is as tall as its event is long, whatever the text scale, so
+  /// its text fits the block: one whole title line always — the scale is
+  /// clamped to the largest at which a title line fits [room], since a
+  /// taller line in a shorter box shears its letters off at the bottom —
+  /// and the time row only where both lines fit.
+  Widget _content(String time, double room) {
+    final title = Text(
+      block.event.title,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: text.titleStyle,
+    );
+    if (text.scaledTitleLine > room) {
+      return MediaQuery.withClampedTextScaling(
+        maxScaleFactor: room / text.titleLine,
+        child: title,
+      );
+    }
+    if (text.scaledTitleLine + text.scaledTimeLine > room) return title;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        title,
+        Text(
+          time,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: text.timeStyle,
+        ),
+      ],
+    );
+  }
 }
 
 class _NowIndicator extends StatelessWidget {

@@ -236,6 +236,24 @@ void main() {
     expect((await SharedPreferences.getInstance()).getKeys(), isEmpty);
   }
 
+  // The suite's clock: a stage seeds its sandbox around the day it opens on,
+  // so a case on the real date would see other data every day. A Wednesday
+  // mid-month: the finding card lists days from the first of the month and
+  // Yoga's missed week (a week back) is inside it, a week ahead is too, and
+  // the report's This month is not thin.
+  final now = DateTime(2026, 10, 14, 10);
+  final today = DateTime.utc(now.year, now.month, now.day);
+  DateTime day(int offset) =>
+      DateTime.utc(today.year, today.month, today.day + offset);
+
+  /// The clock [topic]'s card opens on: the fasting card's fast days depend
+  /// on the date, so its cases stand in Great Lent 2027; every other card
+  /// stands on the suite's clock.
+  DateTime Function() fixedNowFor(CalendarGuideTopic topic) => switch (topic) {
+    CalendarGuideTopic.fasting => () => DateTime(2027, 3, 17, 10),
+    _ => () => now,
+  };
+
   Future<GuideTryCardRobot> open(
     WidgetTester tester,
     CalendarGuideTopic topic, {
@@ -243,7 +261,7 @@ void main() {
     Brightness brightness = Brightness.light,
     TextScaler textScaler = TextScaler.noScaling,
     Size size = const Size(412, 915),
-    DateTime Function() now = DateTime.now,
+    DateTime Function()? now,
     String? card,
   }) async {
     addTearDown(tester.view.reset);
@@ -264,7 +282,10 @@ void main() {
             data: MediaQuery.of(context).copyWith(textScaler: textScaler),
             child: child!,
           ),
-          home: CalendarGuideTopicPage(topic: topic, now: now),
+          home: CalendarGuideTopicPage(
+            topic: topic,
+            now: now ?? fixedNowFor(topic),
+          ),
         ),
       ),
     );
@@ -283,27 +304,12 @@ void main() {
     for (final step in card.steps) step.line(en),
   ];
 
-  final now = DateTime.now();
-  final today = DateTime.utc(now.year, now.month, now.day);
-  DateTime day(int offset) =>
-      DateTime.utc(today.year, today.month, today.day + offset);
   // Built on first use: the locale data loads in setUpAll.
   late final dates = DateFormat.yMMMMEEEEd('en');
   // The events card's Skipped report writes the band's short date (D52).
   late final shortDates = DateFormat.MMMEd('en');
 
   void note(GuideTryCardRobot robot) => shownSlots[robot.line] = robot.slotSize;
-
-  /// The clock a generic case opens [topic]'s card on: the fasting card's
-  /// fast days depend on the date, so its cases stand in Great Lent 2027
-  /// whatever day the suite runs; the finding card lists days from the first
-  /// of the month, so its cases stand mid-month, where Yoga's missed week
-  /// (a week back) is inside it; the other cards read today.
-  DateTime Function() fixedNowFor(CalendarGuideTopic topic) => switch (topic) {
-    CalendarGuideTopic.fasting => () => DateTime(2027, 3, 17, 10),
-    CalendarGuideTopic.finding => () => DateTime(2026, 10, 14, 10),
-    _ => DateTime.now,
-  };
 
   /// [topic]'s instructions in English, in step order.
   List<String> stepsOf(CalendarGuideTopic topic) => [
@@ -2809,7 +2815,7 @@ void main() {
       addTearDown(tester.view.reset);
       tester.view.devicePixelRatio = 1;
       tester.view.physicalSize = const Size(412, 915);
-      final demo = GuideKindsDemo();
+      final demo = GuideKindsDemo(now: () => now);
       addTearDown(demo.dispose);
       await tester.pumpWidget(
         MaterialApp(
@@ -3811,17 +3817,16 @@ void main() {
       ]) {
         await robot.tap('week-${start.name}');
         expect(shown(), start);
-        // The strip's first day is the start's own weekday.
-        final todayIndex = (today.weekday - start.weekday + 7) % 7;
-        final first = day(-todayIndex);
-        expect(first.weekday, start.weekday);
-        expect(
+        // The strip's first day is the start's own weekday. The strip is
+        // the wall clock's week, never the stage's: its own days are read.
+        final strip = tester.widgetList<CalendarDayCell>(
           find.descendant(
             of: find.byType(CalendarAppearancePreview),
-            matching: find.text('${first.day}'),
+            matching: find.byType(CalendarDayCell),
           ),
-          findsWidgets,
         );
+        expect(strip, hasLength(DateTime.daysPerWeek));
+        expect(strip.first.day.weekday, start.weekday);
       }
       // The second step done first, with nothing to report: the line asks
       // for the first alone.
@@ -4267,24 +4272,22 @@ void main() {
       await expectNothingSaved();
     });
 
-    // The Dates sheet opens on the real month, so this case stands on the
-    // real today and asks the engine which days to pick: the Catholic
-    // calendar never marks a Sunday outside Lent and Advent's own rule, and
-    // marks every Friday.
+    // Outside Lent and Advent, so the engine is asked which days to pick:
+    // the Catholic calendar never marks a Sunday outside Lent and Advent's
+    // own rule, and marks every Friday.
     testWidgets('a day skipped in Your practice loses its wash and its row; a '
         'day forced gains both', (tester) async {
-      final real = DateTime.now();
       final catholic = FastingCalendar.computeYear(
-        real.year,
+        today.year,
         traditions: const {FastingTradition.catholic},
       );
       final days = [
         for (
           var d = 1;
-          d <= DateUtils.getDaysInMonth(real.year, real.month);
+          d <= DateUtils.getDaysInMonth(today.year, today.month);
           d++
         )
-          DateTime.utc(real.year, real.month, d),
+          DateTime.utc(today.year, today.month, d),
       ];
       final forced = days.firstWhere(
         (day) => day.weekday == DateTime.sunday && catholic[day] == null,
@@ -4293,7 +4296,11 @@ void main() {
         (day) => day.weekday == DateTime.friday && catholic[day] != null,
       );
 
-      final robot = await open(tester, CalendarGuideTopic.fasting);
+      final robot = await open(
+        tester,
+        CalendarGuideTopic.fasting,
+        now: () => now,
+      );
       await robot.tapChip('tradition-catholic');
       expect(washed(tester, forced), isFalse);
       expect(washed(tester, skipped), isTrue);
@@ -4624,19 +4631,6 @@ void main() {
       for (final mode in const ['timeline', 'upcoming', 'day']) {
         await robot.tapId(SemanticsIds.panelMode(mode));
         expect(robot.stageSize, stage, reason: mode);
-        if (mode == 'timeline') {
-          // The real Timeline's own overflow inside its blocks at 2.0
-          // (`day_timeline_view.dart`, the record's §6, older than the
-          // guide): the calendar page draws the same.
-          expect(
-            tester.takeException(),
-            isA<FlutterError>().having(
-              (error) => error.message,
-              'message',
-              contains('overflowed'),
-            ),
-          );
-        }
       }
       expect(tester.takeException(), isNull);
       await expectNothingSaved();
@@ -5081,19 +5075,33 @@ void main() {
                 // text. At ro 2.0 on 360 the weekly schedule caption needs a
                 // third line on the days whose abbreviation is widest
                 // ("Săptămânal · sâm. · 18:00 – 19:00" on a Saturday), so the
-                // exceed there reports the cap, not a clipped label.
-                final rowCaptions = <RenderParagraph>{
-                  for (final paragraph
-                      in tester.renderObjectList<RenderParagraph>(
-                        find.descendant(
-                          of: find.descendant(
-                            of: find.byType(GuideDemoPanel),
-                            matching: find.byType(FormPickerRow),
+                // exceed there reports the cap, not a clipped label. The
+                // screen stage's Overview draws the same builder's rows at
+                // the same cap ("La fiecare 2 săptămâni · joi · 19:00").
+                final overview = find.byWidgetPredicate(
+                  (widget) =>
+                      widget is Semantics &&
+                      widget.properties.identifier ==
+                          SemanticsIds.calendarGuideScreenView(
+                            CalendarViewPage.overview.name,
                           ),
-                          matching: find.byType(RichText),
-                        ),
-                      ))
-                    if (paragraph.maxLines != null) paragraph,
+                );
+                final rowCaptions = <RenderParagraph>{
+                  for (final rows in [find.byType(GuideDemoPanel), overview])
+                    for (final paragraph
+                        in tester.renderObjectList<RenderParagraph>(
+                          find.descendant(
+                            of: find.descendant(
+                              of: find.descendant(
+                                of: rows,
+                                matching: find.byType(FormPickerRow),
+                              ),
+                              matching: find.byType(FormCaption),
+                            ),
+                            matching: find.byType(RichText),
+                          ),
+                        ))
+                      paragraph,
                 };
                 for (final paragraph in paragraphs) {
                   if (unseen(paragraph) ||
