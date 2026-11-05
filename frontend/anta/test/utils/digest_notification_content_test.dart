@@ -434,6 +434,8 @@ void main() {
       PlannedDigest fire, {
       CalendarReport? report,
       AppLocalizations? strings,
+      String currencySymbol = '',
+      bool currencySuffix = false,
     }) => digestNotificationContent(
       fire,
       strings ?? en,
@@ -441,6 +443,8 @@ void main() {
       categoryLabel: reportLabel,
       weekStart: CalendarWeekStart.monday,
       report: report,
+      currencySymbol: currencySymbol,
+      currencySuffix: currencySuffix,
     );
 
     final gym = reportEvent(
@@ -947,6 +951,96 @@ void main() {
           '${sep}Gym${nb}0.5${nb}h of${nb}2'
           '${sep}Work${nb}38${nb}h of${nb}40$nb✓',
         );
+      });
+
+      group("the ledger's currency", () {
+        final budget = weekly(
+          'other',
+          134000,
+          GoalState.over,
+          kind: TargetKind.budget,
+          measure: ReportMeasure.money,
+          target: 120000,
+        );
+
+        test('a prefix symbol leads the amount as the page writes it', () {
+          final content = reportContent(
+            reportFire(),
+            report: judged(goals: [budget]),
+            currencySymbol: '€',
+          );
+
+          expect(
+            content.lines[1],
+            'Goals${sep}To do €1,340$nb(over${nb}1,200)',
+          );
+        });
+
+        test('a suffix symbol follows the amount, bound to it', () {
+          final content = reportContent(
+            reportFire(),
+            report: judged(goals: [budget]),
+            currencySymbol: 'lei',
+            currencySuffix: true,
+          );
+
+          expect(
+            content.lines[1],
+            'Goals${sep}To do${nb}1,340${nb}lei (over${nb}1,200)',
+          );
+        });
+
+        test('a money insight writes its amount in it too', () {
+          final content = reportContent(
+            reportFire(),
+            report: judged(
+              insights: [
+                ReportInsight(
+                  rule: InsightRule.m1,
+                  severity: 0,
+                  categoryId: 'other',
+                  target: InsightTarget.overviewDays,
+                  day: today,
+                  dayEnd: DateTime.utc(2026, 11, 25),
+                  n1: 2,
+                  cents: 134000,
+                ),
+              ],
+            ),
+            currencySymbol: '€',
+          );
+
+          // M1 names its own noun, not the category's.
+          expect(
+            content.lines[1],
+            'Bills$sep€1,340${nb}due in the next${nb}30${nb}days',
+          );
+        });
+
+        test('the generic line and the lines with no amount read as '
+            'without it', () {
+          for (final report in [null, judged(), full()]) {
+            final plain = reportContent(reportFire(), report: report);
+            final euro = reportContent(
+              reportFire(),
+              report: report,
+              currencySymbol: '€',
+            );
+
+            expect(euro.title, plain.title);
+            expect(euro.text, plain.text);
+            expect(euro.lines, plain.lines);
+            expect(euro.summary, plain.summary);
+          }
+          expect(
+            reportContent(
+              reportFire(),
+              currencySymbol: 'lei',
+              currencySuffix: true,
+            ).text,
+            "Last week's report is ready",
+          );
+        });
       });
 
       test("at most two due rows in the model's order, in the card's "

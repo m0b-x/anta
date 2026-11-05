@@ -52,6 +52,10 @@ class DigestNotificationContent {
 /// [report] is the fold of a report cadence's span, or null while that span
 /// has not ended — the scheduler arms two fires ahead, so the later one is
 /// armed before anything it would count has happened.
+///
+/// [currencySymbol] and [currencySuffix] are the ledger's global currency,
+/// so a report's amounts read as the Report page writes them ("€1,340");
+/// empty writes the plain figure.
 DigestNotificationContent digestNotificationContent(
   PlannedDigest fire,
   AppLocalizations strings,
@@ -59,6 +63,8 @@ DigestNotificationContent digestNotificationContent(
   required String Function(String categoryId) categoryLabel,
   required CalendarWeekStart weekStart,
   CalendarReport? report,
+  String currencySymbol = '',
+  bool currencySuffix = false,
 }) {
   if (fire.digest.cadence.isReport) {
     return _reportContent(
@@ -67,6 +73,8 @@ DigestNotificationContent digestNotificationContent(
       report,
       categoryLabel: categoryLabel,
       weekStart: weekStart,
+      currencySymbol: currencySymbol,
+      currencySuffix: currencySuffix,
     );
   }
   final title = digestTitleOf(
@@ -123,6 +131,8 @@ DigestNotificationContent _reportContent(
   CalendarReport? report, {
   required String Function(String categoryId) categoryLabel,
   required CalendarWeekStart weekStart,
+  required String currencySymbol,
+  required bool currencySuffix,
 }) {
   final weekly = digest.cadence == DigestCadence.weeklyReport;
   final title = [
@@ -137,7 +147,11 @@ DigestNotificationContent _reportContent(
           : strings.digestReportReadyMonth,
     );
   }
-  final words = ReportLabels(strings);
+  final words = ReportLabels(
+    strings,
+    currencySymbol: currencySymbol,
+    currencySuffix: currencySuffix,
+  );
   final all = [
     _reportSummary(
       report,

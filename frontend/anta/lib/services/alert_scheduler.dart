@@ -1081,14 +1081,31 @@ class AlertScheduler {
     final CalendarEventService eventService;
     final AlertSettings settings;
     final CalendarWeekStart weekStart;
+    final SettingsService settingsService;
     try {
       eventService = await CalendarEventService.getInstance();
-      final settingsService = await SettingsService.getInstance();
+      settingsService = await SettingsService.getInstance();
       settings = await settingsService.getAlertSettings();
       weekStart = await settingsService.getCalendarWeekStart();
     } catch (e) {
       debugPrint('[AlertScheduler] reconcile(${reason.name}) setup failed: $e');
       return;
+    }
+    // The ledger's global currency, the one the Report page writes amounts
+    // in, so a report digest reads alike; a note's own currency is never a
+    // report's. Unreadable, it falls back to the defaults as the Report page
+    // does: an amount's symbol is no reason to leave the pass unarmed.
+    var currency = (
+      symbol: SettingsKeys.defaultMoneyCurrencySymbol,
+      suffix: SettingsKeys.defaultMoneyCurrencySuffix,
+    );
+    try {
+      final money = await settingsService.getMoneyConfig();
+      currency = (symbol: money.symbol, suffix: money.suffix);
+    } catch (e) {
+      debugPrint(
+        '[AlertScheduler] reconcile(${reason.name}) currency failed: $e',
+      );
     }
 
     await _dao.sweep(now: now, retention: kAlertRegistrationRetention);
@@ -1230,6 +1247,7 @@ class AlertScheduler {
             planned,
             osId,
             weekStart,
+            currency: currency,
             report: planned.digest.cadence.isReport
                 ? _closedReport(
                     planned,
@@ -2029,11 +2047,13 @@ class AlertScheduler {
   /// [report] is a report digest's fold of its span, null until the span
   /// has reached its last day. Wording it shares the fold's fallback: words
   /// that throw degrade to the ready line, never to a pass aborted with the
-  /// entries after this one unarmed.
+  /// entries after this one unarmed. [currency] is the pass's read of the
+  /// ledger's, in which the report's amounts are written.
   AlertPayload _payloadForDigest(
     PlannedDigest fire,
     int osId,
     CalendarWeekStart weekStart, {
+    required ({String symbol, bool suffix}) currency,
     CalendarReport? report,
   }) {
     final labels = _gateway.labels;
@@ -2049,6 +2069,8 @@ class AlertScheduler {
           ),
           weekStart: weekStart,
           report: report,
+          currencySymbol: currency.symbol,
+          currencySuffix: currency.suffix,
         );
     DigestNotificationContent content;
     try {

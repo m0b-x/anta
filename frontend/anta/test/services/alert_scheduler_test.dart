@@ -11,6 +11,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:anta/constants/alert_constants.dart';
 import 'package:anta/constants/app_theme.dart';
 import 'package:anta/constants/calendar_categories.dart';
+import 'package:anta/constants/category_kinds.dart';
 import 'package:anta/constants/event_presence.dart';
 import 'package:anta/constants/public_holidays.dart';
 import 'package:anta/database/database.dart';
@@ -22,6 +23,7 @@ import 'package:anta/models/alert_sound.dart';
 import 'package:anta/models/calendar_appearance.dart';
 import 'package:anta/models/calendar_event.dart';
 import 'package:anta/models/calendar_report.dart';
+import 'package:anta/models/category_profile.dart';
 import 'package:anta/models/event_alert.dart';
 import 'package:anta/models/recurrence_rule.dart';
 import 'package:anta/services/alert_gateway.dart';
@@ -66,6 +68,48 @@ class _ThrowingReportStrings extends AppLocalizationsEn {
 class _ThrowingReportService extends CalendarReportService {
   @override
   CalendarReport report(ReportRequest request) => throw StateError('no fold');
+}
+
+/// The real fold with a weekly money budget on gym laid over it: the words
+/// then carry an amount without a note ledger behind the test.
+class _BudgetReportService extends CalendarReportService {
+  @override
+  CalendarReport report(ReportRequest request) {
+    final base = super.report(request);
+    return CalendarReport(
+      span: base.span,
+      today: base.today,
+      tense: base.tense,
+      countedTo: base.countedTo,
+      events: base.events,
+      tiles: base.tiles,
+      skippedDays: base.skippedDays,
+      aheadCount: base.aheadCount,
+      categories: base.categories,
+      missed: base.missed,
+      ahead: base.ahead,
+      goals: [
+        ReportGoal(
+          categoryId: 'gym',
+          measure: ReportMeasure.money,
+          target: const ReportTarget(
+            kind: TargetKind.budget,
+            value: 120000,
+            period: TargetPeriod.week,
+          ),
+          periods: [
+            ReportGoalPeriod(
+              start: request.span.start,
+              end: request.span.end,
+              value: 134000,
+              expected: 120000,
+              state: GoalState.over,
+            ),
+          ],
+        ),
+      ],
+    );
+  }
 }
 
 /// Records everything the scheduler asks a platform to do, and answers for a
@@ -3909,6 +3953,34 @@ void main() {
         expect(
           gateway.platform[after.osId]!.digestText,
           '$gym — 1 of 2 attended${sep}1 h${sep}1 missed',
+        );
+      });
+
+      test("an amount is written in the ledger's currency, and a currency "
+          'change re-arms the words', () async {
+        const nb = '\u00a0';
+        await reportsAt(DateTime(2026, 9, 21, 8));
+        await events.upsert(routine);
+        await reportOf(DigestCadence.weeklyReport);
+        final settings = await SettingsService.getInstance();
+        await settings.setMoneyCurrencySymbol('€');
+        await settings.setMoneyCurrencySuffix(false);
+        final scheduler = schedulerOf(reportService: _BudgetReportService.new);
+
+        await scheduler.reconcileAll(AlertReconcileReason.launch);
+
+        expect(
+          spanFrom(DateTime.utc(2026, 9, 14)).digestLines[1],
+          'Goals$sep$gym €1,340$nb(over${nb}1,200)',
+        );
+
+        await settings.setMoneyCurrencySymbol('lei');
+        await settings.setMoneyCurrencySuffix(true);
+        await scheduler.reconcileAll(AlertReconcileReason.launch);
+
+        expect(
+          spanFrom(DateTime.utc(2026, 9, 14)).digestLines[1],
+          'Goals$sep$gym${nb}1,340${nb}lei (over${nb}1,200)',
         );
       });
 
