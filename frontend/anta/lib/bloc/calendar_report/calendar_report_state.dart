@@ -89,7 +89,7 @@ sealed class ReportShown extends ReportState {
     required this.period,
     required this.home,
     required this.categoryIds,
-    this.cards = ReportCards.defaults,
+    required this.cards,
     required this.appearance,
     required this.palette,
     required this.hapticFeedback,
@@ -163,7 +163,7 @@ final class ReportFolding extends ReportShown {
     required super.period,
     required super.home,
     required super.categoryIds,
-    super.cards,
+    required super.cards,
     required super.appearance,
     required super.palette,
     required super.hapticFeedback,
@@ -199,7 +199,7 @@ final class ReportReady extends ReportShown {
     required super.period,
     required super.home,
     required super.categoryIds,
-    super.cards,
+    required super.cards,
     required super.appearance,
     required super.palette,
     required super.hapticFeedback,
@@ -211,6 +211,26 @@ final class ReportReady extends ReportShown {
     super.compareView,
     super.views,
   });
+
+  /// This report under [cards]: the cards are not part of the fold, so a
+  /// state that could not refold still draws the owner's latest list.
+  ReportReady withCards(ReportCards cards) => ReportReady(
+    report: report,
+    period: period,
+    home: home,
+    categoryIds: categoryIds,
+    cards: cards,
+    appearance: appearance,
+    palette: palette,
+    hapticFeedback: hapticFeedback,
+    currencySymbol: currencySymbol,
+    currencySuffix: currencySuffix,
+    today: today,
+    years: years,
+    compare: compare,
+    compareView: compareView,
+    views: views,
+  );
 
   @override
   CalendarReport get shown => report;

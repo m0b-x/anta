@@ -10,6 +10,7 @@ import '../models/report_cards.dart';
 import '../services/settings_service.dart';
 import '../utils/custom_snackbar.dart';
 import '../widgets/automation_id.dart';
+import '../widgets/content_rows.dart' show ContentSectionHeader;
 import '../widgets/form_rows.dart';
 import '../widgets/settings_reorder.dart';
 import '../widgets/settings_section_list.dart' show settingsCaptionStyle;
@@ -22,8 +23,10 @@ import '../widgets/unified_app_bars.dart';
 /// is shown again, so every change here is live there.
 ///
 /// The cards are a reorderable sliver, which the kit's `ListView` of groups
-/// cannot hold, so the page draws the kit's group by hand: its ground, its
-/// intro line inside the group's top, its rows on the same tokens.
+/// cannot hold, so the page draws the kit's section by hand: its header, then
+/// one group — the intro line, the cards, Reset — on one rounded ground
+/// painted behind the whole sliver, so a drag's gap and a lifted first or
+/// last row never show the page through the group.
 class CalendarReportSettingsPage extends StatefulWidget {
   const CalendarReportSettingsPage({super.key});
 
@@ -110,13 +113,16 @@ class _CalendarReportSettingsPageState
     }
   }
 
-  /// The lifted row: the shared proxy over a clip, since a middle row of the
-  /// group paints square corners of its own (the palette sheet's rows).
+  /// The lifted row: the shared proxy over a clip of the group's ground, which
+  /// the rows leave to the sliver behind them and so lose once lifted out.
   Widget _liftedRow(Widget child, int index, Animation<double> animation) {
     return reorderDragProxy(
       ClipRRect(
         borderRadius: BorderRadius.circular(reorderProxyRadius),
-        child: child,
+        child: ColoredBox(
+          color: Theme.of(context).colorScheme.rowGroup,
+          child: child,
+        ),
       ),
       index,
       animation,
@@ -151,64 +157,93 @@ class _CalendarReportSettingsPageState
     return CustomScrollView(
       slivers: [
         SliverPadding(
-          padding: const EdgeInsets.fromLTRB(
-            RowMetrics.groupInset,
-            RowMetrics.groupInset,
-            RowMetrics.groupInset,
-            0,
-          ),
+          padding: const EdgeInsets.only(top: RowMetrics.groupInset),
           sliver: SliverToBoxAdapter(
-            child: _GroupIntro(text: l10n.calendarSettingsReportDescription),
+            child: _SectionHeader(label: l10n.reportCardsSectionTitle),
           ),
         ),
         SliverPadding(
-          padding: const EdgeInsets.symmetric(
-            horizontal: RowMetrics.groupInset,
+          padding: const EdgeInsets.fromLTRB(
+            RowMetrics.groupInset,
+            0,
+            RowMetrics.groupInset,
+            RowMetrics.groupInset,
           ),
-          sliver: SliverReorderableList(
-            itemCount: order.length,
-            proxyDecorator: _liftedRow,
-            onReorderItem: _move,
-            itemBuilder: (context, index) {
-              final kind = order[index];
-              return ReorderableDelayedDragStartListener(
-                key: ValueKey(kind),
-                index: index,
-                child: FormRowShell(
-                  first: false,
-                  last: index == order.length - 1,
-                  child: _CardRow(
-                    name: CalendarReportSettingsPage.cardName(kind, l10n),
-                    kind: kind,
-                    index: index,
-                    on: !_cards.off.contains(kind),
-                    onChanged: (on) => _toggle(kind, on),
-                    onMoveUp: index == 0 ? null : () => _move(index, index - 1),
-                    onMoveDown: index == order.length - 1
-                        ? null
-                        : () => _move(index, index + 1),
+          sliver: DecoratedSliver(
+            decoration: BoxDecoration(
+              color: colorScheme.rowGroup,
+              borderRadius: BorderRadius.circular(RowMetrics.groupRadius),
+            ),
+            sliver: SliverMainAxisGroup(
+              slivers: [
+                SliverToBoxAdapter(
+                  child: _GroupIntro(
+                    text: l10n.calendarSettingsReportDescription,
                   ),
                 ),
-              );
-            },
-          ),
-        ),
-        SliverPadding(
-          padding: const EdgeInsets.fromLTRB(
-            RowMetrics.groupInset,
-            0,
-            RowMetrics.groupInset,
-            RowMetrics.groupInset,
-          ),
-          sliver: SliverToBoxAdapter(
-            child: FormRowGroup(
-              trailingGap: false,
-              children: [
-                FormActionRow(
-                  glyph: Icons.refresh_rounded,
-                  label: l10n.reportCardsReset,
-                  identifier: SemanticsIds.reportCardsReset,
-                  onTap: _cards == ReportCards.defaults ? null : _reset,
+                SliverReorderableList(
+                  itemCount: order.length,
+                  proxyDecorator: _liftedRow,
+                  onReorderItem: _move,
+                  itemBuilder: (context, index) {
+                    final kind = order[index];
+                    return ReorderableDelayedDragStartListener(
+                      key: ValueKey(kind),
+                      index: index,
+                      // Transparent, for the ink only: the ground is the
+                      // sliver's. Every card has a row below it, Reset at
+                      // the end, so every card draws the hairline.
+                      child: Material(
+                        type: MaterialType.transparency,
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            _CardRow(
+                              name: CalendarReportSettingsPage.cardName(
+                                kind,
+                                l10n,
+                              ),
+                              kind: kind,
+                              index: index,
+                              on: !_cards.off.contains(kind),
+                              onChanged: (on) => _toggle(kind, on),
+                              onMoveUp: index == 0
+                                  ? null
+                                  : () => _move(index, index - 1),
+                              onMoveDown: index == order.length - 1
+                                  ? null
+                                  : () => _move(index, index + 1),
+                            ),
+                            Divider(
+                              height: RowMetrics.dividerThickness,
+                              thickness: RowMetrics.dividerThickness,
+                              indent: RowMetrics.dividerIndentPlain,
+                              endIndent: 0,
+                              color: colorScheme.rowDivider,
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+                SliverToBoxAdapter(
+                  // Clipped to the group's foot, so the row's ink keeps its
+                  // round corners.
+                  child: Material(
+                    type: MaterialType.transparency,
+                    clipBehavior: Clip.antiAlias,
+                    borderRadius: const BorderRadius.vertical(
+                      bottom: Radius.circular(RowMetrics.groupRadius),
+                    ),
+                    child: FormActionRow(
+                      glyph: Icons.refresh_rounded,
+                      label: l10n.reportCardsReset,
+                      identifier: SemanticsIds.reportCardsReset,
+                      onTap: _cards == ReportCards.defaults ? null : _reset,
+                    ),
+                  ),
                 ),
               ],
             ),
@@ -219,9 +254,30 @@ class _CalendarReportSettingsPageState
   }
 }
 
+/// The kit's section header: the browser's label on the bottom edge of a
+/// 48 dp box, so the air above the group is the one every kit page has.
+class _SectionHeader extends StatelessWidget {
+  final String label;
+
+  const _SectionHeader({required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      constraints: const BoxConstraints(
+        minHeight: RowMetrics.singleLineMinHeight,
+      ),
+      alignment: AlignmentDirectional.bottomStart,
+      child: ContentSectionHeader(label: label),
+    );
+  }
+}
+
 /// The group's top: the kit's intro line, inset as a row's text and set in
 /// the caption role, with no hairline under it — the rows below continue
-/// the same group.
+/// the same group. Its edge is the kit's: the column the handles' ≡ and
+/// Reset's glyph start in, the names a column further in, as the fasting
+/// page's intro stands to its glyphs and titles.
 class _GroupIntro extends StatelessWidget {
   final String text;
 
@@ -230,22 +286,15 @@ class _GroupIntro extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    return Material(
-      type: MaterialType.card,
-      color: colorScheme.rowGroup,
-      borderRadius: const BorderRadius.vertical(
-        top: Radius.circular(RowMetrics.groupRadius),
+    return Padding(
+      padding: FormMetrics.settingsRowPadding.copyWith(
+        top: FormMetrics.settingsRowVerticalPadding,
+        bottom: FormMetrics.settingsRowVerticalPadding,
       ),
-      child: Padding(
-        padding: FormMetrics.settingsRowPadding.copyWith(
-          top: FormMetrics.settingsRowVerticalPadding,
-          bottom: FormMetrics.settingsRowVerticalPadding,
-        ),
-        child: Text(
-          text,
-          style: settingsCaptionStyle.copyWith(
-            color: colorScheme.onSurfaceVariant,
-          ),
+      child: Text(
+        text,
+        style: settingsCaptionStyle.copyWith(
+          color: colorScheme.onSurfaceVariant,
         ),
       ),
     );
@@ -256,11 +305,13 @@ class _GroupIntro extends StatelessWidget {
 /// its end, so neither moves with the name, which wraps rather than cuts.
 /// Two nodes besides the row's: the handle, named "Reorder …", and the
 /// switch, named by the card. The handle's name promises a reorder and a
-/// screen reader cannot drag, so its node carries the move as two actions,
-/// each absent where the row cannot go. An off card's name dims to
-/// [FormMetrics.switchedOffOpacity] — off, not disabled: the switch stays
-/// full, and the row stays a control to hold and drag.
-class _CardRow extends FormDividedRow {
+/// screen reader cannot drag, so its one node carries the id, the name and
+/// the move as two actions, each absent where the row cannot go. An off
+/// card's name steps down to `onSurfaceVariant` at full strength — off, not
+/// disabled: the row stays a control to hold and drag, so its words keep
+/// the 4.5:1 a faded `onSurface` (3.26:1 on `rowGroup` in light) lost; the
+/// switch says which it is.
+class _CardRow extends StatelessWidget {
   final String name;
   final ReportCardKind kind;
   final int index;
@@ -280,40 +331,36 @@ class _CardRow extends FormDividedRow {
   });
 
   @override
-  double get dividerIndent => FormMetrics.dividerIndentGlyph;
-
-  @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final colorScheme = Theme.of(context).colorScheme;
-    Widget label = Text(
+    final label = Text(
       name,
       style: TextStyle(
         fontSize: RowMetrics.titleFontSize,
         height: FormMetrics.labelLineHeight / RowMetrics.titleFontSize,
         fontWeight: FontWeight.w400,
-        color: colorScheme.onSurface,
+        color: on ? colorScheme.onSurface : colorScheme.onSurfaceVariant,
       ),
     );
-    if (!on) {
-      label = Opacity(opacity: FormMetrics.switchedOffOpacity, child: label);
-    }
+    final reorderLabel = l10n.categoryReorderLabel(name);
     return ConstrainedBox(
       constraints: const BoxConstraints(minHeight: FormMetrics.rowMinHeight),
       child: Row(
         children: [
-          AutomationId(
+          // The handle's own name and node are excluded and redrawn here,
+          // so the id, the name and the actions sit on one node: a wrapper
+          // around its merged node left a dump with the id twice.
+          Semantics(
+            container: true,
             identifier: SemanticsIds.reportCardHandle(kind.name),
-            child: Semantics(
-              customSemanticsActions: {
-                CustomSemanticsAction(label: l10n.categoryMoveUp): ?onMoveUp,
-                CustomSemanticsAction(label: l10n.categoryMoveDown):
-                    ?onMoveDown,
-              },
-              child: FormDragHandle(
-                index: index,
-                label: l10n.categoryReorderLabel(name),
-              ),
+            label: reorderLabel,
+            customSemanticsActions: {
+              CustomSemanticsAction(label: l10n.categoryMoveUp): ?onMoveUp,
+              CustomSemanticsAction(label: l10n.categoryMoveDown): ?onMoveDown,
+            },
+            child: ExcludeSemantics(
+              child: FormDragHandle(index: index, label: reorderLabel),
             ),
           ),
           const SizedBox(

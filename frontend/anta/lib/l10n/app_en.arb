@@ -7334,7 +7334,7 @@
   },
   "categoryReorderLabel": "Reorder {name}",
   "@categoryReorderLabel": {
-    "description": "Accessible name of a category row's drag handle",
+    "description": "Accessible name of a category row's or a report card row's drag handle",
     "placeholders": {
       "name": {
         "type": "String",
@@ -11471,6 +11471,10 @@
   "calendarSettingsReportDescription": "Which cards the report shows, and in which order",
   "@calendarSettingsReportDescription": {
     "description": "Subtitle of the Report cards row in Calendar settings"
+  },
+  "reportCardsSectionTitle": "Cards",
+  "@reportCardsSectionTitle": {
+    "description": "Section header over the Report cards page's one group: the report's cards, each with a handle and a switch"
   },
   "reportCardsReset": "Reset to default",
   "@reportCardsReset": {

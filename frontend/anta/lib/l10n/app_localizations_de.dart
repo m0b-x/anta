@@ -8917,6 +8917,9 @@ class AppLocalizationsDe extends AppLocalizations {
       'Welche Karten der Bericht zeigt und in welcher Reihenfolge';
 
   @override
+  String get reportCardsSectionTitle => 'Karten';
+
+  @override
   String get reportCardsReset => 'Auf Standard zurücksetzen';
 
   @override

@@ -1,12 +1,13 @@
 import 'dart:ui' show Tristate;
 
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart' show RenderParagraph;
+import 'package:flutter/rendering.dart' show RenderParagraph, RenderSliver;
 import 'package:flutter/semantics.dart' show CustomSemanticsAction;
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:anta/constants/app_colors.dart';
 import 'package:anta/constants/app_theme.dart';
-import 'package:anta/constants/form_metrics.dart';
+import 'package:anta/constants/row_metrics.dart';
 import 'package:anta/constants/semantics_ids.dart';
 import 'package:anta/constants/settings_keys.dart';
 import 'package:anta/database/database.dart';
@@ -16,6 +17,8 @@ import 'package:anta/l10n/app_localizations_en.dart';
 import 'package:anta/models/report_cards.dart';
 import 'package:anta/pages/calendar_report_settings_page.dart';
 import 'package:anta/services/settings_service.dart';
+import 'package:anta/utils/marker_contrast.dart';
+import 'package:anta/widgets/form_rows.dart' show FormRowGroup, FormRowShell;
 
 import '../database/support/db_test_support.dart';
 import '../goldens/support/golden_fonts.dart';
@@ -146,6 +149,93 @@ void main() {
       await teardownApp(tester);
     });
 
+    testWidgets('one kit section: the uppercase header over one rounded '
+        'group that holds the intro, the cards and Reset as its last row; '
+        'the intro on the glyphs\' column, the names on the text column, '
+        'every hairline at the plain indent', (tester) async {
+      await pumpPage(tester);
+      final robot = ReportSettingsRobot(tester);
+      final scheme = AppTheme.light().colorScheme;
+
+      final header = find.text(l10n.reportCardsSectionTitle.toUpperCase());
+      expect(header, findsOneWidget);
+      final introRect = tester.getRect(
+        find.text(l10n.calendarSettingsReportDescription),
+      );
+      expect(tester.getRect(header).bottom, lessThan(introRect.top));
+
+      final grounds = tester
+          .widgetList<DecoratedSliver>(find.byType(DecoratedSliver))
+          .toList();
+      expect(grounds, hasLength(1));
+      final ground = grounds.single.decoration as BoxDecoration;
+      expect(ground.color, scheme.rowGroup);
+      expect(
+        ground.borderRadius,
+        BorderRadius.circular(RowMetrics.groupRadius),
+      );
+      expect(find.byType(FormRowGroup), findsNothing);
+      expect(find.byType(FormRowShell), findsNothing);
+
+      // The rows paint no ground of their own: a drag's gap shows the
+      // sliver's, never the page's.
+      final rowGrounds = find.descendant(
+        of: find.byType(SliverReorderableList),
+        matching: find.byWidgetPredicate(
+          (widget) =>
+              (widget is ColoredBox && widget.color == scheme.rowGroup) ||
+              (widget is Material && widget.color == scheme.rowGroup),
+        ),
+      );
+      expect(rowGrounds, findsNothing);
+
+      // Reset is the group's last row: under the last card's hairline,
+      // with nothing after it inside the ground.
+      final resetGlyph = find.descendant(
+        of: robot.reset,
+        matching: find.byType(Icon),
+      );
+      final resetLabel = find.text(l10n.reportCardsReset);
+      // The kit's two columns, as the fasting page's intro stands to its
+      // glyphs and titles: the intro at the group's text inset, where Reset's
+      // glyph and the ≡'s ink start (the 24 dp glyph is centred in the 48 dp
+      // slot and inked from 4), the names at the glyph rows' column.
+      expect(introRect.left, RowMetrics.groupInset * 2);
+      expect(tester.getTopLeft(resetGlyph).dx, introRect.left);
+      final handleGlyph = find.descendant(
+        of: robot.handleOf(ReportCardKind.goals),
+        matching: find.byType(Icon),
+      );
+      expect(tester.getTopLeft(handleGlyph).dx + 4, introRect.left);
+      for (final kind in ReportCardKind.values) {
+        expect(
+          tester.getTopLeft(find.text(nameOf(kind))).dx,
+          tester.getTopLeft(resetLabel).dx,
+          reason: kind.name,
+        );
+      }
+
+      final dividers = tester.widgetList<Divider>(find.byType(Divider));
+      expect(dividers, hasLength(ReportCardKind.values.length));
+      for (final divider in dividers) {
+        expect(divider.indent, RowMetrics.dividerIndentPlain);
+        expect(divider.endIndent, 0);
+      }
+
+      // The last card is as tall as the first: the gap after the group is
+      // not inside its row, where it lengthened its drag.
+      Finder itemOf(ReportCardKind kind) => find.ancestor(
+        of: robot.handleOf(kind),
+        matching: find.byType(ReorderableDelayedDragStartListener),
+      );
+      expect(
+        tester.getSize(itemOf(ReportCardKind.ahead)).height,
+        tester.getSize(itemOf(ReportCardKind.goals)).height,
+      );
+
+      await teardownApp(tester);
+    });
+
     testWidgets('the switch is named by its card and says it is on; the '
         'handle is named "Reorder …"; both are 48 dp targets', (tester) async {
       final handle = tester.ensureSemantics();
@@ -167,6 +257,14 @@ void main() {
           l10n.categoryReorderLabel(nameOf(kind)),
           reason: kind.name,
         );
+        // One node per handle: a dump lists the id once, on the node that
+        // carries the name.
+        expect(robot.handleNodes(kind), findsOne, reason: kind.name);
+        expect(
+          robot.handleNodes(kind).evaluate().single.getSemanticsData().label,
+          l10n.categoryReorderLabel(nameOf(kind)),
+          reason: kind.name,
+        );
         final handleSize = tester.getSize(robot.handleOf(kind));
         expect(handleSize.width, greaterThanOrEqualTo(48), reason: kind.name);
         expect(handleSize.height, greaterThanOrEqualTo(48), reason: kind.name);
@@ -176,6 +274,14 @@ void main() {
           reason: kind.name,
         );
       }
+      // The header speaks the title as written, as a level-2 heading under
+      // the bar's level 1.
+      final heading = tester
+          .getSemantics(find.text(l10n.reportCardsSectionTitle.toUpperCase()))
+          .getSemanticsData();
+      expect(heading.label, l10n.reportCardsSectionTitle);
+      expect(heading.flagsCollection.isHeader, isTrue);
+      expect(heading.headingLevel, 2);
 
       await teardownApp(tester);
       handle.dispose();
@@ -428,33 +534,94 @@ void main() {
       });
     }
 
-    testWidgets('dark: the names in the dark onSurface, an off one at the '
-        'switched-off opacity', (tester) async {
-      await pumpPage(tester, dark: true);
-      final scheme = AppTheme.dark().colorScheme;
-      final robot = ReportSettingsRobot(tester);
-      for (final kind in const [ReportCardKind.goals, ReportCardKind.records]) {
-        final paragraph = tester.renderObject<RenderParagraph>(
-          find.text(nameOf(kind)),
-        );
-        expect(paragraph.text.style?.color, scheme.onSurface);
-      }
-      expect(robot.isDimmed(nameOf(ReportCardKind.records)), isTrue);
-      expect(
-        tester
-            .widget<Opacity>(
-              find
-                  .ancestor(
-                    of: find.text(nameOf(ReportCardKind.records)),
-                    matching: find.byType(Opacity),
-                  )
-                  .first,
-            )
-            .opacity,
-        FormMetrics.switchedOffOpacity,
-      );
+    for (final (dark, ratio) in const [(false, 8.88), (true, 9.56)]) {
+      testWidgets('${dark ? 'dark' : 'light'}: an on name in onSurface, an '
+          'off one in onSurfaceVariant at full strength, which keeps '
+          '$ratio:1 on the group and passes the sampled contrast check', (
+        tester,
+      ) async {
+        await pumpPage(tester, dark: dark);
+        final scheme = dark
+            ? AppTheme.dark().colorScheme
+            : AppTheme.light().colorScheme;
+        Color colorOf(ReportCardKind kind) => tester
+            .renderObject<RenderParagraph>(find.text(nameOf(kind)))
+            .text
+            .style!
+            .color!;
+        final off = find.text(nameOf(ReportCardKind.records));
 
-      await teardownApp(tester);
-    });
+        // The name has no node of its own (the switch speaks it), so the
+        // text guideline cannot reach it: its pixels are sampled instead.
+        await expectLater(
+          tester,
+          meetsGuideline(CustomMinimumContrastGuideline(finder: off)),
+        );
+        expect(colorOf(ReportCardKind.goals), scheme.onSurface);
+        expect(colorOf(ReportCardKind.records), scheme.onSurfaceVariant);
+        // A live control, not a disabled one: nothing fades the name.
+        expect(
+          find.ancestor(of: off, matching: find.byType(Opacity)),
+          findsNothing,
+        );
+        expect(
+          MarkerContrast.contrastRatio(
+            scheme.onSurfaceVariant.computeLuminance(),
+            scheme.rowGroup.computeLuminance(),
+          ),
+          closeTo(ratio, 0.01),
+        );
+
+        await teardownApp(tester);
+      });
+    }
+  });
+
+  testWidgets('a lifted row keeps the group\'s ground, and the group\'s '
+      'ground stays behind the gap it leaves', (tester) async {
+    await pumpPage(tester);
+    final robot = ReportSettingsRobot(tester);
+    final scheme = AppTheme.light().colorScheme;
+    final pitch =
+        tester.getTopLeft(robot.handleOf(ReportCardKind.insights)).dy -
+        tester.getTopLeft(robot.handleOf(ReportCardKind.goals)).dy;
+
+    double groundExtent() => tester
+        .renderObject<RenderSliver>(find.byType(DecoratedSliver))
+        .geometry!
+        .scrollExtent;
+    final resting = groundExtent();
+
+    final from = tester.getCenter(robot.handleOf(ReportCardKind.ahead));
+    final gesture = await tester.startGesture(from);
+    await tester.pump(const Duration(milliseconds: 16));
+    await gesture.moveTo(from - Offset(0, pitch * 2));
+    await tester.pump(const Duration(milliseconds: 300));
+
+    // The rows draw no ground (the page's first case), so the only one is
+    // the proxy's, around the lifted card, outside the sliver.
+    final proxyGround = find.byWidgetPredicate(
+      (widget) => widget is ColoredBox && widget.color == scheme.rowGroup,
+    );
+    expect(proxyGround, findsOneWidget);
+    expect(
+      find.descendant(
+        of: proxyGround,
+        matching: find.text(nameOf(ReportCardKind.ahead)),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.ancestor(of: proxyGround, matching: find.byType(DecoratedSliver)),
+      findsNothing,
+    );
+    // The gap is inside the sliver the ground is painted behind, which
+    // keeps its whole length while the row is out of it.
+    expect(groundExtent(), resting);
+
+    await gesture.up();
+    await tester.pumpAndSettle();
+    await robot.settle();
+    await teardownApp(tester);
   });
 }

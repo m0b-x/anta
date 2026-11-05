@@ -9050,6 +9050,9 @@ class AppLocalizationsRo extends AppLocalizations {
       'Ce carduri arată raportul și în ce ordine';
 
   @override
+  String get reportCardsSectionTitle => 'Carduri';
+
+  @override
   String get reportCardsReset => 'Resetează la implicit';
 
   @override

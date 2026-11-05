@@ -2602,6 +2602,7 @@
   "reportSectionMonths": "Luni",
   "calendarSettingsReportTitle": "Cardurile raportului",
   "calendarSettingsReportDescription": "Ce carduri arată raportul și în ce ordine",
+  "reportCardsSectionTitle": "Carduri",
   "reportCardsReset": "Resetează la implicit",
   "reportCardsResetDone": "Ordinea și cardurile au fost resetate",
   "reportRecordBusiestMonth": "Luna de vârf",

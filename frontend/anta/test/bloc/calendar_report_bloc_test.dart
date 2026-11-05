@@ -799,6 +799,45 @@ void main() {
     expect(ready.cards.shown.first, ReportCardKind.totals);
   });
 
+  test('a resume whose fold throws still re-arranges the report shown by the '
+      'cards it re-read', () async {
+    final service = _FakeReportService();
+    final bloc = build(service);
+    addTearDown(bloc.close);
+    await openReady(bloc);
+    final first = bloc.state as ReportReady;
+
+    final changed = ReportCards.defaults.toggled(ReportCardKind.goals, false);
+    await settings.setReportCards(changed);
+    service.failWith = StateError('fold');
+    bloc.add(const ReportResumed());
+    await pumpEventQueue();
+    final ready = bloc.state as ReportReady;
+    expect(ready.cards, changed);
+    expect(identical(ready.report, first.report), isTrue);
+    expect(ready.period, first.period);
+  });
+
+  test('a fold that throws brings the last report back under the cards '
+      're-read before it', () async {
+    final service = _FakeReportService();
+    final bloc = build(service);
+    addTearDown(bloc.close);
+    final states = await openReady(bloc);
+    final first = bloc.state as ReportReady;
+
+    final changed = ReportCards.defaults.moved(ReportCardKind.totals.index, 0);
+    await settings.setReportCards(changed);
+    service.failWith = StateError('fold');
+    // A new day re-reads the settings, then refolds — and the fold throws.
+    bloc.add(ReportDayChanged(DateTime(2026, 10, 31, 9)));
+    await pumpEventQueue();
+    expect(states.whereType<ReportFolding>().last.cards, changed);
+    final ready = bloc.state as ReportReady;
+    expect(ready.cards, changed);
+    expect(identical(ready.report, first.report), isTrue);
+  });
+
   test('a fresh install shows every card in the page order', () async {
     final bloc = build(_FakeReportService());
     addTearDown(bloc.close);

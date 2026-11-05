@@ -8853,6 +8853,9 @@ class AppLocalizationsEn extends AppLocalizations {
       'Which cards the report shows, and in which order';
 
   @override
+  String get reportCardsSectionTitle => 'Cards';
+
+  @override
   String get reportCardsReset => 'Reset to default';
 
   @override

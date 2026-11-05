@@ -10,9 +10,11 @@ import '../bloc/calendar/calendar_bloc.dart';
 import '../bloc/calendar_report/calendar_report_bloc.dart';
 import '../bloc/import_export/import_export_bloc.dart';
 import '../bloc/import_export/import_export_state.dart';
+import '../constants/analytics_metrics.dart';
 import '../constants/app_bar_metrics.dart';
 import '../constants/app_colors.dart';
 import '../constants/calendar_categories.dart';
+import '../constants/category_kinds.dart';
 import '../constants/event_alerts.dart';
 import '../constants/report_metrics.dart';
 import '../constants/semantics_ids.dart';
@@ -23,6 +25,7 @@ import '../l10n/app_localizations.dart';
 import '../models/calendar_appearance.dart';
 import '../models/calendar_event.dart';
 import '../models/calendar_report.dart';
+import '../models/category_profile.dart';
 import '../models/event_digest.dart';
 import '../models/export_format.dart';
 import '../models/overview_period.dart';
@@ -482,10 +485,11 @@ class _ReportViewState extends State<_ReportView>
   /// A new report of the look on screen arms the slack when it folds away a
   /// mark of this page — a marked row the last report listed as missed and
   /// this one does not: that shrink is under the finger — or when it
-  /// changes the cards above the anchors — above Totals, or the year block
-  /// above Categories — whose new height the refold anchor (R) corrects the
-  /// offset by: a correction is never clamped at the end, and past the new
-  /// end it would spring back over the frames after it. Any other refold of
+  /// changes the shape of a card the owner's list (W) draws, wherever it
+  /// stands, whose new height the refold anchor (R) corrects the offset by
+  /// when it is above the label held: a correction is never clamped at the
+  /// end, and past the new end it would spring back over the frames after
+  /// it. A card turned off moves nothing and never arms. Any other refold of
   /// the same look — an event deleted or re-categorised on a sheet's trip, a
   /// category deleted in settings — may remove rows above the leading edge,
   /// and slack held for it would jump every visible row up and open blank
@@ -521,11 +525,7 @@ class _ReportViewState extends State<_ReportView>
       if (!sameLook) {
         _slack.value = (arms: slack.arms, releases: slack.releases + 1);
       } else if (landed.any(_heardMissed.contains) ||
-          !_sameCardsAboveAnchors(
-            before,
-            report,
-            shown?.cards ?? ReportCards.defaults,
-          )) {
+          !_sameShapes(before, report, shown?.cards ?? ReportCards.defaults)) {
         _slack.value = (arms: slack.arms + 1, releases: slack.releases);
       }
     }
@@ -535,30 +535,79 @@ class _ReportViewState extends State<_ReportView>
     _heardMissed = missed;
   }
 
-  /// Whether [a] and [b] draw the same Goals, Insights and Due soon rows and
-  /// the same year Records and Months. Wherever the owner's order (W) puts
-  /// one of them, a change in it while it stands before the label the
-  /// reader is under moves that anchor's preceding extent, which the refold
-  /// anchor corrects the offset by. A year's rows change height only with
-  /// the record they show — a trip's, a streak's or a gap's row measures
-  /// its title — never with a figure, so which records and which strips are
-  /// drawn suffice: comparing the whole year would arm on every month value
-  /// a refold moves, the worse harm above. A card the owner turned off is
-  /// not drawn (W), so its change moves nothing.
-  static bool _sameCardsAboveAnchors(
+  /// Whether [a] and [b] draw every card [cards] shows at the same shape,
+  /// by what decides each card's height and never by a figure that
+  /// leaves it alone: comparing values would arm on every number a refold
+  /// moves, the worse harm above. A goal's row keeps its caption lines
+  /// whatever its value (D), so the goals compare by subject and target; an
+  /// insight's row follows its sentence, so the insights shown compare
+  /// whole; a due row, a tag's header and a year's record are one row each
+  /// — a record's row measures its title, so it compares by kind and subject;
+  /// Months by its strips, Over time and When by whether they draw, Balance
+  /// by its areas and whether last year reads beside them. Totals keeps
+  /// its frame, and the group cards — Categories, Missed, Ahead — open
+  /// closed, their rows the Missed-row rule's.
+  static bool _sameShapes(
     CalendarReport a,
     CalendarReport b,
     ReportCards cards,
   ) {
-    bool off(ReportCardKind kind) => cards.off.contains(kind);
-    return (off(ReportCardKind.goals) || listEquals(a.goals, b.goals)) &&
-        (off(ReportCardKind.insights) || listEquals(a.insights, b.insights)) &&
-        (off(ReportCardKind.dueSoon) || listEquals(a.dueSoon, b.dueSoon)) &&
-        (off(ReportCardKind.records) ||
-            listEquals(_recordIds(a), _recordIds(b))) &&
-        (off(ReportCardKind.months) ||
-            setEquals(ReportBody.stripIds(a), ReportBody.stripIds(b)));
+    for (final kind in cards.shown) {
+      final same = switch (kind) {
+        ReportCardKind.goals => listEquals(_goalShapes(a), _goalShapes(b)),
+        ReportCardKind.insights => listEquals(
+          _shownInsights(a, cards),
+          _shownInsights(b, cards),
+        ),
+        ReportCardKind.dueSoon => listEquals(_dueIds(a), _dueIds(b)),
+        ReportCardKind.records => listEquals(_recordIds(a), _recordIds(b)),
+        ReportCardKind.months => setEquals(
+          ReportBody.stripIds(a),
+          ReportBody.stripIds(b),
+        ),
+        ReportCardKind.tags => listEquals(_tagKeys(a), _tagKeys(b)),
+        ReportCardKind.overTime => (a.trend == null) == (b.trend == null),
+        ReportCardKind.when =>
+          (a.when?.busiestWeekday == null) == (b.when?.busiestWeekday == null),
+        ReportCardKind.balance =>
+          (a.balanceLastYear == null) == (b.balanceLastYear == null) &&
+              setEquals(_balanceAreas(a), _balanceAreas(b)),
+        ReportCardKind.totals ||
+        ReportCardKind.categories ||
+        ReportCardKind.missed ||
+        ReportCardKind.ahead => true,
+      };
+      if (!same) return false;
+    }
+    return true;
   }
+
+  static List<(String, ReportMeasure, ReportTarget)> _goalShapes(
+    CalendarReport report,
+  ) => [
+    for (final goal in report.goals)
+      (goal.categoryId, goal.measure, goal.target),
+  ];
+
+  static List<ReportInsight> _shownInsights(
+    CalendarReport report,
+    ReportCards cards,
+  ) => ReportBody.pageInsights(
+    report,
+    cards,
+  ).take(AnalyticsMetrics.insightsOnPage).toList();
+
+  static List<(String, DateTime)> _dueIds(CalendarReport report) => [
+    for (final row in report.dueSoon) (row.eventId, row.day),
+  ];
+
+  static List<String> _tagKeys(CalendarReport report) => [
+    for (final tag in report.tags) tag.key,
+  ];
+
+  static Set<LifeArea> _balanceAreas(CalendarReport report) => {
+    for (final row in report.balanceRows()) row.area,
+  };
 
   /// The records [report]'s year shows, by what names each row, not by its
   /// value.

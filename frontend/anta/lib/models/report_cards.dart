@@ -4,13 +4,8 @@ import 'package:equatable/equatable.dart';
 /// The footer is not a card: it is always there. Not `ReportCard`, which
 /// names the group stacks a goal or an insight opens.
 ///
-/// A card is named by its section label: goals → `reportSectionGoals`,
-/// insights → `reportSectionInsights`, dueSoon → `reportSectionDueSoon`,
-/// totals → `reportSectionTotals`, records → `reportSectionRecords`,
-/// months → `reportSectionMonths`, categories → `reportSectionCategories`,
-/// tags → `reportSectionTags`, overTime → `reportSectionOverTime`,
-/// when → `reportSectionWhen`, balance → `reportSectionBalance`,
-/// missed → `reportSectionMissed`, ahead → `reportSectionAhead`.
+/// A card is named by its section label (the `reportSection…` keys), as
+/// `CalendarReportSettingsPage.cardName` maps them.
 enum ReportCardKind {
   goals,
   insights,
@@ -71,7 +66,7 @@ class ReportCards extends Equatable {
     for (final part in raw.split(',')) {
       var name = part.trim();
       final isOff = name.startsWith('-');
-      if (isOff) name = name.substring(1);
+      if (isOff) name = name.substring(1).trim();
       final kind = ReportCardKind.values.asNameMap()[name];
       if (kind == null || order.contains(kind)) continue;
       order.add(kind);

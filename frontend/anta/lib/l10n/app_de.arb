@@ -3736,6 +3736,7 @@
   "reportSectionMonths": "Monate",
   "calendarSettingsReportTitle": "Berichtskarten",
   "calendarSettingsReportDescription": "Welche Karten der Bericht zeigt und in welcher Reihenfolge",
+  "reportCardsSectionTitle": "Karten",
   "reportCardsReset": "Auf Standard zurücksetzen",
   "reportCardsResetDone": "Reihenfolge und Karten zurückgesetzt",
   "reportRecordBusiestMonth": "Stärkster Monat",

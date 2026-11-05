@@ -39,6 +39,14 @@ void main() {
     );
   });
 
+  test('a space after the dash still reads the card off', () {
+    final cards = ReportCards.decode(' - goals , insights');
+
+    expect(cards.order.first, ReportCardKind.goals);
+    expect(cards.off, {ReportCardKind.goals});
+    expect(cards.order, all);
+  });
+
   test('null, empty and blank decode as the defaults', () {
     expect(ReportCards.decode(null), ReportCards.defaults);
     expect(ReportCards.decode(''), ReportCards.defaults);

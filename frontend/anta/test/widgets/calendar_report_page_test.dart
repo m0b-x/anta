@@ -4207,6 +4207,150 @@ void main() {
         );
         expect(tester.takeException(), isNull);
       });
+
+      testWidgets('cards written while Settings covers the page re-arrange '
+          'it on the way back: the pop asks again, no refold', (tester) async {
+        CalendarReport? base;
+        late CalendarReport answered;
+        service = _ShapingReportService(
+          (folded) => identical(folded, base)
+              ? answered
+              : answered = three(base = folded),
+        );
+        final robot = await open(tester);
+        final l10n = robot.l10n;
+        final drawn = body(tester).report;
+        final navigator = AppNavigator.navigatorKey.currentState!;
+        unawaited(
+          navigator.push(
+            MaterialPageRoute<void>(builder: (_) => const Scaffold()),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final cards = ReportCards.defaults.toggled(ReportCardKind.goals, false);
+        await settings.setReportCards(cards);
+        navigator.pop();
+        await tester.pumpAndSettle();
+        expect(robot.state, isA<ReportReady>());
+        expect(body(tester).cards, cards);
+        expect(identical(body(tester).report, drawn), isTrue);
+        expect(label(l10n.reportSectionGoals), findsNothing);
+        expect(label(l10n.reportSectionInsights), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      });
+
+      group('the slack follows the shape of every card drawn', () {
+        DateTime march(int day) => DateTime.utc(2026, 3, day);
+
+        /// Another presence revision: the same look refolds.
+        void refold(int presenceRevision) {
+          // ignore: invalid_use_of_visible_for_testing_member
+          bloc.emit(
+            CalendarPageLoaded(
+              allEvents: [gym, todo],
+              focusedDay: today,
+              selectedDay: today,
+              presenceRevision: presenceRevision,
+            ),
+          );
+        }
+
+        int arms(WidgetTester tester) => body(tester).slack!.value.arms;
+
+        ReportTag tagOf(String key) => ReportTag(
+          key: key,
+          label: key,
+          events: 1,
+          count: 1,
+          minutes: 0,
+          categoryIds: const ['gym'],
+          rows: [ReportDatedRow(eventId: gym.id, day: march(2))],
+        );
+
+        /// A goal on gym whose March value is [value].
+        ReportGoal gymGoal(int value) => ReportGoal(
+          categoryId: 'gym',
+          measure: ReportMeasure.count,
+          target: const ReportTarget(
+            kind: TargetKind.atLeast,
+            value: 20,
+            period: TargetPeriod.month,
+          ),
+          periods: [
+            ReportGoalPeriod(
+              start: march(1),
+              end: march(31),
+              value: value,
+              expected: 20,
+              state: GoalState.met,
+            ),
+          ],
+        );
+
+        for (final (name, cards, armed) in [
+          (
+            'By tag first',
+            ReportCards.defaults.moved(ReportCardKind.tags.index, 0),
+            1,
+          ),
+          (
+            'By tag off',
+            ReportCards.defaults.toggled(ReportCardKind.tags, false),
+            0,
+          ),
+        ]) {
+          testWidgets('with $name a refold whose tags change arms $armed', (
+            tester,
+          ) async {
+            var tags = [tagOf('morning')];
+            service = _ShapingReportService(
+              (folded) => shaped(folded, tags: tags),
+            );
+            await settings.setReportCards(cards);
+            await open(tester);
+            final before = arms(tester);
+
+            tags = [tagOf('morning'), tagOf('evening')];
+            refold(1);
+            await tester.pumpAndSettle();
+            expect((body(tester).report!.tags).map((tag) => tag.key), [
+              'morning',
+              'evening',
+            ]);
+            expect(arms(tester), before + armed);
+          });
+        }
+
+        testWidgets('with Goals last a goal\'s value arms nothing, a goal '
+            'more arms once', (tester) async {
+          final order = ReportCards.defaults.order;
+          await settings.setReportCards(
+            ReportCards.defaults.moved(
+              order.indexOf(ReportCardKind.goals),
+              order.length - 1,
+            ),
+          );
+          var goals = [gymGoal(30)];
+          service = _ShapingReportService(
+            (folded) => shaped(folded, goals: goals),
+          );
+          await open(tester);
+          final before = arms(tester);
+
+          goals = [gymGoal(31)];
+          refold(1);
+          await tester.pumpAndSettle();
+          expect(body(tester).report!.goals, goals);
+          expect(arms(tester), before, reason: 'a value never changes shape');
+
+          goals = [gymGoal(31), threeGoals[1]];
+          refold(2);
+          await tester.pumpAndSettle();
+          expect(body(tester).report!.goals, hasLength(2));
+          expect(arms(tester), before + 1, reason: 'a count does');
+        });
+      });
     });
   });
 }

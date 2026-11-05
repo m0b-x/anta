@@ -9604,7 +9604,7 @@ abstract class AppLocalizations {
   /// **'Category options'**
   String get categoryActions;
 
-  /// Accessible name of a category row's drag handle
+  /// Accessible name of a category row's or a report card row's drag handle
   ///
   /// In en, this message translates to:
   /// **'Reorder {name}'**
@@ -13598,6 +13598,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Which cards the report shows, and in which order'**
   String get calendarSettingsReportDescription;
+
+  /// Section header over the Report cards page's one group: the report's cards, each with a handle and a switch
+  ///
+  /// In en, this message translates to:
+  /// **'Cards'**
+  String get reportCardsSectionTitle;
 
   /// Report cards page action: puts the cards back in the report's own order with every card on
   ///

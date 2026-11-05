@@ -323,7 +323,10 @@ class CalendarReportBloc extends Bloc<ReportEvent, ReportState> {
     // hold the resume; the first fold after it lands reads it.
     if (_followDatabaseSwitch()) await _viewsReady;
     final request = _request();
-    if (request == null) return;
+    if (request == null) {
+      _recard(emit);
+      return;
+    }
     // No Folding here: a resume usually changes nothing, and the memo then
     // answers with the very report already shown — an equal state, which
     // emit drops.
@@ -334,7 +337,17 @@ class CalendarReportBloc extends Bloc<ReportEvent, ReportState> {
       _emitReady(emit, report, request.years);
     } catch (e, st) {
       debugPrint('[CalendarReportBloc] fold on resume failed: $e\n$st');
+      _recard(emit);
     }
+  }
+
+  /// The last Ready again under the cards just re-read: a resume that
+  /// cannot fold still shows a list changed in the settings, which needs no
+  /// fold. An unchanged list is an equal state, which emit drops.
+  void _recard(Emitter<ReportState> emit) {
+    final last = _lastReady;
+    if (last == null) return;
+    emit(_lastReady = last.withCards(_cards));
   }
 
   /// Writes a pick through [write]; a store that fails keeps the pick on
@@ -455,7 +468,9 @@ class CalendarReportBloc extends Bloc<ReportEvent, ReportState> {
         _categoryIds = shown.categoryIds;
         _compare = shown.compare;
         _compareView = shown.compareView;
-        emit(shown);
+        // The pick is undone, the owner's cards are not: a list re-read
+        // before this fold still re-arranges the report that comes back.
+        emit(_lastReady = shown.withCards(_cards));
       }
       return false;
     }

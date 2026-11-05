@@ -1,11 +1,20 @@
 # The Report cards page (docs/calendar-analytics-roadmap.md W, slice S8b):
 # Calendar settings' Report cards row, below Alert settings in the pages
 # group, opening the page; the thirteen cards with a handle and a switch
-# each, Due soon turned off — its row stays, dimmed — and on again, so the
-# seed's report is left as it was; then system back through Calendar
-# settings to the calendar.
+# each, Totals turned off — its row stays — then back to the calendar and
+# the report through the view menu, where the Totals tiles are gone; then
+# to the page again to turn Totals back on, so the seed's report is left as
+# it was, and system back through Calendar settings to the calendar.
 # - The row sits below the fold on a phone: scroll-to brings it up.
 # - The page's bar id marks the page as up; the cards are expected under it.
+# - `expect` checks presence only, never a switch's checked state (the dump
+#   carries it, no verb asserts it), so the off and on states are shots.
+# - Totals is the card toggled because its tiles stand on the report's
+#   first screen, so `expect --absent` is checked where they would be. The
+#   band's nav title stands before the report has loaded, so the shot at
+#   the top is the evidence, and the Strength group scrolled to after it
+#   proves the body drew its cards: the seed's Lifting repeats on today's
+#   weekday, so This month always holds it.
 # - Reset sits past the last card, below the fold on a phone, and is held
 #   while the list is the default: the widget suite covers it.
 tap id:calendar-more
@@ -15,13 +24,37 @@ wait id:calendar-add-event --gone
 scroll-to id:calendar-settings-report-open --max 14
 tap id:calendar-settings-report-open
 wait id:settings-bar-report-cards
-expect id:report-card-switch-goals id:report-card-handle-goals id:report-card-switch-dueSoon id:report-card-handle-dueSoon
+expect id:report-card-switch-goals id:report-card-handle-goals id:report-card-switch-totals id:report-card-handle-totals
 shot 34_report_cards
-tap id:report-card-switch-dueSoon
-expect id:report-card-switch-dueSoon
-shot 34_report_cards_due_soon_off
-tap id:report-card-switch-dueSoon
-expect id:report-card-switch-dueSoon
+tap id:report-card-switch-totals
+expect id:report-card-switch-totals
+shot 34_report_cards_totals_off
+key back
+wait id:settings-bar-calendar
+key back
+wait id:calendar-add-event
+tap id:calendar-view-menu
+wait id:calendar-report-open
+tap id:calendar-report-open
+wait id:report-body
+wait id:report-nav-title
+expect --absent id:report-tile-events
+shot 34_report_without_totals
+scroll-to id:report-group-categories-qa-cal-strength --in id:report-body --max 20
+tap id:calendar-view-menu
+wait id:calendar-view-calendar
+tap id:calendar-view-calendar
+wait id:calendar-add-event
+tap id:calendar-more
+wait id:calendar-settings-open
+tap id:calendar-settings-open
+wait id:calendar-add-event --gone
+scroll-to id:calendar-settings-report-open --max 14
+tap id:calendar-settings-report-open
+wait id:settings-bar-report-cards
+tap id:report-card-switch-totals
+expect id:report-card-switch-totals
+shot 34_report_cards_totals_on
 key back
 wait id:settings-bar-calendar
 key back

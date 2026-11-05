@@ -27,6 +27,7 @@ import 'package:anta/models/fasting_schedule.dart';
 import 'package:anta/models/overview_list_options.dart';
 import 'package:anta/models/overview_period.dart';
 import 'package:anta/models/recurrence_rule.dart';
+import 'package:anta/models/report_cards.dart';
 import 'package:anta/services/backup_service.dart';
 import 'package:anta/services/calendar_event_service.dart';
 import 'package:anta/services/calendar_palette_service.dart';
@@ -595,6 +596,60 @@ void main() {
         (await OverviewViewService.getInstance()).views.map((v) => v.name),
         ['Q1 gym'],
       );
+    });
+  });
+
+  group('report cards', () {
+    final today = DateTime.utc(2026, 3, 15);
+    final cards = ReportCards.defaults
+        .toggled(ReportCardKind.dueSoon, false)
+        .moved(ReportCardKind.totals.index, 0);
+
+    Future<ReportCards> readCards() async {
+      SettingsService.reset();
+      DatabaseLifecycle.notifyDatabaseSwitching();
+      final settings = await SettingsService.getInstance();
+      return (await settings.getCalendarReportSettings(today: today)).cards;
+    }
+
+    test('the owner\'s list rides the archive and comes back', () async {
+      final settings = await SettingsService.getInstance();
+      await settings.setReportCards(cards);
+      final backup = await BackupService.getInstance();
+      final exported = await backup.exportAllData();
+      expect(
+        (exported['settings']
+            as Map<String, dynamic>)[SettingsKeys.reportCards],
+        cards.encode(),
+        reason: 'a key outside the allow-list is dropped without a warning',
+      );
+
+      // The opposite written back first, so an import that skips the key
+      // leaves the defaults rather than passing on leftovers.
+      await settings.setReportCards(ReportCards.defaults);
+      final result = await backup.importFromJson(jsonEncode(exported));
+      expect(result.success, isTrue, reason: 'error: ${result.error}');
+      expect(await readCards(), cards);
+      await (await SettingsService.getInstance()).setReportCards(
+        ReportCards.defaults,
+      );
+    });
+
+    test('an archive without the key leaves the defaults', () async {
+      final settings = await SettingsService.getInstance();
+      await settings.setReportCards(ReportCards.defaults);
+      final backup = await BackupService.getInstance();
+      final exported = await backup.exportAllData();
+      expect(
+        (exported['settings'] as Map<String, dynamic>).containsKey(
+          SettingsKeys.reportCards,
+        ),
+        isFalse,
+      );
+
+      final result = await backup.importFromJson(jsonEncode(exported));
+      expect(result.success, isTrue, reason: 'error: ${result.error}');
+      expect(await readCards(), ReportCards.defaults);
     });
   });
 

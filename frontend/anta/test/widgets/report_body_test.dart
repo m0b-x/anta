@@ -34,6 +34,7 @@ import 'package:anta/widgets/report_analytics_cards.dart';
 import 'package:anta/widgets/report_body.dart';
 import 'package:anta/widgets/report_group_stack.dart';
 import 'package:anta/widgets/report_totals_card.dart';
+import 'package:anta/widgets/report_year_cards.dart';
 
 import '../goldens/support/golden_fonts.dart';
 
@@ -182,12 +183,14 @@ void main() {
   );
 
   /// [shown] over [period] in place of the October fixture; [bandPeriod] the
-  /// band's title alone, its home staying [period].
+  /// band's title alone, its home staying [period]. [loading] draws no
+  /// report at all, as before the first fold lands.
   Future<void> pumpBody(
     WidgetTester tester, {
     Locale locale = const Locale('en'),
     double textScale = 1,
     Size surface = const Size(360, 780),
+    bool loading = false,
     CalendarReport? shown,
     OverviewPeriod period = october,
     Set<String> categoryIds = const {},
@@ -248,7 +251,7 @@ void main() {
                   ),
                   Expanded(
                     child: ReportBody(
-                      report: shown ?? report,
+                      report: loading ? null : shown ?? report,
                       period: period,
                       categoryIds: categoryIds,
                       today: today,
@@ -2748,37 +2751,39 @@ void main() {
       );
     });
 
-    /// [folded] with every card's content laid on, [insights] the Insights
-    /// card's.
-    CalendarReport everything({List<String> insights = const ['work']}) =>
-        CalendarReport(
-          span: folded.span,
-          today: folded.today,
-          tense: folded.tense,
-          countedTo: folded.countedTo,
-          previousSpan: folded.previousSpan,
-          previousCounted: folded.previousCounted,
-          events: folded.events,
-          tiles: folded.tiles,
-          skippedDays: folded.skippedDays,
-          aheadCount: folded.aheadCount,
-          categories: folded.categories,
-          trend: folded.trend,
-          missed: folded.missed,
-          ahead: folded.ahead,
-          measures: folded.measures,
-          goals: [goal],
-          insights: [for (final id in insights) insight(id)],
-          dueSoon: [due],
-          tags: [tag],
-          when: when,
-          balance: const {
-            LifeArea.health: 900,
-            LifeArea.work: 2400,
-            LifeArea.people: 300,
-          },
-          year: reviewed,
-        );
+    /// [folded] with every card's content laid on, the Insights card's one
+    /// about each of [insights], or [about] when given.
+    CalendarReport everything({
+      List<String> insights = const ['work'],
+      List<ReportInsight>? about,
+    }) => CalendarReport(
+      span: folded.span,
+      today: folded.today,
+      tense: folded.tense,
+      countedTo: folded.countedTo,
+      previousSpan: folded.previousSpan,
+      previousCounted: folded.previousCounted,
+      events: folded.events,
+      tiles: folded.tiles,
+      skippedDays: folded.skippedDays,
+      aheadCount: folded.aheadCount,
+      categories: folded.categories,
+      trend: folded.trend,
+      missed: folded.missed,
+      ahead: folded.ahead,
+      measures: folded.measures,
+      goals: [goal],
+      insights: about ?? [for (final id in insights) insight(id)],
+      dueSoon: [due],
+      tags: [tag],
+      when: when,
+      balance: const {
+        LifeArea.health: 900,
+        LifeArea.work: 2400,
+        LifeArea.people: 300,
+      },
+      year: reviewed,
+    );
 
     /// Each card's first sliver under the defaults.
     const heads = {
@@ -2960,6 +2965,116 @@ void main() {
       );
       expect(goalTaps(), isFalse);
       expect(insightTaps(), isFalse);
+    });
+
+    testWidgets('with By tag off an insight about a tag reads its category\'s '
+        'group, and has no tap with Categories off too', (tester) async {
+      final about = ReportInsight(
+        rule: InsightRule.r2,
+        severity: 0,
+        categoryId: seeds.first.id,
+        tagKey: tag.key,
+        target: InsightTarget.tagRows,
+        n1: 1,
+      );
+      var reveals = 0;
+      Future<void> pump(ReportCards cards) => pumpBody(
+        tester,
+        period: year,
+        shown: everything(about: [about]),
+        cards: cards,
+        onReveal: () => reveals++,
+      );
+      bool taps() => tester
+          .widget<ReportInsightsCard>(find.byType(ReportInsightsCard))
+          .canTap!(about);
+
+      final noTags = ReportCards.defaults.toggled(ReportCardKind.tags, false);
+      await pump(noTags);
+      expect(taps(), isTrue);
+      await tester.tap(byId(SemanticsIds.reportInsight(0)));
+      await tester.pumpAndSettle();
+      expect(reveals, 1);
+      expect(folds.isOpen(ReportCard.categories, seeds.first.id), isTrue);
+      expect(folds.isOpen(ReportCard.tags, tag.key), isFalse);
+
+      await pump(noTags.toggled(ReportCardKind.categories, false));
+      expect(taps(), isFalse);
+    });
+
+    testWidgets('with Due soon off an insight about a due row has no tap: its '
+        'card is not drawn to land on', (tester) async {
+      final unmarked = ReportInsight(
+        rule: InsightRule.d4,
+        severity: 3,
+        categoryId: seeds.first.id,
+        eventId: daily.id,
+        target: InsightTarget.dueSoon,
+        day: due.day,
+        n1: 1,
+      );
+      await pumpBody(
+        tester,
+        period: year,
+        shown: everything(about: [unmarked]),
+        cards: ReportCards.defaults.toggled(ReportCardKind.dueSoon, false),
+        onReveal: () {},
+      );
+      final card = tester.widget<ReportInsightsCard>(
+        find.byType(ReportInsightsCard),
+      );
+      expect(card.insights, [unmarked]);
+      expect(card.canTap!(unmarked), isFalse);
+    });
+
+    testWidgets('with Categories off a Months strip has no tap', (
+      tester,
+    ) async {
+      Future<bool> stripTaps(ReportCards cards) async {
+        await pumpBody(
+          tester,
+          period: year,
+          shown: everything(),
+          cards: cards,
+          onReveal: () {},
+        );
+        await tester.scrollUntilVisible(
+          sectionLabel('Months'),
+          200,
+          scrollable: bodyScrollable(),
+        );
+        return tester
+            .widget<ReportMonthsCard>(find.byType(ReportMonthsCard))
+            .canTap!(seeds.first.id);
+      }
+
+      expect(await stripTaps(ReportCards.defaults), isTrue);
+      expect(
+        await stripTaps(
+          ReportCards.defaults.toggled(ReportCardKind.categories, false),
+        ),
+        isFalse,
+      );
+    });
+
+    testWidgets('before the first report the Totals frame stands whatever the '
+        'cards say: the loading look is not a card', (tester) async {
+      final noTotals = ReportCards.defaults.toggled(
+        ReportCardKind.totals,
+        false,
+      );
+      await pumpBody(tester, period: year, loading: true, cards: noTotals);
+      expect(sliverSequence(tester), ['label Totals', 'ReportTotalsCard']);
+
+      // The report lands: the owner's list decides from here.
+      await pumpBody(
+        tester,
+        period: year,
+        shown: everything(),
+        cards: noTotals,
+      );
+      expect(sliverSequence(tester), isNot(contains('ReportTotalsCard')));
+      expect(tester.takeException(), isNull);
     });
 
     testWidgets('a refold with Over time first holds the Categories label '

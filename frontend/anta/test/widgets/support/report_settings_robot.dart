@@ -1,10 +1,11 @@
 import 'dart:ui' show Tristate;
 
 import 'package:flutter/material.dart';
-import 'package:flutter/semantics.dart' show CustomSemanticsAction;
+import 'package:flutter/rendering.dart' show RenderParagraph;
+import 'package:flutter/semantics.dart'
+    show CustomSemanticsAction, SemanticsNode;
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:anta/constants/form_metrics.dart';
 import 'package:anta/constants/semantics_ids.dart';
 import 'package:anta/models/report_cards.dart';
 import 'package:anta/pages/calendar_report_settings_page.dart';
@@ -58,12 +59,19 @@ class ReportSettingsRobot {
       )
       .value;
 
-  /// Whether the card's [name] is drawn at the switched-off opacity.
-  bool isDimmed(String name) => find
-      .ancestor(of: find.text(name), matching: find.byType(Opacity))
-      .evaluate()
-      .map((element) => (element.widget as Opacity).opacity)
-      .contains(FormMetrics.switchedOffOpacity);
+  /// Whether the card's [name] is drawn in the off role, `onSurfaceVariant`,
+  /// rather than the on one, `onSurface`.
+  bool isDimmed(String name) {
+    final text = find.text(name);
+    final color = tester.renderObject<RenderParagraph>(text).text.style?.color;
+    final scheme = Theme.of(tester.element(text)).colorScheme;
+    expect(
+      color,
+      anyOf(scheme.onSurface, scheme.onSurfaceVariant),
+      reason: '"$name" is in neither role',
+    );
+    return color == scheme.onSurfaceVariant;
+  }
 
   /// The cards top to bottom, as their handles stand.
   List<ReportCardKind> order() {
@@ -90,6 +98,15 @@ class ReportSettingsRobot {
     await settle();
   }
 
+  /// Every semantics node carrying [kind]'s handle id, as a dump lists them.
+  /// Needs semantics on.
+  FinderBase<SemanticsNode> handleNodes(ReportCardKind kind) =>
+      find.semantics.byPredicate(
+        (node) =>
+            node.getSemanticsData().identifier ==
+            SemanticsIds.reportCardHandle(kind.name),
+      );
+
   /// Whether [kind]'s handle offers [action] to a screen reader.
   bool offers(ReportCardKind kind, CustomSemanticsAction action) =>
       tester
@@ -100,22 +117,12 @@ class ReportSettingsRobot {
       false;
 
   /// Performs [action] on [kind]'s handle, as a screen reader's action
-  /// menu would, then lets the write land. Needs semantics on. The handle's
-  /// own merged node repeats the id; a screen reader only ever reaches the
-  /// node it is merged into.
+  /// menu would, then lets the write land. Needs semantics on.
   Future<void> perform(
     ReportCardKind kind,
     CustomSemanticsAction action,
   ) async {
-    tester.semantics.customAction(
-      find.semantics.byPredicate(
-        (node) =>
-            !node.isMergedIntoParent &&
-            node.getSemanticsData().identifier ==
-                SemanticsIds.reportCardHandle(kind.name),
-      ),
-      action,
-    );
+    tester.semantics.customAction(handleNodes(kind), action);
     await tester.pump();
     await settle();
   }

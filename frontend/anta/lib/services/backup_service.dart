@@ -291,6 +291,10 @@ class BackupService {
       // defaults on import.
       SettingsKeys.liveMarkdownRendering,
       SettingsKeys.previewModeEnabled,
+      // Which report cards the page draws, and in which order — a display
+      // preference like the ones above. Additive — a backup written before
+      // the key existed leaves every card on, in the page's own order.
+      SettingsKeys.reportCards,
     ];
 
     final settings = <String, dynamic>{};

@@ -413,6 +413,17 @@ class ReportBody extends StatefulWidget {
     };
   }
 
+  /// The insights the Insights card draws: the page's filter, which drops
+  /// what Goals and Due soon already say when [cards] draws them; none in a
+  /// plan, where nothing has happened to remark on. The page's slack rule
+  /// compares them too: a row's height follows its sentence.
+  static List<ReportInsight> pageInsights(
+    CalendarReport report,
+    ReportCards cards,
+  ) => report.tense == ReportTense.future
+      ? const []
+      : ReportInsightFilter.forPage(report, cards: cards);
+
   @override
   State<ReportBody> createState() => _ReportBodyState();
 }
@@ -489,7 +500,7 @@ class _ReportBodyState extends State<ReportBody> {
       ...switch (kind) {
         ReportCardKind.goals => [if (report.goals.isNotEmpty) #goals],
         ReportCardKind.insights => [
-          if (_pageInsights(report, cards).isNotEmpty) #insights,
+          if (ReportBody.pageInsights(report, cards).isNotEmpty) #insights,
         ],
         ReportCardKind.dueSoon => [if (report.dueSoon.isNotEmpty) #dueSoon],
         ReportCardKind.totals => [
@@ -522,16 +533,6 @@ class _ReportBodyState extends State<ReportBody> {
 
   /// Whether the owner's cards draw [kind].
   bool _shows(ReportCardKind kind) => !widget.cards.off.contains(kind);
-
-  /// The insights the Insights card draws: the page's filter, which drops
-  /// what Goals and Due soon already say when [cards] draws them; none in a
-  /// plan, where nothing has happened to remark on.
-  static List<ReportInsight> _pageInsights(
-    CalendarReport report,
-    ReportCards cards,
-  ) => report.tense == ReportTense.future
-      ? const []
-      : ReportInsightFilter.forPage(report, cards: cards);
 
   @override
   void dispose() {
@@ -691,12 +692,18 @@ class _ReportBodyState extends State<ReportBody> {
               RowMetrics.groupInset,
               FormMetrics.bodyBottom + clearance,
             ),
+            // Before the first report only the Totals frame with dashes,
+            // whatever the cards say: the loading look is not a card the
+            // owner turned off, and a page opening on dashes, then blank,
+            // then the report would flicker.
             sliver: SliverMainAxisGroup(
-              slivers: _spaced([
-                for (final kind in widget.cards.shown)
-                  _card(kind, l10n, labels, report, totals: totals),
-                footer,
-              ]),
+              slivers: report == null
+                  ? [totals]
+                  : _spaced([
+                      for (final kind in widget.cards.shown)
+                        _card(kind, l10n, labels, report, totals: totals),
+                      footer,
+                    ]),
             ),
           ),
           if (slack == null)
@@ -835,18 +842,13 @@ class _ReportBodyState extends State<ReportBody> {
 
   /// [kind]'s slivers, its label first, with no gap; none when the card has
   /// nothing to show (H), so a label never stands over an empty card.
-  /// Before the first report only [totals], the frame with dashes, is
-  /// drawn.
   List<Widget> _card(
     ReportCardKind kind,
     AppLocalizations l10n,
     ReportLabels labels,
-    CalendarReport? report, {
+    CalendarReport report, {
     required Widget totals,
   }) {
-    if (report == null) {
-      return kind == ReportCardKind.totals ? [totals] : const [];
-    }
     return switch (kind) {
       ReportCardKind.goals => _goalsCard(l10n, labels, report),
       ReportCardKind.insights => _insightsCard(l10n, labels, report),
@@ -1040,14 +1042,14 @@ class _ReportBodyState extends State<ReportBody> {
     );
   }
 
-  /// Insights (S4 §2.1): [_pageInsights], absent when the filter leaves
-  /// none.
+  /// Insights (S4 §2.1): [ReportBody.pageInsights], absent when the filter
+  /// leaves none.
   List<Widget> _insightsCard(
     AppLocalizations l10n,
     ReportLabels labels,
     CalendarReport report,
   ) {
-    final insights = _pageInsights(report, widget.cards);
+    final insights = ReportBody.pageInsights(report, widget.cards);
     if (insights.isEmpty) return const [];
     return _labelled(
       #insights,
