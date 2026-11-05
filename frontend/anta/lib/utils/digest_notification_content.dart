@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart' show visibleForTesting;
+
 import '../constants/alert_constants.dart';
 import '../constants/analytics_metrics.dart';
 import '../l10n/app_localizations.dart';
@@ -110,7 +112,7 @@ DigestNotificationContent digestNotificationContent(
 }
 
 /// A report digest's words (P): "Weekly report · Gym" over the summary line,
-/// the judgments (F: the goals, the due-soon rows and the top insight, each
+/// the judgments (F: the goals, the due-soon rows and the top insights, each
 /// line present only with something to say), then one line per category in
 /// the report's order — all worded by the same [ReportLabels] the page uses
 /// so the two never read a number two ways. Without [report] the body is
@@ -151,7 +153,7 @@ DigestNotificationContent _reportContent(
     ),
     ?_goalsLine(report, words, categoryLabel: categoryLabel),
     ?_dueLine(report, words),
-    ?_insightLine(
+    ...reportDigestInsightLines(
       report,
       words,
       categoryLabel: categoryLabel,
@@ -252,31 +254,37 @@ String? _dueLine(CalendarReport report, ReportLabels words) {
   ].join(ReportLabels.separator);
 }
 
-/// The page's top insight as its row reads, "{subject} · {detail}": the
-/// Insights card's own filter, so the line never repeats what the goals
-/// and due lines above it already say; null when none is left.
-String? _insightLine(
+/// The page's top [count] insights as their rows read, "{subject} ·
+/// {detail}", one line each: the Insights card's own filter, which drops
+/// the insights about every goal and every due row of the report — those
+/// the goals and due lines above name and those they leave out alike;
+/// empty when none is left. [count] is the digest's constant; a test
+/// raises it.
+@visibleForTesting
+List<String> reportDigestInsightLines(
   CalendarReport report,
   ReportLabels words, {
   required String Function(String categoryId) categoryLabel,
   required CalendarWeekStart weekStart,
+  int count = AnalyticsMetrics.insightsInDigest,
 }) {
-  final insight = ReportInsightFilter.forPage(
-    report,
-  ).take(AnalyticsMetrics.insightsInDigest).firstOrNull;
-  if (insight == null) return null;
-  final categoryId = insight.categoryId;
-  // With no one category the labels' own nouns stand in, as on the page.
-  final category = categoryId == null ? '' : categoryLabel(categoryId);
+  String line(ReportInsight insight) {
+    final category = words.insightCategory(insight, name: categoryLabel);
+    return [
+      words.insightSubject(insight, report, category: category),
+      words.insightDetail(
+        insight,
+        report,
+        category: category,
+        weekStart: weekStart,
+      ),
+    ].join(ReportLabels.separator);
+  }
+
   return [
-    words.insightSubject(insight, report, category: category),
-    words.insightDetail(
-      insight,
-      report,
-      category: category,
-      weekStart: weekStart,
-    ),
-  ].join(ReportLabels.separator);
+    for (final insight in ReportInsightFilter.forPage(report).take(count))
+      line(insight),
+  ];
 }
 
 /// One category's line, worded by the shape with the most occurrences in it

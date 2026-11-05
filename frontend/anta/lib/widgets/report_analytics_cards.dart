@@ -353,14 +353,7 @@ class ReportInsightsCard extends StatelessWidget {
   }
 
   Widget _row(ColorScheme scheme, int rank, ReportInsight insight) {
-    final categoryId = insight.categoryId;
-    // With no one category the labels' own nouns stand in.
-    final category = categoryId == null
-        ? ''
-        : CalendarCategories.labelOf(
-            CalendarCategories.resolve(categoryId),
-            labels.l10n,
-          );
+    final category = labels.insightCategory(insight);
     final onInsightTap = canTap?.call(insight) ?? true
         ? this.onInsightTap
         : null;
@@ -589,26 +582,21 @@ class ReportBalanceCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final balance = report.balance;
+    final rows = report.balanceRows();
     if (report.balanceLastYear case final lastYear?) {
-      return _withLastYear(context, balance, lastYear);
+      return _withLastYear(context, rows, report.balance, lastYear);
     }
-    if (balance.length < AnalyticsMetrics.balanceMinAreas) {
+    if (rows.length < AnalyticsMetrics.balanceMinAreas) {
       return const SizedBox.shrink();
     }
     final scheme = Theme.of(context).colorScheme;
-    final areas = balance.entries.toList()
-      ..sort((a, b) {
-        final byMinutes = b.value.compareTo(a.value);
-        return byMinutes != 0 ? byMinutes : a.key.index - b.key.index;
-      });
     // Shared out once over the shown order, so the rows sum to 100.
-    final shares = ReportLabels.shares([for (final area in areas) area.value]);
-    final largest = areas.first.value;
+    final shares = ReportLabels.shares([for (final row in rows) row.minutes]);
+    final largest = rows.first.minutes;
     return FormRowGroup(
       trailingGap: false,
       children: [
-        for (final (i, MapEntry(key: area, value: minutes)) in areas.indexed)
+        for (final (i, (:area, :minutes, lastYear: _)) in rows.indexed)
           _row(scheme, area, minutes, percent: shares[i], largest: largest),
       ],
     );
@@ -645,17 +633,11 @@ class ReportBalanceCard extends StatelessWidget {
   /// the caption draws it.
   Widget _withLastYear(
     BuildContext context,
+    List<({LifeArea area, int minutes, int lastYear})> rows,
     Map<LifeArea, int> balance,
     Map<LifeArea, int> lastYear,
   ) {
-    final areas = {...balance.keys, ...lastYear.keys}.toList()
-      ..sort((a, b) {
-        final byMinutes = (balance[b] ?? 0).compareTo(balance[a] ?? 0);
-        if (byMinutes != 0) return byMinutes;
-        final byLastYear = (lastYear[b] ?? 0).compareTo(lastYear[a] ?? 0);
-        return byLastYear != 0 ? byLastYear : a.index - b.index;
-      });
-    if (areas.length < AnalyticsMetrics.balanceMinAreas) {
+    if (rows.length < AnalyticsMetrics.balanceMinAreas) {
       return const SizedBox.shrink();
     }
     final scale = [...balance.values, ...lastYear.values].fold(0, math.max);
@@ -675,12 +657,12 @@ class ReportBalanceCard extends StatelessWidget {
         return FormRowGroup(
           trailingGap: false,
           children: [
-            for (final area in areas)
+            for (final row in rows)
               _lastYearRow(
                 scheme,
-                area,
-                balance[area] ?? 0,
-                lastYear[area] ?? 0,
+                row.area,
+                row.minutes,
+                row.lastYear,
                 share: share,
                 lines: (templates) => reportCaptionLines(
                   templates,

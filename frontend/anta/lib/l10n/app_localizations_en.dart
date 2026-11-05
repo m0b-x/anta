@@ -5563,8 +5563,8 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
-  String reportDigestGoalGap(String name, String since, int limit) {
-    return '$name $since (limit $limit)';
+  String reportDigestGoalGap(String name, String since, String limit) {
+    return '$name $since ($limit)';
   }
 
   @override

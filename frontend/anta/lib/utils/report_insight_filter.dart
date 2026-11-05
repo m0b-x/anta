@@ -4,7 +4,9 @@ import '../models/calendar_report.dart';
 /// Which of a report's insights the page's Insights card shows (S4 H): a
 /// goal's or a due row's own news is already said on the card above, so
 /// saying it again in the sentence below only pushes Totals further down.
-/// The digest reads [CalendarReport.insights] whole; only the page drops.
+/// The page, the shared Markdown and the report digest all read
+/// [forPage], each capping it to its own count, so the three never pick
+/// different insights.
 abstract final class ReportInsightFilter {
   /// [report]'s insights in their rank order, without G1–G3 whose category
   /// has a row in the Goals card, G4's milestone whose category's periodic

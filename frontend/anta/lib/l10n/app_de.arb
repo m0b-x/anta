@@ -2930,7 +2930,7 @@
   "reportDigestGoalMet": "{name} {value} von {target} ✓",
   "reportDigestGoalOver": "{name} {value} (über {target})",
   "reportDigestGoalPace": "{name} {value} von {target}",
-  "reportDigestGoalGap": "{name} {since} (max. {limit})",
+  "reportDigestGoalGap": "{name} {since} ({limit})",
   "reportDigestGoalPeriods": "{name} {periods}",
   "reportDigestDueItem": "{title} {phrase}",
   "alertsDoneAction": "Erledigt",

@@ -1501,6 +1501,34 @@ class CalendarReport extends Equatable {
   /// says so in one caption.
   bool get isEmpty => categories.isEmpty && aheadCount == 0;
 
+  /// The first month, 1-based, of a whole year that has not happened —
+  /// the one after today's in the current year, where the Months card
+  /// outlines and its spoken label and the share stop; null on a past
+  /// year and on any span that is no whole year.
+  int? get aheadFromMonth =>
+      year != null && span.start.year == today.year ? today.month + 1 : null;
+
+  /// Balance's rows in the card's order, which the share writes too: this
+  /// span's most minutes first, then last span's, ties in [LifeArea]'s
+  /// order. Under Compare: last year the areas of both spans, an area
+  /// absent from one at 0 there; else [balance]'s alone, last year 0.
+  List<({LifeArea area, int minutes, int lastYear})> balanceRows() {
+    final lastYear = balanceLastYear ?? const <LifeArea, int>{};
+    return [
+      for (final area in {...balance.keys, ...lastYear.keys})
+        (
+          area: area,
+          minutes: balance[area] ?? 0,
+          lastYear: lastYear[area] ?? 0,
+        ),
+    ]..sort((a, b) {
+      final byMinutes = b.minutes.compareTo(a.minutes);
+      if (byMinutes != 0) return byMinutes;
+      final byLastYear = b.lastYear.compareTo(a.lastYear);
+      return byLastYear != 0 ? byLastYear : a.area.index - b.area.index;
+    });
+  }
+
   /// This report with [insights] — the fold's last step, since the rules
   /// read the folded report they join.
   CalendarReport withInsights(List<ReportInsight> insights) =>

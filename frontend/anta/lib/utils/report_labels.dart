@@ -1066,21 +1066,26 @@ class ReportLabels {
   /// A goal as the shared Markdown writes it (S7): the caption the Goals
   /// card draws — on a whole year the tally once one of its periods has
   /// closed, as the card reads it — then the state word the glyph carries
-  /// where the caption does not say it, the spoken forms' rule: "2 of 3 ·
-  /// one more by Sunday · On pace", "3 of 4 weeks met". A shared text has
-  /// no glyph, so the word stands in for it.
+  /// where the caption does not say it, before the streak as [goalSpoken]
+  /// says it: "2 of 3 · one more by Sunday · on pace · 4 in a row", "3 of
+  /// 4 weeks met". A shared text has no glyph, so the word stands in for
+  /// it; a goal with no period yet reads the word alone ("not started").
   String goalSharedCaption(ReportGoal goal, CalendarReport report) {
     final tally = report.year?.goalTallies[goal.categoryId];
+    final List<String> parts;
     if (tally != null && tally.closed > 0) {
-      return [
+      parts = [
         goalYearWords(goal, tally, report, name: '').caption,
         goalStateWord(goal, report),
-      ].join(separator);
+      ];
+    } else {
+      parts = [
+        ..._goalFacts(goal, report).map(_bindNumbers),
+        if (!_captionSaysState(goal, report)) goalStateWord(goal, report),
+        if (_hasStreak(goal)) _bindNumbers(l10n.reportGoalStreak(goal.streak)),
+      ];
     }
-    return [
-      goalCaption(goal, report),
-      if (!_captionSaysState(goal, report)) goalStateWord(goal, report),
-    ].join(separator);
+    return parts.where((part) => part.isNotEmpty).join(separator);
   }
 
   /// Where [goal] stands in the report digest's Goals line, 0 first (S7):
@@ -1104,21 +1109,26 @@ class ReportLabels {
   /// of 3 ✓", "Work 42 h (over 40)", "Friends 1 of 2", "Dentist 23 days
   /// (limit 14)", or a past span of several periods "Gym 3 of 4 weeks met"
   /// — the period the card reads, in the card's units, [name] the
-  /// category's. The gap's figures sit in brackets because the line's own
-  /// [separator] parts its items. Every number is bound to its words (W).
+  /// category's; before any period the state word, "Friends not started",
+  /// as the card's glyph says it. The gap's facts are the card's own
+  /// phrases, its limit in brackets because the line's own [separator]
+  /// parts its items. Every number is bound to its words (W).
   String goalDigest(String name, ReportGoal goal, CalendarReport report) {
     final target = goal.target;
     final period = target.period;
     if (target.kind == TargetKind.maxGap || period == null) {
       final gap = goal.gap;
-      final since = _gapFacts(
+      final [since, limit] = _gapFacts(
         days: gap?.daysSince,
         long: gap?.beyondLookback ?? false,
         limit: target.value,
-      ).first;
-      return _bindNumbers(
-        l10n.reportDigestGoalGap(name, _lowerFirst(since), target.value),
       );
+      return _bindNumbers(
+        l10n.reportDigestGoalGap(name, _lowerFirst(since), limit),
+      );
+    }
+    if (goalPeriod(goal, report) == null) {
+      return l10n.reportDigestGoalPeriods(name, goalStateWord(goal, report));
     }
     if (_readsPeriodsMet(goal, report)) {
       final closed = closedPeriods(goal, report);
@@ -1246,6 +1256,24 @@ class ReportLabels {
     1 => l10n.reportInsightObservation,
     _ => l10n.reportInsightInfo,
   };
+
+  /// The [category] [insightSubject] and [insightDetail] read for
+  /// [insight], one rule for the card, the share and the digest: '' for an
+  /// insight about no one category, whose words then name the rule's own
+  /// noun; else [name] for its category — the digest's names custom
+  /// categories — or the built-in label.
+  String insightCategory(
+    ReportInsight insight, {
+    String Function(String categoryId)? name,
+  }) {
+    final categoryId = insight.categoryId;
+    if (categoryId == null) return '';
+    return name?.call(categoryId) ??
+        CalendarCategories.labelOf(
+          CalendarCategories.resolve(categoryId),
+          l10n,
+        );
+  }
 
   /// An insight row's label (I): [category] — the display name of the
   /// insight's category, resolved by the caller as for [groupSpoken] —
@@ -1470,33 +1498,50 @@ class ReportLabels {
   /// marked", "Dec 1 · in 12 days"; a gap last kept before the lookback
   /// "Over a year ago". Numbers are bound to their words (W).
   String dueCaption(ReportDueRow row, CalendarReport report) {
+    final (:dated, :phrase, digest: _) = _duePhrases(row);
+    return [
+      if (dated) _dayMonth.format(row.day),
+      phrase,
+    ].map(_bindNumbers).join(separator);
+  }
+
+  /// [row]'s words, which [dueCaption] and [dueDigest] both read: whether
+  /// the caption names the row's day beside [phrase], and the digest's own
+  /// phrase where it differs — a gap not yet due drops the card's "Due",
+  /// which the digest's line already leads with — else null.
+  ({bool dated, String phrase, String? digest}) _duePhrases(ReportDueRow row) {
     final days = row.days;
-    final List<String> facts;
+    final overdue = row.state == ReportDueState.overdue;
     if (row.kind == ReportDueKind.gap && row.beyondLookback) {
-      facts = [l10n.reportDueLong];
-    } else {
-      facts = switch (row.kind) {
-        ReportDueKind.gap => [
-          row.state == ReportDueState.overdue
-              ? l10n.reportDueOverdue(days)
-              : l10n.reportDueIn(days),
-        ],
-        ReportDueKind.expiry => [
-          row.state == ReportDueState.overdue
-              ? l10n.reportDueExpired(days)
-              : l10n.reportDueExpires(days),
-        ],
-        ReportDueKind.unmarked => [
-          _dayMonth.format(row.day),
-          l10n.reportDueNotMarked,
-        ],
-        ReportDueKind.upcoming => [
-          _dayMonth.format(row.day),
-          l10n.reportDaysUntil(days),
-        ],
-      };
+      return (dated: false, phrase: l10n.reportDueLong, digest: null);
     }
-    return facts.map(_bindNumbers).join(separator);
+    return switch (row.kind) {
+      ReportDueKind.gap =>
+        overdue
+            ? (dated: false, phrase: l10n.reportDueOverdue(days), digest: null)
+            : (
+                dated: false,
+                phrase: l10n.reportDueIn(days),
+                digest: l10n.reportDaysUntil(days),
+              ),
+      ReportDueKind.expiry => (
+        dated: false,
+        phrase: overdue
+            ? l10n.reportDueExpired(days)
+            : l10n.reportDueExpires(days),
+        digest: null,
+      ),
+      ReportDueKind.unmarked => (
+        dated: true,
+        phrase: l10n.reportDueNotMarked,
+        digest: null,
+      ),
+      ReportDueKind.upcoming => (
+        dated: true,
+        phrase: l10n.reportDaysUntil(days),
+        digest: null,
+      ),
+    };
   }
 
   /// What a screen reader hears for a Due soon row: "{title}, {phrase}",
@@ -1511,24 +1556,10 @@ class ReportLabels {
   /// leads with "Due" and its [separator] parts the items. Numbers are
   /// bound to their words (W).
   String dueDigest(String title, ReportDueRow row) {
-    final days = row.days;
-    final overdue = row.state == ReportDueState.overdue;
-    final phrase = row.kind == ReportDueKind.gap && row.beyondLookback
-        ? _lowerFirst(l10n.reportDueLong)
-        : switch (row.kind) {
-            ReportDueKind.gap =>
-              overdue
-                  ? _lowerFirst(l10n.reportDueOverdue(days))
-                  : l10n.reportDaysUntil(days),
-            ReportDueKind.expiry => _lowerFirst(
-              overdue
-                  ? l10n.reportDueExpired(days)
-                  : l10n.reportDueExpires(days),
-            ),
-            ReportDueKind.unmarked => l10n.reportDueNotMarked,
-            ReportDueKind.upcoming => l10n.reportDaysUntil(days),
-          };
-    return _bindNumbers(l10n.reportDigestDueItem(title, phrase));
+    final (dated: _, :phrase, :digest) = _duePhrases(row);
+    return _bindNumbers(
+      l10n.reportDigestDueItem(title, digest ?? _lowerFirst(phrase)),
+    );
   }
 
   /// The `reportTagCount` noun of a tag whose first category is of [kind]

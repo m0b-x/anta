@@ -7114,9 +7114,9 @@
       }
     }
   },
-  "reportDigestGoalGap": "{name} {since} (limit {limit})",
+  "reportDigestGoalGap": "{name} {since} ({limit})",
   "@reportDigestGoalGap": {
-    "description": "One most-days-between goal in a report notification's goals line: the category, the time since it last happened (reportGoalGapDays, lowercase), then the most days allowed",
+    "description": "One most-days-between goal in a report notification's goals line: the category, the time since it last happened (reportGoalGapDays, lowercase), then in brackets the most days allowed as the goal card words it (reportGoalLimit)",
     "placeholders": {
       "name": {
         "type": "String",
@@ -7127,13 +7127,14 @@
         "example": "23 days"
       },
       "limit": {
-        "type": "int"
+        "type": "String",
+        "example": "limit 14"
       }
     }
   },
   "reportDigestGoalPeriods": "{name} {periods}",
   "@reportDigestGoalPeriods": {
-    "description": "One goal in a report notification's goals line when the report spans several of its periods: the category, then how many periods met it (reportGoalPeriodsMet)",
+    "description": "One goal in a report notification's goals line when the report spans several of its periods: the category, then how many periods met it (reportGoalPeriodsMet); also the category then its state word (reportGoalStateNotStarted) for a goal with no period yet",
     "placeholders": {
       "name": {
         "type": "String",

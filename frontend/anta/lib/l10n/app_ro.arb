@@ -1796,7 +1796,7 @@
   "reportDigestGoalMet": "{name} {value} din {target} ✓",
   "reportDigestGoalOver": "{name} {value} (peste {target})",
   "reportDigestGoalPace": "{name} {value} din {target}",
-  "reportDigestGoalGap": "{name} {since} (limită {limit})",
+  "reportDigestGoalGap": "{name} {since} ({limit})",
   "reportDigestGoalPeriods": "{name} {periods}",
   "reportDigestDueItem": "{title} {phrase}",
   "alertsDoneAction": "Gata",

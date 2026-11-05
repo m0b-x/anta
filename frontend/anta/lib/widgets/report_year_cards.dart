@@ -438,9 +438,7 @@ class _ReportMonthsCardState extends State<ReportMonthsCard> {
     ];
     // Today's month draws its value so far; only the months after it, in
     // the current year, are still ahead.
-    final aheadFrom = report.today.year == report.span.start.year
-        ? report.today.month
-        : DateTime.monthsPerYear;
+    final aheadFrom = (report.aheadFromMonth ?? DateTime.monthsPerYear + 1) - 1;
     const cap = AnalyticsMetrics.yearMonthsStripCategories;
     final capped = strips.length > cap;
     final expanded = capped && widget.folds.isMonthsExpanded;
@@ -540,9 +538,7 @@ class _ReportMonthsCardState extends State<ReportMonthsCard> {
         primary: report.measures[categoryId]?.primary ?? ReportMeasure.count,
         // The list stops at today's month in the current year: the months
         // after it have not happened.
-        aheadFrom: report.span.start.year == report.today.year
-            ? report.today.month + 1
-            : null,
+        aheadFrom: report.aheadFromMonth,
       ),
       identifier: SemanticsIds.reportYearMonths(categoryId),
     );

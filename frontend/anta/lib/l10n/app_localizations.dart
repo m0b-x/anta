@@ -9364,13 +9364,13 @@ abstract class AppLocalizations {
   /// **'{name} {value} of {target}'**
   String reportDigestGoalPace(String name, String value, String target);
 
-  /// One most-days-between goal in a report notification's goals line: the category, the time since it last happened (reportGoalGapDays, lowercase), then the most days allowed
+  /// One most-days-between goal in a report notification's goals line: the category, the time since it last happened (reportGoalGapDays, lowercase), then in brackets the most days allowed as the goal card words it (reportGoalLimit)
   ///
   /// In en, this message translates to:
-  /// **'{name} {since} (limit {limit})'**
-  String reportDigestGoalGap(String name, String since, int limit);
+  /// **'{name} {since} ({limit})'**
+  String reportDigestGoalGap(String name, String since, String limit);
 
-  /// One goal in a report notification's goals line when the report spans several of its periods: the category, then how many periods met it (reportGoalPeriodsMet)
+  /// One goal in a report notification's goals line when the report spans several of its periods: the category, then how many periods met it (reportGoalPeriodsMet); also the category then its state word (reportGoalStateNotStarted) for a goal with no period yet
   ///
   /// In en, this message translates to:
   /// **'{name} {periods}'**

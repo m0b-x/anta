@@ -705,7 +705,7 @@ void main() {
     });
 
     group('the goals, due and insight lines (S7)', () {
-      const nb = ' ';
+      const nb = '\u00a0';
       final summary = '2 of 3 attended${sep}4.5 h${sep}1 missed';
       final dentist = reportEvent(
         'Dentist',
@@ -1024,13 +1024,99 @@ void main() {
           'Trips${sep}212${nb}Tage seit dem letzten Mal, das Limit '
               'ist${nb}180',
         ]);
-        expect(romanian.lines.sublist(1, 3), [
+        expect(romanian.lines.sublist(1, 4), [
           'Obiective${sep}Gym${nb}2${nb}din${nb}3'
               '${sep}Work${nb}42${nb}h (peste${nb}40)'
               '${sep}Dentist${nb}162${nb}de zile (limită${nb}180)',
           'Scadente${sep}Car service${nb}32${nb}de zile întârziere'
               '${sep}Dentist peste${nb}18${nb}zile',
+          // 212 takes Romanian's "few" form: no "de".
+          'Trips${sep}212${nb}zile de la ultima dată, limita e${nb}180',
         ]);
+      });
+
+      test('a goal with no period yet is its state word, no bare '
+          'separator', () {
+        final none = ReportGoal(
+          categoryId: 'work',
+          measure: ReportMeasure.count,
+          target: const ReportTarget(
+            kind: TargetKind.atLeast,
+            value: 2,
+            period: TargetPeriod.week,
+          ),
+        );
+
+        final content = reportContent(
+          reportFire(),
+          report: judged(goals: [none]),
+        );
+
+        expect(content.lines[1], 'Goals${sep}Work not started');
+      });
+
+      test('every insight the filter leaves, up to the count', () {
+        final report = full();
+        List<String> lines(int count) => reportDigestInsightLines(
+          report,
+          ReportLabels(en),
+          categoryLabel: reportLabel,
+          weekStart: CalendarWeekStart.monday,
+          count: count,
+        );
+
+        expect(
+          reportDigestInsightLines(
+            report,
+            ReportLabels(en),
+            categoryLabel: reportLabel,
+            weekStart: CalendarWeekStart.monday,
+          ),
+          [insightLine],
+        );
+        expect(lines(2), [
+          insightLine,
+          'Mobility${sep}212${nb}days since the last, the limit is${nb}180',
+        ]);
+        // Only two are left after the page's filter, however many are asked.
+        expect(lines(5), hasLength(2));
+      });
+
+      test('an insight about no one category names its own noun', () {
+        const bills = ReportInsight(
+          rule: InsightRule.m1,
+          severity: 2,
+          target: InsightTarget.dueSoon,
+          cents: 12000,
+        );
+        final report = judged(insights: [bills]);
+        final labels = ReportLabels(en);
+
+        final content = reportContent(reportFire(), report: report);
+
+        expect(
+          content.lines[1],
+          'Bills$sep'
+          '${labels.insightDetail(bills, report, category: '', weekStart: CalendarWeekStart.monday)}',
+        );
+      });
+
+      test('a due row whose event is gone falls back to its id', () {
+        final gone = ReportDueRow(
+          categoryId: 'other',
+          eventId: 'gone',
+          day: DateTime.utc(2026, 10, 30),
+          kind: ReportDueKind.unmarked,
+          state: ReportDueState.unmarked,
+          days: 3,
+        );
+
+        final content = reportContent(
+          reportFire(),
+          report: judged(dueSoon: [gone]),
+        );
+
+        expect(content.lines[1], 'Due${sep}gone not marked');
       });
     });
   });

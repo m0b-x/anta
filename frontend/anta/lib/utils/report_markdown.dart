@@ -56,9 +56,12 @@ abstract final class ReportMarkdown {
       block(list.join('\n'));
     }
 
-    String categoryName(String categoryId) => escapeMarkdown(
-      CalendarCategories.labelOf(CalendarCategories.resolve(categoryId), l10n),
+    String categoryLabel(String categoryId) => CalendarCategories.labelOf(
+      CalendarCategories.resolve(categoryId),
+      l10n,
     );
+    String categoryName(String categoryId) =>
+        escapeMarkdown(categoryLabel(categoryId));
 
     block('# ${l10n.reportTitle}$dot$periodName');
     block(labels.subtitle(report));
@@ -89,26 +92,28 @@ abstract final class ReportMarkdown {
             ': ${labels.dueCaption(row, report)}',
     ]);
 
-    if (report.tiles.isNotEmpty) {
+    final view = report.compare == ReportCompare.view ? report.compared : null;
+    final viewTiles = beside == null ? null : view?.tiles;
+    if (report.tiles.isNotEmpty || (viewTiles?.isNotEmpty ?? false)) {
       block('## ${l10n.reportSectionTotals}');
+    }
+    if (report.tiles.isNotEmpty) {
       block(
         [
           for (final tile in report.tiles)
             _tileLine(beside == null ? tile : _withoutDelta(tile), labels),
         ].join('\n'),
       );
-      final view = report.compare == ReportCompare.view
-          ? report.compared
-          : null;
-      if (beside != null && view != null && view.tiles.isNotEmpty) {
-        block('### ${escapeMarkdown(beside)}');
-        block(
-          [
-            for (final tile in view.tiles)
-              _tileLine(_withoutDelta(tile), labels),
-          ].join('\n'),
-        );
-      }
+    }
+    // The view's column stands on its own: a period with nothing counted
+    // beside a view that has tiles still shows the view's.
+    if (beside != null && viewTiles != null && viewTiles.isNotEmpty) {
+      block('### ${_escapeInline(beside)}');
+      block(
+        [
+          for (final tile in viewTiles) _tileLine(_withoutDelta(tile), labels),
+        ].join('\n'),
+      );
     }
 
     final year = report.year;
@@ -118,10 +123,6 @@ abstract final class ReportMarkdown {
           '- ${labels.recordName(record.kind)}: '
               '${_escapeInline(labels.recordWords(record, report).caption)}',
       ]);
-      // The months after today's in the current year have not happened.
-      final aheadFrom = report.span.start.year == report.today.year
-          ? report.today.month + 1
-          : null;
       section(l10n.reportSectionMonths, [
         for (final group in report.categories)
           if ((year.months[group.categoryId], year.spans[group.categoryId])
@@ -134,7 +135,7 @@ abstract final class ReportMarkdown {
                 primary:
                     report.measures[group.categoryId]?.primary ??
                     ReportMeasure.count,
-                aheadFrom: aheadFrom,
+                aheadFrom: report.aheadFromMonth,
               ),
             ),
       ]);
@@ -169,7 +170,8 @@ abstract final class ReportMarkdown {
       if (all.isEmpty) return;
       block('## $label');
       for (final group in all) {
-        final name = categoryName(group.categoryId);
+        // A heading starts no list, so only its syntax characters escape.
+        final name = _escapeInline(categoryLabel(group.categoryId));
         block('### $name$dot${labels.groupFacts(card, group)}');
         rows(group.rows);
       }
@@ -188,7 +190,7 @@ abstract final class ReportMarkdown {
           spansMonths: spansMonths,
           today: report.today,
         );
-        block('### #${escapeMarkdown(tag.label)}$dot${words.caption}');
+        block('### #${_escapeInline(tag.label)}$dot${words.caption}');
         rows(tag.rows);
       }
     }
@@ -209,8 +211,14 @@ abstract final class ReportMarkdown {
       block('## ${l10n.reportSectionWhen}');
       block(whenWords.caption);
     }
-    if (report.balance.length >= AnalyticsMetrics.balanceMinAreas) {
-      section(l10n.reportSectionBalance, _balanceLines(report, labels));
+    // The card's rows decide, the union of both spans under Compare: last
+    // year, so the share writes Balance exactly when the page draws it.
+    final balanceRows = report.balanceRows();
+    if (balanceRows.length >= AnalyticsMetrics.balanceMinAreas) {
+      section(
+        l10n.reportSectionBalance,
+        _balanceLines(report, balanceRows, labels),
+      );
     }
     if (!plan) {
       card(ReportCard.missed, l10n.reportSectionMissed, report.missed);
@@ -233,14 +241,7 @@ abstract final class ReportMarkdown {
     ReportLabels labels, {
     required CalendarWeekStart weekStart,
   }) {
-    final categoryId = insight.categoryId;
-    // With no one category the labels' own nouns stand in, as on the card.
-    final category = categoryId == null
-        ? ''
-        : CalendarCategories.labelOf(
-            CalendarCategories.resolve(categoryId),
-            labels.l10n,
-          );
+    final category = labels.insightCategory(insight);
     final subject = labels.insightSubject(insight, report, category: category);
     final tagged =
         insight.rule == InsightRule.r1 || insight.rule == InsightRule.r2;
@@ -263,47 +264,28 @@ abstract final class ReportMarkdown {
       ? '- $name: $span'
       : '- $name: $span${ReportLabels.separator}$months';
 
-  /// The Balance rows, in the card's order and words: the most hours first,
-  /// ties in [LifeArea]'s order, each "38 h · 67 %" of the hours shown; under
-  /// Compare: last year the areas of both spans, by this span's hours, then
-  /// last year's, each "1,720 h · last year 1,650 h".
+  /// The Balance [rows], in the card's order ([CalendarReport.balanceRows])
+  /// and words: each "38 h · 67 %" of the hours shown; under Compare: last
+  /// year "1,720 h · last year 1,650 h".
   static List<String> _balanceLines(
     CalendarReport report,
+    List<({LifeArea area, int minutes, int lastYear})> rows,
     ReportLabels labels,
   ) {
-    final balance = report.balance;
     String line(LifeArea area, String caption) =>
         '- ${labels.areaName(area)}: $caption';
-    if (report.balanceLastYear case final lastYear?) {
-      final areas = {...balance.keys, ...lastYear.keys}.toList()
-        ..sort((a, b) {
-          final byMinutes = (balance[b] ?? 0).compareTo(balance[a] ?? 0);
-          if (byMinutes != 0) return byMinutes;
-          final byLastYear = (lastYear[b] ?? 0).compareTo(lastYear[a] ?? 0);
-          return byLastYear != 0 ? byLastYear : a.index - b.index;
-        });
+    if (report.balanceLastYear != null) {
       return [
-        for (final area in areas)
+        for (final (:area, :minutes, :lastYear) in rows)
           line(
             area,
-            labels
-                .balanceLastYearWords(
-                  area,
-                  balance[area] ?? 0,
-                  lastYear[area] ?? 0,
-                )
-                .caption,
+            labels.balanceLastYearWords(area, minutes, lastYear).caption,
           ),
       ];
     }
-    final areas = balance.entries.toList()
-      ..sort((a, b) {
-        final byMinutes = b.value.compareTo(a.value);
-        return byMinutes != 0 ? byMinutes : a.key.index - b.key.index;
-      });
-    final shares = ReportLabels.shares([for (final area in areas) area.value]);
+    final shares = ReportLabels.shares([for (final row in rows) row.minutes]);
     return [
-      for (final (i, MapEntry(key: area, value: minutes)) in areas.indexed)
+      for (final (i, (:area, :minutes, lastYear: _)) in rows.indexed)
         line(
           area,
           labels.balanceWords(area, minutes, percent: shares[i]).caption,
@@ -354,9 +336,10 @@ abstract final class ReportMarkdown {
   }
 
   /// [text] with only its syntax characters escaped, for words that carry
-  /// the user's text mid-line — a record's trip title, an insight's
-  /// category: after "- Name: " a leading "+" or "1." starts no list, and
-  /// "\+2 h" would only show the backslash in a plain-text share.
+  /// the user's text mid-line or in a heading — a record's trip title, an
+  /// insight's category, a group's, a tag's or a view's name: after
+  /// "- Name: " or "### " a leading "+" or "1." starts no list, and "\+2 h"
+  /// would only show the backslash in a plain-text share.
   static String _escapeInline(String text) =>
       text.replaceAllMapped(_markdownCharacter, (match) => '\\${match[0]}');
 

@@ -2057,6 +2057,33 @@ void main() {
       );
     });
 
+    test('a gap goal\'s limit is the card\'s own words in every language', () {
+      final goal = maxGap(gap(23, GapState.overdue));
+      for (final locale in ['en', 'de', 'ro']) {
+        final words = labelsIn(locale);
+        final limit = words.goalCaption(goal, report).split(sep).last;
+        expect(limit, words.l10n.reportGoalLimit(14).replaceAll(' ', nb));
+        expect(
+          words.goalDigest('Car', goal, report),
+          endsWith(' ($limit)'),
+          reason: locale,
+        );
+      }
+      expect(
+        labelsIn('ro').goalDigest('Mașină', goal, report),
+        'Mașină${nb}23${nb}de zile (limită${nb}14)',
+      );
+    });
+
+    test('a goal with no period yet is its state word alone', () {
+      final goal = atLeast(const []);
+      expect(en.goalDigest('Friends', goal, report), 'Friends not started');
+      expect(
+        labelsIn('de').goalDigest('Freunde', goal, report),
+        'Freunde nicht begonnen',
+      );
+    });
+
     test('a past span of several periods counts the periods met', () {
       DateRange week(int day) => (
         start: DateTime.utc(2026, 10, day),
@@ -4242,12 +4269,16 @@ void main() {
     late final en = labelsIn('en');
 
     test('a goal line adds the state word where the caption does not say '
-        'it, as the spoken form does', () {
+        'it, before the streak as the spoken form does', () {
       final open = atLeast([period(thisWeek, 2, GoalState.onPace)], streak: 4);
       expect(
         en.goalSharedCaption(open, analytics()),
-        '2${nb}of${nb}3${sep}one more by Sunday${sep}4${nb}in a row'
-        '${sep}on pace',
+        '2${nb}of${nb}3${sep}one more by Sunday${sep}on pace'
+        '${sep}4${nb}in a row',
+      );
+      expect(
+        en.goalSpoken('Gym', open, analytics()),
+        'Gym, 2 of 3, one more by Sunday, on pace, 4 weeks in a row',
       );
       final closed = atLeast([period(lastWeek, 3, GoalState.met)]);
       final week = analytics(span: lastWeek);
@@ -4259,6 +4290,13 @@ void main() {
         en.goalSharedCaption(gap, analytics()),
         '${en.goalCaption(gap, analytics())}${sep}past the limit',
       );
+    });
+
+    test('a goal with no period yet reads its state word alone, no bare '
+        'separator', () {
+      final none = atLeast(const []);
+      expect(en.goalCaption(none, analytics()), isEmpty);
+      expect(en.goalSharedCaption(none, analytics()), 'not started');
     });
 
     test('on a whole year a goal line reads the tally once a period has '

@@ -12,6 +12,7 @@ import 'package:anta/models/calendar_report.dart';
 import 'package:anta/models/category_profile.dart';
 import 'package:anta/models/date_range.dart';
 import 'package:anta/models/recurrence_rule.dart';
+import 'package:anta/utils/calendar_report_builder.dart';
 import 'package:anta/utils/report_labels.dart';
 import 'package:anta/utils/report_markdown.dart';
 
@@ -243,6 +244,57 @@ void main() {
       '\n'
       '- Gym${s}Thu 3${s}18:00${s}1 h\n'
       '- Gym${s}Thu 17${s}18:00${s}1 h\n',
+    );
+  });
+
+  test('an unprofiled fold with a #tag adds By tag and nothing else (§7)', () {
+    /// September as the builder folds it, one sample per day each event
+    /// occurs on, the PT session's description [ptNote].
+    CalendarReport folded(String ptNote) {
+      final noted = CalendarEvent(
+        id: pt.id,
+        title: pt.title,
+        categoryId: pt.categoryId,
+        startDate: pt.startDate,
+        rule: pt.rule,
+        time: pt.time,
+        description: ptNote,
+      );
+      final shown = [gym, noted, party, todo];
+      final span = september.span;
+      return CalendarReportBuilder.fold(
+        ReportInput(
+          span: span,
+          today: today,
+          weekStart: CalendarWeekStart.monday,
+          events: {for (final event in shown) event.id: event},
+          categoryOf: {for (final event in shown) event.id: event.categoryId},
+          samples: [
+            for (
+              var day = span.start;
+              !day.isAfter(span.end);
+              day = DateTime.utc(day.year, day.month, day.day + 1)
+            )
+              for (final event in shown)
+                if (event.occursOnUtcDay(day))
+                  ReportSample(eventId: event.id, day: day),
+          ],
+          categoryOrder: [for (final c in CalendarCategories.all) c.id],
+        ),
+      );
+    }
+
+    final plain = render(folded('with coach'), periodName: 'September 2026');
+    final tagged = render(folded('with #coach'), periodName: 'September 2026');
+
+    expect(plain, isNot(contains('## By tag')));
+    final start = tagged.indexOf('\n## By tag\n');
+    expect(start, greaterThan(0));
+    final end = tagged.indexOf('\n## ', start + 1);
+    expect(tagged.substring(start, end), contains('\n### #coach$s'));
+    expect(
+      tagged.replaceRange(start, end < 0 ? tagged.length : end, ''),
+      plain,
     );
   });
 
@@ -1002,6 +1054,36 @@ void main() {
       );
     });
 
+    test('Balance under Compare: last year counts the areas of both spans, '
+        'as the card does', () {
+      const thisSpan = {LifeArea.work: 38 * 60};
+      const lastYear = {LifeArea.home: 5 * 60};
+      final report = profiled(
+        balance: thisSpan,
+        balanceLastYear: lastYear,
+        compare: ReportCompare.lastYear,
+      );
+      expect(report.balanceRows(), hasLength(2));
+      String line(LifeArea area) =>
+          '- ${en.areaName(area)}: '
+          '${en.balanceLastYearWords(area, thisSpan[area] ?? 0, lastYear[area] ?? 0).caption}';
+      expect(
+        render(report, periodName: 'September 2026'),
+        contains(
+          '## Balance\n'
+          '\n'
+          '${line(LifeArea.work)}\n'
+          '${line(LifeArea.home)}\n'
+          '\n',
+        ),
+      );
+      // Without last year one area is still too few to compare.
+      expect(
+        render(profiled(balance: thisSpan), periodName: 'September 2026'),
+        isNot(contains('## Balance')),
+      );
+    });
+
     test('beside a saved view its own Totals column follows the page\'s, '
         'under its name and without deltas (S5 I)', () {
       final view = CalendarReport(
@@ -1060,6 +1142,158 @@ void main() {
         render(report, periodName: 'September 2026', against: 'August 2026'),
         isNot(contains('### Work / Life')),
       );
+    });
+
+    test('beside a saved view its column is written when the period has '
+        'no tiles of its own', () {
+      const viewTiles = [
+        ReportTileValue(tile: ReportTile.events, value: 20, previous: 18),
+        ReportTileValue(tile: ReportTile.hours, value: 720, previous: 600),
+      ];
+      CalendarReport empty({CalendarReport? compared}) => CalendarReport(
+        span: september.span,
+        today: today,
+        tense: ReportTense.past,
+        countedTo: september.countedTo,
+        events: const {},
+        tiles: compared == null ? viewTiles : const [],
+        skippedDays: 0,
+        aheadCount: 0,
+        categories: const [],
+        missed: const [],
+        ahead: const [],
+        compare: compared == null ? ReportCompare.previous : ReportCompare.view,
+        compared: compared,
+      );
+      final report = empty(compared: empty());
+      String bare(ReportTileValue tile) =>
+          '- ${en.tileLabel(tile.tile)}: '
+          '${en.tileValue(ReportTileValue(tile: tile.tile, value: tile.value))}';
+
+      expect(
+        render(report, periodName: 'September 2026', beside: 'Work / Life'),
+        endsWith(
+          '## Totals\n'
+          '\n'
+          '### Work / Life\n'
+          '\n'
+          '${bare(viewTiles[0])}\n'
+          '${bare(viewTiles[1])}\n',
+        ),
+      );
+      expect(
+        render(report, periodName: 'September 2026'),
+        isNot(contains('## Totals')),
+      );
+    });
+
+    test('a heading escapes only its syntax characters; a list line keeps '
+        'its list-marker escape', () {
+      CalendarCategories.updateCache([
+        for (final (index, seed) in CalendarCategories.builtInSeeds.indexed)
+          CalendarCategory(
+            id: seed.id,
+            name: seed.kind.name,
+            colorValue: seed.colorValue,
+            iconKey: seed.iconKey,
+            sortOrder: index,
+            isBuiltIn: true,
+          ),
+        CalendarCategory(
+          id: 'c-gym',
+          name: '2) Gym',
+          colorValue: 0xFF336699,
+          iconKey: CalendarCategories.builtInSeeds.first.iconKey,
+          sortOrder: 99,
+          isBuiltIn: false,
+        ),
+      ]);
+      final morning = CalendarEvent(
+        id: 'e-morning',
+        title: '1. Morning',
+        categoryId: 'c-gym',
+        startDate: DateTime.utc(2026, 9, 8),
+        rule: const OneTimeRecurrence(),
+      );
+      final row = ReportDatedRow(
+        eventId: morning.id,
+        day: DateTime.utc(2026, 9, 8),
+      );
+      final view = CalendarReport(
+        span: september.span,
+        today: today,
+        tense: ReportTense.past,
+        countedTo: september.countedTo,
+        events: const {},
+        tiles: const [ReportTileValue(tile: ReportTile.events, value: 20)],
+        skippedDays: 0,
+        aheadCount: 0,
+        categories: const [],
+        missed: const [],
+        ahead: const [],
+      );
+      final report = CalendarReport(
+        span: september.span,
+        today: today,
+        tense: ReportTense.past,
+        countedTo: september.countedTo,
+        events: {morning.id: morning},
+        tiles: const [ReportTileValue(tile: ReportTile.events, value: 1)],
+        skippedDays: 0,
+        aheadCount: 0,
+        categories: [
+          ReportCategoryGroup(
+            categoryId: 'c-gym',
+            count: 1,
+            minutes: 0,
+            missed: 0,
+            rows: [row],
+          ),
+        ],
+        missed: const [],
+        ahead: const [],
+        // No period yet: its line is the state word alone.
+        goals: const [
+          ReportGoal(
+            categoryId: 'c-gym',
+            measure: ReportMeasure.count,
+            target: ReportTarget(
+              kind: TargetKind.atLeast,
+              value: 2,
+              period: TargetPeriod.month,
+            ),
+          ),
+        ],
+        tags: [
+          ReportTag(
+            key: 'x',
+            label: '-x',
+            events: 1,
+            count: 1,
+            minutes: 0,
+            lastSeenDay: DateTime.utc(2026, 9, 8),
+            categoryIds: const ['c-gym'],
+            rows: [row],
+          ),
+        ],
+        compare: ReportCompare.view,
+        compared: view,
+      );
+
+      final out = render(
+        report,
+        periodName: 'September 2026',
+        beside: '1. Morning',
+      );
+
+      expect(out, contains('\n### 2) Gym$s'));
+      expect(out, contains('\n### #-x$s'));
+      expect(out, contains('\n### 1. Morning\n'));
+      for (final line in out.split('\n')) {
+        if (line.startsWith('#')) expect(line, isNot(contains(r'\')));
+      }
+      expect(out, contains('\n- 1\\. Morning$s'));
+      expect(out, contains('\n- 2\\) Gym: not started\n'));
     });
 
     /// Every section with content: a whole year on October 30, with Ahead.
