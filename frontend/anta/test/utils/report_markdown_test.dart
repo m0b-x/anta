@@ -3,10 +3,14 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/date_symbol_data_local.dart';
 
 import 'package:anta/constants/calendar_categories.dart';
+import 'package:anta/constants/category_kinds.dart';
 import 'package:anta/l10n/app_localizations.dart';
+import 'package:anta/models/calendar_appearance.dart';
 import 'package:anta/models/calendar_category.dart';
 import 'package:anta/models/calendar_event.dart';
 import 'package:anta/models/calendar_report.dart';
+import 'package:anta/models/category_profile.dart';
+import 'package:anta/models/date_range.dart';
 import 'package:anta/models/recurrence_rule.dart';
 import 'package:anta/utils/report_labels.dart';
 import 'package:anta/utils/report_markdown.dart';
@@ -551,6 +555,559 @@ void main() {
       () => render(orphan, periodName: 'September 2026'),
       throwsAssertionError,
     );
+  });
+
+  group('the analytics sections (S7)', () {
+    late final en = labelsIn('en');
+    String name(String categoryId) => CalendarCategories.labelOf(
+      CalendarCategories.resolve(categoryId),
+      en.l10n,
+    );
+
+    final trip = CalendarEvent(
+      id: 'e-trip',
+      title: '*Sibiu*',
+      categoryId: 'other',
+      startDate: DateTime.utc(2026, 7, 10),
+      rule: const OneTimeRecurrence(),
+    );
+    final call = CalendarEvent(
+      id: 'e-call',
+      title: '[ ] Call',
+      categoryId: 'other',
+      startDate: DateTime.utc(2026, 9, 20),
+      rule: const OneTimeRecurrence(),
+    );
+    final all = {...events, trip.id: trip, call.id: call};
+
+    final monthly = ReportGoal(
+      categoryId: 'gym',
+      measure: ReportMeasure.count,
+      target: const ReportTarget(
+        kind: TargetKind.atLeast,
+        value: 12,
+        period: TargetPeriod.month,
+      ),
+      periods: [
+        ReportGoalPeriod(
+          start: DateTime.utc(2026, 9, 1),
+          end: DateTime.utc(2026, 9, 30),
+          value: 14,
+          expected: 12,
+          state: GoalState.met,
+        ),
+      ],
+    );
+    const gap = ReportGoal(
+      categoryId: 'birthday',
+      measure: ReportMeasure.lastSeen,
+      target: ReportTarget(kind: TargetKind.maxGap, value: 14),
+      gap: ReportGapState(daysSince: 23, limit: 14, state: GapState.overdue),
+    );
+
+    const weekdays = ReportInsight(
+      rule: InsightRule.p1,
+      severity: 1,
+      categoryId: 'gym',
+      target: InsightTarget.categoryGroup,
+      n1: 5,
+      n2: 1,
+      n3: 0,
+      n4: 4,
+    );
+    // Said on Due soon's gap row of the same category: the page drops it.
+    const shownAbove = ReportInsight(
+      rule: InsightRule.d2,
+      severity: 2,
+      categoryId: 'gym',
+      target: InsightTarget.dueSoon,
+      n1: 3,
+    );
+    const tagged = ReportInsight(
+      rule: InsightRule.r1,
+      severity: 2,
+      tagKey: 'leg_day',
+      target: InsightTarget.tagRows,
+      n1: 30,
+      n2: 21,
+    );
+    const lead = ReportInsight(
+      rule: InsightRule.l1,
+      severity: 0,
+      categoryId: 'other',
+      target: InsightTarget.categoryGroup,
+      n1: 12,
+    );
+    // Past the page's cap of three.
+    const capped = ReportInsight(
+      rule: InsightRule.p5,
+      severity: 0,
+      categoryId: 'birthday',
+      target: InsightTarget.categoryGroup,
+      n1: 2,
+      n2: 5,
+    );
+    const insights = [weekdays, shownAbove, tagged, lead, capped];
+
+    final dueGap = ReportDueRow(
+      categoryId: 'gym',
+      eventId: gym.id,
+      day: DateTime.utc(2026, 10, 2),
+      kind: ReportDueKind.gap,
+      state: ReportDueState.due,
+      days: 3,
+    );
+    final dueCall = ReportDueRow(
+      categoryId: 'other',
+      eventId: call.id,
+      day: DateTime.utc(2026, 9, 20),
+      kind: ReportDueKind.unmarked,
+      state: ReportDueState.unmarked,
+      days: 10,
+    );
+
+    final ptRow = ReportDatedRow(
+      eventId: pt.id,
+      day: DateTime.utc(2026, 9, 10),
+    );
+    final legDay = ReportTag(
+      key: 'leg_day',
+      label: 'leg_day',
+      events: 1,
+      count: 1,
+      minutes: 60,
+      lastSeenDay: DateTime.utc(2026, 9, 10),
+      categoryIds: const ['gym'],
+      rows: [ptRow],
+    );
+
+    final busiest = ReportWhen(
+      cells: List.filled(ReportWhen.cellCount, 0),
+      timedDays: 12,
+      busiestWeekday: 1,
+      busiestHour: 18,
+    );
+    const balance = {LifeArea.work: 38 * 60, LifeArea.health: 19 * 60};
+
+    final wholeYear = (
+      start: DateTime.utc(2026, 1, 1),
+      end: DateTime.utc(2026, 12, 31),
+    );
+    final busiestMonth = ReportRecord(
+      kind: ReportRecordKind.busiestMonth,
+      value: 31,
+      start: DateTime.utc(2026, 6, 1),
+    );
+    final longestTrip = ReportRecord(
+      kind: ReportRecordKind.longestTrip,
+      eventId: trip.id,
+      value: 6,
+      start: DateTime.utc(2026, 7, 10),
+      end: DateTime.utc(2026, 7, 15),
+    );
+    const gymMonths = [9, 8, 0, 1, 2, 3, 4, 5, 6, 7, 1, 0];
+    final gymSpan = (
+      first: DateTime.utc(2026, 1, 2),
+      last: DateTime.utc(2026, 10, 29),
+    );
+    final year = ReportYear(
+      records: [busiestMonth, longestTrip],
+      // Other has months but no kept span: the page draws no strip for it.
+      months: {'gym': gymMonths, 'other': List.filled(12, 1)},
+      spans: {'gym': gymSpan},
+    );
+
+    /// September's report, or [span]'s on [on], with the analytics parts.
+    CalendarReport profiled({
+      DateRange? span,
+      DateTime? on,
+      List<ReportGoal> goals = const [],
+      List<ReportInsight> insights = const [],
+      List<ReportDueRow> dueSoon = const [],
+      List<ReportTag> tags = const [],
+      ReportWhen? when,
+      Map<LifeArea, int> balance = const {},
+      Map<LifeArea, int>? balanceLastYear,
+      ReportYear? year,
+      ReportCompare compare = ReportCompare.previous,
+      CalendarReport? compared,
+      List<ReportCategoryGroup> ahead = const [],
+    }) {
+      final shown = span ?? september.span;
+      final day = on ?? today;
+      return CalendarReport(
+        span: shown,
+        today: day,
+        tense: CalendarReport.tenseOf(span: shown, today: day),
+        countedTo: CalendarReport.countedToOf(span: shown, today: day),
+        previousSpan: september.previousSpan,
+        previousCounted: september.previousCounted,
+        events: all,
+        tiles: september.tiles,
+        skippedDays: september.skippedDays,
+        aheadCount: ahead.length,
+        categories: september.categories,
+        trend: september.trend,
+        missed: september.missed,
+        ahead: ahead,
+        goals: goals,
+        insights: insights,
+        dueSoon: dueSoon,
+        tags: tags,
+        when: when,
+        balance: balance,
+        balanceLastYear: balanceLastYear,
+        year: year,
+        compare: compare,
+        compared: compared,
+      );
+    }
+
+    String insightLine(
+      ReportInsight insight,
+      CalendarReport report, {
+      CalendarWeekStart weekStart = CalendarWeekStart.monday,
+    }) {
+      final category = insight.categoryId == null
+          ? ''
+          : name(insight.categoryId!);
+      final detail = en.insightDetail(
+        insight,
+        report,
+        category: category,
+        weekStart: weekStart,
+      );
+      return '- ${en.insightSubject(insight, report, category: category)}: '
+          '$detail';
+    }
+
+    test('Goals, Insights and Due soon open the share above Totals, each '
+        'in the card\'s words', () {
+      final report = profiled(
+        goals: [monthly, gap],
+        insights: insights,
+        dueSoon: [dueGap, dueCall],
+        tags: [legDay],
+      );
+      expect(
+        render(report, periodName: 'September 2026', against: 'August 2026'),
+        contains(
+          '${en.caption(report, periodName: 'September 2026', against: 'August 2026')}*\n'
+          '\n'
+          '## Goals\n'
+          '\n'
+          '- ${name('gym')}: ${en.goalSharedCaption(monthly, report)}\n'
+          '- ${name('birthday')}: ${en.goalSharedCaption(gap, report)}\n'
+          '\n'
+          '## Insights\n'
+          '\n'
+          '${insightLine(weekdays, report)}\n'
+          // The tag the user typed is escaped; the '#' mid-line is no
+          // heading and stays bare.
+          '${insightLine(tagged, report).replaceFirst('_', r'\_')}\n'
+          '${insightLine(lead, report)}\n'
+          '\n'
+          '## Due soon\n'
+          '\n'
+          '- Gym: ${en.dueCaption(dueGap, report)}\n'
+          '- \\[ \\] Call: ${en.dueCaption(dueCall, report)}\n'
+          '\n'
+          '## Totals\n',
+        ),
+      );
+      // A shared text has no glyph: the gap goal's state is said.
+      expect(
+        en.goalSharedCaption(gap, report),
+        endsWith('$s${en.goalStateWord(gap, report)}'),
+      );
+    });
+
+    test('Insights name weekdays from the week start the page reads', () {
+      final report = profiled(insights: const [weekdays]);
+      final sunday = ReportMarkdown.render(
+        report,
+        en,
+        use24Hour: true,
+        periodName: 'September 2026',
+        weekStart: CalendarWeekStart.sunday,
+      );
+      expect(
+        sunday,
+        contains(
+          '${insightLine(weekdays, report, weekStart: CalendarWeekStart.sunday)}\n',
+        ),
+      );
+      expect(
+        sunday,
+        isNot(contains(insightLine(weekdays, report))),
+        reason: 'the week start moves the weekdays',
+      );
+    });
+
+    test('a plan writes Goals and Due soon but no Insights', () {
+      final december = profiled(
+        span: (
+          start: DateTime.utc(2026, 12, 1),
+          end: DateTime.utc(2026, 12, 31),
+        ),
+        goals: [gap],
+        insights: const [lead],
+        dueSoon: [dueCall],
+      );
+      expect(december.tense, ReportTense.future);
+      final out = render(december, periodName: 'December 2026');
+      expect(out, contains('\n## Goals\n'));
+      expect(out, contains('\n## Due soon\n'));
+      expect(out, isNot(contains('## Insights')));
+      expect(out, isNot(contains('## Over time')));
+      expect(out, isNot(contains('## Missed')));
+    });
+
+    test('a whole year writes Records and Months between Totals and '
+        'Categories, the months ahead left out', () {
+      final report = profiled(span: wholeYear, year: year);
+      final months = en.yearMonthsLine(
+        months: gymMonths,
+        primary: ReportMeasure.count,
+        aheadFrom: 11,
+      );
+      expect(
+        render(report, periodName: '2026'),
+        contains(
+          '\n'
+          '## Records\n'
+          '\n'
+          '- ${en.recordName(busiestMonth.kind)}: '
+          '${en.recordWords(busiestMonth, report).caption}\n'
+          // The trip's title is the user's text, escaped mid-line.
+          '- ${en.recordName(longestTrip.kind)}: '
+          '${en.recordWords(longestTrip, report).caption.replaceAll('*', r'\*')}\n'
+          '\n'
+          '## Months\n'
+          '\n'
+          '- Gym: ${en.yearSpan(gymSpan.first, gymSpan.last)}$s$months\n'
+          '\n'
+          '## Categories\n',
+        ),
+      );
+      expect(months, contains('Oct'));
+      expect(months, isNot(contains('Nov')));
+    });
+
+    test('a past year writes all twelve months', () {
+      final report = profiled(
+        span: wholeYear,
+        on: DateTime.utc(2027, 2, 1),
+        year: year,
+      );
+      expect(
+        render(report, periodName: '2026'),
+        contains(
+          '- Gym: ${en.yearSpan(gymSpan.first, gymSpan.last)}$s'
+          '${en.yearMonthsLine(months: gymMonths, primary: ReportMeasure.count)}\n',
+        ),
+      );
+    });
+
+    test('a month has no year sections', () {
+      final out = render(profiled(goals: [gap]), periodName: 'September 2026');
+      expect(out, isNot(contains('## Records')));
+      expect(out, isNot(contains('## Months')));
+    });
+
+    test('By tag follows Categories: the tag\'s header and its dated rows', () {
+      final report = profiled(tags: [legDay]);
+      final caption = en
+          .tagWords(legDay, spansMonths: false, today: today)
+          .caption;
+      final row = en.rowSubtitle(
+        ptRow,
+        event: pt,
+        use24Hour: true,
+        spansMonths: false,
+      );
+      expect(
+        render(report, periodName: 'September 2026'),
+        contains(
+          '- Ana\'s party${s}Thu 24\n'
+          '\n'
+          '## By tag\n'
+          '\n'
+          '### #leg\\_day$s$caption\n'
+          '\n'
+          '- PT session$s$row\n'
+          '\n'
+          '## Over time\n',
+        ),
+      );
+    });
+
+    test('When follows Over time and Balance follows When, before Missed', () {
+      final report = profiled(when: busiest, balance: balance);
+      final shares = ReportLabels.shares([38 * 60, 19 * 60]);
+      expect(
+        render(report, periodName: 'September 2026'),
+        contains(
+          '## When\n'
+          '\n'
+          '${en.whenWords(busiest, weekStart: CalendarWeekStart.monday, use24Hour: true)!.caption}\n'
+          '\n'
+          '## Balance\n'
+          '\n'
+          '- ${en.areaName(LifeArea.work)}: '
+          '${en.balanceWords(LifeArea.work, 38 * 60, percent: shares[0]).caption}\n'
+          '- ${en.areaName(LifeArea.health)}: '
+          '${en.balanceWords(LifeArea.health, 19 * 60, percent: shares[1]).caption}\n'
+          '\n'
+          '## Missed\n',
+        ),
+      );
+    });
+
+    test('no busiest day writes no When; one area writes no Balance', () {
+      final out = render(
+        profiled(
+          when: ReportWhen(
+            cells: List.filled(ReportWhen.cellCount, 0),
+            timedDays: 2,
+          ),
+          balance: const {LifeArea.work: 60},
+        ),
+        periodName: 'September 2026',
+      );
+      expect(out, isNot(contains('## When')));
+      expect(out, isNot(contains('## Balance')));
+    });
+
+    test('Balance under Compare: last year reads both spans\' hours', () {
+      const lastYear = {LifeArea.work: 30 * 60, LifeArea.home: 5 * 60};
+      final report = profiled(
+        balance: balance,
+        balanceLastYear: lastYear,
+        compare: ReportCompare.lastYear,
+      );
+      String line(LifeArea area) =>
+          '- ${en.areaName(area)}: '
+          '${en.balanceLastYearWords(area, balance[area] ?? 0, lastYear[area] ?? 0).caption}';
+      expect(
+        render(report, periodName: 'September 2026'),
+        contains(
+          '## Balance\n'
+          '\n'
+          '${line(LifeArea.work)}\n'
+          '${line(LifeArea.health)}\n'
+          '${line(LifeArea.home)}\n'
+          '\n',
+        ),
+      );
+    });
+
+    test('beside a saved view its own Totals column follows the page\'s, '
+        'under its name and without deltas (S5 I)', () {
+      final view = CalendarReport(
+        span: september.span,
+        today: today,
+        tense: ReportTense.past,
+        countedTo: september.countedTo,
+        events: const {},
+        tiles: const [
+          ReportTileValue(tile: ReportTile.events, value: 20, previous: 18),
+          ReportTileValue(tile: ReportTile.hours, value: 720, previous: 600),
+        ],
+        skippedDays: 0,
+        aheadCount: 0,
+        categories: const [],
+        missed: const [],
+        ahead: const [],
+      );
+      final report = profiled(compare: ReportCompare.view, compared: view);
+      String bare(ReportTileValue tile) {
+        final value = ReportTileValue(
+          tile: tile.tile,
+          value: tile.value,
+          of: tile.of,
+        );
+        expect(en.detail(value), isEmpty);
+        return '- ${en.tileLabel(tile.tile)}: ${en.tileValue(value)}';
+      }
+
+      final out = render(
+        report,
+        periodName: 'September 2026',
+        beside: 'Work / Life',
+      );
+      expect(
+        out,
+        contains(
+          '*${en.caption(report, periodName: 'September 2026', beside: 'Work / Life')}*\n',
+        ),
+      );
+      expect(
+        out,
+        contains(
+          '- Tasks: 2 of 3${s}1 open\n'
+          '\n'
+          '### Work / Life\n'
+          '\n'
+          '${bare(view.tiles[0])}\n'
+          '${bare(view.tiles[1])}\n'
+          '\n'
+          '## Categories\n',
+        ),
+      );
+      // Against a period there is no view column, whatever was folded.
+      expect(
+        render(report, periodName: 'September 2026', against: 'August 2026'),
+        isNot(contains('### Work / Life')),
+      );
+    });
+
+    /// Every section with content: a whole year on October 30, with Ahead.
+    CalendarReport everything() => profiled(
+      span: wholeYear,
+      goals: [gap],
+      insights: insights,
+      dueSoon: [dueGap],
+      tags: [legDay],
+      when: busiest,
+      balance: balance,
+      year: year,
+      ahead: fourWeeks().ahead,
+    );
+
+    List<String> headings(AppLocalizations l10n) => [
+      l10n.reportSectionGoals,
+      l10n.reportSectionInsights,
+      l10n.reportSectionDueSoon,
+      l10n.reportSectionTotals,
+      l10n.reportSectionRecords,
+      l10n.reportSectionMonths,
+      l10n.reportSectionCategories,
+      l10n.reportSectionTags,
+      l10n.reportSectionOverTime,
+      l10n.reportSectionWhen,
+      l10n.reportSectionBalance,
+      l10n.reportSectionMissed,
+      l10n.reportSectionAhead,
+    ];
+
+    for (final locale in ['en', 'de', 'ro']) {
+      test('every section in the page\'s order, headed in $locale', () {
+        final out = render(everything(), locale: locale, periodName: '2026');
+        final at = [
+          for (final heading in headings(labelsIn(locale).l10n))
+            out.indexOf('\n## $heading\n'),
+        ];
+        expect(at, everyElement(greaterThan(0)), reason: out);
+        for (var i = 1; i < at.length; i++) {
+          expect(
+            at[i],
+            greaterThan(at[i - 1]),
+            reason: headings(labelsIn(locale).l10n)[i],
+          );
+        }
+      });
+    }
   });
 
   test('the file is named for the span, in the Markdown extension', () {

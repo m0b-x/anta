@@ -105,6 +105,7 @@ class ReportLabels {
   // The year in review's month names, built on first use: only a whole-year
   // report words them.
   late final DateFormat _monthName = DateFormat.MMMM(l10n.localeName);
+  late final DateFormat _shortMonth = DateFormat.MMM(l10n.localeName);
 
   // A group row's day, with the month only for a period across months (U),
   // composed by the `reportRowDay` templates: German writes "Do., 8. Okt.",
@@ -1054,6 +1055,26 @@ class ReportLabels {
     ].join(spokenSeparator);
   }
 
+  /// A goal as the shared Markdown writes it (S7): the caption the Goals
+  /// card draws — on a whole year the tally once one of its periods has
+  /// closed, as the card reads it — then the state word the glyph carries
+  /// where the caption does not say it, the spoken forms' rule: "2 of 3 ·
+  /// one more by Sunday · On pace", "3 of 4 weeks met". A shared text has
+  /// no glyph, so the word stands in for it.
+  String goalSharedCaption(ReportGoal goal, CalendarReport report) {
+    final tally = report.year?.goalTallies[goal.categoryId];
+    if (tally != null && tally.closed > 0) {
+      return [
+        goalYearWords(goal, tally, report, name: '').caption,
+        goalStateWord(goal, report),
+      ].join(separator);
+    }
+    return [
+      goalCaption(goal, report),
+      if (!_captionSaysState(goal, report)) goalStateWord(goal, report),
+    ].join(separator);
+  }
+
   /// Every caption [goal] can show in [report], each figure written in
   /// [ReportMetrics.goalTemplateDigit] at the target's digit count — one
   /// more for the met and over states, hours with the locale's decimal
@@ -1881,6 +1902,43 @@ class ReportLabels {
       span,
       said.join(spokenSeparator),
     );
+  }
+
+  /// A Months row's strip as the shared Markdown writes it (S7), the drawn
+  /// twin of [yearMonthsSpoken]: "Jan 9 · Feb 8 · Mar —" — each month's
+  /// short name, as the strip's axis writes it, and its value in
+  /// [primary]'s unit as a header writes it ("31 h", "€1,340"), a count
+  /// bare. A month with nothing (money under half a unit included) is the
+  /// dash, so the months keep their places; the months from [aheadFrom] on
+  /// (1-based, null for a past year) have not happened and are left out.
+  String yearMonthsLine({
+    required List<int> months,
+    required ReportMeasure primary,
+    int? aheadFrom,
+  }) {
+    String value(int value) {
+      if (primary == ReportMeasure.money
+          ? (value / 100).round() == 0
+          : value == 0) {
+        return nothing;
+      }
+      return switch (primary) {
+        ReportMeasure.hours => hours(value),
+        ReportMeasure.money => money(value),
+        _ => count(value),
+      };
+    }
+
+    return [
+      for (final (i, month) in months.indexed)
+        if (aheadFrom == null || i + 1 < aheadFrom)
+          _bindNumbers(
+            l10n.reportYearMonthValue(
+              _shortMonth.format(DateTime.utc(2026, i + 1)),
+              value(month),
+            ),
+          ),
+    ].join(separator);
   }
 
   /// A periodic goal's row on a whole year (S6 §2.4): "41 of 52 weeks met

@@ -913,6 +913,13 @@ class _ReportViewState extends State<_ReportView>
         report,
         labels,
         use24Hour: MediaQuery.alwaysUse24HourFormatOf(context),
+        // The shared weekday names follow the app's week start, as the
+        // page's own do; a state that is not shown yet has no report to
+        // share, so the fallback is never read.
+        weekStart: switch (context.read<CalendarReportBloc>().state) {
+          ReportShown(:final weekStart) => weekStart,
+          _ => const CalendarAppearance().weekStart,
+        },
         periodName: periodName,
         against: against,
         beside: beside,

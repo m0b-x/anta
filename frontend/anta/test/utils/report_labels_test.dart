@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/date_symbol_data_local.dart';
+import 'package:intl/intl.dart' show DateFormat;
 
 import 'package:anta/constants/calendar_categories.dart';
 import 'package:anta/constants/category_kinds.dart';
@@ -4034,6 +4035,157 @@ void main() {
         ro.reportGoalLongestStreakSpoken('month', 20),
         'serie maximă de 20 de luni',
       );
+    });
+  });
+
+  group('S7 shared words (Share report)', () {
+    late final en = labelsIn('en');
+
+    test('a goal line adds the state word where the caption does not say '
+        'it, as the spoken form does', () {
+      final open = atLeast([period(thisWeek, 2, GoalState.onPace)], streak: 4);
+      expect(
+        en.goalSharedCaption(open, analytics()),
+        '2${nb}of${nb}3${sep}one more by Sunday${sep}4${nb}in a row'
+        '${sep}on pace',
+      );
+      final closed = atLeast([period(lastWeek, 3, GoalState.met)]);
+      final week = analytics(span: lastWeek);
+      expect(en.goalSharedCaption(closed, week), en.goalCaption(closed, week));
+      final gap = maxGap(
+        const ReportGapState(daysSince: 23, limit: 14, state: GapState.overdue),
+      );
+      expect(
+        en.goalSharedCaption(gap, analytics()),
+        '${en.goalCaption(gap, analytics())}${sep}past the limit',
+      );
+    });
+
+    test('on a whole year a goal line reads the tally once a period has '
+        'closed, the state word last', () {
+      final year = (
+        start: DateTime.utc(2025, 1, 1),
+        end: DateTime.utc(2025, 12, 31),
+      );
+      final goal = atLeast([
+        period(
+          (start: DateTime.utc(2025, 12, 22), end: DateTime.utc(2025, 12, 28)),
+          3,
+          GoalState.met,
+        ),
+      ]);
+      CalendarReport yearOf(ReportGoalTally tally) => CalendarReport(
+        span: year,
+        today: today,
+        tense: ReportTense.past,
+        countedTo: year.end,
+        events: const {},
+        tiles: const [],
+        skippedDays: 0,
+        aheadCount: 0,
+        categories: const [someGroup],
+        missed: const [],
+        ahead: const [],
+        goals: [goal],
+        year: ReportYear(goalTallies: {'gym': tally}),
+      );
+      final closed = yearOf(
+        const ReportGoalTally(met: 41, closed: 52, longestStreak: 11),
+      );
+      expect(
+        en.goalSharedCaption(goal, closed),
+        '41${nb}of${nb}52${nb}weeks met${sep}longest streak${nb}11${sep}met',
+      );
+      // No period closed yet: the current period's reading, as the card.
+      final none = yearOf(
+        const ReportGoalTally(met: 0, closed: 0, longestStreak: 0),
+      );
+      expect(en.goalSharedCaption(goal, none), isNot(contains('weeks met')));
+      expect(
+        en.goalSharedCaption(goal, none),
+        startsWith(en.goalCaption(goal, none)),
+      );
+    });
+
+    test('the months line: short names, the dash for nothing, the ahead '
+        'months left out', () {
+      final counts = [9, 8, 0, 1, 2, 3, 4, 5, 6, 7, 1200, 8];
+      expect(
+        en.yearMonthsLine(months: counts, primary: ReportMeasure.count),
+        [
+          'Jan${nb}9',
+          'Feb${nb}8',
+          'Mar —',
+          'Apr${nb}1',
+          'May${nb}2',
+          'Jun${nb}3',
+          'Jul${nb}4',
+          'Aug${nb}5',
+          'Sep${nb}6',
+          'Oct${nb}7',
+          'Nov${nb}1,200',
+          'Dec${nb}8',
+        ].join(sep),
+      );
+      // In the current year the months after today's have not happened;
+      // today's month is written with its value so far.
+      expect(
+        en.yearMonthsLine(
+          months: counts,
+          primary: ReportMeasure.count,
+          aheadFrom: 3,
+        ),
+        'Jan${nb}9${sep}Feb${nb}8',
+      );
+      expect(
+        en.yearMonthsLine(
+          months: counts,
+          primary: ReportMeasure.count,
+          aheadFrom: 1,
+        ),
+        isEmpty,
+      );
+    });
+
+    test('the months line words hours and money as a header does', () {
+      final minutes = [31 * 60, 40, ...List.filled(10, 0)];
+      expect(
+        en.yearMonthsLine(
+          months: minutes,
+          primary: ReportMeasure.hours,
+          aheadFrom: 3,
+        ),
+        'Jan${nb}31${nb}h${sep}Feb${nb}40${nb}min',
+      );
+      // Money under half a unit reads "0": it is the dash.
+      final cents = [134000, 40, ...List.filled(10, 0)];
+      expect(
+        en.yearMonthsLine(
+          months: cents,
+          primary: ReportMeasure.money,
+          aheadFrom: 3,
+        ),
+        'Jan${nb}1,340${sep}Feb —',
+      );
+    });
+
+    test('the months line in German and Romanian names the months as the '
+        'strip\'s axis does', () {
+      for (final locale in ['de', 'ro']) {
+        final line = labelsIn(locale).yearMonthsLine(
+          months: [9, 0, ...List.filled(10, 0)],
+          primary: ReportMeasure.count,
+          aheadFrom: 3,
+        );
+        String short(int month) =>
+            DateFormat.MMM(locale).format(DateTime.utc(2026, month));
+        expect(
+          line,
+          '${short(1).replaceAll(' ', nb)}${nb}9'
+          '$sep${short(2).replaceAll(' ', nb)} —',
+          reason: locale,
+        );
+      }
     });
   });
 }
