@@ -1,6 +1,10 @@
 # Cloud Sync Phase 02 — Own Space on N Devices
 
-**Status: PLANNED 2026-10-24 (Fable 5.1). Decisions D1–D8: all A, taken
+**Status: BUILT 2026-11-06 — S1–S6 on `main` (S4b-2 and S6 in
+`4632602a` … `ed966d7a`, every slice gated and reviewed, the second review
+round's fixes gated and device-passed but not re-reviewed); left only what
+the owner does (§7): the rules and indexes deploy, then the real check on
+the phone. Planned 2026-10-24 (Fable 5.1); decisions D1–D8 all A, taken
 2026-10-28 on the owner's decision sheet (§2).** The transport phase
 of `docs/cloud-sync-roadmap.md`: one Google account, every device shows the
 same folders, notes, calendar, counters and alert definitions. Builds on the
@@ -2340,6 +2344,27 @@ L9.
   built), the `calendar-events` skill's sync note, `docs/cloud-sync-roadmap.md`
   ladder row 02 DONE, this record's status and "As built" blocks.
 - Skills: `verify`, `qa-emulator`, `delegation`.
+
+**S6 as built (2026-11-06; one `qa-runner` on `anta_qa_1`/`anta_qa_2`
+against `tool/firebase/emulators.cmd`).** The first sign-in failed with a
+bare "Sign-in failed": a debug build had no cleartext allowance, and
+Android refuses `http://10.0.2.2` since API 28 — fixed in `ed966d7a` (a
+debug-only `network_security_config_debug.xml` for `10.0.2.2`,
+`localhost`, `127.0.0.1`; release builds keep the platform default) with
+`FirebaseAuthService._guard` now logging the cause it maps. Then green:
+A (the `basic.json` seed) signed in as `qa1`, "Sync this database" created
+the space and read "Up to date" within about 15 s; B (empty) signed in as
+`qa1`, bound in one tap with no picker and showed A's three root folders; a
+line typed on B reached A's note within about 10 s; a folder deleted on A
+left B; with the suite stopped A read "Offline — will retry" and the
+Pairing row its offline line; a `qa2` build on B over its bound database,
+signed out, read "Paused — signed out", and signed in as `qa2`, "Paused —
+this database syncs with another account" with Stop offered (D5). The
+saved suites on a normal QA build at `ed966d7a`: browser 3/3, settings
+20/20, calendar 35/35, alerts 5/5. Noted, not fixed: a persisted Firebase
+session outlives a reinstall with another `ANTA_QA_ACCOUNT` (sign out
+first); `firebase_firestore` logs a `MissingPluginException` for
+`cancel` on a transaction stream at teardown.
 
 ### S7 — The push relay (only on D7 B)
 

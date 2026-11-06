@@ -2,10 +2,11 @@
 
 **Status: Phase 00 shipped 2026-08-16, Phase 01 shipped 2026-08-17. Readiness
 phase DONE 2026-10-23 (`cloud-sync-readiness-roadmap.md`, owns v43, all in
-`39b0c7d`). Phase 02 — own space on N devices — PLANNED 2026-10-24 in
-`cloud-sync-phase-02-own-space.md` (decisions D1–D8, slices S1–S6, the
-engine against the readiness seams, Firestore behind the gateway last);
-Phases 03–04 planned, their docs predate the readiness decisions.** Master
+`39b0c7d`). Phase 02 — own space on N devices — BUILT 2026-11-06 in
+`cloud-sync-phase-02-own-space.md` (S1–S6 on `main`; the owner's rules
+deploy and phone check left); Phases 03–04 planned, their docs predate the
+readiness decisions, and Phase 03's migration is no longer v44 — the
+analytics run took v44 and v45, so it takes the next free number.** Master
 document for the cloud migration; per-phase implementation docs live
 alongside this file (`cloud-sync-phase-01-pairing.md`,
 `cloud-sync-phase-02-own-space.md`, `cloud-sync-phase-03-shared-folders.md`,
@@ -59,7 +60,7 @@ D1–D3 decide where a row lives remotely for that.
 | 00 | Firebase foundations, platform gate, Google Sign-In, Sharing page | none | **Shipped 2026-08-16** |
 | 01 | Pairing two accounts (`invites/{code}` → `pairs/{pairId}`) | none | **Shipped 2026-08-17** |
 | R | Readiness — CRDT columns on categories and counters, `owner_id`, the outbox, clock persistence, tombstoned wipes, engine seams (`cloud-sync-readiness-roadmap.md`) | v43 | **DONE 2026-10-23** — R1–R3b committed (`729a25f`, `14c9250`, `596998d`, `4fd26aa`); R5, R6, R4 built and reviewed, R7 gate 9,584 green + emulator pass, commit pending; D15 amended (bind floor = the clock at unbind) |
-| 02 | Own space on N devices — the engine for all eighteen tables, bind flow, `owner_id` backfill at bind, initial merge, drain cadence, status; the Worker's "pull now" optional (readiness D1–D3, D15, D17, D19; `cloud-sync-phase-02-own-space.md`) | none expected after v43 | **IN PROGRESS 2026-10-24** — S1–S4a committed (gateway contract + rules, codec and merges for all seventeen tables, bind core, the engine and its app wiring, the editor rule), S5 (Firestore gateway) building, S4b waits for the owner's letters D1–D8, then S6 |
+| 02 | Own space on N devices — the engine for all eighteen tables, bind flow, `owner_id` backfill at bind, initial merge, drain cadence, status; the Worker's "pull now" optional (readiness D1–D3, D15, D17, D19; `cloud-sync-phase-02-own-space.md`) | none (later tables arrived with the analytics run's v44/v45, already CRDT-shaped) | **BUILT 2026-11-06** — S1–S6 on `main` (S4b-2 "Sync this database" + the picker, two review rounds, the two-device emulator pass green); left: the owner's rules + indexes deploy and the phone check (record §7) |
 | 03 | Sharing between accounts — grants on a space, shared folders, selected events (`shared_with`), ownership and consent, child-row routing (readiness D16, D18) | v44 | Planned; its doc predates these decisions |
 | 04 | Hardening (restore-vs-sync, DB switching, status UI, tests) | none | Planned |
 
