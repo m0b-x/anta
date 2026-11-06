@@ -1,7 +1,8 @@
-import 'dart:ui' show Tristate;
+import 'dart:ui' show CheckedState, Tristate;
 
 import 'package:drift/drift.dart' show driftRuntimeOptions;
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show RenderParagraph;
 import 'package:flutter/semantics.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get_it/get_it.dart';
@@ -16,10 +17,13 @@ import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/l10n/app_localizations_en.dart';
 import 'package:anta/models/app_user.dart';
 import 'package:anta/models/sync_binding.dart';
+import 'package:anta/pages/sync_settings_page.dart';
 import 'package:anta/services/pairing_service.dart';
 import 'package:anta/services/settings_service.dart';
 import 'package:anta/services/sync/sync_gateway.dart';
 import 'package:anta/services/sync/sync_status.dart';
+import 'package:anta/utils/auth_error.dart';
+import 'package:anta/widgets/form_rows.dart';
 import 'package:anta/widgets/sync_space_picker_sheet.dart';
 
 import '../database/support/db_test_support.dart';
@@ -151,6 +155,7 @@ void main() {
     int downloaded = 0,
     SyncFailureInfo? failure,
     DateTime? lastPushAt,
+    DateTime? lastPullAt,
   }) => SyncStatus(
     binding: _binding,
     pause: pause,
@@ -160,7 +165,11 @@ void main() {
     downloadedRows: downloaded,
     lastFailure: failure,
     lastPushAt: lastPushAt,
+    lastPullAt: lastPullAt,
   );
+
+  SyncFailureInfo failed(SyncGatewayFailure failure) =>
+      SyncFailureInfo(failure, at: DateTime.utc(2026));
 
   Future<void> close(WidgetTester tester) =>
       tester.pumpWidget(const SizedBox.shrink());
@@ -223,6 +232,66 @@ void main() {
         robot.shows(SemanticsIds.sharingSync, l10n.syncThisDatabaseUnavailable),
         isTrue,
       );
+      // A QA build without the cloud shows it on Android too.
+      for (final locale in AppLocalizations.supportedLocales) {
+        final text = lookupAppLocalizations(locale).syncThisDatabaseUnavailable;
+        expect(text, isNot(contains('Android')), reason: '$locale');
+        expect(text, isNot(contains('iOS')), reason: '$locale');
+      }
+      await close(tester);
+    });
+
+    testWidgets('a disabled row of the page keeps its reason whole: the '
+        'glyph and the title dim together, the reason stays '
+        'onSurfaceVariant, and the row is announced disabled', (tester) async {
+      final robot = await open(tester, null, signedIn: false);
+      final scheme = AppTheme.light().colorScheme;
+      const dim = FormMetrics.disabledOpacity;
+
+      // The sync row's reason is its description; the pairing row has
+      // none, and says its reason in its title.
+      for (final (row, reason, dimmed) in [
+        (
+          find.descendant(
+            of: robot.byId(SemanticsIds.sharingSync),
+            matching: find.byType(ListTile),
+          ),
+          l10n.syncSignInFirst,
+          [dim, dim],
+        ),
+        (
+          find.ancestor(
+            of: find.text(l10n.pairingSignInFirst),
+            matching: find.byType(ListTile),
+          ),
+          l10n.pairingSignInFirst,
+          [dim],
+        ),
+      ]) {
+        expect(tester.widget<ListTile>(row).enabled, isFalse);
+        final caption = find.descendant(of: row, matching: find.text(reason));
+        expect(
+          tester.renderObject<RenderParagraph>(caption).text.style?.color,
+          scheme.onSurfaceVariant,
+          reason: reason,
+        );
+        expect(
+          find.ancestor(of: caption, matching: find.byType(Opacity)),
+          findsNothing,
+          reason: reason,
+        );
+        expect(
+          tester
+              .widgetList<Opacity>(
+                find.descendant(of: row, matching: find.byType(Opacity)),
+              )
+              .map((o) => o.opacity),
+          dimmed,
+          reason: reason,
+        );
+        final node = tester.getSemantics(row).getSemanticsData();
+        expect(node.flagsCollection.isEnabled, Tristate.isFalse);
+      }
       await close(tester);
     });
 
@@ -252,7 +321,12 @@ void main() {
 
   group('bound', () {
     final lines = <String, (SyncStatus, String, bool)>{
-      'up to date': (bound(), l10n.syncUpToDate, true),
+      'up to date': (
+        bound(lastPullAt: DateTime(2020, 3, 4)),
+        l10n.syncUpToDate,
+        true,
+      ),
+      'never received, nothing waiting': (bound(), l10n.syncWaitingFirst, true),
       'idle with changes waiting': (
         bound(pending: 2),
         l10n.syncPendingCount(2),
@@ -293,10 +367,11 @@ void main() {
         l10n.syncRetrying,
         true,
       ),
+      // Sync now is what lifts the quota hold and re-checks access.
       'paused on the quota': (
         bound(pause: SyncPause.quotaExhausted),
         l10n.syncPausedQuota,
-        false,
+        true,
       ),
       'paused signed out': (
         bound(pause: SyncPause.signedOut),
@@ -316,7 +391,39 @@ void main() {
       'paused without access': (
         bound(pause: SyncPause.noAccess),
         l10n.syncPausedNoAccess,
+        true,
+      ),
+      // The precedence: a pause outranks a run and a failure, a run the
+      // failure it will retry, and a failure the changes waiting.
+      'paused on the quota while sending': (
+        bound(
+          pause: SyncPause.quotaExhausted,
+          activity: SyncActivity.pushing,
+          pending: 3,
+        ),
+        l10n.syncPausedQuota,
         false,
+      ),
+      'paused for an update after a failure': (
+        bound(
+          pause: SyncPause.appOutdated,
+          failure: failed(SyncGatewayFailure.offline),
+        ),
+        l10n.syncPausedAppOutdated,
+        false,
+      ),
+      'receiving after a failure': (
+        bound(
+          activity: SyncActivity.pulling,
+          failure: failed(SyncGatewayFailure.unknown),
+        ),
+        l10n.syncReceiving,
+        false,
+      ),
+      'offline with changes waiting': (
+        bound(pending: 2, failure: failed(SyncGatewayFailure.offline)),
+        l10n.syncOffline,
+        true,
       ),
     };
 
@@ -334,8 +441,10 @@ void main() {
       });
     }
 
-    testWidgets('the details carry the last sync, the changes waiting and '
-        'the held-back rows on a line of their own', (tester) async {
+    testWidgets('the details carry the last sync on one line and one count '
+        'on the next: the changes waiting before the held-back ones', (
+      tester,
+    ) async {
       final robot = await open(
         tester,
         signedIn(
@@ -351,8 +460,21 @@ void main() {
       expect(
         robot.shows(
           SemanticsIds.sharingSyncStatus,
-          '${l10n.syncLastSynced('Mar 4, 2020')} · '
-          '${l10n.syncPendingCount(2)}\n${l10n.syncParkedCount(1)}',
+          '${l10n.syncLastSynced('Mar 4, 2020')}\n${l10n.syncPendingCount(2)}',
+        ),
+        isTrue,
+      );
+
+      syncBloc!.show(
+        signedIn(
+          status: bound(parked: 1, lastPullAt: DateTime(2020, 3, 4, 9, 30)),
+        ),
+      );
+      await robot.settle();
+      expect(
+        robot.shows(
+          SemanticsIds.sharingSyncStatus,
+          '${l10n.syncLastSynced('Mar 4, 2020')}\n${l10n.syncParkedCount(1)}',
         ),
         isTrue,
       );
@@ -370,22 +492,141 @@ void main() {
         robot.shows(SemanticsIds.sharingSyncStatus, l10n.syncNeverSynced),
         isTrue,
       );
+      expect(
+        robot.shows(SemanticsIds.sharingSyncStatus, l10n.syncPendingCount(3)),
+        isFalse,
+      );
       await close(tester);
     });
 
-    testWidgets('Sync now sends one run; disabled while paused, it sends '
-        'nothing', (tester) async {
+    testWidgets('bound and never received, the line waits for the first '
+        'sync rather than saying up to date beside "Not synced yet"', (
+      tester,
+    ) async {
       final robot = await open(tester, signedIn(status: bound()));
-      final before = syncBloc!.events.length;
 
-      await robot.tap(SemanticsIds.sharingSyncNow);
-      expect(syncBloc!.events.sublist(before), [const SyncNowRequested()]);
+      expect(
+        robot.shows(SemanticsIds.sharingSyncStatus, l10n.syncWaitingFirst),
+        isTrue,
+      );
+      expect(
+        robot.shows(SemanticsIds.sharingSyncStatus, l10n.syncUpToDate),
+        isFalse,
+      );
+      await close(tester);
+    });
 
-      syncBloc!.show(signedIn(status: bound(pause: SyncPause.noAccess)));
+    testWidgets('Sync now sends one run — on the quota and no-access pauses '
+        'too, which it exists to end; paused where a run can do nothing, it '
+        'sends nothing', (tester) async {
+      final robot = await open(tester, signedIn(status: bound()));
+
+      for (final pause in const [
+        SyncPause.none,
+        SyncPause.quotaExhausted,
+        SyncPause.noAccess,
+      ]) {
+        syncBloc!.show(signedIn(status: bound(pause: pause)));
+        await robot.settle();
+        final before = syncBloc!.events.length;
+        await robot.tap(SemanticsIds.sharingSyncNow);
+        expect(syncBloc!.events.sublist(before), [
+          const SyncNowRequested(),
+        ], reason: pause.name);
+      }
+
+      for (final pause in const [
+        SyncPause.accountMismatch,
+        SyncPause.appOutdated,
+      ]) {
+        syncBloc!.show(signedIn(status: bound(pause: pause)));
+        await robot.settle();
+        final before = syncBloc!.events.length;
+        await robot.tap(SemanticsIds.sharingSyncNow);
+        expect(syncBloc!.events.length, before, reason: pause.name);
+      }
+      await close(tester);
+    });
+
+    testWidgets('a sign-in keeps the bound rows on the last status known, '
+        'through a failure too; Sync now and Stop wait for an answer', (
+      tester,
+    ) async {
+      final robot = await open(
+        tester,
+        SyncSignedOut(status: bound(pause: SyncPause.signedOut)),
+        signedIn: false,
+      );
+
+      for (final state in const [
+        SyncSigningIn(),
+        SyncFailure(AuthError.unknown),
+      ]) {
+        syncBloc!.show(state);
+        await robot.settle();
+
+        expect(
+          robot.byId(SemanticsIds.sharingSync),
+          findsNothing,
+          reason: '$state',
+        );
+        expect(
+          robot.shows(SemanticsIds.sharingSyncStatus, l10n.syncPausedSignedOut),
+          isTrue,
+          reason: '$state',
+        );
+        expect(robot.tile(SemanticsIds.sharingSyncNow).enabled, isFalse);
+        expect(robot.tile(SemanticsIds.sharingSyncStop).enabled, isFalse);
+      }
+      await close(tester);
+    });
+
+    testWidgets('the first frame, before the bloc answers, shows the sync '
+        'row checking — not an offer to sign in', (tester) async {
+      await boot(user: userA);
+      final robot = SyncSectionRobot(tester);
+      // The tree as the first frame built it, on SyncInitial: the bloc's
+      // answer lands after that frame and is drawn by the next.
+      await robot.pumpPage(settled: false);
+
+      expect(robot.busy(SemanticsIds.sharingSync), isTrue);
+      expect(
+        robot.shows(SemanticsIds.sharingSync, l10n.syncSignInFirst),
+        isFalse,
+      );
+
       await robot.settle();
-      final paused = syncBloc!.events.length;
-      await robot.tap(SemanticsIds.sharingSyncNow);
-      expect(syncBloc!.events.length, paused);
+      expect(robot.busy(SemanticsIds.sharingSync), isFalse);
+      expect(robot.tile(SemanticsIds.sharingSync).enabled, isTrue);
+      await close(tester);
+    });
+
+    testWidgets('while a step runs the page holds — system back and the '
+        "bar's arrow both stay — and idle, back leaves", (tester) async {
+      await boot(user: userA);
+      final robot = SyncSectionRobot(tester);
+      await robot.pumpPage(pushed: true);
+
+      for (final (status, flow) in [
+        (SyncStatus.empty, const SyncBindChecking()),
+        (SyncStatus.empty, const SyncBindBinding()),
+        (bound(), const SyncBindStopping()),
+      ]) {
+        syncBloc!.show(signedIn(status: status, flow: flow));
+        await robot.settle();
+
+        await tester.binding.handlePopRoute();
+        await robot.settle();
+        expect(find.byType(SyncSettingsPage), findsOneWidget, reason: '$flow');
+        await robot.tap(SemanticsIds.navBack);
+        expect(find.byType(SyncSettingsPage), findsOneWidget, reason: '$flow');
+      }
+
+      syncBloc!.show(signedIn());
+      await robot.settle();
+      await tester.binding.handlePopRoute();
+      await robot.settle();
+      expect(find.byType(SyncSettingsPage), findsNothing);
       await close(tester);
     });
 
@@ -634,7 +875,13 @@ void main() {
 
       expect(find.text(l10n.restartRequiredTitle), findsOneWidget);
       expect(find.text(l10n.restartRequiredNewDatabase), findsOneWidget);
-      expect(find.text(l10n.exitApp), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.bySemanticsIdentifier(SemanticsIds.sharingSyncRestart),
+          matching: find.text(l10n.exitApp),
+        ),
+        findsOneWidget,
+      );
       expect(syncBloc!.events.sublist(before), [const BindFlowDismissed()]);
       await close(tester);
     });
@@ -702,6 +949,14 @@ void main() {
 
   String label(WidgetTester tester, String id) => dataOf(tester, id).label;
 
+  /// Null on a node that is no selection at all.
+  bool? checked(WidgetTester tester, String id) =>
+      switch (dataOf(tester, id).flagsCollection.isChecked) {
+        CheckedState.isTrue => true,
+        CheckedState.isFalse => false,
+        _ => null,
+      };
+
   group('the picker', () {
     testWidgets('several spaces holding data: the list picks the space the '
         'choices name, the first free one at first', (tester) async {
@@ -714,30 +969,124 @@ void main() {
         ),
       );
 
+      expect(find.text(l10n.syncPickerTitle), findsOneWidget);
       expect(find.text(l10n.syncPickerSpaces.toUpperCase()), findsOneWidget);
-      expect(find.text(l10n.syncPickerHoldsData.toUpperCase()), findsOneWidget);
+      // The held space's reason, said once, on its own row.
       expect(find.text(l10n.syncPickerHeldBy('phone_db')), findsOneWidget);
       expect(
         enabled(tester, SemanticsIds.syncPickerSpace(_phone.ref.spaceId)),
         isFalse,
       );
-      expect(find.text(l10n.syncPickerMerge('Tablet')), findsOneWidget);
-      expect(find.text(l10n.syncPickerDownload('Tablet')), findsOneWidget);
+      expect(
+        checked(tester, SemanticsIds.syncPickerSpace(_tablet.ref.spaceId)),
+        isTrue,
+      );
+      // The labels carry the outcome and never the name: the check mark
+      // says which space.
+      expect(
+        label(tester, SemanticsIds.syncPickerMerge),
+        l10n.syncPickerMergeSelected,
+      );
+      expect(
+        label(tester, SemanticsIds.syncPickerDownload),
+        l10n.syncPickerDownloadSelected,
+      );
+      expect(
+        label(tester, SemanticsIds.syncPickerUpload),
+        l10n.syncPickerUpload,
+      );
+      final sheet = tester.getRect(find.byType(SyncSpacePickerSheet));
 
       await tapId(tester, SemanticsIds.syncPickerSpace(_laptop.ref.spaceId));
       expect(answer().returned, isFalse);
-      expect(find.text(l10n.syncPickerMerge('Laptop')), findsOneWidget);
+      expect(
+        checked(tester, SemanticsIds.syncPickerSpace(_laptop.ref.spaceId)),
+        isTrue,
+      );
+      expect(
+        checked(tester, SemanticsIds.syncPickerSpace(_tablet.ref.spaceId)),
+        isFalse,
+      );
+      expect(tester.getRect(find.byType(SyncSpacePickerSheet)), sheet);
 
       // The held space cannot be picked.
       await tapId(tester, SemanticsIds.syncPickerSpace(_phone.ref.spaceId));
-      expect(find.text(l10n.syncPickerMerge('Laptop')), findsOneWidget);
+      expect(
+        checked(tester, SemanticsIds.syncPickerSpace(_laptop.ref.spaceId)),
+        isTrue,
+      );
 
       await tapId(tester, SemanticsIds.syncPickerDownload);
       expect(answer().event, DownloadSpaceRequested(_laptop));
     });
 
-    testWidgets('one space: no list, the choices name it, and each carries '
-        'its line', (tester) async {
+    testWidgets('a held space keeps its reason whole: the name and the check '
+        'dim, the caption stays onSurfaceVariant and wraps', (tester) async {
+      await openPicker(
+        tester,
+        SyncBindPicking(
+          spaces: [_phone, _tablet],
+          holdsData: true,
+          heldBy: {_phone.ref: 'phone_db'},
+        ),
+      );
+      final row = find.bySemanticsIdentifier(
+        SemanticsIds.syncPickerSpace(_phone.ref.spaceId),
+      );
+      final caption = find.descendant(
+        of: row,
+        matching: find.text(l10n.syncPickerHeldBy('phone_db')),
+      );
+
+      expect(
+        find.ancestor(of: caption, matching: find.byType(Opacity)),
+        findsNothing,
+      );
+      expect(
+        tester.renderObject<RenderParagraph>(caption).text.style?.color,
+        AppTheme.light().colorScheme.onSurfaceVariant,
+      );
+      expect(tester.widget<Text>(caption).maxLines, isNull);
+      expect(
+        tester
+            .widget<Opacity>(
+              find.ancestor(
+                of: find.text('Phone'),
+                matching: find.byType(Opacity),
+              ),
+            )
+            .opacity,
+        FormMetrics.disabledOpacity,
+      );
+    });
+
+    testWidgets('every listed space held: none shows selected, merge and '
+        'download stay disabled, upload still answers', (tester) async {
+      final answer = await openPicker(
+        tester,
+        SyncBindPicking(
+          spaces: [_phone, _tablet],
+          holdsData: true,
+          heldBy: {_phone.ref: 'phone_db', _tablet.ref: 'tablet_db'},
+        ),
+      );
+
+      for (final space in [_phone, _tablet]) {
+        final id = SemanticsIds.syncPickerSpace(space.ref.spaceId);
+        expect(checked(tester, id), isFalse, reason: space.name);
+        expect(enabled(tester, id), isFalse, reason: space.name);
+      }
+      expect(enabled(tester, SemanticsIds.syncPickerMerge), isFalse);
+      expect(enabled(tester, SemanticsIds.syncPickerDownload), isFalse);
+      await tapId(tester, SemanticsIds.syncPickerMerge);
+      expect(answer().returned, isFalse);
+
+      await tapId(tester, SemanticsIds.syncPickerUpload);
+      expect(answer().event, const UploadAsNewSpaceRequested());
+    });
+
+    testWidgets('one space: no list, the choices name it and carry no help '
+        'line', (tester) async {
       final answer = await openPicker(
         tester,
         SyncBindPicking(spaces: [_phone], holdsData: true),
@@ -750,18 +1099,17 @@ void main() {
         findsNothing,
       );
       expect(find.text(l10n.syncPickerSpaces.toUpperCase()), findsNothing);
-      expect(label(tester, SemanticsIds.syncPickerMerge), contains('Phone'));
       expect(
         label(tester, SemanticsIds.syncPickerMerge),
-        contains(l10n.syncPickerMergeDesc),
+        l10n.syncPickerMerge('Phone'),
       );
       expect(
         label(tester, SemanticsIds.syncPickerDownload),
-        contains(l10n.syncPickerDownloadDesc),
+        l10n.syncPickerDownload('Phone'),
       );
       expect(
         label(tester, SemanticsIds.syncPickerUpload),
-        contains(l10n.syncPickerUploadDesc),
+        l10n.syncPickerUpload,
       );
 
       await tapId(tester, SemanticsIds.syncPickerMerge);
@@ -769,7 +1117,9 @@ void main() {
     });
 
     testWidgets('one space another database holds: merge and download stay, '
-        'disabled, naming the holder; upload still answers', (tester) async {
+        'disabled, the holder named once; upload still answers', (
+      tester,
+    ) async {
       final answer = await openPicker(
         tester,
         SyncBindPicking(
@@ -781,7 +1131,7 @@ void main() {
 
       expect(enabled(tester, SemanticsIds.syncPickerMerge), isFalse);
       expect(enabled(tester, SemanticsIds.syncPickerDownload), isFalse);
-      expect(find.text(l10n.syncPickerHeldBy('phone_db')), findsNWidgets(2));
+      expect(find.text(l10n.syncPickerHeldBy('phone_db')), findsOneWidget);
       await tapId(tester, SemanticsIds.syncPickerMerge);
       expect(answer().returned, isFalse);
 
@@ -789,14 +1139,33 @@ void main() {
       expect(answer().event, const UploadAsNewSpaceRequested());
     });
 
-    testWidgets('several spaces, nothing held here: picking a space syncs '
-        'with it, with no merge or download offered', (tester) async {
+    testWidgets('several spaces, nothing held here: each space is an action '
+        'row that syncs with it, with no merge or download offered', (
+      tester,
+    ) async {
       final answer = await openPicker(
         tester,
-        SyncBindPicking(spaces: [_phone, _tablet], holdsData: false),
+        SyncBindPicking(
+          spaces: [_phone, _tablet, _laptop],
+          holdsData: false,
+          heldBy: {_laptop.ref: 'laptop_db'},
+        ),
       );
 
-      expect(find.text(l10n.syncPickerHoldsData.toUpperCase()), findsNothing);
+      expect(find.byType(FormCheckRow), findsNothing);
+      expect(
+        find.descendant(
+          of: find.bySemanticsIdentifier(
+            SemanticsIds.syncPickerSpace(_tablet.ref.spaceId),
+          ),
+          matching: find.byIcon(Icons.sync_rounded),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        checked(tester, SemanticsIds.syncPickerSpace(_tablet.ref.spaceId)),
+        isNull,
+      );
       expect(
         find.bySemanticsIdentifier(SemanticsIds.syncPickerMerge),
         findsNothing,
@@ -805,8 +1174,16 @@ void main() {
         find.bySemanticsIdentifier(SemanticsIds.syncPickerDownload),
         findsNothing,
       );
+      expect(find.text(l10n.syncPickerJoin('Tablet')), findsOneWidget);
       expect(find.text(l10n.syncPickerLastUsed('Mar 4, 2020')), findsOneWidget);
       expect(find.text(l10n.syncPickerNotUsed), findsOneWidget);
+      expect(find.text(l10n.syncPickerHeldBy('laptop_db')), findsOneWidget);
+      expect(
+        enabled(tester, SemanticsIds.syncPickerSpace(_laptop.ref.spaceId)),
+        isFalse,
+      );
+      await tapId(tester, SemanticsIds.syncPickerSpace(_laptop.ref.spaceId));
+      expect(answer().returned, isFalse);
 
       await tapId(tester, SemanticsIds.syncPickerSpace(_tablet.ref.spaceId));
       expect(answer().event, MergeIntoSpaceRequested(_tablet));
@@ -881,6 +1258,93 @@ void main() {
       holdsData: true,
       heldBy: {_phone.ref: 'Datenbank des Telefons'},
     );
+
+    // Every bound state the row may show, from the shortest line to the
+    // longest, with the counts appearing and gaining digits.
+    final boundStates = [
+      bound(),
+      bound(lastPullAt: DateTime.now()),
+      bound(pending: 1, lastPullAt: DateTime(2020, 9, 28)),
+      bound(pending: 12345, parked: 3, lastPushAt: DateTime(2019, 5, 28)),
+      bound(activity: SyncActivity.pushing, pending: 3),
+      bound(activity: SyncActivity.pulling),
+      bound(activity: SyncActivity.pulling, downloaded: 4200),
+      bound(pending: 2, failure: failed(SyncGatewayFailure.offline)),
+      bound(parked: 1, failure: failed(SyncGatewayFailure.unknown)),
+      for (final pause in SyncPause.values) bound(pause: pause, parked: 2),
+    ];
+
+    for (final (locale, scale) in const [
+      (Locale('en'), 1.0),
+      (Locale('de'), 1.3),
+      (Locale('ro'), 2.0),
+    ]) {
+      testWidgets('the status row is one height in every bound state, and '
+          'Sync now and Stop never move, ${locale.languageCode} at $scale', (
+        tester,
+      ) async {
+        final robot = await open(
+          tester,
+          signedIn(status: boundStates.first),
+          size: const Size(360, 780),
+          locale: locale,
+          textScale: scale,
+        );
+        final heights = <double>{};
+        final syncNow = <double>{};
+        final stop = <double>{};
+
+        for (final status in boundStates) {
+          syncBloc!.show(signedIn(status: status));
+          await robot.settle(rounds: 3);
+          heights.add(robot.height(SemanticsIds.sharingSyncStatus));
+          syncNow.add(
+            tester.getTopLeft(robot.byId(SemanticsIds.sharingSyncNow)).dy,
+          );
+          stop.add(
+            tester.getTopLeft(robot.byId(SemanticsIds.sharingSyncStop)).dy,
+          );
+        }
+
+        expect(heights, hasLength(1));
+        expect(syncNow, hasLength(1));
+        expect(stop, hasLength(1));
+        await close(tester);
+      });
+    }
+
+    for (final (locale, scale) in const [
+      (Locale('de'), 1.3),
+      (Locale('de'), 2.0),
+      (Locale('ro'), 1.3),
+      (Locale('ro'), 2.0),
+    ]) {
+      testWidgets('the picker title fits whole and a pick keeps the sheet '
+          'one height, ${locale.languageCode} at $scale on 360', (
+        tester,
+      ) async {
+        final local = lookupAppLocalizations(locale);
+        await openPicker(
+          tester,
+          heldPicking,
+          size: const Size(360, 780),
+          locale: locale,
+          textScale: scale,
+        );
+
+        final title = tester.renderObject<RenderParagraph>(
+          find.text(local.syncPickerTitle),
+        );
+        expect(title.didExceedMaxLines, isFalse);
+        final sheet = tester.getRect(find.byType(SyncSpacePickerSheet));
+        await tapId(tester, SemanticsIds.syncPickerSpace(_tablet.ref.spaceId));
+        expect(
+          checked(tester, SemanticsIds.syncPickerSpace(_tablet.ref.spaceId)),
+          isTrue,
+        );
+        expect(tester.getRect(find.byType(SyncSpacePickerSheet)), sheet);
+      });
+    }
 
     for (final size in const [Size(360, 780), Size(412, 915)]) {
       for (final dark in [false, true]) {

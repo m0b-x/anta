@@ -361,7 +361,11 @@ class _SettingsHubPageState extends State<SettingsHubPage> {
           SettingsEntry(
             title: l10n.sharingSettings,
             description: l10n.settingsRowSharingDesc,
-            keywords: [l10n.accountSection, l10n.pairingSection],
+            keywords: [
+              l10n.accountSection,
+              l10n.syncSection,
+              l10n.pairingSection,
+            ],
             identifier: SemanticsIds.settingsHubRow('syncSettings'),
             builder: (_, title, description) => _pageRow(
               colorScheme,

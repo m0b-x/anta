@@ -310,7 +310,8 @@ class AppDialogs {
   /// A non-dismissible dialog with an icon, message and a single action button.
   ///
   /// Useful for "restart required" / "data deleted" screens where the user must
-  /// take an explicit action.
+  /// take an explicit action. [actionIdentifier] puts a `SemanticsIds` value
+  /// on the button, for a flow that must answer this dialog and no other.
   static Future<void> action(
     BuildContext context, {
     required String title,
@@ -320,8 +321,13 @@ class AppDialogs {
     IconData? icon,
     Color? iconColor,
     bool barrierDismissible = false,
+    String? actionIdentifier,
   }) {
     final theme = Theme.of(context);
+    final Widget button = FilledButton(
+      onPressed: onAction,
+      child: Text(actionText),
+    );
 
     return showDialog(
       context: context,
@@ -338,7 +344,12 @@ class AppDialogs {
               : null,
           title: Text(title),
           content: Text(content),
-          actions: [FilledButton(onPressed: onAction, child: Text(actionText))],
+          actions: [
+            if (actionIdentifier case final id?)
+              AutomationId(identifier: id, child: button)
+            else
+              button,
+          ],
         ),
       ),
     );

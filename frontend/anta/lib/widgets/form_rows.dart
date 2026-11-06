@@ -2897,7 +2897,9 @@ class FormCheckRow extends FormDividedRow {
   final String? caption;
   final bool checked;
 
-  /// Null draws the row at the disabled opacity with no tap and no ink.
+  /// Null draws the row at the disabled opacity — all but its [caption],
+  /// which says why and stays whole, as [FormPickerRow]'s does — with no tap
+  /// and no ink.
   final ValueChanged<bool>? onChanged;
 
   /// Radio semantics and the check glyph instead of a checkbox: one row of
@@ -2942,14 +2944,22 @@ class FormCheckRow extends FormDividedRow {
     final twoLine = captionText != null;
     final button = trailingButton;
     void toggle() => onChanged!(!checked);
+    // A disabled row dims what it offers — the glyph, the label, the
+    // control — and keeps its caption whole: the caption is what says why
+    // the row is off, and at 38 % a held space's reason read at 1.94:1.
+    Widget dim(Widget child) => enabled
+        ? child
+        : Opacity(opacity: FormMetrics.disabledOpacity, child: child);
 
-    final labelText = Text(
-      label,
-      style: TextStyle(
-        fontSize: FormMetrics.labelSize,
-        height: 20 / FormMetrics.labelSize,
-        fontWeight: exclusive && checked ? FontWeight.w500 : FontWeight.w400,
-        color: colorScheme.onSurface,
+    final labelText = dim(
+      Text(
+        label,
+        style: TextStyle(
+          fontSize: FormMetrics.labelSize,
+          height: 20 / FormMetrics.labelSize,
+          fontWeight: exclusive && checked ? FontWeight.w500 : FontWeight.w400,
+          color: colorScheme.onSurface,
+        ),
       ),
     );
     // The vertical air wraps the text alone: the 48 dp control slot beside it
@@ -2967,11 +2977,12 @@ class FormCheckRow extends FormDividedRow {
                 labelText,
                 const SizedBox(height: RowMetrics.lineGap),
                 // Clamped like a value: a preset's description at 200 %
-                // German ran four lines.
+                // German ran four lines. A disabled row's caption is its
+                // reason, and a reason cut short says nothing, so it wraps.
                 Text(
                   captionText,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
+                  maxLines: enabled ? 2 : null,
+                  overflow: enabled ? TextOverflow.ellipsis : null,
                   style: TextStyle(
                     fontSize: FormMetrics.captionSize,
                     height:
@@ -3035,15 +3046,15 @@ class FormCheckRow extends FormDividedRow {
         child: Row(
           children: [
             if (leading case final avatar?) ...[
-              avatar,
+              dim(avatar),
               const SizedBox(width: FormMetrics.gap),
             ] else if (glyph case final icon?) ...[
-              FormGlyph(icon: icon),
+              dim(FormGlyph(icon: icon)),
               const SizedBox(width: FormMetrics.gap),
             ],
             Expanded(child: text),
             const SizedBox(width: FormMetrics.gap),
-            control,
+            dim(control),
           ],
         ),
       ),
@@ -3059,10 +3070,6 @@ class FormCheckRow extends FormDividedRow {
         child: well,
       );
     }
-    well = Opacity(
-      opacity: enabled ? 1 : FormMetrics.disabledOpacity,
-      child: well,
-    );
     if (identifier case final id?) {
       well = AutomationId(identifier: id, child: well);
     } else {

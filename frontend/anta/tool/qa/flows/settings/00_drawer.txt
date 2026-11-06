@@ -13,7 +13,7 @@ wait id:drawer-calendar
 expect id:drawer-calendar-overview id:drawer-calendar-report id:drawer-calendar-categories id:drawer-alerts id:drawer-counters
 look 00_drawer
 scroll-to id:drawer-about --in id:drawer-list
-expect id:drawer-settings id:drawer-how-to id:drawer-about --absent "Calendar settings" --absent "Markdown shortcuts" --absent "Sharing" --absent "Databases" --absent "Language" --absent id:settings-appearance --absent "Developer options"
+expect id:drawer-settings id:drawer-how-to id:drawer-about --absent "Calendar settings" --absent "Markdown shortcuts" --absent "Sync & sharing" --absent "Databases" --absent "Language" --absent id:settings-appearance --absent "Developer options"
 key back
 wait id:create-folder
 expect --absent id:drawer-settings

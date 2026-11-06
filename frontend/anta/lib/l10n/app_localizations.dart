@@ -7792,10 +7792,10 @@ abstract class AppLocalizations {
   /// **'Sign in to sync this database'**
   String get syncSignInFirst;
 
-  /// Subtitle of the disabled Sync this database row where sync cannot run (desktop, or the cloud failed to start)
+  /// Subtitle of the disabled Sync this database row where sync cannot run (desktop, a test build without the cloud, or the cloud failed to start); names no platform
   ///
   /// In en, this message translates to:
-  /// **'Sync works on Android and iOS'**
+  /// **'Sync isn\'t available in this version of ANTA'**
   String get syncThisDatabaseUnavailable;
 
   /// Sync status: nothing waits to be sent or received
@@ -7803,6 +7803,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Up to date'**
   String get syncUpToDate;
+
+  /// Sync status of a database bound to a cloud space that has not received from it yet
+  ///
+  /// In en, this message translates to:
+  /// **'Waiting for the first sync'**
+  String get syncWaitingFirst;
 
   /// Sync status while this device sends its changes to the cloud
   ///
@@ -7930,11 +7936,11 @@ abstract class AppLocalizations {
   /// **'Cloud spaces'**
   String get syncPickerSpaces;
 
-  /// Section label over merge, download and upload when the open database is not empty
+  /// Title of the sheet that picks the cloud space this database syncs with, or a new one; short, it must fit one line at large text
   ///
   /// In en, this message translates to:
-  /// **'This database already holds data'**
-  String get syncPickerHoldsData;
+  /// **'Choose a space'**
+  String get syncPickerTitle;
 
   /// When a cloud space was last written to; time is a time of day today, else a date
   ///
@@ -7960,11 +7966,11 @@ abstract class AppLocalizations {
   /// **'Merge this database into “{space}”'**
   String syncPickerMerge(String space);
 
-  /// Second line of the merge choice
+  /// Picker choice under the list of spaces: the open database's data and the checked space's become one
   ///
   /// In en, this message translates to:
-  /// **'Both sides end up in one'**
-  String get syncPickerMergeDesc;
+  /// **'Merge this database into the selected space'**
+  String get syncPickerMergeSelected;
 
   /// Picker choice: the cloud space becomes a new database on this device, which the app switches to
   ///
@@ -7972,11 +7978,11 @@ abstract class AppLocalizations {
   /// **'Download “{space}” into a new database'**
   String syncPickerDownload(String space);
 
-  /// Second line of the download choice
+  /// Picker choice under the list of spaces: the checked space becomes a new database on this device, which the app switches to
   ///
   /// In en, this message translates to:
-  /// **'This database stays as it is, on this device only'**
-  String get syncPickerDownloadDesc;
+  /// **'Download the selected space into a new database'**
+  String get syncPickerDownloadSelected;
 
   /// Picker choice for an empty database: it starts syncing with the cloud space
   ///
@@ -7987,14 +7993,8 @@ abstract class AppLocalizations {
   /// Picker choice: the open database becomes a new, separate cloud space
   ///
   /// In en, this message translates to:
-  /// **'Upload as a new space'**
+  /// **'Upload this database as a new space'**
   String get syncPickerUpload;
-
-  /// Second line of the upload choice
-  ///
-  /// In en, this message translates to:
-  /// **'Start a separate cloud copy from this database'**
-  String get syncPickerUploadDesc;
 
   /// Turning sync on or off failed: no connection
   ///
@@ -10372,10 +10372,10 @@ abstract class AppLocalizations {
   /// **'Switch, export, import, delete'**
   String get settingsRowDatabasesDesc;
 
-  /// Subtitle of the settings hub row that opens the Sharing page
+  /// Subtitle of the settings hub row that opens the Sync & sharing page: its Account, Sync and Pairing sections
   ///
   /// In en, this message translates to:
-  /// **'Account and paired devices'**
+  /// **'Account, sync and paired devices'**
   String get settingsRowSharingDesc;
 
   /// Caption of the Alert settings page's Permissions row, which opens the Permissions page; the German says Mitteilungen, the app's word for notifications in running text, because Benachrichtigungen alone is wider than the caption's column at text scale 2.0 on a 360 dp phone

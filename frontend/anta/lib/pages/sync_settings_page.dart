@@ -17,6 +17,7 @@ import '../utils/custom_snackbar.dart';
 import '../utils/pairing_error.dart';
 import '../utils/settings_search.dart';
 import '../widgets/app_dialogs.dart';
+import '../widgets/form_rows.dart' show FormCaptionSlot;
 import '../widgets/pairing_sheet.dart';
 import '../widgets/settings_search_field.dart';
 import '../widgets/settings_section_list.dart';
@@ -61,6 +62,12 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
   /// state (a rebuild, a reconcile) before the user acknowledges it.
   bool _endedNoticeShown = false;
 
+  /// The last status a state carried. A sign-in in flight, a failed one and
+  /// the state before the first load carry none, and without this a bound
+  /// database drew its unbound row — "Sign in to sync" — on every sign-in.
+  /// Null until a state has carried one.
+  SyncStatus? _lastStatus;
+
   @override
   void dispose() {
     _searchController.dispose();
@@ -74,6 +81,18 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
 
+    // A step in flight holds the page: a download ends on the restart
+    // prompt, which the page must still be there to raise, and the app's
+    // singletons still hold the database it left. The bar's back arrow
+    // pops through the same scope.
+    return BlocSelector<SyncBloc, SyncState, bool>(
+      selector: (state) => _syncOf(state).flow.isBusy,
+      builder: (context, busy) =>
+          PopScope(canPop: !busy, child: _scaffold(context, l10n)),
+    );
+  }
+
+  Widget _scaffold(BuildContext context, AppLocalizations l10n) {
     return Scaffold(
       backgroundColor: Theme.of(context).colorScheme.pageGround,
       appBar: SettingsAppBar(
@@ -108,6 +127,15 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
               listenWhen: (previous, current) =>
                   _syncOf(previous).flow != _syncOf(current).flow,
               listener: (context, state) => _onBindFlow(context, l10n, state),
+            ),
+            // Every state, before the rebuild it causes: a builder sees only
+            // the last of several states emitted in one frame.
+            BlocListener<SyncBloc, SyncState>(
+              listener: (context, state) {
+                if (_carriedStatusOf(state) case final status?) {
+                  _lastStatus = status;
+                }
+              },
             ),
           ],
           child: BlocConsumer<SyncBloc, SyncState>(
@@ -341,16 +369,42 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
         _ => (status: SyncStatus.empty, flow: const SyncBindIdle()),
       };
 
+  /// The status [state] itself carries; null for the states that carry
+  /// none, where the section draws [_lastStatus].
+  static SyncStatus? _carriedStatusOf(SyncState state) => switch (state) {
+    SyncSignedIn(:final status) || SyncSignedOut(:final status) => status,
+    _ => null,
+  };
+
+  /// The pauses Sync now exists to end: the engine's run lifts the quota
+  /// hold and checks access again. Signed out, on another account or on an
+  /// outdated app a run can do nothing.
+  static const Set<SyncPause> _syncNowPauses = {
+    SyncPause.none,
+    SyncPause.quotaExhausted,
+    SyncPause.noAccess,
+  };
+
+  /// A count as wide as any the outbox reaches, for the templates that size
+  /// the status row: sized for it once, the row never grows when a count
+  /// appears or gains a digit.
+  static const int _countTemplate = 99999;
+
   /// Rendered in every state, like Pairing: a disabled row keeps the
   /// section findable by the settings search. Unbound it is one row, "Sync
   /// this database"; bound (D4) the status row, Sync now and the stop row —
-  /// signed out too, where the binding stays and pauses (D5).
+  /// signed out too, where the binding stays and pauses (D5), and while a
+  /// sign-in runs or has failed, on the last status known.
   SettingsSectionData _syncSection(
     BuildContext context,
     AppLocalizations l10n,
     SyncState state,
   ) {
-    final (:status, :flow) = _syncOf(state);
+    final carried = _carriedStatusOf(state);
+    final status = state is SyncUnavailable
+        ? SyncStatus.empty
+        : carried ?? _lastStatus ?? SyncStatus.empty;
+    final flow = _syncOf(state).flow;
     final keywords = _keywords(l10n.syncKeywords);
     final bound = status.binding != null;
     final failure = flow is SyncBindFailed
@@ -368,7 +422,7 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
                 failure ??
                 switch (state) {
                   SyncUnavailable() => l10n.syncThisDatabaseUnavailable,
-                  SyncSignedIn() => l10n.syncThisDatabaseDesc,
+                  SyncSignedIn() || SyncInitial() => l10n.syncThisDatabaseDesc,
                   _ => l10n.syncSignInFirst,
                 },
             keywords: keywords,
@@ -382,20 +436,23 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
 
     final canSync =
         state is SyncSignedIn &&
-        status.pause == SyncPause.none &&
+        _syncNowPauses.contains(status.pause) &&
         status.activity == SyncActivity.idle &&
         !flow.isBusy;
     final (line, glyph, carriesCount) = _statusLine(l10n, status);
     final lastSync = _lastSyncOf(status);
+    // One count, on a line of its own: the waiting changes unless the line
+    // above already says them, else the ones held back.
+    final count = status.pendingCount > 0 && !carriesCount
+        ? l10n.syncPendingCount(status.pendingCount)
+        : status.parkedCount > 0
+        ? l10n.syncParkedCount(status.parkedCount)
+        : null;
     final details = [
-      [
-        lastSync == null
-            ? l10n.syncNeverSynced
-            : l10n.syncLastSynced(formatSyncMoment(context, lastSync)),
-        if (status.pendingCount > 0 && !carriesCount)
-          l10n.syncPendingCount(status.pendingCount),
-      ].join(' · '),
-      if (status.parkedCount > 0) l10n.syncParkedCount(status.parkedCount),
+      lastSync == null
+          ? l10n.syncNeverSynced
+          : l10n.syncLastSynced(formatSyncMoment(context, lastSync)),
+      ?count,
     ].join('\n');
     final colorScheme = Theme.of(context).colorScheme;
 
@@ -408,10 +465,22 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
           description: details,
           keywords: keywords,
           identifier: SemanticsIds.sharingSyncStatus,
+          // Sync now and Stop sit under this row, so it is as tall in every
+          // state as the tallest line it may say, and both detail lines are
+          // always there: a run starting or a count appearing moves nothing.
           builder: (context, title, description) => ListTile(
             leading: Icon(glyph, color: colorScheme.onSurfaceVariant),
-            title: title,
-            subtitle: description,
+            title: FormCaptionSlot(
+              candidates: [
+                for (final template in _statusLineTemplates(l10n))
+                  Text(template),
+              ],
+              child: title,
+            ),
+            subtitle: FormCaptionSlot(
+              candidates: [_detailsTemplate(context, l10n)],
+              child: description!,
+            ),
           ),
         ),
         SettingsEntry(
@@ -437,8 +506,82 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
           description: failure,
           keywords: keywords,
           identifier: SemanticsIds.sharingSyncStop,
-          builder: (context, title, description) =>
-              _stopRow(context, l10n, flow, title, description),
+          builder: (context, title, description) => carried == null
+              ? _disabledTile(
+                  context,
+                  glyph: Icon(
+                    Icons.sync_disabled_rounded,
+                    color: colorScheme.onSurfaceVariant,
+                  ),
+                  title: title,
+                  description: description,
+                )
+              : _stopRow(context, l10n, flow, title, description),
+        ),
+      ],
+    );
+  }
+
+  /// Everything the status row's title may say, at one count and at
+  /// [_countTemplate], laid out unseen under the line it says now.
+  List<String> _statusLineTemplates(AppLocalizations l10n) => [
+    l10n.syncPausedQuota,
+    l10n.syncPausedSignedOut,
+    l10n.syncPausedOtherAccount,
+    l10n.syncPausedAppOutdated,
+    l10n.syncPausedNoAccess,
+    for (final count in const [1, _countTemplate]) ...[
+      l10n.syncSending(count),
+      l10n.syncDownloading(count),
+      l10n.syncPendingCount(count),
+    ],
+    l10n.syncReceiving,
+    l10n.syncOffline,
+    l10n.syncRetrying,
+    l10n.syncUpToDate,
+    l10n.syncWaitingFirst,
+  ];
+
+  /// The two detail lines at their tallest: the last sync as never, as a
+  /// time today and as a date in every month of another year, over either
+  /// count. Fixed moments, so the slot depends on the locale, the clock
+  /// format and the scale alone.
+  Widget _detailsTemplate(BuildContext context, AppLocalizations l10n) {
+    final lateToday = DateTime(2000, 1, 1, 22, 58);
+    final nextYear = DateTime(2001);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        FormCaptionSlot(
+          candidates: [
+            Text(l10n.syncNeverSynced),
+            Text(
+              l10n.syncLastSynced(
+                formatSyncMoment(context, lateToday, now: lateToday),
+              ),
+            ),
+            for (var month = 1; month <= DateTime.monthsPerYear; month++)
+              Text(
+                l10n.syncLastSynced(
+                  formatSyncMoment(
+                    context,
+                    DateTime(2000, month, 28),
+                    now: nextYear,
+                  ),
+                ),
+              ),
+          ],
+          child: const SizedBox.shrink(),
+        ),
+        FormCaptionSlot(
+          candidates: [
+            for (final count in const [1, _countTemplate]) ...[
+              Text(l10n.syncPendingCount(count)),
+              Text(l10n.syncParkedCount(count)),
+            ],
+          ],
+          child: const SizedBox.shrink(),
         ),
       ],
     );
@@ -498,6 +641,11 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
         true,
       );
     }
+    // Nothing received yet is not up to date: the details would say "Not
+    // synced yet" beside it.
+    if (status.lastPullAt == null) {
+      return (l10n.syncWaitingFirst, Icons.cloud_queue_rounded, false);
+    }
     return (l10n.syncUpToDate, Icons.cloud_done_outlined, false);
   }
 
@@ -534,7 +682,9 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
   /// Enabled once signed in. While the flow checks or binds, a spinner
   /// takes the glyph's box and the tap does nothing — the text stays, so the
   /// row keeps its height. A failure's reason is its description until the
-  /// next tap starts again.
+  /// next tap starts again. Before the bloc's first answer nothing is known
+  /// — signed in or out, bound or not — so the first frame shows the row
+  /// spinning, as a check, rather than offering a sign-in.
   Widget _bindRow(
     BuildContext context,
     SyncState state,
@@ -543,19 +693,24 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
     Widget? description,
   ) {
     final colorScheme = Theme.of(context).colorScheme;
-    final signedIn = state is SyncSignedIn;
-    final busy = flow is SyncBindChecking || flow is SyncBindBinding;
+    final loading = state is SyncInitial;
+    if (state is! SyncSignedIn && !loading) {
+      return _disabledTile(
+        context,
+        glyph: Icon(Icons.cloud_sync_outlined, color: colorScheme.primary),
+        title: title,
+        description: description,
+      );
+    }
+    final busy = loading || flow is SyncBindChecking || flow is SyncBindBinding;
     return ListTile(
-      enabled: signedIn,
       leading: busy
           ? const _RowBusyIndicator()
           : Icon(
               flow is SyncBindFailed
                   ? Icons.error_outline_rounded
                   : Icons.cloud_sync_outlined,
-              color: !signedIn
-                  ? colorScheme.onSurfaceVariant
-                  : flow is SyncBindFailed
+              color: flow is SyncBindFailed
                   ? colorScheme.error
                   : colorScheme.primary,
             ),
@@ -565,6 +720,46 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
           ? null
           : () =>
                 context.read<SyncBloc>().add(const SyncThisDatabaseRequested()),
+    );
+  }
+
+  /// A row of this page that cannot be used now (sync signed out or
+  /// unavailable, pairing signed out): the glyph and the title dimmed
+  /// together, the description — the reason — kept whole in
+  /// `onSurfaceVariant`, which the tile's disabled grey would have taken to
+  /// under 2:1. [titleIsReason] for a row with no description that says
+  /// its reason in its title ("Sign in to share"): that title is the part
+  /// kept whole. Still announced disabled. The settings kit elsewhere keeps
+  /// the stock disabled tile.
+  Widget _disabledTile(
+    BuildContext context, {
+    required Widget glyph,
+    required Widget title,
+    Widget? description,
+    bool titleIsReason = false,
+  }) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return ListTile(
+      enabled: false,
+      leading: Opacity(opacity: FormMetrics.disabledOpacity, child: glyph),
+      title: titleIsReason
+          ? DefaultTextStyle.merge(
+              style: TextStyle(color: colorScheme.onSurfaceVariant),
+              child: title,
+            )
+          : Opacity(
+              opacity: FormMetrics.disabledOpacity,
+              child: DefaultTextStyle.merge(
+                style: TextStyle(color: colorScheme.onSurface),
+                child: title,
+              ),
+            ),
+      subtitle: description == null
+          ? null
+          : DefaultTextStyle.merge(
+              style: TextStyle(color: colorScheme.onSurfaceVariant),
+              child: description,
+            ),
     );
   }
 
@@ -641,6 +836,7 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
           actionText: l10n.exitApp,
           icon: Icons.restart_alt_rounded,
           onAction: () => SystemNavigator.pop(),
+          actionIdentifier: SemanticsIds.sharingSyncRestart,
         );
       default:
         break;
@@ -712,14 +908,15 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
 
       case PairingUnavailable():
       case PairingSignedOut():
-        return ListTile(
-          enabled: false,
-          leading: Icon(
+        return _disabledTile(
+          context,
+          glyph: Icon(
             Icons.link_off_rounded,
             color: colorScheme.onSurfaceVariant,
           ),
           title: title,
-          subtitle: description,
+          description: description,
+          titleIsReason: description == null,
         );
 
       case PairingEnded():

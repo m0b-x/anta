@@ -490,6 +490,31 @@ void main() {
       await teardownApp(tester);
     });
 
+    testWidgets('"Synchronisierung" finds Sync & sharing, in German — its '
+        'Sync section is searchable from the hub', (tester) async {
+      tester.view.physicalSize = const Size(1000, 2400);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        app(
+          cell: const GoldenCell(
+            dark: false,
+            locale: Locale('de'),
+            textScale: 1.0,
+            size: Size(1000, 2400),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      await search(tester, 'Synchronisierung');
+
+      expect(row('syncSettings'), findsOneWidget);
+      expect(row('settings'), findsNothing);
+
+      await teardownApp(tester);
+    });
+
     testWidgets('"auto" finds General, by its subtitle', (tester) async {
       await pumpHub(tester);
 

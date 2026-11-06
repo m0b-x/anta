@@ -13,11 +13,16 @@ class SyncSectionRobot {
 
   final WidgetTester tester;
 
+  /// [pushed] opens the page over a blank route, so leaving it can be
+  /// tried; [settled] false returns on the first frame, before the bloc's
+  /// first answer.
   Future<void> pumpPage({
     Size size = const Size(412, 915),
     Locale locale = const Locale('en'),
     double textScale = 1.0,
     bool dark = false,
+    bool pushed = false,
+    bool settled = true,
   }) async {
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1;
@@ -34,10 +39,14 @@ class SyncSectionRobot {
           ).copyWith(textScaler: TextScaler.linear(textScale)),
           child: child!,
         ),
-        home: const SyncSettingsPage(),
+        initialRoute: pushed ? '/sync' : '/',
+        routes: {
+          '/': (_) => pushed ? const Scaffold() : const SyncSettingsPage(),
+          '/sync': (_) => const SyncSettingsPage(),
+        },
       ),
     );
-    await settle();
+    if (settled) await settle();
   }
 
   /// Drift answers on futures `FakeAsync` alone never completes, so real
@@ -58,11 +67,23 @@ class SyncSectionRobot {
     find.descendant(of: byId(id), matching: find.byType(ListTile)),
   );
 
-  /// Whether [text] is drawn inside the node [id].
+  /// Whether [text] is drawn inside the node [id] — not merely laid out
+  /// unseen, as the status row's templates are.
   bool shows(String id, String text) => find
       .descendant(of: byId(id), matching: find.text(text))
       .evaluate()
-      .isNotEmpty;
+      .any(drawn);
+
+  /// False for an element under a zero opacity: a slot's template.
+  static bool drawn(Element element) {
+    var seen = true;
+    element.visitAncestorElements((ancestor) {
+      final widget = ancestor.widget;
+      if (widget is Opacity && widget.opacity == 0) seen = false;
+      return seen;
+    });
+    return seen;
+  }
 
   bool busy(String id) => find
       .descendant(

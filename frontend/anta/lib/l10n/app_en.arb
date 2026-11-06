@@ -5682,13 +5682,17 @@
   "@syncSignInFirst": {
     "description": "Subtitle of the disabled Sync this database row while signed out"
   },
-  "syncThisDatabaseUnavailable": "Sync works on Android and iOS",
+  "syncThisDatabaseUnavailable": "Sync isn't available in this version of ANTA",
   "@syncThisDatabaseUnavailable": {
-    "description": "Subtitle of the disabled Sync this database row where sync cannot run (desktop, or the cloud failed to start)"
+    "description": "Subtitle of the disabled Sync this database row where sync cannot run (desktop, a test build without the cloud, or the cloud failed to start); names no platform"
   },
   "syncUpToDate": "Up to date",
   "@syncUpToDate": {
     "description": "Sync status: nothing waits to be sent or received"
+  },
+  "syncWaitingFirst": "Waiting for the first sync",
+  "@syncWaitingFirst": {
+    "description": "Sync status of a database bound to a cloud space that has not received from it yet"
   },
   "syncSending": "{count, plural, =0{Sending changes} =1{Sending 1 change} other{Sending {count} changes}}",
   "@syncSending": {
@@ -5799,9 +5803,9 @@
   "@syncPickerSpaces": {
     "description": "Section label over the account's cloud spaces in the sheet that picks one"
   },
-  "syncPickerHoldsData": "This database already holds data",
-  "@syncPickerHoldsData": {
-    "description": "Section label over merge, download and upload when the open database is not empty"
+  "syncPickerTitle": "Choose a space",
+  "@syncPickerTitle": {
+    "description": "Title of the sheet that picks the cloud space this database syncs with, or a new one; short, it must fit one line at large text"
   },
   "syncPickerLastUsed": "Last used {time}",
   "@syncPickerLastUsed": {
@@ -5834,9 +5838,9 @@
       }
     }
   },
-  "syncPickerMergeDesc": "Both sides end up in one",
-  "@syncPickerMergeDesc": {
-    "description": "Second line of the merge choice"
+  "syncPickerMergeSelected": "Merge this database into the selected space",
+  "@syncPickerMergeSelected": {
+    "description": "Picker choice under the list of spaces: the open database's data and the checked space's become one"
   },
   "syncPickerDownload": "Download “{space}” into a new database",
   "@syncPickerDownload": {
@@ -5847,9 +5851,9 @@
       }
     }
   },
-  "syncPickerDownloadDesc": "This database stays as it is, on this device only",
-  "@syncPickerDownloadDesc": {
-    "description": "Second line of the download choice"
+  "syncPickerDownloadSelected": "Download the selected space into a new database",
+  "@syncPickerDownloadSelected": {
+    "description": "Picker choice under the list of spaces: the checked space becomes a new database on this device, which the app switches to"
   },
   "syncPickerJoin": "Sync with “{space}”",
   "@syncPickerJoin": {
@@ -5860,13 +5864,9 @@
       }
     }
   },
-  "syncPickerUpload": "Upload as a new space",
+  "syncPickerUpload": "Upload this database as a new space",
   "@syncPickerUpload": {
     "description": "Picker choice: the open database becomes a new, separate cloud space"
-  },
-  "syncPickerUploadDesc": "Start a separate cloud copy from this database",
-  "@syncPickerUploadDesc": {
-    "description": "Second line of the upload choice"
   },
   "syncFailedOffline": "You're offline — try again once you're connected",
   "@syncFailedOffline": {
@@ -7947,9 +7947,9 @@
   "@settingsRowDatabasesDesc": {
     "description": "Subtitle of the settings hub row that opens the Databases page"
   },
-  "settingsRowSharingDesc": "Account and paired devices",
+  "settingsRowSharingDesc": "Account, sync and paired devices",
   "@settingsRowSharingDesc": {
-    "description": "Subtitle of the settings hub row that opens the Sharing page"
+    "description": "Subtitle of the settings hub row that opens the Sync & sharing page: its Account, Sync and Pairing sections"
   },
   "permissionsCalendarRowDesc": "Notifications, exact timing, full-screen alarms, battery",
   "@permissionsCalendarRowDesc": {

@@ -1539,6 +1539,58 @@ void main() {
       expect(data.flagsCollection.isChecked, CheckedState.isTrue);
     });
 
+    testWidgets('a disabled check row dims its glyph, label and control and '
+        'keeps its caption — the reason — whole and unclamped', (tester) async {
+      const reason =
+          'Synced by “Datenbank des Telefons” on this device, which is why '
+          'this space cannot be picked here, said in full however long';
+      Widget row({required bool enabled}) => host(
+        FormCheckRow(
+          glyph: Icons.cloud_outlined,
+          label: 'Phone',
+          caption: reason,
+          checked: true,
+          exclusive: true,
+          identifier: 'held-space',
+          onChanged: enabled ? (_) {} : null,
+        ),
+      );
+      double? opacityOver(Finder finder) => tester
+          .widgetList<Opacity>(
+            find.ancestor(of: finder, matching: find.byType(Opacity)),
+          )
+          .firstOrNull
+          ?.opacity;
+
+      await tester.pumpWidget(row(enabled: false));
+
+      final caption = find.text(reason);
+      expect(opacityOver(caption), isNull);
+      expect(
+        tester.renderObject<RenderParagraph>(caption).text.style?.color,
+        Theme.of(tester.element(caption)).colorScheme.onSurfaceVariant,
+      );
+      expect(tester.widget<Text>(caption).maxLines, isNull);
+      expect(opacityOver(find.text('Phone')), FormMetrics.disabledOpacity);
+      expect(
+        opacityOver(find.byIcon(Icons.cloud_outlined)),
+        FormMetrics.disabledOpacity,
+      );
+      expect(
+        opacityOver(find.byIcon(Icons.check_rounded)),
+        FormMetrics.disabledOpacity,
+      );
+      final data = dataOf(tester, 'held-space');
+      expect(data.flagsCollection.isEnabled, Tristate.isFalse);
+      expect(data.hasAction(SemanticsAction.tap), isFalse);
+      expect(data.label, contains(reason));
+
+      // Enabled, the caption is a value read back, clamped at two lines.
+      await tester.pumpWidget(row(enabled: true));
+      expect(tester.widget<Text>(find.text(reason)).maxLines, 2);
+      expect(opacityOver(find.text('Phone')), isNull);
+    });
+
     testWidgets('an exclusive check row is a radio node with the check glyph', (
       tester,
     ) async {

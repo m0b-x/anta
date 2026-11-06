@@ -4599,10 +4599,13 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get syncThisDatabaseUnavailable =>
-      'Synchronisierung funktioniert auf Android und iOS';
+      'Synchronisierung ist in dieser Version von ANTA nicht verfügbar';
 
   @override
   String get syncUpToDate => 'Auf dem neuesten Stand';
+
+  @override
+  String get syncWaitingFirst => 'Wartet auf die erste Synchronisierung';
 
   @override
   String syncSending(int count) {
@@ -4710,7 +4713,7 @@ class AppLocalizationsDe extends AppLocalizations {
   String get syncPickerSpaces => 'Cloud-Bereiche';
 
   @override
-  String get syncPickerHoldsData => 'Diese Datenbank enthält bereits Daten';
+  String get syncPickerTitle => 'Bereich wählen';
 
   @override
   String syncPickerLastUsed(String time) {
@@ -4731,7 +4734,8 @@ class AppLocalizationsDe extends AppLocalizations {
   }
 
   @override
-  String get syncPickerMergeDesc => 'Beide Seiten werden zu einer';
+  String get syncPickerMergeSelected =>
+      'Diese Datenbank mit dem gewählten Bereich zusammenführen';
 
   @override
   String syncPickerDownload(String space) {
@@ -4739,8 +4743,8 @@ class AppLocalizationsDe extends AppLocalizations {
   }
 
   @override
-  String get syncPickerDownloadDesc =>
-      'Diese Datenbank bleibt, wie sie ist, nur auf diesem Gerät';
+  String get syncPickerDownloadSelected =>
+      'Den gewählten Bereich in eine neue Datenbank laden';
 
   @override
   String syncPickerJoin(String space) {
@@ -4748,11 +4752,7 @@ class AppLocalizationsDe extends AppLocalizations {
   }
 
   @override
-  String get syncPickerUpload => 'Als neuen Bereich hochladen';
-
-  @override
-  String get syncPickerUploadDesc =>
-      'Eine eigene Cloud-Kopie aus dieser Datenbank anlegen';
+  String get syncPickerUpload => 'Diese Datenbank als neuen Bereich hochladen';
 
   @override
   String get syncFailedOffline =>
@@ -6267,7 +6267,8 @@ class AppLocalizationsDe extends AppLocalizations {
       'Wechseln, exportieren, importieren, löschen';
 
   @override
-  String get settingsRowSharingDesc => 'Konto und gekoppelte Geräte';
+  String get settingsRowSharingDesc =>
+      'Konto, Synchronisierung und gekoppelte Geräte';
 
   @override
   String get permissionsCalendarRowDesc =>

@@ -4638,10 +4638,13 @@ class AppLocalizationsRo extends AppLocalizations {
 
   @override
   String get syncThisDatabaseUnavailable =>
-      'Sincronizarea funcționează pe Android și iOS';
+      'Sincronizarea nu este disponibilă în această versiune ANTA';
 
   @override
   String get syncUpToDate => 'La zi';
+
+  @override
+  String get syncWaitingFirst => 'Se așteaptă prima sincronizare';
 
   @override
   String syncSending(int count) {
@@ -4753,7 +4756,7 @@ class AppLocalizationsRo extends AppLocalizations {
   String get syncPickerSpaces => 'Spații în cloud';
 
   @override
-  String get syncPickerHoldsData => 'Această bază de date conține deja date';
+  String get syncPickerTitle => 'Alege un spațiu';
 
   @override
   String syncPickerLastUsed(String time) {
@@ -4774,7 +4777,8 @@ class AppLocalizationsRo extends AppLocalizations {
   }
 
   @override
-  String get syncPickerMergeDesc => 'Ambele părți devin una';
+  String get syncPickerMergeSelected =>
+      'Unește această bază de date cu spațiul ales';
 
   @override
   String syncPickerDownload(String space) {
@@ -4782,8 +4786,8 @@ class AppLocalizationsRo extends AppLocalizations {
   }
 
   @override
-  String get syncPickerDownloadDesc =>
-      'Această bază de date rămâne cum este, doar pe acest dispozitiv';
+  String get syncPickerDownloadSelected =>
+      'Descarcă spațiul ales într-o bază de date nouă';
 
   @override
   String syncPickerJoin(String space) {
@@ -4791,11 +4795,7 @@ class AppLocalizationsRo extends AppLocalizations {
   }
 
   @override
-  String get syncPickerUpload => 'Încarcă ca spațiu nou';
-
-  @override
-  String get syncPickerUploadDesc =>
-      'Pornește o copie separată în cloud din această bază de date';
+  String get syncPickerUpload => 'Încarcă această bază de date ca spațiu nou';
 
   @override
   String get syncFailedOffline =>
@@ -6322,7 +6322,8 @@ class AppLocalizationsRo extends AppLocalizations {
   String get settingsRowDatabasesDesc => 'Comutare, export, import, ștergere';
 
   @override
-  String get settingsRowSharingDesc => 'Cont și dispozitive împerecheate';
+  String get settingsRowSharingDesc =>
+      'Cont, sincronizare și dispozitive împerecheate';
 
   @override
   String get permissionsCalendarRowDesc =>

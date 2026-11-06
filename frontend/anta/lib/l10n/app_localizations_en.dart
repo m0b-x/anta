@@ -4556,10 +4556,14 @@ class AppLocalizationsEn extends AppLocalizations {
   String get syncSignInFirst => 'Sign in to sync this database';
 
   @override
-  String get syncThisDatabaseUnavailable => 'Sync works on Android and iOS';
+  String get syncThisDatabaseUnavailable =>
+      'Sync isn\'t available in this version of ANTA';
 
   @override
   String get syncUpToDate => 'Up to date';
+
+  @override
+  String get syncWaitingFirst => 'Waiting for the first sync';
 
   @override
   String syncSending(int count) {
@@ -4662,7 +4666,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get syncPickerSpaces => 'Cloud spaces';
 
   @override
-  String get syncPickerHoldsData => 'This database already holds data';
+  String get syncPickerTitle => 'Choose a space';
 
   @override
   String syncPickerLastUsed(String time) {
@@ -4683,7 +4687,8 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
-  String get syncPickerMergeDesc => 'Both sides end up in one';
+  String get syncPickerMergeSelected =>
+      'Merge this database into the selected space';
 
   @override
   String syncPickerDownload(String space) {
@@ -4691,8 +4696,8 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
-  String get syncPickerDownloadDesc =>
-      'This database stays as it is, on this device only';
+  String get syncPickerDownloadSelected =>
+      'Download the selected space into a new database';
 
   @override
   String syncPickerJoin(String space) {
@@ -4700,11 +4705,7 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
-  String get syncPickerUpload => 'Upload as a new space';
-
-  @override
-  String get syncPickerUploadDesc =>
-      'Start a separate cloud copy from this database';
+  String get syncPickerUpload => 'Upload this database as a new space';
 
   @override
   String get syncFailedOffline =>
@@ -6208,7 +6209,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsRowDatabasesDesc => 'Switch, export, import, delete';
 
   @override
-  String get settingsRowSharingDesc => 'Account and paired devices';
+  String get settingsRowSharingDesc => 'Account, sync and paired devices';
 
   @override
   String get permissionsCalendarRowDesc =>
