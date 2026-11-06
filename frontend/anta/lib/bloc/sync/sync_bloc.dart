@@ -29,6 +29,11 @@ class SyncBloc extends Bloc<SyncEvent, SyncState> {
   /// overtook does not subscribe over it.
   int _engineGeneration = 0;
 
+  /// Set for the whole of a bind or stop step, apart from the state: an
+  /// account change mid-step shows the new account's idle flow, and a tap
+  /// then must not start a second step over the first (review BA-M5).
+  bool _stepInFlight = false;
+
   /// How long an account state waits for its status before showing none: a
   /// database still opening must not leave the account behind a spinner.
   static const Duration statusTimeout = Duration(seconds: 3);
@@ -149,10 +154,12 @@ class SyncBloc extends Bloc<SyncEvent, SyncState> {
     await _emitStatus(_emitAccount(event.user, emit), event.user, emit);
   }
 
-  Future<void> _onRefresh(
-    RefreshSyncStatus event,
-    Emitter<SyncState> emit,
-  ) async {
+  Future<void> _onRefresh(RefreshSyncStatus event, Emitter<SyncState> emit) =>
+      _refresh(emit);
+
+  /// The status read again for the account on screen, shown with [flow] —
+  /// the flow on screen when null.
+  Future<void> _refresh(Emitter<SyncState> emit, {SyncBindFlow? flow}) async {
     final AppUser? user;
     switch (state) {
       case SyncSignedIn(user: final current):
@@ -177,10 +184,11 @@ class SyncBloc extends Bloc<SyncEvent, SyncState> {
     // Re-read after the await: an account change while reading owns the
     // state now, and its own read already carries a status.
     switch (state) {
-      case SyncSignedIn(user: final current, :final flow) when current == user:
-        emit(SyncSignedIn(current, status: status, flow: flow));
-      case SyncSignedOut(:final flow) when user == null:
-        emit(SyncSignedOut(status: status, flow: flow));
+      case SyncSignedIn(user: final current, flow: final shown)
+          when current == user:
+        emit(SyncSignedIn(current, status: status, flow: flow ?? shown));
+      case SyncSignedOut(flow: final shown) when user == null:
+        emit(SyncSignedOut(status: status, flow: flow ?? shown));
       default:
         break;
     }
@@ -246,50 +254,50 @@ class SyncBloc extends Bloc<SyncEvent, SyncState> {
   ) async {
     final spaces = _spaces;
     final shown = state;
-    if (spaces == null || shown is! SyncSignedIn || shown.flow.isBusy) return;
-    final uid = shown.user.uid;
-    _emitFlow(emit, uid, const SyncBindChecking());
-    try {
-      switch (await spaces.start(accountUid: uid)) {
-        case SyncBindStartBound():
-          await _afterBindingChanged(emit, uid, const SyncBindIdle());
-        case SyncBindStartPick(:final spaces, :final holdsData, :final heldBy):
-          _emitFlow(
-            emit,
-            uid,
-            SyncBindPicking(
-              spaces: spaces,
-              holdsData: holdsData,
-              heldBy: heldBy,
-            ),
-          );
-      }
-    } catch (e, st) {
-      _emitFlow(emit, uid, _failed(e, st));
+    if (spaces == null ||
+        _stepInFlight ||
+        shown is! SyncSignedIn ||
+        shown.flow.isBusy) {
+      return;
     }
+    final uid = shown.user.uid;
+    // A step like the picker's choices: D1's paths create or bind a space in
+    // this same call.
+    await _step(
+      emit,
+      uid,
+      const SyncBindChecking(),
+      () async => switch (await spaces.start(accountUid: uid)) {
+        SyncBindStartBound() => const SyncBindIdle(),
+        SyncBindStartPick(:final spaces, :final holdsData, :final heldBy) =>
+          SyncBindPicking(spaces: spaces, holdsData: holdsData, heldBy: heldBy),
+      },
+    );
   }
 
-  /// One of the picker's choices — or a retry after a failed one: [run]
-  /// answers the database a download switched to, else null.
+  /// One of the picker's choices, taken only while the picker is up — a
+  /// choice from idle or from a failure would bind with no picker on screen
+  /// (review BB-L8): [run] answers the database a download switched to, else
+  /// null.
   Future<void> _bindChoice(
     Emitter<SyncState> emit,
     Future<String?> Function(SyncSpaceService spaces, String accountUid) run,
   ) async {
     final spaces = _spaces;
     final shown = state;
-    if (spaces == null || shown is! SyncSignedIn || shown.flow.isBusy) return;
-    final uid = shown.user.uid;
-    _emitFlow(emit, uid, const SyncBindBinding());
-    try {
-      final switchedTo = await run(spaces, uid);
-      await _afterBindingChanged(
-        emit,
-        uid,
-        SyncBindIdle(switchedToDatabase: switchedTo),
-      );
-    } catch (e, st) {
-      _emitFlow(emit, uid, _failed(e, st));
+    if (spaces == null ||
+        _stepInFlight ||
+        shown is! SyncSignedIn ||
+        shown.flow is! SyncBindPicking) {
+      return;
     }
+    final uid = shown.user.uid;
+    await _step(
+      emit,
+      uid,
+      const SyncBindBinding(),
+      () async => SyncBindIdle(switchedToDatabase: await run(spaces, uid)),
+    );
   }
 
   void _onBindFlowDismissed(BindFlowDismissed event, Emitter<SyncState> emit) {
@@ -317,7 +325,7 @@ class SyncBloc extends Bloc<SyncEvent, SyncState> {
     Emitter<SyncState> emit,
   ) async {
     final spaces = _spaces;
-    if (spaces == null) return;
+    if (spaces == null || _stepInFlight) return;
     final String? account;
     switch (state) {
       case SyncSignedIn(:final user, :final flow) when !flow.isBusy:
@@ -327,41 +335,95 @@ class SyncBloc extends Bloc<SyncEvent, SyncState> {
       default:
         return;
     }
-    _emitFlow(emit, account, const SyncBindStopping());
-    try {
+    await _step(emit, account, const SyncBindStopping(), () async {
       await spaces.stopSyncing();
-      await _afterBindingChanged(emit, account, const SyncBindIdle());
-    } catch (e, st) {
-      _emitFlow(emit, account, _failed(e, st));
+      return const SyncBindIdle();
+    });
+  }
+
+  /// A step that may change this database's binding, shown as [busy] until
+  /// it has settled, then the flow [change] answers — or its failure — in one
+  /// emit with the status read after the engine started again, so the page
+  /// never shows idle over the binding it left (review BB-M2), nor a failure
+  /// over a stale status (BB-L9).
+  ///
+  /// The engine is stopped before [change]: a page in flight for the old
+  /// space would otherwise commit its cursor into the new binding, and the
+  /// rows under it would never be pulled (BA-M4). It is started again after
+  /// — the pair the engine names for a rebind, rather than "Sync now": a
+  /// start drops the previous space's pause, back-off and parked rows, where
+  /// a run would keep an `appOutdated` from the space just left. Resolved
+  /// again for the start, because a download switches the database and the
+  /// engine the switch rebuilt is the one that syncs it. A failed step starts
+  /// it only when it was running.
+  Future<void> _step(
+    Emitter<SyncState> emit,
+    String? account,
+    SyncBindFlow busy,
+    Future<SyncBindFlow> Function() change,
+  ) async {
+    _stepInFlight = true;
+    try {
+      _emitFlow(emit, account, busy);
+      final before = await _resolveEngine();
+      final wasRunning = before?.isStarted ?? false;
+      try {
+        await before?.stop();
+      } catch (e, st) {
+        debugPrint('[SyncBloc] stopping the sync engine failed: $e\n$st');
+      }
+      SyncBindFlow outcome;
+      var changed = true;
+      try {
+        outcome = await change();
+      } catch (e, st) {
+        outcome = _failed(e, st);
+        changed = false;
+      }
+      if (changed || wasRunning) {
+        final after = await _resolveEngine();
+        try {
+          // A rebuilt engine started itself over the switched database
+          // before its bind: stopped too, so the start below is a fresh one.
+          if (!identical(after, before)) await after?.stop();
+          await after?.start();
+        } catch (e, st) {
+          debugPrint('[SyncBloc] restarting the sync engine failed: $e\n$st');
+        }
+      }
+      await _settle(emit, account, outcome);
+    } finally {
+      _stepInFlight = false;
     }
   }
 
-  /// [flow] shown, then the engine restarted and the status read again, so
-  /// the row under the flow says what the binding now is.
-  ///
-  /// Restarted — [SyncEngine.stop] then [SyncEngine.start], the pair the
-  /// engine names for a rebind — rather than sent "Sync now": a start drops
-  /// the previous space's pause, back-off and parked rows, where a run would
-  /// keep an `appOutdated` from the space just left, and it runs at once.
-  Future<void> _afterBindingChanged(
+  /// The engine a step stops and starts, or null — logged, never thrown: the
+  /// step must still settle without one.
+  Future<SyncEngine?> _resolveEngine() async {
+    final thunk = _engine;
+    if (thunk == null) return null;
+    try {
+      return await thunk();
+    } catch (e, st) {
+      debugPrint('[SyncBloc] the sync engine is unavailable: $e\n$st');
+      return null;
+    }
+  }
+
+  /// [flow] shown with the status read again, while the account on screen is
+  /// still [account]'s: an account that changed mid-step owns the screen, and
+  /// its own read already carries a status.
+  Future<void> _settle(
     Emitter<SyncState> emit,
     String? account,
     SyncBindFlow flow,
   ) async {
-    _emitFlow(emit, account, flow);
-    final thunk = _engine;
-    if (thunk != null) {
-      try {
-        final engine = await thunk();
-        if (engine != null) {
-          await engine.stop();
-          await engine.start();
-        }
-      } catch (e, st) {
-        debugPrint('[SyncBloc] restarting the sync engine failed: $e\n$st');
-      }
-    }
-    await _onRefresh(const RefreshSyncStatus(), emit);
+    final ours = switch (state) {
+      SyncSignedIn(:final user) => user.uid == account,
+      SyncSignedOut() => account == null,
+      _ => false,
+    };
+    if (ours) await _refresh(emit, flow: flow);
   }
 
   /// [flow] into the account state on screen, while it is still [account]'s

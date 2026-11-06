@@ -228,7 +228,10 @@ class _Puller {
         // past it ever arrives (A2 review R44).
         final next = page.next;
         if (next == null || next.value == cursor?.value) break;
-        await db.syncDao.setValue(SyncDao.keyPullCursor(name), next.value);
+        await db.transaction(() async {
+          await _checkStillBound(bound);
+          await db.syncDao.setValue(SyncDao.keyPullCursor(name), next.value);
+        });
         cursor = next;
         if (!page.hasMore) break;
         continue;
@@ -304,6 +307,7 @@ class _Puller {
     // no more than a document this device never received.
     String? advance;
     await db.transaction(() async {
+      await _checkStillBound(bound);
       final conflicts = <SyncNoteConflict>[];
       // The queued stamps by key, read once for the page on its first park
       // under the floor.
@@ -400,6 +404,18 @@ class _Puller {
       // was given by the S3d review's L17 (A2 review R47). `beforePage`
       // keeps throwing: it precedes the page, so failing there is right.
       _warn('afterPage for $name failed: $error\n$stack');
+    }
+  }
+
+  /// First inside a page's transaction: [SyncEngine._checkHalt] read the
+  /// binding before it, outside, and a bind, a rebind or an unbind
+  /// committing in between would otherwise take this space's merges, cursor
+  /// and stamp into a binding they are not of (review BA-M4). One binding
+  /// read per page; the halt rolls back nothing, since nothing is written
+  /// yet.
+  Future<void> _checkStillBound(SyncBinding bound) async {
+    if (await _e._binding.read() != bound) {
+      throw const _Halted(SyncRunSkip.unbound);
     }
   }
 

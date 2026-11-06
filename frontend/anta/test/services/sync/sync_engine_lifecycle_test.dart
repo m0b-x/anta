@@ -5,14 +5,36 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:anta/database/daos/sync_dao.dart';
 import 'package:anta/models/app_user.dart';
+import 'package:anta/models/sync_binding.dart';
+import 'package:anta/services/sync/sync_binding_service.dart';
 import 'package:anta/services/sync/sync_engine.dart';
 import 'package:anta/services/sync/sync_gateway.dart';
 import 'package:anta/services/sync/sync_status.dart';
+import 'package:anta/services/sync/sync_status_service.dart';
 import 'package:anta/services/sync/sync_suspension.dart';
 import 'package:anta/services/sync/sync_table_binding.dart';
 import 'package:anta/services/sync/sync_tables.dart';
 
+import '../../support/manual_sync_scheduler.dart';
 import 'support/sync_pair.dart';
+
+/// A binding service whose next read, once armed, answers what was stored
+/// and then runs [afterNextRead] — a rebind committing right after the
+/// engine's last check outside a page's transaction.
+class _RebindAfterRead extends SyncBindingService {
+  _RebindAfterRead(super.db, super.settings) : super.detached();
+
+  Future<void> Function()? afterNextRead;
+
+  @override
+  Future<SyncBinding?> read() async {
+    final binding = await super.read();
+    final rebind = afterNextRead;
+    afterNextRead = null;
+    if (rebind != null) await rebind();
+    return binding;
+  }
+}
 
 /// When the engine runs and what it tells the app: the signal, the
 /// single-flight queue, suspension and the database switch, the hooks, the
@@ -646,6 +668,49 @@ void main() {
       );
       expect(await a().db.syncDao.getValue(SyncDao.keyLastPullAt), isNull);
       expect(a().hooks.calls, isNot(contains('before:counter_values')));
+    });
+
+    test('a rebind landing between the last check and a page\'s transaction '
+        'takes nothing of the page: no merge, no cursor, no stamp', () async {
+      await b().db.folderDao.createFolder(name: 'Folder');
+      await b().sync();
+      final binding = _RebindAfterRead(a().db, a().settings);
+      final engine = SyncEngine.detached(
+        db: a().db,
+        gateway: pair.gateway,
+        binding: binding,
+        status: SyncStatusService.detached(a().db, binding),
+        hooks: a().hooks,
+        deviceId: 'A',
+        schema: syncSchema,
+        currentUser: () => a().user,
+        scheduler: ManualSyncScheduler(),
+      );
+      addTearDown(engine.dispose);
+      String? stamp;
+      a().hooks.onBeforePage = (table) async {
+        if (table != 'folders') return;
+        // The next read is the halt check right after this hook.
+        binding.afterNextRead = () async {
+          await binding.unbind();
+          await binding.bind(
+            space: const SyncSpaceRef(ownerUid: syncUid, spaceId: 'other'),
+            accountUid: syncUid,
+          );
+          stamp = await a().db.syncDao.getValue(SyncDao.keyLastHlc);
+        };
+      };
+
+      final report = await engine.syncNow();
+      await engine.whenIdle;
+
+      expect(report.skipped, SyncRunSkip.unbound);
+      expect(await a().db.select(a().db.folders).get(), isEmpty);
+      expect(
+        await a().db.syncDao.getValue(SyncDao.keyPullCursor('folders')),
+        isNull,
+      );
+      expect(await a().db.syncDao.getValue(SyncDao.keyLastHlc), stamp);
     });
 
     test('a stop and a start clear the pause, the quota hold, the back-off '
