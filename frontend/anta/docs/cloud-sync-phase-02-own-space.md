@@ -2039,6 +2039,56 @@ assignments and currencies keep unmapped note ids → accepted (settings stay
 local). **PF-L9** paths and crumbs disagree on a live folder under a
 tombstone → **A**.
 
+**Review round 2 fixes as built (2026-11-06; four implementers in
+worktrees, patched into main together; gate: `dart analyze lib test`
+clean, gen-l10n, whole suite 13,743 passed, 12 skipped, none failed).**
+**A** (`7c3735b3`): one condition — a note is re-filed when its stamp is
+above its folder tombstone's, at merge time and in the sweep;
+`updateFolder`, `updateFolderPosition` and `updateFolderSortPreferences`
+refuse a tombstone (no write, stamp or outbox entry); `folderPathSegments`
+cuts where the crumbs cut; the sort-between-batches resurrection, the old
+cascade's notes and a cut pull are pinned. **B1** (`5e9ad554`): the heal in
+`SyncBindingService._build` (skipped under the suspension) — bound with no
+claim: claim when free, unbind when another existing database holds the
+space; `AppDatabase` announces the switch after an open that failed past a
+teardown; the download writes `sync_download_in_flight` before the switch
+and clears it after the bind or on the way back, and the first
+`DatabaseManager.getInstance()` of a process switches back from a marker
+left behind (the new file stays); the space is read before anything
+changes; the claim follows the name at write time and through a rename;
+one holder rule for Merge and Download; the main database's first space is
+named "ANTA" (`kAppName`); `bind()` refuses a held space inside its
+transaction. Two consequences fixed in the same commit: `DatabaseManager.getInstance`
+is one memoized future and `SettingsService.getInstance` publishes its
+instance only once its database is set — both used to hand a second caller
+a half-built instance, which 46 widget tests hit once the manager awaited
+one step more; the alarm suite's two-rings case scripts the ring it stops,
+because it had passed only while that half-built manager made the real
+Stop fail at once. **B2** (`b6a680cf`): every binding step stops the
+engine first, stays busy through the change, the restart and the status
+read, and settles in one emit; a failed step restarts a running engine and
+reads the status; the puller refuses a page whose run began on another
+binding; an in-flight guard outlives an account change; picker choices only
+from the picker. **C** (`080bbb16`): the status row's title and both detail
+lines sized from templates, one height in every bound state; this page's
+disabled rows keep their reason at full strength; Sync now in the quota and
+no-access pauses; the page held while a step runs; the last known status
+kept through a sign-in; "Waiting for the first sync"; the precedence
+pinned; a neutral unavailable line; the hub's keywords; the restart
+prompt's id; the drawer flow re-pointed; a disabled `FormCheckRow` keeps
+its caption whole and wrapping; under a list the actions read "…the
+selected space"; no help captions; the sheet's own title; an empty
+database's spaces as action rows; nothing selected when every space is
+held. Found, not fixed: the heal trusts the registry, so a stale claim of
+another database unbinds a really bound one; the puller's post-pull writes
+(`pull_seen`, `last_pull_at`, the `bind_merge_pending` clear, the sweep)
+sit outside the binding check — the bloc's stop-first covers its own steps;
+a failed stop still adds a line under Stop; the Account row's unavailable
+description still names platforms (must-not-change); a real
+`AlertRingController`'s best-effort calls now wait on the manager's first
+open instead of failing fast, so a service that hung would hold the alarm
+page on Stop — worth a timeout, the alarm area's call.
+
 - `SyncBindingService.bind` and the install registry (§3.6);
   `SyncSpaceService` (create / list through the gateway, the space name
   rule); `SyncBloc` events `BindRequested(space?)`, `UnbindRequested`,
