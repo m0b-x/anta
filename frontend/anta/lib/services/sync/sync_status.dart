@@ -26,7 +26,20 @@ enum SyncPause {
 
   /// The database is bound and no one is signed in: there is no account to
   /// sync as, and signing back in as the bound one resumes.
-  signedOut,
+  signedOut;
+
+  /// The pause the stored binding alone decides for the account [uid]
+  /// (null: signed out) — the reader's half of `SyncEngine.pauseOver`, and
+  /// what `SyncBloc` recomputes when it carries a status to another account
+  /// before that account's read lands (review U-2).
+  static SyncPause forAccount(SyncBinding? binding, String? uid) =>
+      binding == null
+      ? none
+      : uid == null
+      ? signedOut
+      : uid != binding.accountUid
+      ? accountMismatch
+      : none;
 }
 
 /// What the engine is doing right now.

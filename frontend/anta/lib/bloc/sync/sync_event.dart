@@ -1,8 +1,6 @@
 import 'package:equatable/equatable.dart';
 
 import '../../models/app_user.dart';
-import '../../services/sync/sync_gateway.dart';
-import '../../services/sync/sync_status.dart';
 import 'sync_state.dart';
 
 sealed class SyncEvent extends Equatable {

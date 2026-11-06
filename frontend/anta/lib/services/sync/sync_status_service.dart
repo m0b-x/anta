@@ -84,13 +84,7 @@ class SyncStatusService implements SyncStatusReader {
       pendingCount: await _db.syncOutboxDao.count(),
       lastPushAt: await _instantAt(SyncDao.keyLastPushAt),
       lastPullAt: await _instantAt(SyncDao.keyLastPullAt),
-      pause: binding == null
-          ? SyncPause.none
-          : uid == null
-          ? SyncPause.signedOut
-          : uid != binding.accountUid
-          ? SyncPause.accountMismatch
-          : SyncPause.none,
+      pause: SyncPause.forAccount(binding, uid),
       clockAhead: ahead > AppDatabase.clockMaxDrift ? ahead : Duration.zero,
       clampedRemotes: _db.clockClampedRemotes,
       binding: binding,

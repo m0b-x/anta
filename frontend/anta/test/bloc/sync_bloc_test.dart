@@ -4,8 +4,11 @@ import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:anta/bloc/sync/sync_bloc.dart';
+import 'package:anta/constants/sync_limits.dart';
 import 'package:anta/models/app_user.dart';
+import 'package:anta/models/sync_binding.dart';
 import 'package:anta/services/auth_service.dart';
+import 'package:anta/services/sync/sync_engine.dart';
 import 'package:anta/services/sync/sync_gateway.dart';
 import 'package:anta/services/sync/sync_space_service.dart';
 import 'package:anta/services/sync/sync_status.dart';
@@ -29,6 +32,9 @@ class _FakeAuthService implements AuthService {
   Completer<AppUser?>? signInGate;
   bool signOutCalled = false;
   Object? signOutError;
+
+  /// When set, a sign-out waits for it.
+  Completer<void>? signOutGate;
 
   @override
   bool get isAvailable => available;
@@ -61,6 +67,7 @@ class _FakeAuthService implements AuthService {
   @override
   Future<void> signOut() async {
     signOutCalled = true;
+    if (signOutGate != null) await signOutGate!.future;
     if (signOutError != null) throw signOutError!;
     _user = null;
   }
@@ -76,6 +83,7 @@ class _FakeAuthService implements AuthService {
 class _FakeStatusReader implements SyncStatusReader {
   int pendingCount = 0;
   SyncPause pause = SyncPause.none;
+  SyncBinding? binding;
   Object? error;
 
   /// When set, the next read waits for it, then clears it.
@@ -89,7 +97,27 @@ class _FakeStatusReader implements SyncStatusReader {
     gate = null;
     if (waiting != null) await waiting.future;
     if (error != null) throw error!;
-    return SyncStatus(pendingCount: pendingCount, pause: pause);
+    return SyncStatus(
+      pendingCount: pendingCount,
+      pause: pause,
+      binding: binding,
+    );
+  }
+}
+
+/// An engine whose stop and start never return — a run's apply hooks that
+/// hang.
+class _StuckEngine extends FakeSyncEngine {
+  @override
+  Future<void> stop() {
+    calls.add('stop');
+    return Completer<void>().future;
+  }
+
+  @override
+  Future<void> start() {
+    calls.add('start');
+    return Completer<void>().future;
   }
 }
 
@@ -345,7 +373,8 @@ void main() {
       await bloc.close();
     });
 
-    test('an account change re-reads the status for the new one', () async {
+    test('an account change shows the database\'s status at once, then '
+        're-reads it for the new one', () async {
       final reader = _FakeStatusReader()..pendingCount = 1;
       final (bloc, fake, states) = await _pumpBloc(reader: reader);
       reader.pendingCount = 2;
@@ -353,12 +382,12 @@ void main() {
       fake.emitAuth(_partner);
       await pumpEventQueue();
 
-      // The new account shows at once, without the previous account's
-      // status: the pause is per account.
+      // The queue belongs to the database and shows with the new account at
+      // once; its own read then replaces it (final review U-2).
       expect(states, [
         const SyncSignedOut(),
         const SyncSignedOut(status: SyncStatus(pendingCount: 1)),
-        const SyncSignedIn(_partner),
+        const SyncSignedIn(_partner, status: SyncStatus(pendingCount: 1)),
         const SyncSignedIn(_partner, status: SyncStatus(pendingCount: 2)),
       ]);
       expect(reader.reads, [null, _partner.uid]);
@@ -1388,6 +1417,492 @@ void main() {
 
       expect(states, isEmpty);
       await bloc.close();
+    });
+
+    test('a sign-out asked for mid-download waits for the step: the switch '
+        'is shown, then the sign-out runs (final review U-1)', () async {
+      final spaces = _FakeSpaceService();
+      final (bloc, auth, states, _, _) = await pumpBinding(
+        spaces,
+        picking: true,
+      );
+      final gate = Completer<void>();
+      spaces.gate = gate;
+
+      bloc.add(const DownloadSpaceRequested(_space));
+      await pumpEventQueue();
+      bloc.add(const SignOutRequested());
+      await pumpEventQueue();
+      expect(auth.signOutCalled, isFalse, reason: 'never mid-step');
+      expect(bloc.state, isA<SyncSignedIn>());
+      expect(bloc.state.stepInFlight, isTrue);
+
+      gate.complete();
+      await pumpEventQueue();
+
+      expect(auth.signOutCalled, isTrue, reason: 'deferred, never dropped');
+      final switched = states.indexWhere(
+        (s) =>
+            s is SyncSignedIn &&
+            s.flow == const SyncBindIdle(switchedToDatabase: 'downloaded'),
+      );
+      final signedOut = states.indexWhere((s) => s is SyncSignedOut);
+      expect(switched, isNonNegative);
+      expect(signedOut, greaterThan(switched));
+      expect(bloc.state.stepInFlight, isFalse);
+      await bloc.close();
+    });
+
+    test('a sign-in asked for mid-step waits for the step too', () async {
+      final spaces = _FakeSpaceService()..gate = Completer<void>();
+      final gate = spaces.gate!;
+      final (bloc, auth, states, _, _) = await pumpBinding(spaces, user: null);
+      auth.signInResult = _user;
+
+      bloc.add(const StopSyncingRequested());
+      await pumpEventQueue();
+      bloc.add(const SignInRequested());
+      await pumpEventQueue();
+      expect(states.whereType<SyncSigningIn>(), isEmpty);
+
+      gate.complete();
+      await pumpEventQueue();
+
+      final settled = states.indexWhere(
+        (s) => s is SyncSignedOut && s.flow == const SyncBindIdle(),
+      );
+      final signingIn = states.indexWhere((s) => s is SyncSigningIn);
+      expect(settled, isNonNegative);
+      expect(signingIn, greaterThan(settled));
+      expect(bloc.state, isA<SyncSignedIn>());
+      await bloc.close();
+    });
+
+    test('a session ending mid-download still shows the switch, so the '
+        'restart prompt comes, and the signed-out rows read busy until the '
+        'step ends (final review U-1, U-5)', () async {
+      final spaces = _FakeSpaceService();
+      final (bloc, auth, states, _, _) = await pumpBinding(
+        spaces,
+        picking: true,
+      );
+      final gate = Completer<void>();
+      spaces.gate = gate;
+
+      bloc.add(const DownloadSpaceRequested(_space));
+      await pumpEventQueue();
+      auth.emitAuth(null);
+      await pumpEventQueue();
+
+      expect(bloc.state, isA<SyncSignedOut>());
+      expect((bloc.state as SyncSignedOut).flow, const SyncBindIdle());
+      expect(bloc.state.stepInFlight, isTrue);
+
+      gate.complete();
+      await pumpEventQueue();
+
+      expect(
+        states,
+        contains(
+          const SyncSignedOut(
+            flow: SyncBindIdle(switchedToDatabase: 'downloaded'),
+          ),
+        ),
+      );
+      expect(bloc.state.stepInFlight, isFalse);
+
+      bloc.add(const BindFlowDismissed());
+      await pumpEventQueue();
+      expect((bloc.state as SyncSignedOut).flow, const SyncBindIdle());
+      await bloc.close();
+    });
+
+    test('another account\'s step ending clears the flag on the account '
+        'shown', () async {
+      final spaces = _FakeSpaceService()
+        ..gate = Completer<void>()
+        ..startResult = SyncBindStartPick(spaces: [_space], holdsData: true);
+      final gate = spaces.gate!;
+      final (bloc, auth, _, _, _) = await pumpBinding(spaces);
+
+      bloc.add(const SyncThisDatabaseRequested());
+      await pumpEventQueue();
+      auth.emitAuth(_partner);
+      await pumpEventQueue();
+      expect(bloc.state.stepInFlight, isTrue);
+
+      gate.complete();
+      await pumpEventQueue();
+
+      final shown = bloc.state as SyncSignedIn;
+      expect(shown.user, _partner);
+      expect(shown.flow, const SyncBindIdle());
+      expect(shown.stepInFlight, isFalse);
+      await bloc.close();
+    });
+
+    /// [body] on the fake clock — the limits elapse, never the wall clock;
+    /// the bloc runs against fakes, no Drift — over a bloc signed in as
+    /// [_user], with the picker up when [picking]. [resolve] replaces the
+    /// engine's resolution.
+    void onFakeClock(
+      _FakeSpaceService spaces,
+      void Function(
+        FakeAsync async,
+        SyncBloc bloc,
+        _FakeAuthService auth,
+        List<SyncState> states,
+        FakeSyncEngine engine,
+        _FakeStatusReader reader,
+      )
+      body, {
+      bool picking = false,
+      FakeSyncEngine? engine,
+      Future<SyncEngine?> Function()? resolve,
+    }) {
+      fakeAsync((async) {
+        final running = engine ?? FakeSyncEngine();
+        final reader = _FakeStatusReader();
+        final auth = _FakeAuthService(user: _user);
+        final bloc = SyncBloc(
+          authService: auth,
+          statusReader: () => reader,
+          engine: resolve ?? () async => running,
+          spaces: spaces,
+        );
+        final states = <SyncState>[];
+        bloc.stream.listen(states.add);
+        bloc.add(const LoadSyncStatus());
+        async.flushMicrotasks();
+        if (picking) {
+          bloc.add(const SyncThisDatabaseRequested());
+          async.flushMicrotasks();
+          expect((bloc.state as SyncSignedIn).flow, isA<SyncBindPicking>());
+          spaces.calls.clear();
+        }
+        states.clear();
+        reader.reads.clear();
+        running.calls.clear();
+        body(async, bloc, auth, states, running, reader);
+        if (!bloc.isClosed) bloc.close();
+        async.flushMicrotasks();
+      });
+    }
+
+    /// Longer than any bound the bloc owns: a step this slow is the
+    /// gateway's to end, and the page holds until it does.
+    const aSlowBind = Duration(minutes: 10);
+
+    test('a merge whose bind takes ten minutes holds the page, refuses a '
+        'second step and settles once when it lands — the engine started '
+        'once, the status read (reviews RC1, RC1b)', () {
+      final spaces = _FakeSpaceService();
+      onFakeClock(spaces, picking: true, (async, bloc, _, states, engine, r) {
+        // Made on the fake clock, so its completion is a fake microtask.
+        final gate = Completer<void>();
+        spaces.gate = gate;
+        engine.isStarted = true;
+        bloc.add(const MergeIntoSpaceRequested(_space));
+        async.flushMicrotasks();
+        async.elapse(aSlowBind);
+
+        expect(flows(states), [const SyncBindBinding()]);
+        expect(bloc.state.stepInFlight, isTrue, reason: 'still holding');
+        expect(engine.calls, ['stop'], reason: 'no restart mid-change');
+        expect(r.reads, isEmpty);
+
+        bloc
+          ..add(const SyncThisDatabaseRequested())
+          ..add(const StopSyncingRequested());
+        async.flushMicrotasks();
+        expect(spaces.calls, ['merge:space-1:uid-1']);
+
+        gate.complete();
+        async.flushMicrotasks();
+        expect(engine.calls, ['stop', 'start']);
+        expect(r.reads, ['uid-1']);
+        expect(flows(states).last, const SyncBindIdle());
+        expect(bloc.state.stepInFlight, isFalse);
+      });
+    });
+
+    test('a download that takes ten minutes holds the page, refuses a second '
+        'step, then ends on the switch (reviews RC1, RC1b)', () {
+      final spaces = _FakeSpaceService();
+      onFakeClock(spaces, picking: true, (async, bloc, _, states, _, _) {
+        final gate = Completer<void>();
+        spaces.gate = gate;
+        bloc.add(const DownloadSpaceRequested(_space));
+        async.flushMicrotasks();
+        async.elapse(aSlowBind);
+
+        expect(flows(states), [const SyncBindBinding()]);
+        expect(bloc.state.stepInFlight, isTrue);
+        bloc
+          ..add(const SyncThisDatabaseRequested())
+          ..add(const StopSyncingRequested());
+        async.flushMicrotasks();
+        expect(spaces.calls, ['download:space-1:uid-1']);
+
+        gate.complete();
+        async.flushMicrotasks();
+        expect(
+          flows(states).last,
+          const SyncBindIdle(switchedToDatabase: 'downloaded'),
+        );
+        expect(bloc.state.stepInFlight, isFalse);
+      });
+    });
+
+    test('a bloc closed mid-step still starts the engine when the change '
+        'settles (review RC1-2)', () {
+      final spaces = _FakeSpaceService();
+      onFakeClock(spaces, picking: true, (async, bloc, _, _, engine, _) {
+        final gate = Completer<void>();
+        spaces.gate = gate;
+        engine.isStarted = true;
+        bloc.add(const MergeIntoSpaceRequested(_space));
+        async.flushMicrotasks();
+        bloc.close();
+        async.flushMicrotasks();
+        expect(engine.isStarted, isFalse);
+
+        gate.complete();
+        async.flushMicrotasks();
+        expect(engine.calls, ['stop', 'start']);
+        expect(engine.isStarted, isTrue);
+      });
+    });
+
+    test('a sign-out that hangs is given up on: the account stays shown and '
+        'steps are no longer refused (review RC1b-4)', () {
+      final spaces = _FakeSpaceService();
+      onFakeClock(spaces, (async, bloc, auth, _, _, _) {
+        auth.signOutGate = Completer<void>();
+        bloc.add(const SignOutRequested());
+        async.flushMicrotasks();
+        bloc.add(const StopSyncingRequested());
+        async.flushMicrotasks();
+        expect(spaces.calls, isEmpty, reason: 'refused while it is pending');
+
+        async.elapse(SyncLimits.engineStop + const Duration(seconds: 1));
+        expect(auth.signOutCalled, isTrue);
+        expect((bloc.state as SyncSignedIn).user, _user);
+
+        bloc.add(const StopSyncingRequested());
+        async.flushMicrotasks();
+        expect(spaces.calls, ['stop']);
+      });
+    });
+
+    test('a thrown sign-out releases the counter (review RC1c-1)', () {
+      final spaces = _FakeSpaceService();
+      onFakeClock(spaces, (async, bloc, auth, _, _, _) {
+        auth.signOutError = const AuthException(AuthError.unknown);
+        bloc.add(const SignOutRequested());
+        async.flushMicrotasks();
+        expect(bloc.state, isA<SyncFailure>());
+        bloc.add(const StopSyncingRequested());
+        async.flushMicrotasks();
+        expect(spaces.calls, ['stop']);
+      });
+    });
+
+    test('an engine whose stop and start hang is given up on and the step '
+        'goes on (review RC1-4)', () {
+      final spaces = _FakeSpaceService()
+        ..startResult = SyncBindStartBound(_space.ref);
+      onFakeClock(spaces, engine: _StuckEngine(), (
+        async,
+        bloc,
+        _,
+        states,
+        engine,
+        _,
+      ) {
+        bloc.add(const SyncThisDatabaseRequested());
+        async.flushMicrotasks();
+        async.elapse(SyncLimits.engineStop * 3);
+
+        expect(spaces.calls, ['start:uid-1']);
+        expect(engine.calls, ['stop', 'start']);
+        expect(flows(states).last, const SyncBindIdle());
+        expect(bloc.state.stepInFlight, isFalse);
+      });
+    });
+
+    test('an engine that never resolves is given up on and the step goes '
+        'on (review RC1-4)', () {
+      final spaces = _FakeSpaceService()
+        ..startResult = SyncBindStartBound(_space.ref);
+      onFakeClock(spaces, resolve: () => Completer<SyncEngine?>().future, (
+        async,
+        bloc,
+        _,
+        states,
+        _,
+        _,
+      ) {
+        bloc.add(const SyncThisDatabaseRequested());
+        async.flushMicrotasks();
+        async.elapse(SyncLimits.engineStop * 3);
+
+        expect(spaces.calls, ['start:uid-1']);
+        expect(flows(states).last, const SyncBindIdle());
+        expect(bloc.state.stepInFlight, isFalse);
+      });
+    });
+
+    test('no step starts between a settle and the deferred sign-out\'s own '
+        'emit (review RC1-5)', () async {
+      final spaces = _FakeSpaceService();
+      final (bloc, auth, _, _, _) = await pumpBinding(spaces, picking: true);
+      final gate = Completer<void>();
+      spaces.gate = gate;
+      final signOut = Completer<void>();
+      auth.signOutGate = signOut;
+
+      bloc.add(const MergeIntoSpaceRequested(_space));
+      await pumpEventQueue();
+      bloc.add(const SignOutRequested());
+      await pumpEventQueue();
+      gate.complete();
+      await pumpEventQueue();
+      expect(bloc.state, isA<SyncSignedIn>(), reason: 'settled, not out yet');
+      expect(bloc.state.stepInFlight, isFalse);
+
+      bloc
+        ..add(const StopSyncingRequested())
+        ..add(const SyncThisDatabaseRequested());
+      await pumpEventQueue();
+      expect(spaces.calls, ['merge:space-1:uid-1']);
+
+      signOut.complete();
+      await pumpEventQueue();
+      expect(bloc.state, isA<SyncSignedOut>());
+      bloc.add(const StopSyncingRequested());
+      await pumpEventQueue();
+      expect(spaces.calls, ['merge:space-1:uid-1', 'stop']);
+      await bloc.close();
+    });
+
+    test('a download\'s switch never wears the old database\'s status, '
+        'even when the read after it fails (review RC1-6)', () async {
+      final spaces = _FakeSpaceService();
+      final (bloc, _, states, _, reader) = await pumpBinding(
+        spaces,
+        picking: true,
+      );
+      reader.pendingCount = 4;
+      bloc.add(const RefreshSyncStatus());
+      await pumpEventQueue();
+      expect((bloc.state as SyncSignedIn).status.pendingCount, 4);
+      reader.error = StateError('closed db');
+
+      bloc.add(const DownloadSpaceRequested(_space));
+      await pumpEventQueue();
+
+      final switched = states.whereType<SyncSignedIn>().firstWhere(
+        (s) => s.flow == const SyncBindIdle(switchedToDatabase: 'downloaded'),
+      );
+      expect(switched.status, SyncStatus.empty);
+      await bloc.close();
+    });
+
+    test('after a failed sign-in Stop runs, signed out, on the last binding '
+        'known (final review U-4)', () async {
+      final spaces = _FakeSpaceService();
+      final (bloc, auth, states, _, reader) = await pumpBinding(
+        spaces,
+        user: null,
+      );
+      auth.signInError = StateError('no network');
+      bloc.add(const SignInRequested());
+      await pumpEventQueue();
+      expect(bloc.state, isA<SyncFailure>());
+      states.clear();
+
+      bloc.add(const StopSyncingRequested());
+      await pumpEventQueue();
+
+      expect(spaces.calls, ['stop']);
+      expect(flows(states).first, const SyncBindIdle());
+      expect(flows(states), contains(const SyncBindStopping()));
+      expect(flows(states).last, const SyncBindIdle());
+      expect(bloc.state, isA<SyncSignedOut>());
+      expect(reader.reads, [null]);
+      await bloc.close();
+    });
+  });
+
+  group('a bound database across an account change (final review U-2)', () {
+    const binding = SyncBinding(
+      spaceId: 'space-1',
+      ownerUid: 'uid-1',
+      accountUid: 'uid-1',
+    );
+
+    SyncStatus? statusOf(SyncState state) => switch (state) {
+      SyncSignedIn(:final status) || SyncSignedOut(:final status) => status,
+      _ => null,
+    };
+
+    test('a sign-in: every account state before the read carries the '
+        'binding, paused for no account', () async {
+      final reader = _FakeStatusReader()
+        ..binding = binding
+        ..pause = SyncPause.signedOut;
+      final (bloc, auth, states) = await _pumpBloc(reader: reader);
+      expect(statusOf(bloc.state)?.binding, binding);
+      auth.signInResult = _user;
+      reader
+        ..pause = SyncPause.none
+        ..gate = Completer<void>();
+      final read = reader.gate!;
+      states.clear();
+
+      bloc.add(const SignInRequested());
+      await pumpEventQueue();
+
+      expect(states.first, const SyncSigningIn());
+      final beforeRead = states.last as SyncSignedIn;
+      expect(beforeRead.user, _user);
+      expect(beforeRead.status.binding, binding);
+      expect(beforeRead.status.pause, SyncPause.none);
+
+      read.complete();
+      await pumpEventQueue();
+      for (final state in states.where((s) => s is! SyncSigningIn)) {
+        expect(statusOf(state)?.binding, binding, reason: '$state');
+      }
+      await bloc.close();
+    });
+
+    test('another account shows the mismatch at once, and a read that '
+        'times out keeps the last status known', () {
+      fakeAsync((async) {
+        final fake = _FakeAuthService(available: true, user: _user);
+        final reader = _FakeStatusReader()
+          ..binding = binding
+          ..pendingCount = 3;
+        final bloc = SyncBloc(authService: fake, statusReader: () => reader);
+        final states = <SyncState>[];
+        bloc.stream.listen(states.add);
+        bloc.add(const LoadSyncStatus());
+        async.flushMicrotasks();
+        reader.gate = Completer<void>();
+
+        fake.emitAuth(_partner);
+        async.elapse(SyncBloc.statusTimeout + const Duration(seconds: 1));
+
+        final shown = states.last as SyncSignedIn;
+        expect(shown.user, _partner);
+        expect(shown.status.binding, binding);
+        expect(shown.status.pendingCount, 3);
+        expect(shown.status.pause, SyncPause.accountMismatch);
+        bloc.close();
+        async.flushMicrotasks();
+      });
     });
   });
 }

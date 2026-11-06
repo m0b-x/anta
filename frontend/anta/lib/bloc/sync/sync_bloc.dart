@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import '../../constants/sync_limits.dart';
 import '../../models/app_user.dart';
 import '../../services/auth_service.dart';
 import '../../services/sync/sync_engine.dart';
@@ -20,6 +21,7 @@ class SyncBloc extends Bloc<SyncEvent, SyncState> {
   final FutureOr<SyncStatusReader> Function()? _statusReader;
   final Future<SyncEngine?> Function()? _engine;
   final SyncSpaceService? _spaces;
+  final Duration _engineStopTimeout;
 
   StreamSubscription<AppUser?>? _authSubscription;
   StreamSubscription<SyncStatus>? _engineSubscription;
@@ -29,10 +31,27 @@ class SyncBloc extends Bloc<SyncEvent, SyncState> {
   /// overtook does not subscribe over it.
   int _engineGeneration = 0;
 
-  /// Set for the whole of a bind or stop step, apart from the state: an
+  /// Set for the whole of a bind or stop step, apart from the flow: an
   /// account change mid-step shows the new account's idle flow, and a tap
-  /// then must not start a second step over the first (review BA-M5).
+  /// then must not start a second step over the first (review BA-M5). Every
+  /// state goes out stamped with it, so the page holds and draws busy on it
+  /// too (final review U-1, U-5).
   bool _stepInFlight = false;
+
+  /// Completed as the step in flight settles, for a sign-in or a sign-out
+  /// that waits it out; null between steps.
+  Completer<void>? _stepSettled;
+
+  /// The status the last account state carried: the database's binding,
+  /// queue and times outlive an account change, a sign-in in flight and a
+  /// failed one, so none of them shows a bound database unbound until the
+  /// next read lands (final review U-2).
+  SyncStatus _known = SyncStatus.empty;
+
+  /// Sign-ins and sign-outs asked for and not yet through: no step starts
+  /// before one, or it would start between a step's settle and the deferred
+  /// account change's own emit (review RC1-5).
+  int _accountChangesPending = 0;
 
   /// How long an account state waits for its status before showing none: a
   /// database still opening must not leave the account behind a spinner.
@@ -49,15 +68,20 @@ class SyncBloc extends Bloc<SyncEvent, SyncState> {
   ///
   /// [spaces] is null where sync is not (no gateway bound): the bind and stop
   /// events are then ignored.
+  ///
+  /// [engineStopTimeout] bounds each wait on the engine and the sign-out
+  /// ([SyncLimits.engineStop]); a parameter so a suite can shorten it.
   SyncBloc({
     required AuthService authService,
     FutureOr<SyncStatusReader> Function()? statusReader,
     Future<SyncEngine?> Function()? engine,
     SyncSpaceService? spaces,
+    Duration engineStopTimeout = SyncLimits.engineStop,
   }) : _authService = authService,
        _statusReader = statusReader,
        _engine = engine,
        _spaces = spaces,
+       _engineStopTimeout = engineStopTimeout,
        super(const SyncInitial()) {
     on<LoadSyncStatus>(_onLoad);
     on<SignInRequested>(_onSignIn);
@@ -95,7 +119,7 @@ class SyncBloc extends Bloc<SyncEvent, SyncState> {
     // binding when Firebase init failed, and that must read as unavailable
     // rather than a sign-in button that can only ever fail.
     if (!_authService.isAvailable) {
-      emit(const SyncUnavailable());
+      _put(emit, const SyncUnavailable());
       return;
     }
 
@@ -111,11 +135,20 @@ class SyncBloc extends Bloc<SyncEvent, SyncState> {
 
   Future<void> _onSignIn(SignInRequested event, Emitter<SyncState> emit) async {
     if (!_authService.isAvailable) {
-      emit(const SyncUnavailable());
+      _put(emit, const SyncUnavailable());
       return;
     }
 
-    emit(const SyncSigningIn());
+    // Pending until the spinner is up: from there the state itself refuses
+    // a step.
+    _accountChangesPending++;
+    try {
+      await _afterStep();
+      if (emit.isDone) return;
+      _put(emit, const SyncSigningIn());
+    } finally {
+      _accountChangesPending--;
+    }
     unawaited(_followEngine());
     try {
       // A null user means the flow was dismissed, which the stream never
@@ -124,9 +157,9 @@ class SyncBloc extends Bloc<SyncEvent, SyncState> {
           await _authService.signInWithGoogle() ?? _authService.currentUser;
       await _emitStatus(_emitAccount(user, emit), user, emit);
     } on AuthException catch (e) {
-      emit(SyncFailure(e.error));
+      _put(emit, SyncFailure(e.error));
     } catch (_) {
-      emit(const SyncFailure(AuthError.unknown));
+      _put(emit, const SyncFailure(AuthError.unknown));
     }
   }
 
@@ -134,13 +167,51 @@ class SyncBloc extends Bloc<SyncEvent, SyncState> {
     SignOutRequested event,
     Emitter<SyncState> emit,
   ) async {
+    // Pending until the signed-out state (or the failure) is up.
+    _accountChangesPending++;
+    var pending = true;
+    void through() {
+      if (!pending) return;
+      pending = false;
+      _accountChangesPending--;
+    }
+
     try {
-      await _authService.signOut();
-      await _emitStatus(_emitAccount(null, emit), null, emit);
-    } on AuthException catch (e) {
-      emit(SyncFailure(e.error));
-    } catch (_) {
-      emit(const SyncFailure(AuthError.unknown));
+      await _afterStep();
+      if (emit.isDone) return;
+      try {
+        // Bounded: a hung sign-out would hold the pending count, and with it
+        // every step, for the page's life (review RC1b-4). Past the limit
+        // the account the identity reports is shown — still signed in if
+        // the sign-out never landed.
+        try {
+          await _authService.signOut().timeout(_engineStopTimeout);
+        } on TimeoutException catch (e, st) {
+          debugPrint('[SyncBloc] signing out is taking too long: $e\n$st');
+        }
+        final user = _authService.currentUser;
+        final shown = _emitAccount(user, emit);
+        through();
+        await _emitStatus(shown, user, emit);
+      } on AuthException catch (e) {
+        _put(emit, SyncFailure(e.error));
+      } catch (_) {
+        _put(emit, const SyncFailure(AuthError.unknown));
+      }
+    } finally {
+      through();
+    }
+  }
+
+  /// Waits out a bind or stop step: a sign-in or a sign-out asked for
+  /// meanwhile runs once it has settled — never dropped, never mid-step,
+  /// where the step's settle would find another account on screen and the
+  /// download's restart prompt would never come (final review U-1).
+  Future<void> _afterStep() async {
+    while (_stepInFlight) {
+      final settled = _stepSettled;
+      if (settled == null) return;
+      await settled.future;
     }
   }
 
@@ -158,8 +229,15 @@ class SyncBloc extends Bloc<SyncEvent, SyncState> {
       _refresh(emit);
 
   /// The status read again for the account on screen, shown with [flow] —
-  /// the flow on screen when null.
-  Future<void> _refresh(Emitter<SyncState> emit, {SyncBindFlow? flow}) async {
+  /// the flow on screen when null. A read that failed or timed out keeps the
+  /// status on screen; the engine's next emit refreshes it. [onRead] runs
+  /// between the read and the emit, so a step's settle can clear its flag
+  /// in the same emit that shows its outcome.
+  Future<void> _refresh(
+    Emitter<SyncState> emit, {
+    SyncBindFlow? flow,
+    void Function()? onRead,
+  }) async {
     final AppUser? user;
     switch (state) {
       case SyncSignedIn(user: final current):
@@ -180,15 +258,29 @@ class SyncBloc extends Bloc<SyncEvent, SyncState> {
     // review R112). Bounded by the same timeout as the read — an engine that
     // never resolves must not keep the refresh from emitting.
     await _followEngine().timeout(statusTimeout, onTimeout: () {});
-    final status = _withEngine(await _readStatus(user));
+    final read = await _readStatus(user);
+    onRead?.call();
+    // A failed read keeps the status on screen — unless the flow says the
+    // database was switched, which leaves that status the old one's.
+    SyncStatus kept(SyncStatus shown) {
+      if (read != null) return _withEngine(read);
+      if (flow case SyncBindIdle(switchedToDatabase: _?)) {
+        return SyncStatus.empty;
+      }
+      return shown;
+    }
+
     // Re-read after the await: an account change while reading owns the
     // state now, and its own read already carries a status.
     switch (state) {
-      case SyncSignedIn(user: final current, flow: final shown)
+      case SyncSignedIn(user: final current, flow: final shown, :final status)
           when current == user:
-        emit(SyncSignedIn(current, status: status, flow: flow ?? shown));
-      case SyncSignedOut(flow: final shown) when user == null:
-        emit(SyncSignedOut(status: status, flow: flow ?? shown));
+        _put(
+          emit,
+          SyncSignedIn(current, status: kept(status), flow: flow ?? shown),
+        );
+      case SyncSignedOut(flow: final shown, :final status) when user == null:
+        _put(emit, SyncSignedOut(status: kept(status), flow: flow ?? shown));
       default:
         break;
     }
@@ -240,9 +332,9 @@ class SyncBloc extends Bloc<SyncEvent, SyncState> {
     final current = _authService.currentUser;
     switch (state) {
       case SyncSignedIn(:final user, :final flow) when user.uid == current?.uid:
-        emit(SyncSignedIn(user, status: event.status, flow: flow));
+        _put(emit, SyncSignedIn(user, status: event.status, flow: flow));
       case SyncSignedOut(:final flow) when current == null:
-        emit(SyncSignedOut(status: event.status, flow: flow));
+        _put(emit, SyncSignedOut(status: event.status, flow: flow));
       default:
         break;
     }
@@ -255,7 +347,7 @@ class SyncBloc extends Bloc<SyncEvent, SyncState> {
     final spaces = _spaces;
     final shown = state;
     if (spaces == null ||
-        _stepInFlight ||
+        _stepRefused ||
         shown is! SyncSignedIn ||
         shown.flow.isBusy) {
       return;
@@ -286,7 +378,7 @@ class SyncBloc extends Bloc<SyncEvent, SyncState> {
     final spaces = _spaces;
     final shown = state;
     if (spaces == null ||
-        _stepInFlight ||
+        _stepRefused ||
         shown is! SyncSignedIn ||
         shown.flow is! SyncBindPicking) {
       return;
@@ -300,6 +392,10 @@ class SyncBloc extends Bloc<SyncEvent, SyncState> {
     );
   }
 
+  /// A step is refused while one runs, and while an account change waits to
+  /// run after one.
+  bool get _stepRefused => _stepInFlight || _accountChangesPending > 0;
+
   void _onBindFlowDismissed(BindFlowDismissed event, Emitter<SyncState> emit) {
     final String? account;
     switch (state) {
@@ -310,7 +406,9 @@ class SyncBloc extends Bloc<SyncEvent, SyncState> {
             SyncBindIdle(switchedToDatabase: _?),
       ):
         account = user.uid;
-      case SyncSignedOut(flow: SyncBindFailed()):
+      case SyncSignedOut(
+        flow: SyncBindFailed() || SyncBindIdle(switchedToDatabase: _?),
+      ):
         account = null;
       default:
         return;
@@ -319,19 +417,27 @@ class SyncBloc extends Bloc<SyncEvent, SyncState> {
   }
 
   /// Whatever the account (D5 A): another account's pause and a sign-out
-  /// both keep the binding, and this is the way out of either.
+  /// both keep the binding, and this is the way out of either — after a
+  /// failed sign-in too, since an unbind is local and needs no account.
   Future<void> _onStopSyncing(
     StopSyncingRequested event,
     Emitter<SyncState> emit,
   ) async {
     final spaces = _spaces;
-    if (spaces == null || _stepInFlight) return;
+    if (spaces == null || _stepRefused) return;
     final String? account;
     switch (state) {
       case SyncSignedIn(:final user, :final flow) when !flow.isBusy:
         account = user.uid;
       case SyncSignedOut(:final flow) when !flow.isBusy:
         account = null;
+      // The failure carries no flow to show the stop in: the account the
+      // identity reports takes the screen on the last status known, and the
+      // step runs in it (final review U-4).
+      case SyncFailure():
+        final user = _authService.currentUser;
+        _put(emit, _stateFor(user, _carried(_known, user)));
+        account = user?.uid;
       default:
         return;
     }
@@ -356,6 +462,19 @@ class SyncBloc extends Bloc<SyncEvent, SyncState> {
   /// again for the start, because a download switches the database and the
   /// engine the switch rebuilt is the one that syncs it. A failed step starts
   /// it only when it was running.
+  ///
+  /// The page holds until the step settles, with no overall limit (reviews
+  /// RC1, RC1b): a service call cannot be cancelled, and a page released
+  /// mid-step would let the fresh bloc of a page opened again start a
+  /// second step over this one, and a database switch on the Databases page
+  /// run under a bind still to land — which would then bind the database
+  /// switched to. What bounds the hold is each wait on the engine — resolve,
+  /// stop, start — at [_engineStopTimeout], past which the step goes on (the
+  /// puller's per-page binding check guards a run still finishing), and the
+  /// gateway's own limit per call (final review U-3).
+  ///
+  /// Run to its end with the bloc closed too, so the engine is never left
+  /// stopped; only the emits and the read for them are skipped.
   Future<void> _step(
     Emitter<SyncState> emit,
     String? account,
@@ -363,15 +482,12 @@ class SyncBloc extends Bloc<SyncEvent, SyncState> {
     Future<SyncBindFlow> Function() change,
   ) async {
     _stepInFlight = true;
+    _stepSettled = Completer<void>();
     try {
       _emitFlow(emit, account, busy);
       final before = await _resolveEngine();
       final wasRunning = before?.isStarted ?? false;
-      try {
-        await before?.stop();
-      } catch (e, st) {
-        debugPrint('[SyncBloc] stopping the sync engine failed: $e\n$st');
-      }
+      await _stopEngine(before);
       SyncBindFlow outcome;
       var changed = true;
       try {
@@ -380,30 +496,63 @@ class SyncBloc extends Bloc<SyncEvent, SyncState> {
         outcome = _failed(e, st);
         changed = false;
       }
+      // The old database's status must not dress the one switched to.
+      if (outcome case SyncBindIdle(switchedToDatabase: _?)) {
+        _known = SyncStatus.empty;
+      }
       if (changed || wasRunning) {
         final after = await _resolveEngine();
-        try {
-          // A rebuilt engine started itself over the switched database
-          // before its bind: stopped too, so the start below is a fresh one.
-          if (!identical(after, before)) await after?.stop();
-          await after?.start();
-        } catch (e, st) {
-          debugPrint('[SyncBloc] restarting the sync engine failed: $e\n$st');
-        }
+        // A rebuilt engine started itself over the switched database before
+        // its bind: stopped too, so the start below is a fresh one.
+        if (!identical(after, before)) await _stopEngine(after);
+        await _startEngine(after);
       }
-      await _settle(emit, account, outcome);
+      if (!isClosed) await _settle(emit, account, outcome);
     } finally {
-      _stepInFlight = false;
+      // Settled with no emit of its own — another account on screen — the
+      // state shown still says a step runs.
+      _endStep();
+      if (!emit.isDone && state.stepInFlight) _put(emit, state);
     }
   }
 
-  /// The engine a step stops and starts, or null — logged, never thrown: the
-  /// step must still settle without one.
+  /// Clears the step flag and lets a sign-in or sign-out that waited go.
+  void _endStep() {
+    _stepInFlight = false;
+    final settled = _stepSettled;
+    _stepSettled = null;
+    settled?.complete();
+  }
+
+  /// Stops [engine], logged and never thrown, and given up on after
+  /// [_engineStopTimeout]: a run's apply hooks must not hold the step.
+  Future<void> _stopEngine(SyncEngine? engine) async {
+    if (engine == null) return;
+    try {
+      await engine.stop().timeout(_engineStopTimeout);
+    } catch (e, st) {
+      debugPrint('[SyncBloc] stopping the sync engine failed: $e\n$st');
+    }
+  }
+
+  /// Starts [engine] under the same bound as its stop (review RC1-4).
+  Future<void> _startEngine(SyncEngine? engine) async {
+    if (engine == null) return;
+    try {
+      await engine.start().timeout(_engineStopTimeout);
+    } catch (e, st) {
+      debugPrint('[SyncBloc] restarting the sync engine failed: $e\n$st');
+    }
+  }
+
+  /// The engine a step stops and starts, or null — logged, never thrown, and
+  /// given up on after [_engineStopTimeout] (review RC1-4): the step must
+  /// still settle without one.
   Future<SyncEngine?> _resolveEngine() async {
     final thunk = _engine;
     if (thunk == null) return null;
     try {
-      return await thunk();
+      return await thunk().timeout(_engineStopTimeout);
     } catch (e, st) {
       debugPrint('[SyncBloc] the sync engine is unavailable: $e\n$st');
       return null;
@@ -412,7 +561,9 @@ class SyncBloc extends Bloc<SyncEvent, SyncState> {
 
   /// [flow] shown with the status read again, while the account on screen is
   /// still [account]'s: an account that changed mid-step owns the screen, and
-  /// its own read already carries a status.
+  /// its own read already carries a status. A download's switch is shown
+  /// whatever the account: the app now runs on another database, and only
+  /// the restart prompt this flow raises says so (final review U-1).
   Future<void> _settle(
     Emitter<SyncState> emit,
     String? account,
@@ -423,7 +574,8 @@ class SyncBloc extends Bloc<SyncEvent, SyncState> {
       SyncSignedOut() => account == null,
       _ => false,
     };
-    if (ours) await _refresh(emit, flow: flow);
+    final switched = flow is SyncBindIdle && flow.switchedToDatabase != null;
+    if (ours || switched) await _refresh(emit, flow: flow, onRead: _endStep);
   }
 
   /// [flow] into the account state on screen, while it is still [account]'s
@@ -433,12 +585,23 @@ class SyncBloc extends Bloc<SyncEvent, SyncState> {
     if (emit.isDone) return;
     switch (state) {
       case SyncSignedIn(:final user, :final status) when user.uid == account:
-        emit(SyncSignedIn(user, status: status, flow: flow));
+        _put(emit, SyncSignedIn(user, status: status, flow: flow));
       case SyncSignedOut(:final status) when account == null:
-        emit(SyncSignedOut(status: status, flow: flow));
+        _put(emit, SyncSignedOut(status: status, flow: flow));
       default:
         break;
     }
+  }
+
+  /// Every state goes out through here: stamped with the step flag, and an
+  /// account state's status kept as the last one known.
+  void _put(Emitter<SyncState> emit, SyncState next) {
+    final stamped = next.withStepInFlight(_stepInFlight);
+    if (stamped
+        case SyncSignedIn(:final status) || SyncSignedOut(:final status)) {
+      _known = status;
+    }
+    emit(stamped);
   }
 
   SyncBindFailed _failed(Object error, StackTrace stack) {
@@ -493,10 +656,12 @@ class SyncBloc extends Bloc<SyncEvent, SyncState> {
 
   /// Shows [user]'s account at once and returns the state emitted, for
   /// [_emitStatus] to recognise. The status already on screen is carried
-  /// only while the user is the same one: the queue belongs to the database,
-  /// but the pause is per account, so another account starts from
-  /// [SyncStatus.empty] until its own read lands rather than showing the
-  /// previous account's mismatch. The bind flow follows the same rule.
+  /// whole while the user is the same one. Another account — or the first
+  /// after a sign-in in flight or a failed one — gets the database's half of
+  /// the last status known, its pause recomputed for that account, until its
+  /// own read lands: a bound database never draws unbound in between, and
+  /// the previous account's mismatch is never shown for the next (final
+  /// review U-2). The bind flow is carried only for the same account.
   SyncState _emitAccount(AppUser? user, Emitter<SyncState> emit) {
     final (known, flow) = switch (state) {
       SyncSignedIn(user: final shown, :final status, :final flow)
@@ -506,28 +671,42 @@ class SyncBloc extends Bloc<SyncEvent, SyncState> {
         status,
         flow,
       ),
-      _ => (SyncStatus.empty, const SyncBindIdle()),
+      _ => (_carried(_known, user), const SyncBindIdle()),
     };
-    emit(_stateFor(user, known, flow));
+    _put(emit, _stateFor(user, known, flow));
     return state;
   }
 
+  /// [status] as [user] would read it: the binding, the queue, the times and
+  /// the last failure belong to the database and stay; the pause is the
+  /// account's, recomputed by the engine's one precedence rule from the
+  /// binding — a pause the engine stored stays only under no account pause.
+  static SyncStatus _carried(SyncStatus status, AppUser? user) =>
+      status.copyWith(
+        pause: SyncEngine.pauseOver(
+          read: SyncPause.forAccount(status.binding, user?.uid),
+          engine: status.pause,
+        ),
+      );
+
   /// Adds the status to [shown] once it is read, unless the state moved on
   /// meanwhile: a sign-in handled during the read owns the state, and the
-  /// read's stale account must not overwrite it.
+  /// read's stale account must not overwrite it. A read that failed leaves
+  /// the status [shown] carries.
   Future<void> _emitStatus(
     SyncState shown,
     AppUser? user,
     Emitter<SyncState> emit,
   ) async {
-    final status = _withEngine(await _readStatus(user));
-    if (emit.isDone || !identical(state, shown)) return;
-    emit(_stateFor(user, status, _flowOf(shown)));
+    final read = await _readStatus(user);
+    if (read == null || emit.isDone || !identical(state, shown)) return;
+    _put(emit, _stateFor(user, _withEngine(read), _flowOf(shown)));
   }
 
-  /// A reader that fails or stalls never breaks the state: the account still
-  /// shows, with nothing known about its sync.
-  Future<SyncStatus> _readStatus(AppUser? user) async {
+  /// A reader that fails or stalls never breaks the state: null, and the
+  /// account keeps the status last known. Without a reader nothing is ever
+  /// known, so [SyncStatus.empty].
+  Future<SyncStatus?> _readStatus(AppUser? user) async {
     final reader = _statusReader;
     if (reader == null) return SyncStatus.empty;
     try {
@@ -536,7 +715,7 @@ class SyncBloc extends Bloc<SyncEvent, SyncState> {
       ).timeout(statusTimeout);
     } catch (e, st) {
       debugPrint('[SyncBloc] reading the sync status failed: $e\n$st');
-      return SyncStatus.empty;
+      return null;
     }
   }
 

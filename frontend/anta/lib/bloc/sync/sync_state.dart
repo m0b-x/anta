@@ -6,7 +6,11 @@ import '../../services/sync/sync_space_service.dart';
 import '../../services/sync/sync_status.dart';
 import '../../utils/auth_error.dart';
 
+export '../../services/sync/sync_gateway.dart'
+    show SyncGatewayFailure, SyncSpaceInfo;
 export '../../services/sync/sync_space_service.dart' show SyncBindFailure;
+export '../../services/sync/sync_status.dart'
+    show SyncActivity, SyncPause, SyncStatus;
 
 /// Where "Sync this database" — or "Stop syncing" — stands, carried by the
 /// account states so a status emit never drops the picker from under it.
@@ -97,6 +101,15 @@ final class SyncBindFailed extends SyncBindFlow {
 sealed class SyncState extends Equatable {
   const SyncState();
 
+  /// Whether a bind or stop step is running, whichever account it started
+  /// on: an account change mid-step shows the new account's idle flow, and
+  /// the page must still read busy and hold until the step has settled
+  /// (review U-1, U-5). Only the account states can be shown during one.
+  bool get stepInFlight => false;
+
+  /// This state with [stepInFlight] set to [value], where it carries one.
+  SyncState withStepInFlight(bool value) => this;
+
   @override
   List<Object?> get props => [];
 }
@@ -115,16 +128,25 @@ final class SyncSignedOut extends SyncState {
   final SyncStatus status;
 
   /// Only "Stop syncing" runs signed out (D5 A), so only idle, stopping or
-  /// its failure.
+  /// its failure — and a download's switch when the account signed out
+  /// while it ran, whose restart prompt must still come (final review U-1).
   final SyncBindFlow flow;
+
+  @override
+  final bool stepInFlight;
 
   const SyncSignedOut({
     this.status = SyncStatus.empty,
     this.flow = const SyncBindIdle(),
+    this.stepInFlight = false,
   });
 
   @override
-  List<Object?> get props => [status, flow];
+  SyncSignedOut withStepInFlight(bool value) =>
+      SyncSignedOut(status: status, flow: flow, stepInFlight: value);
+
+  @override
+  List<Object?> get props => [status, flow, stepInFlight];
 }
 
 final class SyncSigningIn extends SyncState {
@@ -136,14 +158,22 @@ final class SyncSignedIn extends SyncState {
   final SyncStatus status;
   final SyncBindFlow flow;
 
+  @override
+  final bool stepInFlight;
+
   const SyncSignedIn(
     this.user, {
     this.status = SyncStatus.empty,
     this.flow = const SyncBindIdle(),
+    this.stepInFlight = false,
   });
 
   @override
-  List<Object?> get props => [user, status, flow];
+  SyncSignedIn withStepInFlight(bool value) =>
+      SyncSignedIn(user, status: status, flow: flow, stepInFlight: value);
+
+  @override
+  List<Object?> get props => [user, status, flow, stepInFlight];
 }
 
 final class SyncFailure extends SyncState {

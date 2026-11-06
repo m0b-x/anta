@@ -549,7 +549,8 @@ void main() {
     });
 
     testWidgets('a sign-in keeps the bound rows on the last status known, '
-        'through a failure too; Sync now and Stop wait for an answer', (
+        'through a failure too; Sync now waits for an answer, Stop only '
+        'while the sign-in runs — after a failure it asks and stops', (
       tester,
     ) async {
       final robot = await open(
@@ -558,9 +559,9 @@ void main() {
         signedIn: false,
       );
 
-      for (final state in const [
-        SyncSigningIn(),
-        SyncFailure(AuthError.unknown),
+      for (final (state, canStop) in const [
+        (SyncSigningIn(), false),
+        (SyncFailure(AuthError.unknown), true),
       ]) {
         syncBloc!.show(state);
         await robot.settle();
@@ -576,8 +577,90 @@ void main() {
           reason: '$state',
         );
         expect(robot.tile(SemanticsIds.sharingSyncNow).enabled, isFalse);
-        expect(robot.tile(SemanticsIds.sharingSyncStop).enabled, isFalse);
+        expect(
+          robot.tile(SemanticsIds.sharingSyncStop).enabled,
+          canStop,
+          reason: '$state',
+        );
       }
+
+      final before = syncBloc!.events.length;
+      await robot.tap(SemanticsIds.sharingSyncStop);
+      await robot.tap(SemanticsIds.sharingSyncStopConfirm);
+      expect(syncBloc!.events.sublist(before), [const StopSyncingRequested()]);
+      await close(tester);
+    });
+
+    testWidgets('a sign-in from a bound database shows the status row on '
+        'every frame — the state before the read carries the binding — never '
+        'the bind row (final review U-2)', (tester) async {
+      final robot = await open(
+        tester,
+        SyncSignedOut(status: bound(pause: SyncPause.signedOut)),
+        signedIn: false,
+      );
+
+      for (final state in [
+        const SyncSigningIn(),
+        signedIn(status: bound()),
+        signedIn(status: bound(lastPullAt: DateTime(2020, 3, 4))),
+      ]) {
+        syncBloc!.show(state);
+        await robot.settle();
+
+        expect(robot.byId(SemanticsIds.sharingSync), findsNothing);
+        expect(robot.byId(SemanticsIds.sharingSyncStatus), findsOneWidget);
+      }
+      await close(tester);
+    });
+
+    testWidgets('while a step runs the Account row is disabled: no sign-out, '
+        'no sign-in (final review U-1)', (tester) async {
+      final robot = await open(
+        tester,
+        signedIn(status: bound()).withStepInFlight(true),
+      );
+      expect(robot.tile(SemanticsIds.sharingSignOut).enabled, isFalse);
+      final before = syncBloc!.events.length;
+      await robot.tap(SemanticsIds.sharingSignOut);
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(syncBloc!.events.length, before);
+
+      syncBloc!.show(
+        SyncSignedOut(
+          status: bound(pause: SyncPause.signedOut),
+          stepInFlight: true,
+        ),
+      );
+      await robot.settle();
+      expect(robot.tile(SemanticsIds.sharingSignIn).enabled, isFalse);
+      await robot.tap(SemanticsIds.sharingSignIn);
+      expect(syncBloc!.events.length, before);
+
+      syncBloc!.show(signedIn(status: bound()));
+      await robot.settle();
+      expect(robot.tile(SemanticsIds.sharingSignOut).enabled, isTrue);
+      await close(tester);
+    });
+
+    testWidgets('a step another account left running draws the rows busy '
+        'until it ends (final review U-5)', (tester) async {
+      final robot = await open(tester, signedIn(status: bound()));
+
+      syncBloc!.show(signedIn(status: bound()).withStepInFlight(true));
+      await robot.settle();
+      expect(robot.busy(SemanticsIds.sharingSyncStop), isTrue);
+      expect(robot.tile(SemanticsIds.sharingSyncNow).enabled, isFalse);
+      await robot.tap(SemanticsIds.sharingSyncStop);
+      expect(find.byType(AlertDialog), findsNothing);
+
+      syncBloc!.show(signedIn().withStepInFlight(true));
+      await robot.settle();
+      expect(robot.busy(SemanticsIds.sharingSync), isTrue);
+
+      syncBloc!.show(signedIn());
+      await robot.settle();
+      expect(robot.busy(SemanticsIds.sharingSync), isFalse);
       await close(tester);
     });
 
@@ -602,7 +685,8 @@ void main() {
     });
 
     testWidgets('while a step runs the page holds — system back and the '
-        "bar's arrow both stay — and idle, back leaves", (tester) async {
+        "bar's arrow both stay, under another account's idle flow too — and "
+        'once it ends, back leaves', (tester) async {
       await boot(user: userA);
       final robot = SyncSectionRobot(tester);
       await robot.pumpPage(pushed: true);
@@ -611,8 +695,13 @@ void main() {
         (SyncStatus.empty, const SyncBindChecking()),
         (SyncStatus.empty, const SyncBindBinding()),
         (bound(), const SyncBindStopping()),
+        // An account change mid-step shows the new account's idle flow; the
+        // bloc's flag still holds the page (final review U-1).
+        (bound(), const SyncBindIdle()),
       ]) {
-        syncBloc!.show(signedIn(status: status, flow: flow));
+        syncBloc!.show(
+          signedIn(status: status, flow: flow).withStepInFlight(true),
+        );
         await robot.settle();
 
         await tester.binding.handlePopRoute();

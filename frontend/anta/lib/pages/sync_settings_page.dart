@@ -10,8 +10,6 @@ import '../constants/semantics_ids.dart';
 import '../core/di/injection.dart';
 import '../l10n/app_localizations.dart';
 import '../services/pairing_service.dart';
-import '../services/sync/sync_gateway.dart';
-import '../services/sync/sync_status.dart';
 import '../utils/auth_error.dart';
 import '../utils/custom_snackbar.dart';
 import '../utils/pairing_error.dart';
@@ -83,10 +81,13 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
 
     // A step in flight holds the page: a download ends on the restart
     // prompt, which the page must still be there to raise, and the app's
-    // singletons still hold the database it left. The bar's back arrow
-    // pops through the same scope.
+    // singletons still hold the database it left. The bloc's flag, not the
+    // flow shown: an account change mid-step shows an idle flow (final
+    // review U-1). Until it settles, however long: a page released mid-step
+    // lets a second bloc overlap it (review RC1b). The bar's back arrow pops
+    // through the same scope.
     return BlocSelector<SyncBloc, SyncState, bool>(
-      selector: (state) => _syncOf(state).flow.isBusy,
+      selector: (state) => state.stepInFlight,
       builder: (context, busy) =>
           PopScope(canPop: !busy, child: _scaffold(context, l10n)),
     );
@@ -259,6 +260,9 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
     Widget? description,
   ) {
     final colorScheme = Theme.of(context).colorScheme;
+    // No account change while a bind or stop step runs: its settle must land
+    // on the account it started on (final review U-1).
+    final stepping = state.stepInFlight;
 
     switch (state) {
       case SyncUnavailable():
@@ -296,6 +300,7 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
                 ),
           action: l10n.signOut,
           onTap: () => _signOut(context, l10n, pairing),
+          enabled: !stepping,
         );
 
       case SyncFailure():
@@ -311,6 +316,7 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
       case SyncInitial():
       case SyncSignedOut():
         return ListTile(
+          enabled: !stepping,
           leading: Icon(Icons.login_rounded, color: colorScheme.primary),
           title: title,
           subtitle: description,
@@ -369,6 +375,11 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
         _ => (status: SyncStatus.empty, flow: const SyncBindIdle()),
       };
 
+  /// Whether a step runs, though the flow [state] shows may not say so: one
+  /// an account change left behind shows idle (final review U-5).
+  static bool _stepping(SyncState state) =>
+      state.stepInFlight || _syncOf(state).flow.isBusy;
+
   /// The status [state] itself carries; null for the states that carry
   /// none, where the section draws [_lastStatus].
   static SyncStatus? _carriedStatusOf(SyncState state) => switch (state) {
@@ -405,6 +416,8 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
         ? SyncStatus.empty
         : carried ?? _lastStatus ?? SyncStatus.empty;
     final flow = _syncOf(state).flow;
+    // The rows read busy until the step ends, whatever its flow shows.
+    final stepping = _stepping(state);
     final keywords = _keywords(l10n.syncKeywords);
     final bound = status.binding != null;
     final failure = flow is SyncBindFailed
@@ -438,7 +451,7 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
         state is SyncSignedIn &&
         _syncNowPauses.contains(status.pause) &&
         status.activity == SyncActivity.idle &&
-        !flow.isBusy;
+        !stepping;
     final (line, glyph, carriesCount) = _statusLine(l10n, status);
     final lastSync = _lastSyncOf(status);
     // One count, on a line of its own: the waiting changes unless the line
@@ -506,7 +519,11 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
           description: failure,
           keywords: keywords,
           identifier: SemanticsIds.sharingSyncStop,
-          builder: (context, title, description) => carried == null
+          // A failed sign-in keeps Stop on the last binding known: an unbind
+          // is local and needs no account (D5, final review U-4). A sign-in
+          // in flight still waits for its answer.
+          builder: (context, title, description) =>
+              carried == null && state is! SyncFailure
               ? _disabledTile(
                   context,
                   glyph: Icon(
@@ -516,7 +533,14 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
                   title: title,
                   description: description,
                 )
-              : _stopRow(context, l10n, flow, title, description),
+              : _stopRow(
+                  context,
+                  l10n,
+                  flow,
+                  title,
+                  description,
+                  stepping: stepping,
+                ),
         ),
       ],
     );
@@ -703,7 +727,7 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
         description: description,
       );
     }
-    final busy = loading || flow is SyncBindChecking || flow is SyncBindBinding;
+    final busy = loading || _stepping(state);
     return ListTile(
       leading: busy
           ? const _RowBusyIndicator()
@@ -765,18 +789,19 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
   }
 
   /// Available whenever a binding exists — signed out, and paused on
-  /// another account (D5's way out) — and always asks first.
+  /// another account (D5's way out) — and always asks first. While
+  /// [stepping] it spins and asks nothing, whatever the flow shows.
   Widget _stopRow(
     BuildContext context,
     AppLocalizations l10n,
     SyncBindFlow flow,
     Widget title,
-    Widget? description,
-  ) {
+    Widget? description, {
+    bool stepping = false,
+  }) {
     final colorScheme = Theme.of(context).colorScheme;
-    final stopping = flow is SyncBindStopping;
     return ListTile(
-      leading: stopping
+      leading: stepping
           ? const _RowBusyIndicator()
           : Icon(
               flow is SyncBindFailed
@@ -788,7 +813,7 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
             ),
       title: title,
       subtitle: description,
-      onTap: flow.isBusy ? null : () => _stopSyncing(context, l10n),
+      onTap: stepping ? null : () => _stopSyncing(context, l10n),
     );
   }
 

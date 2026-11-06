@@ -7,7 +7,6 @@ import '../bloc/sync/sync_bloc.dart';
 import '../constants/row_metrics.dart';
 import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
-import '../services/sync/sync_gateway.dart';
 import 'form_rows.dart';
 
 /// A sync time as the Sync section and the picker say it: the time of day
