@@ -213,4 +213,58 @@ void main() {
       handle.dispose();
     });
   }
+
+  // Today's now line is drawn over the blocks; it once swallowed the tap
+  // wherever it crossed one, and the guide's Timeline test went red on any
+  // run whose clock put the line through the block's label.
+  testWidgets('a tap where the now line crosses a block opens its event', (
+    tester,
+  ) async {
+    final now = DateTime.now();
+    final today = DateTime.utc(now.year, now.month, now.day);
+    final minute = now.hour * 60 + now.minute;
+    // An hour around now that never leaves the day.
+    final start = math.min(math.max(minute - 30, 0), 23 * 60);
+    final tapped = <String>[];
+    addTearDown(tester.view.reset);
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(412, 915);
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light(),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        locale: const Locale('en'),
+        home: Scaffold(
+          body: DayTimelineView(
+            day: today,
+            events: [
+              CalendarEvent(
+                id: 'now',
+                title: 'Now',
+                categoryId: 'gym',
+                startDate: today,
+                time: EventTime(startMinute: start, durationMinutes: 60),
+              ),
+            ],
+            onEventTap: (event) => tapped.add(event.id),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(blockOf('Now'));
+    await tester.pumpAndSettle();
+
+    final line = find.byWidgetPredicate(
+      (widget) => widget.runtimeType.toString() == '_NowIndicator',
+    );
+    expect(line, findsOneWidget);
+    final block = tester.getRect(blockOf('Now'));
+    final crossing = Offset(block.center.dx, tester.getRect(line).center.dy);
+    expect(block.contains(crossing), isTrue);
+    await tester.tapAt(crossing);
+    await tester.pumpAndSettle();
+    expect(tapped, ['now']);
+  });
 }

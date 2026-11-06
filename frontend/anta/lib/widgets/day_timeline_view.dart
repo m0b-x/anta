@@ -263,7 +263,11 @@ class _DayTimelineViewState extends State<DayTimelineView> {
                             height: 8,
                             left: DayTimelineView.gutterWidth - 6,
                             right: 0,
-                            child: _NowIndicator(color: colorScheme.error),
+                            // Drawn over the blocks: a tap where the line
+                            // crosses an event belongs to the event.
+                            child: IgnorePointer(
+                              child: _NowIndicator(color: colorScheme.error),
+                            ),
                           ),
                       ],
                     ),
