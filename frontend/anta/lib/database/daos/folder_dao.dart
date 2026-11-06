@@ -43,6 +43,10 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
     return query.get();
   }
 
+  /// In the user's manual order, ties on `id` as every folder sort ends: the
+  /// move picker lists these and the move undo files a note into the first
+  /// one, so the order must be the same on every device a sync copies the
+  /// folders to — rowid order, which this had, is not.
   Future<List<Folder>> getFoldersByParent(
     String? parentId, {
     bool includeDeleted = false,
@@ -56,6 +60,10 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
     if (!includeDeleted) {
       query.where((f) => f.isDeleted.equals(false));
     }
+    query.orderBy([
+      (f) => OrderingTerm.asc(f.position),
+      (f) => OrderingTerm.asc(f.id),
+    ]);
     return query.get();
   }
 
@@ -1015,7 +1023,10 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
       query.where((f) => f.parentId.equals(parentId));
     }
     query.where((f) => f.isDeleted.equals(false));
-    query.orderBy([(f) => OrderingTerm.asc(f.name)]);
+    query.orderBy([
+      (f) => OrderingTerm.asc(f.name),
+      (f) => OrderingTerm.asc(f.id),
+    ]);
     return query.watch();
   }
 

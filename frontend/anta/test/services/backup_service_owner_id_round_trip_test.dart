@@ -67,11 +67,13 @@ void main() {
       them: 'k-them::',
       mine: 'k-mine::',
     ),
+    // Named by the note's title: a restore re-ids the note.
     _Table(
       'counter_values',
-      "counter_id || '::' || note_id",
-      them: 'k-them::note-a',
-      mine: 'k-mine::note-a',
+      "counter_id || '::' || COALESCE("
+          '(SELECT n.title FROM notes n WHERE n.id = note_id), note_id)',
+      them: 'k-them::My note',
+      mine: 'k-mine::My note',
     ),
     _Table('calendar_categories', 'id', them: 'c-them', mine: 'c-mine'),
     _Table('calendar_category_alerts', 'id', them: 'ca-them', mine: 'ca-mine'),
@@ -153,7 +155,10 @@ void main() {
     await db.folderDao.createFolder(name: 'Theirs');
     final mine = await db.folderDao.createFolder(name: 'Mine');
     await db.noteDao.createNote(folderId: mine.id, title: 'Their note');
-    await db.noteDao.createNote(folderId: mine.id, title: 'My note');
+    final myNote = await db.noteDao.createNote(
+      folderId: mine.id,
+      title: 'My note',
+    );
 
     final now = DateTime.now();
     for (final id in ['k-them', 'k-mine']) {
@@ -161,7 +166,9 @@ void main() {
         CountersCompanion.insert(id: id, name: id, createdAt: now),
       );
       await db.counterDao.upsertValue(id, '', 3);
-      await db.counterDao.upsertValue(id, 'note-a', 4);
+      // Under a note the archive carries: a restore drops a per-note value
+      // whose note it does not create (P review PR7).
+      await db.counterDao.upsertValue(id, myNote.id, 4);
     }
 
     await (await CategoryService.getInstance()).importData([
@@ -407,10 +414,12 @@ void main() {
     final extras =
         jsonDecode(counterData['noteValueExtras'] as String)
             as Map<String, dynamic>;
+    final noteId =
+        byId(exported['notes'] as List, 'title', 'My note')['id'] as String;
     expect(extras['k-them::'], {'ownerId': 'them'});
-    expect(extras['k-them::note-a'], {'ownerId': 'them'});
+    expect(extras['k-them::$noteId'], {'ownerId': 'them'});
     expect(extras, isNot(contains('k-mine::')));
-    expect(extras, isNot(contains('k-mine::note-a')));
+    expect(extras, isNot(contains('k-mine::$noteId')));
 
     await wipeFoldersAndNotes(db);
     final result = await (await BackupService.getInstance()).importFromJson(

@@ -541,10 +541,17 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
     _loadData();
   }
 
+  /// Cut at the first tombstone: this page can show a live folder that still
+  /// sits under a deleted one (opened before the pull, or rebuilt by launch
+  /// restore while the sync folder repair waits), and the eyebrow and the
+  /// ancestor menu must neither name the tombstone nor open it.
   Future<void> _loadAncestors() async {
     final folderId = widget.folderId;
     if (folderId == null) return;
-    final ancestors = await _folderStorageService.getAncestors(folderId);
+    final ancestors = await _folderStorageService.getAncestors(
+      folderId,
+      stopAtDeleted: true,
+    );
     if (!mounted) return;
     setState(() => _ancestors = ancestors);
   }

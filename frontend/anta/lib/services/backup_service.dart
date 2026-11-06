@@ -443,6 +443,21 @@ class BackupService {
       }
       foldersImported = folderIds.length;
 
+      // A note whose folder the archive did not carry keeps it only while it
+      // is a live folder here; otherwise it restores at the root, never under
+      // an id that exists nowhere, where nobody could see it. Resolved once
+      // per archived folder.
+      final unarchivedFolders = <String, String>{};
+      Future<String> restoredFolderId(String archived) async {
+        final mapped = folderIdMap[archived];
+        if (mapped != null) return mapped;
+        if (archived.isEmpty) return archived;
+        final known = unarchivedFolders[archived];
+        if (known != null) return known;
+        final live = await _db.folderDao.getFoldersByIds([archived]);
+        return unarchivedFolders[archived] = live.isEmpty ? '' : archived;
+      }
+
       for (final noteData in notes) {
         final map = noteData as Map<String, dynamic>;
         final content = map[JsonKeys.content] as String? ?? '';
@@ -451,7 +466,7 @@ class BackupService {
 
         final now = DateTime.now();
         final note = await _db.noteDao.importNote(
-          folderId: folderIdMap[archivedFolderId] ?? archivedFolderId,
+          folderId: await restoredFolderId(archivedFolderId),
           title: map[JsonKeys.title] as String,
           preview: preview,
           contentLength: content.length,

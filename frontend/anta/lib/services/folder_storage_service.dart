@@ -355,15 +355,33 @@ class FolderStorageService {
   ///
   /// Defensive against pathological data: a `visited` set bounds the walk
   /// so a cyclic `parentId` link can't loop forever.
-  Future<List<model.Folder>> getAncestors(String folderId) async {
+  ///
+  /// [stopAtDeleted] cuts the chain at the first tombstone, for a breadcrumb
+  /// the user can tap: a live folder can sit under a deleted one while the
+  /// sync folder repair waits, and a crumb must never name a tombstone (a
+  /// data-less one is named by its id) or lead into one.
+  Future<List<model.Folder>> getAncestors(
+    String folderId, {
+    bool stopAtDeleted = false,
+  }) async {
     await initialize();
-    final chain = <model.Folder>[];
+    final rows = await _ancestorRows(folderId);
+    final start = stopAtDeleted
+        ? rows.lastIndexWhere((folder) => folder.isDeleted) + 1
+        : 0;
+    return [for (final row in rows.skip(start)) _folderToModel(row)];
+  }
+
+  /// The rows behind [getAncestors], root first, tombstones included: the
+  /// model drops `isDeleted`, which the callers that cut or filter need.
+  Future<List<Folder>> _ancestorRows(String folderId) async {
+    final chain = <Folder>[];
     final visited = <String>{folderId};
-    var current = await getFolderById(folderId);
+    var current = await _repository.getFolderById(folderId);
     while (current?.parentId != null) {
       final parentId = current!.parentId!;
       if (!visited.add(parentId)) break; // cycle guard
-      final parent = await getFolderById(parentId);
+      final parent = await _repository.getFolderById(parentId);
       if (parent == null) break;
       chain.insert(0, parent);
       current = parent;
@@ -389,18 +407,23 @@ class FolderStorageService {
   /// notes from three folders costs three chains, not twenty — and the walks
   /// share the repository's folder cache on top of that. A folder that can't
   /// be resolved is absent from the map rather than mapped to an empty list.
+  ///
+  /// A tombstoned segment is left out, the folder's own included: a note can
+  /// sit under a deleted folder until the sync repair re-files it, and a path
+  /// must never show a deleted folder's name, nor the id a data-less
+  /// tombstone carries for one.
   Future<Map<String, List<String>>> folderPathSegments(
     Iterable<String> folderIds,
   ) async {
     await initialize();
     final paths = <String, List<String>>{};
     for (final folderId in folderIds.toSet()) {
-      final folder = await getFolderById(folderId);
+      final folder = await _repository.getFolderById(folderId);
       if (folder == null) continue;
-      final ancestors = await getAncestors(folderId);
+      final ancestors = await _ancestorRows(folderId);
       paths[folderId] = [
-        for (final ancestor in ancestors) ancestor.name,
-        folder.name,
+        for (final segment in [...ancestors, folder])
+          if (!segment.isDeleted) segment.name,
       ];
     }
     return paths;

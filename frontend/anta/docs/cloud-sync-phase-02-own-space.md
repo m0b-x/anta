@@ -1916,6 +1916,45 @@ a picker left open across an account change shows stale spaces (the bloc
 ignores what it then sends); a failed sign-in carries no status, so a bound
 database shows the bind row until the sign-in succeeds.
 
+**P fix pass as built (2026-11-06, two implementers in separate worktrees,
+patched into main together; gate: `dart analyze lib test` clean, whole
+suite green bar one red that predates it — the timeline's now line
+swallowed taps, fixed beside it).** Sync side: the merge-time rule of PR1
+— a note under a folder tombstone is re-filed only when its stamp is above
+the tombstone's or this device wrote the tombstone, else it stands (the
+walk's first row reads both); one walk shared with **the sweep** (PR5,
+`NoteDao.refileNotesUnderDeletedFolders`, run by `SyncPuller` only after a
+complete pull, after `bind_merge_pending` clears, on the same predicate in
+SQL; idle it is one query through the folder index and writes nothing; the
+clock adopts the stored stamp before stamping, R98's reasoning; the moved
+notes announced through `afterPage('notes', …)` as merged rows, so the
+browser and an open editor follow; a failing sweep is logged and retried by
+the next complete pull). Two-device scenarios on `sync_pair.dart` pin the
+split-batch resurrection (B pulls between D's folder batch and note batch:
+the note stands, then its tombstone applies) and the move-in (the deleting
+device re-files, both converge), the editing device's sweep, a pull failing
+part-way (nothing re-filed), and the initial merge's skipped note re-filed
+after the clear. Browser side: the folder picker opens at the nearest live
+folder and its crumbs stop at the first tombstone (`getAncestors(…,
+stopAtDeleted:)`); `folderPathSegments` omits tombstoned segments; the
+editor's "Open folder" opens the nearest live folder, the root browser when
+there is none (a root note's "Open folder" now pops to the root browser
+instead of pushing a page for folder `''`); the browser's crumbs stop at
+the first tombstone (a live folder under a tombstoned parent is reachable
+from a page opened before the pull or by launch restore); a restore drops a
+per-note counter value whose note the archive did not carry (when it
+carried notes) and files a note whose folder is neither in the archive nor
+live here at the root (the restore appends, so a live local folder keeps
+its note); `getFoldersByParent` orders by position then id and
+`watchFoldersByParent` by name then id. Found, not fixed: the move undo
+checks its destination with tombstones included, so an undo can file into
+a deleted folder (`move_coordinator.dart:429,508`); a restored folder whose
+parent the archive did not carry keeps a parent id that exists nowhere
+(`FolderDao.importFolders`, the folder twin of the note fallback); a
+browser page whose own folder becomes a tombstone while open has no
+handling; a note whose tombstoned folder's chain runs into a folder not yet
+received costs the sweep one walk per complete pull until it arrives.
+
 - `SyncBindingService.bind` and the install registry (§3.6);
   `SyncSpaceService` (create / list through the gateway, the space name
   rule); `SyncBloc` events `BindRequested(space?)`, `UnbindRequested`,

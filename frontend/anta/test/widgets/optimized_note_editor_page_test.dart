@@ -2513,7 +2513,10 @@ void main() {
     /// stack "Open folder" is meant to walk back to, and a page for delete
     /// to pop onto. The folder page itself is a stand-in: what the helper
     /// reads is the stamp, not the widget.
-    Future<void> pushEditorOverFolder(WidgetTester tester) async {
+    Future<void> pushEditorOverFolder(
+      WidgetTester tester, {
+      Folder? below,
+    }) async {
       await tester.pumpWidget(
         MultiBlocProvider(
           providers: [
@@ -2532,8 +2535,8 @@ void main() {
       );
       final navigator = tester.state<NavigatorState>(find.byType(Navigator));
       final folder = NavDestination.folder(
-        folderId: menuFolder.id,
-        title: menuFolder.name,
+        folderId: (below ?? menuFolder).id,
+        title: (below ?? menuFolder).name,
       );
       navigator.push(
         MaterialPageRoute<void>(
@@ -2941,6 +2944,54 @@ void main() {
 
       expect(find.text('the folder below'), findsOneWidget);
       expect(pages(), findsNothing);
+      await teardownPage(tester);
+    });
+
+    testWidgets('Open folder on a note under a tombstone opens the nearest '
+        'live folder', (tester) async {
+      final parent = (await tester.runAsync(
+        () => db.folderDao.createFolder(name: 'Strength'),
+      ))!;
+      addTearDown(() => db.folderDao.hardDeleteFolder(parent.id));
+      await tester.runAsync(
+        () => db.customStatement(
+          'UPDATE folders SET parent_id = ?, is_deleted = 1 WHERE id = ?',
+          [parent.id, menuFolder.id],
+        ),
+      );
+      await pushEditorOverFolder(tester, below: parent);
+      await openMenu(tester);
+
+      await tester.tap(find.text(AppLocalizationsEn().openFolder));
+      await tester.pumpAndSettle();
+      await settleUntil(tester, () => pages().evaluate().isEmpty);
+      await tester.pumpAndSettle();
+
+      expect(find.text('the folder below'), findsOneWidget);
+      expect(pages(), findsNothing);
+      await teardownPage(tester);
+    });
+
+    testWidgets('Open folder on a note under a tombstone with no live '
+        'ancestor opens the root', (tester) async {
+      await tester.runAsync(
+        () => db.customStatement(
+          'UPDATE folders SET is_deleted = 1 WHERE id = ?',
+          [menuFolder.id],
+        ),
+      );
+      // The tombstone's own page is on the stack: the row must not go back
+      // to it.
+      await pushEditorOverFolder(tester);
+      await openMenu(tester);
+
+      await tester.tap(find.text(AppLocalizationsEn().openFolder));
+      await tester.pumpAndSettle();
+      await settleUntil(tester, () => pages().evaluate().isEmpty);
+      await tester.pumpAndSettle();
+
+      expect(find.text('root'), findsOneWidget);
+      expect(find.text('the folder below'), findsNothing);
       await teardownPage(tester);
     });
 

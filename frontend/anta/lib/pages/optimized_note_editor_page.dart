@@ -3071,6 +3071,10 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
   /// holds it: a remote delete arriving while `popToFolder` runs would
   /// otherwise still reach [_leaveRemotelyDeleted] and pop a second route
   /// (R19).
+  ///
+  /// A note can sit under a deleted folder until the sync repair re-files it:
+  /// the row then opens the nearest live folder, the root when there is none,
+  /// never a page for the tombstone (P review PR3).
   Future<void> _openFolder() async {
     if (_isExiting) return;
     _isExiting = true;
@@ -3086,11 +3090,19 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
       return;
     }
     if (!mounted) return;
-    await AppNavigator.popToFolder(
-      context,
-      folderId: _folderId,
-      title: _folderName ?? '',
+    final folderId = await GetIt.I<FolderStorageService>().nearestLiveFolderId(
+      _folderId,
     );
+    if (!mounted) return;
+    if (folderId.isEmpty) {
+      await AppNavigator.popToAncestor(context);
+    } else {
+      await AppNavigator.popToFolder(
+        context,
+        folderId: folderId,
+        title: folderId == _folderId ? _folderName ?? '' : '',
+      );
+    }
     if (mounted && _isCurrentRoute) {
       _isExiting = false;
       _saves.exitAborted();

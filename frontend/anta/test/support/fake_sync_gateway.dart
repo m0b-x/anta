@@ -128,8 +128,10 @@ class FakeSyncGateway implements SyncGateway {
   StreamController<SyncSpaceSignal> _signalOf(SyncSpaceRef space) =>
       _signals.putIfAbsent(space, StreamController<SyncSpaceSignal>.broadcast);
 
+  /// Settable, so a test can cut one stamp's rows over several batches the
+  /// way a cascade of more than 500 rows is cut, without writing 500 rows.
   @override
-  int get maxBatch => 500;
+  int maxBatch = 500;
 
   @override
   Future<void> pushBatch(

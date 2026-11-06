@@ -88,15 +88,18 @@ class _FolderPickerDialogState extends State<_FolderPickerDialog> {
       await _loadFolders();
       return;
     }
-    // Resolve ancestors + the current folder itself; if any link is
-    // missing fall back to root rather than failing the whole picker. A
-    // current folder that is a tombstone counts as missing: one a pull
-    // brought without its data is named by its id.
-    final ancestors = await _folderService.getAncestors(startId);
-    final current = await _folderService.getFolderById(
-      startId,
-      includeDeleted: false,
-    );
+    // Opens in the nearest live folder, its crumbs cut at the first
+    // tombstone above it: the picker must never name a deleted folder (one a
+    // pull brought without its data is named by its id), list into it or
+    // offer it as the destination — a bound database copies that move to
+    // every device. A folder that does not resolve falls back to root.
+    final liveId = await _folderService.nearestLiveFolderId(startId);
+    final current = liveId.isEmpty
+        ? null
+        : await _folderService.getFolderById(liveId, includeDeleted: false);
+    final ancestors = current == null
+        ? const <Folder>[]
+        : await _folderService.getAncestors(liveId, stopAtDeleted: true);
     if (!mounted) return;
     setState(() {
       _breadcrumbs

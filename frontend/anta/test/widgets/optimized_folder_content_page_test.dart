@@ -777,6 +777,33 @@ void main() {
       await teardownPage(tester);
     });
 
+    testWidgets('a folder under a tombstoned parent never names it', (
+      tester,
+    ) async {
+      // The sync folder repair has not re-filed the child yet; a data-less
+      // tombstone would carry its id for a name.
+      await tester.runAsync(
+        () => db.customStatement(
+          'UPDATE folders SET is_deleted = 1 WHERE id = ?',
+          [folder.id],
+        ),
+      );
+      folderService.invalidateCache();
+      addTearDown(() async {
+        await db.customStatement(
+          'UPDATE folders SET is_deleted = 0 WHERE id = ?',
+          [folder.id],
+        );
+        folderService.invalidateCache();
+      });
+      await pumpPage(tester, folderId: child.id, title: 'Winter block');
+
+      expect(appBar(tester).eyebrow, l10n.folders);
+      expect(find.text('Training'), findsNothing);
+
+      await teardownPage(tester);
+    });
+
     testWidgets('a folder directly under the root names the root', (
       tester,
     ) async {

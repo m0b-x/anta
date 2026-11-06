@@ -54,6 +54,9 @@ class _Puller {
   /// stops before its next page, so the background drain never waits for a
   /// whole pull; the caches then hear of the applied pages from the run,
   /// after that drain.
+  ///
+  /// A pull that reached the end of every table ends on
+  /// [_refileStrandedNotes], after the initial merge's flag is cleared.
   Future<_PullOutcome> pull(
     SyncBinding bound,
     List<SyncTableBinding<Object>> tables, {
@@ -130,7 +133,43 @@ class _Puller {
       await db.syncDao.deleteValue(SyncDao.keyBindMergePending);
       _e._downloadedRows = 0;
     }
+    await _refileStrandedNotes();
     return const _PullOutcome(complete: true);
+  }
+
+  /// Re-files the live notes a pull left under a folder that is a tombstone
+  /// here, which the merge-time repair never reached
+  /// (`NoteDao.refileNotesUnderDeletedFolders`), and tells the browser and an
+  /// open editor of the moves as of a merged page's. Only after a complete
+  /// pull: a table still to come may carry the note's own tombstone, or the
+  /// folder's live version. The moves are queued like the merge-time
+  /// repair's, so this run's drain pushes them.
+  ///
+  /// A failure is logged and the run goes on: the sweep is one transaction,
+  /// so it left nothing behind, and the next complete pull sweeps again.
+  Future<void> _refileStrandedNotes() async {
+    final List<({String id, String folderId})> moved;
+    try {
+      moved = await _e._db.noteDao.refileNotesUnderDeletedFolders();
+    } catch (error, stack) {
+      _warn('re-filing the notes under deleted folders failed: $error\n$stack');
+      return;
+    }
+    if (moved.isEmpty) return;
+    try {
+      await _e._hooks.afterPage('notes', [
+        for (final note in moved)
+          SyncAppliedRow(
+            rowKey: note.id,
+            result: MergeResult.applied,
+            tombstone: false,
+            moved: true,
+            previousParent: note.folderId,
+          ),
+      ]);
+    } catch (error, stack) {
+      _warn('afterPage for the re-filed notes failed: $error\n$stack');
+    }
   }
 
   /// `afterRun` for the classes [touched] — alerts whenever the calendar

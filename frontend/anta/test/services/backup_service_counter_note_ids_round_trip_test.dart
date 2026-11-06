@@ -5,6 +5,7 @@ library;
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:drift/drift.dart' hide isNull, isNotNull;
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get_it/get_it.dart';
@@ -112,4 +113,142 @@ void main() {
     expect(global.value, 4);
     expect(global.ownerId, 'owner-1');
   });
+
+  /// Folders and notes are the two tables an import appends to; wiping them
+  /// is what lets a restored row be found by its name.
+  Future<AppDatabase> wipe() async {
+    final db = await AppDatabase.getInstance();
+    await db.customStatement('DELETE FROM notes');
+    await db.customStatement('DELETE FROM folders');
+    await db.counterDao.deleteAll();
+    return db;
+  }
+
+  test("a per-note value under a note the archive did not carry is dropped; "
+      'an archive without notes keeps every archived id', () async {
+    await wipe();
+    final createdAt = DateTime(2026, 11, 1);
+    Map<String, dynamic> counterData() => {
+      'counters': jsonEncode([
+        Counter(
+          id: 'laps',
+          name: 'Laps',
+          scope: CounterScope.perNote,
+          createdAt: createdAt,
+        ).toJson(),
+      ]),
+      'globalValues': jsonEncode(const <String, int>{}),
+      'noteValues': jsonEncode({
+        'gone-note': {'laps': 9},
+      }),
+      'noteValueExtras': jsonEncode({
+        'laps::gone-note': {
+          'ownerId': 'owner-1',
+          'isPinned': true,
+          'position': 2,
+        },
+      }),
+    };
+    final backup = await BackupService.getInstance();
+    final db = await AppDatabase.getInstance();
+
+    final withNotes = await backup.importFromJson(
+      jsonEncode({
+        'version': 7,
+        'folders': const <Map<String, dynamic>>[],
+        'notes': <Map<String, dynamic>>[
+          {
+            JsonKeys.id: 'kept-note',
+            JsonKeys.folderId: '',
+            JsonKeys.title: 'Kept',
+            JsonKeys.content: '',
+          },
+        ],
+        'settings': const <String, dynamic>{},
+        'counterData': counterData(),
+      }),
+    );
+    expect(withNotes.success, isTrue, reason: 'error: ${withNotes.error}');
+    expect(await db.counterDao.getAllValues(), isEmpty);
+
+    // No notes, so no map: the archived id stands, as before the fix.
+    final withoutNotes = await backup.importFromJson(
+      jsonEncode({
+        'version': 7,
+        'folders': const <Map<String, dynamic>>[],
+        'notes': const <Map<String, dynamic>>[],
+        'settings': const <String, dynamic>{},
+        'counterData': counterData(),
+      }),
+    );
+    expect(
+      withoutNotes.success,
+      isTrue,
+      reason: 'error: ${withoutNotes.error}',
+    );
+    final kept = (await db.counterDao.getAllValues()).single;
+    expect(kept.noteId, 'gone-note');
+    expect(kept.value, 9);
+    expect(kept.isPinned, isTrue);
+    expect(kept.position, 2);
+    expect(kept.ownerId, 'owner-1');
+  });
+
+  test(
+    "BackupService's own export restores per-note values, pins and "
+    'positions under the new note ids, and drops a deleted note\'s',
+    () async {
+      final db = await wipe();
+      final folder = await db.folderDao.createFolder(name: 'Gym');
+      final kept = await db.noteDao.createNote(
+        folderId: folder.id,
+        title: 'Leg day',
+      );
+      final deleted = await db.noteDao.createNote(
+        folderId: folder.id,
+        title: 'Old plan',
+      );
+      await db.noteDao.softDeleteNote(deleted.id);
+      final now = DateTime.now();
+      await db.counterDao.insertCounter(
+        CountersCompanion.insert(id: 'sets', name: 'Sets', createdAt: now),
+      );
+      await db.counterDao.insertCounter(
+        CountersCompanion.insert(
+          id: 'laps',
+          name: 'Laps',
+          createdAt: now,
+          scope: const Value('perNote'),
+        ),
+      );
+      await db.counterDao.upsertValue('sets', '', 4, ownerId: 'owner-1');
+      await db.counterDao.upsertValue('laps', kept.id, 7);
+      await db.counterDao.setNoteValuePinned('laps', kept.id, true);
+      await db.counterDao.updateNoteValuePositions('laps', {kept.id: 3});
+      await db.counterDao.upsertValue('laps', deleted.id, 5);
+
+      final backup = await BackupService.getInstance();
+      final exported = jsonEncode(await backup.exportAllData());
+      await db.customStatement('DELETE FROM notes');
+      await db.customStatement('DELETE FROM folders');
+      final result = await backup.importFromJson(exported);
+      expect(result.success, isTrue, reason: 'error: ${result.error}');
+
+      final notes = await db.noteDao.getAllNotes(includeDeleted: false);
+      final restoredId = notes.singleWhere((n) => n.title == 'Leg day').id;
+      expect(restoredId, isNot(kept.id));
+
+      final values = await db.counterDao.getAllValues();
+      final perNote = values.where((v) => v.counterId == 'laps').toList();
+      expect(perNote.map((v) => v.noteId), [restoredId]);
+      expect(perNote.single.value, 7);
+      expect(perNote.single.isPinned, isTrue);
+      expect(perNote.single.position, 3);
+
+      final global = values.singleWhere((v) => v.counterId == 'sets');
+      expect(global.noteId, '');
+      expect(global.value, 4);
+      expect(global.ownerId, 'owner-1');
+    },
+  );
 }

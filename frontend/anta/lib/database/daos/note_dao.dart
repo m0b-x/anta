@@ -1034,16 +1034,83 @@ class NoteDao extends DatabaseAccessor<AppDatabase> with _$NoteDaoMixin {
           return merge;
         case MergeResult.inserted || MergeResult.applied:
           final outcome = merge.withMergedContent(body);
-          if (!await _repairMergedFolder(merged) || outcome.moved) {
-            return outcome;
-          }
+          final refiled = await _refileUnderLiveAncestor(
+            remote.id,
+            folderId: remote.folderId,
+            hlc: remote.hlcTimestamp,
+            version: remote.version,
+            committed: false,
+          );
+          if (!refiled || outcome.moved) return outcome;
           return outcome.movedFrom(remote.folderId);
       }
     });
   }
 
-  /// Re-files the just-merged live [remote] when the folder it arrived under
-  /// is a tombstone here, and returns whether it did.
+  /// Re-files every live note whose folder is a tombstone here and that
+  /// [_refileUnderLiveAncestor] would have re-filed had it merged now, and
+  /// returns each moved note with the folder it left. The engine runs it once
+  /// a pull has reached the end of every table it set out to pull.
+  ///
+  /// The merge-time repair is one chance, taken where the live note arrives,
+  /// and two notes never get it: the one this device edited itself after
+  /// another deleted its folder — it merges the folder's tombstone, and the
+  /// note's own tombstone loses to the edit, so no live note ever arrives —
+  /// and one merged while the bind's initial merge was pending, where the
+  /// repair stands back (A7 review R130). Both would stay findable only by
+  /// search until someone edited them (P review PR5).
+  ///
+  /// The candidates are read before any transaction opens, so a pull with
+  /// nothing to repair costs this one query and writes nothing; they are
+  /// read again inside it, where a save that landed in between is seen. The
+  /// query excludes everything while the initial merge is pending, as the
+  /// repair would.
+  Future<List<({String id, String folderId})>>
+  refileNotesUnderDeletedFolders() async {
+    if ((await _strandedNotes()).isEmpty) return const [];
+    return transaction(() async {
+      final moved = <({String id, String folderId})>[];
+      for (final row in await _strandedNotes()) {
+        final id = row.read<String>('id');
+        final folderId = row.read<String>('folder_id');
+        final refiled = await _refileUnderLiveAncestor(
+          id,
+          folderId: folderId,
+          hlc: row.read<String>('hlc_timestamp'),
+          version: row.read<int>('version'),
+          committed: true,
+        );
+        if (refiled) moved.add((id: id, folderId: folderId));
+      }
+      return moved;
+    });
+  }
+
+  /// The live notes under a tombstoned folder that [_refileUnderLiveAncestor]'s
+  /// rule accepts, as SQL: the folders drive the join, so the notes are
+  /// reached through a live-notes index on `folder_id` rather than scanned.
+  Future<List<QueryRow>> _strandedNotes() {
+    return db
+        .customSelect(
+          'SELECT n.id, n.folder_id, n.hlc_timestamp, n.version '
+          'FROM folders f CROSS JOIN notes n '
+          'ON n.folder_id = f.id AND n.is_deleted = 0 '
+          'WHERE f.is_deleted = 1 '
+          'AND (n.hlc_timestamp > f.hlc_timestamp OR f.device_id = ?1) '
+          'AND NOT EXISTS (SELECT 1 FROM sync_metadata WHERE key = ?2)',
+          variables: [
+            Variable<String>(db.deviceId),
+            Variable<String>(SyncDao.keyBindMergePending),
+          ],
+          readsFrom: {db.folders, notes, db.syncMetadata},
+        )
+        .get();
+  }
+
+  /// Re-files the live note [noteId] when its folder [folderId] is a
+  /// tombstone here that the note was not deleted with, and returns whether
+  /// it did. [hlc] and [version] are the note's as it stands: the merged
+  /// remote's at merge time, the stored row's for the sweep ([committed]).
   ///
   /// One device deleted the folder, tombstoning its notes with it; another
   /// edited a note in it at a newer stamp. The edit wins its row, the merge
@@ -1055,31 +1122,62 @@ class NoteDao extends DatabaseAccessor<AppDatabase> with _$NoteDaoMixin {
   /// [FolderDao.maxFolderDepth], stands, since an unknown folder is not a
   /// deleted one.
   ///
-  /// Only where the live note arrives. A sweep when a folder's tombstone
-  /// arrives over live notes would re-stamp a note whose own tombstone is
-  /// still behind it in the notes pull (folders pull first) and resurrect
-  /// what the other device deleted; the device that receives the live note
-  /// repairs and pushes, and the other converges on the pull.
+  /// Only a note that is not on its way to a tombstone (P review PR1). The
+  /// deleting device's cascade stamps the folder and every note it held with
+  /// one HLC, and its drain sends `folders` before `notes` within that stamp,
+  /// so a cascade over more than one batch lands the folder's tombstone
+  /// while the notes' are still to come; a listener pulling between them
+  /// meets a live envelope of the note it had not pulled yet, stamped below
+  /// the delete. Re-filed, that note would be stamped above its own coming
+  /// tombstone and resurrected everywhere. So the note is re-filed when
+  ///
+  /// - its stamp is above the folder tombstone's: an edit made after the
+  ///   delete, which wins against the cascade's tombstone anyway; or
+  /// - this device wrote the folder's tombstone: its own cascade would have
+  ///   tombstoned the note had the note been inside, so a live one under it
+  ///   is a move into the folder the deleting device had not seen — one
+  ///   device moved the note in while this one deleted the folder, no
+  ///   tombstone of the note is coming, and only this device can know that.
+  ///
+  /// Otherwise the note stands and its tombstone, when it lands, applies.
+  ///
+  /// Never while the bind's initial merge is pending, for the folder
+  /// repair's reason: the local folders are still the pre-bind ones, and one
+  /// whose live envelope is later in the same pull reads here as a tombstone
+  /// (A7 review R130).
   ///
   /// Reads the folders table directly, never a repository cache: this runs
-  /// inside the page's transaction, which can still roll back (S4a review
-  /// L11).
-  Future<bool> _repairMergedFolder(Note remote) async {
+  /// inside a transaction that can still roll back (S4a review L11).
+  Future<bool> _refileUnderLiveAncestor(
+    String noteId, {
+    required String folderId,
+    required String hlc,
+    required int version,
+    required bool committed,
+  }) async {
     final rows = await db
         .customSelect(
-          'WITH RECURSIVE up(id, parent_id, is_deleted, depth) AS ('
-          '  SELECT id, parent_id, is_deleted, 0 FROM folders '
-          '  WHERE id = ?1 '
+          'WITH RECURSIVE up(id, parent_id, is_deleted, hlc_timestamp, '
+          '  device_id, depth) AS ('
+          '  SELECT id, parent_id, is_deleted, hlc_timestamp, device_id, 0 '
+          '  FROM folders WHERE id = ?1 '
           '  UNION ALL '
-          '  SELECT f.id, f.parent_id, f.is_deleted, up.depth + 1 '
+          '  SELECT f.id, f.parent_id, f.is_deleted, f.hlc_timestamp, '
+          '  f.device_id, up.depth + 1 '
           '  FROM folders f JOIN up ON f.id = up.parent_id '
           '  WHERE up.depth < ${FolderDao.maxFolderDepth}'
-          ') SELECT id, parent_id, is_deleted FROM up ORDER BY depth',
-          variables: [Variable<String>(remote.folderId)],
+          ') SELECT id, parent_id, is_deleted, hlc_timestamp, device_id '
+          'FROM up ORDER BY depth',
+          variables: [Variable<String>(folderId)],
           readsFrom: {db.folders},
         )
         .get();
     if (rows.isEmpty || rows.first.read<int>('is_deleted') == 0) return false;
+    final tombstone = rows.first;
+    if (hlc.compareTo(tombstone.read<String>('hlc_timestamp')) <= 0 &&
+        tombstone.read<String>('device_id') != db.deviceId) {
+      return false;
+    }
     String? liveAncestor;
     var reachedRoot = false;
     for (final row in rows) {
@@ -1090,24 +1188,29 @@ class NoteDao extends DatabaseAccessor<AppDatabase> with _$NoteDaoMixin {
       reachedRoot = row.read<String?>('parent_id') == null;
     }
     if (liveAncestor == null && !reachedRoot) return false;
-    // Never during the initial merge, for the folder repair's reason: the
-    // local folders are still the pre-bind ones, and one whose live envelope
-    // is later in the same pull reads here as a tombstone (A7 review R130).
     if (await db.syncDao.getValue(SyncDao.keyBindMergePending) != null) {
       return false;
     }
-    // Raised to the edit first, inside the page's transaction with the drift
-    // guard kept, so the repair outranks the edit it repairs and the space
-    // converges on it rather than denying the push (R131, R157).
-    CrdtMerge.advanceClockInTransaction(db, remote.hlcTimestamp);
-    final stamp = await db.stampLocal(notes, remote.id);
-    await (update(notes)..where((n) => n.id.equals(remote.id))).write(
+    // Raised to the note first, so the repair outranks the write it repairs
+    // and the space converges on it rather than denying the push (R131). A
+    // merged remote is raised to with the drift guard kept: the page can
+    // still roll back with nothing stored behind the raise (R157). A stored
+    // row is adopted, as the puller adopts a committed page (R98): its stamp
+    // is already on this database, and a guarded raise could leave the clock
+    // below it.
+    if (committed) {
+      CrdtMerge.advanceClock(db, hlc);
+    } else {
+      CrdtMerge.advanceClockInTransaction(db, hlc);
+    }
+    final stamp = await db.stampLocal(notes, noteId);
+    await (update(notes)..where((n) => n.id.equals(noteId))).write(
       NotesCompanion(
         folderId: Value(liveAncestor ?? ''),
         updatedAt: Value(DateTime.now()),
         hlcTimestamp: Value(stamp.hlc),
         deviceId: Value(stamp.deviceId),
-        version: Value(remote.version + 1),
+        version: Value(version + 1),
       ),
     );
     return true;

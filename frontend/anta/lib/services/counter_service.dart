@@ -602,9 +602,12 @@ class CounterService {
   ///
   /// [noteIdMap] maps an archived note id to the id its restored copy got: a
   /// restore re-ids every note, so a per-note value filed under the archived
-  /// id would hang under a note that exists nowhere. An id missing from the
-  /// map keeps its archived id, as the bar assignments do; the global value's
-  /// empty note id is never translated.
+  /// id would hang under a note that exists nowhere. A map that names any note
+  /// names every note the restore creates, so a per-note value, pin, position
+  /// or owner whose archived id it lacks belongs to a note the archive did
+  /// not carry (one deleted before the export) and is dropped; an empty map —
+  /// an archive without notes, or without their ids — keeps every archived
+  /// id. The global value's empty note id is never translated.
   Future<void> importData(
     Map<String, dynamic> data, {
     Map<String, String> noteIdMap = const {},
@@ -623,8 +626,11 @@ class CounterService {
     _dirtyNoteValues.clear();
     _flushTimer?.cancel();
 
-    String restoredNoteId(String archived) =>
-        archived.isEmpty ? archived : noteIdMap[archived] ?? archived;
+    // Null for a note the restore does not create.
+    String? restoredNoteId(String archived) {
+      if (archived.isEmpty || noteIdMap.isEmpty) return archived;
+      return noteIdMap[archived];
+    }
 
     final extrasRaw = data['noteValueExtras'] as String?;
     final valueOwners = <String, String>{};
@@ -637,10 +643,13 @@ class CounterService {
           );
           if (ownerId == null) continue;
           final parts = entry.key.split('::');
-          final key = parts.length == 2
-              ? '${parts[0]}::${restoredNoteId(parts[1])}'
-              : entry.key;
-          valueOwners[key] = ownerId;
+          if (parts.length != 2) {
+            valueOwners[entry.key] = ownerId;
+            continue;
+          }
+          final noteId = restoredNoteId(parts[1]);
+          if (noteId == null) continue;
+          valueOwners['${parts[0]}::$noteId'] = ownerId;
         }
       } catch (e) {
         debugPrint('[CounterService] Import value owners error: $e');
@@ -691,6 +700,7 @@ class CounterService {
         final futures = <Future>[];
         for (final noteEntry in decoded.entries) {
           final noteId = restoredNoteId(noteEntry.key);
+          if (noteId == null) continue;
           final values = noteEntry.value as Map<String, dynamic>;
           for (final valEntry in values.entries) {
             futures.add(
@@ -718,6 +728,7 @@ class CounterService {
           if (parts.length != 2) continue;
           final counterId = parts[0];
           final noteId = restoredNoteId(parts[1]);
+          if (noteId == null) continue;
           final extra = entry.value as Map<String, dynamic>;
           final isPinned = extra['isPinned'] as bool? ?? false;
           final position = extra['position'] as int? ?? 0;

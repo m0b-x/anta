@@ -197,4 +197,28 @@ void main() {
       reason: 'issued:\n${counter.statements.join('\n')}',
     );
   });
+
+  // The unpaged reads behind the move picker, the move undo's "first folder"
+  // and the folder-archive walk, and the watched list: rowid order differs
+  // per device a sync copies the folders to (P review PR8).
+  test('the unpaged subfolder lists end on id too', () async {
+    await seedLabelledFolders({
+      'f-c': (ItemLabel.none, 'Block'),
+      'f-a': (ItemLabel.none, 'Block'),
+      'f-d': (ItemLabel.none, 'Accessories'),
+      'f-b': (ItemLabel.none, 'Block'),
+    });
+    await db.customStatement(
+      "UPDATE folders SET position = 1 WHERE id IN ('f-c', 'f-a')",
+    );
+    await db.customStatement(
+      "UPDATE folders SET position = 2 WHERE id = 'f-d'",
+    );
+
+    final listed = await db.folderDao.getFoldersByParent(parentId);
+    expect([for (final f in listed) f.id], ['f-b', 'f-a', 'f-c', 'f-d']);
+
+    final watched = await db.folderDao.watchFoldersByParent(parentId).first;
+    expect([for (final f in watched) f.id], ['f-d', 'f-a', 'f-b', 'f-c']);
+  });
 }
