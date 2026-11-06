@@ -233,6 +233,27 @@ abstract final class SemanticsIds {
   static const String sharingUnpair = 'sharing-unpair';
   static const String sharingClose = 'sharing-close';
 
+  /// The Sharing page's Sync section: unbound it is the one [sharingSync]
+  /// row, bound the status row, Sync now and the stop row — so a flow tells
+  /// the two apart by which ids it finds. [sharingSyncStopConfirm] is the
+  /// stop dialog's confirm, apart from the app-wide [sheetConfirm] so a
+  /// flow cannot answer another dialog by mistake.
+  static const String sharingSync = 'sharing-sync';
+  static const String sharingSyncStatus = 'sharing-sync-status';
+  static const String sharingSyncNow = 'sharing-sync-now';
+  static const String sharingSyncStop = 'sharing-sync-stop';
+  static const String sharingSyncStopConfirm = 'sharing-sync-stop-confirm';
+
+  /// The bind picker: its body, its ✕, one row per space by the space's id,
+  /// and its three choices — [syncPickerMerge] also on "Sync with …", the
+  /// merge of a database that holds nothing.
+  static const String syncPicker = 'sync-picker';
+  static const String syncPickerClose = 'sync-picker-close';
+  static String syncPickerSpace(String spaceId) => 'sync-picker-space-$spaceId';
+  static const String syncPickerMerge = 'sync-picker-merge';
+  static const String syncPickerDownload = 'sync-picker-download';
+  static const String syncPickerUpload = 'sync-picker-upload';
+
   /// The Databases page's bar title.
   static const String settingsBarDatabases = 'settings-bar-databases';
 

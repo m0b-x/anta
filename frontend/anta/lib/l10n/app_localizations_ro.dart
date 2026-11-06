@@ -4538,7 +4538,7 @@ class AppLocalizationsRo extends AppLocalizations {
   String get keyboardKeywords => 'tastare, introducere';
 
   @override
-  String get sharingSettings => 'Partajare';
+  String get sharingSettings => 'Sincronizare și partajare';
 
   @override
   String get accountSection => 'Cont';
@@ -4617,6 +4617,226 @@ class AppLocalizationsRo extends AppLocalizations {
   @override
   String get sharingKeywords =>
       'cloud, sincronizare, cont, google, autentificare, partajare, partener, împerechere, cod, invitație, deconectare';
+
+  @override
+  String get syncSection => 'Sincronizare';
+
+  @override
+  String get syncKeywords =>
+      'cloud, sincronizare, dispozitive, telefon, tabletă, spațiu, unire, descărcare, încărcare, stare, offline, oprire';
+
+  @override
+  String get syncThisDatabase => 'Sincronizează această bază de date';
+
+  @override
+  String get syncThisDatabaseDesc =>
+      'Celelalte dispozitive conectate la acest cont primesc fiecare modificare și le trimit pe ale lor';
+
+  @override
+  String get syncSignInFirst =>
+      'Conectează-te ca să sincronizezi această bază de date';
+
+  @override
+  String get syncThisDatabaseUnavailable =>
+      'Sincronizarea funcționează pe Android și iOS';
+
+  @override
+  String get syncUpToDate => 'La zi';
+
+  @override
+  String syncSending(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Se trimit $count de modificări',
+      few: 'Se trimit $count modificări',
+      one: 'Se trimite o modificare',
+      zero: 'Se trimit modificările',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get syncReceiving => 'Se primesc modificările';
+
+  @override
+  String syncDownloading(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Se descarcă — $count de elemente până acum',
+      few: 'Se descarcă — $count elemente până acum',
+      one: 'Se descarcă — un element până acum',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get syncOffline => 'Offline — se reîncearcă';
+
+  @override
+  String get syncRetrying => 'Sincronizare eșuată — se reîncearcă';
+
+  @override
+  String get syncPausedQuota =>
+      'În pauză — limita de sincronizare de azi a fost atinsă';
+
+  @override
+  String get syncPausedSignedOut => 'În pauză — deconectat';
+
+  @override
+  String get syncPausedOtherAccount =>
+      'În pauză — această bază de date se sincronizează cu alt cont';
+
+  @override
+  String get syncPausedAppOutdated =>
+      'În pauză — actualizează ANTA pe acest dispozitiv';
+
+  @override
+  String get syncPausedNoAccess =>
+      'În pauză — copia din cloud nu poate fi accesată';
+
+  @override
+  String syncLastSynced(String time) {
+    return 'Ultima sincronizare: $time';
+  }
+
+  @override
+  String get syncNeverSynced => 'Nesincronizat încă';
+
+  @override
+  String syncPendingCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count de modificări în așteptare',
+      few: '$count modificări în așteptare',
+      one: 'o modificare în așteptare',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String syncParkedCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count de modificări amânate până la următoarea pornire',
+      few: '$count modificări amânate până la următoarea pornire',
+      one: 'o modificare amânată până la următoarea pornire',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get syncNow => 'Sincronizează acum';
+
+  @override
+  String get syncStop => 'Oprește sincronizarea acestei baze de date';
+
+  @override
+  String get syncStopConfirmTitle =>
+      'Oprești sincronizarea acestei baze de date?';
+
+  @override
+  String get syncStopConfirmBody =>
+      'Acest dispozitiv nu mai trimite și nu mai primește modificări pentru această bază de date. Copia din cloud rămâne, iar celelalte dispozitive o păstrează.';
+
+  @override
+  String get syncStopConfirmAction => 'Oprește sincronizarea';
+
+  @override
+  String get syncStopFailed =>
+      'Sincronizarea nu a putut fi oprită — încearcă din nou';
+
+  @override
+  String get syncPickerSpaces => 'Spații în cloud';
+
+  @override
+  String get syncPickerHoldsData => 'Această bază de date conține deja date';
+
+  @override
+  String syncPickerLastUsed(String time) {
+    return 'Folosit ultima dată: $time';
+  }
+
+  @override
+  String get syncPickerNotUsed => 'Nefolosit încă';
+
+  @override
+  String syncPickerHeldBy(String database) {
+    return 'Sincronizat de „$database” pe acest dispozitiv';
+  }
+
+  @override
+  String syncPickerMerge(String space) {
+    return 'Unește această bază de date cu „$space”';
+  }
+
+  @override
+  String get syncPickerMergeDesc => 'Ambele părți devin una';
+
+  @override
+  String syncPickerDownload(String space) {
+    return 'Descarcă „$space” într-o bază de date nouă';
+  }
+
+  @override
+  String get syncPickerDownloadDesc =>
+      'Această bază de date rămâne cum este, doar pe acest dispozitiv';
+
+  @override
+  String syncPickerJoin(String space) {
+    return 'Sincronizează cu „$space”';
+  }
+
+  @override
+  String get syncPickerUpload => 'Încarcă ca spațiu nou';
+
+  @override
+  String get syncPickerUploadDesc =>
+      'Pornește o copie separată în cloud din această bază de date';
+
+  @override
+  String get syncFailedOffline =>
+      'Ești offline — încearcă din nou după ce te conectezi';
+
+  @override
+  String get syncFailedQuota =>
+      'Limita de sincronizare de azi a fost atinsă — încearcă din nou mâine';
+
+  @override
+  String get syncFailedPermission =>
+      'Cloudul a refuzat — verifică dacă ești conectat la contul potrivit';
+
+  @override
+  String get syncFailedSuspended =>
+      'O restaurare este în curs — încearcă din nou după ce se termină';
+
+  @override
+  String get syncFailedAlreadyBound =>
+      'Această bază de date se sincronizează deja — oprește mai întâi sincronizarea';
+
+  @override
+  String syncFailedHeld(String database) {
+    return 'Baza de date „$database” de pe acest dispozitiv se sincronizează deja cu acel spațiu';
+  }
+
+  @override
+  String get syncFailedHeldUnnamed =>
+      'O altă bază de date de pe acest dispozitiv se sincronizează deja cu acel spațiu';
+
+  @override
+  String get syncFailedInvalidName =>
+      'Numele unui spațiu are între 1 și 100 de caractere';
+
+  @override
+  String get syncFailedNewDatabase =>
+      'Baza de date nouă nu a putut fi creată — nu s-a schimbat nimic';
+
+  @override
+  String get syncFailedUnknown =>
+      'Sincronizarea nu a putut fi pornită — încearcă din nou';
 
   @override
   String get aboutDescription =>

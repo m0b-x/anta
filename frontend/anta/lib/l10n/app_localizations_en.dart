@@ -4458,7 +4458,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get keyboardKeywords => 'typing, input';
 
   @override
-  String get sharingSettings => 'Sharing';
+  String get sharingSettings => 'Sync & sharing';
 
   @override
   String get accountSection => 'Account';
@@ -4537,6 +4537,213 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get sharingKeywords =>
       'cloud, sync, account, google, login, share, partner, pairing, code, invite, unpair';
+
+  @override
+  String get syncSection => 'Sync';
+
+  @override
+  String get syncKeywords =>
+      'cloud, sync, devices, phone, tablet, space, merge, download, upload, status, offline, stop';
+
+  @override
+  String get syncThisDatabase => 'Sync this database';
+
+  @override
+  String get syncThisDatabaseDesc =>
+      'Your other devices signed in to this account get every change, and send theirs';
+
+  @override
+  String get syncSignInFirst => 'Sign in to sync this database';
+
+  @override
+  String get syncThisDatabaseUnavailable => 'Sync works on Android and iOS';
+
+  @override
+  String get syncUpToDate => 'Up to date';
+
+  @override
+  String syncSending(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Sending $count changes',
+      one: 'Sending 1 change',
+      zero: 'Sending changes',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get syncReceiving => 'Receiving changes';
+
+  @override
+  String syncDownloading(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Downloading — $count items so far',
+      one: 'Downloading — 1 item so far',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get syncOffline => 'Offline — will retry';
+
+  @override
+  String get syncRetrying => 'Couldn\'t sync — will retry';
+
+  @override
+  String get syncPausedQuota => 'Paused — today\'s sync limit is reached';
+
+  @override
+  String get syncPausedSignedOut => 'Paused — signed out';
+
+  @override
+  String get syncPausedOtherAccount =>
+      'Paused — this database syncs with another account';
+
+  @override
+  String get syncPausedAppOutdated => 'Paused — update ANTA on this device';
+
+  @override
+  String get syncPausedNoAccess => 'Paused — the cloud copy can\'t be reached';
+
+  @override
+  String syncLastSynced(String time) {
+    return 'Last synced $time';
+  }
+
+  @override
+  String get syncNeverSynced => 'Not synced yet';
+
+  @override
+  String syncPendingCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count changes waiting',
+      one: '1 change waiting',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String syncParkedCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count changes held back until the next launch',
+      one: '1 change held back until the next launch',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get syncNow => 'Sync now';
+
+  @override
+  String get syncStop => 'Stop syncing this database';
+
+  @override
+  String get syncStopConfirmTitle => 'Stop syncing this database?';
+
+  @override
+  String get syncStopConfirmBody =>
+      'This device stops sending and receiving changes for this database. The copy in the cloud stays, and your other devices keep it.';
+
+  @override
+  String get syncStopConfirmAction => 'Stop syncing';
+
+  @override
+  String get syncStopFailed => 'Syncing couldn\'t be stopped — try again';
+
+  @override
+  String get syncPickerSpaces => 'Cloud spaces';
+
+  @override
+  String get syncPickerHoldsData => 'This database already holds data';
+
+  @override
+  String syncPickerLastUsed(String time) {
+    return 'Last used $time';
+  }
+
+  @override
+  String get syncPickerNotUsed => 'Not used yet';
+
+  @override
+  String syncPickerHeldBy(String database) {
+    return 'Synced by “$database” on this device';
+  }
+
+  @override
+  String syncPickerMerge(String space) {
+    return 'Merge this database into “$space”';
+  }
+
+  @override
+  String get syncPickerMergeDesc => 'Both sides end up in one';
+
+  @override
+  String syncPickerDownload(String space) {
+    return 'Download “$space” into a new database';
+  }
+
+  @override
+  String get syncPickerDownloadDesc =>
+      'This database stays as it is, on this device only';
+
+  @override
+  String syncPickerJoin(String space) {
+    return 'Sync with “$space”';
+  }
+
+  @override
+  String get syncPickerUpload => 'Upload as a new space';
+
+  @override
+  String get syncPickerUploadDesc =>
+      'Start a separate cloud copy from this database';
+
+  @override
+  String get syncFailedOffline =>
+      'You\'re offline — try again once you\'re connected';
+
+  @override
+  String get syncFailedQuota =>
+      'Today\'s sync limit is reached — try again tomorrow';
+
+  @override
+  String get syncFailedPermission =>
+      'The cloud refused this — check you\'re signed in to the right account';
+
+  @override
+  String get syncFailedSuspended =>
+      'A restore is running — try again when it finishes';
+
+  @override
+  String get syncFailedAlreadyBound =>
+      'This database already syncs — stop syncing it first';
+
+  @override
+  String syncFailedHeld(String database) {
+    return 'The database “$database” on this device already syncs with that space';
+  }
+
+  @override
+  String get syncFailedHeldUnnamed =>
+      'Another database on this device already syncs with that space';
+
+  @override
+  String get syncFailedInvalidName => 'A space name needs 1 to 100 characters';
+
+  @override
+  String get syncFailedNewDatabase =>
+      'The new database couldn\'t be created — nothing changed';
+
+  @override
+  String get syncFailedUnknown => 'Sync couldn\'t be turned on — try again';
 
   @override
   String get aboutDescription =>

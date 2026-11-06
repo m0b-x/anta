@@ -436,6 +436,11 @@ abstract final class FormMetrics {
 
   static const double disabledOpacity = 0.38;
 
+  /// The spinner that stands in a settings row's leading glyph while its
+  /// request runs: the glyph's box, so the row does not move.
+  static const double rowBusyIndicatorSize = 24;
+  static const double rowBusyIndicatorStroke = 2;
+
   /// A row whose own switch is off: still a control, so lighter than
   /// [disabledOpacity] — the Alerts hub's switched-off alert rows' 50 %.
   static const double switchedOffOpacity = 0.5;

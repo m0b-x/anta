@@ -30,6 +30,8 @@ class AppDialogs {
   ///
   /// Set [isDestructive] to `true` to render the confirm button in error red.
   /// An optional [icon] is displayed above the title when provided.
+  /// [confirmIdentifier] replaces the shared [SemanticsIds.sheetConfirm] for
+  /// a confirm a device flow must not mistake for another dialog's.
   static Future<bool> confirm(
     BuildContext context, {
     required String title,
@@ -39,6 +41,7 @@ class AppDialogs {
     String? cancelText,
     bool isDestructive = false,
     IconData? icon,
+    String? confirmIdentifier,
   }) async {
     assert(
       content != null || contentWidget != null,
@@ -70,7 +73,7 @@ class AppDialogs {
             ),
           ),
           AutomationId(
-            identifier: SemanticsIds.sheetConfirm,
+            identifier: confirmIdentifier ?? SemanticsIds.sheetConfirm,
             child: isDestructive
                 ? FilledButton(
                     style: FilledButton.styleFrom(

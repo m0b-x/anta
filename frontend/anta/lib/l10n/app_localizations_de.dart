@@ -4499,7 +4499,7 @@ class AppLocalizationsDe extends AppLocalizations {
   String get keyboardKeywords => 'Tippen, Eingabe';
 
   @override
-  String get sharingSettings => 'Teilen';
+  String get sharingSettings => 'Sync & Teilen';
 
   @override
   String get accountSection => 'Konto';
@@ -4578,6 +4578,222 @@ class AppLocalizationsDe extends AppLocalizations {
   @override
   String get sharingKeywords =>
       'Cloud, Synchronisierung, Konto, Google, Anmeldung, Teilen, Partner, Kopplung, Code, Einladung, Trennen';
+
+  @override
+  String get syncSection => 'Synchronisierung';
+
+  @override
+  String get syncKeywords =>
+      'Cloud, Sync, synchronisieren, Geräte, Handy, Tablet, Bereich, zusammenführen, herunterladen, hochladen, Status, offline, beenden';
+
+  @override
+  String get syncThisDatabase => 'Diese Datenbank synchronisieren';
+
+  @override
+  String get syncThisDatabaseDesc =>
+      'Deine anderen Geräte mit diesem Konto bekommen jede Änderung und senden ihre';
+
+  @override
+  String get syncSignInFirst =>
+      'Melde dich an, um diese Datenbank zu synchronisieren';
+
+  @override
+  String get syncThisDatabaseUnavailable =>
+      'Synchronisierung funktioniert auf Android und iOS';
+
+  @override
+  String get syncUpToDate => 'Auf dem neuesten Stand';
+
+  @override
+  String syncSending(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count Änderungen werden gesendet',
+      one: '1 Änderung wird gesendet',
+      zero: 'Änderungen werden gesendet',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get syncReceiving => 'Änderungen werden empfangen';
+
+  @override
+  String syncDownloading(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Wird geladen – bisher $count Einträge',
+      one: 'Wird geladen – bisher 1 Eintrag',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get syncOffline => 'Offline – neuer Versuch folgt';
+
+  @override
+  String get syncRetrying => 'Nicht synchronisiert – neuer Versuch folgt';
+
+  @override
+  String get syncPausedQuota =>
+      'Pausiert – das heutige Sync-Limit ist erreicht';
+
+  @override
+  String get syncPausedSignedOut => 'Pausiert – abgemeldet';
+
+  @override
+  String get syncPausedOtherAccount =>
+      'Pausiert – diese Datenbank synchronisiert mit einem anderen Konto';
+
+  @override
+  String get syncPausedAppOutdated =>
+      'Pausiert – aktualisiere ANTA auf diesem Gerät';
+
+  @override
+  String get syncPausedNoAccess =>
+      'Pausiert – die Cloud-Kopie ist nicht erreichbar';
+
+  @override
+  String syncLastSynced(String time) {
+    return 'Zuletzt synchronisiert $time';
+  }
+
+  @override
+  String get syncNeverSynced => 'Noch nicht synchronisiert';
+
+  @override
+  String syncPendingCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count Änderungen warten',
+      one: '1 Änderung wartet',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String syncParkedCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count Änderungen bis zum nächsten Start zurückgestellt',
+      one: '1 Änderung bis zum nächsten Start zurückgestellt',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get syncNow => 'Jetzt synchronisieren';
+
+  @override
+  String get syncStop => 'Synchronisierung dieser Datenbank beenden';
+
+  @override
+  String get syncStopConfirmTitle =>
+      'Synchronisierung dieser Datenbank beenden?';
+
+  @override
+  String get syncStopConfirmBody =>
+      'Dieses Gerät sendet und empfängt für diese Datenbank keine Änderungen mehr. Die Kopie in der Cloud bleibt, und deine anderen Geräte behalten sie.';
+
+  @override
+  String get syncStopConfirmAction => 'Synchronisierung beenden';
+
+  @override
+  String get syncStopFailed =>
+      'Synchronisierung konnte nicht beendet werden – versuch es erneut';
+
+  @override
+  String get syncPickerSpaces => 'Cloud-Bereiche';
+
+  @override
+  String get syncPickerHoldsData => 'Diese Datenbank enthält bereits Daten';
+
+  @override
+  String syncPickerLastUsed(String time) {
+    return 'Zuletzt verwendet $time';
+  }
+
+  @override
+  String get syncPickerNotUsed => 'Noch nicht verwendet';
+
+  @override
+  String syncPickerHeldBy(String database) {
+    return 'Wird von „$database“ auf diesem Gerät synchronisiert';
+  }
+
+  @override
+  String syncPickerMerge(String space) {
+    return 'Diese Datenbank mit „$space“ zusammenführen';
+  }
+
+  @override
+  String get syncPickerMergeDesc => 'Beide Seiten werden zu einer';
+
+  @override
+  String syncPickerDownload(String space) {
+    return '„$space“ in eine neue Datenbank laden';
+  }
+
+  @override
+  String get syncPickerDownloadDesc =>
+      'Diese Datenbank bleibt, wie sie ist, nur auf diesem Gerät';
+
+  @override
+  String syncPickerJoin(String space) {
+    return 'Mit „$space“ synchronisieren';
+  }
+
+  @override
+  String get syncPickerUpload => 'Als neuen Bereich hochladen';
+
+  @override
+  String get syncPickerUploadDesc =>
+      'Eine eigene Cloud-Kopie aus dieser Datenbank anlegen';
+
+  @override
+  String get syncFailedOffline =>
+      'Du bist offline – versuch es erneut, sobald du verbunden bist';
+
+  @override
+  String get syncFailedQuota =>
+      'Das heutige Sync-Limit ist erreicht – versuch es morgen erneut';
+
+  @override
+  String get syncFailedPermission =>
+      'Die Cloud hat das abgelehnt – prüf, ob du mit dem richtigen Konto angemeldet bist';
+
+  @override
+  String get syncFailedSuspended =>
+      'Eine Wiederherstellung läuft – versuch es danach erneut';
+
+  @override
+  String get syncFailedAlreadyBound =>
+      'Diese Datenbank wird bereits synchronisiert – beende das zuerst';
+
+  @override
+  String syncFailedHeld(String database) {
+    return 'Die Datenbank „$database“ auf diesem Gerät synchronisiert bereits mit diesem Bereich';
+  }
+
+  @override
+  String get syncFailedHeldUnnamed =>
+      'Eine andere Datenbank auf diesem Gerät synchronisiert bereits mit diesem Bereich';
+
+  @override
+  String get syncFailedInvalidName =>
+      'Ein Bereichsname braucht 1 bis 100 Zeichen';
+
+  @override
+  String get syncFailedNewDatabase =>
+      'Die neue Datenbank konnte nicht erstellt werden – nichts wurde geändert';
+
+  @override
+  String get syncFailedUnknown =>
+      'Synchronisierung konnte nicht gestartet werden – versuch es erneut';
 
   @override
   String get aboutDescription =>

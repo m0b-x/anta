@@ -1879,6 +1879,43 @@ a database name from a non-ASCII space name is all underscores; a space
 created by a bind that then fails stays in the account (D6: no delete
 until Phase 04) and shows in the next picker.
 
+**S4b-2b as built (2026-11-06, one implementer; the Sharing page's Sync
+section and the picker; gate: `dart analyze lib test` clean, gen-l10n,
+`untranslated.txt` `{}`, whole suite 13,633 passed, 12 skipped, none
+failed; review and design review pending).** The Sync section sits
+between Account and Pairing and is always rendered. Unbound: one row,
+"Sync this database" (`sharing-sync`) — enabled signed in, disabled with a
+reason signed out or unavailable, a spinner in place of the glyph while
+checking or binding (no height change), a failure's reason as its
+description plus one snackbar. Bound: a status row (`sharing-sync-status`)
+whose line is a pause first (quota, signed out, another account, app
+outdated, no access), then a run (sending n, downloading n so far,
+receiving), then the last failure (offline, retrying), else n waiting or up
+to date, with the last sync time, the waiting count and the parked count
+beneath; "Sync now" (`sharing-sync-now`) only signed in, unpaused and idle;
+"Stop syncing this database" (`sharing-sync-stop`) always — signed out and
+on another account included — behind a confirm that says the cloud copy
+stays (`sharing-sync-stop-confirm`; `AppDialogs.confirm` gained an
+optional id). The picker (`SyncSpacePickerSheet`, a content-tall form
+sheet): with several spaces a "Cloud spaces" list of exclusive rows (the
+first one no other database holds is selected; a held one disabled with
+the database that syncs it), then — when this database holds data — Merge
+into / Download into a new database for the selected space, and always
+Upload as a new space; an empty database binds on the tap of a space; with
+one space no list, and "Sync with <space>" when nothing is local; a close
+without a choice sends `BindFlowDismissed`. A download ends on the
+Databases page's restart prompt (its strings unchanged; it cannot be
+dismissed, so the dismiss is sent as it opens). D8: `sharingSettings` is
+"Sync & sharing" / "Sync & Teilen" / "Sincronizare și partajare". Ids:
+`sharing-sync*` on the page, `sync-picker`, `sync-picker-close`,
+`sync-picker-space-<spaceId>`, `sync-picker-merge` (also on "Sync with"),
+`sync-picker-download`, `sync-picker-upload`. Not shown: `clockAhead`,
+`clampedRemotes`. Found, not fixed: a disabled `FormCheckRow` dims its
+caption to 38 %, so a held space's reason reads faint (a primitive change);
+a picker left open across an account change shows stale spaces (the bloc
+ignores what it then sends); a failed sign-in carries no status, so a bound
+database shows the bind row until the sign-in succeeds.
+
 - `SyncBindingService.bind` and the install registry (§3.6);
   `SyncSpaceService` (create / list through the gateway, the space name
   rule); `SyncBloc` events `BindRequested(space?)`, `UnbindRequested`,

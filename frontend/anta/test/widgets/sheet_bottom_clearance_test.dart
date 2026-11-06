@@ -78,6 +78,9 @@ import 'package:anta/widgets/pairing_sheet.dart';
 import 'package:anta/widgets/quick_alarm_sheet.dart';
 import 'package:anta/utils/report_labels.dart';
 import 'package:anta/widgets/report_more_categories_sheet.dart';
+import 'package:anta/bloc/sync/sync_bloc.dart' show SyncBindPicking;
+import 'package:anta/services/sync/sync_gateway.dart';
+import 'package:anta/widgets/sync_space_picker_sheet.dart';
 import 'package:anta/widgets/time_pad_sheet.dart';
 
 import '../database/support/db_test_support.dart';
@@ -1544,5 +1547,32 @@ void main() {
 
       expect(bodyBottomPadding(tester), 24 + 300);
     });
+  });
+
+  testWidgets('the sync space picker clears the navigation bar', (
+    tester,
+  ) async {
+    sizeSurfaceWithNavBar(tester);
+    await openFrom(
+      tester,
+      (context) => SyncSpacePickerSheet.show(
+        context,
+        picking: const SyncBindPicking(
+          spaces: [
+            SyncSpaceInfo(
+              ref: SyncSpaceRef(ownerUid: 'uid-a', spaceId: 's1'),
+              name: 'Phone',
+              createdAt: null,
+              createdBy: 'device-1',
+              schema: 1,
+            ),
+          ],
+          holdsData: true,
+        ),
+      ),
+    );
+
+    // Upload as a new space is the last row of a short body.
+    expect(scrollBottomPadding(tester), greaterThanOrEqualTo(navBar));
   });
 }

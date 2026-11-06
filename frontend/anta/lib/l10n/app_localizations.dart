@@ -7633,7 +7633,7 @@ abstract class AppLocalizations {
   /// Sharing settings menu item
   ///
   /// In en, this message translates to:
-  /// **'Sharing'**
+  /// **'Sync & sharing'**
   String get sharingSettings;
 
   /// Section heading for the cloud account rows
@@ -7761,6 +7761,300 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'cloud, sync, account, google, login, share, partner, pairing, code, invite, unpair'**
   String get sharingKeywords;
+
+  /// Sharing page section that syncs this database with the account's other devices
+  ///
+  /// In en, this message translates to:
+  /// **'Sync'**
+  String get syncSection;
+
+  /// Comma-separated hidden search synonyms for the Sync section of the sharing settings
+  ///
+  /// In en, this message translates to:
+  /// **'cloud, sync, devices, phone, tablet, space, merge, download, upload, status, offline, stop'**
+  String get syncKeywords;
+
+  /// Row that turns sync on for the open database; also the title of the sheet that picks a cloud space
+  ///
+  /// In en, this message translates to:
+  /// **'Sync this database'**
+  String get syncThisDatabase;
+
+  /// Subtitle of the Sync this database row while signed in
+  ///
+  /// In en, this message translates to:
+  /// **'Your other devices signed in to this account get every change, and send theirs'**
+  String get syncThisDatabaseDesc;
+
+  /// Subtitle of the disabled Sync this database row while signed out
+  ///
+  /// In en, this message translates to:
+  /// **'Sign in to sync this database'**
+  String get syncSignInFirst;
+
+  /// Subtitle of the disabled Sync this database row where sync cannot run (desktop, or the cloud failed to start)
+  ///
+  /// In en, this message translates to:
+  /// **'Sync works on Android and iOS'**
+  String get syncThisDatabaseUnavailable;
+
+  /// Sync status: nothing waits to be sent or received
+  ///
+  /// In en, this message translates to:
+  /// **'Up to date'**
+  String get syncUpToDate;
+
+  /// Sync status while this device sends its changes to the cloud
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =0{Sending changes} =1{Sending 1 change} other{Sending {count} changes}}'**
+  String syncSending(int count);
+
+  /// Sync status while this device reads changes made on the account's other devices
+  ///
+  /// In en, this message translates to:
+  /// **'Receiving changes'**
+  String get syncReceiving;
+
+  /// Sync status during the first download after sync was turned on, with the rows applied so far
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{Downloading — 1 item so far} other{Downloading — {count} items so far}}'**
+  String syncDownloading(int count);
+
+  /// Sync status: the last sync found no connection and tries again by itself
+  ///
+  /// In en, this message translates to:
+  /// **'Offline — will retry'**
+  String get syncOffline;
+
+  /// Sync status: the last sync failed for another reason and tries again by itself
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t sync — will retry'**
+  String get syncRetrying;
+
+  /// Sync status: the account's daily cloud quota ran out
+  ///
+  /// In en, this message translates to:
+  /// **'Paused — today\'s sync limit is reached'**
+  String get syncPausedQuota;
+
+  /// Sync status: the database still syncs, but nobody is signed in
+  ///
+  /// In en, this message translates to:
+  /// **'Paused — signed out'**
+  String get syncPausedSignedOut;
+
+  /// Sync status: the signed-in account is not the one this database syncs with
+  ///
+  /// In en, this message translates to:
+  /// **'Paused — this database syncs with another account'**
+  String get syncPausedOtherAccount;
+
+  /// Sync status: a newer version of the app wrote to the cloud copy
+  ///
+  /// In en, this message translates to:
+  /// **'Paused — update ANTA on this device'**
+  String get syncPausedAppOutdated;
+
+  /// Sync status: the cloud copy is gone or this account may not read it
+  ///
+  /// In en, this message translates to:
+  /// **'Paused — the cloud copy can\'t be reached'**
+  String get syncPausedNoAccess;
+
+  /// When this database last synced; time is a time of day today, else a date
+  ///
+  /// In en, this message translates to:
+  /// **'Last synced {time}'**
+  String syncLastSynced(String time);
+
+  /// Shown in place of the last sync time before the first sync
+  ///
+  /// In en, this message translates to:
+  /// **'Not synced yet'**
+  String get syncNeverSynced;
+
+  /// Changes made on this device that are not in the cloud yet
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 change waiting} other{{count} changes waiting}}'**
+  String syncPendingCount(int count);
+
+  /// Changes that could not be sent or applied this session; they are tried again when the app next starts
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 change held back until the next launch} other{{count} changes held back until the next launch}}'**
+  String syncParkedCount(int count);
+
+  /// Row that runs a sync at once
+  ///
+  /// In en, this message translates to:
+  /// **'Sync now'**
+  String get syncNow;
+
+  /// Row that stops syncing the open database; the cloud copy stays
+  ///
+  /// In en, this message translates to:
+  /// **'Stop syncing this database'**
+  String get syncStop;
+
+  /// Title of the dialog confirming Stop syncing this database
+  ///
+  /// In en, this message translates to:
+  /// **'Stop syncing this database?'**
+  String get syncStopConfirmTitle;
+
+  /// Body of the dialog confirming Stop syncing this database
+  ///
+  /// In en, this message translates to:
+  /// **'This device stops sending and receiving changes for this database. The copy in the cloud stays, and your other devices keep it.'**
+  String get syncStopConfirmBody;
+
+  /// Confirm button of the Stop syncing dialog
+  ///
+  /// In en, this message translates to:
+  /// **'Stop syncing'**
+  String get syncStopConfirmAction;
+
+  /// Error when stopping sync failed for an unknown reason
+  ///
+  /// In en, this message translates to:
+  /// **'Syncing couldn\'t be stopped — try again'**
+  String get syncStopFailed;
+
+  /// Section label over the account's cloud spaces in the sheet that picks one
+  ///
+  /// In en, this message translates to:
+  /// **'Cloud spaces'**
+  String get syncPickerSpaces;
+
+  /// Section label over merge, download and upload when the open database is not empty
+  ///
+  /// In en, this message translates to:
+  /// **'This database already holds data'**
+  String get syncPickerHoldsData;
+
+  /// When a cloud space was last written to; time is a time of day today, else a date
+  ///
+  /// In en, this message translates to:
+  /// **'Last used {time}'**
+  String syncPickerLastUsed(String time);
+
+  /// A cloud space nothing was written to yet
+  ///
+  /// In en, this message translates to:
+  /// **'Not used yet'**
+  String get syncPickerNotUsed;
+
+  /// Why a cloud space cannot be picked: another database on this device already syncs it
+  ///
+  /// In en, this message translates to:
+  /// **'Synced by “{database}” on this device'**
+  String syncPickerHeldBy(String database);
+
+  /// Picker choice: the open database's data and the cloud space's become one
+  ///
+  /// In en, this message translates to:
+  /// **'Merge this database into “{space}”'**
+  String syncPickerMerge(String space);
+
+  /// Second line of the merge choice
+  ///
+  /// In en, this message translates to:
+  /// **'Both sides end up in one'**
+  String get syncPickerMergeDesc;
+
+  /// Picker choice: the cloud space becomes a new database on this device, which the app switches to
+  ///
+  /// In en, this message translates to:
+  /// **'Download “{space}” into a new database'**
+  String syncPickerDownload(String space);
+
+  /// Second line of the download choice
+  ///
+  /// In en, this message translates to:
+  /// **'This database stays as it is, on this device only'**
+  String get syncPickerDownloadDesc;
+
+  /// Picker choice for an empty database: it starts syncing with the cloud space
+  ///
+  /// In en, this message translates to:
+  /// **'Sync with “{space}”'**
+  String syncPickerJoin(String space);
+
+  /// Picker choice: the open database becomes a new, separate cloud space
+  ///
+  /// In en, this message translates to:
+  /// **'Upload as a new space'**
+  String get syncPickerUpload;
+
+  /// Second line of the upload choice
+  ///
+  /// In en, this message translates to:
+  /// **'Start a separate cloud copy from this database'**
+  String get syncPickerUploadDesc;
+
+  /// Turning sync on or off failed: no connection
+  ///
+  /// In en, this message translates to:
+  /// **'You\'re offline — try again once you\'re connected'**
+  String get syncFailedOffline;
+
+  /// Turning sync on or off failed: the account's daily cloud quota ran out
+  ///
+  /// In en, this message translates to:
+  /// **'Today\'s sync limit is reached — try again tomorrow'**
+  String get syncFailedQuota;
+
+  /// Turning sync on or off failed: the cloud refused the request
+  ///
+  /// In en, this message translates to:
+  /// **'The cloud refused this — check you\'re signed in to the right account'**
+  String get syncFailedPermission;
+
+  /// Turning sync on or off failed: a restore or import is rewriting the database
+  ///
+  /// In en, this message translates to:
+  /// **'A restore is running — try again when it finishes'**
+  String get syncFailedSuspended;
+
+  /// Turning sync on failed: the database syncs already
+  ///
+  /// In en, this message translates to:
+  /// **'This database already syncs — stop syncing it first'**
+  String get syncFailedAlreadyBound;
+
+  /// Turning sync on failed: another database on this device syncs with the chosen cloud space
+  ///
+  /// In en, this message translates to:
+  /// **'The database “{database}” on this device already syncs with that space'**
+  String syncFailedHeld(String database);
+
+  /// Turning sync on failed: another database on this device, whose name is not known, syncs with the chosen cloud space
+  ///
+  /// In en, this message translates to:
+  /// **'Another database on this device already syncs with that space'**
+  String get syncFailedHeldUnnamed;
+
+  /// Turning sync on failed: the new cloud space's name is empty or too long
+  ///
+  /// In en, this message translates to:
+  /// **'A space name needs 1 to 100 characters'**
+  String get syncFailedInvalidName;
+
+  /// Downloading a cloud space failed: the new database could not be created
+  ///
+  /// In en, this message translates to:
+  /// **'The new database couldn\'t be created — nothing changed'**
+  String get syncFailedNewDatabase;
+
+  /// Turning sync on failed for an unknown reason
+  ///
+  /// In en, this message translates to:
+  /// **'Sync couldn\'t be turned on — try again'**
+  String get syncFailedUnknown;
 
   /// One-sentence app description in the About dialog
   ///
