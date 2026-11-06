@@ -1,15 +1,19 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:shared_preferences_platform_interface/shared_preferences_platform_interface.dart';
 import 'package:sqlite3/sqlite3.dart';
 
 import 'package:anta/constants/settings_keys.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/services/database_manager.dart';
 import 'package:anta/services/sync/sync_gateway.dart';
+
+import '../support/scripted_prefs_store.dart';
 
 /// `DatabaseManager.checkpoint` is what makes a shared `.db` whole: the app
 /// runs in WAL, so committed writes sit in the `-wal` sidecar until a
@@ -248,31 +252,72 @@ void main() {
     expect(AppDatabase.openInstanceOf('office'), isNull);
   });
 
-  test('a rename carries the sync claim as soon as the `.db` has moved, '
-      'before a sidecar rename can fail (review BA-M6)', () async {
+  test(
+    'a sidecar rename that fails still reports the failure, yet the sync '
+    'claim and the active name follow the `.db` (review BA-M6, RA2-1)',
+    () async {
+      const space = SyncSpaceRef(ownerUid: 'uid-1', spaceId: 'space-1');
+      await manager.createDatabase('work');
+      await manager.spaceRegistry.claim(space, 'work');
+      await manager.setActiveDatabaseName('work');
+      addTearDown(() async {
+        await (await SharedPreferences.getInstance()).remove(
+          SettingsKeys.syncBoundSpaces,
+        );
+        await manager.setActiveDatabaseName('gym_notes');
+      });
+      // A stray `-shm` beside a closed database, and a directory where its
+      // renamed twin must go: the `.db` moves, then the sidecar's rename fails.
+      // Closed, because Windows cannot rename an open file.
+      final oldPath = await manager.getDatabasePath('work');
+      File('$oldPath-shm').writeAsStringSync('stray');
+      final newPath = await manager.getDatabasePath('office');
+      Directory('$newPath-shm/blocked').createSync(recursive: true);
+
+      await expectLater(
+        manager.renameDatabase('work', 'office'),
+        throwsA(isA<FileSystemException>()),
+      );
+
+      expect(File(newPath).existsSync(), isTrue);
+      expect(manager.spaceRegistry.claims().single.databaseName, 'office');
+      expect(await manager.spaceRegistry.holderOf(space), 'office');
+      expect(manager.getActiveDatabaseName(), 'office');
+    },
+  );
+
+  test('a registry write that fails during a rename is logged: every file '
+      'still moves and the rename completes (final review X-3)', () async {
     const space = SyncSpaceRef(ownerUid: 'uid-1', spaceId: 'space-1');
     await manager.createDatabase('work');
     await manager.spaceRegistry.claim(space, 'work');
-    addTearDown(
-      () async => (await SharedPreferences.getInstance()).remove(
-        SettingsKeys.syncBoundSpaces,
-      ),
-    );
-    // A stray `-shm` beside a closed database, and a directory where its
-    // renamed twin must go: the `.db` moves, then the sidecar's rename fails.
-    // Closed, because Windows cannot rename an open file.
+    await manager.setActiveDatabaseName('work');
+    final previous = SharedPreferencesStorePlatform.instance;
+    SharedPreferencesStorePlatform.instance = ScriptedPrefsStore()
+      ..failWrite = (key) => key == SettingsKeys.syncBoundSpaces;
+    addTearDown(() async {
+      SharedPreferencesStorePlatform.instance = previous;
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(SettingsKeys.syncBoundSpaces);
+      await manager.setActiveDatabaseName('gym_notes');
+    });
+    // A closed file's `-wal` is folded and removed by the checkpoint before
+    // any file moves, so the sidecar left to carry here is the `-shm`.
     final oldPath = await manager.getDatabasePath('work');
     File('$oldPath-shm').writeAsStringSync('stray');
+
+    await manager.renameDatabase('work', 'office');
+
     final newPath = await manager.getDatabasePath('office');
-    Directory('$newPath-shm/blocked').createSync(recursive: true);
-
-    await expectLater(
-      manager.renameDatabase('work', 'office'),
-      throwsA(isA<FileSystemException>()),
-    );
-
     expect(File(newPath).existsSync(), isTrue);
-    expect(await manager.spaceRegistry.holderOf(space), 'office');
+    expect(File('$newPath-shm').readAsStringSync(), 'stray');
+    // The two `-wal` checks document the checkpoint-first contract; on a
+    // closed file they cannot fail, so they do not pin it.
+    for (final suffix in ['', '-wal', '-shm']) {
+      expect(File('$oldPath$suffix').existsSync(), isFalse, reason: suffix);
+    }
+    expect(File('$newPath-wal').existsSync(), isFalse);
+    expect(manager.getActiveDatabaseName(), 'office');
   });
 
   group('a blocked checkpoint throws', () {
@@ -362,5 +407,58 @@ void main() {
       300,
     );
     expect(AppDatabase.openInstanceOf('later'), isNull);
+  });
+
+  group('the memoized open', () {
+    late SharedPreferencesStorePlatform previous;
+
+    setUp(() {
+      previous = SharedPreferencesStorePlatform.instance;
+      DatabaseManager.resetForTesting();
+    });
+
+    tearDown(() {
+      SharedPreferencesStorePlatform.instance = previous;
+      SharedPreferences.resetStatic();
+      DatabaseManager.resetForTesting();
+    });
+
+    test('two first callers share one manager, built before either reads '
+        'it (final review X-11)', () async {
+      final arrived = Completer<void>();
+      final release = Completer<void>();
+      ScriptedPrefsStore.install({'active_database': 'phone'}).onRead = (_) {
+        if (!arrived.isCompleted) arrived.complete();
+        return release.future;
+      };
+      final managers = <DatabaseManager>[];
+      Future<String> readActiveName() async {
+        final manager = await DatabaseManager.getInstance();
+        managers.add(manager);
+        return manager.getActiveDatabaseName();
+      }
+
+      final names = [readActiveName(), readActiveName()];
+      await arrived.future;
+      release.complete();
+
+      expect(await Future.wait(names), ['phone', 'phone']);
+      expect(identical(managers[0], managers[1]), isTrue);
+    });
+
+    test('an open that fails is not kept: the next call opens anew '
+        '(final review X-7)', () async {
+      final store = ScriptedPrefsStore.install()
+        ..onRead = (read) {
+          if (read == 1) throw StateError('the store is not ready');
+        };
+
+      await expectLater(DatabaseManager.getInstance(), throwsStateError);
+      final retried = await DatabaseManager.getInstance();
+
+      expect(retried.getActiveDatabaseName(), 'gym_notes');
+      expect(identical(await DatabaseManager.getInstance(), retried), isTrue);
+      expect(store.reads, 2);
+    });
   });
 }

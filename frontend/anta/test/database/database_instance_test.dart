@@ -25,6 +25,9 @@ void main() {
         );
   });
 
+  // A case that fails an open on purpose must not hand its notice on.
+  setUp(AppDatabase.resetSwitchAnnouncementForTesting);
+
   tearDownAll(() async {
     await (await AppDatabase.getInstance(databaseName: 'second')).close();
     try {
@@ -124,5 +127,20 @@ void main() {
     // The notice carries the database it announces, so a handler can rebind
     // without awaiting the open it is called from (A6 review R113).
     expect(seen.last, same(seventh));
+  });
+
+  test('after deleteAllData the next open announces the switch, once '
+      '(final review X-8)', () async {
+    await AppDatabase.getInstance(databaseName: 'eighth');
+    final seen = <AppDatabase>[];
+    void onSwitched(AppDatabase database) => seen.add(database);
+    DatabaseLifecycle.registerSwitchedHandler(onSwitched);
+    addTearDown(() => DatabaseLifecycle.unregisterSwitchedHandler(onSwitched));
+
+    await AppDatabase.deleteAllData();
+    final reopened = await AppDatabase.getInstance(databaseName: 'eighth');
+    await AppDatabase.getInstance(databaseName: 'eighth');
+
+    expect(seen, [same(reopened)]);
   });
 }

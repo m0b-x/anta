@@ -105,6 +105,7 @@ dev_dependencies:
   args: ^2.7.0
   xml: ^7.0.1
   image: ^4.9.2
+  shared_preferences_platform_interface: ^2.4.2
 
 # App icon generation: `dart run flutter_launcher_icons`. Source art lives in
 # assets/icon/ (source.png = original; the rest are derived — see

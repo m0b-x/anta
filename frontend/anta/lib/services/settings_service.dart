@@ -62,13 +62,13 @@ class SettingsService {
   /// service whose `_db` was not yet initialized — every widget that loads
   /// its settings while another one does hit it once
   /// `DatabaseManager.getInstance` awaited one step more. A switch landing
-  /// during the open starts it over once, as `SyncBindingService` does.
+  /// during the open starts it over ([_open]).
   static Future<SettingsService> getInstance() {
     final existing = _instance;
     if (existing != null) return Future.value(existing);
     final inFlight = _opening;
     if (inFlight != null) return inFlight;
-    final opening = _open(mayRetry: true);
+    final opening = _open();
     _opening = opening;
     // Only this open's own entry is cleared: a reset during it may already
     // have let a newer open take the slot.
@@ -80,18 +80,29 @@ class SettingsService {
     return opening;
   }
 
-  static Future<SettingsService> _open({required bool mayRetry}) async {
-    final generation = DatabaseLifecycle.generation;
-    final db = await AppDatabase.getInstance();
-    final raced = _instance;
-    if (raced != null) return raced;
-    if (DatabaseLifecycle.generation != generation && mayRetry) {
-      return _open(mayRetry: false);
+  /// How many times [_open] starts over before it gives up on a database
+  /// that keeps switching under it.
+  static const int _openAttempts = 3;
+
+  /// Publishes only a service whose database no switch overtook: one that
+  /// did may be the closing database, and registering [reset] after the
+  /// switch fired would keep that service past the reset meant to drop it.
+  /// Every attempt re-checks the generation (final review X-6); past
+  /// [_openAttempts] it throws rather than publish, as `SyncBindingService`
+  /// does.
+  static Future<SettingsService> _open() async {
+    for (var attempt = 0; attempt < _openAttempts; attempt++) {
+      final generation = DatabaseLifecycle.generation;
+      final db = await AppDatabase.getInstance();
+      final raced = _instance;
+      if (raced != null) return raced;
+      if (DatabaseLifecycle.generation != generation) continue;
+      final service = SettingsService._().._db = db;
+      _instance = service;
+      DatabaseLifecycle.registerResetHandler(reset);
+      return service;
     }
-    final service = SettingsService._().._db = db;
-    _instance = service;
-    DatabaseLifecycle.registerResetHandler(reset);
-    return service;
+    throw StateError('the database switched while the settings were opened');
   }
 
   /// Binds the singleton to an arbitrary [AppDatabase], bypassing

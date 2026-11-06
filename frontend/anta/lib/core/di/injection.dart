@@ -86,9 +86,9 @@ void registerRepositorySingletons() {
 /// first continuation — the sync engine's — reach a repository still on the
 /// closed database (A6 review R113).
 ///
-/// `deleteAllData` is not covered: it notifies switching and never switched,
-/// so the two repositories keep the closed handle and the app is expected to
-/// be restarted.
+/// `deleteAllData` notifies switching and opens nothing, so the repositories
+/// keep the closed handle until the next open — which announces the switch
+/// and rebinds them (final review X-8) — or the restart the app asks for.
 void _rebindRepositoriesAfterSwitch(AppDatabase database) =>
     rebindRepositoriesTo(database);
 

@@ -156,6 +156,11 @@ class AppDatabase extends _$AppDatabase {
   /// hold the closed handle and must hear the switched notice (review BA-H2).
   static bool _switchUnannounced = false;
 
+  /// Forgets a switch left unannounced, so a suite that fails an open on
+  /// purpose cannot hand its notice to the next case's first open.
+  @visibleForTesting
+  static void resetSwitchAnnouncementForTesting() => _switchUnannounced = false;
+
   /// The open (or opening) instance when it is [name], else `null` — never
   /// opens anything, so work that only wants the live connection (a WAL
   /// checkpoint) cannot set off a switch the way [getInstance] would for a
@@ -251,6 +256,9 @@ class AppDatabase extends _$AppDatabase {
         // Nothing was opened; there is nothing to drop.
       }
       DatabaseLifecycle.notifyDatabaseSwitching();
+      // The memo is cleared below, so the next open has no previous one to
+      // switch from: the flag carries the notice to it (final review X-8).
+      _switchUnannounced = true;
       await _closeOpened(opening);
       if (identical(_opening, opening)) {
         _opening = null;

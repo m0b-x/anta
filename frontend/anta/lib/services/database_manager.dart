@@ -1,6 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
-import 'package:flutter/foundation.dart' show debugPrint;
+import 'package:flutter/foundation.dart' show debugPrint, visibleForTesting;
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -26,7 +26,28 @@ class DatabaseManager {
 
   DatabaseManager._();
 
-  static Future<DatabaseManager> getInstance() => _instance ??= _create();
+  /// The one manager of this process, published only once its preferences
+  /// are read and the launch's recovery has run. An open that fails is not
+  /// kept: the next call starts over rather than rethrowing it for the rest
+  /// of the process (final review X-7).
+  static Future<DatabaseManager> getInstance() {
+    final existing = _instance;
+    if (existing != null) return existing;
+    final created = _create();
+    _instance = created;
+    created.then<void>(
+      (_) {},
+      onError: (Object _) {
+        if (identical(_instance, created)) _instance = null;
+      },
+    );
+    return created;
+  }
+
+  /// Drops the memo, so the next [getInstance] reads the preferences and
+  /// runs the recovery again as a new process would.
+  @visibleForTesting
+  static void resetForTesting() => _instance = null;
 
   static Future<DatabaseManager> _create() async {
     final manager = DatabaseManager._();
@@ -77,14 +98,36 @@ class DatabaseManager {
   }
 
   /// The download has bound its database, or has switched back.
+  ///
+  /// Tried twice: a marker left behind after a bind that committed would
+  /// switch the next launch back to the old database, away from the one the
+  /// user has been working in since (final review X-4). A `false` counts as
+  /// a failure: the Android store answers a failed remove with it rather
+  /// than a throw (RA2-2).
   Future<void> clearDownloadInFlight() async {
-    await _prefs.remove(SettingsKeys.syncDownloadInFlight);
+    try {
+      if (await _prefs.remove(SettingsKeys.syncDownloadInFlight)) return;
+      debugPrint('[DatabaseManager] download marker not cleared, retrying');
+    } catch (e) {
+      debugPrint('[DatabaseManager] download marker not cleared, retrying: $e');
+    }
+    if (!await _prefs.remove(SettingsKeys.syncDownloadInFlight)) {
+      debugPrint('[DatabaseManager] download marker still not cleared');
+    }
   }
 
   /// A download the process died in: the database it came from made active
   /// again. The new file stays for the Databases page — nothing is deleted
   /// at launch, before anything has been seen. An unreadable marker is only
   /// dropped. Never thrown: the launch must go on.
+  ///
+  /// The marker is trusted only while it still describes the install: the
+  /// download's database is the active one, holds no sync claim, and the one
+  /// it came from is still there. Otherwise the user has moved on — switched
+  /// elsewhere, or deleted the old database, which switching to would create
+  /// empty — or the bind committed, since it claims right after its commit,
+  /// and only the clear failed; the marker is then only dropped (final
+  /// review X-4, RA2-3).
   Future<void> _recoverInterruptedDownload() async {
     final raw = _prefs.getString(SettingsKeys.syncDownloadInFlight);
     if (raw == null) return;
@@ -92,12 +135,33 @@ class DatabaseManager {
       final marker = raw.isEmpty ? null : jsonDecode(raw);
       if (marker is Map) {
         final from = marker[_downloadFrom];
+        final to = marker[_downloadTo];
+        final active = getActiveDatabaseName();
         if (from is String && from.isNotEmpty) {
-          await setActiveDatabaseName(from);
-          debugPrint(
-            '[DatabaseManager] interrupted download into '
-            '"${marker[_downloadTo]}": back on "$from"',
-          );
+          if (active != to) {
+            debugPrint(
+              '[DatabaseManager] download marker into "$to" dropped: '
+              '"$active" is active',
+            );
+          } else if (spaceRegistry.claims().any(
+            (claim) => claim.databaseName == to,
+          )) {
+            debugPrint(
+              '[DatabaseManager] download marker dropped: "$to" holds a '
+              'sync claim, so its bind committed',
+            );
+          } else if (!await databaseExists(from)) {
+            debugPrint(
+              '[DatabaseManager] download marker dropped: "$from" is gone, '
+              'staying on "$to"',
+            );
+          } else {
+            await setActiveDatabaseName(from);
+            debugPrint(
+              '[DatabaseManager] interrupted download into "$to": back on '
+              '"$from"',
+            );
+          }
         }
       }
     } catch (e, st) {
@@ -247,6 +311,17 @@ class DatabaseManager {
   /// `.db`'s rename and the sidecar's would otherwise leave the renamed file
   /// without its last writes and an orphan `-wal` that nothing applies. A
   /// blocked checkpoint fails the rename before any file has moved.
+  ///
+  /// The sync claim and the active name follow the `.db` once its sidecars
+  /// have been tried, whether or not one of them threw: left on the old name,
+  /// the next launch would open that name and create it empty, its claim
+  /// would hold again, and the heal would unbind the renamed database (final
+  /// review X-3, RA2-1). Nothing runs between the `.db` and its sidecars — a
+  /// registry write that failed there could split a database from
+  /// un-checkpointed pages in its `-wal` — and a registry write that fails is
+  /// logged, never thrown; the claim it leaves on the old name, whose file is
+  /// gone, reads as free, and the binding service's heal claims the space
+  /// again for the bound database that has none.
   Future<void> renameDatabase(String oldName, String newName) async {
     if (!await databaseExists(oldName)) {
       throw Exception('Database "$oldName" does not exist');
@@ -263,25 +338,29 @@ class DatabaseManager {
 
     final oldFile = File(oldPath);
     await oldFile.rename(newPath);
-    // The claim follows the `.db` at once: a sidecar rename that fails would
-    // otherwise leave it on a name whose file is gone, which the registry
-    // reads as free (review BA-M6).
-    await spaceRegistry.rename(oldName, newName);
 
-    // Also rename related files if they exist (WAL, SHM files)
-    final oldWal = File('$oldPath-wal');
-    if (await oldWal.exists()) {
-      await oldWal.rename('$newPath-wal');
-    }
+    try {
+      // Also rename related files if they exist (WAL, SHM files)
+      final oldWal = File('$oldPath-wal');
+      if (await oldWal.exists()) {
+        await oldWal.rename('$newPath-wal');
+      }
 
-    final oldShm = File('$oldPath-shm');
-    if (await oldShm.exists()) {
-      await oldShm.rename('$newPath-shm');
-    }
+      final oldShm = File('$oldPath-shm');
+      if (await oldShm.exists()) {
+        await oldShm.rename('$newPath-shm');
+      }
+    } finally {
+      try {
+        await spaceRegistry.rename(oldName, newName);
+      } catch (e, st) {
+        debugPrint('[DatabaseManager] sync claim not renamed: $e\n$st');
+      }
 
-    // If the renamed database was the active one, update the active database name
-    if (getActiveDatabaseName() == oldName) {
-      await setActiveDatabaseName(newName);
+      // If the renamed database was the active one, update the active database name
+      if (getActiveDatabaseName() == oldName) {
+        await setActiveDatabaseName(newName);
+      }
     }
   }
 
