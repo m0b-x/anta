@@ -594,9 +594,10 @@ checks all four before every pull, push and bind (readiness §7).
   (they describe the old space; F7).
 - One database ↔ one space, and a space bound at most once per install
   (readiness D3 i): an install-wide registry in `SharedPreferences`
-  (`sync_bound_spaces`, through `SettingsService` so the QA prefix applies)
-  of `{spaceId, databaseName}`; `bind` refuses a space another database of
-  this install holds, with a visible reason.
+  (`sync_bound_spaces` — not through `SettingsService`, whose store is the
+  per-database `user_settings`; a QA build's `SharedPreferences` prefix
+  covers it) of `{spaceId, ownerUid, databaseName}`; `bind` refuses a space
+  another database of this install holds, with a visible reason.
 - **First device, no space:** `createSpace` then `bind`, in the tap (D1).
   **Any device, spaces exist:** the picker (D2) over `listSpaces`.
   "Download into a new database": `DatabaseManager.createDatabase(name)`
@@ -1797,6 +1798,86 @@ the folder picker never name a tombstone (a data-less one's name is its
 id). Found, not fixed: `FolderStorageService.getAncestors` includes
 tombstones, so the picker's breadcrumbs can name a locally known deleted
 ancestor (by its real name).
+
+**P review (2026-11-06, one independent reviewer on a snapshot of
+`4632602a`, probes and mutants; 0 high, 5 medium, 5 low; fixed in the P
+fix pass below).** **PR1 (M, confirmed)** the repair resurrects a note
+another device deleted when that device's folder tombstone lands before
+the note's own: the drain orders one stamp's rows `folders` before `notes`
+(`SyncOutboxDao.pending`), a cascade of more than 498 rows spans batches,
+and the other device's space listener pulls between them — a note whose
+live envelope it had not pulled yet is re-filed and stamped above the
+delete, so the note's tombstone then loses. The reviewer's fix (repair
+only an edit newer than the delete) would leave hidden for good a note
+moved into the folder on one device while the folder was deleted on the
+other, where no tombstone of the note is coming — **the lead's rule:**
+repair when the note's stamp is above the folder tombstone's (an edit after
+the delete), **or** when this device wrote the tombstone (its own cascade
+would have tombstoned the note had it been inside, so a live one arriving
+under it is a move nobody deleted). **PR2 (M, confirmed)** the folder
+picker opened inside a tombstoned ancestor (through `getAncestors`), named
+it by its id, listed its subfolders and offered "Move to" it — a move a
+bound database copies everywhere. **PR3 (M, confirmed)** search results and
+All notes name a tombstoned folder by its id (`folderPathSegments`).
+**PR4 (M, confirmed)** a device that holds only the data-less tombstone of
+the folder (parent unknown) re-files at the root while one that knew the
+folder re-files under its parent; the space converges on the later repair.
+**Accepted:** visibility first — a device can only answer what it knows,
+and a fresh device's initial merge skips the repair anyway. **PR5 (M,
+plausible)** a note that misses its one merge-time chance (the device that
+made the edit, which merges the folder's tombstone, not the note; a note
+skipped under `bind_merge_pending`) stays hidden until someone edits it →
+a sweep after a complete pull. **PR6 (L)** the conflict copy files a chain
+that runs into an unknown folder at the root while the note stands —
+**accepted:** a new copy must be visible, the original waits for what is
+known. **PR7 (L)** a restore writes the per-note counter values of
+soft-deleted notes (not in the archive) under ids that exist nowhere, and
+a note whose folder is not in the archive restores under a folder that
+exists nowhere. **PR8 (L)** `getFoldersByParent` has no order and
+`watchFoldersByParent` orders by name alone. **PR9 (L)** a re-filed note
+keeps its position and title in its new folder and its `updatedAt` moves —
+**accepted**, as the folder repair does and as §8 accepts for concurrent
+creates. **PR10 (L, confirmed)** two P3 mutants survive (an unknown parent
+of a tombstone; two live ancestors), and P1's unmapped id, P3's
+already-moved note and the real export path are untested. Also accepted,
+for both repairs: a repair is a stamped write, so one minted after a
+concurrent delete of the same row on a device it has not heard from can
+win that row by last-writer-wins — the half-resurrection §3.4 already
+accepts for an edit.
+
+**S4b-2a as built (2026-11-06, one implementer; the bind flow below the
+UI; gate: `dart analyze lib test` clean, whole suite 13,559 passed, 12
+skipped, none failed; review with S4b-2b).** `SyncSpaceRegistry`
+(`lib/services/sync/sync_space_registry.dart`, `SharedPreferences` key
+`sync_bound_spaces`): claimed by `bind()` and released by `unbind()` after
+their transactions commit, so Stop syncing and the restore's unbind both
+release; `DatabaseManager.deleteDatabase` releases and `renameDatabase`
+carries the claim; a holder whose file is gone is ignored; a registry write
+failure is logged, never thrown (a restore must still clear its queue and
+write its floor). R39: the two refusals are `SyncBindRefusal(suspended |
+alreadyBound)`, still checked inside the transaction (R38).
+`SyncSpaceService` (gateway interface only): `start(accountUid)` decides D1/D2
+— no space: create one named after the active database and bind; nothing
+local and one space no other database holds: bind it; else the picker
+data, with `heldBy`; "holds data" = a live row in any synced table but
+`content_chunks` and built-in categories; spaces most recently written
+first; a name trimmed to 1..100 code points, checked before the gateway;
+the download creates `DatabaseManager.suggestDatabaseName(space.name)`,
+switches in place, binds, and on a failure switches back and deletes the
+new file; Stop syncing on an unbound database writes nothing (an unbind
+would raise a restore's floor). The bloc: `SyncThisDatabaseRequested`,
+`MergeIntoSpaceRequested`, `DownloadSpaceRequested`,
+`UploadAsNewSpaceRequested`, `BindFlowDismissed`, `StopSyncingRequested`;
+`SyncSignedIn` and `SyncSignedOut` carry a sealed `SyncBindFlow` (idle with
+`switchedToDatabase`, checking, picking, binding, stopping, failed with a
+`SyncBindFailure`) through every emit; after a bind or an unbind the engine
+is stopped and started (its rebind pair — `syncNow()` would keep the
+previous space's `appOutdated` pause); a step in flight ignores further
+taps; an account change drops the flow; no space service (desktop, a QA
+build without `ANTA_QA_CLOUD`) ignores the bind events. Found, not fixed:
+a database name from a non-ASCII space name is all underscores; a space
+created by a bind that then fails stays in the account (D6: no delete
+until Phase 04) and shows in the next picker.
 
 - `SyncBindingService.bind` and the install registry (§3.6);
   `SyncSpaceService` (create / list through the gateway, the space name

@@ -1,5 +1,6 @@
 import 'package:drift/drift.dart' hide isNull, isNotNull;
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:anta/constants/settings_keys.dart';
 import 'package:anta/database/crdt/crdt_write.dart';
@@ -11,6 +12,7 @@ import 'package:anta/models/sync_binding.dart';
 import 'package:anta/services/settings_service.dart';
 import 'package:anta/services/sync/sync_binding_service.dart';
 import 'package:anta/services/sync/sync_gateway.dart';
+import 'package:anta/services/sync/sync_space_registry.dart';
 import 'package:anta/services/sync/sync_status.dart';
 import 'package:anta/services/sync/sync_status_service.dart';
 import 'package:anta/services/sync/sync_suspension.dart';
@@ -18,6 +20,18 @@ import 'package:anta/services/sync/sync_suspension.dart';
 import '../../database/support/db_test_support.dart';
 
 class _ScriptedFailure implements Exception {}
+
+/// A registry whose every write fails, as a full preferences store would.
+class _ThrowingRegistry extends SyncSpaceRegistry {
+  _ThrowingRegistry(super.prefs) : super(databaseExists: (_) async => true);
+
+  @override
+  Future<void> claim(SyncSpaceRef space, String databaseName) =>
+      Future.error(_ScriptedFailure());
+
+  @override
+  Future<void> release(String databaseName) => Future.error(_ScriptedFailure());
+}
 
 /// Fails, once armed, the write of one `sync_metadata` key — or, with no key,
 /// the first `owner_id` backfill `UPDATE` — a failure from inside the bind's
@@ -63,6 +77,12 @@ const _runKeys = [
   SyncDao.keyLastPullAt,
   SyncDao.keyLastPushAt,
 ];
+
+/// The typed refusal the Sharing page words (review R39), its debug text
+/// kept.
+Matcher _refusal(SyncBindRefusalReason reason) => isA<SyncBindRefusal>()
+    .having((e) => e.reason, 'reason', reason)
+    .having((e) => e.message, 'message', startsWith('Cannot bind while'));
 
 void main() {
   late AppDatabase db;
@@ -267,7 +287,7 @@ void main() {
 
       await expectLater(
         service.bind(space: space, accountUid: 'account-2'),
-        throwsStateError,
+        throwsA(_refusal(SyncBindRefusalReason.alreadyBound)),
       );
 
       expect(await service.read(), binding);
@@ -287,7 +307,9 @@ void main() {
               .then<Object?>((_) => null, onError: (Object error) => error),
       ]);
 
-      expect(outcomes.whereType<StateError>(), hasLength(1));
+      expect(outcomes.whereType<SyncBindRefusal>(), [
+        _refusal(SyncBindRefusalReason.alreadyBound),
+      ]);
       expect((await service.read())!.accountUid, 'account-1');
       expect(
         (await db.folderDao.getFolderById(folder.id))!.ownerId,
@@ -313,7 +335,7 @@ void main() {
       await SyncSuspension.run(() async {
         await expectLater(
           service.bind(space: space, accountUid: 'account-1'),
-          throwsStateError,
+          throwsA(_refusal(SyncBindRefusalReason.suspended)),
         );
       });
 
@@ -385,6 +407,64 @@ void main() {
         expect(await db.syncDao.getValue(key), isNull, reason: key);
       }
       expect(await service.read(), isNull);
+    });
+
+    group('the install registry', () {
+      late SharedPreferences prefs;
+      late SyncSpaceRegistry registry;
+      late SyncBindingService registered;
+
+      setUp(() async {
+        SharedPreferences.setMockInitialValues({});
+        prefs = await SharedPreferences.getInstance();
+        registry = SyncSpaceRegistry(prefs, databaseExists: (_) async => true);
+        registered = SyncBindingService.detached(
+          db,
+          settings,
+          registry: registry,
+          databaseName: 'training',
+        );
+      });
+
+      test('a bind claims the space for this database', () async {
+        await registered.bind(space: space, accountUid: 'account-1');
+
+        expect(await registry.holderOf(space), 'training');
+      });
+
+      test('a refused bind claims nothing', () async {
+        await settings.setSyncBinding(binding);
+
+        await expectLater(
+          registered.bind(space: space, accountUid: 'account-1'),
+          throwsA(isA<SyncBindRefusal>()),
+        );
+
+        expect(registry.claims(), isEmpty);
+      });
+
+      test('an unbind releases the claim', () async {
+        await registered.bind(space: space, accountUid: 'account-1');
+
+        await registered.unbind();
+
+        expect(registry.claims(), isEmpty);
+      });
+
+      test('a registry that cannot be written fails neither the bind nor '
+          'the unbind', () async {
+        final failing = SyncBindingService.detached(
+          db,
+          settings,
+          registry: _ThrowingRegistry(prefs),
+          databaseName: 'training',
+        );
+
+        await failing.bind(space: space, accountUid: 'account-1');
+        expect(await failing.read(), isNotNull);
+        await failing.unbind();
+        expect(await failing.read(), isNull);
+      });
     });
 
     test('two detached services bind two databases apart', () async {

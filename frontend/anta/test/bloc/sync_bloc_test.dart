@@ -7,6 +7,7 @@ import 'package:anta/bloc/sync/sync_bloc.dart';
 import 'package:anta/models/app_user.dart';
 import 'package:anta/services/auth_service.dart';
 import 'package:anta/services/sync/sync_gateway.dart';
+import 'package:anta/services/sync/sync_space_service.dart';
 import 'package:anta/services/sync/sync_status.dart';
 import 'package:anta/utils/auth_error.dart';
 
@@ -92,17 +93,87 @@ class _FakeStatusReader implements SyncStatusReader {
   }
 }
 
+/// Answers each bind step as scripted and records it, so a test reads which
+/// step the bloc took and with what.
+class _FakeSpaceService implements SyncSpaceService {
+  SyncBindStart startResult = const SyncBindStartPick(
+    spaces: [],
+    holdsData: false,
+  );
+  String downloadedInto = 'downloaded';
+  Object? error;
+
+  /// When set, the next step waits for it, then clears it.
+  Completer<void>? gate;
+  final List<String> calls = [];
+
+  Future<void> _step(String call) async {
+    calls.add(call);
+    final waiting = gate;
+    gate = null;
+    if (waiting != null) await waiting.future;
+    if (error != null) throw error!;
+  }
+
+  @override
+  Future<SyncBindStart> start({required String accountUid}) async {
+    await _step('start:$accountUid');
+    return startResult;
+  }
+
+  @override
+  Future<void> bindExisting(SyncSpaceRef space, {required String accountUid}) =>
+      _step('merge:${space.spaceId}:$accountUid');
+
+  @override
+  Future<String> downloadIntoNewDatabase(
+    SyncSpaceInfo space, {
+    required String accountUid,
+  }) async {
+    await _step('download:${space.ref.spaceId}:$accountUid');
+    return downloadedInto;
+  }
+
+  @override
+  Future<SyncSpaceInfo> createAndBind({
+    required String accountUid,
+    String? name,
+  }) async {
+    await _step('upload:$name:$accountUid');
+    return _space;
+  }
+
+  @override
+  Future<void> stopSyncing() => _step('stop');
+
+  @override
+  Future<List<SyncSpaceInfo>> listSpaces(String accountUid) async => [_space];
+
+  @override
+  Future<bool> databaseHoldsData() async => false;
+}
+
+const _space = SyncSpaceInfo(
+  ref: SyncSpaceRef(ownerUid: 'uid-1', spaceId: 'space-1'),
+  name: 'Phone',
+  createdAt: null,
+  createdBy: 'phone-device',
+  schema: 45,
+);
+
 Future<(SyncBloc, _FakeAuthService, List<SyncState>)> _pumpBloc({
   bool available = true,
   AppUser? user,
   SyncStatusReader? reader,
   FakeSyncEngine? engine,
+  SyncSpaceService? spaces,
 }) async {
   final fake = _FakeAuthService(available: available, user: user);
   final bloc = SyncBloc(
     authService: fake,
     statusReader: reader == null ? null : () => reader,
     engine: engine == null ? null : () async => engine,
+    spaces: spaces,
   );
   final states = <SyncState>[];
   bloc.stream.listen(states.add);
@@ -745,6 +816,357 @@ void main() {
       await pumpEventQueue();
 
       expect(asked, 0);
+      await bloc.close();
+    });
+  });
+
+  group('the bind flow', () {
+    final picking = SyncBindPicking(
+      spaces: const [_space],
+      holdsData: true,
+      heldBy: {
+        const SyncSpaceRef(ownerUid: 'uid-1', spaceId: 'space-2'): 'errands',
+      },
+    );
+
+    /// A bloc signed in as [_user] over [spaces], with an engine and a reader
+    /// whose reads it counts.
+    Future<
+      (
+        SyncBloc,
+        _FakeAuthService,
+        List<SyncState>,
+        FakeSyncEngine,
+        _FakeStatusReader,
+      )
+    >
+    pumpBinding(_FakeSpaceService spaces, {AppUser? user = _user}) async {
+      final engine = FakeSyncEngine();
+      final reader = _FakeStatusReader();
+      final (bloc, auth, states) = await _pumpBloc(
+        user: user,
+        reader: reader,
+        engine: engine,
+        spaces: spaces,
+      );
+      states.clear();
+      reader.reads.clear();
+      return (bloc, auth, states, engine, reader);
+    }
+
+    List<SyncBindFlow> flows(List<SyncState> states) => [
+      for (final state in states)
+        switch (state) {
+          SyncSignedIn(:final flow) || SyncSignedOut(:final flow) => flow,
+          _ => throw StateError('$state carries no flow'),
+        },
+    ];
+
+    test('"Sync this database" bound in the tap: checking, then idle, the '
+        'engine restarted and the status read again', () async {
+      final spaces = _FakeSpaceService()
+        ..startResult = SyncBindStartBound(_space.ref);
+      final (bloc, _, states, engine, reader) = await pumpBinding(spaces);
+      engine.calls.clear();
+
+      bloc.add(const SyncThisDatabaseRequested());
+      await pumpEventQueue();
+
+      expect(spaces.calls, ['start:uid-1']);
+      expect(flows(states).first, const SyncBindChecking());
+      expect(flows(states).last, const SyncBindIdle());
+      expect(engine.calls, ['stop', 'start']);
+      expect(reader.reads, ['uid-1']);
+      await bloc.close();
+    });
+
+    test('"Sync this database" with a choice to make shows the picker\'s '
+        'data', () async {
+      final spaces = _FakeSpaceService()
+        ..startResult = SyncBindStartPick(
+          spaces: [_space],
+          holdsData: true,
+          heldBy: picking.heldBy,
+        );
+      final (bloc, _, states, engine, _) = await pumpBinding(spaces);
+      engine.calls.clear();
+
+      bloc.add(const SyncThisDatabaseRequested());
+      await pumpEventQueue();
+
+      expect(flows(states), [const SyncBindChecking(), picking]);
+      expect(engine.calls, isEmpty, reason: 'nothing bound yet');
+      await bloc.close();
+    });
+
+    test('the picker survives an engine status and a refresh', () async {
+      final spaces = _FakeSpaceService()
+        ..startResult = SyncBindStartPick(
+          spaces: [_space],
+          holdsData: true,
+          heldBy: picking.heldBy,
+        );
+      final (bloc, _, states, engine, _) = await pumpBinding(spaces);
+      bloc.add(const SyncThisDatabaseRequested());
+      await pumpEventQueue();
+
+      engine.emit(const SyncStatus(pendingCount: 3));
+      await pumpEventQueue();
+      bloc.add(const RefreshSyncStatus());
+      await pumpEventQueue();
+
+      expect(flows(states).last, picking);
+      expect(bloc.state, isA<SyncSignedIn>());
+      await bloc.close();
+    });
+
+    for (final (label, error, failed) in [
+      (
+        'a typed failure',
+        const SyncSpaceException(SyncBindFailure.offline),
+        const SyncBindFailed(SyncBindFailure.offline),
+      ),
+      (
+        'a refusal naming the holder',
+        const SyncSpaceException(
+          SyncBindFailure.spaceHeldByAnotherDatabase,
+          holderDatabase: 'errands',
+        ),
+        const SyncBindFailed(
+          SyncBindFailure.spaceHeldByAnotherDatabase,
+          holderDatabase: 'errands',
+        ),
+      ),
+      (
+        'an untyped error',
+        StateError('boom'),
+        const SyncBindFailed(SyncBindFailure.unknown),
+      ),
+    ]) {
+      test(
+        '$label fails the tap with its reason, the engine left alone',
+        () async {
+          final spaces = _FakeSpaceService()..error = error;
+          final (bloc, _, states, engine, _) = await pumpBinding(spaces);
+          engine.calls.clear();
+
+          bloc.add(const SyncThisDatabaseRequested());
+          await pumpEventQueue();
+
+          expect(flows(states), [const SyncBindChecking(), failed]);
+          expect(engine.calls, isEmpty);
+          await bloc.close();
+        },
+      );
+    }
+
+    test('a second tap while the first is checking is ignored', () async {
+      final spaces = _FakeSpaceService()..gate = Completer<void>();
+      final gate = spaces.gate!;
+      final (bloc, _, _, _, _) = await pumpBinding(spaces);
+
+      bloc.add(const SyncThisDatabaseRequested());
+      await pumpEventQueue();
+      bloc.add(const SyncThisDatabaseRequested());
+      await pumpEventQueue();
+      gate.complete();
+      await pumpEventQueue();
+
+      expect(spaces.calls, ['start:uid-1']);
+      await bloc.close();
+    });
+
+    test('an account change while checking drops the flow with the old '
+        'account', () async {
+      final spaces = _FakeSpaceService()
+        ..gate = Completer<void>()
+        ..startResult = SyncBindStartPick(spaces: [_space], holdsData: true);
+      final gate = spaces.gate!;
+      final (bloc, auth, _, _, _) = await pumpBinding(spaces);
+
+      bloc.add(const SyncThisDatabaseRequested());
+      await pumpEventQueue();
+      auth.emitAuth(_partner);
+      await pumpEventQueue();
+      gate.complete();
+      await pumpEventQueue();
+
+      expect(bloc.state, isA<SyncSignedIn>());
+      final shown = bloc.state as SyncSignedIn;
+      expect(shown.user, _partner);
+      expect(shown.flow, const SyncBindIdle());
+      await bloc.close();
+    });
+
+    for (final (label, event, call, done) in [
+      (
+        'merge into the space',
+        const MergeIntoSpaceRequested(_space),
+        'merge:space-1:uid-1',
+        const SyncBindIdle(),
+      ),
+      (
+        'download the space into a new database',
+        const DownloadSpaceRequested(_space),
+        'download:space-1:uid-1',
+        const SyncBindIdle(switchedToDatabase: 'downloaded'),
+      ),
+      (
+        'upload as a new space under this database\'s name',
+        const UploadAsNewSpaceRequested(),
+        'upload:null:uid-1',
+        const SyncBindIdle(),
+      ),
+      (
+        'upload as a new space under a name',
+        const UploadAsNewSpaceRequested(name: 'Tablet'),
+        'upload:Tablet:uid-1',
+        const SyncBindIdle(),
+      ),
+    ]) {
+      test('the picker\'s "$label": binding, then $done, the engine '
+          'restarted', () async {
+        final spaces = _FakeSpaceService();
+        final (bloc, _, states, engine, reader) = await pumpBinding(spaces);
+        engine.calls.clear();
+
+        bloc.add(event);
+        await pumpEventQueue();
+
+        expect(spaces.calls, [call]);
+        expect(flows(states).first, const SyncBindBinding());
+        expect(flows(states).last, done);
+        expect(engine.calls, ['stop', 'start']);
+        expect(reader.reads, ['uid-1']);
+        await bloc.close();
+      });
+    }
+
+    test('a failed choice keeps its reason until dismissed', () async {
+      final spaces = _FakeSpaceService()
+        ..error = const SyncSpaceException(SyncBindFailure.quotaExhausted);
+      final (bloc, _, states, _, _) = await pumpBinding(spaces);
+
+      bloc.add(const MergeIntoSpaceRequested(_space));
+      await pumpEventQueue();
+      expect(
+        flows(states).last,
+        const SyncBindFailed(SyncBindFailure.quotaExhausted),
+      );
+
+      bloc.add(const BindFlowDismissed());
+      await pumpEventQueue();
+      expect(flows(states).last, const SyncBindIdle());
+      await bloc.close();
+    });
+
+    test('dismissing the picker goes back to idle; dismissing idle emits '
+        'nothing', () async {
+      final spaces = _FakeSpaceService();
+      final (bloc, _, states, _, _) = await pumpBinding(spaces);
+      bloc.add(const SyncThisDatabaseRequested());
+      await pumpEventQueue();
+
+      bloc.add(const BindFlowDismissed());
+      await pumpEventQueue();
+      expect(flows(states).last, const SyncBindIdle());
+
+      final count = states.length;
+      bloc.add(const BindFlowDismissed());
+      await pumpEventQueue();
+      expect(states, hasLength(count));
+      await bloc.close();
+    });
+
+    test('dismissing a download\'s notice keeps the database, drops the '
+        'notice', () async {
+      final spaces = _FakeSpaceService();
+      final (bloc, _, states, _, _) = await pumpBinding(spaces);
+      bloc.add(const DownloadSpaceRequested(_space));
+      await pumpEventQueue();
+
+      bloc.add(const BindFlowDismissed());
+      await pumpEventQueue();
+
+      expect(flows(states).last, const SyncBindIdle());
+      await bloc.close();
+    });
+
+    for (final (label, user, pause) in [
+      ('signed in', _user, SyncPause.none),
+      ('paused on another account (D5 A)', _user, SyncPause.accountMismatch),
+      ('signed out (D5 A)', null, SyncPause.signedOut),
+    ]) {
+      test('"Stop syncing" $label: stopping, then idle, the engine restarted '
+          'and the status read again', () async {
+        final spaces = _FakeSpaceService();
+        final (bloc, _, states, engine, reader) = await pumpBinding(
+          spaces,
+          user: user,
+        );
+        reader.pause = pause;
+        engine.calls.clear();
+
+        bloc.add(const StopSyncingRequested());
+        await pumpEventQueue();
+
+        expect(spaces.calls, ['stop']);
+        expect(flows(states).first, const SyncBindStopping());
+        expect(flows(states).last, const SyncBindIdle());
+        expect(engine.calls, ['stop', 'start']);
+        expect(reader.reads, [user?.uid]);
+        expect(
+          bloc.state,
+          user == null ? isA<SyncSignedOut>() : isA<SyncSignedIn>(),
+        );
+        await bloc.close();
+      });
+    }
+
+    test('a failed stop signed out shows its reason', () async {
+      final spaces = _FakeSpaceService()..error = StateError('disk full');
+      final (bloc, _, states, _, _) = await pumpBinding(spaces, user: null);
+
+      bloc.add(const StopSyncingRequested());
+      await pumpEventQueue();
+
+      expect(flows(states), [
+        const SyncBindStopping(),
+        const SyncBindFailed(SyncBindFailure.unknown),
+      ]);
+      await bloc.close();
+    });
+
+    test(
+      'signed out, "Sync this database" and the choices are ignored',
+      () async {
+        final spaces = _FakeSpaceService();
+        final (bloc, _, states, _, _) = await pumpBinding(spaces, user: null);
+
+        bloc
+          ..add(const SyncThisDatabaseRequested())
+          ..add(const MergeIntoSpaceRequested(_space))
+          ..add(const UploadAsNewSpaceRequested());
+        await pumpEventQueue();
+
+        expect(spaces.calls, isEmpty);
+        expect(states, isEmpty);
+        await bloc.close();
+      },
+    );
+
+    test('without a space service (no sync on this platform) every bind '
+        'event is ignored', () async {
+      final (bloc, _, states) = await _pumpBloc(user: _user);
+      states.clear();
+
+      bloc
+        ..add(const SyncThisDatabaseRequested())
+        ..add(const StopSyncingRequested())
+        ..add(const BindFlowDismissed());
+      await pumpEventQueue();
+
+      expect(states, isEmpty);
       await bloc.close();
     });
   });

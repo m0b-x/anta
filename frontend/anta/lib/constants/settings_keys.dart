@@ -427,6 +427,14 @@ class SettingsKeys {
   static const String syncSpaceAccountUid = 'sync_space_account_uid';
   static const String syncSpaceBoundAt = 'sync_space_bound_at';
 
+  /// Install-wide, so in `SharedPreferences` rather than `user_settings`:
+  /// which database of this install holds which space (record §3.6). Two
+  /// databases of one install share one `device_id`, and two writers with
+  /// one node id in a space break the clock, so a space is held at most once.
+  /// Outside [syncSpacePrefix] on purpose — never in a backup, never a
+  /// per-database binding key.
+  static const String syncBoundSpaces = 'sync_bound_spaces';
+
   /// The prefixes a restore never writes back, whatever the archive's
   /// settings map carries: a hand-edited or foreign backup must not pair or
   /// bind the database it is restored onto.

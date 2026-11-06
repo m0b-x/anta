@@ -1,8 +1,98 @@
 import 'package:equatable/equatable.dart';
 
 import '../../models/app_user.dart';
+import '../../services/sync/sync_gateway.dart';
+import '../../services/sync/sync_space_service.dart';
 import '../../services/sync/sync_status.dart';
 import '../../utils/auth_error.dart';
+
+export '../../services/sync/sync_space_service.dart' show SyncBindFailure;
+
+/// Where "Sync this database" — or "Stop syncing" — stands, carried by the
+/// account states so a status emit never drops the picker from under it.
+sealed class SyncBindFlow extends Equatable {
+  const SyncBindFlow();
+
+  /// A step in flight, during which another bind or stop is ignored.
+  bool get isBusy => false;
+
+  @override
+  List<Object?> get props => [];
+}
+
+final class SyncBindIdle extends SyncBindFlow {
+  /// The database a download created and switched to, once it is bound — so
+  /// the page can say the app now shows it; null otherwise.
+  final String? switchedToDatabase;
+
+  const SyncBindIdle({this.switchedToDatabase});
+
+  @override
+  List<Object?> get props => [switchedToDatabase];
+}
+
+/// Reading the account's spaces — and, on D1's paths, creating or binding
+/// in the same tap.
+final class SyncBindChecking extends SyncBindFlow {
+  const SyncBindChecking();
+
+  @override
+  bool get isBusy => true;
+}
+
+/// The picker (D2): merge into one of [spaces], download one into a new
+/// database, or upload as a new space.
+final class SyncBindPicking extends SyncBindFlow {
+  /// The account's spaces, most recently written first.
+  final List<SyncSpaceInfo> spaces;
+
+  /// Whether this database holds anything a person made.
+  final bool holdsData;
+
+  /// The spaces another database of this install holds, with its name;
+  /// merging into or downloading one of them is refused.
+  final Map<SyncSpaceRef, String> heldBy;
+
+  const SyncBindPicking({
+    required this.spaces,
+    required this.holdsData,
+    this.heldBy = const {},
+  });
+
+  @override
+  List<Object?> get props => [spaces, holdsData, heldBy];
+}
+
+/// The picker's choice being carried out.
+final class SyncBindBinding extends SyncBindFlow {
+  const SyncBindBinding();
+
+  @override
+  bool get isBusy => true;
+}
+
+/// "Stop syncing this database" being carried out.
+final class SyncBindStopping extends SyncBindFlow {
+  const SyncBindStopping();
+
+  @override
+  bool get isBusy => true;
+}
+
+/// The last step failed; stays until it is dismissed or the flow starts
+/// again.
+final class SyncBindFailed extends SyncBindFlow {
+  final SyncBindFailure failure;
+
+  /// For [SyncBindFailure.spaceHeldByAnotherDatabase]: the database holding
+  /// the space.
+  final String? holderDatabase;
+
+  const SyncBindFailed(this.failure, {this.holderDatabase});
+
+  @override
+  List<Object?> get props => [failure, holderDatabase];
+}
 
 sealed class SyncState extends Equatable {
   const SyncState();
@@ -24,10 +114,17 @@ final class SyncUnavailable extends SyncState {
 final class SyncSignedOut extends SyncState {
   final SyncStatus status;
 
-  const SyncSignedOut({this.status = SyncStatus.empty});
+  /// Only "Stop syncing" runs signed out (D5 A), so only idle, stopping or
+  /// its failure.
+  final SyncBindFlow flow;
+
+  const SyncSignedOut({
+    this.status = SyncStatus.empty,
+    this.flow = const SyncBindIdle(),
+  });
 
   @override
-  List<Object?> get props => [status];
+  List<Object?> get props => [status, flow];
 }
 
 final class SyncSigningIn extends SyncState {
@@ -37,11 +134,16 @@ final class SyncSigningIn extends SyncState {
 final class SyncSignedIn extends SyncState {
   final AppUser user;
   final SyncStatus status;
+  final SyncBindFlow flow;
 
-  const SyncSignedIn(this.user, {this.status = SyncStatus.empty});
+  const SyncSignedIn(
+    this.user, {
+    this.status = SyncStatus.empty,
+    this.flow = const SyncBindIdle(),
+  });
 
   @override
-  List<Object?> get props => [user, status];
+  List<Object?> get props => [user, status, flow];
 }
 
 final class SyncFailure extends SyncState {

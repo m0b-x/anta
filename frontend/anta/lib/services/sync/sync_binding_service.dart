@@ -1,5 +1,5 @@
 import 'package:drift/drift.dart' show UpdateKind, Variable;
-import 'package:flutter/foundation.dart' show visibleForTesting;
+import 'package:flutter/foundation.dart' show debugPrint, visibleForTesting;
 
 import '../../database/crdt/crdt_write.dart';
 import '../../database/crdt/synced_tables.dart';
@@ -7,9 +7,31 @@ import '../../database/daos/sync_dao.dart';
 import '../../database/database.dart';
 import '../../database/database_lifecycle.dart';
 import '../../models/sync_binding.dart';
+import '../database_manager.dart';
 import '../settings_service.dart';
 import 'sync_gateway.dart';
+import 'sync_space_registry.dart';
 import 'sync_suspension.dart';
+
+/// Why [SyncBindingService.bind] refused, for the caller to word (review
+/// R39): the message stays the debug text.
+enum SyncBindRefusalReason {
+  /// A restore or import is rewriting this database.
+  suspended,
+
+  /// The database is bound already: stop syncing first.
+  alreadyBound,
+}
+
+class SyncBindRefusal implements Exception {
+  final SyncBindRefusalReason reason;
+  final String message;
+
+  const SyncBindRefusal(this.reason, this.message);
+
+  @override
+  String toString() => 'SyncBindRefusal(${reason.name}): $message';
+}
 
 /// Which space this database syncs with, and the floor its initial merge
 /// settles against (D15): the one place a database is bound or unbound.
@@ -19,7 +41,18 @@ class SyncBindingService {
   final AppDatabase _db;
   final SettingsService _settings;
 
-  SyncBindingService._(this._db, this._settings);
+  /// The install-wide registry this database's claim is kept in, under
+  /// [_databaseName]; null on a test's detached service that has none.
+  final SyncSpaceRegistry? _registry;
+  final String? _databaseName;
+
+  SyncBindingService._(
+    this._db,
+    this._settings, {
+    SyncSpaceRegistry? registry,
+    String? databaseName,
+  }) : _registry = registry,
+       _databaseName = databaseName;
 
   /// A service outside the singleton and the [DatabaseLifecycle] registry,
   /// so one test can hold one per in-memory database — the two devices of a
@@ -27,9 +60,16 @@ class SyncBindingService {
   /// binding keys live in the settings table, so a service paired with
   /// another database's settings would bind that database instead of this
   /// one. `SettingsService` exposes no handle to compare, so this holds by
-  /// construction only.
+  /// construction only. With [registry], binds claim and unbinds release
+  /// [databaseName] there, as the app's service does.
   @visibleForTesting
-  SyncBindingService.detached(this._db, this._settings);
+  SyncBindingService.detached(
+    this._db,
+    this._settings, {
+    SyncSpaceRegistry? registry,
+    String? databaseName,
+  }) : _registry = registry,
+       _databaseName = databaseName;
 
   /// The service over the active database, built once per database.
   ///
@@ -48,13 +88,23 @@ class SyncBindingService {
     final generation = DatabaseLifecycle.generation;
     final db = await AppDatabase.getInstance();
     final settings = await SettingsService.getInstance();
+    // The name the open database was opened under: `getInstance` above has
+    // just switched to the active one, and a switch since is caught below.
+    final databases = await DatabaseManager.getInstance();
     final raced = _instance;
     if (raced != null) return raced;
     if (DatabaseLifecycle.generation != generation) {
       if (mayRetry) return _build(mayRetry: false);
       throw StateError('the database switched while the binding was built');
     }
-    return _register(SyncBindingService._(db, settings));
+    return _register(
+      SyncBindingService._(
+        db,
+        settings,
+        registry: databases.spaceRegistry,
+        databaseName: databases.getActiveDatabaseName(),
+      ),
+    );
   }
 
   /// Binds the singleton to an arbitrary [AppDatabase], bypassing
@@ -65,9 +115,19 @@ class SyncBindingService {
   @visibleForTesting
   static SyncBindingService forTesting(
     AppDatabase db,
-    SettingsService settings,
-  ) {
-    return _instance ?? _register(SyncBindingService._(db, settings));
+    SettingsService settings, {
+    SyncSpaceRegistry? registry,
+    String? databaseName,
+  }) {
+    return _instance ??
+        _register(
+          SyncBindingService._(
+            db,
+            settings,
+            registry: registry,
+            databaseName: databaseName,
+          ),
+        );
   }
 
   static SyncBindingService _register(SyncBindingService service) {
@@ -123,7 +183,11 @@ class SyncBindingService {
   /// this would queue. Refused while a binding exists: a direct rebind would
   /// leave the first account's rows owned by it, unqueued and foreign to the
   /// new space (readiness D17) — [unbind] floors and clears the queue first
-  /// (S3a review F1).
+  /// (S3a review F1). Both refusals throw [SyncBindRefusal].
+  ///
+  /// Once committed, this database claims [space] in the install registry.
+  /// Checking that no other database holds it is the caller's
+  /// (`SyncSpaceService`), which can name the holder.
   Future<void> bind({
     required SyncSpaceRef space,
     required String accountUid,
@@ -134,13 +198,15 @@ class SyncBindingService {
       // outside it and both run, the second overwriting the first binding
       // and re-queueing every row again (A1c review R38).
       if (SyncSuspension.isSuspended) {
-        throw StateError(
+        throw const SyncBindRefusal(
+          SyncBindRefusalReason.suspended,
           'Cannot bind while sync is suspended: a restore or import is '
           'rewriting this database.',
         );
       }
       if (await read() != null) {
-        throw StateError(
+        throw const SyncBindRefusal(
+          SyncBindRefusalReason.alreadyBound,
           'Cannot bind while this database is bound: stop syncing first.',
         );
       }
@@ -168,6 +234,7 @@ class SyncBindingService {
       await _db.syncDao.setValue(SyncDao.keyBindMergePending, '1');
       if (await bindFloor() == null) await writeBindFloor();
     });
+    await _updateRegistry((registry, name) => registry.claim(space, name));
   }
 
   /// Leaves the space: the binding is cleared, the unsent queue dropped — it
@@ -176,13 +243,36 @@ class SyncBindingService {
   /// written, so a later bind lets the space win every row this database
   /// held at this moment. One transaction, so no half-unbound state survives
   /// a crash.
-  Future<void> unbind() {
-    return _db.transaction(() async {
+  ///
+  /// Once committed, this database's claim in the install registry is
+  /// released — here rather than in the callers, so "Stop syncing" and the
+  /// restore's unbind (`BackupService.importFromJson`) both release it.
+  Future<void> unbind() async {
+    await _db.transaction(() async {
       await _settings.setSyncBinding(null);
       await _db.syncOutboxDao.clear();
       await _deletePullState();
       await writeBindFloor();
     });
+    await _updateRegistry((registry, name) => registry.release(name));
+  }
+
+  /// After the transaction has committed, never inside it: the registry is
+  /// `SharedPreferences`, which a rollback cannot undo. A failure is logged,
+  /// not thrown — the binding has already changed, and a restore must go on
+  /// to clear its queue and write its floor.
+  Future<void> _updateRegistry(
+    Future<void> Function(SyncSpaceRegistry registry, String databaseName)
+    update,
+  ) async {
+    final registry = _registry;
+    final name = _databaseName;
+    if (registry == null || name == null) return;
+    try {
+      await update(registry, name);
+    } catch (e, st) {
+      debugPrint('[SyncBindingService] registry update failed: $e\n$st');
+    }
   }
 
   /// The cursors, the `pull_seen` marks, the initial-merge switch, and the

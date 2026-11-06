@@ -1,7 +1,9 @@
 import 'package:equatable/equatable.dart';
 
 import '../../models/app_user.dart';
+import '../../services/sync/sync_gateway.dart';
 import '../../services/sync/sync_status.dart';
+import 'sync_state.dart';
 
 sealed class SyncEvent extends Equatable {
   const SyncEvent();
@@ -31,6 +33,58 @@ final class RefreshSyncStatus extends SyncEvent {
 /// "Sync now": one full run of the engine — pull every table, then drain.
 final class SyncNowRequested extends SyncEvent {
   const SyncNowRequested();
+}
+
+/// "Sync this database" (D1 A): signed in, either bound in the tap — the
+/// account's first space created, or its one space bound by a database that
+/// holds nothing — or the picker's data in [SyncBindPicking].
+final class SyncThisDatabaseRequested extends SyncEvent {
+  const SyncThisDatabaseRequested();
+}
+
+/// The picker's "Merge this database into the space" (D2 A).
+final class MergeIntoSpaceRequested extends SyncEvent {
+  final SyncSpaceInfo space;
+
+  const MergeIntoSpaceRequested(this.space);
+
+  @override
+  List<Object?> get props => [space];
+}
+
+/// The picker's "Download the space into a new database" (D2 A): the app
+/// switches to the new database, which [SyncBindIdle.switchedToDatabase]
+/// names once it is bound.
+final class DownloadSpaceRequested extends SyncEvent {
+  final SyncSpaceInfo space;
+
+  const DownloadSpaceRequested(this.space);
+
+  @override
+  List<Object?> get props => [space];
+}
+
+/// The picker's "Upload as a new space" (D2 A), named [name] — this
+/// database's name when null.
+final class UploadAsNewSpaceRequested extends SyncEvent {
+  final String? name;
+
+  const UploadAsNewSpaceRequested({this.name});
+
+  @override
+  List<Object?> get props => [name];
+}
+
+/// The picker closed without a choice, a failure or a download's switch
+/// acknowledged: the flow goes back to a plain idle.
+final class BindFlowDismissed extends SyncEvent {
+  const BindFlowDismissed();
+}
+
+/// "Stop syncing this database" (D6 A): signed in, paused on another
+/// account (D5 A's way out) or signed out alike.
+final class StopSyncingRequested extends SyncEvent {
+  const StopSyncingRequested();
 }
 
 /// Fed from the engine's status stream, so a run's progress, pause or

@@ -7,6 +7,7 @@ import 'package:sqlite3/sqlite3.dart' show OpenMode, sqlite3;
 
 import '../core/qa/qa_mode.dart';
 import '../database/database.dart';
+import 'sync/sync_space_registry.dart';
 
 /// Service for managing multiple SQLite databases
 class DatabaseManager {
@@ -52,6 +53,12 @@ class DatabaseManager {
   Future<void> setActiveDatabaseName(String name) async {
     await _prefs.setString(_keyActiveDatabase, name);
   }
+
+  /// Which database of this install holds which sync space: install-wide
+  /// like the active name, so over the same preferences — and kept true here
+  /// across a delete and a rename, the two ways a database's name leaves.
+  SyncSpaceRegistry get spaceRegistry =>
+      SyncSpaceRegistry(_prefs, databaseExists: databaseExists);
 
   /// Get the full path to a database file by name
   Future<String> getDatabasePath(String name) async {
@@ -212,6 +219,8 @@ class DatabaseManager {
       await oldShm.rename('$newPath-shm');
     }
 
+    await spaceRegistry.rename(oldName, newName);
+
     // If the renamed database was the active one, update the active database name
     if (getActiveDatabaseName() == oldName) {
       await setActiveDatabaseName(newName);
@@ -249,6 +258,8 @@ class DatabaseManager {
     if (await shm.exists()) {
       await shm.delete();
     }
+
+    await spaceRegistry.release(name);
 
     // If the deleted database was the active one, switch to default — the QA
     // one in a QA build, so deleting from Settings can never drop that build

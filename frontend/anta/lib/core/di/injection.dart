@@ -35,6 +35,7 @@ import '../../services/sync_availability.dart';
 import '../../services/sync/firestore_sync_gateway.dart';
 import '../../services/sync/sync_engine.dart';
 import '../../services/sync/sync_gateway.dart';
+import '../../services/sync/sync_space_service.dart';
 import '../../services/sync/sync_status_service.dart';
 import '../../bloc/optimized_folder/optimized_folder_bloc.dart';
 import '../../bloc/optimized_note/optimized_note_bloc.dart';
@@ -215,6 +216,11 @@ Future<void> _registerServices() async {
   // GetIt, so it is bound before the engine starts.
   if (canSync) {
     getIt.registerSingleton<SyncGateway>(FirestoreSyncGateway());
+    // Global over the gateway; everything per database it resolves per
+    // call, so a database switch has nothing here to reset.
+    getIt.registerSingleton<SyncSpaceService>(
+      SyncSpaceService(gateway: getIt<SyncGateway>()),
+    );
   }
 
   // The engine follows the identity, so it starts once the auth service is
@@ -314,6 +320,7 @@ void _registerBlocs() {
       authService: getIt<AuthService>(),
       statusReader: SyncStatusService.getInstance,
       engine: _syncEngineEnabled ? SyncEngine.getInstance : null,
+      spaces: _syncEngineEnabled ? getIt<SyncSpaceService>() : null,
     ),
   );
 

@@ -15,14 +15,19 @@ import 'package:anta/constants/json_keys.dart';
 import 'package:anta/constants/settings_keys.dart';
 import 'package:anta/database/daos/sync_dao.dart';
 import 'package:anta/database/database.dart';
+import 'package:anta/database/migrations/database_schema.dart';
 import 'package:anta/models/sync_binding.dart';
 import 'package:anta/services/alert_gateway.dart';
 import 'package:anta/services/backup_service.dart';
 import 'package:anta/services/calendar_event_service.dart';
 import 'package:anta/services/counter_service.dart';
+import 'package:anta/services/database_manager.dart';
 import 'package:anta/services/settings_service.dart';
 import 'package:anta/services/sync/sync_binding_service.dart';
+import 'package:anta/services/sync/sync_space_service.dart';
 import 'package:anta/services/sync/sync_suspension.dart';
+
+import '../support/fake_sync_gateway.dart';
 
 /// Records whether sync was suspended each time the restore's reconcile
 /// reaches the platform — the last step inside the restore.
@@ -157,6 +162,34 @@ void main() {
     );
     expect(SyncSuspension.isSuspended, isFalse);
     expect(notified, 1);
+  });
+
+  test('a restore releases the install registry\'s claim, and the bind is '
+      'offered again (record §3.6)', () async {
+    final db = await AppDatabase.getInstance();
+    final gateway = FakeSyncGateway();
+    final spaces = SyncSpaceService(gateway: gateway);
+    final space = await gateway.createSpace(
+      ownerUid: 'account-1',
+      name: 'Phone',
+      deviceId: 'other-device',
+      schema: DatabaseSchema.currentVersion,
+    );
+    await db.folderDao.createFolder(name: 'Errands');
+    await spaces.bindExisting(space.ref, accountUid: 'account-1');
+    final registry = (await DatabaseManager.getInstance()).spaceRegistry;
+    expect(registry.claims(), hasLength(1));
+    final backup = await BackupService.getInstance();
+    final archive = jsonEncode(await backup.exportAllData());
+
+    final result = await backup.importFromJson(archive);
+
+    expect(result.success, isTrue, reason: result.error);
+    expect(registry.claims(), isEmpty);
+    expect(
+      await spaces.start(accountUid: 'account-1'),
+      SyncBindStartPick(spaces: [space], holdsData: true),
+    );
   });
 
   test('an archive never pairs or binds the database it lands on', () async {
