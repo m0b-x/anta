@@ -149,6 +149,13 @@ class AppDatabase extends _$AppDatabase {
   /// and none is handed an instance before its clock is seeded.
   static Future<AppDatabase>? _opening;
 
+  /// Set once a switch has told the singletons to drop the previous database
+  /// and closed it, cleared once a database has opened after it. An open that
+  /// fails in between leaves no instance behind, so the next open has no
+  /// previous one to switch from — yet the repositories and the engine still
+  /// hold the closed handle and must hear the switched notice (review BA-H2).
+  static bool _switchUnannounced = false;
+
   /// The open (or opening) instance when it is [name], else `null` — never
   /// opens anything, so work that only wants the live connection (a WAL
   /// checkpoint) cannot set off a switch the way [getInstance] would for a
@@ -198,6 +205,7 @@ class AppDatabase extends _$AppDatabase {
         // A failed open left nothing to drop; _closeOpened skips it too.
       }
       DatabaseLifecycle.notifyDatabaseSwitching();
+      _switchUnannounced = true;
       await _closeOpened(previous);
     }
     final deviceId = await _getOrCreateDeviceId();
@@ -210,7 +218,10 @@ class AppDatabase extends _$AppDatabase {
     }
     // The handle goes with the notice: a handler that asked for the database
     // instead would join this open, which completes only once this returns.
-    if (previous != null) DatabaseLifecycle.notifyDatabaseSwitched(db);
+    if (_switchUnannounced) {
+      _switchUnannounced = false;
+      DatabaseLifecycle.notifyDatabaseSwitched(db);
+    }
     return db;
   }
 

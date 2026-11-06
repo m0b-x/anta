@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:path_provider/path_provider.dart';
@@ -5,26 +6,33 @@ import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqlite3/sqlite3.dart' show OpenMode, sqlite3;
 
+import '../constants/settings_keys.dart';
 import '../core/qa/qa_mode.dart';
 import '../database/database.dart';
 import 'sync/sync_space_registry.dart';
 
 /// Service for managing multiple SQLite databases
 class DatabaseManager {
-  static DatabaseManager? _instance;
+  /// Memoized, so every caller waits for the launch's recovery below and none
+  /// reads the active name before it has been put back.
+  static Future<DatabaseManager>? _instance;
   late SharedPreferences _prefs;
 
   static const String _keyActiveDatabase = 'active_database';
   static const String _defaultDatabaseName = 'gym_notes';
 
+  static const String _downloadFrom = 'from';
+  static const String _downloadTo = 'to';
+
   DatabaseManager._();
 
-  static Future<DatabaseManager> getInstance() async {
-    if (_instance == null) {
-      _instance = DatabaseManager._();
-      _instance!._prefs = await SharedPreferences.getInstance();
-    }
-    return _instance!;
+  static Future<DatabaseManager> getInstance() => _instance ??= _create();
+
+  static Future<DatabaseManager> _create() async {
+    final manager = DatabaseManager._();
+    manager._prefs = await SharedPreferences.getInstance();
+    await manager._recoverInterruptedDownload();
+    return manager;
   }
 
   /// The database an install opens when it has never switched.
@@ -52,6 +60,54 @@ class DatabaseManager {
   /// Set the active database name
   Future<void> setActiveDatabaseName(String name) async {
     await _prefs.setString(_keyActiveDatabase, name);
+  }
+
+  /// Records that a "Download into a new database" is about to make [to]
+  /// active, coming from [from]: until [clearDownloadInFlight], a kill leaves
+  /// [to] active and empty, so the next launch switches back to [from]
+  /// (review BA-M2).
+  Future<void> markDownloadInFlight({
+    required String from,
+    required String to,
+  }) async {
+    await _prefs.setString(
+      SettingsKeys.syncDownloadInFlight,
+      jsonEncode({_downloadFrom: from, _downloadTo: to}),
+    );
+  }
+
+  /// The download has bound its database, or has switched back.
+  Future<void> clearDownloadInFlight() async {
+    await _prefs.remove(SettingsKeys.syncDownloadInFlight);
+  }
+
+  /// A download the process died in: the database it came from made active
+  /// again. The new file stays for the Databases page — nothing is deleted
+  /// at launch, before anything has been seen. An unreadable marker is only
+  /// dropped. Never thrown: the launch must go on.
+  Future<void> _recoverInterruptedDownload() async {
+    final raw = _prefs.getString(SettingsKeys.syncDownloadInFlight);
+    if (raw == null) return;
+    try {
+      final marker = raw.isEmpty ? null : jsonDecode(raw);
+      if (marker is Map) {
+        final from = marker[_downloadFrom];
+        if (from is String && from.isNotEmpty) {
+          await setActiveDatabaseName(from);
+          debugPrint(
+            '[DatabaseManager] interrupted download into '
+            '"${marker[_downloadTo]}": back on "$from"',
+          );
+        }
+      }
+    } catch (e, st) {
+      debugPrint('[DatabaseManager] download marker not recovered: $e\n$st');
+    }
+    try {
+      await clearDownloadInFlight();
+    } catch (e, st) {
+      debugPrint('[DatabaseManager] download marker not cleared: $e\n$st');
+    }
   }
 
   /// Which database of this install holds which sync space: install-wide
@@ -207,6 +263,10 @@ class DatabaseManager {
 
     final oldFile = File(oldPath);
     await oldFile.rename(newPath);
+    // The claim follows the `.db` at once: a sidecar rename that fails would
+    // otherwise leave it on a name whose file is gone, which the registry
+    // reads as free (review BA-M6).
+    await spaceRegistry.rename(oldName, newName);
 
     // Also rename related files if they exist (WAL, SHM files)
     final oldWal = File('$oldPath-wal');
@@ -218,8 +278,6 @@ class DatabaseManager {
     if (await oldShm.exists()) {
       await oldShm.rename('$newPath-shm');
     }
-
-    await spaceRegistry.rename(oldName, newName);
 
     // If the renamed database was the active one, update the active database name
     if (getActiveDatabaseName() == oldName) {

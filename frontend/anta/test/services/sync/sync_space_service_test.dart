@@ -5,8 +5,10 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:anta/constants/app_version.dart';
 import 'package:anta/constants/calendar_categories.dart';
 import 'package:anta/constants/settings_keys.dart';
+import 'package:anta/database/crdt/synced_tables.dart';
 import 'package:anta/database/daos/sync_dao.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/database/migrations/database_schema.dart';
@@ -15,6 +17,7 @@ import 'package:anta/services/database_manager.dart';
 import 'package:anta/services/settings_service.dart';
 import 'package:anta/services/sync/sync_binding_service.dart';
 import 'package:anta/services/sync/sync_gateway.dart';
+import 'package:anta/services/sync/sync_space_registry.dart';
 import 'package:anta/services/sync/sync_space_service.dart';
 import 'package:anta/services/sync/sync_status.dart';
 import 'package:anta/services/sync/sync_status_service.dart';
@@ -29,6 +32,19 @@ Matcher _fails(SyncBindFailure failure, {String? holder}) =>
     isA<SyncSpaceException>()
         .having((e) => e.failure, 'failure', failure)
         .having((e) => e.holderDatabase, 'holderDatabase', holder);
+
+/// A registry that sees [holder] hold every space, though nothing is stored —
+/// a claim landing between the service's own check and the bind's.
+class _HeldRegistry extends SyncSpaceRegistry {
+  final String holder;
+
+  _HeldRegistry(super.prefs, this.holder)
+    : super(databaseExists: (_) async => true);
+
+  @override
+  Future<String?> holderOf(SyncSpaceRef space, {String? except}) async =>
+      holder;
+}
 
 /// The bind flow below the Sharing page (record §2 D1, D2, D5, D6; §3.6),
 /// over an in-memory database bound through the real binding service, the
@@ -142,6 +158,26 @@ void main() {
       expect(bound.ownerUid, _uid);
       expect(bound.accountUid, _uid);
       expect(await manager.spaceRegistry.holderOf(created.ref), 'training');
+    });
+
+    test('the default database\'s first space takes the app\'s name, not '
+        'its file name (review BA-L2)', () async {
+      await manager.setActiveDatabaseName('gym_notes');
+      addTearDown(() => manager.setActiveDatabaseName('training'));
+
+      await service.start(accountUid: _uid);
+
+      expect((await gateway.listSpaces(_uid)).single.name, kAppName);
+    });
+
+    test('a restore in flight creates no space for an upload', () async {
+      await SyncSuspension.run(() async {
+        await expectLater(
+          service.createAndBind(accountUid: _uid),
+          throwsA(_fails(SyncBindFailure.suspended)),
+        );
+      });
+      expect(await gateway.listSpaces(_uid), isEmpty);
     });
 
     test('a database holding only the built-in categories binds the one '
@@ -285,6 +321,47 @@ void main() {
       await db.folderDao.softDeleteFolder(folder.id);
       expect(await service.databaseHoldsData(), isFalse);
     });
+
+    /// One row in [table] with every required column filled by its type.
+    Future<void> insertRow(String table) async {
+      final names = <String>[];
+      final values = <Variable<Object>>[];
+      for (final column
+          in await db.customSelect('PRAGMA table_info($table)').get()) {
+        final required =
+            column.read<int>('notnull') == 1 &&
+            column.readNullable<String>('dflt_value') == null;
+        if (!required && column.read<int>('pk') == 0) continue;
+        final type = column.read<String>('type').toUpperCase();
+        names.add(column.read<String>('name'));
+        values.add(
+          type.contains('INT')
+              ? Variable<int>(0)
+              : type.contains('REAL')
+              ? Variable<double>(0)
+              : Variable<String>('row-1'),
+        );
+      }
+      await db.customInsert(
+        'INSERT INTO $table (${names.join(', ')}) '
+        'VALUES (${List.filled(names.length, '?').join(', ')})',
+        variables: values,
+      );
+    }
+
+    for (final synced in syncedTables) {
+      if (synced.travelsWithParent) continue;
+      test(
+        'a live row of ${synced.name} does; its tombstone does not',
+        () async {
+          await insertRow(synced.name);
+          expect(await service.databaseHoldsData(), isTrue);
+
+          await db.customUpdate('UPDATE ${synced.name} SET is_deleted = 1');
+          expect(await service.databaseHoldsData(), isFalse);
+        },
+      );
+    }
   });
 
   group('the space name rule', () {
@@ -361,6 +438,33 @@ void main() {
       await service.bindExisting(space.ref, accountUid: _uid);
 
       expect(await manager.spaceRegistry.holderOf(space.ref), 'training');
+    });
+
+    test('a holder only the bind itself sees is refused as held, naming it '
+        '(review BA-L4)', () async {
+      final space = await createSpace('Phone');
+      final held = SyncSpaceService(
+        gateway: gateway,
+        database: () async => db,
+        binding: () async => SyncBindingService.detached(
+          db,
+          settings,
+          registry: _HeldRegistry(
+            await SharedPreferences.getInstance(),
+            'errands',
+          ),
+          databaseName: 'training',
+        ),
+        databases: () async => manager,
+      );
+
+      await expectLater(
+        held.bindExisting(space.ref, accountUid: _uid),
+        throwsA(
+          _fails(SyncBindFailure.spaceHeldByAnotherDatabase, holder: 'errands'),
+        ),
+      );
+      expect(await binding.read(), isNull);
     });
 
     test('this database\'s own stale claim is never in its way', () async {

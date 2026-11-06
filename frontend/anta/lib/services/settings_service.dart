@@ -51,13 +51,47 @@ class SettingsService {
   SettingsService._({Duration? writeDebounce})
     : _writeDebounce = writeDebounce ?? defaultWriteDebounce;
 
-  static Future<SettingsService> getInstance() async {
-    if (_instance == null) {
-      _instance = SettingsService._();
-      _instance!._db = await AppDatabase.getInstance();
-      DatabaseLifecycle.registerResetHandler(reset);
+  /// The open in flight, shared by every caller that arrives before it
+  /// finishes.
+  static Future<SettingsService>? _opening;
+
+  /// The service over the active database, built once per database.
+  ///
+  /// The instance is published only once its database is set: it used to be
+  /// stored before the await, and a second caller in that window got a
+  /// service whose `_db` was not yet initialized — every widget that loads
+  /// its settings while another one does hit it once
+  /// `DatabaseManager.getInstance` awaited one step more. A switch landing
+  /// during the open starts it over once, as `SyncBindingService` does.
+  static Future<SettingsService> getInstance() {
+    final existing = _instance;
+    if (existing != null) return Future.value(existing);
+    final inFlight = _opening;
+    if (inFlight != null) return inFlight;
+    final opening = _open(mayRetry: true);
+    _opening = opening;
+    // Only this open's own entry is cleared: a reset during it may already
+    // have let a newer open take the slot.
+    void settle() {
+      if (identical(_opening, opening)) _opening = null;
     }
-    return _instance!;
+
+    opening.then<void>((_) => settle(), onError: (Object _) => settle());
+    return opening;
+  }
+
+  static Future<SettingsService> _open({required bool mayRetry}) async {
+    final generation = DatabaseLifecycle.generation;
+    final db = await AppDatabase.getInstance();
+    final raced = _instance;
+    if (raced != null) return raced;
+    if (DatabaseLifecycle.generation != generation && mayRetry) {
+      return _open(mayRetry: false);
+    }
+    final service = SettingsService._().._db = db;
+    _instance = service;
+    DatabaseLifecycle.registerResetHandler(reset);
+    return service;
   }
 
   /// Binds the singleton to an arbitrary [AppDatabase], bypassing
@@ -92,6 +126,7 @@ class SettingsService {
   static void reset() {
     _instance?._dropPendingWrites();
     _instance = null;
+    _opening = null;
     FastingCalendar.resetConfiguration();
     EventAlerts.configureDefaultDayMinute(null);
   }

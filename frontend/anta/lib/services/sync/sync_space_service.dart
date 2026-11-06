@@ -1,12 +1,14 @@
 import 'package:equatable/equatable.dart';
 import 'package:flutter/foundation.dart' show debugPrint;
 
+import '../../constants/app_version.dart';
 import '../../database/crdt/synced_tables.dart';
 import '../../database/database.dart';
 import '../../database/migrations/database_schema.dart';
 import '../database_manager.dart';
 import 'sync_binding_service.dart';
 import 'sync_gateway.dart';
+import 'sync_space_registry.dart';
 import 'sync_suspension.dart';
 
 /// Why a bind, a download or a stop failed, in the terms the Sharing page
@@ -124,7 +126,8 @@ class SyncSpaceService {
        _databases = databases;
 
   /// The "Sync this database" tap (D1, D2): no space yet → the account's
-  /// first space, named after this database, created and bound; this
+  /// first space, named after this database (the default one after the
+  /// app), created and bound; this
   /// database holding nothing and exactly one space that no other database
   /// here holds → that space bound; otherwise the picker's data.
   Future<SyncBindStart> start({required String accountUid}) =>
@@ -134,7 +137,7 @@ class SyncSpaceService {
         if (spaces.isEmpty) {
           final created = await _createAndBind(
             accountUid: accountUid,
-            name: (await _databases()).getActiveDatabaseName(),
+            name: await _defaultSpaceName(),
           );
           return SyncBindStartBound(created.ref);
         }
@@ -191,9 +194,9 @@ class SyncSpaceService {
   }
 
   /// "Upload as a new space": created under [name], trimmed — this
-  /// database's name, as the Databases page lists it, when null — then this
-  /// database bound to it. A name outside 1..[maxSpaceNameLength] code points
-  /// is refused before the gateway.
+  /// database's name when null, the app's for the default database — then
+  /// this database bound to it. A name outside 1..[maxSpaceNameLength] code
+  /// points is refused before the gateway.
   Future<SyncSpaceInfo> createAndBind({
     required String accountUid,
     String? name,
@@ -201,9 +204,21 @@ class SyncSpaceService {
     await _ensureBindable();
     return _createAndBind(
       accountUid: accountUid,
-      name: name ?? (await _databases()).getActiveDatabaseName(),
+      name: name ?? await _defaultSpaceName(),
     );
   });
+
+  /// The name a space this database creates takes unless one is given: the
+  /// database's, as the Databases page lists it — but the app's for the
+  /// owner's default database, whose `gym_notes` is a file name kept from the
+  /// app's first life, and spaces cannot be renamed yet (review BA-L2,
+  /// record §8). A QA build's own default keeps its name.
+  Future<String> _defaultSpaceName() async {
+    final name = (await _databases()).getActiveDatabaseName();
+    return name == DatabaseManager.defaultDatabaseName(qaEnabled: false)
+        ? kAppName
+        : name;
+  }
 
   /// "Merge this database into the space": this database bound to [space],
   /// its rows settled against the space's under the floor (D15).
@@ -223,6 +238,12 @@ class SyncSpaceService {
   /// no file has it. A failure after the create switches back to the
   /// database the user started from and deletes the new file, which holds
   /// nothing but the schema.
+  ///
+  /// The space is read first, so offline or a space gone from the cloud is
+  /// refused before anything here changes (review BA-M3). From the switch to
+  /// the bind, [DatabaseManager.markDownloadInFlight] lets a launch after a
+  /// kill switch back (BA-M2). The database the user started from keeps its
+  /// own binding and claim.
   Future<String> downloadIntoNewDatabase(
     SyncSpaceInfo space, {
     required String accountUid,
@@ -230,9 +251,18 @@ class SyncSpaceService {
     if (SyncSuspension.isSuspended) {
       throw const SyncSpaceException(SyncBindFailure.suspended);
     }
-    await _ensureNotHeld(space.ref, except: null);
+    await _ensureNotHeld(space.ref);
+    if (await _gateway.readSpace(space.ref) == null) {
+      throw const SyncSpaceException(SyncBindFailure.permissionDenied);
+    }
     final databases = await _databases();
     final previous = databases.getActiveDatabaseName();
+    // Past the holder check, a claim on the space by the database left is
+    // stale — it does not sync the space — and would stop the new database's
+    // own bind: dropped, as a Merge's claim would replace it.
+    final registry = databases.spaceRegistry;
+    final stale = SyncSpaceClaim(space: space.ref, databaseName: previous);
+    if (registry.claims().contains(stale)) await registry.release(previous);
     final String name;
     try {
       name = await databases.suggestDatabaseName(space.name);
@@ -242,6 +272,7 @@ class SyncSpaceService {
       throw const SyncSpaceException(SyncBindFailure.newDatabaseFailed);
     }
     try {
+      await databases.markDownloadInFlight(from: previous, to: name);
       await databases.setActiveDatabaseName(name);
       await _database();
     } catch (e, st) {
@@ -254,6 +285,13 @@ class SyncSpaceService {
     } catch (_) {
       await _returnTo(previous, leaving: name);
       rethrow;
+    }
+    try {
+      await databases.clearDownloadInFlight();
+    } catch (e, st) {
+      // Bound already: a marker left behind only lands the next launch on
+      // the database the user started from.
+      debugPrint('[SyncSpaceService] download marker not cleared: $e\n$st');
     }
     return name;
   });
@@ -290,10 +328,7 @@ class SyncSpaceService {
   }
 
   Future<void> _bind(SyncSpaceRef space, {required String accountUid}) async {
-    await _ensureNotHeld(
-      space,
-      except: (await _databases()).getActiveDatabaseName(),
-    );
+    await _ensureNotHeld(space);
     await (await _binding()).bind(space: space, accountUid: accountUid);
   }
 
@@ -309,9 +344,8 @@ class SyncSpaceService {
     }
   }
 
-  Future<void> _ensureNotHeld(SyncSpaceRef space, {String? except}) async {
-    final registry = (await _databases()).spaceRegistry;
-    final holder = await registry.holderOf(space, except: except);
+  Future<void> _ensureNotHeld(SyncSpaceRef space) async {
+    final holder = await _holderOf(space);
     if (holder != null) {
       throw SyncSpaceException(
         SyncBindFailure.spaceHeldByAnotherDatabase,
@@ -321,15 +355,30 @@ class SyncSpaceService {
   }
 
   Future<Map<SyncSpaceRef, String>> _heldBy(List<SyncSpaceInfo> spaces) async {
-    final databases = await _databases();
-    final registry = databases.spaceRegistry;
-    final self = databases.getActiveDatabaseName();
     final heldBy = <SyncSpaceRef, String>{};
     for (final space in spaces) {
-      final holder = await registry.holderOf(space.ref, except: self);
+      final holder = await _holderOf(space.ref);
       if (holder != null) heldBy[space.ref] = holder;
     }
     return heldBy;
+  }
+
+  /// The database of this install that holds [space], by one rule for the
+  /// picker, Merge and Download (review BA-L1): another database's live
+  /// claim, or the active database itself when its binding is to [space]. Its
+  /// claim alone is never in the way — unbound, that claim is stale, a
+  /// release that failed.
+  Future<String?> _holderOf(SyncSpaceRef space) async {
+    final databases = await _databases();
+    final self = databases.getActiveDatabaseName();
+    final other = await databases.spaceRegistry.holderOf(space, except: self);
+    if (other != null) return other;
+    final bound = await (await _binding()).read();
+    final syncsIt =
+        bound != null &&
+        bound.spaceId == space.spaceId &&
+        bound.ownerUid == space.ownerUid;
+    return syncsIt ? self : null;
   }
 
   /// Back to [previous], then [leaving] deleted — only once the switch back
@@ -339,6 +388,7 @@ class SyncSpaceService {
     try {
       final databases = await _databases();
       await databases.setActiveDatabaseName(previous);
+      await databases.clearDownloadInFlight();
       await _database();
       await databases.deleteDatabase(leaving);
     } catch (e, st) {
@@ -357,7 +407,9 @@ class SyncSpaceService {
       throw SyncSpaceException(switch (e.reason) {
         SyncBindRefusalReason.suspended => SyncBindFailure.suspended,
         SyncBindRefusalReason.alreadyBound => SyncBindFailure.alreadyBound,
-      });
+        SyncBindRefusalReason.spaceHeldByAnotherDatabase =>
+          SyncBindFailure.spaceHeldByAnotherDatabase,
+      }, holderDatabase: e.holderDatabase);
     } on SyncGatewayException catch (e) {
       throw SyncSpaceException(switch (e.failure) {
         SyncGatewayFailure.offline => SyncBindFailure.offline,

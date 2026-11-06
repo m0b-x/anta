@@ -644,11 +644,22 @@ void main() {
       await gateway.ends.close();
     });
     final first = payload();
-    final second = payload(title: 'Second ring', osId: 4343);
+    // The ring left in front is scripted: its Stop is all this case asks of
+    // it. A real controller's Stop goes to the scheduler, which — with a
+    // gateway registered and no `SharedPreferences` in this suite — waits on
+    // the database manager's first open, and that never completes here; the
+    // manager used to hand later callers a half-built instance that threw at
+    // once, which is the only reason a real Stop here was ever over in a
+    // frame.
+    final second = ScriptedRingController(
+      payload(title: 'Second ring', osId: 4343),
+      active: 'gym_notes',
+    );
+    addTearDown(second.dispose);
 
     await page.pumpApp();
     await page.ring(first, instant: true);
-    await page.ring(second, instant: true);
+    await page.ring(second.payload, controller: second, instant: true);
     expect(page.pagesOnStack, 2);
     expect(page.title, 'Second ring');
 
@@ -663,6 +674,7 @@ void main() {
 
     // And the page left is the ring that is still going: its Stop stops it.
     await page.stop();
+    expect(second.requests, [RingRequest.stop]);
     expect(page.isUp, isFalse);
     expect(page.pagesOnStack, 0);
     expect(page.underneathShown, isTrue);

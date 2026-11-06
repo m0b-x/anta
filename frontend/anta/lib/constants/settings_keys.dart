@@ -435,6 +435,13 @@ class SettingsKeys {
   /// per-database binding key.
   static const String syncBoundSpaces = 'sync_bound_spaces';
 
+  /// Install-wide like [syncBoundSpaces], beside `active_database`: the
+  /// `{from, to}` of a "Download into a new database" between its switch and
+  /// its bind. A kill in that window would relaunch onto the empty new
+  /// database, so a marker left behind switches back at launch (review
+  /// BA-M2). Never in a backup.
+  static const String syncDownloadInFlight = 'sync_download_in_flight';
+
   /// The prefixes a restore never writes back, whatever the archive's
   /// settings map carries: a hand-edited or foreign backup must not pair or
   /// bind the database it is restored onto.

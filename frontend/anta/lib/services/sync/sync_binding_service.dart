@@ -21,16 +21,26 @@ enum SyncBindRefusalReason {
 
   /// The database is bound already: stop syncing first.
   alreadyBound,
+
+  /// Another database of this install holds the space —
+  /// [SyncBindRefusal.holderDatabase] names it.
+  spaceHeldByAnotherDatabase,
 }
 
 class SyncBindRefusal implements Exception {
   final SyncBindRefusalReason reason;
   final String message;
 
-  const SyncBindRefusal(this.reason, this.message);
+  /// For [SyncBindRefusalReason.spaceHeldByAnotherDatabase]: the database
+  /// that holds the space, as the Databases page lists it.
+  final String? holderDatabase;
+
+  const SyncBindRefusal(this.reason, this.message, {this.holderDatabase});
 
   @override
-  String toString() => 'SyncBindRefusal(${reason.name}): $message';
+  String toString() =>
+      'SyncBindRefusal(${reason.name}'
+      '${holderDatabase == null ? '' : ': $holderDatabase'}): $message';
 }
 
 /// Which space this database syncs with, and the floor its initial merge
@@ -44,13 +54,18 @@ class SyncBindingService {
   /// The install-wide registry this database's claim is kept in, under
   /// [_databaseName]; null on a test's detached service that has none.
   final SyncSpaceRegistry? _registry;
-  final String? _databaseName;
+
+  /// Asked at each registry write rather than kept from the build: Android
+  /// can rename the open file, and the claim must land under the name it has
+  /// now (review BA-M6). Null once this service no longer speaks for the
+  /// active database, so a stale one writes no claim.
+  final String? Function() _databaseName;
 
   SyncBindingService._(
     this._db,
     this._settings, {
     SyncSpaceRegistry? registry,
-    String? databaseName,
+    required String? Function() databaseName,
   }) : _registry = registry,
        _databaseName = databaseName;
 
@@ -69,7 +84,7 @@ class SyncBindingService {
     SyncSpaceRegistry? registry,
     String? databaseName,
   }) : _registry = registry,
-       _databaseName = databaseName;
+       _databaseName = (() => databaseName);
 
   /// The service over the active database, built once per database.
   ///
@@ -80,6 +95,9 @@ class SyncBindingService {
   /// for the *new* database included — a service bound to the closed one and
   /// put [reset] in the registry the switch has already emptied. A second
   /// switch inside the retry throws rather than register anything.
+  ///
+  /// Each build squares the binding with the install registry first
+  /// ([_healClaim]).
   static Future<SyncBindingService> getInstance() => _build(mayRetry: true);
 
   static Future<SyncBindingService> _build({required bool mayRetry}) async {
@@ -88,23 +106,66 @@ class SyncBindingService {
     final generation = DatabaseLifecycle.generation;
     final db = await AppDatabase.getInstance();
     final settings = await SettingsService.getInstance();
-    // The name the open database was opened under: `getInstance` above has
-    // just switched to the active one, and a switch since is caught below.
     final databases = await DatabaseManager.getInstance();
+    // The active name is the open database's: `getInstance` above has just
+    // switched to it, a rename keeps it, and a switch since ends the
+    // generation this service speaks for.
+    final service = SyncBindingService._(
+      db,
+      settings,
+      registry: databases.spaceRegistry,
+      databaseName: () => DatabaseLifecycle.generation == generation
+          ? databases.getActiveDatabaseName()
+          : null,
+    );
+    await service._healClaim();
     final raced = _instance;
     if (raced != null) return raced;
     if (DatabaseLifecycle.generation != generation) {
       if (mayRetry) return _build(mayRetry: false);
       throw StateError('the database switched while the binding was built');
     }
-    return _register(
-      SyncBindingService._(
-        db,
-        settings,
-        registry: databases.spaceRegistry,
-        databaseName: databases.getActiveDatabaseName(),
-      ),
-    );
+    return _register(service);
+  }
+
+  /// A bound database whose claim is missing (review BA-H1): a kill between
+  /// the bind's commit and its claim, a registry write that failed, a bound
+  /// database moved in from another install — or a raw copy of a bound
+  /// database (the Databases page's import, onboarding's restore from file),
+  /// which carries the binding and the same `device_id` into the same space.
+  /// When no other database of this install holds the space, this one claims
+  /// it and keeps syncing; when another one does, this one is the copy and is
+  /// unbound, as Stop syncing would. Skipped while [SyncSuspension] holds: a
+  /// restore unbinds on its own. Logged, never thrown — the binding must
+  /// still be readable.
+  Future<void> _healClaim() async {
+    if (SyncSuspension.isSuspended) return;
+    final registry = _registry;
+    final name = _databaseName();
+    if (registry == null || name == null) return;
+    try {
+      final binding = await read();
+      if (binding == null) return;
+      final space = SyncSpaceRef(
+        ownerUid: binding.ownerUid,
+        spaceId: binding.spaceId,
+      );
+      final holder = await registry.holderOf(space, except: name);
+      if (holder == null) {
+        final claim = SyncSpaceClaim(space: space, databaseName: name);
+        if (!registry.claims().contains(claim)) {
+          await registry.claim(space, name);
+        }
+        return;
+      }
+      debugPrint(
+        '[SyncBindingService] "$name" is bound to the space "$holder" '
+        'holds — a copy of it: unbound',
+      );
+      await unbind();
+    } catch (e, st) {
+      debugPrint('[SyncBindingService] claim not healed: $e\n$st');
+    }
   }
 
   /// Binds the singleton to an arbitrary [AppDatabase], bypassing
@@ -125,7 +186,7 @@ class SyncBindingService {
             db,
             settings,
             registry: registry,
-            databaseName: databaseName,
+            databaseName: () => databaseName,
           ),
         );
   }
@@ -183,17 +244,18 @@ class SyncBindingService {
   /// this would queue. Refused while a binding exists: a direct rebind would
   /// leave the first account's rows owned by it, unqueued and foreign to the
   /// new space (readiness D17) — [unbind] floors and clears the queue first
-  /// (S3a review F1). Both refusals throw [SyncBindRefusal].
+  /// (S3a review F1). Refused while another database of this install holds
+  /// [space] (review BA-L4). Every refusal throws [SyncBindRefusal].
   ///
   /// Once committed, this database claims [space] in the install registry.
-  /// Checking that no other database holds it is the caller's
-  /// (`SyncSpaceService`), which can name the holder.
+  /// `SyncSpaceService` checks the holder before it creates anything; the
+  /// check here keeps any other caller from binding a held space.
   Future<void> bind({
     required SyncSpaceRef space,
     required String accountUid,
   }) async {
     await _db.transaction(() async {
-      // Both refusals inside the transaction, before the first write: two
+      // The refusals inside the transaction, before the first write: two
       // binds started together would otherwise both pass a check made
       // outside it and both run, the second overwriting the first binding
       // and re-queueing every row again (A1c review R38).
@@ -208,6 +270,15 @@ class SyncBindingService {
         throw const SyncBindRefusal(
           SyncBindRefusalReason.alreadyBound,
           'Cannot bind while this database is bound: stop syncing first.',
+        );
+      }
+      final holder = await _holderOf(space);
+      if (holder != null) {
+        throw SyncBindRefusal(
+          SyncBindRefusalReason.spaceHeldByAnotherDatabase,
+          'Cannot bind while another database of this install holds the '
+          'space: stop syncing it first.',
+          holderDatabase: holder,
         );
       }
       await _settings.setSyncBinding(
@@ -266,13 +337,21 @@ class SyncBindingService {
     update,
   ) async {
     final registry = _registry;
-    final name = _databaseName;
+    final name = _databaseName();
     if (registry == null || name == null) return;
     try {
       await update(registry, name);
     } catch (e, st) {
       debugPrint('[SyncBindingService] registry update failed: $e\n$st');
     }
+  }
+
+  /// The other database of this install holding [space]; this database's own
+  /// claim is never in its way. Null without a registry.
+  Future<String?> _holderOf(SyncSpaceRef space) async {
+    final registry = _registry;
+    if (registry == null) return null;
+    return registry.holderOf(space, except: _databaseName());
   }
 
   /// The cursors, the `pull_seen` marks, the initial-merge switch, and the

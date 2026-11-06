@@ -6,8 +6,10 @@ import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqlite3/sqlite3.dart';
 
+import 'package:anta/constants/settings_keys.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/services/database_manager.dart';
+import 'package:anta/services/sync/sync_gateway.dart';
 
 /// `DatabaseManager.checkpoint` is what makes a shared `.db` whole: the app
 /// runs in WAL, so committed writes sit in the `-wal` sidecar until a
@@ -244,6 +246,33 @@ void main() {
       300,
     );
     expect(AppDatabase.openInstanceOf('office'), isNull);
+  });
+
+  test('a rename carries the sync claim as soon as the `.db` has moved, '
+      'before a sidecar rename can fail (review BA-M6)', () async {
+    const space = SyncSpaceRef(ownerUid: 'uid-1', spaceId: 'space-1');
+    await manager.createDatabase('work');
+    await manager.spaceRegistry.claim(space, 'work');
+    addTearDown(
+      () async => (await SharedPreferences.getInstance()).remove(
+        SettingsKeys.syncBoundSpaces,
+      ),
+    );
+    // A stray `-shm` beside a closed database, and a directory where its
+    // renamed twin must go: the `.db` moves, then the sidecar's rename fails.
+    // Closed, because Windows cannot rename an open file.
+    final oldPath = await manager.getDatabasePath('work');
+    File('$oldPath-shm').writeAsStringSync('stray');
+    final newPath = await manager.getDatabasePath('office');
+    Directory('$newPath-shm/blocked').createSync(recursive: true);
+
+    await expectLater(
+      manager.renameDatabase('work', 'office'),
+      throwsA(isA<FileSystemException>()),
+    );
+
+    expect(File(newPath).existsSync(), isTrue);
+    expect(await manager.spaceRegistry.holderOf(space), 'office');
   });
 
   group('a blocked checkpoint throws', () {

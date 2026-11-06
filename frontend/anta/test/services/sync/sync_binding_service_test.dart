@@ -451,6 +451,56 @@ void main() {
         expect(registry.claims(), isEmpty);
       });
 
+      test('a space another database holds is refused, naming it, and '
+          'nothing is written (review BA-L4)', () async {
+        await registry.claim(space, 'errands');
+
+        await expectLater(
+          registered.bind(space: space, accountUid: 'account-1'),
+          throwsA(
+            allOf(
+              _refusal(SyncBindRefusalReason.spaceHeldByAnotherDatabase),
+              isA<SyncBindRefusal>().having(
+                (e) => e.holderDatabase,
+                'holderDatabase',
+                'errands',
+              ),
+            ),
+          ),
+        );
+
+        expect(await registered.read(), isNull);
+        expect(await db.syncDao.getValue(SyncDao.keyBindMergePending), isNull);
+        expect(registry.claims(), [
+          const SyncSpaceClaim(space: space, databaseName: 'errands'),
+        ]);
+      });
+
+      test('this database\'s own claim is not in its way', () async {
+        await registry.claim(space, 'training');
+
+        await registered.bind(space: space, accountUid: 'account-1');
+
+        expect(await registered.read(), isNotNull);
+      });
+
+      test('the earlier refusals keep their order: a bound database is '
+          'refused as bound, a held space notwithstanding', () async {
+        await settings.setSyncBinding(binding);
+        await registry.claim(space, 'errands');
+
+        await expectLater(
+          registered.bind(space: space, accountUid: 'account-1'),
+          throwsA(_refusal(SyncBindRefusalReason.alreadyBound)),
+        );
+        await SyncSuspension.run(() async {
+          await expectLater(
+            registered.bind(space: space, accountUid: 'account-1'),
+            throwsA(_refusal(SyncBindRefusalReason.suspended)),
+          );
+        });
+      });
+
       test('a registry that cannot be written fails neither the bind nor '
           'the unbind', () async {
         final failing = SyncBindingService.detached(
