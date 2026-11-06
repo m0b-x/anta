@@ -5,7 +5,9 @@ rules_version = '2';
 // docs/cloud-sync-phase-02-own-space.md §3.7).
 //
 // Deploy from frontend/anta with:
-//   firebase deploy --only firestore:rules --project alexs-note-tracking-app
+//   firebase deploy --only firestore:rules,firestore:indexes --project alexs-note-tracking-app
+// (one command: the `data` field exemptions in firestore.indexes.json ride
+// with the rules)
 // after the gitignored firebase.json gains
 //   "firestore": {"rules": "firestore.rules", "indexes": "firestore.indexes.json"}
 // The emulator suite runs from firebase.emulators.json (tool/firebase/emulators.*).

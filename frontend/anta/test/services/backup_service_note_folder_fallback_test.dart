@@ -96,4 +96,54 @@ void main() {
     expect(folderOf('Carried'), carried.id);
     expect(folderOf('Root'), '');
   });
+
+  test('a subfolder whose parent exists nowhere restores at the root; one '
+      'whose parent is a live folder here stays under it, after its '
+      'children; one whose parent is a tombstone here restores at the '
+      'root', () async {
+    final db = await AppDatabase.getInstance();
+    final live = await db.folderDao.createFolder(name: 'Parent here');
+    final kept = await db.folderDao.createFolder(
+      name: 'Kept child',
+      parentId: live.id,
+    );
+    final gone = await db.folderDao.createFolder(name: 'Parent gone');
+    await db.folderDao.softDeleteFolder(gone.id);
+
+    Map<String, dynamic> folder(String name, String? parentId) => {
+      JsonKeys.id: 'archived-$name',
+      JsonKeys.name: name,
+      JsonKeys.parentId: ?parentId,
+      JsonKeys.createdAt: DateTime(2026, 11, 1).toIso8601String(),
+    };
+
+    final result = await (await BackupService.getInstance()).importFromJson(
+      jsonEncode({
+        'version': 7,
+        'folders': <Map<String, dynamic>>[
+          folder('Archived parent', null),
+          folder('Orphan', 'missing-parent'),
+          folder('Under live', live.id),
+          folder('Under tombstone', gone.id),
+          folder('Under archived', 'archived-Archived parent'),
+        ],
+        'notes': const <Map<String, dynamic>>[],
+        'settings': const <String, dynamic>{},
+      }),
+    );
+    expect(result.success, isTrue, reason: 'error: ${result.error}');
+
+    final folders = await db.folderDao.getAllFolders();
+    Folder named(String name) => folders.singleWhere((f) => f.name == name);
+
+    expect(named('Orphan').parentId, isNull);
+    expect(named('Under live').parentId, live.id);
+    expect(
+      named('Under live').position,
+      greaterThan(named(kept.name).position),
+    );
+    expect(named(kept.name).parentId, live.id);
+    expect(named('Under tombstone').parentId, isNull);
+    expect(named('Under archived').parentId, named('Archived parent').id);
+  });
 }

@@ -159,6 +159,9 @@ try {
     Case 'signed out reads the space' 'deny' (Invoke-Emulator 'GET' $space $null $null)
     Case 'owner pushes an upsert, space merged at an equal schema' 'allow' (Commit $owner @((Row 'u1' 's1' 'folders' 'f1'), (SpaceMerge 'u1' 's1' 43)))
     Case 'owner reads the row' 'allow' (Invoke-Emulator 'GET' "$space/folders/f1" $owner $null)
+    # One table spot-checked here; the loop over syncTableBindings in
+    # test/firestore/rules_test.dart owns the follows-the-list check.
+    Case 'owner pushes an upsert under calendar_category_profiles' 'allow' (Commit $owner @((Row 'u1' 's1' 'calendar_category_profiles' 'p1'), (SpaceMerge 'u1' 's1' 43 'calendar_category_profiles')))
     Case 'owner lists the table in pull order' 'allow' (Invoke-Emulator 'POST' "${space}:runQuery" $owner @{
             structuredQuery = @{
                 from    = @(@{ collectionId = 'folders' })

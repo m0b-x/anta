@@ -6,6 +6,8 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:anta/services/sync/sync_tables.dart';
+
 /// Security rules are the only part of this feature with no local safety net:
 /// a mistake is silent, remote, and affects every install at once. Two
 /// CRITICAL holes were found here by review alone, so these run the real rules
@@ -1115,6 +1117,26 @@ void main() {
         403,
       );
     });
+
+    // The rules' table list is otherwise pinned only textually
+    // (firestore_rules_tables_test); walking the app's own list puts the
+    // newest table, and every one added after it, before the real engine.
+    for (final binding in syncTableBindings) {
+      final table = binding.table;
+      test('owner pushes an upsert under $table', () async {
+        await _seedSpace();
+        expect(await _push([_row(uidA, 's1', table, 'k1')], table: table), 200);
+      });
+
+      test('the same upsert under a name near $table', () async {
+        await _seedSpace();
+        final unknown = '${table}_x';
+        expect(
+          await _push([_row(uidA, 's1', unknown, 'k1')], table: unknown),
+          403,
+        );
+      });
+    }
 
     test('pushedAt not the request time', () async {
       await _seedSpace();

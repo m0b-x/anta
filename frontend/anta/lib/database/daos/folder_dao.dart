@@ -275,23 +275,36 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
   ///
   /// [entries] come parents first; an entry's `parentId` names an earlier
   /// entry by its `archivedId` (the copy that entry became), else an
-  /// existing folder as written. Positions append to each parent exactly as
-  /// [importFolder] row by row would, stamps are minted in entry order.
-  /// Returns each entry's new id, in entry order.
+  /// existing folder as written — only a live one: a parent that is neither
+  /// would leave the folder under an id that exists nowhere, invisible in the
+  /// browser, so it restores at the root instead, as a note does. Positions
+  /// append to each parent exactly as [importFolder] row by row would, stamps
+  /// are minted in entry order. Returns each entry's new id, in entry order.
   Future<List<String>> importFolders(List<FolderImportEntry> entries) {
     if (entries.isEmpty) return Future.value(const []);
     return transaction(() async {
       final now = DateTime.now();
       final copies = <String, String>{};
+      final unarchivedParents = <String, String?>{};
       final created = <String>{};
       final nextPosition = <String?, int>{};
       final ids = <String>[];
       final companions = <FoldersCompanion>[];
+      Future<String?> restoredParentId(String archived) async {
+        final copy = copies[archived];
+        if (copy != null) return copy;
+        if (unarchivedParents.containsKey(archived)) {
+          return unarchivedParents[archived];
+        }
+        final live = await getFoldersByIds([archived]);
+        return unarchivedParents[archived] = live.isEmpty ? null : archived;
+      }
+
       for (final entry in entries) {
         final archivedParent = entry.parentId;
         final parentId = archivedParent == null
             ? null
-            : copies[archivedParent] ?? archivedParent;
+            : await restoredParentId(archivedParent);
         if (!nextPosition.containsKey(parentId)) {
           nextPosition[parentId] = created.contains(parentId)
               ? 0

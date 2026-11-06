@@ -81,7 +81,7 @@ class FirebaseAuthService implements AuthService {
 
     final idToken = account.authentication.idToken;
     if (idToken == null) {
-      throw StateError('Google Sign-In returned no ID token.');
+      throw const NoIdTokenException();
     }
 
     final credential = GoogleAuthProvider.credential(idToken: idToken);
@@ -97,7 +97,7 @@ class FirebaseAuthService implements AuthService {
     final account = QaMode.qaAccount;
     final colon = account.indexOf(':');
     if (colon <= 0) {
-      throw StateError('ANTA_QA_ACCOUNT must be <sub>:<email>, got "$account"');
+      throw const QaAccountFormatException();
     }
     final token = jsonEncode({
       'sub': account.substring(0, colon),
@@ -117,8 +117,10 @@ class FirebaseAuthService implements AuthService {
     try {
       await _ensureInitialized();
       await GoogleSignIn.instance.signOut();
+    } on GoogleSignInException catch (e) {
+      _logCause(AuthError.unknown, 'google sign-out ${e.code.name}');
     } catch (e) {
-      debugPrint('[FirebaseAuthService] Google sign-out failed: $e');
+      _logCause(AuthError.unknown, 'google sign-out ${e.runtimeType}');
     }
     await _auth.signOut();
   }
@@ -132,28 +134,37 @@ class FirebaseAuthService implements AuthService {
   ///
   /// The cause is logged before it is mapped: an `unknown` reads only "Sign-in
   /// failed", and the first sign-in against the emulator suite failed with
-  /// nothing in any log to say why.
+  /// nothing in any log to say why. Only in a debug build, and only the
+  /// mapped cause and the exception's code: `debugPrint` still prints in
+  /// release, and an exception's message or `toString()` can name the
+  /// account.
   Future<T> _guard<T>(Future<T> Function() action) async {
     try {
       return await action();
     } on AuthException {
       rethrow;
     } on FirebaseAuthException catch (e) {
-      debugPrint('[FirebaseAuthService] ${e.code}: ${e.message}');
-      throw AuthException(
-        _networkCode(e.code) ? AuthError.offline : AuthError.unknown,
-      );
+      final cause = _networkCode(e.code)
+          ? AuthError.offline
+          : AuthError.unknown;
+      _logCause(cause, e.code);
+      throw AuthException(cause);
     } on GoogleSignInException catch (e) {
-      debugPrint('[FirebaseAuthService] Google ${e.code.name}: $e');
-      throw AuthException(
-        _networkCode(e.code.name) ? AuthError.offline : AuthError.unknown,
-      );
+      final cause = _networkCode(e.code.name)
+          ? AuthError.offline
+          : AuthError.unknown;
+      _logCause(cause, 'google ${e.code.name}');
+      throw AuthException(cause);
     } on UnsupportedError {
       throw const AuthException(AuthError.notSupported);
     } catch (e) {
-      debugPrint('[FirebaseAuthService] sign-in failed: $e');
+      _logCause(AuthError.unknown, e.runtimeType.toString());
       throw const AuthException(AuthError.unknown);
     }
+  }
+
+  void _logCause(AuthError cause, String code) {
+    if (kDebugMode) debugPrint('[FirebaseAuthService] ${cause.name}: $code');
   }
 
   bool _networkCode(String code) => code.toLowerCase().contains('network');
@@ -167,4 +178,17 @@ class FirebaseAuthService implements AuthService {
       photoUrl: user.photoURL,
     );
   }
+}
+
+/// Google Sign-In finished without an ID token. A type of its own because
+/// `_guard` logs only an exception's type: the name is the diagnosis, so the
+/// log never needs a message.
+class NoIdTokenException implements Exception {
+  const NoIdTokenException();
+}
+
+/// `ANTA_QA_ACCOUNT` is not `<sub>:<email>`. A type of its own so the log
+/// names the fault without the define's value, which carries an address.
+class QaAccountFormatException implements Exception {
+  const QaAccountFormatException();
 }

@@ -844,11 +844,12 @@ void main() {
           [for (final row in rows) row.name],
           ['A', 'B', 'C', 'D', 'E', 'F'],
         );
+        // E's parent exists nowhere, so it restores at the root after A.
         expect(
           [for (final row in rows) row.parentId],
-          [null, ids[0], ids[0], existing.id, 'missing', existing.id],
+          [null, ids[0], ids[0], existing.id, null, existing.id],
         );
-        expect([for (final row in rows) row.position], [1, 0, 1, 1, 0, 2]);
+        expect([for (final row in rows) row.position], [1, 0, 1, 1, 2, 2]);
         expect(
           rows.every(
             (row) => row.createdAt.isAtSameMomentAs(DateTime.utc(2024)),

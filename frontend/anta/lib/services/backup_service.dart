@@ -787,7 +787,9 @@ class BackupService {
   /// and a child created before its parent cannot be re-pointed at the copy
   /// the parent will become. A parent the archive does not carry, and a cycle
   /// no export could produce but a hand-edited file could, both simply stop
-  /// the walk — that row still imports, with its parent id as written.
+  /// the walk — that row still imports, under its parent id as written only
+  /// while that is a live folder here, else at the root
+  /// (`FolderDao.importFolders`).
   static List<Map<String, dynamic>> _foldersParentsFirst(List<dynamic> rows) {
     final maps = <Map<String, dynamic>>[
       for (final raw in rows)
