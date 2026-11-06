@@ -10,6 +10,7 @@ import 'package:anta/constants/json_keys.dart';
 import 'package:anta/database/crdt/crdt_write.dart';
 import 'package:anta/database/crdt/synced_tables.dart';
 import 'package:anta/database/database.dart';
+import 'package:anta/database/migrations/database_schema.dart';
 import 'package:anta/models/app_user.dart';
 import 'package:anta/models/item_label.dart';
 import 'package:anta/models/note_metadata.dart';
@@ -31,7 +32,7 @@ import '../../../support/recording_sync_apply_hooks.dart';
 const String syncUid = 'u1';
 
 /// This build's schema, as the engines report it to the space.
-const int syncSchema = 43;
+const int syncSchema = DatabaseSchema.currentVersion;
 
 /// One wall clock for both databases that moves a millisecond on every
 /// read, so every stamp either device mints sorts after every stamp minted

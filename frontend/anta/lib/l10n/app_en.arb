@@ -5880,6 +5880,10 @@
   "@syncFailedPermission": {
     "description": "Turning sync on or off failed: the cloud refused the request"
   },
+  "syncFailedSpaceGone": "That cloud space no longer exists — pick another, or upload this database as a new space",
+  "@syncFailedSpaceGone": {
+    "description": "Downloading a cloud space failed because the space was deleted from the cloud since the picker listed it"
+  },
   "syncFailedSuspended": "A restore is running — try again when it finishes",
   "@syncFailedSuspended": {
     "description": "Turning sync on or off failed: a restore or import is rewriting the database"

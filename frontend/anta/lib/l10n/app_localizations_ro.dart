@@ -4810,6 +4810,10 @@ class AppLocalizationsRo extends AppLocalizations {
       'Cloudul a refuzat — verifică dacă ești conectat la contul potrivit';
 
   @override
+  String get syncFailedSpaceGone =>
+      'Acel spațiu din cloud nu mai există — alege altul sau încarcă această bază de date ca spațiu nou';
+
+  @override
   String get syncFailedSuspended =>
       'O restaurare este în curs — încearcă din nou după ce se termină';
 

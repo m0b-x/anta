@@ -54,8 +54,9 @@ class AppSyncApplyHooks implements SyncApplyHooks {
   /// The strings a copy filed by this page would take, resolved in
   /// [beforePage] — outside the page's transaction, which is the only place
   /// a database-bound singleton may be reached from (R104) — and cleared in
-  /// [afterPage]. Null only outside a notes page: a resolve that fails there
-  /// fails the page.
+  /// [afterPage], and again at every page's [beforePage]: a notes page that
+  /// halted or threw never reaches [afterPage] (review X-14). Null only
+  /// outside a notes page: a resolve that fails there fails the page.
   AppLocalizations? _pageStrings;
 
   /// The defaults are the app's own targets; a test passes its in-memory
@@ -87,6 +88,7 @@ class AppSyncApplyHooks implements SyncApplyHooks {
 
   @override
   Future<void> beforePage(String table) async {
+    _pageStrings = null;
     if (table == 'counters' || table == 'counter_values') {
       await _guard('counter flush', () async => (await _counters()).flush());
     }

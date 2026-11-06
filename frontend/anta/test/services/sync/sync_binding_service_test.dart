@@ -268,6 +268,35 @@ void main() {
       expect(await service.bindFloor(), '000000000005:0000:old');
     });
 
+    test('Stop syncing raises the floor to the clock; the heal\'s unbind '
+        'leaves it where it stood (review X-1)', () async {
+      await service.bind(space: space, accountUid: 'account-1');
+      final atBind = await service.bindFloor();
+      await db.folderDao.createFolder(name: 'After the bind');
+
+      await service.unbind(raiseFloor: false);
+
+      expect(await service.read(), isNull);
+      expect(await db.syncOutboxDao.count(), 0);
+      expect(await service.bindFloor(), atBind);
+
+      await service.bind(space: space, accountUid: 'account-1');
+      await db.folderDao.createFolder(name: 'Before the stop');
+      await service.unbind();
+
+      expect(await service.bindFloor(), isNot(atBind));
+      expect(await service.bindFloor(), db.hlc.last.toString());
+    });
+
+    test('clears the note of a heal that unbound this database as a copy '
+        '(review X-2)', () async {
+      await db.syncDao.setValue(SyncDao.keyHealUnboundFrom, 'phone');
+
+      await service.bind(space: space, accountUid: 'account-1');
+
+      expect(await db.syncDao.getValue(SyncDao.keyHealUnboundFrom), isNull);
+    });
+
     test('never re-owns a row another account owns', () async {
       final folder = await db.folderDao.createFolder(name: 'Shared');
       await db.customStatement('UPDATE folders SET owner_id = ? WHERE id = ?', [

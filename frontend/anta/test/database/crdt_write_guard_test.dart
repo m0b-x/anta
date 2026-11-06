@@ -227,7 +227,9 @@ void main() {
     final strays = <String>[];
     for (final unit in units) {
       if (may(unit).contains(_May.clock)) continue;
-      if (!RegExp(r'\bnewStamp ?\(').hasMatch(unit.text)) continue;
+      if (!RegExp(r'\b(newStamp|seedStamp) ?\(').hasMatch(unit.text)) {
+        continue;
+      }
       if (queues(unit)) continue;
       final helpers = {
         for (final m in RegExp(r'\b(_\w+) ?\(').allMatches(unit.text))
@@ -244,9 +246,52 @@ void main() {
       strays,
       isEmpty,
       reason:
-          'a stamp from newStamp() must be queued with enqueue / enqueueMany '
-          '/ enqueueIn in the same transaction; stampLocal() queues itself',
+          'a stamp from newStamp() or seedStamp() must be queued with enqueue '
+          '/ enqueueMany / enqueueIn in the same transaction; stampLocal() '
+          'queues itself',
     );
+  });
+
+  test('the seed stamp is named only where seeds are written and merged '
+      '(review RA1-3)', () {
+    // A row stamped "below everything" loses every merge on every device, so
+    // the stamp stays with the one catalog every device seeds alike — the
+    // built-in categories — and with the merge rule that refuses to yield to
+    // it under the floor (review RA1-1). `hlc.dart` declares it and is not
+    // scanned for it: its declaration does not spell `HlcTimestamp.seed`.
+    const allowed = {
+      'seedStamp': {
+        'lib/database/crdt/crdt_write.dart',
+        'lib/database/daos/calendar_category_dao.dart',
+      },
+      'HlcTimestamp.seed': {
+        'lib/database/crdt/crdt_write.dart',
+        'lib/database/crdt/crdt_merge.dart',
+      },
+    };
+    final patterns = {
+      'seedStamp': RegExp(r'\bseedStamp ?\('),
+      'HlcTimestamp.seed': RegExp(r'\bHlcTimestamp ?\. ?seed\b'),
+    };
+
+    final strays = <String>[];
+    final seen = <String, Set<String>>{};
+    for (final unit in units) {
+      for (final MapEntry(key: name, value: pattern) in patterns.entries) {
+        if (!pattern.hasMatch(unit.text)) continue;
+        seen.putIfAbsent(name, () => {}).add(unit.path);
+        if (!allowed[name]!.contains(unit.path)) strays.add('$unit: $name');
+      }
+    }
+
+    expect(
+      strays,
+      isEmpty,
+      reason:
+          'only the built-in catalog seeds under the seed stamp; any other '
+          'row stamped with it would lose to every real write everywhere',
+    );
+    expect(seen, allowed, reason: 'the scan stopped seeing a known use');
   });
 }
 

@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:anta/database/database.dart';
 import 'package:anta/database/database_lifecycle.dart';
+import 'package:anta/database/migrations/database_schema.dart';
 import 'package:anta/services/auth_service.dart';
 import 'package:anta/services/database_manager.dart';
 import 'package:anta/services/sync/sync_engine.dart';
@@ -62,6 +63,11 @@ void main() {
     final first = await SyncEngine.getInstance();
     await until(() => first.isStarted);
     expect(first.isStarted, isTrue);
+    expect(
+      first.schemaForTesting,
+      DatabaseSchema.currentVersion,
+      reason: 'the app\'s engine reports this build\'s schema (review W-4)',
+    );
 
     await switchTo('second');
     await until(() => SyncEngine.instanceForTesting?.isStarted ?? false);

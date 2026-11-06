@@ -413,11 +413,8 @@ class _Puller {
   /// and stamp into a binding they are not of (review BA-M4). One binding
   /// read per page; the halt rolls back nothing, since nothing is written
   /// yet.
-  Future<void> _checkStillBound(SyncBinding bound) async {
-    if (await _e._binding.read() != bound) {
-      throw const _Halted(SyncRunSkip.unbound);
-    }
-  }
+  Future<void> _checkStillBound(SyncBinding bound) async =>
+      SyncEngine._haltUnlessStillBound(await _e._binding.read(), bound);
 
   /// Retires the outbox entry of a row whose envelope parked under the bind
   /// floor when the row's stamp is at or below the floor: the floor says the

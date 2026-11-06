@@ -40,6 +40,12 @@ class SyncDao extends DatabaseAccessor<AppDatabase> with _$SyncDaoMixin {
   /// (D19).
   static const String keyQuotaPausedAt = 'quota_paused_at';
 
+  /// The name of the database this one was found to be a copy of when the
+  /// claim heal unbound it, so the Sync section can say why it stopped
+  /// syncing rather than read "not syncing" with no reason (review X-2).
+  /// Written only by that heal, deleted by the next bind.
+  static const String keyHealUnboundFrom = 'heal_unbound_from';
+
   /// The prefix every [keyPullCursor] shares, for [deleteByPrefix].
   static const String pullCursorPrefix = 'pull_cursor.';
 

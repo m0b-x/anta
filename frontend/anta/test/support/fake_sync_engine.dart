@@ -32,6 +32,9 @@ class FakeSyncEngine implements SyncEngine {
   Future<void> get whenIdle async {}
 
   @override
+  int get schemaForTesting => 0;
+
+  @override
   bool isStarted = false;
 
   @override

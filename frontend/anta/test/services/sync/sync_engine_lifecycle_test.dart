@@ -704,13 +704,38 @@ void main() {
       final report = await engine.syncNow();
       await engine.whenIdle;
 
-      expect(report.skipped, SyncRunSkip.unbound);
+      expect(report.skipped, SyncRunSkip.rebound);
       expect(await a().db.select(a().db.folders).get(), isEmpty);
       expect(
         await a().db.syncDao.getValue(SyncDao.keyPullCursor('folders')),
         isNull,
       );
       expect(await a().db.syncDao.getValue(SyncDao.keyLastHlc), stamp);
+    });
+
+    test('a rebind landing on a page whose envelopes were all skipped halts '
+        'it as rebound before its cursor is stored (review X-10)', () async {
+      final folder = await b().db.folderDao.createFolder(name: 'Unreadable');
+      await b().sync();
+      pair.gateway.unreadable.add(('folders', folder.id));
+      pair.gateway.onPullPage = (table) async {
+        if (table != 'folders') return;
+        pair.gateway.onPullPage = null;
+        await a().binding.unbind();
+        await a().binding.bind(
+          space: const SyncSpaceRef(ownerUid: syncUid, spaceId: 'other'),
+          accountUid: syncUid,
+        );
+      };
+
+      final report = await a().sync();
+
+      expect(report.skipped, SyncRunSkip.rebound);
+      expect(
+        await a().db.syncDao.getValue(SyncDao.keyPullCursor('folders')),
+        isNull,
+        reason: 'the cursor of the space the run began on, never the new one',
+      );
     });
 
     test('a stop and a start clear the pause, the quota hold, the back-off '

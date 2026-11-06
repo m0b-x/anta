@@ -24,6 +24,11 @@ enum SyncBindFailure {
   /// another account's.
   permissionDenied,
 
+  /// The chosen space is no longer in the cloud — deleted since the picker
+  /// listed it — so the way on is another space or a new upload, not the
+  /// account check [permissionDenied] asks for (review X-13).
+  spaceGone,
+
   /// A restore or import is rewriting this database right now.
   suspended,
 
@@ -253,7 +258,7 @@ class SyncSpaceService {
     }
     await _ensureNotHeld(space.ref);
     if (await _gateway.readSpace(space.ref) == null) {
-      throw const SyncSpaceException(SyncBindFailure.permissionDenied);
+      throw const SyncSpaceException(SyncBindFailure.spaceGone);
     }
     final databases = await _databases();
     final previous = databases.getActiveDatabaseName();

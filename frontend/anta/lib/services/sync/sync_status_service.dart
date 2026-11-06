@@ -94,6 +94,7 @@ class SyncStatusService implements SyncStatusReader {
       clockAhead: ahead > AppDatabase.clockMaxDrift ? ahead : Duration.zero,
       clampedRemotes: _db.clockClampedRemotes,
       binding: binding,
+      unboundAsCopyOf: await _db.syncDao.getValue(SyncDao.keyHealUnboundFrom),
     );
   }
 

@@ -135,9 +135,19 @@ class SyncBindingService {
   /// which carries the binding and the same `device_id` into the same space.
   /// When no other database of this install holds the space, this one claims
   /// it and keeps syncing; when another one does, this one is the copy and is
-  /// unbound, as Stop syncing would. Skipped while [SyncSuspension] holds: a
-  /// restore unbinds on its own. Logged, never thrown — the binding must
-  /// still be readable.
+  /// unbound — with the floor it has left standing (review X-1), and the
+  /// holder's name noted under [SyncDao.keyHealUnboundFrom] for the Sync
+  /// section (review X-2). Skipped while [SyncSuspension] holds: a restore
+  /// unbinds on its own. Logged, never thrown — the binding must still be
+  /// readable.
+  ///
+  /// The heal cannot tell a copy from a really bound database a stale claim
+  /// stands in front of, so it must not cost that database its unpushed
+  /// edits: a floor raised to the current clock would put every row at or
+  /// below it, and at the next bind each would yield to the space silently,
+  /// with no conflict copy. Under the floor of its original bind, the rows
+  /// edited since merge by last-writer-wins, and a note files a conflict
+  /// copy.
   Future<void> _healClaim() async {
     if (SyncSuspension.isSuspended) return;
     final registry = _registry;
@@ -162,7 +172,7 @@ class SyncBindingService {
         '[SyncBindingService] "$name" is bound to the space "$holder" '
         'holds — a copy of it: unbound',
       );
-      await unbind();
+      await _unbind(raiseFloor: false, healedFrom: holder);
     } catch (e, st) {
       debugPrint('[SyncBindingService] claim not healed: $e\n$st');
     }
@@ -303,6 +313,7 @@ class SyncBindingService {
       await _db.syncOutboxDao.requeueAll(boundUid: accountUid);
       await _deletePullState();
       await _db.syncDao.setValue(SyncDao.keyBindMergePending, '1');
+      await _db.syncDao.deleteValue(SyncDao.keyHealUnboundFrom);
       if (await bindFloor() == null) await writeBindFloor();
     });
     await _updateRegistry((registry, name) => registry.claim(space, name));
@@ -315,15 +326,32 @@ class SyncBindingService {
   /// held at this moment. One transaction, so no half-unbound state survives
   /// a crash.
   ///
+  /// [raiseFloor] false leaves the floor where it stands, for the claim
+  /// heal alone ([_healClaim]): Stop syncing and the restore's unbind mean
+  /// "the space wins what I hold now", the heal never decided that.
+  ///
   /// Once committed, this database's claim in the install registry is
   /// released — here rather than in the callers, so "Stop syncing" and the
   /// restore's unbind (`BackupService.importFromJson`) both release it.
-  Future<void> unbind() async {
+  Future<void> unbind({bool raiseFloor = true}) =>
+      _unbind(raiseFloor: raiseFloor);
+
+  /// [unbind], noting [healedFrom] — the database the heal found holding the
+  /// space — in the same transaction, or, without one, deleting an earlier
+  /// heal's note: an unbind of the user's own (a restore onto a healed copy)
+  /// is the latest reason the database does not sync, and the note would
+  /// otherwise outlive it until the next bind (review RA1-7).
+  Future<void> _unbind({required bool raiseFloor, String? healedFrom}) async {
     await _db.transaction(() async {
       await _settings.setSyncBinding(null);
       await _db.syncOutboxDao.clear();
       await _deletePullState();
-      await writeBindFloor();
+      if (raiseFloor) await writeBindFloor();
+      if (healedFrom != null) {
+        await _db.syncDao.setValue(SyncDao.keyHealUnboundFrom, healedFrom);
+      } else {
+        await _db.syncDao.deleteValue(SyncDao.keyHealUnboundFrom);
+      }
     });
     await _updateRegistry((registry, name) => registry.release(name));
   }

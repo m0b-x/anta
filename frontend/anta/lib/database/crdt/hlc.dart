@@ -243,6 +243,19 @@ class HlcTimestamp implements Comparable<HlcTimestamp> {
     return HlcTimestamp(wallTime: 0, logicalCounter: 0, nodeId: nodeId);
   }
 
+  /// The stamp a seeded built-in row carries on every device alike: two
+  /// devices' seeds of one row merge as unchanged, and a seed meeting any
+  /// edit a clock minted loses on both sides, so a fresh device's catalog
+  /// can never overwrite another device's older real edit (review F-2).
+  ///
+  /// Never minted, and reading it back cannot move a clock: wall time zero
+  /// sorts below every stamp a clock produces.
+  static const HlcTimestamp seed = HlcTimestamp(
+    wallTime: 0,
+    logicalCounter: 0,
+    nodeId: 'seed',
+  );
+
   @override
   String toString() {
     final wallHex = wallTime.toRadixString(16).padLeft(12, '0');

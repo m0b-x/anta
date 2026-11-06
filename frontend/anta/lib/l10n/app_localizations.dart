@@ -8014,6 +8014,12 @@ abstract class AppLocalizations {
   /// **'The cloud refused this — check you\'re signed in to the right account'**
   String get syncFailedPermission;
 
+  /// Downloading a cloud space failed because the space was deleted from the cloud since the picker listed it
+  ///
+  /// In en, this message translates to:
+  /// **'That cloud space no longer exists — pick another, or upload this database as a new space'**
+  String get syncFailedSpaceGone;
+
   /// Turning sync on or off failed: a restore or import is rewriting the database
   ///
   /// In en, this message translates to:

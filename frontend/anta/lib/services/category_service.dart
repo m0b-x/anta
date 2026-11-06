@@ -197,13 +197,15 @@ class CategoryService {
   /// Inserts the built-in catalog, unless a bind's initial merge is still
   /// running.
   ///
-  /// `bind_floor` is the clock at the bind, so every stamp minted after it —
-  /// a seed's included — sits *above* the floor and the floor rule does not
-  /// cover it. A device that binds and touches the calendar before the
-  /// space's own `calendar_categories` have landed would seed the catalog
-  /// defaults over them: the space's older custom row loses, and the other
-  /// device's renamed, recoloured or reordered built-in is overwritten
-  /// there too (R76). While `bind_merge_pending` is set the space is
+  /// The wait was decided when a seed was stamped with the clock (R76): a
+  /// stamp minted after `bind_floor` sits above it, so a device that bound
+  /// and touched the calendar before the space's `calendar_categories`
+  /// landed seeded the catalog defaults over the other device's renamed,
+  /// recoloured or reordered built-ins. A seed now carries the seed stamp
+  /// ([CalendarCategoryDao.seedMissing]) and loses to any real edit wherever
+  /// it meets one (review F-2); the wait stands as the cheaper order — the
+  /// space's rows land first and the seed then inserts only what is still
+  /// missing. While `bind_merge_pending` is set the space is
   /// authoritative, so the seed waits for [reload] after the merge. The flag
   /// is never set for a database that does not sync, which keeps every
   /// unbound install on the path it had.

@@ -703,6 +703,7 @@ void main() {
       const SyncBindFailed(SyncBindFailure.offline): l10n.syncFailedOffline,
       const SyncBindFailed(SyncBindFailure.quotaExhausted):
           l10n.syncFailedQuota,
+      const SyncBindFailed(SyncBindFailure.spaceGone): l10n.syncFailedSpaceGone,
       const SyncBindFailed(SyncBindFailure.permissionDenied):
           l10n.syncFailedPermission,
       const SyncBindFailed(SyncBindFailure.suspended): l10n.syncFailedSuspended,

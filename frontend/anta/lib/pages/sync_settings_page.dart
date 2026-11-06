@@ -667,6 +667,7 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
     SyncBindFailure.offline => l10n.syncFailedOffline,
     SyncBindFailure.quotaExhausted => l10n.syncFailedQuota,
     SyncBindFailure.permissionDenied => l10n.syncFailedPermission,
+    SyncBindFailure.spaceGone => l10n.syncFailedSpaceGone,
     SyncBindFailure.suspended => l10n.syncFailedSuspended,
     SyncBindFailure.alreadyBound => l10n.syncFailedAlreadyBound,
     SyncBindFailure.spaceHeldByAnotherDatabase =>

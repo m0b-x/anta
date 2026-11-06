@@ -39,9 +39,15 @@ part 'sync_pusher.dart';
 /// Why a run ended without reaching the space, or stopped short of it.
 enum SyncRunSkip {
   /// The database has no binding — at the start of the run, or it was
-  /// unbound (or rebound) before one of its pages or batches, which then
-  /// write nothing into it.
+  /// unbound before one of its pages or batches, which then write nothing
+  /// into it.
   unbound,
+
+  /// The database was bound again — to another space, or anew to the same
+  /// one — after the run began, and the run stopped before its next page or
+  /// batch: what it read belongs to a binding that is no longer this
+  /// database's (review X-10).
+  rebound,
 
   /// No account is signed in; the binding waits for the bound one (D5).
   signedOut,
@@ -366,6 +372,11 @@ class SyncEngine {
   /// lifecycle contract before DI builds one. Never for app code.
   @visibleForTesting
   static SyncEngine registerForTesting(SyncEngine engine) => _register(engine);
+
+  /// The schema this engine reports to the space; the suites build engines
+  /// with their own, so only this getter shows what [getInstance] passes.
+  @visibleForTesting
+  int get schemaForTesting => _schema;
 
   /// Stops and drops the singleton, so a switched database is never synced
   /// with the previous one's space: the signal, the triggers and the timers
@@ -750,9 +761,7 @@ class SyncEngine {
   Future<void> _checkHalt(SyncBinding bound) async {
     if (_stopped) throw const _Halted(SyncRunSkip.stopped);
     if (SyncSuspension.isSuspended) throw const _Halted(SyncRunSkip.suspended);
-    if (await _binding.read() != bound) {
-      throw const _Halted(SyncRunSkip.unbound);
-    }
+    _haltUnlessStillBound(await _binding.read(), bound);
     final user = _currentUser();
     if (user == null) throw const _Halted(SyncRunSkip.signedOut);
     if (user.uid != bound.accountUid) {
@@ -761,6 +770,14 @@ class SyncEngine {
     // The await above may have spanned a stop or a suspension.
     if (_stopped) throw const _Halted(SyncRunSkip.stopped);
     if (SyncSuspension.isSuspended) throw const _Halted(SyncRunSkip.suspended);
+  }
+
+  /// Halts a run begun on [bound] once the stored binding is [current]
+  /// no longer: [SyncRunSkip.unbound] when it was cleared,
+  /// [SyncRunSkip.rebound] when another binding took its place.
+  static void _haltUnlessStillBound(SyncBinding? current, SyncBinding bound) {
+    if (current == null) throw const _Halted(SyncRunSkip.unbound);
+    if (current != bound) throw const _Halted(SyncRunSkip.rebound);
   }
 
   /// The tables whose `touched` moved past their stored `pull_seen` — or

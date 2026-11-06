@@ -4767,6 +4767,10 @@ class AppLocalizationsDe extends AppLocalizations {
       'Die Cloud hat das abgelehnt – prüf, ob du mit dem richtigen Konto angemeldet bist';
 
   @override
+  String get syncFailedSpaceGone =>
+      'Diesen Cloud-Bereich gibt es nicht mehr – wähl einen anderen oder lade diese Datenbank als neuen Bereich hoch';
+
+  @override
   String get syncFailedSuspended =>
       'Eine Wiederherstellung läuft – versuch es danach erneut';
 

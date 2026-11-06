@@ -51,6 +51,10 @@ class FakeSyncGateway implements SyncGateway {
   /// acknowledgement has to survive.
   Future<void> Function(List<SyncEnvelope> batch)? onPushBatch;
 
+  /// Run inside [pullPage] once the page is read and before it returns, so a
+  /// test can land a rebind between the page's read and its transaction.
+  Future<void> Function(String table)? onPullPage;
+
   SyncGatewayFailure? _nextFailure;
   final Map<(String, String), SyncGatewayFailure> _refused = {};
 
@@ -63,6 +67,9 @@ class FakeSyncGateway implements SyncGateway {
   /// bisect-and-park can be seen isolating it while the rest lands.
   void refuse(String table, String rowKey, SyncGatewayFailure failure) =>
       _refused[(table, rowKey)] = failure;
+
+  /// Lifts a [refuse], for an upload that is only late, not refused for good.
+  void accept(String table, String rowKey) => _refused.remove((table, rowKey));
 
   /// Removes a space, as a console delete would: pushes are denied, reads
   /// answer null, listeners hear `exists: false`.
@@ -214,6 +221,7 @@ class FakeSyncGateway implements SyncGateway {
     ]..sort((a, b) => a.seq.compareTo(b.seq));
     final take = limit ?? maxBatch;
     final page = pending.take(take).toList();
+    await onPullPage?.call(table);
     return SyncPullPage(
       envelopes: [
         for (final arrival in page)

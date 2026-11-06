@@ -2,6 +2,7 @@ import 'package:drift/drift.dart';
 
 import '../daos/sync_dao.dart';
 import '../database.dart';
+import 'hlc.dart';
 
 /// The identity a local write stamps on its row: the HLC that orders it and
 /// the device that made it.
@@ -88,6 +89,13 @@ extension CrdtWrite on AppDatabase {
   /// in a DAO or a service, since a stamp minted beside this helper is a write
   /// the push never hears of.
   CrdtStamp newStamp() => (hlc: hlc.now().toString(), deviceId: deviceId);
+
+  /// The stamp of a row seeded from a catalog every device ships alike —
+  /// [HlcTimestamp.seed] under this device's id — so a seed ranks below
+  /// every real write, here and on every other device, and the clock is
+  /// neither read nor moved.
+  CrdtStamp seedStamp() =>
+      (hlc: HlcTimestamp.seed.toString(), deviceId: deviceId);
 
   /// Whether writing [entry] over the live [existing] row would store exactly
   /// what the row already holds, so an unchanged save stamps nothing — a

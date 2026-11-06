@@ -3,6 +3,7 @@
 import 'package:drift/drift.dart' hide isNull, isNotNull;
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:anta/database/crdt/hlc.dart';
 import 'package:anta/database/daos/sync_dao.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/database/migrations/migrations.dart';
@@ -211,7 +212,49 @@ void main() {
       );
     });
 
-    test('a launch with nothing to seed is one batch that writes and queues '
+    test('a seed carries the seed stamp, a reseed writes nothing and an edit '
+        'mints a real stamp above it (review F-2)', () async {
+      final clockBefore = db.hlc.last;
+      await db.calendarCategoryDao.seedMissing([
+        category('gym', name: 'Gym', builtIn: true),
+        category('other', name: 'Other', order: 1, builtIn: true),
+      ]);
+
+      final seeded = await rowFor('gym');
+      expect(seeded.hlcTimestamp, HlcTimestamp.seed.toString());
+      expect(seeded.deviceId, 'test-device');
+      expect(seeded.version, 1);
+      expect(
+        (await db.syncOutboxDao.pending()).map((e) => (e.rowKey, e.hlc)),
+        unorderedEquals([
+          ('gym', HlcTimestamp.seed.toString()),
+          ('other', HlcTimestamp.seed.toString()),
+        ]),
+        reason: 'a seed travels as today, at the stamp every device shares',
+      );
+      expect(db.hlc.last, clockBefore, reason: 'a seed never moves the clock');
+
+      // A reload on the next launch: the queue was pushed and retired.
+      await db.syncOutboxDao.clear();
+      await db.calendarCategoryDao.seedMissing([
+        category('gym', name: 'Gym', builtIn: true),
+        category('other', name: 'Other', order: 1, builtIn: true),
+      ]);
+      expect(await db.syncOutboxDao.count(), 0);
+      expect((await rowFor('gym')).hlcTimestamp, HlcTimestamp.seed.toString());
+
+      await db.calendarCategoryDao.updateCategory(
+        const CalendarCategoriesCompanion(
+          id: Value('gym'),
+          name: Value('Lift'),
+        ),
+      );
+      final edited = HlcTimestamp.parse((await rowFor('gym')).hlcTimestamp);
+      expect(edited > HlcTimestamp.seed, isTrue);
+      expect(edited.nodeId, 'test-device');
+    });
+
+    test('a launch with nothing to seed is one read that writes and queues '
         'nothing', () async {
       final counter = StatementCounter();
       final counted = await openTestDatabase(interceptor: counter);
@@ -226,11 +269,9 @@ void main() {
 
       await counted.calendarCategoryDao.seedMissing(seeds);
 
-      expect(counter.selects, isEmpty);
-      // The batched seed insert, the outbox insert that picks up only the
-      // rows carrying this launch's HLC — none, here — and the `last_hlc`
-      // write, which runs but stores only when a row was queued.
-      expect(counter.count, 3, reason: counter.statements.join('\n'));
+      // The read of the seeded ids, which finds every one live: no batch.
+      expect(counter.selects, hasLength(1));
+      expect(counter.count, 1, reason: counter.statements.join('\n'));
       expect(await counted.syncOutboxDao.count(), 0);
       expect(await counted.syncDao.getValue(SyncDao.keyLastHlc), clock);
     });

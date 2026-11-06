@@ -4720,6 +4720,10 @@ class AppLocalizationsEn extends AppLocalizations {
       'The cloud refused this — check you\'re signed in to the right account';
 
   @override
+  String get syncFailedSpaceGone =>
+      'That cloud space no longer exists — pick another, or upload this database as a new space';
+
+  @override
   String get syncFailedSuspended =>
       'A restore is running — try again when it finishes';
 

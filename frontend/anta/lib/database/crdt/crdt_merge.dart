@@ -7,6 +7,8 @@ import 'merge_outcome.dart';
 /// The one decision every synced table's remote merge makes, so the DAO
 /// merges cannot drift apart on it (record §3.4).
 abstract final class CrdtMerge {
+  static final String _seed = HlcTimestamp.seed.toString();
+
   /// Decides one remote row against the local one and runs the matching side
   /// effects, while the caller supplies the writes, inside its own
   /// `transaction`.
@@ -21,7 +23,13 @@ abstract final class CrdtMerge {
   /// - Remote newer, or the local stamp at or below [floor] (the bind's
   ///   initial merge, where the space is authoritative): the overwritten
   ///   local change's outbox entry is retired — pushing it would echo the
-  ///   loser back — and [overwrite] runs → [MergeResult.applied].
+  ///   loser back — and [overwrite] runs → [MergeResult.applied]. Never for
+  ///   a remote [HlcTimestamp.seed]: a seed is the catalog every device ships
+  ///   and says nothing about the space, so yielding to it would replace a
+  ///   real edit made before the floor — a rename whose upload never landed,
+  ///   then a Stop syncing and a rebind — with defaults on both devices
+  ///   (review RA1-1). The local row is kept and re-queued instead, so the
+  ///   space gets the edit at the next drain.
   /// - Local newer: the row stays and is re-queued at its own stamp, which
   ///   repairs a push that landed over it elsewhere → [MergeResult.keptLocal].
   ///
@@ -65,7 +73,9 @@ abstract final class CrdtMerge {
     } else if (remoteHlc == localHlc) {
       outcome = const MergeOutcome(MergeResult.unchanged);
     } else if (remoteHlc.compareTo(localHlc) > 0 ||
-        (floor != null && localHlc.compareTo(floor) <= 0)) {
+        (floor != null &&
+            localHlc.compareTo(floor) <= 0 &&
+            remoteHlc != _seed)) {
       final pending = await db.syncOutboxDao.ackThrough(name, rowKey, localHlc);
       outcome = await overwrite(
         MergeOutcome(MergeResult.applied, localHadPendingPush: pending),

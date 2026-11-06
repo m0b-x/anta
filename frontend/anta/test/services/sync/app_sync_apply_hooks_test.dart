@@ -581,6 +581,22 @@ void main() {
       expect(stringsResolved, 2, reason: 'the next page resolves afresh');
     });
 
+    test(
+      'nor a notes page halted before its afterPage (review X-14)',
+      () async {
+        await hooks.beforePage('notes');
+        // Halted: the engine goes on to the next page with no afterPage.
+        await hooks.beforePage('folders');
+        final note = await loser();
+
+        await hooks.fileConflictCopy(
+          SyncNoteConflict(loser: note, loserContent: 'my unpushed set'),
+        );
+
+        expect(stringsResolved, 2, reason: 'no page language survives a page');
+      },
+    );
+
     test('files inside the page transaction and rolls back with it', () async {
       final note = await loser();
       final conflict = SyncNoteConflict(loser: note, loserContent: 'one');

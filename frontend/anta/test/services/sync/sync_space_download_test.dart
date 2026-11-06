@@ -88,6 +88,8 @@ void main() {
     for (final info in await manager.listDatabases()) {
       if (info.name != 'phone') await manager.deleteDatabase(info.name);
     }
+    // A case fails an open on purpose; its notice must not reach the next.
+    AppDatabase.resetSwitchAnnouncementForTesting();
   });
 
   Future<SyncSpaceInfo> createSpace(String name) => gateway.createSpace(
@@ -259,7 +261,8 @@ void main() {
       expect(manager.getActiveDatabaseName(), 'phone');
     });
 
-    test('a space gone from the cloud fails as no access', () async {
+    test('a space gone from the cloud fails as gone, not as no access '
+        '(review X-13)', () async {
       final space = await createSpace('Tablet');
       gateway.deleteSpace(space.ref);
 
@@ -267,7 +270,7 @@ void main() {
         SyncSpaceService(
           gateway: gateway,
         ).downloadIntoNewDatabase(space, accountUid: _uid),
-        throwsA(_fails(SyncBindFailure.permissionDenied)),
+        throwsA(_fails(SyncBindFailure.spaceGone)),
       );
 
       expect(await manager.databaseExists('Tablet'), isFalse);

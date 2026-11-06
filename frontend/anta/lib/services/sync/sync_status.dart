@@ -100,6 +100,12 @@ class SyncStatus extends Equatable {
   /// The space this database is bound to; null while unbound.
   final SyncBinding? binding;
 
+  /// The database this one was found to be a copy of when the claim heal
+  /// unbound it, until the next bind; null otherwise. The one reason an
+  /// unbound database can give for no longer syncing without the user having
+  /// stopped it (review X-2).
+  final String? unboundAsCopyOf;
+
   const SyncStatus({
     this.pendingCount = 0,
     this.lastPushAt,
@@ -112,12 +118,14 @@ class SyncStatus extends Equatable {
     this.clockAhead = Duration.zero,
     this.clampedRemotes = 0,
     this.binding,
+    this.unboundAsCopyOf,
   });
 
   static const SyncStatus empty = SyncStatus();
 
-  /// A copy with the given fields replaced; [clearLastFailure] and
-  /// [clearBinding] set those to null, which a null argument cannot say.
+  /// A copy with the given fields replaced; [clearLastFailure],
+  /// [clearBinding] and [clearUnboundAsCopyOf] set those to null, which a
+  /// null argument cannot say.
   SyncStatus copyWith({
     int? pendingCount,
     DateTime? lastPushAt,
@@ -132,6 +140,8 @@ class SyncStatus extends Equatable {
     int? clampedRemotes,
     SyncBinding? binding,
     bool clearBinding = false,
+    String? unboundAsCopyOf,
+    bool clearUnboundAsCopyOf = false,
   }) {
     return SyncStatus(
       pendingCount: pendingCount ?? this.pendingCount,
@@ -145,6 +155,9 @@ class SyncStatus extends Equatable {
       clockAhead: clockAhead ?? this.clockAhead,
       clampedRemotes: clampedRemotes ?? this.clampedRemotes,
       binding: clearBinding ? null : binding ?? this.binding,
+      unboundAsCopyOf: clearUnboundAsCopyOf
+          ? null
+          : unboundAsCopyOf ?? this.unboundAsCopyOf,
     );
   }
 
@@ -161,6 +174,7 @@ class SyncStatus extends Equatable {
     clockAhead,
     clampedRemotes,
     binding,
+    unboundAsCopyOf,
   ];
 }
 

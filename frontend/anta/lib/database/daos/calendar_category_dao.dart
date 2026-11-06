@@ -45,62 +45,87 @@ class CalendarCategoryDao extends DatabaseAccessor<AppDatabase>
   /// user's edits to a built-in's colour, icon, order or archive flag are
   /// never clobbered on a later launch.
   ///
-  /// One `batch` — which drift runs as a single transaction and a single
-  /// commit — rather than one awaited insert per seed. This runs on the first
+  /// One read of the seeded ids, then at most one `batch` — rather than one
+  /// awaited insert per seed. This runs on the first
   /// `CategoryService.getInstance()` of a session and again after every backup
   /// import, and `injection.dart` already records the nine-statement version
   /// as part of why the calendar services left the pre-`runApp` path.
   ///
-  /// Every seed carries one shared HLC, but only the rows actually written
-  /// keep it: a live built-in is never re-stamped, so a launch is not a write
-  /// to every built-in — and since only the rows carrying that HLC are
-  /// queued, a launch queues nothing either.
+  /// A missing built-in is inserted under [CrdtWrite.seedStamp], the stamp
+  /// every device seeds alike, never under one minted now: a fresh device's
+  /// seed stamped now would beat another device's older rename or hidden
+  /// flag by last-writer-wins on both devices once the bind floor stops
+  /// covering it (review F-2). Because every seeded row carries that one
+  /// stamp, the rows this call writes are learned by the read rather than by
+  /// their stamp — matching on it would queue every untouched built-in again
+  /// on every launch. A launch with nothing to seed writes and queues
+  /// nothing.
   ///
-  /// The one conflict that does write is a **tombstoned** built-in, which is
+  /// The one existing row that is written is a **tombstoned** built-in,
   /// resurrected — keeping the user's last edits, flagged built-in again —
-  /// rather than ignored. Built-ins are undeletable, but a tombstone can still
-  /// arrive (a merge, or a row an older archive restored as custom), and
-  /// ignoring it would hide that built-in for good, `other` — the fallback
-  /// every orphaned event resolves to — included.
+  /// rather than ignored, under a minted stamp: it is this device's decision
+  /// against the tombstone, so it must outrank what it revives. Built-ins are
+  /// undeletable, but a tombstone can still arrive (a merge, or a row an
+  /// older archive restored as custom), and ignoring it would hide that
+  /// built-in for good, `other` — the fallback every orphaned event resolves
+  /// to — included.
   Future<void> seedMissing(List<CalendarCategoriesCompanion> entries) {
     if (entries.isEmpty) return Future.value();
     return transaction(() async {
-      final stamp = db.newStamp();
-      await batch((b) => _seed(b, entries, stamp));
+      final table = calendarCategories;
+      final stored = <String, bool>{
+        for (final row
+            in await (selectOnly(table)
+                  ..addColumns([table.id, table.isDeleted])
+                  ..where(
+                    table.id.isIn([
+                      for (final entry in entries) entry.id.value,
+                    ]),
+                  ))
+                .get())
+          row.read(table.id)!: row.read(table.isDeleted)!,
+      };
+      final missing = [
+        for (final entry in entries)
+          if (!stored.containsKey(entry.id.value)) entry,
+      ];
+      final tombstoned = [
+        for (final entry in entries)
+          if (stored[entry.id.value] ?? false) entry.id.value,
+      ];
+      if (missing.isEmpty && tombstoned.isEmpty) return;
+      final seed = db.seedStamp();
+      final revived = tombstoned.isEmpty ? null : db.newStamp();
+      await batch((b) {
+        for (final entry in missing) {
+          b.insert(
+            table,
+            entry.copyWith(
+              hlcTimestamp: Value(seed.hlc),
+              deviceId: Value(seed.deviceId),
+              version: const Value(1),
+            ),
+            onConflict: DoNothing(),
+          );
+          db.enqueueIn(b, table, entry.id.value, seed.hlc);
+        }
+        for (final id in tombstoned) {
+          b.update(
+            table,
+            CalendarCategoriesCompanion.custom(
+              isBuiltIn: const Constant(true),
+              isDeleted: const Constant(false),
+              deletedAt: const Constant<DateTime>(null),
+              hlcTimestamp: Variable<String>(revived!.hlc),
+              deviceId: Variable<String>(revived.deviceId),
+              version: table.version + const Constant(1),
+            ),
+            where: (c) => c.id.equals(id) & c.isDeleted,
+          );
+          db.enqueueIn(b, table, id, revived.hlc);
+        }
+      });
     });
-  }
-
-  void _seed(
-    Batch b,
-    List<CalendarCategoriesCompanion> entries,
-    CrdtStamp stamp,
-  ) {
-    for (final entry in entries) {
-      b.insert(
-        calendarCategories,
-        entry.copyWith(
-          hlcTimestamp: Value(stamp.hlc),
-          deviceId: Value(stamp.deviceId),
-          version: const Value(1),
-        ),
-        onConflict: DoUpdate<$CalendarCategoriesTable, CalendarCategoryRow>(
-          (old) => CalendarCategoriesCompanion.custom(
-            isBuiltIn: const Constant(true),
-            isDeleted: const Constant(false),
-            deletedAt: const Constant<DateTime>(null),
-            hlcTimestamp: Variable<String>(stamp.hlc),
-            deviceId: Variable<String>(stamp.deviceId),
-            version: old.version + const Constant(1),
-          ),
-          where: (old) => old.isDeleted,
-        ),
-      );
-    }
-    // A batch reports no per-row result, so the rows it wrote are found by
-    // the stamp, inside the seeded ids.
-    db.enqueueWrittenIn(b, calendarCategories, [
-      for (final entry in entries) entry.id.value,
-    ], stamp.hlc);
   }
 
   /// Restores a backup's rows in one `batch` — the shape

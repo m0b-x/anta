@@ -691,6 +691,87 @@ void main() {
       await expectConverged();
     });
 
+    test('F-2: a fresh device whose first pull meets an empty space never '
+        'overwrites a renamed built-in with its seed', () async {
+      await a().db.calendarCategoryDao.seedMissing([birthdayCategory()]);
+      await a().db.calendarCategoryDao.updateCategory(
+        birthdayCategory(name: 'Birthdays, mine'),
+      );
+      await pair.bind(a());
+      // A's first run reads the still-empty space, ending its initial
+      // merge, but its upload does not land.
+      pair.gateway.refuse(
+        'calendar_categories',
+        'birthday',
+        SyncGatewayFailure.offline,
+      );
+      await a().sync();
+      pair.gateway.accept('calendar_categories', 'birthday');
+      expect(pair.gateway.rowsOf(pair.space, 'calendar_categories'), isEmpty);
+      // B opens fresh — its catalog seeded after A's rename — binds and
+      // meets the same empty space.
+      await b().db.calendarCategoryDao.seedMissing([birthdayCategory()]);
+      await pair.bind(b());
+      await b().sync();
+      expect(
+        await b().db.syncDao.getValue(SyncDao.keyBindMergePending),
+        isNull,
+        reason: 'the floor no longer covers B',
+      );
+
+      await a().sync();
+      await b().sync();
+      await a().sync();
+
+      for (final device in [a(), b()]) {
+        final category = await device.db
+            .select(device.db.calendarCategories)
+            .getSingle();
+        expect(category.name, 'Birthdays, mine', reason: device.id);
+      }
+      await expectConverged();
+    });
+
+    test('RA1-1: under the floor a rename never yields to another device\'s '
+        'seed', () async {
+      await a().db.calendarCategoryDao.seedMissing([birthdayCategory()]);
+      await a().db.calendarCategoryDao.updateCategory(
+        birthdayCategory(name: 'Birthdays, mine'),
+      );
+      await pair.bind(a());
+      pair.gateway.refuse(
+        'calendar_categories',
+        'birthday',
+        SyncGatewayFailure.offline,
+      );
+      await a().sync();
+      pair.gateway.accept('calendar_categories', 'birthday');
+      await b().db.calendarCategoryDao.seedMissing([birthdayCategory()]);
+      await pair.bind(b());
+      await b().sync();
+      expect(
+        pair.gateway.rowsOf(pair.space, 'calendar_categories')['birthday']!.hlc,
+        HlcTimestamp.seed.toString(),
+        reason: 'only B\'s seed is in the space',
+      );
+      // Stop syncing raises A's floor above its rename, and the rebind's
+      // initial merge meets B's seed under it.
+      await a().binding.unbind();
+      await pair.bind(a());
+
+      await a().sync();
+      await b().sync();
+      await a().sync();
+
+      for (final device in [a(), b()]) {
+        final category = await device.db
+            .select(device.db.calendarCategories)
+            .getSingle();
+        expect(category.name, 'Birthdays, mine', reason: device.id);
+      }
+      await expectConverged();
+    });
+
     test('an unbound-then-rebound database keeps an edit made after the '
         'unbind and yields the rest', () async {
       await pair.bind(a());

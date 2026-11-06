@@ -5,11 +5,13 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:anta/constants/settings_keys.dart';
+import 'package:anta/database/daos/sync_dao.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/services/database_manager.dart';
 import 'package:anta/services/sync/sync_binding_service.dart';
 import 'package:anta/services/sync/sync_gateway.dart';
 import 'package:anta/services/sync/sync_space_registry.dart';
+import 'package:anta/services/sync/sync_status_service.dart';
 import 'package:anta/services/sync/sync_suspension.dart';
 
 const _uid = 'uid-1';
@@ -94,6 +96,67 @@ void main() {
       (await (await SyncBindingService.getInstance()).read())!.spaceId,
       _space.spaceId,
     );
+  });
+
+  test('the heal keeps the floor of the original bind (review X-1) and notes '
+      'the database it found holding the space until the next bind (review '
+      'X-2)', () async {
+    await (await SyncBindingService.getInstance()).bind(
+      space: _space,
+      accountUid: _uid,
+    );
+    final phone = await AppDatabase.getInstance();
+    final atBind = await phone.syncDao.getValue(SyncDao.keyBindFloor);
+    // An edit after the bind, so a floor raised to the clock would differ.
+    await phone.folderDao.createFolder(name: 'Unpushed');
+    await manager.checkpoint('phone');
+    await importCopyOfPhone('copy');
+
+    final copy = await switchTo('copy');
+    final binding = await SyncBindingService.getInstance();
+
+    expect(await binding.read(), isNull);
+    expect(await binding.bindFloor(), atBind);
+    expect(await copy.syncDao.getValue(SyncDao.keyHealUnboundFrom), 'phone');
+    final status = await SyncStatusService.getInstance();
+    expect((await status.read()).unboundAsCopyOf, 'phone');
+
+    await binding.bind(
+      space: const SyncSpaceRef(ownerUid: _uid, spaceId: 'space-2'),
+      accountUid: _uid,
+    );
+
+    expect((await status.read()).unboundAsCopyOf, isNull);
+  });
+
+  test('a healed copy with no floor is left with none', () async {
+    await bindPhone();
+    await (await AppDatabase.getInstance()).syncDao.deleteValue(
+      SyncDao.keyBindFloor,
+    );
+    await manager.checkpoint('phone');
+    await importCopyOfPhone('copy');
+
+    await switchTo('copy');
+    final binding = await SyncBindingService.getInstance();
+
+    expect(await binding.read(), isNull);
+    expect(await binding.bindFloor(), isNull);
+  });
+
+  test('an unbind of the user\'s own — a restore onto a healed copy — clears '
+      'the heal\'s note (review RA1-7)', () async {
+    await bindPhone();
+    await importCopyOfPhone('copy');
+    final copy = await switchTo('copy');
+    final binding = await SyncBindingService.getInstance();
+    expect(await copy.syncDao.getValue(SyncDao.keyHealUnboundFrom), 'phone');
+
+    await binding.unbind();
+
+    expect(await copy.syncDao.getValue(SyncDao.keyHealUnboundFrom), isNull);
+    final status = await SyncStatusService.getInstance();
+    expect((await status.read()).unboundAsCopyOf, isNull);
   });
 
   test('a bound database with no claim — a kill before the claim, a '

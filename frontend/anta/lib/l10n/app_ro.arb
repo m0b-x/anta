@@ -1420,6 +1420,7 @@
   "syncFailedOffline": "Ești offline — încearcă din nou după ce te conectezi",
   "syncFailedQuota": "Limita de sincronizare de azi a fost atinsă — încearcă din nou mâine",
   "syncFailedPermission": "Cloudul a refuzat — verifică dacă ești conectat la contul potrivit",
+  "syncFailedSpaceGone": "Acel spațiu din cloud nu mai există — alege altul sau încarcă această bază de date ca spațiu nou",
   "syncFailedSuspended": "O restaurare este în curs — încearcă din nou după ce se termină",
   "syncFailedAlreadyBound": "Această bază de date se sincronizează deja — oprește mai întâi sincronizarea",
   "syncFailedHeld": "Baza de date „{database}” de pe acest dispozitiv se sincronizează deja cu acel spațiu",
