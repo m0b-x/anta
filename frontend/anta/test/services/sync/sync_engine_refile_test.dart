@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:drift/drift.dart' hide isNull, isNotNull;
 import 'package:flutter_test/flutter_test.dart';
 
@@ -13,9 +15,9 @@ import 'package:anta/services/sync/sync_gateway.dart';
 import 'support/sync_pair.dart';
 
 /// A live note under a folder that is a tombstone here, through the real
-/// puller: the merge-time repair re-files it only when no tombstone of the
-/// note is coming (P review PR1), and the sweep after a complete pull
-/// re-files what the merge never reached (PR5).
+/// puller: the merge-time repair re-files it only when it was stamped after
+/// the delete (P review PR1, P fix pass PF-H1), and the sweep after a
+/// complete pull re-files what the merge never reached (PR5).
 void main() {
   late SyncPair pair;
   SyncDevice a() => pair.a;
@@ -87,8 +89,57 @@ void main() {
     await expectConverged();
   });
 
-  test('a note moved into a folder another device deleted unseen is '
-      're-filed by the deleting device, and both converge', () async {
+  test('a sort of the deleted folder between the batches resurrects none of '
+      'its notes: the folder\'s notes end deleted on both (P fix pass '
+      'PF-H1)', () async {
+    pair = await SyncPair.open();
+    final folder = await a().db.folderDao.createFolder(name: 'Legs');
+    await a().sync();
+    await b().sync();
+    final note = await writeNote(
+      a(),
+      folderId: folder.id,
+      title: 'Log',
+      body: 'squats',
+    );
+    await a().sync();
+    await a().db.folderDao.softDeleteFolderWithDescendants(folder.id);
+    pair.gateway.maxBatch = 1;
+    var pulledBetween = false;
+    pair.gateway.onPushBatch = (batch) async {
+      if (pulledBetween || batch.single.table != 'folders') return;
+      pulledBetween = true;
+      await b().sync();
+      // B's page of the folder is still open: its sort menu writes to the
+      // tombstone, and B pulls again before the note's tombstone is out.
+      await b().db.folderDao.updateFolderSortPreferences(
+        id: folder.id,
+        noteSortOrder: 'titleAsc',
+      );
+      await b().sync();
+    };
+
+    await a().sync();
+
+    expect(pulledBetween, isTrue);
+    pair.gateway.onPushBatch = null;
+    await b().sync();
+    await a().sync();
+
+    expect((await noteOn(b(), note.id)).isDeleted, isTrue);
+    expect((await noteOn(a(), note.id)).isDeleted, isTrue);
+    expect(movedNotes(b()), isEmpty);
+    expect(
+      (await b().db.folderDao.getFolderById(folder.id))!.deviceId,
+      'A',
+      reason: 'the tombstone is still the deleting device\'s',
+    );
+    await expectConverged();
+  });
+
+  test('a note moved into a folder another device deleted unseen stands '
+      'under the tombstone on both, findable by search, until it is edited '
+      '(the exchange P fix pass PF-H1 accepts)', () async {
     pair = await SyncPair.open();
     final inbox = await a().db.folderDao.createFolder(name: 'Inbox');
     final folder = await a().db.folderDao.createFolder(name: 'Legs');
@@ -111,11 +162,21 @@ void main() {
 
     final onA = await noteOn(a(), note.id);
     expect(onA.isDeleted, isFalse);
-    expect(onA.folderId, '');
-    // The merge moved the note out of the inbox, so that is the list it
-    // left, the repair notwithstanding.
+    expect(onA.folderId, folder.id);
     expect(movedNotes(a()), {note.id: inbox.id});
+    expect((await noteOn(b(), note.id)).folderId, folder.id);
+    expect(
+      [for (final n in await a().db.noteDao.fullTextSearch('squats')) n.id],
+      [note.id],
+    );
+    await expectConverged();
+
+    await editNote(b(), note.id, 'squats, edited');
+    await b().sync();
+    await a().sync();
+
     expect((await noteOn(b(), note.id)).folderId, '');
+    expect((await noteOn(a(), note.id)).folderId, '');
     await expectConverged();
   });
 
@@ -198,6 +259,35 @@ void main() {
       expect((await noteOn(b(), note.id)).folderId, folder.id);
       expect(movedNotes(b()), isEmpty);
 
+      await b().sync();
+
+      expect((await noteOn(b(), note.id)).folderId, '');
+      expect(movedNotes(b()), {note.id: folder.id});
+    });
+
+    test('a pull a leave cut re-files nothing; the next complete one does '
+        '(P fix pass PF-L7)', () async {
+      final (folder, note) = await editedAfterTheDelete();
+      // The leave lands once the folder's tombstone is merged, so every
+      // table after `folders` is left for the next pull.
+      b().hooks.onAfterPage = (table, rows) async {
+        if (table == 'folders') unawaited(b().engine.onAppBackgrounded());
+      };
+      pair.gateway.calls.clear();
+
+      await b().sync();
+
+      expect(pair.gateway.calls, contains('pull:folders'));
+      expect(pair.gateway.calls, isNot(contains('pull:notes')));
+      expect(
+        (await b().db.folderDao.getFolderById(folder.id))!.isDeleted,
+        true,
+      );
+      expect((await noteOn(b(), note.id)).folderId, folder.id);
+      expect(movedNotes(b()), isEmpty);
+
+      b().hooks.onAfterPage = null;
+      b().engine.onAppResumed();
       await b().sync();
 
       expect((await noteOn(b(), note.id)).folderId, '');

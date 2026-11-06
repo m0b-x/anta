@@ -1096,12 +1096,9 @@ class NoteDao extends DatabaseAccessor<AppDatabase> with _$NoteDaoMixin {
           'FROM folders f CROSS JOIN notes n '
           'ON n.folder_id = f.id AND n.is_deleted = 0 '
           'WHERE f.is_deleted = 1 '
-          'AND (n.hlc_timestamp > f.hlc_timestamp OR f.device_id = ?1) '
-          'AND NOT EXISTS (SELECT 1 FROM sync_metadata WHERE key = ?2)',
-          variables: [
-            Variable<String>(db.deviceId),
-            Variable<String>(SyncDao.keyBindMergePending),
-          ],
+          'AND n.hlc_timestamp > f.hlc_timestamp '
+          'AND NOT EXISTS (SELECT 1 FROM sync_metadata WHERE key = ?1)',
+          variables: [Variable<String>(SyncDao.keyBindMergePending)],
           readsFrom: {db.folders, notes, db.syncMetadata},
         )
         .get();
@@ -1122,24 +1119,27 @@ class NoteDao extends DatabaseAccessor<AppDatabase> with _$NoteDaoMixin {
   /// [FolderDao.maxFolderDepth], stands, since an unknown folder is not a
   /// deleted one.
   ///
-  /// Only a note that is not on its way to a tombstone (P review PR1). The
-  /// deleting device's cascade stamps the folder and every note it held with
-  /// one HLC, and its drain sends `folders` before `notes` within that stamp,
-  /// so a cascade over more than one batch lands the folder's tombstone
-  /// while the notes' are still to come; a listener pulling between them
-  /// meets a live envelope of the note it had not pulled yet, stamped below
-  /// the delete. Re-filed, that note would be stamped above its own coming
-  /// tombstone and resurrected everywhere. So the note is re-filed when
+  /// Only a note whose stamp is above the folder tombstone's: an edit made
+  /// after the delete, which wins against the cascade's tombstone anyway. A
+  /// re-file stamps the note above everything it outranks, so a note stamped
+  /// below the delete would be resurrected over its own tombstone (P review
+  /// PR1): the deleting device's cascade stamps the folder and every note it
+  /// held with one HLC, and its drain sends `folders` before `notes`, so a
+  /// listener pulling between two batches meets the folder's tombstone and a
+  /// live envelope of a note whose tombstone is still to come.
   ///
-  /// - its stamp is above the folder tombstone's: an edit made after the
-  ///   delete, which wins against the cascade's tombstone anyway; or
-  /// - this device wrote the folder's tombstone: its own cascade would have
-  ///   tombstoned the note had the note been inside, so a live one under it
-  ///   is a move into the folder the deleting device had not seen — one
-  ///   device moved the note in while this one deleted the folder, no
-  ///   tombstone of the note is coming, and only this device can know that.
+  /// Nothing else re-files, because nothing else can tell such a note from a
+  /// stranded one (P fix pass PF-H1). "This device wrote the tombstone" was
+  /// the other test, and `device_id` is no proof: a rename, a sort or a
+  /// position written to a tombstone used to re-stamp it with this device's
+  /// id; an old cascade (Dec 2025) left notes live under this device's own
+  /// tombstones; two devices can delete one folder; a restore drops a queued
+  /// cascade. Each turned a delete into a resurrection on every device.
   ///
-  /// Otherwise the note stands and its tombstone, when it lands, applies.
+  /// Accepted in exchange: a note moved into a folder while another device
+  /// deleted it stays under the tombstone, findable by search, until it is
+  /// edited or moved. Otherwise the note stands and its tombstone, when one
+  /// lands, applies.
   ///
   /// Never while the bind's initial merge is pending, for the folder
   /// repair's reason: the local folders are still the pre-bind ones, and one
@@ -1158,24 +1158,22 @@ class NoteDao extends DatabaseAccessor<AppDatabase> with _$NoteDaoMixin {
     final rows = await db
         .customSelect(
           'WITH RECURSIVE up(id, parent_id, is_deleted, hlc_timestamp, '
-          '  device_id, depth) AS ('
-          '  SELECT id, parent_id, is_deleted, hlc_timestamp, device_id, 0 '
+          '  depth) AS ('
+          '  SELECT id, parent_id, is_deleted, hlc_timestamp, 0 '
           '  FROM folders WHERE id = ?1 '
           '  UNION ALL '
           '  SELECT f.id, f.parent_id, f.is_deleted, f.hlc_timestamp, '
-          '  f.device_id, up.depth + 1 '
+          '  up.depth + 1 '
           '  FROM folders f JOIN up ON f.id = up.parent_id '
           '  WHERE up.depth < ${FolderDao.maxFolderDepth}'
-          ') SELECT id, parent_id, is_deleted, hlc_timestamp, device_id '
+          ') SELECT id, parent_id, is_deleted, hlc_timestamp '
           'FROM up ORDER BY depth',
           variables: [Variable<String>(folderId)],
           readsFrom: {db.folders},
         )
         .get();
     if (rows.isEmpty || rows.first.read<int>('is_deleted') == 0) return false;
-    final tombstone = rows.first;
-    if (hlc.compareTo(tombstone.read<String>('hlc_timestamp')) <= 0 &&
-        tombstone.read<String>('device_id') != db.deviceId) {
+    if (hlc.compareTo(rows.first.read<String>('hlc_timestamp')) <= 0) {
       return false;
     }
     String? liveAncestor;

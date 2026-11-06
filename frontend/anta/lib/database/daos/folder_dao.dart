@@ -358,6 +358,13 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
     return maxPosResult.read(folders.position.max()) ?? -1;
   }
 
+  /// Renames or re-parents one folder, and refuses a tombstone, as
+  /// [updateFolderPosition] and [updateFolderSortPreferences] do: a page or a
+  /// sheet can outlive the folder another device deleted, and a write would
+  /// re-stamp its tombstone with this device's id and a fresh HLC, a delete
+  /// it never made. The notes repair once read that id as "this device
+  /// deleted the folder" and brought the folder's notes back everywhere
+  /// (P fix pass PF-H1).
   Future<Folder?> updateFolder({
     required String id,
     String? name,
@@ -366,7 +373,7 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
   }) {
     return transaction(() async {
       final existing = await getFolderById(id);
-      if (existing == null) return null;
+      if (existing == null || existing.isDeleted) return null;
       // An edit that changes nothing writes nothing, so it does not read as a
       // change once devices merge.
       final renames = name != null && name != existing.name;
@@ -374,11 +381,7 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
       if (!renames && !moves) return existing;
 
       final now = DateTime.now();
-      final stamp = await db.stampLocal(
-        folders,
-        id,
-        op: OutboxOp.forRow(isDeleted: existing.isDeleted),
-      );
+      final stamp = await db.stampLocal(folders, id);
 
       final companion = FoldersCompanion(
         name: name != null ? Value(name) : const Value.absent(),
@@ -467,21 +470,18 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
     await (delete(folders)..where((f) => f.id.equals(id))).go();
   }
 
-  /// Update the position of a folder
+  /// Update the position of a folder; a tombstone is refused, for the reason
+  /// [updateFolder] gives.
   Future<Folder?> updateFolderPosition({
     required String id,
     required int newPosition,
   }) {
     return transaction(() async {
       final existing = await getFolderById(id);
-      if (existing == null) return null;
+      if (existing == null || existing.isDeleted) return null;
 
       final now = DateTime.now();
-      final stamp = await db.stampLocal(
-        folders,
-        id,
-        op: OutboxOp.forRow(isDeleted: existing.isDeleted),
-      );
+      final stamp = await db.stampLocal(folders, id);
 
       await (update(folders)..where((f) => f.id.equals(id))).write(
         FoldersCompanion(
@@ -612,7 +612,9 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
     });
   }
 
-  /// Update sort preferences for a folder
+  /// Update sort preferences for a folder; a tombstone is refused, for the
+  /// reason [updateFolder] gives — the sort menu of a page left open on a
+  /// folder another device deleted.
   Future<Folder?> updateFolderSortPreferences({
     required String id,
     String? noteSortOrder,
@@ -622,7 +624,7 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
   }) {
     return transaction(() async {
       final existing = await getFolderById(id);
-      if (existing == null) return null;
+      if (existing == null || existing.isDeleted) return null;
       final nextNoteSort = clearNoteSortOrder
           ? null
           : (noteSortOrder ?? existing.noteSortOrder);
@@ -636,11 +638,7 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
       }
 
       final now = DateTime.now();
-      final stamp = await db.stampLocal(
-        folders,
-        id,
-        op: OutboxOp.forRow(isDeleted: existing.isDeleted),
-      );
+      final stamp = await db.stampLocal(folders, id);
 
       await (update(folders)..where((f) => f.id.equals(id))).write(
         FoldersCompanion(

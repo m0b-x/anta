@@ -55,16 +55,18 @@ void main() {
   });
 
   group('folderPathSegments', () {
-    test('leaves a tombstoned ancestor out of the path', () async {
+    test('cuts the path where the crumbs cut it: nothing above the last '
+        'tombstone (P fix pass PF-L9)', () async {
       final paths = await folders.folderPathSegments([legsId]);
 
-      expect(paths[legsId], ['Training', 'Legs']);
+      expect(paths[legsId], ['Legs']);
     });
 
-    test("leaves the folder's own tombstone out of the path", () async {
+    test("leaves the folder's own tombstone out: the path is the nearest "
+        'live folder\'s', () async {
       final paths = await folders.folderPathSegments([goneId, blockId]);
 
-      expect(paths[goneId], ['Training', 'Legs']);
+      expect(paths[goneId], ['Legs']);
       expect(paths[blockId], ['Training']);
     });
 

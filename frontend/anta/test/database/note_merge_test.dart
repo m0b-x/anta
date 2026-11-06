@@ -348,18 +348,20 @@ void main() {
       expect(await queuedNotes(), isNot(contains('pulled')));
     });
 
-    test('a note under this device\'s own folder tombstone is re-filed even '
-        'when stamped below it: a move in the delete had not seen', () async {
-      final folder = await db.folderDao.createFolder(name: 'Legs');
-      await db.folderDao.softDeleteFolderWithDescendants(folder.id);
+    test(
+      'a note under this device\'s own folder tombstone stamped below it '
+      'stands too: the device id proves nothing (P fix pass PF-H1)',
+      () async {
+        final folder = await db.folderDao.createFolder(name: 'Legs');
+        await db.folderDao.softDeleteFolderWithDescendants(folder.id);
 
-      final outcome = await merge(under('pulled', folder.id, olderHlc));
+        final outcome = await merge(under('pulled', folder.id, olderHlc));
 
-      expect((await db.noteDao.getNoteById('pulled'))!.folderId, '');
-      expect(outcome.moved, isTrue);
-      expect(outcome.previousParent, folder.id);
-      expect(await queuedNotes(), contains('pulled'));
-    });
+        expect((await db.noteDao.getNoteById('pulled'))!.folderId, folder.id);
+        expect(outcome.moved, isFalse);
+        expect(await queuedNotes(), isNot(contains('pulled')));
+      },
+    );
 
     test('a tombstoned folder whose parent this device has not received '
         'keeps the note', () async {
@@ -548,6 +550,23 @@ void main() {
         expect(row.hlcTimestamp.compareTo(edited.hlcTimestamp), greaterThan(0));
         expect(await queuedNotes(), {edited.id: row.hlcTimestamp});
         expect(await db.noteDao.getNoteById(older.id), older);
+      });
+
+      test('leaves a live note under this device\'s own tombstone stamped '
+          'below it, as an old cascade left them (P fix pass PF-H1)', () async {
+        final folder = await db.folderDao.createFolder(name: 'Legs');
+        final note = await db.noteDao.createNote(
+          folderId: folder.id,
+          title: 'Squat log',
+          content: 'typed before the delete',
+        );
+        await db.folderDao.softDeleteFolder(folder.id);
+        await db.syncOutboxDao.clear();
+        final before = await db.noteDao.getNoteById(note.id);
+
+        expect(await db.noteDao.refileNotesUnderDeletedFolders(), isEmpty);
+        expect(await db.noteDao.getNoteById(note.id), before);
+        expect(await queuedNotes(), isEmpty);
       });
 
       test('with nothing to re-file it runs one query, through the folder '

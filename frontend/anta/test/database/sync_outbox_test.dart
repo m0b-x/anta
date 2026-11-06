@@ -83,6 +83,32 @@ void main() {
       expect(entry.hlc, (await folderRow(folder.id)).hlcTimestamp);
     });
 
+    // A browser page, a sort menu or a drag can outlive the folder another
+    // device deleted; re-stamped, its tombstone would carry this device's id
+    // and a fresh stamp (P fix pass PF-H1).
+    final tombstoneWrites = <String, Future<Folder?> Function(String id)>{
+      'a rename': (id) => db.folderDao.updateFolder(id: id, name: 'Gym'),
+      'a move': (id) =>
+          db.folderDao.updateFolder(id: id, parentId: 'p', updateParent: true),
+      'a position': (id) =>
+          db.folderDao.updateFolderPosition(id: id, newPosition: 7),
+      'a sort': (id) =>
+          db.folderDao.updateFolderSortPreferences(id: id, noteSortOrder: 'x'),
+    };
+    for (final MapEntry(key: name, value: write) in tombstoneWrites.entries) {
+      test('$name of a tombstone writes nothing and queues nothing', () async {
+        final folder = await db.folderDao.createFolder(name: 'Training');
+        await db.folderDao.softDeleteFolder(folder.id);
+        final before = await folderRow(folder.id);
+        final entry = await onlyEntry('folders');
+
+        expect(await write(folder.id), isNull);
+
+        expect(await folderRow(folder.id), before);
+        expect(await onlyEntry('folders'), entry);
+      });
+    }
+
     test('a reorder queues only the rows it moved, under one HLC', () async {
       final a = await db.folderDao.createFolder(name: 'A');
       final b = await db.folderDao.createFolder(name: 'B');

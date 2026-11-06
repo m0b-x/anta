@@ -408,10 +408,13 @@ class FolderStorageService {
   /// share the repository's folder cache on top of that. A folder that can't
   /// be resolved is absent from the map rather than mapped to an empty list.
   ///
-  /// A tombstoned segment is left out, the folder's own included: a note can
-  /// sit under a deleted folder until the sync repair re-files it, and a path
-  /// must never show a deleted folder's name, nor the id a data-less
-  /// tombstone carries for one.
+  /// The path stops where the crumbs stop ([getAncestors] with
+  /// `stopAtDeleted`): nothing above the last tombstone, and the folder's own
+  /// name only while it is live. A note can sit under a deleted folder until
+  /// it is edited or moved, and a live folder under one until the folder
+  /// repair runs; a path must never show a deleted folder's name, nor the id
+  /// a data-less tombstone carries for one, nor a chain the crumbs and "Open
+  /// folder" cannot lead into (P fix pass PF-L9).
   Future<Map<String, List<String>>> folderPathSegments(
     Iterable<String> folderIds,
   ) async {
@@ -421,9 +424,10 @@ class FolderStorageService {
       final folder = await _repository.getFolderById(folderId);
       if (folder == null) continue;
       final ancestors = await _ancestorRows(folderId);
+      final start = ancestors.lastIndexWhere((row) => row.isDeleted) + 1;
       paths[folderId] = [
-        for (final segment in [...ancestors, folder])
-          if (!segment.isDeleted) segment.name,
+        for (final segment in ancestors.skip(start)) segment.name,
+        if (!folder.isDeleted) folder.name,
       ];
     }
     return paths;
