@@ -1955,6 +1955,90 @@ browser page whose own folder becomes a tombstone while open has no
 handling; a note whose tombstoned folder's chain runs into a folder not yet
 received costs the sweep one walk per complete pull until it arrives.
 
+**Review round 2 (2026-11-06; three reviewers and one design reviewer on
+snapshots of `d59ca563`, `6ef9b848` and `77688ee8`).** Dispositions: a
+letter names the fix stream (A the sync rule, B1 the bind service and the
+database layer, B2 the bloc and the engine, C the UI).
+*S4b-2a:* **BA-H1** (confirmed) a raw `.db` import of a bound database
+stays bound — two databases of one install in one space, one `device_id`;
+a kill between the bind's commit and the claim, or a swallowed registry
+write, leaves a bound database with no claim → **B1**, a heal when the
+binding service is built: bound with no claim, claim it when no other live
+database holds the space, else unbind this one (logged). **BA-H2**
+(confirmed) a download whose new database fails to open leaves the app on
+closed repositories → **B1**, `AppDatabase.getInstance` remembers a
+torn-down instance so the next successful open notifies the switched
+handlers. **BA-M1** get_it singletons keep the old database after the
+in-place switch → accepted: the download ends on the restart prompt, and
+**C** keeps the page from being left while a step runs. **BA-M2** a kill
+between the switch and the bind relaunches onto the empty new database →
+**B1**, a download marker; at launch a marker left behind switches back.
+**BA-M3** the download reads nothing in the cloud first → **B1**,
+`readSpace` before anything changes. **BA-M4** with **BB-M2** the engine
+stops after the binding changed and the flow goes idle on a stale status →
+**B2**, stop the engine before the change, stay busy through stop → change
+→ start → refresh, one emit at the end; the puller re-checks the binding in
+each page transaction. **BA-M5** an account change mid-step drops the busy
+flow → **B2**, an in-flight guard outside the state. **BA-M6** a rename of
+the active bound database leaves a stale claim → **B1**. **BA-L1** a stale
+self-claim blocks Download but not Merge → **B1**. **BA-L2** the main
+database's first space is named `gym_notes`, the load-bearing directory
+name, and spaces cannot be renamed (§8) → **B1**, the default database's
+space takes the app's name (lettered). **BA-L3** a QA build's prefixed
+registry cannot see the owner build's claims → accepted (QA cloud runs on
+the emulator suite with fake accounts). **BA-L4** `bind()` itself does not
+consult the registry → **B1**. **BA-L5** tests → with each fix.
+*S4b-2b:* **BB-M1** Sync now is disabled during the quota and no-access
+pauses it exists to end → **C**. **BB-M3** leaving the page during a
+download loses the restart prompt → **C** (with BA-M1). **BB-M4** a bound
+database reads as unbound while signing in, on the first frame and after a
+failed sign-in → **C**, the view keeps the last known status. **BB-L5** up
+to date beside not synced yet → **C**. **BB-L6** the status precedence is
+unpinned → **C**. **BB-L7** with every space held the first shows selected
+and disabled → **C**. **BB-L8** the bloc accepts a choice with no picker up
+→ **B2**. **BB-L9** a failure leaves the status unrefreshed → **B2**.
+**BB-L10** a failure's wording follows the binding, not the step →
+deferred (B2's busy-until-refreshed closes the window it was seen in).
+**BB-L11** the unavailable text names platforms → **C**. **BB-L12** the
+Settings hub's search misses the section → **C**. **BB-L13** the restart
+prompt's action has no id → **C** (space rows keep the Firestore id; the
+device pass runs with one space). **BB-L14** the drawer flow's `--absent
+"Sharing"` → **C**. **BB-L15** `SystemNavigator.pop` does nothing on iOS →
+deferred with iOS. **BB-L17** same-named spaces → partly BA-L2; accepted.
+*Design:* **DR1** (severity 3) the status row's height changes at runtime
+and moves Sync now and Stop under the finger → **C**, one height for every
+bound state, one count per detail line (DR10). **DR2** (3) a held space's
+reason at 38 % (1.94:1) and cut at 2.0 → **C**, `FormCheckRow` dims label
+and control and keeps the caption whole, as `FormPickerRow` does (rule AO).
+**DR3** (2) picking a space resizes the sheet → **C**, fixed labels while
+the list shows. **DR4** (2) the sheet's title clips in de/ro → **C**.
+**DR5** (2) help-text captions under the choices → **C**, the labels carry
+the outcome and the captions go (lettered — the owner may want them back).
+**DR6** (2) a disabled row's reason at 38 % → **C**, on this page's disabled
+rows (Sync and Pairing); the kit's other pages deferred. **DR7** (2) an
+empty database's spaces look like a selection and commit on tap → **C**,
+action rows. **DR8** (1) a sentence as a section label → **C**. **DR9** the
+picker rows lack the button role (the `FormPickerRow` primitive) → deferred;
+the device pass listens. **DR11** very tall rows at 2.0 → deferred (owner
+call). **DR12** long names break mid-word → accepted. **DR13** the reason
+repeated → **C**.
+*P fix pass:* **PF-H1** (confirmed) sorting, renaming or repositioning a
+folder another device deleted re-stamps its tombstone with this device's
+id, which the rule's second condition trusts — the sweep then resurrects
+that folder's cascade everywhere; the premise also fails for notes an old
+cascade (Dec 2025) left live under this device's tombstones, for two
+devices deleting one folder, and after a restore drops a queued cascade →
+**A**: the rule is the first condition alone — a note is re-filed only when
+its stamp is above the folder tombstone's (an edit after the delete), at
+merge time and in the sweep — and the three folder writes refuse a
+tombstone. **Accepted in exchange:** a note moved into a folder while
+another device deleted that folder stays under the tombstone, findable by
+search, until it is edited or moved. PF-M2–M5 and PF-L6 are moot with the
+condition gone. **PF-L7** a cut pull is untested → **A**. **PF-L8** bar
+assignments and currencies keep unmapped note ids → accepted (settings stay
+local). **PF-L9** paths and crumbs disagree on a live folder under a
+tombstone → **A**.
+
 - `SyncBindingService.bind` and the install registry (§3.6);
   `SyncSpaceService` (create / list through the gateway, the space name
   rule); `SyncBloc` events `BindRequested(space?)`, `UnbindRequested`,
