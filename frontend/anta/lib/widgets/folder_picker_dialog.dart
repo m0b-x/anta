@@ -89,9 +89,14 @@ class _FolderPickerDialogState extends State<_FolderPickerDialog> {
       return;
     }
     // Resolve ancestors + the current folder itself; if any link is
-    // missing fall back to root rather than failing the whole picker.
+    // missing fall back to root rather than failing the whole picker. A
+    // current folder that is a tombstone counts as missing: one a pull
+    // brought without its data is named by its id.
     final ancestors = await _folderService.getAncestors(startId);
-    final current = await _folderService.getFolderById(startId);
+    final current = await _folderService.getFolderById(
+      startId,
+      includeDeleted: false,
+    );
     if (!mounted) return;
     setState(() {
       _breadcrumbs
@@ -180,7 +185,12 @@ class _FolderPickerDialogState extends State<_FolderPickerDialog> {
         continue;
       }
       if (widget.excludeFolderIds.contains(id)) continue;
-      final folder = await _folderService.getFolderById(id);
+      // A recent folder deleted since is no destination, and its tombstone
+      // may carry its id for a name.
+      final folder = await _folderService.getFolderById(
+        id,
+        includeDeleted: false,
+      );
       if (folder != null) {
         entries.add(_RecentEntry(id: id, name: folder.name));
       }

@@ -3005,10 +3005,13 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     return mounted;
   }
 
+  /// A live folder only: a tombstone a pull brought without its data is
+  /// stored under its id as its name, which the menu would show as is.
   Future<void> _loadFolderName() async {
     try {
       final folder = await GetIt.I<FolderStorageService>().getFolderById(
         _folderId,
+        includeDeleted: false,
       );
       if (!mounted || folder == null) return;
       setState(() => _folderName = folder.name);

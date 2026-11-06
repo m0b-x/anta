@@ -1,6 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:anta/database/crdt/hlc.dart';
 import 'package:anta/database/crdt/merge_outcome.dart';
+import 'package:anta/database/daos/sync_dao.dart';
 import 'package:anta/database/database.dart';
 
 import 'support/db_test_support.dart';
@@ -275,6 +277,139 @@ void main() {
 
       expect(outcome.localHadPendingPush, isTrue);
       expect(outcome.loser, isNull);
+    });
+  });
+
+  // The note twin of the folder repair in `folder_merge_test.dart`: one
+  // device deleted the folder (its notes tombstoned with it), the other edited
+  // a note in it later, the edit wins by last-writer-wins and the merge never
+  // cascades — so without the repair the live note sits in a tombstone and is
+  // findable only by search.
+  group('the folder a merge leaves behind', () {
+    Note under(String id, String folderId, String hlc) =>
+        remote(id, hlc).copyWith(folderId: folderId);
+
+    /// The queued stamp per note row key.
+    Future<Map<String, String>> queuedNotes() async => {
+      for (final entry in await db.syncOutboxDao.pendingForTable('notes'))
+        entry.rowKey: entry.hlc,
+    };
+
+    /// Ten minutes ahead of the test clock, as the folder repair's tests
+    /// take it: a repair that raised the clock to the edit it repairs is told
+    /// apart from one minted below it (R131).
+    final editedHlc = HlcTimestamp(
+      wallTime: DateTime.now()
+          .add(const Duration(minutes: 10))
+          .millisecondsSinceEpoch,
+      logicalCounter: 3,
+      nodeId: 'remote',
+    ).toString();
+
+    test('a live note under a tombstoned folder takes the nearest live '
+        'ancestor, stamped above the remote and queued', () async {
+      final root = await db.folderDao.createFolder(name: 'Root');
+      final folder = await db.folderDao.createFolder(
+        name: 'Legs',
+        parentId: root.id,
+      );
+      final local = await db.noteDao.createNote(
+        folderId: folder.id,
+        title: 'Squat log',
+        content: 'local',
+      );
+      await db.folderDao.softDeleteFolderWithDescendants(folder.id);
+      await db.syncOutboxDao.clear();
+
+      final outcome = await merge(under(local.id, folder.id, editedHlc));
+
+      final row = (await db.noteDao.getNoteById(local.id))!;
+      expect(row.isDeleted, isFalse);
+      expect(row.folderId, root.id);
+      expect(row.version, 8);
+      expect(row.hlcTimestamp.compareTo(editedHlc), greaterThan(0));
+      expect((await queuedNotes())[local.id], row.hlcTimestamp);
+      expect(outcome.result, MergeResult.applied);
+      expect(outcome.moved, isTrue);
+      expect(outcome.previousParent, folder.id);
+      expect(outcome.mergedContent, remoteBody);
+      expect(
+        [for (final n in await db.noteDao.getNotesByFolder(root.id)) n.id],
+        [local.id],
+      );
+    });
+
+    test('a note whose folders are all tombstoned goes to the root', () async {
+      final parent = await db.folderDao.createFolder(name: 'Parent');
+      final folder = await db.folderDao.createFolder(
+        name: 'Legs',
+        parentId: parent.id,
+      );
+      await db.folderDao.softDeleteFolderWithDescendants(parent.id);
+
+      final outcome = await merge(under('pulled', folder.id, editedHlc));
+
+      expect((await db.noteDao.getNoteById('pulled'))!.folderId, '');
+      expect(outcome.result, MergeResult.inserted);
+      expect(outcome.moved, isTrue);
+      expect(outcome.previousParent, folder.id);
+      expect(await queuedNotes(), contains('pulled'));
+    });
+
+    test('a folder this device has not received is kept', () async {
+      await merge(under('pulled', 'not-here', editedHlc));
+
+      expect((await db.noteDao.getNoteById('pulled'))!.folderId, 'not-here');
+      expect(await queuedNotes(), isNot(contains('pulled')));
+    });
+
+    test('the repair stands back while the bind\'s initial merge is pending '
+        '(A7 review R130)', () async {
+      final folder = await db.folderDao.createFolder(name: 'Legs');
+      await db.folderDao.softDeleteFolder(folder.id);
+      await db.syncDao.setValue(SyncDao.keyBindMergePending, '1');
+
+      final outcome = await merge(under('pulled', folder.id, editedHlc));
+
+      expect((await db.noteDao.getNoteById('pulled'))!.folderId, folder.id);
+      expect(outcome.moved, isFalse);
+      expect(await queuedNotes(), isNot(contains('pulled')));
+    });
+
+    test('a remote tombstone is never repaired', () async {
+      final folder = await db.folderDao.createFolder(name: 'Legs');
+      final local = await db.noteDao.createNote(
+        folderId: folder.id,
+        title: 'Squat log',
+        content: 'local',
+      );
+      await db.folderDao.softDeleteFolder(folder.id);
+      await db.syncOutboxDao.clear();
+
+      final outcome = await merge(
+        remote(
+          local.id,
+          editedHlc,
+          deleted: true,
+        ).copyWith(folderId: folder.id),
+      );
+
+      final row = (await db.noteDao.getNoteById(local.id))!;
+      expect(row.isDeleted, isTrue);
+      expect(row.folderId, folder.id);
+      expect(row.hlcTimestamp, editedHlc);
+      expect(outcome.moved, isFalse);
+      expect(await queuedNotes(), isEmpty);
+    });
+
+    test('a live folder is left alone', () async {
+      final folder = await db.folderDao.createFolder(name: 'Legs');
+
+      final outcome = await merge(under('pulled', folder.id, editedHlc));
+
+      expect((await db.noteDao.getNoteById('pulled'))!.folderId, folder.id);
+      expect(outcome.moved, isFalse);
+      expect(await queuedNotes(), isNot(contains('pulled')));
     });
   });
 

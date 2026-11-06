@@ -538,7 +538,10 @@ class BackupService {
 
       final counterData = data['counterData'] as Map<String, dynamic>?;
       if (counterData != null) {
-        await GetIt.I<CounterService>().importData(counterData);
+        await GetIt.I<CounterService>().importData(
+          counterData,
+          noteIdMap: noteIdMap,
+        );
       }
 
       // Calendar categories, events & public holidays (v3/v4+ backups).

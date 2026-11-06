@@ -1099,6 +1099,8 @@ regression was seen; the pass was partial on the harness side:
   `noteValueExtras`, so after a restore every per-note value points at a
   note that no longer exists (the global values are unaffected). Fix: apply
   `noteIdMap` to both maps in the counter import, with a round-trip test.
+  **Fixed 2026-11-06** in Phase 02's pre-bind slice P (P1): values, pins,
+  positions and owners follow the restored note's new id.
 - **D16 consequence for Phase 03 (R4 review F6):** folders and notes restore
   as copies with fresh ids, so a foreign-owned copy can never meet its
   original in the space, is never requeued at bind (`requeueAll` and the

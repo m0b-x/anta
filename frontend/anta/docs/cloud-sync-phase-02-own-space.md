@@ -1773,6 +1773,31 @@ tombstone, `''` for an empty body, absent on `moved`). Decision A kept
 `remoteContent` first). **Fixed at the head of S4b-2:** M1–M3, L4–L8,
 L10–L12, with the merge handing the body to `SyncAppliedRow`.
 
+**Pre-bind slice P as built (2026-11-06, one implementer; gate: `dart
+analyze lib test` clean, whole suite 13,487 passed, 12 skipped, none
+failed — the first fully green run on Windows, `host_devices_test` now
+expects the host's path separator; review pending).** Four data fixes that
+a bound database would copy to every device: **P1** a restore files
+per-note counter values, pins, positions and owners under the restored
+note's new id (`CounterService.importData(noteIdMap:)`, the map
+`BackupService` already built for the bar assignments; a missing id keeps
+its archived one, the global `''` is never translated); **P2** every folder
+sort ends on `id`, as the note sorts did, so a position tie from concurrent
+creates (R71) lists alike on every device — the position plan gains `USE
+TEMP B-TREE FOR LAST TERM OF ORDER BY` over one parent's ties; **P3** a live
+note that arrives under a folder that is a tombstone here is re-filed under
+that folder's nearest live ancestor, the root when every ancestor is a
+tombstone (`NoteDao._repairMergedFolder`, the notes twin of the folder
+repair R64, on its rules: a folder not yet received stands, never under
+`bind_merge_pending`, stamped inside the page above the edit, the outcome
+`moved`) — only where the live note arrives, never as a sweep when a
+folder's tombstone lands, which would re-stamp a note whose own tombstone
+is still in the notes pull and resurrect it; **P4** the editor's menu and
+the folder picker never name a tombstone (a data-less one's name is its
+id). Found, not fixed: `FolderStorageService.getAncestors` includes
+tombstones, so the picker's breadcrumbs can name a locally known deleted
+ancestor (by its real name).
+
 - `SyncBindingService.bind` and the install registry (§3.6);
   `SyncSpaceService` (create / list through the gateway, the space name
   rule); `SyncBloc` events `BindRequested(space?)`, `UnbindRequested`,
@@ -2171,9 +2196,6 @@ S6 follow it unchanged.
   (readiness §8).
 - Settings that are note data (money currency, markdown bar assignment)
   and the custom public holidays — readiness §8.
-- The pre-existing per-note counter restore defect (readiness §8,
-  `CounterService.importData` never applies `noteIdMap`) — unrelated to
-  sync, one focused fix with a round-trip test when the owner wants it.
 - The readiness §8 items left as found (two HLCs per event-editor save, the
   held far-future remote, `restartable()`).
 - From the S2a review, accepted: a tap between the counters flush and the
@@ -2182,16 +2204,13 @@ S6 follow it unchanged.
   the per-note path, because the delta path re-applies it over the merged
   row (review 2026-10-26, R34, probe-confirmed and pinned by
   `test/services/counter_service_test.dart:200-287`); the one real loss in
-  that window is `resetGlobal`'s memory guard (R24, fixed in A6); a live
-  note whose folder arrived as a tombstone shows that folder's id as its
-  name where `getFolderById` is read without a tombstone filter
-  (pre-existing for local tombstones); concurrent creates give one folder
-  two notes of the same title (the per-folder uniqueness backstop does not
-  run on merge; ids differ) **and the two rows the same `position`**, which
-  travels verbatim, so the order flaps between devices until someone
-  reorders the folder (review 2026-10-26, R71; the fix, if it is ever
-  wanted, is a `hlc_timestamp` tiebreaker in the browser's sort, not a
-  merge-side renumber) and one vocabulary two items for the same term
+  that window is `resetGlobal`'s memory guard (R24, fixed in A6);
+  concurrent creates give one folder two notes of the same title (the
+  per-folder uniqueness backstop does not run on merge; ids differ) **and
+  the two rows the same `position`**, which travels verbatim — since the
+  pre-bind slice P every folder sort ends on `id` as the note sorts did, so
+  both devices list the tie in one order and renumber it alike on a drag
+  (review 2026-10-26, R71) — and one vocabulary two items for the same term
   (`saveItems` tombstones one later; the suggestion bar offers the term
   once either way since review 2026-10-26 R35 deduped `updateCache` on the
   folded term, so the pair is invisible until the next save collapses it);

@@ -8,6 +8,8 @@ import '../crdt/crdt_merge.dart';
 import '../crdt/crdt_write.dart';
 import '../crdt/merge_outcome.dart';
 import 'content_chunk_dao.dart';
+import 'folder_dao.dart';
+import 'sync_dao.dart';
 
 part 'note_dao.g.dart';
 
@@ -1027,12 +1029,88 @@ class NoteDao extends DatabaseAccessor<AppDatabase> with _$NoteDaoMixin {
         },
       );
       if (body == null) return merge;
-      return switch (merge.result) {
-        MergeResult.inserted ||
-        MergeResult.applied => merge.withMergedContent(body),
-        MergeResult.keptLocal || MergeResult.unchanged => merge,
-      };
+      switch (merge.result) {
+        case MergeResult.keptLocal || MergeResult.unchanged:
+          return merge;
+        case MergeResult.inserted || MergeResult.applied:
+          final outcome = merge.withMergedContent(body);
+          if (!await _repairMergedFolder(merged) || outcome.moved) {
+            return outcome;
+          }
+          return outcome.movedFrom(remote.folderId);
+      }
     });
+  }
+
+  /// Re-files the just-merged live [remote] when the folder it arrived under
+  /// is a tombstone here, and returns whether it did.
+  ///
+  /// One device deleted the folder, tombstoning its notes with it; another
+  /// edited a note in it at a newer stamp. The edit wins its row, the merge
+  /// never cascades (record §3.4), and every live list filters tombstones, so
+  /// the note would be live and findable only by search. It takes the
+  /// folder's nearest live ancestor, the root (`''`) when every ancestor is a
+  /// tombstone — the rules of `FolderDao`'s parent repair (R64): a chain that
+  /// runs into a folder this device has not received, or past
+  /// [FolderDao.maxFolderDepth], stands, since an unknown folder is not a
+  /// deleted one.
+  ///
+  /// Only where the live note arrives. A sweep when a folder's tombstone
+  /// arrives over live notes would re-stamp a note whose own tombstone is
+  /// still behind it in the notes pull (folders pull first) and resurrect
+  /// what the other device deleted; the device that receives the live note
+  /// repairs and pushes, and the other converges on the pull.
+  ///
+  /// Reads the folders table directly, never a repository cache: this runs
+  /// inside the page's transaction, which can still roll back (S4a review
+  /// L11).
+  Future<bool> _repairMergedFolder(Note remote) async {
+    final rows = await db
+        .customSelect(
+          'WITH RECURSIVE up(id, parent_id, is_deleted, depth) AS ('
+          '  SELECT id, parent_id, is_deleted, 0 FROM folders '
+          '  WHERE id = ?1 '
+          '  UNION ALL '
+          '  SELECT f.id, f.parent_id, f.is_deleted, up.depth + 1 '
+          '  FROM folders f JOIN up ON f.id = up.parent_id '
+          '  WHERE up.depth < ${FolderDao.maxFolderDepth}'
+          ') SELECT id, parent_id, is_deleted FROM up ORDER BY depth',
+          variables: [Variable<String>(remote.folderId)],
+          readsFrom: {db.folders},
+        )
+        .get();
+    if (rows.isEmpty || rows.first.read<int>('is_deleted') == 0) return false;
+    String? liveAncestor;
+    var reachedRoot = false;
+    for (final row in rows) {
+      if (row.read<int>('is_deleted') == 0) {
+        liveAncestor = row.read<String>('id');
+        break;
+      }
+      reachedRoot = row.read<String?>('parent_id') == null;
+    }
+    if (liveAncestor == null && !reachedRoot) return false;
+    // Never during the initial merge, for the folder repair's reason: the
+    // local folders are still the pre-bind ones, and one whose live envelope
+    // is later in the same pull reads here as a tombstone (A7 review R130).
+    if (await db.syncDao.getValue(SyncDao.keyBindMergePending) != null) {
+      return false;
+    }
+    // Raised to the edit first, inside the page's transaction with the drift
+    // guard kept, so the repair outranks the edit it repairs and the space
+    // converges on it rather than denying the push (R131, R157).
+    CrdtMerge.advanceClockInTransaction(db, remote.hlcTimestamp);
+    final stamp = await db.stampLocal(notes, remote.id);
+    await (update(notes)..where((n) => n.id.equals(remote.id))).write(
+      NotesCompanion(
+        folderId: Value(liveAncestor ?? ''),
+        updatedAt: Value(DateTime.now()),
+        hlcTimestamp: Value(stamp.hlc),
+        deviceId: Value(stamp.deviceId),
+        version: Value(remote.version + 1),
+      ),
+    );
+    return true;
   }
 
   /// [note] with the columns that describe its body derived from [body].

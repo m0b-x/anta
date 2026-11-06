@@ -14,8 +14,8 @@ import 'support/db_test_support.dart';
 /// page 1, so one folder is served twice and another on neither page — and the
 /// colour-label sort (roadmap Slice B) is the first folder ordering whose ties
 /// are wide by construction: a palette of seven puts every subfolder of one
-/// colour into a single run. It is therefore the only folder sort that carries
-/// an `id` tiebreaker, and these tests are what says so.
+/// colour into a single run. Every folder sort ends on `id`, as the note sorts
+/// do, and these tests are what says so.
 void main() {
   late AppDatabase db;
   late StatementCounter counter;
@@ -117,12 +117,34 @@ void main() {
 
     expect(await page(sortField: FolderSortField.label, offset: 0), [
       'f-a',
-      // The two that tie on name, in id order — the tiebreak the other folder
-      // sorts do not have.
+      // The two that tie on name, in id order.
       'f-b',
       'f-c',
       'f-z',
     ]);
+  });
+
+  // Two devices creating a subfolder in the same parent both compute
+  // `max(position) + 1`, and the position syncs verbatim; `created_at` is
+  // stored to the second. Without `id` the tie falls to insertion order,
+  // which differs per device, and so would the list and every later drag.
+  test('every folder sort lists ties in id order, whatever the insertion '
+      'order (R71)', () async {
+    await seedLabelledFolders({
+      'f-c': (ItemLabel.none, 'Block'),
+      'f-a': (ItemLabel.none, 'Block'),
+      'f-b': (ItemLabel.none, 'Block'),
+    });
+
+    for (final field in FolderSortField.values) {
+      for (final ascending in [true, false]) {
+        expect(
+          await page(sortField: field, offset: 0, ascending: ascending),
+          ['f-a', 'f-b', 'f-c'],
+          reason: '$field, ascending: $ascending',
+        );
+      }
+    }
   });
 
   test(

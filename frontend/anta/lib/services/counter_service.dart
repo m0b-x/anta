@@ -599,17 +599,32 @@ class CounterService {
   /// pending changes and was awaiting its transaction would otherwise write
   /// them after the restore's `deleteAll` and inserts, resurrecting a value
   /// row the backup never carried (A1b review R25).
-  Future<void> importData(Map<String, dynamic> data) async {
-    await _serialized(() => _importData(data));
+  ///
+  /// [noteIdMap] maps an archived note id to the id its restored copy got: a
+  /// restore re-ids every note, so a per-note value filed under the archived
+  /// id would hang under a note that exists nowhere. An id missing from the
+  /// map keeps its archived id, as the bar assignments do; the global value's
+  /// empty note id is never translated.
+  Future<void> importData(
+    Map<String, dynamic> data, {
+    Map<String, String> noteIdMap = const {},
+  }) async {
+    await _serialized(() => _importData(data, noteIdMap));
     _changes.add(null);
   }
 
-  Future<void> _importData(Map<String, dynamic> data) async {
+  Future<void> _importData(
+    Map<String, dynamic> data,
+    Map<String, String> noteIdMap,
+  ) async {
     await _dao.deleteAll();
     _noteValuesCache.clear();
     _dirtyGlobalValues.clear();
     _dirtyNoteValues.clear();
     _flushTimer?.cancel();
+
+    String restoredNoteId(String archived) =>
+        archived.isEmpty ? archived : noteIdMap[archived] ?? archived;
 
     final extrasRaw = data['noteValueExtras'] as String?;
     final valueOwners = <String, String>{};
@@ -620,7 +635,12 @@ class CounterService {
           final ownerId = JsonKeys.ownerIdOf(
             entry.value as Map<String, dynamic>,
           );
-          if (ownerId != null) valueOwners[entry.key] = ownerId;
+          if (ownerId == null) continue;
+          final parts = entry.key.split('::');
+          final key = parts.length == 2
+              ? '${parts[0]}::${restoredNoteId(parts[1])}'
+              : entry.key;
+          valueOwners[key] = ownerId;
         }
       } catch (e) {
         debugPrint('[CounterService] Import value owners error: $e');
@@ -670,7 +690,7 @@ class CounterService {
         final Map<String, dynamic> decoded = jsonDecode(noteValuesRaw);
         final futures = <Future>[];
         for (final noteEntry in decoded.entries) {
-          final noteId = noteEntry.key;
+          final noteId = restoredNoteId(noteEntry.key);
           final values = noteEntry.value as Map<String, dynamic>;
           for (final valEntry in values.entries) {
             futures.add(
@@ -697,7 +717,7 @@ class CounterService {
           final parts = entry.key.split('::');
           if (parts.length != 2) continue;
           final counterId = parts[0];
-          final noteId = parts[1];
+          final noteId = restoredNoteId(parts[1]);
           final extra = entry.value as Map<String, dynamic>;
           final isPinned = extra['isPinned'] as bool? ?? false;
           final position = extra['position'] as int? ?? 0;

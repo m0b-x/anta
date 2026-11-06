@@ -111,29 +111,37 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
 
     final orderMode = ascending ? OrderingMode.asc : OrderingMode.desc;
 
+    // Every sort ends on `id`, as the note sorts do. Two devices creating a
+    // subfolder in one parent both take `max(position) + 1` and the position
+    // syncs verbatim, and `created_at` is stored to the second, so ties are
+    // ordinary; without `id` they fall to insertion order, which differs per
+    // device — and so would the list, a page boundary and every later drag
+    // (R71).
     switch (sortField) {
       case FolderSortField.name:
         query.orderBy([
           (f) => OrderingTerm(expression: f.name, mode: orderMode),
+          (f) => OrderingTerm(expression: f.id),
         ]);
       case FolderSortField.createdAt:
         query.orderBy([
           (f) => OrderingTerm(expression: f.createdAt, mode: orderMode),
+          (f) => OrderingTerm(expression: f.id),
         ]);
       case FolderSortField.updatedAt:
         query.orderBy([
           (f) => OrderingTerm(expression: f.updatedAt, mode: orderMode),
+          (f) => OrderingTerm(expression: f.id),
         ]);
       case FolderSortField.position:
         query.orderBy([
           (f) => OrderingTerm(expression: f.position, mode: orderMode),
+          (f) => OrderingTerm(expression: f.id),
         ]);
       // Labelled folders first, in palette order, unlabelled last — the note
       // sort's rule, with `name` where the notes use `updated_at DESC`. There
       // is no descending variant, so `ascending` is deliberately not consulted
-      // here, and this is the one folder sort that ends on `id`: the label
-      // runs are wide enough that a page boundary would otherwise fall inside
-      // a run of ties and re-serve or skip a row.
+      // here.
       case FolderSortField.label:
         query.orderBy([
           (f) => OrderingTerm(expression: _unlabelledLast),

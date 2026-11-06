@@ -2681,6 +2681,28 @@ void main() {
       await teardownPage(tester);
     });
 
+    testWidgets("the menu never names a folder that is a tombstone", (
+      tester,
+    ) async {
+      // A tombstone a pull brought without its data is stored under its id
+      // as its name; the row reads the generic label instead.
+      await tester.runAsync(
+        () => db.customStatement(
+          'UPDATE folders SET name = id, is_deleted = 1 WHERE id = ?',
+          [menuFolder.id],
+        ),
+      );
+      await pushEditorOverFolder(tester);
+      await openMenu(tester);
+
+      expect(find.text(menuFolder.id), findsNothing);
+      expect(find.text(AppLocalizationsEn().folders), findsOneWidget);
+
+      await tester.tapAt(const Offset(400, 8));
+      await tester.pumpAndSettle();
+      await teardownPage(tester);
+    });
+
     PopupMenuItem labelItem(WidgetTester tester) =>
         tester.widget(
               find.ancestor(
