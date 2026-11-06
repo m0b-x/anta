@@ -129,22 +129,29 @@ class FirebaseAuthService implements AuthService {
   /// Maps every remote failure onto an [AuthError], the same way
   /// `FirestorePairingGateway._guard` shields the layers above from
   /// `FirebaseException` codes.
+  ///
+  /// The cause is logged before it is mapped: an `unknown` reads only "Sign-in
+  /// failed", and the first sign-in against the emulator suite failed with
+  /// nothing in any log to say why.
   Future<T> _guard<T>(Future<T> Function() action) async {
     try {
       return await action();
     } on AuthException {
       rethrow;
     } on FirebaseAuthException catch (e) {
+      debugPrint('[FirebaseAuthService] ${e.code}: ${e.message}');
       throw AuthException(
         _networkCode(e.code) ? AuthError.offline : AuthError.unknown,
       );
     } on GoogleSignInException catch (e) {
+      debugPrint('[FirebaseAuthService] Google ${e.code.name}: $e');
       throw AuthException(
         _networkCode(e.code.name) ? AuthError.offline : AuthError.unknown,
       );
     } on UnsupportedError {
       throw const AuthException(AuthError.notSupported);
-    } catch (_) {
+    } catch (e) {
+      debugPrint('[FirebaseAuthService] sign-in failed: $e');
       throw const AuthException(AuthError.unknown);
     }
   }

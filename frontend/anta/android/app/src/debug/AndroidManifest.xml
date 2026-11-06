@@ -4,4 +4,7 @@
          to allow setting breakpoints, to provide hot reload, etc.
     -->
     <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- Cleartext to the Firebase emulator suite on the host, debug builds
+         only; see res/xml/network_security_config_debug.xml. -->
+    <application android:networkSecurityConfig="@xml/network_security_config_debug"/>
 </manifest>
