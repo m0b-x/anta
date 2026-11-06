@@ -1,11 +1,15 @@
 # Cloud Sync Phase 02 — Own Space on N Devices
 
-**Status: BUILT 2026-11-06 — S1–S6 on `main` (S4b-2 and S6 in
-`4632602a` … `ed966d7a`, every slice gated and reviewed, the second review
-round's fixes gated and device-passed but not re-reviewed); left only what
-the owner does (§7): the rules and indexes deploy, then the real check on
-the phone. Planned 2026-10-24 (Fable 5.1); decisions D1–D8 all A, taken
-2026-10-28 on the owner's decision sheet (§2).** The transport phase
+**Status: BUILT 2026-11-06, FINAL REVIEW 2026-11-06 — S1–S6 on `main`
+(S4b-2 and S6 in `4632602a` … `ed966d7a`, every slice gated and reviewed);
+the final review (§4 after S6: five agents on snapshots of `caa60b05`, GO
+WITH CONDITIONS, no blocker — one H on the order of the first two binds,
+F-1, six M: F-2, F-3, X-1, U-1, U-2, U-3, plus X-3 on a rename and three
+design items) awaits the owner's word on its fix pass; then what only the
+owner does (§7, with the pre-bind checklist): the rules and indexes deploy,
+then the real check on the phone. Planned 2026-10-24 (Fable 5.1);
+decisions D1–D8 all A, taken 2026-10-28 on the owner's decision sheet
+(§2).** The transport phase
 of `docs/cloud-sync-roadmap.md`: one Google account, every device shows the
 same folders, notes, calendar, counters and alert definitions. Builds on the
 readiness phase (`docs/cloud-sync-readiness-roadmap.md`, DONE 2026-10-23,
@@ -13,8 +17,9 @@ all in `39b0c7d`): the eighteen CRDT-shaped tables with `owner_id`, the
 outbox, the persisted clock, the tombstoning wipes, the unbinding restore
 and the engine seams (`SyncGateway` + `FakeSyncGateway`, `SyncStatus`,
 `SyncBindingService`, `SyncSuspension`, `requeueAll`). Its decisions D1–D19
-stand; where this record refines one it says so. No migration is expected
-(schema stays v43). The August version of this file (calendar sync,
+stand; where this record refines one it says so. No migration of this
+phase's own (the analytics run's v44 and v45 arrived beside it in November;
+the schema the engines report is 45). The August version of this file (calendar sync,
 ownership, consent) described what is now Phase 03; its one still-live
 point — the resurrection trap of a restore — became readiness D9/R4.
 
@@ -621,8 +626,9 @@ Owner-only, shape-checked, no deletes; `pairs`/`invites` untouched.
 `pushedAt == request.time` so a client cannot backdate a row below every
 puller's cursor. No `hlc` ordering clause: enforcing last-writer-wins in the
 rules would fail a whole batch for one stale row in the race window §3.4
-repairs client-side. Full text in S1. Deploy:
-`firebase deploy --only firestore:rules --project alexs-note-tracking-app`
+repairs client-side. Full text in S1. Deploy, rules and indexes in one
+command (the 18 `data` field exemptions ride with it; final review W-3):
+`firebase deploy --only firestore:rules,firestore:indexes --project alexs-note-tracking-app`
 from `frontend/anta` after adding `"firestore": {"rules": "firestore.rules",
 "indexes": "firestore.indexes.json"}` to the gitignored `firebase.json`
 (today it holds only the `flutter` block). No composite index: the pull
@@ -2366,6 +2372,327 @@ session outlives a reinstall with another `ANTA_QA_ACCOUNT` (sign out
 first); `firebase_firestore` logs a `MissingPluginException` for
 `cancel` on a transaction stream at teardown.
 
+**Final review (2026-11-06; HEAD `caa60b05`; five agents in parallel, each
+probing only in its own `git archive` snapshot — `fable-max` on the owner's
+path end to end (F), three `reviewer`s on the four fix commits the second
+round left un-reviewed (X: `7c3735b3`, `5e9ad554`, `b6a680cf`,
+`ed966d7a`), on the Sync section, the picker and `SyncBloc` as a state
+machine (U) and on the wire, the rules and the v44/v45 migrations with the
+`calendar_category_profiles` table the analytics run added after the last
+sync review (W), and one `design-reviewer` on the section after C (D); the
+owner's word relaxed the one-reviewer rule. The whole suite was not re-run
+(13,743 at `86ac800e`); the agents ran the sync, bloc, widget, guard and
+rules suites in their snapshots, all green, `dart analyze lib` clean.**
+**Verdict: GO WITH CONDITIONS — no blocker.** The phone's own data is not
+at risk on its first bind: its first pull meets an empty space, so no local
+row changes (only `owner_id`, the outbox, the binding keys and
+`sync_metadata` are written), and the first upload is idempotent across
+kills and retries. Every data-loss path found is on the **second** device's
+bind and is decided by the order of the two binds and by the picker's
+choice, which §7's checklist controls. Rehearsed by W on a copy of the
+owner's export: v42→v45 in 64 ms, `user_version` 45, every table's
+live/tombstone count equal to §11 (`calendar_category_profiles` 0/0, skips
+0/0, `sync_outbox` empty, `last_hlc` seeded, no floor); the bind queued
+312 rows, one `pushBatch` of 312 in 108 ms, an empty second database pulled
+312 in 174 ms, 39 of 39 note texts equal, categories and counter values
+equal, `content_chunks` 14/0 on the puller by design; `rules_probe.ps1`
+20/20 and `test/firestore/rules_test.dart` 55/55 against the emulator;
+`firestore.indexes.json` holds the 18 `data` exemptions. Dispositions
+below are the lead's recommendations; the owner's word decides the fix
+pass. **Recommended before the bind:** F-2 (the seed stamp), X-1 (the
+heal's unbind), X-3 (the rename's registry write), U-1 and U-2 (the bind
+flow across a sign-out and on the first frame), F-1's caption, F-4's
+wording, W-3's one command (its docs half done with this review). The rest
+is a fix pass after the phone check, or deferred.
+
+*F — the owner's path (four probes on `sync_pair.dart`, all passing as
+predicted):* **F-1 (H, confirmed, probes P1/P10)** the order of the first
+two binds decides whose data survives and nothing in the UI says so: a
+never-bound database floors at bind (`sync_binding_service.dart:306`,
+`writeBindFloor` when none exists), so every row it holds is ≤ `bind_floor`,
+under which `CrdtMerge.mergeRemoteRow` lets any remote twin win, older
+included (`crdt_merge.dart:66-69`), retires the local outbox entry and
+files no conflict copy (`note_dao.dart:988-990`). The owner's order (the
+phone first and drained, the emulator holding an older copy with the same
+ids) is right for the copy, but every edit or delete made on the copy
+after it was taken vanishes silently (P1: B's newer edit reverts, B's
+newer delete is undone, no conflict, converged); the reverse order loses
+the phone's newer edits and deletes on both devices with its outbox entries
+retired (P10) — only the export recovers. Readiness D15 by design; the
+picker's rows ("Merge this database into …", "Sync with …") carry no
+caption since DR5 → the checklist's order, and a caption or confirm on
+Merge and Sync with: "rows this database and the cloud both hold take the
+cloud's version". **F-2 (M, confirmed, P9; the right order pinned by
+P9b)** the floor protects a second device only against rows already in the
+space at its first pull: if the phone is bound but its upload has not
+landed when the emulator binds, the emulator's empty complete pull clears
+`bind_merge_pending` (`sync_puller.dart:132-135`) and the two devices'
+rows then meet by plain LWW — the emulator's seeded built-in categories
+(stamped "now" at its first open, `CategoryService._seedBuiltIns`) beat the
+phone's categories (one migration-time stamp, `database_migrations.dart:1878`):
+the export's five hidden built-ins (`competition`, `measurement`,
+`mobility`, `other`, `rest`) un-hide on both devices and renamed or
+recoloured built-ins revert → seed built-ins with an epoch-floor stamp so a
+seed loses every LWW to a real edit; until then, the checklist's order.
+**F-3 (M, plausible)** a JSON restore on a bound device is not a rollback
+of the cloud: `BackupService._importFromJson` unbinds, appends note and
+folder copies under fresh ids, wipes and re-inserts the calendar under the
+archive's ids and writes the floor after (`:380-381`); the next Merge
+yields the calendar back to the space and pushes the fresh-id copies beside
+the originals on every device → the checklist's fallback (a `.db` import as
+a new database + Upload as a new space; Download on the other device), one
+line for §8. **F-4 (L, confirmed)** `syncFailedPermission` ("check you're
+signed in to the right account") is exactly what a tap before the rules
+deploy shows (`listSpaces` → `permission-denied`,
+`sync_space_service.dart:413-417`); nothing is written and the next tap
+proceeds → add "…or sync isn't set up in the cloud yet". **F-5 (L,
+confirmed; = W-3)** the deploy command disagreed across the docs (rules only
+in §3.7, the analytics roadmap and `firestore.rules:8`; rules and indexes
+in the reference); `firebase.json` holds only the `flutter` block and there
+is no `.firebaserc`, so the `firestore` block and `--project` are both
+needed; a rules-only deploy breaks nothing (the pull's `orderBy` pair and
+`listSpaces` use automatic single-field indexes) and costs the 18 `data`
+exemptions → one command everywhere (the docs with this review; the rules
+header comment with the fix pass). **F-6 (L, D8 by design)** counter taps
+on both devices between two syncs do not add up. **F-7 (L, known)** a kill
+between `createSpace` and `bind` leaves an empty "ANTA" space; the next tap
+shows the picker — Merge is the right choice there, Upload would make a
+second "ANTA" nothing can delete before Phase 04. **F-8 (L, by design)**
+`databaseHoldsData()` counts any live row outside the built-ins
+(`sync_space_service.dart:182-194`): an emulator with leftover data gets
+the picker, and Merge uploads that data and its tombstones into the space.
+**F-9 (L)** two accounts on the two devices give two silent "ANTA" spaces,
+"Up to date" on both. **F-10 (L)** a stale quick-boot snapshot mints stamps
+in the past until the clock corrects → cold boot. Clean on this path: the
+first batch (312 rows + the space document = 313 writes in one write-only
+transaction, under 500), kills mid-drain and mid-pull, the empty first pull
+storing no cursor (`sync_puller.dart:229-230`), `bind_merge_pending`
+clearing on an empty complete pull, tombstones for never-seen notes
+(inserted with no chunks and no FTS row, `note_dao.dart:981-984`), the
+read-back, loops (a `keptLocal` re-queue converges in one round), the
+heal, mismatch, sign-out, quota, `appOutdated`, Stop → rebind; the export
+holds no live note under its tombstoned folder, no event on a deleted
+category, built-ins at their seed names.
+
+*X — the four fix commits (every ledger claim found in the code; 25
+revert probes, 23 red, two vacuous; the caller table and the probe table in
+the review's report):* **X-1 (M, plausible)** the heal's unbind
+(`sync_binding_service.dart:165` → `unbind()` `:321-327`) is the full Stop
+path — it clears the outbox and writes the floor at the current clock — so
+the recorded stale-claim case (another existing database's stale claim
+unbinds a really bound one) also loses that database's unpushed edits: at
+its next Merge every local row is ≤ the new floor and yields silently → the
+heal's unbind clears the binding and the claim but keeps the outbox and
+writes no floor. **X-2 (L)** a heal that unbinds is a `debugPrint`
+(`:161-165`) and the Sync section reads "not syncing" with no reason → a
+one-shot note the section shows once. **X-3 (L–M, plausible, every user,
+bound or not)** B1 moved `spaceRegistry.rename` between the `.db` rename
+and the `-wal`/`-shm` renames (`database_manager.dart:266`) with no catch
+(`SyncSpaceRegistry._write` throws; with no claims it still calls
+`_prefs.remove`): a failing `SharedPreferences` write splits an open
+database from its WAL — Android lets the active database be renamed and
+the WAL may hold un-checkpointed pages → try/catch and log the registry
+rename, never between the sidecar moves. **X-4 (L)** the marker recovery
+(`database_manager.dart:88-103`) trusts the marker: a bind that commits
+but whose `clearDownloadInFlight` fails (logged only,
+`sync_space_service.dart:289-295`) puts the user back on the old database
+at the next launch after a session's work on the new one; a `from` that no
+longer exists is created empty → switch back only when the active name is
+`marker.to` and `from` exists. **X-5 (L)** the claim follows the active
+name, not the opened database's (`sync_binding_service.dart:113-118`): a
+bind or unbind between a Databases-page switch and the restart writes the
+claim under the other name; low because the restart prompt cannot be
+dismissed and the bloc stops the engine first → answer the name
+`AppDatabase` opened, updated by a rename. **X-6 (L)**
+`SettingsService._open`'s `mayRetry: false` pass publishes without
+re-checking the generation (`settings_service.dart:84-95`): a second switch
+during the retry registers a service over the closing database after its
+reset fired → throw or loop. **X-7 (L)** `DatabaseManager`'s `_instance ??=
+_create()` memoizes a failed open forever (no generation retry despite the
+round-2 wording; not worse than before) → clear on failure. **X-8 (L)**
+`deleteAllData` (`database.dart:253`) sends the switching notice without
+setting `_switchUnannounced`; the static flag is never reset between tests
+→ set it there, a `@visibleForTesting` reset. **X-9 (L)** a step waits on
+`engine.stop()` → `whenIdle` up to the 60 s gateway timeout per in-flight
+call (bounded; U-3's bounded half). **X-10 (L, confirmed)** the binding
+check on an all-skipped page (`sync_puller.dart:231-234`) is unpinned —
+removed, `test/services/sync` stays green (+442); `_checkStillBound`
+reports `unbound` for a rebind to another space too → a cursor-only page
+meeting a rebind. **X-11 (L, confirmed)** the `DatabaseManager` publish-once
+is effectively unpinned (reverted, the widget suite's one red was load; the
+`SettingsService` half is well pinned, −37 with 56
+`LateInitializationError`s) → two concurrent `getInstance()` calls reading
+the active name. **X-12 (L)** `_guard`'s new lines print in release
+(`debugPrint` is never swapped) and `GoogleSignInException.toString()` can
+name an account → `kDebugMode`, or `e.code` only. **X-13 (L)** `readSpace
+== null` throws `permissionDenied` (`sync_space_service.dart:255-257`), so
+a space deleted from the cloud reads as no access. **X-14 (L)** a notes
+page halted by `_checkStillBound` skips `afterPage`, so `_pageStrings`
+stays until the next notes page (as on any throwing page). **X-15 (L)**
+`updateFolderPosition` has no caller in `lib`. **X-16 (info)**
+`alarm_page_test.dart` keeps what its case pinned (the lower ring ending
+elsewhere closes its own page, the upper keeps ringing) and never pinned
+"Stop stops two rings"; a real controller's Stop through the scheduler is
+the recorded alarm item. Checked clean: the heal under a restore (skipped
+under the suspension; `BackupService:419-420` unbinds inside it with the
+generation unchanged), the heal on launch for unbound users (one read), a
+normal launch and a Databases-page switch announce once, the puller's halt
+is the page transaction's first statement (no merge, cursor, clock advance
+or registry claim; `bind_merge_pending` untouched; `_Halted` rethrown out
+of the run), live-folder writes unchanged (`stampLocal` defaults to
+upsert; the drag reorder and the labels already skipped tombstones in
+SQL), `folderPathSegments` unchanged without a tombstone above a live
+segment, `ed966d7a` touches `src/debug` only (the main manifest's last
+change `cffc5c0e`, no `networkSecurityConfig`; a `--profile` run against
+the suite would be refused cleartext), the background isolate never
+touches `DatabaseManager`.
+
+*U — the Sync section, the picker and the bloc as a state machine (the
+five suites +385 green; `flutter gen-l10n` clean, `untranslated.txt` `{}`,
+the generated files equal to the tree's; the four C pins red under their
+reverts; the state table in the review's report):* **U-1 (M, confirmed by
+a bloc probe; H if BA-M1's stale singletons can write)** the Account row
+stays enabled during a step: a sign-out (or an account change from the
+auth stream) while a Download, Merge, Upload or Stop runs makes
+`_emitAccount` (`sync_bloc.dart:500-513`) show the new account with an
+idle flow, the `BlocSelector` releases the `PopScope`
+(`sync_settings_page.dart:88-92`, `:286-299`), `_settle` sees another
+account and emits nothing — the download finishes but
+`SyncBindIdle(switchedToDatabase:)` never arrives, no restart prompt, the
+page can be left; BA-M1 was accepted only because both held → disable
+sign-in and sign-out while `flow.isBusy`, defer `SignOutRequested` while
+`_stepInFlight`, settle a download's `switchedToDatabase` whatever the
+account (or hold the page on the bloc's in-flight flag). **U-2 (M,
+confirmed at the bloc)** `_emitAccount` emits the account with
+`SyncStatus.empty` before the status read; the page stores it as
+`_lastStatus` (`sync_settings_page.dart:133-139`, `:403-406`), so C's fix
+covers only the `SyncInitial`/`SyncSigningIn`/`SyncFailure` frames and a
+bound database draws the enabled "Sync this database" row until the read
+lands — for good when the 3 s read times out, where a tap answers "already
+syncs — stop syncing it first" with no Stop row → the placeholder never
+overwrites the last status (the bloc carries the database half of the
+status across accounts, or marks it unknown); C's pin drives a fake bloc
+that never emits this state. **U-3 (M, plausible)** a step has no overall
+time limit and the page is held for its length: `listSpaces` + `readSpace`
++ `createSpace` at 60 s each (`firestore_sync_gateway.dart:404`) plus the
+10 s read ≈ 3 min on a slow network, and `before?.stop()` → `whenIdle` (a
+run's apply hooks), `_resolveEngine()` and the download's switch are
+unbounded → a limit on the engine stop and on the step, settled as failed.
+**U-4 (L, confirmed by C's own pin)** a bound database after a failed
+sign-in (`SyncFailure`) shows Sync now and Stop disabled with no reason
+(`sync_settings_page.dart:509-519`; the test "Sync now and Stop wait for an
+answer" asserts it); D5 promises Stop whatever the account → enable Stop on
+the last known binding. **U-5 (L)** after an account change mid-step the
+new account's rows draw enabled with no spinner and every tap is ignored
+until the hidden step ends (`sync_bloc.dart:35`, `:257-262`, `:328`) →
+expose the in-flight flag in the state (closes U-1's hold too). **U-6 (L,
+confirmed)** the page imports `sync_gateway.dart` (`SyncGatewayFailure`)
+and `sync_status.dart`, the sheet `sync_gateway.dart` (`SyncSpaceInfo`) —
+value types, against the letter of "the page talks to `SyncBloc` only" →
+re-export from `sync_state.dart` as `SyncBindFailure` is. **U-7 (L,
+confirmed)** no saved flow drives `sharing-sync-status`, `-now`, `-stop`,
+`-stop-confirm`, `-restart` or any `sync-picker*` id (only
+`settings/09_hub_sharing.txt:16`); S6 ran ad-hoc verbs → save S6's step
+list as a flow suite. **U-8 (L)** the hub's keywords are the three section
+names (`settings_hub_page.dart:364-368`); "merge", "download", "stop",
+"devices" miss → `_keywords(l10n.syncKeywords)`. **U-9 (L)** the German
+restart prompt says "Sie" among "du" strings (shared with the Databases
+page). **U-10 (L)** `syncThisDatabaseUnavailable` ("isn't available in this
+version") is also what a failed Firebase init shows. **U-11 (info)** the
+`FormCheckRow` change reaches `category_goal_sheet.dart:327` (a disabled
+row's reason now at full strength and unclamped — fits the intent; D for
+the look). Checked clean: `pauseOver` used alike by the engine, the bloc
+and the page (pause → run → failure → pending → waiting → up to date);
+double taps guarded synchronously; a stale picker choice ignored; ✕, the
+barrier and system back send `BindFlowDismissed`; the restart prompt cannot
+be dismissed and carries `sharing-sync-restart`; the stop confirm says the
+cloud copy stays in three languages; one snackbar per failure; the ids
+match the record; the pairing files unchanged since `b2f04731`; the page's
+one Pairing hunk is DR6's `_disabledTile`; the browser and editor hunks are
+the §3.9 rule and the P slice's folder fixes, no sync chrome.
+
+*W — the wire, the rules, the migrations (nothing at H or M; 311 guard
+tests green across 16 files; the profiles codec covers every column, a
+tombstone, a required key, a mismatched id and export parity; the profiles
+merge suite runs the shared contract; the drain orders
+`calendar_categories` before `calendar_category_profiles` within a stamp,
+and a profile arriving first is stored as an orphan the category then makes
+whole; a category delete tombstones its profiles through `CrdtWrite` with
+an outbox entry each; the v45 sweep writes `is_deleted`, `deleted_at`,
+`updated_at`, `version + 1`, the hlc and the device id, seeds the clock
+from `last_hlc` and queues on bound and unbound databases alike; the
+engine and the space service report `DatabaseSchema.currentVersion` = 45):*
+**W-1 (L)** the v45 sweep's pull side — a v44 device bound to a space still
+at schema 44 (no v45 push yet) pushes a live skip on an event that later
+becomes a one-off, or a fresh v45 install downloads one, and nothing sweeps
+on pull; `schema >= stored` and `appOutdated` close it only after the first
+v45 push; unreachable at the owner's bind (skips 0/0, both devices v45) →
+accept, or refuse a space below this build's schema until it is raised.
+**W-2 (L)** backup v8 shipped with v44 and v45 kept it, so a v8 archive
+from a v44 build carries converted-series leftover skips a v45 restore
+keeps (`backup_service.dart`, `< 8`) → v9 at v45, or accept as a dev-only
+window. **W-3 (L, confirmed; = F-5)** the deploy command. **W-4 (L,
+confirmed)** `sync_pair.dart:33-34`'s `syncSchema = 43` is stale (used
+relatively, nothing masked; no test pins that `SyncEngine.getInstance`
+passes `DatabaseSchema.currentVersion`) → `DatabaseSchema.currentVersion`.
+**W-5 (L)** neither emulator suite writes a profiles document; membership
+is pinned textually by `firestore_rules_tables_test` → one probe case over
+the newest table. **W-6 (L, doc)** "a column added after v43 decodes to its
+default" (§3.4, the reference) should read "a column added to a table
+after that table's first synced schema" — the profiles table is wholly
+after v43 yet strict, rightly (B parked four planted malformed envelopes
+and merged a minimal live one and a data-less tombstone with defaults).
+**W-7 (L, beside the diff)** `FolderDao.importFolders`
+(`folder_dao.dart:292-294`) restores a subfolder whose parent is neither
+archived nor live under the dangling id (the notes got a root fallback in
+`3561409c`) → the same live check for folders. **W-8 (info)** two devices
+creating the first profile of one category keep both live until the next
+local save, serving the same active row; a concurrent clear against an
+edit ends live (R77).
+
+*D — the look after C (the spec checklist passes: one height across the 17
+bound states at en/de/ro × 1.0/1.3/2.0 × 360/412, Sync now and Stop still,
+one count per detail line, DR2/DR6 reasons at 8.88:1 light and 9.56:1
+dark, the picker one size while a space is picked, the title whole at
+de/ro 2.0, no captions, action rows, the ids present, targets ≥ 48 dp;
+`sync_section_test` +92):* **D-1 (2, confirmed)** the fixed height leaves
+the row half empty — 118 dp at en 1.0/360, 404 dp at de or ro 2.0/360 on
+a 780 dp screen — because the title slot and the details slot are each
+sized to their own tallest template, so the blank stacks in two places and
+the centred glyph lines up with the details, not the status
+(`sync_settings_page.dart:463-485`, `:529-546`, `:549-590`) → one slot for
+title and details so the blank falls under the last line,
+`titleAlignment: top`; DR11 (tall rows at 2.0) stays the owner's call.
+**D-2 (2, confirmed)** busy states and status changes are never announced:
+the spinner (`_RowBusyIndicator`, `:1041-1051`) has no `semanticsLabel`,
+nothing uses `liveRegion`; while checking or binding `sharing-sync` reads
+as an enabled non-button with its idle label (WCAG 2.2 SC 4.1.3) → a busy
+label or a "Checking…" value, the pauses and the bind/stop results
+announced politely. **D-3 (2, confirmed)** `sync_section_test.dart` has no
+`meetsGuideline` matcher (the review's own 84 passes over 12 page states,
+the dialog and 6 picker states) → add the three. **D-4 (1–2, confirmed;
+known)** a failed stop grows the Stop row (48→62 dp en 1.0, 144→288 dp de
+2.0) and pushes Pairing → a caption slot that always exists, or the failure
+in the snackbar only. **D-5 (1, confirmed)** the unbound row's height
+differs between its states (80 dp signed in/checking/binding against 62 dp
+signed out/unavailable at en 1.0) and a failure grows it 36 dp at de 2.0
+right after the tap. **D-6 (1, confirmed)** a sign-out moves Sync now and
+Stop 40 dp at ro 2.0/412 through the Account row above. **D-7 (1)** the
+empty database's "Sync with" rows take the `FormPickerRow` shape (about
+76 dp, the caption a line below) while the list mode's check rows are
+62 dp. **D-8 (1)** the pre-selected space is the first free one in list
+order (`sync_space_picker_sheet.dart:96-104`) — right because the service
+sorts most recently written first (S4b-2a). **D-9 (1)** the snackbar's ✕ at
+48×16 dp and its text at 1.4:1 were captured mid-entrance → device check.
+**D-10 (0, exempt)** disabled picker labels at 2.35:1. **D-11 (0)** Sync
+now dims and returns on every run. **D-12 (not verified)** the pressed
+ripple did not show in the layer capture → device. Device-only for the
+qa-runner: TalkBack order and phrasing on the page and in the picker (DR9),
+what is spoken during a run, a bind and a stop (D-2), the ripple (D-12),
+the settled snackbar (D-9), Android's non-linear 2.0 in de/ro on the 360
+AVD, the restart prompt after a real download and the insets under the
+picker's last row, a sign-out with the page open (D-6).
+
 ### S7 — The push relay (only on D7 B)
 
 `docs/cloud-sync-connections-design.md` §Push, narrowed: the Worker
@@ -2489,15 +2816,89 @@ S6 follow it unchanged.
    pairing feature uses; the deploy adds matches and changes none.
 3. Nothing in the Firebase console is expected: Google Sign-In and
    Firestore exist since Phase 00/01; the CLI on this machine is logged in.
-4. The backup is done: the export of 2026-10-24 is the fallback for the
-   phone's v43 migration and the first bind.
+4. The backup: the export of 2026-10-24 is the fallback for the phone's
+   v42→v45 migration and the first bind; the checklist below asks for a
+   fresh one first — it is the only recovery if the two binds run in the
+   wrong order (final review F-1).
 5. The real check after S6: install the build on the phone, Sharing →
    "Sync this database"; on the Pixel 9 Pro emulator sign in with the same
    Google account (the owner types the credentials), Sharing → "Sync this
-   database" → the picker → merge; then edit on each and watch the other.
+   database" → the picker → merge; then edit on each and watch the other —
+   in the order and with the readings of the checklist below.
 6. Only on D7 B: a free Cloudflare account and one `wrangler login`.
 7. Commits are the lead's for this phase (owner's word 2026-10-24): one per
    slice after its gate, short subject, no ledger.
+
+**The pre-bind checklist (final review 2026-11-06, F). The order of steps
+3–5 is the one load-bearing instruction: a never-bound database yields
+every row it shares with the space, and a second device whose first pull
+meets an empty space loses even that protection (§4 F-1, F-2).**
+
+0. A fresh export of the phone (Settings → Backup); keep
+   `C:\Users\mobx3\Downloads\gym_notes_anta.db` too.
+1. Deploy, from `frontend/anta`: add `"firestore": {"rules":
+   "firestore.rules", "indexes": "firestore.indexes.json"}` beside the
+   `flutter` block of the gitignored `firebase.json` (there is no
+   `.firebaserc`, so `--project` stays), then
+   `firebase deploy --only firestore:rules,firestore:indexes --project alexs-note-tracking-app`.
+   If the CLI offers to delete indexes or field overrides that exist live
+   but not in the file, answer No unless sure (the `pairs` composite index
+   is in the file, so it should not be offered). Verify in the console:
+   Rules shows `match /users/{owner}/spaces/{spaceId}`; Indexes → Single
+   field lists the `data` exemptions (cost only, not correctness).
+2. Install the build on the phone and open it. The first open migrates
+   v42→v45 (rehearsed on the export: 64 ms, every count kept). Check the
+   data before anything else — 2 folders ("2026" with 7 notes, "General"
+   with 4), 22 categories with the five hidden ones still hidden, 2
+   counters, the calendar. Anything off: stop here; nothing has reached
+   the cloud.
+3. Sign in (Settings → Sync & sharing → Account), then "Sync this
+   database". Expected: no picker; the row becomes the status row —
+   "Waiting for the first sync" → "Sending n changes" → "Up to date" with
+   a time, no parked count, no failure line. "The cloud refused this —
+   check you're signed in to the right account" means the rules are not
+   deployed (F-4): redo step 1 and tap again. "You're offline": connect
+   and tap again. A picker means an earlier tap already created the space:
+   choose "Merge this database into "ANTA"" (not Upload — F-7). Verify in
+   the console: `users/<uid>/spaces/<id>` with `name: ANTA`, `schema: 45`,
+   a `touched` map, and the subcollections `notes` (39 = 11 live + 28
+   tombstones), `calendar_events` (76), `calendar_categories` (22),
+   `folders` (3), `counters` (2), `counter_values` (2), `vocabularies` (3),
+   `vocabulary_items` (47), `calendar_event_occurrences` (5),
+   `calendar_event_absences` (91), `calendar_event_alerts` (14),
+   `calendar_event_templates` (1), `calendar_filter_presets` (6),
+   `overview_views` (1) — 312 documents. "Sync now" once more: still "Up to
+   date".
+4. Do not touch the emulator until step 3 reads "Up to date" and the
+   console shows those subcollections. If the phone's upload fails, fix it
+   on the phone first.
+5. The Pixel 9 Pro: cold boot (`-no-snapshot-load`) and let the clock
+   settle (F-10); install the same build; if its database holds anything
+   you do not want in the space, clear it first so it binds in one tap
+   (F-8); sign in with the same Google account (F-9); "Sync this
+   database". Expected with an empty database: binds at once (or one "Sync
+   with "ANTA"" row) → "Downloading n so far" → "Up to date". If the picker
+   appears because the emulator holds data: prefer "Download "ANTA" into a
+   new database" (the Databases page's restart prompt; restart; the active
+   database is "ANTA"); choose Merge only to upload that data too, knowing
+   every row both hold takes the cloud's version, edits made on that copy
+   since it was taken included (F-1). Verify the same folders, notes,
+   categories (hidden ones hidden), counters and events; the alert
+   definitions arrive and ring on the emulator too (readiness D11).
+6. Edit on each and watch the other: seconds while both are open; a note
+   open on both before a sync gives one conflict copy on both (D3);
+   counters are last-writer-wins, not a sum (F-6); a folder deleted on one
+   while a note in it is edited on the other re-files the note under the
+   nearest live folder (the P fix pass).
+7. If the space ends up wrong, never restore a JSON backup over the bound
+   database (F-3): "Stop syncing this database" on every device (the cloud
+   copy stays until Phase 04); on the phone import the fresh `.db` export
+   as a new database (Settings → Databases), make it active, "Sync this
+   database" → the picker → "Upload this database as a new space"; on the
+   emulator "Sync this database" → the picker → Download the new space into
+   a new database — never Merge the old database into the new space, its
+   newer tombstones would delete the restored notes again. The old space
+   stays listed in pickers.
 
 ---
 

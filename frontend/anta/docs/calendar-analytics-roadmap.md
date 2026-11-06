@@ -908,8 +908,10 @@ tombstoned-id and NULL-vs-`''` DAO cases, the owner-id round trip). Ratified
 pauses `appOutdated` below the space's schema), and `firestore.rules` gained
 the collection: before a v44 build syncs from a phone, add `"firestore":
 {"rules": "firestore.rules", "indexes": "firestore.indexes.json"}` to the
-gitignored `firebase.json` and run `firebase deploy --only firestore:rules
---project alexs-note-tracking-app` from `frontend/anta`.
+gitignored `firebase.json` and run `firebase deploy --only
+firestore:rules,firestore:indexes --project alexs-note-tracking-app` from
+`frontend/anta` (rules and indexes in one command — the sync record's §7
+checklist is the full procedure).
 
 **Second review** (one `reviewer` on S0c and the first fix pass): thirteen
 items, none a data loss on a path the app runs today. Fixed in a second
