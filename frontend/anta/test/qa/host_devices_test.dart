@@ -224,7 +224,14 @@ void main() {
       );
       expect(device.productName, 'Anta Desktop');
       expect(device.bundlePath, endsWith('Anta Desktop.app'));
-      expect(device.executablePath, endsWith('Contents/MacOS/Anta Desktop'));
+      // The device joins with the host's separator, so the suite on Windows
+      // sees backslashes where the Mac sees slashes.
+      expect(
+        device.executablePath,
+        endsWith(
+          ['Contents', 'MacOS', 'Anta Desktop'].join(Platform.pathSeparator),
+        ),
+      );
     });
 
     test('locate falls back to the default product name', () {
