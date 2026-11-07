@@ -4598,6 +4598,12 @@ class AppLocalizationsRo extends AppLocalizations {
   String get signInFailed => 'Conectare eșuată';
 
   @override
+  String get authSignOutFailed => 'Nu s-a deconectat';
+
+  @override
+  String get authSignOutFailedRetry => 'Deconectare eșuată — încearcă din nou';
+
+  @override
   String get authErrorOffline =>
       'Fără conexiune. Verifică rețeaua și încearcă din nou.';
 
@@ -4648,11 +4654,15 @@ class AppLocalizationsRo extends AppLocalizations {
 
   @override
   String syncSending(int count) {
+    final intl.NumberFormat countNumberFormat =
+        intl.NumberFormat.decimalPattern(localeName);
+    final String countString = countNumberFormat.format(count);
+
     String _temp0 = intl.Intl.pluralLogic(
       count,
       locale: localeName,
-      other: 'Se trimit $count de modificări',
-      few: 'Se trimit $count modificări',
+      other: 'Se trimit $countString de modificări',
+      few: 'Se trimit $countString modificări',
       one: 'Se trimite o modificare',
       zero: 'Se trimit modificările',
     );
@@ -4664,11 +4674,15 @@ class AppLocalizationsRo extends AppLocalizations {
 
   @override
   String syncDownloading(int count) {
+    final intl.NumberFormat countNumberFormat =
+        intl.NumberFormat.decimalPattern(localeName);
+    final String countString = countNumberFormat.format(count);
+
     String _temp0 = intl.Intl.pluralLogic(
       count,
       locale: localeName,
-      other: 'Se descarcă — $count de elemente până acum',
-      few: 'Se descarcă — $count elemente până acum',
+      other: 'Se descarcă — $countString de elemente până acum',
+      few: 'Se descarcă — $countString elemente până acum',
       one: 'Se descarcă — un element până acum',
     );
     return '$_temp0';
@@ -4688,8 +4702,7 @@ class AppLocalizationsRo extends AppLocalizations {
   String get syncPausedSignedOut => 'În pauză — deconectat';
 
   @override
-  String get syncPausedOtherAccount =>
-      'În pauză — această bază de date se sincronizează cu alt cont';
+  String get syncPausedOtherAccount => 'În pauză — sincronizată cu alt cont';
 
   @override
   String get syncPausedAppOutdated =>
@@ -4709,24 +4722,48 @@ class AppLocalizationsRo extends AppLocalizations {
 
   @override
   String syncPendingCount(int count) {
+    final intl.NumberFormat countNumberFormat =
+        intl.NumberFormat.decimalPattern(localeName);
+    final String countString = countNumberFormat.format(count);
+
     String _temp0 = intl.Intl.pluralLogic(
       count,
       locale: localeName,
-      other: '$count de modificări în așteptare',
-      few: '$count modificări în așteptare',
+      other: '$countString de modificări în așteptare',
+      few: '$countString modificări în așteptare',
       one: 'o modificare în așteptare',
     );
     return '$_temp0';
   }
 
   @override
-  String syncParkedCount(int count) {
+  String syncDetailsWaiting(int count) {
+    final intl.NumberFormat countNumberFormat =
+        intl.NumberFormat.decimalPattern(localeName);
+    final String countString = countNumberFormat.format(count);
+
     String _temp0 = intl.Intl.pluralLogic(
       count,
       locale: localeName,
-      other: '$count de modificări amânate până la următoarea pornire',
-      few: '$count modificări amânate până la următoarea pornire',
-      one: 'o modificare amânată până la următoarea pornire',
+      other: '$countString în așteptare',
+      few: '$countString în așteptare',
+      one: 'una în așteptare',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String syncParkedCount(int count) {
+    final intl.NumberFormat countNumberFormat =
+        intl.NumberFormat.decimalPattern(localeName);
+    final String countString = countNumberFormat.format(count);
+
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$countString amânate',
+      few: '$countString amânate',
+      one: 'una amânată',
     );
     return '$_temp0';
   }
@@ -4735,7 +4772,7 @@ class AppLocalizationsRo extends AppLocalizations {
   String get syncNow => 'Sincronizează acum';
 
   @override
-  String get syncStop => 'Oprește sincronizarea acestei baze de date';
+  String get syncStop => 'Oprește sincronizarea';
 
   @override
   String get syncStopConfirmTitle =>
@@ -4856,7 +4893,7 @@ class AppLocalizationsRo extends AppLocalizations {
 
   @override
   String syncUnboundAsCopyOf(String database) {
-    return 'Sincronizarea s-a oprit — această bază de date este o copie a „$database”, care se sincronizează deja cu acest spațiu';
+    return 'Sincronizarea s-a oprit — o copie a „$database” se sincronizează deja cu acest spațiu';
   }
 
   @override

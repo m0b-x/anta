@@ -5638,6 +5638,14 @@
   "@signInFailed": {
     "description": "Error title when the sign-in flow throws"
   },
+  "authSignOutFailed": "Sign-out failed",
+  "@authSignOutFailed": {
+    "description": "Account row title when signing out threw or took too long; the user is still signed in"
+  },
+  "authSignOutFailedRetry": "Sign-out failed — try again",
+  "@authSignOutFailedRetry": {
+    "description": "Snackbar when signing out threw or took too long; the account row offers Sign out again"
+  },
   "authErrorOffline": "No connection. Check your network and try again.",
   "@authErrorOffline": {
     "description": "Sign-in error: the device could not reach the server"
@@ -5699,7 +5707,8 @@
     "description": "Sync status while this device sends its changes to the cloud",
     "placeholders": {
       "count": {
-        "type": "int"
+        "type": "int",
+        "format": "decimalPattern"
       }
     }
   },
@@ -5712,7 +5721,8 @@
     "description": "Sync status during the first download after sync was turned on, with the rows applied so far",
     "placeholders": {
       "count": {
-        "type": "int"
+        "type": "int",
+        "format": "decimalPattern"
       }
     }
   },
@@ -5762,16 +5772,28 @@
     "description": "Changes made on this device that are not in the cloud yet",
     "placeholders": {
       "count": {
-        "type": "int"
+        "type": "int",
+        "format": "decimalPattern"
       }
     }
   },
-  "syncParkedCount": "{count, plural, =1{1 change held back until the next launch} other{{count} changes held back until the next launch}}",
-  "@syncParkedCount": {
-    "description": "Changes that could not be sent or applied this session; they are tried again when the app next starts",
+  "syncDetailsWaiting": "{count, plural, =1{1 waiting} other{{count} waiting}}",
+  "@syncDetailsWaiting": {
+    "description": "Changes not in the cloud yet, short, after the last sync time on one line: 'Last synced 3:09 AM · 3 waiting · 2 held back'",
     "placeholders": {
       "count": {
-        "type": "int"
+        "type": "int",
+        "format": "decimalPattern"
+      }
+    }
+  },
+  "syncParkedCount": "{count, plural, =1{1 held back} other{{count} held back}}",
+  "@syncParkedCount": {
+    "description": "Changes that could not be sent or applied this session and are tried again when the app next starts; short, after the last sync time on one line: 'Last synced 3:09 AM · 3 waiting · 2 held back'",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "format": "decimalPattern"
       }
     }
   },
@@ -5779,9 +5801,9 @@
   "@syncNow": {
     "description": "Row that runs a sync at once"
   },
-  "syncStop": "Stop syncing this database",
+  "syncStop": "Stop syncing",
   "@syncStop": {
-    "description": "Row that stops syncing the open database; the cloud copy stays"
+    "description": "Row in the Sync section that stops syncing the open database; the cloud copy stays. Short: the section already says Sync, the confirm names the database"
   },
   "syncStopConfirmTitle": "Stop syncing this database?",
   "@syncStopConfirmTitle": {
@@ -5934,7 +5956,7 @@
   "@syncMergeConfirmAction": {
     "description": "Confirm button of the merge confirmation"
   },
-  "syncUnboundAsCopyOf": "Stopped syncing — this database is a copy of “{database}”, which already syncs with this space",
+  "syncUnboundAsCopyOf": "Stopped syncing — a copy of “{database}” already syncs with this space",
   "@syncUnboundAsCopyOf": {
     "description": "Shown under 'Sync this database' once sync stopped by itself because this database turned out to be a copy of another database on this device that syncs with the same cloud space",
     "placeholders": {

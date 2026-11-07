@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
 import 'package:flutter/services.dart';
@@ -144,7 +146,8 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
               ),
             ),
             // The bind flow's moments, each once as the flow reaches it: the
-            // picker, a failure's snackbar (the row keeps the reason), and
+            // picker, a failure's snackbar (the bind row keeps the reason; a
+            // failed stop's row only its glyph and its spoken value), and
             // the restart a download's switch needs.
             BlocListener<SyncBloc, SyncState>(
               listenWhen: (previous, current) =>
@@ -168,7 +171,9 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
               if (state is SyncFailure) {
                 CustomSnackbar.showError(
                   context,
-                  AuthErrorMessages.of(l10n).resolve(state.error),
+                  state.action == SyncAccountAction.signOut
+                      ? l10n.authSignOutFailedRetry
+                      : AuthErrorMessages.of(l10n).resolve(state.error),
                 );
               }
             },
@@ -220,7 +225,10 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
             identifier: switch (state) {
               SyncUnavailable() => SemanticsIds.sharingUnavailable,
               SyncInitial() || SyncSignedOut() => SemanticsIds.sharingSignIn,
-              SyncSignedIn() => SemanticsIds.sharingSignOut,
+              SyncSignedIn() ||
+              SyncFailure(
+                action: SyncAccountAction.signOut,
+              ) => SemanticsIds.sharingSignOut,
               SyncFailure() => SemanticsIds.sharingRetry,
               _ => null,
             },
@@ -261,6 +269,7 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
     SyncSignedIn(:final user) =>
       user.displayName ?? user.email ?? l10n.accountSection,
     SyncSigningIn() => l10n.signingIn,
+    SyncFailure(action: SyncAccountAction.signOut) => l10n.authSignOutFailed,
     SyncFailure() => l10n.signInFailed,
     _ => l10n.signInWithGoogle,
   };
@@ -270,6 +279,11 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
         SyncUnavailable() => l10n.syncUnavailablePlatformDesc,
         SyncSignedIn(:final user) => user.uid,
         SyncSignedOut() => l10n.notSignedIn,
+        // The account still signed in, as the signed-in row's second line:
+        // the row keeps that shape, so nothing below it moves (review
+        // D3-2). The snackbar says the rest.
+        SyncFailure(action: SyncAccountAction.signOut, :final user) =>
+          user?.displayName ?? user?.email ?? user?.uid,
         SyncFailure(:final error) => AuthErrorMessages.of(l10n).resolve(error),
         _ => null,
       };
@@ -321,6 +335,18 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
                   style: const TextStyle(fontFamily: 'monospace', fontSize: 11),
                   child: description,
                 ),
+          action: l10n.signOut,
+          onTap: () => _signOut(context, l10n, pairing),
+          enabled: !stepping,
+        );
+
+      // Still signed in after a failed sign-out: the row signs out again.
+      case SyncFailure(action: SyncAccountAction.signOut):
+        return _actionRow(
+          context,
+          leading: Icon(Icons.error_outline_rounded, color: colorScheme.error),
+          title: title,
+          subtitle: description,
           action: l10n.signOut,
           onTap: () => _signOut(context, l10n, pairing),
           enabled: !stepping,
@@ -403,6 +429,14 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
   static bool _stepping(SyncState state) =>
       state.stepInFlight || _syncOf(state).flow.isBusy;
 
+  /// Whether the section offers what a signed-in account may do. A failed
+  /// sign-out left the user signed in, as the Account row says; a failed
+  /// sign-in did not (review RC3-4).
+  static bool _signedIn(SyncState state) => switch (state) {
+    SyncSignedIn() || SyncFailure(action: SyncAccountAction.signOut) => true,
+    _ => false,
+  };
+
   /// The status [state] itself carries; null for the states that carry
   /// none, where the section draws [_lastStatus].
   static SyncStatus? _carriedStatusOf(SyncState state) => switch (state) {
@@ -443,9 +477,6 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
     final stepping = _stepping(state);
     final keywords = _keywords(l10n.syncKeywords);
     final bound = status.binding != null;
-    final failure = flow is SyncBindFailed
-        ? _bindFailureText(l10n, flow, stopping: bound)
-        : null;
 
     if (!bound) {
       final copyOf = status.unboundAsCopyOf;
@@ -456,47 +487,65 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
           SettingsEntry(
             title: l10n.syncThisDatabase,
             description:
-                failure ??
+                (flow is SyncBindFailed
+                    ? _bindFailureText(l10n, flow, stopping: false)
+                    : null) ??
                 switch (state) {
                   SyncUnavailable() => l10n.syncThisDatabaseUnavailable,
                   // The heal stopped this copy without a word from the user
                   // (final review X-2): said until a bind clears it, where
                   // the row can act on it — signed out the row says why it
                   // cannot.
-                  SyncSignedIn() when copyOf != null =>
+                  _ when _signedIn(state) && copyOf != null =>
                     l10n.syncUnboundAsCopyOf(copyOf),
-                  SyncSignedIn() || SyncInitial() => l10n.syncThisDatabaseDesc,
+                  SyncInitial() => l10n.syncThisDatabaseDesc,
+                  _ when _signedIn(state) => l10n.syncThisDatabaseDesc,
                   _ => l10n.syncSignInFirst,
                 },
             keywords: keywords,
             identifier: SemanticsIds.sharingSync,
-            builder: (context, title, description) =>
-                _bindRow(context, state, flow, title, description),
+            // One height in every unbound state, so a sign-in, a check or a
+            // failure moves nothing below (final review D-5): the slot fits
+            // the three fixed descriptions, and a failure's reason or the
+            // heal's note ellipsizes inside it — the snackbar says a failure
+            // whole.
+            builder: (context, title, description) => _bindRow(
+              context,
+              state,
+              flow,
+              title,
+              _FixedLinesSlot(
+                templates: [
+                  l10n.syncThisDatabaseDesc,
+                  l10n.syncSignInFirst,
+                  l10n.syncThisDatabaseUnavailable,
+                ],
+                child: description!,
+              ),
+            ),
           ),
         ],
       );
     }
 
     final canSync =
-        state is SyncSignedIn &&
+        _signedIn(state) &&
         _syncNowPauses.contains(status.pause) &&
         status.activity == SyncActivity.idle &&
         !stepping;
     final (line, glyph, carriesCount) = _statusLine(l10n, status);
     final lastSync = _lastSyncOf(status);
-    // One count, on a line of its own: the waiting changes unless the line
-    // above already says them, else the ones held back.
-    final count = status.pendingCount > 0 && !carriesCount
-        ? l10n.syncPendingCount(status.pendingCount)
-        : status.parkedCount > 0
-        ? l10n.syncParkedCount(status.parkedCount)
-        : null;
+    // The details (review D2-3): the last sync, the ones held back — said
+    // nowhere else, so before what an ellipsis cuts first (RC3b-3) — then the
+    // changes waiting unless the line above already counts them.
     final details = [
       lastSync == null
           ? l10n.syncNeverSynced
           : l10n.syncLastSynced(formatSyncMoment(context, lastSync)),
-      ?count,
-    ].join('\n');
+      if (status.parkedCount > 0) l10n.syncParkedCount(status.parkedCount),
+      if (status.pendingCount > 0 && !carriesCount)
+        l10n.syncDetailsWaiting(status.pendingCount),
+    ].join(' · ');
     final colorScheme = Theme.of(context).colorScheme;
 
     return SettingsSectionData(
@@ -509,20 +558,19 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
           keywords: keywords,
           identifier: SemanticsIds.sharingSyncStatus,
           // Sync now and Stop sit under this row, so it is as tall in every
-          // state as the tallest line it may say, and both detail lines are
-          // always there: a run starting or a count appearing moves nothing.
+          // state as the tallest line it may say over one details line: a
+          // run starting or a count appearing moves nothing. The line and
+          // the details share one slot, so the room a short state leaves
+          // falls under its last line, not between the two (final review
+          // D-1), and the glyph stays on the line it labels.
           builder: (context, title, description) => ListTile(
+            titleAlignment: ListTileTitleAlignment.top,
             leading: Icon(glyph, color: colorScheme.onSurfaceVariant),
-            title: FormCaptionSlot(
-              candidates: [
-                for (final template in _statusLineTemplates(l10n))
-                  Text(template),
-              ],
-              child: title,
-            ),
-            subtitle: FormCaptionSlot(
-              candidates: [_detailsTemplate(context, l10n)],
-              child: description!,
+            title: _StatusLines(
+              templates: _statusLineTemplates(l10n),
+              line: line,
+              title: title,
+              details: description!,
             ),
           ),
         ),
@@ -530,7 +578,10 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
           title: l10n.syncNow,
           keywords: keywords,
           identifier: SemanticsIds.sharingSyncNow,
+          // The group's glyphs all sit on their first line, so a title that
+          // wraps at 2.0 reads as the status row's does (review D2-8).
           builder: (context, title, description) => ListTile(
+            titleAlignment: ListTileTitleAlignment.top,
             enabled: canSync,
             leading: Icon(
               Icons.sync_rounded,
@@ -544,9 +595,11 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
             onTap: () => context.read<SyncBloc>().add(const SyncNowRequested()),
           ),
         ),
+        // No failure line: a failed stop is said by its snackbar alone, so
+        // the row is one height and Pairing below it never moves (final
+        // review D-4).
         SettingsEntry(
           title: l10n.syncStop,
-          description: failure,
           keywords: keywords,
           identifier: SemanticsIds.sharingSyncStop,
           // A failed sign-in keeps Stop on the last binding known: an unbind
@@ -562,6 +615,7 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
                   ),
                   title: title,
                   description: description,
+                  titleAlignment: ListTileTitleAlignment.top,
                 )
               : _stopRow(
                   context,
@@ -596,50 +650,13 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
     l10n.syncWaitingFirst,
   ];
 
-  /// The two detail lines at their tallest: the last sync as never, as a
-  /// time today and as a date in every month of another year, over either
-  /// count. Fixed moments, so the slot depends on the locale, the clock
-  /// format and the scale alone.
-  Widget _detailsTemplate(BuildContext context, AppLocalizations l10n) {
-    final lateToday = DateTime(2000, 1, 1, 22, 58);
-    final nextYear = DateTime(2001);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        FormCaptionSlot(
-          candidates: [
-            Text(l10n.syncNeverSynced),
-            Text(
-              l10n.syncLastSynced(
-                formatSyncMoment(context, lateToday, now: lateToday),
-              ),
-            ),
-            for (var month = 1; month <= DateTime.monthsPerYear; month++)
-              Text(
-                l10n.syncLastSynced(
-                  formatSyncMoment(
-                    context,
-                    DateTime(2000, month, 28),
-                    now: nextYear,
-                  ),
-                ),
-              ),
-          ],
-          child: const SizedBox.shrink(),
-        ),
-        FormCaptionSlot(
-          candidates: [
-            for (final count in const [1, _countTemplate]) ...[
-              Text(l10n.syncPendingCount(count)),
-              Text(l10n.syncParkedCount(count)),
-            ],
-          ],
-          child: const SizedBox.shrink(),
-        ),
-      ],
-    );
-  }
+  /// [child] in the tile's subtitle style, for the status row's details,
+  /// which sit in its title slot under the line.
+  static Widget _asSubtitle(BuildContext context, Widget child) =>
+      DefaultTextStyle.merge(
+        style: ListTileTheme.of(context).subtitleTextStyle,
+        child: child,
+      );
 
   /// The one line that says what sync is doing, its glyph, and whether the
   /// line already counts the pending changes the details would repeat. A
@@ -749,7 +766,7 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
   ) {
     final colorScheme = Theme.of(context).colorScheme;
     final loading = state is SyncInitial;
-    if (state is! SyncSignedIn && !loading) {
+    if (!_signedIn(state) && !loading) {
       return _disabledTile(
         context,
         glyph: Icon(Icons.cloud_sync_outlined, color: colorScheme.primary),
@@ -796,9 +813,11 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
     required Widget title,
     Widget? description,
     bool titleIsReason = false,
+    ListTileTitleAlignment? titleAlignment,
   }) {
     final colorScheme = Theme.of(context).colorScheme;
     return ListTile(
+      titleAlignment: titleAlignment,
       enabled: false,
       leading: Opacity(opacity: FormMetrics.disabledOpacity, child: glyph),
       title: titleIsReason
@@ -824,7 +843,9 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
 
   /// Available whenever a binding exists — signed out, and paused on
   /// another account (D5's way out) — and always asks first. While
-  /// [stepping] it spins and asks nothing, whatever the flow shows.
+  /// [stepping] it spins and asks nothing, whatever the flow shows. After a
+  /// failed stop the row draws no line (final review D-4), so the reason is
+  /// its value: a screen reader hears what the red glyph means (RC3-7).
   Widget _stopRow(
     BuildContext context,
     AppLocalizations l10n,
@@ -834,22 +855,29 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
     bool stepping = false,
   }) {
     final colorScheme = Theme.of(context).colorScheme;
+    final failure = flow is SyncBindFailed && !stepping
+        ? _bindFailureText(l10n, flow, stopping: true)
+        : null;
     return _BusyValue(
       busy: stepping,
-      child: ListTile(
-        leading: stepping
-            ? const _RowBusyIndicator()
-            : Icon(
-                flow is SyncBindFailed
-                    ? Icons.error_outline_rounded
-                    : Icons.sync_disabled_rounded,
-                color: flow is SyncBindFailed
-                    ? colorScheme.error
-                    : colorScheme.onSurfaceVariant,
-              ),
-        title: title,
-        subtitle: description,
-        onTap: stepping ? null : () => _stopSyncing(context, l10n),
+      child: Semantics(
+        value: failure,
+        child: ListTile(
+          titleAlignment: ListTileTitleAlignment.top,
+          leading: stepping
+              ? const _RowBusyIndicator()
+              : Icon(
+                  flow is SyncBindFailed
+                      ? Icons.error_outline_rounded
+                      : Icons.sync_disabled_rounded,
+                  color: flow is SyncBindFailed
+                      ? colorScheme.error
+                      : colorScheme.onSurfaceVariant,
+                ),
+          title: title,
+          subtitle: description,
+          onTap: stepping ? null : () => _stopSyncing(context, l10n),
+        ),
       ),
     );
   }
@@ -869,9 +897,11 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
     if (confirmed) bloc.add(const StopSyncingRequested());
   }
 
-  /// A failure's snackbar is the moment; the row keeps the reason until its
-  /// next tap, which starts the step again — the bloc restarts from a
-  /// failure without a dismiss, so none is sent behind the user's back.
+  /// A failure's snackbar is the moment; the bind row keeps the reason until
+  /// its next tap, which starts the step again — the bloc restarts from a
+  /// failure without a dismiss, so none is sent behind the user's back. A
+  /// failed stop's row keeps only its glyph, the reason as its spoken value
+  /// (final review D-4, review RC3-7).
   Future<void> _onBindFlow(
     BuildContext context,
     AppLocalizations l10n,
@@ -1155,6 +1185,140 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
       onAction: () {
         Navigator.of(context).pop();
         bloc.add(const EndedNoticeDismissed());
+      },
+    );
+  }
+}
+
+/// A description slot as tall as the tallest of [templates] at its width,
+/// whatever [child] says: a longer text ellipsizes on the slot's last line
+/// rather than growing the row. The lines are counted in the ambient style
+/// the description is drawn in, under the caption role it carries.
+class _FixedLinesSlot extends StatelessWidget {
+  final List<String> templates;
+  final Widget child;
+
+  const _FixedLinesSlot({required this.templates, required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    final style = DefaultTextStyle.of(
+      context,
+    ).style.merge(settingsCaptionStyle);
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        var lines = 1;
+        for (final template in templates) {
+          lines = math.max(
+            lines,
+            _linesOf(context, template, style, constraints.maxWidth),
+          );
+        }
+        return FormCaptionSlot(
+          candidates: [
+            for (final template in templates)
+              Text(template, style: settingsCaptionStyle),
+          ],
+          child: DefaultTextStyle.merge(
+            maxLines: lines,
+            overflow: TextOverflow.ellipsis,
+            child: child,
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// The lines [text] takes in [style] at [width], laid out as a `Text` in
+/// [context] would lay it out.
+int _linesOf(BuildContext context, String text, TextStyle style, double width) {
+  final painter = TextPainter(
+    text: TextSpan(text: text, style: style),
+    textDirection: Directionality.of(context),
+    textScaler: MediaQuery.textScalerOf(context),
+    locale: Localizations.maybeLocaleOf(context),
+    textHeightBehavior: DefaultTextStyle.of(context).textHeightBehavior,
+  )..layout(maxWidth: width);
+  final lines = painter.computeLineMetrics().length;
+  painter.dispose();
+  return lines;
+}
+
+/// The status row's text: the line over the details, in a slot as tall as
+/// the tallest line [templates] may say over one details line. The slot is a
+/// budget of lines: a status line shorter than the tallest leaves its lines
+/// to the details, which ellipsize only past what is left (review D3-1), so
+/// the time is never cut while room sits under it. A screen reader hears the
+/// details whole either way.
+class _StatusLines extends StatelessWidget {
+  final List<String> templates;
+  final String line;
+  final Widget title;
+  final Widget details;
+
+  const _StatusLines({
+    required this.templates,
+    required this.line,
+    required this.title,
+    required this.details,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final style = DefaultTextStyle.of(context).style;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.maxWidth;
+        var budget = 1;
+        for (final template in templates) {
+          budget = math.max(budget, _linesOf(context, template, style, width));
+        }
+        // One line more than the tallest status line: the details' own.
+        final detailLines = math.max(
+          1,
+          budget + 1 - _linesOf(context, line, style, width),
+        );
+        return FormCaptionSlot(
+          candidates: [
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                FormCaptionSlot(
+                  candidates: [
+                    for (final template in templates) Text(template),
+                  ],
+                  child: const SizedBox.shrink(),
+                ),
+                // The details' own line: any one line of the details style
+                // sizes it, so a fixed text never re-lays out the slot.
+                _SyncSettingsViewState._asSubtitle(
+                  context,
+                  Text(
+                    AppLocalizations.of(context)!.syncNeverSynced,
+                    maxLines: 1,
+                  ),
+                ),
+              ],
+            ),
+          ],
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              title,
+              _SyncSettingsViewState._asSubtitle(
+                context,
+                DefaultTextStyle.merge(
+                  maxLines: detailLines,
+                  overflow: TextOverflow.ellipsis,
+                  child: details,
+                ),
+              ),
+            ],
+          ),
+        );
       },
     );
   }

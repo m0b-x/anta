@@ -1154,6 +1154,14 @@ class FormPickerRow extends FormDividedRow {
   /// sizes its rows by kind asks for it.
   final int? captionMaxLines;
 
+  /// Gives a glyph row with a [caption] and no value [FormCheckRow]'s
+  /// two-line shape — the label and the caption in one column on the check
+  /// row's air, clamped at two lines while enabled and whole while disabled —
+  /// so an action row in a sheet that otherwise lists check rows (the sync
+  /// picker's spaces) keeps their height at every scale. The glyph centres
+  /// against both lines.
+  final bool checkRowShape;
+
   /// Keeps the label and the value on one line ([FormLabelValue.wrap]
   /// false), for a list that sizes its rows by kind — the overview's exact
   /// extents — where a row's height must never depend on its text.
@@ -1199,11 +1207,16 @@ class FormPickerRow extends FormDividedRow {
     this.subRow = false,
     this.caption,
     this.captionMaxLines,
+    this.checkRowShape = false,
     this.singleLine = false,
     this.enabled = true,
     this.handle,
     double? dividerIndent,
-  }) : _dividerIndent = dividerIndent;
+  }) : assert(
+         !checkRowShape || (leading == null && value == null),
+         'the check row shape is for a glyph row without a value',
+       ),
+       _dividerIndent = dividerIndent;
 
   /// The glyph indent unless a caller sets one; the title indent under a
   /// [leading] widget, which is wider than a glyph.
@@ -1239,8 +1252,23 @@ class FormPickerRow extends FormDividedRow {
     // instead of sitting on the first with the caption hanging under it.
     // Under a glyph the caption stays a line below the pair: the glyph names
     // the field and belongs on the label line.
-    final stacked = avatar != null && captionText != null;
-    final text = stacked
+    final checkShaped = checkRowShape && captionText != null;
+    final stacked = (avatar != null || checkShaped) && captionText != null;
+    final text = checkShaped
+        ? _CheckRowLines(
+            label: dim(
+              Text(
+                label,
+                style: FormLabelValue.labelStyle(
+                  labelColor ?? Theme.of(context).colorScheme.onSurface,
+                ),
+              ),
+            ),
+            caption: captionText,
+            enabled: enabled,
+            captionMaxLines: captionMaxLines ?? 2,
+          )
+        : stacked
         ? Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
@@ -2966,32 +2994,10 @@ class FormCheckRow extends FormDividedRow {
     // would otherwise add the two-line padding to its own height and push a
     // 62 dp row to 66.
     final text = twoLine
-        ? Padding(
-            padding: EdgeInsets.symmetric(
-              vertical: RowMetrics.twoLinePadding.vertical / 2,
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                labelText,
-                const SizedBox(height: RowMetrics.lineGap),
-                // Clamped like a value: a preset's description at 200 %
-                // German ran four lines. A disabled row's caption is its
-                // reason, and a reason cut short says nothing, so it wraps.
-                Text(
-                  captionText,
-                  maxLines: enabled ? 2 : null,
-                  overflow: enabled ? TextOverflow.ellipsis : null,
-                  style: TextStyle(
-                    fontSize: FormMetrics.captionSize,
-                    height:
-                        FormMetrics.captionLineHeight / FormMetrics.captionSize,
-                    color: colorScheme.onSurfaceVariant,
-                  ),
-                ),
-              ],
-            ),
+        ? _CheckRowLines(
+            label: labelText,
+            caption: captionText,
+            enabled: enabled,
           )
         : Padding(
             padding: const EdgeInsets.symmetric(
@@ -3085,6 +3091,42 @@ class FormCheckRow extends FormDividedRow {
       ],
     );
   }
+}
+
+/// [FormCheckRow]'s two lines — the label over its caption on the check
+/// row's air — as one definition, so [FormPickerRow.checkRowShape] can never
+/// drift from the row it matches.
+class _CheckRowLines extends StatelessWidget {
+  final Widget label;
+  final String caption;
+  final bool enabled;
+  final int captionMaxLines;
+
+  const _CheckRowLines({
+    required this.label,
+    required this.caption,
+    required this.enabled,
+    this.captionMaxLines = 2,
+  });
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: EdgeInsets.symmetric(
+      vertical: RowMetrics.twoLinePadding.vertical / 2,
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        label,
+        const SizedBox(height: RowMetrics.lineGap),
+        // Clamped like a value: a preset's description at 200 % German ran
+        // four lines. A disabled row's caption is its reason, and a reason
+        // cut short says nothing, so it wraps.
+        FormCaption(text: caption, maxLines: enabled ? captionMaxLines : null),
+      ],
+    ),
+  );
 }
 
 class FormChip extends StatelessWidget {

@@ -4518,6 +4518,12 @@ class AppLocalizationsEn extends AppLocalizations {
   String get signInFailed => 'Sign-in failed';
 
   @override
+  String get authSignOutFailed => 'Sign-out failed';
+
+  @override
+  String get authSignOutFailedRetry => 'Sign-out failed — try again';
+
+  @override
   String get authErrorOffline =>
       'No connection. Check your network and try again.';
 
@@ -4567,10 +4573,14 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String syncSending(int count) {
+    final intl.NumberFormat countNumberFormat =
+        intl.NumberFormat.decimalPattern(localeName);
+    final String countString = countNumberFormat.format(count);
+
     String _temp0 = intl.Intl.pluralLogic(
       count,
       locale: localeName,
-      other: 'Sending $count changes',
+      other: 'Sending $countString changes',
       one: 'Sending 1 change',
       zero: 'Sending changes',
     );
@@ -4582,10 +4592,14 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String syncDownloading(int count) {
+    final intl.NumberFormat countNumberFormat =
+        intl.NumberFormat.decimalPattern(localeName);
+    final String countString = countNumberFormat.format(count);
+
     String _temp0 = intl.Intl.pluralLogic(
       count,
       locale: localeName,
-      other: 'Downloading — $count items so far',
+      other: 'Downloading — $countString items so far',
       one: 'Downloading — 1 item so far',
     );
     return '$_temp0';
@@ -4623,22 +4637,45 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String syncPendingCount(int count) {
+    final intl.NumberFormat countNumberFormat =
+        intl.NumberFormat.decimalPattern(localeName);
+    final String countString = countNumberFormat.format(count);
+
     String _temp0 = intl.Intl.pluralLogic(
       count,
       locale: localeName,
-      other: '$count changes waiting',
+      other: '$countString changes waiting',
       one: '1 change waiting',
     );
     return '$_temp0';
   }
 
   @override
-  String syncParkedCount(int count) {
+  String syncDetailsWaiting(int count) {
+    final intl.NumberFormat countNumberFormat =
+        intl.NumberFormat.decimalPattern(localeName);
+    final String countString = countNumberFormat.format(count);
+
     String _temp0 = intl.Intl.pluralLogic(
       count,
       locale: localeName,
-      other: '$count changes held back until the next launch',
-      one: '1 change held back until the next launch',
+      other: '$countString waiting',
+      one: '1 waiting',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String syncParkedCount(int count) {
+    final intl.NumberFormat countNumberFormat =
+        intl.NumberFormat.decimalPattern(localeName);
+    final String countString = countNumberFormat.format(count);
+
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$countString held back',
+      one: '1 held back',
     );
     return '$_temp0';
   }
@@ -4647,7 +4684,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get syncNow => 'Sync now';
 
   @override
-  String get syncStop => 'Stop syncing this database';
+  String get syncStop => 'Stop syncing';
 
   @override
   String get syncStopConfirmTitle => 'Stop syncing this database?';
@@ -4764,7 +4801,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String syncUnboundAsCopyOf(String database) {
-    return 'Stopped syncing — this database is a copy of “$database”, which already syncs with this space';
+    return 'Stopped syncing — a copy of “$database” already syncs with this space';
   }
 
   @override

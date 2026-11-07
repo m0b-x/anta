@@ -354,12 +354,37 @@ void main() {
       await bloc.close();
     });
 
-    test('failure surfaces as SyncFailure', () async {
+    test('failure surfaces as the sign-out\'s SyncFailure: the user is still '
+        'signed in', () async {
       final (bloc, fake, states) = await _pumpBloc(user: _user);
       fake.signOutError = const AuthException(AuthError.unknown);
       bloc.add(const SignOutRequested());
       await pumpEventQueue();
-      expect(states.last, const SyncFailure(AuthError.unknown));
+      expect(
+        states.last,
+        const SyncFailure(
+          AuthError.unknown,
+          action: SyncAccountAction.signOut,
+          user: _user,
+        ),
+      );
+      expect(states.last, isNot(const SyncFailure(AuthError.unknown)));
+      await bloc.close();
+    });
+
+    test('a non-auth throw is the sign-out\'s failure too', () async {
+      final (bloc, fake, states) = await _pumpBloc(user: _user);
+      fake.signOutError = StateError('boom');
+      bloc.add(const SignOutRequested());
+      await pumpEventQueue();
+      expect(
+        states.last,
+        const SyncFailure(
+          AuthError.unknown,
+          action: SyncAccountAction.signOut,
+          user: _user,
+        ),
+      );
       await bloc.close();
     });
   });
@@ -1691,7 +1716,15 @@ void main() {
 
         async.elapse(SyncLimits.engineStop + const Duration(seconds: 1));
         expect(auth.signOutCalled, isTrue);
-        expect(bloc.state, const SyncFailure(AuthError.unknown));
+        // The sign-out's, so the page offers Sign out again, not a sign-in.
+        expect(
+          bloc.state,
+          const SyncFailure(
+            AuthError.unknown,
+            action: SyncAccountAction.signOut,
+            user: _user,
+          ),
+        );
 
         bloc.add(const StopSyncingRequested());
         async.flushMicrotasks();
@@ -1722,7 +1755,14 @@ void main() {
         auth.signInResult = _user;
         bloc.add(const SignOutRequested());
         async.elapse(SyncLimits.engineStop + const Duration(seconds: 1));
-        expect(bloc.state, const SyncFailure(AuthError.unknown));
+        expect(
+          bloc.state,
+          const SyncFailure(
+            AuthError.unknown,
+            action: SyncAccountAction.signOut,
+            user: _user,
+          ),
+        );
         states.clear();
 
         bloc.add(const SignInRequested());
@@ -1822,6 +1862,85 @@ void main() {
         async.flushMicrotasks();
         expect(spaces.calls, ['stop']);
       });
+    });
+
+    test('a second failed sign-out emits a second failure: the account goes '
+        'back up first, so the failure is a new state (review RC3-1)', () {
+      final spaces = _FakeSpaceService();
+      onFakeClock(spaces, (async, bloc, auth, states, _, _) {
+        const failure = SyncFailure(
+          AuthError.unknown,
+          action: SyncAccountAction.signOut,
+          user: _user,
+        );
+        auth.signOutError = const AuthException(AuthError.unknown);
+        bloc.add(const SignOutRequested());
+        async.flushMicrotasks();
+        expect(bloc.state, failure);
+        states.clear();
+
+        bloc.add(const SignOutRequested());
+        async.flushMicrotasks();
+
+        expect(states, hasLength(2));
+        expect(states.first, isA<SyncSignedIn>());
+        expect((states.first as SyncSignedIn).user, _user);
+        expect(states.last, failure);
+      });
+    });
+
+    test('Sync now from a failed sign-out shows the run: the account goes '
+        'back up, so the engine\'s status reaches it (review RC3b-1)', () {
+      final spaces = _FakeSpaceService();
+      onFakeClock(spaces, (async, bloc, auth, _, engine, _) {
+        auth.signOutError = const AuthException(AuthError.unknown);
+        bloc.add(const SignOutRequested());
+        async.flushMicrotasks();
+        expect(bloc.state, isA<SyncFailure>());
+
+        bloc.add(const SyncNowRequested());
+        async.flushMicrotasks();
+        expect(bloc.state, isA<SyncSignedIn>());
+
+        engine.emit(const SyncStatus(activity: SyncActivity.pulling));
+        async.flushMicrotasks();
+        expect(
+          (bloc.state as SyncSignedIn).status.activity,
+          SyncActivity.pulling,
+        );
+      });
+    });
+
+    test('after a failed sign-out the user is still signed in: "Sync this '
+        'database" runs its step on the account, a failed sign-in\'s does '
+        'not (review RC3-4)', () {
+      for (final (action, runs) in const [
+        (SyncAccountAction.signOut, true),
+        (SyncAccountAction.signIn, false),
+      ]) {
+        final spaces = _FakeSpaceService();
+        onFakeClock(spaces, (async, bloc, auth, _, _, _) {
+          if (action == SyncAccountAction.signOut) {
+            auth.signOutError = const AuthException(AuthError.unknown);
+            bloc.add(const SignOutRequested());
+          } else {
+            auth.signInError = const AuthException(AuthError.unknown);
+            bloc.add(const SignInRequested());
+          }
+          async.flushMicrotasks();
+          expect(bloc.state, isA<SyncFailure>());
+          expect((bloc.state as SyncFailure).action, action);
+
+          bloc.add(const SyncThisDatabaseRequested());
+          async.flushMicrotasks();
+
+          expect(spaces.calls, runs ? ['start:${_user.uid}'] : isEmpty);
+          if (runs) {
+            expect(bloc.state, isA<SyncSignedIn>());
+            expect((bloc.state as SyncSignedIn).flow, isA<SyncBindPicking>());
+          }
+        });
+      }
     });
 
     test('an engine whose stop and start hang is given up on and the step '

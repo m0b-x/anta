@@ -235,7 +235,9 @@ class _SyncSpacePickerSheetState extends State<SyncSpacePickerSheet> {
 
   /// A space of the list a database that holds nothing syncs with at once:
   /// with nothing to merge there is nothing to select first, so the row is
-  /// the action, drawn as the one-space "Sync with" row is.
+  /// the action, drawn as the one-space "Sync with" row is. Both "Sync with"
+  /// shapes are the check rows' height, so the picker keeps one rhythm
+  /// whether the database holds data or not (final review D-7).
   Widget _joinRow(AppLocalizations l10n, SyncSpaceInfo space) {
     final holder = _picking.heldBy[space.ref];
     return FormPickerRow(
@@ -244,6 +246,7 @@ class _SyncSpacePickerSheetState extends State<SyncSpacePickerSheet> {
       caption: holder == null
           ? _usedCaption(l10n, space)
           : l10n.syncPickerHeldBy(holder),
+      checkRowShape: true,
       showChevron: false,
       enabled: holder == null,
       identifier: SemanticsIds.syncPickerSpace(space.ref.spaceId),
@@ -290,6 +293,7 @@ class _SyncSpacePickerSheetState extends State<SyncSpacePickerSheet> {
           glyph: Icons.sync_rounded,
           label: l10n.syncPickerJoin(target.name),
           caption: heldBy ?? _usedCaption(l10n, target),
+          checkRowShape: true,
           showChevron: false,
           enabled: holder == null,
           identifier: SemanticsIds.syncPickerMerge,

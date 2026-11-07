@@ -7726,6 +7726,18 @@ abstract class AppLocalizations {
   /// **'Sign-in failed'**
   String get signInFailed;
 
+  /// Account row title when signing out threw or took too long; the user is still signed in
+  ///
+  /// In en, this message translates to:
+  /// **'Sign-out failed'**
+  String get authSignOutFailed;
+
+  /// Snackbar when signing out threw or took too long; the account row offers Sign out again
+  ///
+  /// In en, this message translates to:
+  /// **'Sign-out failed — try again'**
+  String get authSignOutFailedRetry;
+
   /// Sign-in error: the device could not reach the server
   ///
   /// In en, this message translates to:
@@ -7888,10 +7900,16 @@ abstract class AppLocalizations {
   /// **'{count, plural, =1{1 change waiting} other{{count} changes waiting}}'**
   String syncPendingCount(int count);
 
-  /// Changes that could not be sent or applied this session; they are tried again when the app next starts
+  /// Changes not in the cloud yet, short, after the last sync time on one line: 'Last synced 3:09 AM · 3 waiting · 2 held back'
   ///
   /// In en, this message translates to:
-  /// **'{count, plural, =1{1 change held back until the next launch} other{{count} changes held back until the next launch}}'**
+  /// **'{count, plural, =1{1 waiting} other{{count} waiting}}'**
+  String syncDetailsWaiting(int count);
+
+  /// Changes that could not be sent or applied this session and are tried again when the app next starts; short, after the last sync time on one line: 'Last synced 3:09 AM · 3 waiting · 2 held back'
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 held back} other{{count} held back}}'**
   String syncParkedCount(int count);
 
   /// Row that runs a sync at once
@@ -7900,10 +7918,10 @@ abstract class AppLocalizations {
   /// **'Sync now'**
   String get syncNow;
 
-  /// Row that stops syncing the open database; the cloud copy stays
+  /// Row in the Sync section that stops syncing the open database; the cloud copy stays. Short: the section already says Sync, the confirm names the database
   ///
   /// In en, this message translates to:
-  /// **'Stop syncing this database'**
+  /// **'Stop syncing'**
   String get syncStop;
 
   /// Title of the dialog confirming Stop syncing this database
@@ -8083,7 +8101,7 @@ abstract class AppLocalizations {
   /// Shown under 'Sync this database' once sync stopped by itself because this database turned out to be a copy of another database on this device that syncs with the same cloud space
   ///
   /// In en, this message translates to:
-  /// **'Stopped syncing — this database is a copy of “{database}”, which already syncs with this space'**
+  /// **'Stopped syncing — a copy of “{database}” already syncs with this space'**
   String syncUnboundAsCopyOf(String database);
 
   /// Spoken by screen readers for the spinner of a Sync row while turning sync on or off runs

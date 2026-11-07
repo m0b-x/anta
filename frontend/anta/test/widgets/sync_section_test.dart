@@ -276,7 +276,16 @@ void main() {
         ),
       ]) {
         expect(tester.widget<ListTile>(row).enabled, isFalse);
-        final caption = find.descendant(of: row, matching: find.text(reason));
+        // The drawn reason, not the slot's unseen templates (D-5).
+        final caption = find.descendant(
+          of: row,
+          matching: find.byElementPredicate(
+            (e) =>
+                e.widget is Text &&
+                (e.widget as Text).data == reason &&
+                SyncSectionRobot.drawn(e),
+          ),
+        );
         expect(
           tester.renderObject<RenderParagraph>(caption).text.style?.color,
           scheme.onSurfaceVariant,
@@ -292,7 +301,8 @@ void main() {
               .widgetList<Opacity>(
                 find.descendant(of: row, matching: find.byType(Opacity)),
               )
-              .map((o) => o.opacity),
+              .map((o) => o.opacity)
+              .where((opacity) => opacity > 0),
           dimmed,
           reason: reason,
         );
@@ -485,8 +495,8 @@ void main() {
       });
     }
 
-    testWidgets('the details carry the last sync on one line and one count '
-        'on the next: the changes waiting before the held-back ones', (
+    testWidgets('the details are one paragraph: the last sync, then the '
+        'held-back changes, then the waiting ones (review D2-3, RC3b-3)', (
       tester,
     ) async {
       final robot = await open(
@@ -504,7 +514,8 @@ void main() {
       expect(
         robot.shows(
           SemanticsIds.sharingSyncStatus,
-          '${l10n.syncLastSynced('Mar 4, 2020')}\n${l10n.syncPendingCount(2)}',
+          '${l10n.syncLastSynced('Mar 4, 2020')} · '
+          '${l10n.syncParkedCount(1)} · ${l10n.syncDetailsWaiting(2)}',
         ),
         isTrue,
       );
@@ -518,12 +529,73 @@ void main() {
       expect(
         robot.shows(
           SemanticsIds.sharingSyncStatus,
-          '${l10n.syncLastSynced('Mar 4, 2020')}\n${l10n.syncParkedCount(1)}',
+          '${l10n.syncLastSynced('Mar 4, 2020')} · ${l10n.syncParkedCount(1)}',
         ),
         isTrue,
       );
       await close(tester);
     });
+
+    // Literal groupings, not the localizations' own output: a count that
+    // lost its format would match a string built the same way (RC3b-2).
+    for (final (locale, grouped) in const [
+      (Locale('en'), '12,345'),
+      (Locale('de'), '12.345'),
+    ]) {
+      for (final (name, status, inLine, inDetails) in [
+        // The line counts the waiting changes, so the details do not.
+        (
+          'idle, waiting and held back',
+          bound(pending: 12345, parked: 12345, lastPullAt: DateTime(2020)),
+          true,
+          true,
+        ),
+        // A pause does not count them, so the details do.
+        (
+          'paused with changes waiting',
+          bound(pause: SyncPause.quotaExhausted, pending: 12345),
+          false,
+          true,
+        ),
+        (
+          'sending',
+          bound(activity: SyncActivity.pushing, pending: 12345),
+          true,
+          false,
+        ),
+        (
+          'downloading',
+          bound(activity: SyncActivity.pulling, downloaded: 12345),
+          true,
+          false,
+        ),
+      ]) {
+        testWidgets('$name: a five-digit count is grouped in the locale\'s '
+            'way, ${locale.languageCode} (review D2-7, RC3b-2)', (
+          tester,
+        ) async {
+          final robot = await open(
+            tester,
+            signedIn(status: status),
+            locale: locale,
+          );
+          final drawn = find
+              .descendant(
+                of: robot.byId(SemanticsIds.sharingSyncStatus),
+                matching: find.byType(Text),
+              )
+              .evaluate()
+              .where(SyncSectionRobot.drawn)
+              .map((e) => (e.widget as Text).data!)
+              .toList();
+          expect(drawn, hasLength(2));
+          expect(drawn.first.contains(grouped), inLine, reason: drawn.first);
+          expect(drawn.last.contains(grouped), inDetails, reason: drawn.last);
+          expect(drawn.join(), isNot(contains('12345')));
+          await close(tester);
+        });
+      }
+    }
 
     testWidgets('before the first sync the details say so, and a line that '
         'counts the changes is not repeated by them', (tester) async {
@@ -537,8 +609,11 @@ void main() {
         isTrue,
       );
       expect(
-        robot.shows(SemanticsIds.sharingSyncStatus, l10n.syncPendingCount(3)),
-        isFalse,
+        find.descendant(
+          of: robot.byId(SemanticsIds.sharingSyncStatus),
+          matching: find.textContaining(l10n.syncDetailsWaiting(3)),
+        ),
+        findsNothing,
       );
       await close(tester);
     });
@@ -915,9 +990,12 @@ void main() {
       await close(tester);
     });
 
-    testWidgets('a failed stop is worded as the stop and kept on the stop '
-        'row', (tester) async {
+    testWidgets('a failed stop is worded as the stop in its snackbar alone: '
+        'the stop row keeps one height and Pairing never moves (final '
+        'review D-4)', (tester) async {
       final robot = await open(tester, signedIn(status: bound()));
+      final stop = robot.height(SemanticsIds.sharingSyncStop);
+      final pairing = tester.getTopLeft(robot.byId(SemanticsIds.sharingPair));
 
       syncBloc!.show(
         signedIn(
@@ -936,8 +1014,173 @@ void main() {
       );
       expect(
         robot.shows(SemanticsIds.sharingSyncStop, l10n.syncStopFailed),
-        true,
+        isFalse,
       );
+      expect(robot.height(SemanticsIds.sharingSyncStop), stop);
+      expect(tester.getTopLeft(robot.byId(SemanticsIds.sharingPair)), pairing);
+      await close(tester);
+    });
+
+    testWidgets('a failed sign-out is the sign-out\'s: its title and snackbar '
+        'say so, and the row signs out again rather than offering a sign-in', (
+      tester,
+    ) async {
+      final robot = await open(tester, signedIn(status: bound()));
+
+      syncBloc!.show(
+        const SyncFailure(AuthError.unknown, action: SyncAccountAction.signOut),
+      );
+      await robot.settle();
+
+      expect(
+        find.descendant(
+          of: find.byType(SnackBar),
+          matching: find.text(l10n.authSignOutFailedRetry),
+        ),
+        findsOneWidget,
+      );
+      expect(robot.byId(SemanticsIds.sharingRetry), findsNothing);
+      expect(
+        robot.shows(SemanticsIds.sharingSignOut, l10n.authSignOutFailed),
+        isTrue,
+      );
+      expect(robot.shows(SemanticsIds.sharingSignOut, l10n.signOut), isTrue);
+      expect(find.text(l10n.signInFailed), findsNothing);
+      expect(find.text(l10n.authErrorUnknown), findsNothing);
+      ScaffoldMessenger.of(
+        tester.element(find.byType(SnackBar)),
+      ).removeCurrentSnackBar();
+      await robot.settle();
+      final before = syncBloc!.events.length;
+
+      await robot.tap(SemanticsIds.sharingSignOut);
+      expect(find.text(l10n.signOutConfirm), findsOneWidget);
+      await robot.tap(SemanticsIds.sheetConfirm);
+
+      expect(syncBloc!.events.sublist(before), [const SignOutRequested()]);
+      await close(tester);
+    });
+
+    testWidgets('a failed sign-out names the account still signed in: its '
+        'name, else its email, else its id (review D3-2, RC3c-1)', (
+      tester,
+    ) async {
+      final robot = await open(tester, signedIn(status: bound()));
+
+      for (final (user, shown) in const [
+        (AppUser(uid: 'uid-x', displayName: 'Alex', email: 'a@b.c'), 'Alex'),
+        (AppUser(uid: 'uid-x', email: 'a@b.c'), 'a@b.c'),
+        (AppUser(uid: 'uid-x'), 'uid-x'),
+      ]) {
+        syncBloc!.show(
+          SyncFailure(
+            AuthError.unknown,
+            action: SyncAccountAction.signOut,
+            user: user,
+          ),
+        );
+        await robot.settle();
+        expect(
+          robot.shows(SemanticsIds.sharingSignOut, l10n.authSignOutFailed),
+          isTrue,
+        );
+        expect(
+          robot.shows(SemanticsIds.sharingSignOut, shown),
+          isTrue,
+          reason: shown,
+        );
+      }
+      await close(tester);
+    });
+
+    testWidgets('a failed sign-in keeps its own words and Retry signs in', (
+      tester,
+    ) async {
+      final robot = await open(tester, signedIn());
+
+      syncBloc!.show(const SyncFailure(AuthError.unknown));
+      await robot.settle();
+
+      expect(
+        find.descendant(
+          of: find.byType(SnackBar),
+          matching: find.text(l10n.authErrorUnknown),
+        ),
+        findsOneWidget,
+      );
+      expect(robot.shows(SemanticsIds.sharingRetry, l10n.signInFailed), true);
+      final before = syncBloc!.events.length;
+      await robot.tap(SemanticsIds.sharingRetry);
+      expect(syncBloc!.events.sublist(before), [const SignInRequested()]);
+      await close(tester);
+    });
+
+    testWidgets('a second failed sign-out says so again: its own snackbar, '
+        'not a row that looks dead (review RC3-1)', (tester) async {
+      final robot = await open(tester, signedIn(status: bound()));
+      auth.signOutError = const AuthException(AuthError.unknown);
+      Finder snackbar() => find.descendant(
+        of: find.byType(SnackBar),
+        matching: find.text(l10n.authSignOutFailedRetry),
+      );
+
+      for (var attempt = 1; attempt <= 2; attempt++) {
+        await robot.tap(SemanticsIds.sharingSignOut);
+        await robot.tap(SemanticsIds.sheetConfirm);
+        expect(snackbar(), findsOneWidget, reason: 'attempt $attempt');
+        expect(
+          robot.shows(SemanticsIds.sharingSignOut, l10n.authSignOutFailed),
+          isTrue,
+        );
+        ScaffoldMessenger.of(
+          tester.element(find.byType(SnackBar)),
+        ).removeCurrentSnackBar();
+        await robot.settle();
+        expect(snackbar(), findsNothing);
+      }
+      await close(tester);
+    });
+
+    testWidgets('after a failed sign-out the section reads signed in, as the '
+        'Account row does; after a failed sign-in it reads signed out '
+        '(review RC3-4)', (tester) async {
+      final robot = await open(tester, signedIn());
+      const signOutFailed = SyncFailure(
+        AuthError.unknown,
+        action: SyncAccountAction.signOut,
+      );
+
+      syncBloc!.show(signOutFailed);
+      await robot.settle();
+      expect(robot.tile(SemanticsIds.sharingSync).enabled, isTrue);
+      expect(
+        robot.shows(SemanticsIds.sharingSync, l10n.syncThisDatabaseDesc),
+        isTrue,
+      );
+      final before = syncBloc!.events.length;
+      await robot.tap(SemanticsIds.sharingSync);
+      expect(
+        syncBloc!.events.sublist(before),
+        contains(const SyncThisDatabaseRequested()),
+      );
+
+      syncBloc!.show(const SyncFailure(AuthError.unknown));
+      await robot.settle();
+      expect(robot.tile(SemanticsIds.sharingSync).enabled, isFalse);
+      expect(robot.shows(SemanticsIds.sharingSync, l10n.syncSignInFirst), true);
+
+      // Bound: Sync now follows the status carried from before the failure;
+      // Stop stays available after either.
+      syncBloc!.show(signedIn(status: bound(lastPullAt: DateTime(2020, 3, 4))));
+      await robot.settle();
+      syncBloc!.show(signOutFailed);
+      await robot.settle();
+      expect(robot.tile(SemanticsIds.sharingSyncNow).enabled, isTrue);
+      expect(robot.tile(SemanticsIds.sharingSyncStop).enabled, isTrue);
+      syncBloc!.show(const SyncFailure(AuthError.unknown));
+      await robot.settle();
+      expect(robot.tile(SemanticsIds.sharingSyncNow).enabled, isFalse);
+      expect(robot.tile(SemanticsIds.sharingSyncStop).enabled, isTrue);
       await close(tester);
     });
   });
@@ -988,6 +1231,39 @@ void main() {
 
       await show(robot, signedIn(status: bound()));
       expect(row(SemanticsIds.sharingSyncStop).value, isEmpty);
+      await close(tester);
+    });
+
+    testWidgets('a failed stop draws no line but its row carries the reason '
+        'as its value, so the red glyph is never silent (review RC3-7)', (
+      tester,
+    ) async {
+      final robot = await open(tester, signedIn(status: bound()));
+      SemanticsData stop() => tester
+          .getSemantics(robot.byId(SemanticsIds.sharingSyncStop))
+          .getSemanticsData();
+      expect(stop().value, isEmpty);
+
+      await show(
+        robot,
+        signedIn(
+          status: bound(),
+          flow: const SyncBindFailed(SyncBindFailure.unknown),
+        ),
+      );
+      expect(stop().value, l10n.syncStopFailed);
+      expect(stop().label, startsWith(l10n.syncStop));
+      expect(
+        robot.shows(SemanticsIds.sharingSyncStop, l10n.syncStopFailed),
+        isFalse,
+      );
+
+      // A new stop's spinner says it is working, not the old reason.
+      await show(
+        robot,
+        signedIn(status: bound(), flow: const SyncBindStopping()),
+      );
+      expect(stop().value, l10n.syncBusyLabel);
       await close(tester);
     });
 
@@ -1698,8 +1974,8 @@ void main() {
       final theme = dark ? 'dark' : 'light';
       final scheme = (dark ? AppTheme.dark() : AppTheme.light()).colorScheme;
 
-      testWidgets('the bind row, the status details and the stop row\'s '
-          'failure are onSurfaceVariant, $theme', (tester) async {
+      testWidgets('the bind row, its failure and the status details are '
+          'onSurfaceVariant, $theme', (tester) async {
         final robot = await open(tester, signedIn(), dark: dark);
         Finder within(String id, Finder text) =>
             find.descendant(of: robot.byId(id), matching: text);
@@ -1727,23 +2003,22 @@ void main() {
             details.evaluate().firstWhere(SyncSectionRobot.drawn).widget
                 as Text;
         expect(
-          paragraph.data!.split('\n'),
+          paragraph.data!.split(' · '),
           hasLength(2),
-          reason: 'both detail lines, one paragraph',
+          reason: 'the last sync and the count, one line',
         );
+        expect(paragraph.data, isNot(contains('\n')));
 
+        // The bind row's failure reason, in the slot the description keeps.
         syncBloc!.show(
-          signedIn(
-            status: bound(),
-            flow: const SyncBindFailed(SyncBindFailure.unknown),
-          ),
+          signedIn(flow: const SyncBindFailed(SyncBindFailure.offline)),
         );
         await robot.settle();
         expectToken(
           tester,
-          within(SemanticsIds.sharingSyncStop, find.text(l10n.syncStopFailed)),
+          within(SemanticsIds.sharingSync, find.text(l10n.syncFailedOffline)),
           scheme.onSurfaceVariant,
-          'the stop row',
+          'the bind row\'s failure',
         );
         await close(tester);
       });
@@ -1809,6 +2084,7 @@ void main() {
     for (final (locale, scale) in const [
       (Locale('en'), 1.0),
       (Locale('de'), 1.3),
+      (Locale('de'), 2.0),
       (Locale('ro'), 2.0),
     ]) {
       testWidgets('the status row is one height in every bound state, and '
@@ -1825,6 +2101,9 @@ void main() {
         final heights = <double>{};
         final syncNow = <double>{};
         final stop = <double>{};
+        final lineTops = <double>{};
+        final glyphTops = <double>{};
+        final lineHeight = FormMetrics.labelLineHeight * scale;
 
         for (final status in boundStates) {
           syncBloc!.show(signedIn(status: status));
@@ -1836,12 +2115,371 @@ void main() {
           stop.add(
             tester.getTopLeft(robot.byId(SemanticsIds.sharingSyncStop)).dy,
           );
+
+          // The line and the details, as drawn: the templates under them
+          // sit at a zero opacity.
+          final row = tester.getRect(
+            robot.byId(SemanticsIds.sharingSyncStatus),
+          );
+          final texts = find
+              .descendant(
+                of: robot.byId(SemanticsIds.sharingSyncStatus),
+                matching: find.byType(Text),
+              )
+              .evaluate()
+              .where(SyncSectionRobot.drawn)
+              .toList();
+          expect(texts, hasLength(2), reason: '$status');
+          final [line, details] = [
+            for (final e in texts)
+              tester.getRect(find.byElementPredicate((x) => x == e)),
+          ];
+          // Cut on screen, never for a screen reader.
+          expect(
+            tester
+                .getSemantics(robot.byId(SemanticsIds.sharingSyncStatus))
+                .label,
+            contains((texts.last.widget as Text).data!),
+            reason: '$status',
+          );
+          final glyph = tester.getRect(
+            find.descendant(
+              of: robot.byId(SemanticsIds.sharingSyncStatus),
+              matching: find.byType(Icon),
+            ),
+          );
+          lineTops.add(line.top - row.top);
+          glyphTops.add(glyph.top - row.top);
+          // The details follow the line at once, so the room a short state
+          // leaves is all under the last line (final review D-1)…
+          expect(details.top, closeTo(line.bottom, 0.01), reason: '$status');
+          expect(details.bottom, lessThanOrEqualTo(row.bottom));
+          // …and the glyph labels the line, not the middle of the row.
+          expect(
+            glyph.center.dy,
+            inInclusiveRange(line.top, line.top + lineHeight),
+            reason: '$status',
+          );
         }
 
         expect(heights, hasLength(1));
         expect(syncNow, hasLength(1));
         expect(stop, hasLength(1));
+        expect(lineTops, hasLength(1));
+        expect(glyphTops, hasLength(1));
         await close(tester);
+      });
+    }
+
+    // The line and the details share the slot's lines: a short line leaves
+    // its lines to the details, which then read whole (review D3-1).
+    for (final (locale, scale, width, status) in [
+      (
+        const Locale('de'),
+        2.0,
+        360.0,
+        bound(parked: 3, lastPullAt: DateTime(2020, 9, 28, 15, 9)),
+      ),
+      (
+        const Locale('en'),
+        1.0,
+        412.0,
+        bound(
+          pause: SyncPause.quotaExhausted,
+          pending: 12345,
+          parked: 3,
+          lastPushAt: DateTime(2020, 9, 28),
+        ),
+      ),
+    ]) {
+      testWidgets('the details take the lines a short status line leaves and '
+          'read whole, in a row of one height, ${locale.languageCode} at '
+          '$scale on ${width.toInt()}', (tester) async {
+        final robot = await open(
+          tester,
+          signedIn(status: bound()),
+          size: Size(width, 915),
+          locale: locale,
+          textScale: scale,
+        );
+        final empty = robot.height(SemanticsIds.sharingSyncStatus);
+
+        syncBloc!.show(signedIn(status: status));
+        await robot.settle(rounds: 3);
+
+        expect(robot.height(SemanticsIds.sharingSyncStatus), empty);
+        final details = find
+            .descendant(
+              of: robot.byId(SemanticsIds.sharingSyncStatus),
+              matching: find.byType(Text),
+            )
+            .evaluate()
+            .where(SyncSectionRobot.drawn)
+            .last;
+        final paragraph = details.renderObject! as RenderParagraph;
+        expect(paragraph.didExceedMaxLines, isFalse);
+        final text = (details.widget as Text).data!;
+        expect(text, contains(' · '));
+        await close(tester);
+      });
+    }
+
+    for (final (locale, scale) in const [
+      (Locale('en'), 1.0),
+      (Locale('en'), 2.0),
+      (Locale('de'), 1.0),
+      (Locale('de'), 2.0),
+      (Locale('ro'), 1.0),
+      (Locale('ro'), 2.0),
+    ]) {
+      testWidgets('a failed sign-out keeps the Account row\'s height: nothing '
+          'below it moves, ${locale.languageCode} at $scale (review D3-2, '
+          'D4-1)', (tester) async {
+        final robot = await open(
+          tester,
+          signedIn(status: bound()),
+          size: const Size(360, 780),
+          locale: locale,
+          textScale: scale,
+        );
+        final account = robot.height(SemanticsIds.sharingSignOut);
+        final status = tester
+            .getTopLeft(robot.byId(SemanticsIds.sharingSyncStatus))
+            .dy;
+
+        syncBloc!.show(
+          const SyncFailure(
+            AuthError.unknown,
+            action: SyncAccountAction.signOut,
+            user: userA,
+          ),
+        );
+        await robot.settle();
+
+        expect(robot.height(SemanticsIds.sharingSignOut), account);
+        expect(
+          tester.getTopLeft(robot.byId(SemanticsIds.sharingSyncStatus)).dy,
+          status,
+        );
+        expect(
+          robot.shows(SemanticsIds.sharingSignOut, userA.displayName!),
+          isTrue,
+        );
+        await close(tester);
+      });
+    }
+
+    for (final (locale, scale) in const [
+      (Locale('en'), 1.0),
+      (Locale('de'), 2.0),
+      (Locale('ro'), 2.0),
+    ]) {
+      testWidgets('the unbound row is one height in every state, a failure '
+          'and the heal note ellipsized inside its slot, and Pairing never '
+          'moves, ${locale.languageCode} at $scale (final review D-5)', (
+        tester,
+      ) async {
+        final robot = await open(
+          tester,
+          signedIn(),
+          size: const Size(360, 780),
+          locale: locale,
+          textScale: scale,
+        );
+        final local = lookupAppLocalizations(locale);
+        final heights = <double>{};
+        final pairing = <double>{};
+        const longName = 'Trainingstagebuch_und_Kalender_2026_vom_Telefon';
+        const held = SyncBindFailed(
+          SyncBindFailure.spaceHeldByAnotherDatabase,
+          holderDatabase: longName,
+        );
+
+        for (final state in <SyncState>[
+          signedIn(),
+          signedIn(flow: const SyncBindChecking()),
+          signedIn(flow: const SyncBindBinding()),
+          signedIn(flow: held),
+          signedIn(
+            flow: const SyncBindFailed(SyncBindFailure.permissionDenied),
+          ),
+          signedIn(status: const SyncStatus(unboundAsCopyOf: longName)),
+          const SyncSignedOut(),
+          const SyncSigningIn(),
+          const SyncFailure(AuthError.unknown),
+          const SyncFailure(
+            AuthError.unknown,
+            action: SyncAccountAction.signOut,
+          ),
+          const SyncUnavailable(),
+        ]) {
+          syncBloc!.show(state);
+          await robot.settle(rounds: 3);
+          heights.add(robot.height(SemanticsIds.sharingSync));
+          // The section's own top and the row's height decide Pairing's
+          // place; the Account row above changes with the session (D-6,
+          // deferred), so the offset is taken from the row.
+          final sync = tester.getRect(robot.byId(SemanticsIds.sharingSync));
+          final pair = robot.byId(SemanticsIds.sharingPair);
+          if (pair.evaluate().isNotEmpty) {
+            pairing.add(tester.getTopLeft(pair).dy - sync.top);
+          }
+        }
+        expect(heights, hasLength(1));
+        expect(pairing, hasLength(lessThanOrEqualTo(1)));
+
+        // A reason longer than the slot fills it to its last line and ends
+        // there in an ellipsis — every line the slot has, never fewer
+        // (review RC3-5); a screen reader and the snackbar say it whole.
+        final longer = List.filled(4, longName).join(' ');
+        // The loop's failures queued snackbars of their own.
+        ScaffoldMessenger.of(
+          tester.element(robot.byId(SemanticsIds.sharingSync)),
+        ).clearSnackBars();
+        await robot.settle();
+        syncBloc!.show(
+          signedIn(
+            flow: SyncBindFailed(
+              SyncBindFailure.spaceHeldByAnotherDatabase,
+              holderDatabase: longer,
+            ),
+          ),
+        );
+        await robot.settle(rounds: 3);
+        RenderParagraph drawnText(String text) {
+          final drawn = find
+              .descendant(
+                of: robot.byId(SemanticsIds.sharingSync),
+                matching: find.text(text),
+              )
+              .evaluate()
+              .where(SyncSectionRobot.drawn);
+          expect(drawn, hasLength(1), reason: text);
+          return drawn.single.renderObject! as RenderParagraph;
+        }
+
+        final slot = tester.getSize(
+          find.descendant(
+            of: robot.byId(SemanticsIds.sharingSync),
+            matching: find.byType(FormCaptionSlot),
+          ),
+        );
+        final paragraph = drawnText(local.syncFailedHeld(longer));
+        expect(paragraph.didExceedMaxLines, isTrue);
+        expect(paragraph.overflow, TextOverflow.ellipsis);
+        expect(paragraph.size.height, closeTo(slot.height, 0.5));
+        expect(
+          tester.getSemantics(robot.byId(SemanticsIds.sharingSync)).label,
+          contains(local.syncFailedHeld(longer)),
+        );
+        expect(
+          find.descendant(
+            of: find.byType(SnackBar),
+            matching: find.text(local.syncFailedHeld(longer)),
+          ),
+          findsOneWidget,
+        );
+
+        // The heal note, which has no snackbar, fits whole at the phone's
+        // own size (review RC3-2).
+        if (scale == 1.0) {
+          syncBloc!.show(
+            signedIn(status: const SyncStatus(unboundAsCopyOf: 'phone_db')),
+          );
+          await robot.settle(rounds: 3);
+          expect(
+            drawnText(local.syncUnboundAsCopyOf('phone_db')).didExceedMaxLines,
+            isFalse,
+          );
+        }
+        await close(tester);
+      });
+    }
+
+    for (final (locale, scale) in const [
+      (Locale('en'), 1.0),
+      (Locale('de'), 2.0),
+    ]) {
+      testWidgets('an empty database\'s "Sync with" rows keep the check rows\' '
+          'rhythm: the caption tight under the name, the same air, '
+          '${locale.languageCode} at $scale (final review D-7)', (
+        tester,
+      ) async {
+        final local = lookupAppLocalizations(locale);
+        final geometry = <bool, ({double top, double gap, double bottom})>{};
+        final heights = <bool, double>{};
+        for (final holdsData in [true, false]) {
+          await openPicker(
+            tester,
+            SyncBindPicking(spaces: [_phone, _tablet], holdsData: holdsData),
+            size: const Size(360, 780),
+            locale: locale,
+            textScale: scale,
+          );
+          final id = SemanticsIds.syncPickerSpace(_tablet.ref.spaceId);
+          Rect rectIn(String text) => tester.getRect(
+            find.descendant(
+              of: find.bySemanticsIdentifier(id),
+              matching: find.text(text),
+            ),
+          );
+          final row = tester.getRect(find.bySemanticsIdentifier(id));
+          final label = rectIn(
+            holdsData ? _tablet.name : local.syncPickerJoin(_tablet.name),
+          );
+          final caption = rectIn(local.syncPickerNotUsed);
+          geometry[holdsData] = (
+            top: label.top - row.top,
+            gap: caption.top - label.bottom,
+            bottom: row.bottom - caption.bottom,
+          );
+          heights[holdsData] = row.height;
+          await tester.pumpWidget(const SizedBox.shrink());
+        }
+        expect(geometry[false], geometry[true]);
+        // One line of name each in English; a longer German name may take a
+        // second line, never more air.
+        if (scale == 1.0) expect(heights[false], heights[true]);
+      });
+    }
+
+    for (final locale in const [Locale('de'), Locale('ro')]) {
+      testWidgets('the Merge confirm scrolls at 2.0: its whole body is '
+          'reachable and nothing overflows, ${locale.languageCode} on 360 '
+          '(review D2-1)', (tester) async {
+        final local = lookupAppLocalizations(locale);
+        final errors = await layoutErrorsDuring(() async {
+          await openPicker(
+            tester,
+            SyncBindPicking(spaces: [_phone], holdsData: true),
+            size: const Size(360, 780),
+            locale: locale,
+            textScale: 2.0,
+          );
+          await tapId(tester, SemanticsIds.syncPickerMerge);
+        });
+        expect(errors.map((e) => e.exceptionAsString()), isEmpty);
+
+        final scrollable = find
+            .descendant(
+              of: find.byType(AlertDialog),
+              matching: find.byType(Scrollable),
+            )
+            .first;
+        // With the title clamped (D3-3) the body may fit outright; either
+        // way its last line is reachable.
+        final position = tester.state<ScrollableState>(scrollable).position;
+        position.jumpTo(position.maxScrollExtent);
+        await tester.pump();
+        final body = tester.getRect(find.text(local.syncMergeConfirmBody));
+        expect(
+          body.bottom,
+          lessThanOrEqualTo(tester.getRect(scrollable).bottom + 0.5),
+        );
+        expect(
+          find.bySemanticsIdentifier(SemanticsIds.syncPickerMergeConfirm),
+          findsOneWidget,
+        );
       });
     }
 

@@ -655,6 +655,106 @@ void main() {
       expect(taps, 1);
     });
 
+    for (final scale in const [1.0, 2.0]) {
+      testWidgets('a glyph row in the check row shape is a captioned check '
+          'row\'s height at $scale, its caption tight under the label, '
+          'clamped while enabled and whole while disabled', (tester) async {
+        const caption = 'Last used Mar 4, 2020';
+        const long =
+            'Another database of this phone syncs with this space, so it '
+            'cannot be picked here until that one stops syncing with it';
+        Widget at(List<Widget> rows) => MaterialApp(
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(
+              context,
+            ).copyWith(textScaler: TextScaler.linear(scale)),
+            child: child!,
+          ),
+          home: Scaffold(body: FormRowGroup(children: rows)),
+        );
+        await tester.pumpWidget(
+          at([
+            FormPickerRow(
+              glyph: Icons.sync_rounded,
+              label: 'Sync with',
+              caption: caption,
+              checkRowShape: true,
+              showChevron: false,
+              identifier: 'join',
+              onTap: () {},
+            ),
+            FormCheckRow(
+              label: 'Tablet',
+              caption: caption,
+              checked: false,
+              exclusive: true,
+              identifier: 'check',
+              onChanged: (_) {},
+            ),
+          ]),
+        );
+        Rect rectOf(String id) =>
+            tester.getRect(find.bySemanticsIdentifier(id));
+        Rect textIn(String id, String text) => tester.getRect(
+          find.descendant(
+            of: find.bySemanticsIdentifier(id),
+            matching: find.text(text),
+          ),
+        );
+        final join = rectOf('join');
+        final check = rectOf('check');
+        expect(join.height, check.height);
+        final joinLabel = textIn('join', 'Sync with');
+        final checkLabel = textIn('check', 'Tablet');
+        final joinCaption = textIn('join', caption);
+        final checkCaption = textIn('check', caption);
+        expect(joinLabel.top - join.top, checkLabel.top - check.top);
+        expect(
+          joinCaption.top - joinLabel.bottom,
+          checkCaption.top - checkLabel.bottom,
+        );
+        expect(joinCaption.top - joinLabel.bottom, RowMetrics.lineGap);
+        // The glyph names the action against both lines, as a two-line
+        // tile's glyph does.
+        expect(
+          tester.getCenter(find.byIcon(Icons.sync_rounded)).dy,
+          closeTo(join.center.dy, 0.5),
+        );
+        expect(
+          tester
+              .widget<Text>(
+                find.descendant(
+                  of: find.bySemanticsIdentifier('join'),
+                  matching: find.text(caption),
+                ),
+              )
+              .maxLines,
+          2,
+        );
+
+        await tester.pumpWidget(
+          at([
+            FormPickerRow(
+              glyph: Icons.sync_rounded,
+              label: 'Sync with',
+              caption: long,
+              checkRowShape: true,
+              showChevron: false,
+              enabled: false,
+              identifier: 'join',
+              onTap: () {},
+            ),
+          ]),
+        );
+        final reason = find.text(long);
+        expect(tester.widget<Text>(reason).maxLines, isNull);
+        expect(
+          find.ancestor(of: reason, matching: find.byType(Opacity)),
+          findsNothing,
+        );
+      });
+    }
+
     testWidgets('a disabled action row is faded and inert', (tester) async {
       await tester.pumpWidget(
         host(

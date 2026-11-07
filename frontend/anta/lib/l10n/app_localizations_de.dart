@@ -4559,6 +4559,13 @@ class AppLocalizationsDe extends AppLocalizations {
   String get signInFailed => 'Anmeldung fehlgeschlagen';
 
   @override
+  String get authSignOutFailed => 'Nicht abgemeldet';
+
+  @override
+  String get authSignOutFailedRetry =>
+      'Abmeldung fehlgeschlagen – versuch es erneut';
+
+  @override
   String get authErrorOffline =>
       'Keine Verbindung. Prüf dein Netzwerk und versuch es erneut.';
 
@@ -4609,10 +4616,14 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String syncSending(int count) {
+    final intl.NumberFormat countNumberFormat =
+        intl.NumberFormat.decimalPattern(localeName);
+    final String countString = countNumberFormat.format(count);
+
     String _temp0 = intl.Intl.pluralLogic(
       count,
       locale: localeName,
-      other: '$count Änderungen werden gesendet',
+      other: '$countString Änderungen werden gesendet',
       one: '1 Änderung wird gesendet',
       zero: 'Änderungen werden gesendet',
     );
@@ -4624,10 +4635,14 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String syncDownloading(int count) {
+    final intl.NumberFormat countNumberFormat =
+        intl.NumberFormat.decimalPattern(localeName);
+    final String countString = countNumberFormat.format(count);
+
     String _temp0 = intl.Intl.pluralLogic(
       count,
       locale: localeName,
-      other: 'Wird geladen – bisher $count Einträge',
+      other: 'Wird geladen – bisher $countString Einträge',
       one: 'Wird geladen – bisher 1 Eintrag',
     );
     return '$_temp0';
@@ -4648,7 +4663,7 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get syncPausedOtherAccount =>
-      'Pausiert – diese Datenbank synchronisiert mit einem anderen Konto';
+      'Pausiert – gehört zu einem anderen Konto';
 
   @override
   String get syncPausedAppOutdated =>
@@ -4668,22 +4683,45 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String syncPendingCount(int count) {
+    final intl.NumberFormat countNumberFormat =
+        intl.NumberFormat.decimalPattern(localeName);
+    final String countString = countNumberFormat.format(count);
+
     String _temp0 = intl.Intl.pluralLogic(
       count,
       locale: localeName,
-      other: '$count Änderungen warten',
+      other: '$countString Änderungen warten',
       one: '1 Änderung wartet',
     );
     return '$_temp0';
   }
 
   @override
-  String syncParkedCount(int count) {
+  String syncDetailsWaiting(int count) {
+    final intl.NumberFormat countNumberFormat =
+        intl.NumberFormat.decimalPattern(localeName);
+    final String countString = countNumberFormat.format(count);
+
     String _temp0 = intl.Intl.pluralLogic(
       count,
       locale: localeName,
-      other: '$count Änderungen bis zum nächsten Start zurückgestellt',
-      one: '1 Änderung bis zum nächsten Start zurückgestellt',
+      other: '$countString warten',
+      one: '1 wartet',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String syncParkedCount(int count) {
+    final intl.NumberFormat countNumberFormat =
+        intl.NumberFormat.decimalPattern(localeName);
+    final String countString = countNumberFormat.format(count);
+
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$countString zurückgestellt',
+      one: '1 zurückgestellt',
     );
     return '$_temp0';
   }
@@ -4692,7 +4730,7 @@ class AppLocalizationsDe extends AppLocalizations {
   String get syncNow => 'Jetzt synchronisieren';
 
   @override
-  String get syncStop => 'Synchronisierung dieser Datenbank beenden';
+  String get syncStop => 'Synchronisierung beenden';
 
   @override
   String get syncStopConfirmTitle =>
@@ -4813,7 +4851,7 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String syncUnboundAsCopyOf(String database) {
-    return 'Synchronisierung beendet – diese Datenbank ist eine Kopie von „$database“, die bereits mit diesem Bereich synchronisiert wird';
+    return 'Synchronisierung beendet – eine Kopie von „$database“ ist schon verbunden';
   }
 
   @override

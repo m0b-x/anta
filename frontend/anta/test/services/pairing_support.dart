@@ -34,8 +34,12 @@ class FakeAuthService implements AuthService {
   @override
   Future<AppUser?> signInWithGoogle() async => _user;
 
+  /// Thrown by [signOut] when set, which then leaves the user signed in.
+  Object? signOutError;
+
   @override
   Future<void> signOut() async {
+    if (signOutError case final error?) throw error;
     _user = null;
   }
 

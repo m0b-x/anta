@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../constants/form_metrics.dart';
 import '../constants/semantics_ids.dart';
 import 'automation_id.dart';
 import '../l10n/app_localizations.dart';
@@ -32,6 +33,13 @@ class AppDialogs {
   /// An optional [icon] is displayed above the title when provided.
   /// [confirmIdentifier] replaces the shared [SemanticsIds.sheetConfirm] for
   /// a confirm a device flow must not mistake for another dialog's.
+  ///
+  /// Scrollable: at 200 % in German or Romanian a two-sentence body is taller
+  /// than the dialog may grow, and a fixed dialog cut its last line off with
+  /// nothing to say so (the sync Merge and Stop confirms, review D2-1). A
+  /// body that fits lays out as before; [contentWidget] must not scroll
+  /// itself. Its title and actions are every kit dialog's ([_title],
+  /// [_actions]).
   static Future<bool> confirm(
     BuildContext context, {
     required String title,
@@ -53,6 +61,7 @@ class AppDialogs {
     final result = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
+        scrollable: true,
         icon: icon != null
             ? Icon(
                 icon,
@@ -62,9 +71,9 @@ class AppDialogs {
                     : theme.colorScheme.primary,
               )
             : null,
-        title: Text(title),
+        title: _title(Text(title)),
         content: contentWidget ?? Text(content!),
-        actions: [
+        actions: _actions([
           AutomationId(
             identifier: SemanticsIds.sheetCancel,
             child: TextButton(
@@ -87,7 +96,7 @@ class AppDialogs {
                     child: Text(confirmText ?? l10n.save),
                   ),
           ),
-        ],
+        ]),
       ),
     );
     return result ?? false;
@@ -113,9 +122,9 @@ class AppDialogs {
           // marks the question a flow waits for.
           title: Semantics(
             identifier: SemanticsIds.unsavedDialog,
-            child: Text(l10n.unsavedChanges),
+            child: _title(Text(l10n.unsavedChanges)),
           ),
-          actions: [
+          actions: _actions([
             AutomationId(
               identifier: SemanticsIds.unsavedKeepEditing,
               child: TextButton(
@@ -130,7 +139,7 @@ class AppDialogs {
                 child: Text(l10n.discardChanges),
               ),
             ),
-          ],
+          ]),
         );
       },
     );
@@ -198,7 +207,7 @@ class AppDialogs {
     final result = await showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text(title),
+        title: _title(Text(title)),
         content: ListenableBuilder(
           listenable: warningRefresh == null
               ? controller
@@ -233,7 +242,7 @@ class AppDialogs {
                 : AutomationId(identifier: fieldIdentifier, child: field);
           },
         ),
-        actions: [
+        actions: _actions([
           AutomationId(
             identifier: SemanticsIds.sheetCancel,
             child: TextButton(
@@ -251,7 +260,7 @@ class AppDialogs {
               ),
             ),
           ),
-        ],
+        ]),
       ),
     );
 
@@ -342,14 +351,14 @@ class AppDialogs {
                   color: iconColor ?? theme.colorScheme.primary,
                 )
               : null,
-          title: Text(title),
+          title: _title(Text(title)),
           content: Text(content),
-          actions: [
+          actions: _actions([
             if (actionIdentifier case final id?)
               AutomationId(identifier: id, child: button)
             else
               button,
-          ],
+          ]),
         ),
       ),
     );
@@ -390,21 +399,23 @@ class AppDialogs {
         title: Semantics(
           identifier: SemanticsIds.aboutDialog,
           header: true,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(name),
-              Text(
-                version,
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
+          child: _title(
+            Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(name),
+                Text(
+                  version,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
         content: Text(description),
-        actions: [
+        actions: _actions([
           TextButton(
             onPressed: () => showLicensePage(
               context: ctx,
@@ -420,15 +431,41 @@ class AppDialogs {
               child: Text(l10n.close),
             ),
           ),
-        ],
+        ]),
       ),
     );
   }
 
   static Widget _identifiedTitle(String title, String? identifier) {
-    if (identifier == null) return Text(title);
-    return Semantics(identifier: identifier, child: Text(title));
+    if (identifier == null) return _title(Text(title));
+    return Semantics(identifier: identifier, child: _title(Text(title)));
   }
+
+  /// Every kit dialog's title: its text scale clamped at
+  /// [FormMetrics.dialogTitleMaxTextScale], or at 200 % a German or Romanian
+  /// title broke mid-word ("zusammenf|ühren?", review D3-3), and medium
+  /// weight at every scale, since clamped it is barely larger than a body
+  /// that keeps the full scale and weight is what keeps it the title (D4-2).
+  /// A part of [title] with a style of its own (the About's version) keeps
+  /// that style's weight.
+  static Widget _title(Widget title) => MediaQuery.withClampedTextScaling(
+    maxScaleFactor: FormMetrics.dialogTitleMaxTextScale,
+    child: DefaultTextStyle.merge(
+      style: const TextStyle(fontWeight: FontWeight.w500),
+      child: title,
+    ),
+  );
+
+  /// Every kit dialog's action buttons, their labels' scale clamped at
+  /// [FormMetrics.dialogActionMaxTextScale]: a one-word label in a button
+  /// broke mid-word at 200 % ("Zusammenführ|en", review D3-3).
+  static List<Widget> _actions(List<Widget> actions) => [
+    for (final action in actions)
+      MediaQuery.withClampedTextScaling(
+        maxScaleFactor: FormMetrics.dialogActionMaxTextScale,
+        child: action,
+      ),
+  ];
 
   // ---------------------------------------------------------------------------
   // 5) Single-choice selection
@@ -487,12 +524,12 @@ class AppDialogs {
             },
           ),
         ),
-        actions: [
+        actions: _actions([
           TextButton(
             onPressed: () => AppNavigator.pop(ctx),
             child: Text(cancelText ?? l10n.cancel),
           ),
-        ],
+        ]),
       ),
     );
   }
@@ -544,12 +581,12 @@ class AppDialogs {
             },
           ),
         ),
-        actions: [
+        actions: _actions([
           TextButton(
             onPressed: () => AppNavigator.pop(ctx),
             child: Text(cancelText ?? l10n.cancel),
           ),
-        ],
+        ]),
       ),
     );
   }

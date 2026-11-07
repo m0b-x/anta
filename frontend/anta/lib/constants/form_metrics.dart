@@ -374,6 +374,13 @@ abstract final class FormMetrics {
   static const double menuRowHeight = 44;
   static const double menuIconSize = 20;
   static const double menuRadius = 12;
+
+  /// The text scale a confirm dialog's title and its action labels stop
+  /// growing at: past them a German or Romanian title, or a one-word label
+  /// in a button, broke mid-word at 200 % (review D3-3). The body keeps the
+  /// full scale and scrolls.
+  static const double dialogTitleMaxTextScale = 1.2;
+  static const double dialogActionMaxTextScale = 1.6;
   static const EdgeInsets menuPadding = EdgeInsets.symmetric(vertical: 6);
 
   /// Material's popup menu duration, so a menu on a route of the language's

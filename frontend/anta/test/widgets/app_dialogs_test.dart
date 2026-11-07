@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show RenderParagraph;
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:anta/constants/semantics_ids.dart';
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/widgets/app_dialogs.dart';
+
+import '../goldens/support/golden_fonts.dart';
 
 /// `AppDialogs.textInput`, the one text prompt: what its callers have always
 /// had — a cancel that returns null, Enter and Save returning the text — and
@@ -250,5 +253,193 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(answers, ['Suggested name']);
+  });
+
+  // Measured with Roboto: the test font's square glyphs are about twice as
+  // wide and break words no device breaks.
+  group('a confirm at 2.0 in German', () {
+    setUpAll(loadGoldenFonts);
+
+    testWidgets('a confirm taller than the screen scrolls at 2.0 in German: '
+        'nothing overflows, the whole body is reachable, its title and labels '
+        'break no word, and confirm still answers (review D2-1, D3-3)', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(360, 780);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final de = lookupAppLocalizations(const Locale('de'));
+      final body = [
+        de.syncMergeConfirmBody,
+        de.syncStopConfirmBody,
+        de.syncMergeConfirmBody,
+      ].join(' ');
+      final confirmed = <bool>[];
+      await tester.pumpWidget(
+        MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          locale: const Locale('de'),
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(
+              context,
+            ).copyWith(textScaler: const TextScaler.linear(2.0)),
+            child: child!,
+          ),
+          home: Builder(
+            builder: (context) => Scaffold(
+              body: Center(
+                child: TextButton(
+                  onPressed: () async => confirmed.add(
+                    await AppDialogs.confirm(
+                      context,
+                      title: de.syncMergeConfirmTitle('Telefon'),
+                      content: body,
+                      confirmText: de.syncMergeConfirmAction,
+                      icon: Icons.merge_rounded,
+                    ),
+                  ),
+                  child: const Text('open'),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+
+      final scrollable = find
+          .descendant(
+            of: find.byType(AlertDialog),
+            matching: find.byType(Scrollable),
+          )
+          .first;
+      final position = tester.state<ScrollableState>(scrollable).position;
+      expect(position.maxScrollExtent, greaterThan(0));
+      position.jumpTo(position.maxScrollExtent);
+      await tester.pump();
+      expect(
+        tester.getRect(find.text(body)).bottom,
+        lessThanOrEqualTo(tester.getRect(scrollable).bottom + 0.5),
+      );
+
+      // Medium weight keeps the clamped title above the body (D4-2).
+      expect(
+        tester
+            .renderObject<RenderParagraph>(
+              find.text(de.syncMergeConfirmTitle('Telefon')),
+            )
+            .text
+            .style
+            ?.fontWeight,
+        FontWeight.w500,
+      );
+      expect(
+        tester
+            .renderObject<RenderParagraph>(find.text(body))
+            .text
+            .style
+            ?.fontWeight,
+        isNot(FontWeight.w500),
+      );
+
+      // The title and the labels clamp their scale: whole, and no word wider
+      // than the line it sits on (a narrower line breaks it mid-word).
+      for (final text in [
+        de.syncMergeConfirmTitle('Telefon'),
+        de.syncMergeConfirmAction,
+        de.cancel,
+      ]) {
+        final paragraph = tester.renderObject<RenderParagraph>(find.text(text));
+        expect(paragraph.didExceedMaxLines, isFalse, reason: text);
+        expect(
+          paragraph.size.width + 0.5,
+          greaterThanOrEqualTo(paragraph.getMinIntrinsicWidth(double.infinity)),
+          reason: text,
+        );
+      }
+      final confirm = tester.getRect(
+        find.bySemanticsIdentifier(SemanticsIds.sheetConfirm),
+      );
+      final label = tester.getRect(find.text(de.syncMergeConfirmAction));
+      expect(confirm.left, lessThanOrEqualTo(label.left));
+      expect(confirm.right, greaterThanOrEqualTo(label.right));
+
+      await tester.tap(find.bySemanticsIdentifier(SemanticsIds.sheetConfirm));
+      await tester.pumpAndSettle();
+      expect(confirmed, [true]);
+    });
+
+    testWidgets('an action dialog — the sync restart prompt — clamps its '
+        'title and its button the same way: medium weight, no word broken, '
+        'the label inside its button (review RC3c-2)', (tester) async {
+      tester.view.physicalSize = const Size(360, 780);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final de = lookupAppLocalizations(const Locale('de'));
+      var acted = 0;
+      await tester.pumpWidget(
+        MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          locale: const Locale('de'),
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(
+              context,
+            ).copyWith(textScaler: const TextScaler.linear(2.0)),
+            child: child!,
+          ),
+          home: Builder(
+            builder: (context) => Scaffold(
+              body: Center(
+                child: TextButton(
+                  onPressed: () => AppDialogs.action(
+                    context,
+                    title: de.restartRequiredTitle,
+                    content: de.restartRequiredNewDatabase,
+                    actionText: de.exitApp,
+                    icon: Icons.restart_alt_rounded,
+                    onAction: () => acted++,
+                    actionIdentifier: SemanticsIds.sharingSyncRestart,
+                  ),
+                  child: const Text('open'),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+
+      final title = tester.renderObject<RenderParagraph>(
+        find.text(de.restartRequiredTitle),
+      );
+      expect(title.text.style?.fontWeight, FontWeight.w500);
+      for (final paragraph in [
+        title,
+        tester.renderObject<RenderParagraph>(find.text(de.exitApp)),
+      ]) {
+        expect(paragraph.didExceedMaxLines, isFalse);
+        expect(
+          paragraph.size.width + 0.5,
+          greaterThanOrEqualTo(paragraph.getMinIntrinsicWidth(double.infinity)),
+        );
+      }
+      final button = tester.getRect(
+        find.bySemanticsIdentifier(SemanticsIds.sharingSyncRestart),
+      );
+      final label = tester.getRect(find.text(de.exitApp));
+      expect(button.left, lessThanOrEqualTo(label.left));
+      expect(button.right, greaterThanOrEqualTo(label.right));
+
+      await tester.tap(
+        find.bySemanticsIdentifier(SemanticsIds.sharingSyncRestart),
+      );
+      expect(acted, 1);
+    });
   });
 }

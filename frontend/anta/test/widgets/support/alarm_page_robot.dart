@@ -531,15 +531,26 @@ class AlarmPageRobot {
   bool get restartDialogShown =>
       _shown(find.widgetWithText(AlertDialog, _l10n.exitApp));
 
-  /// What that dialog is headed and what it says under it.
-  String get restartDialogTitle =>
-      _dialogText((dialog) => dialog.title! as Text);
+  /// What that dialog is headed and what it says under it. The kit wraps a
+  /// dialog's title and actions in its text-scale clamp, so each part's text
+  /// is read from the first `Text` beneath it rather than cast from the part.
+  String get restartDialogTitle => _dialogText((dialog) => dialog.title!);
 
-  String get restartDialogBody =>
-      _dialogText((dialog) => dialog.content! as Text);
+  String get restartDialogBody => _dialogText((dialog) => dialog.content!);
 
-  String _dialogText(Text Function(AlertDialog dialog) part) =>
-      _once(part(tester.widget<AlertDialog>(_dialogBox)).data!);
+  String _dialogText(Widget Function(AlertDialog dialog) part) {
+    final dialog = tester.widget<AlertDialog>(_dialogBox);
+    final text = tester.widget<Text>(
+      find
+          .descendant(
+            of: find.byWidget(part(dialog)),
+            matching: find.byType(Text),
+            matchRoot: true,
+          )
+          .first,
+    );
+    return _once(text.data!);
+  }
 
   /// Whether the dialog [raiseDialog] raised is up.
   bool get dialogShown => _shown(find.text(_dialog));

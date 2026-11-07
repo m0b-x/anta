@@ -203,12 +203,20 @@ class SyncBloc extends Bloc<SyncEvent, SyncState> {
     try {
       await _afterStep();
       if (emit.isDone) return;
+      // A sign-out asked again from its own failure puts the account back up
+      // first: a second identical failure would equal the state on screen,
+      // and the bloc would drop it — no snackbar, a row that looks dead
+      // (review RC3-1).
+      if (state case SyncFailure(action: SyncAccountAction.signOut)) {
+        _emitAccount(_authService.currentUser, emit);
+      }
       try {
         // Bounded: a hung sign-out would hold the pending count, and with it
         // every step, for the page's life (review RC1b-4). Past the limit it
         // fails as a thrown one does, so the user is told and offered a retry
         // rather than left looking at an account still signed in (RC1c-2);
-        // the sign-out is kept, for a sign-in to wait out (RC2-2).
+        // the sign-out is kept, for a sign-in to wait out (RC2-2). Both say
+        // they are the sign-out's: the user is still signed in.
         final signingOut = _authService.signOut();
         try {
           await signingOut.timeout(_engineStopTimeout);
@@ -231,7 +239,7 @@ class SyncBloc extends Bloc<SyncEvent, SyncState> {
               if (identical(_signOutLanding, landing)) _signOutLanding = null;
             }),
           );
-          _put(emit, const SyncFailure(AuthError.unknown));
+          _put(emit, _signOutFailure(AuthError.unknown));
           return;
         }
         final user = _authService.currentUser;
@@ -239,14 +247,20 @@ class SyncBloc extends Bloc<SyncEvent, SyncState> {
         through();
         await _emitStatus(shown, user, emit);
       } on AuthException catch (e) {
-        _put(emit, SyncFailure(e.error));
+        _put(emit, _signOutFailure(e.error));
       } catch (_) {
-        _put(emit, const SyncFailure(AuthError.unknown));
+        _put(emit, _signOutFailure(AuthError.unknown));
       }
     } finally {
       through();
     }
   }
+
+  SyncFailure _signOutFailure(AuthError error) => SyncFailure(
+    error,
+    action: SyncAccountAction.signOut,
+    user: _authService.currentUser,
+  );
 
   /// Waits out a bind or stop step: a sign-in or a sign-out asked for
   /// meanwhile runs once it has settled — never dropped, never mid-step,
@@ -376,6 +390,12 @@ class SyncBloc extends Bloc<SyncEvent, SyncState> {
   ) async {
     final thunk = _engine;
     if (thunk == null) return;
+    // The engine's status reaches only an account state: after a failed
+    // sign-out the account goes back up first, or the run it starts would
+    // never show (review RC3b-1).
+    if (state case SyncFailure(action: SyncAccountAction.signOut)) {
+      _emitAccount(_authService.currentUser, emit);
+    }
     try {
       // The run's progress and outcome arrive through the status stream.
       await (await thunk())?.syncNow();
@@ -407,13 +427,15 @@ class SyncBloc extends Bloc<SyncEvent, SyncState> {
     Emitter<SyncState> emit,
   ) async {
     final spaces = _spaces;
-    final shown = state;
-    if (spaces == null ||
-        _stepRefused ||
-        shown is! SyncSignedIn ||
-        shown.flow.isBusy) {
-      return;
+    if (spaces == null || _stepRefused) return;
+    // A failed sign-out left the user signed in, and the page offers the
+    // bind there: the account takes the screen again and the step runs in
+    // it, as a stop does from a failure (review RC3-4).
+    if (state case SyncFailure(action: SyncAccountAction.signOut)) {
+      _emitAccount(_authService.currentUser, emit);
     }
+    final shown = state;
+    if (shown is! SyncSignedIn || shown.flow.isBusy) return;
     final uid = shown.user.uid;
     // A step like the picker's choices: D1's paths create or bind a space in
     // this same call.

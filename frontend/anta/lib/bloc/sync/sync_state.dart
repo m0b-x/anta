@@ -176,11 +176,26 @@ final class SyncSignedIn extends SyncState {
   List<Object?> get props => [user, status, flow, stepInFlight];
 }
 
+/// The account change a [SyncFailure] came from.
+enum SyncAccountAction { signIn, signOut }
+
 final class SyncFailure extends SyncState {
   final AuthError error;
 
-  const SyncFailure(this.error);
+  /// A failed sign-out leaves the user signed in, so the page words it as
+  /// the sign-out's and offers Sign out again rather than a sign-in.
+  final SyncAccountAction action;
+
+  /// The account a failed sign-out left signed in, which its row keeps
+  /// naming so it stays the signed-in row's shape (review D3-2).
+  final AppUser? user;
+
+  const SyncFailure(
+    this.error, {
+    this.action = SyncAccountAction.signIn,
+    this.user,
+  });
 
   @override
-  List<Object?> get props => [error];
+  List<Object?> get props => [error, action, user];
 }

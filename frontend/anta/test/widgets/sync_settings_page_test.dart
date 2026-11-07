@@ -489,5 +489,56 @@ void main() {
 
       await tester.pumpWidget(const SizedBox.shrink());
     });
+
+    testWidgets('a failed sign-out, de 2.0 on 360 × 780 keeps the account '
+        'title whole and offers the sign-out again (review RC3-9)', (
+      tester,
+    ) async {
+      await boot(user: userA);
+      auth.signOutError = const AuthException(AuthError.unknown);
+      final errors = await layoutErrorsDuring(() async {
+        await pumpPage(
+          tester,
+          size: const Size(360, 780),
+          locale: const Locale('de'),
+          textScale: 2.0,
+        );
+        final row = find.bySemanticsIdentifier(SemanticsIds.sharingSignOut);
+        await tester.ensureVisible(row);
+        await tester.tap(row);
+        await settle(tester);
+        await tester.tap(find.bySemanticsIdentifier(SemanticsIds.sheetConfirm));
+        await settle(tester);
+      });
+
+      expect(errors.map((e) => e.exceptionAsString()), isEmpty);
+      expect(tester.takeException(), isNull);
+      expect(
+        syncBloc!.state,
+        const SyncFailure(
+          AuthError.unknown,
+          action: SyncAccountAction.signOut,
+          user: userA,
+        ),
+      );
+      final titles = actionTitles(tester);
+      expect(titles, hasLength(1));
+      expect(titles.single.width, greaterThan(0));
+      expect(titles.single.wholeWords, isTrue);
+      final de = lookupAppLocalizations(const Locale('de'));
+      expect(find.text(de.authSignOutFailed), findsOneWidget);
+      expect(
+        find.bySemanticsIdentifier(SemanticsIds.sharingRetry),
+        findsNothing,
+      );
+      expect(
+        tester
+            .getSize(find.bySemanticsIdentifier(SemanticsIds.sharingSignOut))
+            .height,
+        lessThan(780),
+      );
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
   });
 }
