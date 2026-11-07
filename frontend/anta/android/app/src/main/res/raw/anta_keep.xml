@@ -8,6 +8,17 @@
      resource too, but the alerts must not lean on those two staying as they
      are: this entry holds the icon whatever becomes of them. Without it a
      release build can ship with no `ic_alert`, and every notification and
-     alarm then fails silently while a debug build (no shrinking) works. -->
+     alarm then fails silently while a debug build (no shrinking) works.
+
+     `default_web_client_id` is the web OAuth client the google-services
+     plugin writes from google-services.json; google_sign_in_android reads it
+     with `getIdentifier`, so the shrinker dropped it too, and every release
+     build failed Google sign-in before asking Android for an account
+     (2026-11-07). The plugin keeps it itself from 7.2.16, in a
+     `res/raw/keep.xml`.
+
+     That is why this file is not called keep.xml: an app resource overrides a
+     library resource of the same name, so a `raw/keep.xml` here silently
+     replaced every dependency's own keep list. Keep the name unique. -->
 <resources xmlns:tools="http://schemas.android.com/tools"
-    tools:keep="@drawable/ic_alert" />
+    tools:keep="@drawable/ic_alert,@string/default_web_client_id" />
