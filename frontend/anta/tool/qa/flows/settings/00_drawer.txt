@@ -3,14 +3,17 @@
 # - The rows live in a ListView, so the lower ones may sit past the cache
 #   extent and out of the tree: the second expect runs after a scroll-to,
 #   swiped inside the list (--in id:drawer-list) — the drawer's first
-#   scrollable in a dump is the header's avatar block, which scrolls nothing.
+#   scrollable in a dump was the header's block, where the account then rode
+#   as a badge (it is the list's first row now), and it scrolls nothing.
 # - The moved rows are read absent by their English labels after the scroll,
 #   with the whole list in the tree, so an absence means gone rather than far
 #   away; "Settings" is never one of them (the header's subtitle reads it).
+# - The QA fixture is signed out, so the account row above the places is
+#   absent (§12 of docs/cloud-sync-phase-02-own-space.md).
 wait id:create-folder
 tap id:nav-menu
 wait id:drawer-calendar
-expect id:drawer-calendar-overview id:drawer-calendar-report id:drawer-calendar-categories id:drawer-alerts id:drawer-counters
+expect id:drawer-calendar-overview id:drawer-calendar-report id:drawer-calendar-categories id:drawer-alerts id:drawer-counters --absent id:drawer-account
 look 00_drawer
 scroll-to id:drawer-about --in id:drawer-list
 expect id:drawer-settings id:drawer-how-to id:drawer-about --absent "Calendar settings" --absent "Markdown shortcuts" --absent "Sync & sharing" --absent "Databases" --absent "Language" --absent id:settings-appearance --absent "Developer options"

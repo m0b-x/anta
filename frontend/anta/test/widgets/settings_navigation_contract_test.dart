@@ -301,6 +301,10 @@ void main() {
     }
 
     Future<void> openFromDrawer(WidgetTester tester, _Row row) async {
+      if (row.needsAccount) {
+        auth.emitAuth(userA);
+        addTearDown(() => auth.emitAuth(null));
+      }
       await pumpHost(tester);
       await openDrawer(tester);
       observer.clear();
@@ -1415,6 +1419,7 @@ class _Row {
     this.barId,
     this.title,
     this.needsDeveloperMode = false,
+    this.needsAccount = false,
   });
 
   final String name;
@@ -1434,11 +1439,25 @@ class _Row {
   /// Developer options is drawn only once taps on the drawer header's icon
   /// have unlocked it.
   final bool needsDeveloperMode;
+
+  /// The drawer's account row is drawn only while someone is signed in.
+  final bool needsAccount;
 }
 
 /// The drawer's rows that open a page (D1), top to bottom; About opens a
-/// dialog and has its own case.
+/// dialog and has its own case. The account row, signed in, opens Sync &
+/// sharing as the hub's row does (§12 of
+/// `docs/cloud-sync-phase-02-own-space.md`).
 final _drawerRows = <_Row>[
+  _Row(
+    name: 'Account',
+    rowId: SemanticsIds.drawerAccount,
+    pageType: SyncSettingsPage,
+    barId: SemanticsIds.settingsBarSharing,
+    title: (l10n) => l10n.sharingSettings,
+    stamp: const NavDestination(NavDestinationKind.syncSettings),
+    needsAccount: true,
+  ),
   _Row(
     name: 'Calendar',
     rowId: SemanticsIds.drawerCalendar,

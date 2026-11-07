@@ -59,6 +59,11 @@ class SyncBloc extends Bloc<SyncEvent, SyncState> {
 
   bool _engineStatusSeen = false;
 
+  /// Set once a read or the engine has put a status on screen, and stamped
+  /// on every [SyncSignedIn] as [SyncSignedIn.statusRead]: the account
+  /// changes the status carries across are the database's, already read.
+  bool _statusRead = false;
+
   /// Whether a state has carried the engine's own status yet. Before it a
   /// status is the reader's alone, and a pause the engine stored is still to
   /// come: the page does not announce that pause as one that began (review
@@ -349,11 +354,13 @@ class SyncBloc extends Bloc<SyncEvent, SyncState> {
     switch (state) {
       case SyncSignedIn(user: final current, flow: final shown, :final status)
           when current == user:
+        if (read != null) _statusRead = true;
         _put(
           emit,
           SyncSignedIn(current, status: kept(status), flow: flow ?? shown),
         );
       case SyncSignedOut(flow: final shown, :final status) when user == null:
+        if (read != null) _statusRead = true;
         _put(emit, SyncSignedOut(status: kept(status), flow: flow ?? shown));
       default:
         break;
@@ -413,9 +420,11 @@ class SyncBloc extends Bloc<SyncEvent, SyncState> {
     switch (state) {
       case SyncSignedIn(:final user, :final flow) when user.uid == current?.uid:
         _engineStatusSeen = true;
+        _statusRead = true;
         _put(emit, SyncSignedIn(user, status: event.status, flow: flow));
       case SyncSignedOut(:final flow) when current == null:
         _engineStatusSeen = true;
+        _statusRead = true;
         _put(emit, SyncSignedOut(status: event.status, flow: flow));
       default:
         break;
@@ -680,7 +689,8 @@ class SyncBloc extends Bloc<SyncEvent, SyncState> {
   /// Every state goes out through here: stamped with the step flag, and an
   /// account state's status kept as the last one known.
   void _put(Emitter<SyncState> emit, SyncState next) {
-    final stamped = next.withStepInFlight(_stepInFlight);
+    var stamped = next.withStepInFlight(_stepInFlight);
+    if (stamped is SyncSignedIn) stamped = stamped.withStatusRead(_statusRead);
     if (stamped
         case SyncSignedIn(:final status) || SyncSignedOut(:final status)) {
       _known = status;
@@ -784,6 +794,7 @@ class SyncBloc extends Bloc<SyncEvent, SyncState> {
   ) async {
     final read = await _readStatus(user);
     if (read == null || emit.isDone || !identical(state, shown)) return;
+    _statusRead = true;
     _put(emit, _stateFor(user, _withEngine(read), _flowOf(shown)));
   }
 

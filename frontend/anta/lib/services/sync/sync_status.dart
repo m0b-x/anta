@@ -136,6 +136,16 @@ class SyncStatus extends Equatable {
 
   static const SyncStatus empty = SyncStatus();
 
+  /// The later of [lastPushAt] and [lastPullAt]: a sync either way is a
+  /// sync, so the Sync section and the drawer say one time, never two.
+  DateTime? get lastSyncAt {
+    final push = lastPushAt;
+    final pull = lastPullAt;
+    if (push == null) return pull;
+    if (pull == null) return push;
+    return push.isAfter(pull) ? push : pull;
+  }
+
   /// A copy with the given fields replaced; [clearLastFailure],
   /// [clearBinding] and [clearUnboundAsCopyOf] set those to null, which a
   /// null argument cannot say.

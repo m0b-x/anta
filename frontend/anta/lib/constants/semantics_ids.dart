@@ -49,6 +49,11 @@ abstract final class SemanticsIds {
   /// A level in the markdown bar's heading menu, 1 to 6.
   static String editorHeadingLevel(int level) => 'editor-heading-$level';
 
+  /// The drawer's account row, above the places while signed in and absent
+  /// signed out; it opens Sync & sharing (§12 of
+  /// `docs/cloud-sync-phase-02-own-space.md`).
+  static const String drawerAccount = 'drawer-account';
+
   /// Drawer destinations (D1 of `docs/settings-rework-roadmap.md`): the
   /// places, top to bottom. `drawerSettings` opens the settings hub.
   static const String drawerCalendar = 'drawer-calendar';
@@ -76,9 +81,10 @@ abstract final class SemanticsIds {
   /// the one way a flow reaches that page's hub row.
   static const String drawerHeaderIcon = 'drawer-header-icon';
 
-  /// The drawer's scrolling list of rows. A flow reaching a row past the
-  /// list's cache extent swipes inside it (`scroll-to … --in id:drawer-list`):
-  /// the first scrollable a dump lists is the header's avatar block, and a
+  /// The drawer's scrolling list of rows, the account row first while signed
+  /// in. A flow reaching a row past the list's cache extent swipes inside it
+  /// (`scroll-to … --in id:drawer-list`): the first scrollable a dump listed
+  /// was the header's block, where the account then rode as a badge, and a
   /// swipe there scrolls nothing (settings pass, 2026-10-31).
   static const String drawerList = 'drawer-list';
 

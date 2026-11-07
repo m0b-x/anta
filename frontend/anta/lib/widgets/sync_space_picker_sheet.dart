@@ -1,32 +1,14 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 
 import '../bloc/sync/sync_bloc.dart';
 import '../constants/row_metrics.dart';
 import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
+import '../utils/sync_moment_format.dart';
 import 'app_dialogs.dart';
 import 'form_rows.dart';
-
-/// A sync time as the Sync section and the picker say it: the time of day
-/// when it is today — a sync minutes ago is what the owner checks — else
-/// the date, with the year only when it is not this one.
-String formatSyncMoment(BuildContext context, DateTime at, {DateTime? now}) {
-  final local = at.toLocal();
-  final today = now ?? DateTime.now();
-  if (DateUtils.isSameDay(local, today)) {
-    return MaterialLocalizations.of(context).formatTimeOfDay(
-      TimeOfDay.fromDateTime(local),
-      alwaysUse24HourFormat: MediaQuery.alwaysUse24HourFormatOf(context),
-    );
-  }
-  final localeName = AppLocalizations.of(context)!.localeName;
-  return local.year == today.year
-      ? DateFormat.MMMd(localeName).format(local)
-      : DateFormat.yMMMd(localeName).format(local);
-}
 
 /// The bind picker (D2 A of `docs/cloud-sync-phase-02-own-space.md`): which
 /// of the account's spaces this database syncs with, and how. Opened once

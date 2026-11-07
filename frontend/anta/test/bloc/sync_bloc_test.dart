@@ -246,7 +246,10 @@ void main() {
 
     test('a persisted session is restored on load', () async {
       final (bloc, _, states) = await _pumpBloc(user: _user);
-      expect(states, [const SyncSignedIn(_user)]);
+      expect(states, [
+        const SyncSignedIn(_user),
+        const SyncSignedIn(_user, statusRead: true),
+      ]);
       await bloc.close();
     });
   });
@@ -260,7 +263,7 @@ void main() {
       expect(states, [
         const SyncSignedOut(),
         const SyncSigningIn(),
-        const SyncSignedIn(_user),
+        const SyncSignedIn(_user, statusRead: true),
       ]);
       await bloc.close();
     });
@@ -283,7 +286,7 @@ void main() {
       fake.signInResult = null;
       bloc.add(const SignInRequested());
       await pumpEventQueue();
-      expect(states.last, const SyncSignedIn(_user));
+      expect(states.last, const SyncSignedIn(_user, statusRead: true));
       await bloc.close();
     });
 
@@ -321,7 +324,7 @@ void main() {
         expect(states, [
           const SyncSignedOut(),
           const SyncSigningIn(),
-          const SyncSignedIn(_user),
+          const SyncSignedIn(_user, statusRead: true),
         ]);
         await bloc.close();
       },
@@ -337,7 +340,7 @@ void main() {
       await pumpEventQueue();
       expect(states, [
         const SyncSignedOut(),
-        const SyncSignedIn(_partner),
+        const SyncSignedIn(_partner, statusRead: true),
         const SyncSignedOut(),
       ]);
       await bloc.close();
@@ -396,11 +399,30 @@ void main() {
 
       expect(states, [
         const SyncSignedIn(_user),
-        const SyncSignedIn(_user, status: SyncStatus(pendingCount: 3)),
+        const SyncSignedIn(
+          _user,
+          status: SyncStatus(pendingCount: 3),
+          statusRead: true,
+        ),
       ]);
       expect(reader.reads, [_user.uid]);
       await bloc.close();
     });
+
+    test(
+      'the account shown before its first read says the status is not '
+      'read yet, even when the read lands on the same empty status',
+      () async {
+        final reader = _FakeStatusReader();
+        final (bloc, _, states) = await _pumpBloc(user: _user, reader: reader);
+
+        expect(states, [
+          const SyncSignedIn(_user),
+          const SyncSignedIn(_user, statusRead: true),
+        ]);
+        await bloc.close();
+      },
+    );
 
     test('an account change shows the database\'s status at once, then '
         're-reads it for the new one', () async {
@@ -416,8 +438,16 @@ void main() {
       expect(states, [
         const SyncSignedOut(),
         const SyncSignedOut(status: SyncStatus(pendingCount: 1)),
-        const SyncSignedIn(_partner, status: SyncStatus(pendingCount: 1)),
-        const SyncSignedIn(_partner, status: SyncStatus(pendingCount: 2)),
+        const SyncSignedIn(
+          _partner,
+          status: SyncStatus(pendingCount: 1),
+          statusRead: true,
+        ),
+        const SyncSignedIn(
+          _partner,
+          status: SyncStatus(pendingCount: 2),
+          statusRead: true,
+        ),
       ]);
       expect(reader.reads, [null, _partner.uid]);
       await bloc.close();
@@ -433,8 +463,16 @@ void main() {
 
       expect(states, [
         const SyncSignedIn(_user),
-        const SyncSignedIn(_user, status: SyncStatus(pendingCount: 1)),
-        const SyncSignedIn(_user, status: SyncStatus(pendingCount: 2)),
+        const SyncSignedIn(
+          _user,
+          status: SyncStatus(pendingCount: 1),
+          statusRead: true,
+        ),
+        const SyncSignedIn(
+          _user,
+          status: SyncStatus(pendingCount: 2),
+          statusRead: true,
+        ),
       ]);
       await bloc.close();
     });
@@ -460,7 +498,11 @@ void main() {
         const SyncSignedOut(),
         const SyncSigningIn(),
         const SyncSignedIn(_user),
-        const SyncSignedIn(_user, status: SyncStatus(pendingCount: 6)),
+        const SyncSignedIn(
+          _user,
+          status: SyncStatus(pendingCount: 6),
+          statusRead: true,
+        ),
       ]);
       await bloc.close();
     });
@@ -476,6 +518,7 @@ void main() {
         bloc.add(const LoadSyncStatus());
         async.elapse(SyncBloc.statusTimeout + const Duration(seconds: 1));
 
+        // Timed out, the account is still waiting for its first status.
         expect(states, [const SyncSignedIn(_user)]);
         // A refresh afterwards reads again and lands its status.
         reader.pendingCount = 2;
@@ -483,7 +526,11 @@ void main() {
         async.flushMicrotasks();
         expect(
           states.last,
-          const SyncSignedIn(_user, status: SyncStatus(pendingCount: 2)),
+          const SyncSignedIn(
+            _user,
+            status: SyncStatus(pendingCount: 2),
+            statusRead: true,
+          ),
         );
         bloc.close();
         async.flushMicrotasks();
@@ -516,7 +563,11 @@ void main() {
 
       expect(
         states.last,
-        const SyncSignedIn(_user, status: SyncStatus(pendingCount: 7)),
+        const SyncSignedIn(
+          _user,
+          status: SyncStatus(pendingCount: 7),
+          statusRead: true,
+        ),
       );
       await bloc.close();
     });
@@ -531,7 +582,11 @@ void main() {
       await pumpEventQueue();
       expect(
         states.last,
-        const SyncSignedIn(_user, status: SyncStatus(pendingCount: 4)),
+        const SyncSignedIn(
+          _user,
+          status: SyncStatus(pendingCount: 4),
+          statusRead: true,
+        ),
       );
 
       reader.pendingCount = 5;
@@ -579,7 +634,10 @@ void main() {
       engine.emit(pulling);
       await pumpEventQueue();
 
-      expect(states.last, const SyncSignedIn(_user, status: pulling));
+      expect(
+        states.last,
+        const SyncSignedIn(_user, status: pulling, statusRead: true),
+      );
       await bloc.close();
     });
 
@@ -607,7 +665,10 @@ void main() {
       engine.emit(pulling);
       await pumpEventQueue();
 
-      expect(states.last, const SyncSignedIn(_user, status: pulling));
+      expect(
+        states.last,
+        const SyncSignedIn(_user, status: pulling, statusRead: true),
+      );
       await bloc.close();
     });
 
@@ -638,7 +699,10 @@ void main() {
       engine.emit(pulling);
       await pumpEventQueue();
 
-      expect(states, [const SyncSignedIn(_user)]);
+      expect(states, [
+        const SyncSignedIn(_user),
+        const SyncSignedIn(_user, statusRead: true),
+      ]);
       await bloc.close();
     });
 
@@ -646,7 +710,10 @@ void main() {
       final engine = FakeSyncEngine()..current = pulling;
       final (bloc, _, states) = await _pumpBloc(user: _user, engine: engine);
 
-      expect(states.last, const SyncSignedIn(_user, status: pulling));
+      expect(
+        states.last,
+        const SyncSignedIn(_user, status: pulling, statusRead: true),
+      );
       await bloc.close();
     });
 
@@ -770,12 +837,15 @@ void main() {
       await pumpEventQueue();
       old.emit(const SyncStatus(pendingCount: 1));
       await pumpEventQueue();
-      expect(states.last, const SyncSignedIn(_user));
+      expect(states.last, const SyncSignedIn(_user, statusRead: true));
       expect(old.statuses.hasListener, isFalse);
 
       fresh.emit(pulling);
       await pumpEventQueue();
-      expect(states.last, const SyncSignedIn(_user, status: pulling));
+      expect(
+        states.last,
+        const SyncSignedIn(_user, status: pulling, statusRead: true),
+      );
       await bloc.close();
     });
 
@@ -812,11 +882,14 @@ void main() {
       old.emit(const SyncStatus(pendingCount: 1));
       await pumpEventQueue();
       expect(old.statuses.hasListener, isFalse);
-      expect(states.last, const SyncSignedIn(_user));
+      expect(states.last, const SyncSignedIn(_user, statusRead: true));
 
       fresh.emit(pulling);
       await pumpEventQueue();
-      expect(states.last, const SyncSignedIn(_user, status: pulling));
+      expect(
+        states.last,
+        const SyncSignedIn(_user, status: pulling, statusRead: true),
+      );
       await bloc.close();
     });
 
@@ -826,12 +899,12 @@ void main() {
       final (bloc, _, states) = await _pumpBloc(user: _user, engine: engine);
       await engine.dispose();
       await pumpEventQueue();
-      expect(states.last, const SyncSignedIn(_user));
+      expect(states.last, const SyncSignedIn(_user, statusRead: true));
 
       bloc.add(const LoadSyncStatus());
       await pumpEventQueue();
 
-      expect(states.last, const SyncSignedIn(_user));
+      expect(states.last, const SyncSignedIn(_user, statusRead: true));
       await bloc.close();
     });
 
@@ -852,7 +925,10 @@ void main() {
       bloc.add(const SyncNowRequested());
       await pumpEventQueue();
 
-      expect(states, [const SyncSignedIn(_user)]);
+      expect(states, [
+        const SyncSignedIn(_user),
+        const SyncSignedIn(_user, statusRead: true),
+      ]);
       await bloc.close();
     });
 

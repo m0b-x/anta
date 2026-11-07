@@ -4713,6 +4713,24 @@ class AppLocalizationsRo extends AppLocalizations {
       'În pauză — copia din cloud nu poate fi accesată';
 
   @override
+  String get drawerAccountNotSyncing => 'Nu se sincronizează';
+
+  @override
+  String get drawerSyncPausedQuota => 'În pauză — limita zilnică atinsă';
+
+  @override
+  String get drawerSyncPausedOtherAccount => 'În pauză — alt cont';
+
+  @override
+  String get drawerSyncPausedAppOutdated => 'În pauză — actualizează ANTA';
+
+  @override
+  String get drawerSyncPausedNoAccess => 'În pauză — fără acces';
+
+  @override
+  String get drawerSyncRetrying => 'Eșuat — se reîncearcă';
+
+  @override
   String syncLastSynced(String time) {
     return 'Ultima sincronizare: $time';
   }

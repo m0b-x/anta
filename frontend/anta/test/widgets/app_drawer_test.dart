@@ -1,9 +1,14 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get_it/get_it.dart';
 
 import 'package:anta/bloc/app_settings/app_settings_bloc.dart';
+import 'package:anta/bloc/sync/sync_bloc.dart';
+import 'package:anta/constants/app_theme.dart';
 import 'package:anta/constants/app_version.dart';
 import 'package:anta/constants/row_metrics.dart';
 import 'package:anta/constants/semantics_ids.dart';
@@ -12,18 +17,24 @@ import 'package:anta/database/database_lifecycle.dart';
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/l10n/app_localizations_en.dart';
 import 'package:anta/models/app_permission.dart';
+import 'package:anta/models/app_user.dart';
 import 'package:anta/models/dev_options.dart';
+import 'package:anta/models/sync_binding.dart';
 import 'package:anta/pages/settings_hub_page.dart';
 import 'package:anta/pages/settings_page.dart';
 import 'package:anta/services/auth_service.dart';
 import 'package:anta/services/permission_service.dart';
 import 'package:anta/services/settings_service.dart';
+import 'package:anta/services/sync/sync_status.dart';
 import 'package:anta/widgets/app_drawer.dart';
 import 'package:anta/widgets/leading_nav_pair.dart';
+import 'package:anta/widgets/user_avatar.dart';
 
 import '../database/support/db_test_support.dart';
 import '../goldens/support/golden_fonts.dart';
+import '../services/pairing_support.dart';
 import '../services/permission_support.dart';
+import '../support/fake_sync_engine.dart';
 
 /// The drawer of the settings rework (D1, D10 of
 /// `docs/settings-rework-roadmap.md`): it lists places — nine rows by id,
@@ -132,6 +143,22 @@ void main() {
 
   Finder inRow(String id, Finder matching) =>
       find.descendant(of: find.bySemanticsIdentifier(id), matching: matching);
+
+  /// The drawer list's scrolling node, the one that carries the child count
+  /// and the first visible index a screen reader announces.
+  SemanticsData scrollNodeOf(WidgetTester tester) {
+    SemanticsNode? found;
+    bool visit(SemanticsNode node) {
+      if (node.getSemanticsData().scrollChildCount != null) found = node;
+      if (found == null) node.visitChildren(visit);
+      return found == null;
+    }
+
+    visit(
+      tester.getSemantics(find.bySemanticsIdentifier(SemanticsIds.drawerList)),
+    );
+    return found!.getSemanticsData();
+  }
 
   /// The style a [Text] paints with: the ambient default merged under its
   /// own, as the paragraph resolves it.
@@ -516,6 +543,422 @@ void main() {
 
     await tester.pumpWidget(const SizedBox.shrink());
   });
+
+  // §12 of `docs/cloud-sync-phase-02-own-space.md`: the header's badge became
+  // the list's first row while signed in. Where it lands is the navigation
+  // contract's (`settings_navigation_contract_test.dart`).
+  testWidgets('signed out there is no account row and no avatar, and the '
+      'Calendar row sits where it always has', (tester) async {
+    await pumpHost(tester);
+    await openDrawer(tester);
+
+    expect(
+      find.bySemanticsIdentifier(SemanticsIds.drawerAccount),
+      findsNothing,
+    );
+    expect(find.byType(UserAvatar), findsNothing);
+    expect(
+      tester.getRect(find.bySemanticsIdentifier(SemanticsIds.drawerCalendar)),
+      const Rect.fromLTWH(0, 149, 304, 62),
+    );
+    // The list's children are the three labels and the nine places alone,
+    // so a screen reader's "x of n" is what it always was.
+    final list = scrollNodeOf(tester);
+    expect(list.scrollChildCount, 12);
+    expect(list.scrollIndex, 0);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  group('the account row, signed in (§12)', () {
+    late FakeAuthService auth;
+    late FakeSyncEngine engine;
+    late _StatusReader reader;
+
+    const binding = SyncBinding(
+      spaceId: 'space-1',
+      ownerUid: 'uid-a',
+      accountUid: 'uid-a',
+    );
+    final pulled = DateTime.now().toUtc();
+
+    const notSyncing = SyncStatus();
+    final lastSynced = SyncStatus(binding: binding, lastPullAt: pulled);
+    final pending = lastSynced.copyWith(pendingCount: 3);
+    final mismatch = lastSynced.copyWith(pause: SyncPause.accountMismatch);
+
+    /// How many blocs the drawer asked DI for.
+    var blocsCreated = 0;
+
+    setUp(() {
+      auth = FakeAuthService(user: userA);
+      engine = FakeSyncEngine();
+      reader = _StatusReader()..status = lastSynced;
+      blocsCreated = 0;
+      GetIt.I.unregister<AuthService>();
+      GetIt.I.registerSingleton<AuthService>(auth);
+      GetIt.I.registerFactory<SyncBloc>(() {
+        blocsCreated++;
+        return SyncBloc(
+          authService: auth,
+          statusReader: () => reader,
+          engine: () async => engine,
+        );
+      });
+    });
+
+    tearDown(() async {
+      await engine.statuses.close();
+      await auth.dispose();
+    });
+
+    Finder account() => find.bySemanticsIdentifier(SemanticsIds.drawerAccount);
+    Finder calendar() =>
+        find.bySemanticsIdentifier(SemanticsIds.drawerCalendar);
+
+    for (final scale in const [1.0, 1.3, 2.0]) {
+      testWidgets('at $scale the row is the Calendar row\'s height before '
+          'its first status and in every state, and a status landing with '
+          'the drawer open moves nothing', (tester) async {
+        tester.platformDispatcher.textScaleFactorTestValue = scale;
+        addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+        final readGate = reader.gate = Completer<void>();
+        await pumpHost(tester);
+
+        // The first frame is built before the bloc has said anything.
+        hostState(tester).openDrawer();
+        await tester.pump();
+        final firstFrame = tester.getSize(account()).height;
+        await settle(tester);
+        final bloc = BlocProvider.of<SyncBloc>(
+          tester.element(
+            inRow(SemanticsIds.drawerAccount, find.text(userA.displayName!)),
+          ),
+        );
+        Finder lastSyncedLine() => inRow(
+          SemanticsIds.drawerAccount,
+          find.textContaining(l10n.syncLastSynced('')),
+        );
+
+        // A bound status not yet read is never said: the account's
+        // placeholder would read "Not syncing" for a database that syncs.
+        // ignore: invalid_use_of_visible_for_testing_member
+        bloc.emit(SyncSignedIn(userA, status: lastSynced));
+        await settle(tester, rounds: 2);
+        expect(lastSyncedLine(), findsNothing);
+        expect(
+          inRow(
+            SemanticsIds.drawerAccount,
+            find.text(l10n.drawerAccountNotSyncing),
+          ),
+          findsNothing,
+        );
+        final blank = tester.getRect(account());
+
+        // ignore: invalid_use_of_visible_for_testing_member
+        bloc.emit(SyncSignedIn(userA, status: lastSynced, statusRead: true));
+        await settle(tester, rounds: 2);
+        expect(lastSyncedLine(), findsOneWidget);
+
+        final rect = tester.getRect(account());
+        expect(rect, blank);
+        expect(rect.height, tester.getSize(calendar()).height);
+        expect(firstFrame, rect.height);
+        expect(rect.bottom, lessThan(tester.getTopLeft(calendar()).dy));
+        expect(
+          tester.getSize(
+            inRow(SemanticsIds.drawerAccount, find.byType(UserAvatar)),
+          ),
+          const Size.square(RowMetrics.drawerGlyphSize),
+        );
+        final scheme = Theme.of(
+          tester.element(find.byType(AppDrawer)),
+        ).colorScheme;
+
+        final states = [
+          (lastSynced, l10n.syncLastSynced(''), false),
+          (notSyncing, l10n.drawerAccountNotSyncing, false),
+          (pending, l10n.syncPendingCount(3), false),
+          (mismatch, l10n.drawerSyncPausedOtherAccount, true),
+        ];
+        for (final (status, words, isError) in states) {
+          if (status != lastSynced) {
+            engine.emit(status);
+            await settle(tester, rounds: 2);
+          }
+          final line = inRow(
+            SemanticsIds.drawerAccount,
+            find.textContaining(words),
+          );
+          expect(line, findsOneWidget, reason: words);
+          expect(
+            styleOf(tester, line).color,
+            isError ? scheme.error : scheme.onSurfaceVariant,
+            reason: words,
+          );
+          expect(tester.getRect(account()), rect, reason: words);
+        }
+
+        // The row's bloc only read: it never started, ran or stopped sync.
+        expect(engine.calls, isEmpty);
+
+        readGate.complete();
+        await settle(tester, rounds: 2);
+        await tester.pumpWidget(const SizedBox.shrink());
+      });
+    }
+
+    testWidgets('the account is the drawer\'s one avatar, the row reads the '
+        'name then the status as a button, and every tappable is a labelled '
+        '48 dp target', (tester) async {
+      await pumpHost(tester);
+      await openDrawer(tester);
+
+      expect(find.byType(UserAvatar), findsOneWidget);
+      expect(
+        inRow(SemanticsIds.drawerAccount, find.byType(UserAvatar)),
+        findsOneWidget,
+      );
+      final node = tester.getSemantics(account()).getSemanticsData();
+      expect(node.label, startsWith(userA.displayName!));
+      expect(node.label, contains(l10n.syncLastSynced('')));
+      expect(node.flagsCollection.isButton, isTrue);
+      await expectLater(tester, meetsGuideline(labeledTapTargetGuideline));
+      await expectLater(tester, meetsGuideline(androidTapTargetGuideline));
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('the title falls back from the name to the email to the '
+        'section\'s name, and the row leaves with the account', (tester) async {
+      await pumpHost(tester);
+      await openDrawer(tester);
+      final height = tester.getSize(account()).height;
+
+      expect(
+        inRow(SemanticsIds.drawerAccount, find.text(userA.displayName!)),
+        findsOneWidget,
+      );
+
+      auth.emitAuth(const AppUser(uid: 'uid-a', email: 'a@b.c'));
+      await settle(tester, rounds: 2);
+      expect(
+        inRow(SemanticsIds.drawerAccount, find.text('a@b.c')),
+        findsOneWidget,
+      );
+      expect(tester.getSize(account()).height, height);
+
+      auth.emitAuth(const AppUser(uid: 'uid-a'));
+      await settle(tester, rounds: 2);
+      expect(
+        inRow(SemanticsIds.drawerAccount, find.text(l10n.accountSection)),
+        findsOneWidget,
+      );
+
+      auth.emitAuth(null);
+      await settle(tester, rounds: 2);
+      expect(account(), findsNothing);
+      expect(find.byType(UserAvatar), findsNothing);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('with no sync bloc to read, the line stays blank in its '
+        'reserved slot', (tester) async {
+      GetIt.I.unregister<SyncBloc>();
+      await pumpHost(tester);
+      await openDrawer(tester);
+
+      expect(
+        tester.getSize(account()).height,
+        tester.getSize(calendar()).height,
+      );
+      expect(
+        inRow(SemanticsIds.drawerAccount, find.byType(Text)),
+        findsNWidgets(2),
+        reason: 'the title and the slot\'s unseen template only',
+      );
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('at 2.0 on a 360 × 780 phone a drag to About and back keeps '
+        'the row\'s one bloc, and its line stays drawn', (tester) async {
+      tester.platformDispatcher.textScaleFactorTestValue = 2.0;
+      addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+      await pumpHost(tester);
+      tester.view.physicalSize = const Size(360, 780);
+      await tester.pump();
+      await openDrawer(tester);
+      Finder line() => inRow(
+        SemanticsIds.drawerAccount,
+        find.textContaining(l10n.syncLastSynced('')),
+      );
+      expect(line(), findsOneWidget);
+      expect(blocsCreated, 1);
+
+      final list = find.descendant(
+        of: find.byType(AppDrawer),
+        matching: find.byType(Scrollable),
+      );
+      await tester.scrollUntilVisible(
+        find.bySemanticsIdentifier(SemanticsIds.drawerAbout),
+        300,
+        scrollable: list,
+      );
+      await settle(tester, rounds: 2);
+      expect(account(), findsNothing, reason: 'the row left the cache');
+
+      await tester.drag(list, const Offset(0, 4000));
+      await settle(tester, rounds: 4);
+      expect(account(), findsOneWidget);
+      expect(line(), findsOneWidget);
+      expect(blocsCreated, 1);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    // The boundary pass of the design review: both themes, the two longest
+    // locales, the scales either side of each threshold and Android's own
+    // steps, every state. A cut the owner accepted is listed; any other is
+    // a finding.
+    final now = DateTime.now();
+    SyncFailureInfo failed(SyncGatewayFailure failure) =>
+        SyncFailureInfo(failure, at: pulled);
+    final everyState = <String, SyncStatus>{
+      'notSyncing': notSyncing,
+      'pausedQuota': lastSynced.copyWith(pause: SyncPause.quotaExhausted),
+      'pausedSignedOut': lastSynced.copyWith(pause: SyncPause.signedOut),
+      'pausedOtherAccount': mismatch,
+      'pausedAppOutdated': lastSynced.copyWith(pause: SyncPause.appOutdated),
+      'pausedNoAccess': lastSynced.copyWith(pause: SyncPause.noAccess),
+      'sending': lastSynced.copyWith(
+        activity: SyncActivity.pushing,
+        pendingCount: 1234,
+      ),
+      'receiving': lastSynced.copyWith(activity: SyncActivity.pulling),
+      'offline': lastSynced.copyWith(
+        lastFailure: failed(SyncGatewayFailure.offline),
+      ),
+      'retrying': lastSynced.copyWith(
+        lastFailure: failed(SyncGatewayFailure.permissionDenied),
+      ),
+      'pending': lastSynced.copyWith(pendingCount: 1234),
+      'neverSynced': const SyncStatus(binding: binding),
+      'lastSyncedToday': lastSynced,
+      'lastSyncedPreviousYear': SyncStatus(
+        binding: binding,
+        lastPullAt: DateTime(now.year - 1, 11, 5, 15, 9).toUtc(),
+      ),
+    };
+    // The date is `formatSyncMoment`'s, shared with the page and the picker.
+    final acceptedCuts = {
+      ('de', 1.0): {'lastSyncedPreviousYear'},
+    };
+
+    for (final (themeName, theme) in [
+      ('light', AppTheme.light()),
+      ('dark', AppTheme.dark()),
+    ]) {
+      for (final code in const ['de', 'ro']) {
+        for (final scale in const [1.0, 1.15, 1.3, 1.5, 1.77, 2.0]) {
+          testWidgets('$themeName $code at $scale: every state keeps the '
+              'row\'s rect, and only an accepted line is cut', (tester) async {
+            tester.platformDispatcher.textScaleFactorTestValue = scale;
+            addTearDown(
+              tester.platformDispatcher.clearTextScaleFactorTestValue,
+            );
+            tester.view.physicalSize = const Size(1000, 2400);
+            tester.view.devicePixelRatio = 1;
+            addTearDown(tester.view.reset);
+            await tester.pumpWidget(
+              BlocProvider<AppSettingsBloc>.value(
+                value: appSettingsBloc,
+                child: MaterialApp(
+                  theme: theme,
+                  localizationsDelegates:
+                      AppLocalizations.localizationsDelegates,
+                  supportedLocales: AppLocalizations.supportedLocales,
+                  locale: Locale(code),
+                  home: const _DrawerHost(),
+                ),
+              ),
+            );
+            await settle(tester);
+            await openDrawer(tester);
+            final local = AppLocalizations.of(
+              tester.element(find.byType(AppDrawer)),
+            )!;
+            final status = find.descendant(
+              of: account(),
+              matching: find.byWidgetPredicate(
+                (widget) =>
+                    widget is Text &&
+                    widget.data != userA.displayName &&
+                    (widget.data?.trim().isNotEmpty ?? false),
+              ),
+            );
+
+            Rect? rect;
+            final cuts = <String>{};
+            for (final MapEntry(key: name, value: state)
+                in everyState.entries) {
+              engine.emit(state);
+              await settle(tester, rounds: 2);
+              expect(status, findsOneWidget, reason: name);
+              if (tester
+                  .renderObject<RenderParagraph>(status)
+                  .didExceedMaxLines) {
+                cuts.add('$name "${tester.widget<Text>(status).data}"');
+              }
+              rect ??= tester.getRect(account());
+              expect(tester.getRect(account()), rect, reason: name);
+            }
+            final accepted = acceptedCuts[(code, scale)] ?? const <String>{};
+            expect(
+              cuts.where(
+                (cut) => !accepted.contains(cut.substring(0, cut.indexOf(' '))),
+              ),
+              isEmpty,
+            );
+
+            // The header's subtitle is the one it always was.
+            expect(
+              find.descendant(
+                of: find.byType(AppDrawer),
+                matching: find.byWidgetPredicate(
+                  (widget) =>
+                      widget is Text &&
+                      widget.data == local.settings &&
+                      widget.maxLines == 1 &&
+                      widget.style?.fontSize == 14,
+                ),
+              ),
+              findsOneWidget,
+            );
+
+            await tester.pumpWidget(const SizedBox.shrink());
+          });
+        }
+      }
+    }
+  });
+}
+
+/// Answers every read with [status].
+class _StatusReader implements SyncStatusReader {
+  SyncStatus status = SyncStatus.empty;
+
+  /// When set, the next read waits for it, then clears it.
+  Completer<void>? gate;
+
+  @override
+  Future<SyncStatus> read({AppUser? user}) async {
+    final waiting = gate;
+    gate = null;
+    if (waiting != null) await waiting.future;
+    return status;
+  }
 }
 
 /// Stands in for the folder page: a scaffold that hosts the drawer.

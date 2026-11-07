@@ -17,6 +17,7 @@ import '../utils/auth_error.dart';
 import '../utils/custom_snackbar.dart';
 import '../utils/pairing_error.dart';
 import '../utils/settings_search.dart';
+import '../utils/sync_moment_format.dart';
 import '../widgets/app_dialogs.dart';
 import '../widgets/form_rows.dart' show FormCaptionSlot;
 import '../widgets/pairing_sheet.dart';
@@ -534,7 +535,7 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
         status.activity == SyncActivity.idle &&
         !stepping;
     final (line, glyph, carriesCount) = _statusLine(l10n, status);
-    final lastSync = _lastSyncOf(status);
+    final lastSync = status.lastSyncAt;
     // The details (review D2-3): the last sync, the ones held back — said
     // nowhere else, so before what an ellipsis cuts first (RC3b-3) — then the
     // changes waiting unless the line above already counts them.
@@ -718,14 +719,6 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
       return (l10n.syncWaitingFirst, Icons.cloud_queue_rounded, false);
     }
     return (l10n.syncUpToDate, Icons.cloud_done_outlined, false);
-  }
-
-  static DateTime? _lastSyncOf(SyncStatus status) {
-    final push = status.lastPushAt;
-    final pull = status.lastPullAt;
-    if (push == null) return pull;
-    if (pull == null) return push;
-    return push.isAfter(pull) ? push : pull;
   }
 
   /// [stopping] words an unknown failure as the stop's: the bind is offered

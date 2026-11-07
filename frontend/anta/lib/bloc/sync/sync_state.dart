@@ -161,19 +161,42 @@ final class SyncSignedIn extends SyncState {
   @override
   final bool stepInFlight;
 
+  /// Whether [status] is one a read or the engine delivered, rather than the
+  /// [SyncStatus.empty] the account is first shown with: an unbound
+  /// database reads as that same empty status, so only this tells the
+  /// drawer's line to wait instead of saying "Not syncing" for a bound one
+  /// (§12 (k) of `docs/cloud-sync-phase-02-own-space.md`). A read that timed
+  /// out leaves it false.
+  final bool statusRead;
+
   const SyncSignedIn(
     this.user, {
     this.status = SyncStatus.empty,
     this.flow = const SyncBindIdle(),
     this.stepInFlight = false,
+    this.statusRead = false,
   });
 
   @override
-  SyncSignedIn withStepInFlight(bool value) =>
-      SyncSignedIn(user, status: status, flow: flow, stepInFlight: value);
+  SyncSignedIn withStepInFlight(bool value) => SyncSignedIn(
+    user,
+    status: status,
+    flow: flow,
+    stepInFlight: value,
+    statusRead: statusRead,
+  );
+
+  /// This state with [statusRead] set to [value].
+  SyncSignedIn withStatusRead(bool value) => SyncSignedIn(
+    user,
+    status: status,
+    flow: flow,
+    stepInFlight: stepInFlight,
+    statusRead: value,
+  );
 
   @override
-  List<Object?> get props => [user, status, flow, stepInFlight];
+  List<Object?> get props => [user, status, flow, stepInFlight, statusRead];
 }
 
 /// The account change a [SyncFailure] came from.

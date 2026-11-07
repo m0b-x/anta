@@ -4674,6 +4674,24 @@ class AppLocalizationsDe extends AppLocalizations {
       'Pausiert – die Cloud-Kopie ist nicht erreichbar';
 
   @override
+  String get drawerAccountNotSyncing => 'Wird nicht synchronisiert';
+
+  @override
+  String get drawerSyncPausedQuota => 'Pausiert – Tageslimit erreicht';
+
+  @override
+  String get drawerSyncPausedOtherAccount => 'Pausiert – anderes Konto';
+
+  @override
+  String get drawerSyncPausedAppOutdated => 'Pausiert – ANTA aktualisieren';
+
+  @override
+  String get drawerSyncPausedNoAccess => 'Pausiert – kein Zugriff';
+
+  @override
+  String get drawerSyncRetrying => 'Fehler – neuer Versuch';
+
+  @override
   String syncLastSynced(String time) {
     return 'Zuletzt synchronisiert $time';
   }

@@ -67,6 +67,24 @@ class RowMetrics {
   /// hub's do.
   static const double drawerGlyphSize = 24.0;
 
+  /// The drawer's account avatar: a disc as wide as [drawerGlyphSize], so
+  /// the account row's name starts where every place's title does.
+  static const double drawerAvatarRadius = drawerGlyphSize / 2;
+
+  /// The text-scale factor from which the account row's status line is
+  /// given two lines. Android's first step above 100 %, 115 %, scales 13 sp
+  /// non-linearly to about 1.16, where one line of the drawer's 196 dp text
+  /// column on a 360 phone already cuts most German lines and "Paused —
+  /// daily limit reached"; 1.1 sits under that step and above 1.0.
+  static const double drawerStatusTwoLineTextScale = 1.1;
+
+  /// The factor from which it is given three. Android's 180 % step gives
+  /// about 1.77 at 13 sp, where two lines cut "Zuletzt synchronisiert
+  /// 15:09"; 1.7 sits under it and above the 150 % step's 1.54, which two
+  /// lines hold. Decided by the scale, never by measuring the line, so the
+  /// row is one height in every state.
+  static const double drawerStatusThreeLineTextScale = 1.7;
+
   /// Before the 48 dp drag handle of a reorderable content row (the
   /// categories page): the handle's own target carries the rest of the
   /// optical margin, so a full [groupInset] would push the name past the

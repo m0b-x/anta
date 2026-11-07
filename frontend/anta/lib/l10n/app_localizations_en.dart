@@ -4628,6 +4628,24 @@ class AppLocalizationsEn extends AppLocalizations {
   String get syncPausedNoAccess => 'Paused — the cloud copy can\'t be reached';
 
   @override
+  String get drawerAccountNotSyncing => 'Not syncing';
+
+  @override
+  String get drawerSyncPausedQuota => 'Paused — daily limit reached';
+
+  @override
+  String get drawerSyncPausedOtherAccount => 'Paused — another account';
+
+  @override
+  String get drawerSyncPausedAppOutdated => 'Paused — update ANTA';
+
+  @override
+  String get drawerSyncPausedNoAccess => 'Paused — no access';
+
+  @override
+  String get drawerSyncRetrying => 'Couldn\'t sync — will retry';
+
+  @override
   String syncLastSynced(String time) {
     return 'Last synced $time';
   }

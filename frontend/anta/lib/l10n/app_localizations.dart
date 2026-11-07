@@ -7882,6 +7882,42 @@ abstract class AppLocalizations {
   /// **'Paused — the cloud copy can\'t be reached'**
   String get syncPausedNoAccess;
 
+  /// Status line of the drawer's account row: this database is not bound to a cloud space
+  ///
+  /// In en, this message translates to:
+  /// **'Not syncing'**
+  String get drawerAccountNotSyncing;
+
+  /// Status line of the drawer's account row, short: the account's daily cloud quota ran out
+  ///
+  /// In en, this message translates to:
+  /// **'Paused — daily limit reached'**
+  String get drawerSyncPausedQuota;
+
+  /// Status line of the drawer's account row, short: the signed-in account is not the one this database syncs with
+  ///
+  /// In en, this message translates to:
+  /// **'Paused — another account'**
+  String get drawerSyncPausedOtherAccount;
+
+  /// Status line of the drawer's account row, short: a newer version of the app wrote to the cloud copy
+  ///
+  /// In en, this message translates to:
+  /// **'Paused — update ANTA'**
+  String get drawerSyncPausedAppOutdated;
+
+  /// Status line of the drawer's account row, short: the cloud copy is gone or this account may not read it
+  ///
+  /// In en, this message translates to:
+  /// **'Paused — no access'**
+  String get drawerSyncPausedNoAccess;
+
+  /// Status line of the drawer's account row, short: the last sync failed for a reason other than no connection and tries again by itself
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t sync — will retry'**
+  String get drawerSyncRetrying;
+
   /// When this database last synced; time is a time of day today, else a date
   ///
   /// In en, this message translates to:

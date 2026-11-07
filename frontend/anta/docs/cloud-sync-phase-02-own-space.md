@@ -56,6 +56,7 @@ roadmap lists; desktop stays local-only (`SyncAvailability.isSupported`).
 9. How to run this
 10. Definition of done
 11. What it costs on the Spark plan (from the owner's export)
+12. The drawer's account row (2026-11-07)
 
 ---
 
@@ -3073,7 +3074,13 @@ meets an empty space loses even that protection (§4 F-1, F-2).**
 
 0. A fresh export of the phone (Settings → Backup); keep
    `C:\Users\mobx3\Downloads\gym_notes_anta.db` too.
-1. Deploy, from `frontend/anta`: add `"firestore": {"rules":
+1. **Already done — verified 2026-11-07 through the Firebase Rules API:
+   the `cloud.firestore` release of 2026-11-05 carries
+   `match /users/{owner}/spaces/{spaceId}` and `calendar_category_profiles`
+   (the `2661c8de` text; HEAD differs only in the header comment), and
+   `firebase firestore:indexes` lists all 18 `data` exemptions. Skip this
+   step unless step 3 reads "The cloud refused this".** The command, kept
+   for that case: deploy, from `frontend/anta`: add `"firestore": {"rules":
    "firestore.rules", "indexes": "firestore.indexes.json"}` beside the
    `flutter` block of the gitignored `firebase.json` (there is no
    `.firebaserc`, so `--project` stays), then
@@ -3321,3 +3328,251 @@ note arrives without chunks, by design; all 39 notes' texts, the counter
 values and the category names equal; an edit on B reached A on the next
 run (A read its own 312 rows back once, the read-back §11 accepts). Two
 `pushBatch` calls in all.
+
+---
+
+## 12. The drawer's account row (2026-11-07)
+
+**Status: BUILT AND REVIEWED 2026-11-07 — the mock accepted ("okay, this
+looks good"; the recommended direction, not a dedicated page); one
+`implementer` in three rounds, `reviewer` and `design-reviewer` in
+parallel with every finding fixed or recorded ("As built" at the end of
+this section), the whole suite green (13,917), the device pass in the same
+ledger; uncommitted until the owner's word.** After the sync status question the
+owner asked for "somewhere to see what is happening, what last sync was"
+and then for a mock of the left drawer. The lead's reading, accepted: no
+new drawer entry (the drawer lists places — settings rework D3, the
+rejected drawer-as-navigator of 2026-09-03), no account page yet (§12 (p)):
+the header's hidden avatar badge becomes the drawer's **first list row** —
+avatar, account name, one status line — opening Sync & sharing exactly as
+the badge does. Mock: https://claude.ai/artifact/3nhPAHTWWTGGb9tMYVJTYi
+(`designer` agent, 2026-11-07, a real-font render of the drawer in both
+schemes at 1.0 / 1.3 / 2.0, en and de; the renders and `measures.txt` were
+in that session's scratchpad only).
+
+**What the render found in today's badge (`app_drawer.dart:364-400`).**
+A 29 × 29 dp unlabelled target: `labeledTapTargetGuideline` and
+`androidTapTargetGuideline` both fail signed in (the drawer test runs on
+`NoOpAuthService`, so it never sees it); its hit box (62,60)–(91,89)
+overlaps the icon's five-tap unlock node (20,24)–(81,85); it carries no
+status; a 22 dp disc on a 61 dp tile sits on no step of the ramp — which
+answers the comment that chose the badge over "a second row at a
+mismatched scale": the row *is* a drawer row, same tile, same metrics.
+`UserAvatar`'s defaults (a `primaryContainer` disc, 1.17:1 on the drawer's
+`surfaceContainerLow`, a 12 px glyph) read as a pale hole beside 24 dp
+glyphs. The Sync page's own lines do not fit the drawer's 196 dp text
+column (the drawer is 304 dp wide on a 360 phone): four of the five pause
+lines cut at 1.0 en, most lines at 1.3 de.
+
+**Decisions — the designer's defaults, accepted by the owner 2026-11-07;
+each reversible.** (a) the row appears only when signed in; signed out the
+drawer is today's (alternative: always present, "Not signed in"). (b) The
+badge is retired — one identity mark. (c) The row is the first child of the
+drawer's `ListView`, above the CALENDAR label, with no label of its own;
+`RowMetrics.groupGap` separates it (alternative: drawn on the header). (d)
+One status line, not line + details (80 dp). (e) Text only; `error` colour
+for the three pauses that need the user; no cloud glyph. (f) "Not syncing".
+(g) "Last synced 3:09 PM" reuses the page's words (alternative "Up to date
+· 3:09 PM", a new key). (h) Four short drawer pause strings rather than the
+page's lines cut off. (i) The pending count only; the sending and held-back
+counts stay on the page. (j) 1 / 2 / 3 status lines below text scale 1.3 /
+from 1.3 / from 1.8, never one line cut off. (k) A blank reserved line
+before the first status lands, not a placeholder. (l) The avatar fallback
+is an `onSurfaceVariant` disc with a `surfaceContainerLow` person. (m) No
+TalkBack hint. (n) The page's `_lastSyncOf` moves to one shared
+`SyncStatus.lastSyncAt` getter. (o) No live region. (p) **No dedicated
+account page now** — the account stays the first section of Sync & sharing
+(the auth service has only sign in and sign out); the page earns its place
+with Phase 04 (delete the cloud copy, manage spaces) and Phase 03 (grants,
+consent), when Account (identity, switch, sign out, disconnect, delete
+cloud data, spaces) splits from Sync (per database).
+
+**Spec.**
+
+- *Presence and data.* The row exists while `AuthService.authStateChanges`
+  (`initialData: currentUser`, as the badge reads it) gives a user. Title =
+  `displayName ?? email ?? l10n.accountSection` (the page's precedent,
+  `sync_settings_page.dart:270`). Status from a `SyncBloc` created for the
+  row's subtree — `BlocProvider(create: (_) => getIt<SyncBloc>()..add(const
+  LoadSyncStatus()))`, guarded by `getIt.isRegistered<SyncBloc>()` (the
+  `PermissionService` pattern at `app_drawer.dart:424`); it closes with the
+  drawer; settings pages have no drawer, so two never run at once. The row
+  reads `SyncSignedIn.status`; every other bloc state leaves the line blank
+  with its slot reserved. `LoadSyncStatus` stays a read (the reviewer
+  confirmed it: `FakeSyncEngine.calls` empty). A read that times out
+  (`SyncBloc.statusTimeout`, 3 s) or fails leaves the slot blank for that
+  drawer open rather than showing the placeholder status: the bloc's
+  `SyncSignedIn.statusRead` (see "As built") flips only on a real read, a
+  refresh or an engine status.
+- *Words per state* (a pure function with its own test; the order mirrors
+  the page's `_statusLine`): 1 `binding == null` (and `unboundAsCopyOf`) →
+  "Not syncing", NEW `drawerAccountNotSyncing` (de "Wird nicht
+  synchronisiert", ro "Nu se sincronizează"); 2 `pause == quotaExhausted` →
+  "Paused — daily limit reached", NEW `drawerSyncPausedQuota` (de "Pausiert –
+  Tageslimit erreicht", ro "În pauză — limita zilnică atinsă"); 3 `pause ==
+  signedOut` → `syncPausedSignedOut`; 4 `accountMismatch` → "Paused —
+  another account", NEW `drawerSyncPausedOtherAccount` (de "Pausiert –
+  anderes Konto", ro "În pauză — alt cont"), `error`; 5 `appOutdated` →
+  "Paused — update ANTA", NEW `drawerSyncPausedAppOutdated` (de "Pausiert –
+  ANTA aktualisieren", ro "În pauză — actualizează ANTA"), `error`; 6
+  `noAccess` → "Paused — no access", NEW `drawerSyncPausedNoAccess` (de
+  "Pausiert – kein Zugriff", ro "În pauză — fără acces"), `error`; 7
+  `activity == pushing` → `syncSending(0)` ("Sending changes"); 8 `pulling`
+  → `syncReceiving`; 9 `lastFailure` offline → `syncOffline`, other →
+  "Couldn't sync — will retry", NEW `drawerSyncRetrying` (de "Fehler – neuer
+  Versuch", ro "Eșuat — se reîncearcă"; the page's German retry line cut at
+  every scale, the fix pass); 10 `pendingCount > 0` → `syncPendingCount(n)`; 11
+  `lastPullAt == null` → `syncNeverSynced`; 12 otherwise →
+  `syncLastSynced(formatSyncMoment(context, status.lastSyncAt))`. All
+  non-`error` lines in `onSurfaceVariant`. Six NEW keys in all three
+  ARBs, `flutter gen-l10n`, `untranslated.txt` empty.
+- *Elements.* The badge, the header's `Stack` and `Positioned` go; the
+  icon's `Semantics` and `GestureDetector` stay byte-for-byte; the comment
+  at `:256-258` says the account is the list's first row. The tile is
+  `_buildMenuTile`'s geometry (`FormMetrics.settingsRowPadding`,
+  `settingsRowVerticalPadding`, `RowMetrics.singleLineMinHeight`,
+  `FormMetrics.settingsLeadingWidth`, `settingsTitleGap`, trailing
+  `chevron_right_rounded` in `onSurfaceVariant`) — give `_buildMenuTile` a
+  `Widget leading` and a `Widget? subtitleWidget` rather than a copy.
+  Leading: `ExcludeSemantics(UserAvatar(user, radius:
+  RowMetrics.drawerAvatarRadius, backgroundColor: onSurfaceVariant,
+  foregroundColor: surfaceContainerLow))`, NEW `drawerAvatarRadius =
+  drawerGlyphSize / 2` (12 → a 24 dp avatar filling the glyph slot; a photo
+  fills the disc). Title: `RowMetrics.titleFontSize` 15 /
+  `FormMetrics.labelLineHeight`, w400, `onSurface`, `maxLines: 1`,
+  ellipsis. Status: `secondLineFontSize` 13 / `captionLineHeight`, w400,
+  colour per state, inside `FormCaptionSlot(candidates: [Text(n lines of
+  spaces, maxLines: n)], child: Text(line, maxLines: n, ellipsis))`
+  (`form_rows.dart:3465`, an existing primitive — nothing new); before the
+  first status the child is `SizedBox.shrink()`, never `Text('')` (1 dp
+  taller at 1.3). Lines n: `factor =
+  MediaQuery.textScalerOf(context).scale(13) / 13`; n = 1 below NEW
+  `RowMetrics.drawerStatusTwoLineTextScale` (1.1), 2 below NEW
+  `drawerStatusThreeLineTextScale` (1.7), else 3. Android's non-linear
+  scaling at 13 sp is about 1.16 at the 115 % step, 1.54 at 150 %, 1.77 at
+  180 % and 1.92 at 200 %; with the designer's 1.3 / 1.8 the design review
+  found one line cutting most German lines at 115 % and two lines cutting
+  "Zuletzt synchronisiert 15:09" at 180 %, so the thresholds sit under
+  those steps. Tap: `_go(context,
+  AppNavigator.toSyncSettings)` (`app_drawer.dart:77`: pop, then push, no
+  await). Semantics: `Semantics(identifier: SemanticsIds.drawerAccount)`
+  around the tile, NEW `drawerAccount = 'drawer-account'` beside
+  `drawerCalendar`; the merged node reads the name then the status, button
+  role, tap action; the template excluded by `FormCaptionSlot`.
+- *Measured (the designer's render; ±1 dp).* Row height 62 / 96 / 172 dp
+  at 1.0 / 1.3 / 2.0 in en and de, equal to the Calendar row's there only
+  because its subtitle happens to wrap the same way (the design review: ro
+  1.0 62 vs 80, 1.15 68 vs 89, de 1.8 156 vs 124 — cosmetic, not a rule) —
+  identical across every state at every scale; the avatar 24 × 24 at every scale. Contrast on
+  `surfaceContainerLow`, light / dark: `onSurfaceVariant` 8.47 / 10.02,
+  `error` 5.93 / 10.00, `onSurface` 15.48 / 13.17. de at 1.0 cuts "Zuletzt
+  synchronisiert 05.11.2025" (a previous year) and the retrying line's
+  tail; at 1.3 nothing; at 2.0 the retrying tail only. ro not rendered —
+  checked at implementation.
+
+**Must not change.** The header's gradient, height, tile, five taps and
+swipe, `drawerHeaderIcon` with label `appTitle` and the button role; the
+nine places, their order, ids, glyphs, styles and group headings; the
+Settings row's permissions line; `drawerList`; the About dialog; pop then
+push; signed out the drawer is byte-for-byte today's; the Sync & sharing
+page is untouched except for the shared `lastSyncAt` getter; every pin in
+`test/widgets/app_drawer_test.dart` and
+`test/widgets/settings_navigation_contract_test.dart` holds; the QA flows
+`tool/qa/flows/settings/00_drawer.txt` and `01_drawer_places.txt` keep
+passing (`test/qa/flows_lint_test.dart` needs the id first).
+
+**Risks.** The drawer grows 62 dp at 1.0 (About ends 69 dp below a 780 dp
+screen, was 7; the list scrolls). A `SyncBloc` per drawer open. German's
+retrying line ellipsizes. The QA fixture has no signed-in account: a device
+look needs the Firebase emulator path (`QaMode.firebaseEmulatorHost`).
+
+**Design-reviewer matrix after the build.** Signed out: no
+`drawer-account`, the nine rows at today's rects (Calendar 149–211 at
+1.0). Signed in: every state, light and dark, 1.0 / 1.3 / 2.0, en and de —
+the row's height equals the Calendar row's (62 / 96 / 172 ±1) and is
+identical across states; the row sits above `drawerCalendar` at the list's
+top; the avatar is 24 × 24; the header holds no `UserAvatar`; both
+tap-target guidelines pass; tapping `drawer-account` closes the drawer and
+lands on Sync & sharing, back lands on the host with the drawer closed; a
+status change with the drawer open leaves the rect unchanged. Device: a
+`qa screenshot` signed in at Android 200 % and in dark.
+
+**As built (2026-11-07; uncommitted until the owner's word).** One
+`implementer` (Opus 5.5) in three rounds, each gated on the focused suites,
+the whole suite from the lead after the last: 13,917 passed, 12 skipped,
+0 failed; `dart analyze lib` clean; `untranslated.txt` empty. *Round 1:*
+the row as specified; `_buildMenuTile` gained `leading`, `subtitleWidget`
+and `titleMaxLines`; `lib/widgets/drawer_sync_status.dart` holds the words
+per state as a pure function returning `({text, isError})` (13 unit tests);
+`SyncStatus.lastSyncAt`; `RowMetrics.drawerAvatarRadius` and the two
+thresholds; `SemanticsIds.drawerAccount`; the keys; seven drawer cases; the
+Account row in the navigation contract; `00_drawer.txt` pins `--absent
+id:drawer-account`. *Round 2 (the implementer's own finding):*
+`SyncSignedIn.statusRead` — `_onLoad` emitted the signed-in state with
+`SyncStatus.empty` before the read landed, so a bound database read "Not
+syncing" for up to 3 s; the flag is stamped in `_put` for the bloc's life,
+set by a real read, a refresh or an engine status and never by a timeout or
+a failure, and sits in `props` so an equal unbound status still flips
+unread → read (20 bloc expectations updated, four cases gain one state; a
+mutation run without the drawer's guard went red). *Code review
+(`reviewer`, its own snapshot, mutation runs on every stamp):* nothing
+loses data or crashes; (1) a timed-out read leaves the slot blank for that
+drawer open — kept, the wording above corrected; (2) signed out, the
+`SizedBox.shrink()` child counted in `drawer-list`'s `scrollChildCount`
+(13 against HEAD's 12, TalkBack's "x of n" off by one) — fixed; (3) the
+`BlocProvider` inside the list child was closed and rebuilt by a drag past
+About at 2.0 — fixed with (2): `_buildAccountScope` lifts the
+`StreamBuilder` and the lazy `BlocProvider` above the `ListView`, the row
+an `if (user != null)` child, so signed out the children are HEAD's; (4)
+one frame of the old status under a new name on an account change with the
+drawer open — kept (the Sync page has no drawer); (5) the drawer imported
+the picker sheet for `formatSyncMoment` — moved to
+`lib/utils/sync_moment_format.dart`, the picker and the page follow; (6)
+every drawer open resolves `SyncEngine.getInstance`, which only retries a
+failed launch build — existing behaviour, kept; (7) four files were LF in
+the working copy — CRLF now; (8) an empty `displayName` shows an empty
+title, the page's precedent — kept. The extra emissions of an equal status
+with `statusRead` flipped fire no listener on the Sync page (traced: the
+pause message needs a prior binding, the bind message a falling
+`_wasStepping`). *Design review (`design-reviewer`, 48 real-font cases,
+light/dark × en/de/ro × eight scales):* every matrix item passes; (1,
+severity 2) at the 115 % step one line cut most German lines and "Paused —
+daily limit reached" — the two-line threshold 1.3 → 1.1; (2, severity 2)
+at the 180 % step (≈ 1.77 at 13 sp) two lines cut "Zuletzt synchronisiert
+15:09" — the three-line threshold 1.8 → 1.7; (3) the Calendar-row equality
+is a coincidence of en/de — the claim above corrected; (4) the German
+previous-year date breaks between "5." and "Nov. 2025" at 1.3 — deferred
+(a no-break space in the shared `formatSyncMoment`); (5) the header
+subtitle "Einstellungen" measures 4.48:1 on the light gradient at 1.3–2.0 —
+pre-existing, likely the sampler's anti-aliasing, deferred; (6) no `de` and
+no `AppTheme` in the drawer suite — a 24-case boundary matrix added
+(light/dark × de/ro × 1.0, 1.15, 1.3, 1.5, 1.77, 2.0: every status line's
+`didExceedMaxLines` false, the row's rect one across fourteen states, the
+header subtitle untouched); (7) the avatar's weight — taste, kept per (l);
+(8) "Paused — signed out" under a signed-in name — transient, kept. The
+German retry line still cut at 1.77 with three lines, so the drawer got its
+own short line, `drawerSyncRetrying`; the matrix's allow-list is one entry,
+de 1.0's previous-year date. Also pinned: signed out `scrollChildCount` 12
+and `scrollIndex` 0; at 2.0 a drag to About and back keeps one `SyncBloc`
+and the line drawn. *Deferred:* the date's no-break space; the header
+subtitle's measured contrast; the account-change frame; the empty
+`displayName`. *Device pass (2026-11-07, one `qa-runner` on `anta_qa_1` /
+`emulator-5556`):* the settings suite 20/20 on the normal QA build
+(`00_drawer`'s `--absent id:drawer-account` held; `19_fasting_settings`
+went red once only because the runner's own cloud install killed the app
+mid-flow, green alone); the cloud QA build (`ANTA_QA_CLOUD`,
+`ANTA_QA_FIREBASE_EMULATOR=10.0.2.2`, `ANTA_QA_ACCOUNT`) against the
+Firebase emulators, signed in as `qa1@example.com` and bound: the row
+present in every shot with "Last synced 1:19 PM" / "Zuletzt synchronisiert
+13:19" — light en at font scale 1.0 (one line, the avatar and the chevron
+on the Calendar row's edges), 1.15, 1.8 and 2.0 (two lines, "PM" alone on
+the second — the shared `formatSyncMoment`'s plain space, deferred with
+the date's no-break space), dark en at 1.0 and 2.0, de at 1.0 (one line)
+and 1.8 ("Zuletzt / synchronisiert / 13:19", whole words); the email title
+ellipsizes from 1.8 (a real account shows its display name); About needs a
+scroll at 2.0; the accessibility dump gives one button node labelled
+"qa1@example.com\nLast synced 1:19 PM" with a click action. Note for the
+next pass: a cloud QA build is signed in as the QA account from launch
+(`FirebaseAuthService`, `QaMode.qaAccount`), so the row shows "Not
+syncing" on it before any Google sign-in — that is a signed-in identity,
+not a signed-out row.

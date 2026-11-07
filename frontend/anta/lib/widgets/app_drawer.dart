@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+import '../bloc/sync/sync_bloc.dart';
 import '../constants/app_version.dart';
-import '../constants/form_metrics.dart';
 import '../constants/row_metrics.dart';
 import '../constants/semantics_ids.dart';
 import '../core/di/injection.dart';
@@ -14,6 +15,9 @@ import '../services/auth_service.dart';
 import '../services/dev_options_service.dart';
 import '../services/permission_service.dart';
 import '../utils/custom_snackbar.dart';
+import '../utils/sync_moment_format.dart';
+import 'drawer_sync_status.dart';
+import 'form_rows.dart';
 import 'user_avatar.dart';
 
 /// The app's places — the calendar's pages, counters, the settings hub, the
@@ -128,93 +132,99 @@ class _AppDrawerState extends State<AppDrawer> {
 
           // Menu items. The list carries its own id: a device flow reaching a
           // row past the cache extent swipes inside it, and the drawer's
-          // first scrollable in a dump is the header's avatar block, where a
-          // swipe scrolls nothing.
+          // first scrollable in a dump was the header's block, where the
+          // account rode as a badge before it became this list's first row,
+          // and a swipe there scrolls nothing.
           Expanded(
-            child: Semantics(
-              identifier: SemanticsIds.drawerList,
-              child: ListView(
-                padding: EdgeInsets.only(
-                  bottom: MediaQuery.paddingOf(context).bottom,
+            child: _buildAccountScope(
+              (user) => Semantics(
+                identifier: SemanticsIds.drawerList,
+                child: ListView(
+                  padding: EdgeInsets.only(
+                    bottom: MediaQuery.paddingOf(context).bottom,
+                  ),
+                  children: [
+                    if (user != null) _buildAccountRow(context, user),
+                    _buildGroupLabel(context, l10n.calendar),
+                    _buildMenuItem(
+                      context: context,
+                      icon: Icons.calendar_month_rounded,
+                      title: l10n.calendar,
+                      subtitle: l10n.calendarDesc,
+                      identifier: SemanticsIds.drawerCalendar,
+                      onTap: () => _go(context, AppNavigator.toCalendar),
+                    ),
+                    _buildMenuItem(
+                      context: context,
+                      icon: Icons.grid_view_rounded,
+                      title: l10n.calendarOverview,
+                      subtitle: l10n.calendarOverviewDesc,
+                      identifier: SemanticsIds.drawerCalendarOverview,
+                      onTap: () =>
+                          _go(context, AppNavigator.toCalendarOverview),
+                    ),
+                    _buildMenuItem(
+                      context: context,
+                      icon: Icons.bar_chart_rounded,
+                      title: l10n.reportTitle,
+                      subtitle: l10n.calendarReportRowDesc,
+                      identifier: SemanticsIds.drawerCalendarReport,
+                      onTap: () => _go(context, AppNavigator.toCalendarReport),
+                    ),
+                    _buildMenuItem(
+                      context: context,
+                      icon: Icons.category_rounded,
+                      title: l10n.calendarCategories,
+                      subtitle: l10n.calendarCategoriesRowDesc,
+                      identifier: SemanticsIds.drawerCalendarCategories,
+                      onTap: () =>
+                          _go(context, AppNavigator.toCalendarCategories),
+                    ),
+                    _buildMenuItem(
+                      context: context,
+                      icon: Icons.notifications_active_rounded,
+                      title: l10n.alertsTitle,
+                      subtitle: l10n.alertsRowDesc,
+                      identifier: SemanticsIds.drawerAlerts,
+                      onTap: () => _go(context, AppNavigator.toAlerts),
+                    ),
+
+                    _buildGroupLabel(context, l10n.notes),
+                    _buildMenuItem(
+                      context: context,
+                      icon: Icons.pin_rounded,
+                      title: l10n.counterSettings,
+                      // The hub's one-line subtitle: the page's own wraps to an
+                      // 80 dp row and pushes About below the fold on 360 × 780.
+                      subtitle: l10n.settingsRowCountersDesc,
+                      identifier: SemanticsIds.drawerCounters,
+                      onTap: () =>
+                          _go(context, AppNavigator.toCounterManagement),
+                    ),
+
+                    _buildGroupLabel(context, l10n.appGroupLabel),
+                    _buildSettingsItem(context, l10n),
+                    _buildMenuItem(
+                      context: context,
+                      icon: Icons.school_rounded,
+                      title: l10n.howToUseAnta,
+                      subtitle: l10n.calendarGuideTitle,
+                      identifier: SemanticsIds.drawerHowTo,
+                      onTap: () => _go(context, AppNavigator.toCalendarGuide),
+                    ),
+                    _buildMenuItem(
+                      context: context,
+                      icon: Icons.info_outline_rounded,
+                      title: l10n.about,
+                      subtitle: kAppVersion,
+                      identifier: SemanticsIds.drawerAbout,
+                      onTap: () {
+                        AppNavigator.pop(context);
+                        _showAboutDialog(context);
+                      },
+                    ),
+                  ],
                 ),
-                children: [
-                  _buildGroupLabel(context, l10n.calendar),
-                  _buildMenuItem(
-                    context: context,
-                    icon: Icons.calendar_month_rounded,
-                    title: l10n.calendar,
-                    subtitle: l10n.calendarDesc,
-                    identifier: SemanticsIds.drawerCalendar,
-                    onTap: () => _go(context, AppNavigator.toCalendar),
-                  ),
-                  _buildMenuItem(
-                    context: context,
-                    icon: Icons.grid_view_rounded,
-                    title: l10n.calendarOverview,
-                    subtitle: l10n.calendarOverviewDesc,
-                    identifier: SemanticsIds.drawerCalendarOverview,
-                    onTap: () => _go(context, AppNavigator.toCalendarOverview),
-                  ),
-                  _buildMenuItem(
-                    context: context,
-                    icon: Icons.bar_chart_rounded,
-                    title: l10n.reportTitle,
-                    subtitle: l10n.calendarReportRowDesc,
-                    identifier: SemanticsIds.drawerCalendarReport,
-                    onTap: () => _go(context, AppNavigator.toCalendarReport),
-                  ),
-                  _buildMenuItem(
-                    context: context,
-                    icon: Icons.category_rounded,
-                    title: l10n.calendarCategories,
-                    subtitle: l10n.calendarCategoriesRowDesc,
-                    identifier: SemanticsIds.drawerCalendarCategories,
-                    onTap: () =>
-                        _go(context, AppNavigator.toCalendarCategories),
-                  ),
-                  _buildMenuItem(
-                    context: context,
-                    icon: Icons.notifications_active_rounded,
-                    title: l10n.alertsTitle,
-                    subtitle: l10n.alertsRowDesc,
-                    identifier: SemanticsIds.drawerAlerts,
-                    onTap: () => _go(context, AppNavigator.toAlerts),
-                  ),
-
-                  _buildGroupLabel(context, l10n.notes),
-                  _buildMenuItem(
-                    context: context,
-                    icon: Icons.pin_rounded,
-                    title: l10n.counterSettings,
-                    // The hub's one-line subtitle: the page's own wraps to an
-                    // 80 dp row and pushes About below the fold on 360 × 780.
-                    subtitle: l10n.settingsRowCountersDesc,
-                    identifier: SemanticsIds.drawerCounters,
-                    onTap: () => _go(context, AppNavigator.toCounterManagement),
-                  ),
-
-                  _buildGroupLabel(context, l10n.appGroupLabel),
-                  _buildSettingsItem(context, l10n),
-                  _buildMenuItem(
-                    context: context,
-                    icon: Icons.school_rounded,
-                    title: l10n.howToUseAnta,
-                    subtitle: l10n.calendarGuideTitle,
-                    identifier: SemanticsIds.drawerHowTo,
-                    onTap: () => _go(context, AppNavigator.toCalendarGuide),
-                  ),
-                  _buildMenuItem(
-                    context: context,
-                    icon: Icons.info_outline_rounded,
-                    title: l10n.about,
-                    subtitle: kAppVersion,
-                    identifier: SemanticsIds.drawerAbout,
-                    onTap: () {
-                      AppNavigator.pop(context);
-                      _showAboutDialog(context);
-                    },
-                  ),
-                ],
               ),
             ),
           ),
@@ -254,74 +264,64 @@ class _AppDrawerState extends State<AppDrawer> {
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           // Gym icon with tap (5x) or swipe-to-unlock developer mode. The
-          // signed-in account rides as a corner badge on the icon itself —
-          // one identity mark, not a second row at a mismatched scale.
-          Stack(
-            clipBehavior: Clip.none,
-            children: [
-              // Named after the app it shows, so the tappable is never an
-              // unlabelled node; what five taps do stays unsaid.
-              Semantics(
-                container: true,
-                identifier: SemanticsIds.drawerHeaderIcon,
-                label: l10n.appTitle,
-                button: true,
-                child: GestureDetector(
-                  onTap: () => _handleIconTap(context),
-                  onHorizontalDragEnd: (details) async {
-                    // Swipe left-to-right with sufficient velocity
-                    if (details.primaryVelocity != null &&
-                        details.primaryVelocity! > 200) {
-                      final devOptions = DevOptions.instance;
-                      if (!devOptions.developerModeUnlocked) {
-                        devOptions.developerModeUnlocked = true;
-                        final service = await DevOptionsService.getInstance();
-                        await service.saveOptions();
-                        HapticFeedback.mediumImpact();
-                        if (context.mounted) {
-                          AppNavigator.pop(context);
-                          await Future.delayed(
-                            const Duration(milliseconds: 100),
-                          );
-                          if (context.mounted) {
-                            CustomSnackbar.showSuccess(
-                              context,
-                              l10n.developerModeUnlocked,
-                            );
-                          }
-                        }
+          // signed-in account is the list's first row, not a badge here: a
+          // drawer row's tile carries a status and a 48 dp target, and the
+          // icon's five-tap node keeps its box to itself.
+          //
+          // Named after the app it shows, so the tappable is never an
+          // unlabelled node; what five taps do stays unsaid.
+          Semantics(
+            container: true,
+            identifier: SemanticsIds.drawerHeaderIcon,
+            label: l10n.appTitle,
+            button: true,
+            child: GestureDetector(
+              onTap: () => _handleIconTap(context),
+              onHorizontalDragEnd: (details) async {
+                // Swipe left-to-right with sufficient velocity
+                if (details.primaryVelocity != null &&
+                    details.primaryVelocity! > 200) {
+                  final devOptions = DevOptions.instance;
+                  if (!devOptions.developerModeUnlocked) {
+                    devOptions.developerModeUnlocked = true;
+                    final service = await DevOptionsService.getInstance();
+                    await service.saveOptions();
+                    HapticFeedback.mediumImpact();
+                    if (context.mounted) {
+                      AppNavigator.pop(context);
+                      await Future.delayed(const Duration(milliseconds: 100));
+                      if (context.mounted) {
+                        CustomSnackbar.showSuccess(
+                          context,
+                          l10n.developerModeUnlocked,
+                        );
                       }
                     }
-                  },
-                  child: Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: colorScheme.surface,
-                      borderRadius: BorderRadius.circular(16),
-                      boxShadow: isDark
-                          ? null
-                          : [
-                              BoxShadow(
-                                color: Colors.black.withValues(alpha: 0.1),
-                                blurRadius: 8,
-                                offset: const Offset(0, 2),
-                              ),
-                            ],
-                    ),
-                    child: Icon(
-                      Icons.fitness_center_rounded,
-                      size: 37,
-                      color: colorScheme.primary,
-                    ),
-                  ),
+                  }
+                }
+              },
+              child: Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: colorScheme.surface,
+                  borderRadius: BorderRadius.circular(16),
+                  boxShadow: isDark
+                      ? null
+                      : [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.1),
+                            blurRadius: 8,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
+                ),
+                child: Icon(
+                  Icons.fitness_center_rounded,
+                  size: 37,
+                  color: colorScheme.primary,
                 ),
               ),
-              Positioned(
-                right: -10,
-                bottom: -4,
-                child: _buildAvatarBadge(context, colorScheme, isDark),
-              ),
-            ],
+            ),
           ),
           const SizedBox(width: 16),
           Expanded(
@@ -361,47 +361,107 @@ class _AppDrawerState extends State<AppDrawer> {
     );
   }
 
-  /// Signed-in account's avatar, worn as a badge on the app icon's corner.
-  /// The ring matches the header background (not the icon's), so the badge
-  /// reads as cut into the icon rather than pasted on top of it. Renders
-  /// nothing when signed out, so the icon looks exactly as it always has.
-  Widget _buildAvatarBadge(
-    BuildContext context,
-    ColorScheme colorScheme,
-    bool isDark,
-  ) {
+  /// The list, given the signed-in account or null, under the account
+  /// row's bloc. Both sit above the `ListView`, never in its first child:
+  /// signed out the list's children are exactly the places, so a screen
+  /// reader's "x of n" counts only them, and a row scrolled out of the cache
+  /// and back at a large text scale finds the same bloc rather than a new
+  /// read and a blank line meanwhile.
+  ///
+  /// The bloc lives as long as the open drawer, is created only when the
+  /// row first reads it, and only loads: it never signs in, binds or syncs,
+  /// so nothing the Sync page's own bloc does is raced from here.
+  Widget _buildAccountScope(Widget Function(AppUser? user) list) {
     final authService = getIt<AuthService>();
-    final ringColor = isDark
-        ? colorScheme.surfaceContainerHigh
-        : colorScheme.primaryContainer;
-
-    return StreamBuilder<AppUser?>(
+    final presence = StreamBuilder<AppUser?>(
       stream: authService.authStateChanges,
       initialData: authService.currentUser,
-      builder: (context, snapshot) {
-        final user = snapshot.data;
-        if (user == null) return const SizedBox.shrink();
-        return GestureDetector(
-          onTap: () {
-            AppNavigator.pop(context);
-            AppNavigator.toSyncSettings(context);
-          },
-          child: Container(
-            padding: const EdgeInsets.all(2),
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: ringColor,
-              border: Border.all(color: colorScheme.surface, width: 1.5),
-            ),
-            child: UserAvatar(
-              user: user,
-              radius: 11,
-              backgroundColor: colorScheme.surface,
-              foregroundColor: colorScheme.primary,
-            ),
+      builder: (context, snapshot) => list(snapshot.data),
+    );
+    if (!getIt.isRegistered<SyncBloc>()) return presence;
+    return BlocProvider<SyncBloc>(
+      create: (_) => getIt<SyncBloc>()..add(const LoadSyncStatus()),
+      child: presence,
+    );
+  }
+
+  /// The signed-in account as the list's first row (§12 of
+  /// `docs/cloud-sync-phase-02-own-space.md`): what sync is doing, seen from
+  /// the first menu the user opens, one tap from Sync & sharing.
+  Widget _buildAccountRow(BuildContext context, AppUser user) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final l10n = AppLocalizations.of(context)!;
+
+    return Semantics(
+      identifier: SemanticsIds.drawerAccount,
+      child: _buildMenuTile(
+        context: context,
+        leading: ExcludeSemantics(
+          child: UserAvatar(
+            user: user,
+            radius: RowMetrics.drawerAvatarRadius,
+            backgroundColor: colorScheme.onSurfaceVariant,
+            foregroundColor: colorScheme.surfaceContainerLow,
           ),
-        );
-      },
+        ),
+        title: user.displayName ?? user.email ?? l10n.accountSection,
+        titleMaxLines: 1,
+        subtitleWidget: getIt.isRegistered<SyncBloc>()
+            ? BlocBuilder<SyncBloc, SyncState>(
+                builder: (context, state) => _buildAccountStatus(
+                  context,
+                  state is SyncSignedIn && state.statusRead
+                      ? state.status
+                      : null,
+                ),
+              )
+            : _buildAccountStatus(context, null),
+        onTap: () => _go(context, AppNavigator.toSyncSettings),
+      ),
+    );
+  }
+
+  /// The account row's status line in a slot as tall as the lines the text
+  /// scale gives it, blank until a status lands: no state, and no answer
+  /// arriving after the drawer opened, moves a place below it (§12 (j),
+  /// (k)). The line count follows the scale, never the words, so every
+  /// state is one height.
+  Widget _buildAccountStatus(BuildContext context, SyncStatus? status) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final factor =
+        MediaQuery.textScalerOf(context).scale(RowMetrics.secondLineFontSize) /
+        RowMetrics.secondLineFontSize;
+    final lines = factor < RowMetrics.drawerStatusTwoLineTextScale
+        ? 1
+        : factor < RowMetrics.drawerStatusThreeLineTextScale
+        ? 2
+        : 3;
+    final line = status == null
+        ? null
+        : drawerSyncStatusLine(
+            AppLocalizations.of(context)!,
+            status,
+            formatMoment: (at) => formatSyncMoment(context, at),
+          );
+    final style = _subtitleStyle(
+      context,
+      line != null && line.isError ? colorScheme.error : null,
+    );
+
+    return FormCaptionSlot(
+      candidates: [
+        Text(List.filled(lines, ' ').join('\n'), maxLines: lines, style: style),
+      ],
+      // Never an empty `Text`: its strut stands a dp taller than the slot's
+      // template at 1.3, and the row would grow when the status lands.
+      child: line == null
+          ? const SizedBox.shrink()
+          : Text(
+              line.text,
+              maxLines: lines,
+              overflow: TextOverflow.ellipsis,
+              style: style,
+            ),
     );
   }
 
@@ -440,7 +500,11 @@ class _AppDrawerState extends State<AppDrawer> {
   }) {
     final row = _buildMenuTile(
       context: context,
-      icon: icon,
+      leading: Icon(
+        icon,
+        size: RowMetrics.drawerGlyphSize,
+        color: Theme.of(context).colorScheme.onSurfaceVariant,
+      ),
       title: title,
       subtitle: subtitle,
       subtitleColor: subtitleColor,
@@ -450,11 +514,16 @@ class _AppDrawerState extends State<AppDrawer> {
     return Semantics(identifier: identifier, child: row);
   }
 
+  /// [subtitleWidget] stands in for [subtitle] where the line is drawn in a
+  /// slot of its own (the account row's status); [titleMaxLines] holds a
+  /// title that is the user's own text, an account name, to its line.
   Widget _buildMenuTile({
     required BuildContext context,
-    required IconData icon,
+    required Widget leading,
     required String title,
+    int? titleMaxLines,
     String? subtitle,
+    Widget? subtitleWidget,
     Color? subtitleColor,
     required VoidCallback onTap,
   }) {
@@ -469,13 +538,11 @@ class _AppDrawerState extends State<AppDrawer> {
       minTileHeight: RowMetrics.singleLineMinHeight,
       minLeadingWidth: FormMetrics.settingsLeadingWidth,
       horizontalTitleGap: FormMetrics.settingsTitleGap,
-      leading: Icon(
-        icon,
-        size: RowMetrics.drawerGlyphSize,
-        color: colorScheme.onSurfaceVariant,
-      ),
+      leading: leading,
       title: Text(
         title,
+        maxLines: titleMaxLines,
+        overflow: titleMaxLines == null ? null : TextOverflow.ellipsis,
         style: theme.textTheme.bodyLarge?.copyWith(
           fontSize: RowMetrics.titleFontSize,
           height: FormMetrics.labelLineHeight / RowMetrics.titleFontSize,
@@ -483,24 +550,29 @@ class _AppDrawerState extends State<AppDrawer> {
           color: colorScheme.onSurface,
         ),
       ),
-      subtitle: subtitle != null
-          ? Text(
-              subtitle,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                fontSize: RowMetrics.secondLineFontSize,
-                height:
-                    FormMetrics.captionLineHeight /
-                    RowMetrics.secondLineFontSize,
-                fontWeight: FontWeight.w400,
-                color: subtitleColor ?? colorScheme.onSurfaceVariant,
-              ),
-            )
-          : null,
+      subtitle:
+          subtitleWidget ??
+          (subtitle != null
+              ? Text(subtitle, style: _subtitleStyle(context, subtitleColor))
+              : null),
       trailing: Icon(
         Icons.chevron_right_rounded,
         color: colorScheme.onSurfaceVariant,
       ),
       onTap: onTap,
+    );
+  }
+
+  /// One style for a place's subtitle and the account row's status: the
+  /// status slot's template is laid out in it too, so the two rows' second
+  /// lines are one height.
+  TextStyle? _subtitleStyle(BuildContext context, Color? color) {
+    final theme = Theme.of(context);
+    return theme.textTheme.bodyMedium?.copyWith(
+      fontSize: RowMetrics.secondLineFontSize,
+      height: FormMetrics.captionLineHeight / RowMetrics.secondLineFontSize,
+      fontWeight: FontWeight.w400,
+      color: color ?? theme.colorScheme.onSurfaceVariant,
     );
   }
 

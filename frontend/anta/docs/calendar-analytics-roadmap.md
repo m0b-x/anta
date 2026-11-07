@@ -2560,9 +2560,11 @@ clamped scale, nothing cut or overflowing, and the hour rail's stubs
   circumflex at the top of a 28 dp block; the stripes on an OLED panel.
 - **The Firestore rules and index deploy — the owner's hands.** S0's
   `firestore.rules` gained the `calendar_category_profiles` collection and
-  `firestore.indexes.json` its `data` field override; neither is deployed
-  until the owner runs it, and a v44+ build syncing from a phone needs
-  both. On 2026-11-05 the rules suite ran green against the local emulator
+  `firestore.indexes.json` its `data` field override; a v44+ build syncing
+  from a phone needs both. **Both were verified LIVE on 2026-11-07** (the
+  `cloud.firestore` release of 2026-11-05 carries the collection;
+  `firebase firestore:indexes` lists the override), so the step is done —
+  the paragraph below records how it got there. On 2026-11-05 the rules suite ran green against the local emulator
   (`test/firestore/rules_test.dart`, 55 cases, `flutter test
   test/firestore/rules_test.dart --tags firestore-rules --run-skipped` with
   `firebase emulators:start --only firestore --project
