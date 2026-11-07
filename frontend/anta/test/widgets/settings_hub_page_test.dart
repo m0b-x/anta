@@ -515,6 +515,28 @@ void main() {
       await teardownApp(tester);
     });
 
+    // The Sync section's rows are words the hub row did not carry: only the
+    // three section names did (final review U-8). "devices" was already
+    // found, by the row's subtitle.
+    for (final query in const ['merge', 'download', 'stop']) {
+      testWidgets('"$query" finds Sync & sharing only', (tester) async {
+        DevOptions.instance.developerModeUnlocked = true;
+        await pumpHub(tester);
+
+        await search(tester, query);
+
+        for (final kind in allRows) {
+          expect(
+            row(kind),
+            kind == 'syncSettings' ? findsOneWidget : findsNothing,
+            reason: kind,
+          );
+        }
+
+        await teardownApp(tester);
+      });
+    }
+
     testWidgets('"auto" finds General, by its subtitle', (tester) async {
       await pumpHub(tester);
 

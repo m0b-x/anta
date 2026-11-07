@@ -4717,7 +4717,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get syncFailedPermission =>
-      'The cloud refused this — check you\'re signed in to the right account';
+      'The cloud refused this — check you\'re signed in to the right account, or that sync is set up in the cloud';
 
   @override
   String get syncFailedSpaceGone =>
@@ -4749,6 +4749,37 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get syncFailedUnknown => 'Sync couldn\'t be turned on — try again';
+
+  @override
+  String syncMergeConfirmTitle(String space) {
+    return 'Merge into “$space”?';
+  }
+
+  @override
+  String get syncMergeConfirmBody =>
+      'Rows this database and the cloud both hold take the cloud\'s version. Rows only here are uploaded.';
+
+  @override
+  String get syncMergeConfirmAction => 'Merge';
+
+  @override
+  String syncUnboundAsCopyOf(String database) {
+    return 'Stopped syncing — this database is a copy of “$database”, which already syncs with this space';
+  }
+
+  @override
+  String get syncBusyLabel => 'Working…';
+
+  @override
+  String syncAnnounceBound(String space) {
+    return 'Syncing with “$space”';
+  }
+
+  @override
+  String get syncAnnounceBoundUnnamed => 'Syncing this database';
+
+  @override
+  String get syncAnnounceStopped => 'Stopped syncing';
 
   @override
   String get aboutDescription =>

@@ -365,6 +365,10 @@ class _SettingsHubPageState extends State<SettingsHubPage> {
               l10n.accountSection,
               l10n.syncSection,
               l10n.pairingSection,
+              // The Sync section's own words, so "merge" or "download" finds
+              // the page that holds them (final review U-8).
+              for (final keyword in l10n.syncKeywords.split(','))
+                if (keyword.trim().isNotEmpty) keyword.trim(),
             ],
             identifier: SemanticsIds.settingsHubRow('syncSettings'),
             builder: (_, title, description) => _pageRow(

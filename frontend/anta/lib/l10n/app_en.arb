@@ -5876,7 +5876,7 @@
   "@syncFailedQuota": {
     "description": "Turning sync on or off failed: the account's daily cloud quota ran out"
   },
-  "syncFailedPermission": "The cloud refused this — check you're signed in to the right account",
+  "syncFailedPermission": "The cloud refused this — check you're signed in to the right account, or that sync is set up in the cloud",
   "@syncFailedPermission": {
     "description": "Turning sync on or off failed: the cloud refused the request"
   },
@@ -5916,6 +5916,53 @@
   "syncFailedUnknown": "Sync couldn't be turned on — try again",
   "@syncFailedUnknown": {
     "description": "Turning sync on failed for an unknown reason"
+  },
+  "syncMergeConfirmTitle": "Merge into “{space}”?",
+  "@syncMergeConfirmTitle": {
+    "description": "Title of the dialog that asks before a database holding data merges into a cloud space",
+    "placeholders": {
+      "space": {
+        "type": "String"
+      }
+    }
+  },
+  "syncMergeConfirmBody": "Rows this database and the cloud both hold take the cloud's version. Rows only here are uploaded.",
+  "@syncMergeConfirmBody": {
+    "description": "Body of the merge confirmation: what a merge does to data both sides hold and to data only this device holds"
+  },
+  "syncMergeConfirmAction": "Merge",
+  "@syncMergeConfirmAction": {
+    "description": "Confirm button of the merge confirmation"
+  },
+  "syncUnboundAsCopyOf": "Stopped syncing — this database is a copy of “{database}”, which already syncs with this space",
+  "@syncUnboundAsCopyOf": {
+    "description": "Shown under 'Sync this database' once sync stopped by itself because this database turned out to be a copy of another database on this device that syncs with the same cloud space",
+    "placeholders": {
+      "database": {
+        "type": "String"
+      }
+    }
+  },
+  "syncBusyLabel": "Working…",
+  "@syncBusyLabel": {
+    "description": "Spoken by screen readers for the spinner of a Sync row while turning sync on or off runs"
+  },
+  "syncAnnounceBound": "Syncing with “{space}”",
+  "@syncAnnounceBound": {
+    "description": "Announced to screen readers when this database starts syncing with a cloud space",
+    "placeholders": {
+      "space": {
+        "type": "String"
+      }
+    }
+  },
+  "syncAnnounceBoundUnnamed": "Syncing this database",
+  "@syncAnnounceBoundUnnamed": {
+    "description": "Announced to screen readers when this database starts syncing and the space's name is not known to the page (the space was created or joined in the same tap)"
+  },
+  "syncAnnounceStopped": "Stopped syncing",
+  "@syncAnnounceStopped": {
+    "description": "Announced to screen readers when this database stops syncing"
   },
   "aboutDescription": "An offline-first personal tracker: folders, markdown notes, a money ledger, counters, and a calendar.",
   "@aboutDescription": {

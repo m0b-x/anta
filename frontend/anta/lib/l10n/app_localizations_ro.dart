@@ -4807,7 +4807,7 @@ class AppLocalizationsRo extends AppLocalizations {
 
   @override
   String get syncFailedPermission =>
-      'Cloudul a refuzat — verifică dacă ești conectat la contul potrivit';
+      'Cloudul a refuzat — verifică dacă ești conectat la contul potrivit sau dacă sincronizarea a fost deja configurată în cloud';
 
   @override
   String get syncFailedSpaceGone =>
@@ -4841,6 +4841,38 @@ class AppLocalizationsRo extends AppLocalizations {
   @override
   String get syncFailedUnknown =>
       'Sincronizarea nu a putut fi pornită — încearcă din nou';
+
+  @override
+  String syncMergeConfirmTitle(String space) {
+    return 'Unești această bază de date cu „$space”?';
+  }
+
+  @override
+  String get syncMergeConfirmBody =>
+      'Rândurile pe care le au atât această bază de date, cât și cloudul preiau versiunea din cloud. Rândurile care sunt doar aici se încarcă.';
+
+  @override
+  String get syncMergeConfirmAction => 'Unește';
+
+  @override
+  String syncUnboundAsCopyOf(String database) {
+    return 'Sincronizarea s-a oprit — această bază de date este o copie a „$database”, care se sincronizează deja cu acest spațiu';
+  }
+
+  @override
+  String get syncBusyLabel => 'Se lucrează…';
+
+  @override
+  String syncAnnounceBound(String space) {
+    return 'Se sincronizează cu „$space”';
+  }
+
+  @override
+  String get syncAnnounceBoundUnnamed =>
+      'Această bază de date se sincronizează';
+
+  @override
+  String get syncAnnounceStopped => 'Sincronizarea s-a oprit';
 
   @override
   String get aboutDescription =>

@@ -50,8 +50,12 @@ class _FakeAuthService implements AuthService {
     _controller.add(user);
   }
 
+  /// How many Google flows were started.
+  int signInCalls = 0;
+
   @override
   Future<AppUser?> signInWithGoogle() async {
+    signInCalls++;
     // Mirrors the real service: a cancelled flow returns null and leaves any
     // existing session untouched; only a completed flow replaces it.
     if (signInGate != null) {
@@ -1674,8 +1678,8 @@ void main() {
       });
     });
 
-    test('a sign-out that hangs is given up on: the account stays shown and '
-        'steps are no longer refused (review RC1b-4)', () {
+    test('a sign-out that hangs is given up on as a failure the user sees, '
+        'and steps are no longer refused (review RC1b-4, RC1c-2)', () {
       final spaces = _FakeSpaceService();
       onFakeClock(spaces, (async, bloc, auth, _, _, _) {
         auth.signOutGate = Completer<void>();
@@ -1687,8 +1691,120 @@ void main() {
 
         async.elapse(SyncLimits.engineStop + const Duration(seconds: 1));
         expect(auth.signOutCalled, isTrue);
-        expect((bloc.state as SyncSignedIn).user, _user);
+        expect(bloc.state, const SyncFailure(AuthError.unknown));
 
+        bloc.add(const StopSyncingRequested());
+        async.flushMicrotasks();
+        expect(spaces.calls, ['stop']);
+      });
+    });
+
+    test('the engine\'s status is reported seen only once a state carries '
+        'it, never on the reader\'s read alone (review RC2-4)', () {
+      final spaces = _FakeSpaceService();
+      onFakeClock(spaces, (async, bloc, _, _, engine, _) {
+        expect(bloc.engineStatusSeen, isFalse);
+        engine.emit(const SyncStatus(pause: SyncPause.quotaExhausted));
+        async.flushMicrotasks();
+        expect(bloc.engineStatusSeen, isTrue);
+        expect(
+          (bloc.state as SyncSignedIn).status.pause,
+          SyncPause.quotaExhausted,
+        );
+      });
+    });
+
+    test('a sign-in after a sign-out given up on waits for it to land, so it '
+        'is never signed out again (review RC2-2)', () {
+      final spaces = _FakeSpaceService();
+      onFakeClock(spaces, (async, bloc, auth, states, _, _) {
+        auth.signOutGate = Completer<void>();
+        auth.signInResult = _user;
+        bloc.add(const SignOutRequested());
+        async.elapse(SyncLimits.engineStop + const Duration(seconds: 1));
+        expect(bloc.state, const SyncFailure(AuthError.unknown));
+        states.clear();
+
+        bloc.add(const SignInRequested());
+        async.elapse(const Duration(seconds: 1));
+        // The spinner is up, hiding Retry, and Google waits for the sign-out.
+        expect(states, [const SyncSigningIn()]);
+        expect(auth.signInCalls, 0);
+
+        auth.signOutGate!.complete();
+        async.flushMicrotasks();
+        expect(auth.signInCalls, 1);
+        expect((bloc.state as SyncSignedIn).user, _user);
+        expect(auth.currentUser, _user, reason: 'signed out, then in');
+      });
+    });
+
+    test('three sign-ins while a given-up sign-out still runs start one '
+        'Google flow once it lands (review RC2b-1)', () {
+      final spaces = _FakeSpaceService();
+      onFakeClock(spaces, (async, bloc, auth, _, _, _) {
+        auth.signOutGate = Completer<void>();
+        auth.signInResult = _user;
+        bloc.add(const SignOutRequested());
+        async.elapse(SyncLimits.engineStop + const Duration(seconds: 1));
+
+        for (var i = 0; i < 3; i++) {
+          bloc.add(const SignInRequested());
+          async.elapse(const Duration(milliseconds: 100));
+        }
+        auth.signOutGate!.complete();
+        async.flushMicrotasks();
+
+        expect(auth.signInCalls, 1);
+        expect((bloc.state as SyncSignedIn).user, _user);
+      });
+    });
+
+    test('a sign-in waits for every sign-out given up on, the second chained '
+        'behind the first (review RC2b-2)', () {
+      final spaces = _FakeSpaceService();
+      onFakeClock(spaces, (async, bloc, auth, _, _, _) {
+        final first = Completer<void>();
+        final second = Completer<void>();
+        auth.signOutGate = first;
+        bloc.add(const SignOutRequested());
+        async.elapse(SyncLimits.engineStop + const Duration(seconds: 1));
+        auth.signOutGate = second;
+        bloc.add(const SignOutRequested());
+        async.elapse(SyncLimits.engineStop + const Duration(seconds: 1));
+        auth.signInResult = _user;
+
+        bloc.add(const SignInRequested());
+        async.flushMicrotasks();
+        second.complete();
+        async.flushMicrotasks();
+        expect(auth.signInCalls, 0, reason: 'the first still runs');
+
+        first.complete();
+        async.flushMicrotasks();
+        expect(auth.signInCalls, 1);
+      });
+    });
+
+    test('a sign-in while a given-up sign-out still runs past the wait '
+        'fails as it did, without signing in; steps then run', () {
+      final spaces = _FakeSpaceService();
+      onFakeClock(spaces, (async, bloc, auth, states, _, _) {
+        auth.signOutGate = Completer<void>();
+        auth.signInResult = _user;
+        bloc.add(const SignOutRequested());
+        async.elapse(SyncLimits.engineStop + const Duration(seconds: 1));
+        states.clear();
+
+        bloc.add(const SignInRequested());
+        async.elapse(SyncLimits.engineStop + const Duration(seconds: 1));
+
+        // A new failure after the spinner, so its snackbar shows again.
+        expect(states, [
+          const SyncSigningIn(),
+          const SyncFailure(AuthError.unknown),
+        ]);
+        expect(auth.signInCalls, 0);
         bloc.add(const StopSyncingRequested());
         async.flushMicrotasks();
         expect(spaces.calls, ['stop']);

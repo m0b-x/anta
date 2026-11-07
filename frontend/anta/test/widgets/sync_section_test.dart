@@ -48,6 +48,13 @@ class _ScriptedSyncBloc extends SyncBloc {
   }
 
   void show(SyncState state) => emit(state);
+
+  /// Whether the states shown are taken as carrying the engine's status;
+  /// a case about the reader's first read sets it false.
+  bool engineSeen = true;
+
+  @override
+  bool get engineStatusSeen => engineSeen;
 }
 
 const _binding = SyncBinding(
@@ -317,6 +324,43 @@ void main() {
         await close(tester);
       });
     }
+
+    testWidgets('a copy the heal stopped says so until a bind clears it; '
+        'signed out the row keeps its reason (final review X-2)', (
+      tester,
+    ) async {
+      const healed = SyncStatus(unboundAsCopyOf: 'phone_db');
+      final robot = await open(tester, signedIn(status: healed));
+
+      expect(
+        robot.shows(
+          SemanticsIds.sharingSync,
+          l10n.syncUnboundAsCopyOf('phone_db'),
+        ),
+        isTrue,
+      );
+      expect(
+        robot.shows(SemanticsIds.sharingSync, l10n.syncThisDatabaseDesc),
+        isFalse,
+      );
+      expect(robot.tile(SemanticsIds.sharingSync).enabled, isTrue);
+
+      syncBloc!.show(const SyncSignedOut(status: healed));
+      await robot.settle();
+      expect(robot.shows(SemanticsIds.sharingSync, l10n.syncSignInFirst), true);
+
+      // A bind clears the note; a plain stop after it leaves none behind.
+      syncBloc!.show(signedIn(status: bound()));
+      await robot.settle();
+      syncBloc!.show(signedIn());
+      await robot.settle();
+      expect(
+        robot.shows(SemanticsIds.sharingSync, l10n.syncThisDatabaseDesc),
+        isTrue,
+      );
+      expect(find.text(l10n.syncUnboundAsCopyOf('phone_db')), findsNothing);
+      await close(tester);
+    });
   });
 
   group('bound', () {
@@ -898,6 +942,214 @@ void main() {
     });
   });
 
+  // What a screen reader hears that no focus change would say (final review
+  // D-2, WCAG 2.2 SC 4.1.3): polite, in the page's direction.
+  group('announcements', () {
+    Matcher said(String message) => isAccessibilityAnnouncement(
+      message,
+      textDirection: TextDirection.ltr,
+      assertiveness: Assertiveness.polite,
+    );
+
+    Future<void> show(SyncSectionRobot robot, SyncState state) async {
+      syncBloc!.show(state);
+      await robot.settle();
+    }
+
+    testWidgets('a busy row reads its name, then that it is working: the '
+        'spinner is silent and the row carries the value (review RC2-5)', (
+      tester,
+    ) async {
+      final robot = await open(tester, signedIn());
+      SemanticsData row(String id) =>
+          tester.getSemantics(robot.byId(id)).getSemanticsData();
+      expect(row(SemanticsIds.sharingSync).value, isEmpty);
+
+      await show(robot, signedIn(flow: const SyncBindChecking()));
+      expect(row(SemanticsIds.sharingSync).value, l10n.syncBusyLabel);
+      expect(
+        row(SemanticsIds.sharingSync).label,
+        startsWith(l10n.syncThisDatabase),
+      );
+      expect(
+        row(SemanticsIds.sharingSync).label,
+        isNot(contains(l10n.syncBusyLabel)),
+      );
+
+      await show(
+        robot,
+        signedIn(status: bound(), flow: const SyncBindStopping()),
+      );
+      expect(row(SemanticsIds.sharingSyncStop).value, l10n.syncBusyLabel);
+      expect(
+        row(SemanticsIds.sharingSyncStop).label,
+        startsWith(l10n.syncStop),
+      );
+
+      await show(robot, signedIn(status: bound()));
+      expect(row(SemanticsIds.sharingSyncStop).value, isEmpty);
+      await close(tester);
+    });
+
+    testWidgets('a bind whose settle read failed is said when its bound '
+        'status arrives, once (review RC2-3)', (tester) async {
+      final robot = await open(tester, signedIn());
+      tester.takeAnnouncements();
+
+      await show(robot, signedIn(flow: const SyncBindBinding()));
+      // The settle: the step is over, the read kept the unbound status.
+      await show(robot, signedIn(status: const SyncStatus(pendingCount: 1)));
+      expect(tester.takeAnnouncements(), isEmpty);
+
+      await show(robot, signedIn(status: bound()));
+      expect(tester.takeAnnouncements(), [said(l10n.syncAnnounceBoundUnnamed)]);
+      await show(robot, signedIn(status: bound(pending: 1)));
+      expect(tester.takeAnnouncements(), isEmpty);
+      await close(tester);
+    });
+
+    testWidgets('the engine\'s stored pause arriving after the first read is '
+        'not said as one that began; a later one is (review RC2-4)', (
+      tester,
+    ) async {
+      final robot = await open(tester, signedIn());
+      syncBloc!.engineSeen = false;
+      await show(robot, signedIn(status: bound()));
+      tester.takeAnnouncements();
+
+      syncBloc!.engineSeen = true;
+      await show(robot, signedIn(status: bound(pause: SyncPause.noAccess)));
+      expect(tester.takeAnnouncements(), isEmpty);
+
+      await show(robot, signedIn(status: bound()));
+      await show(
+        robot,
+        signedIn(status: bound(pause: SyncPause.quotaExhausted)),
+      );
+      expect(tester.takeAnnouncements(), [said(l10n.syncPausedQuota)]);
+      await close(tester);
+    });
+
+    testWidgets('a bind decided in the tap is said once it settles, without '
+        'a name the page never had', (tester) async {
+      final robot = await open(tester, signedIn());
+      tester.takeAnnouncements();
+
+      await show(robot, signedIn(flow: const SyncBindChecking()));
+      await show(robot, signedIn(flow: const SyncBindBinding()));
+      expect(tester.takeAnnouncements(), isEmpty);
+      await show(robot, signedIn(status: bound()));
+      expect(tester.takeAnnouncements(), [said(l10n.syncAnnounceBoundUnnamed)]);
+
+      await show(robot, signedIn(status: bound(pending: 2)));
+      expect(tester.takeAnnouncements(), isEmpty);
+      await close(tester);
+    });
+
+    testWidgets('a merge the picker named is said with the space\'s name', (
+      tester,
+    ) async {
+      final robot = await open(tester, signedIn());
+      await show(robot, signedIn(flow: const SyncBindChecking()));
+      await show(
+        robot,
+        signedIn(flow: SyncBindPicking(spaces: [_phone], holdsData: true)),
+      );
+      await robot.tap(SemanticsIds.syncPickerMerge);
+      await robot.tap(SemanticsIds.syncPickerMergeConfirm);
+      tester.takeAnnouncements();
+
+      await show(robot, signedIn(flow: const SyncBindBinding()));
+      await show(robot, signedIn(status: bound()));
+
+      expect(tester.takeAnnouncements(), [
+        said(l10n.syncAnnounceBound(_phone.name)),
+      ]);
+      await close(tester);
+    });
+
+    testWidgets('a stop is said once it settles', (tester) async {
+      final robot = await open(tester, signedIn(status: bound()));
+      tester.takeAnnouncements();
+
+      await show(
+        robot,
+        signedIn(status: bound(), flow: const SyncBindStopping()),
+      );
+      expect(tester.takeAnnouncements(), isEmpty);
+      await show(robot, signedIn());
+
+      expect(tester.takeAnnouncements(), [said(l10n.syncAnnounceStopped)]);
+      await close(tester);
+    });
+
+    testWidgets('a pause that begins is said in the status line\'s words; '
+        'one found on opening, a repeat and a run\'s counts are not', (
+      tester,
+    ) async {
+      final robot = await open(
+        tester,
+        signedIn(status: bound(pause: SyncPause.noAccess)),
+      );
+      expect(tester.takeAnnouncements(), isEmpty);
+
+      await show(robot, signedIn(status: bound()));
+      expect(tester.takeAnnouncements(), isEmpty);
+      await show(
+        robot,
+        signedIn(status: bound(pause: SyncPause.quotaExhausted)),
+      );
+      expect(tester.takeAnnouncements(), [said(l10n.syncPausedQuota)]);
+      await show(
+        robot,
+        signedIn(status: bound(pause: SyncPause.quotaExhausted, pending: 3)),
+      );
+      expect(tester.takeAnnouncements(), isEmpty);
+
+      await show(robot, signedIn(status: bound()));
+      for (final pending in const [3, 2, 1]) {
+        await show(
+          robot,
+          signedIn(
+            status: bound(activity: SyncActivity.pushing, pending: pending),
+          ),
+        );
+      }
+      expect(tester.takeAnnouncements(), isEmpty);
+
+      // A sign-out pauses the binding it keeps.
+      await show(
+        robot,
+        SyncSignedOut(status: bound(pause: SyncPause.signedOut)),
+      );
+      expect(tester.takeAnnouncements(), [said(l10n.syncPausedSignedOut)]);
+      await close(tester);
+    });
+
+    testWidgets('a failure is said once, by its snackbar\'s live region, not '
+        'a second time by the page', (tester) async {
+      final robot = await open(tester, signedIn());
+      tester.takeAnnouncements();
+
+      await show(robot, signedIn(flow: const SyncBindChecking()));
+      await show(
+        robot,
+        signedIn(flow: const SyncBindFailed(SyncBindFailure.permissionDenied)),
+      );
+
+      expect(tester.takeAnnouncements(), isEmpty);
+      final snackbar = tester.getSemantics(
+        find.descendant(
+          of: find.byType(SnackBar),
+          matching: find.text(l10n.syncFailedPermission),
+        ),
+      );
+      expect(snackbar.getSemanticsData().flagsCollection.isLiveRegion, isTrue);
+      expect(snackbar.label, contains(l10n.syncFailedPermission));
+      await close(tester);
+    });
+  });
+
   group('the flow from the page', () {
     testWidgets('the picker opens once per picking; closed, it sends the '
         'dismiss', (tester) async {
@@ -943,6 +1195,11 @@ void main() {
         final before = syncBloc!.events.length;
 
         await robot.tap(id);
+        // A merge of a database that holds data asks first (final review
+        // F-1).
+        if (id == SemanticsIds.syncPickerMerge) {
+          await robot.tap(SemanticsIds.syncPickerMergeConfirm);
+        }
 
         expect(find.byType(SyncSpacePickerSheet), findsNothing);
         expect(syncBloc!.events.sublist(before), [event]);
@@ -1203,8 +1460,84 @@ void main() {
       );
 
       await tapId(tester, SemanticsIds.syncPickerMerge);
+      await tapId(tester, SemanticsIds.syncPickerMergeConfirm);
       expect(answer().event, MergeIntoSpaceRequested(_phone));
     });
+
+    // Under the bind floor every row both sides hold takes the cloud's
+    // version with no conflict copy, and the choices carry no caption that
+    // could say so (final review F-1).
+    for (final (name, picking, target) in [
+      ('one space', SyncBindPicking(spaces: [_phone], holdsData: true), _phone),
+      (
+        'the selected space',
+        SyncBindPicking(spaces: [_phone, _tablet], holdsData: true),
+        _phone,
+      ),
+    ]) {
+      testWidgets('merging into $name with data here asks first, saying '
+          'what wins; cancel keeps the picker as it was, confirm sends the '
+          'merge', (tester) async {
+        final answer = await openPicker(tester, picking);
+        final sheet = tester.getRect(find.byType(SyncSpacePickerSheet));
+
+        await tapId(tester, SemanticsIds.syncPickerMerge);
+        expect(
+          find.text(l10n.syncMergeConfirmTitle(target.name)),
+          findsOneWidget,
+        );
+        expect(find.text(l10n.syncMergeConfirmBody), findsOneWidget);
+        expect(
+          find.descendant(
+            of: find.bySemanticsIdentifier(SemanticsIds.syncPickerMergeConfirm),
+            matching: find.text(l10n.syncMergeConfirmAction),
+          ),
+          findsOneWidget,
+        );
+        expect(answer().returned, isFalse);
+
+        await tapId(tester, SemanticsIds.sheetCancel);
+        expect(find.byType(AlertDialog), findsNothing);
+        expect(answer().returned, isFalse);
+        expect(tester.getRect(find.byType(SyncSpacePickerSheet)), sheet);
+        if (picking.spaces.length > 1) {
+          expect(
+            checked(tester, SemanticsIds.syncPickerSpace(target.ref.spaceId)),
+            isTrue,
+          );
+        }
+
+        await tapId(tester, SemanticsIds.syncPickerMerge);
+        await tapId(tester, SemanticsIds.syncPickerMergeConfirm);
+        expect(find.byType(AlertDialog), findsNothing);
+        expect(answer().event, MergeIntoSpaceRequested(target));
+      });
+    }
+
+    for (final (name, picking, id) in [
+      (
+        'its one space',
+        SyncBindPicking(spaces: [_phone], holdsData: false),
+        SemanticsIds.syncPickerMerge,
+      ),
+      (
+        'a listed space',
+        SyncBindPicking(spaces: [_phone, _tablet], holdsData: false),
+        SemanticsIds.syncPickerSpace(_phone.ref.spaceId),
+      ),
+    ]) {
+      testWidgets('a database that holds nothing syncs with $name at once: '
+          'nothing to lose, nothing asked', (tester) async {
+        final answer = await openPicker(tester, picking);
+
+        await tester.tap(find.bySemanticsIdentifier(id));
+        await tester.pump();
+        expect(find.byType(AlertDialog), findsNothing);
+        await tester.pumpAndSettle();
+
+        expect(answer().event, MergeIntoSpaceRequested(_phone));
+      });
+    }
 
     testWidgets('one space another database holds: merge and download stay, '
         'disabled, the holder named once; upload still answers', (
@@ -1328,6 +1661,115 @@ void main() {
         findsOneWidget,
       );
     });
+  });
+
+  // The contrast guideline never judges a two-line row — it looks a node's
+  // text up by the merged label, title and description together — so the
+  // enabled descriptions' tokens are pinned here, as the disabled reasons
+  // are above (review RC2-1).
+  group('enabled descriptions', () {
+    /// The one drawn paragraph [finder] names: its colour, and no fade on
+    /// the way up.
+    void expectToken(
+      WidgetTester tester,
+      Finder finder,
+      Color color,
+      String reason,
+    ) {
+      final drawn = finder.evaluate().where(SyncSectionRobot.drawn).toList();
+      expect(drawn, hasLength(1), reason: reason);
+      final element = drawn.single;
+      expect(
+        (element.renderObject! as RenderParagraph).text.style?.color,
+        color,
+        reason: reason,
+      );
+      var faded = false;
+      element.visitAncestorElements((ancestor) {
+        if (ancestor.widget case Opacity(:final opacity) when opacity < 1) {
+          faded = true;
+        }
+        return !faded;
+      });
+      expect(faded, isFalse, reason: reason);
+    }
+
+    for (final dark in [false, true]) {
+      final theme = dark ? 'dark' : 'light';
+      final scheme = (dark ? AppTheme.dark() : AppTheme.light()).colorScheme;
+
+      testWidgets('the bind row, the status details and the stop row\'s '
+          'failure are onSurfaceVariant, $theme', (tester) async {
+        final robot = await open(tester, signedIn(), dark: dark);
+        Finder within(String id, Finder text) =>
+            find.descendant(of: robot.byId(id), matching: text);
+
+        expectToken(
+          tester,
+          within(
+            SemanticsIds.sharingSync,
+            find.text(l10n.syncThisDatabaseDesc),
+          ),
+          scheme.onSurfaceVariant,
+          'the bind row',
+        );
+
+        syncBloc!.show(
+          signedIn(status: bound(parked: 2, lastPullAt: DateTime(2020, 3, 4))),
+        );
+        await robot.settle();
+        final details = within(
+          SemanticsIds.sharingSyncStatus,
+          find.textContaining(l10n.syncParkedCount(2)),
+        );
+        expectToken(tester, details, scheme.onSurfaceVariant, 'the details');
+        final paragraph =
+            details.evaluate().firstWhere(SyncSectionRobot.drawn).widget
+                as Text;
+        expect(
+          paragraph.data!.split('\n'),
+          hasLength(2),
+          reason: 'both detail lines, one paragraph',
+        );
+
+        syncBloc!.show(
+          signedIn(
+            status: bound(),
+            flow: const SyncBindFailed(SyncBindFailure.unknown),
+          ),
+        );
+        await robot.settle();
+        expectToken(
+          tester,
+          within(SemanticsIds.sharingSyncStop, find.text(l10n.syncStopFailed)),
+          scheme.onSurfaceVariant,
+          'the stop row',
+        );
+        await close(tester);
+      });
+
+      testWidgets('a picker row\'s caption is onSurfaceVariant, $theme', (
+        tester,
+      ) async {
+        await openPicker(
+          tester,
+          SyncBindPicking(spaces: [_phone, _tablet], holdsData: true),
+          dark: dark,
+        );
+
+        expectToken(
+          tester,
+          find.descendant(
+            of: find.bySemanticsIdentifier(
+              SemanticsIds.syncPickerSpace(_tablet.ref.spaceId),
+            ),
+            matching: find.text(l10n.syncPickerNotUsed),
+          ),
+          scheme.onSurfaceVariant,
+          'the picker caption',
+        );
+      });
+    }
   });
 
   group('large text', () {

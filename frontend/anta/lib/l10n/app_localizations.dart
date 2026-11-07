@@ -8011,7 +8011,7 @@ abstract class AppLocalizations {
   /// Turning sync on or off failed: the cloud refused the request
   ///
   /// In en, this message translates to:
-  /// **'The cloud refused this — check you\'re signed in to the right account'**
+  /// **'The cloud refused this — check you\'re signed in to the right account, or that sync is set up in the cloud'**
   String get syncFailedPermission;
 
   /// Downloading a cloud space failed because the space was deleted from the cloud since the picker listed it
@@ -8061,6 +8061,54 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Sync couldn\'t be turned on — try again'**
   String get syncFailedUnknown;
+
+  /// Title of the dialog that asks before a database holding data merges into a cloud space
+  ///
+  /// In en, this message translates to:
+  /// **'Merge into “{space}”?'**
+  String syncMergeConfirmTitle(String space);
+
+  /// Body of the merge confirmation: what a merge does to data both sides hold and to data only this device holds
+  ///
+  /// In en, this message translates to:
+  /// **'Rows this database and the cloud both hold take the cloud\'s version. Rows only here are uploaded.'**
+  String get syncMergeConfirmBody;
+
+  /// Confirm button of the merge confirmation
+  ///
+  /// In en, this message translates to:
+  /// **'Merge'**
+  String get syncMergeConfirmAction;
+
+  /// Shown under 'Sync this database' once sync stopped by itself because this database turned out to be a copy of another database on this device that syncs with the same cloud space
+  ///
+  /// In en, this message translates to:
+  /// **'Stopped syncing — this database is a copy of “{database}”, which already syncs with this space'**
+  String syncUnboundAsCopyOf(String database);
+
+  /// Spoken by screen readers for the spinner of a Sync row while turning sync on or off runs
+  ///
+  /// In en, this message translates to:
+  /// **'Working…'**
+  String get syncBusyLabel;
+
+  /// Announced to screen readers when this database starts syncing with a cloud space
+  ///
+  /// In en, this message translates to:
+  /// **'Syncing with “{space}”'**
+  String syncAnnounceBound(String space);
+
+  /// Announced to screen readers when this database starts syncing and the space's name is not known to the page (the space was created or joined in the same tap)
+  ///
+  /// In en, this message translates to:
+  /// **'Syncing this database'**
+  String get syncAnnounceBoundUnnamed;
+
+  /// Announced to screen readers when this database stops syncing
+  ///
+  /// In en, this message translates to:
+  /// **'Stopped syncing'**
+  String get syncAnnounceStopped;
 
   /// One-sentence app description in the About dialog
   ///

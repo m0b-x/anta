@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
@@ -65,6 +66,27 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
   /// database drew its unbound row — "Sign in to sync" — on every sign-in.
   /// Null until a state has carried one.
   SyncStatus? _lastStatus;
+
+  /// What the announcements judge a state against (final review D-2): the
+  /// last state's step and status, whether the step in flight is a stop —
+  /// an account change mid-step shows an idle flow, so it is remembered from
+  /// the busy flow last shown — and the space a picker choice named, the one
+  /// name the page knows; a bind decided in the tap names none.
+  bool _wasStepping = false;
+  bool _stepIsStop = false;
+  SyncStatus? _spokenStatus;
+  String? _bindingSpaceName;
+
+  /// The binding a step that ended is still to show, said when it does: a
+  /// settle whose read failed keeps the status the step started from, and
+  /// the outcome arrives with a later status (review RC2-3). Null when none
+  /// is awaited.
+  bool? _awaitedBinding;
+
+  /// Whether [_spokenStatus] already carried the engine's status: until
+  /// then a pause is the engine's stored one arriving, not one beginning
+  /// (review RC2-4).
+  bool _pauseBaseline = false;
 
   @override
   void dispose() {
@@ -133,6 +155,7 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
             // the last of several states emitted in one frame.
             BlocListener<SyncBloc, SyncState>(
               listener: (context, state) {
+                _announce(context, l10n, state);
                 if (_carriedStatusOf(state) case final status?) {
                   _lastStatus = status;
                 }
@@ -425,6 +448,7 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
         : null;
 
     if (!bound) {
+      final copyOf = status.unboundAsCopyOf;
       return SettingsSectionData(
         icon: Icons.sync_rounded,
         title: l10n.syncSection,
@@ -435,6 +459,12 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
                 failure ??
                 switch (state) {
                   SyncUnavailable() => l10n.syncThisDatabaseUnavailable,
+                  // The heal stopped this copy without a word from the user
+                  // (final review X-2): said until a bind clears it, where
+                  // the row can act on it — signed out the row says why it
+                  // cannot.
+                  SyncSignedIn() when copyOf != null =>
+                    l10n.syncUnboundAsCopyOf(copyOf),
                   SyncSignedIn() || SyncInitial() => l10n.syncThisDatabaseDesc,
                   _ => l10n.syncSignInFirst,
                 },
@@ -728,23 +758,27 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
       );
     }
     final busy = loading || _stepping(state);
-    return ListTile(
-      leading: busy
-          ? const _RowBusyIndicator()
-          : Icon(
-              flow is SyncBindFailed
-                  ? Icons.error_outline_rounded
-                  : Icons.cloud_sync_outlined,
-              color: flow is SyncBindFailed
-                  ? colorScheme.error
-                  : colorScheme.primary,
-            ),
-      title: title,
-      subtitle: description,
-      onTap: busy
-          ? null
-          : () =>
-                context.read<SyncBloc>().add(const SyncThisDatabaseRequested()),
+    return _BusyValue(
+      busy: busy,
+      child: ListTile(
+        leading: busy
+            ? const _RowBusyIndicator()
+            : Icon(
+                flow is SyncBindFailed
+                    ? Icons.error_outline_rounded
+                    : Icons.cloud_sync_outlined,
+                color: flow is SyncBindFailed
+                    ? colorScheme.error
+                    : colorScheme.primary,
+              ),
+        title: title,
+        subtitle: description,
+        onTap: busy
+            ? null
+            : () => context.read<SyncBloc>().add(
+                const SyncThisDatabaseRequested(),
+              ),
+      ),
     );
   }
 
@@ -800,20 +834,23 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
     bool stepping = false,
   }) {
     final colorScheme = Theme.of(context).colorScheme;
-    return ListTile(
-      leading: stepping
-          ? const _RowBusyIndicator()
-          : Icon(
-              flow is SyncBindFailed
-                  ? Icons.error_outline_rounded
-                  : Icons.sync_disabled_rounded,
-              color: flow is SyncBindFailed
-                  ? colorScheme.error
-                  : colorScheme.onSurfaceVariant,
-            ),
-      title: title,
-      subtitle: description,
-      onTap: stepping ? null : () => _stopSyncing(context, l10n),
+    return _BusyValue(
+      busy: stepping,
+      child: ListTile(
+        leading: stepping
+            ? const _RowBusyIndicator()
+            : Icon(
+                flow is SyncBindFailed
+                    ? Icons.error_outline_rounded
+                    : Icons.sync_disabled_rounded,
+                color: flow is SyncBindFailed
+                    ? colorScheme.error
+                    : colorScheme.onSurfaceVariant,
+              ),
+        title: title,
+        subtitle: description,
+        onTap: stepping ? null : () => _stopSyncing(context, l10n),
+      ),
     );
   }
 
@@ -845,6 +882,12 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
     switch (flow) {
       case SyncBindPicking():
         final event = await SyncSpacePickerSheet.show(context, picking: flow);
+        _bindingSpaceName = switch (event) {
+          MergeIntoSpaceRequested(:final space) ||
+          DownloadSpaceRequested(:final space) => space.name,
+          UploadAsNewSpaceRequested(:final name) => name,
+          _ => null,
+        };
         if (!bloc.isClosed) bloc.add(event ?? const BindFlowDismissed());
       case SyncBindFailed():
         CustomSnackbar.showError(
@@ -867,6 +910,61 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
       default:
         break;
     }
+  }
+
+  /// Says politely what a screen reader would otherwise miss (final review
+  /// D-2, WCAG 2.2 SC 4.1.3): a bind or a stop that ended, once a status
+  /// shows its outcome, and a pause that began on a status already shown —
+  /// not one found on opening the page, which the page itself reads out, nor
+  /// the engine's stored one arriving after the first read. A failure is not
+  /// said here: its
+  /// snackbar is a live region and says it. Nor a run's ticking count,
+  /// which would only be noise.
+  void _announce(BuildContext context, AppLocalizations l10n, SyncState state) {
+    final flow = _syncOf(state).flow;
+    final carried = _carriedStatusOf(state);
+    final stepping = _stepping(state);
+    if (flow is SyncBindChecking) _bindingSpaceName = null;
+    if (flow.isBusy) {
+      _stepIsStop = flow is SyncBindStopping;
+      _awaitedBinding = null;
+    }
+    if (_wasStepping && !stepping && flow is SyncBindIdle) {
+      _awaitedBinding = !_stepIsStop;
+    }
+    _wasStepping = stepping;
+    String? message;
+    if (carried != null) {
+      final bound = carried.binding != null;
+      if (_awaitedBinding == bound) {
+        _awaitedBinding = null;
+        final name = _bindingSpaceName;
+        message = !bound
+            ? l10n.syncAnnounceStopped
+            : name == null
+            ? l10n.syncAnnounceBoundUnnamed
+            : l10n.syncAnnounceBound(name);
+      }
+      final before = _spokenStatus;
+      final baseline = _pauseBaseline;
+      _spokenStatus = carried;
+      _pauseBaseline = context.read<SyncBloc>().engineStatusSeen;
+      if (message == null &&
+          baseline &&
+          before != null &&
+          before.binding != null &&
+          bound &&
+          carried.pause != before.pause &&
+          carried.pause != SyncPause.none) {
+        message = _statusLine(l10n, carried).$1;
+      }
+    }
+    if (message == null) return;
+    SemanticsService.sendAnnouncement(
+      View.of(context),
+      message,
+      Directionality.of(context),
+    );
   }
 
   String _pairingTitleFor(AppLocalizations l10n, PairingState state) =>
@@ -1063,15 +1161,34 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
 }
 
 /// The spinner a Sync section row shows in its glyph's place while its step
-/// runs.
+/// runs. Silent: the row says it is working, after its name (review RC2-5).
 class _RowBusyIndicator extends StatelessWidget {
   const _RowBusyIndicator();
 
   @override
-  Widget build(BuildContext context) => const SizedBox.square(
-    dimension: FormMetrics.rowBusyIndicatorSize,
-    child: CircularProgressIndicator(
-      strokeWidth: FormMetrics.rowBusyIndicatorStroke,
+  Widget build(BuildContext context) => const ExcludeSemantics(
+    child: SizedBox.square(
+      dimension: FormMetrics.rowBusyIndicatorSize,
+      child: CircularProgressIndicator(
+        strokeWidth: FormMetrics.rowBusyIndicatorStroke,
+      ),
     ),
+  );
+}
+
+/// A Sync section row's value while its step runs: a screen reader hears
+/// the row's name, then that it is working, rather than its idle words
+/// alone (final review D-2). A value, not a label on the spinner, which
+/// would be read before the name (review RC2-5).
+class _BusyValue extends StatelessWidget {
+  final bool busy;
+  final Widget child;
+
+  const _BusyValue({required this.busy, required this.child});
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+    value: busy ? AppLocalizations.of(context)!.syncBusyLabel : null,
+    child: child,
   );
 }

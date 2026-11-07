@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'dart:math' as math;
+import 'dart:ui' show Tristate;
 
 import 'package:drift/drift.dart' show driftRuntimeOptions;
 import 'package:flutter/material.dart';
@@ -28,6 +29,7 @@ import 'package:anta/models/dev_options.dart';
 import 'package:anta/models/fasting_appearance.dart';
 import 'package:anta/models/label_style.dart';
 import 'package:anta/models/pair_record.dart';
+import 'package:anta/models/sync_binding.dart';
 import 'package:anta/pages/alert_settings_page.dart';
 import 'package:anta/pages/calendar_settings_page.dart';
 import 'package:anta/pages/database_settings_page.dart';
@@ -48,12 +50,14 @@ import 'package:anta/services/pairing_service.dart';
 import 'package:anta/services/permission_service.dart';
 import 'package:anta/services/public_holiday_service.dart';
 import 'package:anta/services/settings_service.dart';
+import 'package:anta/services/sync/sync_gateway.dart' show SyncSpaceRef;
 import 'package:anta/utils/auth_error.dart';
 import 'package:anta/utils/settings_search.dart';
 import 'package:anta/widgets/leading_nav_pair.dart';
 import 'package:anta/widgets/permission_tile.dart';
 import 'package:anta/widgets/settings_search_field.dart';
 import 'package:anta/widgets/settings_section_list.dart';
+import 'package:anta/widgets/sync_space_picker_sheet.dart';
 import 'package:anta/widgets/value_change_highlight.dart';
 
 import '../database/support/db_test_support.dart';
@@ -66,7 +70,8 @@ import '../services/permission_support.dart';
 /// contrast guidelines (`docs/settings-rework-roadmap.md` §4.4), on the
 /// pages that use the most of it — App settings, Calendar settings, Alert
 /// settings and Fasting settings — on the settings hub every page is opened
-/// from, on Sharing's action rows, and on the Databases page, Markdown
+/// from, on Sharing's action rows, its Sync section's looks and the bind
+/// picker, and on the Databases page, Markdown
 /// settings and its two per-note pages, still off the kit, at 1.0 in light
 /// English and at 2.0 in dark German on the small phone, with Roboto loaded
 /// so text is measured as a phone draws it.
@@ -495,6 +500,108 @@ void main() {
           handle.dispose();
         },
       );
+    }
+
+    // Sharing's Sync section in each look it has (final review D-3): unbound
+    // signed out and in, bound and up to date, paused, and a failed bind
+    // with its snackbar up.
+    for (final (name, state) in _syncSectionStates) {
+      testWidgets('Sharing\'s Sync section $name meets the guidelines, '
+          '${cell.label}', (tester) async {
+        final auth = FakeAuthService(
+          user: state is SyncSignedOut ? null : userA,
+        );
+        final gateway = FakePairingGateway();
+        addTearDown(gateway.dispose);
+        addTearDown(PairingService.reset);
+        await tester.runAsync(
+          () async => PairingService.forTesting(
+            auth: auth,
+            gateway: gateway,
+            settings: await SettingsService.getInstance(),
+          ),
+        );
+        _ScriptedSyncBloc? bloc;
+        GetIt.I.registerFactory<SyncBloc>(
+          () => bloc = _ScriptedSyncBloc(authService: auth),
+        );
+        GetIt.I.registerFactory<PairingBloc>(
+          () => PairingBloc(authService: auth, gateway: gateway),
+        );
+        final handle = tester.ensureSemantics();
+        setGoldenSurface(tester, cell);
+        await tester.pumpWidget(
+          goldenApp(cell, home: const SyncSettingsPage()),
+        );
+        await settle(tester);
+        bloc!.show(state);
+        await settle(tester);
+
+        expect(tester.takeException(), isNull);
+        await meetsAll(tester);
+        await tester.pumpWidget(const SizedBox.shrink());
+        handle.dispose();
+      });
+    }
+
+    // The bind picker's three shapes (final review D-3), its own scroll
+    // walked: a list with a held space, a database that holds nothing, and
+    // every space held, its choices disabled — and the Merge confirm over
+    // the first (review RC2-8b).
+    for (final (name, picking, confirming) in [
+      for (final (name, picking) in _pickerStates) (name, picking, false),
+      ('its Merge confirm up', _pickerStates.first.$2, true),
+    ]) {
+      testWidgets('the bind picker with $name meets the guidelines, '
+          '${cell.label}', (tester) async {
+        final handle = tester.ensureSemantics();
+        setGoldenSurface(tester, cell);
+        await tester.pumpWidget(
+          goldenApp(
+            cell,
+            home: Scaffold(
+              body: Builder(
+                builder: (context) => Center(
+                  child: TextButton(
+                    onPressed: () =>
+                        SyncSpacePickerSheet.show(context, picking: picking),
+                    child: const Text('open'),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.tap(find.text('open'));
+        await tester.pumpAndSettle();
+        if (confirming) {
+          await tester.ensureVisible(
+            find.bySemanticsIdentifier(SemanticsIds.syncPickerMerge),
+          );
+          await tester.pumpAndSettle();
+          await tester.tap(
+            find.bySemanticsIdentifier(SemanticsIds.syncPickerMerge),
+          );
+          await tester.pumpAndSettle();
+          expect(
+            find.bySemanticsIdentifier(SemanticsIds.syncPickerMergeConfirm),
+            findsOneWidget,
+          );
+        }
+
+        expect(tester.takeException(), isNull);
+        await meetsAll(
+          tester,
+          list: find
+              .descendant(
+                of: find.byType(SyncSpacePickerSheet),
+                matching: find.byType(Scrollable),
+              )
+              .first,
+        );
+        await tester.pumpWidget(const SizedBox.shrink());
+        handle.dispose();
+      });
     }
 
     // Not on the kit (its cards move in the record's §9), so the page's own
@@ -1156,6 +1263,93 @@ enum _Choice { first, second, third }
 /// The three guidelines `meetsAll` walks, in the order it judges them.
 enum _Guideline { tapTargets, labels, contrast }
 
+/// Shows the state a case names: the Sync section's look is judged here,
+/// not the flow that reaches it.
+class _ScriptedSyncBloc extends SyncBloc {
+  _ScriptedSyncBloc({required super.authService});
+
+  void show(SyncState state) => emit(state);
+}
+
+const _binding = SyncBinding(
+  spaceId: 'space-1',
+  ownerUid: 'uid-a',
+  accountUid: 'uid-a',
+);
+
+final _syncSectionStates = <(String, SyncState)>[
+  ('unbound and signed out', const SyncSignedOut()),
+  ('unbound and signed in', const SyncSignedIn(userA)),
+  (
+    'bound and up to date',
+    SyncSignedIn(
+      userA,
+      status: SyncStatus(binding: _binding, lastPullAt: DateTime(2026, 3, 4)),
+    ),
+  ),
+  (
+    'paused on another account',
+    SyncSignedIn(
+      userA,
+      status: SyncStatus(
+        binding: _binding,
+        pause: SyncPause.accountMismatch,
+        pendingCount: 3,
+        lastPullAt: DateTime(2026, 3, 4),
+      ),
+    ),
+  ),
+  (
+    'after a failed bind',
+    const SyncSignedIn(
+      userA,
+      flow: SyncBindFailed(SyncBindFailure.permissionDenied),
+    ),
+  ),
+];
+
+SyncSpaceInfo _space(String id, String name) => SyncSpaceInfo(
+  ref: SyncSpaceRef(ownerUid: userA.uid, spaceId: id),
+  name: name,
+  createdAt: null,
+  createdBy: 'device-1',
+  schema: 1,
+  lastWriteAt: DateTime(2026, 3, 4),
+);
+
+final _spaces = [
+  _space('s-phone', 'Phone'),
+  _space('s-tablet', 'Tablet'),
+  _space('s-laptop', 'Laptop'),
+];
+
+final _pickerStates = <(String, SyncBindPicking)>[
+  (
+    'several spaces, one held',
+    SyncBindPicking(
+      spaces: _spaces,
+      holdsData: true,
+      heldBy: {_spaces.first.ref: 'phone_db'},
+    ),
+  ),
+  (
+    'an empty database',
+    SyncBindPicking(
+      spaces: _spaces,
+      holdsData: false,
+      heldBy: {_spaces.first.ref: 'phone_db'},
+    ),
+  ),
+  (
+    'every space held',
+    SyncBindPicking(
+      spaces: _spaces,
+      holdsData: true,
+      heldBy: {for (final space in _spaces) space.ref: '${space.name}_db'},
+    ),
+  ),
+];
+
 /// An account whose sign-in fails offline: the way to Sharing's Retry row.
 class _OfflineAuthService extends FakeAuthService {
   @override
@@ -1415,7 +1609,12 @@ class _KitLabelGuideline extends AccessibilityGuideline {
   }
 }
 
-/// Flutter's 4.5:1 text-contrast guideline but for the nodes [_skip] names.
+/// Flutter's 4.5:1 text-contrast guideline but for the nodes [_skip] names
+/// and the disabled ones: WCAG 1.4.3 exempts an inactive component, and the
+/// UI language draws one at 38 % (the bind picker's merge and download with
+/// every space held, final review D-3). The reason such a row keeps whole
+/// merges into the same node, so its colour is pinned in the surface's own
+/// suite instead.
 class _KitContrastGuideline extends MinimumTextContrastGuideline {
   const _KitContrastGuideline(this._skip);
 
@@ -1423,5 +1622,7 @@ class _KitContrastGuideline extends MinimumTextContrastGuideline {
 
   @override
   bool shouldSkipNode(SemanticsData data) =>
-      super.shouldSkipNode(data) || _skip(data);
+      super.shouldSkipNode(data) ||
+      data.flagsCollection.isEnabled == Tristate.isFalse ||
+      _skip(data);
 }

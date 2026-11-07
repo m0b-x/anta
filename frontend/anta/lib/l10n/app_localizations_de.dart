@@ -2636,7 +2636,7 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get restartRequiredNewDatabase =>
-      'Bitte starten Sie die App neu, um die neue Datenbank zu verwenden.';
+      'Starte die App neu, um die neue Datenbank zu verwenden.';
 
   @override
   String get findInNote => 'In Notiz suchen';
@@ -4764,7 +4764,7 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get syncFailedPermission =>
-      'Die Cloud hat das abgelehnt – prüf, ob du mit dem richtigen Konto angemeldet bist';
+      'Die Cloud hat das abgelehnt – prüf, ob du mit dem richtigen Konto angemeldet bist oder ob die Synchronisierung in der Cloud schon eingerichtet ist';
 
   @override
   String get syncFailedSpaceGone =>
@@ -4798,6 +4798,37 @@ class AppLocalizationsDe extends AppLocalizations {
   @override
   String get syncFailedUnknown =>
       'Synchronisierung konnte nicht gestartet werden – versuch es erneut';
+
+  @override
+  String syncMergeConfirmTitle(String space) {
+    return 'Mit „$space“ zusammenführen?';
+  }
+
+  @override
+  String get syncMergeConfirmBody =>
+      'Einträge, die diese Datenbank und die Cloud beide haben, übernehmen die Version der Cloud. Einträge, die nur hier sind, werden hochgeladen.';
+
+  @override
+  String get syncMergeConfirmAction => 'Zusammenführen';
+
+  @override
+  String syncUnboundAsCopyOf(String database) {
+    return 'Synchronisierung beendet – diese Datenbank ist eine Kopie von „$database“, die bereits mit diesem Bereich synchronisiert wird';
+  }
+
+  @override
+  String get syncBusyLabel => 'Wird ausgeführt…';
+
+  @override
+  String syncAnnounceBound(String space) {
+    return 'Synchronisiert mit „$space“';
+  }
+
+  @override
+  String get syncAnnounceBoundUnnamed => 'Diese Datenbank wird synchronisiert';
+
+  @override
+  String get syncAnnounceStopped => 'Synchronisierung beendet';
 
   @override
   String get aboutDescription =>

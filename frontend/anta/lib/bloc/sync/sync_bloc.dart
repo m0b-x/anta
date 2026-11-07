@@ -53,6 +53,18 @@ class SyncBloc extends Bloc<SyncEvent, SyncState> {
   /// account change's own emit (review RC1-5).
   int _accountChangesPending = 0;
 
+  /// A sign-out given up on that is still running, completing — never
+  /// throwing — when it lands; null otherwise. A sign-in waits for it.
+  Future<void>? _signOutLanding;
+
+  bool _engineStatusSeen = false;
+
+  /// Whether a state has carried the engine's own status yet. Before it a
+  /// status is the reader's alone, and a pause the engine stored is still to
+  /// come: the page does not announce that pause as one that began (review
+  /// RC2-4). A getter, not a state field, so no state's equality changes.
+  bool get engineStatusSeen => _engineStatusSeen;
+
   /// How long an account state waits for its status before showing none: a
   /// database still opening must not leave the account behind a spinner.
   static const Duration statusTimeout = Duration(seconds: 3);
@@ -139,13 +151,25 @@ class SyncBloc extends Bloc<SyncEvent, SyncState> {
       return;
     }
 
-    // Pending until the spinner is up: from there the state itself refuses
-    // a step.
+    // Pending until the sign-out it may wait on has landed: the spinner
+    // itself refuses a step, the count keeps refusing one past it.
     _accountChangesPending++;
     try {
       await _afterStep();
       if (emit.isDone) return;
+      // One sign-in at a time: the spinner hides Retry, and a request that
+      // arrives behind it — taps queued while a sign-out was waited out —
+      // must not start a Google flow of its own (review RC2b-1).
+      if (state is SyncSigningIn) return;
+      // Up before the wait, so Retry is hidden while it lasts and a failure
+      // after it is a new state with its own snackbar.
       _put(emit, const SyncSigningIn());
+      final signedOut = await _afterSignOut();
+      if (emit.isDone) return;
+      if (!signedOut) {
+        _put(emit, const SyncFailure(AuthError.unknown));
+        return;
+      }
     } finally {
       _accountChangesPending--;
     }
@@ -181,13 +205,34 @@ class SyncBloc extends Bloc<SyncEvent, SyncState> {
       if (emit.isDone) return;
       try {
         // Bounded: a hung sign-out would hold the pending count, and with it
-        // every step, for the page's life (review RC1b-4). Past the limit
-        // the account the identity reports is shown — still signed in if
-        // the sign-out never landed.
+        // every step, for the page's life (review RC1b-4). Past the limit it
+        // fails as a thrown one does, so the user is told and offered a retry
+        // rather than left looking at an account still signed in (RC1c-2);
+        // the sign-out is kept, for a sign-in to wait out (RC2-2).
+        final signingOut = _authService.signOut();
         try {
-          await _authService.signOut().timeout(_engineStopTimeout);
+          await signingOut.timeout(_engineStopTimeout);
         } on TimeoutException catch (e, st) {
           debugPrint('[SyncBloc] signing out is taking too long: $e\n$st');
+          final stillRunning = signingOut.then<void>(
+            (_) {},
+            onError: (Object e, StackTrace st) =>
+                debugPrint('[SyncBloc] a late sign-out failed: $e\n$st'),
+          );
+          // A second one given up on while the first still runs: a sign-in
+          // waits for both (review RC2b-2).
+          final previous = _signOutLanding;
+          final landing = previous == null
+              ? stillRunning
+              : Future.wait([previous, stillRunning]).then<void>((_) {});
+          _signOutLanding = landing;
+          unawaited(
+            landing.whenComplete(() {
+              if (identical(_signOutLanding, landing)) _signOutLanding = null;
+            }),
+          );
+          _put(emit, const SyncFailure(AuthError.unknown));
+          return;
         }
         final user = _authService.currentUser;
         final shown = _emitAccount(user, emit);
@@ -212,6 +257,21 @@ class SyncBloc extends Bloc<SyncEvent, SyncState> {
       final settled = _stepSettled;
       if (settled == null) return;
       await settled.future;
+    }
+  }
+
+  /// Waits out a sign-out given up on that is still running, at most
+  /// [_engineStopTimeout]: a sign-in that landed first would be signed out
+  /// again when it lands (review RC2-2). False while it still runs — the
+  /// sign-in fails as the sign-out did rather than run out of order.
+  Future<bool> _afterSignOut() async {
+    final landing = _signOutLanding;
+    if (landing == null) return true;
+    try {
+      await landing.timeout(_engineStopTimeout);
+      return true;
+    } on TimeoutException {
+      return false;
     }
   }
 
@@ -332,8 +392,10 @@ class SyncBloc extends Bloc<SyncEvent, SyncState> {
     final current = _authService.currentUser;
     switch (state) {
       case SyncSignedIn(:final user, :final flow) when user.uid == current?.uid:
+        _engineStatusSeen = true;
         _put(emit, SyncSignedIn(user, status: event.status, flow: flow));
       case SyncSignedOut(:final flow) when current == null:
+        _engineStatusSeen = true;
         _put(emit, SyncSignedOut(status: event.status, flow: flow));
       default:
         break;

@@ -248,13 +248,16 @@ abstract final class SemanticsIds {
 
   /// The bind picker: its body, its ✕, one row per space by the space's id,
   /// and its three choices — [syncPickerMerge] also on "Sync with …", the
-  /// merge of a database that holds nothing.
+  /// merge of a database that holds nothing. [syncPickerMergeConfirm] is
+  /// the confirm of the dialog a merge of a database that holds data asks
+  /// first (final review F-1).
   static const String syncPicker = 'sync-picker';
   static const String syncPickerClose = 'sync-picker-close';
   static String syncPickerSpace(String spaceId) => 'sync-picker-space-$spaceId';
   static const String syncPickerMerge = 'sync-picker-merge';
   static const String syncPickerDownload = 'sync-picker-download';
   static const String syncPickerUpload = 'sync-picker-upload';
+  static const String syncPickerMergeConfirm = 'sync-picker-merge-confirm';
 
   /// The Databases page's bar title.
   static const String settingsBarDatabases = 'settings-bar-databases';

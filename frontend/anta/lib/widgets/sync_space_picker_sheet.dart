@@ -7,6 +7,7 @@ import '../bloc/sync/sync_bloc.dart';
 import '../constants/row_metrics.dart';
 import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
+import 'app_dialogs.dart';
 import 'form_rows.dart';
 
 /// A sync time as the Sync section and the picker say it: the time of day
@@ -41,8 +42,9 @@ String formatSyncMoment(BuildContext context, DateTime at, {DateTime? now}) {
 /// finger.
 ///
 /// A form sheet with no draft: nothing is lost by leaving, so every way out
-/// leaves at once, and a choice closes the sheet the moment it is made —
-/// the Sync section shows the step running.
+/// leaves at once, and a choice closes the sheet the moment it is made — a
+/// merge of a database that holds data once it is confirmed — and the Sync
+/// section shows the step running.
 class SyncSpacePickerSheet extends StatefulWidget {
   final SyncBindPicking picking;
 
@@ -105,6 +107,27 @@ class _SyncSpacePickerSheetState extends State<SyncSpacePickerSheet> {
   }
 
   void _pick(SyncEvent event) => Navigator.of(context).pop(event);
+
+  /// Under the bind floor every row both sides hold takes the cloud's
+  /// version, with no conflict copy (final review F-1), and DR5 took the
+  /// captions that could have said so: a database that holds data asks
+  /// first. One that holds nothing has nothing to lose and binds at once. A
+  /// cancel leaves the sheet as it was.
+  Future<void> _merge(SyncSpaceInfo target) async {
+    if (_picking.holdsData) {
+      final l10n = AppLocalizations.of(context)!;
+      final confirmed = await AppDialogs.confirm(
+        context,
+        title: l10n.syncMergeConfirmTitle(target.name),
+        content: l10n.syncMergeConfirmBody,
+        confirmText: l10n.syncMergeConfirmAction,
+        icon: Icons.merge_rounded,
+        confirmIdentifier: SemanticsIds.syncPickerMergeConfirm,
+      );
+      if (!confirmed || !mounted) return;
+    }
+    _pick(MergeIntoSpaceRequested(target));
+  }
 
   void _close() => Navigator.of(context).pop();
 
@@ -224,7 +247,7 @@ class _SyncSpacePickerSheetState extends State<SyncSpacePickerSheet> {
       showChevron: false,
       enabled: holder == null,
       identifier: SemanticsIds.syncPickerSpace(space.ref.spaceId),
-      onTap: () => _pick(MergeIntoSpaceRequested(space)),
+      onTap: () => _merge(space),
     );
   }
 
@@ -244,9 +267,7 @@ class _SyncSpacePickerSheetState extends State<SyncSpacePickerSheet> {
           showChevron: false,
           enabled: target != null,
           identifier: SemanticsIds.syncPickerMerge,
-          onTap: target == null
-              ? null
-              : () => _pick(MergeIntoSpaceRequested(target)),
+          onTap: target == null ? null : () => _merge(target),
         ),
         FormPickerRow(
           glyph: Icons.download_rounded,
@@ -272,7 +293,7 @@ class _SyncSpacePickerSheetState extends State<SyncSpacePickerSheet> {
           showChevron: false,
           enabled: holder == null,
           identifier: SemanticsIds.syncPickerMerge,
-          onTap: () => _pick(MergeIntoSpaceRequested(target)),
+          onTap: () => _merge(target),
         ),
       ];
     }
@@ -284,7 +305,7 @@ class _SyncSpacePickerSheetState extends State<SyncSpacePickerSheet> {
         showChevron: false,
         enabled: holder == null,
         identifier: SemanticsIds.syncPickerMerge,
-        onTap: () => _pick(MergeIntoSpaceRequested(target)),
+        onTap: () => _merge(target),
       ),
       FormPickerRow(
         glyph: Icons.download_rounded,

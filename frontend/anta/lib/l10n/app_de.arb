@@ -1712,7 +1712,7 @@
   "@databaseDeleted": {
     "description": "Success message after deleting database"
   },
-  "restartRequiredNewDatabase": "Bitte starten Sie die App neu, um die neue Datenbank zu verwenden.",
+  "restartRequiredNewDatabase": "Starte die App neu, um die neue Datenbank zu verwenden.",
   "@restartRequiredNewDatabase": {
     "description": "Message after switching or importing a database, asking for an app restart"
   },
@@ -2557,7 +2557,7 @@
   "syncPickerUpload": "Diese Datenbank als neuen Bereich hochladen",
   "syncFailedOffline": "Du bist offline – versuch es erneut, sobald du verbunden bist",
   "syncFailedQuota": "Das heutige Sync-Limit ist erreicht – versuch es morgen erneut",
-  "syncFailedPermission": "Die Cloud hat das abgelehnt – prüf, ob du mit dem richtigen Konto angemeldet bist",
+  "syncFailedPermission": "Die Cloud hat das abgelehnt – prüf, ob du mit dem richtigen Konto angemeldet bist oder ob die Synchronisierung in der Cloud schon eingerichtet ist",
   "syncFailedSpaceGone": "Diesen Cloud-Bereich gibt es nicht mehr – wähl einen anderen oder lade diese Datenbank als neuen Bereich hoch",
   "syncFailedSuspended": "Eine Wiederherstellung läuft – versuch es danach erneut",
   "syncFailedAlreadyBound": "Diese Datenbank wird bereits synchronisiert – beende das zuerst",
@@ -2566,6 +2566,14 @@
   "syncFailedInvalidName": "Ein Bereichsname braucht 1 bis 100 Zeichen",
   "syncFailedNewDatabase": "Die neue Datenbank konnte nicht erstellt werden – nichts wurde geändert",
   "syncFailedUnknown": "Synchronisierung konnte nicht gestartet werden – versuch es erneut",
+  "syncMergeConfirmTitle": "Mit „{space}“ zusammenführen?",
+  "syncMergeConfirmBody": "Einträge, die diese Datenbank und die Cloud beide haben, übernehmen die Version der Cloud. Einträge, die nur hier sind, werden hochgeladen.",
+  "syncMergeConfirmAction": "Zusammenführen",
+  "syncUnboundAsCopyOf": "Synchronisierung beendet – diese Datenbank ist eine Kopie von „{database}“, die bereits mit diesem Bereich synchronisiert wird",
+  "syncBusyLabel": "Wird ausgeführt…",
+  "syncAnnounceBound": "Synchronisiert mit „{space}“",
+  "syncAnnounceBoundUnnamed": "Diese Datenbank wird synchronisiert",
+  "syncAnnounceStopped": "Synchronisierung beendet",
   "aboutDescription": "Ein Offline-First-Tracker für den Alltag: Ordner, Markdown-Notizen, ein Geldbuch, Zähler und ein Kalender.",
   "pairingSection": "Kopplung",
   "pairingNotPaired": "Nicht gekoppelt",
