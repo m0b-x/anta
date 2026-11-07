@@ -1,15 +1,18 @@
 # Cloud Sync Phase 02 — Own Space on N Devices
 
-**Status: BUILT 2026-11-06, FINAL REVIEW 2026-11-06 — S1–S6 on `main`
-(S4b-2 and S6 in `4632602a` … `ed966d7a`, every slice gated and reviewed);
-the final review (§4 after S6: five agents on snapshots of `caa60b05`, GO
-WITH CONDITIONS, no blocker — one H on the order of the first two binds,
-F-1, six M: F-2, F-3, X-1, U-1, U-2, U-3, plus X-3 on a rename and three
-design items) awaits the owner's word on its fix pass; then what only the
-owner does (§7, with the pre-bind checklist): the rules and indexes deploy,
-then the real check on the phone. Planned 2026-10-24 (Fable 5.1);
-decisions D1–D8 all A, taken 2026-10-28 on the owner's decision sheet
-(§2).** The transport phase
+**Status: BUILT 2026-11-06, FINAL REVIEW 2026-11-06, FIX PASS 2026-11-07 —
+S1–S6 on `main` (S4b-2 and S6 in `4632602a` … `ed966d7a`, every slice gated
+and reviewed); the final review (§4 after S6: five agents on snapshots of
+`caa60b05`, GO WITH CONDITIONS, no blocker — one H on the order of the
+first two binds, F-1, six M, X-3 on a rename and three design items) and
+its fix pass on the owner's "fix anything you find" (`d2b3da32` …
+`a69a65d0`, §4 "Fix pass as built": every H and M, the reviews' rounds and
+the design re-measures built; D-6, W-1, W-2, X-5 and the kit-wide RC2-1
+deferred in §8; whole suite 13,868 green; the four saved device suites
+green on the build); left: what only the owner does (§7, with the pre-bind
+checklist): the rules and indexes deploy, then the real check on the phone.
+Planned 2026-10-24 (Fable 5.1); decisions D1–D8 all A, taken 2026-10-28 on
+the owner's decision sheet (§2).** The transport phase
 of `docs/cloud-sync-roadmap.md`: one Google account, every device shows the
 same folders, notes, calendar, counters and alert definitions. Builds on the
 readiness phase (`docs/cloud-sync-readiness-roadmap.md`, DONE 2026-10-23,
@@ -304,7 +307,13 @@ existing `NoteDao.mergeNote` (`note_dao.dart:927`), `FolderDao.mergeFolder`
    the stored value (A7 review R132). `ContentChunkDao.mergeChunk` is the
    one method that still advances in its own transaction; it has no caller.
 2. Present → compare the HLC strings (the string embeds the device id, so
-   equal means the same write). **Remote newer:** write the remote row over
+   equal means the same write — bar the one **seed stamp**
+   `000000000000:0000:seed` every device writes on a built-in category it
+   seeds, final review F-2: there equal means "an untouched default", the
+   catalog fields are identical by construction and the rows' `createdAt`,
+   `updatedAt` and `deviceId` differ and never converge, harmlessly; a seed
+   sorts below every minted stamp, so any real edit wins it, and the floor
+   branch below never yields to a remote seed, RA1-1). **Remote newer:** write the remote row over
    the local one, stamps verbatim; drop a stale outbox entry
    (`SyncOutboxDao.ackThrough(table, rowKey, localHlc)`) so the overwritten
    local change is not pushed back as an echo. **Local newer:** keep the
@@ -375,11 +384,14 @@ existing `NoteDao.mergeNote` (`note_dao.dart:927`), `FolderDao.mergeFolder`
    would otherwise need two repository singletons).
 8. **A column added in a later schema** (S2b review F1): rows pushed at an
    older schema stay in the space without the new key, and lower-schema
-   pushes are denied, so nothing ever rewrites them. A key added after the
-   space's first schema (v43) therefore decodes to its column default when
-   absent, even on a live envelope — `WireFields` gains a lenient accessor
-   for such columns when the first one appears (none exists today); every
-   v43 column stays strict — **bar `preview`**, the first lenient column
+   pushes are denied, so nothing ever rewrites them. A key added to a table
+   after that table's first synced schema (v43 for the seventeen first
+   tables, v44 for `calendar_category_profiles` — final review W-6: that
+   table is wholly strict, nothing below v44 ever pushed one of its rows)
+   therefore decodes to its column default when absent, even on a live
+   envelope — `WireFields` gains a lenient accessor for such columns when
+   the first one appears (none exists today); every column of a table's
+   first synced schema stays strict — **bar `preview`**, the first lenient column
    (A3a review R70): it crosses for backup-format parity and the merge
    recomputes it from the body, so a live envelope without it decodes to
    `''` instead of parking. Row keys are validated for tombstones too: a
@@ -2693,6 +2705,231 @@ the settled snackbar (D-9), Android's non-linear 2.0 in de/ro on the 360
 AVD, the restart prompt after a real download and the insets under the
 picker's last row, a sign-out with the page open (D-6).
 
+**Fix pass as built — the data and service streams (2026-11-07; three
+implementers in detached worktrees at once, one reviewer each, the
+reviews' follow-ups built before the merge; gate: `dart analyze lib test`
+clean, `flutter gen-l10n` with `untranslated.txt` `{}`, whole suite
+13,767 passed, 12 skipped, none failed; commits `d2b3da32` B, `67eaca7f`
+A1, `9498843b` A2).**
+*B (`d2b3da32`):* **W-3** the rules header names the one deploy command.
+**W-5** `test/firestore/rules_test.dart` walks `syncTableBindings` — an
+upsert under every synced table allowed, the same under `<table>_x` denied
+(36 cases, 91 in the suite), and `rules_probe.ps1` gains a
+`calendar_category_profiles` case (21 judged + 1 INFO; the Dart loop owns
+the follows-the-list check). **W-7** `FolderDao.importFolders` keeps a
+parent only while it is a restored copy or a live folder here, else the
+folder restores at the root where its position appends (the notes twin of
+`3561409c`; a tombstoned parent → root; the old pin of the dangling parent
+in `sync_outbox_test` updated). **X-12** `FirebaseAuthService._guard` and
+the sign-out catch log under `kDebugMode` only the mapped cause and the
+exception's code, through `_logCause` (RB-1); the two `StateError`s became
+`NoIdTokenException` and `QaAccountFormatException`, whose type names are
+the diagnosis so no message is ever logged (RB-4); `_foldersParentsFirst`'s
+comment follows W-7 (RB-2). Review RB-1…RB-8: RB-3's docs placed; RB-5 (no
+test on the mapping), RB-6 (the deny loop repeats the `secrets` case) and
+RB-8 accepted.
+*A1 (`67eaca7f`):* **F-2** `HlcTimestamp.seed` = `000000000000:0000:seed`
+and `CrdtWrite.seedStamp()`, never minted from the clock and never moving
+it; `CalendarCategoryDao.seedMissing` reads the seeded ids first, inserts a
+missing built-in under the seed stamp through `enqueueIn`, revives a
+tombstoned one under a minted stamp as HEAD already did since `14c92505`
+(no local path can tombstone a built-in: `_deletable` refuses, categories
+have no `tombstoneAll`, the archive is `isHidden`), and writes nothing when
+nothing is missing (one SELECT); the R76 wait during `bind_merge_pending`
+stands. Pinned on `sync_pair.dart`: a fresh device whose first pull meets
+an empty space never overwrites a renamed built-in with its seed; and
+(RA1-1) `CrdtMerge`'s floor branch never yields to a remote seed, so a
+rename below a raised floor survives a Stop and a rebind. The guard test
+matches `seedStamp(` and allow-lists `HlcTimestamp.seed` to the DAO, the
+write helper and the merge (RA1-3). Accepted: equal seed stamps leave
+`createdAt`, `updatedAt` and `deviceId` unconverged (RA1-2, §3.4); the
+`rebound` halt detaches the signal the queued run re-attaches (RA1-4); the
+public `raiseFloor` parameter (RA1-6). **X-1** `unbind({raiseFloor =
+true})` → the private `_unbind({raiseFloor, healedFrom})` in one
+transaction; the heal unbinds with `raiseFloor: false`, so a copy's edits
+since its original bind merge by last-writer-wins at its next bind, with
+conflict copies for notes; Stop syncing and the restore still raise.
+**X-2** `SyncDao.keyHealUnboundFrom`, written in the heal's transaction
+with the holder's name, read as `SyncStatus.unboundAsCopyOf`, deleted by
+`bind()` and by any plain `unbind()` (RA1-7); the page shows it in the
+surface stream. **X-10** `SyncRunSkip.rebound` from both binding checks
+(`SyncEngine._haltUnlessStillBound`); a cursor-only page meeting a rebind
+halts without storing its cursor (pinned through
+`FakeSyncGateway.onPullPage`). **X-13** `SyncBindFailure.spaceGone` when
+`readSpace` returns null, `syncFailedSpaceGone` in three languages, the
+page maps it. **X-14** `beforePage` clears `_pageStrings`. **W-4**
+`syncSchema = DatabaseSchema.currentVersion`; `SyncEngine.schemaForTesting`
+pins that the real singleton passes it.
+*A2 (`9498843b`):* **X-3** `renameDatabase`: after the `.db` rename the
+sidecar renames run in a `try`, and a `finally` moves the registry claim
+(in its own try/catch, logged) and the active name, so both follow the
+`.db` whether or not a sidecar throws, and nothing runs between the file
+and its sidecars (RA2-1: left on the old name, the next launch would create
+that name empty and the heal would unbind the renamed database); pinned
+with a throwing registry and a throwing sidecar. **X-4** the marker
+recovery switches back only when the active name is `marker.to`, `from`
+exists and the registry holds no claim for `to` (RA2-3: a bind that
+committed while both clears failed stays put); otherwise the marker is
+dropped with a logged case; `clearDownloadInFlight` retries once and
+treats Android's `false` like a throw (RA2-2). **X-6** `SettingsService._open`
+loops while the generation moved, three attempts, then throws a
+`StateError` rather than publish a stale service (RA2-4 accepted: the
+three-move race is not on the launch path). **X-7** a failed
+`DatabaseManager._create` clears the memoized future; `resetForTesting()`.
+**X-8** `deleteAllData` sets `_switchUnannounced`;
+`resetSwitchAnnouncementForTesting()` in the two suites that fail an open.
+**X-11** two concurrent `getInstance()` calls on a held store resolve to
+one built instance (`test/support/scripted_prefs_store.dart`, a scripted
+`InMemorySharedPreferencesStore`; `shared_preferences_platform_interface`
+now a dev dependency). Noted: a `setActiveDatabaseName` that throws inside
+the `finally` replaces the sidecar's error — both fail the rename.
+
+*C1 (`97e6896d`; one implementer, one reviewer over three rounds; gate:
+analyze clean, whole suite 13,786 passed, 12 skipped, none failed):*
+**U-1** the Account row's sign-in and sign-out are disabled while a step
+is in flight; a `SignOutRequested` or sign-in that arrives mid-step is
+deferred behind the step and runs once it settles (never dropped, never
+mid-step); an account change from the auth stream mid-step does not end
+the step, and a download's `SyncBindIdle(switchedToDatabase:)` is emitted
+whatever the account state when it settles; the page's hold reads the
+bloc's in-flight flag. **U-2** every emit goes through one `_put` that
+remembers the status of the last account state shown; an account change
+shows that status carried — binding, counts, times, last failure — with
+only the pause recomputed (`SyncPause.forAccount`, now also the status
+service's one source of the account pause); a failed or timed-out read
+keeps the status on screen; the known status resets when a download
+switches the database. **U-3, as it ended** (review RC1 → RC1b → RC1c): a
+service call cannot be cancelled, and a page released mid-step would let a
+fresh `SyncBloc` (`registerFactory`) overlap the running step and let a
+Databases-page switch run under a bind still to land, which would bind the
+database switched to — so **the page holds until the step settles**; what
+is bounded is every engine wait (`SyncLimits.engineStop`, 15 s, on
+resolve, stop and start — logged and carried on when it passes) and the
+gateway's own 60 s per call; a step runs resolve → stop → change → start →
+settle straight through, and finishes its side effects even if the bloc
+closed meanwhile (the engine is never left stopped because a page was
+left; only the settle's emit is skipped). The 2-minute give-up built in the
+first two rounds, with `SyncBindFailure.timedOut` and its strings, was
+removed again. **U-4** under `SyncFailure` with a known binding Stop is
+enabled and Sync now disabled; the bloc's stop path accepts `SyncFailure`
+(it first puts up the account `currentUser` reports, so the stop's progress
+is visible). **U-5** `SyncState.stepInFlight` on the two account states,
+cleared in the settle's emit or by a `finally` re-emit; the rows draw busy
+from it when the shown flow is idle. **U-6** `sync_state.dart` re-exports
+`SyncGatewayFailure`, `SyncSpaceInfo`, `SyncActivity`, `SyncPause` and
+`SyncStatus`; the page, the sheet and `sync_event.dart` import no service
+file. Also: `_accountChangesPending` refuses a step between a settle and a
+deferred sign-in/out's own emit (RC1-5); a hung Google sign-out is bounded
+by `engineStop` and shows the account the identity still reports (RC1b-4;
+the user is told in C2, RC1c-2); a thrown sign-out releases the counter
+(pinned, RC1c-1). Accepted: a download's page removed by something other
+than back skips the settle, so its restart prompt would not come (RC1b-6,
+very unlikely under the hold).
+
+*C2 (`edec7d5d`; one implementer, one reviewer over two rounds; gate:
+analyze clean, gen-l10n `{}`, whole suite 13,829 passed, 12 skipped, none
+failed):* **F-1** every Merge of a data-holding database asks first
+(`AppDialogs.confirm`, id `sync-picker-merge-confirm`): "Merge into
+“<space>”? — Rows this database and the cloud both hold take the cloud's
+version. Rows only here are uploaded." (lettered A: a confirm rather than
+a caption, since DR5 removed captions; the plain confirm style as the Stop
+confirm's); an empty database binds at once; a cancel leaves the picker as
+it was. **F-4** `syncFailedPermission` says "…or that sync is set up in the
+cloud". **X-2** the unbound row reads `syncUnboundAsCopyOf(name)` while the
+heal's note stands, signed in only (lettered B; a failure wins). **U-8**
+the hub's Sharing row searches by `syncKeywords`. **U-9** the German
+restart prompt in the du-form (the Databases page's older strings stay
+Sie — RC2-11, §8). **D-2** the spinner is `ExcludeSemantics` and the busy
+row carries `Semantics(value: syncBusyLabel)`, so TalkBack reads the name
+first (RC2-5); `SemanticsService` announces politely when a step ends —
+"Syncing with “<space>”" or, when the page knows no name,
+`syncAnnounceBoundUnnamed` (lettered C), "Stopped syncing" — and when a
+bound status's pause changes to a non-none value, never for the ticking
+run line, never for a pause present when the page opens (the first
+engine-overlaid status seeds the baseline, RC2-4), once even when the
+settle's read failed (`_awaitedBinding`, RC2-3); a bind or stop failure is
+not announced because its snackbar is already a live region (lettered D,
+pinned). **D-3** the kit's `settings_kit_guidelines_test.dart` runs its
+three guidelines over five Sync states, three picker states and the Merge
+confirm in both cells; its contrast leg skips nodes whose every merged
+flag is disabled (lettered F — WCAG 1.4.3's exemption; a stock skip one
+level down), and the Sync section pins its disabled reasons' and its
+enabled descriptions' colour tokens itself (RC2-1: Flutter's matcher never
+judges a merged two-line row — §8). **RC1c-2** a timed-out sign-out takes
+the thrown sign-out's failure path; `SyncSigningIn` goes up before the
+wait on a landing sign-out, so Retry cannot start a second Google flow
+(RC2b-1, pinned at exactly one call), a sign-in waits on every landing
+sign-out (RC2b-2), and a sign-in while one is up is ignored.
+
+*C3 (`a69a65d0`; one implementer over five batches, one code reviewer over
+three rounds, the design reviewer over four measuring rounds; gate: analyze
+clean, gen-l10n `{}`, whole suite 13,868 passed, 12 skipped, none failed —
+two alarm-page cases had cast the dialog's title to `Text` and now read the
+first `Text` beneath it):* **D-1 → D3-1** the status row's line and details
+share one slot and one line budget (`_StatusLines`: the tallest status-line
+template's lines + 1; the details get what the current line leaves,
+ellipsized only past that), the details on one line "last sync · n held
+back · n waiting" (the waiting count left out when the status line already
+gives it; RC3b-3 puts the held-back count, said nowhere else, before the
+waiting one), counts grouped by `NumberFormat.decimalPattern` (D2-7), the
+glyph on the status line (`titleAlignment: top`, also on Sync now and Stop,
+D2-8); the de/ro "another account" pause strings shortened so one five-line
+pause no longer sets every state's height (D3-4). Measured by the design
+reviewer across en/de/ro × 1.0/1.3/2.0 × 360/412: one height per bound
+state in every cell, 82 dp at 1.0 (was 118), 220 dp at 2.0/360 (was 404),
+the time never cut, Sync now and Stop at one y; DR10's "one count per
+detail line" is superseded by the budgeted line; DR11 (tall rows at 2.0, the
+en "Up to date" keeps 132 dp blank at 2.0/360 because the row is sized for a
+four-line pause) stays the owner's call. **D-4** the Stop row carries no
+failure line — one height, the failure in the snackbar and, after it, as the
+row's semantics value (RC3-7) — and its label is "Stop syncing" (D2-10).
+**D-5** the unbound row's description slot is sized from its three fixed
+texts (`_FixedLinesSlot`, a `TextPainter` in the drawn style and width); a
+failure's reason or the heal note takes the slot ellipsized with the whole
+text in the semantics label; one height across its states (the heal note
+shortened, RC3-2/D3-5; a long database name still cuts its last word,
+D2-4/D4-4, §8). **D-7** the picker's "Sync with" rows take `FormCheckRow`'s
+two-line shape through `FormPickerRow.checkRowShape`, both rows drawing one
+private `_CheckRowLines` (RC3-8). **D-6** deferred (§8). **The sign-out
+wording:** `SyncFailure` carries `action` (sign-in / sign-out) and, for a
+sign-out, the `user`; the page says `authSignOutFailed` ("Sign-out failed";
+de "Nicht abgemeldet", ro "Nu s-a deconectat" — short enough to keep the
+row's height, D4-1) with the account's name, email or uid beneath, the
+snackbar `authSignOutFailedRetry`, the row acting as Sign out again (id
+`sharing-sign-out`); the section reads that failure as signed in (RC3-4,
+D2-2: the bind row enabled, Sync now per the carried status), the bloc puts
+the account up before a repeat sign-out, a bind or Sync now from it (RC3-1,
+RC3b-1), so no outcome is swallowed as an equal state. **Dialogs (D2-1,
+D3-3, D4-2, RC3c-2 — every `AppDialogs` builder):** the body scrolls, the
+title is clamped at `FormMetrics.dialogTitleMaxTextScale` (1.2) at weight
+500, the actions at `dialogActionMaxTextScale` (1.6), so de/ro 2.0 no
+longer clip the body or break a word. Accepted: a past-year date with two
+counts still cuts the count word at 2.0 when the status line takes three
+lines (D4-3; the semantics whole); the dialog title at 2.0 is close to the
+body's size (D4-2's weight is the remedy).
+
+**Device pass after the fix pass (2026-11-07, `a69a65d0`, two
+`qa-runner`s).** The four saved suites green on a normal QA build on
+`anta_qa_1`: browser 3/3, settings 20/20 (`09_hub_sharing`, the Sharing
+flow, 10 s), calendar 35/35, alerts 5/5. The two-device sync pass green on
+the emulator suite with the cloud-define build (`qa build --define …` then
+`qa fleet install`): A (the `basic.json` seed) bound and read "Receiving
+changes / Not synced yet · 22 waiting" then "Up to date / Last synced 4:38
+AM" within about 8 s; B (empty) bound in one tap with no picker and showed
+A's three root folders; B's Stop ("Stop syncing this database?" →
+"Stop syncing") returned the unbound row, the next tap opened the picker,
+Merge opened the new confirm ("Merge into “qa”?" → "Merge") and the rebind
+read "Up to date" after a short "Receiving changes"; a line typed on B
+reached A's browser preview within the wait and a folder deleted on A left
+B. Noted: a persisted Firebase session survives a reinstall and `relaunch
+--fresh` and, against a restarted Auth emulator, shows the account row with
+a bare uid and behaves offline until a sign-out and a sign-in (the S6 note's
+family; the device reading is in §8); a note open in A's editor did not show
+B's text within a 30 s wait while B stayed in its own editor — the drain
+runs 30 s after the last outbox write, so that wait was marginal; the §3.9
+in-place reload is pinned by the editor's widget tests and is step 6 of the
+owner's checklist.
+
 ### S7 — The push relay (only on D7 B)
 
 `docs/cloud-sync-connections-design.md` §Push, narrowed: the Worker
@@ -2859,7 +3096,9 @@ meets an empty space loses even that protection (§4 F-1, F-2).**
    check you're signed in to the right account" means the rules are not
    deployed (F-4): redo step 1 and tap again. "You're offline": connect
    and tap again. A picker means an earlier tap already created the space:
-   choose "Merge this database into "ANTA"" (not Upload — F-7). Verify in
+   choose "Merge this database into "ANTA"" (not Upload — F-7) and confirm
+   "Merge" in the dialog that names the rule (the fix pass's F-1: the
+   space is empty, so nothing yields). Verify in
    the console: `users/<uid>/spaces/<id>` with `name: ANTA`, `schema: 45`,
    a `touched` map, and the subcollections `notes` (39 = 11 live + 28
    tombstones), `calendar_events` (76), `calendar_categories` (22),
@@ -2882,17 +3121,22 @@ meets an empty space loses even that protection (§4 F-1, F-2).**
    new database" (the Databases page's restart prompt; restart; the active
    database is "ANTA"); choose Merge only to upload that data too, knowing
    every row both hold takes the cloud's version, edits made on that copy
-   since it was taken included (F-1). Verify the same folders, notes,
+   since it was taken included (F-1 — the confirm dialog says so; it asks
+   only when the database holds data). Verify the same folders, notes,
    categories (hidden ones hidden), counters and events; the alert
    definitions arrive and ring on the emulator too (readiness D11).
-6. Edit on each and watch the other: seconds while both are open; a note
-   open on both before a sync gives one conflict copy on both (D3);
+6. Edit on each and watch the other: about 30 s while the writer stays in
+   the note (the drain runs 30 s after the last write), sooner once the
+   writer leaves it; a note open on the reader reloads in place when the
+   change lands (§3.9); a note open on both before a sync gives one
+   conflict copy on both (D3);
    counters are last-writer-wins, not a sum (F-6); a folder deleted on one
    while a note in it is edited on the other re-files the note under the
    nearest live folder (the P fix pass).
 7. If the space ends up wrong, never restore a JSON backup over the bound
-   database (F-3): "Stop syncing this database" on every device (the cloud
-   copy stays until Phase 04); on the phone import the fresh `.db` export
+   database (F-3): "Stop syncing" (the Sync section's last row) on every
+   device, confirmed in its dialog (the cloud copy stays until Phase 04);
+   on the phone import the fresh `.db` export
    as a new database (Settings → Databases), make it active, "Sync this
    database" → the picker → "Upload this database as a new space"; on the
    emulator "Sync this database" → the picker → Download the new space into
@@ -2943,6 +3187,64 @@ meets an empty space loses even that protection (§4 F-1, F-2).**
   "mine", readiness D12) while the device that merges it stores the uid;
   harmless in Phase 02, and Phase 03 — which needs foreign rows told apart
   — decides whether local writes on a bound database stamp the uid.
+- From the final review (2026-11-06), accepted or deferred: **F-3** a JSON
+  restore on a bound device is not a rollback of the cloud — the restore
+  unbinds, appends note and folder copies under fresh ids, re-inserts the
+  calendar under the archive's ids and writes the floor after, so a Merge
+  of that database back into its space yields the calendar to the space
+  and pushes the copies beside the originals everywhere; the §7
+  checklist's fallback (a `.db` import as a new database + Upload as a new
+  space; Download on the other device) is the procedure, and the confirm
+  on Merge (F-1) names the rule. **W-1** the v45 skip sweep's pull side — a
+  v44 device still bound to a space at schema 44 can push a live skip on an
+  event that later becomes a one-off, and a fresh v45 install downloads it
+  unswept; `schema >= stored` and `appOutdated` close it after the first
+  v45 push; both of the owner's devices run v45. **W-2** backup v8 shipped
+  with v44 and v45 kept it, so a v8 archive written by a v44 build carries
+  converted-series leftover skips a v45 restore keeps — a dev-only window
+  (no v44 build reached a device); a v9 bump would be the fix. **X-5** the
+  install registry's claim follows the active database name, not the
+  opened database's; a bind or unbind between a Databases-page switch and
+  the restart would write the claim under the other name — low while the
+  restart prompt cannot be dismissed and the bloc stops the engine first.
+  **X-15** `FolderDao.updateFolderPosition` has no caller in `lib`; its
+  tombstone guard stands. **U-7** no saved QA flow drives the Sync section
+  or the picker (the device pass runs S6's explicit verbs); a two-device
+  suite needs a harness that alternates devices. **U-10**
+  `syncThisDatabaseUnavailable` is also what a failed Firebase init shows,
+  reading permanent for a transient fault. From the fix pass's reviews:
+  **RC2-1** Flutter's `textContrastGuideline` (and the kit's
+  `_KitContrastGuideline` over it, `test/widgets/settings_kit_guidelines_test.dart`)
+  looks a node's text up by its merged label, and a two-line row's label
+  is "title\ndescription", which no single `Text` matches — so no
+  description of any kit row is ever judged for contrast; the Sync
+  section pins its descriptions' colour tokens instead, and the kit-wide
+  fix (evaluate each `Text` under a node) is the settings area's call.
+  **RC2-11** the Databases page's older German strings are in the
+  Sie-form while the Sync section's and the restart prompt's are du — an
+  l10n register pass. **RC2-6** the bind failure's snackbar is keyed on
+  the flow, so a failed stop whose binding then drops changes the row's
+  wording without a snackbar. **X-5**, **RC1b-6** stand as recorded above.
+  From the design re-review after C3: **D-6 / D2-9 / RC3-3** the Account
+  row moves the bound rows below it when its content changes (a sign-out
+  at ro 2.0/412: 40 dp; a sign-out failure: 4 dp at en 1.0) — it is a
+  `SettingsYieldingTile` signed in and a `ListTile` otherwise, its title is
+  the user's name and the yielding value's place is measured, so a
+  template slot needs a new parameter on that primitive. **D2-6** the
+  picker's Merge and Download action rows sit on `FormActionRow`'s
+  minimum-height rule (6 dp above and below the label against the check
+  rows' 11) — the UI-language area's rule. **D2-4** the heal note is cut by
+  the unbound row's slot when the database name is long (the semantics
+  label carries it whole; the string was shortened). **DR9 / D2-11** the
+  picker rows have no button role (`FormPickerRow`). **D2-12** the test
+  font renders the snackbar and the uid as boxes (no `fontFamily`) — an
+  artefact. From the device pass after the fix pass: a Firebase session the
+  backend no longer knows (the QA Auth emulator restarted; on a device a
+  revoked session) keeps the account row up with a bare uid and reads as
+  "offline" — the token refresh fails as a network error — instead of as
+  signed out, until the user signs out and in; a "session expired" reading
+  would need the auth error told apart from a network one in
+  `FirebaseAuthService`.
 
 ---
 
