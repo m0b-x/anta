@@ -1,17 +1,20 @@
 import 'dart:async';
-import 'dart:convert';
 
 import 'package:drift/drift.dart'
     show CouldNotRollBackException, InvalidDataException;
 import 'package:drift/isolate.dart' show DriftRemoteException;
 import 'package:equatable/equatable.dart';
-import 'package:flutter/foundation.dart' show debugPrint, visibleForTesting;
+import 'package:flutter/foundation.dart'
+    show debugPrint, kDebugMode, listEquals, visibleForTesting;
 import 'package:flutter/widgets.dart' show AppLifecycleState, WidgetsBinding;
 import 'package:get_it/get_it.dart';
 import 'package:sqlite3/common.dart' show SqliteException;
 
+import '../../constants/app_version.dart';
+import '../../database/chunking/content_chunker.dart';
 import '../../database/crdt/crdt_merge.dart';
 import '../../database/crdt/crdt_write.dart';
+import '../../database/crdt/hlc.dart';
 import '../../database/daos/sync_dao.dart';
 import '../../database/daos/sync_outbox_dao.dart';
 import '../../database/database.dart';
@@ -32,6 +35,8 @@ import 'sync_status_service.dart';
 import 'sync_suspension.dart';
 import 'sync_table_binding.dart';
 import 'sync_tables.dart';
+import 'tables/content_chunks_binding.dart';
+import 'tables/notes_binding.dart';
 
 part 'sync_puller.dart';
 part 'sync_pusher.dart';
@@ -99,14 +104,40 @@ class SyncRunReport extends Equatable {
   /// Why the run did not reach the space, null when it did.
   final SyncRunSkip? skipped;
 
+  /// The size of the acknowledged rows' data as UTF-8 JSON — what the run
+  /// cost in upload, for the Spark budget (scalability record S9). There is
+  /// no pulled counterpart: the gateway hands over decoded maps, and sizing
+  /// them would encode every pulled row a second time.
+  final int pushedBytes;
+
+  /// Pull pages read, empty ones included: one document read each at least.
+  final int pages;
+
+  /// Push calls made, refused and failed ones included.
+  final int pushAttempts;
+
+  /// Resumes whose snapshot did not come in time, so this run pulled every
+  /// table instead of the ones a snapshot named.
+  final int resumeFallbacks;
+
+  /// How long the run took, gate to status.
+  final Duration duration;
+
   const SyncRunReport({
     this.pulledRows = 0,
     this.pushedRows = 0,
     this.parked = 0,
     this.failure,
     this.skipped,
+    this.pushedBytes = 0,
+    this.pages = 0,
+    this.pushAttempts = 0,
+    this.resumeFallbacks = 0,
+    this.duration = Duration.zero,
   });
 
+  /// The outcome only: the counters measure a run, and two runs that did
+  /// the same thing are equal however long they took.
   @override
   List<Object?> get props => [pulledRows, pushedRows, parked, failure, skipped];
 }
@@ -118,6 +149,12 @@ class SyncEngineTiming {
   /// every few seconds, and one push per burst is one write per row (D19).
   final Duration pushDebounce;
 
+  /// The longest a write waits for its push while writes keep coming, from
+  /// the first write after the last drain: an hour of typing never goes
+  /// quiet for [pushDebounce], and would otherwise push nothing for the hour
+  /// (scalability record S7, D10).
+  final Duration pushMaxWait;
+
   /// The waits after successive `offline` / `unknown` failures; the last one
   /// repeats. Reset by a success and skipped by a resume.
   final List<Duration> backoff;
@@ -127,6 +164,7 @@ class SyncEngineTiming {
 
   const SyncEngineTiming({
     this.pushDebounce = const Duration(seconds: 30),
+    this.pushMaxWait = const Duration(minutes: 3),
     this.backoff = const [
       Duration(seconds: 30),
       Duration(minutes: 1),
@@ -152,6 +190,65 @@ class SyncEngineTiming {
 class SyncEngine {
   static SyncEngine? _instance;
 
+  /// How long a resume waits for the space's first snapshot before it pulls
+  /// every table: the snapshot names the tables that moved, and without one
+  /// nothing says which are current.
+  static const Duration resumeSnapshotWait = Duration(seconds: 5);
+
+  /// How old the last pull of every table may grow before a resume pulls
+  /// every table again rather than only the ones a snapshot names — the
+  /// bound on anything a missed or misread snapshot left behind.
+  static const Duration fullPullInterval = Duration(hours: 24);
+
+  /// How many of the gateway's [SyncGateway.resumeOverlap]s the server clock
+  /// must stand past a table's cursor, as a pull begins, for the pull to mark
+  /// the table settled. The overlap is the receive-to-commit bound the record
+  /// states (§3.3), and a re-read covers a commit later than it only until a
+  /// later write moves the cursor; a skipped re-read would miss it for good,
+  /// so the skip asks for a wide margin over the bound, not the bound itself.
+  static const int settledOverlaps = 6;
+
+  /// How long after the quota's reset the retry waits: the reset is the
+  /// server's, and a retry a moment early would be refused once more.
+  static const Duration quotaResetMargin = Duration(minutes: 5);
+
+  /// The least time between the starts of two pushes when the first was cut
+  /// by bytes: every push also writes the space document, whose sustained
+  /// write rate is about one a second (A8 review R97), and the part budget
+  /// cuts parts far smaller than the 499-row count cut (scalability record
+  /// S10).
+  static const Duration minPartSpacing = Duration(seconds: 1);
+
+  /// What a table's pull page is divided by after a timeout: a page that
+  /// outlasted the deadline would outlast it again (scalability record S10).
+  static const int pullTimeoutDivisor = 2;
+
+  /// The divisor for a second timeout in a row: halving alone takes too
+  /// many runs, each a 60 s wait and a back-off, to reach a page the link
+  /// carries.
+  static const int repeatedPullTimeoutDivisor = 4;
+
+  /// How many stored pull parks a start retries, one document read each,
+  /// when the build has not changed since they were last retried: a build
+  /// that could not read a document yesterday mostly cannot today, so a few
+  /// a launch keeps the retry cheap while each still comes round
+  /// (scalability record S8).
+  static const int maxParkRetries = 100;
+
+  /// The most chunk text, in code units, one pull page of notes may read
+  /// from the space and hold before its transaction, counted as its missing
+  /// chunks times the cutter's largest ([ContentChunker.maxCodeUnits]) — an
+  /// upper bound, since the size of a chunk is not known before it is read.
+  /// A page over it is halved and pulled again from the same cursor, down
+  /// to one note, which pulls whatever its size (scalability record S6).
+  static const int chunkFetchBudget = 16 * 1024 * 1024;
+
+  /// What this build stores beside its pull parks: the app's version and the
+  /// wire's, since a change to either may teach the decoders a document
+  /// they refused.
+  static const String build =
+      '$kAppVersion+${DatabaseSchema.syncSchemaVersion}';
+
   /// The lifecycle feed of the app's engine, ended with it by [reset].
   static SyncLifecycleBridge? _bridge;
 
@@ -167,7 +264,21 @@ class SyncEngine {
   final SyncScheduler _scheduler;
   final SyncEngineTiming _timing;
   final List<SyncTableBinding<Object>> _tables;
+
+  /// The tables a run pulls: [_tables] but the push-only ones.
+  late final List<SyncTableBinding<Object>> _pulledTables = [
+    for (final table in _tables)
+      if (table.pulls) table,
+  ];
   final AppLifecycleState? Function()? _lifecycleState;
+
+  /// The wall clock the quota retry and the full-pull age are read from — a
+  /// seam, so a test pins them on either side of the quota's reset.
+  final DateTime Function() _now;
+
+  /// The build the stored pull parks are compared against at a start
+  /// ([build]) — a seam, so a test can change builds between two starts.
+  final String Function() _runningBuild;
   late final _Puller _puller = _Puller(this);
   late final _Pusher _pusher = _Pusher(this);
 
@@ -224,8 +335,36 @@ class SyncEngine {
   StreamSubscription<void>? _outboxSubscription;
   StreamSubscription<AppUser?>? _authSubscription;
   Timer? _debounce;
+
+  /// Armed by the first write after a drain, beside [_debounce]: fires the
+  /// drain [SyncEngineTiming.pushMaxWait] later however the writes go on.
+  /// A drain cancels both.
+  Timer? _maxWait;
+
+  /// Whether the run in flight is pulling and drains next: a push timer that
+  /// fires meanwhile — the longest wait during the debounce's own run — is
+  /// served by that drain, and a run queued behind it would only pull again
+  /// and re-send what the drain could not retire.
+  bool _drainAhead = false;
+
+  /// Whether a push timer fired while [_drainAhead] and left its drain to
+  /// the run in flight: a run that then ends with no drain — a suspension,
+  /// an initial merge cut short — arms the debounce again, or the write
+  /// that armed it would wait for the next write.
+  bool _drainSwallowed = false;
   Timer? _retry;
   Timer? _signalRetry;
+
+  /// Armed by a resume that waits for the space's snapshot; the snapshot
+  /// cancels it, and if it fires first every table is pulled.
+  Timer? _resumeFallback;
+
+  /// Fallbacks fired since the last run began, reported by the next one.
+  int _resumeFallbacks = 0;
+
+  /// The highest server time stored as `server_seen`, in microseconds, so a
+  /// snapshot that does not raise it writes nothing; read on [start].
+  int? _serverSeen;
 
   _RunRequest? _queued;
   bool _pumping = false;
@@ -237,7 +376,7 @@ class SyncEngine {
 
   /// An engine outside the singleton and the [DatabaseLifecycle] registry —
   /// the two devices of a convergence test each hold one. [schema] is this
-  /// build's `DatabaseSchema.currentVersion`, what the space's schema is
+  /// build's `DatabaseSchema.syncSchemaVersion`, what the space's schema is
   /// compared against; [tables] defaults to every synced table in pull
   /// order. [lifecycleState] reads the app's lifecycle as [start] finds it;
   /// without one, or before the first lifecycle message, the foreground is
@@ -256,7 +395,11 @@ class SyncEngine {
     SyncEngineTiming timing = const SyncEngineTiming(),
     List<SyncTableBinding<Object>>? tables,
     AppLifecycleState? Function()? lifecycleState,
-  }) : _db = db,
+    DateTime Function() now = DateTime.now,
+    String Function()? build,
+  }) : _now = now,
+       _runningBuild = build ?? (() => SyncEngine.build),
+       _db = db,
        _gateway = gateway,
        _binding = binding,
        _statusService = status,
@@ -317,7 +460,7 @@ class SyncEngine {
       status: status,
       hooks: AppSyncApplyHooks(),
       deviceId: db.deviceId,
-      schema: DatabaseSchema.currentVersion,
+      schema: DatabaseSchema.syncSchemaVersion,
       currentUser: () => auth.currentUser,
       authChanges: auth.authStateChanges,
       lifecycleState: () => WidgetsBinding.instance.lifecycleState,
@@ -442,8 +585,11 @@ class SyncEngine {
     _backoffStep = 0;
     _signalBackoffStep = 0;
     _downloadedRows = 0;
-    _puller.parked.clear();
-    _pusher.parked.clear();
+    _puller.resetParks();
+    _pusher.resetParks();
+    _retryEveryPark = false;
+    _puller.resetSizes();
+    _pusher.resetSizes();
     // An engine built while the app is away has heard no leave (S5 review
     // M7).
     final state = _lifecycleState?.call();
@@ -451,7 +597,11 @@ class SyncEngine {
     final generation = ++_startGeneration;
     final quotaPaused =
         await _db.syncDao.getValue(SyncDao.keyQuotaPausedAt) != null;
+    final serverSeen = int.tryParse(
+      await _db.syncDao.getValue(SyncDao.keyServerSeen) ?? '',
+    );
     if (generation != _startGeneration) return;
+    _serverSeen = serverSeen;
     if (quotaPaused) _pause = SyncPause.quotaExhausted;
     unawaited(_outboxSubscription?.cancel());
     unawaited(_authSubscription?.cancel());
@@ -468,12 +618,14 @@ class SyncEngine {
     _stopped = true;
     _started = false;
     _startGeneration++;
-    _debounce?.cancel();
+    _cancelPushTimers();
     _retry?.cancel();
     _signalRetry?.cancel();
-    _debounce = null;
+    _resumeFallback?.cancel();
+    _pusher.cancelSpacing();
     _retry = null;
     _signalRetry = null;
+    _resumeFallback = null;
     final cancels = [
       _signalSubscription?.cancel(),
       _outboxSubscription?.cancel(),
@@ -500,11 +652,22 @@ class SyncEngine {
   /// user asked, so the space is tried once more; a `noAccess` pause is
   /// re-checked with one read of the space. A request during a run is served
   /// by the one run that follows it.
+  ///
+  /// The parks are tried again on the way, as a start tries them: the
+  /// [maxParkRetries] oldest of the pull's and of the push's, every one
+  /// under a new build, so one press re-reads at most that many documents
+  /// and re-sends at most that many rows however many are held; the user
+  /// asked, and the page lists them (scalability record S7).
   Future<SyncRunReport> syncNow() {
     _liftQuotaHold();
     _recheckAccess = true;
+    _retryEveryPark = true;
     return _request(_RunMode.full);
   }
+
+  /// Set by [syncNow] and taken by the next run as it starts, never during
+  /// one: a drain in flight reads the push's parks as it bisects.
+  bool _retryEveryPark = false;
 
   /// Lifts a quota hold, the pause with it: a run that makes no gateway call
   /// at all — a stale run with no stale table and an empty outbox — reaches
@@ -515,13 +678,20 @@ class SyncEngine {
     if (_pause == SyncPause.quotaExhausted) _pause = SyncPause.none;
   }
 
-  /// The app came back: the signal is followed again and a full run starts
-  /// now, skipping whatever back-off or quota wait was pending, after one
-  /// read of the space when a `noAccess` pause holds. Unless started, only
-  /// the foreground is noted.
+  /// The app came back: the signal is followed again, skipping whatever
+  /// back-off or quota wait was pending, after one read of the space when a
+  /// `noAccess` pause holds. Unless started, only the foreground is noted.
+  ///
+  /// A quiet resume — no pause, no failure waiting for its retry — pulls
+  /// only the tables the space's snapshot says moved, so an idle return
+  /// costs one read instead of a page per table (scalability record S9);
+  /// a full run starts when no snapshot comes within [resumeSnapshotWait]
+  /// or the last full pull is older than [fullPullInterval]. Any other
+  /// resume is the retry it replaces and runs in full at once.
   void onAppResumed() {
     _foreground = true;
     if (!_started) return;
+    final quiet = _pause == SyncPause.none && _lastFailure == null;
     _backoffStep = 0;
     _signalBackoffStep = 0;
     _liftQuotaHold();
@@ -530,7 +700,7 @@ class SyncEngine {
     _retry = null;
     _signalRetry?.cancel();
     _signalRetry = null;
-    _track(_reevaluate(run: true));
+    _track(_reevaluate(run: true, resume: quiet));
   }
 
   /// The app went to the background: the signal is dropped and the outbox
@@ -549,12 +719,13 @@ class SyncEngine {
     if (!_started) {
       return const SyncRunReport(skipped: SyncRunSkip.stopped);
     }
-    _debounce?.cancel();
-    _debounce = null;
+    _cancelPushTimers();
     _retry?.cancel();
     _retry = null;
     _signalRetry?.cancel();
     _signalRetry = null;
+    _resumeFallback?.cancel();
+    _resumeFallback = null;
     _detachSignal();
     return _request(_RunMode.drain);
   }
@@ -620,22 +791,57 @@ class SyncEngine {
   /// does not hold every push (record §3.5, S3d review M3).
   Future<SyncRunReport> _run(_RunMode mode) async {
     final tally = _RunTally();
+    final clock = Stopwatch()..start();
+    final fallbacks = _resumeFallbacks;
+    _resumeFallbacks = 0;
     final parkedBefore = _parks;
-    SyncRunReport report({SyncGatewayFailure? failure, SyncRunSkip? skipped}) =>
-        SyncRunReport(
-          pulledRows: tally.pulled,
-          pushedRows: tally.pushed,
-          parked: _parks - parkedBefore,
-          failure: failure,
-          skipped: skipped,
+    var reached = false;
+    SyncRunReport report({SyncGatewayFailure? failure, SyncRunSkip? skipped}) {
+      final done = SyncRunReport(
+        pulledRows: tally.pulled,
+        pushedRows: tally.pushed,
+        parked: _parks - parkedBefore,
+        failure: failure,
+        skipped: skipped,
+        pushedBytes: tally.pushedBytes,
+        pages: tally.pages,
+        pushAttempts: tally.pushAttempts,
+        resumeFallbacks: fallbacks,
+        duration: clock.elapsed,
+      );
+      // One line per run that passed the gate, for reading a session's cost
+      // off the log against the Spark budget; debug builds only.
+      if (reached && kDebugMode) {
+        debugPrint(
+          '[SyncEngine] run ${mode.name}: pulled ${done.pulledRows} rows in '
+          '${done.pages} pages, pushed '
+          '${done.pushedRows} rows / ${done.pushedBytes} B in '
+          '${done.pushAttempts} calls, fallbacks ${done.resumeFallbacks}, '
+          '${done.duration.inMilliseconds} ms'
+          '${failure == null ? '' : ', failed ${failure.name}'}'
+          '${skipped == null ? '' : ', stopped ${skipped.name}'}',
         );
+      }
+      return done;
+    }
+
     try {
       final (binding, skip) = await _gate();
       if (binding == null) {
         if (skip != SyncRunSkip.suspended) _detachSignal();
-        return SyncRunReport(skipped: skip);
+        return SyncRunReport(skipped: skip, resumeFallbacks: fallbacks);
       }
+      reached = true;
       if (_started && _foreground) _attachSignal(_spaceOf(binding));
+      if (_retryEveryPark && mode == _RunMode.full) {
+        _retryEveryPark = false;
+        _puller.retryAll();
+        _pusher.resetParks();
+      }
+      // Before anything may drain: a drain-only run is the first of a start
+      // as often as not, and it must hold back what the stored parks hold.
+      await _puller.restoreParks();
+      await _pusher.restoreParks();
       final initial =
           await _db.syncDao.getValue(SyncDao.keyBindMergePending) != null;
       if (initial && mode == _RunMode.drain) {
@@ -644,21 +850,44 @@ class SyncEngine {
         // R56).
         return report(skipped: SyncRunSkip.initialMergePending);
       }
-      final full = initial || mode == _RunMode.full;
+      // Never in a drain-only run, which would push the re-queued notes
+      // before the re-read could retire the ones the space holds newer.
+      final cutOver = mode != _RunMode.drain && await _cutOverWire(binding);
+      final full = initial || mode == _RunMode.full || cutOver;
+      final tables = full
+          ? _pulledTables
+          : mode == _RunMode.stale
+          ? await _staleTables(_spaceOf(binding))
+          : const <SyncTableBinding<Object>>[];
+      _drainAhead = true;
       final pulled = await _puller.pull(
         binding,
-        full
-            ? _tables
-            : mode == _RunMode.stale
-            ? await _staleTables(_spaceOf(binding))
-            : const [],
+        tables,
         initial: initial,
-        everyTable: full,
+        // A stale run with no snapshot pulls every table too, and counts as
+        // the full pull a resume measures its age from.
+        everyTable: full || tables.length == _pulledTables.length,
         tally: tally,
       );
+      // The cutover is done once a run that cut over read every table to
+      // its end, `notes` again from the start; until then the re-queued
+      // notes wait, since only that re-read retires the ones the space holds
+      // newer, and a drain would push them over it at their local stamps.
+      if (cutOver && pulled.complete) {
+        await _db.syncDao.setValue(SyncDao.keyWireVersion, '$_schema');
+      }
+      final held = {
+        ...pulled.failedTables,
+        if (!await _wireCurrent()) const NotesBinding().table,
+      };
       try {
         if (!initial || pulled.reached) {
-          await _pusher.drain(binding, tally, skipTables: pulled.failedTables);
+          // The drain takes every write queued so far; a write during it
+          // arms both timers again.
+          _drainAhead = false;
+          _drainSwallowed = false;
+          _cancelPushTimers();
+          await _pusher.drain(binding, tally, skipTables: held);
         }
       } finally {
         // A leave cut the pull: the drain the leave exists for went first,
@@ -693,6 +922,12 @@ class SyncEngine {
       await _failed(failure);
       return report(failure: failure.failure);
     } finally {
+      _drainAhead = false;
+      if (_drainSwallowed) {
+        _drainSwallowed = false;
+        // A scheduled retry runs a drain of its own.
+        if (_retry == null) _armDebounce();
+      }
       _activity = SyncActivity.idle;
       _emit();
     }
@@ -787,9 +1022,9 @@ class SyncEngine {
     SyncSpaceRef space,
   ) async {
     final signal = _signalOf(space);
-    if (signal == null) return _tables;
+    if (signal == null) return _pulledTables;
     final stale = <SyncTableBinding<Object>>[];
-    for (final table in _tables) {
+    for (final table in _pulledTables) {
       final touched = signal.touched[table.table];
       if (touched == null) continue;
       final seen = int.tryParse(
@@ -802,6 +1037,47 @@ class SyncEngine {
     return stale;
   }
 
+  /// Re-queues every live note and chunk once this database first runs under
+  /// a wire version above the one it last ran under (`wire_version`), so the
+  /// space's whole-body documents are replaced by manifests and their chunks
+  /// (scalability record S6, D2). Local only: a space at our version is what
+  /// the `appOutdated` gate holds every older build to, and the bump itself
+  /// travels with the next push's `schema`. Re-queueing mints no stamp, so
+  /// the other devices' merges see the same writes again.
+  ///
+  /// The `notes` cursor and its settled mark go too, so this run reads every
+  /// note document again: a build before this wire read the space's schema
+  /// only after its pull, kept its parks for the session alone and moved its
+  /// cursor past a manifest it could not read — without the re-read such a
+  /// note would never arrive, and the re-queue would push this device's
+  /// older version over it. Manifests are small, and the chunks they name
+  /// are mostly held here already. Returns whether it cut over, for the run
+  /// to pull every table.
+  ///
+  /// The version is stored by the run once its pull completed, so a run cut
+  /// short re-queues and re-reads again next time, which undoes nothing.
+  Future<bool> _cutOverWire(SyncBinding binding) async {
+    if (await _wireCurrent()) return false;
+    final dao = _db.syncDao;
+    await _db.transaction(() async {
+      final queued = await _db.syncOutboxDao.requeueBodies(
+        boundUid: binding.accountUid,
+      );
+      await dao.deleteValue(SyncDao.keyPullCursor('notes'));
+      await dao.deleteValue(SyncDao.keyPullSettled('notes'));
+      debugPrint('[SyncEngine] wire → $_schema: $queued rows re-queued');
+    });
+    return true;
+  }
+
+  /// Whether this database completed a run under this build's wire version.
+  Future<bool> _wireCurrent() async {
+    final ran = int.tryParse(
+      await _db.syncDao.getValue(SyncDao.keyWireVersion) ?? '',
+    );
+    return ran != null && ran >= _schema;
+  }
+
   SyncTableBinding<Object>? _bindingFor(String table) {
     for (final binding in _tables) {
       if (binding.table == table) return binding;
@@ -809,12 +1085,52 @@ class SyncEngine {
     return null;
   }
 
-  int get _parkedCount => _puller.parked.length + _pusher.parked.length;
+  /// Every park the engine holds, pull and push, this session's and the
+  /// stored ones.
+  List<SyncParkedRow> get _parkedRows => [..._puller.parks, ..._pusher.parks];
 
   /// Keys parked this session, counted as they are set aside and never
   /// lowered when one lets go — what a run reports as parked, apart from
-  /// [_parkedCount], which shrinks as rows land.
+  /// the status's held-back rows, which shrink as rows land.
   int _parks = 0;
+
+  /// The parks the last emit listed and the rows it listed for them, so an
+  /// emit with the same parks — most of them, one per page and batch — asks
+  /// the database nothing.
+  List<SyncParkedRow> _heldParks = const [];
+  List<SyncHeldItem> _heldItems = const [];
+
+  /// Whether the last read of the held-back rows failed, so a failure that
+  /// lasts is logged once.
+  bool _heldReadFailed = false;
+
+  /// The parks as stored, pull and push, for an emit before a run restored
+  /// them.
+  Future<List<SyncParkedRow>> _storedParks() async {
+    final syncDao = _db.syncDao;
+    return [
+      for (final park in _readParks(
+        await syncDao.valuesByPrefix(SyncDao.pullParkedPrefix),
+        SyncDao.pullParkedPrefix,
+      ))
+        SyncParkedRow(
+          park.key.$1,
+          park.key.$2,
+          park.stamp,
+          park.reason ?? SyncHeldReason.unreadable,
+        ),
+      for (final park in _readParks(
+        await syncDao.valuesByPrefix(SyncDao.pushParkedPrefix),
+        SyncDao.pushParkedPrefix,
+      ))
+        SyncParkedRow(
+          park.key.$1,
+          park.key.$2,
+          park.stamp,
+          park.reason ?? SyncHeldReason.unencodable,
+        ),
+    ];
+  }
 
   // ---------------------------------------------------------------------------
   // Outcomes
@@ -845,17 +1161,21 @@ class SyncEngine {
         _pause = SyncPause.quotaExhausted;
         _quotaHeld = true;
         _detachSignal();
+        final pausedAt = _now();
         try {
           await _db.syncDao.setValue(
             SyncDao.keyQuotaPausedAt,
-            '${DateTime.now().millisecondsSinceEpoch}',
+            '${pausedAt.millisecondsSinceEpoch}',
           );
         } catch (error) {
           // The pause holds for this session either way; only the next
           // launch's retry at once is lost.
           _warn('quota pause not stored: $error');
         }
-        _scheduleRetry(_timing.quotaRetry, liftsQuota: true);
+        _scheduleRetry(
+          quotaRetryDelay(pausedAt, _timing.quotaRetry),
+          liftsQuota: true,
+        );
       case SyncGatewayFailure.permissionDenied:
         // A pull's denial; a push's is diagnosed before it gets here.
         _loseAccess(SyncPause.noAccess);
@@ -864,6 +1184,17 @@ class SyncEngine {
       case SyncGatewayFailure.unknown:
         _scheduleBackoff();
     }
+  }
+
+  /// How long a quota pause that began at [now] holds: until
+  /// [quotaResetMargin] past the quota's next reset ([SyncQuota.nextReset]),
+  /// never longer than [hourly] — the hourly retry stays, only its time
+  /// moves when the reset comes sooner.
+  static Duration quotaRetryDelay(DateTime now, Duration hourly) {
+    final reset = SyncQuota.nextReset(
+      now,
+    ).add(quotaResetMargin).difference(now);
+    return reset < hourly ? reset : hourly;
   }
 
   void _recordFailure(SyncGatewayException error, {bool signal = false}) {
@@ -885,6 +1216,9 @@ class SyncEngine {
     _recheckAccess = false;
     _retry?.cancel();
     _retry = null;
+    // A resume waiting for its first snapshot: the snapshot said this.
+    _resumeFallback?.cancel();
+    _resumeFallback = null;
     _detachSignal();
     _emit();
   }
@@ -909,13 +1243,17 @@ class SyncEngine {
   // Triggers
 
   /// Follows the signal when runnable and drops it otherwise, then reports;
-  /// [run] also starts a full run when runnable.
-  Future<void> _reevaluate({required bool run}) async {
+  /// [run] also starts a full run when runnable. With [resume] the run waits
+  /// for the signal's snapshot instead and pulls what it names, unless the
+  /// last full pull is [fullPullInterval] old ([onAppResumed]).
+  Future<void> _reevaluate({required bool run, bool resume = false}) async {
     if (_stopped) return;
     final SyncBinding? binding;
     final SyncRunSkip? skip;
+    var full = true;
     try {
       (binding, skip) = await _gate();
+      if (binding != null && run && resume) full = await _fullPullDue();
     } catch (error) {
       // A closed database: nothing to follow, and a run would fail the same
       // way — it reports the failure when one is asked for.
@@ -924,14 +1262,48 @@ class SyncEngine {
     }
     if (_stopped) return;
     if (binding != null) {
-      if (_started && _foreground) _attachSignal(_spaceOf(binding));
-      if (run) unawaited(_request(_RunMode.full));
+      final space = _spaceOf(binding);
+      final live = _signalOf(space) != null;
+      if (_started && _foreground) _attachSignal(space);
+      if (run && full) {
+        unawaited(_request(_RunMode.full));
+      } else if (run && live) {
+        // The listener outlived the leave: its snapshot is current.
+        unawaited(_request(_RunMode.stale));
+      } else if (run && _signalSubscription != null) {
+        _awaitSnapshot();
+      } else if (run) {
+        unawaited(_request(_RunMode.full));
+      }
     } else if (skip != SyncRunSkip.suspended) {
       // A suspension keeps the signal: nothing announces its end, and the
       // restore it covers unbinds the database anyway.
       _detachSignal();
     }
     _emit();
+  }
+
+  /// Whether a resume must pull every table: the last pull of every table is
+  /// [fullPullInterval] old, or there never was one.
+  Future<bool> _fullPullDue() async {
+    final at = int.tryParse(
+      await _db.syncDao.getValue(SyncDao.keyFullPullAt) ?? '',
+    );
+    if (at == null) return true;
+    final age = _now().difference(DateTime.fromMillisecondsSinceEpoch(at));
+    return age >= fullPullInterval || age.isNegative;
+  }
+
+  /// Leaves the resume's run to the signal's first snapshot ([_onSignal]),
+  /// with a full run after [resumeSnapshotWait] should none come.
+  void _awaitSnapshot() {
+    _resumeFallback?.cancel();
+    _resumeFallback = _scheduler.schedule(resumeSnapshotWait, () {
+      _resumeFallback = null;
+      if (_stopped) return;
+      _resumeFallbacks++;
+      unawaited(_request(_RunMode.full));
+    });
   }
 
   void _onAuthChanged(AppUser? user) {
@@ -948,13 +1320,29 @@ class SyncEngine {
       _debounce = null;
       _track(_drainIfQueued());
     });
+    _maxWait ??= _scheduler.schedule(_timing.pushMaxWait, () {
+      _maxWait = null;
+      _track(_drainIfQueued());
+    });
+  }
+
+  void _cancelPushTimers() {
+    _debounce?.cancel();
+    _debounce = null;
+    _maxWait?.cancel();
+    _maxWait = null;
   }
 
   /// The debounced push, skipped when the run that followed the trigger has
-  /// already emptied the outbox — a merge's re-queue arms the trigger too.
+  /// already emptied the outbox — a merge's re-queue arms the trigger too —
+  /// or when the run in flight drains next ([_drainAhead]).
   /// A closed database ends it quietly: it runs from a timer, where a throw
   /// would surface as an uncaught error through [whenIdle] (S3d review L5).
   Future<void> _drainIfQueued() async {
+    if (_drainAhead) {
+      _drainSwallowed = true;
+      return;
+    }
     try {
       if (_stopped || await _db.syncOutboxDao.count() == 0) return;
     } catch (error) {
@@ -1011,6 +1399,9 @@ class SyncEngine {
     if (signal.schema > _schema) return _loseAccess(SyncPause.appOutdated);
     _signal = signal;
     _signalBackoffStep = 0;
+    _resumeFallback?.cancel();
+    _resumeFallback = null;
+    _noteServerTime(signal);
     // The listener is healthy again; a run's failure waits for a run.
     if (_failureFromSignal) {
       _lastFailure = null;
@@ -1018,6 +1409,34 @@ class SyncEngine {
       _emit();
     }
     unawaited(_request(_RunMode.stale));
+  }
+
+  /// Stores the latest server time [signal] shows as `server_seen` when it
+  /// raises the mark: the settled overlap needs it after the listener is
+  /// gone ([_Puller._settles]). A failed store only costs a re-read.
+  void _noteServerTime(SyncSpaceSignal signal) {
+    final latest = _latestTouched(signal);
+    final seen = _serverSeen;
+    if (latest == null || (seen != null && latest <= seen)) return;
+    _serverSeen = latest;
+    _track(() async {
+      try {
+        await _db.syncDao.setValue(SyncDao.keyServerSeen, '$latest');
+      } catch (error) {
+        debugPrint('[SyncEngine] server time not stored: $error');
+      }
+    }());
+  }
+
+  /// The highest `touched` of [signal], in microseconds; null when it names
+  /// no table.
+  static int? _latestTouched(SyncSpaceSignal? signal) {
+    int? latest;
+    for (final at in signal?.touched.values ?? const <DateTime>[]) {
+      final micros = at.microsecondsSinceEpoch;
+      if (latest == null || micros > latest) latest = micros;
+    }
+    return latest;
   }
 
   void _onSignalError(Object error) {
@@ -1086,7 +1505,9 @@ class SyncEngine {
     final activity = _activity;
     final pause = _pause;
     final failure = _lastFailure;
-    final parked = _parkedCount;
+    // Until a run past the gate restored them, the parks are only stored: a
+    // start that is signed out or paused still lists what they hold back.
+    final parked = _puller._restored && _pusher._restored ? _parkedRows : null;
     final downloaded = _downloadedRows;
     _emits = _emits.then((_) async {
       if (_statusController.isClosed) return;
@@ -1097,12 +1518,30 @@ class SyncEngine {
         debugPrint('[SyncEngine] status not read: $error');
         return;
       }
+      // Apart from the status: a list that cannot be read keeps the last
+      // one, and must not cost the emit its activity or its pause.
+      var held = _heldItems;
+      try {
+        final parks = parked ?? await _storedParks();
+        if (!listEquals(parks, _heldParks)) {
+          held = await _statusService.heldBack(parks);
+          _heldParks = parks;
+          _heldItems = held;
+        }
+        _heldReadFailed = false;
+      } catch (error) {
+        if (!_heldReadFailed) {
+          debugPrint('[SyncEngine] held-back rows not read: $error');
+        }
+        _heldReadFailed = true;
+      }
       final next = stored.copyWith(
         activity: activity,
         pause: pauseOver(read: stored.pause, engine: pause),
         lastFailure: failure,
         clearLastFailure: failure == null,
-        parkedCount: parked,
+        parkedCount: held.length,
+        heldBack: held,
         downloadedRows: downloaded,
       );
       if (next == _current || _statusController.isClosed) return;
@@ -1137,6 +1576,9 @@ void _warn(String message) => debugPrint('[SyncEngine] warning: $message');
 class _RunTally {
   int pulled = 0;
   int pushed = 0;
+  int pushedBytes = 0;
+  int pages = 0;
+  int pushAttempts = 0;
 
   /// Gateway calls that succeeded: a run that made none proved nothing about
   /// the space, so it clears no failure and no quota pause.
@@ -1149,16 +1591,26 @@ class _DrainState {
   /// Whether this drain already read the space to judge a denial: once is
   /// enough to tell the space's denial from a row's.
   bool diagnosed = false;
+
+  /// The chunk encoded for a part it did not fit, kept for the next part:
+  /// its text cannot change under its hash, and encoding it again would
+  /// gzip and hash it once more per part a large note spans.
+  _Queued? chunkAhead;
 }
 
 class _Queued {
   final SyncOutboxRow entry;
   final SyncEnvelope envelope;
 
-  /// The row data's size as JSON, which the batch's byte cap adds up.
+  /// The row data's size on the wire ([SyncEnvelope.wireBytes]), which the
+  /// batch's byte cap adds up.
   final int bytes;
 
-  const _Queued(this.entry, this.envelope, this.bytes);
+  /// The stamp the entry is retired through once the push lands
+  /// (`_Pusher._ackOf`).
+  final String ack;
+
+  const _Queued(this.entry, this.envelope, this.bytes, this.ack);
 }
 
 class _Halted implements Exception {

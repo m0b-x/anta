@@ -15,8 +15,8 @@ class NoteMetadata extends Equatable {
   final DateTime createdAt;
   final DateTime updatedAt;
 
-  /// Manual sort position within the parent folder. Used to interleave
-  /// notes with sibling folders when [NotesSortOrder.positionAsc] is active.
+  /// Manual sort position within the parent folder, in the notes' own
+  /// sequence: the custom sort the browser reads it in.
   final int position;
 
   /// The optional colour label drawn at the trailing edge of the note's

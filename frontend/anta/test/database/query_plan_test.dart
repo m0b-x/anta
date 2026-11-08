@@ -1,5 +1,9 @@
+import 'package:drift/drift.dart' show Variable;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:anta/constants/event_presence.dart';
+import 'package:anta/database/chunking/body_cut.dart';
+import 'package:anta/database/chunking/content_chunker.dart';
+import 'package:anta/database/crdt/crdt_write.dart';
 import 'package:anta/database/daos/folder_dao.dart';
 import 'package:anta/database/daos/note_dao.dart';
 import 'package:anta/database/database.dart';
@@ -7,6 +11,7 @@ import 'package:anta/database/migrations/database_migrations.dart';
 import 'package:anta/database/migrations/database_schema.dart';
 import 'package:anta/models/item_label.dart';
 
+import '../support/scale_fixtures.dart';
 import 'support/db_test_support.dart';
 
 /// Asserts *how* SQLite answers the app's hot queries, which is the half of
@@ -327,7 +332,7 @@ void main() {
       final plan = await planOf(
         () => db.contentChunkDao.getChunksForNote('n1'),
       );
-      expect(plan, usesIndex('idx_chunks_note_index'));
+      expect(plan, usesIndex('idx_content_chunks_note'));
       // Ordering comes from the index, so opening a long note never sorts.
       expect(plan, isNot(sortsInMemory));
     });
@@ -336,23 +341,96 @@ void main() {
       final plan = await planOf(
         () => db.contentChunkDao.loadContentForNotes(['n1', 'n2', 'n3']),
       );
-      expect(plan, usesIndex('idx_chunks_note_index'));
+      expect(plan, usesIndex('idx_content_chunks_note'));
       // `note_id` leads the ORDER BY precisely so the index supplies both the
       // grouping and the per-note chunk order. Drop it and SQLite has to sort
       // the whole result set in a temp B-tree.
       expect(plan, isNot(sortsInMemory));
     });
 
-    test('the batched read restates the partial index predicate', () async {
+    test('the batched read keeps the literal tombstone filter', () async {
       final sql = await sqlOf(
         () => db.contentChunkDao.loadContentForNotes(['n1', 'n2']),
       );
-      // The portable half of the guard. `idx_chunks_note_index` is partial, and
-      // whether SQLite proves a bound `is_deleted = ?` implies its
-      // `WHERE is_deleted = 0` depends on the SQLite version — the one on this
-      // host does, the one shipping to Android does not. Asserting the plan
-      // alone would therefore stay green while every phone fell back to a scan.
+      // The chunk index has been full since v47, so the plan no longer hangs
+      // on this spelling; a bound `is_deleted = ?` was version-dependent
+      // against the partial index it replaced, and the literal stays the one
+      // spelling the chunk reads share.
       expect(sql, contains('is_deleted = 0'));
+    });
+
+    test('the chunk index is full, so a bound tombstone filter still '
+        'seeks', () async {
+      // `getChunksForNote` binds `is_deleted = ?` through Drift: under the
+      // partial index before v47 only some SQLite versions proved that
+      // implied the index's `WHERE`.
+      final sql = await sqlOf(() => db.contentChunkDao.getChunksForNote('n1'));
+      expect(sql, contains('"is_deleted" = ?'));
+      final plan = await planOf(
+        () => db.contentChunkDao.getChunksForNote('n1'),
+      );
+      expect(
+        plan,
+        contains(
+          contains(
+            'SEARCH content_chunks USING INDEX '
+            'idx_content_chunks_note (note_id=?)',
+          ),
+        ),
+      );
+    });
+
+    test('a tombstoned note\'s chunks are deleted through the index', () async {
+      final plan = await planOf(
+        () => db.contentChunkDao.deleteChunksForNotes(['n1', 'n2']),
+      );
+      expect(plan, usesIndex('idx_content_chunks_note'));
+      expect(plan, isNot(contains(contains('SCAN content_chunks'))));
+    });
+
+    test('a body write reads the stored hashes through the same index, in '
+        'order', () async {
+      final plan = await planOf(
+        () => db.contentChunkDao.planWrite('n1', BodyCut.inline('body')),
+      );
+      expect(plan, usesIndex('idx_content_chunks_note'));
+      expect(plan, isNot(sortsInMemory));
+    });
+
+    test('the kept suffix is shifted through the same index', () async {
+      final text = bigBody(60000);
+      await db.contentChunkDao.writeChunks(
+        noteId: 'n1',
+        content: text,
+        hlc: db.newStamp().hlc,
+      );
+      // Cuts depend only on the text before them, so dropping the first chunk
+      // leaves every later one in place, each one index lower.
+      final rest = text.substring(ContentChunker.cut(text).first);
+      final write = await db.contentChunkDao.planWrite(
+        'n1',
+        BodyCut.inline(rest),
+      );
+      expect(write.plan.shift, -1);
+
+      counter.reset();
+      await db.contentChunkDao.applyWrite(
+        write,
+        hlc: db.newStamp().hlc,
+        deviceId: db.deviceId,
+        version: 1,
+      );
+      final shift = counter.captured.singleWhere(
+        (c) => c.sql.contains('UPDATE "content_chunks"'),
+      );
+      // A batch records its SQL without the arguments; the shift binds the
+      // note id and the first kept index.
+      final plan = await queryPlan(db, shift.sql, [
+        Variable<String>('n1'),
+        Variable<int>(write.plan.shiftFrom),
+      ]);
+      expect(plan, usesIndex('idx_content_chunks_note'));
+      expect(await db.contentChunkDao.loadContent('n1'), rest);
     });
   });
 
@@ -647,6 +725,69 @@ void main() {
       expect(sql, isNot(contains('?')));
     });
 
+    // S15: the four probes a launch with nothing to arm runs instead of
+    // loading the event store. Each answers one row and stops at the first
+    // match; none may read `calendar_events` or sort.
+    group('the nothing-can-arm probes', () {
+      test(
+        'the registry probe walks an index and finds the marker by key',
+        () async {
+          final plan = await planOf(
+            () => db.alertRegistrationDao.mayHoldEntries(),
+          );
+
+          expect(
+            plan,
+            usesCoveringIndex('idx_alert_registrations_event'),
+            reason: 'any row answers, so the smallest index will do',
+          );
+          expect(
+            plan,
+            contains(contains('SEARCH sync_metadata USING COVERING INDEX')),
+          );
+        },
+      );
+
+      test('the own-alert probe restates the partial index', () async {
+        final plan = await planOf(() => db.eventAlertDao.hasEnabled());
+        final sql = await sqlOf(() => db.eventAlertDao.hasEnabled());
+
+        expect(plan, usesIndex('idx_calendar_event_alerts_active'));
+        expect(sql, contains('is_deleted = 0'));
+      });
+
+      test(
+        'the category and digest probes read only their own table',
+        () async {
+          for (final (probe, table) in [
+            (db.categoryAlertDao.hasEnabled, 'calendar_category_alerts'),
+            (db.eventDigestDao.hasEnabled, 'event_digests'),
+          ]) {
+            final plan = await planOf(probe);
+            final tables = [
+              for (final line in plan)
+                if (line.startsWith('SCAN ') || line.startsWith('SEARCH '))
+                  line.split(' ')[1],
+            ];
+
+            expect(tables, everyElement(isIn(['CONSTANT', table])));
+            expect(plan, isNot(sortsInMemory));
+          }
+        },
+      );
+
+      test('no probe touches the event store', () async {
+        for (final probe in <Future<bool> Function()>[
+          db.alertRegistrationDao.mayHoldEntries,
+          db.eventAlertDao.hasEnabled,
+          db.categoryAlertDao.hasEnabled,
+          db.eventDigestDao.hasEnabled,
+        ]) {
+          expect(await sqlOf(probe), isNot(contains('calendar_events')));
+        }
+      });
+    });
+
     test('the per-event registration cascade uses its own index', () async {
       final plan = await planOf(
         () => db.alertRegistrationDao.deleteForEvent('e1'),
@@ -677,6 +818,78 @@ void main() {
       );
 
       expect(await indexNames(db), containsAll(names));
+    });
+  });
+
+  // v47 dropped `idx_folders_parent` and `idx_notes_folder`, strict prefixes
+  // of the position indexes under the same predicate: the reads that used
+  // them seek the position indexes on the same column instead.
+  group('the reads the v47-dropped prefix indexes served', () {
+    test('the descendant walk seeks the folder position index', () async {
+      final plan = await planOf(() => db.folderDao.getAllDescendantIds('root'));
+      expect(
+        plan,
+        contains(
+          contains(
+            'SEARCH folders USING INDEX idx_folders_position '
+            '(parent_id=?)',
+          ),
+        ),
+      );
+      expect(
+        plan,
+        contains(
+          contains('SEARCH f USING INDEX idx_folders_position (parent_id=?)'),
+        ),
+      );
+    });
+
+    test('the folder cascade finds its notes through the note position '
+        'index', () async {
+      final folder = await db.folderDao.createFolder(name: 'Log');
+      final plan = await planOf(
+        () => db.folderDao.softDeleteFolderWithDescendants(folder.id),
+        containing: 'UPDATE notes',
+      );
+      expect(
+        plan,
+        contains(
+          contains(
+            'SEARCH notes USING COVERING INDEX idx_notes_position '
+            '(folder_id=?)',
+          ),
+        ),
+      );
+    });
+  });
+
+  group('sync outbox', () {
+    test('the queue\'s head is read in index order, never sorted', () async {
+      final plan = await planOf(() => db.syncOutboxDao.pending(limit: 50));
+      expect(plan, usesIndex('idx_sync_outbox_order'));
+      expect(plan, isNot(sortsInMemory));
+    });
+
+    test('a resumed page is a range seek on the push-order index', () async {
+      // The post-bind drain pages through every row of every synced table;
+      // a page that scanned from the head, or sorted, would cost the whole
+      // queue each time.
+      final plan = await planOf(
+        () => db.syncOutboxDao.pending(
+          limit: 50,
+          after: (hlc: 'h', table: 'notes', rowKey: 'k'),
+        ),
+      );
+      expect(
+        plan,
+        contains(
+          contains(
+            'SEARCH sync_outbox USING INDEX idx_sync_outbox_order '
+            '((hlc,table_name,row_key)>(?,?,?))',
+          ),
+        ),
+      );
+      expect(plan, isNot(sortsInMemory));
     });
   });
 }

@@ -194,6 +194,15 @@ abstract final class FormMetrics {
   /// you were reaching for.
   static const Duration settingsFoldDuration = Duration(milliseconds: 180);
 
+  /// The held-back rows the Sync page lists before one "And n more" row: a
+  /// screenful or two, enough to recognise what is stuck, never a list a
+  /// rules change could grow into the hundreds.
+  static const int syncHeldBackShown = 20;
+
+  /// A held-back row's name lines: a long note title stays recognisable and
+  /// the reason under it never goes below the fold of one row.
+  static const int syncHeldBackTitleLines = 2;
+
   /// Around a settings page's search field above its list: the group's
   /// sides, air under the bar, and a short step down to the first header,
   /// whose own height is the rest of the gap.
@@ -381,6 +390,9 @@ abstract final class FormMetrics {
   /// full scale and scrolls.
   static const double dialogTitleMaxTextScale = 1.2;
   static const double dialogActionMaxTextScale = 1.6;
+
+  /// Between a progress dialog's line and its bar (the database import).
+  static const double dialogProgressGap = 16;
   static const EdgeInsets menuPadding = EdgeInsets.symmetric(vertical: 6);
 
   /// Material's popup menu duration, so a menu on a route of the language's

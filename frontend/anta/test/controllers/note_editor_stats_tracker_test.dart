@@ -20,9 +20,13 @@ class _Harness {
         snapshots++;
         return (lineCount: lineCount, charCount: charCount);
       },
+      isShown: () => shown,
     );
     tracker.stats.addListener(() => published.add(tracker.stats.value));
   }
+
+  /// Whether the stats bar is on screen.
+  bool shown = true;
 
   /// What the editor would answer if it were asked right now.
   int lineCount = 1;
@@ -300,6 +304,47 @@ void main() {
         h.tracker.onTextChanged(1201);
         expect(h.snapshots, counted, reason: 'a one-unit edit is no paste');
 
+        h.tracker.dispose();
+      });
+    });
+  });
+
+  group('a hidden bar', () {
+    test('counts nothing while hidden, once when it returns', () {
+      fakeAsync((async) {
+        final h = _Harness()..shown = false;
+        h.edit(length: 10);
+        h.edit(length: 5000);
+        async.elapse(const Duration(seconds: 1));
+        expect(h.snapshots, 0);
+
+        h.shown = true;
+        h.tracker.resume();
+        expect(h.snapshots, 1);
+        expect(h.published.last.charCount, 5000);
+
+        h.tracker.resume();
+        expect(h.snapshots, 1, reason: 'nothing changed since the count');
+        h.tracker.dispose();
+      });
+    });
+
+    test('a load while hidden takes the baseline without counting', () {
+      fakeAsync((async) {
+        final h = _Harness()..shown = false;
+        h.tracker.markStale(textLength: 3000);
+        expect(h.snapshots, 0);
+
+        h.shown = true;
+        h.charCount = 3000;
+        h.tracker.resume();
+        expect(h.published.last.charCount, 3000);
+        h.edit(length: 3001);
+        expect(
+          h.snapshots,
+          1,
+          reason: 'one unit past the baseline is no paste',
+        );
         h.tracker.dispose();
       });
     });

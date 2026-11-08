@@ -17,6 +17,11 @@ class ContentChunks extends Table {
   /// for parity with `notes` only: a chunk is local storage of a note's body.
   TextColumn get ownerId => text().nullable()();
 
+  /// The SHA-256 of the chunk's text as `ChunkHasher` defines it (**v46**):
+  /// what a save diffs by, so no stored chunk is decompressed to compare.
+  /// NULL on a legacy fixed slice, which its note's next body save re-cuts.
+  TextColumn get contentHash => text().nullable()();
+
   @override
   Set<Column> get primaryKey => {id};
 }

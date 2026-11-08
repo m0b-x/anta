@@ -1,7 +1,16 @@
 import 'package:drift/drift.dart';
 
 abstract class DatabaseSchema {
-  static const int currentVersion = 45;
+  static const int currentVersion = 50;
+
+  /// The version the sync space carries and every engine compares against:
+  /// a space written by a higher one pauses this build as outdated. Bumped
+  /// only when the wire changes (the documents the sync bindings write),
+  /// never for a local-only migration, so a device on a newer local schema
+  /// does not pause every other device; it never exceeds [currentVersion]
+  /// (`docs/scalability-roadmap.md` §5.1 S1). 46: a note's body crosses as
+  /// chunk documents and a manifest (§5.3 S6).
+  static const int syncSchemaVersion = 46;
 
   static const int v1Initial = 1;
   static const int v2UserSettings = 2;
@@ -48,6 +57,11 @@ abstract class DatabaseSchema {
   static const int v43SyncReadiness = 43;
   static const int v44CategoryProfiles = 44;
   static const int v45OneOffSkipSweep = 45;
+  static const int v46ContentChunkHashes = 46;
+  static const int v47StorageHygiene = 47;
+  static const int v48NoteBodySearch = 48;
+  static const int v49Counters = 49;
+  static const int v50QuickSearchIndex = 50;
 }
 
 typedef MigrationStep = Future<void> Function(Migrator m, GeneratedDatabase db);

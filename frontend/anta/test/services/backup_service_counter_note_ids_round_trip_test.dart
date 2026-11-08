@@ -17,6 +17,8 @@ import 'package:anta/models/counter.dart';
 import 'package:anta/services/backup_service.dart';
 import 'package:anta/services/counter_service.dart';
 
+import 'support/backup_archive.dart';
+
 /// A restore gives every note a fresh id, so the per-note counter values,
 /// their pins, positions and owners have to follow the note to its new id —
 /// once a database syncs, a value under a note id that exists nowhere is
@@ -228,7 +230,7 @@ void main() {
       await db.counterDao.upsertValue('laps', deleted.id, 5);
 
       final backup = await BackupService.getInstance();
-      final exported = jsonEncode(await backup.exportAllData());
+      final exported = jsonEncode(await exportBackupArchive());
       await db.customStatement('DELETE FROM notes');
       await db.customStatement('DELETE FROM folders');
       final result = await backup.importFromJson(exported);

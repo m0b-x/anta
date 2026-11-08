@@ -98,10 +98,7 @@ void main() {
       repository: FolderRepository(database: db),
     );
     await folderService.initialize();
-    noteBloc = _TestNoteBloc(
-      storageService: storageService,
-      searchService: searchService,
-    );
+    noteBloc = _TestNoteBloc(storageService: storageService);
     barBloc = MarkdownBarBloc(
       barService: await MarkdownBarService.getInstance(),
     );
@@ -186,7 +183,7 @@ void main() {
 /// A real [OptimizedNoteBloc] whose content load is inert, so the test owns
 /// when the note's text lands.
 class _TestNoteBloc extends OptimizedNoteBloc {
-  _TestNoteBloc({required super.storageService, required super.searchService});
+  _TestNoteBloc({required super.storageService});
 
   @override
   void add(OptimizedNoteEvent event) {

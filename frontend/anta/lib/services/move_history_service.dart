@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:uuid/uuid.dart';
 
+import '../constants/app_constants.dart';
 import 'move_history_store.dart';
 
 enum MoveItemType { folder, note }
@@ -54,13 +55,56 @@ class MoveHistoryEntry {
   }
 }
 
+/// One item of a batch handed to [MoveHistoryService.addMoves]: what moved
+/// and where from; the destination and the batch are shared.
+typedef MoveHistoryItem = ({
+  MoveItemType itemType,
+  String itemId,
+  String itemName,
+  String? sourceParentId,
+  String? sourceParentName,
+});
+
+/// The entries of [newestFirst] that the history keeps: the newest
+/// [maxUnits] undo units — a batch is one unit (its [MoveHistoryEntry.batchId]),
+/// any other entry is a unit of its own — whole, dropping older units whole
+/// while the total would pass [maxEntries].
+///
+/// Cutting by entries used to keep a 25-item batch's last 20 rows, so its
+/// Undo restored 20 and said it had restored the move. The newest unit is
+/// kept whole even past [maxEntries]: its Undo is the one on screen.
+List<MoveHistoryEntry> retainUndoUnits(
+  List<MoveHistoryEntry> newestFirst, {
+  required int maxUnits,
+  required int maxEntries,
+}) {
+  final sizes = <String, int>{};
+  for (final entry in newestFirst) {
+    final unit = entry.batchId ?? entry.id;
+    sizes[unit] = (sizes[unit] ?? 0) + 1;
+  }
+  final kept = <String>{};
+  var total = 0;
+  for (final MapEntry(key: unit, value: size) in sizes.entries) {
+    if (kept.length == maxUnits) break;
+    if (kept.isNotEmpty && total + size > maxEntries) break;
+    kept.add(unit);
+    total += size;
+  }
+  return [
+    for (final entry in newestFirst)
+      if (kept.contains(entry.batchId ?? entry.id)) entry,
+  ];
+}
+
 /// Tracks recent move operations and exposes them to the UI for undo.
 ///
 /// The service itself is in-memory but writes through a [MoveHistoryStore],
 /// so persistence can be added later by swapping in a different store
 /// implementation without touching any callers.
 class MoveHistoryService {
-  static const _maxHistorySize = 20;
+  static const _maxUnits = AppConstants.moveHistoryMaxUnits;
+  static const _maxEntries = AppConstants.moveHistoryMaxEntries;
   static const _uuid = Uuid();
 
   final MoveHistoryStore _store;
@@ -86,7 +130,8 @@ class MoveHistoryService {
   /// Snapshot of every entry, newest first.
   List<MoveHistoryEntry> get history => List.unmodifiable(_history);
 
-  /// Number of entries that have NOT been undone yet.
+  /// Number of entries that have NOT been undone yet — items, not units, so
+  /// one 25-item batch counts 25.
   int get undoableCount => _history.where((e) => !e.isUndone).length;
 
   /// Stream that fires every time the history mutates. Emits the new
@@ -126,16 +171,61 @@ class MoveHistoryService {
     _history.insert(0, entry);
     _trimHistory();
     unawaited(_store.add(entry));
-    unawaited(_store.trim(_maxHistorySize));
+    unawaited(_store.trim(maxUnits: _maxUnits, maxEntries: _maxEntries));
     _changesController.add(undoableCount);
     return entry.id;
   }
 
-  void markUndone(String id) {
-    final idx = _history.indexWhere((e) => e.id == id);
-    if (idx < 0) return;
-    _history[idx] = _history[idx].copyWith(isUndone: true);
-    unawaited(_store.markUndone(id));
+  /// Records a whole batch as one undo unit sharing [batchId], trimmed and
+  /// announced once rather than once per item. Entries land in the order
+  /// [addMove] called once per item would leave them.
+  void addMoves(
+    List<MoveHistoryItem> items, {
+    required String? targetParentId,
+    required String? targetParentName,
+    required String batchId,
+  }) {
+    if (items.isEmpty) return;
+    final now = DateTime.now();
+    // Built once, newest first, and put in front in one step: inserting each
+    // at index 0 made a large batch quadratic.
+    final entries = [
+      for (final item in items.reversed)
+        MoveHistoryEntry(
+          id: _uuid.v4(),
+          itemType: item.itemType,
+          itemId: item.itemId,
+          itemName: item.itemName,
+          sourceParentId: item.sourceParentId,
+          sourceParentName: item.sourceParentName,
+          targetParentId: targetParentId,
+          targetParentName: targetParentName,
+          timestamp: now,
+          batchId: batchId,
+        ),
+    ];
+    _history.insertAll(0, entries);
+    unawaited(_store.addAll(entries));
+    _trimHistory();
+    unawaited(_store.trim(maxUnits: _maxUnits, maxEntries: _maxEntries));
+    _changesController.add(undoableCount);
+  }
+
+  /// Marks the one entry [id] undone, as its own snackbar's Undo restored it.
+  void markUndone(String id) => markAllUndone([id]);
+
+  /// Marks every entry in [ids] undone and announces it once — one pass over
+  /// the history against a set, however many entries a unit holds.
+  void markAllUndone(Iterable<String> ids) {
+    final wanted = ids.toSet();
+    var changed = false;
+    for (var i = 0; i < _history.length; i++) {
+      if (!wanted.contains(_history[i].id)) continue;
+      _history[i] = _history[i].copyWith(isUndone: true);
+      changed = true;
+    }
+    if (!changed) return;
+    unawaited(_store.markAllUndone(wanted));
     _changesController.add(undoableCount);
   }
 
@@ -145,19 +235,16 @@ class MoveHistoryService {
     _changesController.add(0);
   }
 
-  /// All entry ids belonging to [batchId], in the same order they were added.
-  /// Returns an empty list if no such batch exists.
-  List<String> entryIdsInBatch(String batchId) {
-    return _history
-        .where((e) => e.batchId == batchId)
-        .map((e) => e.id)
-        .toList(growable: false);
-  }
-
   void _trimHistory() {
-    if (_history.length > _maxHistorySize) {
-      _history.removeRange(_maxHistorySize, _history.length);
-    }
+    final kept = retainUndoUnits(
+      _history,
+      maxUnits: _maxUnits,
+      maxEntries: _maxEntries,
+    );
+    if (kept.length == _history.length) return;
+    _history
+      ..clear()
+      ..addAll(kept);
   }
 
   void dispose() {

@@ -15,9 +15,10 @@ import 'package:anta/services/calendar_event_service.dart';
 /// `eventsForDay` used to clear all 512 entries from inside the lookup once
 /// the cache filled up — mid-build, between `eventLoader`'s and
 /// `_buildDayCell`'s two lookups of the same cell — which could wipe the very
-/// day a frame was in the middle of painting. Eviction now runs only from
-/// `_onChangeFocusedDay`, dropping entries outside a window around the newly
-/// focused month rather than clearing wholesale on every overflow.
+/// day a frame was in the middle of painting. A focus change drops the
+/// entries outside a window around the newly focused month, and a lookup past
+/// the cap drops only the oldest day outside the window (S13) — never a
+/// wholesale clear.
 ///
 /// Uses `CalendarEvent.debugOccursOnCalls` the way
 /// `calendar_occurs_on_budget_test.dart` does: a cache hit costs 0 calls, a
@@ -88,7 +89,8 @@ void main() {
       bloc.eventsForDay(windowDay);
 
       // Flood with enough distinct days, via plain lookups and no
-      // `ChangeFocusedDay` in between, to cross `_maxDayCacheEntries` (512) —
+      // `ChangeFocusedDay` in between, to cross
+      // `CalendarCacheLimits.maxDayCacheEntries` (512) —
       // exactly what the date pickers and the day/timeline panels can do.
       for (var i = 1; i <= 520; i++) {
         bloc.eventsForDay(windowDay.add(Duration(days: i)));
@@ -102,8 +104,8 @@ void main() {
         0,
         reason:
             'eventsForDay must never clear the cache from inside the '
-            'lookup — only a focus change may evict, and only entries '
-            'outside its window',
+            'lookup — past the cap it evicts only the oldest day outside '
+            'the window, and a focus change only entries outside its window',
       );
     },
   );

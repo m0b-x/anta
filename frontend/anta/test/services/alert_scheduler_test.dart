@@ -14,6 +14,7 @@ import 'package:anta/constants/calendar_categories.dart';
 import 'package:anta/constants/category_kinds.dart';
 import 'package:anta/constants/event_presence.dart';
 import 'package:anta/constants/public_holidays.dart';
+import 'package:anta/database/daos/sync_dao.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/l10n/app_localizations_en.dart';
@@ -308,6 +309,13 @@ class FakeAlertGateway implements AlertGateway {
 
   @override
   Future<void> dispose() async {}
+}
+
+/// A platform whose every cancel throws, as a plugin call that fails would:
+/// the pass stops inside its stray sweep.
+class _CancelThrowingGateway extends FakeAlertGateway {
+  @override
+  Future<void> cancel(int osId) async => throw StateError('no cancel');
 }
 
 void main() {
@@ -4342,5 +4350,370 @@ void main() {
         expect(await scheduler.recentEntries(), isEmpty);
       },
     );
+  });
+
+  // S15: a launch or resume with nothing to arm and nothing armed costs a
+  // few one-row reads, never the event store. Each case names what alone
+  // makes the pass run whole; `armContextReads` is the pass reaching the
+  // platform, which only a whole pass does.
+  group('nothing can arm (S15)', () {
+    Future<void> eventsWithoutAlerts() async {
+      await events.upsert(eventOf(id: 'e1'));
+      await events.upsert(eventOf(id: 'e2', title: 'Arm day'));
+    }
+
+    test('a launch reads no event and constructs no event service', () async {
+      await eventsWithoutAlerts();
+      CalendarEventService.reset();
+      counter.reset();
+
+      await schedulerOf().reconcileAll(AlertReconcileReason.launch);
+
+      expect(CalendarEventService.isLive, isFalse);
+      expect(counter.matching('calendar_events'), isEmpty);
+      expect(counter.count, 4);
+      expect(counter.statements, everyElement(startsWith('SELECT EXISTS(')));
+      expect(gateway.armContextReads, 0);
+      expect(gateway.scheduled, isEmpty);
+      expect(gateway.cancelled, isEmpty);
+    });
+
+    test('a resume takes the same path', () async {
+      await eventsWithoutAlerts();
+      CalendarEventService.reset();
+      counter.reset();
+
+      await schedulerOf().reconcileAll(AlertReconcileReason.resumed);
+
+      expect(CalendarEventService.isLive, isFalse);
+      expect(counter.matching('calendar_events'), isEmpty);
+      expect(gateway.armContextReads, 0);
+    });
+
+    test('the check reads at most four rows, none of them events', () async {
+      // The one case where every statement of the check runs and the pass
+      // still goes on: only the last table answers yes.
+      await eventsWithoutAlerts();
+      await (await EventDigestService.getInstance()).create(
+        const EventDigest(id: '', name: '', categoryIds: {'gym'}),
+      );
+      final scheduler = schedulerOf();
+      counter.reset();
+
+      await scheduler.reconcileAll(AlertReconcileReason.launch);
+
+      final probes = counter.matching('SELECT EXISTS(');
+      expect(probes, hasLength(4));
+      expect(counter.statements.take(4), probes, reason: 'asked first');
+      expect(probes, everyElement(isNot(contains('calendar_events'))));
+      expect(gateway.armContextReads, 1);
+    });
+
+    test(
+      'one registry row runs the whole pass and cancels its entry',
+      () async {
+        await seed();
+        final scheduler = schedulerOf();
+        await scheduler.reconcileAll(AlertReconcileReason.launch);
+        final osId = (await registrations()).single.osId;
+        // The last alert switched off: nothing can arm, the platform still
+        // holds what was armed for it.
+        await alerts.replaceForEvent('e1', [
+          alertOf().copyWith(enabled: false),
+        ]);
+        gateway
+          ..resetCalls()
+          ..armContextReads = 0;
+
+        await scheduler.reconcileAll(AlertReconcileReason.launch);
+
+        expect(gateway.armContextReads, 1);
+        expect(gateway.cancelled, [osId]);
+        expect(gateway.platform, isEmpty);
+      },
+    );
+
+    test('one enabled own alert alone runs the whole pass', () async {
+      await eventsWithoutAlerts();
+      await alerts.replaceForEvent('e1', [alertOf()]);
+
+      await schedulerOf().reconcileAll(AlertReconcileReason.launch);
+
+      expect(gateway.armContextReads, 1);
+      expect(gateway.scheduled, hasLength(1));
+    });
+
+    test('one enabled category alert alone runs the whole pass', () async {
+      await eventsWithoutAlerts();
+      await alerts.replaceForCategory('gym', const [
+        CategoryAlert(id: 'ca1', categoryId: 'gym'),
+      ]);
+
+      await schedulerOf().reconcileAll(AlertReconcileReason.launch);
+
+      expect(gateway.armContextReads, 1);
+      expect(gateway.scheduled, hasLength(2));
+    });
+
+    test('one enabled digest alone runs the whole pass', () async {
+      await eventsWithoutAlerts();
+      await (await EventDigestService.getInstance()).create(
+        const EventDigest(
+          id: '',
+          name: '',
+          categoryIds: {'gym'},
+          includeEmpty: true,
+        ),
+      );
+
+      await schedulerOf().reconcileAll(AlertReconcileReason.launch);
+
+      expect(gateway.armContextReads, 1);
+      expect(gateway.scheduledDigests, isNotEmpty);
+    });
+
+    test('switched-off alerts and digests leave the launch fast', () async {
+      await eventsWithoutAlerts();
+      await alerts.replaceForEvent('e1', [alertOf().copyWith(enabled: false)]);
+      await alerts.replaceForCategory('gym', const [
+        CategoryAlert(id: 'ca1', categoryId: 'gym', enabled: false),
+      ]);
+      final digests = await EventDigestService.getInstance();
+      final digest = await digests.create(
+        const EventDigest(id: '', name: '', categoryIds: {'gym'}),
+      );
+      await digests.update(digest!.copyWith(enabled: false));
+      CalendarEventService.reset();
+
+      await schedulerOf().reconcileAll(AlertReconcileReason.launch);
+
+      expect(CalendarEventService.isLive, isFalse);
+      expect(gateway.armContextReads, 0);
+    });
+
+    test('a pass a write provoked never takes the fast path', () async {
+      // A wipe can leave an empty registry and no alert, and its pass is the
+      // one whose stray sweep cancels what the platform still holds.
+      await eventsWithoutAlerts();
+
+      await schedulerOf().reconcileAll(AlertReconcileReason.backupRestored);
+
+      expect(gateway.armContextReads, 1);
+    });
+
+    Future<String?> straysMarker() =>
+        db.syncDao.getValue(SyncDao.keyAlertStraysPending);
+
+    test('"Delete all events", a death, then a launch: the stray is cancelled '
+        'and the marker cleared', () async {
+      await seed();
+      await schedulerOf().reconcileAll(AlertReconcileReason.launch);
+      final osId = (await registrations()).single.osId;
+      SyncBindingService.forTesting(db, await SettingsService.getInstance());
+      addTearDown(SyncBindingService.reset);
+      // The process dies before the wipe's own pass: with no scheduler and no
+      // gateway registered, the pass it requests never runs.
+      AlertScheduler.reset();
+      await events.tombstoneAll();
+      await pumpEventQueue();
+      expect(gateway.platform, contains(osId));
+      expect(await registrations(), isEmpty);
+      expect(await straysMarker(), isNotNull);
+      gateway
+        ..resetCalls()
+        ..armContextReads = 0;
+
+      final relaunched = schedulerOf();
+      await relaunched.reconcileAll(AlertReconcileReason.launch);
+
+      expect(gateway.armContextReads, 1);
+      expect(gateway.cancelled, [osId]);
+      expect(gateway.platform, isEmpty);
+      expect(await straysMarker(), isNull);
+
+      await relaunched.reconcileAll(AlertReconcileReason.launch);
+      expect(gateway.armContextReads, 1, reason: 'the next launch is fast');
+    });
+
+    test('one event deleted before a death leaves the marker too', () async {
+      await seed();
+      await schedulerOf().reconcileAll(AlertReconcileReason.launch);
+      final osId = (await registrations()).single.osId;
+      AlertScheduler.reset();
+      await events.deleteById('e1');
+      gateway.resetCalls();
+
+      await schedulerOf().reconcileAll(AlertReconcileReason.launch);
+
+      expect(gateway.cancelled, [osId]);
+      expect(await straysMarker(), isNull);
+    });
+
+    test('the marker alone, over an empty registry, runs the pass', () async {
+      await eventsWithoutAlerts();
+      await db.syncDao.setValue(SyncDao.keyAlertStraysPending, '1');
+
+      await schedulerOf().reconcileAll(AlertReconcileReason.launch);
+
+      expect(gateway.armContextReads, 1);
+      expect(await straysMarker(), isNull);
+    });
+
+    test('a delete of no rows sets no marker', () async {
+      await eventsWithoutAlerts();
+      await events.deleteById('e1');
+
+      expect(await straysMarker(), isNull);
+    });
+
+    AlertPayload strayOf({String database = 'gym_notes', int osId = 99001}) =>
+        AlertPayload(
+          database: database,
+          eventId: 'gone',
+          alertId: 'gone-a',
+          dayUtcMs: DateTime.utc(2026, 9, 21).millisecondsSinceEpoch,
+          osId: osId,
+          mode: AlertMode.ring,
+          title: 'Standup',
+          timeLabel: '09:00',
+          categoryId: 'other',
+        );
+
+    test('a file recreated under an old name: the platform entry naming it '
+        'runs the pass, which cancels it', () async {
+      // "Delete all data", or a delete and a create under the same name: an
+      // empty file with no row, no marker and no alert, while the platform
+      // still holds what the old file armed.
+      await eventsWithoutAlerts();
+      gateway.seedPlatform(strayOf());
+
+      await schedulerOf().reconcileAll(AlertReconcileReason.launch);
+
+      expect(gateway.armContextReads, 1);
+      expect(gateway.cancelled, [99001]);
+      expect(gateway.platform, isEmpty);
+    });
+
+    test('an entry of another database leaves the launch fast (A9)', () async {
+      await eventsWithoutAlerts();
+      gateway.seedPlatform(strayOf(database: 'work'));
+      CalendarEventService.reset();
+
+      await schedulerOf().reconcileAll(AlertReconcileReason.launch);
+
+      expect(CalendarEventService.isLive, isFalse);
+      expect(gateway.armContextReads, 0);
+      expect(gateway.platform.containsKey(99001), isTrue);
+    });
+
+    test('an alarm deleted while it rings and then snoozed natively is '
+        'cancelled at the next launch', () async {
+      await seed();
+      final scheduler = schedulerOf();
+      await scheduler.reconcileAll(AlertReconcileReason.launch);
+      final osId = (await registrations()).single.osId;
+      gateway.ringingNow.add(osId);
+      await scheduler.markFired(osId);
+
+      // The event deleted mid-ring: its pass skips the ringing id and
+      // completes, clearing the marker the delete left.
+      await events.deleteById('e1');
+      await alerts.refreshAfterEventRemoval();
+      await scheduler.reconcileEvent('e1', AlertReconcileReason.eventChanged);
+      expect(gateway.platform, contains(osId));
+      expect(await straysMarker(), isNull);
+      expect(await registrations(), isEmpty);
+
+      // Snooze on the heads-up: the ring ends, the plugin keeps the entry.
+      gateway
+        ..ringingNow.clear()
+        ..resetCalls()
+        ..armContextReads = 0;
+
+      await schedulerOf().reconcileAll(AlertReconcileReason.launch);
+
+      expect(gateway.armContextReads, 1);
+      expect(gateway.cancelled, [osId]);
+      expect(gateway.platform, isEmpty);
+    });
+
+    test(
+      'the fast path takes the plugin\'s moves and acknowledges them',
+      () async {
+        await eventsWithoutAlerts();
+        final move = (
+          osId: 4242,
+          nextRingAt: DateTime(2026, 9, 15, 12, 10),
+          recordedAt: DateTime(2026, 9, 15, 12),
+        );
+        gateway.moves.add(move);
+        CalendarEventService.reset();
+
+        await schedulerOf().reconcileAll(AlertReconcileReason.launch);
+
+        expect(CalendarEventService.isLive, isFalse);
+        expect(gateway.armContextReads, 0);
+        expect(gateway.moves, isEmpty);
+        expect(gateway.acknowledged, [move]);
+        expect(await registrations(), isEmpty);
+      },
+    );
+
+    test('a delete landing mid-pass keeps its marker', () async {
+      await seed();
+      final scheduler = schedulerOf();
+      await scheduler.reconcileAll(AlertReconcileReason.launch);
+      await db.syncDao.setValue(SyncDao.keyAlertStraysPending, 'seen');
+      Future<void>? midPass;
+      gateway.onArmContextRead = () {
+        gateway.onArmContextRead = null;
+        midPass = db.alertRegistrationDao.deleteForEvent('e1');
+      };
+
+      await scheduler.reconcileAll(AlertReconcileReason.resumed);
+      await midPass;
+
+      final marker = await straysMarker();
+      expect(marker, isNotNull);
+      expect(marker, isNot('seen'));
+    });
+
+    test('a pass that throws in its stray sweep keeps the marker', () async {
+      await eventsWithoutAlerts();
+      final failing = _CancelThrowingGateway()..seedPlatform(strayOf());
+      await db.syncDao.setValue(SyncDao.keyAlertStraysPending, 'seen');
+
+      await expectLater(
+        schedulerOf(
+          withGateway: failing,
+        ).reconcileAll(AlertReconcileReason.launch),
+        throwsStateError,
+      );
+
+      expect(await straysMarker(), 'seen');
+    });
+
+    test('the fast path comes back once settled history ages out', () async {
+      await seed();
+      final scheduler = schedulerOf();
+      await scheduler.reconcileAll(AlertReconcileReason.launch);
+      await alerts.replaceForEvent('e1', [alertOf().copyWith(enabled: false)]);
+      await scheduler.reconcileAll(AlertReconcileReason.launch);
+      expect(gateway.platform, isEmpty);
+      expect(await registrations(), isNotEmpty, reason: 'the cancelled row');
+
+      // `markState` stamps the real clock, so the sweep's cutoff has to move
+      // past it, not past the test's fixed `now`.
+      now = DateTime.now().add(
+        kAlertRegistrationRetention + const Duration(days: 1),
+      );
+      gateway.armContextReads = 0;
+      await scheduler.reconcileAll(AlertReconcileReason.launch);
+      expect(gateway.armContextReads, 1, reason: 'a row still stood');
+      expect(await registrations(), isEmpty);
+
+      await scheduler.reconcileAll(AlertReconcileReason.launch);
+      expect(gateway.armContextReads, 1, reason: 'the next launch is fast');
+    });
   });
 }

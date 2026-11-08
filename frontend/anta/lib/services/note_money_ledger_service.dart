@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:get_it/get_it.dart';
 
+import '../constants/app_constants.dart';
 import '../database/database_lifecycle.dart';
 import '../models/calendar_event.dart';
 import '../repositories/note_repository.dart';
@@ -24,6 +25,13 @@ class NoteMoneyLedgerService {
 
   final Map<String, ({int balance, int net, String title})> _ledgers = {};
   StreamSubscription<NoteChange>? _changeSub;
+
+  /// Cached notes changed since their last fold, refolded together once
+  /// [AppConstants.ledgerRefoldDebounce] passes without another change: a
+  /// typing session auto-saves a linked note over and over, and folding a
+  /// large body on every save is a stall the calendar's totals never needed.
+  final Set<String> _dirty = {};
+  Timer? _refoldTimer;
 
   int _revision = 0;
 
@@ -50,6 +58,7 @@ class NoteMoneyLedgerService {
 
   static void reset() {
     _instance?._changeSub?.cancel();
+    _instance?._refoldTimer?.cancel();
     _instance = null;
   }
 
@@ -209,6 +218,7 @@ class NoteMoneyLedgerService {
   void _onNoteChange(NoteChange change) {
     if (!_ledgers.containsKey(change.noteId)) return;
     if (change.type == NoteChangeType.deleted) {
+      _dirty.remove(change.noteId);
       _ledgers.remove(change.noteId);
       _revision++;
       return;
@@ -216,10 +226,23 @@ class NoteMoneyLedgerService {
     // Recompute in place rather than evict-and-forget: nothing re-runs
     // refresh() until the next calendar load, so an evicted entry would
     // silently vanish from day bars/summaries for the rest of the
-    // session. The repository already has the fresh content cached when
-    // this event fires, so the recompute is cheap; the stale value
-    // stays visible until it lands (eventual consistency).
-    unawaited(_recomputeNote(change.noteId));
+    // session. The note is marked here, synchronously, so no change is
+    // lost while the debounce runs; the stale value stays visible until
+    // the refold lands (eventual consistency).
+    _dirty.add(change.noteId);
+    _refoldTimer?.cancel();
+    _refoldTimer = Timer(AppConstants.ledgerRefoldDebounce, _refoldDirty);
+  }
+
+  void _refoldDirty() {
+    _refoldTimer = null;
+    final noteIds = _dirty.toList(growable: false);
+    _dirty.clear();
+    for (final noteId in noteIds) {
+      // A refresh in the wait may have unlinked it, or switched money off.
+      if (!_ledgers.containsKey(noteId)) continue;
+      unawaited(_recomputeNote(noteId));
+    }
   }
 
   Future<void> _recomputeNote(String noteId) async {

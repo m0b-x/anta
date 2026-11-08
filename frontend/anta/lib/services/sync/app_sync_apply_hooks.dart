@@ -28,6 +28,12 @@ import 'open_note_registry.dart';
 import 'sync_apply_hooks.dart';
 import 'sync_table_binding.dart';
 
+/// What one run merged into the calendar's tables, as [AppSyncApplyHooks]
+/// heard it page by page: the tables whose rows changed — null when no page
+/// was heard, and the reload then runs whole, as it did before it knew — and
+/// the ids of the `calendar_events` rows among them.
+typedef CalendarPullScope = ({Set<String>? tables, Set<String> eventIds});
+
 /// The production [SyncApplyHooks]: what a pulled page does to the caches,
 /// the change streams, the calendar, the alert planner and the counters
 /// (record §3.5).
@@ -43,9 +49,10 @@ class AppSyncApplyHooks implements SyncApplyHooks {
   final FolderRepository Function() _folders;
   final NoteStorageService Function() _noteStorage;
   final Future<CounterService> Function() _counters;
-  final Future<void> Function() _reloadCalendar;
+  final Future<void> Function(CalendarPullScope scope) _reloadCalendar;
   final Future<void> Function() _reloadAlerts;
   final Future<void> Function() _reconcileAlerts;
+  final Future<bool> Function() _reportDigestEnabled;
   final Future<void> Function() _reloadVocabularies;
   final Future<AppLocalizations> Function() _strings;
   final bool Function(String noteId) _editorClaimsFiling;
@@ -59,6 +66,20 @@ class AppSyncApplyHooks implements SyncApplyHooks {
   /// outside a notes page: a resolve that fails there fails the page.
   AppLocalizations? _pageStrings;
 
+  /// The tables this run's pages changed rows in, and the event ids among
+  /// them, gathered by [afterPage] and spent and cleared by [afterRun]: the
+  /// calendar reloads what the run touched, never the whole calendar for one
+  /// row (scalability record §5.6, S14).
+  final Set<String> _runTables = {};
+  final Set<String> _runEventIds = {};
+
+  /// The table whose [beforePage] has not had its [afterPage] yet. Only a page
+  /// announced in such a pair is gathered: the puller's re-filed notes come
+  /// with no [beforePage] of their own — after the run was told, or after a
+  /// run that changed nothing and so was never told at all — and belong to
+  /// no run, so they never widen the next one.
+  String? _openPage;
+
   /// The defaults are the app's own targets; a test passes its in-memory
   /// repositories and recorders in their place.
   AppSyncApplyHooks({
@@ -66,9 +87,10 @@ class AppSyncApplyHooks implements SyncApplyHooks {
     FolderRepository Function()? folders,
     NoteStorageService Function()? noteStorage,
     Future<CounterService> Function()? counters,
-    Future<void> Function()? reloadCalendar,
+    Future<void> Function(CalendarPullScope scope)? reloadCalendar,
     Future<void> Function()? reloadAlerts,
     Future<void> Function()? reconcileAlerts,
+    Future<bool> Function()? reportDigestEnabled,
     Future<void> Function()? reloadVocabularies,
     Future<AppLocalizations> Function()? strings,
     bool Function(String noteId)? editorClaimsFiling,
@@ -80,6 +102,7 @@ class AppSyncApplyHooks implements SyncApplyHooks {
        _reloadCalendar = reloadCalendar ?? _appReloadCalendar,
        _reloadAlerts = reloadAlerts ?? _appReloadAlerts,
        _reconcileAlerts = reconcileAlerts ?? _appReconcileAlerts,
+       _reportDigestEnabled = reportDigestEnabled ?? _appReportDigestEnabled,
        _reloadVocabularies = reloadVocabularies ?? _appReloadVocabularies,
        _strings = strings ?? _appStrings,
        _editorClaimsFiling =
@@ -89,6 +112,7 @@ class AppSyncApplyHooks implements SyncApplyHooks {
   @override
   Future<void> beforePage(String table) async {
     _pageStrings = null;
+    _openPage = table;
     if (table == 'counters' || table == 'counter_values') {
       await _guard('counter flush', () async => (await _counters()).flush());
     }
@@ -108,6 +132,8 @@ class AppSyncApplyHooks implements SyncApplyHooks {
     // locale changed since would otherwise be served from here until the
     // next notes page (A7 review R147).
     if (table == 'notes') _pageStrings = null;
+    final paired = _openPage == table;
+    _openPage = null;
     final changed = [
       for (final row in rows)
         if (row.result == MergeResult.inserted ||
@@ -116,6 +142,10 @@ class AppSyncApplyHooks implements SyncApplyHooks {
     ];
     if (changed.isEmpty) return;
     final ids = [for (final row in changed) row.rowKey];
+    if (paired) {
+      _runTables.add(table);
+      if (table == _eventsTable) _runEventIds.addAll(ids);
+    }
     final inserted = {
       for (final row in changed)
         if (row.result == MergeResult.inserted) row.rowKey,
@@ -162,6 +192,16 @@ class AppSyncApplyHooks implements SyncApplyHooks {
 
   @override
   Future<void> afterRun(Set<SyncInvalidation> touched) async {
+    // Spent here, so the next run gathers from its own pages; a page
+    // announced after this one without its own `beforePage` (the re-filed
+    // notes) is gathered by none.
+    final CalendarPullScope scope = (
+      tables: _runTables.isEmpty ? null : Set.unmodifiable(_runTables),
+      eventIds: Set.unmodifiable(_runEventIds),
+    );
+    _runTables.clear();
+    _runEventIds.clear();
+    _openPage = null;
     if (touched.contains(SyncInvalidation.notes)) {
       await _guard('note cache', () async => _notes().invalidateAll());
     }
@@ -169,18 +209,39 @@ class AppSyncApplyHooks implements SyncApplyHooks {
       await _guard('folder cache', () async => _folders().invalidateAll());
     }
     if (touched.contains(SyncInvalidation.calendar)) {
-      await _guard('calendar reload', _reloadCalendar);
+      await _guard('calendar reload', () => _reloadCalendar(scope));
     } else if (touched.contains(SyncInvalidation.alerts)) {
       // The calendar reload already re-read the alert services.
       await _guard('alert reload', _reloadAlerts);
     }
-    if (touched.contains(SyncInvalidation.calendar) ||
-        touched.contains(SyncInvalidation.alerts)) {
+    if ((touched.contains(SyncInvalidation.calendar) ||
+            touched.contains(SyncInvalidation.alerts)) &&
+        await _replans(scope.tables)) {
       await _guard('alert reconcile', _reconcileAlerts);
     }
-    // The counters reloaded after their own pages.
+    // The counters reloaded after their own pages; the values of notes a pull
+    // deleted are swept by the puller after a complete pull, not here.
     if (touched.contains(SyncInvalidation.vocabularies)) {
       await _guard('vocabulary reload', _reloadVocabularies);
+    }
+  }
+
+  /// Whether this run's rows can change what the alert planner arms: every
+  /// calendar row can, except a presence mark and a category's profile, which
+  /// only a report digest's words read — those re-plan under
+  /// `AlertScheduler.reportDigestEnabled`, the rule the scheduler and a local
+  /// mark apply. A run whose tables are unknown re-plans, as every run did.
+  /// An answer that cannot be read re-plans too: a pass too many costs time,
+  /// a pass too few a stale digest.
+  Future<bool> _replans(Set<String>? tables) async {
+    if (tables == null || !tables.every(_reportOnlyTables.contains)) {
+      return true;
+    }
+    try {
+      return await _reportDigestEnabled();
+    } catch (error, stack) {
+      debugPrint('[AppSyncApplyHooks] digest check failed: $error\n$stack');
+      return true;
     }
   }
 
@@ -203,6 +264,12 @@ class AppSyncApplyHooks implements SyncApplyHooks {
   /// the editor acts only once it committed, so an answer re-derived there
   /// could differ from the one acted on here (A7 review R129).
   ///
+  /// An [SyncNoteConflict.incoming] copy is never asked about: the merge kept
+  /// the local row, so an open page hears of no change to its note and its
+  /// text stays; the text that lost is one it never showed, and the copy
+  /// reaches it as any other inserted note. Asking would latch a claim the
+  /// page then files on with nothing to file (scalability record S8).
+  ///
   /// Safe inside the page's transaction, so a copy that fails can roll the
   /// page back: it only reads and writes this database (the folders, the
   /// title check, the insert — drift nests the insert as a savepoint) and
@@ -212,7 +279,7 @@ class AppSyncApplyHooks implements SyncApplyHooks {
   @override
   Future<String?> fileConflictCopy(SyncNoteConflict conflict) async {
     final loser = conflict.loser;
-    if (_editorClaimsFiling(loser.id)) return null;
+    if (!conflict.incoming && _editorClaimsFiling(loser.id)) return null;
     final storage = _noteStorage();
     // Past the cache: a folder merged as deleted earlier in this run is still
     // cached as live until [afterRun], and this read runs inside the page's
@@ -247,45 +314,127 @@ class AppSyncApplyHooks implements SyncApplyHooks {
     }
   }
 
-  /// The calendar services in the record's order — categories and templates
-  /// before the events that name them, the day rows after — each on its own
-  /// guard, then the signal a bloc already showing the calendar reloads on.
-  /// The profiles reload only a live instance: nothing has read them
-  /// otherwise, and the next `getInstance` reads the merged table.
-  static Future<void> _appReloadCalendar() async {
-    final reloads = <String, Future<void> Function()>{
+  static const _eventsTable = 'calendar_events';
+
+  /// The two tables whose rows arm nothing (see [_replans]).
+  static const _reportOnlyTables = {
+    'calendar_event_absences',
+    'calendar_category_profiles',
+  };
+
+  /// Every table the calendar reload has a service for.
+  static const _calendarTables = {
+    'calendar_categories',
+    'calendar_category_profiles',
+    'calendar_event_templates',
+    _eventsTable,
+    'calendar_event_occurrences',
+    'calendar_event_absences',
+    'calendar_event_skips',
+    'calendar_event_alerts',
+    'calendar_category_alerts',
+    'event_digests',
+    'calendar_filter_presets',
+    'overview_views',
+  };
+
+  /// The tables of the other cache classes, which the calendar reload has no
+  /// service for. A table in neither set is one added since, and the reload
+  /// runs whole rather than miss it.
+  static const _otherTables = {
+    'notes',
+    'folders',
+    'counters',
+    'counter_values',
+    'vocabularies',
+    'vocabulary_items',
+  };
+
+  /// The calendar services whose tables the run touched, in the record's
+  /// order — categories and templates before the events that name them, the
+  /// day rows after — each on its own guard, then the signal a bloc already
+  /// showing the calendar reloads on, announced `cacheCurrent` when the
+  /// events step left the event cache current, so the bloc does not read the
+  /// store a second time.
+  ///
+  /// Categories reload on every calendar run: the reload seeds the built-in
+  /// categories, the only path that seeds them after a bind. The events step
+  /// patches the merged ids into a loaded cache
+  /// ([CalendarEventService.applyMerged]). The profiles, templates, filter
+  /// presets and overview views reload only a live instance: nothing has
+  /// read them otherwise, and the next `getInstance` reads the merged table.
+  /// A run whose tables are unknown, or that holds a table neither set
+  /// names, reloads every service and the whole event cache, as every run
+  /// did before the hooks knew.
+  static Future<void> _appReloadCalendar(CalendarPullScope scope) async {
+    final heard = scope.tables;
+    final tables =
+        heard != null &&
+            heard.every(
+              (t) => _calendarTables.contains(t) || _otherTables.contains(t),
+            )
+        ? heard
+        : null;
+    bool touched(String table) => tables == null || tables.contains(table);
+    var eventsCurrent = true;
+    await _reloadEach({
       'categories': () async => (await CategoryService.getInstance()).reload(),
-      'profiles': CategoryProfileService.refreshAfterSync,
-      'templates': () async =>
-          (await EventTemplateService.getInstance()).reload(),
-      'events': () async => (await CalendarEventService.getInstance()).reload(),
-      'occurrences': () async =>
-          (await EventOccurrenceService.getInstance()).reload(),
-      'presence': () async =>
-          (await EventPresenceService.getInstance()).reload(),
-      'skips': () async => (await EventSkipService.getInstance()).reload(),
-      'alerts': () async => (await EventAlertService.getInstance()).reload(),
-      'digests': () async => (await EventDigestService.getInstance()).reload(),
-      'filter presets': () async =>
-          (await FilterPresetService.getInstance()).reload(),
-      'overview views': () async =>
-          (await OverviewViewService.getInstance()).reload(),
-    };
-    await _reloadEach(reloads);
-    CalendarEventService.notifyExternalChange();
+      if (touched('calendar_category_profiles'))
+        'profiles': CategoryProfileService.refreshAfterSync,
+      if (touched('calendar_event_templates'))
+        'templates': EventTemplateService.refreshAfterSync,
+      if (touched(_eventsTable))
+        'events': () async {
+          eventsCurrent = false;
+          eventsCurrent = tables == null
+              ? await CalendarEventService.refreshAfterSync()
+              : await CalendarEventService.applyMerged(scope.eventIds);
+        },
+      if (touched('calendar_event_occurrences'))
+        'occurrences': () async =>
+            (await EventOccurrenceService.getInstance()).reload(),
+      if (touched('calendar_event_absences'))
+        'presence': () async =>
+            (await EventPresenceService.getInstance()).reload(),
+      if (touched('calendar_event_skips'))
+        'skips': () async => (await EventSkipService.getInstance()).reload(),
+      if (touched('calendar_event_alerts') ||
+          touched('calendar_category_alerts'))
+        'alerts': () async => (await EventAlertService.getInstance()).reload(),
+      if (touched('event_digests'))
+        'digests': () async =>
+            (await EventDigestService.getInstance()).reload(),
+      if (touched('calendar_filter_presets'))
+        'filter presets': FilterPresetService.refreshAfterSync,
+      if (touched('overview_views'))
+        'overview views': OverviewViewService.refreshAfterSync,
+    });
+    CalendarEventService.notifyExternalChange(
+      cacheCurrent: eventsCurrent,
+      eventsMerged: touched(_eventsTable),
+    );
   }
 
   /// The two alert services, then the same signal the calendar reload ends
   /// on: an alerts-only pull arms new alerts, and an open calendar page or
   /// Alerts hub would otherwise keep the badges it was built with until an
   /// unrelated change forced an emit — the phone ringing for something the
-  /// screen does not show (R78).
+  /// screen does not show (R78). The event cache is untouched by an alert
+  /// row, so the signal vouches for it.
   static Future<void> _appReloadAlerts() async {
     await _reloadEach({
       'alerts': () async => (await EventAlertService.getInstance()).reload(),
       'digests': () async => (await EventDigestService.getInstance()).reload(),
     });
-    CalendarEventService.notifyExternalChange();
+    CalendarEventService.notifyExternalChange(cacheCurrent: true);
+  }
+
+  /// [AlertScheduler.reportDigestEnabled] over a loaded digest facade: the
+  /// digests are read once and stay published, so this is a facade read on
+  /// every run after the first.
+  static Future<bool> _appReportDigestEnabled() async {
+    await EventDigestService.getInstance();
+    return AlertScheduler.reportDigestEnabled;
   }
 
   static Future<void> _reloadEach(

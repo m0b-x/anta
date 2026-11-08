@@ -89,8 +89,115 @@ class SyncStatusService implements SyncStatusReader {
       clampedRemotes: _db.clockClampedRemotes,
       binding: binding,
       unboundAsCopyOf: await _db.syncDao.getValue(SyncDao.keyHealUnboundFrom),
+      quotaPausedAt: await _instantAt(SyncDao.keyQuotaPausedAt),
     );
   }
+
+  /// The rows [parks] hold back, as the Sync page lists them (scalability
+  /// record S7, the D14 promise): one item per row, under the strongest of
+  /// its parks' reasons ([SyncHeldReason]'s order) — a row parked by its
+  /// pull and its push is one row, and a chunk's park is its notes', every
+  /// note holding that text, since the chunk is part of each body. Notes are
+  /// named by their titles and folders by their names, tombstones included,
+  /// and a row this device holds no copy of goes unnamed; notes come first
+  /// by name, then folders by name, then the other kinds in [SyncHeldKind]'s
+  /// order, oldest park first. The name sort is `toLowerCase().compareTo`,
+  /// so a name opening on "ș" or "ä" sorts after "z".
+  Future<List<SyncHeldItem>> heldBack(List<SyncParkedRow> parks) async {
+    if (parks.isEmpty) return const [];
+    final rows = <(String, String), ({SyncHeldReason reason, String stamp})>{};
+    void hold(String table, String rowKey, SyncParkedRow park) {
+      final kept = rows[(table, rowKey)];
+      rows[(table, rowKey)] = kept == null
+          ? (reason: park.reason, stamp: park.stamp)
+          : (
+              reason: park.reason.index < kept.reason.index
+                  ? park.reason
+                  : kept.reason,
+              stamp: park.stamp.compareTo(kept.stamp) < 0
+                  ? park.stamp
+                  : kept.stamp,
+            );
+    }
+
+    final holders = await _db.contentChunkDao.noteIdsByHash([
+      for (final park in parks)
+        if (park.table == _chunksTable) park.rowKey,
+    ]);
+    for (final park in parks) {
+      if (park.table != _chunksTable) {
+        hold(park.table, park.rowKey, park);
+        continue;
+      }
+      // A chunk no live note holds any more is left out: its entry is
+      // retired at the next push, and its park dropped at the next start.
+      for (final noteId in holders[park.rowKey] ?? const <String>{}) {
+        hold(_notesTable, noteId, park);
+      }
+    }
+
+    final keysByTable = <String, List<String>>{};
+    for (final (table, rowKey) in rows.keys) {
+      keysByTable.putIfAbsent(table, () => []).add(rowKey);
+    }
+    final names = <(String, String), String>{};
+    final deleted = <(String, String)>{};
+    for (final MapEntry(key: table, value: keys) in keysByTable.entries) {
+      switch (table) {
+        case _notesTable:
+          for (final note in await _db.noteDao.getByIdsIncludingDeleted(keys)) {
+            names[(table, note.id)] = note.title.trim();
+            if (note.isDeleted) deleted.add((table, note.id));
+          }
+        case _foldersTable:
+          for (final folder in await _db.folderDao.getByIdsIncludingDeleted(
+            keys,
+          )) {
+            names[(table, folder.id)] = folder.name.trim();
+            if (folder.isDeleted) deleted.add((table, folder.id));
+          }
+        default:
+          for (final key in await _db.syncOutboxDao.tombstonedKeys(
+            table,
+            keys,
+          )) {
+            deleted.add((table, key));
+          }
+      }
+    }
+
+    final items = [
+      for (final MapEntry(key: (table, rowKey), :value) in rows.entries)
+        (
+          item: SyncHeldItem(
+            table: table,
+            rowKey: rowKey,
+            kind: SyncHeldKind.ofTable(table),
+            name: names[(table, rowKey)],
+            deleted: deleted.contains((table, rowKey)),
+            reason: value.reason,
+          ),
+          stamp: value.stamp,
+        ),
+    ];
+    items.sort((x, y) {
+      final kind = x.item.kind.index.compareTo(y.item.kind.index);
+      if (kind != 0) return kind;
+      if (x.item.kind == SyncHeldKind.note ||
+          x.item.kind == SyncHeldKind.folder) {
+        final name = (x.item.name ?? '').toLowerCase().compareTo(
+          (y.item.name ?? '').toLowerCase(),
+        );
+        if (name != 0) return name;
+      }
+      return x.stamp.compareTo(y.stamp);
+    });
+    return [for (final entry in items) entry.item];
+  }
+
+  static const String _notesTable = 'notes';
+  static const String _foldersTable = 'folders';
+  static const String _chunksTable = 'content_chunks';
 
   /// A stored epoch-milliseconds instant, null until first written.
   Future<DateTime?> _instantAt(String key) async {

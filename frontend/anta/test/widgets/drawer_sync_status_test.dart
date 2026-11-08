@@ -26,8 +26,20 @@ void main() {
 
   String moment(DateTime at) => 'at ${at.toIso8601String()}';
 
-  ({String text, bool isError}) lineOf(SyncStatus status) =>
-      drawerSyncStatusLine(l10n, status, formatMoment: moment);
+  String resetAt(DateTime reset) => 'reset ${reset.toUtc().toIso8601String()}';
+
+  /// Two hours after the pause below: 01:00 in Los Angeles, the reset of
+  /// 2026-11-08 08:00 UTC behind.
+  final afterReset = DateTime.utc(2026, 11, 8, 9);
+
+  ({String text, bool isError}) lineOf(SyncStatus status, {DateTime? now}) =>
+      drawerSyncStatusLine(
+        l10n,
+        status,
+        formatMoment: moment,
+        formatQuotaReset: resetAt,
+        now: now ?? DateTime.utc(2026, 11, 8, 7, 45),
+      );
 
   /// Everything that would say something further down the list.
   final busy = SyncStatus(
@@ -50,11 +62,28 @@ void main() {
     ));
   });
 
-  test('2: the quota pause has the drawer\'s short words', () {
-    expect(lineOf(busy.copyWith(pause: SyncPause.quotaExhausted)), (
-      text: l10n.drawerSyncPausedQuota,
+  test('2: the quota pause has the drawer\'s short words, with the reset '
+      'it waits for while that is ahead', () {
+    // 23:30 in Los Angeles: the next midnight there is 08:00 UTC.
+    final paused = busy.copyWith(
+      pause: SyncPause.quotaExhausted,
+      quotaPausedAt: DateTime.utc(2026, 11, 8, 7, 30),
+    );
+
+    expect(lineOf(paused), (
+      text: l10n.drawerSyncPausedQuotaUntil('reset 2026-11-08T08:00:00.000Z'),
       isError: false,
     ));
+    expect(
+      lineOf(paused, now: afterReset),
+      (text: l10n.drawerSyncPausedQuota, isError: false),
+      reason: 'a passed reset is never replaced by the next one',
+    );
+    expect(
+      lineOf(busy.copyWith(pause: SyncPause.quotaExhausted)),
+      (text: l10n.drawerSyncPausedQuota, isError: false),
+      reason: 'no stored pause moment',
+    );
   });
 
   test('3: signed out reads the page\'s words', () {

@@ -55,13 +55,30 @@ class FilterPresetService {
     return _create(db);
   }
 
-  static Future<FilterPresetService> _create(AppDatabase db) async {
-    final service = FilterPresetService._();
-    service._dao = db.filterPresetDao;
-    await service._load();
-    _instance = service;
-    DatabaseLifecycle.registerResetHandler(reset);
-    return service;
+  /// The construction [_create] has in flight, so concurrent callers share
+  /// one load and a pull can refresh an instance still reading the table.
+  static Future<FilterPresetService>? _creating;
+
+  static Future<FilterPresetService> _create(AppDatabase db) {
+    final existing = _instance;
+    if (existing != null) return Future.value(existing);
+    final pending = _creating;
+    if (pending != null) return pending;
+    final completer = Completer<FilterPresetService>();
+    final creating = _creating = completer.future;
+    completer.complete(() async {
+      try {
+        final service = FilterPresetService._();
+        service._dao = db.filterPresetDao;
+        await service._load();
+        _instance = service;
+        DatabaseLifecycle.registerResetHandler(reset);
+        return service;
+      } finally {
+        if (identical(_creating, creating)) _creating = null;
+      }
+    }());
+    return creating;
   }
 
   /// Drops the cached singleton so the next [getInstance] rebinds to the
@@ -71,6 +88,26 @@ class FilterPresetService {
   /// render path — so the cache dies with the instance.
   static void reset() {
     _instance = null;
+    _creating = null;
+  }
+
+  /// Re-reads after a pull merged preset rows: the live instance, or the one
+  /// still loading — its read may predate the merge — and never a new one,
+  /// since the next [getInstance] reads the merged table anyway.
+  static Future<void> refreshAfterSync() async {
+    var service = _instance;
+    final pending = _creating;
+    if (service == null && pending != null) {
+      try {
+        service = await pending;
+      } catch (_) {
+        // That construction's failure is its own caller's to report; with no
+        // instance there is nothing to refresh.
+      }
+    }
+    if (service != null && identical(_instance, service)) {
+      await service.reload();
+    }
   }
 
   List<CalendarFilterPreset> _cache = const [];

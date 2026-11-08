@@ -409,6 +409,166 @@ void main() {
     expect(AppDatabase.openInstanceOf('later'), isNull);
   });
 
+  // S18 (D11): the share hands over a `VACUUM INTO` copy, so no checkpoint —
+  // which a reader can block — stands between a write and the shared file.
+  group('the share snapshot', () {
+    final snapshotFolder = RegExp(
+      '^${DatabaseManager.shareSnapshotPrefix}\\d+\$',
+    );
+
+    /// The snapshot folders in the temp directory, by name.
+    Set<String> snapshotFolders() => {
+      for (final entity in tempDir.listSync())
+        if (entity is Directory &&
+            p.basename(entity.path).startsWith('anta_db_share_'))
+          p.basename(entity.path),
+    };
+
+    tearDown(() {
+      for (final name in snapshotFolders()) {
+        Directory(p.join(tempDir.path, name)).deleteSync(recursive: true);
+      }
+    });
+
+    test('the open database is copied beside the app\'s connection, the '
+        'write still in its WAL included', () async {
+      final db = await AppDatabase.getInstance();
+      final name = manager.getActiveDatabaseName();
+      final path = await manager.getDatabasePath(name);
+      await db.folderDao.createFolder(name: 'Latest');
+      expect(walHasContent(path), isTrue);
+
+      final snapshot = await manager.snapshotForShare(name);
+
+      expect(p.basename(snapshot), '$name.db');
+      expect(p.dirname(p.dirname(snapshot)), tempDir.path);
+      expect(p.basename(p.dirname(snapshot)), matches(snapshotFolder));
+      final copy = sqlite3.open(snapshot, mode: OpenMode.readOnly);
+      try {
+        expect(
+          count(copy, "SELECT count(*) FROM folders WHERE name = 'Latest'"),
+          1,
+        );
+      } finally {
+        copy.close();
+      }
+      // Nothing was folded to take it, and the app's connection is the same
+      // one, still writing.
+      expect(walHasContent(path), isTrue);
+      expect(identical(await AppDatabase.getInstance(), db), isTrue);
+      await db.folderDao.createFolder(name: 'After');
+    });
+
+    test('a copy of the open database that fails takes its folder with it and '
+        'leaves the live database as it was', () async {
+      final db = await AppDatabase.getInstance();
+      final name = manager.getActiveDatabaseName();
+      await db.folderDao.createFolder(name: 'Kept');
+      // A full disk: part of the copy written, then SQLITE_FULL.
+      DatabaseManager.debugSnapshotCopy = (source, snapshot) {
+        File(snapshot).writeAsBytesSync([1, 2, 3]);
+        throw SqliteException(
+          extendedResultCode: 13,
+          message: 'database or disk is full',
+        );
+      };
+      addTearDown(() => DatabaseManager.debugSnapshotCopy = null);
+
+      await expectLater(
+        manager.snapshotForShare(name),
+        throwsA(isA<SqliteException>()),
+      );
+
+      expect(snapshotFolders(), isEmpty);
+      expect(identical(await AppDatabase.getInstance(), db), isTrue);
+      final kept = await db.folderDao.getAllFolders(includeDeleted: false);
+      expect([for (final folder in kept) folder.name], contains('Kept'));
+      await db.folderDao.createFolder(name: 'After');
+    });
+
+    test('a missing database fails the copy and is never created', () async {
+      final path = await manager.getDatabasePath('ghost');
+
+      await expectLater(manager.snapshotForShare('ghost'), throwsA(anything));
+
+      expect(File(path).existsSync(), isFalse);
+      expect(snapshotFolders(), isEmpty);
+    });
+
+    test('a reader holding the WAL does not stop the copy', () async {
+      final db = await AppDatabase.getInstance();
+      final name = manager.getActiveDatabaseName();
+      final path = await manager.getDatabasePath(name);
+      await db.folderDao.createFolder(name: 'In the WAL');
+      final reader = sqlite3.open(path, mode: OpenMode.readWrite);
+      addTearDown(reader.close);
+      reader.execute('BEGIN');
+      reader.select('SELECT count(*) FROM folders');
+
+      final snapshot = await manager.snapshotForShare(name);
+      reader.execute('COMMIT');
+
+      final copy = sqlite3.open(snapshot, mode: OpenMode.readOnly);
+      try {
+        expect(
+          count(copy, "SELECT count(*) FROM folders WHERE name = 'In the WAL'"),
+          1,
+        );
+      } finally {
+        copy.close();
+      }
+    });
+
+    test('a database that is not open is copied, sidecar included, and '
+        'stays closed', () async {
+      await leaveInSidecar('work');
+
+      final snapshot = await manager.snapshotForShare('work');
+
+      expect(p.basename(snapshot), 'work.db');
+      final copy = sqlite3.open(snapshot, mode: OpenMode.readOnly);
+      try {
+        expect(count(copy, 'SELECT count(*) FROM items'), 300);
+      } finally {
+        copy.close();
+      }
+      expect(AppDatabase.openInstanceOf('work'), isNull);
+    });
+
+    test('the next snapshot deletes the earlier ones and nothing else in the '
+        'temp directory', () async {
+      await leaveInSidecar('work');
+      final earlier = Directory(
+        p.join(tempDir.path, '${DatabaseManager.shareSnapshotPrefix}1'),
+      )..createSync();
+      File(p.join(earlier.path, 'work.db')).writeAsStringSync('old');
+      final foreign = Directory(p.join(tempDir.path, 'another_app'))
+        ..createSync();
+      addTearDown(() => foreign.deleteSync(recursive: true));
+
+      final snapshot = await manager.snapshotForShare('work');
+
+      expect(earlier.existsSync(), isFalse);
+      expect(foreign.existsSync(), isTrue);
+      expect(snapshotFolders(), {p.basename(p.dirname(snapshot))});
+    });
+
+    // `SQLITE_FULL` cannot be staged here; a file SQLite refuses to read
+    // fails the same statement on the same path.
+    test('a copy that fails takes its folder with it', () async {
+      final path = await manager.getDatabasePath('broken');
+      await Directory(p.dirname(path)).create(recursive: true);
+      await File(path).writeAsBytes([
+        ...'SQLite format 3\u0000'.codeUnits,
+        ...List.filled(84, 0),
+      ]);
+
+      await expectLater(manager.snapshotForShare('broken'), throwsA(anything));
+
+      expect(snapshotFolders(), isEmpty);
+    });
+  });
+
   group('the memoized open', () {
     late SharedPreferencesStorePlatform previous;
 

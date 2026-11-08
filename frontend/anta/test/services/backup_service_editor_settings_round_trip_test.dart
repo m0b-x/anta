@@ -21,6 +21,8 @@ import 'package:anta/services/counter_service.dart';
 import 'package:anta/services/label_appearance_service.dart';
 import 'package:anta/services/settings_service.dart';
 
+import 'support/backup_archive.dart';
+
 /// Which surface a note opens on is now two settings — live rendering, and
 /// whether the deprecated preview exists at all — and both were outside the
 /// backup's settings allow-list. A key that is not in that list is dropped
@@ -67,7 +69,7 @@ void main() {
       await settings.setPreviewModeEnabled(true);
 
       final backup = await BackupService.getInstance();
-      final exported = await backup.exportAllData();
+      final exported = await exportBackupArchive();
       final exportedSettings = exported['settings'] as Map<String, dynamic>;
 
       expect(exportedSettings[SettingsKeys.liveMarkdownRendering], 'false');
@@ -103,7 +105,7 @@ void main() {
     await settings.setLabelStyle(LabelStyle.stripe);
 
     final backup = await BackupService.getInstance();
-    final exported = await backup.exportAllData();
+    final exported = await exportBackupArchive();
     final exportedSettings = exported['settings'] as Map<String, dynamic>;
 
     expect(
@@ -139,7 +141,7 @@ void main() {
     await settings.setToolbarUndoRedoPinned(false);
 
     final backup = await BackupService.getInstance();
-    final exported = await backup.exportAllData();
+    final exported = await exportBackupArchive();
     final exportedSettings = exported['settings'] as Map<String, dynamic>;
     expect(
       exportedSettings[SettingsKeys.toolbarUndoRedoPinned],
@@ -165,7 +167,7 @@ void main() {
 
   test('a backup written before these keys existed still imports', () async {
     final backup = await BackupService.getInstance();
-    final exported = await backup.exportAllData();
+    final exported = await exportBackupArchive();
     final settingsMap =
         Map<String, dynamic>.from(exported['settings'] as Map<String, dynamic>)
           ..remove(SettingsKeys.liveMarkdownRendering)

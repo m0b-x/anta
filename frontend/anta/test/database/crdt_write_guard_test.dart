@@ -34,6 +34,8 @@ void main() {
       _May.backfill,
       _May.outboxSchema,
     },
+    // Indexes the outbox's push order (v47) — never a row in it.
+    'lib/database/migrations/database_indexes.dart': {_May.outboxSchema},
     // The push side's view: reads, acknowledges, clears.
     'lib/database/daos/sync_outbox_dao.dart': {_May.outbox},
     // The table definition the DAO and the helper are generated from.
@@ -47,6 +49,9 @@ void main() {
     'lib/services/sync/sync_puller.dart': {_May.outboxRetire},
     'lib/services/sync/sync_pusher.dart': {_May.outboxRetire},
     'lib/services/sync/sync_status_service.dart': {_May.outboxRetire},
+    // The notes merge re-queues a note whose space document is its own
+    // write in an older build's shape (scalability record S6).
+    'lib/services/sync/tables/notes_binding.dart': {_May.outboxRetire},
   };
 
   /// The only places a local device may advance the clock from a remote
@@ -55,7 +60,7 @@ void main() {
   /// the stamp that page stored (A5 review R98); the raise a merge makes
   /// inside the page's own transaction, which keeps the drift guard because
   /// that transaction can still roll back with nothing stored (A10 review
-  /// R157); and the chunk merge that predates them.
+  /// R157).
   const merges = {
     ('lib/database/crdt/crdt_merge.dart', 'advanceClock', 'adopt'),
     (
@@ -63,16 +68,17 @@ void main() {
       'advanceClockInTransaction',
       'update',
     ),
-    ('lib/database/daos/content_chunk_dao.dart', 'mergeChunk', 'update'),
   };
   final mergeSites = {for (final merge in merges) (merge.$1, merge.$2)};
 
-  /// The one migration step that queues rows: the v45 sweep tombstones skip
-  /// rows as this device's own edit, which must reach the space — a backfill
-  /// queues nothing. Frozen raw SQL, since a step never calls a helper that
-  /// follows the live schema; every other step stays schema-only.
+  /// The migration steps that queue rows: the v45 sweep tombstones skip rows
+  /// and the v49 sweep the counter values of tombstoned notes (S20), each as
+  /// this device's own edit, which must reach the space — a backfill queues
+  /// nothing. Frozen raw SQL, since a step never calls a helper that follows
+  /// the live schema; every other step stays schema-only.
   const outboxSteps = {
     ('lib/database/migrations/database_migrations.dart', '_migrateV44ToV45'),
+    ('lib/database/migrations/database_migrations.dart', '_migrateV48ToV49'),
   };
 
   final units = [
@@ -171,18 +177,21 @@ void main() {
       caseSensitive: false,
     );
     // What `_May.outboxRetire` allows: entries retired, re-seeded, dropped,
-    // read or counted through the DAO, and the one receiver the pusher
-    // binds to a local to page the queue through. Every other method of it
-    // is a stray, and the table, its companion and the raw name stay out of
-    // reach — so none of these files can add an entry of its own, which is
-    // `CrdtWrite`'s alone.
+    // read or counted through the DAO (`tombstonedKeys`, the Sync page's
+    // held-back list, reads only the synced tables by their row key), and
+    // the one receiver the pusher binds to a local to page the queue
+    // through. Every other method of it is a stray, and the table, its
+    // companion and the raw name stay out of reach — so none of these files
+    // can add an entry of its own, which is `CrdtWrite`'s alone.
     //
     // The receiver is named, never `= <anything>.syncOutboxDao`: an alias
     // alternative let an allow-listed file bind the DAO and then call
     // anything at all on it unchecked (A7 review R138).
     final retires = RegExp(
-      r'\bsyncOutboxDao ?\. ?(ackThrough|requeueRow|requeueAll|clear|count'
-      r'|maxHlc|pending|pendingForTable|watchQueued) ?\('
+      r'\bsyncOutboxDao ?\. ?(ackThrough|requeueRow|requeueAll|requeueBodies'
+      r'|clear|count|maxHlc|pending|pendingForTable|pendingKeys|tombstonedKeys'
+      r'|watchQueued)'
+      r' ?\('
       r'|\bfinal outbox = _e\._db\.syncOutboxDao;',
     );
 

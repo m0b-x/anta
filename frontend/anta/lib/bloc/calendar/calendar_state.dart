@@ -165,17 +165,21 @@ final class CalendarPageLoaded extends CalendarPageState {
     );
   }
 
+  /// The revisions lead and the event list comes last: `Equatable` compares
+  /// in this order and stops at the first difference, so an emit that bumped
+  /// a revision is told apart without walking 20,000 events, and the list is
+  /// reached only when everything cheaper already matched (scalability S14).
   @override
   List<Object?> get props => [
-    allEvents,
-    focusedDay,
-    selectedDay,
-    format,
-    filters,
     occurrenceRevision,
     membershipRevision,
     presenceRevision,
+    focusedDay,
+    selectedDay,
+    format,
     selectionSource,
+    filters,
+    allEvents,
   ];
 }
 

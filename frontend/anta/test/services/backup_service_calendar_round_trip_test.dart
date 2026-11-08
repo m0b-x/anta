@@ -49,6 +49,8 @@ import 'package:anta/services/overview_view_service.dart';
 import 'package:anta/services/public_holiday_service.dart';
 import 'package:anta/services/settings_service.dart';
 
+import 'support/backup_archive.dart';
+
 /// Drives the exact code path onboarding takes to restore a backup —
 /// `BackupService.getInstance()` then `importFromJson()` — over a database
 /// seeded with one of every calendar entity.
@@ -192,7 +194,7 @@ void main() {
     await (await SettingsService.getInstance()).setFastingSchedule(fasting);
 
     final backup = await BackupService.getInstance();
-    final exported = await backup.exportAllData();
+    final exported = await exportBackupArchive();
     expect(exported['version'], 8);
     final json = jsonEncode(exported);
 
@@ -361,7 +363,7 @@ void main() {
     );
 
     final backup = await BackupService.getInstance();
-    final exported = await backup.exportAllData();
+    final exported = await exportBackupArchive();
     for (final raw in exported['calendarEvents'] as List) {
       (raw as Map)
         ..remove('assumeAbsent')
@@ -438,7 +440,7 @@ void main() {
           ]);
 
       backup = await BackupService.getInstance();
-      final exported = await backup.exportAllData();
+      final exported = await exportBackupArchive();
       expect(
         exported['version'],
         8,
@@ -570,7 +572,7 @@ void main() {
         categoryIds: const {'gym'},
       );
       backup = await BackupService.getInstance();
-      final exported = await backup.exportAllData();
+      final exported = await exportBackupArchive();
       expect(
         exported['version'],
         8,
@@ -631,7 +633,7 @@ void main() {
       await settings.setReportCards(cards);
       final backup = await BackupService.getInstance();
       // The event alerts group's reason: no test here asserts the browser.
-      final exported = await backup.exportAllData()
+      final exported = await exportBackupArchive()
         ..['folders'] = const <Object>[]
         ..['notes'] = const <Object>[];
       expect(
@@ -656,7 +658,7 @@ void main() {
       final settings = await SettingsService.getInstance();
       await settings.setReportCards(ReportCards.defaults);
       final backup = await BackupService.getInstance();
-      final exported = await backup.exportAllData()
+      final exported = await exportBackupArchive()
         ..['folders'] = const <Object>[]
         ..['notes'] = const <Object>[];
       expect(
@@ -731,7 +733,7 @@ void main() {
       );
 
       backup = await BackupService.getInstance();
-      final exported = await backup.exportAllData();
+      final exported = await exportBackupArchive();
       expect(
         exported['version'],
         8,
@@ -911,7 +913,7 @@ void main() {
       );
 
       backup = await BackupService.getInstance();
-      final exported = await backup.exportAllData();
+      final exported = await exportBackupArchive();
       expect(exported['version'], 8);
       DatabaseLifecycle.notifyDatabaseSwitching();
       // An import appends copies of every folder and note, so each test here
@@ -1070,7 +1072,7 @@ void main() {
         );
         backup = await BackupService.getInstance();
         final exported =
-            (jsonDecode(jsonEncode(await backup.exportAllData()))
+            (jsonDecode(jsonEncode(await exportBackupArchive()))
                   as Map<String, dynamic>)
               ..['folders'] = const <Object>[]
               ..['notes'] = const <Object>[];
@@ -1141,7 +1143,7 @@ void main() {
       await skips.markSkipped('series', seriesSkip);
 
       backup = await BackupService.getInstance();
-      final exported = await backup.exportAllData();
+      final exported = await exportBackupArchive();
       expect(exported['version'], 8);
       expect(exported['eventSkips'], hasLength(3));
 

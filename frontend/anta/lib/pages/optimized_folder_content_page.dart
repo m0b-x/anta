@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:get_it/get_it.dart';
@@ -254,6 +255,10 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
   // mode and mutate it synchronously inside onReorderItem.
   List<ContentItem>? _localMixed;
 
+  /// Set by a drag, cleared by the load that serves its order back:
+  /// [_syncLocal] keeps the optimistic order only in between.
+  bool _reorderPending = false;
+
   // Drag-in-progress tracking for multi-selection visual feedback. While a
   // drag is active, other selected cards are dimmed so the user sees the
   // whole batch is travelling along with the lifted card.
@@ -305,17 +310,27 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
     List<T> incoming,
     String Function(T) idOf,
   ) {
-    if (local == null) return List<T>.from(incoming);
-    if (local.length != incoming.length) return List<T>.from(incoming);
-    final localIds = local.map(idOf).toSet();
+    final localIds = local?.map(idOf).toSet();
     final incomingIds = incoming.map(idOf).toSet();
-    if (localIds.length != incomingIds.length ||
+    if (local == null ||
+        local.length != incoming.length ||
+        localIds!.length != incomingIds.length ||
         !localIds.containsAll(incomingIds)) {
+      // Another list now: whatever drag was pending is not on it.
+      _reorderPending = false;
       return List<T>.from(incoming);
     }
-    // Same set of ids -> assume local order is the source of truth (just
-    // reordered). Replace each local entry with the latest incoming object
-    // (so other fields like updatedAt are fresh) but keep order.
+    // Same ids: the local order wins only while a drag of this page is still
+    // unconfirmed — the load that serves that order back ends it. Kept
+    // longer, a page remounted on a stale list would never adopt the stored
+    // order, and its next drag would write the stale one back.
+    if (!_reorderPending ||
+        listEquals(local.map(idOf).toList(), incoming.map(idOf).toList())) {
+      _reorderPending = false;
+      return List<T>.from(incoming);
+    }
+    // Replace each local entry with the latest incoming object (so other
+    // fields like updatedAt are fresh) but keep the drag's order.
     final byId = {for (final item in incoming) idOf(item): item};
     return [for (final item in local) byId[idOf(item)] as T];
   }
@@ -334,6 +349,7 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
         // entry starts fresh from bloc data.
         if (!_selection.isActive) {
           _localMixed = null;
+          _reorderPending = false;
         }
         if (_selection.isActive) _leaveSearch();
         _compensateBarSwap();
@@ -1994,7 +2010,7 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
 
             // Detect the "this state has no fresh data" case (Loading,
             // Initial, Error). Without this, a reorder dispatch that
-            // triggers Loading would feed empty lists into mergeByPosition
+            // triggers Loading would feed empty lists into the grouping
             // and we would render an empty sliver for one frame — exactly
             // the white flash this method exists to prevent.
             final folderHasData = folderState is OptimizedFolderLoaded;
@@ -2261,44 +2277,85 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
     return count;
   }
 
-  /// Persist a unified folder+note ordering. Mirrors [_handleReorderFolders]:
-  /// flips both per-kind sort orders to position-based (so the next refresh
-  /// preserves what the user just did), persists the preference, then writes
-  /// both tables via [MixedReorderService].
+  /// Persist a unified folder+note ordering: flips the sort of each kind the
+  /// drag reordered to position-based (so the next refresh preserves what the
+  /// user just did), persists the preference, then writes those kinds via
+  /// [MixedReorderService]. A kind the drag left alone keeps its sort and its
+  /// rows.
   void _handleReorderMixed(List<ContentItem> reordered) {
     debugPrint(
       '[Reorder] mixed: applying optimistic order '
       '${reordered.map((i) => '${i.kind.name}:${i.displayName('')}').toList()}',
     );
+    List<String> idsOf(List<ContentItem> items, MovableItemKind kind) => [
+      for (final item in items)
+        if (item.kind == kind) item.id,
+    ];
+    final before = _localMixed ?? const <ContentItem>[];
+    final changed = {
+      for (final kind in MovableItemKind.values)
+        if (!listEquals(idsOf(before, kind), idsOf(reordered, kind))) kind,
+    };
     setState(() {
       _localMixed = List<ContentItem>.from(reordered);
+      // A drop that changed nothing writes nothing, so no load would ever
+      // confirm it and end the pending state.
+      _reorderPending = changed.isNotEmpty;
     });
+    if (changed.isEmpty) return;
 
-    var sortChanged = false;
-    if (_foldersSortOrder != FoldersSortOrder.positionAsc &&
+    // Drags are written one after another. A drop made while an earlier
+    // write is still in flight is queued and decides its sort flip, its
+    // rollback point and its `windowAtTop` only when its turn comes; if the
+    // earlier write failed, the page has rolled back to the stored order and
+    // the queued drop — made on top of the failed one — is dropped with it.
+    // A queued drop is written even after the page is popped: the write
+    // touches only plain fields until it lands, and [_writeOrder] checks
+    // `mounted` before it reloads.
+    final epoch = _dragEpoch;
+    final previous = _dragChain ?? Future<void>.value();
+    final run = previous.then((_) {
+      if (epoch != _dragEpoch) return null;
+      return _commitDrag(reordered, changed);
+    });
+    // The chain carries on past a throw, so one bad drop cannot strand every
+    // drop queued after it — the shape of `MixedReorderService._serialised`.
+    // Reported, not swallowed: a bug here shows in debug and fails a test.
+    _dragChain = run.catchError((Object e, StackTrace st) {
+      FlutterError.reportError(
+        FlutterErrorDetails(exception: e, stack: st, library: 'browser'),
+      );
+    });
+  }
+
+  /// The tail of the drags waiting to be written, in drop order.
+  Future<void>? _dragChain;
+
+  /// Moved on by a failed write, so drops queued behind it are discarded.
+  int _dragEpoch = 0;
+
+  /// Flips the sort of each [changed] kind still sorted otherwise to Custom,
+  /// saves it, and writes the drag ([_writeOrder]).
+  Future<void> _commitDrag(
+    List<ContentItem> reordered,
+    Set<MovableItemKind> changed,
+  ) {
+    final previousSorts = (folders: _foldersSortOrder, notes: _notesSortOrder);
+    final flipped = <MovableItemKind>{};
+    if (changed.contains(MovableItemKind.folder) &&
+        _foldersSortOrder != FoldersSortOrder.positionAsc &&
         _foldersSortOrder != FoldersSortOrder.positionDesc) {
       _foldersSortOrder = FoldersSortOrder.positionAsc;
-      sortChanged = true;
-      context.read<OptimizedFolderBloc>().add(
-        LoadFoldersPaginated(
-          parentId: widget.folderId,
-          sortOrder: FoldersSortOrder.positionAsc,
-        ),
-      );
+      flipped.add(MovableItemKind.folder);
     }
     if (widget.folderId != null &&
+        changed.contains(MovableItemKind.note) &&
         _notesSortOrder != NotesSortOrder.positionAsc &&
         _notesSortOrder != NotesSortOrder.positionDesc) {
       _notesSortOrder = NotesSortOrder.positionAsc;
-      sortChanged = true;
-      context.read<OptimizedNoteBloc>().add(
-        LoadNotesPaginated(
-          folderId: widget.folderId,
-          sortOrder: NotesSortOrder.positionAsc,
-        ),
-      );
+      flipped.add(MovableItemKind.note);
     }
-    if (sortChanged && widget.folderId != null) {
+    if (flipped.isNotEmpty && widget.folderId != null) {
       _folderStorageService.updateFolderSortPreferences(
         folderId: widget.folderId!,
         subfolderSortOrder: _foldersSortOrder.name,
@@ -2306,15 +2363,90 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
       );
     }
 
-    // Fire-and-forget: the optimistic local list keeps the UI consistent
-    // until the bloc refresh completes; errors are surfaced via the change
-    // streams (which would re-emit and replace the local list).
-    unawaited(
-      _mixedReorderService.reorderMixed(
-        parentId: widget.folderId,
-        items: reordered,
-      ),
+    return _writeOrder(
+      reordered,
+      changed: changed,
+      flipped: flipped,
+      previousSorts: previousSorts,
     );
+  }
+
+  /// Writes a drag's [changed] kinds, then reloads them — in the new Custom
+  /// sort for the [flipped] kinds, whose loaded window goes on top of the
+  /// group, the way the user saw it.
+  ///
+  /// The reload is dispatched only once the write has landed: sent at the
+  /// drop, it raced the write's own refresh, and when the pre-write read
+  /// arrived last the page adopted the pre-drag order. It is also what ends
+  /// [_reorderPending] when the write moved no row and so announced nothing.
+  /// A failed write ends it too, puts back the sorts the drag turned to
+  /// Custom ([previousSorts]) — an order the user never chose and nothing
+  /// stored — and reloads.
+  Future<void> _writeOrder(
+    List<ContentItem> reordered, {
+    required Set<MovableItemKind> changed,
+    required Set<MovableItemKind> flipped,
+    required ({FoldersSortOrder folders, NotesSortOrder notes}) previousSorts,
+  }) async {
+    try {
+      await _mixedReorderService.reorderMixed(
+        parentId: widget.folderId,
+        items: [
+          for (final item in reordered)
+            if (changed.contains(item.kind)) item,
+        ],
+        foldersDescending: _foldersSortOrder == FoldersSortOrder.positionDesc,
+        notesDescending: _notesSortOrder == NotesSortOrder.positionDesc,
+        windowAtTop: flipped,
+      );
+    } catch (e, st) {
+      debugPrint('[Reorder] write failed: $e\n$st');
+      _dragEpoch++;
+      _foldersSortOrder = previousSorts.folders;
+      _notesSortOrder = previousSorts.notes;
+      // Saved back even when the page is gone: the flip to Custom was already
+      // stored, and the folder would reopen under it over the old positions.
+      if (flipped.isNotEmpty && widget.folderId != null) {
+        // The reload below must run even if this save fails too.
+        try {
+          await _folderStorageService.updateFolderSortPreferences(
+            folderId: widget.folderId!,
+            subfolderSortOrder: _foldersSortOrder.name,
+            noteSortOrder: _notesSortOrder.name,
+          );
+        } catch (e, st) {
+          debugPrint('[Reorder] sort rollback failed: $e\n$st');
+        }
+      }
+      if (!mounted) return;
+      setState(() {
+        _reorderPending = false;
+        _localMixed = null;
+      });
+      _loadData();
+      return;
+    }
+    if (!mounted) return;
+    if (changed.contains(MovableItemKind.folder)) {
+      context.read<OptimizedFolderBloc>().add(
+        flipped.contains(MovableItemKind.folder)
+            ? LoadFoldersPaginated(
+                parentId: widget.folderId,
+                sortOrder: FoldersSortOrder.positionAsc,
+              )
+            : RefreshFolders(parentId: widget.folderId),
+      );
+    }
+    if (widget.folderId != null && changed.contains(MovableItemKind.note)) {
+      context.read<OptimizedNoteBloc>().add(
+        flipped.contains(MovableItemKind.note)
+            ? LoadNotesPaginated(
+                folderId: widget.folderId,
+                sortOrder: NotesSortOrder.positionAsc,
+              )
+            : RefreshNotes(folderId: widget.folderId),
+      );
+    }
   }
 
   Widget _buildEmptyStateSection() {

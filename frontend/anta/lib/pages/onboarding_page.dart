@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
@@ -8,6 +7,7 @@ import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
 import '../widgets/app_dialogs.dart';
 import '../widgets/automation_id.dart';
+import '../widgets/database_import_dialog.dart';
 import '../services/backup_service.dart';
 import '../services/database_manager.dart';
 import '../services/public_holiday_service.dart';
@@ -165,11 +165,10 @@ class _OnboardingPageState extends State<OnboardingPage> {
         return;
       }
 
-      final file = File(path);
-      final jsonString = await file.readAsString();
+      final backup = await BackupService.readBackupFile(path);
 
       final backupService = await BackupService.getInstance();
-      final validation = await backupService.validateBackup(jsonString);
+      final validation = await backupService.validateBackupData(backup);
 
       if (!validation.isValid) {
         debugPrint('[Onboarding] invalid backup: ${validation.error}');
@@ -188,7 +187,9 @@ class _OnboardingPageState extends State<OnboardingPage> {
         }
       }
 
-      final importResult = await backupService.importFromJson(jsonString);
+      final importResult = await backupService.importFromData(
+        backup as Map<String, dynamic>,
+      );
 
       if (mounted) {
         if (importResult.success) {
@@ -230,7 +231,13 @@ class _OnboardingPageState extends State<OnboardingPage> {
       final name = await dbManager.suggestDatabaseName(
         p.basenameWithoutExtension(sourcePath),
       );
-      await dbManager.importDatabase(sourcePath, name);
+      if (!mounted) return;
+      final imported = await DatabaseImportDialog.run(
+        context,
+        (progress) =>
+            dbManager.importDatabase(sourcePath, name, progress: progress),
+      );
+      if (!imported) return;
       await dbManager.setActiveDatabaseName(name);
 
       final settings = await SettingsService.getInstance();

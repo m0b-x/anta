@@ -288,10 +288,7 @@ void _registerBlocs() {
   );
 
   getIt.registerFactory<OptimizedNoteBloc>(
-    () => OptimizedNoteBloc(
-      storageService: getIt<NoteStorageService>(),
-      searchService: getIt<FolderSearchService>(),
-    ),
+    () => OptimizedNoteBloc(storageService: getIt<NoteStorageService>()),
   );
 
   getIt.registerFactory<MarkdownBarBloc>(

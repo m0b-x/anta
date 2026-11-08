@@ -129,6 +129,23 @@ class OverviewViewService {
     _initializing = null;
   }
 
+  /// Re-reads after a pull merged view rows: the live instance, or the one
+  /// still loading — its read may predate the merge — and never a new one,
+  /// since the next [getInstance] reads the merged table anyway.
+  static Future<void> refreshAfterSync() async {
+    var service = _instance;
+    final pending = _initializing;
+    if (service == null && pending != null) {
+      try {
+        service = await pending;
+      } catch (_) {
+        // That construction's failure is its own caller's to report; with no
+        // instance there is nothing to refresh.
+      }
+    }
+    await service?.reload();
+  }
+
   List<OverviewView> _cache = const [];
 
   /// The tail of the write chain — `null` while idle (see [_serialize]).

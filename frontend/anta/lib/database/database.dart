@@ -4,8 +4,10 @@ import 'package:flutter/foundation.dart' show debugPrint, visibleForTesting;
 import 'package:drift/native.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:sqlite3/common.dart';
+import 'package:sqlite3/sqlite3.dart' show sqlite3;
 import 'package:path/path.dart' as p;
 import 'package:uuid/uuid.dart';
+import '../constants/app_constants.dart';
 import '../services/database_manager.dart';
 
 import 'tables/folders_table.dart';
@@ -292,6 +294,12 @@ class AppDatabase extends _$AppDatabase {
 
   String get deviceId => _deviceId;
 
+  /// Called once an open finds a database older than [schemaVersion], before
+  /// its first migration step: the launch shows that it is updating the data
+  /// only while a step runs (D13), never on a normal open. Set by the app's
+  /// bootstrap before the first open and cleared once launch is done.
+  static void Function()? onUpgradeStarting;
+
   @override
   int get schemaVersion => DatabaseSchema.currentVersion;
 
@@ -303,17 +311,21 @@ class AppDatabase extends _$AppDatabase {
         await DatabaseIndexes(this).createAllIndexes();
       },
       onUpgrade: (Migrator m, int from, int to) async {
+        if (from < to) onUpgradeStarting?.call();
         // Before any step, so the stamps a step backfills sort above every
         // stamp the previous run wrote, as a local write's would. Only the
         // stored clock: the tables a row scan reads may not exist yet.
-        await _seedFromLastHlc();
+        final seeded = await _seedFromLastHlc();
         Object? migrationError;
         try {
           await DatabaseMigrations(this).runMigrations(m, from, to);
           // Every table exists now. An install from before the clock was
           // stored has no `last_hlc`, so the persist below would store a
-          // wall-based clock and the open's row scan would never run.
-          await _seedFromRows();
+          // wall-based clock and the open's row scan would never run. With
+          // one stored the scan is skipped: the stored clock already covers
+          // every row, and the scan reads every synced table, the largest
+          // included.
+          if (!seeded) await _seedFromRows();
         } catch (e) {
           migrationError = e;
           rethrow;
@@ -383,12 +395,31 @@ class AppDatabase extends _$AppDatabase {
   /// holds it back — the line past which a seed is worth reporting.
   static const Duration clockMaxDrift = HybridLogicalClock.maxDrift;
 
-  Future<void> rebuildFtsIndex() async {
-    await customStatement("INSERT INTO notes_fts(notes_fts) VALUES('rebuild')");
-  }
-
   Future<void> vacuum() async {
     await customStatement('VACUUM');
+  }
+
+  /// The Optimize action: `VACUUM`, then a [checkpoint]. No search index is
+  /// rebuilt first: the body index is contentless, so there is nothing to
+  /// rebuild it from, and its drain already drops the projections of gone
+  /// notes and of rowids a `VACUUM` renumbered (the caller marks it dirty).
+  ///
+  /// A plain `VACUUM` under `temp_store = MEMORY` builds the new copy in
+  /// memory: it needs RAM roughly the size of the database. Under WAL the
+  /// compacted pages land in `-wal` and the main file keeps its old size, so
+  /// the run ends on a [checkpoint]: the file shrinks now, and the sidecar
+  /// does not stay the size of the whole database.
+  Future<void> optimize() async {
+    await vacuum();
+    await checkpoint();
+  }
+
+  /// The bytes a `VACUUM` would give back: the pages SQLite keeps free in
+  /// the file for later writes — chiefly what deleted note bodies held.
+  Future<int> reclaimableBytes() async {
+    final free = await customSelect('PRAGMA freelist_count').getSingle();
+    final size = await customSelect('PRAGMA page_size').getSingle();
+    return free.read<int>('freelist_count') * size.read<int>('page_size');
   }
 
   /// Folds the `-wal` sidecar back into the main file and truncates it, so a
@@ -459,10 +490,30 @@ void configureSqliteConnection(CommonDatabase database) {
   // page size. Contributed the least of the four; sized conservatively
   // because it is per-connection resident memory on a phone.
   database.execute('PRAGMA cache_size = -4000');
+  // Shrinks the WAL back after a checkpoint once a large transaction grew it.
+  database.execute(
+    'PRAGMA journal_size_limit = ${AppConstants.sqliteJournalSizeLimitBytes}',
+  );
+}
+
+/// Whether [_useAppCacheForSqliteTemp] has run in this process.
+bool _sqliteTempDirectorySet = false;
+
+/// Points SQLite's temporary files at the app's cache directory on Android,
+/// once, before any connection opens — the setting is process-wide. Android
+/// gives SQLite no writable default temp directory, so any statement that
+/// spills to a temp file (a `VACUUM INTO` under `temp_store = FILE`, a sort
+/// larger than memory allows) would fail there; the Drift documentation
+/// recommends exactly this.
+Future<void> _useAppCacheForSqliteTemp() async {
+  if (_sqliteTempDirectorySet || !Platform.isAndroid) return;
+  sqlite3.tempDirectory = (await getTemporaryDirectory()).path;
+  _sqliteTempDirectorySet = true;
 }
 
 LazyDatabase _openConnection(String databaseName) {
   return LazyDatabase(() async {
+    await _useAppCacheForSqliteTemp();
     final dbManager = await DatabaseManager.getInstance();
     final dbPath = await dbManager.getDatabasePath(databaseName);
     final file = File(dbPath);

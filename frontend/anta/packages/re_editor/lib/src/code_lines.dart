@@ -173,6 +173,20 @@ class CodeLines {
     return _charCountCache = total;
   }
 
+  /// Grapheme clusters in [asString] with chunks expanded: the lines'
+  /// cached counts plus one per line break, which no cluster ever spans.
+  /// A pause after an edit walks only the changed lines' text.
+  int get graphemeCount {
+    int total = 0;
+    for (final CodeLineSegment segment in segments) {
+      for (final CodeLine codeLine in segment.codeLines) {
+        total += codeLine.graphemeCount;
+      }
+    }
+    final int lines = lineCount;
+    return lines > 0 ? total + lines - 1 : total;
+  }
+
   /// The index of the segment holding line [index], by binary search over
   /// the prefix-sum index. Throws [RangeError] when [index] is out of the
   /// document.
@@ -430,6 +444,18 @@ class CodeLines {
 
   @visibleForTesting
   static int debugAsStringCalls = 0;
+
+  /// Seeds the joined-text cache with [text], which the caller vouches is
+  /// [asString] of these lines with [lineBreak], chunks expanded: a load
+  /// already holds the text it split, so the first read need not join it.
+  void seedAsString(String text, TextLineBreak lineBreak) {
+    _asStringCache1 = _asStringCache0;
+    _asStringCache1LineBreak = _asStringCache0LineBreak;
+    _asStringCache1ExpandChunks = _asStringCache0ExpandChunks;
+    _asStringCache0 = text;
+    _asStringCache0LineBreak = lineBreak;
+    _asStringCache0ExpandChunks = true;
+  }
 
   String asString(TextLineBreak lineBreak, [bool expandChunks = true]) {
     assert(() {

@@ -30,6 +30,17 @@ class EventAbsenceDao extends DatabaseAccessor<AppDatabase>
     )..where((a) => a.isDeleted.equals(false))).get();
   }
 
+  /// One event's live marks: the capture an event delete takes for its
+  /// Undo, a primary-key prefix read instead of every live mark.
+  Future<List<EventAbsenceRow>> getActiveForEvent(String eventId) {
+    return (select(eventAbsences)..where(
+          (a) =>
+              a.eventId.equals(eventId) &
+              const CustomExpression<bool>('is_deleted = 0'),
+        ))
+        .get();
+  }
+
   /// The same live rows as [getActive], narrowed to key + status — everything
   /// [EventPresenceService] keeps in memory, and nothing else.
   ///

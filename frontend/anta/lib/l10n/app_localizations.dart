@@ -3604,6 +3604,12 @@ abstract class AppLocalizations {
   /// **'In text'**
   String get inTextSection;
 
+  /// One line above full-search results while the note search index is still being built, so some matching notes may not be listed yet
+  ///
+  /// In en, this message translates to:
+  /// **'Still indexing notes — some may be missing'**
+  String get searchStillIndexing;
+
   /// Button to clear search history
   ///
   /// In en, this message translates to:
@@ -3850,23 +3856,17 @@ abstract class AppLocalizations {
   /// **'Optimizing database...'**
   String get optimizing;
 
-  /// Optimization complete message
+  /// Snackbar after Optimize on the Databases page: the free space inside the database file that the run gave back
   ///
   /// In en, this message translates to:
-  /// **'Database optimized successfully'**
-  String get optimizationComplete;
+  /// **'Freed {size}'**
+  String optimizeFreed(String size);
 
-  /// Saved suffix for size reduction
+  /// Snackbar after Optimize on the Databases page when the database file held no free space to give back
   ///
   /// In en, this message translates to:
-  /// **'saved'**
-  String get saved;
-
-  /// Message when no space was reclaimed
-  ///
-  /// In en, this message translates to:
-  /// **'database already optimized'**
-  String get alreadyOptimized;
+  /// **'Already compact'**
+  String get optimizeAlreadyCompact;
 
   /// Delete confirmation message
   ///
@@ -4384,6 +4384,30 @@ abstract class AppLocalizations {
   /// **'This file is not a valid database.'**
   String get invalidDatabaseFile;
 
+  /// Import dialog's second step, after the copy: the copied database file is being checked and can no longer be cancelled
+  ///
+  /// In en, this message translates to:
+  /// **'Checking the file...'**
+  String get checkingDatabaseFile;
+
+  /// Error when an imported database file fails its integrity check
+  ///
+  /// In en, this message translates to:
+  /// **'This database file is damaged and can\'t be imported.'**
+  String get databaseImportCorrupt;
+
+  /// Error when an imported file is a SQLite database from another app
+  ///
+  /// In en, this message translates to:
+  /// **'This file is not an ANTA database.'**
+  String get databaseImportNotAnta;
+
+  /// Error when an imported database was written by a newer version of the app
+  ///
+  /// In en, this message translates to:
+  /// **'This database is from a newer version of ANTA. Update the app to import it.'**
+  String get databaseImportTooNew;
+
   /// Dialog title for renaming database
   ///
   /// In en, this message translates to:
@@ -4497,6 +4521,42 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Couldn\'t optimize the database'**
   String get databaseOptimizeFailed;
+
+  /// Caption under the Optimize button on the Databases page: the free space inside the database file that optimizing would give back
+  ///
+  /// In en, this message translates to:
+  /// **'Reclaimable: {size}'**
+  String databaseReclaimable(String size);
+
+  /// Caption under the Optimize button on the Databases page when the free space inside the database file could not be read
+  ///
+  /// In en, this message translates to:
+  /// **'Reclaimable space unknown'**
+  String get databaseReclaimableUnknown;
+
+  /// Shown at launch, only while the database is being upgraded to a new app version
+  ///
+  /// In en, this message translates to:
+  /// **'Updating your data…'**
+  String get launchUpdatingData;
+
+  /// Shown at launch after Retry on the failed state, while the database is opened again
+  ///
+  /// In en, this message translates to:
+  /// **'Opening your data…'**
+  String get launchOpeningData;
+
+  /// Shown at launch when the database could not be opened or upgraded; the technical details follow it
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t open your data'**
+  String get launchOpenFailed;
+
+  /// Under the launch's failed state: what the user can do next. The app's own pages are out of reach while the database cannot open
+  ///
+  /// In en, this message translates to:
+  /// **'Try again, or restart the app. If this keeps happening, free up some storage space.'**
+  String get launchOpenFailedNext;
 
   /// Confirmation message for database deletion
   ///
@@ -7852,11 +7912,17 @@ abstract class AppLocalizations {
   /// **'Couldn\'t sync — will retry'**
   String get syncRetrying;
 
-  /// Sync status: the account's daily cloud quota ran out
+  /// Sync status: the account's daily cloud quota ran out and its reset has passed; sync tries again by itself
   ///
   /// In en, this message translates to:
-  /// **'Paused — today\'s sync limit is reached'**
+  /// **'Paused — daily limit reached'**
   String get syncPausedQuota;
+
+  /// Sync status: the account's daily cloud quota ran out; {time} is the local time of day it comes back
+  ///
+  /// In en, this message translates to:
+  /// **'Paused until {time} — daily limit reached'**
+  String syncPausedQuotaUntil(String time);
 
   /// Sync status: the database still syncs, but nobody is signed in
   ///
@@ -7888,11 +7954,17 @@ abstract class AppLocalizations {
   /// **'Not syncing'**
   String get drawerAccountNotSyncing;
 
-  /// Status line of the drawer's account row, short: the account's daily cloud quota ran out
+  /// Status line of the drawer's account row, short: the account's daily cloud quota ran out and its reset has passed
   ///
   /// In en, this message translates to:
-  /// **'Paused — daily limit reached'**
+  /// **'Paused — daily limit'**
   String get drawerSyncPausedQuota;
+
+  /// Status line of the drawer's account row, short: the account's daily cloud quota ran out; {time} is the local time of day it comes back
+  ///
+  /// In en, this message translates to:
+  /// **'Paused until {time}'**
+  String drawerSyncPausedQuotaUntil(String time);
 
   /// Status line of the drawer's account row, short: the signed-in account is not the one this database syncs with
   ///
@@ -7947,6 +8019,78 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'{count, plural, =1{1 held back} other{{count} held back}}'**
   String syncParkedCount(int count);
+
+  /// Why a row in the Sync page's held-back list was not sent: the cloud copy's rules refused it
+  ///
+  /// In en, this message translates to:
+  /// **'Refused by the cloud copy'**
+  String get syncHeldBackRefused;
+
+  /// Why a row in the Sync page's held-back list was not sent: it could not be encoded (too large, or a piece of its text is missing)
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t be prepared for sending'**
+  String get syncHeldBackUnencodable;
+
+  /// Why a note in the Sync page's held-back list was not applied: part of its text has not reached the cloud copy yet
+  ///
+  /// In en, this message translates to:
+  /// **'Waiting for its text'**
+  String get syncHeldBackAwaitingText;
+
+  /// Why a row in the Sync page's held-back list was not applied: its cloud copy could not be read by this app
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t be read from the cloud copy'**
+  String get syncHeldBackUnreadable;
+
+  /// Reason line of a held-back row that was deleted on this device: 'Deleted' then the reason. kind is note, folder, event, category, counter, template, view, filter, digest, vocabulary or other, for languages whose word agrees with the kind
+  ///
+  /// In en, this message translates to:
+  /// **'{kind, select, other{Deleted}} · {reason}'**
+  String syncHeldBackDeleted(String kind, String reason);
+
+  /// Title of a held-back row the Sync page cannot name, by its kind: anything but a note or a folder, or a note or folder this device has no copy of
+  ///
+  /// In en, this message translates to:
+  /// **'{kind, select, note{A note} folder{A folder} event{A calendar event} category{A calendar category} counter{A counter} template{An event template} view{A saved view} filter{A saved filter} digest{A digest} vocabulary{A vocabulary list} other{An item}}'**
+  String syncHeldBackKind(String kind);
+
+  /// Last row of the Sync page's held-back list, counting the rows not listed that are still held back now
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{And 1 more still held back} other{And {count} more still held back}}'**
+  String syncHeldBackMoreHeld(int count);
+
+  /// Last row of the Sync page's held-back list once none of the rows not listed is held back any more, counting them
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{The other one was synced} other{The other {count} were synced}}'**
+  String syncHeldBackMoreSynced(int count);
+
+  /// Replaces the reason of a held-back row that went through while the Sync page is open — sent, received or overtaken by a newer version; the row stays in place until the page is opened again. kind is note, folder, event, category, counter, template, view, filter, digest, vocabulary or other, for languages whose word agrees with the kind
+  ///
+  /// In en, this message translates to:
+  /// **'{kind, select, other{Synced}}'**
+  String syncHeldBackSynced(String kind);
+
+  /// Header of the Sync page's held-back list once none of its rows is held back any more, while the page stays open
+  ///
+  /// In en, this message translates to:
+  /// **'All synced'**
+  String get syncHeldBackAllDone;
+
+  /// Line under the Sync page's held-back header: the 'Sync now' row, quoted by its own label, retries the rows listed. One press retries the 100 oldest of each kind; the copy stays short
+  ///
+  /// In en, this message translates to:
+  /// **'“Sync now” tries these again.'**
+  String get syncHeldBackIntro;
+
+  /// Replaces the line under the Sync page's held-back header once none of its rows is held back any more, while the page stays open
+  ///
+  /// In en, this message translates to:
+  /// **'Nothing is held back any more.'**
+  String get syncHeldBackIntroDone;
 
   /// Row that runs a sync at once
   ///

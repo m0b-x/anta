@@ -676,7 +676,9 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage>
         // The external change is the one way a page below the bloc says the
         // store moved — told after a failure too, which may come once the
         // transaction committed; a reload over an untouched store is
-        // harmless.
+        // harmless. Un-flagged on purpose: a re-read failing after the wipe
+        // leaves the service's cache as it was before it (`lastLoadFailed`),
+        // and only the bloc's own read replaces it.
         CalendarEventService.notifyExternalChange();
       }
     }

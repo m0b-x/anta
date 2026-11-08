@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show debugPrint, visibleForTesting;
@@ -20,10 +21,12 @@ class FirestoreSyncGateway implements SyncGateway {
   static const int emulatorFirestorePort = QaMode.firebaseFirestorePort;
 
   /// Every call is bounded: the engine runs one request at a time, so a call
-  /// that never answers would hold every later run. Long enough for a full
-  /// batch of large notes over a slow link; a commit that lands after it is
-  /// pushed again, which writes the same documents. A backstop: offline, a
-  /// transaction fails on its own long before it.
+  /// that never answers would hold every later run. A page or a part that
+  /// outlasts it on a slow link comes back as
+  /// [SyncGatewayException.timedOut], and the engine asks for a smaller one
+  /// next (scalability record S10); a commit that lands after it is pushed
+  /// again, which writes the same documents. Offline, a transaction fails on
+  /// its own long before it.
   static const Duration _timeout = Duration(seconds: 60);
 
   /// What [_createdSpace] gets: short, because the failed [createSpace] it
@@ -141,12 +144,24 @@ class FirestoreSyncGateway implements SyncGateway {
   }, maxAttempts: attempts);
 
   @override
+  Duration get resumeOverlap => FirestoreSyncWire.pullOverlap;
+
+  @override
+  DateTime? cursorTime(SyncCursor cursor) {
+    final decoded = FirestoreSyncWire.tryDecodeCursor(cursor);
+    return decoded == null
+        ? null
+        : DateTime.fromMicrosecondsSinceEpoch(decoded.$1, isUtc: true);
+  }
+
+  @override
   Future<SyncPullPage> pullPage(
     SyncSpaceRef space,
     String table, {
     SyncCursor? after,
     int? limit,
     bool resumed = false,
+    SyncCursor? scan,
   }) {
     final take = limit ?? maxBatch;
     // A stored cursor no gateway of this kind wrote (a hand-edited or
@@ -162,28 +177,26 @@ class FirestoreSyncGateway implements SyncGateway {
       );
       from = null;
     }
+    final begin = FirestoreSyncWire.queryStart(
+      from,
+      resumed: resumed,
+      scan: scan,
+    );
     return _guard(() async {
       Query<Map<String, dynamic>> query = _space(
         space,
       ).collection(table).orderBy('pushedAt').orderBy(FieldPath.documentId);
-      if (start != null) {
-        final (micros, rowKey) = start;
-        query = resumed
-            ? query.where(
-                'pushedAt',
-                isGreaterThanOrEqualTo: Timestamp.fromMicrosecondsSinceEpoch(
-                  FirestoreSyncWire.overlapStart(micros),
-                ),
-              )
-            : query.startAfter([
-                Timestamp.fromMicrosecondsSinceEpoch(micros),
-                rowKey,
-              ]);
+      if (begin != null) {
+        final at = Timestamp.fromMicrosecondsSinceEpoch(begin.micros);
+        query = begin.overlap
+            ? query.where('pushedAt', isGreaterThanOrEqualTo: at)
+            : query.startAfter([at, begin.rowKey]);
       }
       final snapshot = await query
           .limit(take)
           .get(const GetOptions(source: Source.server));
       final envelopes = <SyncEnvelope>[];
+      final skipped = <String>[];
       var next = from;
       // The page's latest position in the cursor's own order — the query's
       // order, so the cursor cannot step back inside a page. Seeded with
@@ -192,6 +205,9 @@ class FirestoreSyncGateway implements SyncGateway {
       // cursor, and the page's own maximum would move it backwards (A7
       // review R137).
       SyncCursor? latest = from;
+      // The last position read in the query's order, the page's own maximum
+      // even where [latest] kept the cursor: where a re-read goes on.
+      SyncCursor? read;
       for (final doc in snapshot.docs) {
         final data = doc.data();
         final pushedAt = data['pushedAt'];
@@ -202,6 +218,7 @@ class FirestoreSyncGateway implements SyncGateway {
           pushedAt.microsecondsSinceEpoch,
           doc.id,
         );
+        read = position;
         if (latest == null ||
             FirestoreSyncWire.compareCursors(position, latest) > 0) {
           latest = next = position;
@@ -213,16 +230,62 @@ class FirestoreSyncGateway implements SyncGateway {
           debugPrint(
             '[FirestoreSyncGateway] skipped malformed $table/${doc.id}',
           );
+          skipped.add(doc.id);
           continue;
         }
         envelopes.add(envelope);
       }
+      final hasMore = snapshot.docs.length == take;
       return SyncPullPage(
         envelopes: envelopes,
         next: next,
-        hasMore: snapshot.docs.length == take,
+        hasMore: hasMore,
+        scan: FirestoreSyncWire.scanAfter(
+          from: from,
+          resumed: resumed,
+          full: hasMore,
+          read: read,
+        ),
+        skipped: skipped,
       );
     });
+  }
+
+  @override
+  Future<SyncPullPage> readRows(
+    SyncSpaceRef space,
+    String table,
+    List<String> rowKeys,
+  ) async {
+    final collection = _space(space).collection(table);
+    final envelopes = <SyncEnvelope>[];
+    final skipped = <String>[];
+    const step = SyncGateway.rowReadBatch;
+    for (var start = 0; start < rowKeys.length; start += step) {
+      final batch = rowKeys.skip(start).take(step);
+      final docs = await _guard(
+        () => Future.wait([
+          for (final key in batch)
+            collection.doc(key).get(const GetOptions(source: Source.server)),
+        ]),
+      );
+      for (final doc in docs) {
+        final data = doc.data();
+        if (data == null) continue;
+        final envelope = FirestoreSyncWire.envelopeOf(table, doc.id, data);
+        if (envelope == null) {
+          skipped.add(doc.id);
+        } else {
+          envelopes.add(envelope);
+        }
+      }
+    }
+    return SyncPullPage(
+      envelopes: envelopes,
+      next: null,
+      hasMore: false,
+      skipped: skipped,
+    );
   }
 
   @override
@@ -342,7 +405,8 @@ class FirestoreSyncGateway implements SyncGateway {
                 listener.add(_signalOf(snapshot.data()));
               }
             },
-            onError: (Object error) => listener.addError(_mapError(error)),
+            onError: (Object error) =>
+                listener.addError(FirestoreSyncWire.errorOf(error)),
             onDone: listener.close,
           );
       listener.onCancel = subscription.cancel;
@@ -407,36 +471,8 @@ class FirestoreSyncGateway implements SyncGateway {
     } on ArgumentError {
       rethrow;
     } catch (error) {
-      throw _mapError(error);
+      throw FirestoreSyncWire.errorOf(error);
     }
-  }
-
-  SyncGatewayException _mapError(Object error) => switch (error) {
-    SyncGatewayException() => error,
-    FirebaseException(:final code, :final message) => _firebaseFailure(
-      code,
-      message,
-    ),
-    TimeoutException() => const SyncGatewayException(
-      SyncGatewayFailure.offline,
-      'timed out',
-    ),
-    _ => SyncGatewayException(SyncGatewayFailure.unknown, '$error'),
-  };
-
-  SyncGatewayException _firebaseFailure(String code, String? message) {
-    // Retried like any unknown failure, so without its own line a query
-    // missing its index would fail quietly forever.
-    if (code == 'failed-precondition') {
-      debugPrint(
-        '[FirestoreSyncGateway] failed-precondition, possibly a missing '
-        'index: $message',
-      );
-    }
-    return SyncGatewayException(
-      FirestoreSyncWire.failureOf(code),
-      message ?? code,
-    );
   }
 }
 
@@ -449,6 +485,70 @@ abstract final class FirestoreSyncWire {
   /// time a write was received, and a write received earlier can commit
   /// after a query that already ran (record §3.3).
   static const Duration pullOverlap = Duration(seconds: 10);
+
+  /// What a failed call raises. A call past the gateway's 60 s deadline, or
+  /// past the server's (`deadline-exceeded`), is
+  /// [SyncGatewayException.timedOut]: still offline to the engine, which
+  /// also asks for a smaller page or part next (scalability record S10).
+  static SyncGatewayException errorOf(Object error) => switch (error) {
+    SyncGatewayException() => error,
+    FirebaseException(:final code, :final message) => _firebaseFailure(
+      code,
+      message,
+    ),
+    TimeoutException() => const SyncGatewayException.timedOut(),
+    _ => SyncGatewayException(SyncGatewayFailure.unknown, '$error'),
+  };
+
+  static SyncGatewayException _firebaseFailure(String code, String? message) {
+    // Retried like any unknown failure, so without its own line a query
+    // missing its index would fail quietly forever.
+    if (code == 'failed-precondition') {
+      debugPrint(
+        '[FirestoreSyncGateway] failed-precondition, possibly a missing '
+        'index: $message',
+      );
+    }
+    // The server's own deadline on a long query or commit: the same page or
+    // part retried unchanged would meet it again.
+    if (code == 'deadline-exceeded') {
+      return SyncGatewayException.timedOut(message ?? code);
+    }
+    return SyncGatewayException(failureOf(code), message ?? code);
+  }
+
+  /// Where a page's query starts, from the cursor [after] — null for the
+  /// table's start. A resumed page re-reads from [pullOverlap] before it
+  /// (`overlap`: `pushedAt >=` the time) unless [scan] says how far that
+  /// re-read already got; otherwise the page starts strictly after the
+  /// position.
+  static ({int micros, String rowKey, bool overlap})? queryStart(
+    SyncCursor? after, {
+    required bool resumed,
+    SyncCursor? scan,
+  }) {
+    final start = tryDecodeCursor(after);
+    if (start == null) return null;
+    if (!resumed) return (micros: start.$1, rowKey: start.$2, overlap: false);
+    final goesOn = tryDecodeCursor(scan);
+    if (goesOn != null) {
+      return (micros: goesOn.$1, rowKey: goesOn.$2, overlap: false);
+    }
+    return (micros: overlapStart(start.$1), rowKey: '', overlap: true);
+  }
+
+  /// A resumed page's [SyncPullPage.scan]: the position it [read] last when
+  /// it was [full] and still before [from], the cursor it resumed from —
+  /// the window holds more, and the re-read goes on from there.
+  static SyncCursor? scanAfter({
+    required SyncCursor? from,
+    required bool resumed,
+    required bool full,
+    required SyncCursor? read,
+  }) {
+    if (!resumed || !full || from == null || read == null) return null;
+    return compareCursors(read, from) < 0 ? read : null;
+  }
 
   /// `<pushedAt micros>|<rowKey>`. A row key may itself hold `|`
   /// (`counterId|noteId`), so the micros come first and the first `|` ends
@@ -505,7 +605,9 @@ abstract final class FirestoreSyncWire {
 
   /// A row's document. `data` is always present — null for a tombstone — and
   /// [serverTime] (Firestore's server-timestamp sentinel) stamps `pushedAt`,
-  /// which the rules require to be the request's time.
+  /// which the rules require to be the request's time. A bytes field of
+  /// `data` (a chunk's `gz`) is written as a [Blob], Firestore's own binary
+  /// type, a quarter smaller than base64 text and what the rules check.
   static Map<String, Object?> documentOf(
     SyncEnvelope envelope, {
     required String pushedBy,
@@ -516,10 +618,21 @@ abstract final class FirestoreSyncWire {
     'version': envelope.version,
     'op': envelope.op.name,
     'ownerId': envelope.ownerId,
-    'data': envelope.data,
+    'data': _mapValues(envelope.data, (v) => v is Uint8List ? Blob(v) : v),
     'pushedAt': serverTime,
     'pushedBy': pushedBy,
   };
+
+  /// [data] with each top-level value passed through [map].
+  static Map<String, Object?>? _mapValues(
+    Map<Object?, Object?>? data,
+    Object? Function(Object? value) map,
+  ) => data == null
+      ? null
+      : {
+          for (final MapEntry(:key, :value) in data.entries)
+            key as String: map(value),
+        };
 
   /// The row document as an envelope, or null when its shape is not one
   /// [documentOf] writes.
@@ -551,7 +664,7 @@ abstract final class FirestoreSyncWire {
       version: version.toInt(),
       op: op,
       ownerId: ownerId,
-      data: data == null ? null : Map<String, Object?>.from(data as Map),
+      data: _mapValues(data as Map?, (v) => v is Blob ? v.bytes : v),
     );
   }
 
@@ -559,6 +672,12 @@ abstract final class FirestoreSyncWire {
   /// [tables] as a nested map — a merge-set deep-merges maps, while a dotted
   /// key would be a field name with dots in it — the writer and this build's
   /// [schema], which the rules refuse when lower than the stored one.
+  ///
+  /// `touched` must be [serverTime], written in the transaction that writes
+  /// the rows' `pushedAt`, never a client clock: the engine reads the latest
+  /// `touched` as the server clock (`server_seen`) and skips a table's
+  /// overlap re-read on it (scalability record S9), so a client time ahead
+  /// of the server would mark a table settled while writes can still land.
   static Map<String, Object?> spaceMergeOf(
     Set<String> tables, {
     required String pushedBy,

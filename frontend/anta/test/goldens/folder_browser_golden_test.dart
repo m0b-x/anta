@@ -96,10 +96,7 @@ void main() {
     GetIt.I.registerSingleton<AuthService>(NoOpAuthService());
 
     folderBloc = OptimizedFolderBloc(storageService: folderService);
-    noteBloc = OptimizedNoteBloc(
-      storageService: noteService,
-      searchService: searchService,
-    );
+    noteBloc = OptimizedNoteBloc(storageService: noteService);
     exportBloc = ImportExportBloc(
       service: ImportExportService(
         noteStorage: noteService,

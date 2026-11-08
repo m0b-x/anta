@@ -15,8 +15,16 @@ import '../widgets/note_editor_chrome.dart';
 /// ([MarkdownConstants.contentChangeDeltaThreshold]) updates at once —
 /// that is the change a reader would notice the bar failing to reflect.
 class NoteEditorStatsTracker {
-  NoteEditorStatsTracker({required NoteEditorStats Function() snapshot})
-    : _snapshot = snapshot;
+  /// [isShown] says whether the stats bar is on screen: while it is not,
+  /// an edit only marks the counts stale, and [resume] counts once when
+  /// the bar comes back.
+  NoteEditorStatsTracker({
+    required NoteEditorStats Function() snapshot,
+    bool Function()? isShown,
+  }) : _snapshot = snapshot,
+       _isShown = isShown ?? _alwaysShown;
+
+  static bool _alwaysShown() => true;
 
   /// How long the bar may lag behind a run of ordinary keystrokes.
   static const Duration debounceDelay = Duration(milliseconds: 300);
@@ -25,7 +33,14 @@ class NoteEditorStatsTracker {
   /// a letter with a combining mark is one, where code units made `👍` two.
   /// It walks the whole text, so it belongs in the snapshot, which runs
   /// only after the debounce or for a paste-sized change, never per key.
+  /// The editor counts per line instead (`CodeLines.graphemeCount`), to
+  /// the same number.
   static int countCharacters(String text) => text.characters.length;
+
+  final bool Function() _isShown;
+
+  /// An edit landed while the bar was hidden and has not been counted.
+  bool _stale = false;
 
   final NoteEditorStats Function() _snapshot;
   final ValueNotifier<NoteEditorStats> _stats = ValueNotifier<NoteEditorStats>(
@@ -50,14 +65,31 @@ class NoteEditorStatsTracker {
     if (_disposed) return;
     _debounce?.cancel();
     _debounce = null;
+    _stale = false;
     _lastTextLength = _latestTextLength = textLength;
     _stats.value = value;
+  }
+
+  /// [set] for content that landed while the bar is hidden: takes the
+  /// baseline without counting, and [resume] counts when the bar returns.
+  void markStale({required int textLength}) {
+    if (_disposed) return;
+    _debounce?.cancel();
+    _debounce = null;
+    _stale = true;
+    _lastTextLength = _latestTextLength = textLength;
   }
 
   /// The editor's text changed and now holds [textLength] code units.
   void onTextChanged(int textLength) {
     if (_disposed) return;
     _latestTextLength = textLength;
+    if (!_isShown()) {
+      _debounce?.cancel();
+      _debounce = null;
+      _stale = true;
+      return;
+    }
     final delta = (textLength - _lastTextLength).abs();
     if (delta > MarkdownConstants.contentChangeDeltaThreshold) {
       refresh();
@@ -70,11 +102,18 @@ class NoteEditorStatsTracker {
     });
   }
 
+  /// The bar is on screen again: counts now if an edit landed while it was
+  /// hidden, so it never shows the numbers from before.
+  void resume() {
+    if (_stale) refresh();
+  }
+
   /// Counts now and publishes the result, dropping any pending debounce.
   void refresh() {
     if (_disposed) return;
     _debounce?.cancel();
     _debounce = null;
+    _stale = false;
     final value = _snapshot();
     _lastTextLength = _latestTextLength;
     _stats.value = value;

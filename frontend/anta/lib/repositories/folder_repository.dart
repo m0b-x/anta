@@ -3,6 +3,7 @@ import '../database/database.dart';
 import '../database/daos/folder_dao.dart';
 import '../models/folder_change.dart';
 import '../models/item_label.dart';
+import '../models/movable_item.dart';
 import '../constants/app_constants.dart';
 import '../utils/restartable_stream.dart';
 
@@ -409,54 +410,68 @@ class FolderRepository {
     return _folderDao.getNoteCountWithDescendants(folderId);
   }
 
-  /// Reorder folders within a parent
-  Future<void> reorderFolders({
-    String? parentId,
-    required List<String> orderedIds,
+  /// Moves a whole selection under [targetParentId] through
+  /// [FolderDao.moveFolders], then announces only the folders that moved —
+  /// read back in one statement, their events back to back, so the browser's
+  /// per-tick refresh reads each parent once.
+  Future<BulkMoveResult> moveFolders({
+    required List<String> folderIds,
+    required String? targetParentId,
   }) async {
-    await _folderDao.reorderFolders(parentId: parentId, orderedIds: orderedIds);
-    _invalidateParentCache(parentId);
+    final result = await _folderDao.moveFolders(folderIds, targetParentId);
+    if (result.moved.isEmpty) return result;
 
-    // Emit change events for all reordered folders
-    for (final folderId in orderedIds) {
-      final folder = await getFolderById(folderId, forceRefresh: true);
-      if (folder != null) {
-        _folderChangesController.add(
-          FolderChange(
-            type: FolderChangeType.updated,
-            folderId: folderId,
-            parentId: parentId,
-            folder: _folderCache[folderId],
-          ),
-        );
-      }
+    final moved = await _folderDao.getFoldersByIds(result.moved.keys.toList());
+    _invalidateParentCache(targetParentId);
+    for (final source in result.moved.values.toSet()) {
+      _invalidateParentCache(source);
     }
+    for (final folder in moved) {
+      _folderCache[folder.id] = folder;
+      _folderChangesController.add(
+        FolderChange(
+          type: FolderChangeType.moved,
+          folderId: folder.id,
+          parentId: targetParentId,
+          sourceParentId: result.moved[folder.id],
+          folder: folder,
+        ),
+      );
+    }
+    _trimFolderCache();
+    return result;
   }
 
-  /// Write explicit positions for a set of folders. Differs from
-  /// [reorderFolders] in that the caller controls the position values
-  /// (the dense 0..N range produced by [reorderFolders] cannot represent
-  /// folders interleaved with notes).
-  Future<void> setFolderPositions({
-    String? parentId,
-    required Map<String, int> positionByFolderId,
+  /// Writes the custom order a drag left under [parentId] through
+  /// [FolderDao.applyOrder] and announces only the folders whose position
+  /// changed, read back in one statement, for the reason [moveFolders] gives.
+  Future<void> applyOrder({
+    required String? parentId,
+    required List<String> loadedOrder,
+    required bool descending,
+    bool windowAtTop = false,
   }) async {
-    if (positionByFolderId.isEmpty) return;
-    await _folderDao.setFolderPositions(positionByFolderId);
+    final changed = await _folderDao.applyOrder(
+      parentId: parentId,
+      loadedOrder: loadedOrder,
+      descending: descending,
+      windowAtTop: windowAtTop,
+    );
     _invalidateParentCache(parentId);
-    for (final folderId in positionByFolderId.keys) {
-      final folder = await getFolderById(folderId, forceRefresh: true);
-      if (folder != null) {
-        _folderChangesController.add(
-          FolderChange(
-            type: FolderChangeType.updated,
-            folderId: folderId,
-            parentId: parentId,
-            folder: _folderCache[folderId],
-          ),
-        );
-      }
+    if (changed.isEmpty) return;
+    final folders = await _folderDao.getFoldersByIds(changed);
+    for (final folder in folders) {
+      _folderCache[folder.id] = folder;
+      _folderChangesController.add(
+        FolderChange(
+          type: FolderChangeType.updated,
+          folderId: folder.id,
+          parentId: parentId,
+          folder: folder,
+        ),
+      );
     }
+    _trimFolderCache();
   }
 
   /// Update sort preferences for a folder

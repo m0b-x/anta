@@ -7,7 +7,7 @@ description: The rulebook and file map for ANTA's calendar, events and alerts - 
 
 ## Hardest constraints
 
-- **The ten calendar services are lazy** (`EventDigestService` since v42, `CategoryProfileService` since v44): `await X.getInstance()`, never `GetIt.I<>`; `CalendarBloc._onLoad` awaits all ten in one wrapped `Future.wait` and **only then emits `CalendarPageLoaded`**; other facade readers live under it or await the owner.
+- **The ten calendar services are lazy** (`EventDigestService` since v42, `CategoryProfileService` since v44): `await X.getInstance()`, never `GetIt.I<>`; `CalendarBloc._onLoad` awaits all ten in one wrapped `Future.wait` and **only then emits `CalendarPageLoaded`**; other facade readers live under it or await the owner. A `getInstance()` never hands out a half-built instance or one from a dead generation (`_creating`, S14).
 - `TableCalendar.eventLoader` is `CalendarBloc.eventsForDay`: memoized per day, pure O(1). Never dispatch, call a service or expand a recurrence inside it.
 - A handler changing events or filters calls `_invalidateDayCache()` in its emit's synchronous turn, after the last await; never a day / focus / format handler. Async handlers re-read `state` after the last await.
 - A re-load copies `CalendarPageLoaded` (`selectedDay`, `focusedDay`, `format`, `selectionSource`) and bumps `membershipRevision`.
@@ -56,6 +56,7 @@ Chain: `references/schema-lineage.md`. Rules for every version:
 ## Bloc, caches, revisions
 
 - `_syncGenerations` heads **both** `eventsForDay` and `monthNetFor`; holiday revisions are a **generation** (drop the cache, never widen the key).
+- Range scans, the filtered memo's out-of-window days and every `allEventsForDay` miss (inside the window too) narrow through `EventWindowIndex` (recurring + the touched months' one-time events, list order; it never decides occurrence); the day memos evict only the oldest day outside the window past `CalendarCacheLimits.maxDayCacheEntries`. Never mutate an event list after handing it out: the index is memoised per list instance.
 - `CalendarPageLoading` is **never emitted**; `_didInitialLoad` gates the first load only.
 - Never inline the `monthNetFor` scan into `headerTitleBuilder`. `loadContentForNotes`: absent = unreadable, `''` = empty; never `?? ''`.
 - Descriptions and presence bump `occurrenceRevision` (agenda never rescans), presence also `presenceRevision`; skips and reloads `membershipRevision`.
@@ -218,6 +219,7 @@ Chain: `references/schema-lineage.md`. Rules for every version:
 - **Never arm over a ringing or due entry** (`_reconcile`); while any ring runs a past-due row stays in flight.
 - A pass cancels a `fired` row's entry only if it settled it; a fire never takes a ringing or `fired` id.
 - No scheduling pass calls `AppDatabase.getInstance()`. **Stop decides the removal at the press and may only narrow it**.
+- The `_nothingCanArm()` fast path serves `launch` and `resumed` only; a registry hard delete that removed rows writes `alert_strays_pending` in its own transaction.
 - After a Keep, take remove-after from the bloc's copy (`afterKeep`).
 - `AppNavigator.toCalendar` is a normal push; options only on `CalendarSettingsPage`; no `AppLocalizations.byKey`.
 - The ⋮ of the calendar and the overview is one `CalendarOverflowMenu`: Alerts · Export · divider · the guide (`CalendarGuidePage`, `AppNavigator.toCalendarGuide`, a stamped `NavDestinationKind.calendarGuide`, no reload on return) · Calendar settings **last**. The guide quotes labels through ARB placeholders (`“{save}”` ← `l10n.save`), never retyped; a new row is a slug + icon + the three languages in one change (`docs/calendar-guide-page.md` D1–D12).

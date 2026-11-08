@@ -70,6 +70,14 @@ OptimizedNoteEditorPage
 
 No per-keystroke string copies, synchronous DB writes, or expensive rebuilds on the typing path. Auto-save (`auto_save_service.dart`) debounce/interval/lifecycle-flush/retry behavior must stay reliable. Adaptive chunk sizing lives in `MarkdownChunker.adaptiveChunkSize` (cap 100), applied by the render service.
 
+Per save and per pause (scalability S5, 2026-11-08):
+
+- A save does no derived work: no search re-index (the body index drains before the next search), no ledger fold (`NoteMoneyLedgerService` refolds dirty notes after `AppConstants.ledgerRefoldDebounce`, 1 s), and the chunk write is planned by hash (`drift-migrations/references/persistence-rules.md`).
+- The note's capped `preview` reads lines lazily and stops once the collapsed output passes the cap; a front-matter or rule first line never forces a whole split.
+- The stats tracker counts nothing while the bar is hidden (`NoteEditorStatsTracker.markStale` / `resume`); its grapheme count is the fork's per-line cache (`references/re-editor-fork.md`).
+- `NoteRepository`'s content cache is weighted (`LruCache` `maxWeight`/`weigh`): `AppConstants.maxContentCacheCodeUnits` (8 Mi code units) beside the 50-entry cap, the newest entry never evicted; `didHaveMemoryPressure` in `main.dart` calls `invalidateAll()`.
+- A first load above `AppConstants.asyncLineBuildThreshold` (256 K code units) builds its lines with the fork's `codeLinesAsync` (a failed split falls back to the synchronous load); a remote merge announced during that await is remembered and replayed through the normal remote path once the load lands.
+
 ## References
 
 | File | Holds | Read when |

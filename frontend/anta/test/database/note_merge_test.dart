@@ -1,10 +1,13 @@
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:anta/database/chunking/body_cut.dart';
 import 'package:anta/database/crdt/hlc.dart';
 import 'package:anta/database/crdt/merge_outcome.dart';
 import 'package:anta/database/daos/sync_dao.dart';
 import 'package:anta/database/database.dart';
 
+import '../services/support/body_index_support.dart';
+import '../support/scale_fixtures.dart';
 import 'support/db_test_support.dart';
 import 'support/merge_contract.dart';
 
@@ -68,15 +71,19 @@ void main() {
       markerColumn: 'title',
       markerValue: 'Pulled',
       mergedContent: remoteBody,
+      keptRemoteLoses: true,
     ),
     db: () => db,
     statements: () => statements,
   );
 
   group('the body', () {
+    // 20 KiB of one letter finds no cut point, so it is cut once, after the
+    // 8,192 target, into two chunks (before S4: 14 KiB in two 10,000
+    // slices).
     test('a winning remote replaces the chunks with its text', () async {
       final local = await seed(body: 'old text');
-      final long = 'x' * 14 * 1024;
+      final long = 'x' * 20 * 1024;
 
       await merge(remote(local.id, newerHlc), body: long);
 
@@ -90,15 +97,68 @@ void main() {
       }
     });
 
-    test('an inserted note gets its chunks, and none are queued', () async {
+    // Before S4 every chunk was rewritten under the remote's stamps; now a
+    // chunk whose text the remote body still holds is kept with its own, and
+    // only the chunks the merge wrote carry the remote's.
+    test('a winning remote writes only the chunks whose text changed, under '
+        'its stamps', () async {
+      final text = bigBody(60000);
+      final local = await seed(body: text);
+      final before = {
+        for (final c in await db.contentChunkDao.getChunksForNote(local.id))
+          c.id: c,
+      };
+      final edited = editNearTop(text);
+
+      await merge(remote(local.id, newerHlc), body: edited);
+
+      expect(await db.contentChunkDao.loadContent(local.id), edited);
+      final chunks = await db.contentChunkDao.getChunksForNote(local.id);
+      final written = chunks.where((c) => !before.containsKey(c.id)).toList();
+      expect(written, isNotEmpty);
+      expect(written.length, lessThan(chunks.length));
+      for (final chunk in written) {
+        expect(chunk.hlcTimestamp, newerHlc);
+        expect(chunk.deviceId, 'remote');
+        expect(chunk.version, 7);
+      }
+      for (final chunk in chunks.where((c) => before.containsKey(c.id))) {
+        expect(chunk.hlcTimestamp, before[chunk.id]!.hlcTimestamp);
+      }
+      final row = (await db.noteDao.getNoteById(local.id))!;
+      expect(row.chunkCount, chunks.length);
+    });
+
+    // A pull hands every note it reads to the merge, the echo of this
+    // device's own push among them: cutting the body is a SHA-256 over all of
+    // it, paid only by a merge that stores it.
+    test('a remote kept local or unchanged is never cut', () async {
+      final local = await seed(body: 'kept');
+      final cuts = BodyCut.cutCount;
+
+      await merge(remote(local.id, olderHlc), body: bigBody(100000));
+      await merge(remote(local.id, local.hlcTimestamp), body: 'kept');
+
+      expect(BodyCut.cutCount, cuts);
+      expect(await db.contentChunkDao.loadContent(local.id), 'kept');
+    });
+
+    test('an inserted note gets its chunks, queued as chunks, and the note '
+        'itself is not queued', () async {
       await merge(remote('pulled', newerHlc));
 
       expect(await db.contentChunkDao.loadContent('pulled'), remoteBody);
-      expect(await db.syncOutboxDao.count(), 0);
+      expect(
+        {
+          for (final entry in await db.syncOutboxDao.pending())
+            entry.syncedTable,
+        },
+        {'content_chunks'},
+      );
     });
 
     test('the columns describing the body come from the body', () async {
-      final long = 'y' * 14 * 1024;
+      final long = 'y' * 20 * 1024;
 
       await merge(remote('pulled', newerHlc), body: long);
 
@@ -119,7 +179,8 @@ void main() {
       expect(await db.contentChunkDao.loadContent(local.id), '');
     });
 
-    test('a tombstone tombstones the chunks under the remote stamp', () async {
+    test('a tombstone deletes the chunks and keeps the note\'s tombstone '
+        '(D13)', () async {
       final local = await seed(body: 'gone text');
       final queued = await db.syncOutboxDao.count();
 
@@ -128,12 +189,7 @@ void main() {
       final chunks = await (db.select(
         db.contentChunks,
       )..where((c) => c.noteId.equals(local.id))).get();
-      expect(chunks, isNotEmpty);
-      for (final chunk in chunks) {
-        expect(chunk.isDeleted, isTrue);
-        expect(chunk.hlcTimestamp, newerHlc);
-        expect(chunk.deviceId, 'remote');
-      }
+      expect(chunks, isEmpty);
       expect(await db.contentChunkDao.loadContent(local.id), '');
       final row = (await db.noteDao.getNoteById(local.id))!;
       expect(row.isDeleted, isTrue);
@@ -160,26 +216,24 @@ void main() {
 
       await merge(remote(local.id, newerHlc));
 
-      final found = await db.noteDao.fullTextSearch('Pulled');
-      expect(found.map((n) => n.id), [local.id]);
-      expect(await db.noteDao.fullTextSearch('Squat'), isEmpty);
+      expect(await indexedHits(db, 'Pulled'), [local.id]);
+      expect(await indexedHits(db, 'Squat'), isEmpty);
     });
 
     test('a tombstone leaves it, a resurrection returns to it', () async {
       final local = await seed(title: 'Squat log');
 
       await merge(remote(local.id, 'ffffffffffff:0000:remote', deleted: true));
-      expect(await db.noteDao.fullTextSearch('Squat'), isEmpty);
+      expect(await indexedHits(db, 'Squat'), isEmpty);
 
       await merge(remote(local.id, newerHlc));
-      final found = await db.noteDao.fullTextSearch('Pulled');
-      expect(found.map((n) => n.id), [local.id]);
+      expect(await indexedHits(db, 'Pulled'), [local.id]);
     });
 
     test('a note inserted as a tombstone is not indexed', () async {
       await merge(remote('pulled', newerHlc, deleted: true));
 
-      expect(await db.noteDao.fullTextSearch('Pulled'), isEmpty);
+      expect(await indexedHits(db, 'Pulled'), isEmpty);
     });
   });
 
@@ -603,14 +657,22 @@ void main() {
     });
   });
 
-  test('no chunk ever reaches the outbox', () async {
-    final local = await seed();
+  // Each chunk is its own document since S6: a merged body's new chunk texts
+  // are queued under the merged stamp, so a later manifest of this device
+  // never names a chunk the space lacks.
+  test(
+    'a merge queues the chunks its body brought, and never the note',
+    () async {
+      final local = await seed();
 
-    await merge(remote(local.id, newerHlc), body: 'z' * 25000);
+      await merge(remote(local.id, newerHlc), body: 'z' * 25000);
 
-    final queued = await (db.select(
-      db.syncOutbox,
-    )..where((o) => o.syncedTable.equals('content_chunks'))).get();
-    expect(queued, isEmpty);
-  });
+      final queued = await db.syncOutboxDao.pending();
+      expect(queued.where((e) => e.syncedTable == 'notes'), isEmpty);
+      expect({
+        for (final entry in queued)
+          if (entry.hlc == newerHlc) entry.rowKey,
+      }, (await db.contentChunkDao.hashesOf(local.id)).toSet());
+    },
+  );
 }

@@ -259,7 +259,7 @@ class _ReportViewState extends State<_ReportView>
     if (!mounted) return;
     _keepsHeard++;
     if (!AlertKeepNotice.instance.hasPending) return;
-    context.read<CalendarBloc>().add(const LoadCalendarEvents());
+    context.read<CalendarBloc>().add(const RefreshCalendarView());
   }
 
   @override
@@ -295,14 +295,15 @@ class _ReportViewState extends State<_ReportView>
 
   void _blur() => FocusManager.instance.primaryFocus?.unfocus();
 
-  /// Calendar settings can delete a category, which reassigns its events
-  /// behind the service's cache without a revision, so the events reload
-  /// after the trip — as the calendar and the overview do.
+  /// Calendar settings can delete a category, which reassigns its events in
+  /// SQL and refreshes the service's cache before its route pops, so the
+  /// trip ends in a re-emit of that cache — as the calendar and the overview
+  /// do.
   Future<void> _openSettings() async {
     final calendar = context.read<CalendarBloc>();
     await AppNavigator.toCalendarSettings(context);
     if (!mounted) return;
-    calendar.add(const LoadCalendarEvents());
+    calendar.add(const RefreshCalendarView(refreshLedger: true));
   }
 
   /// One export at a time, the share's included (D46): share_plus answers a

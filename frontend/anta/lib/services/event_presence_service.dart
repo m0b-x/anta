@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:drift/drift.dart' show Value;
 import 'package:flutter/foundation.dart';
 
@@ -49,13 +51,31 @@ class EventPresenceService {
     return _create(db);
   }
 
-  static Future<EventPresenceService> _create(AppDatabase db) async {
-    final service = EventPresenceService._();
-    service._dao = db.eventAbsenceDao;
-    await service._load();
-    _instance = service;
-    DatabaseLifecycle.registerResetHandler(reset);
-    return service;
+  /// The construction [_create] has in flight, so concurrent callers share
+  /// one load and an event delete can patch an instance still reading the
+  /// table instead of missing it.
+  static Future<EventPresenceService>? _creating;
+
+  static Future<EventPresenceService> _create(AppDatabase db) {
+    final existing = _instance;
+    if (existing != null) return Future.value(existing);
+    final pending = _creating;
+    if (pending != null) return pending;
+    final completer = Completer<EventPresenceService>();
+    final creating = _creating = completer.future;
+    completer.complete(() async {
+      try {
+        final service = EventPresenceService._();
+        service._dao = db.eventAbsenceDao;
+        await service._load();
+        _instance = service;
+        DatabaseLifecycle.registerResetHandler(reset);
+        return service;
+      } finally {
+        if (identical(_creating, creating)) _creating = null;
+      }
+    }());
+    return creating;
   }
 
   /// Drops the cached singleton and clears the static facade, so marks from a
@@ -63,7 +83,54 @@ class EventPresenceService {
   /// [getInstance] republishes. Invoked by [DatabaseLifecycle].
   static void reset() {
     _instance = null;
+    _creating = null;
     EventPresence.resetCache();
+  }
+
+  /// The live instance, or the one [_create] is still reading; never a new
+  /// one — with neither, nothing is published, and the next [getInstance]
+  /// reads the table as the caller's write left it.
+  static Future<EventPresenceService?> _liveOrCreating() async {
+    final pending = _creating;
+    if (_instance != null || pending == null) return _instance;
+    try {
+      // A reset while it was awaited retired it: its marks must not reach
+      // the facade the reset cleared.
+      final built = await pending;
+      return identical(_instance, built) ? built : null;
+    } catch (_) {
+      // The construction's failure is its own caller's to report.
+      return null;
+    }
+  }
+
+  /// Drops [eventId]'s marks from the facade after the event's delete
+  /// tombstoned them in its own transaction — that event alone, where the
+  /// whole table used to be read again for one delete.
+  static Future<void> forgetEvent(String eventId) async =>
+      (await _liveOrCreating())?._patchEvent(eventId, null);
+
+  /// Adds [eventId]'s [marks] back after `restoreCascade` revived them, from
+  /// the set it was handed rather than a read.
+  static Future<void> restoreEvent(
+    String eventId,
+    Map<DateTime, PresenceStatus> marks,
+  ) async => (await _liveOrCreating())?._patchEvent(eventId, {
+    for (final MapEntry(key: day, value: status) in marks.entries)
+      _dateOnlyUtc(day): status,
+  });
+
+  /// One event's marks dropped ([marks] null) or added to. Counted as a
+  /// write, so a load whose rows may predate the cascade reads again rather
+  /// than publishing them over this.
+  void _patchEvent(String eventId, Map<DateTime, PresenceStatus>? marks) {
+    _writes++;
+    if (marks == null) {
+      _byEvent.remove(eventId);
+    } else if (marks.isNotEmpty) {
+      (_byEvent[eventId] ??= <DateTime, PresenceStatus>{}).addAll(marks);
+    }
+    _publishFor(eventId);
   }
 
   /// Mutable working copy behind the published facade. Single-day mutations

@@ -1,6 +1,7 @@
 import 'dart:collection';
 
 import 'package:equatable/equatable.dart';
+import 'package:flutter/foundation.dart' show visibleForTesting;
 
 import '../constants/analytics_metrics.dart';
 import '../constants/calendar_bounds.dart';
@@ -161,6 +162,12 @@ class CalendarReportService {
   /// is a Bill (M1) — the cost seam that proves a memo hit and a cached
   /// window scan nothing.
   int get scanCount => _scanCount;
+
+  /// Walks of the scoped events that group them by category, across every
+  /// service — the cost seam that proves the lookbacks group once per scope
+  /// however many categories read one. Counted in debug builds only.
+  @visibleForTesting
+  static int debugCategoryGroupings = 0;
 
   /// Drops the memo and the lookbacks; [foldCount] and [scanCount] keep
   /// counting.
@@ -660,10 +667,7 @@ class CalendarReportService {
   ) {
     if (to.isBefore(from)) return const [];
     final occurrences = EventAgenda.occurrencesInRange(
-      events: [
-        for (final event in scoped.byId.values)
-          if (scoped.categoryOf[event.id] == categoryId) event,
-      ],
+      events: scoped.byCategory[categoryId] ?? const [],
       from: from,
       to: to,
     );
@@ -975,7 +979,23 @@ final class _Scoped {
   final Map<DateTime, PresenceStatus> Function(String eventId) marksFor;
   final Set<DateTime> Function(String eventId) skipsFor;
 
-  const _Scoped({
+  /// The events in scope per resolved category, in [byId]'s order — grouped
+  /// once, on the first lookback, so a report whose categories each read one
+  /// walks the scope once rather than once per category. Each group is a
+  /// stable list, so its window index is built once for every window.
+  late final Map<String, List<CalendarEvent>> byCategory = () {
+    assert(() {
+      CalendarReportService.debugCategoryGroupings++;
+      return true;
+    }());
+    final groups = <String, List<CalendarEvent>>{};
+    for (final event in byId.values) {
+      (groups[categoryOf[event.id]!] ??= <CalendarEvent>[]).add(event);
+    }
+    return groups;
+  }();
+
+  _Scoped({
     required this.all,
     required this.categoryIds,
     required this.byId,

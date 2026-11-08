@@ -203,8 +203,10 @@ class CounterService {
 
   /// Writes each pending change over the value the table holds now, not the
   /// one memory last read: a sync page may have merged another device's count
-  /// since, and the taps belong on top of it. Memory then shows what was
-  /// written plus any tap made while the write ran.
+  /// since, and the taps belong on top of it — written as taps
+  /// (`CounterDao.applyCount`), so they still add up once the other device
+  /// merges them. Memory then shows what was written plus any tap made while
+  /// the write ran.
   Future<void> _flushDirty() async {
     final pending = <(String, String), _PendingCount>{
       for (final MapEntry(key: id, value: change) in _dirtyGlobalValues.entries)
@@ -229,9 +231,15 @@ class CounterService {
             debugPrint('[CounterService] Flush dropped $cid/$nid: no counter');
             continue;
           }
-          final stored = await _dao.getValue(cid, nid) ?? counter.startValue;
-          final value = change.over(stored);
-          await _dao.upsertValue(cid, nid, value);
+          final value = await _dao.applyCount(
+            cid,
+            nid,
+            absolute: change.absolute,
+            delta: change.delta,
+            startValue: counter.startValue,
+          );
+          // Refused: the counter or the note went while the taps waited.
+          if (value == null) continue;
           written[(cid, nid)] = value;
         }
       });

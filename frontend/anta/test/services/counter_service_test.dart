@@ -73,8 +73,80 @@ void main() {
     },
   );
 
+  test('a tap still pending when its note is deleted writes nothing, and the '
+      'value stays a tombstone (S20)', () async {
+    final folder = await db.folderDao.createFolder(name: 'Log');
+    final note = await db.noteDao.createNote(folderId: folder.id, title: 'Day');
+    final laps = await service.addCounter(
+      name: 'Laps',
+      scope: CounterScope.perNote,
+    );
+    await service.increment(laps, noteId: note.id);
+    await service.flush();
+    await service.increment(laps, noteId: note.id);
+
+    await db.noteDao.softDeleteNote(note.id);
+    final tombstone = await (db.select(
+      db.counterValues,
+    )..where((v) => v.noteId.equals(note.id))).getSingle();
+    await service.flush();
+
+    expect(tombstone.isDeleted, isTrue);
+    expect(
+      await (db.select(
+        db.counterValues,
+      )..where((v) => v.noteId.equals(note.id))).getSingle(),
+      tombstone,
+    );
+  });
+
+  test('two taps flushed together count as one tap of two steps', () async {
+    final sets = await service.addCounter(name: 'Sets', startValue: 3);
+    await service.flush();
+
+    await service.increment(sets);
+    await service.increment(sets);
+    await service.flush();
+
+    final row = await (db.select(
+      db.counterValues,
+    )..where((v) => v.counterId.equals(sets))).getSingle();
+    expect(row.value, 5);
+    expect(row.epochValue, 3);
+    expect(row.shards, endsWith(':[2,0]}'));
+  });
+
   group('the backup export', () {
     const orphanHlc = 'ffffffffffff:0000:remote';
+
+    test('writes no value of a note a pull tombstoned (S20)', () async {
+      final folder = await db.folderDao.createFolder(name: 'Log');
+      final kept = await db.noteDao.createNote(
+        folderId: folder.id,
+        title: 'Kept',
+      );
+      final merged = await db.noteDao.createNote(
+        folderId: folder.id,
+        title: 'Merged',
+      );
+      final laps = await service.addCounter(
+        name: 'Laps',
+        scope: CounterScope.perNote,
+      );
+      await service.increment(laps, noteId: kept.id);
+      await service.increment(laps, noteId: merged.id);
+      await service.flush();
+      // A delete a pull merged: the note's tombstone alone, no cascade.
+      await db.customStatement('UPDATE notes SET is_deleted = 1 WHERE id = ?', [
+        merged.id,
+      ]);
+
+      final exported = await service.exportData();
+
+      expect((jsonDecode(exported['noteValues'] as String) as Map).keys, [
+        kept.id,
+      ]);
+    });
 
     CounterValueRow orphanValue(String noteId) => CounterValueRow(
       counterId: 'gone',
@@ -87,6 +159,9 @@ void main() {
       version: 2,
       isDeleted: false,
       ownerId: 'uid-1',
+      epochHlc: orphanHlc,
+      epochValue: 99,
+      shards: '',
     );
 
     test('writes no value whose counter is tombstoned', () async {

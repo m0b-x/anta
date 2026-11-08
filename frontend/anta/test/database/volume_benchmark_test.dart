@@ -3,11 +3,17 @@ library;
 
 import 'package:drift/drift.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:anta/database/daos/note_dao.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/models/recurrence_rule.dart';
 import 'package:anta/models/recurrence_rule_codec.dart';
+import 'package:anta/repositories/note_repository.dart';
+import 'package:anta/services/body_search_indexer.dart';
+import 'package:anta/services/folder_search_service.dart';
+import 'package:anta/services/note_storage_service.dart';
 
+import '../support/scale_fixtures.dart';
 import 'support/db_test_support.dart';
 
 /// Seeded-volume timings for the queries the app leans on.
@@ -25,6 +31,9 @@ import 'support/db_test_support.dart';
 /// The assertions here are catastrophe-only — they catch an accidental O(n²),
 /// not a 30% regression. Read the printed table for the real signal.
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  SharedPreferences.setMockInitialValues({});
+
   for (final noteCount in [500, 5000]) {
     group('$noteCount notes in one folder', () {
       late AppDatabase db;
@@ -107,13 +116,90 @@ void main() {
     });
   }
 
-  for (final eventCount in [200, 2000]) {
-    group('$eventCount calendar events over five years', () {
+  for (final (noteCount, bodyUnits) in [
+    (500, 1500),
+    (5000, 1500),
+    (5000, 15000),
+  ]) {
+    group('$noteCount notes with $bodyUnits-unit bodies', () {
       late AppDatabase db;
 
       setUpAll(() async {
         db = await openTestDatabase();
-        await _seedCalendar(db, eventCount: eventCount);
+        await _seed(db, noteCount: noteCount);
+        await _seedBodies(db, noteCount: noteCount, codeUnits: bodyUnits);
+      });
+      tearDownAll(() async => db.close());
+
+      // S11 (docs/scalability-roadmap.md §5.5): the cold backfill a database
+      // pays once, on the real scheduler (isolate projection, yields between
+      // pages), then full searches over the persistent index — a selective
+      // query (one note's own number, and the ten it prefixes) and a broad
+      // one every note holds, which scores every body.
+      test(
+        'body index backfill and full search',
+        () async {
+          final indexer = BodySearchIndexer(database: db);
+          final search = FolderSearchService(
+            storageService: NoteStorageService(
+              repository: NoteRepository(database: db),
+            ),
+            indexer: () async => indexer,
+          );
+          final backfill = Stopwatch()..start();
+          await search.buildIndex();
+          backfill.stop();
+          final probe = 'session${noteCount ~/ 10}';
+          final selective = await _time(() async {
+            await search.search(probe);
+          });
+          final broad = await _time(() async {
+            await search.search('squat');
+          });
+          // S12: the per-keystroke pass over the same index — one bm25
+          // MATCH cut to ten rows plus the newest page, against D6's
+          // 300 ms target for a broad query.
+          final quickSelective = await _time(() async {
+            await search.quickSearch(probe);
+          });
+          final quickBroad = await _time(() async {
+            await search.quickSearch('squat');
+          });
+          final quickTwoWords = await _time(() async {
+            await search.quickSearch('squat bench');
+          });
+          // ignore: avoid_print
+          print(
+            '\n=== $noteCount notes with $bodyUnits-unit bodies ===\n'
+            '  backfill      ${backfill.elapsedMicroseconds.toString().padLeft(10)}us\n'
+            '  "$probe"   ${selective.toString().padLeft(10)}us\n'
+            '  "squat"       ${broad.toString().padLeft(10)}us\n'
+            '  quick "$probe" ${quickSelective.toString().padLeft(10)}us\n'
+            '  quick "squat" ${quickBroad.toString().padLeft(10)}us\n'
+            '  quick "squat bench" ${quickTwoWords.toString().padLeft(10)}us',
+          );
+          expect(await search.search(probe), isNotEmpty);
+          expect(await search.quickSearch(probe), isNotEmpty);
+          expect(backfill.elapsedMicroseconds, lessThan(600000000));
+          expect(selective, lessThan(60000000));
+          await search.close();
+        },
+        timeout: const Timeout(Duration(minutes: 10)),
+      );
+    });
+  }
+
+  for (final (eventCount, years, span) in [
+    (200, 5, 'five'),
+    (2000, 5, 'five'),
+    (20000, 10, 'ten'),
+  ]) {
+    group('$eventCount calendar events over $span years', () {
+      late AppDatabase db;
+
+      setUpAll(() async {
+        db = await openTestDatabase();
+        await _seedCalendar(db, eventCount: eventCount, years: years);
       });
       tearDownAll(() async => db.close());
 
@@ -257,19 +343,60 @@ Future<void> _seed(AppDatabase db, {required int noteCount}) async {
   });
 }
 
-/// Seeds [eventCount] calendar events spread over five years, each carrying a
-/// mix of skip / absence / occurrence-description deltas — and, deliberately,
-/// the ~10% tombstone ratio a real five-year install accumulates, since this
-/// app never collects them (`isDeleted` rows are filtered, never deleted).
-Future<void> _seedCalendar(AppDatabase db, {required int eventCount}) async {
+/// One body of [codeUnits] per note seeded by [_seed], in a single
+/// uncompressed chunk. Each carries its note's number, so the index holds a
+/// term per note beside the shared training-log vocabulary.
+Future<void> _seedBodies(
+  AppDatabase db, {
+  required int noteCount,
+  required int codeUnits,
+}) async {
+  final text = bigBody(codeUnits);
+  await db.batch((batch) {
+    for (var i = 0; i < noteCount; i++) {
+      final noteId = 'bench-note-$i';
+      final body = '$text\nsession$i';
+      batch.insert(
+        db.contentChunks,
+        ContentChunksCompanion.insert(
+          id: '${noteId}_chunk_0',
+          noteId: noteId,
+          chunkIndex: 0,
+          content: body,
+          hlcTimestamp: '0',
+          deviceId: 'bench',
+        ),
+      );
+      batch.update(
+        db.notes,
+        NotesCompanion(
+          contentLength: Value(body.length),
+          chunkCount: const Value(1),
+        ),
+        where: (n) => n.id.equals(noteId),
+      );
+    }
+  });
+}
+
+/// Seeds [eventCount] calendar events spread over [years] years, each
+/// carrying a mix of skip / absence / occurrence-description deltas — and,
+/// deliberately, the ~10% tombstone ratio a real long-lived install
+/// accumulates, since this app never collects them (`isDeleted` rows are
+/// filtered, never deleted).
+Future<void> _seedCalendar(
+  AppDatabase db, {
+  required int eventCount,
+  int years = 5,
+}) async {
   final now = DateTime.now();
-  final eventEpoch = DateTime.utc(now.year - 5, 1, 1);
+  final eventEpoch = DateTime.utc(now.year - years, 1, 1);
   var deltaIndex = 0;
   await db.batch((batch) {
     for (var i = 0; i < eventCount; i++) {
       final eventId = 'bench-event-$i';
       final rule = _recurrenceRules[i % _recurrenceRules.length];
-      final startDate = eventEpoch.add(Duration(days: i % 1825));
+      final startDate = eventEpoch.add(Duration(days: i % (365 * years)));
       batch.insert(
         db.calendarEvents,
         CalendarEventsCompanion.insert(

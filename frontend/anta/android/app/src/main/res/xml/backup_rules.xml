@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Auto Backup on Android 7 to 11 (API 24-30); data_extraction_rules.xml
+     carries the same rule for API 31+ and says why: everything is backed up
+     except this install's sync device id. -->
+<full-backup-content>
+    <exclude domain="root" path="app_flutter/gym_notes/device_id" />
+</full-backup-content>

@@ -384,6 +384,7 @@ class SyncBloc extends Bloc<SyncEvent, SyncState> {
       lastFailure: engine.lastFailure,
       clearLastFailure: engine.lastFailure == null,
       parkedCount: engine.parkedCount,
+      heldBack: engine.heldBack,
       downloadedRows: engine.downloadedRows,
       lastPullAt: engine.lastPullAt,
       lastPushAt: engine.lastPushAt,

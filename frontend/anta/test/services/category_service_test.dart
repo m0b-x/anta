@@ -761,6 +761,32 @@ void main() {
         service = await CategoryService.forTesting(db);
       });
 
+      /// The bloc rebuilds from the event cache only when the delete says
+      /// the cache took the reassignment (S14): a refresh that failed keeps
+      /// the old ids, and only the bloc's own read replaces them.
+      for (final failing in [false, true]) {
+        test('a delete announces the event cache as current only when its '
+            'refresh read it (refresh fails: $failing)', () async {
+          CalendarEventService.reset();
+          await CalendarEventService.forTesting(db);
+          addTearDown(CalendarEventService.reset);
+          final custom = await service.create(
+            name: 'Dentist',
+            colorValue: 0xFF00AAFF,
+            iconKey: 'event',
+          );
+          final heard = <CalendarExternalChange>[];
+          final signal = CalendarEventService.externalChanges.listen(heard.add);
+          addTearDown(signal.cancel);
+          faults.failEventStoreRead = failing;
+
+          expect(await service.deleteCategory(custom.id), isTrue);
+          await Future<void>.delayed(Duration.zero);
+
+          expect(heard.single.cacheCurrent, !failing);
+        });
+      }
+
       /// Every row the cascade can touch, keyed `table|id`.
       Future<Map<String, Map<String, Object?>>> rows() async {
         final result = <String, Map<String, Object?>>{};
@@ -1166,6 +1192,9 @@ class _CategoryStatementFaults extends QueryInterceptor {
   bool _failNextRead = false;
   int failedReads = 0;
 
+  /// Fails the next whole read of the event store.
+  bool failEventStoreRead = false;
+
   void failCategoryReadAfterCommit() => _failReadAfterCommit = true;
 
   @override
@@ -1198,6 +1227,10 @@ class _CategoryStatementFaults extends QueryInterceptor {
     String statement,
     List<Object?> args,
   ) {
+    if (failEventStoreRead && statement.contains('ORDER BY "start_date"')) {
+      failEventStoreRead = false;
+      throw StateError('event store read refused');
+    }
     if (_failNextRead && statement.contains('calendar_categories')) {
       _failNextRead = false;
       failedReads++;

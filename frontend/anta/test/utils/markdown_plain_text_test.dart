@@ -1,4 +1,7 @@
+import 'dart:convert';
+
 import 'package:anta/models/note_metadata.dart';
+import 'package:anta/utils/markdown_chunker.dart';
 import 'package:anta/utils/markdown_plain_text.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -459,6 +462,98 @@ void main() {
 
     test('empty content stays empty', () {
       expect(NoteMetadata.generatePreview(''), '');
+    });
+  });
+
+  group('a capped preview reads only its first lines', () {
+    String capped(String full) =>
+        full.length <= 200 ? full : '${full.substring(0, 200)}...';
+
+    test('a 300,000-code-unit note splits at most three lines', () {
+      final line = '${'word ' * 19}tail'.padRight(99, 'x');
+      final content = '$line\n' * 3000;
+      expect(content.length, 300000);
+
+      final preview = NoteMetadata.generatePreview(content);
+
+      expect(MarkdownPlainText.lastLinesRead, lessThanOrEqualTo(3));
+      expect(preview, capped(MarkdownPlainText.strip(content, maxLength: 0)));
+    });
+
+    test('the cut text is the whole walk cut at the cap', () {
+      final fixtures = <String>[
+        List.generate(80, (i) => '- [ ] item $i').join('\n'),
+        '---\ntitle: x\n---\n${List.generate(60, (i) => 'line $i').join('\n')}',
+        'Heading\n=======\n${'short\n\n' * 40}```\ncode\n```\nend',
+        '${List.generate(30, (i) => 'soft $i\\').join('\n')}\nlast',
+        '> [!note] lead\n> body\n${'%% hidden %%\n' * 30}${'text ' * 60}',
+        '${'   \n' * 50}${'a  b\t\tc ' * 40}',
+      ];
+      for (final content in fixtures) {
+        expect(
+          MarkdownPlainText.strip(content),
+          capped(MarkdownPlainText.strip(content, maxLength: 0)),
+          reason: content,
+        );
+      }
+    });
+
+    test('an uncapped walk still reads every line', () {
+      final content = List.generate(500, (i) => 'line $i').join('\n');
+
+      MarkdownPlainText.strip(content, maxLength: 0);
+
+      expect(MarkdownPlainText.lastLinesRead, 500);
+    });
+
+    test('a rule on the first line does not split the whole note', () {
+      final content = '---\n${'line text here\n' * 20000}';
+
+      final preview = NoteMetadata.generatePreview(content);
+
+      expect(MarkdownPlainText.lastLinesRead, lessThanOrEqualTo(20));
+      expect(preview, capped(MarkdownPlainText.strip(content, maxLength: 0)));
+    });
+
+    test('the lazy front-matter scan stops where the full split does', () {
+      // What the preview hands the scan: an unbounded count, and a blank
+      // line past the end.
+      int lazy(List<String> lines) => MarkdownChunker.frontMatterEnd(
+        1 << 30,
+        (i) => i < lines.length ? lines[i] : '',
+      );
+      int full(List<String> lines) =>
+          MarkdownChunker.frontMatterEnd(lines.length, (i) => lines[i]);
+
+      final fixtures = <String>[
+        '---',
+        '---\n',
+        '---\n---',
+        '---\nk: v',
+        '---\nk: v\n---',
+        '---\nk: v\n...\nshown',
+        '---\ntags: [a]\naliases: [fm]\n---\n# Body',
+        '---\nk: v\nmore',
+        '---\nk: v\n\n---\nb',
+        '---\nprose here\n---\nb',
+        '---\ntags:\n  - a\n  - b\n---\nbody',
+        '---\ntags:\n  - a\n  - b',
+        '---\r\nk: v\r\n---\r\nbody',
+        '...\nk: v\n...',
+        '---\nk: v\n---\n',
+        '---\n${'k: v\n' * 50}',
+        '---\n${'k: v\n' * 50}---\nend',
+        '# not a front matter\n---\nk: v\n---',
+      ];
+      for (final content in fixtures) {
+        final lines = const LineSplitter().convert(content);
+        expect(lazy(lines), full(lines), reason: content);
+        expect(
+          MarkdownPlainText.strip(content),
+          capped(MarkdownPlainText.strip(content, maxLength: 0)),
+          reason: content,
+        );
+      }
     });
   });
 }

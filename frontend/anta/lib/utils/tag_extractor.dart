@@ -16,10 +16,12 @@ final LruCache<String, List<String>> _cache = LruCache(
 /// or a bare URL (`https://a.b/#frag`), which bind before a tag does.
 /// Cached by the text, `countTasks`'s shape: a shared description is
 /// tokenised once however many days show it; a text with no `#` never
-/// reaches the cache.
-List<String> extractTags(String? text) {
+/// reaches the cache. [cache] false for a caller that reads each text once
+/// — the search index's pages, the quick search's newest-notes scan — whose
+/// hundreds of texts would flush the entries the report reuses.
+List<String> extractTags(String? text, {bool cache = true}) {
   if (text == null || !text.contains('#')) return const [];
-  final cached = _cache.get(text);
+  final cached = cache ? _cache.get(text) : null;
   if (cached != null) return cached;
   final tags = <String>[];
   final seen = <String>{};
@@ -53,7 +55,7 @@ List<String> extractTags(String? text) {
   final result = tags.isEmpty
       ? const <String>[]
       : List<String>.unmodifiable(tags);
-  _cache.put(text, result);
+  if (cache) _cache.put(text, result);
   return result;
 }
 

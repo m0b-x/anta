@@ -3,6 +3,7 @@ import '../database/database.dart';
 import '../database/daos/note_dao.dart';
 import '../database/daos/content_chunk_dao.dart';
 import '../models/item_label.dart';
+import '../models/movable_item.dart';
 import '../models/note_metadata.dart';
 import '../constants/app_constants.dart';
 import '../models/note_change.dart';
@@ -52,6 +53,8 @@ class NoteRepository {
     _noteCache = LruCache<String, Note>(maxSize: AppConstants.maxNoteCacheSize);
     _contentCache = LruCache<String, String>(
       maxSize: AppConstants.maxContentCacheSize,
+      maxWeight: AppConstants.maxContentCacheCodeUnits,
+      weigh: (content) => content.length,
     );
   }
 
@@ -207,13 +210,15 @@ class NoteRepository {
 
   bool isContentCached(String noteId) => _contentCache.containsKey(noteId);
 
+  /// [chunkCount] is unused: the DAO stores the number of chunks [content]
+  /// is cut into.
   Future<Note> createNote({
     required String folderId,
     required String title,
     required String content,
     required String preview,
     required int contentLength,
-    required int chunkCount,
+    int chunkCount = 0,
     required bool isCompressed,
     ItemLabel label = ItemLabel.none,
   }) async {
@@ -248,14 +253,15 @@ class NoteRepository {
   /// Repository-level wrapper around [NoteDao.importNote] that mirrors
   /// the cache-and-broadcast bookkeeping done by [createNote]. Kept
   /// distinct so the import path can preserve the originating
-  /// timestamps without polluting the normal create surface.
+  /// timestamps without polluting the normal create surface. [chunkCount]
+  /// as in [createNote].
   Future<Note> importNote({
     required String folderId,
     required String title,
     required String content,
     required String preview,
     required int contentLength,
-    required int chunkCount,
+    int chunkCount = 0,
     required bool isCompressed,
     ItemLabel label = ItemLabel.none,
     required DateTime createdAt,
@@ -503,64 +509,72 @@ class NoteRepository {
     return note;
   }
 
-  /// Reorder notes within a folder
-  Future<void> reorderNotes({
-    required String folderId,
-    required List<String> orderedIds,
+  /// Moves a whole selection into [targetFolderId] through
+  /// [NoteDao.moveNotes], then announces only the notes that moved.
+  ///
+  /// The moved rows are read back in one statement and their events go out
+  /// back to back, so the browser's per-tick refresh coalesces them into one
+  /// read per folder instead of one per note.
+  Future<BulkMoveResult> moveNotes({
+    required List<String> noteIds,
+    required String targetFolderId,
   }) async {
-    await _noteDao.reorderNotes(folderId: folderId, orderedIds: orderedIds);
-    _invalidateFolderCache(folderId);
+    final result = await _noteDao.moveNotes(noteIds, targetFolderId);
+    if (result.moved.isEmpty) return result;
 
-    // Emit change events for all reordered notes
-    for (final noteId in orderedIds) {
-      final note = await getNoteById(noteId, forceRefresh: true);
-      if (note != null) {
-        _noteChangesController.add(
-          NoteChange(
-            type: NoteChangeType.updated,
-            noteId: noteId,
-            folderId: folderId,
-            note: note,
-          ),
-        );
-      }
+    final moved = await _noteDao.getNotesByIds(result.moved.keys.toList());
+    _invalidateFolderCache(targetFolderId);
+    for (final source in result.moved.values.toSet()) {
+      _invalidateFolderCache(source);
     }
+    for (final note in moved) {
+      _noteCache.put(note.id, note);
+      _noteChangesController.add(
+        NoteChange(
+          type: NoteChangeType.moved,
+          noteId: note.id,
+          folderId: targetFolderId,
+          sourceFolderId: result.moved[note.id],
+          note: note,
+        ),
+      );
+    }
+    return result;
   }
 
-  /// Write explicit positions for a set of notes. Used by the mixed reorder
-  /// service to assign global (folder + note interleaved) positions.
-  Future<void> setNotePositions({
+  /// Writes the custom order a drag left in [folderId] through
+  /// [NoteDao.applyOrder] and announces only the notes whose position
+  /// changed, read back in one statement, for the reason [moveNotes] gives.
+  Future<void> applyOrder({
     required String folderId,
-    required Map<String, int> positionByNoteId,
+    required List<String> loadedOrder,
+    required bool descending,
+    bool windowAtTop = false,
   }) async {
-    if (positionByNoteId.isEmpty) return;
-    await _noteDao.setNotePositions(positionByNoteId);
+    final changed = await _noteDao.applyOrder(
+      folderId: folderId,
+      loadedOrder: loadedOrder,
+      descending: descending,
+      windowAtTop: windowAtTop,
+    );
     _invalidateFolderCache(folderId);
-    for (final noteId in positionByNoteId.keys) {
-      final note = await getNoteById(noteId, forceRefresh: true);
-      if (note != null) {
-        _noteChangesController.add(
-          NoteChange(
-            type: NoteChangeType.updated,
-            noteId: noteId,
-            folderId: folderId,
-            note: note,
-          ),
-        );
-      }
+    if (changed.isEmpty) return;
+    final notes = await _noteDao.getNotesByIds(changed);
+    for (final note in notes) {
+      _noteCache.put(note.id, note);
+      _noteChangesController.add(
+        NoteChange(
+          type: NoteChangeType.updated,
+          noteId: note.id,
+          folderId: folderId,
+          note: note,
+        ),
+      );
     }
   }
 
   Future<List<Note>> searchNotes(String query, {String? folderId}) async {
     return _noteDao.searchNotes(query, folderId: folderId);
-  }
-
-  Future<List<Note>> fullTextSearch(
-    String query, {
-    String? folderId,
-    int limit = 50,
-  }) async {
-    return _noteDao.fullTextSearch(query, folderId: folderId, limit: limit);
   }
 
   Future<int> searchNotesCount(String query, {String? folderId}) {
@@ -737,9 +751,6 @@ class NoteRepository {
       title: title,
       preview: NoteMetadata.generatePreview(content),
       contentLength: content.length,
-      chunkCount: (content.length / ContentChunkDao.defaultChunkSize)
-          .ceil()
-          .clamp(1, double.maxFinite.toInt()),
       isCompressed: CompressionUtils.shouldCompress(content),
       label: label,
       content: content,

@@ -15,16 +15,28 @@ final class SyncedTable {
   /// hence `day * 1000`: the helper's epoch milliseconds.
   final String rowKeySql;
 
-  /// Whether the row travels inside its parent's document instead of on its
-  /// own: such a table is never queued, though its stamps still count among
-  /// the database's.
-  final bool travelsWithParent;
+  /// Whether the key is a hash of the row's content rather than its id:
+  /// several rows — one per note holding the same text — share one key and
+  /// one document, which is immutable. Only a live row with a key travels:
+  /// a row deleted here is no reason to delete the document another note
+  /// still names, and no merge ever re-queues one (scalability record S6).
+  final bool contentAddressed;
 
   const SyncedTable(
     this.name, {
     this.rowKeySql = 'id',
-    this.travelsWithParent = false,
+    this.contentAddressed = false,
   });
+
+  /// The rows a re-seed of the queue reads for the bound account, its one
+  /// `?`, as an SQL condition: those no account owns or that account does,
+  /// never another's (D16). A chunk row carries no owner of its own — it is
+  /// local storage of a note's body — so it goes by its note's: a chunk of
+  /// a note another account owns is that account's text.
+  String get queuedRowsSql => contentAddressed
+      ? '$rowKeySql IS NOT NULL AND is_deleted = 0 AND note_id IN '
+            '(SELECT id FROM notes WHERE owner_id IS NULL OR owner_id = ?)'
+      : '(owner_id IS NULL OR owner_id = ?)';
 }
 
 const String _dayKey = "event_id || '|' || (day * 1000)";
@@ -50,8 +62,13 @@ const String _dayKey = "event_id || '|' || (day * 1000)";
 const List<SyncedTable> syncedTables = [
   SyncedTable('folders'),
   SyncedTable('notes'),
-  // The local storage of a note body, which travels inside its note (D14).
-  SyncedTable('content_chunks', travelsWithParent: true),
+  // A note body's chunks, one document per distinct text (D1 A): a NULL
+  // hash is a legacy slice, re-cut before its note's manifest is pushed.
+  SyncedTable(
+    'content_chunks',
+    rowKeySql: 'content_hash',
+    contentAddressed: true,
+  ),
   SyncedTable('counters'),
   SyncedTable('counter_values', rowKeySql: "counter_id || '|' || note_id"),
   SyncedTable('calendar_events'),

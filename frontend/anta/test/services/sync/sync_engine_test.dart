@@ -93,7 +93,8 @@ void main() {
     final pulled = await b().sync();
 
     expect(pushed.failure, isNull);
-    expect(pushed.pushedRows, 8);
+    // The eight rows and the note's two chunks, each a document (S6).
+    expect(pushed.pushedRows, 10);
     expect(pulled.pulledRows, 8);
     final rows = await SyncPair.snapshot(b());
     expect(
@@ -889,7 +890,8 @@ void main() {
     await a().sync();
 
     expect(pair.gateway.calls, [
-      for (final binding in syncTableBindings) 'pull:${binding.table}',
+      for (final b in syncTableBindings)
+        if (b.pulls) 'pull:${b.table}',
       'push:A',
     ]);
   });

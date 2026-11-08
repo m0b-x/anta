@@ -1073,6 +1073,7 @@
   "yesterday": "Gestern",
   "titlesSection": "Titel",
   "inTextSection": "Im Text",
+  "searchStillIndexing": "Notizen werden noch indexiert – einige fehlen eventuell",
   "clearSearchHistory": "Suchverlauf löschen",
   "@clearSearchHistory": {
     "description": "Schaltfläche zum Löschen des Suchverlaufs"
@@ -1403,18 +1404,8 @@
   "@optimizing": {
     "description": "Optimizing message"
   },
-  "optimizationComplete": "Datenbank erfolgreich optimiert",
-  "@optimizationComplete": {
-    "description": "Optimization complete message"
-  },
-  "saved": "gespart",
-  "@saved": {
-    "description": "Saved suffix for size reduction"
-  },
-  "alreadyOptimized": "Datenbank bereits optimiert",
-  "@alreadyOptimized": {
-    "description": "Message when no space was reclaimed"
-  },
+  "optimizeFreed": "{size} freigegeben",
+  "optimizeAlreadyCompact": "Bereits kompakt",
   "deleteConfirmation": "Diese Aktion kann nicht rückgängig gemacht werden. Alle Notizen, Ordner und Daten werden dauerhaft gelöscht. Sind Sie absolut sicher?",
   "@deleteConfirmation": {
     "description": "Delete confirmation message"
@@ -1624,6 +1615,10 @@
   "@invalidDatabaseFile": {
     "description": "Error when the selected file is not a SQLite database"
   },
+  "checkingDatabaseFile": "Datei wird geprüft...",
+  "databaseImportCorrupt": "Diese Datenbankdatei ist beschädigt und kann nicht importiert werden.",
+  "databaseImportNotAnta": "Diese Datei ist keine ANTA-Datenbank.",
+  "databaseImportTooNew": "Diese Datenbank stammt aus einer neueren ANTA-Version. Aktualisiere die App, um sie zu importieren.",
   "renameDatabase": "Datenbank umbenennen",
   "@renameDatabase": {
     "description": "Dialog title for renaming database"
@@ -1695,6 +1690,12 @@
   "databaseDeleteFailed": "Die Datenbank konnte nicht gelöscht werden",
   "databaseSwitchFailed": "Die Datenbank konnte nicht gewechselt werden",
   "databaseOptimizeFailed": "Die Datenbank konnte nicht optimiert werden",
+  "databaseReclaimable": "Freigebbar: {size}",
+  "databaseReclaimableUnknown": "Freigebbarer Speicher unbekannt",
+  "launchUpdatingData": "Deine Daten werden aktualisiert…",
+  "launchOpeningData": "Deine Daten werden geöffnet…",
+  "launchOpenFailed": "Deine Daten konnten nicht geöffnet werden",
+  "launchOpenFailedNext": "Versuche es erneut oder starte die App neu. Wenn das wieder passiert, gib etwas Speicherplatz frei.",
   "deleteDatabaseConfirm": "Möchten Sie die Datenbank \"{name}\" wirklich löschen? Diese Aktion kann nicht rückgängig gemacht werden.",
   "@deleteDatabaseConfirm": {
     "description": "Confirmation message for database deletion",
@@ -2531,13 +2532,15 @@
   "syncDownloading": "{count, plural, =1{Wird geladen – bisher 1 Eintrag} other{Wird geladen – bisher {count} Einträge}}",
   "syncOffline": "Offline – neuer Versuch folgt",
   "syncRetrying": "Nicht synchronisiert – neuer Versuch folgt",
-  "syncPausedQuota": "Pausiert – das heutige Sync-Limit ist erreicht",
+  "syncPausedQuota": "Pausiert – Tageslimit erreicht",
+  "syncPausedQuotaUntil": "Pausiert bis {time} – Tageslimit erreicht",
   "syncPausedSignedOut": "Pausiert – abgemeldet",
   "syncPausedOtherAccount": "Pausiert – gehört zu einem anderen Konto",
   "syncPausedAppOutdated": "Pausiert – aktualisiere ANTA auf diesem Gerät",
   "syncPausedNoAccess": "Pausiert – die Cloud-Kopie ist nicht erreichbar",
   "drawerAccountNotSyncing": "Wird nicht synchronisiert",
-  "drawerSyncPausedQuota": "Pausiert – Tageslimit erreicht",
+  "drawerSyncPausedQuota": "Pausiert – Tageslimit",
+  "drawerSyncPausedQuotaUntil": "Pausiert bis {time}",
   "drawerSyncPausedOtherAccount": "Pausiert – anderes Konto",
   "drawerSyncPausedAppOutdated": "Pausiert – ANTA aktualisieren",
   "drawerSyncPausedNoAccess": "Pausiert – kein Zugriff",
@@ -2547,6 +2550,18 @@
   "syncPendingCount": "{count, plural, =1{1 Änderung wartet} other{{count} Änderungen warten}}",
   "syncDetailsWaiting": "{count, plural, =1{1 wartet} other{{count} warten}}",
   "syncParkedCount": "{count, plural, =1{1 zurückgestellt} other{{count} zurückgestellt}}",
+  "syncHeldBackRefused": "Von der Cloud-Kopie abgelehnt",
+  "syncHeldBackUnencodable": "Konnte nicht zum Senden vorbereitet werden",
+  "syncHeldBackAwaitingText": "Wartet auf den Text",
+  "syncHeldBackUnreadable": "Aus der Cloud-Kopie nicht lesbar",
+  "syncHeldBackDeleted": "{kind, select, other{Gelöscht}} · {reason}",
+  "syncHeldBackKind": "{kind, select, note{Eine Notiz} folder{Ein Ordner} event{Ein Termin} category{Eine Kalenderkategorie} counter{Ein Zähler} template{Eine Terminvorlage} view{Eine gespeicherte Ansicht} filter{Ein gespeicherter Filter} digest{Eine Zusammenfassung} vocabulary{Eine Begriffsliste} other{Ein Eintrag}}",
+  "syncHeldBackMoreHeld": "{count, plural, =1{Und 1 weiterer noch zurückgestellt} other{Und {count} weitere noch zurückgestellt}}",
+  "syncHeldBackMoreSynced": "{count, plural, =1{Der eine weitere wurde synchronisiert} other{Die {count} weiteren wurden synchronisiert}}",
+  "syncHeldBackSynced": "{kind, select, other{Synchronisiert}}",
+  "syncHeldBackAllDone": "Alles synchronisiert",
+  "syncHeldBackIntro": "„Jetzt synchronisieren“ versucht es erneut.",
+  "syncHeldBackIntroDone": "Nichts wird mehr zurückgestellt.",
   "syncNow": "Jetzt synchronisieren",
   "syncStop": "Synchronisierung beenden",
   "syncStopConfirmTitle": "Synchronisierung dieser Datenbank beenden?",

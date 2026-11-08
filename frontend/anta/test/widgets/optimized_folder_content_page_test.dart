@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -25,7 +26,9 @@ import 'package:anta/constants/semantics_ids.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/l10n/app_localizations_en.dart';
+import 'package:anta/models/content_item.dart';
 import 'package:anta/models/item_label.dart';
+import 'package:anta/models/movable_item.dart';
 import 'package:anta/models/nav_destination.dart';
 import 'package:anta/models/search_scope.dart';
 import 'package:anta/pages/all_notes_page.dart';
@@ -44,6 +47,7 @@ import 'package:anta/services/navigation_history_service.dart';
 import 'package:anta/services/note_storage_service.dart';
 import 'package:anta/services/recent_destinations_service.dart';
 import 'package:anta/services/settings_service.dart';
+import 'package:anta/utils/bloc_helpers.dart';
 import 'package:anta/widgets/app_drawer.dart';
 import 'package:anta/widgets/content_rows.dart';
 import 'package:anta/widgets/folder_overflow_menu.dart';
@@ -56,6 +60,8 @@ import 'package:anta/widgets/note_row.dart';
 import 'package:anta/widgets/search_surface.dart';
 import 'package:anta/widgets/selection_action_bar.dart';
 import 'package:anta/widgets/selection_app_bar.dart';
+
+import '../services/support/body_index_support.dart';
 
 /// The first page-level test for the browser.
 ///
@@ -113,7 +119,12 @@ void main() {
     await folderService.initialize();
     noteService = NoteStorageService(repository: NoteRepository(database: db));
     await noteService.initialize();
-    searchService = FolderSearchService(storageService: noteService);
+    // The suite's own indexer, never the app's singleton: its drain would
+    // run on timers this suite's `FakeAsync` never fires.
+    searchService = FolderSearchService(
+      storageService: noteService,
+      indexer: bodyIndexerOver(db),
+    );
     await searchService.initialize();
 
     GetIt.I.registerSingleton<NoteRepository>(NoteRepository(database: db));
@@ -138,10 +149,7 @@ void main() {
     GetIt.I.registerSingleton<AuthService>(NoOpAuthService());
 
     folderBloc = OptimizedFolderBloc(storageService: folderService);
-    noteBloc = OptimizedNoteBloc(
-      storageService: noteService,
-      searchService: searchService,
-    );
+    noteBloc = OptimizedNoteBloc(storageService: noteService);
     exportBloc = ImportExportBloc(
       service: ImportExportService(
         noteStorage: noteService,
@@ -186,6 +194,9 @@ void main() {
       title: 'down day',
       content: 'nothing much',
     );
+    // Indexed up front, so the catch-up the search surface kicks as it
+    // opens has nothing to drain inside the frames these cases pump.
+    await searchService.buildIndex();
   });
 
   tearDownAll(() async {
@@ -1864,6 +1875,34 @@ void main() {
       await settle(tester, rounds: 60);
     }
 
+    /// Ends a case that saved a sort only once the save has landed: a timed
+    /// drain can be outrun under suite load, and a sort save stranded
+    /// mid-transaction locks the next case's first query. Polls the stored
+    /// row, alternating both clocks, and fails by name rather than hanging.
+    ///
+    /// Each read is bounded: while the save's transaction waits on the fake
+    /// clock, a read in real time queues behind its lock, and awaiting it
+    /// would stop the very pumps that let the save finish.
+    Future<void> waitForNoteSort(
+      WidgetTester tester,
+      String folderId,
+      NotesSortOrder order,
+    ) async {
+      for (var round = 0; round < 200; round++) {
+        await settle(tester, rounds: 1);
+        final stored = await tester.runAsync(
+          () => db.folderDao
+              .getFolderById(folderId)
+              .timeout(const Duration(milliseconds: 20), onTimeout: () => null),
+        );
+        if (stored?.noteSortOrder == order.name) {
+          await drainWrites(tester);
+          return;
+        }
+      }
+      fail('the folder\'s note sort never read ${order.name}');
+    }
+
     testWidgets('a note dropped among the folders lands at the top of the '
         'notes instead', (tester) async {
       useTallSurface(tester);
@@ -1933,6 +1972,312 @@ void main() {
       ]);
 
       await drainWrites(tester);
+      await teardownPage(tester);
+    });
+
+    // The positions a drag writes are read back in the folder's own custom
+    // direction: written ascending under `positionDesc`, the list came back
+    // reversed the moment the page reloaded. The rendered rows are read,
+    // which a remounted page once pinned to its first frame's order.
+    for (final order in [
+      NotesSortOrder.positionAsc,
+      NotesSortOrder.positionDesc,
+    ]) {
+      testWidgets('a reload reads the order the drag showed (${order.name})', (
+        tester,
+      ) async {
+        await tester.runAsync(
+          () => folderService.updateFolderSortPreferences(
+            folderId: child.id,
+            noteSortOrder: order.name,
+            subfolderSortOrder: FoldersSortOrder.nameAsc.name,
+          ),
+        );
+        useTallSurface(tester);
+        await pumpPage(tester, folderId: child.id, title: 'Winter block');
+        await enterSelection(tester);
+
+        reorderable(tester).onReorderItem!(5, 3);
+        await tester.pumpAndSettle();
+        await settle(tester);
+        final optimistic = noteTitles(tester);
+        await drainWrites(tester);
+        await teardownPage(tester);
+
+        await pumpPage(tester, folderId: child.id, title: 'Winter block');
+        await enterSelection(tester);
+        expect(noteTitles(tester), optimistic);
+        final reloaded = NoteStateHelper.getNotesForFolder(
+          noteBloc.state,
+          child.id,
+        );
+        expect([for (final note in reloaded!) note.title], optimistic);
+
+        await teardownPage(tester);
+      });
+    }
+
+    testWidgets('a note-only drag writes no folder row and keeps the '
+        'subfolders\' sort', (tester) async {
+      final weekBefore = await tester.runAsync(
+        () => db.folderDao.getFolderById(grandchild.id),
+      );
+      useTallSurface(tester);
+      await pumpPage(tester, folderId: child.id, title: 'Winter block');
+      await enterSelection(tester);
+
+      reorderable(tester).onReorderItem!(5, 3);
+      await tester.pumpAndSettle();
+      await settle(tester);
+      await drainWrites(tester);
+
+      final (week, parent) = (await tester.runAsync(
+        () async => (
+          await db.folderDao.getFolderById(grandchild.id),
+          await db.folderDao.getFolderById(child.id),
+        ),
+      ))!;
+      expect(week!.hlcTimestamp, weekBefore!.hlcTimestamp);
+      expect(week.position, weekBefore.position);
+      expect(parent!.subfolderSortOrder, FoldersSortOrder.nameAsc.name);
+      expect(parent.noteSortOrder, NotesSortOrder.positionAsc.name);
+
+      await teardownPage(tester);
+    });
+
+    testWidgets('the first drag after a title sort, with more pages unloaded, '
+        'reloads with what the page showed on top', (tester) async {
+      // Created T24 first, so the stored order is the reverse of the titles.
+      final big = await tester.runAsync(() async {
+        final folder = await db.folderDao.createFolder(name: 'Big');
+        for (var i = 24; i >= 0; i--) {
+          await noteService.createNote(
+            folderId: folder.id,
+            title: 'T${'$i'.padLeft(2, '0')}',
+            content: '',
+          );
+        }
+        await folderService.updateFolderSortPreferences(
+          folderId: folder.id,
+          noteSortOrder: NotesSortOrder.titleAsc.name,
+          subfolderSortOrder: FoldersSortOrder.nameAsc.name,
+        );
+        return folder;
+      });
+      useTallSurface(tester);
+      await pumpPage(tester, folderId: big!.id, title: 'Big');
+      await enterSelection(tester);
+      final shown = noteTitles(tester);
+      expect(shown, hasLength(20), reason: 'one page of 25');
+
+      // The last loaded row to the top: the rows are the notes, unlabelled.
+      reorderable(tester).onReorderItem!(19, 0);
+      await tester.pumpAndSettle();
+      await settle(tester);
+      final optimistic = noteTitles(tester);
+      expect(optimistic.first, shown.last);
+      await drainWrites(tester);
+      await teardownPage(tester);
+
+      await pumpPage(tester, folderId: big.id, title: 'Big');
+      await enterSelection(tester);
+      expect(noteTitles(tester).take(20), optimistic);
+
+      await teardownPage(tester);
+    });
+
+    testWidgets('a drop that changes nothing leaves the page following the '
+        'stored order', (tester) async {
+      await tester.runAsync(
+        () => folderService.updateFolderSortPreferences(
+          folderId: child.id,
+          noteSortOrder: NotesSortOrder.positionAsc.name,
+          subfolderSortOrder: FoldersSortOrder.nameAsc.name,
+        ),
+      );
+      useTallSurface(tester);
+      await pumpPage(tester, folderId: child.id, title: 'Winter block');
+      await enterSelection(tester);
+      final before = noteTitles(tester);
+
+      // The first note dropped on its own section label: clamped in place.
+      reorderable(tester).onReorderItem!(3, 2);
+      await tester.pumpAndSettle();
+      await settle(tester);
+      expect(noteTitles(tester), before);
+
+      // Another device's reorder arrives: same notes, a new order.
+      final reversed = before.reversed.toList();
+      await tester.runAsync(() async {
+        final notes = await db.noteDao.getNotesByFolder(child.id);
+        final byTitle = {for (final note in notes) note.title: note.id};
+        await db.noteDao.applyOrder(
+          folderId: child.id,
+          loadedOrder: [for (final title in reversed) byTitle[title]!],
+          descending: false,
+        );
+      });
+      noteBloc.add(RefreshNotes(folderId: child.id));
+      await settle(tester, rounds: 30);
+
+      expect(noteTitles(tester), reversed);
+
+      await drainWrites(tester);
+      await teardownPage(tester);
+    });
+
+    testWidgets('a failed write puts back the title sort and its order', (
+      tester,
+    ) async {
+      final real = GetIt.I<MixedReorderService>();
+      GetIt.I.unregister<MixedReorderService>();
+      GetIt.I.registerSingleton<MixedReorderService>(
+        _FailingReorderService(
+          folderRepository: GetIt.I<FolderRepository>(),
+          noteRepository: GetIt.I<NoteRepository>(),
+        ),
+      );
+      addTearDown(() {
+        GetIt.I.unregister<MixedReorderService>();
+        GetIt.I.registerSingleton<MixedReorderService>(real);
+      });
+      await tester.runAsync(
+        () => folderService.updateFolderSortPreferences(
+          folderId: child.id,
+          noteSortOrder: NotesSortOrder.titleAsc.name,
+          subfolderSortOrder: FoldersSortOrder.nameAsc.name,
+        ),
+      );
+      useTallSurface(tester);
+      await pumpPage(tester, folderId: child.id, title: 'Winter block');
+      await enterSelection(tester);
+      final before = noteTitles(tester);
+
+      reorderable(tester).onReorderItem!(5, 3);
+      await tester.pumpAndSettle();
+      await drainWrites(tester);
+
+      expect(noteTitles(tester), before);
+      final stored = await tester.runAsync(
+        () => db.folderDao.getFolderById(child.id),
+      );
+      expect(stored!.noteSortOrder, NotesSortOrder.titleAsc.name);
+
+      await teardownPage(tester);
+    });
+
+    /// Swaps in a reorder whose first write waits for the case to release
+    /// it, then opens the title-sorted folder in selection mode.
+    Future<_SlowReorderService> openWithSlowWrites(WidgetTester tester) async {
+      final real = GetIt.I<MixedReorderService>();
+      final slow = _SlowReorderService(
+        folderRepository: GetIt.I<FolderRepository>(),
+        noteRepository: GetIt.I<NoteRepository>(),
+      );
+      GetIt.I.unregister<MixedReorderService>();
+      GetIt.I.registerSingleton<MixedReorderService>(slow);
+      addTearDown(() {
+        GetIt.I.unregister<MixedReorderService>();
+        GetIt.I.registerSingleton<MixedReorderService>(real);
+      });
+      await tester.runAsync(
+        () => folderService.updateFolderSortPreferences(
+          folderId: child.id,
+          noteSortOrder: NotesSortOrder.titleAsc.name,
+          subfolderSortOrder: FoldersSortOrder.nameAsc.name,
+        ),
+      );
+      useTallSurface(tester);
+      await pumpPage(tester, folderId: child.id, title: 'Winter block');
+      await enterSelection(tester);
+      return slow;
+    }
+
+    testWidgets('a drop queued behind a write that succeeds is written after '
+        'it, with no second flip', (tester) async {
+      final slow = await openWithSlowWrites(tester);
+
+      reorderable(tester).onReorderItem!(5, 3);
+      await tester.pump();
+      reorderable(tester).onReorderItem!(6, 3);
+      await tester.pump();
+      expect(slow.calls, hasLength(1), reason: 'the second drop waits');
+
+      slow.release.complete();
+      await tester.pumpAndSettle();
+      await waitForNoteSort(tester, child.id, NotesSortOrder.positionAsc);
+
+      expect(
+        slow.calls,
+        [
+          {MovableItemKind.note},
+          <MovableItemKind>{},
+        ],
+        reason: 'the first drop turned the sort to Custom, the second not',
+      );
+
+      await teardownPage(tester);
+    });
+
+    testWidgets('a drop queued behind a write is still written when the page '
+        'is popped first', (tester) async {
+      final slow = await openWithSlowWrites(tester);
+
+      reorderable(tester).onReorderItem!(5, 3);
+      await tester.pump();
+      reorderable(tester).onReorderItem!(6, 3);
+      await tester.pump();
+      await teardownPage(tester);
+
+      slow.release.complete();
+      // The first drop's sort save is still in flight on the fake clock:
+      // waited for, or the next case's first query queues behind its lock.
+      await waitForNoteSort(tester, child.id, NotesSortOrder.positionAsc);
+
+      expect(slow.calls, hasLength(2));
+    });
+
+    testWidgets('a write that fails after the page is popped still puts the '
+        'title sort back', (tester) async {
+      final slow = await openWithSlowWrites(tester);
+
+      reorderable(tester).onReorderItem!(5, 3);
+      await tester.pump();
+      await waitForNoteSort(tester, child.id, NotesSortOrder.positionAsc);
+      await teardownPage(tester);
+
+      slow.release.completeError(StateError('database is locked'));
+      await waitForNoteSort(tester, child.id, NotesSortOrder.titleAsc);
+
+      expect(slow.calls, hasLength(1));
+    });
+
+    testWidgets('a drop made while a write is in flight waits for it, and is '
+        'dropped when that write fails', (tester) async {
+      final slow = await openWithSlowWrites(tester);
+      final before = noteTitles(tester);
+
+      reorderable(tester).onReorderItem!(5, 3);
+      await tester.pump();
+      reorderable(tester).onReorderItem!(6, 3);
+      await tester.pump();
+      expect(slow.calls, hasLength(1), reason: 'the second drop waits');
+
+      slow.release.completeError(StateError('database is locked'));
+      await tester.pumpAndSettle();
+      await drainWrites(tester);
+
+      expect(
+        slow.calls,
+        hasLength(1),
+        reason: 'built on the failed drop, so dropped',
+      );
+      expect(noteTitles(tester), before);
+      final stored = await tester.runAsync(
+        () => db.folderDao.getFolderById(child.id),
+      );
+      expect(stored!.noteSortOrder, NotesSortOrder.titleAsc.name);
+
       await teardownPage(tester);
     });
 
@@ -3278,5 +3623,47 @@ class _RecordingObserver extends NavigatorObserver {
   @override
   void didRemove(Route<dynamic> route, Route<dynamic>? previousRoute) {
     if (route is PageRoute) removed.add(route);
+  }
+}
+
+/// A reorder whose write fails, the way a locked or full database would.
+class _FailingReorderService extends MixedReorderService {
+  _FailingReorderService({
+    required super.folderRepository,
+    required super.noteRepository,
+  });
+
+  @override
+  Future<void> reorderMixed({
+    required String? parentId,
+    required List<ContentItem> items,
+    required bool foldersDescending,
+    required bool notesDescending,
+    Set<MovableItemKind> windowAtTop = const {},
+  }) async => throw StateError('database is locked');
+}
+
+/// A reorder whose first write hangs until the case completes [release]
+/// (normally, or with an error), and which records each write's
+/// `windowAtTop`. Later writes land at once and store nothing.
+class _SlowReorderService extends MixedReorderService {
+  _SlowReorderService({
+    required super.folderRepository,
+    required super.noteRepository,
+  });
+
+  final release = Completer<void>();
+  final calls = <Set<MovableItemKind>>[];
+
+  @override
+  Future<void> reorderMixed({
+    required String? parentId,
+    required List<ContentItem> items,
+    required bool foldersDescending,
+    required bool notesDescending,
+    Set<MovableItemKind> windowAtTop = const {},
+  }) {
+    calls.add(windowAtTop);
+    return calls.length == 1 ? release.future : Future<void>.value();
   }
 }

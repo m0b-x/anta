@@ -361,13 +361,21 @@ class ReEditorSearchController extends ChangeNotifier {
     final matches = <SearchMatch>[];
     int index = 0;
     int lineNumber = 0;
+    // A running newline count up to each match, in order: counting over a
+    // fresh prefix per match was quadratic on a long note with many hits.
+    int counted = 0;
 
     while (true) {
       index = searchText.indexOf(searchQuery, index);
       if (index == -1) break;
+      // A cheap guard: a web engine's lower-casing may lengthen the text
+      // (`İ` to two units) and put a hit past the content it is shown in;
+      // the Dart VM's never changes a string's length.
+      if (index + _currentQuery.length > _previewContent.length) break;
 
-      // Calculate line number
-      lineNumber = '\n'.allMatches(_previewContent.substring(0, index)).length;
+      for (; counted < index; counted++) {
+        if (_previewContent.codeUnitAt(counted) == 0x0A) lineNumber++;
+      }
 
       matches.add(
         SearchMatch(

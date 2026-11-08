@@ -126,6 +126,27 @@ void main() {
     });
   });
 
+  group('preview-mode search', () {
+    test('counts each match line with a running count', () {
+      final controller = _previewController('hit\n\none hit\nx\nhit', 'hit');
+
+      expect(controller.matches.map((m) => m.lineNumber), [0, 2, 4]);
+    });
+
+    test('a hit ending on the last code unit stays within bounds', () {
+      // `İ` is the character a web engine lower-cases to two units; on the
+      // VM the lowered text keeps its length, so the bound keeps this hit.
+      final content = '${'İ' * 10}\nab';
+
+      final controller = _previewController(content, 'ab');
+
+      expect(controller.matches, hasLength(1));
+      expect(controller.matches.single.start, content.length - 2);
+      expect(controller.matches.single.end, content.length);
+      expect(controller.matches.single.lineNumber, 1);
+    });
+  });
+
   group('previewAt', () {
     test('reports the line and highlight range in editor mode', () {
       final editor = _editorWith('alpha\nbeta squat set\ngamma', 'squat');

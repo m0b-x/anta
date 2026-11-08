@@ -34,6 +34,8 @@ import 'package:anta/services/filter_preset_service.dart';
 import 'package:anta/services/overview_view_service.dart';
 import 'package:anta/services/vocabulary_service.dart';
 
+import 'support/backup_archive.dart';
+
 /// One synced table as the test reads it back: the SQL that names a row and
 /// the archived row seeded as someone else's and as mine.
 class _Table {
@@ -309,7 +311,7 @@ void main() {
 
   test('ownerId round-trips on every synced table, absent on mine', () async {
     final db = await seed(foreign: true);
-    final exported = await (await BackupService.getInstance()).exportAllData();
+    final exported = await exportBackupArchive();
     expect(exported['version'], 8);
 
     final keyed = <String, (List<dynamic>, String, String, String)>{
@@ -432,7 +434,7 @@ void main() {
 
   test('an archive written before D16 restores every row as mine', () async {
     final db = await seed(foreign: true);
-    final exported = await (await BackupService.getInstance()).exportAllData();
+    final exported = await exportBackupArchive();
     final older = jsonEncode(stripAll(exported));
     expect(older, isNot(contains('ownerId')));
 
@@ -447,7 +449,7 @@ void main() {
 
   test('a non-string ownerId imports as unowned and drops nothing', () async {
     final db = await seed(foreign: true);
-    final exported = await (await BackupService.getInstance()).exportAllData();
+    final exported = await exportBackupArchive();
     // Every archived `ownerId` — the counters' JSON-in-a-string payloads
     // included, where a failed cast would lose the whole counters import —
     // is a number, as a hand-edited archive could make it.
@@ -485,7 +487,7 @@ void main() {
       'key', () async {
     await seed(foreign: false);
 
-    final exported = await (await BackupService.getInstance()).exportAllData();
+    final exported = await exportBackupArchive();
 
     expect(jsonEncode(exported), isNot(contains('ownerId')));
   });

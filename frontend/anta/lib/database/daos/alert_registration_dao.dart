@@ -1,7 +1,9 @@
 import 'package:drift/drift.dart';
+import 'package:uuid/uuid.dart';
 
 import '../database.dart';
 import '../tables/alert_registrations_table.dart';
+import 'sync_dao.dart';
 
 part 'alert_registration_dao.g.dart';
 
@@ -44,6 +46,52 @@ class AlertRegistrationDao extends DatabaseAccessor<AppDatabase>
           ..orderBy([(r) => OrderingTerm.asc(r.fireAt)]))
         .get();
   }
+
+  /// Whether the platform may still hold an entry of this database: the
+  /// registry holds a row, whatever its state, or a hard delete left its
+  /// [SyncDao.keyAlertStraysPending] marker and no pass has completed since.
+  /// The reconcile's "nothing can arm" check asks it first, in one statement.
+  Future<bool> mayHoldEntries() async {
+    final row = await customSelect(
+      'SELECT EXISTS(SELECT 1 FROM alert_registrations) '
+      'OR EXISTS(SELECT 1 FROM sync_metadata WHERE key = ?) AS hit',
+      variables: [Variable<String>(SyncDao.keyAlertStraysPending)],
+      readsFrom: {alertRegistrations, attachedDatabase.syncMetadata},
+    ).getSingle();
+    return row.read<int>('hit') != 0;
+  }
+
+  /// The strays marker as it stands, or null — read by a pass before it reads
+  /// the registry, so [clearStraysMarker] clears only what that pass saw.
+  Future<String?> straysMarker() =>
+      attachedDatabase.syncDao.getValue(SyncDao.keyAlertStraysPending);
+
+  /// Clears the strays marker a completed pass read as [seen]. A delete that
+  /// landed mid-pass wrote a new value, which survives for the pass it
+  /// requested: this one read the registry before those rows went.
+  Future<void> clearStraysMarker(String seen) {
+    return customUpdate(
+      'DELETE FROM sync_metadata WHERE key = ? AND value = ?',
+      variables: [
+        Variable<String>(SyncDao.keyAlertStraysPending),
+        Variable<String>(seen),
+      ],
+      updates: {attachedDatabase.syncMetadata},
+      updateKind: UpdateKind.delete,
+    );
+  }
+
+  /// Marks that rows just went while the platform may still hold their
+  /// entries. Called inside the delete's transaction, so a process death can
+  /// never leave the rows gone and the marker unwritten; the value is unique
+  /// per delete for [clearStraysMarker] — a v4 id, which no shared instant or
+  /// clock set back can repeat.
+  Future<void> _markStrays() => attachedDatabase.syncDao.setValue(
+    SyncDao.keyAlertStraysPending,
+    _uuid.v4(),
+  );
+
+  static const _uuid = Uuid();
 
   /// The os ids of every `fired` registration: rings the binding announced
   /// that nothing has settled since.
@@ -130,32 +178,46 @@ class AlertRegistrationDao extends DatabaseAccessor<AppDatabase>
 
   /// Cascade for a deleted event. A hard delete, unlike the alert rows this
   /// accompanies: the OS entries are cancelled by the scheduler in the same
-  /// breath, and a tombstone here would describe nothing.
+  /// breath, and a tombstone here would describe nothing. Rows gone leave the
+  /// strays marker for the pass that has not run yet.
   Future<int> deleteForEvent(String eventId) {
-    return (delete(
-      alertRegistrations,
-    )..where((r) => r.eventId.equals(eventId))).go();
+    return transaction(() async {
+      final gone = await (delete(
+        alertRegistrations,
+      )..where((r) => r.eventId.equals(eventId))).go();
+      if (gone > 0) await _markStrays();
+      return gone;
+    });
   }
 
   /// [deleteForEvent] for a wipe's tombstoned events: one statement per
   /// [_idsPerStatement] ids, so a calendar of any size stays under SQLite's
   /// bound-variable limit (999 on older builds).
-  Future<void> deleteForEvents(Iterable<String> eventIds) async {
+  Future<void> deleteForEvents(Iterable<String> eventIds) {
     final ids = eventIds.toList();
-    for (var start = 0; start < ids.length; start += _idsPerStatement) {
-      final end = start + _idsPerStatement < ids.length
-          ? start + _idsPerStatement
-          : ids.length;
-      final chunk = ids.sublist(start, end);
-      await (delete(
-        alertRegistrations,
-      )..where((r) => r.eventId.isIn(chunk))).go();
-    }
+    return transaction(() async {
+      var gone = 0;
+      for (var start = 0; start < ids.length; start += _idsPerStatement) {
+        final end = start + _idsPerStatement < ids.length
+            ? start + _idsPerStatement
+            : ids.length;
+        final chunk = ids.sublist(start, end);
+        gone += await (delete(
+          alertRegistrations,
+        )..where((r) => r.eventId.isIn(chunk))).go();
+      }
+      if (gone > 0) await _markStrays();
+    });
   }
 
   static const int _idsPerStatement = 500;
 
+  /// Every registration, hard deleted. No app path calls it today; it marks
+  /// like every other hard delete so a caller added later cannot strand the
+  /// entries the rows described.
   Future<void> deleteAll() {
-    return delete(alertRegistrations).go();
+    return transaction(() async {
+      if (await delete(alertRegistrations).go() > 0) await _markStrays();
+    });
   }
 }

@@ -39,7 +39,6 @@ class OptimizedFolderBloc
     on<DeleteOptimizedFolder>(_onDeleteFolder);
     on<DeleteOptimizedFolders>(_onDeleteFolders);
     on<RefreshFolders>(_onRefreshFolders);
-    on<ReorderFolders>(_onReorderFolders);
 
     _changesSubscription = _storageService.changes.listen(_onExternalChange);
   }
@@ -402,29 +401,6 @@ class OptimizedFolderBloc
         double.maxFinite.toInt(),
       ),
     );
-  }
-
-  Future<void> _onReorderFolders(
-    ReorderFolders event,
-    Emitter<OptimizedFolderState> emit,
-  ) async {
-    try {
-      await _storageService.reorderFolders(
-        parentId: event.parentId,
-        orderedIds: event.orderedIds,
-      );
-
-      // Refresh to get updated order
-      _scheduleRefresh(event.parentId);
-    } catch (e, stackTrace) {
-      _logError('Failed to reorder folders', e, stackTrace);
-      emit(
-        OptimizedFolderError(
-          'Failed to reorder folders: $e',
-          parentId: event.parentId,
-        ),
-      );
-    }
   }
 
   void _logError(String message, Object error, StackTrace stackTrace) {

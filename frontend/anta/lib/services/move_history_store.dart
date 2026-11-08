@@ -1,4 +1,5 @@
-import '../services/move_history_service.dart' show MoveHistoryEntry;
+import '../services/move_history_service.dart'
+    show MoveHistoryEntry, retainUndoUnits;
 
 /// Pluggable storage backend for move history entries. The default
 /// implementation is in-memory (volatile across app restarts), but a future
@@ -13,10 +14,16 @@ abstract class MoveHistoryStore {
 
   Future<void> add(MoveHistoryEntry entry);
 
-  Future<void> markUndone(String entryId);
+  /// [add] for a whole batch at once; [entries] are newest first.
+  Future<void> addAll(List<MoveHistoryEntry> entries);
 
-  /// Remove the oldest entries beyond [maxSize].
-  Future<void> trim(int maxSize);
+  /// Marks every entry in [entryIds] undone, in one pass over the store.
+  Future<void> markAllUndone(Set<String> entryIds);
+
+  /// Remove the oldest undo units beyond [maxUnits], and older units while
+  /// the entries would pass [maxEntries] — whole units only, by
+  /// [retainUndoUnits], so a stored batch is never left half undoable.
+  Future<void> trim({required int maxUnits, required int maxEntries});
 
   Future<void> clear();
 }
@@ -34,17 +41,29 @@ class InMemoryMoveHistoryStore implements MoveHistoryStore {
   }
 
   @override
-  Future<void> markUndone(String entryId) async {
-    final index = _entries.indexWhere((e) => e.id == entryId);
-    if (index == -1) return;
-    _entries[index] = _entries[index].copyWith(isUndone: true);
+  Future<void> addAll(List<MoveHistoryEntry> entries) async {
+    _entries.insertAll(0, entries);
   }
 
   @override
-  Future<void> trim(int maxSize) async {
-    if (_entries.length > maxSize) {
-      _entries.removeRange(maxSize, _entries.length);
+  Future<void> markAllUndone(Set<String> entryIds) async {
+    for (var i = 0; i < _entries.length; i++) {
+      if (entryIds.contains(_entries[i].id)) {
+        _entries[i] = _entries[i].copyWith(isUndone: true);
+      }
     }
+  }
+
+  @override
+  Future<void> trim({required int maxUnits, required int maxEntries}) async {
+    final kept = retainUndoUnits(
+      _entries,
+      maxUnits: maxUnits,
+      maxEntries: maxEntries,
+    );
+    _entries
+      ..clear()
+      ..addAll(kept);
   }
 
   @override

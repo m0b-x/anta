@@ -1,5 +1,7 @@
 import 'package:drift/drift.dart';
 import '../../models/item_label.dart';
+import '../../models/movable_item.dart';
+import '../../utils/position_plan.dart';
 import '../database.dart';
 import '../tables/folders_table.dart';
 import '../crdt/crdt_merge.dart';
@@ -193,14 +195,14 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
       }
       maxPosQuery.where(folders.isDeleted.equals(false));
       final maxPosResult = await maxPosQuery.getSingle();
-      final maxPos = maxPosResult.read(folders.position.max()) ?? -1;
+      final maxPos = maxPosResult.read(folders.position.max());
 
       final companion = FoldersCompanion(
         id: Value(id),
         name: Value(name),
         parentId: Value(parentId),
         label: Value(label.storageValue),
-        position: Value(maxPos + 1),
+        position: Value(nextPosition(maxPos)),
         createdAt: Value(now),
         updatedAt: Value(now),
         ownerId: Value(ownerId),
@@ -247,7 +249,7 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
         name: Value(name),
         parentId: Value(parentId),
         label: Value(label.storageValue),
-        position: Value(maxPos + 1),
+        position: Value(nextPosition(maxPos)),
         createdAt: Value(createdAt),
         // updatedAt records when this row was written locally, so an import
         // that carries no mtime of its own is a fresh write event.
@@ -287,7 +289,7 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
       final copies = <String, String>{};
       final unarchivedParents = <String, String?>{};
       final created = <String>{};
-      final nextPosition = <String?, int>{};
+      final appendAt = <String?, int>{};
       final ids = <String>[];
       final companions = <FoldersCompanion>[];
       Future<String?> restoredParentId(String archived) async {
@@ -305,13 +307,13 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
         final parentId = archivedParent == null
             ? null
             : await restoredParentId(archivedParent);
-        if (!nextPosition.containsKey(parentId)) {
-          nextPosition[parentId] = created.contains(parentId)
+        if (!appendAt.containsKey(parentId)) {
+          appendAt[parentId] = created.contains(parentId)
               ? 0
-              : await _maxLivePosition(parentId) + 1;
+              : nextPosition(await _maxLivePosition(parentId));
         }
-        final position = nextPosition[parentId]!;
-        nextPosition[parentId] = position + 1;
+        final position = appendAt[parentId]!;
+        appendAt[parentId] = nextPosition(position);
 
         final id = db.generateId();
         created.add(id);
@@ -358,7 +360,7 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
     });
   }
 
-  Future<int> _maxLivePosition(String? parentId) async {
+  Future<int?> _maxLivePosition(String? parentId) async {
     final maxPosQuery = selectOnly(folders)
       ..addColumns([folders.position.max()]);
     if (parentId == null) {
@@ -368,7 +370,7 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
     }
     maxPosQuery.where(folders.isDeleted.equals(false));
     final maxPosResult = await maxPosQuery.getSingle();
-    return maxPosResult.read(folders.position.max()) ?? -1;
+    return maxPosResult.read(folders.position.max());
   }
 
   /// Renames or re-parents one folder, and refuses a tombstone, as
@@ -440,12 +442,12 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
       }
       maxPosQuery.where(folders.isDeleted.equals(false));
       final maxPosResult = await maxPosQuery.getSingle();
-      final maxPos = maxPosResult.read(folders.position.max()) ?? -1;
+      final maxPos = maxPosResult.read(folders.position.max());
 
       await (update(folders)..where((f) => f.id.equals(id))).write(
         FoldersCompanion(
           parentId: Value(targetParentId),
-          position: Value(maxPos + 1),
+          position: Value(nextPosition(maxPos)),
           updatedAt: Value(now),
           hlcTimestamp: Value(stamp.hlc),
           deviceId: Value(stamp.deviceId),
@@ -453,6 +455,117 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
         ),
       );
       return getFolderById(id);
+    });
+  }
+
+  /// Moves a whole selection of folders under [targetParentId] (the root
+  /// when null) in one transaction, under one HLC — the folder twin of
+  /// [NoteDao.moveNotes].
+  ///
+  /// The sibling-name rule [folderNameExistsInParent] enforces for one folder
+  /// holds per item, the root included: a folder whose name the target
+  /// already holds, or one an earlier folder of [ids] claims, is reported in
+  /// [BulkMoveResult.duplicates] and stays where it is. A folder that is the
+  /// target or one of its ancestors cannot move under it and is left out of
+  /// every set, as [moveFolder] returns null for it.
+  Future<BulkMoveResult> moveFolders(
+    List<String> ids,
+    String? targetParentId,
+  ) async {
+    final unique = ids.toSet().toList(growable: false);
+    if (unique.isEmpty) return BulkMoveResult.empty;
+    final now = DateTime.now();
+
+    return transaction(() async {
+      final blocked = <String>{};
+      if (targetParentId != null) {
+        final target = await getFolderById(targetParentId);
+        if (target == null || target.isDeleted) return BulkMoveResult.empty;
+        // The target's own chain upwards: a folder on it would become its own
+        // ancestor. Walked up rather than down each selected subtree, so it
+        // is one statement however many folders were picked.
+        final chain = await customSelect(
+          'WITH RECURSIVE a(id, depth) AS ('
+          '  SELECT ?1, 0 '
+          '  UNION ALL '
+          '  SELECT f.parent_id, a.depth + 1 FROM folders f '
+          '  JOIN a ON f.id = a.id '
+          '  WHERE f.parent_id IS NOT NULL AND a.depth < $maxFolderDepth'
+          ') SELECT id FROM a',
+          variables: [Variable<String>(targetParentId)],
+          readsFrom: {folders},
+        ).get();
+        blocked.addAll([for (final row in chain) row.read<String>('id')]);
+      }
+
+      final found = <String, BulkMoveCandidate>{};
+      for (final chunk in bulkMoveChunks(unique)) {
+        final rows = await customSelect(
+          'SELECT id, parent_id, name, LOWER(TRIM(name)) AS sql_key '
+          'FROM folders WHERE id IN '
+          '(${List.filled(chunk.length, '?').join(', ')}) AND is_deleted = 0',
+          variables: [for (final id in chunk) Variable<String>(id)],
+          readsFrom: {folders},
+        ).get();
+        for (final row in rows) {
+          found[row.read<String>('id')] = (
+            parentId: row.read<String?>('parent_id'),
+            name: row.read<String>('name'),
+            sqlKey: row.read<String>('sql_key'),
+          );
+        }
+      }
+      // The movers' names folded in Dart and bound as the single-folder
+      // check binds its key; `COALESCE` matches idx_folders_parent_lname.
+      final keys = {
+        for (final row in found.values)
+          if (row.parentId != targetParentId) ?bulkMoveNameKey(row.name),
+      }.toList();
+      final taken = <String>{};
+      for (final chunk in bulkMoveChunks(keys)) {
+        final rows = await customSelect(
+          'SELECT DISTINCT LOWER(TRIM(name)) AS sql_key FROM folders '
+          "WHERE COALESCE(parent_id, '') = ? AND is_deleted = 0 "
+          'AND LOWER(TRIM(name)) IN '
+          '(${List.filled(chunk.length, '?').join(', ')})',
+          variables: [
+            Variable<String>(targetParentId ?? ''),
+            for (final key in chunk) Variable<String>(key),
+          ],
+          readsFrom: {folders},
+        ).get();
+        taken.addAll([for (final row in rows) row.read<String>('sql_key')]);
+      }
+      final plan = planBulkMove(
+        ids: unique,
+        found: found,
+        target: targetParentId,
+        taken: taken,
+        blocked: blocked,
+      );
+      final moved = plan.moved;
+      if (moved.isEmpty) return plan;
+
+      var last = await _maxLivePosition(targetParentId);
+      final stamp = db.newStamp();
+      await batch((b) {
+        for (final id in moved.keys) {
+          b.update(
+            folders,
+            FoldersCompanion.custom(
+              parentId: Variable<String>(targetParentId),
+              position: Variable<int>(last = nextPosition(last)),
+              updatedAt: Variable<DateTime>(now),
+              hlcTimestamp: Variable<String>(stamp.hlc),
+              deviceId: Variable<String>(stamp.deviceId),
+              version: folders.version + const Constant(1),
+            ),
+            where: (f) => f.id.equals(id),
+          );
+        }
+      });
+      await db.enqueueMany(folders, moved.keys, stamp.hlc);
+      return plan;
     });
   }
 
@@ -540,7 +653,7 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
   }
 
   /// Labels a whole selection in **one** statement — SQLite does the
-  /// `version + 1` arithmetic itself, the same way [setFolderPositions]
+  /// `version + 1` arithmetic itself, the same way [applyOrder]
   /// does, so the statement count does not move with the size of the
   /// selection.
   ///
@@ -579,49 +692,60 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
     });
   }
 
-  /// Reorder folders within a parent
-  Future<void> reorderFolders({
-    String? parentId,
-    required List<String> orderedIds,
+  /// Writes the custom order a drag left in [parentId]'s subfolders (the
+  /// root when null), returning the ids whose position changed — the folder
+  /// twin of [NoteDao.applyOrder], read, planned and written in one
+  /// transaction the same way.
+  Future<List<String>> applyOrder({
+    required String? parentId,
+    required List<String> loadedOrder,
+    required bool descending,
+    bool windowAtTop = false,
   }) async {
-    final positions = {
-      for (var i = 0; i < orderedIds.length; i++) orderedIds[i]: i,
-    };
-    await setFolderPositions(positions);
-  }
+    if (loadedOrder.isEmpty) return const [];
 
-  /// Write explicit positions for a set of folders. Used by the mixed
-  /// reorder service to assign global (folder + note interleaved) positions
-  /// without forcing the caller to pass dense 0..N ranges per kind.
-  /// Bumps `version` in SQL rather than reading each row first — see
-  /// [NoteDao.setNotePositions] for why. A missing id updates zero rows, the
-  /// same outcome the previous existence check produced. Only live rows that
-  /// move are written and queued, as there.
-  Future<void> setFolderPositions(Map<String, int> positionByFolderId) async {
-    if (positionByFolderId.isEmpty) return;
-    final now = DateTime.now();
+    return transaction(() async {
+      final direction = descending ? 'DESC' : 'ASC';
+      final rows = await customSelect(
+        'SELECT id, position FROM folders '
+        'WHERE ${parentId == null ? 'parent_id IS NULL' : 'parent_id = ?'} '
+        'AND is_deleted = 0 ORDER BY position $direction, id',
+        variables: [if (parentId != null) Variable<String>(parentId)],
+        readsFrom: {folders},
+      ).get();
+      final current = <PositionedId>[
+        for (final row in rows)
+          (id: row.read<String>('id'), position: row.read<int>('position')),
+      ];
+      final changes = planGappedPositions(
+        current: current,
+        order: spliceLoadedOrder(
+          displayOrder: [for (final row in current) row.id],
+          loadedOrder: loadedOrder,
+          windowAtTop: windowAtTop,
+        ),
+        descending: descending,
+      );
+      if (changes.isEmpty) return const <String>[];
 
-    await transaction(() async {
       final stamp = db.newStamp();
-      final moved = <String>[];
-      for (final entry in positionByFolderId.entries) {
-        final changed = await customUpdate(
-          'UPDATE folders SET position = ?, updated_at = ?, '
-          'hlc_timestamp = ?, device_id = ?, version = version + 1 '
-          'WHERE id = ? AND is_deleted = 0 AND position != ?',
-          variables: [
-            Variable<int>(entry.value),
-            Variable<DateTime>(now),
-            Variable<String>(stamp.hlc),
-            Variable<String>(stamp.deviceId),
-            Variable<String>(entry.key),
-            Variable<int>(entry.value),
-          ],
-          updates: {folders},
-        );
-        if (changed > 0) moved.add(entry.key);
-      }
+      await batch((b) {
+        for (final MapEntry(key: id, value: position) in changes.entries) {
+          b.update(
+            folders,
+            FoldersCompanion.custom(
+              position: Variable<int>(position),
+              hlcTimestamp: Variable<String>(stamp.hlc),
+              deviceId: Variable<String>(stamp.deviceId),
+              version: folders.version + const Constant(1),
+            ),
+            where: (f) => f.id.equals(id) & f.isDeleted.equals(false),
+          );
+        }
+      });
+      final moved = changes.keys.toList(growable: false);
       await db.enqueueMany(folders, moved, stamp.hlc);
+      return moved;
     });
   }
 
@@ -705,21 +829,8 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
       final now = DateTime.now();
       final stamp = db.newStamp();
 
-      // 1. Bulk soft-delete notes in any of these folders. We need to
-      //    update FTS rowids first because softDeleteNote's FTS removal
-      //    happens per-row; we replicate that with a single statement.
+      // 1. Bulk soft-delete notes in any of these folders.
       final placeholders = List.filled(descendantIds.length, '?').join(',');
-
-      // Remove affected notes from FTS by rowid lookup. This uses the
-      // notes_fts contentless trigger pattern: we delete by rowid
-      // explicitly so the search index stays consistent.
-      await db.customStatement(
-        'DELETE FROM notes_fts WHERE rowid IN ('
-        '  SELECT rowid FROM notes '
-        '  WHERE folder_id IN ($placeholders) AND is_deleted = 0'
-        ')',
-        [for (final id in descendantIds) id],
-      );
 
       // Bulk update notes. version + 1 per row is preserved. The timestamps
       // bind as `Variable<DateTime>`: Drift stores unix seconds, and raw
@@ -744,6 +855,11 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
         'RETURNING id',
         variables: stamps,
       );
+      final noteIds = [for (final row in noteRows) row.read<String>('id')];
+      await db.contentChunkDao.deleteChunksForNotes(noteIds);
+      if (noteIds.isNotEmpty) {
+        await db.counterDao.tombstoneValuesOfDeletedNotes(stamp, now);
+      }
 
       // 2. Bulk soft-delete folders themselves.
       final folderRows = await customWriteReturning(
@@ -762,7 +878,7 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
       // 3. Queue exactly the rows the two updates tombstoned, under its HLC.
       await db.enqueueMany(
         db.notes,
-        [for (final row in noteRows) row.read<String>('id')],
+        noteIds,
         stamp.hlc,
         op: OutboxOp.tombstone,
       );

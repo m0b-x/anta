@@ -32,8 +32,7 @@ Future<Set<String>> indexNames(AppDatabase db) async {
   return {for (final row in rows) row.read<String>('name')};
 }
 
-/// Names of every table, excluding SQLite's internal bookkeeping and the FTS5
-/// shadow tables that back `notes_fts`.
+/// Names of every table and view, excluding SQLite's internal bookkeeping.
 Future<Set<String>> tableNames(AppDatabase db) async {
   final rows = await db
       .customSelect(

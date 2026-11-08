@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -51,6 +52,7 @@ void main() {
   late SettingsService settings;
   late PublicHolidayService holidays;
   late FakeFilePicker picker;
+  late List<String> verified;
 
   setUpAll(() async {
     tempDir = await Directory.systemTemp.createTemp('anta_onboarding');
@@ -87,6 +89,16 @@ void main() {
     await CalendarPaletteService.getInstance();
     await LabelAppearanceService.getInstance();
     picker = FakeFilePicker()..install();
+    // SQLite cannot run under `FakeAsync`: the database-file restore meets a
+    // check that accepts every file unless a test says otherwise; the real
+    // one is `test/services/database_manager_import_test.dart`'s.
+    verified = [];
+    manager.verifyImport = (path) async => verified.add(path);
+  });
+
+  tearDown(() {
+    manager.verifyImport = DatabaseManager.verifyImportFile;
+    DatabaseManager.debugImportChunkWritten = null;
   });
 
   Future<bool> onboardingDone(WidgetTester tester) async =>
@@ -108,7 +120,7 @@ void main() {
 
   /// A minimal version-7 backup with one folder and one note in it — or
   /// [folders] and [notes] of them, the extra ones numbered — in the shape
-  /// `BackupService.exportAllData` writes those two keys.
+  /// the JSON backup writes those two keys (`support/backup_archive.dart`).
   Future<String> writeBackup(
     WidgetTester tester, {
     int folders = 1,
@@ -303,6 +315,7 @@ void main() {
       () => manager.databaseExists('phone_backup'),
     );
     expect(restored, isTrue);
+    expect(verified, hasLength(1), reason: 'made active only once checked');
     expect(prefs.getString(activeKey), 'phone_backup');
     // Written into the database that is open now — the one being left.
     expect(await onboardingDone(tester), isTrue);
@@ -314,6 +327,84 @@ void main() {
       platform.where((c) => c.method == 'SystemNavigator.pop'),
       hasLength(1),
     );
+
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('a SQLite file the check refuses as too new is named so and '
+      'never becomes active', (tester) async {
+    final source = p.join(tempDir.path, 'picked', 'phone backup.db');
+    await tester.runAsync(() => writeSqliteHeaderFile(source));
+    picker.nextPath = source;
+    manager.verifyImport = (_) async => throw const DatabaseImportTooNew(99);
+    final robot = OnboardingRobot(tester);
+    await robot.pump();
+
+    await robot.restoreFromBackup();
+    await robot.settleUntil(() => robot.shows(l10n.databaseImportTooNew));
+    await robot.settle();
+
+    final restored = await tester.runAsync(
+      () => manager.databaseExists('phone_backup'),
+    );
+    expect(restored, isFalse);
+    expect(prefs.getString(activeKey), isNull);
+    expect(await onboardingDone(tester), isFalse);
+    expect(robot.showsDialog, isFalse);
+    expect(robot.showsChoices, isTrue);
+    expect(robot.shows(l10n.restartRequiredTitle), isFalse);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('the restore copies under the Databases page\'s import dialog, '
+      'whose Cancel leaves the welcome as it was', (tester) async {
+    final source = p.join(tempDir.path, 'picked', 'phone backup.db');
+    await tester.runAsync(() async {
+      final bytes = Uint8List(3 << 20)
+        ..setRange(0, 16, 'SQLite format 3\u0000'.codeUnits);
+      await Directory(p.dirname(source)).create(recursive: true);
+      await File(source).writeAsBytes(bytes);
+    });
+    picker.nextPath = source;
+    final firstChunk = Completer<void>();
+    final copyGoesOn = Completer<void>();
+    DatabaseManager.debugImportChunkWritten = () async {
+      if (firstChunk.isCompleted) return;
+      firstChunk.complete();
+      await copyGoesOn.future;
+    };
+    final robot = OnboardingRobot(tester);
+    await robot.pump();
+
+    await robot.restoreFromBackup();
+    await robot.settleUntil(() => firstChunk.isCompleted);
+    await robot.settle(rounds: 2);
+
+    final bar = tester.widget<LinearProgressIndicator>(
+      find.descendant(
+        of: find.byType(AlertDialog),
+        matching: find.byType(LinearProgressIndicator),
+      ),
+    );
+    expect(bar.value, closeTo(1 / 3, 0.001));
+    expect(robot.shows(l10n.importingDatabase), isTrue);
+
+    await robot.cancelDialog();
+    copyGoesOn.complete();
+    await robot.settleUntil(() => !robot.showsDialog);
+    await robot.settle();
+
+    final names = await tester.runAsync(() async {
+      final dir = Directory(await manager.getDatabaseDirectory());
+      return [await for (final e in dir.list()) p.basename(e.path)];
+    });
+    expect(names!.where((n) => n.startsWith('phone_backup')), isEmpty);
+    expect(verified, isEmpty);
+    expect(prefs.getString(activeKey), isNull);
+    expect(await onboardingDone(tester), isFalse);
+    expect(robot.showsChoices, isTrue);
+    expect(robot.shows(l10n.importFailed), isFalse);
 
     await tester.pumpWidget(const SizedBox.shrink());
   });

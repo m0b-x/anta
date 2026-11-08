@@ -67,6 +67,24 @@ class _FakeSearchService implements FolderSearchService {
   }
 
   @override
+  Future<({List<SearchResult> results, bool incomplete})>
+  quickSearchWithCoverage(
+    String query, {
+    Set<String>? folderIds,
+    Set<ItemLabel> labels = const {},
+    int limit = FolderSearchService.quickHitLimit,
+    bool caseSensitive = false,
+  }) async => (
+    results: await quickSearch(
+      query,
+      folderIds: folderIds,
+      labels: labels,
+      limit: limit,
+    ),
+    incomplete: quickIncomplete,
+  );
+
+  @override
   Future<({List<SearchResult> results, int total})> labelledNotes({
     required Set<ItemLabel> labels,
     Set<String>? folderIds,
@@ -90,19 +108,38 @@ class _FakeSearchService implements FolderSearchService {
   }
 
   @override
+  Future<({List<SearchResult> results, bool incomplete})> searchWithCoverage(
+    String query, {
+    SearchFilter? filter,
+    int limit = 50,
+    bool caseSensitive = false,
+  }) async => (
+    results: await search(query, filter: filter, limit: limit),
+    incomplete: indexing,
+  );
+
+  @override
   Future<void> initialize() async {}
 
   @override
   Future<void> buildIndex() async {}
 
-  @override
-  Future<void> updateIndex(String noteId, String title, String content) async {}
+  /// Whether a full search reports itself incomplete, and the drain
+  /// [whenIndexed] waits on — held open by a test until it settles it.
+  bool indexing = false;
+  Completer<void> indexed = Completer<void>()..complete();
+
+  /// Whether a quick pass reports the index behind it.
+  bool quickIncomplete = false;
+
+  /// How many times the bloc asked the index to catch up.
+  int catchUps = 0;
 
   @override
-  Future<void> removeFromIndex(String noteId) async {}
+  Future<void> whenIndexed() => indexed.future;
 
   @override
-  void dispose() {}
+  Future<void> catchUpIndex() async => catchUps++;
 
   @override
   Future<void> close() async {}
@@ -205,9 +242,14 @@ SearchResult _unmatched(NoteMetadata metadata) {
   return SearchResult(metadata: metadata, matches: const [], relevanceScore: 0);
 }
 
+/// A hit on "squat" where [types] say: a title hit's title holds the word,
+/// since the bloc judges a title hit by the title itself, not by where the
+/// highlight landed.
 SearchResult _hit(NoteMetadata metadata, List<SearchMatchType> types) {
   return SearchResult(
-    metadata: metadata,
+    metadata: types.contains(SearchMatchType.title)
+        ? metadata.copyWith(title: 'Squat ${metadata.id}')
+        : metadata,
     matches: [
       for (final type in types)
         SearchMatch(text: 'squat', startIndex: 0, endIndex: 5, type: type),
@@ -387,6 +429,31 @@ void main() {
       },
     );
 
+    test('a title holding the query is a title hit wherever the highlight '
+        'landed', () async {
+      final titled = _note('a', title: 'Squat bench');
+      final log = _note('b', title: 'Log');
+      searchService.quickResults = [
+        // The raw query's highlight finds nothing in either title.
+        _hit(titled, [SearchMatchType.content]),
+        _hit(log, [SearchMatchType.content]),
+      ];
+      final bloc = buildBloc();
+      bloc.add(const SearchOpened());
+      await pumpEventQueue();
+
+      for (final query in ['squat ', 'squat #legday']) {
+        bloc.add(SearchQueryChanged(query));
+        await settleDebounce();
+
+        expect(bloc.state.titleHits.map((r) => r.metadata.title), [
+          'Squat bench',
+        ], reason: '"$query"');
+        expect(bloc.state.contentHits.map((r) => r.metadata.title), ['Log']);
+      }
+      await bloc.close();
+    });
+
     test('a hit with no located match still shows, under in-text', () async {
       searchService.fullResults = [_hit(_note('a'), const [])];
       final bloc = buildBloc();
@@ -429,6 +496,164 @@ void main() {
       await pumpEventQueue();
 
       expect(searchService.searchCalls.single.filter, isNull);
+      await bloc.close();
+    });
+  });
+
+  group('while the body index fills', () {
+    test('a full search says so, then runs again once it is done', () async {
+      searchService
+        ..fullResults = [
+          _hit(_note('a'), [SearchMatchType.content]),
+        ]
+        ..indexing = true
+        ..indexed = Completer<void>();
+      final bloc = buildBloc();
+      bloc.add(const SearchOpened());
+      await pumpEventQueue();
+
+      bloc.add(const SearchSubmitted('squat'));
+      await pumpEventQueue();
+
+      expect(bloc.state.stillIndexing, isTrue);
+      expect(bloc.state.contentHits, hasLength(1));
+      expect(searchService.searchCalls, hasLength(1));
+
+      searchService
+        ..fullResults = [
+          _hit(_note('a'), [SearchMatchType.content]),
+          _hit(_note('b'), [SearchMatchType.content]),
+        ]
+        ..indexing = false;
+      searchService.indexed.complete();
+      await pumpEventQueue();
+
+      expect(searchService.searchCalls, hasLength(2));
+      expect(searchService.searchCalls.last.query, 'squat');
+      expect(bloc.state.stillIndexing, isFalse);
+      expect(bloc.state.contentHits, hasLength(2));
+      await bloc.close();
+    });
+
+    test('the re-run stands back once the surface moved on', () async {
+      searchService
+        ..fullResults = [
+          _hit(_note('a'), [SearchMatchType.content]),
+        ]
+        ..indexing = true
+        ..indexed = Completer<void>();
+      final bloc = buildBloc();
+      bloc.add(const SearchOpened());
+      await pumpEventQueue();
+      bloc.add(const SearchSubmitted('squat'));
+      await pumpEventQueue();
+
+      bloc.add(const SearchCleared());
+      await pumpEventQueue();
+      searchService.indexed.complete();
+      await pumpEventQueue();
+
+      expect(searchService.searchCalls, hasLength(1));
+      expect(bloc.state.phase, SearchPhase.idle);
+      expect(bloc.state.stillIndexing, isFalse);
+      await bloc.close();
+    });
+
+    test('opening asks the index to catch up; typing never does', () async {
+      final bloc = buildBloc();
+      bloc.add(const SearchOpened());
+      await pumpEventQueue();
+      expect(searchService.catchUps, 1);
+
+      bloc.add(const SearchQueryChanged('sq'));
+      await settleDebounce();
+      bloc.add(const SearchQueryChanged('squat'));
+      await settleDebounce();
+
+      expect(searchService.quickCalls, hasLength(2));
+      expect(searchService.catchUps, 1);
+      await bloc.close();
+    });
+
+    test('a quick pass behind the index runs once more when it settles, '
+        'with no notice', () async {
+      searchService
+        ..quickResults = [
+          _hit(_note('a'), [SearchMatchType.content]),
+        ]
+        ..quickIncomplete = true
+        ..indexed = Completer<void>();
+      final bloc = buildBloc();
+      bloc.add(const SearchOpened());
+      await pumpEventQueue();
+
+      bloc.add(const SearchQueryChanged('squat'));
+      await settleDebounce();
+      expect(searchService.quickCalls, hasLength(1));
+      expect(bloc.state.stillIndexing, isFalse);
+
+      searchService.quickResults = [
+        _hit(_note('a'), [SearchMatchType.content]),
+        _hit(_note('b'), [SearchMatchType.content]),
+      ];
+      searchService.indexed.complete();
+      await pumpEventQueue();
+
+      expect(searchService.quickCalls, hasLength(2));
+      expect(searchService.quickCalls.last.query, 'squat');
+      expect(bloc.state.contentHits, hasLength(2));
+      expect(bloc.state.stillIndexing, isFalse);
+
+      await pumpEventQueue();
+      expect(
+        searchService.quickCalls,
+        hasLength(2),
+        reason: 'the re-run is still behind, and asks for no other',
+      );
+      await bloc.close();
+    });
+
+    test('the quick re-run stands back after another keystroke', () async {
+      searchService
+        ..quickIncomplete = true
+        ..indexed = Completer<void>();
+      final bloc = buildBloc();
+      bloc.add(const SearchOpened());
+      await pumpEventQueue();
+      bloc.add(const SearchQueryChanged('squat'));
+      await settleDebounce();
+      searchService.quickIncomplete = false;
+      bloc.add(const SearchQueryChanged('squats'));
+      await settleDebounce();
+
+      searchService.indexed.complete();
+      await pumpEventQueue();
+
+      expect(
+        [for (final call in searchService.quickCalls) call.query],
+        ['squat', 'squats'],
+      );
+      await bloc.close();
+    });
+
+    test('a quick pass never shows the line', () async {
+      searchService
+        ..quickResults = [
+          _hit(_note('a'), [SearchMatchType.title]),
+        ]
+        ..quickIncomplete = true;
+      final bloc = buildBloc();
+      bloc.add(const SearchOpened());
+      await pumpEventQueue();
+
+      bloc.add(const SearchQueryChanged('squat'));
+      await Future<void>.delayed(
+        SearchBloc.queryDebounce + const Duration(milliseconds: 50),
+      );
+      await pumpEventQueue();
+
+      expect(bloc.state.phase, SearchPhase.quick);
+      expect(bloc.state.stillIndexing, isFalse);
       await bloc.close();
     });
   });
@@ -617,14 +842,15 @@ void main() {
       bloc.add(const SearchSubmitted('#tag'));
       await pumpEventQueue();
 
+      // A tag names no title: its hits are listed as text hits.
       expect(bloc.state.phase, SearchPhase.full);
-      expect(bloc.state.titleHits.map((r) => r.metadata.id), ['a']);
+      expect(bloc.state.contentHits.map((r) => r.metadata.id), ['a']);
 
       gate.complete();
       await pumpEventQueue();
 
       expect(bloc.state.phase, SearchPhase.full);
-      expect(bloc.state.titleHits.map((r) => r.metadata.id), ['a']);
+      expect(bloc.state.contentHits.map((r) => r.metadata.id), ['a']);
       expect(bloc.state.query, '#tag');
       expect(bloc.state.recents, isEmpty);
       await bloc.close();

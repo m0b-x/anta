@@ -277,7 +277,8 @@ void main() {
         await a().settle();
 
         expect(pair.gateway.calls, [
-          for (final binding in syncTableBindings) 'pull:${binding.table}',
+          for (final b in syncTableBindings)
+            if (b.pulls) 'pull:${b.table}',
           'push:A',
         ]);
       },
@@ -301,7 +302,9 @@ void main() {
 
       final waits = [
         for (final timer in a().scheduler.timers)
-          if (timer.delay != const Duration(minutes: 7)) timer.delay,
+          if (timer.delay != const Duration(minutes: 7) &&
+              timer.delay != const SyncEngineTiming().pushMaxWait)
+            timer.delay,
       ];
       expect(waits.take(4), const [
         Duration(seconds: 30),
@@ -406,7 +409,10 @@ void main() {
         await a().settle();
         await a().db.folderDao.createFolder(name: 'Queued');
         await pumpEventQueue();
-        expect(a().scheduler.pending, [const Duration(seconds: 30)]);
+        expect(a().scheduler.pending, [
+          const Duration(seconds: 30),
+          const Duration(minutes: 3),
+        ]);
 
         SyncEngine.reset();
         await a().engine.whenIdle;

@@ -10,6 +10,11 @@ import 'counter_form_dialog.dart';
 import 'counter_picker_dialog.dart';
 import 'icon_picker_dialog.dart';
 
+/// What [AppDialogs.progress] shows: the index of its current step, the
+/// bar's share (`null` draws it indeterminate), and whether Cancel takes a
+/// tap.
+typedef ProgressDialogState = ({int step, double? fraction, bool canCancel});
+
 /// Unified dialog system for the entire app.
 ///
 /// Every dialog follows the same visual conventions:
@@ -310,6 +315,64 @@ class AppDialogs {
       if (context.mounted) AppNavigator.pop(context);
       rethrow;
     }
+  }
+
+  /// A non-dismissible dialog over work that reports itself through
+  /// [listenable] and [read]: one line per entry of [steps], a bar under it
+  /// — determinate on a fraction, indeterminate on `null` — and a Cancel
+  /// that calls [onCancel], disabled, never hidden, while the step cannot be
+  /// stopped. Every step's line is laid out and only the current one shown
+  /// and spoken, so a switch never changes the dialog's height. **The
+  /// caller pops it** when the work settles, as with [showLoading]; the
+  /// future completes once it is gone.
+  static Future<void> progress(
+    BuildContext context, {
+    required List<String> steps,
+    required Listenable listenable,
+    required ProgressDialogState Function() read,
+    required VoidCallback onCancel,
+  }) {
+    final l10n = AppLocalizations.of(context)!;
+    return showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => PopScope(
+        canPop: false,
+        child: ListenableBuilder(
+          listenable: listenable,
+          builder: (context, _) {
+            final state = read();
+            return AlertDialog(
+              scrollable: true,
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Semantics(
+                    liveRegion: true,
+                    child: IndexedStack(
+                      index: state.step,
+                      children: [for (final step in steps) Text(step)],
+                    ),
+                  ),
+                  const SizedBox(height: FormMetrics.dialogProgressGap),
+                  LinearProgressIndicator(value: state.fraction),
+                ],
+              ),
+              actions: _actions([
+                AutomationId(
+                  identifier: SemanticsIds.sheetCancel,
+                  child: TextButton(
+                    onPressed: state.canCancel ? onCancel : null,
+                    child: Text(l10n.cancel),
+                  ),
+                ),
+              ]),
+            );
+          },
+        ),
+      ),
+    );
   }
 
   // ---------------------------------------------------------------------------

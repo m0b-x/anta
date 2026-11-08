@@ -3,6 +3,7 @@
 import 'package:drift/drift.dart' hide isNull, isNotNull;
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:anta/database/chunking/chunk_hasher.dart';
 import 'package:anta/database/crdt/crdt_merge.dart';
 import 'package:anta/database/crdt/crdt_write.dart';
 import 'package:anta/database/crdt/hlc.dart';
@@ -12,7 +13,9 @@ import 'package:anta/database/database.dart';
 import 'package:anta/models/item_label.dart';
 import 'package:anta/repositories/note_repository.dart';
 import 'package:anta/services/note_storage_service.dart';
+import 'package:anta/constants/app_constants.dart';
 
+import '../services/support/body_index_support.dart';
 import 'support/db_test_support.dart';
 
 /// Guards the change feed: every local write on a browser-side synced table
@@ -115,35 +118,40 @@ void main() {
       final c = await db.folderDao.createFolder(name: 'C');
       await db.syncOutboxDao.clear();
 
-      // `a` stays at 0; `b` and `c` swap.
-      await db.folderDao.setFolderPositions({a.id: 0, b.id: 2, c.id: 1});
+      // `a` stays first; `c` moves above `b`, which stays put.
+      await db.folderDao.applyOrder(
+        parentId: null,
+        loadedOrder: [a.id, c.id, b.id],
+        descending: false,
+      );
 
       final rows = await queued('folders');
-      expect(rows.map((r) => r.rowKey), unorderedEquals([b.id, c.id]));
+      expect(rows.map((r) => r.rowKey), [c.id]);
       expect(rows.map((r) => r.hlc).toSet(), hasLength(1));
       expect((await folderRow(a.id)).version, a.version);
     });
   });
 
   group('notes', () {
-    test(
-      'a create with a body queues the note once and no chunk at all',
-      () async {
-        final folderId = await seedFolderId();
-        final note = await db.noteDao.createNote(
-          folderId: folderId,
-          title: 'Log',
-          content: 'squat 5x5',
-        );
+    test('a create with a body queues the note once and its chunk under the '
+        'same stamp', () async {
+      final folderId = await seedFolderId();
+      final note = await db.noteDao.createNote(
+        folderId: folderId,
+        title: 'Log',
+        content: 'squat 5x5',
+      );
 
-        final entry = await onlyEntry('notes');
-        expect(entry.rowKey, note.id);
-        expect(entry.hlc, note.hlcTimestamp);
-        expect(entry.op, 'upsert');
-        expect(await queued('content_chunks'), isEmpty);
-        expect(await db.contentChunkDao.loadContent(note.id), 'squat 5x5');
-      },
-    );
+      final entry = await onlyEntry('notes');
+      expect(entry.rowKey, note.id);
+      expect(entry.hlc, note.hlcTimestamp);
+      expect(entry.op, 'upsert');
+      // Its own document since S6, keyed by its hash.
+      final chunk = await onlyEntry('content_chunks');
+      expect(chunk.rowKey, ChunkHasher.hash('squat 5x5'));
+      expect(chunk.hlc, note.hlcTimestamp);
+      expect(await db.contentChunkDao.loadContent(note.id), 'squat 5x5');
+    });
 
     test('a save coalesces to the newer HLC', () async {
       final folderId = await seedFolderId();
@@ -225,7 +233,11 @@ void main() {
       final b = await db.noteDao.createNote(folderId: folderId, title: 'B');
       await db.syncOutboxDao.clear();
 
-      await db.noteDao.setNotePositions({a.id: a.position, b.id: 7});
+      await db.noteDao.applyOrder(
+        folderId: folderId,
+        loadedOrder: [b.id, a.id],
+        descending: false,
+      );
 
       final entry = await onlyEntry('notes');
       expect(entry.rowKey, b.id);
@@ -234,7 +246,8 @@ void main() {
   });
 
   group('content_chunks', () {
-    test('a body-only save queues its note once, never a chunk', () async {
+    test('a body-only save queues its note once and each new chunk text '
+        'once', () async {
       final folderId = await seedFolderId();
       final note = await db.noteDao.createNote(folderId: folderId, title: 'A');
       await db.syncOutboxDao.clear();
@@ -245,25 +258,59 @@ void main() {
       final stored = await noteRow(note.id);
       expect(entry.hlc, stored.hlcTimestamp);
       expect(stored.version, note.version + 1);
-      expect(await queued('content_chunks'), isEmpty);
       final chunks = await db.contentChunkDao.getChunksForNote(note.id);
       expect(chunks.map((c) => c.hlcTimestamp).toSet(), {stored.hlcTimestamp});
+      // Since S6, keyed by hash: the two texts of the 25,000 code units.
+      expect((await queued('content_chunks')).map((e) => e.rowKey).toSet(), {
+        for (final chunk in chunks) chunk.contentHash,
+      });
     });
 
-    test('writing chunks queues nothing of their own', () async {
+    test(
+      'writing chunks queues each new hash, under the write\'s stamp',
+      () async {
+        final folderId = await seedFolderId();
+        final note = await db.noteDao.createNote(
+          folderId: folderId,
+          title: 'A',
+        );
+        await db.syncOutboxDao.clear();
+
+        final hlc = db.newStamp().hlc;
+        await db.transaction(
+          () => db.contentChunkDao.writeChunks(
+            noteId: note.id,
+            content: 'body',
+            hlc: hlc,
+          ),
+        );
+
+        final entry = (await queued()).single;
+        expect(entry.syncedTable, 'content_chunks');
+        expect(entry.rowKey, ChunkHasher.hash('body'));
+        expect(entry.hlc, hlc);
+      },
+    );
+
+    test('a save that replaces the last row of a hash retires its entry, '
+        'one another note still holds keeps it (S6b)', () async {
       final folderId = await seedFolderId();
       final note = await db.noteDao.createNote(folderId: folderId, title: 'A');
-      await db.syncOutboxDao.clear();
-
-      await db.transaction(
-        () => db.contentChunkDao.writeChunks(
-          noteId: note.id,
-          content: 'body',
-          hlc: db.newStamp().hlc,
-        ),
+      await db.noteDao.createNote(
+        folderId: folderId,
+        title: 'B',
+        content: 'shared',
       );
+      await db.noteDao.updateNote(id: note.id, content: 'shared');
 
-      expect(await queued(), isEmpty);
+      await db.noteDao.updateNote(id: note.id, content: 'first');
+      await db.noteDao.updateNote(id: note.id, content: 'second');
+      await db.noteDao.updateNote(id: note.id, content: 'third');
+
+      expect((await queued('content_chunks')).map((e) => e.rowKey).toSet(), {
+        ChunkHasher.hash('shared'),
+        ChunkHasher.hash('third'),
+      });
     });
   });
 
@@ -474,7 +521,8 @@ void main() {
       return note;
     }
 
-    test('a remote note merge queues nothing, either branch', () async {
+    test('a remote note merge queues no note, either branch — only the one '
+        'chunk text it brought (S6)', () async {
       final local = await seedNote('Squat log');
 
       await db.noteDao.mergeNoteDocument(
@@ -486,7 +534,27 @@ void main() {
         'pulled body',
       );
 
+      expect(
+        [
+          for (final entry in await queued())
+            '${entry.syncedTable}/${entry.rowKey}',
+        ],
+        ['content_chunks/${ChunkHasher.hash('pulled body')}'],
+      );
+    });
+
+    test('a body assembled from a manifest queues none of the chunks it '
+        'named, which the space holds (S6b)', () async {
+      final local = await seedNote('Squat log');
+
+      await db.noteDao.mergeNoteDocument(
+        local.copyWith(id: 'pulled', hlcTimestamp: newer),
+        'pulled body',
+        inSpace: {ChunkHasher.hash('pulled body')},
+      );
+
       expect(await queued(), isEmpty);
+      expect(await db.contentChunkDao.loadContent('pulled'), 'pulled body');
     });
 
     test('a newer note is applied and re-indexed', () async {
@@ -498,9 +566,8 @@ void main() {
       );
 
       expect(outcome.result, MergeResult.applied);
-      final found = await db.noteDao.fullTextSearch('Deadlift');
-      expect(found.map((n) => n.id), [local.id]);
-      expect(await db.noteDao.fullTextSearch('Squat'), isEmpty);
+      expect(await indexedHits(db, 'Deadlift'), [local.id]);
+      expect(await indexedHits(db, 'Squat'), isEmpty);
     });
 
     test('an unknown note is inserted and indexed', () async {
@@ -512,8 +579,7 @@ void main() {
       );
 
       expect(outcome.result, MergeResult.inserted);
-      final found = await db.noteDao.fullTextSearch('Bench');
-      expect(found.map((n) => n.id), ['pulled']);
+      expect(await indexedHits(db, 'Bench'), ['pulled']);
     });
 
     test('an older note keeps the local row and re-queues it', () async {
@@ -537,7 +603,7 @@ void main() {
         null,
       );
 
-      expect(await db.noteDao.fullTextSearch('Squat'), isEmpty);
+      expect(await indexedHits(db, 'Squat'), isEmpty);
     });
 
     test('a remote folder merge queues nothing', () async {
@@ -551,36 +617,6 @@ void main() {
       expect(outcome.result, MergeResult.applied);
       expect((await folderRow(local.id)).name, 'Gym');
       expect(await queued(), isEmpty);
-    });
-
-    test('a chunk merge queues nothing remote, its note when local', () async {
-      final local = await seedNote('Squat log');
-      final chunk = ContentChunk(
-        id: '${local.id}_chunk_0',
-        noteId: local.id,
-        chunkIndex: 0,
-        content: 'pulled body',
-        isCompressed: false,
-        hlcTimestamp: newer,
-        deviceId: 'remote',
-        version: 1,
-        isDeleted: false,
-      );
-
-      await db.contentChunkDao.mergeChunk(chunk, origin: MergeOrigin.remote);
-      expect(await queued(), isEmpty);
-
-      await db.contentChunkDao.mergeChunk(
-        chunk.copyWith(id: '${local.id}_chunk_1', chunkIndex: 1),
-        origin: MergeOrigin.local,
-      );
-      final entry = await onlyEntry('notes');
-      final stored = await noteRow(local.id);
-      expect(entry.rowKey, local.id);
-      expect(entry.hlc, newer);
-      expect(stored.hlcTimestamp, newer, reason: 'the row carries it too');
-      expect(stored.version, local.version + 1);
-      expect(await queued('content_chunks'), isEmpty);
     });
 
     test('a note merged over a tombstone names no loser', () async {
@@ -644,28 +680,6 @@ void main() {
 
         expect(db.newStamp().hlc.compareTo(remoteHlc), lessThan(0));
         CrdtMerge.advanceClock(db, remoteHlc);
-        expect(db.newStamp().hlc.compareTo(remoteHlc), greaterThan(0));
-      });
-
-      test('mergeChunk', () async {
-        final local = await seedNote('Squat log');
-        final remoteHlc = ahead();
-
-        await db.contentChunkDao.mergeChunk(
-          ContentChunk(
-            id: '${local.id}_chunk_0',
-            noteId: local.id,
-            chunkIndex: 0,
-            content: 'pulled body',
-            isCompressed: false,
-            hlcTimestamp: remoteHlc,
-            deviceId: 'remote',
-            version: 1,
-            isDeleted: false,
-          ),
-          origin: MergeOrigin.remote,
-        );
-
         expect(db.newStamp().hlc.compareTo(remoteHlc), greaterThan(0));
       });
     });
@@ -784,7 +798,12 @@ void main() {
       final entry = await onlyEntry('notes');
       expect(entry.rowKey, note.id);
       expect(entry.hlc, note.hlcTimestamp);
-      expect(await queued(), hasLength(1));
+      // And its one chunk, its own document since S6.
+      expect(
+        (await onlyEntry('content_chunks')).rowKey,
+        ChunkHasher.hash('body'),
+      );
+      expect(await queued(), hasLength(2));
     });
 
     test('importFolder queues its one row', () async {
@@ -849,7 +868,12 @@ void main() {
           [for (final row in rows) row.parentId],
           [null, ids[0], ids[0], existing.id, null, existing.id],
         );
-        expect([for (final row in rows) row.position], [1, 0, 1, 1, 2, 2]);
+        // Appends step by the stride, so a later drag finds room.
+        const stride = AppConstants.positionStride;
+        expect(
+          [for (final row in rows) row.position],
+          [stride, 0, stride, stride, 2 * stride, 2 * stride],
+        );
         expect(
           rows.every(
             (row) => row.createdAt.isAtSameMomentAs(DateTime.utc(2024)),
@@ -1065,6 +1089,19 @@ void main() {
     });
   });
 
+  /// Since S6 each chunk text a save writes is queued once, under its hash:
+  /// the live body's chunks among them, and at most one more per save — the
+  /// texts a later save replaced, which the next push retires without
+  /// sending, their rows being gone.
+  Future<void> expectChunkEntriesOf(String noteId, {required int saves}) async {
+    final chunks = {
+      for (final entry in await queued('content_chunks')) entry.rowKey,
+    };
+    final live = await db.contentChunkDao.hashesOf(noteId);
+    expect(chunks, containsAll(live));
+    expect(chunks.length, lessThanOrEqualTo(live.length + saves));
+  }
+
   test(
     'the usage probe: 200 saves of one note leave one notes entry',
     () async {
@@ -1084,11 +1121,10 @@ void main() {
         );
       }
 
-      final rows = await queued();
+      final rows = await queued('notes');
       expect(rows, hasLength(1));
-      expect(rows.single.syncedTable, 'notes');
       expect(rows.single.hlc, (await noteRow(note.id)).hlcTimestamp);
-      expect(await queued('content_chunks'), isEmpty);
+      await expectChunkEntriesOf(note.id, saves: 200);
     },
   );
 
@@ -1111,11 +1147,11 @@ void main() {
       );
     }
 
-    final rows = await queued();
+    final rows = await queued('notes');
     expect(rows, hasLength(1));
-    expect(rows.single.syncedTable, 'notes');
     expect(rows.single.rowKey, note.id);
     expect(rows.single.hlc, (await noteRow(note.id)).hlcTimestamp);
+    await expectChunkEntriesOf(note.id, saves: 200);
   });
 
   test('a folder cascade queues every tombstone under one HLC', () async {

@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:drift/drift.dart';
+import 'package:flutter/foundation.dart' show debugPrint;
 import '../../constants/public_holidays.dart';
 import '../database.dart';
 import 'database_indexes.dart';
@@ -230,6 +231,31 @@ class DatabaseMigrations {
       fromVersion: DatabaseSchema.v44CategoryProfiles,
       toVersion: DatabaseSchema.v45OneOffSkipSweep,
       migrate: _migrateV44ToV45,
+    ),
+    Migration(
+      fromVersion: DatabaseSchema.v45OneOffSkipSweep,
+      toVersion: DatabaseSchema.v46ContentChunkHashes,
+      migrate: _migrateV45ToV46,
+    ),
+    Migration(
+      fromVersion: DatabaseSchema.v46ContentChunkHashes,
+      toVersion: DatabaseSchema.v47StorageHygiene,
+      migrate: _migrateV46ToV47,
+    ),
+    Migration(
+      fromVersion: DatabaseSchema.v47StorageHygiene,
+      toVersion: DatabaseSchema.v48NoteBodySearch,
+      migrate: _migrateV47ToV48,
+    ),
+    Migration(
+      fromVersion: DatabaseSchema.v48NoteBodySearch,
+      toVersion: DatabaseSchema.v49Counters,
+      migrate: _migrateV48ToV49,
+    ),
+    Migration(
+      fromVersion: DatabaseSchema.v49Counters,
+      toVersion: DatabaseSchema.v50QuickSearchIndex,
+      migrate: _migrateV49ToV50,
     ),
   ];
 
@@ -2021,5 +2047,208 @@ class DatabaseMigrations {
       'WHERE excluded.hlc > sync_outbox.hlc',
       [now, stamp],
     );
+  }
+
+  /// v45→v46: content-defined chunks. `content_chunks.content_hash` holds the
+  /// SHA-256 a chunk is diffed by (and, once chunks travel, identified by);
+  /// NULL marks a legacy fixed slice. No data moves: a legacy note is re-cut
+  /// on its next body save, never here — a step rewriting every body would
+  /// make the first launch pay for every note at once. Local-only, so
+  /// `syncSchemaVersion` stays at 45 (`docs/scalability-roadmap.md` §5.2 S4).
+  ///
+  /// Frozen at this version. Idempotent by the column guard and the index's
+  /// `IF NOT EXISTS`.
+  Future<void> _migrateV45ToV46(Migrator m, GeneratedDatabase db) async {
+    if (!(await _columnsOf('content_chunks')).contains('content_hash')) {
+      await _db.customStatement(
+        'ALTER TABLE content_chunks ADD COLUMN content_hash TEXT',
+      );
+    }
+    await DatabaseIndexes(_db).createChunkHashIndex();
+  }
+
+  /// v46→v47: storage hygiene (D13). A tombstoned note's chunks are deleted
+  /// from now on, so the step purges the ones every earlier build left
+  /// behind in one pass over `content_chunks`: the chunks of notes that are
+  /// not live, and the tombstoned chunks of live notes. Local-only, so
+  /// `syncSchemaVersion` stays at 45 (`docs/scalability-roadmap.md` §5.7
+  /// S16).
+  ///
+  /// One exception: a live note that claims text (`content_length > 0`) but
+  /// has no live chunk keeps its tombstoned ones. A half-applied per-chunk
+  /// sync of an older build left such notes; their text reads as empty
+  /// today but is still on disk, and the purge would lose it for good.
+  ///
+  /// The purge runs while the partial chunk index still stands — it answers
+  /// the exception's "no live chunk" lookup, and the tombstoned rows, most of
+  /// what the purge removes, were never in it. The index then comes back
+  /// full: a full
+  /// index serves a `note_id` lookup whatever the query binds for
+  /// `is_deleted`. The outbox gains the index its push order reads in;
+  /// `idx_notes_folder` and `idx_folders_parent` go, strict prefixes of the
+  /// position indexes under the same predicate.
+  ///
+  /// Frozen at this version: the index SQL is inlined, the same spelling as
+  /// `DatabaseIndexes`' fresh-install definitions. Idempotent: a re-run
+  /// finds nothing to purge, and every index statement is guarded.
+  Future<void> _migrateV46ToV47(Migrator m, GeneratedDatabase db) async {
+    await _db.customStatement(
+      'DELETE FROM content_chunks '
+      'WHERE note_id NOT IN (SELECT id FROM notes WHERE is_deleted = 0) '
+      'OR (is_deleted = 1 AND note_id NOT IN ('
+      'SELECT n.id FROM notes n '
+      'WHERE n.is_deleted = 0 AND n.content_length > 0 '
+      'AND NOT EXISTS (SELECT 1 FROM content_chunks c '
+      'WHERE c.note_id = n.id AND c.is_deleted = 0)))',
+    );
+    await _db.customStatement('DROP INDEX IF EXISTS idx_chunks_note_index');
+    await _db.customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_content_chunks_note '
+      'ON content_chunks(note_id, chunk_index)',
+    );
+    await _db.customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_sync_outbox_order '
+      'ON sync_outbox(hlc, table_name, row_key)',
+    );
+    await _db.customStatement('DROP INDEX IF EXISTS idx_notes_folder');
+    await _db.customStatement('DROP INDEX IF EXISTS idx_folders_parent');
+  }
+
+  /// v47→v48: the device-local body search index (`docs/scalability-roadmap.md`
+  /// §5.5 S11) — the ledger, and the contentless FTS5 trigram table it keys.
+  /// Both are derived and start empty; the indexer fills them lazily after
+  /// launch, so the step reads no body. Local-only: `syncSchemaVersion`
+  /// stays at 45.
+  ///
+  /// The virtual table is created defensively: a SQLite built without the
+  /// trigram tokenizer refuses it, and the step must still land, so the
+  /// failure is swallowed and the table's absence is what the indexer reads
+  /// as "search the old way".
+  ///
+  /// Frozen at this version: raw DDL, never [DatabaseIndexes]'s live
+  /// creator. Idempotent by `IF NOT EXISTS`.
+  Future<void> _migrateV47ToV48(Migrator m, GeneratedDatabase db) async {
+    await _db.customStatement(
+      'CREATE TABLE IF NOT EXISTS note_search_ledger ('
+      'note_rowid INTEGER PRIMARY KEY, note_id TEXT NOT NULL, '
+      'indexed_hlc TEXT NOT NULL, fingerprint TEXT NOT NULL)',
+    );
+    try {
+      await _db.customStatement(
+        'CREATE VIRTUAL TABLE IF NOT EXISTS note_body_fts USING fts5(body, '
+        "tokenize='trigram case_sensitive 1', content='', "
+        'contentless_delete=1)',
+      );
+    } catch (e) {
+      debugPrint('[DatabaseMigrations] v48 body index unavailable: $e');
+    }
+  }
+
+  /// v48→v49: counter values become PN-counters (D8 A,
+  /// `docs/scalability-roadmap.md` §5.7 S20). `epoch_hlc`, `epoch_value` and
+  /// `shards` join `counter_values`, and every existing row becomes the epoch
+  /// of its own last write — `epoch_value = value` under the row's own stamp,
+  /// no shards — so no number changes and the first merge with another
+  /// device's legacy envelope of the same write meets an equal epoch.
+  /// `syncSchemaVersion` stays at 45: an older build reads `value` and
+  /// ignores the new keys.
+  ///
+  /// Then `idx_counter_values_note`, which the note-delete cascade reads by,
+  /// and the one-off sweep of the per-note values every earlier build left
+  /// live under a tombstoned note — `CounterDao.sweepOrphanValues`' rule: only
+  /// a value stamped below its note's tombstone, tombstoned under the note's
+  /// own stamp, device and `deleted_at`, so a value another device wrote
+  /// after the delete — on a note its newer edit brings back — still outranks
+  /// it everywhere. Each swept row is queued at that stamp (the v45 entry
+  /// shape: op `tombstone`, `enqueued_at` in unix seconds, the newer stamp
+  /// winning a key already queued), the entries written first, while the
+  /// rows still match. A note that is missing rather than tombstoned is not
+  /// evidence of a delete: on a bound database its row may simply not have
+  /// been pulled yet.
+  ///
+  /// Frozen at this version: the index and the sweep are inlined. Idempotent:
+  /// each column and the index are guarded, the backfill runs only in the run
+  /// that added `epoch_value`, and a swept row is never matched again.
+  Future<void> _migrateV48ToV49(Migrator m, GeneratedDatabase db) async {
+    final columns = await _columnsOf('counter_values');
+    if (!columns.contains('epoch_hlc')) {
+      await _db.customStatement(
+        "ALTER TABLE counter_values ADD COLUMN epoch_hlc TEXT NOT NULL DEFAULT ''",
+      );
+    }
+    if (!columns.contains('shards')) {
+      await _db.customStatement(
+        "ALTER TABLE counter_values ADD COLUMN shards TEXT NOT NULL DEFAULT ''",
+      );
+    }
+    if (!columns.contains('epoch_value')) {
+      await _db.customStatement(
+        'ALTER TABLE counter_values '
+        'ADD COLUMN epoch_value INTEGER NOT NULL DEFAULT 0',
+      );
+      await _db.customStatement(
+        'UPDATE counter_values SET epoch_value = value, '
+        'epoch_hlc = hlc_timestamp',
+      );
+    }
+    await _db.customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_counter_values_note '
+      'ON counter_values(note_id) WHERE is_deleted = 0',
+    );
+    final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    await _db.customStatement(
+      'INSERT INTO sync_outbox (table_name, row_key, hlc, op, enqueued_at) '
+      "SELECT 'counter_values', v.counter_id || '|' || v.note_id, "
+      "n.hlc_timestamp, 'tombstone', ? "
+      'FROM counter_values v JOIN notes n ON n.id = v.note_id '
+      "WHERE v.is_deleted = 0 AND v.note_id != '' AND n.is_deleted = 1 "
+      'AND n.hlc_timestamp > v.hlc_timestamp '
+      'ON CONFLICT (table_name, row_key) DO UPDATE SET hlc = excluded.hlc, '
+      'op = excluded.op, enqueued_at = excluded.enqueued_at '
+      'WHERE excluded.hlc > sync_outbox.hlc',
+      [now],
+    );
+    await _db.customStatement(
+      'UPDATE counter_values SET is_deleted = 1, version = version + 1, '
+      '(hlc_timestamp, device_id, deleted_at) = '
+      '(SELECT n.hlc_timestamp, n.device_id, n.deleted_at FROM notes n '
+      'WHERE n.id = counter_values.note_id) '
+      "WHERE is_deleted = 0 AND note_id != '' AND EXISTS "
+      '(SELECT 1 FROM notes n WHERE n.id = counter_values.note_id '
+      'AND n.is_deleted = 1 '
+      'AND n.hlc_timestamp > counter_values.hlc_timestamp)',
+    );
+  }
+
+  /// v49→v50: quick search on the body index (`docs/scalability-roadmap.md`
+  /// §5.5 S12, D6). `notes_fts`, the title-and-preview table every note
+  /// write kept in step and nothing has searched since v48, is dropped with
+  /// its shadow tables. `note_body_fts` is recreated with the `title` and
+  /// `tags` columns the quick search ranks and narrows by, and the ledger is
+  /// cleared so the indexer re-projects every note lazily after launch — the
+  /// step reads no body. Local-only: `syncSchemaVersion` stays at 45.
+  ///
+  /// The newest step defining the FTS table, so it shares
+  /// [DatabaseIndexes.createBodySearchTables] with fresh installs, which
+  /// swallows a SQLite without the trigram tokenizer as the v48 step does.
+  /// Idempotent: a table that already has the `tags` column is left alone
+  /// with its ledger, and the drop is guarded.
+  Future<void> _migrateV49ToV50(Migrator m, GeneratedDatabase db) async {
+    await _db.customStatement('DROP TABLE IF EXISTS notes_fts');
+    Set<String> columns;
+    try {
+      columns = await _columnsOf('note_body_fts');
+    } catch (e) {
+      debugPrint('[DatabaseMigrations] v50 body index unreadable: $e');
+      columns = const {};
+    }
+    if (columns.contains('tags')) return;
+    try {
+      await _db.customStatement('DROP TABLE IF EXISTS note_body_fts');
+    } catch (e) {
+      debugPrint('[DatabaseMigrations] v50 body index not dropped: $e');
+    }
+    await DatabaseIndexes(_db).createBodySearchTables();
+    await _db.customStatement('DELETE FROM note_search_ledger');
   }
 }

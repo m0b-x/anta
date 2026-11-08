@@ -2,7 +2,15 @@ import 'package:equatable/equatable.dart';
 
 import '../../models/app_user.dart';
 import '../../models/sync_binding.dart';
+import '../../utils/sync_quota_reset.dart';
 import 'sync_gateway.dart';
+
+/// When the space's daily quota comes back, for the engine's retry and the
+/// pause's words alike.
+abstract final class SyncQuota {
+  /// The quota's first reset after [at] ([nextSyncQuotaReset]).
+  static DateTime nextReset(DateTime at) => nextSyncQuotaReset(at);
+}
 
 /// Why sync is held back while the database is bound.
 enum SyncPause {
@@ -74,6 +82,140 @@ class SyncFailureInfo extends Equatable {
   List<Object?> get props => [failure, at, message];
 }
 
+/// Why a row is held back, strongest first: a row parked for several
+/// reasons — its pull and its push, or a note and a chunk of its body — is
+/// listed once, under the first of them that applies.
+enum SyncHeldReason {
+  /// A pulled note names chunks neither this device nor the space holds.
+  awaitingText,
+
+  /// A pulled document could not be decoded or merged here.
+  unreadable,
+
+  /// The cloud copy's rules refused the row's push.
+  refused,
+
+  /// The row could not be encoded for the push: too large, a chunk that no
+  /// longer matches its hash, a chunk its manifest needs parked.
+  unencodable,
+}
+
+/// What a held-back row is, by its table: the page names notes and folders
+/// and labels the rest by kind. Ordered as the page lists them after notes
+/// and folders.
+enum SyncHeldKind {
+  /// Named by its title.
+  note,
+
+  /// Named by its name.
+  folder,
+
+  /// An event, or one of its occurrences, absences, skips or alerts: the
+  /// user knows them all as the event.
+  event,
+
+  /// A calendar category, its alerts or its profile.
+  category,
+
+  /// A counter or one of its values.
+  counter,
+
+  /// An event template.
+  template,
+
+  /// A saved overview view.
+  view,
+
+  /// A saved calendar filter.
+  filter,
+
+  /// An alert digest.
+  digest,
+
+  /// A vocabulary list or one of its items.
+  vocabulary,
+
+  /// A table the page has no word for: a binding added after this list.
+  other;
+
+  /// The kind of a row of the synced [table].
+  static SyncHeldKind ofTable(String table) => switch (table) {
+    'notes' => note,
+    'folders' => folder,
+    'calendar_events' ||
+    'calendar_event_occurrences' ||
+    'calendar_event_absences' ||
+    'calendar_event_skips' ||
+    'calendar_event_alerts' => event,
+    'calendar_categories' ||
+    'calendar_category_alerts' ||
+    'calendar_category_profiles' => category,
+    'counters' || 'counter_values' => counter,
+    'calendar_event_templates' => template,
+    'overview_views' => view,
+    'calendar_filter_presets' => filter,
+    'event_digests' => digest,
+    'vocabularies' || 'vocabulary_items' => vocabulary,
+    _ => other,
+  };
+}
+
+/// One park as the engine holds it, pull or push, this session's or a
+/// stored one — what the status service turns into [SyncHeldItem]s.
+class SyncParkedRow extends Equatable {
+  /// The synced table's name, as the outbox and the space name it.
+  final String table;
+
+  /// The row's key in [table] as its outbox entry carries it — a day-keyed
+  /// row's composite key, a chunk's hash.
+  final String rowKey;
+
+  /// The stamp the park holds, empty when the document carried none.
+  final String stamp;
+  final SyncHeldReason reason;
+
+  const SyncParkedRow(this.table, this.rowKey, this.stamp, this.reason);
+
+  @override
+  List<Object?> get props => [table, rowKey, stamp, reason];
+}
+
+/// One row the Sync page lists as held back (scalability record S7, the
+/// D14 promise): every park of the row folded into one, a chunk's into the
+/// notes holding it.
+class SyncHeldItem extends Equatable {
+  /// The synced table of the row listed: `notes` for a chunk's park, which
+  /// is listed as each note holding it.
+  final String table;
+
+  /// The row's key in [table], which the page keeps a row's place by.
+  final String rowKey;
+
+  /// What the row is, for its glyph and, unless it is named, its title.
+  final SyncHeldKind kind;
+
+  /// A note's title or a folder's name, empty when the row has none; null
+  /// for the other kinds, and for a note or folder this device holds no
+  /// copy of — a pulled row it never merged.
+  final String? name;
+
+  /// Whether this device's row is a tombstone.
+  final bool deleted;
+  final SyncHeldReason reason;
+
+  const SyncHeldItem({
+    required this.table,
+    required this.rowKey,
+    required this.kind,
+    this.name,
+    this.deleted = false,
+    required this.reason,
+  });
+
+  @override
+  List<Object?> get props => [table, rowKey, kind, name, deleted, reason];
+}
+
 /// What the sync settings can say about this database's sync, read at once.
 class SyncStatus extends Equatable {
   /// Rows changed locally and not yet pushed: the outbox's entry count.
@@ -94,9 +236,13 @@ class SyncStatus extends Equatable {
   /// The most recent failed call, cleared by the engine on the next success.
   final SyncFailureInfo? lastFailure;
 
-  /// Envelopes set aside this session — refused by the space or undecodable
-  /// here — so one bad row cannot stop the others; retried next launch.
+  /// The rows held back — refused by the space or undecodable here — so one
+  /// bad row cannot stop the others: [heldBack]'s length, so the status
+  /// line and the list under it count the same rows.
   final int parkedCount;
+
+  /// The rows held back, as the Sync page lists them.
+  final List<SyncHeldItem> heldBack;
 
   /// Rows applied so far by the initial pull after a bind, its progress.
   final int downloadedRows;
@@ -119,6 +265,11 @@ class SyncStatus extends Equatable {
   /// stopped it (review X-2).
   final String? unboundAsCopyOf;
 
+  /// When the quota pause began, as stored; null when no quota pause is
+  /// stored. The pause's words say when it ends from this, never from the
+  /// time they are drawn: drawn after the reset they would name the next one.
+  final DateTime? quotaPausedAt;
+
   const SyncStatus({
     this.pendingCount = 0,
     this.lastPushAt,
@@ -127,14 +278,26 @@ class SyncStatus extends Equatable {
     this.activity = SyncActivity.idle,
     this.lastFailure,
     this.parkedCount = 0,
+    this.heldBack = const [],
     this.downloadedRows = 0,
     this.clockAhead = Duration.zero,
     this.clampedRemotes = 0,
     this.binding,
     this.unboundAsCopyOf,
+    this.quotaPausedAt,
   });
 
   static const SyncStatus empty = SyncStatus();
+
+  /// The quota reset the pause waits for, while it is still ahead of [now];
+  /// null without a stored pause or once that reset has passed, when only
+  /// the reason is left to say.
+  DateTime? quotaResetAfter(DateTime now) {
+    final paused = quotaPausedAt;
+    if (paused == null) return null;
+    final reset = SyncQuota.nextReset(paused);
+    return reset.isAfter(now) ? reset : null;
+  }
 
   /// The later of [lastPushAt] and [lastPullAt]: a sync either way is a
   /// sync, so the Sync section and the drawer say one time, never two.
@@ -158,6 +321,7 @@ class SyncStatus extends Equatable {
     SyncFailureInfo? lastFailure,
     bool clearLastFailure = false,
     int? parkedCount,
+    List<SyncHeldItem>? heldBack,
     int? downloadedRows,
     Duration? clockAhead,
     int? clampedRemotes,
@@ -165,6 +329,7 @@ class SyncStatus extends Equatable {
     bool clearBinding = false,
     String? unboundAsCopyOf,
     bool clearUnboundAsCopyOf = false,
+    DateTime? quotaPausedAt,
   }) {
     return SyncStatus(
       pendingCount: pendingCount ?? this.pendingCount,
@@ -174,6 +339,7 @@ class SyncStatus extends Equatable {
       activity: activity ?? this.activity,
       lastFailure: clearLastFailure ? null : lastFailure ?? this.lastFailure,
       parkedCount: parkedCount ?? this.parkedCount,
+      heldBack: heldBack ?? this.heldBack,
       downloadedRows: downloadedRows ?? this.downloadedRows,
       clockAhead: clockAhead ?? this.clockAhead,
       clampedRemotes: clampedRemotes ?? this.clampedRemotes,
@@ -181,6 +347,7 @@ class SyncStatus extends Equatable {
       unboundAsCopyOf: clearUnboundAsCopyOf
           ? null
           : unboundAsCopyOf ?? this.unboundAsCopyOf,
+      quotaPausedAt: quotaPausedAt ?? this.quotaPausedAt,
     );
   }
 
@@ -193,11 +360,13 @@ class SyncStatus extends Equatable {
     activity,
     lastFailure,
     parkedCount,
+    heldBack,
     downloadedRows,
     clockAhead,
     clampedRemotes,
     binding,
     unboundAsCopyOf,
+    quotaPausedAt,
   ];
 }
 

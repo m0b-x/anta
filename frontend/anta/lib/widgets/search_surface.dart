@@ -109,8 +109,18 @@ class SearchSurface extends StatelessWidget {
       ];
     }
 
+    // A full search answered before the body index caught up says so, above
+    // whatever it found: the bloc runs it again once the index is done.
+    final indexingNotice =
+        state.phase == SearchPhase.full && state.stillIndexing
+        ? const SliverToBoxAdapter(child: _IndexingNotice())
+        : null;
+
     if (!state.hasResults) {
-      return [_messageSliver(context, Icons.search_off, l10n.noSearchResults)];
+      return [
+        ?indexingNotice,
+        _messageSliver(context, Icons.search_off, l10n.noSearchResults),
+      ];
     }
 
     final showLabels =
@@ -128,6 +138,7 @@ class SearchSurface extends StatelessWidget {
         : null;
 
     return [
+      ?indexingNotice,
       if (labelHeader != null)
         SliverToBoxAdapter(child: ContentSectionHeader(label: labelHeader))
       else if (showLabels && state.titleHits.isNotEmpty)
@@ -225,6 +236,35 @@ class SearchSurface extends StatelessWidget {
             const SizedBox(height: AppSpacing.lg),
             Text(message, style: TextStyle(color: colorScheme.outline)),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// The one line a full search shows while the body index is still being
+/// filled. Set in from the row group like a section label, and a live
+/// region: it appears after the results were asked for, and goes on its own.
+class _IndexingNotice extends StatelessWidget {
+  const _IndexingNotice();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Semantics(
+      liveRegion: true,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(
+          RowMetrics.groupInset + RowMetrics.sectionLabelInset,
+          0,
+          RowMetrics.groupInset,
+          RowMetrics.sectionLabelBottomPadding,
+        ),
+        child: Text(
+          AppLocalizations.of(context)!.searchStillIndexing,
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
         ),
       ),
     );

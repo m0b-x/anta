@@ -33,6 +33,8 @@ import 'package:anta/widgets/note_row.dart';
 import 'package:anta/widgets/search_field_app_bar.dart';
 import 'package:anta/widgets/search_surface.dart';
 
+import '../services/support/body_index_support.dart';
+
 /// The flat note lists the root's two smart rows open.
 ///
 /// What is worth a page-level test here is the flattening: rows drawn from
@@ -83,7 +85,12 @@ void main() {
     await folderService.initialize();
     noteService = NoteStorageService(repository: NoteRepository(database: db));
     await noteService.initialize();
-    searchService = FolderSearchService(storageService: noteService);
+    // The suite's own indexer, never the app's singleton: its drain would
+    // run on timers this suite's `FakeAsync` never fires.
+    searchService = FolderSearchService(
+      storageService: noteService,
+      indexer: bodyIndexerOver(db),
+    );
     await searchService.initialize();
 
     GetIt.I.registerSingleton<NoteRepository>(NoteRepository(database: db));
@@ -99,10 +106,7 @@ void main() {
     );
     GetIt.I.registerSingleton<AuthService>(NoOpAuthService());
 
-    noteBloc = OptimizedNoteBloc(
-      storageService: noteService,
-      searchService: searchService,
-    );
+    noteBloc = OptimizedNoteBloc(storageService: noteService);
     exportBloc = ImportExportBloc(
       service: ImportExportService(
         noteStorage: noteService,
@@ -138,6 +142,9 @@ void main() {
     await db.customStatement(
       "UPDATE notes SET updated_at = strftime('%s','now') + rowid",
     );
+    // Indexed up front, so the catch-up the search surface kicks as it
+    // opens has nothing to drain inside the frames these cases pump.
+    await searchService.buildIndex();
   });
 
   tearDownAll(() async {

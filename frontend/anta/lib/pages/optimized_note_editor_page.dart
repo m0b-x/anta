@@ -374,12 +374,12 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     _previewController.progress.addListener(_onPreviewProgressChanged);
 
     _stats = NoteEditorStatsTracker(
+      // Per line, cached on the lines: a pause re-counts only what changed.
       snapshot: () => (
         lineCount: _contentController.lineCount,
-        charCount: NoteEditorStatsTracker.countCharacters(
-          _contentController.text,
-        ),
+        charCount: _contentController.codeLines.graphemeCount,
       ),
+      isShown: () => _editorSettings.value.showStatsBar,
     );
     _edits = EditorEditTracker(
       controller: _contentController,
@@ -486,6 +486,7 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
         )) {
       unawaited(_refreshVocabularies());
     }
+    if (settings.showStatsBar) _stats.resume();
     _markEditorReady();
   }
 
@@ -991,6 +992,47 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     context.read<OptimizedNoteBloc>().add(LoadNoteContent(widget.noteId!));
   }
 
+  /// How many times [_adoptLoadedContent] has run: [_adoptFirstLoad] reads
+  /// it across its await to tell whether a reload or a remote arrival
+  /// adopted newer text meanwhile.
+  int _adoptions = 0;
+
+  /// The last remote update of this note that arrived before the first
+  /// load landed, when its handler had nothing to compare against.
+  NoteChange? _updatedWhileLoading;
+
+  /// The first load. Above [AppConstants.asyncLineBuildThreshold] the line
+  /// split runs off the UI isolate; anything adopted during that await is
+  /// newer than this text and wins, and a split that fails falls back to
+  /// the synchronous load so the page never stays blank. Reloads and remote
+  /// arrivals stay synchronous: they replace text the user is looking at.
+  ///
+  /// A remote update that arrived before the load landed is replayed
+  /// through the normal remote path once it has: the loaded body may be the
+  /// one from before the merge, and the next save would bury the merge.
+  Future<void> _adoptFirstLoad(String content) async {
+    if (content.length <= AppConstants.asyncLineBuildThreshold) {
+      _adoptLoadedContent(content);
+    } else {
+      final before = _adoptions;
+      CodeLines? codeLines;
+      try {
+        codeLines = await content.codeLinesAsync;
+      } catch (e, st) {
+        debugPrint(
+          '[OptimizedNoteEditorPage] Async line split failed: $e\n$st',
+        );
+      }
+      if (!mounted || _adoptions != before) return;
+      _adoptLoadedContent(content, codeLines: codeLines);
+    }
+    final missed = _updatedWhileLoading;
+    _updatedWhileLoading = null;
+    if (missed != null && mounted) {
+      _queueRemote(() => _adoptRemoteUpdate(missed));
+    }
+  }
+
   /// Puts [content] into the editor and re-baselines everything derived
   /// from the text it replaces: the stats bar, the edit tracker's length,
   /// and auto-save's saved-content baseline.
@@ -1011,23 +1053,32 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
   ///
   /// [titlePending] re-baselines the body alone: a title edit not yet saved
   /// stays pending and the next write carries it (record §3.9, M6).
+  ///
+  /// [codeLines], when given, are [content] already split into lines (the
+  /// first load of a large note, [_adoptFirstLoad]).
   void _adoptLoadedContent(
     String content, {
     bool keepCaret = false,
     bool titlePending = false,
+    CodeLines? codeLines,
   }) {
+    _adoptions++;
     final previous = keepCaret ? _contentController.selection : null;
-    // Counted from the string rather than asked of the editor: it is
-    // exact and already in hand.
-    _stats.set((
-      lineCount: '\n'.allMatches(content).length + 1,
-      charCount: NoteEditorStatsTracker.countCharacters(content),
-    ), textLength: content.length);
+    // The baseline is taken before the load notifies, so the load never
+    // reads as a paste; the count runs after it, through the loaded lines,
+    // so the per-line counts are cached for the first pause. Not at all
+    // while the bar is hidden.
+    _stats.markStale(textLength: content.length);
     // A load, not an edit: the loaded text is the undo baseline.
     setState(() {
-      _contentController.loadText(content);
+      if (codeLines != null) {
+        _contentController.loadCodeLines(codeLines, content);
+      } else {
+        _contentController.loadText(content);
+      }
       _contentLoaded = true;
     });
+    if (_editorSettings.value.showStatsBar) _stats.resume();
     if (previous != null) {
       final lines = _contentController.codeLines;
       final index = previous.baseIndex.clamp(0, lines.length - 1);
@@ -1184,6 +1235,10 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     if (change.noteId != (_saves.effectiveNoteId ?? widget.noteId)) return;
     switch (change.type) {
       case NoteChangeType.updated:
+        // Before the first load lands the handler has no text to defend or
+        // replace, and the load may carry the body from before the merge:
+        // kept, and replayed once the load is in ([_adoptFirstLoad]).
+        if (!_contentLoaded) _updatedWhileLoading = change;
         _queueRemote(() => _adoptRemoteUpdate(change));
       case NoteChangeType.deleted:
         _queueRemote(() => _onRemoteDelete(change));
@@ -1650,6 +1705,14 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     if (mounted) setState(() {});
   }
 
+  /// A note large by lines or by size takes the preview's lazy path: no
+  /// offstage preview, no re-prepare per pause. Read off the editor, never
+  /// the stats bar's counts, which stand still while the bar is hidden.
+  bool get _isLargeNote =>
+      _contentController.lineCount > AppConstants.previewPreloadLineThreshold ||
+      _contentController.textLength >
+          AppConstants.previewPreloadCodeUnitThreshold;
+
   /// Keeps the offstage preview hot while the user is typing so a
   /// subsequent toggle (or `previewWhenKeyboardHidden` reveal) shows
   /// up-to-date content without a re-prepare hitch on the toggle
@@ -1666,8 +1729,7 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     _previewBloc.markContentDirty();
     if (_isLoading) return;
     if (!_previewBloc.state.hasTheme) return;
-    final lineCount = _contentController.lineCount;
-    if (lineCount > AppConstants.previewPreloadLineThreshold) return;
+    if (_isLargeNote) return;
     _livePreviewDebounce?.cancel();
     _livePreviewDebounce = Timer(_kLivePreviewDebounce, () {
       if (!mounted) return;
@@ -1685,7 +1747,7 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     if (_isTogglingPreview) return;
     final switchingToPreview = !_isPreviewMode;
     final totalLines = _contentController.lineCount;
-    final isLargeNote = totalLines > AppConstants.previewPreloadLineThreshold;
+    final isLargeNote = _isLargeNote;
 
     // Force-save when switching to preview – a natural checkpoint
     // Compute text once — reused for force-save, cached preview, and search.
@@ -2477,7 +2539,7 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
                 if (state.note.id != widget.noteId) return;
                 if (!_awaitingContentLoad) return;
                 _awaitingContentLoad = false;
-                _adoptLoadedContent(state.note.content ?? '');
+                unawaited(_adoptFirstLoad(state.note.content ?? ''));
               }
             },
           ),
@@ -2806,9 +2868,7 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
 
     // For large notes, don't pre-build preview to avoid memory/CPU overhead
     // The preview will build when actually needed (when switching to preview mode)
-    final isLargeNote =
-        _stats.stats.value.lineCount > AppConstants.previewPreloadLineThreshold;
-    if (!_showPreview && isLargeNote) {
+    if (!_showPreview && _isLargeNote) {
       return const SizedBox.shrink();
     }
 

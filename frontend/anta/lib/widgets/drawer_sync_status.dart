@@ -11,18 +11,28 @@ import '../services/sync/sync_status.dart';
 /// their own: the page's are cut off in the drawer's narrower column (§12
 /// (h)). Only the
 /// waiting count is said; the sending and held-back counts stay on the page
-/// (§12 (i)). [formatMoment] words the last sync, as the page does.
+/// (§12 (i)). [formatMoment] words the last sync, as the page does;
+/// [formatQuotaReset] the reset a quota pause waits for, said only while it
+/// is still ahead of [now] — after it, the reason alone.
 ({String text, bool isError}) drawerSyncStatusLine(
   AppLocalizations l10n,
   SyncStatus status, {
   required String Function(DateTime at) formatMoment,
+  required String Function(DateTime reset) formatQuotaReset,
+  DateTime? now,
 }) {
   if (status.binding == null) {
     return (text: l10n.drawerAccountNotSyncing, isError: false);
   }
   switch (status.pause) {
     case SyncPause.quotaExhausted:
-      return (text: l10n.drawerSyncPausedQuota, isError: false);
+      final reset = status.quotaResetAfter(now ?? DateTime.now());
+      return (
+        text: reset == null
+            ? l10n.drawerSyncPausedQuota
+            : l10n.drawerSyncPausedQuotaUntil(formatQuotaReset(reset)),
+        isError: false,
+      );
     case SyncPause.signedOut:
       return (text: l10n.syncPausedSignedOut, isError: false);
     case SyncPause.accountMismatch:

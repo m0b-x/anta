@@ -1,6 +1,7 @@
 import 'package:drift/drift.dart' hide isNull;
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:anta/constants/app_constants.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/repositories/note_repository.dart';
 import 'package:anta/services/note_storage_service.dart';
@@ -76,7 +77,8 @@ void main() {
       expect(resolved?.updatedAt, stamped.toLocal());
       expect(resolved?.createdAt, note.createdAt);
       expect(resolved?.preview, 'squats, 5x5');
-      expect(resolved?.position, 1);
+      // The second note of its folder: positions are gapped by the stride.
+      expect(resolved?.position, AppConstants.positionStride);
     });
 
     test('ASCII case is folded in both directions', () async {

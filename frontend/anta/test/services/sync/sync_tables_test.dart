@@ -35,6 +35,7 @@ void main() {
       'calendar_filter_presets',
       'overview_views',
       'folders',
+      'content_chunks',
       'notes',
       'counters',
       'counter_values',
@@ -43,11 +44,19 @@ void main() {
     ]);
   });
 
-  test('every table queued on its own has exactly one binding', () {
-    final queued = [
-      for (final t in syncedTables)
-        if (!t.travelsWithParent) t.name,
-    ];
+  test('only the chunks are pushed and never pulled: a pull reads them by '
+      'hash, for the manifests of its page', () {
+    expect(
+      [
+        for (final b in syncTableBindings)
+          if (!b.pulls) b.table,
+      ],
+      ['content_chunks'],
+    );
+  });
+
+  test('every synced table has exactly one binding', () {
+    final queued = [for (final t in syncedTables) t.name];
     final bound = syncTableBindings.map((b) => b.table).toList();
 
     for (final table in queued) {
@@ -79,6 +88,27 @@ void main() {
         final t when dayTables.contains(t) => [dayRowKey('e1', day)],
         _ => ['row-1'],
       };
+      if (!binding.pulls) {
+        // A chunk is never merged on its own: its row comes from a save,
+        // keyed by the hash of its text.
+        final note = await db.noteDao.createNote(
+          folderId: 'f1',
+          title: 'Log',
+          content: 'squat 5x5',
+        );
+        final key = (await db.contentChunkDao.hashesOf(note.id)).single!;
+        final rows = await binding.loadByKeys(db, [key]);
+        final sql = await db
+            .customSelect(
+              'SELECT ${synced.rowKeySql} AS k FROM ${binding.table} '
+              'WHERE ${synced.rowKeySql} = ?',
+              variables: [Variable<String>(key)],
+            )
+            .getSingle();
+        expect(binding.rowKeyOf(rows.single), sql.read<String>('k'));
+        expect(binding.rowKeyOf(rows.single), key);
+        return;
+      }
       for (final key in keys) {
         // A data-less tombstone stores a row of column defaults under the
         // key alone — enough to read the key back both ways.

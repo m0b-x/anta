@@ -179,3 +179,39 @@ notifies nobody. Upstream (`reqable/re-editor`) has the unconditional call.
 Pinned by `test/re_editor/controller_handoff_test.dart`: a mount announces
 nothing, a builder above the editor is not dirtied by it, a remount announces
 nothing, and a controller swapped into a mounted editor is still shown.
+
+## Large-note find, stats and load — 2026-11-07 (scalability S5)
+
+Fork changes from slice S5 of `docs/scalability-roadmap.md` (the editor's
+per-save and per-pause work at 300 KB to 3 MB):
+
+- `_code_find.dart` — the find payload is the document's text
+  (`asString(lf)`, cached), never `CodeLines`; the isolate returns positions
+  only (`_CodeFindMatches`), and the result is stamped with the lines on the
+  UI isolate. The match-to-position mapping is the new public
+  `@visibleForTesting CodeFindPositions.map`: one forward pass with a
+  running line/offset cursor, where `_findPosition` re-walked the lines per
+  position (quadratic). No cap on matches: next/previous must reach the last.
+- `_isolate.dart` — `_IsolateTasker(latestWins: true)` (find only) routes
+  through the new `@visibleForTesting LatestWinsQueue`: one run at a time; a
+  request arriving meanwhile replaces any waiting one, and a run it overtook
+  delivers nothing. Highlight and chunk analysis keep every run.
+- `code_line.dart` / `code_lines.dart` — `CodeLine.graphemeCount`, cached per
+  instance in an `Expando` (a `CodeLine` is const-constructible, so no
+  field), and `CodeLines.graphemeCount` = the lines' counts plus one per line
+  break (no grapheme cluster spans a break). The stats bar's count, so a
+  pause re-walks only replaced lines.
+- `code_line.dart` / `_code_line.dart` — `loadCodeLines(codeLines, [text])`
+  on the controller and its delegate: `loadText` for lines split by
+  `codeLinesAsync`; an `\n`-only `text` seeds the joined-text cache through
+  the new `CodeLines.seedAsString`.
+- `_code_find.dart` (follow-up, 2026-11-08) — a delivered find result whose
+  lines no longer equal the controller's is dropped and the current value
+  kept, where it was marked dirty: the only stale delivery the queue lets
+  through is a run an undo overtook by returning to the text the current
+  result already covers (so nothing was queued behind it), and dirty
+  swapped that still-correct result for a disabled one (no highlights,
+  next/previous dead).
+
+Pinned by `test/re_editor/find_positions_test.dart` and
+`test/re_editor/grapheme_count_test.dart`.

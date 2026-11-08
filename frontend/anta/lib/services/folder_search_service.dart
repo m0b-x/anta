@@ -1,49 +1,21 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart';
 import 'package:anta/constants/search_constants.dart';
-import '../models/isolate_data.dart';
+import 'package:flutter/foundation.dart' show debugPrint;
+import '../database/database.dart';
 import '../models/item_label.dart';
 import '../models/note_change.dart';
 import '../models/note_metadata.dart';
+import '../utils/markdown_tag_syntax.dart';
+import '../utils/tag_extractor.dart';
+import 'body_search_indexer.dart';
 import 'note_storage_service.dart';
 
-/// Top-level function for isolate processing (required by compute()).
-///
-/// Tokenizes through the same [searchTokens] the main-isolate
-/// [SearchIndex] uses — `compute` isolates share all code, including
-/// `SearchConstants`, so there is exactly one normalization. (A private
-/// isolate-local diacritics map used to live here; it drifted from the
-/// shared one — no Romanian entries — so notes bulk-indexed on launch
-/// folded differently than the query side and never matched.)
-Map<String, dynamic> _buildIndexInIsolate(List<NoteIndexData> notesData) {
-  final wordToNoteIds = <String, Set<String>>{};
-  final termFrequency = <String, Map<String, int>>{};
-
-  for (final note in notesData) {
-    final words = searchTokens('${note.title} ${note.content}');
-
-    termFrequency[note.id] = {};
-
-    for (final word in words) {
-      wordToNoteIds.putIfAbsent(word, () => {});
-      wordToNoteIds[word]!.add(note.id);
-
-      termFrequency[note.id]!.putIfAbsent(word, () => 0);
-      termFrequency[note.id]![word] = termFrequency[note.id]![word]! + 1;
-    }
-  }
-
-  return {
-    'wordToNoteIds': wordToNoteIds.map((k, v) => MapEntry(k, v.toList())),
-    'termFrequency': termFrequency,
-  };
-}
-
 /// [SearchConstants.diacriticsMap] keyed by UTF-16 code unit instead of
-/// one-character `String`, derived (never hand-transcribed — see the comment
-/// on [_buildIndexInIsolate] for what a second, drifted table costs) from the
-/// canonical map so the two can never disagree.
+/// one-character `String`, derived (never hand-transcribed: an isolate-local
+/// copy once drifted from it — no Romanian entries — and the notes it
+/// indexed never matched a query) from the canonical map so the two can
+/// never disagree.
 final Map<int, String> _diacriticsByCodeUnit = {
   for (final entry in SearchConstants.diacriticsMap.entries)
     entry.key.codeUnitAt(0): entry.value,
@@ -147,17 +119,19 @@ class NormalizedText {
   }
 }
 
-final RegExp _searchTokenRegex = RegExp(r'\b\w{2,}\b');
+/// A run of two or more Unicode letters, digits or underscores. Unicode, not
+/// `\w`, so Cyrillic, Greek and CJK words are words too (D6 Q4); maximal
+/// runs need no `\b`, which stays ASCII-only even in Unicode mode.
+final RegExp _searchTokenRegex = RegExp(r'[\p{L}\p{N}_]{2,}', unicode: true);
 
-/// Every word occurrence of [text] as the search index stores and looks
-/// words up: folded through [normalizeForSearch], split on word boundaries,
-/// minimum two characters. **Duplicates preserved** — the index counts them
-/// as term frequency, so a note mentioning "squat" five times outranks one
-/// that mentions it once.
+/// Every word occurrence of [text] as the body index stores and looks words
+/// up: folded through [normalizeForSearch], split into runs of letters and
+/// digits, minimum two characters. **Duplicates preserved** — the scorer
+/// counts them as term frequency, so a note mentioning "squat" five times
+/// outranks one that mentions it once.
 ///
-/// The single tokenizer for **both** sides of the index — the isolate bulk
-/// build and the main-isolate [SearchIndex] — so the two can never fold
-/// differently again.
+/// The single tokenizer for the projection, the query and the scorer, so
+/// the three can never fold differently.
 List<String> searchTokens(String text) {
   final normalized = normalizeForSearch(text);
   return _searchTokenRegex
@@ -169,6 +143,206 @@ List<String> searchTokens(String text) {
 /// Unique words of [text]: [searchTokens] deduplicated. The query-side
 /// shape — a query word matters once no matter how often it is typed.
 Set<String> tokenizeForSearch(String text) => searchTokens(text).toSet();
+
+/// Whether a query [word] may match anywhere inside a word of the note, not
+/// only at its start: three characters or more, counted in code points as
+/// the trigram index counts them.
+bool _matchesInsideWords(String word) => word.runes.length >= 3;
+
+/// What the body index stores for a note: the [searchTokens] of its title
+/// and body, each preceded and followed by one space. A query word of three
+/// or more characters, which holds no space, can then only match inside one
+/// token; a two-character word, sent with its leading space, only at a
+/// token's start — the rules [searchScore] decides a hit by.
+String searchProjection(String title, String body) =>
+    ' ${searchTokens('$title $body').join(' ')} ';
+
+/// What the body index's `title` column stores: the title's [searchTokens]
+/// alone, spaced as [searchProjection] spaces them, so the quick search can
+/// weigh a title hit above a body hit and match a short word at a title
+/// token's start.
+String titleProjection(String title) => ' ${searchTokens(title).join(' ')} ';
+
+/// What the body index's `tags` column stores: the `#tags` [body] carries
+/// under the editor's own grammar ([extractTags], uncached: every text is
+/// read once here), folded through [normalizeForSearch], each written with
+/// its `#` and followed by one space. A tag is then matched whole between
+/// `" #"` and a space, or by a prefix after `" #"` — three characters even
+/// for a one-letter prefix, which a trigram needs — and never inside a
+/// longer tag.
+String tagProjection(String body) {
+  final tags = {
+    for (final tag in extractTags(body, cache: false)) normalizeForSearch(tag),
+  };
+  return tags.isEmpty
+      ? ' '
+      : ' ${[for (final tag in tags) '#$tag'].join(' ')} ';
+}
+
+/// The FTS5 clauses requiring every tag in [tags] (folded, without `#`) in
+/// the `tags` column: [whole] for the full search, which names the tag
+/// exactly, and otherwise as a prefix, so `#l`, `#le` and `#leg` already
+/// narrow while `#legday` is being typed. Empty when [tags] is.
+String tagMatchExpression(Iterable<String> tags, {required bool whole}) => [
+  for (final tag in tags) whole ? 'tags : " #$tag "' : 'tags : " #$tag"',
+].join(' AND ');
+
+/// The FTS5 expression that finds the projections holding every one of
+/// [words]: each a quoted phrase, AND-ed, a two-character word with the
+/// leading space that pins it to a token's start. Words come from
+/// [searchTokens] — letters, digits and underscores — so nothing in them
+/// needs escaping. Confined to the `body` column, the projection this
+/// search was built on, so the quick search's columns change nothing here.
+String bodyMatchExpression(Iterable<String> words) => [
+  for (final word in words)
+    _matchesInsideWords(word) ? 'body : "$word"' : 'body : " $word"',
+].join(' AND ');
+
+/// The FTS5 expression behind a quick search: every word of three or more
+/// characters anywhere in the title or the body; a shorter word only at the
+/// start of a title token, since a trigram cannot hold it alone and a body
+/// token's start is too broad to be worth a hit while typing; and every tag
+/// in [tags] (folded, without `#`) by prefix. Empty when there is nothing
+/// to match. [QuickQuery] holds the same rules in Dart.
+String quickMatchExpression(Iterable<String> words, Iterable<String> tags) => [
+  for (final word in words)
+    _matchesInsideWords(word) ? '{title body} : "$word"' : 'title : " $word"',
+  if (tags.isNotEmpty) tagMatchExpression(tags, whole: false),
+].join(' AND ');
+
+/// [quickMatchExpression] with every word confined to the `title` column:
+/// the title hits, which the quick search reads apart so the cut never
+/// drops one. Empty when [words] is — a tag alone names no title.
+String quickTitleExpression(Iterable<String> words, Iterable<String> tags) {
+  if (words.isEmpty) return '';
+  return [
+    for (final word in words)
+      _matchesInsideWords(word) ? 'title : "$word"' : 'title : " $word"',
+    if (tags.isNotEmpty) tagMatchExpression(tags, whole: false),
+  ].join(' AND ');
+}
+
+/// A query as the quick search reads it: the [words] of the text around
+/// its `#tags`, and the [tags], folded, without `#`. Holds in Dart the
+/// rules [quickMatchExpression] gives the index — the one matcher the
+/// title-first grouping and the newest-notes scan both use, so neither can
+/// judge a note otherwise than the index does.
+class QuickQuery {
+  final Set<String> words;
+  final Set<String> tags;
+
+  const QuickQuery._(this.words, this.tags);
+
+  factory QuickQuery.parse(String query) {
+    final (:tags, :rest) = splitQueryTags(query);
+    return QuickQuery._(tokenizeForSearch(rest), tags);
+  }
+
+  /// Nothing to search for: no word of two characters or more, no tag.
+  bool get isEmpty => words.isEmpty && tags.isEmpty;
+
+  String get titleMatch => quickTitleExpression(words, tags);
+
+  String get match => quickMatchExpression(words, tags);
+
+  /// A title hit: every word matches a token of [title] — at its start for
+  /// a two-character word, anywhere inside it for a longer one. False for
+  /// a query of tags alone.
+  bool titleHolds(String title) {
+    if (words.isEmpty) return false;
+    final titleTokens = searchTokens(title);
+    return words.every((word) => _tokenHolds(titleTokens, word));
+  }
+
+  /// Whether a note showing [title] and [preview] is a hit: every word in a
+  /// title token, or — three characters or more — inside a preview token,
+  /// and every tag carried by the preview, by prefix.
+  bool holds(String title, String preview) {
+    if (isEmpty) return false;
+    if (tags.isNotEmpty) {
+      final carried = tagProjection(preview);
+      if (!tags.every((tag) => carried.contains(' #$tag'))) return false;
+    }
+    final titleTokens = searchTokens(title);
+    final previewTokens = words.any(_matchesInsideWords)
+        ? searchTokens(preview)
+        : const <String>[];
+    return words.every(
+      (word) =>
+          _tokenHolds(titleTokens, word) ||
+          (_matchesInsideWords(word) && _tokenHolds(previewTokens, word)),
+    );
+  }
+
+  static bool _tokenHolds(List<String> tokens, String word) {
+    final inside = _matchesInsideWords(word);
+    return tokens.any(
+      (token) => inside ? token.contains(word) : token.startsWith(word),
+    );
+  }
+}
+
+/// [query] cut into the `#tags` it names — folded, without `#` — and the
+/// text around them, read with the editor's tag grammar so a query tag is
+/// exactly what a note's tag is.
+({Set<String> tags, String rest}) splitQueryTags(String query) {
+  if (!query.contains('#')) return (tags: const {}, rest: query);
+  final tags = <String>{};
+  final rest = StringBuffer();
+  var i = 0;
+  while (i < query.length) {
+    final unit = query.codeUnitAt(i);
+    if (unit == 0x23 && MarkdownTagSyntax.isWordBoundaryBefore(query, i)) {
+      final end = MarkdownTagSyntax.tryParseTagAt(query, i);
+      if (end != null) {
+        tags.add(normalizeForSearch(query.substring(i + 1, end)));
+        rest.write(' ');
+        i = end;
+        continue;
+      }
+    }
+    rest.writeCharCode(unit);
+    i++;
+  }
+  return (tags: tags, rest: rest.toString());
+}
+
+/// The relevance of a note to the query [words], or null when it is not a
+/// hit. A hit has, for every word, a token starting with it or, for a word
+/// of three or more characters, containing it. Each word scores twice its
+/// count as a whole token, or else the count of the first token (in reading
+/// order) that contains it — the rules of the in-memory index this replaced,
+/// which the five search suites pin.
+double? searchScore(String title, String body, Set<String> words) {
+  if (words.isEmpty) return null;
+  final terms = <String, int>{};
+  for (final token in searchTokens('$title $body')) {
+    terms[token] = (terms[token] ?? 0) + 1;
+  }
+
+  var score = 0.0;
+  for (final word in words) {
+    final whole = terms[word];
+    if (whole != null) {
+      score += whole * 2.0;
+      continue;
+    }
+    final inside = _matchesInsideWords(word);
+    int? firstContaining;
+    var hit = false;
+    for (final entry in terms.entries) {
+      final contains = entry.key.contains(word);
+      if (contains) firstContaining ??= entry.value;
+      if (entry.key.startsWith(word) || (inside && contains)) {
+        hit = true;
+        break;
+      }
+    }
+    if (!hit) return null;
+    score += firstContaining!;
+  }
+  return score;
+}
 
 class SearchResult {
   final NoteMetadata metadata;
@@ -257,209 +431,6 @@ class SearchFilter {
   }
 }
 
-class SearchIndex {
-  Map<String, Set<String>> _wordToNoteIds = {};
-  Map<String, Map<String, int>> _termFrequency = {};
-  // Sorted list of unique words for binary search prefix matching
-  List<String> _sortedWords = [];
-  bool _isBuilt = false;
-
-  bool get isBuilt => _isBuilt;
-
-  void addNote(String noteId, String title, String content) {
-    // Occurrence list, not a set: the loop below counts duplicates into
-    // real term frequencies (a set fed every TF as 1, which made the
-    // relevance scorer's frequency weighting a constant).
-    final words = searchTokens('$title $content');
-
-    _termFrequency[noteId] = {};
-
-    for (final word in words) {
-      _wordToNoteIds.putIfAbsent(word, () => {});
-      _wordToNoteIds[word]!.add(noteId);
-
-      _termFrequency[noteId]!.putIfAbsent(word, () => 0);
-      _termFrequency[noteId]![word] = _termFrequency[noteId]![word]! + 1;
-    }
-  }
-
-  void removeNote(String noteId) {
-    _termFrequency.remove(noteId);
-
-    for (final entry in _wordToNoteIds.entries) {
-      entry.value.remove(noteId);
-    }
-
-    _wordToNoteIds.removeWhere((_, noteIds) => noteIds.isEmpty);
-    // Invalidate sorted words cache
-    _sortedWords = [];
-  }
-
-  /// Optimized search using binary search for prefix matching
-  Set<String> search(String query, {bool caseSensitive = false}) {
-    final normalizedQuery = normalizeForSearch(
-      query,
-      caseSensitive: caseSensitive,
-    );
-    final queryWords = _tokenize(normalizedQuery);
-
-    if (queryWords.isEmpty) return {};
-
-    // Ensure sorted words cache is built
-    if (_sortedWords.isEmpty && _wordToNoteIds.isNotEmpty) {
-      _sortedWords = _wordToNoteIds.keys.toList()..sort();
-    }
-
-    Set<String>? result;
-
-    for (final word in queryWords) {
-      final matchingIds = _findMatchingNoteIds(word);
-
-      if (result == null) {
-        result = matchingIds;
-      } else {
-        result = result.intersection(matchingIds);
-      }
-
-      // Early exit if no matches
-      if (result.isEmpty) return {};
-    }
-
-    return result ?? {};
-  }
-
-  /// Find note IDs matching a word using binary search for prefix matches
-  Set<String> _findMatchingNoteIds(String word) {
-    final matchingIds = <String>{};
-
-    // Exact match first (most common case)
-    final exactMatch = _wordToNoteIds[word];
-    if (exactMatch != null) {
-      matchingIds.addAll(exactMatch);
-    }
-
-    // Binary search for prefix matches
-    if (_sortedWords.isNotEmpty) {
-      final startIdx = _lowerBound(_sortedWords, word);
-
-      // Check words that start with our query word
-      for (int i = startIdx; i < _sortedWords.length; i++) {
-        final indexedWord = _sortedWords[i];
-        if (!indexedWord.startsWith(word)) break;
-
-        final noteIds = _wordToNoteIds[indexedWord];
-        if (noteIds != null) {
-          matchingIds.addAll(noteIds);
-        }
-      }
-
-      // Also check for words that contain our query (substring match)
-      // Only do this for longer query words to avoid too many matches
-      if (word.length >= 3) {
-        for (final entry in _wordToNoteIds.entries) {
-          if (entry.key.contains(word) && !entry.key.startsWith(word)) {
-            matchingIds.addAll(entry.value);
-          }
-        }
-      }
-    }
-
-    return matchingIds;
-  }
-
-  /// Binary search to find the first index where word >= target
-  int _lowerBound(List<String> sorted, String target) {
-    int lo = 0;
-    int hi = sorted.length;
-
-    while (lo < hi) {
-      final mid = lo + (hi - lo) ~/ 2;
-      if (sorted[mid].compareTo(target) < 0) {
-        lo = mid + 1;
-      } else {
-        hi = mid;
-      }
-    }
-
-    return lo;
-  }
-
-  double getRelevanceScore(
-    String noteId,
-    String query, {
-    bool caseSensitive = false,
-  }) {
-    final normalizedQuery = normalizeForSearch(
-      query,
-      caseSensitive: caseSensitive,
-    );
-    final queryWords = _tokenize(normalizedQuery);
-    final noteTerms = _termFrequency[noteId];
-
-    if (noteTerms == null || queryWords.isEmpty) return 0.0;
-
-    double score = 0.0;
-    int matchCount = 0;
-
-    for (final word in queryWords) {
-      // Exact match bonus
-      if (noteTerms.containsKey(word)) {
-        score += noteTerms[word]! * 2.0;
-        matchCount++;
-        continue;
-      }
-
-      // Prefix/substring match
-      for (final entry in noteTerms.entries) {
-        if (entry.key.contains(word)) {
-          score += entry.value;
-          matchCount++;
-          break; // Only count once per query word
-        }
-      }
-    }
-
-    if (matchCount == 0) return 0.0;
-
-    // Boost score based on how many query words matched
-    return score * (matchCount / queryWords.length);
-  }
-
-  Set<String> _tokenize(String text) => tokenizeForSearch(text);
-
-  void markBuilt() {
-    _isBuilt = true;
-    // Pre-build sorted words cache
-    _sortedWords = _wordToNoteIds.keys.toList()..sort();
-  }
-
-  void clear() {
-    _wordToNoteIds.clear();
-    _termFrequency.clear();
-    _sortedWords = [];
-    _isBuilt = false;
-  }
-
-  static const _kWordToNoteIds = 'wordToNoteIds';
-  static const _kTermFrequency = 'termFrequency';
-
-  Map<String, dynamic> toJson() => {
-    _kWordToNoteIds: _wordToNoteIds.map((k, v) => MapEntry(k, v.toList())),
-    _kTermFrequency: _termFrequency,
-  };
-
-  void fromJson(Map<String, dynamic> json) {
-    _wordToNoteIds = (json[_kWordToNoteIds] as Map<String, dynamic>).map(
-      (k, v) => MapEntry(k, (v as List).cast<String>().toSet()),
-    );
-    _termFrequency = (json[_kTermFrequency] as Map<String, dynamic>).map(
-      (k, v) => MapEntry(k, (v as Map<String, dynamic>).cast<String, int>()),
-    );
-    _sortedWords = _wordToNoteIds.keys.toList()..sort();
-    _isBuilt = true;
-  }
-}
-
 class FolderSearchService {
   static const int _quickSearchPageSize = 300;
 
@@ -468,33 +439,29 @@ class FolderSearchService {
   /// same number instead of keeping a copy that could drift from it.
   static const int quickHitLimit = 10;
 
-  /// One page of the index build, looped until the last page comes back
-  /// short. It used to be the whole build: a database with more notes than
-  /// this indexed the first page and silently answered every later note's
-  /// text with "no results".
-  static const int _indexPageSize = 1000;
-
-  /// Past this many notes changed behind the index's back, refreshing them
-  /// one at a time costs more than rebuilding from scratch — which is what a
-  /// backup restore or a sync pull looks like from here.
-  static const int _staleRebuildThreshold = 200;
-
   final NoteStorageService _storageService;
-  final SearchIndex _searchIndex = SearchIndex();
-
-  /// Notes written since the index last saw them. The bloc reports its own
-  /// writes through [updateIndex], but a restore, an import and a sync pull
-  /// all reach storage without passing a bloc, so the note stream is what
-  /// makes the index answer for those too.
-  final Set<String> _staleNoteIds = {};
+  final Future<BodySearchIndexer> Function() _indexerForActiveDatabase;
+  final Duration _indexBudget;
 
   StreamSubscription<NoteChange>? _changesSubscription;
 
   bool _isInitialized = false;
-  bool _isIndexing = false;
 
-  FolderSearchService({required NoteStorageService storageService})
-    : _storageService = storageService {
+  /// A failed read of the body index by a keystroke was logged, and no read
+  /// has succeeded since.
+  bool _quickIndexFailureLogged = false;
+
+  /// [indexer] resolves the body index of the active database —
+  /// [BodySearchIndexer.getInstance] in the app, a test's own instance in a
+  /// suite. [indexBudget] is how long a full search waits for a running
+  /// drain before it answers from what is indexed.
+  FolderSearchService({
+    required NoteStorageService storageService,
+    Future<BodySearchIndexer> Function()? indexer,
+    Duration indexBudget = SearchConstants.bodyIndexSearchBudget,
+  }) : _storageService = storageService,
+       _indexerForActiveDatabase = indexer ?? BodySearchIndexer.getInstance,
+       _indexBudget = indexBudget {
     _changesSubscription = _storageService.changes.listen(_onNoteChanged);
   }
 
@@ -503,112 +470,59 @@ class FolderSearchService {
     _isInitialized = true;
   }
 
-  void _onNoteChanged(NoteChange change) {
-    if (!_searchIndex.isBuilt) return;
-    switch (change.type) {
-      case NoteChangeType.deleted:
-        _searchIndex.removeNote(change.noteId);
-        _staleNoteIds.remove(change.noteId);
-      case NoteChangeType.moved:
-      case NoteChangeType.labelled:
-        break;
-      case NoteChangeType.created:
-      case NoteChangeType.updated:
-        _staleNoteIds.add(change.noteId);
-    }
-  }
+  /// Completes once the active database's body index has caught up — the
+  /// moment a search that came back incomplete is worth running again.
+  Future<void> whenIndexed() async =>
+      (await _indexerForActiveDatabase()).whenIdle();
 
-  /// Brings the notes the index has been told about back up to date, or
-  /// rebuilds outright when there are too many of them to be worth it.
-  Future<void> _refreshStaleNotes() async {
-    if (_staleNoteIds.isEmpty) return;
-    final ids = _staleNoteIds.toList(growable: false);
-    _staleNoteIds.clear();
+  /// Every write — an editor save, a restore, an import, a sync pull —
+  /// reaches the index as a flag on the active indexer and nothing more; the
+  /// next search probes the ledger regardless, so a change that reached no
+  /// indexer is still found, and a save does no indexing work.
+  void _onNoteChanged(NoteChange change) => BodySearchIndexer.markActiveDirty();
 
-    if (ids.length >= _staleRebuildThreshold) {
-      await buildIndex();
-      return;
-    }
+  /// Starts the body index catching up when notes moved since it last did,
+  /// without waiting — the search surface calls it as it opens, so the
+  /// drain runs while the user starts typing and no keystroke starts one.
+  Future<void> catchUpIndex() async =>
+      (await _indexerForActiveDatabase()).catchUp();
 
-    for (final noteId in ids) {
-      final metadata = await _storageService.getNoteMetadata(noteId);
-      _searchIndex.removeNote(noteId);
-      if (metadata == null) continue;
-      final content = await _storageService.loadNoteContent(noteId);
-      _searchIndex.addNote(noteId, metadata.title, content);
-    }
-  }
-
-  /// Every live note's metadata, page by page.
-  Future<List<NoteMetadata>> _loadAllNoteMetadata() async {
-    final all = <NoteMetadata>[];
-    var page = 1;
-    while (true) {
-      final result = await _storageService.loadNotesPaginated(
-        page: page,
-        pageSize: _indexPageSize,
-      );
-      all.addAll(result.notes);
-      if (!result.hasMore || result.notes.isEmpty) break;
-      page++;
-    }
-    return all;
-  }
-
-  /// Build search index using isolate for heavy processing
+  /// Brings the body index up to date and waits for it.
   Future<void> buildIndex() async {
-    if (_isIndexing) return; // Prevent concurrent indexing
-
     await initialize();
-    _isIndexing = true;
-
-    try {
-      _searchIndex.clear();
-      _staleNoteIds.clear();
-
-      final allNotes = await _loadAllNoteMetadata();
-
-      final notesData = <NoteIndexData>[];
-      for (final metadata in allNotes) {
-        final content = await _storageService.loadNoteContent(metadata.id);
-        notesData.add(
-          NoteIndexData(
-            id: metadata.id,
-            title: metadata.title,
-            content: content,
-          ),
-        );
-      }
-
-      // Build index in isolate for large datasets (>50 notes)
-      if (notesData.length > 50) {
-        final indexData = await compute(_buildIndexInIsolate, notesData);
-        _searchIndex.fromJson(indexData);
-      } else {
-        for (final note in notesData) {
-          _searchIndex.addNote(note.id, note.title, note.content);
-        }
-        _searchIndex.markBuilt();
-      }
-    } finally {
-      _isIndexing = false;
-    }
+    await (await _indexerForActiveDatabase()).drain();
   }
 
-  Future<void> updateIndex(String noteId, String title, String content) async {
-    await initialize();
-    _searchIndex.removeNote(noteId);
-    _searchIndex.addNote(noteId, title, content);
-    _staleNoteIds.remove(noteId);
-  }
-
-  Future<void> removeFromIndex(String noteId) async {
-    await initialize();
-    _searchIndex.removeNote(noteId);
-    _staleNoteIds.remove(noteId);
-  }
-
+  /// [searchWithCoverage]'s results alone.
   Future<List<SearchResult>> search(
+    String query, {
+    SearchFilter? filter,
+    int limit = 50,
+    bool caseSensitive = false,
+  }) async => (await searchWithCoverage(
+    query,
+    filter: filter,
+    limit: limit,
+    caseSensitive: caseSensitive,
+  )).results;
+
+  /// Every note whose title and body hold all the query's words, best first,
+  /// and whether the body index was still being filled when the candidates
+  /// were read — so some notes may be missing — decided at that moment
+  /// rather than after the scoring, which a broad query makes long.
+  ///
+  /// The body index narrows the notes to the candidates in one statement,
+  /// with the folder and colour filters in SQL; their bodies are then read a
+  /// page at a time and scored in Dart by [searchScore], which also confirms
+  /// each hit, so a note edited since it was indexed is never a false hit.
+  /// Only the notes that survive the cut to [limit] are read again for their
+  /// match offsets. While the index is still being filled the search waits
+  /// [_indexBudget] at most, then answers from what is indexed.
+  ///
+  /// A `#tag` in the query narrows to the notes carrying that whole tag —
+  /// `#legday` never finds `#legdays` — while its name still counts as a
+  /// word, so a tag tap and Enter list what typing it listed.
+  Future<({List<SearchResult> results, bool incomplete})> searchWithCoverage(
     String query, {
     SearchFilter? filter,
     int limit = 50,
@@ -616,50 +530,53 @@ class FolderSearchService {
   }) async {
     await initialize();
 
-    if (query.trim().isEmpty) return [];
+    const nothing = (results: <SearchResult>[], incomplete: false);
+    if (query.trim().isEmpty) return nothing;
+    final words = tokenizeForSearch(query);
+    final tags = splitQueryTags(query).tags;
+    if (words.isEmpty && tags.isEmpty) return nothing;
+    final folderIds = filter?.folderIds;
+    if (folderIds != null && folderIds.isEmpty) return nothing;
 
-    if (!_searchIndex.isBuilt) {
-      await buildIndex();
-    } else {
-      await _refreshStaleNotes();
-    }
-
-    final effectiveCaseSensitive = filter?.caseSensitive ?? caseSensitive;
-    final matchingIds = _searchIndex.search(
-      query,
-      caseSensitive: effectiveCaseSensitive,
+    final indexer = await _indexerForActiveDatabase();
+    final incomplete = !await indexer.ensureFresh(_indexBudget);
+    final candidates = await indexer.candidates(
+      words,
+      tags: tags,
+      folderIds: folderIds,
+      labels: filter?.labels ?? const {},
     );
 
-    if (matchingIds.isEmpty) return [];
+    final eligible = <NoteMetadata>[
+      for (final note in candidates)
+        if (_metadataOf(note) case final metadata
+            when filter == null || filter.matches(metadata))
+          metadata,
+    ];
 
-    // Load all notes ONCE, not inside the loop
-    final allNotes = await _loadAllNoteMetadata();
-
-    // Create a lookup map for O(1) access
-    final notesMap = {for (final n in allNotes) n.id: n};
-
-    // Rank before loading anything. The relevance score comes off the index,
-    // so the whole hit set can be ordered and cut to [limit] without touching
-    // storage; only the notes that survive the cut pay for a content read. A
-    // 60-hit query used to load 60 note bodies to show ten.
     final ranked = <({NoteMetadata metadata, double score})>[];
-    for (final noteId in matchingIds) {
-      final metadata = notesMap[noteId];
-      if (metadata == null) continue;
-      if (filter != null && !filter.matches(metadata)) continue;
-
-      ranked.add((
-        metadata: metadata,
-        score: _searchIndex.getRelevanceScore(
-          noteId,
-          query,
-          caseSensitive: effectiveCaseSensitive,
-        ),
-      ));
+    for (final page in pagesByBytes(
+      eligible,
+      (metadata) => metadata.contentLength,
+      SearchConstants.bodyScoringPageBytes,
+      maxItems: SearchConstants.bodyPageMaxNotes,
+    )) {
+      final bodies = await indexer.bodies([for (final m in page) m.id]);
+      final scores = await _scorePage(
+        indexer,
+        [for (final m in page) (m.title, bodies[m.id] ?? '')],
+        words,
+        tags,
+      );
+      for (final (i, metadata) in page.indexed) {
+        final score = scores[i];
+        if (score != null) ranked.add((metadata: metadata, score: score));
+      }
     }
 
-    ranked.sort((a, b) => b.score.compareTo(a.score));
+    ranked.sort(_byRelevance);
 
+    final effectiveCaseSensitive = filter?.caseSensitive ?? caseSensitive;
     final futures = ranked.take(limit).map((entry) async {
       final content = await _storageService.loadNoteContent(entry.metadata.id);
       final matches = _findMatches(
@@ -676,24 +593,58 @@ class FolderSearchService {
       );
     });
 
-    return (await Future.wait(futures)).toList();
+    return (
+      results: (await Future.wait(futures)).toList(),
+      incomplete: incomplete,
+    );
   }
 
-  /// Title-and-preview pass over one page of notes, for the per-keystroke
-  /// surface. [folderIds] is a whole subtree (see [SearchFilter.folderIds]);
-  /// `null` searches everywhere.
+  /// [quickSearchWithCoverage]'s results alone.
+  Future<List<SearchResult>> quickSearch(
+    String query, {
+    Set<String>? folderIds,
+    Set<ItemLabel> labels = const {},
+    int limit = quickHitLimit,
+    bool caseSensitive = false,
+  }) async => (await quickSearchWithCoverage(
+    query,
+    folderIds: folderIds,
+    labels: labels,
+    limit: limit,
+    caseSensitive: caseSensitive,
+  )).results;
+
+  /// The per-keystroke hits (D6): every note whose title and body hold all
+  /// the query's words, from the body index, merged with a title-and-preview
+  /// scan of the [_quickSearchPageSize] newest notes, which finds a note the
+  /// index has not projected yet. [folderIds] is a whole subtree (see
+  /// [SearchFilter.folderIds]); `null` searches everywhere.
   ///
-  /// The page is always read unscoped and filtered in memory: the DAO can
-  /// page by one folder id, not by a set, and the scoped folder's notes are
-  /// spread across its descendants. [_quickSearchPageSize] is the ceiling
-  /// that keeps this honest for v1.
+  /// Three statements per keystroke and no body read: a title-only `MATCH`
+  /// and a title-and-body `MATCH`, each ranked by `bm25()` and cut to
+  /// [limit] in SQL, and the newest page (whose count the repository
+  /// keeps). FTS5's bm25 folds a column's weight into one saturating term
+  /// count per row, so a body repeating a word can outscore a title naming
+  /// it once; reading the title hits apart keeps every one inside the cut.
+  /// [QuickQuery] decides in Dart what the index decides in SQL — a word
+  /// under three characters matches a title token's start only, words are
+  /// AND-ed, a `#tag` narrows by prefix — for the scan and for the grouping:
+  /// title hits first, each group in the index's order with the scan's extra
+  /// finds after it, newest first.
+  ///
+  /// Never waits for the index and never starts a drain — the surface kicks
+  /// one when it opens ([catchUpIndex]): while the index may be behind, or
+  /// could not be read, the answer says [incomplete], so a later keystroke
+  /// may find more. The index is folded and case-blind, and so is the scan;
+  /// [caseSensitive] applies to the highlighted offsets only.
   ///
   /// [labels] is the colour filter, OR-ed across the set and empty for no
   /// filter. It **narrows** a typed query and never stands in for one: an
   /// empty query finds nothing here whatever the filter says, because
   /// "everything red" is a listing rather than a search and [labelledNotes]
   /// answers it out of SQLite instead of out of one page.
-  Future<List<SearchResult>> quickSearch(
+  Future<({List<SearchResult> results, bool incomplete})>
+  quickSearchWithCoverage(
     String query, {
     Set<String>? folderIds,
     Set<ItemLabel> labels = const {},
@@ -702,69 +653,149 @@ class FolderSearchService {
   }) async {
     await initialize();
 
-    if (query.trim().isEmpty) return [];
-    if (folderIds != null && folderIds.isEmpty) return [];
+    const nothing = (results: <SearchResult>[], incomplete: false);
+    if (query.trim().isEmpty) return nothing;
+    if (folderIds != null && folderIds.isEmpty) return nothing;
 
-    final paginatedNotes = await _storageService.loadNotesPaginated(
-      pageSize: _quickSearchPageSize,
+    final quick = QuickQuery.parse(query);
+    if (quick.isEmpty) return nothing;
+
+    final indexer = await _indexerForActiveDatabase();
+    final behind = indexer.mayBeBehind;
+    final (indexed, recent) = await (
+      _readQuickIndex(indexer, quick, folderIds, labels, limit),
+      _storageService.loadNotesPaginated(pageSize: _quickSearchPageSize),
+    ).wait;
+
+    final candidates = <SearchResult>[];
+    final seen = <String>{};
+    for (final (:note, :score) in indexed.hits) {
+      final metadata = _metadataOf(note);
+      seen.add(metadata.id);
+      candidates.add(
+        SearchResult(
+          metadata: metadata,
+          matches: _rowMatches(query, metadata, caseSensitive),
+          // bm25 is better the lower it is.
+          relevanceScore: -score,
+        ),
+      );
+    }
+    candidates.addAll(
+      _scanRecent(
+        recent.notes,
+        query: query,
+        quick: quick,
+        seen: seen,
+        folderIds: folderIds,
+        labels: labels,
+        caseSensitive: caseSensitive,
+      ),
     );
 
-    final normalizedQuery = normalizeForSearch(
-      query,
-      caseSensitive: caseSensitive,
+    final titleHits = <SearchResult>[];
+    final otherHits = <SearchResult>[];
+    for (final hit in candidates) {
+      (quick.titleHolds(hit.metadata.title) ? titleHits : otherHits).add(hit);
+    }
+    return (
+      results: [...titleHits, ...otherHits].take(limit).toList(),
+      incomplete: switch (indexed.state) {
+        _QuickIndexRead.read => behind,
+        // The scan is all there is, and nothing more will come.
+        _QuickIndexRead.absent => false,
+        // The scan answered alone this time.
+        _QuickIndexRead.failed => true,
+      },
     );
+  }
+
+  /// The index's quick hits for [quick], and whether it was read, has no
+  /// index on this database, or threw — a transient failure the scan
+  /// answers around, logged once until a read succeeds again so a run of
+  /// keystrokes does not flood the log.
+  Future<({List<({Note note, double score})> hits, _QuickIndexRead state})>
+  _readQuickIndex(
+    BodySearchIndexer indexer,
+    QuickQuery quick,
+    Set<String>? folderIds,
+    Set<ItemLabel> labels,
+    int limit,
+  ) async {
+    try {
+      final hits = await indexer.quickMatches(
+        quick.titleMatch,
+        quick.match,
+        folderIds: folderIds,
+        labels: labels,
+        limit: limit,
+      );
+      _quickIndexFailureLogged = false;
+      return hits == null
+          ? (hits: _noQuickHits, state: _QuickIndexRead.absent)
+          : (hits: hits, state: _QuickIndexRead.read);
+    } catch (e) {
+      if (!_quickIndexFailureLogged) {
+        _quickIndexFailureLogged = true;
+        debugPrint('[FolderSearchService] quick index read failed: $e');
+      }
+      return (hits: _noQuickHits, state: _QuickIndexRead.failed);
+    }
+  }
+
+  /// The quick rule ([QuickQuery.holds]) over the newest page, newest first,
+  /// skipping the notes in [seen]. Kept beside the index so a note it has
+  /// not projected yet is still found while typing.
+  List<SearchResult> _scanRecent(
+    List<NoteMetadata> notes, {
+    required String query,
+    required QuickQuery quick,
+    required Set<String> seen,
+    required Set<String>? folderIds,
+    required Set<ItemLabel> labels,
+    required bool caseSensitive,
+  }) {
     final results = <SearchResult>[];
-
-    for (final metadata in paginatedNotes.notes) {
+    for (final metadata in notes) {
+      if (seen.contains(metadata.id)) continue;
       if (folderIds != null && !folderIds.contains(metadata.folderId)) {
         continue;
       }
       if (labels.isNotEmpty && !labels.contains(metadata.label)) {
         continue;
       }
-
-      final normalizedTitle = normalizeForSearch(
-        metadata.title,
-        caseSensitive: caseSensitive,
+      if (!quick.holds(metadata.title, metadata.preview)) continue;
+      results.add(
+        SearchResult(
+          metadata: metadata,
+          matches: _rowMatches(query, metadata, caseSensitive),
+          relevanceScore: 0,
+        ),
       );
-      final normalizedPreview = normalizeForSearch(
-        metadata.preview,
-        caseSensitive: caseSensitive,
-      );
-
-      if (normalizedTitle.contains(normalizedQuery) ||
-          normalizedPreview.contains(normalizedQuery)) {
-        final titleMatches = _findMatchesInText(
-          query,
-          metadata.title,
-          SearchMatchType.title,
-          caseSensitive: caseSensitive,
-        );
-        final previewMatches = _findMatchesInText(
-          query,
-          metadata.preview,
-          SearchMatchType.content,
-          caseSensitive: caseSensitive,
-        );
-
-        double score = 0.0;
-        if (normalizedTitle.contains(normalizedQuery)) score += 2.0;
-        if (normalizedPreview.contains(normalizedQuery)) score += 1.0;
-
-        results.add(
-          SearchResult(
-            metadata: metadata,
-            matches: [...titleMatches, ...previewMatches],
-            relevanceScore: score,
-          ),
-        );
-      }
     }
-
-    results.sort((a, b) => b.relevanceScore.compareTo(a.relevanceScore));
-
-    return results.take(limit).toList();
+    return results;
   }
+
+  /// What a quick hit's row paints: [query] in the title, then in the
+  /// preview — the only body text a quick hit has in hand.
+  List<SearchMatch> _rowMatches(
+    String query,
+    NoteMetadata metadata,
+    bool caseSensitive,
+  ) => [
+    ..._findMatchesInText(
+      query,
+      metadata.title,
+      SearchMatchType.title,
+      caseSensitive: caseSensitive,
+    ),
+    ..._findMatchesInText(
+      query,
+      metadata.preview,
+      SearchMatchType.content,
+      caseSensitive: caseSensitive,
+    ),
+  ];
 
   /// Every note wearing one of [labels], newest first, as search results with
   /// nothing highlighted — the listing a colour chip produces with the field
@@ -884,20 +915,76 @@ class FolderSearchService {
     return matches;
   }
 
-  /// Drops the index, so the next search rebuilds it.
-  ///
-  /// The note subscription deliberately outlives this: the service is an
-  /// app-wide singleton and `OptimizedNoteBloc` is a factory, so one page
-  /// closing its bloc must not leave the index unable to notice writes for
-  /// the rest of the session.
-  void dispose() {
-    _searchIndex.clear();
-    _staleNoteIds.clear();
-  }
-
   Future<void> close() async {
     await _changesSubscription?.cancel();
     _changesSubscription = null;
-    dispose();
   }
+
+  /// Best score first; equal scores newest first, then by id, so a page of
+  /// ties reads the same on every run.
+  static int _byRelevance(
+    ({NoteMetadata metadata, double score}) a,
+    ({NoteMetadata metadata, double score}) b,
+  ) {
+    final byScore = b.score.compareTo(a.score);
+    if (byScore != 0) return byScore;
+    final byDate = b.metadata.updatedAt.compareTo(a.metadata.updatedAt);
+    if (byDate != 0) return byDate;
+    return a.metadata.id.compareTo(b.metadata.id);
+  }
+
+  static NoteMetadata _metadataOf(Note note) => NoteMetadata(
+    id: note.id,
+    folderId: note.folderId,
+    title: note.title,
+    preview: note.preview,
+    contentLength: note.contentLength,
+    chunkCount: note.chunkCount,
+    isCompressed: note.isCompressed,
+    createdAt: note.createdAt,
+    updatedAt: note.updatedAt,
+    position: note.position,
+    label: ItemLabel.fromStorage(note.label),
+  );
+}
+
+const List<({Note note, double score})> _noQuickHits = [];
+
+/// What became of a keystroke's read of the body index.
+enum _QuickIndexRead { read, absent, failed }
+
+/// [searchScore] of each note, null as well where the body does not carry
+/// every one of [tags] whole; a query of tags alone scores each carrier 0.
+List<double?> _scoreAll(
+  List<(String, String)> notes,
+  Set<String> words,
+  Set<String> tags,
+) => [
+  for (final (title, body) in notes)
+    if (tags.isNotEmpty && !_carriesWhole(body, tags))
+      null
+    else if (words.isEmpty)
+      0.0
+    else
+      searchScore(title, body, words),
+];
+
+bool _carriesWhole(String body, Set<String> tags) {
+  final carried = tagProjection(body);
+  return tags.every((tag) => carried.contains(' #$tag '));
+}
+
+/// Top-level so the closure handed to an isolate captures the page, the
+/// words and the tags alone, never the service.
+Future<List<double?>> _scorePage(
+  BodySearchIndexer indexer,
+  List<(String, String)> notes,
+  Set<String> words,
+  Set<String> tags,
+) {
+  var bytes = 0;
+  for (final (title, body) in notes) {
+    bytes += title.length + body.length;
+  }
+  return indexer.offIsolate(bytes, () => _scoreAll(notes, words, tags));
 }

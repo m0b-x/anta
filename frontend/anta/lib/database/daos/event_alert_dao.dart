@@ -42,6 +42,32 @@ class EventAlertDao extends DatabaseAccessor<AppDatabase>
         .get();
   }
 
+  /// Whether any live alert is enabled, answered from the first such row —
+  /// the reconcile's "nothing can arm" check (`AlertScheduler`), asked before
+  /// the event store is loaded, so it never reads the table whole.
+  Future<bool> hasEnabled() async {
+    final row = await customSelect(
+      'SELECT EXISTS(SELECT 1 FROM calendar_event_alerts '
+      'WHERE is_deleted = 0 AND enabled = 1) AS hit',
+      readsFrom: {eventAlerts},
+    ).getSingle();
+    return row.read<int>('hit') != 0;
+  }
+
+  /// [getAllActive] narrowed to one event, in its order: the capture an
+  /// event delete takes for its Undo, answered from
+  /// `idx_calendar_event_alerts_active` instead of every live alert.
+  Future<List<EventAlertRow>> getActiveForEvent(String eventId) {
+    return (select(eventAlerts)
+          ..where(
+            (a) =>
+                a.eventId.equals(eventId) &
+                const CustomExpression<bool>('is_deleted = 0'),
+          )
+          ..orderBy([(a) => OrderingTerm.asc(a.createdAt)]))
+        .get();
+  }
+
   /// Makes [entries] the complete set of alerts for [eventId], in one
   /// transaction: rows that are no longer in the list are **tombstoned**, rows
   /// that are stay — re-stamped only if something in them changed — and rows

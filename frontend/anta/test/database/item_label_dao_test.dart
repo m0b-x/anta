@@ -408,7 +408,7 @@ void main() {
   });
 
   group('the label survives the writes around it', () {
-    test('a title edit keeps it, and the FTS row finds it', () async {
+    test('a title edit keeps it', () async {
       final folder = await seedFolder();
       final note = await db.noteDao.createNote(
         folderId: folder.id,
@@ -419,22 +419,10 @@ void main() {
       );
       await db.noteDao.updateNoteLabel(id: note.id, label: ItemLabel.red);
 
-      final hits = await db.noteDao.fullTextSearch('Zercher');
-      expect(hits, hasLength(1));
-      expect(
-        ItemLabel.fromStorage(hits.single.label),
-        ItemLabel.red,
-        reason:
-            'fullTextSearch hand-builds its Note rows; a column left out of '
-            'that list reads as the default on every search result',
-      );
-
       await db.noteDao.updateNote(id: note.id, title: 'Zercher carries');
 
       final after = await db.noteDao.getNoteById(note.id);
       expect(ItemLabel.fromStorage(after!.label), ItemLabel.red);
-      final renamed = await db.noteDao.fullTextSearch('carries');
-      expect(ItemLabel.fromStorage(renamed.single.label), ItemLabel.red);
     });
 
     test('a move to another folder keeps it', () async {
@@ -460,12 +448,19 @@ void main() {
       await db.noteDao.updateNoteLabel(id: second.id, label: ItemLabel.pink);
 
       // What `MixedReorderService` calls through `NoteRepository`.
-      await db.noteDao.setNotePositions({first.id: 1, second.id: 0});
+      await db.noteDao.applyOrder(
+        folderId: folder.id,
+        loadedOrder: [second.id, first.id],
+        descending: false,
+      );
 
       final rows = await db.noteDao.getNotesByIds([first.id, second.id]);
       final byId = {for (final row in rows) row.id: row};
-      expect(byId[first.id]!.position, 1);
-      expect(byId[second.id]!.position, 0);
+      expect(
+        byId[second.id]!.position,
+        lessThan(byId[first.id]!.position),
+        reason: 'the drag put Two first',
+      );
       expect(ItemLabel.fromStorage(byId[first.id]!.label), ItemLabel.orange);
       expect(ItemLabel.fromStorage(byId[second.id]!.label), ItemLabel.pink);
     });

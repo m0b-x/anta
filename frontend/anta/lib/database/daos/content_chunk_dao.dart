@@ -1,17 +1,25 @@
+import 'dart:isolate';
+import 'dart:math' as math;
+
 import 'package:flutter/foundation.dart';
 import 'package:drift/drift.dart';
+import '../../constants/app_constants.dart';
+import '../crdt/crdt_merge.dart';
+import '../crdt/crdt_write.dart';
 import '../database.dart';
 import '../tables/content_chunks_table.dart';
-import '../crdt/crdt_write.dart';
-import '../crdt/hlc.dart';
+import '../chunking/body_cut.dart';
+import '../chunking/chunk_planner.dart';
 import '../../utils/compression_utils.dart';
+
+export '../chunking/body_cut.dart' show BodyCut;
 
 part 'content_chunk_dao.g.dart';
 
 @DriftAccessor(tables: [ContentChunks])
 class ContentChunkDao extends DatabaseAccessor<AppDatabase>
     with _$ContentChunkDaoMixin {
-  static const int defaultChunkSize = 10000;
+  /// A chunk longer than this many code units is stored gzip'd and base64'd.
   static const int compressionThreshold = 5000;
 
   ContentChunkDao(super.db);
@@ -23,27 +31,86 @@ class ContentChunkDao extends DatabaseAccessor<AppDatabase>
         .get();
   }
 
-  Future<ContentChunk?> getChunk(String noteId, int chunkIndex) {
-    return (select(contentChunks)..where(
-          (c) =>
-              c.noteId.equals(noteId) &
-              c.chunkIndex.equals(chunkIndex) &
-              c.isDeleted.equals(false),
-        ))
-        .getSingleOrNull();
+  /// The note's live chunk hashes in body order — its manifest on the wire;
+  /// a null is a legacy slice no save has re-cut yet.
+  Future<List<String?>> hashesOf(String noteId) async => [
+    for (final row in await _liveRows(noteId)) row.chunk.hash,
+  ];
+
+  /// One live row per hash in [hashes] — the one stamped last where several
+  /// notes hold the same text — for the push of the chunk documents: a hash
+  /// no live row holds any more is absent.
+  Future<List<ContentChunk>> newestByHashes(List<String> hashes) async {
+    final rows = await CrdtMerge.loadInChunks(
+      hashes,
+      (chunk) =>
+          (select(contentChunks)..where(
+                (c) =>
+                    c.contentHash.isIn(chunk) &
+                    const CustomExpression<bool>('is_deleted = 0'),
+              ))
+              .get(),
+    );
+    final newest = <String, ContentChunk>{};
+    for (final row in rows) {
+      final kept = newest[row.contentHash!];
+      if (kept == null || row.hlcTimestamp.compareTo(kept.hlcTimestamp) > 0) {
+        newest[row.contentHash!] = row;
+      }
+    }
+    return newest.values.toList();
   }
 
-  Future<int> getChunkCount(String noteId) async {
-    final countExp = contentChunks.id.count();
-    final query = selectOnly(contentChunks)
-      ..addColumns([countExp])
-      ..where(
-        contentChunks.noteId.equals(noteId) &
-            contentChunks.isDeleted.equals(false),
-      );
+  /// The text of each hash in [hashes] that any live row on this device
+  /// holds, whichever note it belongs to — what a pulled manifest's body is
+  /// assembled from until its missing chunks can be fetched.
+  Future<Map<String, String>> textsByHash(Iterable<String> hashes) async {
+    final texts = <String, String>{};
+    for (final row in await newestByHashes(hashes.toSet().toList())) {
+      texts[row.contentHash!] = textOf(row);
+    }
+    return texts;
+  }
 
-    final result = await query.getSingle();
-    return result.read(countExp) ?? 0;
+  /// [row]'s text, decompressed when it is stored gzip'd.
+  static String textOf(ContentChunk row) => row.isCompressed
+      ? CompressionUtils.decompressFromBase64(row.content)
+      : row.content;
+
+  /// Re-cuts a note still stored as legacy fixed slices under its own
+  /// [hlc], as an unchanged save does, so every chunk has a hash its
+  /// manifest can name; the new chunks are queued at that stamp. The text is
+  /// read and cut before the transaction, which writes only if the rows are
+  /// still the ones read. Returns whether the note was re-cut: false for a
+  /// note already hashed, a text that no longer decodes, or rows a save
+  /// rewrote meanwhile.
+  Future<bool> hashLegacy(
+    String noteId, {
+    required String hlc,
+    required String deviceId,
+  }) async {
+    final before = await _liveRows(noteId);
+    if (ChunkPlanner.isHashedRun([for (final row in before) row.chunk])) {
+      return false;
+    }
+    final text = await _legacyText(noteId);
+    if (text == null) return false;
+    final cut = await BodyCut.of(text);
+    return transaction(() async {
+      final rows = await _liveRows(noteId);
+      if (!listEquals(_signature(rows), _signature(before))) return false;
+      final write = await planWrite(noteId, cut, compareLegacy: false);
+      await applyWrite(write, hlc: hlc, deviceId: deviceId, version: 1);
+      // The note's count of its chunks follows the re-cut; its stamp does
+      // not, since the text is the same.
+      await customUpdate(
+        'UPDATE notes SET chunk_count = ? WHERE id = ?',
+        variables: [Variable<int>(write.chunkCount), Variable<String>(noteId)],
+        updates: {db.notes},
+        updateKind: UpdateKind.update,
+      );
+      return true;
+    });
   }
 
   Future<String> loadContent(String noteId) async {
@@ -74,10 +141,9 @@ class ContentChunkDao extends DatabaseAccessor<AppDatabase>
   ///    no chunks returns no rows, but [loadContent] answers `''` for it, and a
   ///    caller that only walks the returned rows would silently drop that note.
   ///  - `note_id` leads the ORDER BY. With it the plan is a `SEARCH` on
-  ///    `idx_chunks_note_index`; without it SQLite adds a temp B-tree.
-  ///  - the tombstone filter is a literal, restating the partial index's own
-  ///    `WHERE is_deleted = 0`. A bound parameter is only *sometimes* proven to
-  ///    imply it, and which is version-dependent.
+  ///    `idx_content_chunks_note`; without it SQLite adds a temp B-tree.
+  ///  - the tombstone filter is a literal, as every chunk read spells it. The
+  ///    index is full since v47, so the plan no longer hangs on that spelling.
   ///  - compression is decided per chunk, never per note: the compression
   ///    threshold and the chunk size are independent, so one note legitimately
   ///    mixes compressed and plain chunks.
@@ -131,290 +197,426 @@ class ContentChunkDao extends DatabaseAccessor<AppDatabase>
     return result;
   }
 
-  /// Diffs [content] against the stored chunks and writes only what changed,
-  /// every written chunk stamped with [hlc]. Returns whether anything was
-  /// written.
+  /// Writes [content] over the note's stored chunks, every written chunk
+  /// stamped with [hlc], and returns whether the text changed. [cut] is
+  /// [content]'s, when the caller cut it already.
   ///
-  /// Queues nothing: under D14 a note travels as one document with its body,
-  /// so a body is written only through `NoteDao`, which stamps and queues the
-  /// owning note in the same transaction.
+  /// Queues only the new chunks ([applyWrite]): a body is written only
+  /// through `NoteDao`, which stamps and queues the owning note — its
+  /// manifest — in the same transaction.
   Future<bool> writeChunks({
     required String noteId,
     required String content,
     required String hlc,
+    BodyCut? cut,
   }) async {
-    // Split new content into raw (unprocessed) slices.
-    final rawSlices = _splitRaw(content);
-    final newCount = rawSlices.length;
+    final write = await planWrite(noteId, cut ?? await BodyCut.of(content));
+    await applyWrite(write, hlc: hlc, deviceId: db.deviceId, version: 1);
+    return write.textChanged;
+  }
 
-    // Fetch existing chunks ordered by chunkIndex.
-    final existing = await getChunksForNote(noteId);
-
-    // Fast path: nothing changed in chunk count, check content equality.
-    // Build a map of old chunks by index for O(1) lookup.
-    final oldByIndex = <int, ContentChunk>{};
-    for (final chunk in existing) {
-      oldByIndex[chunk.chunkIndex] = chunk;
+  /// Cuts [content] and, when the note still holds legacy fixed slices,
+  /// reads their text and encodes every new chunk — all before the caller's
+  /// transaction, so a note's first save after v46 does not hold the
+  /// database while it decompresses and gzips the whole body.
+  /// [planWrite] uses the result only if the rows are still the ones read
+  /// here; otherwise it reads them again inside the transaction. That check
+  /// compares ids, indices, hashes and stamps, so it holds only while every
+  /// write that changes a chunk row also changes its HLC.
+  Future<PreparedBody> prepareBody(String noteId, String content) async {
+    final cut = await BodyCut.of(content);
+    final rows = await _liveRows(noteId);
+    if (ChunkPlanner.isHashedRun([for (final row in rows) row.chunk])) {
+      return PreparedBody._(cut);
     }
+    final legacyText = await _legacyText(noteId);
+    final encoded = await _encodeAll([
+      for (var i = 0; i < cut.length; i++) cut.chunkText(i),
+    ]);
+    return PreparedBody._(
+      cut,
+      rows: _signature(rows),
+      legacyText: legacyText,
+      encoded: encoded,
+    );
+  }
 
-    // Collect DB operations.
-    final toInsert = <ContentChunksCompanion>[];
-    final toUpdate = <ContentChunksCompanion>[];
-    final toDeleteIds = <String>[];
+  /// What storing [cut] over the note's live chunks takes, read by hash:
+  /// no stored chunk is loaded or decompressed, except once for a note still
+  /// holding legacy fixed slices, whose text is compared through
+  /// [loadContent] so an unchanged body is re-cut without counting as an
+  /// edit. A legacy text that no longer decodes counts as changed, so the
+  /// re-cut replaces it and the note can be saved again.
+  ///
+  /// [prepared], from [prepareBody] for this [cut], spares that comparison
+  /// and the encoding while the rows are unchanged since. [compareLegacy]
+  /// false skips the comparison where the answer is not needed — a remote
+  /// body is stored whatever it holds.
+  Future<ChunkWrite> planWrite(
+    String noteId,
+    BodyCut cut, {
+    bool compareLegacy = true,
+    PreparedBody? prepared,
+  }) async {
+    final rows = await _liveRows(noteId);
+    final plan = ChunkPlanner.plan(cut.hashes, [
+      for (final row in rows) row.chunk,
+    ]);
+    if (!plan.recut) {
+      return ChunkWrite._(noteId, cut, plan, textChanged: !plan.isEmpty);
+    }
+    final reuse =
+        prepared != null &&
+        identical(prepared.cut, cut) &&
+        prepared._rows != null &&
+        listEquals(prepared._rows, _signature(rows));
+    final bool textChanged;
+    if (reuse) {
+      textChanged = prepared._legacyText != cut.text;
+    } else {
+      textChanged = !compareLegacy || await _legacyText(noteId) != cut.text;
+    }
+    return ChunkWrite._(
+      noteId,
+      cut,
+      plan,
+      textChanged: textChanged,
+      encoded: reuse ? prepared._encoded : null,
+    );
+  }
 
-    for (int i = 0; i < newCount; i++) {
-      final rawContent = rawSlices[i];
-      final old = oldByIndex[i];
-
-      if (old != null) {
-        // Compare raw content against what's stored.
-        // For uncompressed chunks the stored content IS the raw text.
-        // For compressed chunks we must decompress to compare.
-        final oldRaw = old.isCompressed
-            ? CompressionUtils.decompressFromBase64(old.content)
-            : old.content;
-
-        if (oldRaw == rawContent) {
-          continue; // Chunk unchanged — skip.
-        }
-
-        // Chunk changed — process and update.
-        final shouldCompress = rawContent.length > compressionThreshold;
-        final processedContent = shouldCompress
-            ? CompressionUtils.compressToBase64(rawContent)
-            : rawContent;
-
-        toUpdate.add(
-          ContentChunksCompanion(
-            id: Value(old.id),
-            noteId: Value(old.noteId),
-            chunkIndex: Value(old.chunkIndex),
-            content: Value(processedContent),
-            isCompressed: Value(shouldCompress),
-            hlcTimestamp: Value(hlc),
-            deviceId: Value(db.deviceId),
-            version: const Value(1),
-            isDeleted: const Value(false),
+  /// The note's live rows in `chunk_index` order, with the stamp that tells
+  /// a row rewritten in place apart.
+  Future<List<({StoredChunk chunk, String hlc})>> _liveRows(
+    String noteId,
+  ) async {
+    final rows =
+        await (selectOnly(contentChunks)
+              ..addColumns([
+                contentChunks.id,
+                contentChunks.chunkIndex,
+                contentChunks.contentHash,
+                contentChunks.hlcTimestamp,
+              ])
+              ..where(
+                contentChunks.noteId.equals(noteId) &
+                    const CustomExpression<bool>('is_deleted = 0'),
+              )
+              ..orderBy([OrderingTerm.asc(contentChunks.chunkIndex)]))
+            .get();
+    return [
+      for (final row in rows)
+        (
+          chunk: StoredChunk(
+            id: row.read(contentChunks.id)!,
+            index: row.read(contentChunks.chunkIndex)!,
+            hash: row.read(contentChunks.contentHash),
           ),
-        );
-      } else {
-        // New chunk at this index — insert.
-        final shouldCompress = rawContent.length > compressionThreshold;
-        final processedContent = shouldCompress
-            ? CompressionUtils.compressToBase64(rawContent)
-            : rawContent;
+          hlc: row.read(contentChunks.hlcTimestamp)!,
+        ),
+    ];
+  }
 
-        toInsert.add(
-          ContentChunksCompanion(
-            id: Value('${noteId}_chunk_$i'),
-            noteId: Value(noteId),
-            chunkIndex: Value(i),
-            content: Value(processedContent),
-            isCompressed: Value(shouldCompress),
-            hlcTimestamp: Value(hlc),
-            deviceId: Value(db.deviceId),
-            version: const Value(1),
-            isDeleted: const Value(false),
-          ),
-        );
-      }
+  static List<String> _signature(
+    List<({StoredChunk chunk, String hlc})> rows,
+  ) => [
+    for (final row in rows)
+      '${row.chunk.id}|${row.chunk.index}|${row.chunk.hash}|${row.hlc}',
+  ];
+
+  /// The stored text, or null when a chunk no longer decodes.
+  Future<String?> _legacyText(String noteId) async {
+    try {
+      return await loadContent(noteId);
+    } catch (e) {
+      debugPrint('[ContentChunkDao] Chunk decode error for $noteId: $e');
+      return null;
     }
+  }
 
-    // Chunks beyond the new count need to be removed.
-    for (final old in existing) {
-      if (old.chunkIndex >= newCount) {
-        toDeleteIds.add(old.id);
-      }
-    }
-
-    // Nothing changed at all — skip the DB round-trip entirely.
-    if (toInsert.isEmpty && toUpdate.isEmpty && toDeleteIds.isEmpty) {
-      return false;
-    }
-
-    // Apply all changes in a single batch for atomicity and speed.
+  /// Carries out [write]'s plan, its inserted chunks stamped with [hlc],
+  /// [deviceId] and [version]; the chunks it keeps keep their own stamps.
+  /// Every statement goes through Drift, one batch, so the write is atomic
+  /// and each kind of statement runs prepared once.
+  ///
+  /// An inserted hash no live row held before — none of a note owned by no
+  /// account or by this note's owner — is queued at [hlc]: every such hash
+  /// is then in the space or on its way there — the bind and the wire
+  /// cutover queue all of them — so a text already held,
+  /// a copied note or an unchanged chunk re-cut, costs no write. Nor does a
+  /// hash among [inSpace], the chunks a pulled manifest named: the space
+  /// holds them already, as it held them before it held the manifest
+  /// (scalability record S6b).
+  ///
+  /// A hash whose last live row this write deletes has its entry retired in
+  /// the same batch: no manifest can name it any more, and an offline run of
+  /// saves would otherwise leave one dead entry per save for the next push to
+  /// load and throw away.
+  Future<void> applyWrite(
+    ChunkWrite write, {
+    required String hlc,
+    required String deviceId,
+    required int version,
+    Set<String> inSpace = const {},
+  }) async {
+    final plan = write.plan;
+    if (plan.isEmpty) return;
+    final cut = write.cut;
+    final prepared = write._encoded;
+    final encoded = prepared != null
+        ? [for (final index in plan.inserts) prepared[index]]
+        : await _encodeAll([
+            for (final index in plan.inserts) cut.chunkText(index),
+          ]);
+    final inserted = {
+      for (final index in plan.inserts)
+        if (!inSpace.contains(cut.hashes[index])) cut.hashes[index],
+    };
+    final fresh = inserted.difference(
+      await _heldForOwnerOf(write.noteId, inserted.toList()),
+    );
+    final orphaned = await _orphanedBy(plan.deleteIds, cut.hashes.toSet());
     await batch((b) {
-      if (toInsert.isNotEmpty) {
-        b.insertAll(contentChunks, toInsert);
+      db.queueChunksIn(b, fresh, hlc);
+      db.retireChunksIn(b, orphaned);
+      if (plan.deleteIds.isNotEmpty) {
+        b.deleteWhere(contentChunks, (c) => c.id.isIn(plan.deleteIds));
       }
-
-      for (final companion in toUpdate) {
-        b.replace(contentChunks, companion);
+      if (plan.shift != 0) {
+        b.update(
+          contentChunks,
+          ContentChunksCompanion.custom(
+            chunkIndex: contentChunks.chunkIndex + Constant(plan.shift),
+          ),
+          where: (c) =>
+              c.noteId.equals(write.noteId) &
+              c.chunkIndex.isBiggerOrEqualValue(plan.shiftFrom) &
+              const CustomExpression<bool>('is_deleted = 0'),
+        );
       }
-
-      for (final id in toDeleteIds) {
-        b.deleteWhere(contentChunks, (c) => c.id.equals(id));
+      for (final (id, index) in plan.moves) {
+        b.update(
+          contentChunks,
+          ContentChunksCompanion(chunkIndex: Value(index)),
+          where: (c) => c.id.equals(id),
+        );
+      }
+      if (plan.inserts.isNotEmpty) {
+        b.insertAll(contentChunks, [
+          for (final (i, index) in plan.inserts.indexed)
+            ContentChunksCompanion.insert(
+              id: db.generateId(),
+              noteId: write.noteId,
+              chunkIndex: index,
+              content: encoded[i],
+              isCompressed: Value(_compresses(cut, index)),
+              contentHash: Value(cut.hashes[index]),
+              hlcTimestamp: hlc,
+              deviceId: deviceId,
+              version: Value(version),
+              isDeleted: const Value(false),
+            ),
+        ]);
       }
     });
-    return true;
   }
 
-  /// Splits [content] into raw string slices of [defaultChunkSize] characters.
-  /// No compression or processing — just the plain text for each chunk position.
-  List<String> _splitRaw(String content) {
-    if (content.isEmpty) return const [];
-
-    final slices = <String>[];
-    int position = 0;
-    while (position < content.length) {
-      final end = (position + defaultChunkSize).clamp(0, content.length);
-      slices.add(content.substring(position, end));
-      position = end;
-    }
-    return slices;
-  }
-
-  /// Soft delete chunks for CRDT sync (marks as deleted but preserves for
-  /// sync), under the [stamp] that tombstones their note.
-  Future<void> softDeleteChunksForNote(String noteId, CrdtStamp stamp) async {
-    await (update(contentChunks)..where((c) => c.noteId.equals(noteId))).write(
-      ContentChunksCompanion(
-        isDeleted: const Value(true),
-        hlcTimestamp: Value(stamp.hlc),
-        deviceId: Value(stamp.deviceId),
-      ),
-    );
-  }
-
-  /// Tombstones every chunk of a whole selection of notes in one statement,
-  /// so a bulk delete costs one update here rather than one per note, under
-  /// the [stamp] that tombstones the notes.
-  Future<void> softDeleteChunksForNotes(
-    List<String> noteIds,
-    CrdtStamp stamp,
+  /// The hashes only the rows under [deleteIds] hold, none of [kept] among
+  /// them: once those rows go, no live row names them.
+  Future<Set<String>> _orphanedBy(
+    List<String> deleteIds,
+    Set<String> kept,
   ) async {
-    if (noteIds.isEmpty) return;
-    await (update(contentChunks)..where((c) => c.noteId.isIn(noteIds))).write(
-      ContentChunksCompanion(
-        isDeleted: const Value(true),
-        hlcTimestamp: Value(stamp.hlc),
-        deviceId: Value(stamp.deviceId),
-      ),
-    );
+    if (deleteIds.isEmpty) return const {};
+    final hash = contentChunks.contentHash;
+    final doomed = selectOnly(contentChunks, distinct: true)
+      ..addColumns([hash])
+      ..where(contentChunks.id.isIn(deleteIds) & hash.isNotNull());
+    final candidates = {
+      for (final row in await doomed.get()) row.read(hash)!,
+    }.difference(kept);
+    if (candidates.isEmpty) return const {};
+    final others = selectOnly(contentChunks, distinct: true)
+      ..addColumns([hash])
+      ..where(
+        hash.isIn(candidates) &
+            contentChunks.id.isNotIn(deleteIds) &
+            const CustomExpression<bool>('is_deleted = 0'),
+      );
+    return candidates.difference({
+      for (final row in await others.get()) row.read(hash)!,
+    });
   }
 
-  /// Hard delete chunks (used when replacing content locally)
-  Future<void> hardDeleteChunksForNote(String noteId) async {
-    await (delete(contentChunks)..where((c) => c.noteId.equals(noteId))).go();
+  /// The hashes among [hashes] some live row already holds, any note's.
+  Future<Set<String>> heldHashes(List<String> hashes) async {
+    final held = await CrdtMerge.loadInChunks(hashes, (chunk) async {
+      final query = selectOnly(contentChunks, distinct: true)
+        ..addColumns([contentChunks.contentHash])
+        ..where(
+          contentChunks.contentHash.isIn(chunk) &
+              const CustomExpression<bool>('is_deleted = 0'),
+        );
+      return [
+        for (final row in await query.get())
+          row.read(contentChunks.contentHash)!,
+      ];
+    });
+    return held.toSet();
   }
 
-  /// Replaces a note's whole body with [content], split and compressed as
-  /// [writeChunks] does, every chunk carrying its note's stamps — for a
-  /// remote note document, whose body arrives whole (D14). Queues nothing:
-  /// the chunks travel inside the note.
-  Future<void> replaceChunks({
+  /// The notes whose live rows hold each hash among [hashes] — the notes a
+  /// held-back chunk belongs to on the Sync page; a hash no live row holds
+  /// is absent.
+  Future<Map<String, Set<String>>> noteIdsByHash(List<String> hashes) async {
+    final rows = await CrdtMerge.loadInChunks(hashes, (chunk) async {
+      final query = selectOnly(contentChunks, distinct: true)
+        ..addColumns([contentChunks.contentHash, contentChunks.noteId])
+        ..where(
+          contentChunks.contentHash.isIn(chunk) &
+              const CustomExpression<bool>('is_deleted = 0'),
+        );
+      return [
+        for (final row in await query.get())
+          (
+            row.read(contentChunks.contentHash)!,
+            row.read(contentChunks.noteId)!,
+          ),
+      ];
+    });
+    final notes = <String, Set<String>>{};
+    for (final (hash, noteId) in rows) {
+      notes.putIfAbsent(hash, () => {}).add(noteId);
+    }
+    return notes;
+  }
+
+  /// The hashes among [hashes] a live row holds for a note no account owns
+  /// or whose owner is note [noteId]'s: the chunks that are in the space, or
+  /// queued for it, as far as [noteId]'s write can tell. A row only another
+  /// account's note holds was never pushed (D16), so it does not count.
+  Future<Set<String>> _heldForOwnerOf(
+    String noteId,
+    List<String> hashes,
+  ) async {
+    final held = await CrdtMerge.loadInChunks(hashes, (chunk) async {
+      final rows = await customSelect(
+        'SELECT DISTINCT c.content_hash AS hash FROM content_chunks c '
+        'JOIN notes n ON n.id = c.note_id '
+        'WHERE c.is_deleted = 0 AND c.content_hash IN '
+        '(${List.filled(chunk.length, '?').join(', ')}) '
+        'AND (n.owner_id IS NULL OR n.owner_id IS '
+        '(SELECT owner_id FROM notes WHERE id = ?))',
+        variables: [
+          for (final hash in chunk) Variable<String>(hash),
+          Variable<String>(noteId),
+        ],
+        readsFrom: {contentChunks, db.notes},
+      ).get();
+      return [for (final row in rows) row.read<String>('hash')];
+    });
+    return held.toSet();
+  }
+
+  /// The hashes among [hashes] a live row holds for a note no account owns
+  /// or [ownerUid] does: the chunks that account may push. A chunk row has
+  /// no owner of its own, so its note's decides (D16).
+  Future<Set<String>> hashesOwnedBy(
+    List<String> hashes,
+    String ownerUid,
+  ) async {
+    final owned = await CrdtMerge.loadInChunks(hashes, (chunk) async {
+      final rows = await customSelect(
+        'SELECT DISTINCT c.content_hash AS hash FROM content_chunks c '
+        'JOIN notes n ON n.id = c.note_id '
+        'WHERE c.is_deleted = 0 AND c.content_hash IN '
+        '(${List.filled(chunk.length, '?').join(', ')}) '
+        'AND (n.owner_id IS NULL OR n.owner_id = ?)',
+        variables: [
+          for (final hash in chunk) Variable<String>(hash),
+          Variable<String>(ownerUid),
+        ],
+        readsFrom: {contentChunks, db.notes},
+      ).get();
+      return [for (final row in rows) row.read<String>('hash')];
+    });
+    return owned.toSet();
+  }
+
+  static bool _compresses(BodyCut cut, int index) {
+    final start = index == 0 ? 0 : cut.ends[index - 1];
+    return cut.ends[index] - start > compressionThreshold;
+  }
+
+  /// [texts] as stored: gzip'd and base64'd above [compressionThreshold],
+  /// plain below. Off this isolate once they add up past
+  /// [BodyCut.isolateThreshold], as the cut is.
+  static Future<List<String>> _encodeAll(List<String> texts) async {
+    var units = 0;
+    for (final text in texts) {
+      units += text.length;
+    }
+    if (units <= BodyCut.isolateThreshold) return _encode(texts);
+    return _encodeOffThread(texts);
+  }
+
+  /// Not async, so the closure the isolate receives captures [texts] alone.
+  static Future<List<String>> _encodeOffThread(List<String> texts) =>
+      Isolate.run(() => _encode(texts));
+
+  static List<String> _encode(List<String> texts) => [
+    for (final text in texts)
+      text.length > compressionThreshold
+          ? CompressionUtils.compressToBase64(text)
+          : text,
+  ];
+
+  /// Deletes the chunk rows of notes being tombstoned, one statement per
+  /// [AppConstants.sqlIdBatch] notes so a cascade of any size stays under
+  /// SQLite's variable limit. Hard, not soft (D13): a deleted note no longer
+  /// keeps its whole body. The note row keeps its tombstone and its stamp,
+  /// which is all a merge reads. Nothing is lost to sync and nothing is
+  /// queued: the space keeps every chunk document, so a bound note revived
+  /// elsewhere fetches its body again, and an entry left for a hash no row
+  /// holds any more is retired by the push.
+  Future<void> deleteChunksForNotes(List<String> noteIds) async {
+    for (var i = 0; i < noteIds.length; i += AppConstants.sqlIdBatch) {
+      final batch = noteIds.sublist(
+        i,
+        math.min(i + AppConstants.sqlIdBatch, noteIds.length),
+      );
+      await (delete(contentChunks)..where((c) => c.noteId.isIn(batch))).go();
+    }
+  }
+
+  /// Stores [content] as a remote note's body through the same plan as
+  /// [writeChunks], so the receiving device writes only the chunks that
+  /// changed; the chunks it writes carry the note's stamps. Returns how
+  /// many chunks the body is stored as. A chunk no live row held before is
+  /// queued ([applyWrite]): a body that arrived whole in a legacy document
+  /// may name chunks the space never held — unless it is among [inSpace].
+  Future<int> replaceChunks({
     required String noteId,
     required String content,
     required String hlc,
     required String deviceId,
     required int version,
+    BodyCut? cut,
+    Set<String> inSpace = const {},
   }) async {
-    await hardDeleteChunksForNote(noteId);
-    final slices = _splitRaw(content);
-    if (slices.isEmpty) return;
-    await batch((b) {
-      b.insertAll(contentChunks, [
-        for (final (i, raw) in slices.indexed)
-          ContentChunksCompanion.insert(
-            id: '${noteId}_chunk_$i',
-            noteId: noteId,
-            chunkIndex: i,
-            content: raw.length > compressionThreshold
-                ? CompressionUtils.compressToBase64(raw)
-                : raw,
-            isCompressed: Value(raw.length > compressionThreshold),
-            hlcTimestamp: hlc,
-            deviceId: deviceId,
-            version: Value(version),
-            isDeleted: const Value(false),
-          ),
-      ]);
-    });
-  }
-
-  @Deprecated('Use softDeleteChunksForNote or hardDeleteChunksForNote instead')
-  Future<void> deleteChunksForNote(String noteId) async {
-    await hardDeleteChunksForNote(noteId);
-  }
-
-  Future<List<ContentChunk>> getChunksSince(String hlcTimestamp) {
-    return (select(
-      contentChunks,
-    )..where((c) => c.hlcTimestamp.isBiggerThanValue(hlcTimestamp))).get();
-  }
-
-  /// Merges one chunk by HLC, advancing the clock past it whichever branch
-  /// writes. A chunk never queues itself (D14): a [MergeOrigin.local] chunk
-  /// that is written stamps its owning note with the chunk's HLC and queues
-  /// the note, and a [MergeOrigin.remote] one queues nothing.
-  Future<void> mergeChunk(ContentChunk remote, {required MergeOrigin origin}) {
-    return transaction(() async {
-      final local = await (select(
-        contentChunks,
-      )..where((c) => c.id.equals(remote.id))).getSingleOrNull();
-
-      if (local == null) {
-        await into(contentChunks).insert(
-          ContentChunksCompanion(
-            id: Value(remote.id),
-            noteId: Value(remote.noteId),
-            chunkIndex: Value(remote.chunkIndex),
-            content: Value(remote.content),
-            isCompressed: Value(remote.isCompressed),
-            hlcTimestamp: Value(remote.hlcTimestamp),
-            deviceId: Value(remote.deviceId),
-            version: Value(remote.version),
-            isDeleted: Value(remote.isDeleted),
-          ),
-        );
-        db.hlc.update(HlcTimestamp.parse(remote.hlcTimestamp));
-        await _enqueueOwner(remote, origin);
-        return;
-      }
-
-      final localHlc = HlcTimestamp.parse(local.hlcTimestamp);
-      final remoteHlc = HlcTimestamp.parse(remote.hlcTimestamp);
-
-      if (remoteHlc > localHlc) {
-        await (update(
-          contentChunks,
-        )..where((c) => c.id.equals(remote.id))).write(
-          ContentChunksCompanion(
-            content: Value(remote.content),
-            isCompressed: Value(remote.isCompressed),
-            hlcTimestamp: Value(remote.hlcTimestamp),
-            deviceId: Value(remote.deviceId),
-            version: Value(remote.version),
-            isDeleted: Value(remote.isDeleted),
-          ),
-        );
-        db.hlc.update(remoteHlc);
-        await _enqueueOwner(remote, origin);
-      }
-    });
-  }
-
-  /// Stamps the owning note with the chunk's HLC, so the note row and its
-  /// outbox entry carry the same one. A note already stamped later keeps its
-  /// stamp — lowering a row's HLC would lose a merge it should win — and its
-  /// newer write queued it already. A tombstoned note is left alone: a body
-  /// does not bring its note back.
-  Future<void> _enqueueOwner(ContentChunk chunk, MergeOrigin origin) async {
-    if (origin == MergeOrigin.remote) return;
-    final stamped = await customUpdate(
-      'UPDATE notes SET hlc_timestamp = ?, device_id = ?, '
-      'version = version + 1 '
-      'WHERE id = ? AND is_deleted = 0 AND hlc_timestamp < ?',
-      variables: [
-        Variable<String>(chunk.hlcTimestamp),
-        Variable<String>(chunk.deviceId),
-        Variable<String>(chunk.noteId),
-        Variable<String>(chunk.hlcTimestamp),
-      ],
-      updates: {db.notes},
+    final write = await planWrite(
+      noteId,
+      cut ?? await BodyCut.of(content),
+      compareLegacy: false,
     );
-    if (stamped == 0) return;
-    await db.enqueue(db.notes, chunk.noteId, chunk.hlcTimestamp);
+    await applyWrite(
+      write,
+      hlc: hlc,
+      deviceId: deviceId,
+      version: version,
+      inSpace: inSpace,
+    );
+    return write.chunkCount;
   }
 
   Future<ContentStats> getContentStats(String noteId) async {
@@ -440,6 +642,66 @@ class ContentChunkDao extends DatabaseAccessor<AppDatabase>
       compressedChunkCount: compressedChunks,
     );
   }
+}
+
+/// A body write planned by [ContentChunkDao.planWrite] and not yet applied:
+/// the caller learns whether the text changed before choosing the stamp the
+/// chunks it writes carry.
+final class ChunkWrite {
+  ChunkWrite._(
+    this.noteId,
+    this.cut,
+    this.plan, {
+    required this.textChanged,
+    List<String>? encoded,
+  }) : _encoded = encoded;
+
+  /// The note whose chunks [plan] rewrites.
+  final String noteId;
+
+  /// The body being stored, cut and hashed.
+  final BodyCut cut;
+
+  /// The row operations that store [cut] over the rows read when planning.
+  final ChunkPlan plan;
+
+  /// Whether the stored text differs from [cut]'s. False while [plan] still
+  /// has rows to write only when legacy slices are re-cut around the same
+  /// text.
+  final bool textChanged;
+
+  /// Every chunk of [cut] as stored, by index, when [ContentChunkDao.prepareBody]
+  /// encoded them ahead of the transaction.
+  final List<String>? _encoded;
+
+  /// How many chunks the body is stored as once [plan] is applied.
+  int get chunkCount => cut.length;
+}
+
+/// A body cut, and for a note still in legacy fixed slices its stored text
+/// and every new chunk encoded, by [ContentChunkDao.prepareBody] ahead of a
+/// write's transaction.
+final class PreparedBody {
+  PreparedBody._(
+    this.cut, {
+    List<String>? rows,
+    String? legacyText,
+    List<String>? encoded,
+  }) : _rows = rows,
+       _legacyText = legacyText,
+       _encoded = encoded;
+
+  /// The body, cut and hashed.
+  final BodyCut cut;
+
+  /// The legacy rows read, to tell whether they changed before the write;
+  /// null when the note held none.
+  final List<String>? _rows;
+
+  /// Their text, or null when a chunk no longer decodes.
+  final String? _legacyText;
+
+  final List<String>? _encoded;
 }
 
 class ContentStats {

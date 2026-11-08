@@ -3,7 +3,7 @@ part of re_editor;
 class _CodeFindControllerImpl extends ValueNotifier<CodeFindValue?>
     implements CodeFindController {
   late final CodeLineEditingController _controller;
-  late final _IsolateTasker<_CodeFindPayload, CodeFindResult?> _tasker;
+  late final _IsolateTasker<_CodeFindPayload, _CodeFindMatches?> _tasker;
   late final TextEditingController _findInputController;
   late final FocusNode _findInputFocusNode;
   late final TextEditingController _replaceInputController;
@@ -18,8 +18,9 @@ class _CodeFindControllerImpl extends ValueNotifier<CodeFindValue?>
         ? controller.delegate
         : controller;
     _controller.addListener(_updateResult);
-    _tasker =
-        _IsolateTasker<_CodeFindPayload, CodeFindResult?>('CodeFind', _run);
+    _tasker = _IsolateTasker<_CodeFindPayload, _CodeFindMatches?>(
+        'CodeFind', _run,
+        latestWins: true);
     _findInputController = TextEditingController();
     _findInputController.addListener(_onFindPatternChanged);
     _findInputFocusNode = FocusNode();
@@ -361,12 +362,32 @@ class _CodeFindControllerImpl extends ValueNotifier<CodeFindValue?>
       value = value?.copyWith(result: value?.result, searching: false);
       return;
     }
+    // The isolate gets the text and sends back positions only; the result
+    // is stamped here with the lines it was searched over, which never
+    // cross to the isolate and back.
+    final CodeLines codeLines = _controller.codeLines;
     final _CodeFindPayload payload = _CodeFindPayload(
-        codeLines: _controller.codeLines,
+        text: codeLines.asString(TextLineBreak.lf),
         selection: _controller.unfoldLineSelection,
         option: option,
         forwardMatch: !_replacingMatch);
-    _tasker.run(payload, (result) {
+    _tasker.run(payload, (found) {
+      // The text moved on while the run was out: its positions would paint
+      // over other text. Nothing newer was queued behind it because the
+      // listener found the current result already over the text (an undo
+      // back to it), so that result stands; marking this one dirty instead
+      // would swap it for a disabled one.
+      if (!_controller.codeLines.equals(codeLines)) {
+        return;
+      }
+      final CodeFindResult? result = found == null
+          ? null
+          : CodeFindResult(
+              index: found.index,
+              matches: found.matches,
+              option: option,
+              codeLines: codeLines,
+              dirty: false);
       if (option == value?.option) {
         final CodeFindValue newValue =
             value!.copyWith(result: result, searching: false);
@@ -412,30 +433,15 @@ class _CodeFindControllerImpl extends ValueNotifier<CodeFindValue?>
   }
 
   @pragma('vm:entry-point')
-  static CodeFindResult? _run(_CodeFindPayload payload) {
+  static _CodeFindMatches? _run(_CodeFindPayload payload) {
     final RegExp? regExp = payload.option.regExp;
     if (regExp == null) {
       return null;
     }
-    final List<String> rawCodeLines =
-        payload.codeLines.toList().fold([], (previousValue, element) {
-      previousValue.addAll(element.flat());
-      return previousValue;
-    });
-    final Iterable<Match> matches =
-        regExp.allMatches(rawCodeLines.join(TextLineBreak.lf.value));
-    if (matches.isEmpty) {
+    final List<CodeLineSelection> selections =
+        CodeFindPositions.map(payload.text, regExp.allMatches(payload.text));
+    if (selections.isEmpty) {
       return null;
-    }
-    final List<CodeLineSelection> selections = [];
-    for (final Match match in matches) {
-      final CodeLinePosition start = _findPosition(rawCodeLines, match.start);
-      final CodeLinePosition end = _findPosition(rawCodeLines, match.end);
-      selections.add(CodeLineSelection(
-          baseIndex: start.index,
-          baseOffset: start.offset,
-          extentIndex: end.index,
-          extentOffset: end.offset));
     }
     int index;
     if (payload.forwardMatch) {
@@ -467,39 +473,76 @@ class _CodeFindControllerImpl extends ValueNotifier<CodeFindValue?>
         }
       }
     }
-    return CodeFindResult(
-        index: max(min(index, selections.length - 1), 0),
-        matches: selections,
-        option: payload.option,
-        codeLines: payload.codeLines,
-        dirty: false);
+    return _CodeFindMatches(
+        index: max(min(index, selections.length - 1), 0), matches: selections);
   }
+}
 
-  static CodeLinePosition _findPosition(List<String> codeLines, int index) {
-    int start = 0;
+/// Maps a find's matches over a document's text — its lines joined by `\n`,
+/// chunks expanded — to line selections in one forward pass.
+///
+/// The matches arrive in order and never overlap, so one cursor walks the
+/// text once, counting line breaks as it goes. The old lookup re-walked the
+/// lines from the top for every position: quadratic on a long note with
+/// many hits. A position on a line break maps to the end of its line, as it
+/// did.
+@visibleForTesting
+class CodeFindPositions {
+  CodeFindPositions._();
+
+  /// How many code units the last [map] stepped over — the pin that each
+  /// is stepped once, never re-walked.
+  static int lastSteps = 0;
+
+  static List<CodeLineSelection> map(String text, Iterable<Match> matches) {
+    final List<CodeLineSelection> selections = [];
+    int cursor = 0;
     int line = 0;
-    int offset = -1;
-    for (; line < codeLines.length; line++) {
-      if (index <= start + codeLines[line].length) {
-        offset = index - start;
-        break;
+    int lineStart = 0;
+    for (final Match match in matches) {
+      for (; cursor < match.start; cursor++) {
+        if (text.codeUnitAt(cursor) == 0x0A) {
+          line++;
+          lineStart = cursor + 1;
+        }
       }
-      start += codeLines[line].length + 1;
+      final int baseIndex = line;
+      final int baseOffset = match.start - lineStart;
+      for (; cursor < match.end; cursor++) {
+        if (text.codeUnitAt(cursor) == 0x0A) {
+          line++;
+          lineStart = cursor + 1;
+        }
+      }
+      selections.add(CodeLineSelection(
+          baseIndex: baseIndex,
+          baseOffset: baseOffset,
+          extentIndex: line,
+          extentOffset: match.end - lineStart));
     }
-    return CodeLinePosition(index: line, offset: offset);
+    lastSteps = cursor;
+    return selections;
   }
 }
 
 class _CodeFindPayload {
-  final CodeLines codeLines;
+  final String text;
   final CodeLineSelection selection;
   final CodeFindOption option;
   final bool forwardMatch;
 
   const _CodeFindPayload({
-    required this.codeLines,
+    required this.text,
     required this.selection,
     required this.option,
     required this.forwardMatch,
   });
+}
+
+/// What a find run sends back: positions, never the document.
+class _CodeFindMatches {
+  final int index;
+  final List<CodeLineSelection> matches;
+
+  const _CodeFindMatches({required this.index, required this.matches});
 }

@@ -2539,6 +2539,10 @@
   "@inTextSection": {
     "description": "Search results section label for notes matched inside their text"
   },
+  "searchStillIndexing": "Still indexing notes — some may be missing",
+  "@searchStillIndexing": {
+    "description": "One line above full-search results while the note search index is still being built, so some matching notes may not be listed yet"
+  },
   "clearSearchHistory": "Clear search history",
   "@clearSearchHistory": {
     "description": "Button to clear search history"
@@ -2727,17 +2731,19 @@
   "@optimizing": {
     "description": "Optimizing message"
   },
-  "optimizationComplete": "Database optimized successfully",
-  "@optimizationComplete": {
-    "description": "Optimization complete message"
+  "optimizeFreed": "Freed {size}",
+  "@optimizeFreed": {
+    "description": "Snackbar after Optimize on the Databases page: the free space inside the database file that the run gave back",
+    "placeholders": {
+      "size": {
+        "type": "String",
+        "example": "12.40 MB"
+      }
+    }
   },
-  "saved": "saved",
-  "@saved": {
-    "description": "Saved suffix for size reduction"
-  },
-  "alreadyOptimized": "database already optimized",
-  "@alreadyOptimized": {
-    "description": "Message when no space was reclaimed"
+  "optimizeAlreadyCompact": "Already compact",
+  "@optimizeAlreadyCompact": {
+    "description": "Snackbar after Optimize on the Databases page when the database file held no free space to give back"
   },
   "deleteConfirmation": "This action cannot be undone. All your notes, folders, and data will be permanently deleted. Are you absolutely sure?",
   "@deleteConfirmation": {
@@ -3102,6 +3108,22 @@
   "@invalidDatabaseFile": {
     "description": "Error when the selected file is not a SQLite database"
   },
+  "checkingDatabaseFile": "Checking the file...",
+  "@checkingDatabaseFile": {
+    "description": "Import dialog's second step, after the copy: the copied database file is being checked and can no longer be cancelled"
+  },
+  "databaseImportCorrupt": "This database file is damaged and can't be imported.",
+  "@databaseImportCorrupt": {
+    "description": "Error when an imported database file fails its integrity check"
+  },
+  "databaseImportNotAnta": "This file is not an ANTA database.",
+  "@databaseImportNotAnta": {
+    "description": "Error when an imported file is a SQLite database from another app"
+  },
+  "databaseImportTooNew": "This database is from a newer version of ANTA. Update the app to import it.",
+  "@databaseImportTooNew": {
+    "description": "Error when an imported database was written by a newer version of the app"
+  },
   "renameDatabase": "Rename Database",
   "@renameDatabase": {
     "description": "Dialog title for renaming database"
@@ -3197,6 +3219,36 @@
   "databaseOptimizeFailed": "Couldn't optimize the database",
   "@databaseOptimizeFailed": {
     "description": "Snackbar on the Databases page when optimizing the database throws"
+  },
+  "databaseReclaimable": "Reclaimable: {size}",
+  "@databaseReclaimable": {
+    "description": "Caption under the Optimize button on the Databases page: the free space inside the database file that optimizing would give back",
+    "placeholders": {
+      "size": {
+        "type": "String",
+        "example": "12.40 MB"
+      }
+    }
+  },
+  "databaseReclaimableUnknown": "Reclaimable space unknown",
+  "@databaseReclaimableUnknown": {
+    "description": "Caption under the Optimize button on the Databases page when the free space inside the database file could not be read"
+  },
+  "launchUpdatingData": "Updating your data…",
+  "@launchUpdatingData": {
+    "description": "Shown at launch, only while the database is being upgraded to a new app version"
+  },
+  "launchOpeningData": "Opening your data…",
+  "@launchOpeningData": {
+    "description": "Shown at launch after Retry on the failed state, while the database is opened again"
+  },
+  "launchOpenFailed": "Couldn't open your data",
+  "@launchOpenFailed": {
+    "description": "Shown at launch when the database could not be opened or upgraded; the technical details follow it"
+  },
+  "launchOpenFailedNext": "Try again, or restart the app. If this keeps happening, free up some storage space.",
+  "@launchOpenFailedNext": {
+    "description": "Under the launch's failed state: what the user can do next. The app's own pages are out of reach while the database cannot open"
   },
   "deleteDatabaseConfirm": "Are you sure you want to delete the database \"{name}\"? This action cannot be undone.",
   "@deleteDatabaseConfirm": {
@@ -5734,9 +5786,19 @@
   "@syncRetrying": {
     "description": "Sync status: the last sync failed for another reason and tries again by itself"
   },
-  "syncPausedQuota": "Paused — today's sync limit is reached",
+  "syncPausedQuota": "Paused — daily limit reached",
   "@syncPausedQuota": {
-    "description": "Sync status: the account's daily cloud quota ran out"
+    "description": "Sync status: the account's daily cloud quota ran out and its reset has passed; sync tries again by itself"
+  },
+  "syncPausedQuotaUntil": "Paused until {time} — daily limit reached",
+  "@syncPausedQuotaUntil": {
+    "description": "Sync status: the account's daily cloud quota ran out; {time} is the local time of day it comes back",
+    "placeholders": {
+      "time": {
+        "type": "String",
+        "example": "9:00 AM"
+      }
+    }
   },
   "syncPausedSignedOut": "Paused — signed out",
   "@syncPausedSignedOut": {
@@ -5758,9 +5820,19 @@
   "@drawerAccountNotSyncing": {
     "description": "Status line of the drawer's account row: this database is not bound to a cloud space"
   },
-  "drawerSyncPausedQuota": "Paused — daily limit reached",
+  "drawerSyncPausedQuota": "Paused — daily limit",
   "@drawerSyncPausedQuota": {
-    "description": "Status line of the drawer's account row, short: the account's daily cloud quota ran out"
+    "description": "Status line of the drawer's account row, short: the account's daily cloud quota ran out and its reset has passed"
+  },
+  "drawerSyncPausedQuotaUntil": "Paused until {time}",
+  "@drawerSyncPausedQuotaUntil": {
+    "description": "Status line of the drawer's account row, short: the account's daily cloud quota ran out; {time} is the local time of day it comes back",
+    "placeholders": {
+      "time": {
+        "type": "String",
+        "example": "9:00 AM"
+      }
+    }
   },
   "drawerSyncPausedOtherAccount": "Paused — another account",
   "@drawerSyncPausedOtherAccount": {
@@ -5820,6 +5892,84 @@
         "format": "decimalPattern"
       }
     }
+  },
+  "syncHeldBackRefused": "Refused by the cloud copy",
+  "@syncHeldBackRefused": {
+    "description": "Why a row in the Sync page's held-back list was not sent: the cloud copy's rules refused it"
+  },
+  "syncHeldBackUnencodable": "Couldn't be prepared for sending",
+  "@syncHeldBackUnencodable": {
+    "description": "Why a row in the Sync page's held-back list was not sent: it could not be encoded (too large, or a piece of its text is missing)"
+  },
+  "syncHeldBackAwaitingText": "Waiting for its text",
+  "@syncHeldBackAwaitingText": {
+    "description": "Why a note in the Sync page's held-back list was not applied: part of its text has not reached the cloud copy yet"
+  },
+  "syncHeldBackUnreadable": "Couldn't be read from the cloud copy",
+  "@syncHeldBackUnreadable": {
+    "description": "Why a row in the Sync page's held-back list was not applied: its cloud copy could not be read by this app"
+  },
+  "syncHeldBackDeleted": "{kind, select, other{Deleted}} · {reason}",
+  "@syncHeldBackDeleted": {
+    "description": "Reason line of a held-back row that was deleted on this device: 'Deleted' then the reason. kind is note, folder, event, category, counter, template, view, filter, digest, vocabulary or other, for languages whose word agrees with the kind",
+    "placeholders": {
+      "kind": {
+        "type": "String"
+      },
+      "reason": {
+        "type": "String"
+      }
+    }
+  },
+  "syncHeldBackKind": "{kind, select, note{A note} folder{A folder} event{A calendar event} category{A calendar category} counter{A counter} template{An event template} view{A saved view} filter{A saved filter} digest{A digest} vocabulary{A vocabulary list} other{An item}}",
+  "@syncHeldBackKind": {
+    "description": "Title of a held-back row the Sync page cannot name, by its kind: anything but a note or a folder, or a note or folder this device has no copy of",
+    "placeholders": {
+      "kind": {
+        "type": "String"
+      }
+    }
+  },
+  "syncHeldBackMoreHeld": "{count, plural, =1{And 1 more still held back} other{And {count} more still held back}}",
+  "@syncHeldBackMoreHeld": {
+    "description": "Last row of the Sync page's held-back list, counting the rows not listed that are still held back now",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "format": "decimalPattern"
+      }
+    }
+  },
+  "syncHeldBackMoreSynced": "{count, plural, =1{The other one was synced} other{The other {count} were synced}}",
+  "@syncHeldBackMoreSynced": {
+    "description": "Last row of the Sync page's held-back list once none of the rows not listed is held back any more, counting them",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "format": "decimalPattern"
+      }
+    }
+  },
+  "syncHeldBackSynced": "{kind, select, other{Synced}}",
+  "@syncHeldBackSynced": {
+    "description": "Replaces the reason of a held-back row that went through while the Sync page is open — sent, received or overtaken by a newer version; the row stays in place until the page is opened again. kind is note, folder, event, category, counter, template, view, filter, digest, vocabulary or other, for languages whose word agrees with the kind",
+    "placeholders": {
+      "kind": {
+        "type": "String"
+      }
+    }
+  },
+  "syncHeldBackAllDone": "All synced",
+  "@syncHeldBackAllDone": {
+    "description": "Header of the Sync page's held-back list once none of its rows is held back any more, while the page stays open"
+  },
+  "syncHeldBackIntro": "“Sync now” tries these again.",
+  "@syncHeldBackIntro": {
+    "description": "Line under the Sync page's held-back header: the 'Sync now' row, quoted by its own label, retries the rows listed. One press retries the 100 oldest of each kind; the copy stays short"
+  },
+  "syncHeldBackIntroDone": "Nothing is held back any more.",
+  "@syncHeldBackIntroDone": {
+    "description": "Replaces the line under the Sync page's held-back header once none of its rows is held back any more, while the page stays open"
   },
   "syncNow": "Sync now",
   "@syncNow": {

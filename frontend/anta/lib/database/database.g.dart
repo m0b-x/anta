@@ -1949,6 +1949,17 @@ class $ContentChunksTable extends ContentChunks
     type: DriftSqlType.string,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _contentHashMeta = const VerificationMeta(
+    'contentHash',
+  );
+  @override
+  late final GeneratedColumn<String> contentHash = GeneratedColumn<String>(
+    'content_hash',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   @override
   List<GeneratedColumn> get $columns => [
     id,
@@ -1961,6 +1972,7 @@ class $ContentChunksTable extends ContentChunks
     version,
     isDeleted,
     ownerId,
+    contentHash,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -2049,6 +2061,15 @@ class $ContentChunksTable extends ContentChunks
         ownerId.isAcceptableOrUnknown(data['owner_id']!, _ownerIdMeta),
       );
     }
+    if (data.containsKey('content_hash')) {
+      context.handle(
+        _contentHashMeta,
+        contentHash.isAcceptableOrUnknown(
+          data['content_hash']!,
+          _contentHashMeta,
+        ),
+      );
+    }
     return context;
   }
 
@@ -2098,6 +2119,10 @@ class $ContentChunksTable extends ContentChunks
         DriftSqlType.string,
         data['${effectivePrefix}owner_id'],
       ),
+      contentHash: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}content_hash'],
+      ),
     );
   }
 
@@ -2121,6 +2146,11 @@ class ContentChunk extends DataClass implements Insertable<ContentChunk> {
   /// The owning account once sync binds one (**v43**); NULL until then. Here
   /// for parity with `notes` only: a chunk is local storage of a note's body.
   final String? ownerId;
+
+  /// The SHA-256 of the chunk's text as `ChunkHasher` defines it (**v46**):
+  /// what a save diffs by, so no stored chunk is decompressed to compare.
+  /// NULL on a legacy fixed slice, which its note's next body save re-cuts.
+  final String? contentHash;
   const ContentChunk({
     required this.id,
     required this.noteId,
@@ -2132,6 +2162,7 @@ class ContentChunk extends DataClass implements Insertable<ContentChunk> {
     required this.version,
     required this.isDeleted,
     this.ownerId,
+    this.contentHash,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -2147,6 +2178,9 @@ class ContentChunk extends DataClass implements Insertable<ContentChunk> {
     map['is_deleted'] = Variable<bool>(isDeleted);
     if (!nullToAbsent || ownerId != null) {
       map['owner_id'] = Variable<String>(ownerId);
+    }
+    if (!nullToAbsent || contentHash != null) {
+      map['content_hash'] = Variable<String>(contentHash);
     }
     return map;
   }
@@ -2165,6 +2199,9 @@ class ContentChunk extends DataClass implements Insertable<ContentChunk> {
       ownerId: ownerId == null && nullToAbsent
           ? const Value.absent()
           : Value(ownerId),
+      contentHash: contentHash == null && nullToAbsent
+          ? const Value.absent()
+          : Value(contentHash),
     );
   }
 
@@ -2184,6 +2221,7 @@ class ContentChunk extends DataClass implements Insertable<ContentChunk> {
       version: serializer.fromJson<int>(json['version']),
       isDeleted: serializer.fromJson<bool>(json['isDeleted']),
       ownerId: serializer.fromJson<String?>(json['ownerId']),
+      contentHash: serializer.fromJson<String?>(json['contentHash']),
     );
   }
   @override
@@ -2200,6 +2238,7 @@ class ContentChunk extends DataClass implements Insertable<ContentChunk> {
       'version': serializer.toJson<int>(version),
       'isDeleted': serializer.toJson<bool>(isDeleted),
       'ownerId': serializer.toJson<String?>(ownerId),
+      'contentHash': serializer.toJson<String?>(contentHash),
     };
   }
 
@@ -2214,6 +2253,7 @@ class ContentChunk extends DataClass implements Insertable<ContentChunk> {
     int? version,
     bool? isDeleted,
     Value<String?> ownerId = const Value.absent(),
+    Value<String?> contentHash = const Value.absent(),
   }) => ContentChunk(
     id: id ?? this.id,
     noteId: noteId ?? this.noteId,
@@ -2225,6 +2265,7 @@ class ContentChunk extends DataClass implements Insertable<ContentChunk> {
     version: version ?? this.version,
     isDeleted: isDeleted ?? this.isDeleted,
     ownerId: ownerId.present ? ownerId.value : this.ownerId,
+    contentHash: contentHash.present ? contentHash.value : this.contentHash,
   );
   ContentChunk copyWithCompanion(ContentChunksCompanion data) {
     return ContentChunk(
@@ -2244,6 +2285,9 @@ class ContentChunk extends DataClass implements Insertable<ContentChunk> {
       version: data.version.present ? data.version.value : this.version,
       isDeleted: data.isDeleted.present ? data.isDeleted.value : this.isDeleted,
       ownerId: data.ownerId.present ? data.ownerId.value : this.ownerId,
+      contentHash: data.contentHash.present
+          ? data.contentHash.value
+          : this.contentHash,
     );
   }
 
@@ -2259,7 +2303,8 @@ class ContentChunk extends DataClass implements Insertable<ContentChunk> {
           ..write('deviceId: $deviceId, ')
           ..write('version: $version, ')
           ..write('isDeleted: $isDeleted, ')
-          ..write('ownerId: $ownerId')
+          ..write('ownerId: $ownerId, ')
+          ..write('contentHash: $contentHash')
           ..write(')'))
         .toString();
   }
@@ -2276,6 +2321,7 @@ class ContentChunk extends DataClass implements Insertable<ContentChunk> {
     version,
     isDeleted,
     ownerId,
+    contentHash,
   );
   @override
   bool operator ==(Object other) =>
@@ -2290,7 +2336,8 @@ class ContentChunk extends DataClass implements Insertable<ContentChunk> {
           other.deviceId == this.deviceId &&
           other.version == this.version &&
           other.isDeleted == this.isDeleted &&
-          other.ownerId == this.ownerId);
+          other.ownerId == this.ownerId &&
+          other.contentHash == this.contentHash);
 }
 
 class ContentChunksCompanion extends UpdateCompanion<ContentChunk> {
@@ -2304,6 +2351,7 @@ class ContentChunksCompanion extends UpdateCompanion<ContentChunk> {
   final Value<int> version;
   final Value<bool> isDeleted;
   final Value<String?> ownerId;
+  final Value<String?> contentHash;
   final Value<int> rowid;
   const ContentChunksCompanion({
     this.id = const Value.absent(),
@@ -2316,6 +2364,7 @@ class ContentChunksCompanion extends UpdateCompanion<ContentChunk> {
     this.version = const Value.absent(),
     this.isDeleted = const Value.absent(),
     this.ownerId = const Value.absent(),
+    this.contentHash = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   ContentChunksCompanion.insert({
@@ -2329,6 +2378,7 @@ class ContentChunksCompanion extends UpdateCompanion<ContentChunk> {
     this.version = const Value.absent(),
     this.isDeleted = const Value.absent(),
     this.ownerId = const Value.absent(),
+    this.contentHash = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : id = Value(id),
        noteId = Value(noteId),
@@ -2347,6 +2397,7 @@ class ContentChunksCompanion extends UpdateCompanion<ContentChunk> {
     Expression<int>? version,
     Expression<bool>? isDeleted,
     Expression<String>? ownerId,
+    Expression<String>? contentHash,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -2360,6 +2411,7 @@ class ContentChunksCompanion extends UpdateCompanion<ContentChunk> {
       if (version != null) 'version': version,
       if (isDeleted != null) 'is_deleted': isDeleted,
       if (ownerId != null) 'owner_id': ownerId,
+      if (contentHash != null) 'content_hash': contentHash,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -2375,6 +2427,7 @@ class ContentChunksCompanion extends UpdateCompanion<ContentChunk> {
     Value<int>? version,
     Value<bool>? isDeleted,
     Value<String?>? ownerId,
+    Value<String?>? contentHash,
     Value<int>? rowid,
   }) {
     return ContentChunksCompanion(
@@ -2388,6 +2441,7 @@ class ContentChunksCompanion extends UpdateCompanion<ContentChunk> {
       version: version ?? this.version,
       isDeleted: isDeleted ?? this.isDeleted,
       ownerId: ownerId ?? this.ownerId,
+      contentHash: contentHash ?? this.contentHash,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -2425,6 +2479,9 @@ class ContentChunksCompanion extends UpdateCompanion<ContentChunk> {
     if (ownerId.present) {
       map['owner_id'] = Variable<String>(ownerId.value);
     }
+    if (contentHash.present) {
+      map['content_hash'] = Variable<String>(contentHash.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -2444,6 +2501,7 @@ class ContentChunksCompanion extends UpdateCompanion<ContentChunk> {
           ..write('version: $version, ')
           ..write('isDeleted: $isDeleted, ')
           ..write('ownerId: $ownerId, ')
+          ..write('contentHash: $contentHash, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -3912,6 +3970,40 @@ class $CounterValuesTable extends CounterValues
     type: DriftSqlType.string,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _epochHlcMeta = const VerificationMeta(
+    'epochHlc',
+  );
+  @override
+  late final GeneratedColumn<String> epochHlc = GeneratedColumn<String>(
+    'epoch_hlc',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(''),
+  );
+  static const VerificationMeta _epochValueMeta = const VerificationMeta(
+    'epochValue',
+  );
+  @override
+  late final GeneratedColumn<int> epochValue = GeneratedColumn<int>(
+    'epoch_value',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  static const VerificationMeta _shardsMeta = const VerificationMeta('shards');
+  @override
+  late final GeneratedColumn<String> shards = GeneratedColumn<String>(
+    'shards',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(''),
+  );
   @override
   List<GeneratedColumn> get $columns => [
     counterId,
@@ -3925,6 +4017,9 @@ class $CounterValuesTable extends CounterValues
     isDeleted,
     deletedAt,
     ownerId,
+    epochHlc,
+    epochValue,
+    shards,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -4011,6 +4106,24 @@ class $CounterValuesTable extends CounterValues
         ownerId.isAcceptableOrUnknown(data['owner_id']!, _ownerIdMeta),
       );
     }
+    if (data.containsKey('epoch_hlc')) {
+      context.handle(
+        _epochHlcMeta,
+        epochHlc.isAcceptableOrUnknown(data['epoch_hlc']!, _epochHlcMeta),
+      );
+    }
+    if (data.containsKey('epoch_value')) {
+      context.handle(
+        _epochValueMeta,
+        epochValue.isAcceptableOrUnknown(data['epoch_value']!, _epochValueMeta),
+      );
+    }
+    if (data.containsKey('shards')) {
+      context.handle(
+        _shardsMeta,
+        shards.isAcceptableOrUnknown(data['shards']!, _shardsMeta),
+      );
+    }
     return context;
   }
 
@@ -4064,6 +4177,18 @@ class $CounterValuesTable extends CounterValues
         DriftSqlType.string,
         data['${effectivePrefix}owner_id'],
       ),
+      epochHlc: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}epoch_hlc'],
+      )!,
+      epochValue: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}epoch_value'],
+      )!,
+      shards: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}shards'],
+      )!,
     );
   }
 
@@ -4091,6 +4216,14 @@ class CounterValueRow extends DataClass implements Insertable<CounterValueRow> {
 
   /// The owning account once sync binds one (**v43**); NULL until then.
   final String? ownerId;
+
+  /// The value as a PN-counter (**v49**, scalability record D8 A; the state
+  /// is `PnCounterState`): the stamp and number of the last absolute write,
+  /// and each replica's `[p, n]` since as JSON (`''` for none). [value] always
+  /// equals `epochValue + Σ(p − n)`, so every reader keeps reading [value].
+  final String epochHlc;
+  final int epochValue;
+  final String shards;
   const CounterValueRow({
     required this.counterId,
     required this.noteId,
@@ -4103,6 +4236,9 @@ class CounterValueRow extends DataClass implements Insertable<CounterValueRow> {
     required this.isDeleted,
     this.deletedAt,
     this.ownerId,
+    required this.epochHlc,
+    required this.epochValue,
+    required this.shards,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -4122,6 +4258,9 @@ class CounterValueRow extends DataClass implements Insertable<CounterValueRow> {
     if (!nullToAbsent || ownerId != null) {
       map['owner_id'] = Variable<String>(ownerId);
     }
+    map['epoch_hlc'] = Variable<String>(epochHlc);
+    map['epoch_value'] = Variable<int>(epochValue);
+    map['shards'] = Variable<String>(shards);
     return map;
   }
 
@@ -4142,6 +4281,9 @@ class CounterValueRow extends DataClass implements Insertable<CounterValueRow> {
       ownerId: ownerId == null && nullToAbsent
           ? const Value.absent()
           : Value(ownerId),
+      epochHlc: Value(epochHlc),
+      epochValue: Value(epochValue),
+      shards: Value(shards),
     );
   }
 
@@ -4162,6 +4304,9 @@ class CounterValueRow extends DataClass implements Insertable<CounterValueRow> {
       isDeleted: serializer.fromJson<bool>(json['isDeleted']),
       deletedAt: serializer.fromJson<DateTime?>(json['deletedAt']),
       ownerId: serializer.fromJson<String?>(json['ownerId']),
+      epochHlc: serializer.fromJson<String>(json['epochHlc']),
+      epochValue: serializer.fromJson<int>(json['epochValue']),
+      shards: serializer.fromJson<String>(json['shards']),
     );
   }
   @override
@@ -4179,6 +4324,9 @@ class CounterValueRow extends DataClass implements Insertable<CounterValueRow> {
       'isDeleted': serializer.toJson<bool>(isDeleted),
       'deletedAt': serializer.toJson<DateTime?>(deletedAt),
       'ownerId': serializer.toJson<String?>(ownerId),
+      'epochHlc': serializer.toJson<String>(epochHlc),
+      'epochValue': serializer.toJson<int>(epochValue),
+      'shards': serializer.toJson<String>(shards),
     };
   }
 
@@ -4194,6 +4342,9 @@ class CounterValueRow extends DataClass implements Insertable<CounterValueRow> {
     bool? isDeleted,
     Value<DateTime?> deletedAt = const Value.absent(),
     Value<String?> ownerId = const Value.absent(),
+    String? epochHlc,
+    int? epochValue,
+    String? shards,
   }) => CounterValueRow(
     counterId: counterId ?? this.counterId,
     noteId: noteId ?? this.noteId,
@@ -4206,6 +4357,9 @@ class CounterValueRow extends DataClass implements Insertable<CounterValueRow> {
     isDeleted: isDeleted ?? this.isDeleted,
     deletedAt: deletedAt.present ? deletedAt.value : this.deletedAt,
     ownerId: ownerId.present ? ownerId.value : this.ownerId,
+    epochHlc: epochHlc ?? this.epochHlc,
+    epochValue: epochValue ?? this.epochValue,
+    shards: shards ?? this.shards,
   );
   CounterValueRow copyWithCompanion(CounterValuesCompanion data) {
     return CounterValueRow(
@@ -4222,6 +4376,11 @@ class CounterValueRow extends DataClass implements Insertable<CounterValueRow> {
       isDeleted: data.isDeleted.present ? data.isDeleted.value : this.isDeleted,
       deletedAt: data.deletedAt.present ? data.deletedAt.value : this.deletedAt,
       ownerId: data.ownerId.present ? data.ownerId.value : this.ownerId,
+      epochHlc: data.epochHlc.present ? data.epochHlc.value : this.epochHlc,
+      epochValue: data.epochValue.present
+          ? data.epochValue.value
+          : this.epochValue,
+      shards: data.shards.present ? data.shards.value : this.shards,
     );
   }
 
@@ -4238,7 +4397,10 @@ class CounterValueRow extends DataClass implements Insertable<CounterValueRow> {
           ..write('version: $version, ')
           ..write('isDeleted: $isDeleted, ')
           ..write('deletedAt: $deletedAt, ')
-          ..write('ownerId: $ownerId')
+          ..write('ownerId: $ownerId, ')
+          ..write('epochHlc: $epochHlc, ')
+          ..write('epochValue: $epochValue, ')
+          ..write('shards: $shards')
           ..write(')'))
         .toString();
   }
@@ -4256,6 +4418,9 @@ class CounterValueRow extends DataClass implements Insertable<CounterValueRow> {
     isDeleted,
     deletedAt,
     ownerId,
+    epochHlc,
+    epochValue,
+    shards,
   );
   @override
   bool operator ==(Object other) =>
@@ -4271,7 +4436,10 @@ class CounterValueRow extends DataClass implements Insertable<CounterValueRow> {
           other.version == this.version &&
           other.isDeleted == this.isDeleted &&
           other.deletedAt == this.deletedAt &&
-          other.ownerId == this.ownerId);
+          other.ownerId == this.ownerId &&
+          other.epochHlc == this.epochHlc &&
+          other.epochValue == this.epochValue &&
+          other.shards == this.shards);
 }
 
 class CounterValuesCompanion extends UpdateCompanion<CounterValueRow> {
@@ -4286,6 +4454,9 @@ class CounterValuesCompanion extends UpdateCompanion<CounterValueRow> {
   final Value<bool> isDeleted;
   final Value<DateTime?> deletedAt;
   final Value<String?> ownerId;
+  final Value<String> epochHlc;
+  final Value<int> epochValue;
+  final Value<String> shards;
   final Value<int> rowid;
   const CounterValuesCompanion({
     this.counterId = const Value.absent(),
@@ -4299,6 +4470,9 @@ class CounterValuesCompanion extends UpdateCompanion<CounterValueRow> {
     this.isDeleted = const Value.absent(),
     this.deletedAt = const Value.absent(),
     this.ownerId = const Value.absent(),
+    this.epochHlc = const Value.absent(),
+    this.epochValue = const Value.absent(),
+    this.shards = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   CounterValuesCompanion.insert({
@@ -4313,6 +4487,9 @@ class CounterValuesCompanion extends UpdateCompanion<CounterValueRow> {
     this.isDeleted = const Value.absent(),
     this.deletedAt = const Value.absent(),
     this.ownerId = const Value.absent(),
+    this.epochHlc = const Value.absent(),
+    this.epochValue = const Value.absent(),
+    this.shards = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : counterId = Value(counterId),
        value = Value(value);
@@ -4328,6 +4505,9 @@ class CounterValuesCompanion extends UpdateCompanion<CounterValueRow> {
     Expression<bool>? isDeleted,
     Expression<DateTime>? deletedAt,
     Expression<String>? ownerId,
+    Expression<String>? epochHlc,
+    Expression<int>? epochValue,
+    Expression<String>? shards,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -4342,6 +4522,9 @@ class CounterValuesCompanion extends UpdateCompanion<CounterValueRow> {
       if (isDeleted != null) 'is_deleted': isDeleted,
       if (deletedAt != null) 'deleted_at': deletedAt,
       if (ownerId != null) 'owner_id': ownerId,
+      if (epochHlc != null) 'epoch_hlc': epochHlc,
+      if (epochValue != null) 'epoch_value': epochValue,
+      if (shards != null) 'shards': shards,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -4358,6 +4541,9 @@ class CounterValuesCompanion extends UpdateCompanion<CounterValueRow> {
     Value<bool>? isDeleted,
     Value<DateTime?>? deletedAt,
     Value<String?>? ownerId,
+    Value<String>? epochHlc,
+    Value<int>? epochValue,
+    Value<String>? shards,
     Value<int>? rowid,
   }) {
     return CounterValuesCompanion(
@@ -4372,6 +4558,9 @@ class CounterValuesCompanion extends UpdateCompanion<CounterValueRow> {
       isDeleted: isDeleted ?? this.isDeleted,
       deletedAt: deletedAt ?? this.deletedAt,
       ownerId: ownerId ?? this.ownerId,
+      epochHlc: epochHlc ?? this.epochHlc,
+      epochValue: epochValue ?? this.epochValue,
+      shards: shards ?? this.shards,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -4412,6 +4601,15 @@ class CounterValuesCompanion extends UpdateCompanion<CounterValueRow> {
     if (ownerId.present) {
       map['owner_id'] = Variable<String>(ownerId.value);
     }
+    if (epochHlc.present) {
+      map['epoch_hlc'] = Variable<String>(epochHlc.value);
+    }
+    if (epochValue.present) {
+      map['epoch_value'] = Variable<int>(epochValue.value);
+    }
+    if (shards.present) {
+      map['shards'] = Variable<String>(shards.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -4432,6 +4630,9 @@ class CounterValuesCompanion extends UpdateCompanion<CounterValueRow> {
           ..write('isDeleted: $isDeleted, ')
           ..write('deletedAt: $deletedAt, ')
           ..write('ownerId: $ownerId, ')
+          ..write('epochHlc: $epochHlc, ')
+          ..write('epochValue: $epochValue, ')
+          ..write('shards: $shards, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -19684,6 +19885,7 @@ typedef $$ContentChunksTableCreateCompanionBuilder =
       Value<int> version,
       Value<bool> isDeleted,
       Value<String?> ownerId,
+      Value<String?> contentHash,
       Value<int> rowid,
     });
 typedef $$ContentChunksTableUpdateCompanionBuilder =
@@ -19698,6 +19900,7 @@ typedef $$ContentChunksTableUpdateCompanionBuilder =
       Value<int> version,
       Value<bool> isDeleted,
       Value<String?> ownerId,
+      Value<String?> contentHash,
       Value<int> rowid,
     });
 
@@ -19757,6 +19960,11 @@ class $$ContentChunksTableFilterComposer
 
   ColumnFilters<String> get ownerId => $composableBuilder(
     column: $table.ownerId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get contentHash => $composableBuilder(
+    column: $table.contentHash,
     builder: (column) => ColumnFilters(column),
   );
 }
@@ -19819,6 +20027,11 @@ class $$ContentChunksTableOrderingComposer
     column: $table.ownerId,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<String> get contentHash => $composableBuilder(
+    column: $table.contentHash,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$ContentChunksTableAnnotationComposer
@@ -19865,6 +20078,11 @@ class $$ContentChunksTableAnnotationComposer
 
   GeneratedColumn<String> get ownerId =>
       $composableBuilder(column: $table.ownerId, builder: (column) => column);
+
+  GeneratedColumn<String> get contentHash => $composableBuilder(
+    column: $table.contentHash,
+    builder: (column) => column,
+  );
 }
 
 class $$ContentChunksTableTableManager
@@ -19908,6 +20126,7 @@ class $$ContentChunksTableTableManager
                 Value<int> version = const Value.absent(),
                 Value<bool> isDeleted = const Value.absent(),
                 Value<String?> ownerId = const Value.absent(),
+                Value<String?> contentHash = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => ContentChunksCompanion(
                 id: id,
@@ -19920,6 +20139,7 @@ class $$ContentChunksTableTableManager
                 version: version,
                 isDeleted: isDeleted,
                 ownerId: ownerId,
+                contentHash: contentHash,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -19934,6 +20154,7 @@ class $$ContentChunksTableTableManager
                 Value<int> version = const Value.absent(),
                 Value<bool> isDeleted = const Value.absent(),
                 Value<String?> ownerId = const Value.absent(),
+                Value<String?> contentHash = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => ContentChunksCompanion.insert(
                 id: id,
@@ -19946,6 +20167,7 @@ class $$ContentChunksTableTableManager
                 version: version,
                 isDeleted: isDeleted,
                 ownerId: ownerId,
+                contentHash: contentHash,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0
@@ -20682,6 +20904,9 @@ typedef $$CounterValuesTableCreateCompanionBuilder =
       Value<bool> isDeleted,
       Value<DateTime?> deletedAt,
       Value<String?> ownerId,
+      Value<String> epochHlc,
+      Value<int> epochValue,
+      Value<String> shards,
       Value<int> rowid,
     });
 typedef $$CounterValuesTableUpdateCompanionBuilder =
@@ -20697,6 +20922,9 @@ typedef $$CounterValuesTableUpdateCompanionBuilder =
       Value<bool> isDeleted,
       Value<DateTime?> deletedAt,
       Value<String?> ownerId,
+      Value<String> epochHlc,
+      Value<int> epochValue,
+      Value<String> shards,
       Value<int> rowid,
     });
 
@@ -20761,6 +20989,21 @@ class $$CounterValuesTableFilterComposer
 
   ColumnFilters<String> get ownerId => $composableBuilder(
     column: $table.ownerId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get epochHlc => $composableBuilder(
+    column: $table.epochHlc,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get epochValue => $composableBuilder(
+    column: $table.epochValue,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get shards => $composableBuilder(
+    column: $table.shards,
     builder: (column) => ColumnFilters(column),
   );
 }
@@ -20828,6 +21071,21 @@ class $$CounterValuesTableOrderingComposer
     column: $table.ownerId,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<String> get epochHlc => $composableBuilder(
+    column: $table.epochHlc,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get epochValue => $composableBuilder(
+    column: $table.epochValue,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get shards => $composableBuilder(
+    column: $table.shards,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$CounterValuesTableAnnotationComposer
@@ -20873,6 +21131,17 @@ class $$CounterValuesTableAnnotationComposer
 
   GeneratedColumn<String> get ownerId =>
       $composableBuilder(column: $table.ownerId, builder: (column) => column);
+
+  GeneratedColumn<String> get epochHlc =>
+      $composableBuilder(column: $table.epochHlc, builder: (column) => column);
+
+  GeneratedColumn<int> get epochValue => $composableBuilder(
+    column: $table.epochValue,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get shards =>
+      $composableBuilder(column: $table.shards, builder: (column) => column);
 }
 
 class $$CounterValuesTableTableManager
@@ -20917,6 +21186,9 @@ class $$CounterValuesTableTableManager
                 Value<bool> isDeleted = const Value.absent(),
                 Value<DateTime?> deletedAt = const Value.absent(),
                 Value<String?> ownerId = const Value.absent(),
+                Value<String> epochHlc = const Value.absent(),
+                Value<int> epochValue = const Value.absent(),
+                Value<String> shards = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => CounterValuesCompanion(
                 counterId: counterId,
@@ -20930,6 +21202,9 @@ class $$CounterValuesTableTableManager
                 isDeleted: isDeleted,
                 deletedAt: deletedAt,
                 ownerId: ownerId,
+                epochHlc: epochHlc,
+                epochValue: epochValue,
+                shards: shards,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -20945,6 +21220,9 @@ class $$CounterValuesTableTableManager
                 Value<bool> isDeleted = const Value.absent(),
                 Value<DateTime?> deletedAt = const Value.absent(),
                 Value<String?> ownerId = const Value.absent(),
+                Value<String> epochHlc = const Value.absent(),
+                Value<int> epochValue = const Value.absent(),
+                Value<String> shards = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => CounterValuesCompanion.insert(
                 counterId: counterId,
@@ -20958,6 +21236,9 @@ class $$CounterValuesTableTableManager
                 isDeleted: isDeleted,
                 deletedAt: deletedAt,
                 ownerId: ownerId,
+                epochHlc: epochHlc,
+                epochValue: epochValue,
+                shards: shards,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0

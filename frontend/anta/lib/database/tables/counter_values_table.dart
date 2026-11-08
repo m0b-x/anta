@@ -23,6 +23,14 @@ class CounterValues extends Table {
   /// The owning account once sync binds one (**v43**); NULL until then.
   TextColumn get ownerId => text().nullable()();
 
+  /// The value as a PN-counter (**v49**, scalability record D8 A; the state
+  /// is `PnCounterState`): the stamp and number of the last absolute write,
+  /// and each replica's `[p, n]` since as JSON (`''` for none). [value] always
+  /// equals `epochValue + Σ(p − n)`, so every reader keeps reading [value].
+  TextColumn get epochHlc => text().withDefault(const Constant(''))();
+  IntColumn get epochValue => integer().withDefault(const Constant(0))();
+  TextColumn get shards => text().withDefault(const Constant(''))();
+
   @override
   Set<Column> get primaryKey => {counterId, noteId};
 }

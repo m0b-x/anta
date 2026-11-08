@@ -341,16 +341,21 @@ class SettingsSectionCard extends StatelessWidget {
               children: [
                 if (section.intro case final intro?)
                   // Inset from the group's edge as a row's text is, in the
-                  // caption role its descriptions read in.
-                  Padding(
-                    padding: const EdgeInsets.only(
-                      top: FormMetrics.settingsRowVerticalPadding,
-                    ),
-                    child: DefaultTextStyle.merge(
-                      style: settingsCaptionStyle.copyWith(
-                        color: colorScheme.onSurfaceVariant,
+                  // caption role its descriptions read in. Its own node: its
+                  // text left loose on the section's node was read before
+                  // the heading (S7 design review).
+                  Semantics(
+                    container: true,
+                    child: Padding(
+                      padding: const EdgeInsets.only(
+                        top: FormMetrics.settingsRowVerticalPadding,
                       ),
-                      child: intro,
+                      child: DefaultTextStyle.merge(
+                        style: settingsCaptionStyle.copyWith(
+                          color: colorScheme.onSurfaceVariant,
+                        ),
+                        child: intro,
+                      ),
                     ),
                   ),
                 for (var i = 0; i < _entries.length; i++) ...[

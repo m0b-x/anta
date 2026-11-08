@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Auto Backup and device transfer on Android 12 and later (API 31+);
+     backup_rules.xml says the same for API 24-30. Everything is backed up
+     as before except this install's sync device id: restored onto another
+     phone it would give two devices one id, and a stamp the same on both
+     would no longer mean the same write, so the merge's equal-stamp
+     acknowledgement could drop an edit (scalability record S9). A device
+     without the file mints a new id. The path is getApplicationDocumentsDirectory
+     (app_flutter) / gym_notes / device_id and is never renamed. -->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="root" path="app_flutter/gym_notes/device_id" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="root" path="app_flutter/gym_notes/device_id" />
+    </device-transfer>
+</data-extraction-rules>

@@ -20,13 +20,6 @@ enum OutboxOp {
       isDeleted ? tombstone : upsert;
 }
 
-/// Where a merged row came from, which decides whether it is queued.
-///
-/// A [remote] row arrived through transport: queueing it would push it
-/// straight back out — an echo. A [local] row is this device's own work
-/// arriving through a merge path, and travels like any other local write.
-enum MergeOrigin { local, remote }
-
 /// The row key of a `counter_values` row: its composite key joined with `|`.
 /// The global value keeps `noteId == ''`, giving `'<counterId>|'`.
 String counterValueRowKey(String counterId, String noteId) =>
@@ -59,7 +52,8 @@ int dayMs(DateTime day) => day.millisecondsSinceEpoch ~/ 1000 * 1000;
 /// `transaction`, so the row and its outbox entry commit together or not at
 /// all. The outbox is keyed `{table, rowKey}` and a newer write replaces the
 /// entry, so a row saved two hundred times before a push is pushed once, at
-/// its latest HLC. Remote merges never come here.
+/// its latest HLC. Remote merges never come here, except for the chunks a
+/// merged body stores ([queueChunksIn]).
 ///
 /// **Stamps are taken inside the transaction**, after drift has acquired the
 /// connection: a stamp taken before it could wait behind another write and
@@ -81,8 +75,8 @@ extension CrdtWrite on AppDatabase {
 
   /// A stamp with nothing queued yet: for an action that writes several rows
   /// under one HLC and queues what it actually wrote through [enqueue] or
-  /// [enqueueMany] — and for `content_chunks`, which are the local storage of
-  /// a note body and never queue on their own (D14).
+  /// [enqueueMany] — and for `content_chunks`, whose rows take their note's
+  /// stamp and queue through [queueChunksIn].
   ///
   /// The only place a local write's HLC is minted:
   /// `test/database/crdt_write_guard_test.dart` fails on any other `hlc.now()`
@@ -189,6 +183,53 @@ extension CrdtWrite on AppDatabase {
     });
     // This method owns its batch, so it claims only once the batch has run.
     if (persist) this.hlc.claimPersisted(clock);
+  }
+
+  /// Queues, inside a [batch], one `content_chunks` entry per hash in
+  /// [hashes] at [hlc], the stamp of the note write that stored them — a
+  /// remote merge's included, since a body that arrived whole has chunks the
+  /// space may never have held (scalability record S6).
+  ///
+  /// The clock is left alone: a local write stored it with its note's own
+  /// entry, a merge with its page. Unlike [enqueueIn], nothing is claimed,
+  /// so a merge whose savepoint rolls back leaves no claim ahead of the
+  /// store.
+  ///
+  /// Announced as an update, never as the insert that arms the debounced
+  /// drain (`SyncOutboxDao.watchQueued`): a save queues its note in the same
+  /// commit, which arms it, a merge's page is drained by its own run, and the
+  /// re-cut of a legacy note runs inside a drain's encode, where arming it
+  /// would only schedule a second drain.
+  void queueChunksIn(Batch batch, Iterable<String> hashes, String hlc) {
+    final keys = hashes.toSet();
+    if (keys.isEmpty) return;
+    final now = typeMapping.mapToSqlVariable(DateTime.now());
+    for (final hash in keys) {
+      batch.customStatement(
+        'INSERT INTO sync_outbox (table_name, row_key, hlc, op, enqueued_at) '
+        'VALUES (?, ?, ?, ?, ?) '
+        'ON CONFLICT (table_name, row_key) DO UPDATE SET '
+        'hlc = excluded.hlc, op = excluded.op, '
+        'enqueued_at = excluded.enqueued_at '
+        'WHERE excluded.hlc > sync_outbox.hlc',
+        [contentChunks.actualTableName, hash, hlc, OutboxOp.upsert.name, now],
+        [TableUpdate.onTable(syncOutbox, kind: UpdateKind.update)],
+      );
+    }
+  }
+
+  /// Drops, inside a [batch], the `content_chunks` entries of [hashes] — the
+  /// chunks a save took the last live row of, which no manifest can name
+  /// any more (scalability record S6b).
+  void retireChunksIn(Batch batch, Iterable<String> hashes) {
+    final keys = hashes.toSet();
+    if (keys.isEmpty) return;
+    batch.deleteWhere(
+      syncOutbox,
+      (o) =>
+          o.syncedTable.equals(contentChunks.actualTableName) &
+          o.rowKey.isIn(keys),
+    );
   }
 
   /// Queues, inside a [batch], the rows among [rowKeys] that the batch wrote

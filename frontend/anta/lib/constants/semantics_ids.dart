@@ -254,6 +254,13 @@ abstract final class SemanticsIds {
   static const String sharingSyncStopConfirm = 'sharing-sync-stop-confirm';
   static const String sharingSyncRestart = 'sharing-sync-restart';
 
+  /// The Sharing page's held-back section, last on the page: one row per
+  /// held-back row by its 0-based place in the list shown — a key would put
+  /// a table name and a note id into the id — and the row that counts the
+  /// rest.
+  static String sharingHeldBackRow(int index) => 'sharing-held-back-$index';
+  static const String sharingHeldBackMore = 'sharing-held-back-more';
+
   /// The bind picker: its body, its ✕, one row per space by the space's id,
   /// and its three choices — [syncPickerMerge] also on "Sync with …", the
   /// merge of a database that holds nothing. [syncPickerMergeConfirm] is

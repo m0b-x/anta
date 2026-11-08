@@ -4,7 +4,6 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../models/note_change.dart';
 import '../../models/note_metadata.dart';
 import '../../services/note_storage_service.dart';
-import '../../services/folder_search_service.dart';
 import 'optimized_note_event.dart';
 import 'optimized_note_state.dart';
 
@@ -26,7 +25,6 @@ class NoteWriteRefusedException implements Exception {
 
 class OptimizedNoteBloc extends Bloc<OptimizedNoteEvent, OptimizedNoteState> {
   final NoteStorageService _storageService;
-  final FolderSearchService _searchService;
 
   String? _currentFolderId;
   int _currentPage = 1;
@@ -48,12 +46,9 @@ class OptimizedNoteBloc extends Bloc<OptimizedNoteEvent, OptimizedNoteState> {
   final Set<String?> _pendingRefreshFolders = {};
   Timer? _refreshTimer;
 
-  OptimizedNoteBloc({
-    required NoteStorageService storageService,
-    required FolderSearchService searchService,
-  }) : _storageService = storageService,
-       _searchService = searchService,
-       super(OptimizedNoteInitial()) {
+  OptimizedNoteBloc({required NoteStorageService storageService})
+    : _storageService = storageService,
+      super(OptimizedNoteInitial()) {
     on<LoadNotesPaginated>(_onLoadNotesPaginated);
     on<LoadMoreNotes>(_onLoadMoreNotes);
     on<LoadNoteContent>(_onLoadNoteContent);
@@ -65,7 +60,6 @@ class OptimizedNoteBloc extends Bloc<OptimizedNoteEvent, OptimizedNoteState> {
     on<DeleteOptimizedNotes>(_onDeleteNotes);
     on<PreloadNoteContent>(_onPreloadContent);
     on<RefreshNotes>(_onRefreshNotes);
-    on<ReorderNotes>(_onReorderNotes);
 
     _changesSubscription = _storageService.changes.listen(_onExternalChange);
   }
@@ -272,8 +266,6 @@ class OptimizedNoteBloc extends Bloc<OptimizedNoteEvent, OptimizedNoteState> {
         content: event.content,
       );
 
-      await _searchService.updateIndex(metadata.id, event.title, event.content);
-
       emit(OptimizedNoteCreated(metadata: metadata));
       _scheduleRefresh(event.folderId);
     } catch (e, stackTrace) {
@@ -297,13 +289,9 @@ class OptimizedNoteBloc extends Bloc<OptimizedNoteEvent, OptimizedNoteState> {
         title: event.title,
         content: event.content,
       );
-
-      if (metadata != null) {
-        final content =
-            event.content ??
-            await _storageService.loadNoteContent(event.noteId);
-        await _searchService.updateIndex(metadata.id, metadata.title, content);
-      }
+      // No index update here: the storage change stream marks the note stale
+      // and the search index re-reads it at the next search, not on every
+      // auto-save of a body that may run to megabytes.
 
       if (_currentFolderId != null) {
         _scheduleRefresh(_currentFolderId);
@@ -376,7 +364,6 @@ class OptimizedNoteBloc extends Bloc<OptimizedNoteEvent, OptimizedNoteState> {
   ) async {
     try {
       await _storageService.deleteNote(event.noteId);
-      await _searchService.removeFromIndex(event.noteId);
 
       _scheduleRefresh(_currentFolderId);
     } catch (e, stackTrace) {
@@ -397,9 +384,6 @@ class OptimizedNoteBloc extends Bloc<OptimizedNoteEvent, OptimizedNoteState> {
     if (event.noteIds.isEmpty) return;
     try {
       await _storageService.deleteNotes(event.noteIds);
-      for (final noteId in event.noteIds) {
-        await _searchService.removeFromIndex(noteId);
-      }
 
       _scheduleRefresh(_currentFolderId);
     } catch (e, stackTrace) {
@@ -460,29 +444,6 @@ class OptimizedNoteBloc extends Bloc<OptimizedNoteEvent, OptimizedNoteState> {
     return result.copyWith(currentPage: loaded);
   }
 
-  Future<void> _onReorderNotes(
-    ReorderNotes event,
-    Emitter<OptimizedNoteState> emit,
-  ) async {
-    try {
-      await _storageService.reorderNotes(
-        folderId: event.folderId,
-        orderedIds: event.orderedIds,
-      );
-
-      // Refresh to get updated order
-      _scheduleRefresh(event.folderId);
-    } catch (e, stackTrace) {
-      _logError('Failed to reorder notes', e, stackTrace);
-      emit(
-        OptimizedNoteError(
-          'Failed to reorder notes: $e',
-          folderId: event.folderId,
-        ),
-      );
-    }
-  }
-
   void _logError(String message, Object error, StackTrace stackTrace) {
     debugPrint('\n╔══════════════════════════════════════════════════════════');
     debugPrint('║ [OptimizedNoteBloc] $message');
@@ -498,7 +459,6 @@ class OptimizedNoteBloc extends Bloc<OptimizedNoteEvent, OptimizedNoteState> {
     _refreshTimer?.cancel();
     _changesSubscription?.cancel();
     _storageService.dispose();
-    _searchService.dispose();
     return super.close();
   }
 }

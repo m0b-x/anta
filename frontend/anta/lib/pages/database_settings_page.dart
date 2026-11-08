@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
@@ -9,12 +10,15 @@ import '../constants/row_metrics.dart';
 import '../constants/semantics_ids.dart';
 import '../core/di/injection.dart';
 import '../database/database.dart';
+import '../services/body_search_indexer.dart';
 import '../services/database_manager.dart';
 import '../services/import_export_service.dart';
 import '../l10n/app_localizations.dart';
 import '../utils/custom_snackbar.dart';
 import '../widgets/app_dialogs.dart';
 import '../widgets/automation_id.dart';
+import '../widgets/database_import_dialog.dart';
+import '../widgets/form_rows.dart';
 import '../widgets/unified_app_bars.dart';
 import '../services/app_navigator.dart';
 
@@ -32,6 +36,10 @@ class _DatabaseSettingsPageState extends State<DatabaseSettingsPage> {
   DateTime? _lastModified;
   bool _isLoading = true;
 
+  /// What Optimize would give back, read from the open active database;
+  /// null while it is not open or the read failed.
+  int? _reclaimableBytes;
+
   // Database management
   String _activeDatabaseName = '';
   List<DatabaseInfo> _availableDatabases = [];
@@ -42,8 +50,10 @@ class _DatabaseSettingsPageState extends State<DatabaseSettingsPage> {
     _loadDatabaseInfo();
   }
 
-  Future<void> _loadDatabaseInfo() async {
-    setState(() => _isLoading = true);
+  /// [inPlace] keeps the page on screen while the values update, so a
+  /// refresh or an Optimize leaves the scroll and every button where it was.
+  Future<void> _loadDatabaseInfo({bool inPlace = false}) async {
+    if (!inPlace) setState(() => _isLoading = true);
 
     try {
       final dbManager = await DatabaseManager.getInstance();
@@ -52,6 +62,9 @@ class _DatabaseSettingsPageState extends State<DatabaseSettingsPage> {
 
       final dbPath = await dbManager.getDatabasePath(_activeDatabaseName);
       final dbFile = File(dbPath);
+      // Read in the same load as the size, so the frame that shows the card
+      // already carries it.
+      final reclaimable = await _readReclaimable();
 
       if (await dbFile.exists()) {
         final stats = await dbFile.stat();
@@ -68,6 +81,7 @@ class _DatabaseSettingsPageState extends State<DatabaseSettingsPage> {
           _databasePath = dbPath;
           _databaseSizeBytes = stats.size + walBytes;
           _lastModified = stats.modified;
+          _reclaimableBytes = reclaimable;
           _isLoading = false;
         });
       } else {
@@ -76,6 +90,7 @@ class _DatabaseSettingsPageState extends State<DatabaseSettingsPage> {
           _databasePath = dbPath;
           _databaseSizeBytes = null;
           _lastModified = null;
+          _reclaimableBytes = reclaimable;
           _isLoading = false;
         });
       }
@@ -83,8 +98,22 @@ class _DatabaseSettingsPageState extends State<DatabaseSettingsPage> {
       if (!mounted) return;
       setState(() {
         _databasePath = AppLocalizations.of(context)!.databasePathError;
+        _reclaimableBytes = null;
         _isLoading = false;
       });
+    }
+  }
+
+  /// Only from a database already open: the page never opens one to measure
+  /// it.
+  Future<int?> _readReclaimable() async {
+    final open = AppDatabase.openInstanceOf(_activeDatabaseName);
+    if (open == null) return null;
+    try {
+      return await (await open).reclaimableBytes();
+    } catch (e) {
+      debugPrint('[DatabaseSettings] reclaimable read failed: $e');
+      return null;
     }
   }
 
@@ -101,6 +130,42 @@ class _DatabaseSettingsPageState extends State<DatabaseSettingsPage> {
     }
     return l10n.databaseSizeMegabytes(
       NumberFormat('0.00', locale).format(bytes / (1024 * 1024)),
+    );
+  }
+
+  /// Always in the tree and as tall as the longest thing it may say, so the
+  /// Share button under it never moves: the neutral sentence when the value
+  /// is unknown, or the widest reading each unit up to the file's can give.
+  /// The file's own size is not enough: no reclaimable space exceeds it, yet
+  /// a smaller unit can read wider ("999.5 KB" beside "1.20 MB").
+  Widget _buildReclaimableCaption(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    const padding = EdgeInsets.only(top: FormMetrics.settingsValueUnderGap);
+    final reclaimable = _reclaimableBytes;
+    final file = math.max(_databaseSizeBytes ?? 0, reclaimable ?? 0);
+    // The figures are tabular, so in the file's own unit the file reads
+    // widest; below it, the last value before the next unit ("1024.0 KB"
+    // once rounded).
+    final widest = [
+      if (file >= 1024) 1023,
+      if (file >= 1024 * 1024) 1024 * 1024 - 1,
+      file,
+    ];
+    return FormCaptionSlot(
+      candidates: [
+        FormCaption(text: l10n.databaseReclaimableUnknown, padding: padding),
+        for (final bytes in widest)
+          FormCaption(
+            text: l10n.databaseReclaimable(_formatFileSize(bytes)),
+            padding: padding,
+          ),
+      ],
+      child: FormCaption(
+        text: reclaimable == null
+            ? l10n.databaseReclaimableUnknown
+            : l10n.databaseReclaimable(_formatFileSize(reclaimable)),
+        padding: padding,
+      ),
     );
   }
 
@@ -125,7 +190,7 @@ class _DatabaseSettingsPageState extends State<DatabaseSettingsPage> {
         child: _isLoading
             ? const Center(child: CircularProgressIndicator())
             : RefreshIndicator(
-                onRefresh: _loadDatabaseInfo,
+                onRefresh: () => _loadDatabaseInfo(inPlace: true),
                 child: Semantics(
                   identifier: SemanticsIds.databasesPage,
                   child: ListView(
@@ -437,6 +502,7 @@ class _DatabaseSettingsPageState extends State<DatabaseSettingsPage> {
                 ),
               ),
             ),
+            _buildReclaimableCaption(context),
             const SizedBox(height: 12),
 
             // Share button
@@ -679,25 +745,17 @@ class _DatabaseSettingsPageState extends State<DatabaseSettingsPage> {
     }
 
     if (!mounted) return;
-    AppDialogs.showLoading(this.context, message: l10n.importingDatabase);
+    final imported = await DatabaseImportDialog.run(
+      this.context,
+      (progress) =>
+          dbManager.importDatabase(sourcePath, targetName, progress: progress),
+    );
+    if (!imported || !mounted) return;
 
-    try {
-      await dbManager.importDatabase(sourcePath, targetName);
+    await _loadDatabaseInfo();
 
-      if (!mounted) return;
-      AppNavigator.pop(this.context);
-
-      await _loadDatabaseInfo();
-
-      if (!mounted) return;
-      CustomSnackbar.showSuccess(this.context, l10n.databaseImported);
-    } catch (e, st) {
-      debugPrint('[DatabaseSettings] import failed: $e\n$st');
-      if (!mounted) return;
-      AppNavigator.pop(this.context);
-
-      CustomSnackbar.showError(this.context, l10n.importFailed);
-    }
+    if (!mounted) return;
+    CustomSnackbar.showSuccess(this.context, l10n.databaseImported);
   }
 
   void _showRenameDatabaseDialog(BuildContext context, String oldName) async {
@@ -1091,13 +1149,16 @@ class _DatabaseSettingsPageState extends State<DatabaseSettingsPage> {
       // The helper pops its own dialog exactly once, on success or failure;
       // the page itself is never popped. The share runs after the spinner is
       // gone, as it did before, so it never sits behind the share sheet.
-      await AppDialogs.runWithLoading<void>(
+      // The sheet gets a snapshot, never the live file: a write landing
+      // while the OS copies it could tear the copy (D11).
+      final snapshot = await AppDialogs.runWithLoading<String>(
         this.context,
         message: AppLocalizations.of(this.context)!.preparingShare,
-        work: () => dbManager.checkpoint(_activeDatabaseName),
+        work: () => dbManager.snapshotForShare(_activeDatabaseName),
       );
+      if (snapshot == null) return;
       await getIt<ImportExportService>().shareExport(
-        ExportResult.file(_databasePath!),
+        ExportResult.snapshot(snapshot),
       );
     } catch (e, st) {
       debugPrint('[DatabaseSettings] share failed: $e\n$st');
@@ -1110,9 +1171,6 @@ class _DatabaseSettingsPageState extends State<DatabaseSettingsPage> {
   }
 
   Future<void> _optimizeDatabase(BuildContext context) async {
-    // Capture size before optimization
-    final sizeBefore = _databaseSizeBytes;
-
     // Show loading dialog
     AppDialogs.showLoading(
       context,
@@ -1121,34 +1179,31 @@ class _DatabaseSettingsPageState extends State<DatabaseSettingsPage> {
 
     try {
       final db = await AppDatabase.getInstance();
-      await db.vacuum();
-      await db.rebuildFtsIndex();
+      // What the file held free before the run is what the run gives back,
+      // never a size delta: the size before counts the `-wal` sidecar, whose
+      // pages the run's checkpoint folds back, so a delta counted them as
+      // freed — and one taken while the vacuum still sat in the WAL once
+      // read negative.
+      final reclaimableBefore = await db.reclaimableBytes();
+      await db.optimize();
+      // A VACUUM may renumber the rowids of tables without an INTEGER PRIMARY
+      // KEY, and the body search ledger keys on the notes' rowids; the probe
+      // would find the drift at the next search anyway, this makes it sooner.
+      BodySearchIndexer.markActiveDirty();
 
       if (!mounted) return;
       AppNavigator.pop(this.context); // Close loading dialog
 
-      // Refresh stats to get new size
-      await _loadDatabaseInfo();
+      await _loadDatabaseInfo(inPlace: true);
 
       if (!mounted) return;
-
-      // Calculate size difference
-      final sizeAfter = _databaseSizeBytes;
-      String message;
-      if (sizeBefore != null && sizeAfter != null) {
-        final savedBytes = sizeBefore - sizeAfter;
-        if (savedBytes > 0) {
-          message =
-              '${AppLocalizations.of(this.context)!.optimizationComplete} (${_formatFileSize(savedBytes)} ${AppLocalizations.of(this.context)!.saved})';
-        } else {
-          message =
-              '${AppLocalizations.of(this.context)!.optimizationComplete} (${AppLocalizations.of(this.context)!.alreadyOptimized})';
-        }
-      } else {
-        message = AppLocalizations.of(this.context)!.optimizationComplete;
-      }
-
-      CustomSnackbar.showSuccess(this.context, message);
+      final l10n = AppLocalizations.of(this.context)!;
+      CustomSnackbar.showSuccess(
+        this.context,
+        reclaimableBefore == 0
+            ? l10n.optimizeAlreadyCompact
+            : l10n.optimizeFreed(_formatFileSize(reclaimableBefore)),
+      );
     } catch (e, st) {
       debugPrint('[DatabaseSettings] optimize failed: $e\n$st');
       if (!mounted) return;

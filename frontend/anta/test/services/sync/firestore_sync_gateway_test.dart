@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'dart:io';
 
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:anta/database/crdt/crdt_write.dart';
@@ -264,6 +266,88 @@ void main() {
         'internal': SyncGatewayFailure.unknown,
       },
     );
+  });
+
+  test('a call past our deadline or the server\'s is a timeout the engine '
+      'still treats as offline; any other error keeps its kind', () {
+    final timedOut = FirestoreSyncWire.errorOf(TimeoutException('60 s'));
+    expect(timedOut.timedOut, isTrue);
+    expect(timedOut.failure, SyncGatewayFailure.offline);
+
+    final serverDeadline = FirestoreSyncWire.errorOf(
+      FirebaseException(plugin: 'cloud_firestore', code: 'deadline-exceeded'),
+    );
+    expect(serverDeadline.timedOut, isTrue);
+    expect(serverDeadline.failure, SyncGatewayFailure.offline);
+
+    final unavailable = FirestoreSyncWire.errorOf(
+      FirebaseException(plugin: 'cloud_firestore', code: 'unavailable'),
+    );
+    expect(unavailable.timedOut, isFalse);
+    expect(unavailable.failure, SyncGatewayFailure.offline);
+    expect(
+      FirestoreSyncWire.errorOf(StateError('x')).failure,
+      SyncGatewayFailure.unknown,
+    );
+  });
+
+  group('the overlap re-read', () {
+    final cursor = FirestoreSyncWire.encodeCursor(5000000, 'm');
+    final before = FirestoreSyncWire.encodeCursor(4000000, 'z');
+    final at = FirestoreSyncWire.encodeCursor(5000000, 'm');
+    final past = FirestoreSyncWire.encodeCursor(5000000, 'n');
+
+    test('a resumed page starts the overlap before its cursor, goes on '
+        'strictly after a scan, and an unresumed one after the cursor', () {
+      expect(FirestoreSyncWire.queryStart(null, resumed: true), isNull);
+      expect(FirestoreSyncWire.queryStart(cursor, resumed: true), (
+        micros: 5000000 - FirestoreSyncWire.pullOverlap.inMicroseconds,
+        rowKey: '',
+        overlap: true,
+      ));
+      expect(
+        FirestoreSyncWire.queryStart(cursor, resumed: true, scan: before),
+        (micros: 4000000, rowKey: 'z', overlap: false),
+      );
+      expect(
+        FirestoreSyncWire.queryStart(
+          cursor,
+          resumed: true,
+          scan: const SyncCursor('unreadable'),
+        ),
+        isA<({int micros, String rowKey, bool overlap})>().having(
+          (start) => start.overlap,
+          'overlap',
+          true,
+        ),
+        reason: 'an unreadable scan re-reads from the window\'s start',
+      );
+      expect(
+        FirestoreSyncWire.queryStart(cursor, resumed: false, scan: before),
+        (micros: 5000000, rowKey: 'm', overlap: false),
+      );
+    });
+
+    test('a full resumed page that ended before its cursor says where the '
+        're-read goes on; at or past the cursor, or short of full, it does '
+        'not', () {
+      SyncCursor? scan(
+        SyncCursor read, {
+        bool resumed = true,
+        bool full = true,
+      }) => FirestoreSyncWire.scanAfter(
+        from: cursor,
+        resumed: resumed,
+        full: full,
+        read: read,
+      );
+
+      expect(scan(before), before);
+      expect(scan(at), isNull);
+      expect(scan(past), isNull);
+      expect(scan(before, full: false), isNull);
+      expect(scan(before, resumed: false), isNull);
+    });
   });
 
   test('the gateway batches one row fewer than Firestore allows', () {

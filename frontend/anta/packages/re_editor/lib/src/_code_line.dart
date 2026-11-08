@@ -218,6 +218,20 @@ class _CodeLineEditingControllerImpl extends ValueNotifier<CodeLineEditingValue>
   }
 
   @override
+  void loadCodeLines(CodeLines codeLines, [String? text]) {
+    // Only an `\n`-only text is its own `asString`: the split folds `\r\n`
+    // and `\r` into breaks that join back as the configured line break.
+    if (text != null &&
+        text.isNotEmpty &&
+        lineBreak == TextLineBreak.lf &&
+        !text.contains('\r')) {
+      codeLines.seedAsString(text, TextLineBreak.lf);
+    }
+    value = CodeLineEditingValue(codeLines: codeLines);
+    _cache.clear();
+  }
+
+  @override
   void bindEditor(GlobalKey key) {
     _editorKey = key;
   }
@@ -2330,6 +2344,11 @@ class _CodeLineEditingControllerDelegate implements CodeLineEditingController {
   @override
   void loadText(String text) {
     _delegate.loadText(text);
+  }
+
+  @override
+  void loadCodeLines(CodeLines codeLines, [String? text]) {
+    _delegate.loadCodeLines(codeLines, text);
   }
 
   @override

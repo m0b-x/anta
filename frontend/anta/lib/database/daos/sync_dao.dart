@@ -40,17 +40,60 @@ class SyncDao extends DatabaseAccessor<AppDatabase> with _$SyncDaoMixin {
   /// (D19).
   static const String keyQuotaPausedAt = 'quota_paused_at';
 
+  /// When the last pull of every table completed, as epoch milliseconds: a
+  /// resume pulls only what the signal says moved until it is a day old
+  /// (scalability record S9). Deleted with the cursors.
+  static const String keyFullPullAt = 'full_pull_at';
+
+  /// The latest server time a snapshot of the space showed — the highest
+  /// `touched` value — as epoch microseconds; it only rises. It outlives the
+  /// listener, which a leave drops, so a resume or a cold start still knows
+  /// how far the server clock has gone before its first snapshot. Deleted
+  /// with the cursors.
+  static const String keyServerSeen = 'server_seen';
+
+  /// The wire version (`DatabaseSchema.syncSchemaVersion`) this database
+  /// last synced under: a run under a higher one re-queues the note bodies
+  /// once for the new wire, then stores it (scalability record S6, D2).
+  static const String keyWireVersion = 'wire_version';
+
   /// The name of the database this one was found to be a copy of when the
   /// claim heal unbound it, so the Sync section can say why it stopped
   /// syncing rather than read "not syncing" with no reason (review X-2).
   /// Written only by that heal, deleted by the next bind.
   static const String keyHealUnboundFrom = 'heal_unbound_from';
 
+  /// Set by a hard delete of `alert_registrations` rows, in the delete's own
+  /// transaction, and cleared by the next alert pass that completes: while it
+  /// stands the platform may hold entries no registry row describes, so a
+  /// launch never takes the scheduler's "nothing can arm" path. Not a sync
+  /// key — this table is where a device-local fact rides in the database's
+  /// transactions; `AlertRegistrationDao` is its only writer.
+  static const String keyAlertStraysPending = 'alert_strays_pending';
+
+  /// The id this database's counter taps are filed under in a value's
+  /// PN-counter shards (D8 A). Two databases tapping under one id would each
+  /// keep only the larger count, and a database file is copied whole — by
+  /// Android backup onto a new phone, by an import — while the install
+  /// `device_id` beside it is not (S9). So the id is minted afresh at every
+  /// bind and unbind ([mintReplicaId]), on the first tap of a database that
+  /// has none, and whenever [keyReplicaIdDevice] names another install than
+  /// this one ([replicaId]).
+  static const String keyReplicaId = 'replica_id';
+
+  /// The install `device_id` [keyReplicaId] was minted under: a database
+  /// restored or transferred onto another phone reads a different one there
+  /// and mints its own.
+  static const String keyReplicaIdDevice = 'replica_id_device';
+
   /// The prefix every [keyPullCursor] shares, for [deleteByPrefix].
   static const String pullCursorPrefix = 'pull_cursor.';
 
   /// The prefix every [keyPullSeen] shares, for [deleteByPrefix].
   static const String pullSeenPrefix = 'pull_seen.';
+
+  /// The prefix every [keyPullSettled] shares, for [deleteByPrefix].
+  static const String pullSettledPrefix = 'pull_settled.';
 
   /// Where [table]'s pull resumes: the gateway's cursor after the last
   /// applied page. A bind and an unbind delete every one, so a rebind pulls
@@ -60,6 +103,69 @@ class SyncDao extends DatabaseAccessor<AppDatabase> with _$SyncDaoMixin {
   /// The space document's `touched[table]` last pulled up to: a snapshot
   /// whose value moved past it pulls the table. Deleted with the cursors.
   static String keyPullSeen(String table) => '$pullSeenPrefix$table';
+
+  /// The [keyPullCursor] value of [table] that a pull proved settled — no
+  /// write at or before it can still become visible — so the next pull
+  /// resumes exactly there, without the overlap re-read. Any other cursor
+  /// value is not settled. Deleted with the cursors.
+  static String keyPullSettled(String table) => '$pullSettledPrefix$table';
+
+  /// The prefix every [keyPullParked] shares, for [valuesByPrefix] and
+  /// [deleteByPrefix].
+  static const String pullParkedPrefix = 'pull_parked.';
+
+  /// A pulled document this device could not merge, by [table] and
+  /// [rowKey]; the value is `<order>|<stamp>|<reason>` — the order a
+  /// zero-padded counter of when it was parked, so a start retries the
+  /// oldest first and the retries rotate, the stamp the document's, empty
+  /// when it carried no readable one, the reason a `SyncHeldReason` name the
+  /// Sync page shows (none before scalability record S7, read as
+  /// unreadable). It outlives the session, so after a restart the local
+  /// entries at or below that stamp are still held back from the drain; one
+  /// with no stamp holds nothing back after a restart and is only counted
+  /// (scalability record S8). Deleted with the cursors: it describes the
+  /// bound space.
+  static String keyPullParked(String table, String rowKey) =>
+      '$pullParkedPrefix$table.$rowKey';
+
+  /// The build that last retried every stored park to the end: a later
+  /// build may read a document this one could not, so a start under another
+  /// build retries every park. Written only once such a pass completed.
+  /// Deleted with the cursors.
+  static const String keyPullParkedBuild = 'pull_parked_build';
+
+  /// The prefix every [keyPushParked] shares, for [valuesByPrefix] and
+  /// [deleteByPrefix].
+  static const String pushParkedPrefix = 'push_parked.';
+
+  /// A local row the push set aside, by [table] and [rowKey]; the value is
+  /// `<order>|<stamp>|<reason>` as [keyPullParked]'s, the stamp the outbox
+  /// entry's. Its entry stays out of the drain at or below that stamp across
+  /// a restart — an edit since is a new write and goes — until a start or a
+  /// "Sync now" drops it to be tried again: the oldest
+  /// `SyncEngine.maxParkRetries` at each, every one under a new build
+  /// ([keyPushParkedBuild]) (scalability record S7). Deleted with the
+  /// cursors.
+  static String keyPushParked(String table, String rowKey) =>
+      '$pushParkedPrefix$table.$rowKey';
+
+  /// The build that last dropped the stored push parks: a start under
+  /// another build drops every one. Deleted with the cursors.
+  static const String keyPushParkedBuild = 'push_parked_build';
+
+  /// The prefix every [keyNoteSeen] shares.
+  static const String noteSeenPrefix = 'note_seen.';
+
+  /// The highest stamp of another device's version of note [noteId] that
+  /// this device accepted or kept out, so a re-delivery of it is not filed
+  /// as a lost edit (scalability record S8). Only rises ([raiseValue]).
+  /// Deleted when the database binds to another space ([keyNoteSeenSpace]):
+  /// its peers' stamps compare against none of these.
+  static String keyNoteSeen(String noteId) => '$noteSeenPrefix$noteId';
+
+  /// The space (`<ownerUid>/<spaceId>`) the [keyNoteSeen] values were
+  /// recorded under, written at a bind.
+  static const String keyNoteSeenSpace = 'note_seen_space';
 
   Future<String?> getValue(String key) async {
     final result = await (select(
@@ -78,8 +184,59 @@ class SyncDao extends DatabaseAccessor<AppDatabase> with _$SyncDaoMixin {
     );
   }
 
+  /// Stores [value] under [key] unless the stored value already sorts at or
+  /// above it, in one statement — for a stamp that only rises, written on a
+  /// path that should not pay a read first.
+  Future<void> raiseValue(String key, String value) async {
+    await into(syncMetadata).insert(
+      SyncMetadataCompanion.insert(
+        key: key,
+        value: value,
+        updatedAt: DateTime.now(),
+      ),
+      onConflict: DoUpdate.withExcluded(
+        (old, excluded) => SyncMetadataCompanion.custom(
+          value: excluded.value,
+          updatedAt: excluded.updatedAt,
+        ),
+        where: (old, excluded) => excluded.value.isBiggerThan(old.value),
+      ),
+    );
+  }
+
   Future<void> deleteValue(String key) async {
     await (delete(syncMetadata)..where((s) => s.key.equals(key))).go();
+  }
+
+  /// Every key starting with [prefix] with its value, in key order; matched
+  /// as [deleteByPrefix] matches.
+  Future<List<(String, String)>> valuesByPrefix(String prefix) async {
+    final rows = await (select(
+      syncMetadata,
+    )..where((s) => _startsWith(s, prefix))).get();
+    return [for (final row in rows) (row.key, row.value)];
+  }
+
+  /// [keyReplicaId], minted when absent — an unbound database taps too — or
+  /// when it was minted under another install's `device_id`.
+  Future<String> replicaId() async {
+    final stored = await getValue(keyReplicaId);
+    if (stored != null &&
+        stored.isNotEmpty &&
+        await getValue(keyReplicaIdDevice) == db.deviceId) {
+      return stored;
+    }
+    return mintReplicaId();
+  }
+
+  /// Files every later tap under a new [keyReplicaId], noting this install's
+  /// `device_id` beside it; the shards already counted under the old one keep
+  /// their counts.
+  Future<String> mintReplicaId() async {
+    final minted = db.generateId();
+    await setValue(keyReplicaId, minted);
+    await setValue(keyReplicaIdDevice, db.deviceId);
+    return minted;
   }
 
   /// Deletes every key starting with [prefix] and returns how many went.
@@ -91,9 +248,17 @@ class SyncDao extends DatabaseAccessor<AppDatabase> with _$SyncDaoMixin {
     if (prefix.isEmpty) {
       throw ArgumentError.value(prefix, 'prefix', 'must not be empty');
     }
-    return (delete(
-      syncMetadata,
-    )..where((s) => s.key.substr(1, prefix.length).equals(prefix))).go();
+    return (delete(syncMetadata)..where((s) => _startsWith(s, prefix))).go();
+  }
+
+  /// The keys starting with [prefix] as a range — at or above it and below
+  /// the prefix with its last code unit raised — which the key's index
+  /// answers, where a `substr()` comparison reads every row of the table.
+  static Expression<bool> _startsWith($SyncMetadataTable s, String prefix) {
+    final last = prefix.codeUnitAt(prefix.length - 1);
+    final above =
+        prefix.substring(0, prefix.length - 1) + String.fromCharCode(last + 1);
+    return s.key.isBiggerOrEqualValue(prefix) & s.key.isSmallerThanValue(above);
   }
 
   Future<String?> getLastSyncTimestamp() => getValue(keyLastSyncTimestamp);

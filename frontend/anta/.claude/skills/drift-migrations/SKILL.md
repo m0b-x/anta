@@ -15,7 +15,7 @@ description: Workflow for Drift SQLite schema changes, migrations, the DatabaseL
   ```
   (`tool\release\release.cmd gen` wraps the build_runner call, plus gen-l10n.)
 - Preserve CRDT metadata on folder/note/chunk tables (`hlcTimestamp`, `deviceId`, `version`, `isDeleted`, `deletedAt`) and soft-delete semantics. Reorders are transactional and preserve user positions.
-- Keep FTS/app-level search indexes in sync on create/update/delete/move.
+- Never write the body search index on a create/update/delete/move: a write moves `hlc_timestamp`, and the ledger and the drain catch the index up (`references/persistence-rules.md`).
 - Prefer avoiding a migration when the data can ride an existing JSON payload (precedent: recurrence `interval` inside `rule_payload`) or be derived/rebuilt from note content (precedent: planned `TagIndex`).
 
 - **A step is frozen at the shape it shipped with.** Never let an old step call a definition that follows the live schema (a `DatabaseIndexes` helper, `m.createTable`, a DAO) once that definition can name a column or table a *later* step adds. v31 called `createCalendarDeltaIndexes()`; v37 widened that index with `status`; every upgrade from v30 or older then failed with `no such column: status` (found 2026-09-20, together with the same trap in v10 → `is_deleted`). Only the **newest** step defining an index shares the helper with `createAllIndexes()`; every older step touching that name carries its own frozen `CREATE INDEX`, and the newer step drops and recreates. Changing an index or table shape means freezing the older callers in the same change.
@@ -25,12 +25,19 @@ description: Workflow for Drift SQLite schema changes, migrations, the DatabaseL
 
 ## Connection pragmas
 
-`configureSqliteConnection` in `lib/database/database.dart` is the `setup:` callback for every connection: **WAL**, `synchronous = NORMAL`, `temp_store = MEMORY`, `cache_size = -4000`. Measured on a real file, 200 individually-committed inserts (the auto-save shape) went **561 ms → 28 ms**; the app previously ran on stock SQLite defaults with no `setup:` at all.
+`configureSqliteConnection` in `lib/database/database.dart` is the `setup:` callback for every connection: **WAL**, `synchronous = NORMAL`, `temp_store = MEMORY`, `cache_size = -4000`, `journal_size_limit = AppConstants.sqliteJournalSizeLimitBytes` (8 MiB — a checkpoint shrinks a WAL a big transaction grew). Measured on a real file, 200 individually-committed inserts (the auto-save shape) went **561 ms → 28 ms**; the app previously ran on stock SQLite defaults with no `setup:` at all.
 
 - It must stay a **top-level function** — `createInBackground` sends it to the database isolate, which a capturing closure cannot survive.
 - `synchronous = NORMAL` is safe **only because of WAL**, which is the pairing SQLite documents. App crash loses nothing; a power cut can roll back recent transactions but cannot corrupt. Do not raise it back to `FULL` without measuring what it costs (~5× on small writes).
 - WAL means `-wal` / `-shm` sidecars. `DatabaseManager.renameDatabase` / `deleteDatabase` already move and remove them; any new code that touches the database file directly must too. The size shown on `DatabaseSettingsPage` adds the `-wal` size for the same reason.
-- `test/database/connection_pragmas_test.dart` asserts all four. Dropping the `setup:` callback would otherwise compile and pass everything else.
+- `test/database/connection_pragmas_test.dart` asserts all five. Dropping the `setup:` callback would otherwise compile and pass everything else.
+- On Android `_useAppCacheForSqliteTemp` (`database.dart`, run once before the first connection opens) points the process-wide `sqlite3.tempDirectory` at the app's cache: Android gives SQLite no writable default temp directory, and `VACUUM` / `VACUUM INTO` and any sort past memory spill to a temp file there. A new isolate or connection path that opens SQLite before it would fail those statements on a phone only.
+- Under WAL a `VACUUM` lands in `-wal` and the main file keeps its size until a checkpoint — `AppDatabase.optimize` ends on `checkpoint()`; judge a compaction from `reclaimableBytes()`, never from a size delta taken before the checkpoint.
+
+## Chunk rows since v47
+
+- **A tombstoned note's `content_chunks` rows are hard-deleted** (D13, S16) on every tombstone path — the one deliberate exception to soft deletes; the note row keeps its tombstone and stamp, which is all a merge reads. `ContentChunkDao.deleteChunksForNotes` batches ids by `AppConstants.sqlIdBatch` (SQLite's 32,766-variable ceiling once rolled back a 33,000-note folder delete); any new unbounded `IN (?, …)` batches the same way.
+- v47 purged what older builds kept in one scan: chunks of non-live notes and tombstoned chunks of live notes, except a live note with `content_length > 0` and no live chunk (a half-applied old sync — its text is recoverable). The chunk index is full since v47 (`idx_content_chunks_note`); `maxHlc` still counts `content_chunks`. Long form: `anta-context/references/feature-areas.md`.
 
 ## Database tests
 

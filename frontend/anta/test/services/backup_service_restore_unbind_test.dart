@@ -28,6 +28,7 @@ import 'package:anta/services/sync/sync_space_service.dart';
 import 'package:anta/services/sync/sync_suspension.dart';
 
 import '../support/fake_sync_gateway.dart';
+import 'support/backup_archive.dart';
 
 /// Records whether sync was suspended each time the restore's reconcile
 /// reaches the platform — the last step inside the restore.
@@ -107,7 +108,7 @@ void main() {
     await insertEvent(db, 'e1');
     expect(await db.syncOutboxDao.count(), greaterThan(0));
     final backup = await BackupService.getInstance();
-    final archive = jsonEncode(await backup.exportAllData());
+    final archive = jsonEncode(await exportBackupArchive());
     gateway.suspended.clear();
 
     final result = await backup.importFromJson(archive);
@@ -134,7 +135,7 @@ void main() {
     final db = await AppDatabase.getInstance();
     await (await SettingsService.getInstance()).setSyncBinding(binding);
     final backup = await BackupService.getInstance();
-    final data = await backup.exportAllData();
+    final data = await exportBackupArchive();
     data['folders'] = [
       {JsonKeys.id: 'f1', JsonKeys.name: 'Restored'},
     ];
@@ -173,14 +174,14 @@ void main() {
       ownerUid: 'account-1',
       name: 'Phone',
       deviceId: 'other-device',
-      schema: DatabaseSchema.currentVersion,
+      schema: DatabaseSchema.syncSchemaVersion,
     );
     await db.folderDao.createFolder(name: 'Errands');
     await spaces.bindExisting(space.ref, accountUid: 'account-1');
     final registry = (await DatabaseManager.getInstance()).spaceRegistry;
     expect(registry.claims(), hasLength(1));
     final backup = await BackupService.getInstance();
-    final archive = jsonEncode(await backup.exportAllData());
+    final archive = jsonEncode(await exportBackupArchive());
 
     final result = await backup.importFromJson(archive);
 
@@ -195,7 +196,7 @@ void main() {
   test('an archive never pairs or binds the database it lands on', () async {
     final db = await AppDatabase.getInstance();
     final backup = await BackupService.getInstance();
-    final data = await backup.exportAllData();
+    final data = await exportBackupArchive();
     (data['settings'] as Map<String, dynamic>).addAll({
       SettingsKeys.pairingPairId: 'pair-from-elsewhere',
       SettingsKeys.syncSpaceId: 'space-from-elsewhere',

@@ -8,7 +8,9 @@ import 'package:anta/database/database.dart';
 import 'package:anta/database/loading_interceptor.dart';
 import 'package:anta/database/migrations/database_migrations.dart';
 import 'package:anta/database/migrations/database_schema.dart';
+import 'package:anta/utils/compression_utils.dart';
 
+import '../support/scale_fixtures.dart';
 import 'support/db_test_support.dart';
 
 const _oldestColumns = {
@@ -53,14 +55,19 @@ const _oldestColumns = {
   'sync_metadata': {'key', 'value', 'updated_at'},
 };
 
+/// `idx_folders_parent`, `idx_notes_folder` and `idx_chunks_note_index` left
+/// this set in v47, which drops them on both paths.
 const _indexesOlderThanTheChain = {
-  'idx_folders_parent',
   'idx_folders_hlc',
-  'idx_notes_folder',
   'idx_notes_hlc',
   'idx_notes_updated',
-  'idx_chunks_note_index',
 };
+
+/// The legacy title-and-preview index as fresh installs created it until
+/// v50 retired it.
+const _legacyNotesFts =
+    'CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(title, preview, '
+    'content=notes, content_rowid=rowid)';
 
 Future<Set<String>> _columnNames(AppDatabase db, String table) async {
   final rows = await db.customSelect('PRAGMA table_info($table)').get();
@@ -72,9 +79,7 @@ Future<void> _reshapeToOldest(AppDatabase db) async {
     await db.customStatement('DROP INDEX IF EXISTS $name');
   }
   for (final table in await tableNames(db)) {
-    if (_oldestColumns.containsKey(table) || table.startsWith('notes_fts')) {
-      continue;
-    }
+    if (_oldestColumns.containsKey(table)) continue;
     await db.customStatement('DROP TABLE IF EXISTS $table');
   }
   for (final entry in _oldestColumns.entries) {
@@ -88,6 +93,9 @@ Future<void> _reshapeToOldest(AppDatabase db) async {
       reason: '${entry.key} could not be taken back to its oldest shape',
     );
   }
+  // Every install before v50 held the title-and-preview table, which v50
+  // drops; the chain must carry it that far.
+  await db.customStatement(_legacyNotesFts);
   await db.customStatement('PRAGMA user_version = 1');
 }
 
@@ -107,7 +115,6 @@ Future<int> _userVersion(AppDatabase db) async {
 Future<Map<String, Set<String>>> _columns(AppDatabase db) async {
   final result = <String, Set<String>>{};
   for (final table in await tableNames(db)) {
-    if (table.startsWith('notes_fts')) continue;
     final rows = await db.customSelect('PRAGMA table_info($table)').get();
     result[table] = {
       for (final row in rows)
@@ -294,6 +301,221 @@ void main() {
       (await _indexSql(reopened))['idx_calendar_event_absences_active'],
       contains('(event_id, day, status)'),
     );
+  });
+
+  // v46 adds the chunk hash and leaves every stored body alone: a legacy
+  // note reads as before and is re-cut on its next body save, without a
+  // stamp when the text is the same.
+  test('a v45 note in fixed slices upgrades, reads the same and is re-cut '
+      'on its next save', () async {
+    final folder = await db.folderDao.createFolder(name: 'Log');
+    final note = await db.noteDao.createNote(folderId: folder.id, title: 'A');
+    await db.customStatement('DROP INDEX idx_content_chunks_hash');
+    await db.customStatement(
+      'ALTER TABLE content_chunks DROP COLUMN content_hash',
+    );
+    final text = bigBody(25000);
+    var start = 0;
+    for (var i = 0; start < text.length; i++) {
+      var end = start + 10000 > text.length ? text.length : start + 10000;
+      final last = text.codeUnitAt(end - 1);
+      if (end < text.length && last >= 0xD800 && last <= 0xDBFF) end--;
+      final slice = text.substring(start, end);
+      start = end;
+      await db.customStatement(
+        'INSERT INTO content_chunks (id, note_id, chunk_index, content, '
+        'is_compressed, hlc_timestamp, device_id) VALUES (?, ?, ?, ?, 1, ?, ?)',
+        [
+          '${note.id}_chunk_$i',
+          note.id,
+          i,
+          CompressionUtils.compressToBase64(slice),
+          note.hlcTimestamp,
+          note.deviceId,
+        ],
+      );
+    }
+
+    await _upgrade(db, DatabaseSchema.v45OneOffSkipSweep);
+    await _upgrade(db, DatabaseSchema.v45OneOffSkipSweep);
+
+    expect(await _columnNames(db, 'content_chunks'), contains('content_hash'));
+    expect(
+      (await _indexSql(db))['idx_content_chunks_hash'],
+      contains('content_chunks(content_hash)'),
+    );
+    expect(await db.contentChunkDao.loadContent(note.id), text);
+
+    final stored = await db.noteDao.updateNote(
+      id: note.id,
+      contentLength: 0,
+      content: text,
+    );
+    expect(stored!.hlcTimestamp, note.hlcTimestamp);
+    expect(stored.version, note.version);
+    final chunks = await db.contentChunkDao.getChunksForNote(note.id);
+    expect(chunks.every((c) => c.contentHash != null), isTrue);
+    expect(chunks.any((c) => c.id.startsWith('${note.id}_chunk_')), isFalse);
+    expect(stored.chunkCount, chunks.length);
+    expect(await db.contentChunkDao.loadContent(note.id), text);
+
+    final edited = await db.noteDao.updateNote(
+      id: note.id,
+      content: '${text}x',
+    );
+    expect(edited!.hlcTimestamp, isNot(note.hlcTimestamp));
+    expect(await db.contentChunkDao.loadContent(note.id), '${text}x');
+  });
+
+  // v47 purges the bodies every earlier build kept for deleted notes: the
+  // chunks of tombstoned and of missing notes, then stray tombstoned chunks
+  // of live notes. A live note's body is left as it was.
+  test('a v46 database with dead bodies upgrades to live notes\' chunks '
+      'alone, on the create path\'s indices', () async {
+    final folder = await db.folderDao.createFolder(name: 'Log');
+    final live = await db.noteDao.createNote(
+      folderId: folder.id,
+      title: 'Live',
+      content: bigBody(30000),
+    );
+    final dead = await db.noteDao.createNote(
+      folderId: folder.id,
+      title: 'Dead',
+      content: bigBody(20000),
+    );
+    final fresh = await openTestDatabase();
+    addTearDown(fresh.close);
+    final created = await _indexSql(fresh);
+
+    // The v46 shape and what v46 left: tombstoned chunks under a
+    // tombstoned note, a chunk whose note is gone, a stray tombstoned chunk
+    // under the live note.
+    await db.customStatement('DROP INDEX idx_content_chunks_note');
+    await db.customStatement('DROP INDEX idx_sync_outbox_order');
+    await db.customStatement(
+      'CREATE INDEX idx_chunks_note_index ON content_chunks(note_id, '
+      'chunk_index) WHERE is_deleted = 0',
+    );
+    await db.customStatement(
+      'CREATE INDEX idx_notes_folder ON notes(folder_id) WHERE is_deleted = 0',
+    );
+    await db.customStatement(
+      'CREATE INDEX idx_folders_parent ON folders(parent_id) '
+      'WHERE is_deleted = 0',
+    );
+    await db.customStatement(
+      "UPDATE notes SET is_deleted = 1 WHERE id = '${dead.id}'",
+    );
+    await db.customStatement(
+      "UPDATE content_chunks SET is_deleted = 1 WHERE note_id = '${dead.id}'",
+    );
+    Future<void> insertChunk(String id, String noteId, int index, int deleted) {
+      return db.customStatement(
+        'INSERT INTO content_chunks (id, note_id, chunk_index, content, '
+        'is_compressed, hlc_timestamp, device_id, is_deleted) '
+        "VALUES (?, ?, ?, 'x', 0, 'h', 'd', ?)",
+        [id, noteId, index, deleted],
+      );
+    }
+
+    await insertChunk('orphan', 'gone', 0, 0);
+    await insertChunk('stray', live.id, 99, 1);
+    final liveRows = await db.contentChunkDao.getChunksForNote(live.id);
+    await db.customStatement('PRAGMA user_version = 46');
+
+    await _upgrade(db, DatabaseSchema.v46ContentChunkHashes);
+    await _upgrade(db, DatabaseSchema.v46ContentChunkHashes);
+
+    final remaining = await db
+        .customSelect('SELECT id FROM content_chunks')
+        .get();
+    expect(
+      {for (final row in remaining) row.read<String>('id')},
+      {for (final chunk in liveRows) chunk.id},
+    );
+    expect(await db.contentChunkDao.loadContent(live.id), bigBody(30000));
+    expect(await _userVersion(db), DatabaseSchema.currentVersion);
+    expect(await _indexSql(db), created);
+  });
+
+  // v48 adds the body search index empty and reads no body: the indexer
+  // fills it after launch. Twice, because a step must be idempotent.
+  test(
+    'a v47 database gains an empty body index and keeps its notes',
+    () async {
+      final folder = await db.folderDao.createFolder(name: 'Log');
+      final note = await db.noteDao.createNote(
+        folderId: folder.id,
+        title: 'A',
+        content: 'squat',
+      );
+      await db.customStatement('DROP TABLE note_body_fts');
+      await db.customStatement('DROP TABLE note_search_ledger');
+
+      await _upgrade(db, DatabaseSchema.v47StorageHygiene);
+      await _upgrade(db, DatabaseSchema.v47StorageHygiene);
+
+      expect(
+        await tableNames(db),
+        containsAll(<String>['note_body_fts', 'note_search_ledger']),
+      );
+      final ledger = await db
+          .customSelect('SELECT COUNT(*) AS c FROM note_search_ledger')
+          .getSingle();
+      expect(ledger.read<int>('c'), 0);
+      expect(await db.contentChunkDao.loadContent(note.id), 'squat');
+    },
+  );
+
+  // v50 drops the title-and-preview table and recreates the body index with
+  // the quick search's columns, clearing the ledger so every note is
+  // projected again lazily. Twice, because a step must be idempotent — and
+  // the second run must not clear a ledger the first one already rebuilt.
+  test('a v49 database loses notes_fts and re-projects lazily', () async {
+    final folder = await db.folderDao.createFolder(name: 'Log');
+    final note = await db.noteDao.createNote(
+      folderId: folder.id,
+      title: 'A',
+      content: 'squat',
+    );
+    await db.customStatement(_legacyNotesFts);
+    await db.customStatement('DROP TABLE note_body_fts');
+    await db.customStatement(
+      'CREATE VIRTUAL TABLE note_body_fts USING fts5(body, '
+      "tokenize='trigram case_sensitive 1', content='', "
+      'contentless_delete=1)',
+    );
+    await db.customStatement(
+      'INSERT INTO note_search_ledger (note_rowid, note_id, indexed_hlc, '
+      "fingerprint) SELECT rowid, id, hlc_timestamp, 'f' FROM notes",
+    );
+    Future<int> ledgerRows() async =>
+        (await db
+                .customSelect('SELECT COUNT(*) AS c FROM note_search_ledger')
+                .getSingle())
+            .read<int>('c');
+
+    await _upgrade(db, DatabaseSchema.v49Counters);
+
+    expect(await tableNames(db), isNot(contains('notes_fts')));
+    expect(await _columnNames(db, 'note_body_fts'), {'title', 'body', 'tags'});
+    expect(await ledgerRows(), 0);
+
+    await db.customStatement(
+      'INSERT INTO note_search_ledger (note_rowid, note_id, indexed_hlc, '
+      "fingerprint) SELECT rowid, id, hlc_timestamp, 'f' FROM notes",
+    );
+    await _upgrade(db, DatabaseSchema.v49Counters);
+
+    expect(await ledgerRows(), 1);
+    expect(await db.contentChunkDao.loadContent(note.id), 'squat');
+    expect(await _userVersion(db), DatabaseSchema.currentVersion);
+  });
+
+  test('a fresh install has no notes_fts', () async {
+    final names = await tableNames(db);
+    expect(names.where((name) => name.startsWith('notes_fts')), isEmpty);
+    expect(await _columnNames(db, 'note_body_fts'), {'title', 'body', 'tags'});
   });
 
   group('a half-finished upgrade', () {

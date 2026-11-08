@@ -26,6 +26,17 @@ class EventSkipDao extends DatabaseAccessor<AppDatabase>
     return (select(eventSkips)..where((a) => a.isDeleted.equals(false))).get();
   }
 
+  /// One event's live skips: the capture an event delete takes for its Undo,
+  /// answered from `idx_calendar_event_skips_active` instead of every skip.
+  Future<List<EventSkipRow>> getActiveForEvent(String eventId) {
+    return (select(eventSkips)..where(
+          (s) =>
+              s.eventId.equals(eventId) &
+              const CustomExpression<bool>('is_deleted = 0'),
+        ))
+        .get();
+  }
+
   /// The same live rows as [getActive], narrowed to the key pair — everything
   /// [EventSkipService] keeps in memory, and nothing else.
   ///

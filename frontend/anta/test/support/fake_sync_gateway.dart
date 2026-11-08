@@ -1,6 +1,9 @@
 import 'dart:async';
+import 'dart:typed_data';
 
+import 'package:anta/database/crdt/crdt_write.dart';
 import 'package:anta/services/sync/sync_gateway.dart';
+import 'package:anta/services/sync/tables/content_chunks_binding.dart';
 
 /// An in-memory [SyncGateway] for the engine's tests: one map per space and
 /// table, keyed by row key, holding the newest envelope pushed for each row
@@ -19,6 +22,7 @@ class FakeSyncGateway implements SyncGateway {
   final Map<SyncSpaceRef, _Space> _spaces = {};
   final Map<SyncSpaceRef, StreamController<SyncSpaceSignal>> _signals = {};
   var _clock = 0;
+  var _elapsed = Duration.zero;
 
   /// Every batch accepted, in order.
   final List<List<SyncEnvelope>> pushes = [];
@@ -35,6 +39,27 @@ class FakeSyncGateway implements SyncGateway {
   /// How many arrival numbers before the cursor a resumed pull starts, so the
   /// engine's tests see the repeats Firestore's resume overlap delivers.
   int replayOnResume = 0;
+
+  /// Every page asked for with `resumed` true from a cursor, by table, in
+  /// order — the overlap re-reads the engine did not prove unnecessary.
+  final List<String> resumedPulls = [];
+
+  /// When true, a cursor carries its row's arrival time as Firestore's does
+  /// (`<seq>|<micros>`), so [cursorTime] answers and the engine may prove a
+  /// table settled; false, a cursor is the bare sequence number and every
+  /// resumed page re-reads.
+  bool timedCursors = false;
+
+  /// When true, a new listener of [watchSpace] hears nothing — no first
+  /// snapshot, no later one — as a resume whose snapshot has not come yet.
+  bool holdSignals = false;
+
+  @override
+  Duration resumeOverlap = const Duration(seconds: 10);
+
+  /// Moves the fake's server clock on by [by], so a write after it lands
+  /// that much later than the one before.
+  void elapse(Duration by) => _elapsed += by;
 
   /// When true, `hasMore` is `page.length == limit`, as the Firestore gateway
   /// answers without looking further — so the engine's tests meet "hasMore,
@@ -55,11 +80,30 @@ class FakeSyncGateway implements SyncGateway {
   /// test can land a rebind between the page's read and its transaction.
   Future<void> Function(String table)? onPullPage;
 
-  SyncGatewayFailure? _nextFailure;
+  /// Every page asked for, as `<table>:<limit>` with the limit the gateway
+  /// applied — so a test reads the page sizes a run asked for.
+  final List<String> pullTakes = [];
+
+  /// The link modelled as bytes per call: a page whose envelopes' JSON
+  /// passes it fails as [SyncGatewayException.timedOut] and changes nothing,
+  /// as a page too large for a slow link outlasts the call's deadline.
+  int? pullBytesPerCall;
+
+  /// The same for a push: a batch whose rows' JSON passes it times out and
+  /// writes nothing.
+  int? pushBytesPerCall;
+
+  SyncGatewayException? _nextFailure;
   final Map<(String, String), SyncGatewayFailure> _refused = {};
 
   /// Makes the next call — any of them — throw [failure] and change nothing.
-  void failNextWith(SyncGatewayFailure failure) => _nextFailure = failure;
+  void failNextWith(SyncGatewayFailure failure) =>
+      _nextFailure = SyncGatewayException(failure, 'scripted');
+
+  /// Makes the next call throw [error] and change nothing — for a kind
+  /// [failNextWith] cannot name, such as [SyncGatewayException.timedOut].
+  void failNextWithException(SyncGatewayException error) =>
+      _nextFailure = error;
 
   /// Makes every batch that carries [rowKey] of [table] fail with [failure]
   /// and write nothing, for as long as the test runs — the way the server
@@ -103,6 +147,7 @@ class FakeSyncGateway implements SyncGateway {
         .putIfAbsent(envelope.table, () => {})[envelope.rowKey] = _Arrival(
       envelope,
       seq,
+      _now(),
     );
   }
 
@@ -117,11 +162,38 @@ class FakeSyncGateway implements SyncGateway {
     final failure = _nextFailure;
     if (failure == null) return;
     _nextFailure = null;
-    throw SyncGatewayException(failure, 'scripted');
+    throw failure;
+  }
+
+  /// The bytes [envelopes] carry on the wire, as the pusher counts them.
+  static int bytesOf(Iterable<SyncEnvelope> envelopes) {
+    var bytes = 0;
+    for (final envelope in envelopes) {
+      bytes += envelope.wireBytes;
+    }
+    return bytes;
+  }
+
+  /// Whether `firestore.rules`' `validChunk()` admits [envelope]: a
+  /// `content_chunks` document is an upsert whose `gz` is bytes of at most
+  /// 65,536 — the one shape rule of the rules the fake repeats, since it is
+  /// the one this build's own pushes could break.
+  static bool _chunkAdmitted(SyncEnvelope envelope) {
+    if (envelope.table != 'content_chunks') return true;
+    final gz = envelope.data?[ContentChunksBinding.gzKey];
+    return envelope.op == OutboxOp.upsert &&
+        gz is Uint8List &&
+        gz.length <= ContentChunksBinding.maxGzBytes;
   }
 
   /// A clock that moves on every call, so no two writes share an instant.
-  DateTime _tick() => DateTime.utc(2026, 1, 1).add(Duration(seconds: ++_clock));
+  DateTime _tick() {
+    ++_clock;
+    return _now();
+  }
+
+  DateTime _now() =>
+      DateTime.utc(2026, 1, 1).add(_elapsed + Duration(seconds: _clock));
 
   SyncSpaceSignal _signalNow(SyncSpaceRef space) =>
       _spaces[space]?.signal ??
@@ -179,6 +251,16 @@ class FakeSyncGateway implements SyncGateway {
       if (refused != null) {
         throw SyncGatewayException(refused, 'refused ${envelope.rowKey}');
       }
+      if (!_chunkAdmitted(envelope)) {
+        throw SyncGatewayException(
+          SyncGatewayFailure.permissionDenied,
+          'not a chunk document: ${envelope.rowKey}',
+        );
+      }
+    }
+    final link = pushBytesPerCall;
+    if (link != null && bytesOf(batch) > link) {
+      throw const SyncGatewayException.timedOut();
     }
     final now = _tick();
     final tables = _store.putIfAbsent(space, () => {});
@@ -189,6 +271,7 @@ class FakeSyncGateway implements SyncGateway {
       tables.putIfAbsent(envelope.table, () => {})[envelope.rowKey] = _Arrival(
         envelope,
         seq,
+        now,
       );
       record.touched[envelope.table] = now;
     }
@@ -208,30 +291,111 @@ class FakeSyncGateway implements SyncGateway {
     SyncCursor? after,
     int? limit,
     bool resumed = false,
+    SyncCursor? scan,
   }) async {
     _throwIfScripted();
     calls.add('pull:$table');
-    var from = after == null ? 0 : int.parse(after.value);
-    if (resumed && after != null) {
-      from = from > replayOnResume ? from - replayOnResume : 0;
+    final rereads = resumed && after != null;
+    if (rereads) resumedPulls.add(table);
+    final cursor = after == null ? 0 : _seqOf(after);
+    var from = cursor;
+    if (rereads) {
+      from = scan != null
+          ? _seqOf(scan)
+          : (from > replayOnResume ? from - replayOnResume : 0);
     }
     final pending = [
       for (final arrival in (_store[space]?[table] ?? const {}).values)
         if (arrival.seq > from) arrival,
     ]..sort((a, b) => a.seq.compareTo(b.seq));
     final take = limit ?? maxBatch;
+    pullTakes.add('$table:$take');
     final page = pending.take(take).toList();
+    final link = pullBytesPerCall;
+    if (link != null && bytesOf([for (final a in page) a.envelope]) > link) {
+      throw const SyncGatewayException.timedOut();
+    }
     await onPullPage?.call(table);
+    final hasMore = looseHasMore
+        ? page.length == take
+        : pending.length > page.length;
+    // As Firestore's: a re-read never moves the cursor back, and one a full
+    // page stopped short of it says where it goes on.
+    final behind = rereads && page.isNotEmpty && page.last.seq <= cursor;
     return SyncPullPage(
       envelopes: [
         for (final arrival in page)
           if (!unreadable.contains((table, arrival.envelope.rowKey)))
             arrival.envelope,
       ],
-      next: page.isEmpty ? after : SyncCursor('${page.last.seq}'),
-      hasMore: looseHasMore
-          ? page.length == take
-          : pending.length > page.length,
+      next: page.isEmpty || behind ? after : _cursorOf(page.last),
+      hasMore: hasMore,
+      scan: behind && hasMore && page.last.seq < cursor
+          ? _cursorOf(page.last)
+          : null,
+      skipped: [
+        for (final arrival in page)
+          if (unreadable.contains((table, arrival.envelope.rowKey)))
+            arrival.envelope.rowKey,
+      ],
+    );
+  }
+
+  /// Every [readRows] call's keys, as `<table>:<count>`.
+  final List<String> rowReads = [];
+
+  /// Every [readRows] call's keys themselves, in the order asked.
+  final List<List<String>> rowReadKeys = [];
+
+  /// Tables whose [readRows] fails offline and reads nothing, for a retry
+  /// cut part-way.
+  final Set<String> failRowReads = {};
+
+  @override
+  Future<SyncPullPage> readRows(
+    SyncSpaceRef space,
+    String table,
+    List<String> rowKeys,
+  ) async {
+    _throwIfScripted();
+    calls.add('read:$table');
+    if (failRowReads.contains(table)) {
+      throw const SyncGatewayException(SyncGatewayFailure.offline, 'scripted');
+    }
+    rowReads.add('$table:${rowKeys.length}');
+    rowReadKeys.add(List.of(rowKeys));
+    final stored = _store[space]?[table] ?? const <String, _Arrival>{};
+    return SyncPullPage(
+      envelopes: [
+        for (final key in rowKeys)
+          if (stored[key] case final arrival?)
+            if (!unreadable.contains((table, key))) arrival.envelope,
+      ],
+      next: null,
+      hasMore: false,
+      skipped: [
+        for (final key in rowKeys)
+          if (stored.containsKey(key) && unreadable.contains((table, key))) key,
+      ],
+    );
+  }
+
+  static int _seqOf(SyncCursor cursor) =>
+      int.parse(cursor.value.split('|').first);
+
+  SyncCursor _cursorOf(_Arrival arrival) => SyncCursor(
+    timedCursors
+        ? '${arrival.seq}|${arrival.at.microsecondsSinceEpoch}'
+        : '${arrival.seq}',
+  );
+
+  @override
+  DateTime? cursorTime(SyncCursor cursor) {
+    final bar = cursor.value.indexOf('|');
+    if (bar < 0) return null;
+    return DateTime.fromMicrosecondsSinceEpoch(
+      int.parse(cursor.value.substring(bar + 1)),
+      isUtc: true,
     );
   }
 
@@ -292,6 +456,9 @@ class FakeSyncGateway implements SyncGateway {
         listener.close();
       }, isBroadcast: true);
     }
+    if (holdSignals) {
+      return Stream.multi((listener) {}, isBroadcast: true);
+    }
     return Stream.multi((listener) {
       listener.add(_signalNow(space));
       final subscription = _signalOf(space).stream.listen(
@@ -308,7 +475,10 @@ class _Arrival {
   final SyncEnvelope envelope;
   final int seq;
 
-  const _Arrival(this.envelope, this.seq);
+  /// The server time it landed at — its `pushedAt`.
+  final DateTime at;
+
+  const _Arrival(this.envelope, this.seq, this.at);
 }
 
 /// The space document of a created space.

@@ -2096,7 +2096,9 @@ void main() {
         AlertKeepNotice.instance.publish();
         await tester.pump();
 
-        expect(observer.events.whereType<LoadCalendarEvents>(), hasLength(1));
+        // The Keep went through the service's cache: re-emitted, not re-read.
+        expect(observer.events.whereType<RefreshCalendarView>(), hasLength(1));
+        expect(observer.events.whereType<LoadCalendarEvents>(), isEmpty);
         expect(AlertKeepNotice.instance.hasPending, isTrue);
 
         observer.events.clear();
@@ -2108,7 +2110,7 @@ void main() {
 
         expect(find.byType(CalendarPage), findsOneWidget);
         expect(AlertKeepNotice.instance.hasPending, isFalse);
-        expect(observer.events.whereType<LoadCalendarEvents>(), isNotEmpty);
+        expect(observer.events.whereType<RefreshCalendarView>(), isNotEmpty);
         expect(
           find.byType(EventDetailSheet),
           findsNothing,
@@ -2144,6 +2146,7 @@ void main() {
         AlertKeepNotice.instance.publish();
         await tester.pump();
 
+        expect(observer.events.whereType<RefreshCalendarView>(), isEmpty);
         expect(observer.events.whereType<LoadCalendarEvents>(), isEmpty);
         expect(AlertKeepNotice.instance.hasPending, isFalse);
       });
@@ -2155,7 +2158,8 @@ void main() {
         final robot = OverviewRobot(tester);
         await openList(robot);
 
-        expect(observer.events.whereType<LoadCalendarEvents>(), hasLength(1));
+        expect(observer.events.whereType<RefreshCalendarView>(), hasLength(1));
+        expect(observer.events.whereType<LoadCalendarEvents>(), isEmpty);
         expect(AlertKeepNotice.instance.hasPending, isTrue);
       });
     });

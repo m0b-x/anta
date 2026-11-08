@@ -163,6 +163,7 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
                 if (_carriedStatusOf(state) case final status?) {
                   _lastStatus = status;
                 }
+                _rememberHeld(state);
               },
             ),
           ],
@@ -262,6 +263,8 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
             ),
           ],
         ),
+      // Last, so nothing above it moves when it comes or goes.
+      ?_heldBackSection(context, l10n, state),
     ];
   }
 
@@ -445,6 +448,208 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
     _ => null,
   };
 
+  /// The held-back rows listed since the page opened, by table and key, in
+  /// the order first seen, each as last listed. A row that lands stays in
+  /// its place, read as synced, so nothing moves under a user reading the
+  /// list while the parks clear (S7 design review); a page opened afresh
+  /// lists only what is held. Kept by [_rememberHeld] from the bloc's
+  /// states, never from a build.
+  final Map<(String, String), SyncHeldItem> _heldSeen = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _rememberHeld(context.read<SyncBloc>().state);
+  }
+
+  /// Adds [state]'s held-back rows to [_heldSeen], or forgets them all
+  /// once the database does not sync — unbound, or sync unavailable.
+  void _rememberHeld(SyncState state) {
+    final status = _carriedStatusOf(state) ?? _lastStatus;
+    if (state is SyncUnavailable || status == null || status.binding == null) {
+      _heldSeen.clear();
+      return;
+    }
+    for (final item in status.heldBack) {
+      _heldSeen[(item.table, item.rowKey)] = item;
+    }
+  }
+
+  /// The rows held back, each by name with its reason (scalability record
+  /// S7, the D14 promise): the status row only counts them. Read-only rows,
+  /// the first [FormMetrics.syncHeldBackShown] and one that counts the rest;
+  /// absent while the database does not sync, or when nothing was held
+  /// since the page opened. The header counts what is held now, and says
+  /// so in words once nothing is, as the intro does in its place.
+  ///
+  /// The rows carry no keywords: a search for "sync" must not list every
+  /// held row, and a held row is found by its name.
+  SettingsSectionData? _heldBackSection(
+    BuildContext context,
+    AppLocalizations l10n,
+    SyncState state,
+  ) {
+    final status = _carriedStatusOf(state) ?? _lastStatus;
+    if (state is SyncUnavailable ||
+        status == null ||
+        status.binding == null ||
+        _heldSeen.isEmpty) {
+      return null;
+    }
+    final held = {
+      for (final item in status.heldBack) (item.table, item.rowKey),
+    };
+    final colorScheme = Theme.of(context).colorScheme;
+    final muted = TextStyle(color: colorScheme.onSurfaceVariant);
+    final listed = _heldSeen.entries
+        .take(FormMetrics.syncHeldBackShown)
+        .toList();
+    final unlisted = _heldSeen.length - listed.length;
+    final listedKeys = {for (final entry in listed) entry.key};
+    final stillHeld = held.where((key) => !listedKeys.contains(key)).length;
+    final done = held.isEmpty;
+    return SettingsSectionData(
+      icon: Icons.sync_problem_rounded,
+      title: done
+          ? l10n.syncHeldBackAllDone
+          : l10n.syncParkedCount(held.length),
+      intro: Padding(
+        padding: FormMetrics.settingsRowPadding.copyWith(
+          bottom: FormMetrics.settingsRowVerticalPadding,
+        ),
+        // As tall as the taller of its two texts, so the rows below never
+        // move when the last one goes through.
+        child: Stack(
+          children: [
+            ExcludeSemantics(
+              child: Opacity(
+                opacity: 0,
+                child: Text(
+                  done ? l10n.syncHeldBackIntro : l10n.syncHeldBackIntroDone,
+                ),
+              ),
+            ),
+            Text(done ? l10n.syncHeldBackIntroDone : l10n.syncHeldBackIntro),
+          ],
+        ),
+      ),
+      entries: [
+        for (final (index, MapEntry(:key, value: item)) in listed.indexed)
+          _heldBackEntry(
+            l10n,
+            colorScheme,
+            item,
+            index: index,
+            synced: !held.contains(key),
+          ),
+        if (unlisted > 0)
+          SettingsEntry(
+            // The rows it stands for still held now; once none is, it says
+            // they went through, in place.
+            title: stillHeld > 0
+                ? l10n.syncHeldBackMoreHeld(stillHeld)
+                : l10n.syncHeldBackMoreSynced(unlisted),
+            titleStyle: muted,
+            identifier: SemanticsIds.sharingHeldBackMore,
+            builder: (context, title, description) => ListTile(
+              leading: const SizedBox(width: FormMetrics.settingsLeadingWidth),
+              title: title,
+            ),
+          ),
+      ],
+    );
+  }
+
+  /// One held-back row; one that went through while the page is open reads
+  /// [AppLocalizations.syncHeldBackSynced] in its reason's place under a
+  /// check in its kind glyph's place, its title muted, as tall as its
+  /// reason made it — told apart from a held row by more than its words.
+  SettingsEntry _heldBackEntry(
+    AppLocalizations l10n,
+    ColorScheme colorScheme,
+    SyncHeldItem item, {
+    required int index,
+    required bool synced,
+  }) {
+    final reason = _heldBackReason(l10n, item);
+    return SettingsEntry(
+      title: _heldBackTitle(l10n, item),
+      titleStyle: synced
+          ? TextStyle(color: colorScheme.onSurfaceVariant)
+          : null,
+      description: synced ? l10n.syncHeldBackSynced(item.kind.name) : reason,
+      identifier: SemanticsIds.sharingHeldBackRow(index),
+      builder: (context, title, description) => ListTile(
+        titleAlignment: ListTileTitleAlignment.top,
+        leading: Icon(
+          synced ? Icons.check_rounded : _heldBackGlyph(item.kind),
+          color: colorScheme.onSurfaceVariant,
+        ),
+        title: DefaultTextStyle.merge(
+          maxLines: FormMetrics.syncHeldBackTitleLines,
+          overflow: TextOverflow.ellipsis,
+          child: title,
+        ),
+        subtitle: synced
+            ? Stack(
+                children: [
+                  // The reason it replaced, unseen, keeps the row's height.
+                  ExcludeSemantics(
+                    child: Opacity(
+                      opacity: 0,
+                      child: HighlightedText(
+                        text: reason,
+                        style: settingsCaptionStyle,
+                      ),
+                    ),
+                  ),
+                  ?description,
+                ],
+              )
+            : description,
+      ),
+    );
+  }
+
+  /// A note or a folder by its name; any other row by its kind, which is
+  /// all the page can say of a calendar row or a counter, and so is a note
+  /// or a folder this device holds no copy of.
+  static String _heldBackTitle(AppLocalizations l10n, SyncHeldItem item) =>
+      switch ((item.kind, item.name)) {
+        (SyncHeldKind.note, '') => l10n.untitledNote,
+        (SyncHeldKind.note || SyncHeldKind.folder, final name?)
+            when name.isNotEmpty =>
+          name,
+        (final kind, _) => l10n.syncHeldBackKind(kind.name),
+      };
+
+  static String _heldBackReason(AppLocalizations l10n, SyncHeldItem item) {
+    final reason = switch (item.reason) {
+      SyncHeldReason.refused => l10n.syncHeldBackRefused,
+      SyncHeldReason.unencodable => l10n.syncHeldBackUnencodable,
+      SyncHeldReason.awaitingText => l10n.syncHeldBackAwaitingText,
+      SyncHeldReason.unreadable => l10n.syncHeldBackUnreadable,
+    };
+    return item.deleted
+        ? l10n.syncHeldBackDeleted(item.kind.name, reason)
+        : reason;
+  }
+
+  /// The glyph names the kind of a held row; a synced one's is a check.
+  static IconData _heldBackGlyph(SyncHeldKind kind) => switch (kind) {
+    SyncHeldKind.note => Icons.note_outlined,
+    SyncHeldKind.folder => Icons.folder_outlined,
+    SyncHeldKind.event ||
+    SyncHeldKind.category ||
+    SyncHeldKind.template ||
+    SyncHeldKind.view ||
+    SyncHeldKind.filter ||
+    SyncHeldKind.digest => Icons.event_outlined,
+    SyncHeldKind.counter => Icons.pin_rounded,
+    SyncHeldKind.vocabulary => Icons.format_list_bulleted_rounded,
+    SyncHeldKind.other => Icons.sync_rounded,
+  };
+
   /// The pauses Sync now exists to end: the engine's run lifts the quota
   /// hold and checks access again. Signed out, on another account or on an
   /// outdated app a run can do nothing.
@@ -458,6 +663,10 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
   /// the status row: sized for it once, the row never grows when a count
   /// appears or gains a digit.
   static const int _countTemplate = 99999;
+
+  /// A time of day as wide as the quota pause's usually is, in either
+  /// clock, for the templates.
+  static const TimeOfDay _quotaTimeTemplate = TimeOfDay(hour: 22, minute: 58);
 
   /// Rendered in every state, like Pairing: a disabled row keeps the
   /// section findable by the settings search. Unbound it is one row, "Sync
@@ -534,7 +743,7 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
         _syncNowPauses.contains(status.pause) &&
         status.activity == SyncActivity.idle &&
         !stepping;
-    final (line, glyph, carriesCount) = _statusLine(l10n, status);
+    final (line, glyph, carriesCount) = _statusLine(context, l10n, status);
     final lastSync = status.lastSyncAt;
     // The details (review D2-3): the last sync, the ones held back — said
     // nowhere else, so before what an ellipsis cuts first (RC3b-3) — then the
@@ -568,7 +777,7 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
             titleAlignment: ListTileTitleAlignment.top,
             leading: Icon(glyph, color: colorScheme.onSurfaceVariant),
             title: _StatusLines(
-              templates: _statusLineTemplates(l10n),
+              templates: _statusLineTemplates(context, l10n),
               line: line,
               title: title,
               details: description!,
@@ -632,8 +841,13 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
   }
 
   /// Everything the status row's title may say, at one count and at
-  /// [_countTemplate], laid out unseen under the line it says now.
-  List<String> _statusLineTemplates(AppLocalizations l10n) => [
+  /// [_countTemplate], laid out unseen under the line it says now — the
+  /// quota pause at [_quotaTimeTemplate], wider than most times it says.
+  List<String> _statusLineTemplates(
+    BuildContext context,
+    AppLocalizations l10n,
+  ) => [
+    l10n.syncPausedQuotaUntil(formatSyncTimeOfDay(context, _quotaTimeTemplate)),
     l10n.syncPausedQuota,
     l10n.syncPausedSignedOut,
     l10n.syncPausedOtherAccount,
@@ -663,13 +877,21 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
   /// line already counts the pending changes the details would repeat. A
   /// pause outranks a run, and a run the last failure it will retry.
   (String, IconData, bool) _statusLine(
+    BuildContext context,
     AppLocalizations l10n,
     SyncStatus status,
   ) {
     const paused = Icons.pause_circle_outline_rounded;
     switch (status.pause) {
       case SyncPause.quotaExhausted:
-        return (l10n.syncPausedQuota, paused, false);
+        final reset = status.quotaResetAfter(DateTime.now());
+        return (
+          reset == null
+              ? l10n.syncPausedQuota
+              : l10n.syncPausedQuotaUntil(formatSyncQuotaReset(context, reset)),
+          paused,
+          false,
+        );
       case SyncPause.signedOut:
         return (l10n.syncPausedSignedOut, paused, false);
       case SyncPause.accountMismatch:
@@ -979,7 +1201,7 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
           bound &&
           carried.pause != before.pause &&
           carried.pause != SyncPause.none) {
-        message = _statusLine(l10n, carried).$1;
+        message = _statusLine(context, l10n, carried).$1;
       }
     }
     if (message == null) return;

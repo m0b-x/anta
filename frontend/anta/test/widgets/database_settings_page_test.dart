@@ -1,6 +1,9 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:drift/drift.dart' show driftRuntimeOptions;
+import 'package:flutter/foundation.dart'
+    show debugDefaultTargetPlatformOverride;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show RenderParagraph;
 import 'package:flutter/services.dart';
@@ -24,6 +27,7 @@ import 'package:anta/services/folder_storage_service.dart';
 import 'package:anta/services/import_export_service.dart';
 import 'package:anta/services/note_storage_service.dart';
 import 'package:anta/services/settings_service.dart';
+import 'package:anta/widgets/form_rows.dart' show FormCaptionSlot;
 
 import '../database/support/db_test_support.dart';
 import '../goldens/support/golden_fonts.dart';
@@ -218,8 +222,51 @@ void main() {
   });
 
   group('import', () {
-    testWidgets('a SQLite file is copied in verbatim under the suggested name '
-        'and listed', (tester) async {
+    /// The paths the import's check was handed. SQLite cannot run under
+    /// `FakeAsync`, so the page meets a check that accepts every file unless
+    /// a test says otherwise; the real one is
+    /// `test/services/database_manager_import_test.dart`'s.
+    late List<String> verified;
+
+    setUp(() {
+      verified = [];
+      manager.verifyImport = (path) async => verified.add(path);
+    });
+
+    tearDown(() {
+      manager.verifyImport = DatabaseManager.verifyImportFile;
+      DatabaseManager.debugImportChunkWritten = null;
+    });
+
+    /// Every file in the databases directory, sidecars and temporary copies
+    /// included.
+    Future<Set<String>> directoryOnDisk(WidgetTester tester) async {
+      final names = await tester.runAsync(() async {
+        final dir = Directory(await manager.getDatabaseDirectory());
+        return {await for (final entity in dir.list()) p.basename(entity.path)};
+      });
+      return names!;
+    }
+
+    /// A file of [megabytes] MB that passes the header sniff, so the copy
+    /// takes that many chunks.
+    Future<void> writeLargeSqliteFile(
+      WidgetTester tester,
+      String path,
+      int megabytes,
+    ) async {
+      await tester.runAsync(() async {
+        final bytes = Uint8List(megabytes << 20)
+          ..setRange(0, 16, 'SQLite format 3\u0000'.codeUnits);
+        await Directory(p.dirname(path)).create(recursive: true);
+        await File(path).writeAsBytes(bytes);
+      });
+    }
+
+    // Was "a SQLite file is copied in verbatim under the suggested name and
+    // listed": the file now reaches its name only through the check (S19).
+    testWidgets('a SQLite file the check accepts is copied in byte for byte '
+        'under the suggested name and listed', (tester) async {
       final source = p.join(tempDir.path, 'picked', 'My Backup.db');
       final bytes = await tester.runAsync(() async {
         final file = await writeSqliteHeaderFile(source);
@@ -242,6 +289,14 @@ void main() {
         () async => File(await pathOf('My_Backup')).readAsBytes(),
       );
       expect(copied, bytes);
+      // Checked under a temporary name, never as the database itself.
+      final target = await tester.runAsync(() => pathOf('My_Backup'));
+      expect(verified, [startsWith('$target.import-')]);
+      expect(await directoryOnDisk(tester), {
+        'gym_notes.db',
+        'work.db',
+        'My_Backup.db',
+      });
       expect(robot.listsDatabase('My_Backup'), isTrue);
       expect(robot.showsLoading, isFalse);
       expect(prefs.getString(activeKey), isNull);
@@ -295,6 +350,134 @@ void main() {
         await tester.pumpWidget(const SizedBox.shrink());
       },
     );
+
+    testWidgets('the copy fills a determinate bar under a live Cancel; the '
+        'check runs under an indeterminate one whose Cancel is disabled', (
+      tester,
+    ) async {
+      final semantics = tester.ensureSemantics();
+      final source = p.join(tempDir.path, 'picked', 'big.db');
+      await writeLargeSqliteFile(tester, source, 4);
+      picker.nextPath = source;
+      final firstChunk = Completer<void>();
+      final copyGoesOn = Completer<void>();
+      DatabaseManager.debugImportChunkWritten = () async {
+        if (firstChunk.isCompleted) return;
+        firstChunk.complete();
+        await copyGoesOn.future;
+      };
+      final checking = Completer<void>();
+      final checkDone = Completer<void>();
+      manager.verifyImport = (path) async {
+        checking.complete();
+        await checkDone.future;
+      };
+
+      final robot = DatabaseSettingsRobot(tester);
+      await robot.pump();
+      await robot.tapButton(l10n.importDatabase);
+      await robot.settleUntil(() => robot.showsDialog);
+      await robot.confirmDialog();
+      await robot.settleUntil(() => firstChunk.isCompleted);
+      await robot.settle(rounds: 2);
+
+      expect(robot.importBarValue, closeTo(0.25, 0.001));
+      expect(robot.importCancelEnabled, isTrue);
+      expect(robot.showsImportStep(l10n.importingDatabase), isTrue);
+      expect(robot.showsImportStep(l10n.checkingDatabaseFile), isFalse);
+
+      copyGoesOn.complete();
+      await robot.settleUntil(() => checking.isCompleted);
+      await robot.settle(rounds: 2);
+
+      expect(robot.importBarValue, isNull);
+      expect(robot.importCancelEnabled, isFalse);
+      expect(robot.showsImportStep(l10n.checkingDatabaseFile), isTrue);
+      expect(robot.showsImportStep(l10n.importingDatabase), isFalse);
+      expect(await filesOnDisk(tester), {'gym_notes', 'work'});
+
+      checkDone.complete();
+      await robot.settleUntil(() => robot.shows(l10n.databaseImported));
+
+      expect(robot.showsDialog, isFalse);
+      expect(await filesOnDisk(tester), {'gym_notes', 'work', 'big'});
+      semantics.dispose();
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('Cancel during the copy deletes the partial file, says '
+        'nothing, and leaves the active database as it was', (tester) async {
+      final source = p.join(tempDir.path, 'picked', 'big.db');
+      await writeLargeSqliteFile(tester, source, 4);
+      picker.nextPath = source;
+      await prefs.setString(activeKey, 'work');
+      final firstChunk = Completer<void>();
+      final copyGoesOn = Completer<void>();
+      DatabaseManager.debugImportChunkWritten = () async {
+        if (firstChunk.isCompleted) return;
+        firstChunk.complete();
+        await copyGoesOn.future;
+      };
+
+      final robot = DatabaseSettingsRobot(tester);
+      await robot.pump();
+      await robot.tapButton(l10n.importDatabase);
+      await robot.settleUntil(() => robot.showsDialog);
+      await robot.confirmDialog();
+      await robot.settleUntil(() => firstChunk.isCompleted);
+
+      expect(
+        (await directoryOnDisk(tester)).where((n) => n.contains('.import-')),
+        hasLength(1),
+        reason: 'the partial copy is on disk while the copy is held',
+      );
+      await robot.cancelDialog();
+      expect(robot.importCancelEnabled, isFalse, reason: 'one cancel only');
+      copyGoesOn.complete();
+      await robot.settleUntil(() => !robot.showsDialog);
+      await robot.settle();
+
+      expect(verified, isEmpty);
+      expect(await directoryOnDisk(tester), {'gym_notes.db', 'work.db'});
+      expect(prefs.getString(activeKey), 'work');
+      expect(robot.shows(l10n.importFailed), isFalse);
+      expect(robot.shows(l10n.databaseImported), isFalse);
+      expect(robot.showsPage, isTrue);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    for (final (refusal, message) in [
+      (const DatabaseImportCorrupt('test'), l10n.databaseImportCorrupt),
+      (const DatabaseImportNotAnta(), l10n.databaseImportNotAnta),
+      (const DatabaseImportTooNew(99), l10n.databaseImportTooNew),
+      (const FileSystemException('disk full'), l10n.importFailed),
+    ]) {
+      testWidgets('a file the check refuses with ${refusal.runtimeType} says '
+          'so and leaves nothing behind', (tester) async {
+        final source = p.join(tempDir.path, 'picked', 'refused.db');
+        await tester.runAsync(() => writeSqliteHeaderFile(source));
+        picker.nextPath = source;
+        manager.verifyImport = (_) async => throw refusal;
+
+        final robot = DatabaseSettingsRobot(tester);
+        await robot.pump();
+        await robot.tapButton(l10n.importDatabase);
+        await robot.settleUntil(() => robot.showsDialog);
+        await robot.confirmDialog();
+        await robot.settleUntil(() => robot.shows(message));
+        await robot.settle();
+
+        expect(find.text(message), findsOneWidget);
+        expect(robot.showsDialog, isFalse);
+        expect(await directoryOnDisk(tester), {'gym_notes.db', 'work.db'});
+        expect(robot.listsDatabase('refused'), isFalse);
+        expect(prefs.getString(activeKey), isNull);
+
+        await tester.pumpWidget(const SizedBox.shrink());
+      });
+    }
   });
 
   group('rename', () {
@@ -469,8 +652,31 @@ void main() {
   });
 
   group('share', () {
-    testWidgets('sharing hands the active database file itself to the share '
-        'sheet', (tester) async {
+    /// The share snapshots' folders in the temp directory, by name.
+    Set<String> snapshotFolders() => {
+      for (final entity in tempDir.listSync())
+        if (entity is Directory &&
+            p
+                .basename(entity.path)
+                .startsWith(DatabaseManager.shareSnapshotPrefix))
+          p.basename(entity.path),
+    };
+
+    tearDown(() {
+      for (final name in snapshotFolders()) {
+        Directory(p.join(tempDir.path, name)).deleteSync(recursive: true);
+      }
+    });
+
+    /// The one path the share sheet was handed.
+    String sharedPath(List<MethodCall> shares) =>
+        ((shares.single.arguments as Map)['paths'] as List).single as String;
+
+    // S18 flipped this pin (D11): the sheet was handed the live file itself;
+    // it now gets a snapshot under the same name, so a restore suggests the
+    // same database name, in a folder of its own.
+    testWidgets('sharing hands the share sheet a snapshot of the active '
+        'database under its own name', (tester) async {
       final shares = recordMethodCalls(shareChannel);
       final robot = DatabaseSettingsRobot(tester);
       await robot.pump();
@@ -481,8 +687,16 @@ void main() {
 
       expect(shares, hasLength(1));
       expect(shares.single.method, 'share');
-      final arguments = shares.single.arguments as Map;
-      expect(arguments['paths'], [await pathOf('gym_notes')]);
+      final shared = sharedPath(shares);
+      expect(p.basename(shared), 'gym_notes.db');
+      expect(p.dirname(p.dirname(shared)), tempDir.path);
+      expect(
+        p.basename(p.dirname(shared)),
+        startsWith(DatabaseManager.shareSnapshotPrefix),
+      );
+      expect(shared, isNot(await pathOf('gym_notes')));
+      // No answer is `unavailable`: the copy waits for the next share.
+      expect(File(shared).existsSync(), isTrue);
       expect(robot.showsLoading, isFalse);
       expect(robot.showsPage, isTrue);
       expect(robot.shows(l10n.shareError), isFalse);
@@ -490,18 +704,54 @@ void main() {
       await tester.pumpWidget(const SizedBox.shrink());
     });
 
-    testWidgets('sharing checkpoints the open database first and leaves the '
-        'live file in place', (tester) async {
+    testWidgets('on Android a share the sheet answered takes the snapshot '
+        'folder with it', (tester) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      final shares = recordMethodCalls(shareChannel, answer: 'org.example');
+      final robot = DatabaseSettingsRobot(tester);
+      await robot.pump();
+
+      await robot.tapButton(l10n.shareDatabase);
+      await robot.settleUntil(() => shares.isNotEmpty);
+      await robot.settleUntil(() => snapshotFolders().isEmpty);
+
+      expect(File(sharedPath(shares)).existsSync(), isFalse);
+      expect(robot.shows(l10n.shareError), isFalse);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+      debugDefaultTargetPlatformOverride = null;
+    });
+
+    // S18 flipped this pin (D11): the open database was checkpointed so the
+    // live file alone held every write; the snapshot now carries the write
+    // still in the WAL, with nothing folded.
+    testWidgets('the snapshot carries the write still in the WAL and the live '
+        'file stays in place', (tester) async {
       final path = await pathOf('gym_notes');
       await tester.runAsync(() async {
         final db = await AppDatabase.getInstance();
         await db.folderDao.createFolder(name: 'Latest');
       });
-      final walAtShare = <int>[];
+      final latestAtShare = <int>[];
       final messenger =
           TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
       messenger.setMockMethodCallHandler(shareChannel, (call) async {
-        walAtShare.add(File('$path-wal').lengthSync());
+        final shared = ((call.arguments as Map)['paths'] as List).single;
+        final copy = sqlite3.open(shared as String, mode: OpenMode.readOnly);
+        try {
+          latestAtShare.add(
+            copy
+                    .select(
+                      "SELECT count(*) FROM folders WHERE name = 'Latest'",
+                    )
+                    .single
+                    .values
+                    .first
+                as int,
+          );
+        } finally {
+          copy.close();
+        }
         return null;
       });
       addTearDown(() => messenger.setMockMethodCallHandler(shareChannel, null));
@@ -510,13 +760,11 @@ void main() {
       final robot = DatabaseSettingsRobot(tester);
       await robot.pump();
       await robot.tapButton(l10n.shareDatabase);
-      await robot.settleUntil(() => walAtShare.isNotEmpty);
+      await robot.settleUntil(() => latestAtShare.isNotEmpty);
       await robot.settle();
 
-      // Folded before the share sheet read the file (S2) — and the file the
-      // sheet was handed is the app's own, which `shareExport` must not
-      // delete afterwards as it does a temp export.
-      expect(walAtShare, [0]);
+      expect(latestAtShare, [1]);
+      expect(File('$path-wal').lengthSync(), greaterThan(0));
       expect(File(path).existsSync(), isTrue);
       expect(robot.showsPage, isTrue);
       expect(robot.shows(l10n.shareError), isFalse);
@@ -541,7 +789,10 @@ void main() {
       await robot.pump(overBase: true);
 
       await robot.tapButton(l10n.shareDatabase);
-      await robot.settleUntil(() => robot.shows(l10n.shareError));
+      // The error can show while the loading dialog's exit is still running.
+      await robot.settleUntil(
+        () => robot.shows(l10n.shareError) && !robot.showsLoading,
+      );
 
       // The sentence alone: the exception is logged, never appended.
       expect(find.text(l10n.shareError), findsOneWidget);
@@ -549,13 +800,15 @@ void main() {
       expect(robot.showsPage, isTrue);
       expect(robot.shows(DatabaseSettingsRobot.baseText), isFalse);
       expect(File(await pathOf('gym_notes')).existsSync(), isTrue);
+      // No sheet ever had the snapshot, so it went at once.
+      expect(snapshotFolders(), isEmpty);
 
       await tester.pumpWidget(const SizedBox.shrink());
     });
 
-    // The live file is shared where it lives, never as a temporary export.
-    // The file here is closed: on Windows an open one cannot be deleted at
-    // all, which would hide a share that tried.
+    // The live file is never handed over nor cleaned up as a temporary
+    // export, whatever the share does. The file here is closed: on Windows an
+    // open one cannot be deleted at all, which would hide a share that tried.
     for (final (outcome, handler)
         in <(String, Future<Object?>? Function(MethodCall)?)>[
           ('succeeds', (call) async => null),
@@ -568,8 +821,13 @@ void main() {
       testWidgets('a share whose channel $outcome leaves the database file '
           'byte for byte', (tester) async {
         final path = await pathOf('gym_notes');
+        // A real database, closed: S18's snapshot reads it, where the
+        // header-only file the earlier pin used fails to open (below).
         final bytes = await tester.runAsync(() async {
-          await writeSqliteHeaderFile(path);
+          final writer = sqlite3.open(path);
+          writer.execute('CREATE TABLE items (v TEXT)');
+          writer.execute("INSERT INTO items VALUES ('kept')");
+          writer.close();
           return File(path).readAsBytes();
         });
         var shared = false;
@@ -604,8 +862,11 @@ void main() {
       });
     }
 
-    testWidgets('a blocked checkpoint shows the error and never reaches the '
-        'share sheet', (tester) async {
+    // S18 flipped this pin (D11): a reader holding the WAL blocked the
+    // checkpoint and refused the share; the snapshot needs no checkpoint.
+    testWidgets('a reader holding the WAL no longer refuses the share', (
+      tester,
+    ) async {
       final shares = recordMethodCalls(shareChannel);
       final path = await pathOf('gym_notes');
       await tester.runAsync(() async {
@@ -621,10 +882,36 @@ void main() {
       final robot = DatabaseSettingsRobot(tester);
       await robot.pump();
       await robot.tapButton(l10n.shareDatabase);
-      await robot.settleUntil(() => robot.shows(l10n.shareError));
+      await robot.settleUntil(() => shares.isNotEmpty);
+      await robot.settle();
       reader.execute('COMMIT');
 
+      expect(shares, hasLength(1));
+      expect(robot.shows(l10n.shareError), isFalse);
+      expect(robot.showsLoading, isFalse);
+      expect(robot.showsPage, isTrue);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    // `SQLITE_FULL` cannot be staged here; a database SQLite refuses to read
+    // fails the same copy on the same path.
+    testWidgets('a snapshot that fails shows the error, never reaches the '
+        'share sheet and leaves no folder behind', (tester) async {
+      final shares = recordMethodCalls(shareChannel);
+      final path = await pathOf('gym_notes');
+      await tester.runAsync(() => writeSqliteHeaderFile(path));
+
+      final robot = DatabaseSettingsRobot(tester);
+      await robot.pump();
+      await robot.tapButton(l10n.shareDatabase);
+      // The error can show while the loading dialog's exit is still running.
+      await robot.settleUntil(
+        () => robot.shows(l10n.shareError) && !robot.showsLoading,
+      );
+
       expect(shares, isEmpty);
+      expect(snapshotFolders(), isEmpty);
       expect(robot.showsLoading, isFalse);
       expect(robot.showsPage, isTrue);
 
@@ -643,6 +930,35 @@ void main() {
       };
       return (double.parse(number) * scale).round();
     }
+
+    /// The reclaimable caption as shown: the slot's last text, after the
+    /// invisible twins that size it.
+    String shownCaption(WidgetTester tester) => tester
+        .widgetList<Text>(
+          find.descendant(
+            of: find.byType(FormCaptionSlot),
+            matching: find.byType(Text),
+          ),
+        )
+        .last
+        .data!;
+
+    double buttonTop(WidgetTester tester, String label) => tester
+        .getTopLeft(
+          find.ancestor(
+            of: find.text(label),
+            matching: find.byWidgetPredicate((w) => w is ButtonStyleButton),
+          ),
+        )
+        .dy;
+
+    /// What the Optimize snackbar says before the size it freed.
+    final freedPrefix = l10n.optimizeFreed('');
+
+    /// How far below Optimize the Share button sits.
+    double shareGap(WidgetTester tester) =>
+        buttonTop(tester, l10n.shareDatabase) -
+        buttonTop(tester, l10n.optimizeDatabase);
 
     testWidgets('optimizing vacuums the open database, keeps its rows and '
         'reloads the size', (tester) async {
@@ -671,13 +987,11 @@ void main() {
       final sizeBefore = bytesOf(robot.statValue(l10n.size));
 
       await robot.tapButton(l10n.optimizeDatabase);
-      await robot.settleUntil(() => robot.shows(l10n.optimizationComplete));
+      await robot.settleUntil(() => robot.shows(freedPrefix));
 
       expect(robot.showsLoading, isFalse);
-      // The suffix is computed from the size read back after the vacuum, and
-      // the card shows that size: both prove the vacuum ran and the info
-      // reloaded.
-      expect(robot.shows(l10n.saved), isTrue);
+      // The card shows the size read back after the vacuum: it proves the
+      // vacuum ran and the info reloaded.
       final sizeAfter = bytesOf(robot.statValue(l10n.size));
       expect(sizeAfter, lessThan(sizeBefore));
       final folders = await tester.runAsync(
@@ -686,6 +1000,221 @@ void main() {
         ),
       );
       expect(folders!.map((f) => f.name), contains('Kept'));
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('the caption beside Optimize reads the free pages, and none '
+        'once optimized (D13)', (tester) async {
+      final reclaimable = await tester.runAsync(() async {
+        final db = await AppDatabase.getInstance();
+        await db.customStatement('CREATE TABLE ballast (v TEXT)');
+        await db.customStatement(
+          'WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM n '
+          'WHERE x < 1000) INSERT INTO ballast SELECT hex(randomblob(1900)) '
+          'FROM n',
+        );
+        await db.customStatement('DELETE FROM ballast');
+        return db.reclaimableBytes();
+      });
+      expect(reclaimable, greaterThan(1024 * 1024));
+      final robot = DatabaseSettingsRobot(tester);
+      await robot.pump();
+      await robot.scrollTo(l10n.optimizeDatabase);
+
+      final prefix = l10n.databaseReclaimable('');
+      // The last match is the shown caption; the slot's sizing twins come
+      // before it.
+      final caption = tester
+          .widgetList<Text>(find.textContaining(prefix))
+          .last
+          .data!
+          .substring(prefix.length);
+      // Shown in MB to two decimals.
+      expect(
+        (bytesOf(caption) - reclaimable!).abs(),
+        lessThanOrEqualTo(0.005 * 1024 * 1024),
+      );
+      // A file over a megabyte can leave a reading in kilobytes, which can
+      // be wider than the file's own ("999.5 KB" beside "1.20 MB"): the slot
+      // is sized at the widest one.
+      expect(
+        find.text(
+          l10n.databaseReclaimable(l10n.databaseSizeKilobytes('1024.0')),
+        ),
+        findsOneWidget,
+      );
+
+      await robot.tapButton(l10n.optimizeDatabase);
+      await robot.settleUntil(() => robot.shows(freedPrefix));
+
+      expect(
+        find.text(l10n.databaseReclaimable(l10n.databaseSizeBytes('0'))),
+        findsOneWidget,
+      );
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('the neutral caption while the active database is not open', (
+      tester,
+    ) async {
+      final robot = DatabaseSettingsRobot(tester);
+      await robot.pump();
+      await robot.scrollTo(l10n.optimizeDatabase);
+
+      expect(shownCaption(tester), l10n.databaseReclaimableUnknown);
+    });
+
+    // The caption is read in the page's first load and always laid out, so
+    // the Share button under it never moves (D13 review F9).
+    testWidgets('the caption is in the first frame, reads the neutral sentence '
+        'when the read fails, and the Share button keeps its place', (
+      tester,
+    ) async {
+      const tall = Size(412, 3000);
+      final db = (await tester.runAsync(() async {
+        final db = await AppDatabase.getInstance();
+        await db.customStatement('CREATE TABLE ballast (v TEXT)');
+        await db.customStatement(
+          'WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM n '
+          'WHERE x < 200) INSERT INTO ballast SELECT hex(randomblob(1900)) '
+          'FROM n',
+        );
+        await db.customStatement('DELETE FROM ballast');
+        // Folded, so closing the database below leaves the size the same.
+        await db.checkpoint();
+        return db;
+      }))!;
+      final robot = DatabaseSettingsRobot(tester);
+      // Returns on the first frame that shows the page's content.
+      await robot.pump(size: tall);
+
+      final known = shownCaption(tester);
+      expect(known, startsWith(l10n.databaseReclaimable('')));
+      final knownGap = shareGap(tester);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+      // A closed connection under the open handle: the read throws.
+      await tester.runAsync(db.close);
+      await robot.pump(size: tall);
+
+      expect(shownCaption(tester), l10n.databaseReclaimableUnknown);
+      expect(shareGap(tester), knownGap);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    // Under WAL the vacuum's pages sit in `-wal` until a checkpoint; a size
+    // delta read before it came out negative and said "already optimized"
+    // right after space was given back (D13 review F3).
+    testWidgets('optimizing a file with free pages says what it freed — the '
+        'free pages read before the run — never that it was compact', (
+      tester,
+    ) async {
+      final reclaimable = await tester.runAsync(() async {
+        final db = await AppDatabase.getInstance();
+        // Under the WAL's 1,000-page auto-checkpoint, so only the run's own
+        // checkpoint shrinks the main file.
+        await db.customStatement('CREATE TABLE ballast (v TEXT)');
+        await db.customStatement(
+          'WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM n '
+          'WHERE x < 500) INSERT INTO ballast SELECT hex(randomblob(1900)) '
+          'FROM n',
+        );
+        await db.customStatement('DELETE FROM ballast');
+        await db.checkpoint();
+        return db.reclaimableBytes();
+      });
+      expect(reclaimable, greaterThan(1024 * 1024));
+      final robot = DatabaseSettingsRobot(tester);
+      await robot.pump();
+
+      await robot.tapButton(l10n.optimizeDatabase);
+      await robot.settleUntil(() => robot.shows(freedPrefix));
+
+      final freed = tester
+          .widget<Text>(find.textContaining(freedPrefix))
+          .data!
+          .substring(freedPrefix.length);
+      // Shown in MB to two decimals.
+      expect(
+        (bytesOf(freed) - reclaimable!).abs(),
+        lessThanOrEqualTo(0.005 * 1024 * 1024),
+      );
+      expect(robot.shows(l10n.optimizeAlreadyCompact), isFalse);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    // The size before counts the `-wal` sidecar and the run's checkpoint
+    // folds it back, so a size delta called those pages freed.
+    testWidgets('a file with no free pages is already compact, however much '
+        'sits in its WAL', (tester) async {
+      await tester.runAsync(() async {
+        final db = await AppDatabase.getInstance();
+        // Under the WAL's 1,000-page auto-checkpoint: it stays in `-wal`.
+        await db.customStatement('CREATE TABLE ballast (v TEXT)');
+        await db.customStatement(
+          'WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM n '
+          'WHERE x < 500) INSERT INTO ballast SELECT hex(randomblob(1900)) '
+          'FROM n',
+        );
+        expect(await db.reclaimableBytes(), 0);
+        final wal = File('${await pathOf('gym_notes')}-wal');
+        expect(wal.lengthSync(), greaterThan(1024 * 1024));
+      });
+      final robot = DatabaseSettingsRobot(tester);
+      await robot.pump();
+
+      await robot.tapButton(l10n.optimizeDatabase);
+      await robot.settleUntil(() => robot.shows(l10n.optimizeAlreadyCompact));
+
+      expect(robot.shows(freedPrefix), isFalse);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('Optimize refreshes the page in place: the scroll and the '
+        'Share button stay where they were', (tester) async {
+      await tester.runAsync(() async {
+        final db = await AppDatabase.getInstance();
+        await db.customStatement('CREATE TABLE ballast (v TEXT)');
+        await db.customStatement(
+          'WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM n '
+          'WHERE x < 500) INSERT INTO ballast SELECT hex(randomblob(1900)) '
+          'FROM n',
+        );
+        await db.customStatement('DELETE FROM ballast');
+        await db.checkpoint();
+      });
+      final robot = DatabaseSettingsRobot(tester);
+      await robot.pump(size: const Size(360, 780));
+      Finder button(String label) => find.ancestor(
+        of: find.text(label),
+        matching: find.byWidgetPredicate((w) => w is ButtonStyleButton),
+      );
+      await robot.scrollTo(l10n.optimizeDatabase);
+      await tester.ensureVisible(button(l10n.optimizeDatabase));
+      await tester.pump();
+      final position = tester
+          .state<ScrollableState>(find.byType(Scrollable).first)
+          .position;
+      final offset = position.pixels;
+      expect(offset, greaterThan(0), reason: 'the page was scrolled');
+      final shareBefore = tester.getRect(button(l10n.shareDatabase));
+
+      // Tapped where it stands: the robot's tap would scroll to it first.
+      await tester.tap(button(l10n.optimizeDatabase));
+      await robot.settleUntil(() => robot.shows(freedPrefix));
+
+      expect(
+        tester.state<ScrollableState>(find.byType(Scrollable).first).position,
+        same(position),
+        reason: 'the list was kept, not rebuilt behind a spinner',
+      );
+      expect(position.pixels, offset);
+      expect(tester.getRect(button(l10n.shareDatabase)), shareBefore);
 
       await tester.pumpWidget(const SizedBox.shrink());
     });
@@ -818,6 +1347,72 @@ void main() {
       expect(errors.map((e) => e.exceptionAsString()), isEmpty);
       expect(tester.takeException(), isNull);
       expect(prefs.getString(activeKey), isNull);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('the import dialog fits both its steps with no overflow, and '
+        'the step\'s switch keeps its height', (tester) async {
+      final source = p.join(tempDir.path, 'picked', 'big.db');
+      await tester.runAsync(() async {
+        final bytes = Uint8List(2 << 20)
+          ..setRange(0, 16, 'SQLite format 3\u0000'.codeUnits);
+        await Directory(p.dirname(source)).create(recursive: true);
+        await File(source).writeAsBytes(bytes);
+      });
+      picker.nextPath = source;
+      final firstChunk = Completer<void>();
+      final copyGoesOn = Completer<void>();
+      DatabaseManager.debugImportChunkWritten = () async {
+        if (firstChunk.isCompleted) return;
+        firstChunk.complete();
+        await copyGoesOn.future;
+      };
+      final checking = Completer<void>();
+      final checkDone = Completer<void>();
+      manager.verifyImport = (_) async {
+        checking.complete();
+        await checkDone.future;
+      };
+      addTearDown(() {
+        manager.verifyImport = DatabaseManager.verifyImportFile;
+        DatabaseManager.debugImportChunkWritten = null;
+      });
+      final robot = DatabaseSettingsRobot(tester);
+      await pumpLarge(robot);
+
+      // The dialog's own surface: the AlertDialog widget fills the screen.
+      final surface = find
+          .descendant(
+            of: find.byType(AlertDialog),
+            matching: find.byType(Material),
+          )
+          .first;
+      late Size copying;
+      late Size verifying;
+      final errors = await layoutErrorsDuring(() async {
+        await robot.tapButton(de.importDatabase);
+        await robot.settleUntil(() => robot.showsDialog);
+        await robot.confirmDialog();
+        await robot.settleUntil(() => firstChunk.isCompleted);
+        await robot.settle(rounds: 2);
+        copying = tester.getSize(surface);
+        copyGoesOn.complete();
+        await robot.settleUntil(() => checking.isCompleted);
+        await robot.settle(rounds: 2);
+        verifying = tester.getSize(surface);
+        checkDone.complete();
+        await robot.settleUntil(() => robot.shows(de.databaseImported));
+      });
+
+      expect(errors.map((e) => e.exceptionAsString()), isEmpty);
+      expect(tester.takeException(), isNull);
+      expect(
+        copying.height,
+        lessThan(780),
+        reason: 'the surface, not the route',
+      );
+      expect(verifying, copying);
 
       await tester.pumpWidget(const SizedBox.shrink());
     });

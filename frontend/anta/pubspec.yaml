@@ -68,7 +68,10 @@ dependencies:
 
   # Archive (zip) support for folder export/import
   archive: ^4.1.0
-  
+
+  # SHA-256 of a note body's chunks: their identity in the store and on the wire
+  crypto: ^3.0.7
+
   # Line-based scrollable list for precise scroll positioning
   scrollable_positioned_list: ^0.3.8
 

@@ -157,6 +157,72 @@ void main() {
 
     expect(cachedIds(), ['kept']);
   });
+
+  test('a pull merged while the instance is still being built reaches it '
+      '(S13)', () async {
+    await service.upsert(eventOf('pulled', DateTime.utc(2026, 1, 1)));
+    CalendarEventService.reset();
+    // The construction's rows are read, then held: the merge below commits
+    // after them, and the instance the construction publishes is the one the
+    // bloc seeds from without a reload of its own.
+    gate.holdNextEventRead();
+    final creating = CalendarEventService.forTesting(db);
+    await pumpEventQueue();
+    expect(gate.held, isTrue);
+    expect(CalendarEventService.isLive, isFalse);
+
+    await db.customStatement(
+      "UPDATE calendar_events SET title = 'merged' WHERE id = 'pulled'",
+    );
+    final refresh = CalendarEventService.refreshAfterSync();
+    gate.release();
+    final built = await creating;
+    await refresh;
+
+    expect(built.events.single.title, 'merged');
+    expect(
+      identical(await CalendarEventService.forTesting(db), built),
+      isTrue,
+      reason: 'the refresh reloaded the published instance, built no other',
+    );
+  });
+
+  test('a construction a database switch overtook never publishes the old '
+      'database\'s store (S14)', () async {
+    await service.upsert(eventOf('old', DateTime.utc(2026, 1, 1)));
+    CalendarEventService.reset();
+    gate.holdNextEventRead();
+    final creatingA = CalendarEventService.forTesting(db);
+    await pumpEventQueue();
+    expect(gate.held, isTrue);
+    final refresh = CalendarEventService.refreshAfterSync();
+
+    // The switch: the singleton dropped, the new database's instance built.
+    CalendarEventService.reset();
+    final other = await openTestDatabase();
+    addTearDown(other.close);
+    final now = DateTime.now();
+    await other.calendarEventDao.upsert(
+      CalendarEventsCompanion.insert(
+        id: 'new',
+        title: 'new',
+        category: 'gym',
+        startDate: DateTime.utc(2026, 2, 1),
+        ruleKind: 'oneTime',
+        createdAt: now,
+        updatedAt: now,
+      ),
+    );
+    final b = await CalendarEventService.forTesting(other);
+
+    gate.release();
+    final a = await creatingA;
+    await refresh;
+
+    expect(identical(a, b), isTrue, reason: 'the old caller gets the new one');
+    expect(identical(await CalendarEventService.forTesting(other), b), isTrue);
+    expect([for (final e in b.events) e.id], ['new']);
+  });
 }
 
 /// Delivers the event table's reload late: the `SELECT` runs at once, so its

@@ -2111,6 +2111,10 @@ class AppLocalizationsRo extends AppLocalizations {
   String get inTextSection => 'În text';
 
   @override
+  String get searchStillIndexing =>
+      'Notițele încă se indexează — unele pot lipsi';
+
+  @override
   String get clearSearchHistory => 'Șterge istoricul căutărilor';
 
   @override
@@ -2272,13 +2276,12 @@ class AppLocalizationsRo extends AppLocalizations {
   String get optimizing => 'Se optimizează baza de date...';
 
   @override
-  String get optimizationComplete => 'Baza de date a fost optimizată cu succes';
+  String optimizeFreed(String size) {
+    return 'S-au eliberat $size';
+  }
 
   @override
-  String get saved => 'salvat';
-
-  @override
-  String get alreadyOptimized => 'Baza de date este deja optimizată';
+  String get optimizeAlreadyCompact => 'Deja compactă';
 
   @override
   String get deleteConfirmation =>
@@ -2577,6 +2580,21 @@ class AppLocalizationsRo extends AppLocalizations {
       'Acest fișier nu este o bază de date validă.';
 
   @override
+  String get checkingDatabaseFile => 'Se verifică fișierul...';
+
+  @override
+  String get databaseImportCorrupt =>
+      'Acest fișier de bază de date este deteriorat și nu poate fi importat.';
+
+  @override
+  String get databaseImportNotAnta =>
+      'Acest fișier nu este o bază de date ANTA.';
+
+  @override
+  String get databaseImportTooNew =>
+      'Această bază de date provine dintr-o versiune mai nouă a ANTA. Actualizează aplicația pentru a o importa.';
+
+  @override
   String get renameDatabase => 'Redenumește Baza de Date';
 
   @override
@@ -2640,6 +2658,27 @@ class AppLocalizationsRo extends AppLocalizations {
 
   @override
   String get databaseOptimizeFailed => 'Baza de date nu a putut fi optimizată';
+
+  @override
+  String databaseReclaimable(String size) {
+    return 'Spațiu recuperabil: $size';
+  }
+
+  @override
+  String get databaseReclaimableUnknown => 'Spațiu recuperabil necunoscut';
+
+  @override
+  String get launchUpdatingData => 'Se actualizează datele…';
+
+  @override
+  String get launchOpeningData => 'Se deschid datele…';
+
+  @override
+  String get launchOpenFailed => 'Datele nu au putut fi deschise';
+
+  @override
+  String get launchOpenFailedNext =>
+      'Încearcă din nou sau repornește aplicația. Dacă se repetă, eliberează spațiu de stocare.';
 
   @override
   String deleteDatabaseConfirm(String name) {
@@ -4695,8 +4734,12 @@ class AppLocalizationsRo extends AppLocalizations {
   String get syncRetrying => 'Sincronizare eșuată — se reîncearcă';
 
   @override
-  String get syncPausedQuota =>
-      'În pauză — limita de sincronizare de azi a fost atinsă';
+  String get syncPausedQuota => 'În pauză — limita zilnică atinsă';
+
+  @override
+  String syncPausedQuotaUntil(String time) {
+    return 'În pauză până la $time — limita zilnică atinsă';
+  }
 
   @override
   String get syncPausedSignedOut => 'În pauză — deconectat';
@@ -4716,7 +4759,12 @@ class AppLocalizationsRo extends AppLocalizations {
   String get drawerAccountNotSyncing => 'Nu se sincronizează';
 
   @override
-  String get drawerSyncPausedQuota => 'În pauză — limita zilnică atinsă';
+  String get drawerSyncPausedQuota => 'În pauză — limita zilnică';
+
+  @override
+  String drawerSyncPausedQuotaUntil(String time) {
+    return 'În pauză până la $time';
+  }
 
   @override
   String get drawerSyncPausedOtherAccount => 'În pauză — alt cont';
@@ -4785,6 +4833,101 @@ class AppLocalizationsRo extends AppLocalizations {
     );
     return '$_temp0';
   }
+
+  @override
+  String get syncHeldBackRefused => 'Copia din cloud a refuzat modificarea';
+
+  @override
+  String get syncHeldBackUnencodable => 'Nu s-a putut pregăti pentru trimitere';
+
+  @override
+  String get syncHeldBackAwaitingText => 'Se așteaptă textul';
+
+  @override
+  String get syncHeldBackUnreadable => 'Nu s-a putut citi din copia din cloud';
+
+  @override
+  String syncHeldBackDeleted(String kind, String reason) {
+    String _temp0 = intl.Intl.selectLogic(kind, {
+      'note': 'Ștearsă',
+      'category': 'Ștearsă',
+      'view': 'Ștearsă',
+      'vocabulary': 'Ștearsă',
+      'other': 'Șters',
+    });
+    return '$_temp0 · $reason';
+  }
+
+  @override
+  String syncHeldBackKind(String kind) {
+    String _temp0 = intl.Intl.selectLogic(kind, {
+      'note': 'O notiță',
+      'folder': 'Un dosar',
+      'event': 'Un eveniment din calendar',
+      'category': 'O categorie din calendar',
+      'counter': 'Un contor',
+      'template': 'Un șablon de eveniment',
+      'view': 'O vizualizare salvată',
+      'filter': 'Un filtru salvat',
+      'digest': 'Un rezumat',
+      'vocabulary': 'O listă de termeni',
+      'other': 'Un element',
+    });
+    return '$_temp0';
+  }
+
+  @override
+  String syncHeldBackMoreHeld(int count) {
+    final intl.NumberFormat countNumberFormat =
+        intl.NumberFormat.decimalPattern(localeName);
+    final String countString = countNumberFormat.format(count);
+
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Și încă $countString amânate',
+      few: 'Și încă $countString amânate',
+      one: 'Și încă unul amânat',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String syncHeldBackMoreSynced(int count) {
+    final intl.NumberFormat countNumberFormat =
+        intl.NumberFormat.decimalPattern(localeName);
+    final String countString = countNumberFormat.format(count);
+
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Celelalte $countString au fost sincronizate',
+      few: 'Celelalte $countString au fost sincronizate',
+      one: 'Celălalt a fost sincronizat',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String syncHeldBackSynced(String kind) {
+    String _temp0 = intl.Intl.selectLogic(kind, {
+      'note': 'Sincronizată',
+      'category': 'Sincronizată',
+      'view': 'Sincronizată',
+      'vocabulary': 'Sincronizată',
+      'other': 'Sincronizat',
+    });
+    return '$_temp0';
+  }
+
+  @override
+  String get syncHeldBackAllDone => 'Totul sincronizat';
+
+  @override
+  String get syncHeldBackIntro => '„Sincronizează acum” încearcă din nou.';
+
+  @override
+  String get syncHeldBackIntroDone => 'Nimic nu mai este amânat.';
 
   @override
   String get syncNow => 'Sincronizează acum';

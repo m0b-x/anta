@@ -477,9 +477,11 @@ class CategoryService {
   /// the reassignment by the next save of it (the editor seeds its draft from
   /// the cached event), and a template left holding it stamps the dead id
   /// onto every event built from it. [CalendarEventService.notifyExternalChange]
-  /// then tells a bloc already showing the calendar to re-read, so the moved
-  /// events reach the grid and the agenda without a restart — the shape
-  /// `AppSyncApplyHooks` uses after a pulled page.
+  /// then tells a bloc already showing the calendar, so the moved events
+  /// reach the grid and the agenda without a restart — the shape
+  /// `AppSyncApplyHooks` uses after a pulled page; announced `cacheCurrent`
+  /// when the event cache took the reassignment, so the bloc rebuilds from
+  /// it rather than reading the store again.
   ///
   /// The re-plan is only *requested*, once the chain's link has completed and
   /// without being awaited, so no category write ever queues behind a
@@ -489,6 +491,9 @@ class CategoryService {
     String id, {
     String reassignTo = kFallbackCategoryId,
   }) async {
+    // Whether the event cache took the reassignment: only then may a bloc
+    // rebuild from it instead of reading the store again.
+    var eventsCurrent = false;
     final deleted = await _serialize(() async {
       final category = CalendarCategories.byId(id);
       if (category == null || category.isBuiltIn || _builtInIds.contains(id)) {
@@ -506,7 +511,8 @@ class CategoryService {
         await _load();
         await EventAlertService.refreshAfterCategoryRemoval();
         await CategoryProfileService.refreshAfterCategoryRemoval();
-        await CalendarEventService.refreshAfterCategoryRemoval();
+        eventsCurrent =
+            await CalendarEventService.refreshAfterCategoryRemoval();
         await EventTemplateService.refreshAfterCategoryRemoval();
       } catch (e, st) {
         debugPrint('[CategoryService] Refresh after delete error: $e\n$st');
@@ -514,7 +520,7 @@ class CategoryService {
       return true;
     });
     if (deleted) {
-      CalendarEventService.notifyExternalChange();
+      CalendarEventService.notifyExternalChange(cacheCurrent: eventsCurrent);
       unawaited(
         AlertScheduler.reconcileAllQuietly(AlertReconcileReason.eventChanged),
       );

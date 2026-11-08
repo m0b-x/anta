@@ -1,53 +1,22 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:anta/bloc/optimized_note/optimized_note_bloc.dart';
+import 'package:anta/bloc/optimized_note/optimized_note_event.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/models/item_label.dart';
 import 'package:anta/models/note_metadata.dart';
 import 'package:anta/repositories/note_repository.dart';
+import 'package:anta/services/body_search_indexer.dart';
 import 'package:anta/services/folder_search_service.dart';
 import 'package:anta/services/note_storage_service.dart';
 
 import '../database/support/db_test_support.dart';
+import 'support/body_index_support.dart';
 
-/// Serves as many pages as it is asked for, and answers content without
-/// touching storage — so a build over more notes than one page holds is a
-/// test that finishes.
-class _PagedNoteStorage extends NoteStorageService {
-  _PagedNoteStorage(NoteRepository repository) : super(repository: repository);
-
-  final List<int> pagesAsked = [];
-  List<NoteMetadata> all = const [];
-  Map<String, String> contents = const {};
-
-  @override
-  Future<PaginatedNotes> loadNotesPaginated({
-    String? folderId,
-    int page = 1,
-    int pageSize = NoteStorageService.defaultPageSize,
-    NotesSortOrder sortOrder = NotesSortOrder.updatedDesc,
-  }) async {
-    pagesAsked.add(page);
-    final start = (page - 1) * pageSize;
-    final slice = all.skip(start).take(pageSize).toList(growable: false);
-    return PaginatedNotes(
-      notes: slice,
-      currentPage: page,
-      totalPages: (all.length / pageSize).ceil(),
-      totalCount: all.length,
-      hasMore: start + slice.length < all.length,
-    );
-  }
-
-  @override
-  Future<String> loadNoteContent(String noteId) async => contents[noteId] ?? '';
-}
-
-/// The real service, with the one call a stale note costs counted.
-///
-/// Re-indexing a note means reading its body back out of the chunk table, so
-/// "did this change mark the note stale?" is answerable by counting content
-/// loads rather than by reaching into the service's private set.
+/// The real service, with the one call a save used to pay counted.
 class _CountingNoteStorage extends NoteStorageService {
   _CountingNoteStorage(NoteRepository repository)
     : super(repository: repository);
@@ -65,10 +34,12 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   late AppDatabase db;
+  late StatementCounter statements;
 
   setUp(() async {
     SharedPreferences.setMockInitialValues({});
-    db = await openTestDatabase();
+    statements = StatementCounter();
+    db = await openTestDatabase(interceptor: statements);
   });
 
   tearDown(() async => db.close());
@@ -81,7 +52,10 @@ void main() {
     setUp(() async {
       notes = NoteStorageService(repository: NoteRepository(database: db));
       await notes.initialize();
-      search = FolderSearchService(storageService: notes);
+      search = FolderSearchService(
+        storageService: notes,
+        indexer: bodyIndexerOver(db),
+      );
       await search.initialize();
       folder = await db.folderDao.createFolder(name: 'Training');
       await notes.createNote(
@@ -98,7 +72,8 @@ void main() {
       'a note written outside the bloc is found by the next full search',
       () async {
         // Restore, import and sync all land here: storage, never
-        // `OptimizedNoteBloc`, so `updateIndex` is never called for them.
+        // `OptimizedNoteBloc`, so nothing but the change stream tells the
+        // index about them.
         await notes.createNote(
           folderId: folder.id,
           title: 'Session 2',
@@ -132,6 +107,27 @@ void main() {
       );
     });
 
+    test(
+      'a new note refreshed through the stale path is found by prefix',
+      () async {
+        expect(await search.search('squ'), hasLength(1));
+
+        await notes.createNote(
+          folderId: folder.id,
+          title: 'Session 2',
+          content: 'zebra crossing',
+        );
+        await pumpEventQueue();
+
+        expect((await search.search('zeb')).map((r) => r.metadata.title), [
+          'Session 2',
+        ]);
+        expect((await search.search('cross')).map((r) => r.metadata.title), [
+          'Session 2',
+        ]);
+      },
+    );
+
     test('a note deleted outside the bloc stops being a hit', () async {
       final page = await notes.loadNotesPaginated(pageSize: 10);
       final session = page.notes.firstWhere((n) => n.title == 'Session 1');
@@ -150,7 +146,10 @@ void main() {
     setUp(() async {
       notes = _CountingNoteStorage(NoteRepository(database: db));
       await notes.initialize();
-      search = FolderSearchService(storageService: notes);
+      search = FolderSearchService(
+        storageService: notes,
+        indexer: bodyIndexerOver(db),
+      );
       await search.initialize();
       final folder = await db.folderDao.createFolder(name: 'Training');
       session = await notes.createNote(
@@ -159,27 +158,28 @@ void main() {
         content: 'squat bench row',
       );
       await search.buildIndex();
-      notes.contentLoads = 0;
     });
 
     tearDown(() async => search.close());
 
-    /// A hit always costs one content read for its match offsets, so the
-    /// question is whether a change adds a *second* one for the re-index.
-    Future<int> loadsForASearch(String query) async {
-      notes.contentLoads = 0;
+    /// How many notes a search re-projects into the body index on its way —
+    /// "did this change mark the note stale?" asked of the index itself. It
+    /// counted per-note body loads while the index was built in memory; S11
+    /// reads bodies in batches, so the projection is what is left to count.
+    Future<int> reindexesForASearch(String query) async {
+      statements.reset();
       await search.search(query);
-      return notes.contentLoads;
+      return statements.executions('INSERT INTO note_body_fts');
     }
 
     test('labelling a note does not mark it stale', () async {
-      final baseline = await loadsForASearch('squat');
+      final baseline = await reindexesForASearch('squat');
 
       await notes.setNoteLabel(session.id, ItemLabel.red);
       await pumpEventQueue();
 
       expect(
-        await loadsForASearch('squat'),
+        await reindexesForASearch('squat'),
         baseline,
         reason:
             'the index holds title and body; a colour is neither, so a '
@@ -188,65 +188,133 @@ void main() {
     });
 
     test('labelling a selection does not mark them stale either', () async {
-      final baseline = await loadsForASearch('squat');
+      final baseline = await reindexesForASearch('squat');
 
       await notes.setLabelForNotes([session.id], ItemLabel.blue);
       await pumpEventQueue();
 
-      expect(await loadsForASearch('squat'), baseline);
+      expect(await reindexesForASearch('squat'), baseline);
     });
 
     test('an edit beside it still does, so the count can move', () async {
-      final baseline = await loadsForASearch('squat');
+      final baseline = await reindexesForASearch('squat');
 
       await notes.updateNote(noteId: session.id, content: 'squat zercher');
       await pumpEventQueue();
 
       expect(
-        await loadsForASearch('squat'),
+        await reindexesForASearch('squat'),
         greaterThan(baseline),
         reason: 'an update is what a re-index is for',
       );
     });
   });
 
+  group('a save through the bloc', () {
+    late _CountingNoteStorage notes;
+    late FolderSearchService search;
+    late OptimizedNoteBloc bloc;
+    late NoteMetadata session;
+
+    setUp(() async {
+      notes = _CountingNoteStorage(NoteRepository(database: db));
+      await notes.initialize();
+      search = FolderSearchService(
+        storageService: notes,
+        indexer: bodyIndexerOver(db),
+      );
+      await search.initialize();
+      bloc = OptimizedNoteBloc(storageService: notes);
+      final folder = await db.folderDao.createFolder(name: 'Training');
+      session = await notes.createNote(
+        folderId: folder.id,
+        title: 'Session 1',
+        content: 'squat bench row',
+      );
+      await search.buildIndex();
+    });
+
+    tearDown(() async {
+      await bloc.close();
+      await search.close();
+    });
+
+    test('a 300,000-code-unit save neither tokenises nor reads back', () async {
+      final body = '${'zercher carry and sled '.padRight(100, 'x')}\n' * 2970;
+      final content = body.padRight(300000, 'y');
+      expect(content.length, 300000);
+      notes.contentLoads = 0;
+      statements.reset();
+
+      final saved = Completer<void>();
+      bloc.add(
+        UpdateOptimizedNote(
+          noteId: session.id,
+          content: content,
+          completer: saved,
+        ),
+      );
+      await saved.future;
+      await pumpEventQueue();
+
+      expect(
+        [
+          ...statements.matching('note_body_fts'),
+          ...statements.matching('note_search_ledger'),
+        ],
+        isEmpty,
+        reason: 'a save touches neither index table; the next search does',
+      );
+      expect(notes.contentLoads, 0);
+
+      final results = await search.search('zercher');
+      expect(
+        results.map((r) => r.metadata.id),
+        [session.id],
+        reason:
+            'the change stream marked the index dirty, so the next search '
+            're-reads the note',
+      );
+      expect(await search.search('squat'), isEmpty);
+    });
+  });
+
   group('an index bigger than one page', () {
     test('the build pages past its page size instead of stopping', () async {
-      final storage = _PagedNoteStorage(NoteRepository(database: db));
-      await storage.initialize();
-      final search = FolderSearchService(storageService: storage);
+      final notes = NoteStorageService(
+        repository: NoteRepository(database: db),
+      );
+      await notes.initialize();
+      final indexer = BodySearchIndexer(
+        database: db,
+        scheduler: inlineBodyIndexScheduler,
+        pageBytes: 100,
+      );
+      final search = FolderSearchService(
+        storageService: notes,
+        indexer: () async => indexer,
+      );
       addTearDown(search.close);
 
-      final now = DateTime.now();
-      storage.all = [
-        for (var i = 0; i < 1200; i++)
-          NoteMetadata(
-            id: 'n$i',
-            folderId: 'f1',
-            title: 'Session $i',
-            preview: '',
-            contentLength: 0,
-            chunkCount: 0,
-            isCompressed: false,
-            createdAt: now,
-            updatedAt: now,
-            position: i,
-          ),
-      ];
-      storage.contents = {
-        for (var i = 0; i < 1200; i++) 'n$i': 'squat bench row',
-        'n1150': 'zercher carry',
-      };
+      final folder = await db.folderDao.createFolder(name: 'Training');
+      for (var i = 0; i < 12; i++) {
+        await notes.createNote(
+          folderId: folder.id,
+          title: 'Session $i',
+          content: i == 0 ? 'zercher carry' : 'squat bench row ' * 4,
+        );
+      }
+      statements.reset();
 
       await search.buildIndex();
 
       expect(
-        storage.pagesAsked,
-        contains(2),
-        reason: 'one page was the whole build; note 1001 onwards was invisible',
+        statements.executions('FROM "content_chunks"'),
+        greaterThan(1),
+        reason: 'one page was the whole build; later notes were invisible',
       );
       final results = await search.search('zercher', limit: 5);
-      expect(results.map((r) => r.metadata.id), contains('n1150'));
+      expect(results.map((r) => r.metadata.title), contains('Session 0'));
     });
   });
 }

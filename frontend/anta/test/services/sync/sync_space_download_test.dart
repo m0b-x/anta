@@ -96,7 +96,7 @@ void main() {
     ownerUid: _uid,
     name: name,
     deviceId: 'tablet-device',
-    schema: DatabaseSchema.currentVersion,
+    schema: DatabaseSchema.syncSchemaVersion,
   );
 
   test('creates a database named after the space, switches to it and binds '

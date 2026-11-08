@@ -1,9 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:get_it/get_it.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:share_plus/share_plus.dart';
 import '../database/daos/folder_dao.dart';
 import '../database/database.dart';
 import '../database/database_lifecycle.dart';
@@ -55,280 +54,32 @@ class BackupService {
     _instance = null;
   }
 
-  Future<Map<String, dynamic>> exportAllData() async {
-    final folders = await _db.folderDao.getAllFolders(includeDeleted: false);
-    final notes = await _db.noteDao.getAllNotes(includeDeleted: false);
-
-    final notesWithContent = <Map<String, dynamic>>[];
-    for (final note in notes) {
-      final content = await _db.contentChunkDao.loadContent(note.id);
-      notesWithContent.add({
-        JsonKeys.id: note.id,
-        JsonKeys.folderId: note.folderId,
-        JsonKeys.title: note.title,
-        JsonKeys.content: content,
-        JsonKeys.preview: note.preview,
-        JsonKeys.createdAt: note.createdAt.toIso8601String(),
-        JsonKeys.updatedAt: note.updatedAt.toIso8601String(),
-        JsonKeys.label: ItemLabel.fromStorage(note.label).storageName,
-        if (note.ownerId != null) JsonKeys.ownerId: note.ownerId,
-      });
-    }
-
-    final foldersData = folders
-        .map(
-          (f) => {
-            JsonKeys.id: f.id,
-            JsonKeys.name: f.name,
-            JsonKeys.parentId: f.parentId,
-            'position': f.position,
-            JsonKeys.createdAt: f.createdAt.toIso8601String(),
-            JsonKeys.updatedAt: f.updatedAt.toIso8601String(),
-            JsonKeys.noteSortOrder: f.noteSortOrder,
-            JsonKeys.subfolderSortOrder: f.subfolderSortOrder,
-            JsonKeys.label: ItemLabel.fromStorage(f.label).storageName,
-            if (f.ownerId != null) JsonKeys.ownerId: f.ownerId,
-          },
-        )
-        .toList();
-
-    final shortcuts = await _db.userSettingsDao.getValue('markdown_shortcuts');
-    final settings = await _exportSettings();
-
-    // Bar profiles & per-note assignments (v2+ data)
-    final barProfiles = await _db.userSettingsDao.getValue(
-      'markdown_bar_profiles',
-    );
-    final activeBar = await _db.userSettingsDao.getValue('active_markdown_bar');
-    final noteBarAssignments = await _exportNoteBarAssignments();
-    final noteMoneyCurrencies = await _exportNoteMoneyCurrencies();
-
-    final counterData = await GetIt.I<CounterService>().exportData();
-    final calendarCategories = await (await CategoryService.getInstance())
-        .exportData();
-    final calendarEvents = await (await CalendarEventService.getInstance())
-        .exportData();
-    final publicHolidays = await (await PublicHolidayService.getInstance())
-        .exportData();
-    final eventOccurrences = await (await EventOccurrenceService.getInstance())
-        .exportData();
-    final eventAbsences = await (await EventPresenceService.getInstance())
-        .exportData();
-    final eventSkips = await (await EventSkipService.getInstance())
-        .exportData();
-    final alertService = await EventAlertService.getInstance();
-    final eventAlerts = await alertService.exportData();
-    final categoryAlerts = await alertService.exportCategoryAlerts();
-    final categoryProfiles = await (await CategoryProfileService.getInstance())
-        .exportCategoryProfiles();
-    final eventTemplates = await (await EventTemplateService.getInstance())
-        .exportData();
-    final filterPresets = await (await FilterPresetService.getInstance())
-        .exportData();
-    final overviewViews = await (await OverviewViewService.getInstance())
-        .exportData();
-    final eventDigests = await (await EventDigestService.getInstance())
-        .exportData();
-    final vocabularies = await (await VocabularyService.getInstance())
-        .exportData();
-
-    return {
-      // v8: category profiles ride `categoryProfiles`; an archive of 7 or
-      // older imports with none, which is what those installs had, and no
-      // version is refused. v7: event priorities are stored inverted
-      // (1 = highest). Older backups carry the old 5-is-highest values and
-      // are flipped on import.
-      'version': 8,
-      'exportedAt': DateTime.now().toIso8601String(),
-      'folders': foldersData,
-      'notes': notesWithContent,
-      'markdownShortcuts': shortcuts,
-      'settings': settings,
-      'barProfiles': barProfiles,
-      'activeBar': activeBar,
-      'noteBarAssignments': noteBarAssignments,
-      'noteMoneyCurrencies': noteMoneyCurrencies,
-      'counterData': counterData,
-      'calendarCategories': calendarCategories,
-      'calendarEvents': calendarEvents,
-      'publicHolidays': publicHolidays,
-      // Purely additive (v24): an absent key on an older backup is simply a
-      // database with no per-occurrence overrides, which is what those
-      // installs had. No version bump — 7 was needed only because an existing
-      // field changed meaning.
-      'eventOccurrences': eventOccurrences,
-      // Purely additive (v26), same reasoning: an absent key on an older
-      // backup is a database where nothing was ever marked missed. Live marks
-      // only — tombstones and CRDT identity stay out, exactly as they do for
-      // notes and folders, because a backup is not a sync channel.
-      'eventAbsences': eventAbsences,
-      // Purely additive (v30), same reasoning again — but this key carries
-      // membership, not rendering: an absent key is a database where every
-      // occurrence still exists.
-      'eventSkips': eventSkips,
-      // Purely additive (v40): an absent key on an older backup is a database
-      // where nothing was ever set to speak up, which is what those installs
-      // had. Live rows only, no CRDT identity — and `alert_registrations` is
-      // **never** here: it mirrors one device's OS scheduler and is rebuilt by
-      // the next reconcile. The event's own `removeAfterAlert` rides
-      // `calendarEvents`, so the version stays 7.
-      'eventAlerts': eventAlerts,
-      // Purely additive (v42): an absent key is an install where no category
-      // ever had an alert. Keyed by category ids, so its strand rule follows
-      // `calendarCategories` (the `eventTemplates` rule), not `calendarEvents`.
-      // The event's own opt-out rides `calendarEvents`.
-      'categoryAlerts': categoryAlerts,
-      // v44, the `categoryAlerts` strand rule for the same reason: keyed by
-      // category ids. One profile per category, no CRDT identity.
-      'categoryProfiles': categoryProfiles,
-      // Purely additive (v29): an absent key on an older backup is a database
-      // with no templates, which is what those installs had.
-      'eventTemplates': eventTemplates,
-      // Purely additive (v35): an absent key is an install with no saved
-      // filters. Self-contained — a preset's only foreign reference is the
-      // category ids inside its blob, and a stale one already hides nothing
-      // wherever the filter is read — so this key needs no strand rule.
-      'calendarFilterPresets': filterPresets,
-      // Purely additive (v41), the v35 key's reasoning: an absent key is an
-      // install with no saved overview lists, and a view's only foreign
-      // reference is the category ids inside its payload, where a stale one
-      // simply lists nothing — no strand rule, no version bump.
-      'overviewViews': overviewViews,
-      // Purely additive (v42), the v41 key's reasoning: an absent key is an
-      // install with no digests, and a digest's only foreign reference is the
-      // category ids inside its payload — no strand rule, no version bump.
-      'eventDigests': eventDigests,
-      // Purely additive (v32): an absent key is an install with no suggestion
-      // lists. Each entry nests its own terms, so a vocabulary and its items
-      // can never be restored apart.
-      'vocabularies': vocabularies,
-    };
-  }
-
-  /// Returns a map of noteId → profileId for every per-note bar override.
-  Future<Map<String, String>> _exportNoteBarAssignments() async {
-    final all = await _db.userSettingsDao.getAllSettings();
-    final result = <String, String>{};
-    for (final entry in all.entries) {
-      if (entry.key.startsWith('note_bar_')) {
-        final noteId = entry.key.substring('note_bar_'.length);
-        result[noteId] = entry.value;
-      }
-    }
-    return result;
-  }
-
-  /// Returns a map of noteId → raw currency override (`symbol|suffix`)
-  /// for every per-note money currency override.
-  Future<Map<String, String>> _exportNoteMoneyCurrencies() async {
-    final all = await _db.userSettingsDao.getAllSettings();
-    final result = <String, String>{};
-    for (final entry in all.entries) {
-      if (entry.key.startsWith(SettingsKeys.moneyNoteCurrencyPrefix)) {
-        final noteId = entry.key.substring(
-          SettingsKeys.moneyNoteCurrencyPrefix.length,
-        );
-        result[noteId] = entry.value;
-      }
-    }
-    return result;
-  }
-
-  Future<Map<String, dynamic>> _exportSettings() async {
-    final settingsKeys = [
-      'preview_font_size',
-      'editor_font_size',
-      'locale',
-      'theme_mode',
-      'date_format',
-      'folder_swipe_enabled',
-      'note_swipe_enabled',
-      'confirm_delete',
-      'auto_save_enabled',
-      'auto_save_interval',
-      'show_note_preview',
-      'show_stats_bar',
-      'haptic_feedback',
-      'restore_location_mode',
-      'show_line_numbers',
-      'word_wrap',
-      'show_cursor_line',
-      'auto_break_long_lines',
-      'preview_when_keyboard_hidden',
-      'scroll_cursor_on_keyboard',
-      'show_preview_scrollbar',
-      'toolbar_shortcut_ratio',
-      'toolbar_split_enabled',
-      'toolbar_undo_redo_pinned',
-      'toolbar_utility_config',
-      'preview_lines_per_chunk',
-      'money_ledger_enabled',
-      'money_start_cents',
-      'money_currency_symbol',
-      'money_currency_suffix',
-      'markdown_custom_colors',
-      // The user's own calendar swatches: authored content like the markdown
-      // palette above it, so it travels with the backup rather than being
-      // rebuilt by hand on the next install.
-      SettingsKeys.calendarCustomColors,
-      // Which picker geometry they prefer — a display preference, carried
-      // for the same reason `theme_mode` and `word_wrap` are.
-      SettingsKeys.colorPickerMode,
-      // How a labelled row draws its colour — a display preference like the
-      // one above it; the labels themselves travel on the note and folder
-      // rows, not here.
-      SettingsKeys.labelStyle,
-      // The fasting schedule is authored content like the palette above:
-      // weekdays, kept months and the dates the user typed in by hand, none
-      // of which is recoverable from anything else in the archive. Additive
-      // — a backup written before these keys existed leaves the defaults.
-      SettingsKeys.calendarFastingSchedule,
-      SettingsKeys.calendarFastingTraditions,
-      SettingsKeys.calendarFastingAppearance,
-      SettingsKeys.calendarFastingOrthodoxGreatFasts,
-      // Which editor surface the note opens on: live rendering, and whether
-      // the deprecated preview is available at all. Additive — a backup
-      // written before these keys existed simply leaves both at their
-      // defaults on import.
-      SettingsKeys.liveMarkdownRendering,
-      SettingsKeys.previewModeEnabled,
-      // Which report cards the page draws, and in which order — a display
-      // preference like the ones above. Additive — a backup written before
-      // the key existed leaves every card on, in the page's own order.
-      SettingsKeys.reportCards,
-    ];
-
-    final settings = <String, dynamic>{};
-    for (final key in settingsKeys) {
-      final value = await _db.userSettingsDao.getValue(key);
-      if (value != null) {
-        settings[key] = value;
-      }
-    }
-    return settings;
-  }
-
-  Future<String> exportToFile() async {
-    final data = await exportAllData();
-    final jsonString = const JsonEncoder.withIndent('  ').convert(data);
-
-    final tempDir = await getTemporaryDirectory();
-    final timestamp = DateTime.now().toIso8601String().replaceAll(':', '-');
-    final fileName = 'anta_backup_$timestamp.json';
-    final file = File('${tempDir.path}/$fileName');
-    await file.writeAsString(jsonString);
-
-    return file.path;
-  }
-
-  Future<void> shareBackup() async {
-    final filePath = await exportToFile();
-    await SharePlus.instance.share(ShareParams(files: [XFile(filePath)]));
-  }
-
-  Future<BackupValidationResult> validateBackup(String jsonString) async {
+  /// Reads and decodes the backup file at [path] in a worker isolate, for
+  /// [validateBackupData] and [importFromData]: a large database's backup is
+  /// megabytes of JSON, which would hold the UI isolate twice if each step
+  /// decoded the text itself. Null when the text is not JSON; a file that
+  /// cannot be read throws.
+  static Future<Object?> readBackupFile(String path) => Isolate.run(() {
+    final text = File(path).readAsStringSync();
     try {
-      final data = jsonDecode(jsonString) as Map<String, dynamic>;
+      return jsonDecode(text);
+    } on FormatException {
+      return null;
+    }
+  });
+
+  Future<BackupValidationResult> validateBackup(String jsonString) =>
+      _validateBackup(() => jsonDecode(jsonString));
+
+  /// [validateBackup] for a backup already decoded ([readBackupFile]).
+  Future<BackupValidationResult> validateBackupData(Object? data) =>
+      _validateBackup(() => data);
+
+  Future<BackupValidationResult> _validateBackup(
+    Object? Function() decode,
+  ) async {
+    try {
+      final data = decode() as Map<String, dynamic>;
 
       if (!data.containsKey('folders') || !data.containsKey('notes')) {
         return BackupValidationResult(
@@ -366,11 +117,18 @@ class BackupService {
   /// halfway leaves a half-restored database, and its partial rows must
   /// neither sit queued nor stand above the floor, or they would win over
   /// the space's twins at the next bind.
-  Future<ImportResult> importFromJson(String jsonString) {
+  Future<ImportResult> importFromJson(String jsonString) =>
+      _restore(() => jsonDecode(jsonString));
+
+  /// [importFromJson] for a backup already decoded ([readBackupFile]).
+  Future<ImportResult> importFromData(Map<String, dynamic> data) =>
+      _restore(() => data);
+
+  Future<ImportResult> _restore(Object? Function() decode) {
     return SyncSuspension.run(() async {
       SyncBindingService? unbound;
       final result = await _importFromJson(
-        jsonString,
+        decode,
         onUnbound: (binding) => unbound = binding,
       );
       final binding = unbound;
@@ -393,11 +151,11 @@ class BackupService {
   }
 
   Future<ImportResult> _importFromJson(
-    String jsonString, {
+    Object? Function() decode, {
     required void Function(SyncBindingService binding) onUnbound,
   }) async {
     try {
-      final data = jsonDecode(jsonString) as Map<String, dynamic>;
+      final data = decode() as Map<String, dynamic>;
 
       final folders = data['folders'] as List? ?? [];
       final notes = data['notes'] as List? ?? [];
@@ -783,7 +541,7 @@ class BackupService {
   /// The archive's folder rows, ordered so a parent always precedes its
   /// children.
   ///
-  /// `exportAllData` writes them in whatever order `getAllFolders` returned,
+  /// The exporter wrote them in whatever order `getAllFolders` returned,
   /// and a child created before its parent cannot be re-pointed at the copy
   /// the parent will become. A parent the archive does not carry, and a cycle
   /// no export could produce but a hand-edited file could, both simply stop

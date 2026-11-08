@@ -10,13 +10,23 @@ String formatSyncMoment(BuildContext context, DateTime at, {DateTime? now}) {
   final local = at.toLocal();
   final today = now ?? DateTime.now();
   if (DateUtils.isSameDay(local, today)) {
-    return MaterialLocalizations.of(context).formatTimeOfDay(
-      TimeOfDay.fromDateTime(local),
-      alwaysUse24HourFormat: MediaQuery.alwaysUse24HourFormatOf(context),
-    );
+    return formatSyncTimeOfDay(context, TimeOfDay.fromDateTime(local));
   }
   final localeName = AppLocalizations.of(context)!.localeName;
   return local.year == today.year
       ? DateFormat.MMMd(localeName).format(local)
       : DateFormat.yMMMd(localeName).format(local);
 }
+
+/// [time] as the device says a time of day, 24-hour or not.
+String formatSyncTimeOfDay(BuildContext context, TimeOfDay time) =>
+    MaterialLocalizations.of(context).formatTimeOfDay(
+      time,
+      alwaysUse24HourFormat: MediaQuery.alwaysUse24HourFormatOf(context),
+    );
+
+/// The time of day the quota pause ends, [reset] being that reset: the time
+/// alone, since the pause words it only while the reset is still ahead and
+/// a reset is at most a day and an hour away.
+String formatSyncQuotaReset(BuildContext context, DateTime reset) =>
+    formatSyncTimeOfDay(context, TimeOfDay.fromDateTime(reset.toLocal()));

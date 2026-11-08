@@ -32,6 +32,17 @@ class CategoryAlertDao extends DatabaseAccessor<AppDatabase>
         .get();
   }
 
+  /// [EventAlertDao.hasEnabled] for the category table: a paused category
+  /// alert arms nothing, so only an enabled live row answers yes.
+  Future<bool> hasEnabled() async {
+    final row = await customSelect(
+      'SELECT EXISTS(SELECT 1 FROM calendar_category_alerts '
+      'WHERE is_deleted = 0 AND enabled = 1) AS hit',
+      readsFrom: {calendarCategoryAlerts},
+    ).getSingle();
+    return row.read<int>('hit') != 0;
+  }
+
   /// Makes [entries] the complete set of alerts for [categoryId], in one
   /// transaction: missing rows are **tombstoned**, kept rows re-stamped only
   /// if something in them changed, new rows inserted.

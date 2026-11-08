@@ -64,6 +64,11 @@ void main() {
       isDeleted: deleted,
       deletedAt: deleted ? DateTime.utc(2026, 3, 2).toLocal() : null,
       ownerId: 'uid-1',
+      // An absolute write of its own stamp, as an older build's envelope
+      // decodes, so the contract's stamp order is also its epoch order.
+      epochHlc: hlc,
+      epochValue: 42,
+      shards: '',
     );
   }
 

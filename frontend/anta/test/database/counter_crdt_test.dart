@@ -393,7 +393,13 @@ void main() {
       final values = await rows('counter_values');
       expect(values.map((r) => r.read<String>('note_id')), ['', 'n1']);
       expect(values.first.read<int>('value'), 12);
-      // Through the DAO: the rows a v42 install had are the live ones now.
+      // Through the DAO: the rows a v42 install had are the live ones now —
+      // once v49 has added the PN-counter columns the DAO reads.
+      await DatabaseMigrations(db).runMigrations(
+        db.createMigrator(),
+        DatabaseSchema.v48NoteBodySearch,
+        DatabaseSchema.v49Counters,
+      );
       expect((await db.counterDao.getAllCounters()).single.isPinned, isTrue);
       expect(await db.counterDao.getValuesForNote(''), {'legacy': 12});
     });

@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart' show debugPrint;
+
 import '../database.dart';
 
 class DatabaseIndexes {
@@ -9,17 +11,53 @@ class DatabaseIndexes {
     await _createFolderIndexes();
     await _createNoteIndexes();
     await _createChunkIndexes();
+    await createChunkHashIndex();
+    await _createOutboxIndexes();
     await createCounterIndexes();
+    await createCounterValueNoteIndex();
     await createCategoryIndexes();
     await createCalendarIndexes();
     await createCalendarDeltaIndexes();
     await createAlertIndexes();
     await createCategoryAlertIndexes();
     await createCategoryProfileIndexes();
-    await _createFtsTable();
+    await createBodySearchTables();
     await createUniqueNameIndexes();
     await createNoteTitleIndex();
     await createPositionIndexes();
+  }
+
+  /// The body search index's two tables on a fresh install and in the v50
+  /// step, which recreates the FTS table in this shape (the v48 step keeps
+  /// its one-column DDL frozen in its own copy). Defensive: a SQLite without
+  /// the trigram tokenizer refuses the virtual table, the database must open
+  /// regardless, and the indexer reads the table's absence as "search the
+  /// old way".
+  ///
+  /// Three columns, in the order the quick search's `bm25()` weighs them:
+  /// `title` (the title's tokens alone, so a title hit can outrank a body
+  /// hit), `body` (the title's and the body's tokens — the full search's
+  /// projection, matched by that column alone) and `tags` (the body's
+  /// `#tags`, folded, which only narrow).
+  ///
+  /// `case_sensitive 1` because the projection is folded and lower-cased in
+  /// Dart before it is stored, as the query is: SQLite's own case folding
+  /// could only make two strings Dart keeps apart match.
+  Future<void> createBodySearchTables() async {
+    await _db.customStatement(
+      'CREATE TABLE IF NOT EXISTS note_search_ledger ('
+      'note_rowid INTEGER PRIMARY KEY, note_id TEXT NOT NULL, '
+      'indexed_hlc TEXT NOT NULL, fingerprint TEXT NOT NULL)',
+    );
+    try {
+      await _db.customStatement(
+        'CREATE VIRTUAL TABLE IF NOT EXISTS note_body_fts USING fts5('
+        "title, body, tags, tokenize='trigram case_sensitive 1', "
+        "content='', contentless_delete=1)",
+      );
+    } catch (e) {
+      debugPrint('[DatabaseIndexes] body index unavailable: $e');
+    }
   }
 
   /// Indexes backing the manual-ordering browse queries
@@ -44,17 +82,11 @@ class DatabaseIndexes {
 
   Future<void> _createFolderIndexes() async {
     await _db.customStatement(
-      'CREATE INDEX IF NOT EXISTS idx_folders_parent ON folders(parent_id) WHERE is_deleted = 0',
-    );
-    await _db.customStatement(
       'CREATE INDEX IF NOT EXISTS idx_folders_hlc ON folders(hlc_timestamp)',
     );
   }
 
   Future<void> _createNoteIndexes() async {
-    await _db.customStatement(
-      'CREATE INDEX IF NOT EXISTS idx_notes_folder ON notes(folder_id) WHERE is_deleted = 0',
-    );
     await _db.customStatement(
       'CREATE INDEX IF NOT EXISTS idx_notes_hlc ON notes(hlc_timestamp)',
     );
@@ -128,9 +160,35 @@ class DatabaseIndexes {
     );
   }
 
+  /// Full, not partial on live rows, since **v47**: a tombstoned note's
+  /// chunks are deleted, so every row is live and a predicate would buy
+  /// nothing but the bound-parameter miss recorded on
+  /// [createCalendarDeltaIndexes]. The v47 step carries its own frozen copy.
   Future<void> _createChunkIndexes() async {
     await _db.customStatement(
-      'CREATE INDEX IF NOT EXISTS idx_chunks_note_index ON content_chunks(note_id, chunk_index) WHERE is_deleted = 0',
+      'CREATE INDEX IF NOT EXISTS idx_content_chunks_note '
+      'ON content_chunks(note_id, chunk_index)',
+    );
+  }
+
+  /// The push order `SyncOutboxDao.pending` reads in and resumes from
+  /// (**v47**), so a drain's every page is a range seek rather than a sort of
+  /// the whole queue. The v47 step carries its own frozen copy.
+  Future<void> _createOutboxIndexes() async {
+    await _db.customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_sync_outbox_order '
+      'ON sync_outbox(hlc, table_name, row_key)',
+    );
+  }
+
+  /// The index a chunk is found by its content hash through (**v46**): the
+  /// chunked sync wire names a chunk by that hash. Plain, not unique — two
+  /// notes, or two places in one note, may hold the same text. Called by the
+  /// v46 step and by `createAllIndexes`, so both paths build one definition.
+  Future<void> createChunkHashIndex() async {
+    await _db.customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_content_chunks_hash '
+      'ON content_chunks(content_hash)',
     );
   }
 
@@ -156,6 +214,17 @@ class DatabaseIndexes {
     await _db.customStatement(
       'CREATE INDEX IF NOT EXISTS idx_counters_active '
       'ON counters(is_pinned DESC, position) WHERE is_deleted = 0',
+    );
+  }
+
+  /// The live values by note (**v49**): a note delete tombstones its values
+  /// by `note_id` (S20), and `getValuesForNote` reads them so, which the
+  /// `counter_id`-led index cannot serve. Public because the v49 step calls
+  /// it, so both paths build one definition.
+  Future<void> createCounterValueNoteIndex() async {
+    await _db.customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_counter_values_note '
+      'ON counter_values(note_id) WHERE is_deleted = 0',
     );
   }
 
@@ -308,12 +377,6 @@ class DatabaseIndexes {
     await _db.customStatement(
       'CREATE INDEX IF NOT EXISTS idx_calendar_category_profiles_category '
       'ON calendar_category_profiles(category_id)',
-    );
-  }
-
-  Future<void> _createFtsTable() async {
-    await _db.customStatement(
-      'CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(title, preview, content=notes, content_rowid=rowid)',
     );
   }
 }

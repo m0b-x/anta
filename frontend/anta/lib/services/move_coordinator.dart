@@ -177,47 +177,12 @@ class MoveCoordinator {
     if (!context.mounted) return;
 
     final batchId = items.length > 1 ? _uuid.v4() : null;
-    final outcomes = <_MoveOutcome>[];
-
-    for (final ref in items) {
-      // Skip same-folder moves and self-moves silently.
-      if ((ref.currentParentId ?? '') == (targetParentId ?? '')) {
-        outcomes.add(_MoveOutcome.skipped(ref, 'same'));
-        continue;
-      }
-      if (ref.kind == MovableItemKind.folder && ref.id == targetParentId) {
-        outcomes.add(_MoveOutcome.skipped(ref, 'self'));
-        continue;
-      }
-
-      // Per-parent name uniqueness: we cannot land an item in a folder
-      // that already contains a sibling with the same (case-insensitive,
-      // trimmed) name. Skip with a 'duplicate' reason so the snackbar can
-      // tell the user how many were skipped for this reason.
-      final isDuplicate = await _isDuplicateAtTarget(
-        ref: ref,
-        targetParentId: targetParentId,
-      );
-      if (isDuplicate) {
-        outcomes.add(_MoveOutcome.skipped(ref, 'duplicate'));
-        continue;
-      }
-
-      final sourceName = ref.currentParentId == null
-          ? null
-          : (await _folderService.getFolderById(ref.currentParentId!))?.name;
-
-      final ok = await _executeMove(
-        ref: ref,
-        targetParentId: targetParentId,
-        sourceName: sourceName,
-        targetName: targetName,
-        batchId: batchId,
-      );
-      outcomes.add(
-        ok != null ? _MoveOutcome.success(ref, ok) : _MoveOutcome.failure(ref),
-      );
-    }
+    final outcomes = await _executeMoves(
+      items: items,
+      targetParentId: targetParentId,
+      targetName: targetName,
+      batchId: batchId,
+    );
 
     if (!context.mounted) return;
 
@@ -289,78 +254,118 @@ class MoveCoordinator {
     }
   }
 
-  /// Returns true if landing [ref] under [targetParentId] would create a
-  /// sibling with a duplicate name. Used to bail out of a move before any
-  /// DB write so the snackbar can explain the skip.
+  /// Moves every [items] entry under [targetParentId] — the folders in one
+  /// transaction, the notes in another — and records the successes in the
+  /// history, one undo unit for the batch.
   ///
-  /// Notes can't live at root (callers reject that earlier), so when
-  /// [targetParentId] is null the only remaining concern is folders, which
-  /// are checked against root-level siblings.
-  static Future<bool> _isDuplicateAtTarget({
-    required MovableItemRef ref,
+  /// Same-folder and self moves are skipped before any write. The rest go to
+  /// the set-based moves, which decide per item: moved, a sibling already
+  /// holds that name (`duplicate`, the target's or an earlier item's), or
+  /// gone (`failure`). Notes cannot live at the root, so a note bound there
+  /// fails.
+  static Future<List<_MoveOutcome>> _executeMoves({
+    required List<MovableItemRef> items,
     required String? targetParentId,
-  }) async {
-    if (ref.name.trim().isEmpty) return false;
-    if (ref.kind == MovableItemKind.folder) {
-      return _folderService.folderNameExistsInParent(
-        parentId: targetParentId,
-        name: ref.name,
-        excludeId: ref.id,
-      );
-    }
-    if (targetParentId == null) return false;
-    return _noteService.noteTitleExistsInFolder(
-      folderId: targetParentId,
-      title: ref.name,
-      excludeId: ref.id,
-    );
-  }
-
-  /// Execute a single move (folder or note). Returns the history entry id
-  /// on success, null on failure.
-  static Future<String?> _executeMove({
-    required MovableItemRef ref,
-    required String? targetParentId,
-    required String? sourceName,
     required String? targetName,
     required String? batchId,
   }) async {
-    if (ref.kind == MovableItemKind.folder) {
-      // Notes can never be the parent of a folder; targetParentId is a folder id or null.
-      final result = await _folderService.moveFolder(
-        folderId: ref.id,
-        targetParentId: targetParentId,
-      );
-      if (result == null) return null;
-      return _historyService.addMove(
-        itemType: MoveItemType.folder,
-        itemId: ref.id,
-        itemName: ref.name,
-        sourceParentId: ref.currentParentId,
-        sourceParentName: sourceName,
-        targetParentId: targetParentId,
-        targetParentName: targetName,
-        batchId: batchId,
-      );
-    } else {
-      // Notes cannot live at root.
-      if (targetParentId == null) return null;
-      final result = await _noteService.moveNote(
-        noteId: ref.id,
-        targetFolderId: targetParentId,
-      );
-      if (result == null) return null;
-      return _historyService.addMove(
-        itemType: MoveItemType.note,
-        itemId: ref.id,
-        itemName: ref.name,
-        sourceParentId: ref.currentParentId,
-        sourceParentName: sourceName,
-        targetParentId: targetParentId,
-        targetParentName: targetName,
-        batchId: batchId,
-      );
+    final skipped = <MovableItemRef, String>{};
+    final folderIds = <String>[];
+    final noteIds = <String>[];
+    for (final ref in items) {
+      if ((ref.currentParentId ?? '') == (targetParentId ?? '')) {
+        skipped[ref] = 'same';
+      } else if (ref.kind == MovableItemKind.folder &&
+          ref.id == targetParentId) {
+        skipped[ref] = 'self';
+      } else if (ref.kind == MovableItemKind.folder) {
+        folderIds.add(ref.id);
+      } else {
+        noteIds.add(ref.id);
+      }
     }
+
+    final folders = folderIds.isEmpty
+        ? BulkMoveResult.empty
+        : await _guarded(
+            () => _folderService.moveFolders(
+              folderIds: folderIds,
+              targetParentId: targetParentId,
+            ),
+          );
+    final notes = noteIds.isEmpty || targetParentId == null
+        ? BulkMoveResult.empty
+        : await _guarded(
+            () => _noteService.moveNotes(
+              noteIds: noteIds,
+              targetFolderId: targetParentId,
+            ),
+          );
+
+    // One name lookup per distinct source folder, not one per item.
+    final sourceNames = <String?, String?>{null: null};
+    for (final result in [folders, notes]) {
+      for (final source in result.moved.values) {
+        if (sourceNames.containsKey(source)) continue;
+        sourceNames[source] = (await _folderService.getFolderById(
+          source!,
+        ))?.name;
+      }
+    }
+
+    final outcomes = <_MoveOutcome>[];
+    final history = <MoveHistoryItem>[];
+    for (final ref in items) {
+      final reason = skipped[ref];
+      if (reason != null) {
+        outcomes.add(_MoveOutcome.skipped(ref, reason));
+        continue;
+      }
+      final isFolder = ref.kind == MovableItemKind.folder;
+      final result = isFolder ? folders : notes;
+      if (result.moved.containsKey(ref.id)) {
+        final source = result.moved[ref.id];
+        history.add((
+          itemType: isFolder ? MoveItemType.folder : MoveItemType.note,
+          itemId: ref.id,
+          itemName: ref.name,
+          sourceParentId: source,
+          sourceParentName: sourceNames[source],
+        ));
+        outcomes.add(_MoveOutcome.success(ref, null));
+      } else if (result.duplicates.contains(ref.id)) {
+        outcomes.add(_MoveOutcome.skipped(ref, 'duplicate'));
+      } else if (result.unchanged.contains(ref.id)) {
+        outcomes.add(_MoveOutcome.skipped(ref, 'same'));
+      } else {
+        outcomes.add(_MoveOutcome.failure(ref));
+      }
+    }
+
+    if (history.isEmpty) return outcomes;
+    if (batchId != null) {
+      _historyService.addMoves(
+        history,
+        targetParentId: targetParentId,
+        targetParentName: targetName,
+        batchId: batchId,
+      );
+      return outcomes;
+    }
+    final item = history.single;
+    final entryId = _historyService.addMove(
+      itemType: item.itemType,
+      itemId: item.itemId,
+      itemName: item.itemName,
+      sourceParentId: item.sourceParentId,
+      sourceParentName: item.sourceParentName,
+      targetParentId: targetParentId,
+      targetParentName: targetName,
+    );
+    return [
+      for (final outcome in outcomes)
+        outcome.success ? _MoveOutcome.success(outcome.ref, entryId) : outcome,
+    ];
   }
 
   // ─────────────────────────────────────────────────────────────────────
@@ -392,62 +397,105 @@ class MoveCoordinator {
     }
   }
 
-  /// Undo every entry in [batchId]. Stops at the first failure and reports
-  /// it; entries already undone are skipped.
+  /// Undo every entry of the unit [batchId], whatever its size: each source
+  /// folder takes its items back in one set-based move. No prompt for a
+  /// batch — a folder whose source is gone goes back to the root, a note to
+  /// the first available folder.
+  ///
+  /// "Move undone" is said only when the whole unit went back; otherwise the
+  /// items a sibling's name kept out are counted with the move's own
+  /// duplicate wording, and any other item that stayed is reported as a
+  /// failed move.
   static Future<void> undoBatch(BuildContext context, String batchId) async {
     final l10n = AppLocalizations.of(context)!;
-    final ids = _historyService.entryIdsInBatch(batchId);
-    if (ids.isEmpty) return;
+    final entries = [
+      for (final entry in _historyService.history)
+        if (entry.batchId == batchId && !entry.isUndone) entry,
+    ];
+    if (entries.isEmpty) return;
 
-    int undoneCount = 0;
-    for (final id in ids) {
-      if (!context.mounted) return;
-      final entry = _historyService.history
-          .where((e) => e.id == id)
-          .firstOrNull;
-      if (entry == null || entry.isUndone) continue;
-      final ok = await _undoOneSilently(entry);
-      if (ok) undoneCount++;
+    final live = <String?, bool>{null: false};
+    String? fallbackFolder;
+    var fallbackLoaded = false;
+    final groups = <(MoveItemType, String?), List<MoveHistoryEntry>>{};
+    for (final entry in entries) {
+      final source = entry.sourceParentId;
+      if (!live.containsKey(source)) {
+        // A tombstone is gone too: the move into it would be refused.
+        live[source] =
+            await _folderService.getFolderById(
+              source!,
+              includeDeleted: false,
+            ) !=
+            null;
+      }
+      String? destination = live[source]! ? source : null;
+      if (entry.itemType == MoveItemType.note && destination == null) {
+        if (!fallbackLoaded) {
+          fallbackFolder = await _firstAvailableFolderId();
+          fallbackLoaded = true;
+        }
+        destination = fallbackFolder;
+      }
+      groups.putIfAbsent((entry.itemType, destination), () => []).add(entry);
     }
+
+    final restored = <String>[];
+    var duplicates = 0;
+    var anyFolderFailed = false;
+    var anyNoteFailed = false;
+    for (final MapEntry(key: (type, destination), value: group)
+        in groups.entries) {
+      final ids = [for (final entry in group) entry.itemId];
+      final isFolder = type == MoveItemType.folder;
+      final BulkMoveResult result;
+      if (isFolder) {
+        result = await _guarded(
+          () => _folderService.moveFolders(
+            folderIds: ids,
+            targetParentId: destination,
+          ),
+        );
+      } else if (destination != null) {
+        final target = destination;
+        result = await _guarded(
+          () => _noteService.moveNotes(noteIds: ids, targetFolderId: target),
+        );
+      } else {
+        result = BulkMoveResult.empty;
+      }
+      for (final entry in group) {
+        final id = entry.itemId;
+        if (result.moved.containsKey(id) || result.unchanged.contains(id)) {
+          restored.add(entry.id);
+        } else if (result.duplicates.contains(id)) {
+          duplicates++;
+        } else if (isFolder) {
+          anyFolderFailed = true;
+        } else {
+          anyNoteFailed = true;
+        }
+      }
+    }
+    _historyService.markAllUndone(restored);
 
     if (!context.mounted) return;
-    if (undoneCount == ids.length) {
+    if (restored.length == entries.length) {
       CustomSnackbar.show(context, l10n.moveUndone);
-    } else if (undoneCount > 0) {
-      CustomSnackbar.show(context, l10n.moveUndone);
-    } else {
-      CustomSnackbar.showError(context, l10n.folderMoveFailed);
+      return;
     }
-  }
-
-  /// Internal: like [_undoFolderMove]/[_undoNoteMove] but without snackbars,
-  /// for use inside batch undo. Falls back to root if the source location
-  /// is gone (no interactive prompt for batches).
-  static Future<bool> _undoOneSilently(MoveHistoryEntry entry) async {
-    String? destination = entry.sourceParentId;
-    if (destination != null) {
-      final exists = await _folderService.getFolderById(destination);
-      if (exists == null) destination = null; // fall back to root
-    }
-
-    if (entry.itemType == MoveItemType.folder) {
-      final result = await _folderService.moveFolder(
-        folderId: entry.itemId,
-        targetParentId: destination,
+    if (duplicates > 0) {
+      CustomSnackbar.showError(
+        context,
+        l10n.moveSkippedDueToDuplicates(duplicates),
       );
-      if (result == null) return false;
-    } else {
-      // Notes need a folder; if root fell through, try the first available folder.
-      destination ??= await _firstAvailableFolderId();
-      if (destination == null) return false;
-      final result = await _noteService.moveNote(
-        noteId: entry.itemId,
-        targetFolderId: destination,
-      );
-      if (result == null) return false;
     }
-    _historyService.markUndone(entry.id);
-    return true;
+    if (anyFolderFailed || anyNoteFailed) {
+      CustomSnackbar.showError(
+        context,
+        anyFolderFailed ? l10n.folderMoveFailed : l10n.noteMoveFailed,
+      );
+    }
   }
 
   // ─────────────────────────────────────────────────────────────────────
@@ -544,6 +592,20 @@ class MoveCoordinator {
 
     _historyService.markUndone(entry.id);
     CustomSnackbar.show(context, l10n.moveUndone);
+  }
+
+  /// Runs one set-based move, reading a database failure as "nothing moved":
+  /// its items then report through the failure snackbar every other unmoved
+  /// item uses, rather than the error escaping an Undo tap unseen.
+  static Future<BulkMoveResult> _guarded(
+    Future<BulkMoveResult> Function() move,
+  ) async {
+    try {
+      return await move();
+    } catch (e, st) {
+      debugPrint('[MoveCoordinator] bulk move failed: $e\n$st');
+      return BulkMoveResult.empty;
+    }
   }
 
   static Future<String?> _firstAvailableFolderId() async {

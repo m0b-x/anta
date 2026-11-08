@@ -1,14 +1,20 @@
 import 'dart:convert';
 import 'dart:io';
-import 'package:flutter/foundation.dart' show debugPrint, visibleForTesting;
+import 'dart:isolate';
+import 'package:flutter/foundation.dart'
+    show ChangeNotifier, debugPrint, visibleForTesting;
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:sqlite3/sqlite3.dart' show OpenMode, sqlite3;
+import 'package:sqlite3/sqlite3.dart'
+    show Database, OpenMode, SqliteException, sqlite3;
 
 import '../constants/settings_keys.dart';
+import '../constants/temp_file_names.dart';
 import '../core/qa/qa_mode.dart';
+import '../database/daos/sync_dao.dart';
 import '../database/database.dart';
+import '../database/migrations/database_schema.dart';
 import 'sync/sync_space_registry.dart';
 
 /// Service for managing multiple SQLite databases
@@ -23,6 +29,11 @@ class DatabaseManager {
 
   static const String _downloadFrom = 'from';
   static const String _downloadTo = 'to';
+
+  /// What a share's snapshot folder in the system temp directory is named
+  /// with ([snapshotForShare]); it carries ANTA's temp prefix so the launch
+  /// sweep (`ImportExportService.sweepStaleExports`) knows it as ANTA's own.
+  static const String shareSnapshotPrefix = TempFileNames.shareSnapshotPrefix;
 
   DatabaseManager._();
 
@@ -244,10 +255,55 @@ class DatabaseManager {
     await file.create();
   }
 
-  /// Copies an external SQLite database file into the managed directory as
-  /// [targetName]. The file is imported verbatim; ANTA's migrations upgrade it
-  /// on first open.
-  Future<void> importDatabase(String sourcePath, String targetName) async {
+  /// What an import's temporary copy is named with, after the target's
+  /// `.db` and before a timestamp (`travel.db.import-<epoch ms>`), so
+  /// [listDatabases] never lists one and [sweepStaleImports] knows it.
+  static const String _importTempSuffix = '.import-';
+
+  /// A temporary copy or one of its sidecars, by [_importTempSuffix].
+  static final RegExp _importTempName = RegExp(
+    '\\.db${RegExp.escape(_importTempSuffix)}\\d+(-wal|-shm|-journal)?\$',
+  );
+
+  /// The 16 bytes every SQLite database file begins with.
+  static const String _sqliteMagic = 'SQLite format 3\u0000';
+
+  /// The sidecars SQLite keeps beside a database: the WAL, its index, and a
+  /// rollback journal.
+  static const List<String> _sidecarSuffixes = ['-wal', '-shm', '-journal'];
+
+  /// The copy's read and write size, and so how long a Cancel can wait.
+  static const int _importChunkBytes = 1 << 20;
+
+  /// Checks a copied file before it may become a database of this install;
+  /// throws a [DatabaseImportError] to refuse it. The real check opens the
+  /// file in SQLite, so a widget test, which cannot run it under `FakeAsync`,
+  /// puts a fake here.
+  @visibleForTesting
+  Future<void> Function(String tmpPath) verifyImport = verifyImportFile;
+
+  /// Awaited after each chunk the copy writes, so a test can hold the copy
+  /// half done — a real one finishes before a tap could land.
+  @visibleForTesting
+  static Future<void> Function()? debugImportChunkWritten;
+
+  /// Brings an external SQLite database file in as [targetName]; ANTA's
+  /// migrations upgrade it on first open.
+  ///
+  /// The copy goes to a temporary name beside the target, in chunks, so
+  /// [progress] can show it and stop it; a `-wal` beside the source comes
+  /// too, or a WAL-mode file would arrive without its latest writes, and so
+  /// does a hot `-journal`, or a file copied mid-transaction would arrive
+  /// torn instead of rolled back. Only a copy [verifyImport] accepts is
+  /// renamed into place: a corrupt file, a newer schema or another app's
+  /// database would otherwise become the active database and could take the
+  /// app down at launch. Whatever fails — a cancel, a full disk, a refusal —
+  /// the temporary files go before the error reaches the caller.
+  Future<void> importDatabase(
+    String sourcePath,
+    String targetName, {
+    DatabaseImportProgress? progress,
+  }) async {
     if (await databaseExists(targetName)) {
       throw Exception('Database "$targetName" already exists');
     }
@@ -258,9 +314,274 @@ class DatabaseManager {
     }
 
     final targetPath = await getDatabasePath(targetName);
-    final targetFile = File(targetPath);
-    await targetFile.parent.create(recursive: true);
-    await source.copy(targetPath);
+    await File(targetPath).parent.create(recursive: true);
+    final tempPath =
+        '$targetPath$_importTempSuffix${DateTime.now().millisecondsSinceEpoch}';
+    final copies = <(File, String)>[(source, tempPath)];
+    for (final suffix in const ['-wal', '-journal']) {
+      final sidecar = File('$sourcePath$suffix');
+      if (await sidecar.exists()) copies.add((sidecar, '$tempPath$suffix'));
+    }
+
+    try {
+      final lengths = [for (final (file, _) in copies) await file.length()];
+      final total = lengths.fold(0, (sum, length) => sum + length);
+      var copied = 0;
+      for (final (index, (file, to)) in copies.indexed) {
+        await _copyInChunks(file, to, lengths[index], progress, (bytes) {
+          copied += bytes;
+          progress?._copied(total == 0 ? 1 : copied / total);
+        });
+      }
+
+      // A Cancel tapped after the last chunk's check still counts: the dialog
+      // took it, so the import must not go on to succeed.
+      if (progress?.cancelRequested ?? false) {
+        throw const DatabaseImportCancelled();
+      }
+      progress?._verifying();
+      await verifyImport(tempPath);
+
+      // The real check folds a WAL-mode file's sidecar and rolls a hot
+      // journal back, so a sidecar still here was never the file's own — a
+      // stale one copied from beside the source, or an orphan a failed
+      // delete left beside the target. SQLite replays a WAL it finds beside
+      // a database, even a rollback-flagged one, so either would be written
+      // over the imported file.
+      for (final suffix in _sidecarSuffixes) {
+        for (final sidecar in [
+          File('$tempPath$suffix'),
+          File('$targetPath$suffix'),
+        ]) {
+          if (await sidecar.exists()) await sidecar.delete();
+        }
+      }
+      await File(tempPath).rename(targetPath);
+    } catch (_) {
+      await _deleteImportTemp(tempPath);
+      rethrow;
+    }
+  }
+
+  /// Copies the [length] bytes [from] held when the import began — what the
+  /// bar's total counts; a live `-wal` growing meanwhile ends on a whole
+  /// frame or a torn one SQLite ignores.
+  Future<void> _copyInChunks(
+    File from,
+    String to,
+    int length,
+    DatabaseImportProgress? progress,
+    void Function(int bytes) onChunk,
+  ) async {
+    final input = await from.open();
+    try {
+      final output = await File(to).open(mode: FileMode.writeOnly);
+      try {
+        var remaining = length;
+        while (remaining > 0) {
+          if (progress?.cancelRequested ?? false) {
+            throw const DatabaseImportCancelled();
+          }
+          final chunk = await input.read(
+            remaining < _importChunkBytes ? remaining : _importChunkBytes,
+          );
+          if (chunk.isEmpty) break;
+          remaining -= chunk.length;
+          await output.writeFrom(chunk);
+          onChunk(chunk.length);
+          await debugImportChunkWritten?.call();
+        }
+        await output.flush();
+      } finally {
+        await output.close();
+      }
+    } finally {
+      await input.close();
+    }
+  }
+
+  /// Deletes an import's temporary copy and every sidecar SQLite may have
+  /// left beside it. Never thrown: what is left, the launch sweep takes.
+  Future<void> _deleteImportTemp(String tempPath) async {
+    for (final suffix in ['', ..._sidecarSuffixes]) {
+      try {
+        final file = File('$tempPath$suffix');
+        if (await file.exists()) await file.delete();
+      } catch (e) {
+        debugPrint('[DatabaseManager] import temp kept: $e');
+      }
+    }
+  }
+
+  /// Deletes the temporary copies an import left when the app died during
+  /// it. Run before the first frame, when no import can be running; nothing
+  /// else in the directory is touched. Never thrown: the launch must go on.
+  Future<void> sweepStaleImports() async {
+    try {
+      final directory = Directory(await getDatabaseDirectory());
+      if (!await directory.exists()) return;
+      await for (final entity in directory.list(followLinks: false)) {
+        if (entity is! File) continue;
+        if (!_importTempName.hasMatch(p.basename(entity.path))) continue;
+        try {
+          await entity.delete();
+        } catch (e) {
+          debugPrint('[DatabaseManager] stale import kept: $e');
+        }
+      }
+    } catch (e, st) {
+      debugPrint('[DatabaseManager] import sweep failed: $e\n$st');
+    }
+  }
+
+  /// [verifyImport]'s real check, off the UI isolate: a 500 MB file's
+  /// `quick_check` takes seconds.
+  static Future<void> verifyImportFile(String path) {
+    final newestVersion = DatabaseSchema.currentVersion;
+    return Isolate.run(() => _verifyImportSync(path, newestVersion));
+  }
+
+  /// ANTA's core tables and the columns each has had since the first schema
+  /// (no migration renames or drops them): what an older file must carry for
+  /// the migrations to have anything to upgrade.
+  static const Map<String, List<String>> _antaBaseColumns = {
+    'notes': ['id', 'folder_id', 'title'],
+    'folders': ['id', 'name'],
+    'content_chunks': ['id', 'note_id', 'chunk_index', 'content'],
+  };
+
+  /// What a file at [DatabaseSchema.currentVersion] carries besides: Drift
+  /// runs no migration on it, so a table that only has the right name would
+  /// fail every query once it is active.
+  static const Map<String, List<String>> _antaCurrentColumns = {
+    'notes': ['is_deleted', 'hlc_timestamp'],
+    'folders': ['is_deleted', 'hlc_timestamp'],
+    // `content_hash` arrived with v46 (the content-defined chunks); a file at
+    // the current version without it would fail every planned save.
+    'content_chunks': ['is_deleted', 'hlc_timestamp', 'content_hash'],
+  };
+
+  /// In order: the header, the length against the pages, the schema
+  /// version, `quick_check`, ANTA's shape (a version of at least 1 and the
+  /// core tables' columns, the current ones at the current version) — then,
+  /// on a file it accepts, [_forgetReplicaId], the one write. Opens
+  /// read-write, never create — a vanished file must fail, not become an
+  /// empty database — and folds a `-wal` first, so the length is the whole
+  /// database's.
+  static void _verifyImportSync(String path, int newestVersion) {
+    final file = File(path);
+    final header = file.openSync();
+    final List<int> bytes;
+    try {
+      bytes = header.readSync(100);
+    } finally {
+      header.closeSync();
+    }
+    _checkHeader(bytes);
+
+    final Database db;
+    try {
+      db = sqlite3.open(path, mode: OpenMode.readWrite);
+    } on SqliteException catch (e) {
+      throw DatabaseImportCorrupt('open: $e');
+    }
+    try {
+      if (File('$path-wal').existsSync()) {
+        final row = db.select('PRAGMA wal_checkpoint(TRUNCATE)').single;
+        if (row['busy'] != 0) {
+          throw const DatabaseImportCorrupt('WAL not folded');
+        }
+      }
+      final pageCount = db.select('PRAGMA page_count').single['page_count'];
+      final pageSize = db.select('PRAGMA page_size').single['page_size'];
+      final length = file.lengthSync();
+      if (pageCount is! int ||
+          pageSize is! int ||
+          pageCount * pageSize != length) {
+        throw DatabaseImportCorrupt(
+          '$pageCount pages of $pageSize bytes in $length',
+        );
+      }
+
+      final version = db.select('PRAGMA user_version').single['user_version'];
+      if (version is int && version > newestVersion) {
+        throw DatabaseImportTooNew(version);
+      }
+
+      final check = db.select('PRAGMA quick_check');
+      if (check.length != 1 || check.single.values.first != 'ok') {
+        throw DatabaseImportCorrupt(
+          'quick_check: ${check.map((r) => r.values.first).join('; ')}',
+        );
+      }
+
+      // Version 0 is a file no ANTA has opened: Drift would create its
+      // tables beside the foreign ones and stamp it current.
+      if (version is! int || version < 1) {
+        throw const DatabaseImportNotAnta();
+      }
+      for (final MapEntry(key: table, value: base)
+          in _antaBaseColumns.entries) {
+        final columns = {
+          for (final row in db.select('PRAGMA table_info("$table")'))
+            row['name'],
+        };
+        final required = [
+          ...base,
+          if (version == newestVersion) ..._antaCurrentColumns[table]!,
+        ];
+        if (!columns.containsAll(required)) {
+          throw const DatabaseImportNotAnta();
+        }
+      }
+      _forgetReplicaId(db);
+    } on SqliteException catch (e) {
+      throw DatabaseImportCorrupt('$e');
+    } finally {
+      db.close();
+    }
+  }
+
+  /// Drops an accepted file's `replica_id`, so its first counter tap mints a
+  /// fresh one (S20, D8 A): a bound database imported on another phone claims
+  /// the space there, and tapping under the source's id would join the two
+  /// phones' taps as one replica's — the larger count kept, not the sum.
+  /// Writes nothing to a file that carries none.
+  static void _forgetReplicaId(Database db) {
+    final hasTable = db.select(
+      "SELECT 1 FROM sqlite_master WHERE type = 'table' "
+      "AND name = 'sync_metadata'",
+    );
+    if (hasTable.isEmpty) return;
+    final stored = db.select('SELECT 1 FROM sync_metadata WHERE key = ?', [
+      SyncDao.keyReplicaId,
+    ]);
+    if (stored.isEmpty) return;
+    db.execute('DELETE FROM sync_metadata WHERE key = ?', [
+      SyncDao.keyReplicaId,
+    ]);
+  }
+
+  /// The SQLite magic, a power-of-two page size, and read and write versions
+  /// of 1 or 2: a share since S18 is a rollback-journal file (1, 1), an
+  /// older share and a live copy are WAL-flagged (2, 2).
+  static void _checkHeader(List<int> bytes) {
+    if (bytes.length < 100) {
+      throw const DatabaseImportCorrupt('header shorter than 100 bytes');
+    }
+    if (!_startsWithMagic(bytes)) {
+      throw const DatabaseImportCorrupt('no SQLite magic');
+    }
+    final rawPageSize = bytes[16] << 8 | bytes[17];
+    final pageSize = rawPageSize == 1 ? 65536 : rawPageSize;
+    if (pageSize < 512 || pageSize & (pageSize - 1) != 0) {
+      throw DatabaseImportCorrupt('page size $pageSize');
+    }
+    for (final version in [bytes[18], bytes[19]]) {
+      if (version != 1 && version != 2) {
+        throw DatabaseImportCorrupt('file format version $version');
+      }
+    }
   }
 
   /// True when [path] begins with the SQLite file magic header. Guards against
@@ -272,16 +593,18 @@ class DatabaseManager {
 
     final handle = await file.open();
     try {
-      final header = await handle.read(16);
-      if (header.length < 16) return false;
-      const magic = 'SQLite format 3\u0000';
-      for (var i = 0; i < magic.length; i++) {
-        if (header[i] != magic.codeUnitAt(i)) return false;
-      }
-      return true;
+      return _startsWithMagic(await handle.read(_sqliteMagic.length));
     } finally {
       await handle.close();
     }
+  }
+
+  static bool _startsWithMagic(List<int> bytes) {
+    if (bytes.length < _sqliteMagic.length) return false;
+    for (var i = 0; i < _sqliteMagic.length; i++) {
+      if (bytes[i] != _sqliteMagic.codeUnitAt(i)) return false;
+    }
+    return true;
   }
 
   /// A unique, valid database name derived from [base] by sanitizing invalid
@@ -409,7 +732,9 @@ class DatabaseManager {
   }
 
   /// Folds [name]'s `-wal` sidecar back into its `.db`, so the main file alone
-  /// — what a share hands over — holds every committed write.
+  /// holds every committed write before [renameDatabase] moves it or
+  /// [deleteDatabase] removes it. (A share no longer needs it: it hands over
+  /// [snapshotForShare]'s copy.)
   ///
   /// The open database is checkpointed on the app's own connection. Any other
   /// name is checkpointed only when a sidecar was left behind (the app quit
@@ -436,11 +761,181 @@ class DatabaseManager {
     }
   }
 
+  /// Writes a consistent copy of [name] for a share and returns its path,
+  /// `<temp>/anta_db_share_<epoch ms>/<name>.db` — the file name the
+  /// recipient sees, and so the name a restore suggests.
+  ///
+  /// `VACUUM INTO` copies one read transaction's view, so a write landing
+  /// meanwhile (an auto-save, a sync pull) is wholly in the copy or wholly
+  /// out of it, nothing waits on a checkpoint a reader could block, and free
+  /// pages stay behind (D11, `docs/scalability-roadmap.md`).
+  ///
+  /// It runs on a short-lived connection of its own, in a worker isolate,
+  /// whether or not the app has [name] open: in WAL mode that connection is
+  /// one more reader with its own consistent view, so the app's single Drift
+  /// connection is never held for the length of the copy and its writes go
+  /// on meanwhile. No `temp_store` change is needed — `VACUUM INTO` writes
+  /// the copy straight into the target file, not through temporary storage.
+  ///
+  /// Earlier snapshot folders go first: a desktop share leaves its own for
+  /// later (`ImportExportService.shareExport`). A copy that fails — a full
+  /// disk — takes its folder with it before the error reaches the caller.
+  Future<String> snapshotForShare(String name) async {
+    final tempDir = await getTemporaryDirectory();
+    await for (final entity in tempDir.list(followLinks: false)) {
+      if (entity is Directory &&
+          p.basename(entity.path).startsWith(shareSnapshotPrefix)) {
+        try {
+          await entity.delete(recursive: true);
+        } catch (e) {
+          // Still open in a share sheet; the launch sweep retries it.
+          debugPrint('[DatabaseManager] earlier snapshot kept: $e');
+        }
+      }
+    }
+
+    final folder = Directory(
+      p.join(
+        tempDir.path,
+        '$shareSnapshotPrefix${DateTime.now().millisecondsSinceEpoch}',
+      ),
+    );
+    final snapshot = p.join(folder.path, '$name.db');
+    try {
+      await folder.create(recursive: true);
+      final source = await getDatabasePath(name);
+      final copy = debugSnapshotCopy;
+      if (copy != null) {
+        copy(source, snapshot);
+      } else {
+        await Isolate.run(() => _vacuumInto(source, snapshot));
+      }
+      return snapshot;
+    } catch (_) {
+      try {
+        await folder.delete(recursive: true);
+      } catch (_) {
+        /* the launch sweep retries it */
+      }
+      rethrow;
+    }
+  }
+
+  /// Stands in for [snapshotForShare]'s copy, on the calling isolate, so a
+  /// test can fail it the way a full disk would — SQLite cannot be made to
+  /// run out of room on a test machine.
+  @visibleForTesting
+  static void Function(String source, String snapshot)? debugSnapshotCopy;
+
+  /// [snapshotForShare]'s copy. Opens read-write, never create: a missing
+  /// file must fail the share, not conjure an empty database to snapshot.
+  static void _vacuumInto(String source, String snapshot) {
+    final connection = sqlite3.open(source, mode: OpenMode.readWrite);
+    try {
+      connection.execute('VACUUM INTO ?', [snapshot]);
+    } finally {
+      connection.close();
+    }
+  }
+
   /// Validate database name (alphanumeric, underscores, hyphens only)
   bool isValidDatabaseName(String name) {
     if (name.isEmpty || name.length > 50) return false;
     final regex = RegExp(r'^[a-zA-Z0-9_-]+$');
     return regex.hasMatch(name);
+  }
+}
+
+/// Why an imported database file was refused. Each kind has its own message,
+/// so the user knows whether to look for another file or update the app.
+sealed class DatabaseImportError implements Exception {
+  const DatabaseImportError();
+}
+
+/// Not a whole SQLite database: a bad header, a length its pages do not
+/// account for, or a failed `quick_check`.
+final class DatabaseImportCorrupt extends DatabaseImportError {
+  const DatabaseImportCorrupt(this.reason);
+
+  /// For the log only; the user sees one sentence for every reason.
+  final String reason;
+
+  @override
+  String toString() => 'DatabaseImportCorrupt: $reason';
+}
+
+/// A sound SQLite file that is not ANTA's: version 0 (no ANTA ever opened
+/// it), or core tables missing or without the columns its version carries.
+final class DatabaseImportNotAnta extends DatabaseImportError {
+  const DatabaseImportNotAnta();
+
+  @override
+  String toString() => 'DatabaseImportNotAnta';
+}
+
+/// Written by a newer ANTA: this build's migrations cannot read a schema past
+/// [DatabaseSchema.currentVersion], so the file must never become active.
+final class DatabaseImportTooNew extends DatabaseImportError {
+  const DatabaseImportTooNew(this.version);
+
+  /// The file's `user_version`, for the log; the message names no number,
+  /// since the user needs only to update.
+  final int version;
+
+  @override
+  String toString() => 'DatabaseImportTooNew: $version';
+}
+
+/// The user stopped the copy; its partial file is already gone.
+final class DatabaseImportCancelled extends DatabaseImportError {
+  const DatabaseImportCancelled();
+
+  @override
+  String toString() => 'DatabaseImportCancelled';
+}
+
+/// An import's two steps: the copy, which a Cancel stops between chunks, and
+/// the check, which nothing can interrupt.
+enum DatabaseImportPhase { copying, verifying }
+
+/// One import as its dialog sees it — how far the copy is, whether it has
+/// moved on to the check — and the dialog's one way to stop it.
+class DatabaseImportProgress extends ChangeNotifier {
+  DatabaseImportPhase _phase = DatabaseImportPhase.copying;
+  double _fraction = 0;
+  bool _cancelRequested = false;
+
+  /// Which step the dialog shows; it moves forward once, never back.
+  DatabaseImportPhase get phase => _phase;
+
+  /// The share of the copy written, 0 to 1.
+  double get fraction => _fraction;
+
+  /// A Cancel was taken; the import throws [DatabaseImportCancelled] before
+  /// it writes another chunk or starts the check.
+  bool get cancelRequested => _cancelRequested;
+
+  /// Whether [cancel] still means anything: the check is FFI work that
+  /// cannot be interrupted, so only the copy can be stopped.
+  bool get canCancel =>
+      _phase == DatabaseImportPhase.copying && !_cancelRequested;
+
+  /// Honoured before the copy's next chunk.
+  void cancel() {
+    if (!canCancel) return;
+    _cancelRequested = true;
+    notifyListeners();
+  }
+
+  void _copied(double fraction) {
+    _fraction = fraction;
+    notifyListeners();
+  }
+
+  void _verifying() {
+    _phase = DatabaseImportPhase.verifying;
+    _fraction = 1;
+    notifyListeners();
   }
 }
 

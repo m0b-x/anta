@@ -49,6 +49,16 @@ abstract class SyncTableBinding<R> {
   /// table — a merge writes below every cache and tells none of them.
   SyncInvalidation get invalidation;
 
+  /// The most documents one pull page of this table asks for; null for the
+  /// gateway's `maxBatch`. A table of large rows takes fewer, so one page
+  /// fits a slow link's call deadline and its merges one short transaction
+  /// (scalability record S10).
+  int? get pullPageLimit => null;
+
+  /// Whether a run pulls this table. False for a table this build only
+  /// pushes: no page of it is read, and its `touched` marks no run stale.
+  bool get pulls => true;
+
   /// The rows under [rowKeys], live and tombstoned alike — a push sends the
   /// tombstone a delete queued.
   Future<List<R>> loadByKeys(AppDatabase db, Iterable<String> rowKeys);

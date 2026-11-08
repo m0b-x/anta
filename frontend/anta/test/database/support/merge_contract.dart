@@ -44,6 +44,11 @@ class MergeContract<R> {
   /// the table has no body.
   final String? mergedContent;
 
+  /// Notes only: an older remote from another device whose text differs
+  /// from the kept local row comes back as the loser, the incoming text a
+  /// conflict copy keeps (scalability S8).
+  final bool keptRemoteLoses;
+
   const MergeContract({
     required this.table,
     required this.freshKey,
@@ -53,6 +58,7 @@ class MergeContract<R> {
     required this.markerColumn,
     required this.markerValue,
     this.mergedContent,
+    this.keptRemoteLoses = false,
   });
 }
 
@@ -101,7 +107,12 @@ void runMergeContract<R>(
       expect(row['is_deleted'], 0);
       expect(row['owner_id'], 'uid-1');
       expect(row[c.markerColumn], c.markerValue);
-      expect(await db().syncOutboxDao.count(), 0);
+      // A note's new chunks are queued by whatever writes them (S6): a chunk
+      // document is immutable, so pushing one again echoes nothing back.
+      expect([
+        for (final entry in await db().syncOutboxDao.pending())
+          if (entry.syncedTable != 'content_chunks') entry,
+      ], isEmpty);
     });
 
     test('a newer remote wins and retires the pending entry', () async {
@@ -140,7 +151,13 @@ void runMergeContract<R>(
 
       final outcome = await c.merge(db(), c.remote(key, olderHlc));
 
-      expect(outcome, const MergeOutcome(MergeResult.keptLocal));
+      if (c.keptRemoteLoses) {
+        expect(outcome.result, MergeResult.keptLocal);
+        expect(outcome.loserIncoming, isTrue);
+        expect(outcome.loserContent, c.mergedContent);
+      } else {
+        expect(outcome, const MergeOutcome(MergeResult.keptLocal));
+      }
       expect(await stored(key), before);
       final queued = await entries(key);
       expect(queued.single.hlc, stamp, reason: 'its own stamp, none minted');
@@ -162,7 +179,8 @@ void runMergeContract<R>(
       expect((await entries(key)).single.hlc, ahead);
     });
 
-    test('the same stamp again is unchanged and writes nothing', () async {
+    test('the same stamp again is unchanged and writes nothing but the '
+        'outbox ack', () async {
       final key = await c.seedLocal(db());
       final before = await stored(key);
       final stamp = await localStamp(key);
@@ -174,8 +192,59 @@ void runMergeContract<R>(
       expect([
         for (final s in statements().captured)
           if (!s.isSelect) s.sql,
-      ], isEmpty);
+      ], everyElement(startsWith('DELETE FROM "sync_outbox"')));
       expect(await stored(key), before);
+    });
+
+    test('the same stamp retires the pending entry', () async {
+      final key = await c.seedLocal(db());
+      final stamp = await localStamp(key);
+      expect(await entries(key), isNotEmpty);
+
+      await c.merge(db(), c.remote(key, stamp));
+
+      expect(await entries(key), isEmpty);
+    });
+
+    test('the same stamp never retires an entry queued above it', () async {
+      final key = await c.seedLocal(db());
+      final stamp = await localStamp(key);
+      await db().syncOutboxDao.clear();
+      const ahead = 'fffffffffff0:0000:local';
+      await db().customStatement(
+        'INSERT INTO sync_outbox (table_name, row_key, hlc, op, enqueued_at) '
+        "VALUES (?, ?, ?, 'upsert', 0)",
+        [c.table, key, ahead],
+      );
+
+      final outcome = await c.merge(db(), c.remote(key, stamp));
+
+      expect(outcome.result, MergeResult.unchanged);
+      expect((await entries(key)).single.hlc, ahead);
+    });
+
+    /// Every device stamps its own catalog defaults with the seed, so an
+    /// equal seed says nothing about what the space holds; the row keeps
+    /// being pushed, as under the floor branch's seed exclusion.
+    test('the seed stamp never retires the pending entry', () async {
+      final key = await c.seedLocal(db());
+      final seed = HlcTimestamp.seed.toString();
+      await db().customStatement(
+        'UPDATE ${c.table} SET hlc_timestamp = ? '
+        'WHERE ${synced.rowKeySql} = ?',
+        [seed, key],
+      );
+      await db().syncOutboxDao.clear();
+      await db().customStatement(
+        'INSERT INTO sync_outbox (table_name, row_key, hlc, op, enqueued_at) '
+        "VALUES (?, ?, ?, 'upsert', 0)",
+        [c.table, key, seed],
+      );
+
+      final outcome = await c.merge(db(), c.remote(key, seed));
+
+      expect(outcome.result, MergeResult.unchanged);
+      expect((await entries(key)).single.hlc, seed);
     });
 
     test('a tombstone applies, and a newer upsert resurrects', () async {

@@ -3,6 +3,7 @@ import '../database/daos/folder_dao.dart';
 import '../repositories/folder_repository.dart';
 import '../models/folder.dart' as model;
 import '../models/item_label.dart';
+import '../models/movable_item.dart';
 import '../constants/app_constants.dart';
 import 'duplicate_name_exception.dart';
 
@@ -321,6 +322,20 @@ class FolderStorageService {
     return folder != null ? _folderToModel(folder) : null;
   }
 
+  /// Moves a whole selection in one transaction. Unlike [moveFolder], a
+  /// name clash is not thrown: it is one item's outcome among the others, in
+  /// [BulkMoveResult.duplicates].
+  Future<BulkMoveResult> moveFolders({
+    required List<String> folderIds,
+    required String? targetParentId,
+  }) async {
+    await initialize();
+    return _repository.moveFolders(
+      folderIds: folderIds,
+      targetParentId: targetParentId,
+    );
+  }
+
   Future<List<String>> getDescendantIds(String folderId) async {
     await initialize();
     return _repository.getAllDescendantIds(folderId);
@@ -442,18 +457,6 @@ class FolderStorageService {
   Future<int> getNoteCountForDeletion(String folderId) async {
     await initialize();
     return _repository.getNoteCountForDeletion(folderId);
-  }
-
-  /// Reorder folders within a parent
-  Future<void> reorderFolders({
-    String? parentId,
-    required List<String> orderedIds,
-  }) async {
-    await initialize();
-    await _repository.reorderFolders(
-      parentId: parentId,
-      orderedIds: orderedIds,
-    );
   }
 
   /// Update sort preferences for a folder

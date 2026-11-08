@@ -16,6 +16,8 @@ import 'package:anta/database/database.dart';
 import 'package:anta/services/backup_service.dart';
 import 'package:anta/services/counter_service.dart';
 
+import 'support/backup_archive.dart';
+
 /// The restore replays rows the sync merge converges, so it must put back
 /// what the archive carries rather than stamping the restore's own time:
 /// `created_at`, `updated_at` and a folder's two sort preferences (A3a
@@ -69,7 +71,7 @@ void main() {
     );
 
     final backup = await BackupService.getInstance();
-    final exported = await backup.exportAllData();
+    final exported = await exportBackupArchive();
     final result = await backup.importFromJson(jsonEncode(exported));
     expect(result.success, isTrue, reason: 'error: ${result.error}');
 

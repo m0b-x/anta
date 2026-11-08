@@ -188,7 +188,7 @@ class SyncSpaceService {
     final db = await _database();
     final probes = [
       for (final synced in syncedTables)
-        if (!synced.travelsWithParent)
+        if (!synced.contentAddressed)
           'EXISTS (SELECT 1 FROM ${synced.name} WHERE is_deleted = 0'
               '${synced.name == 'calendar_categories' ? ' AND is_built_in = 0' : ''})',
     ];
@@ -326,7 +326,7 @@ class SyncSpaceService {
       ownerUid: accountUid,
       name: trimmed,
       deviceId: db.deviceId,
-      schema: DatabaseSchema.currentVersion,
+      schema: DatabaseSchema.syncSchemaVersion,
     );
     await _bind(created.ref, accountUid: accountUid);
     return created;

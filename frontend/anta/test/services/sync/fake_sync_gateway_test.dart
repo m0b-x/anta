@@ -168,6 +168,62 @@ void main() {
     expect(unresumed.envelopes.map((e) => e.rowKey), ['r4', 'r5']);
   });
 
+  test('a re-read a page stops short of its cursor says where it goes on, '
+      'and never moves the cursor back', () async {
+    gateway.replayOnResume = 4;
+    await push([for (var i = 1; i <= 6; i++) envelope('r$i', i)]);
+    final stored = (await gateway.pullPage(space, 'folders', limit: 5)).next;
+
+    final first = await gateway.pullPage(
+      space,
+      'folders',
+      after: stored,
+      limit: 2,
+      resumed: true,
+    );
+    final second = await gateway.pullPage(
+      space,
+      'folders',
+      after: stored,
+      limit: 2,
+      resumed: true,
+      scan: first.scan,
+    );
+
+    expect(first.envelopes.map((e) => e.rowKey), ['r2', 'r3']);
+    expect(first.next, stored);
+    expect(first.scan, isNotNull);
+    expect(second.envelopes.map((e) => e.rowKey), ['r4', 'r5']);
+    expect(second.next, stored);
+    expect(second.scan, isNull, reason: 'it reached the cursor');
+    expect(second.hasMore, isTrue);
+  });
+
+  test('a call over the modelled link times out and changes nothing; a '
+      'scripted timeout fails the next call alone', () async {
+    await push([envelope('r1', 1), envelope('r2', 2)]);
+    gateway.pullBytesPerCall = FakeSyncGateway.bytesOf([envelope('r1', 1)]);
+
+    await expectLater(
+      gateway.pullPage(space, 'folders'),
+      throwsA(
+        isA<SyncGatewayException>().having((e) => e.timedOut, 'timedOut', true),
+      ),
+    );
+    expect(
+      (await gateway.pullPage(space, 'folders', limit: 1)).envelopes,
+      hasLength(1),
+    );
+
+    gateway.pullBytesPerCall = null;
+    gateway.failNextWithException(const SyncGatewayException.timedOut());
+    await expectLater(
+      gateway.pullPage(space, 'folders'),
+      failsWith(SyncGatewayFailure.offline),
+    );
+    expect((await gateway.pullPage(space, 'folders')).envelopes, hasLength(2));
+  });
+
   test('a pull stops at maxBatch by default and resumes after it', () async {
     await push([
       for (var i = 1; i <= gateway.maxBatch; i++) envelope('r$i', i),

@@ -12,6 +12,7 @@ import 'package:anta/repositories/note_repository.dart';
 import 'package:anta/services/sync/app_sync_apply_hooks.dart';
 import 'package:anta/services/sync/sync_gateway.dart';
 
+import '../support/body_index_support.dart';
 import 'support/sync_pair.dart';
 
 /// A live note under a folder that is a tombstone here, through the real
@@ -165,10 +166,7 @@ void main() {
     expect(onA.folderId, folder.id);
     expect(movedNotes(a()), {note.id: inbox.id});
     expect((await noteOn(b(), note.id)).folderId, folder.id);
-    expect(
-      [for (final n in await a().db.noteDao.fullTextSearch('squats')) n.id],
-      [note.id],
-    );
+    expect(await indexedHits(a().db, 'squats'), [note.id]);
     await expectConverged();
 
     await editNote(b(), note.id, 'squats, edited');

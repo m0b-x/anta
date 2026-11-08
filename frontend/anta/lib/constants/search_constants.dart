@@ -196,5 +196,49 @@ class SearchConstants {
     'Ž': 'Z',
     'ž': 'z',
   };
+
+  /// How much body text one page of the body index's backfill reads, by
+  /// `content_length`: memory stays at one page, and a page is short enough
+  /// that a search arriving mid-drain waits on at most one of them. A note
+  /// longer than this is a page of its own.
+  static const int bodyIndexPageBytes = 256 * 1024;
+
+  /// How much candidate body text a full search scores per batched read.
+  /// Larger than [bodyIndexPageBytes] because nothing is written per page,
+  /// and a typical query's whole candidate set fits in one read.
+  static const int bodyScoringPageBytes = 4 * 1024 * 1024;
+
+  /// Below this much text, projecting or scoring runs where it was asked:
+  /// spawning an isolate costs more than tokenising a few notes.
+  static const int bodyIsolateThresholdBytes = 64 * 1024;
+
+  /// How long a full search waits for the body index to catch up before it
+  /// answers from what is indexed and says some notes may be missing.
+  static const Duration bodyIndexSearchBudget = Duration(milliseconds: 300);
+
+  /// The breath the backfill takes between pages, so the UI isolate and
+  /// Drift's isolate serve frames and writes before the next page.
+  static const Duration bodyIndexPageYield = Duration(milliseconds: 8);
+
+  /// How often a backfill paused behind an editor with unsaved text looks
+  /// again. Auto-save lands within its 5 s debounce.
+  static const Duration bodyIndexEditorPoll = Duration(milliseconds: 500);
+
+  /// The longest one drain waits behind an editor with unsaved text before
+  /// it carries on regardless: a save the row refuses keeps the editor dirty
+  /// until it closes, and the index must not wait on that.
+  static const Duration bodyIndexEditorPauseLimit = Duration(seconds: 15);
+
+  /// The most notes one page of the backfill or of a search's scoring reads
+  /// by id, whatever their size: each id is one bound variable in the read.
+  static const int bodyPageMaxNotes = 500;
+
+  /// The quick search's `bm25()` weights for the body index's `title`,
+  /// `body` and `tags` columns: a title hit outranks a body hit, and a tag
+  /// only narrows, so it adds nothing to the rank.
+  static const double quickTitleWeight = 2.0;
+  static const double quickBodyWeight = 1.0;
+  static const double quickTagWeight = 0.0;
+
   SearchConstants._();
 }

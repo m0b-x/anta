@@ -853,7 +853,6 @@ void main() {
         'counter_values',
       };
       for (final table in await tableNames(db)) {
-        if (table.startsWith('notes_fts')) continue;
         final columns = await db
             .customSelect('PRAGMA table_info($table)')
             .get();
@@ -962,6 +961,60 @@ void main() {
       migrated.createMigrator(),
       DatabaseSchema.v42CategoryAlertsAndDigests,
       DatabaseSchema.v43SyncReadiness,
+    );
+
+    expect(await definitions(migrated), created);
+  });
+
+  test('the v47 indexes are defined identically on both paths, and the '
+      'retired ones are gone from both', () async {
+    // The step inlines its index SQL, frozen; `createAllIndexes` holds the
+    // live copy. This compares what each path stores.
+    const added = ['idx_content_chunks_note', 'idx_sync_outbox_order'];
+    const retired = [
+      'idx_chunks_note_index',
+      'idx_notes_folder',
+      'idx_folders_parent',
+    ];
+    Future<Map<String, String>> definitions(AppDatabase target) async {
+      final rows = await target
+          .customSelect(
+            "SELECT name, sql FROM sqlite_master WHERE type = 'index' "
+            "AND name IN ('${[...added, ...retired].join("', '")}')",
+          )
+          .get();
+      return {
+        for (final row in rows)
+          row.read<String>('name'): row.read<String>('sql'),
+      };
+    }
+
+    final created = await definitions(db);
+    expect(created.keys.toSet(), added.toSet());
+    expect(created['idx_content_chunks_note'], isNot(contains('WHERE')));
+
+    // The v46 shape: the partial chunk index and the two prefix indexes,
+    // neither new one.
+    final migrated = await openTestDatabase();
+    addTearDown(migrated.close);
+    for (final name in added) {
+      await migrated.customStatement('DROP INDEX $name');
+    }
+    await migrated.customStatement(
+      'CREATE INDEX idx_chunks_note_index ON content_chunks(note_id, '
+      'chunk_index) WHERE is_deleted = 0',
+    );
+    await migrated.customStatement(
+      'CREATE INDEX idx_notes_folder ON notes(folder_id) WHERE is_deleted = 0',
+    );
+    await migrated.customStatement(
+      'CREATE INDEX idx_folders_parent ON folders(parent_id) '
+      'WHERE is_deleted = 0',
+    );
+    await DatabaseMigrations(migrated).runMigrations(
+      migrated.createMigrator(),
+      DatabaseSchema.v46ContentChunkHashes,
+      DatabaseSchema.v47StorageHygiene,
     );
 
     expect(await definitions(migrated), created);

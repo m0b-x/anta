@@ -200,7 +200,16 @@ service cloud.firestore {
             'calendar_category_profiles', 'calendar_event_occurrences', 'calendar_event_absences',
             'calendar_event_skips', 'calendar_event_alerts',
             'calendar_event_templates', 'calendar_filter_presets',
-            'overview_views', 'event_digests', 'vocabularies', 'vocabulary_items'];
+            'overview_views', 'event_digests', 'vocabularies', 'vocabulary_items',
+            'content_chunks'];
+        }
+        // A chunk document (wire 46): immutable text under its hash, never a
+        // tombstone, its gzip'd UTF-8 under `gz` no larger than the largest
+        // chunk the app cuts can make it.
+        function validChunk() {
+          let d = request.resource.data;
+          return d.op == 'upsert'
+              && d.data.gz is bytes && d.data.gz.size() <= 65536;
         }
         function validEnvelope() {
           let d = request.resource.data;
@@ -213,7 +222,8 @@ service cloud.firestore {
               && d.ownerId == uid()
               && (d.op == 'tombstone' ? d.data == null : d.data is map)
               && d.pushedAt == request.time
-              && d.pushedBy is string;
+              && d.pushedBy is string
+              && (table != 'content_chunks' || validChunk());
         }
         allow get, list: if isOwner() && syncedTable();
         allow create, update: if isOwner() && syncedTable() && validEnvelope();

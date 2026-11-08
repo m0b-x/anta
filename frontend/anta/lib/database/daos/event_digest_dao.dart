@@ -28,6 +28,19 @@ class EventDigestDao extends DatabaseAccessor<AppDatabase>
         .get();
   }
 
+  /// [EventAlertDao.hasEnabled] for digests, read from the table rather than
+  /// the `EventDigests` facade, which nothing may have loaded yet at launch.
+  /// The stored flag alone: a row the service would decode disabled (an
+  /// unknown cadence) still answers yes, which costs a pass, never an alarm.
+  Future<bool> hasEnabled() async {
+    final row = await customSelect(
+      'SELECT EXISTS(SELECT 1 FROM event_digests '
+      'WHERE is_deleted = 0 AND enabled = 1) AS hit',
+      readsFrom: {eventDigests},
+    ).getSingle();
+    return row.read<int>('hit') != 0;
+  }
+
   /// Inserts a new digest or updates an existing one in place — a version
   /// bump from the stored row, `created_at` left alone, a tombstone
   /// resurrected rather than duplicated ([OverviewViewDao.upsertView]), an

@@ -116,6 +116,49 @@ class EventSkipService {
     EventSkips.resetCache();
   }
 
+  /// The live instance, or the one [_createOnce] is still reading; never a
+  /// new one — with neither, nothing is published, and the next
+  /// [getInstance] reads the table as the caller's write left it.
+  static Future<EventSkipService?> _liveOrCreating() async {
+    final pending = _initializing;
+    if (_instance != null || pending == null) return _instance;
+    try {
+      // A reset while it was awaited retired it: its skips must not reach
+      // the facade the reset cleared.
+      final built = await pending;
+      return identical(_instance, built) ? built : null;
+    } catch (_) {
+      // The construction's failure is its own caller's to report.
+      return null;
+    }
+  }
+
+  /// Drops [eventId]'s skips from the facade after the event's delete
+  /// tombstoned them in its own transaction — that event alone, where the
+  /// whole table used to be read again for one delete.
+  static Future<void> forgetEvent(String eventId) async =>
+      (await _liveOrCreating())?._patchEvent(eventId, null);
+
+  /// Adds [eventId]'s [days] back after `restoreCascade` revived them, from
+  /// the set it was handed rather than a read.
+  static Future<void> restoreEvent(String eventId, Set<DateTime> days) async =>
+      (await _liveOrCreating())?._patchEvent(eventId, {
+        for (final day in days) _dateOnlyUtc(day),
+      });
+
+  /// One event's skips dropped ([days] null) or added to. Counted as a
+  /// write, so a load whose rows may predate the cascade reads again rather
+  /// than publishing them over this.
+  void _patchEvent(String eventId, Set<DateTime>? days) {
+    _writes++;
+    if (days == null) {
+      _byEvent.remove(eventId);
+    } else if (days.isNotEmpty) {
+      (_byEvent[eventId] ??= <DateTime>{}).addAll(days);
+    }
+    _publishFor(eventId);
+  }
+
   /// Mutable working copy behind the published facade. Single-day mutations
   /// patch this and republish rather than re-reading the table — a toggle
   /// should not cost a full `SELECT` and map rebuild.

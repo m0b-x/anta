@@ -283,7 +283,7 @@ class CalendarEventDao extends DatabaseAccessor<AppDatabase>
   /// category instead of dangling. Returns the number of rows updated.
   ///
   /// The row count is unbounded, so this cannot read-then-write: the version
-  /// bump happens in SQL (the [NoteDao.setNotePositions] idiom) and the whole
+  /// bump happens in SQL (the [NoteDao.applyOrder] idiom) and the whole
   /// batch shares one HLC, because it is one user action. `updated_at` binds as
   /// a `Variable<DateTime>` — Drift stores unix seconds, so raw
   /// `millisecondsSinceEpoch` would write timestamps a thousand times too

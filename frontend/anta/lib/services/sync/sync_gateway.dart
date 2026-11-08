@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
 import 'package:equatable/equatable.dart';
 
 import '../../database/crdt/crdt_write.dart';
@@ -30,7 +33,8 @@ class SyncEnvelope extends Equatable {
 
   /// The row as its table's backup serializer writes it for an upsert — the
   /// backup format is the wire format — and null for a tombstone, which
-  /// carries nothing but its identity and stamp.
+  /// carries nothing but its identity and stamp. A [Uint8List] value is a
+  /// bytes field, which a gateway stores as its own binary type.
   final Map<String, Object?>? data;
 
   const SyncEnvelope({
@@ -55,6 +59,25 @@ class SyncEnvelope extends Equatable {
     ownerId,
     data,
   ];
+
+  /// The bytes [data] puts on the wire, as the push's byte budget counts
+  /// them: its JSON in UTF-8, a top-level bytes field counted as its length
+  /// rather than as the list of numbers JSON would make of it.
+  int get wireBytes {
+    final fields = data;
+    if (fields == null) return 0;
+    var blobs = 0;
+    final plain = <String, Object?>{};
+    for (final MapEntry(:key, :value) in fields.entries) {
+      if (value is Uint8List) {
+        blobs += value.length;
+        plain[key] = null;
+      } else {
+        plain[key] = value;
+      }
+    }
+    return utf8.encode(jsonEncode(plain)).length + blobs;
+  }
 }
 
 /// Why a gateway call failed, in the terms the engine acts on.
@@ -105,14 +128,29 @@ class SyncPullPage extends Equatable {
   /// without looking further, so "hasMore, then an empty page" is normal.
   final bool hasMore;
 
+  /// Where a resumed page's re-read of the overlap stopped when it ended
+  /// still before the cursor it resumed from — a window holding more
+  /// documents than the page takes. The next page continues the re-read
+  /// from here ([SyncGateway.pullPage]'s `scan`); null once a page reached
+  /// past that cursor, and on every page that re-read nothing.
+  final SyncCursor? scan;
+
+  /// The row keys of the page's documents this build could not turn into an
+  /// envelope, which the cursor passed over: the engine parks them, so the
+  /// drain does not push those rows over versions it never read and a later
+  /// build retries them (scalability record S8).
+  final List<String> skipped;
+
   const SyncPullPage({
     required this.envelopes,
     required this.next,
     required this.hasMore,
+    this.scan,
+    this.skipped = const [],
   });
 
   @override
-  List<Object?> get props => [envelopes, next, hasMore];
+  List<Object?> get props => [envelopes, next, hasMore, scan, skipped];
 }
 
 /// A space as binding sees it — what the picker lists and what a device
@@ -195,11 +233,23 @@ class SyncGatewayException implements Exception {
   final SyncGatewayFailure failure;
   final String? message;
 
-  const SyncGatewayException(this.failure, [this.message]);
+  /// The call ran out of the gateway's deadline rather than failing: the
+  /// engine treats it as [SyncGatewayFailure.offline] and also shrinks what
+  /// it asks of the link next (scalability record S10).
+  final bool timedOut;
+
+  const SyncGatewayException(this.failure, [this.message]) : timedOut = false;
+
+  /// A call that exceeded the gateway's deadline — on a slow link most often
+  /// one page or one part too large for it.
+  const SyncGatewayException.timedOut([this.message = 'timed out'])
+    : failure = SyncGatewayFailure.offline,
+      timedOut = true;
 
   @override
   String toString() =>
-      'SyncGatewayException(${failure.name}${message == null ? '' : ': $message'})';
+      'SyncGatewayException(${timedOut ? 'timedOut' : failure.name}'
+      '${message == null ? '' : ': $message'})';
 }
 
 /// The remote store, seen by the sync engine. The engine is built and tested
@@ -255,14 +305,51 @@ abstract interface class SyncGateway {
   /// false for the pages that follow. A gateway may re-deliver rows near a
   /// resumed cursor (Firestore starts a little before it, because a write
   /// received earlier can commit after a query that already ran); the merge
-  /// makes a repeat a no-op. Pages inside one pull resume exactly.
+  /// makes a repeat a no-op. Pages inside one pull resume exactly — and so
+  /// does a first page the engine proved settled, which it asks for with
+  /// [resumed] false (scalability record S9).
+  ///
+  /// A re-read that a page's [limit] stopped short of [after] continues with
+  /// [resumed] true and [scan] the page's [SyncPullPage.scan]: the page
+  /// reads on strictly after [scan] and still answers [SyncPullPage.next] no
+  /// lower than [after], so the walk through a crowded window neither skips
+  /// its tail nor moves the cursor back (scalability record S10).
   Future<SyncPullPage> pullPage(
     SyncSpaceRef space,
     String table, {
     SyncCursor? after,
     int? limit,
     bool resumed = false,
+    SyncCursor? scan,
   });
+
+  /// The current documents of [table] under [rowKeys], one read each — the
+  /// retry of a parked document the cursor has passed (scalability record
+  /// S8). The page carries the readable ones as envelopes and the unreadable
+  /// ones' keys as [SyncPullPage.skipped]; a key with no document is in
+  /// neither. No cursor: [SyncPullPage.next] is null, `hasMore` false.
+  Future<SyncPullPage> readRows(
+    SyncSpaceRef space,
+    String table,
+    List<String> rowKeys,
+  );
+
+  /// How many documents one [readRows] call reads at once, each batch under
+  /// its own deadline: a start may retry a hundred parks, and every one of
+  /// them inside a single call's deadline would time out on a slow link. A
+  /// pull's chunk reads ask for no more in one call, so a gateway that did
+  /// not split a longer list never reads one under a single deadline
+  /// (scalability record S6b).
+  static const int rowReadBatch = 30;
+
+  /// How long after a write's server time it may still become visible to a
+  /// query — what a [pullPage] with `resumed` re-reads before its cursor.
+  Duration get resumeOverlap;
+
+  /// The server time [cursor] stands at, which [SyncSpaceSignal.touched] is
+  /// measured on; null when the cursor carries none or is unreadable, and
+  /// then the engine never skips the [resumeOverlap] re-read.
+  DateTime? cursorTime(SyncCursor cursor);
 
   /// Creates a space for [ownerUid]; the gateway mints its id. Listeners
   /// already watching that ref hear it at once (`exists` true), as a

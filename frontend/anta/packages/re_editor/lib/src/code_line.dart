@@ -193,6 +193,13 @@ abstract class CodeLineEditingController
   /// Like [text] it notifies listeners, so call it between frames.
   void loadText(String text);
 
+  /// [loadText] for lines already split — by `codeLinesAsync`, off the UI
+  /// isolate, so a large note's first frame is not held by the split.
+  /// [text], when given, must be the string [codeLines] were split from:
+  /// it seeds the joined-text cache, so the first read of [text] after the
+  /// load does not join every line back together.
+  void loadCodeLines(CodeLines codeLines, [String? text]);
+
   /// Only used in internal.
   void bindEditor(GlobalKey key);
 
@@ -546,6 +553,25 @@ class CodeLine {
     for (final CodeLine codeLine in chunks) {
       count += codeLine.charCount;
     }
+    return count;
+  }
+
+  static final Expando<int> _graphemeCounts =
+      Expando<int>('CodeLine.graphemeCount');
+
+  /// Grapheme clusters in this line and its folded chunks, line breaks not
+  /// counted (as [charCount] counts none). Cached per instance — a line is
+  /// immutable, so after an edit only the replaced lines walk their text.
+  int get graphemeCount {
+    final int? cached = _graphemeCounts[this];
+    if (cached != null) {
+      return cached;
+    }
+    int count = text.characters.length;
+    for (final CodeLine codeLine in chunks) {
+      count += codeLine.graphemeCount;
+    }
+    _graphemeCounts[this] = count;
     return count;
   }
 

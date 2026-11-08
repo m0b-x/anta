@@ -63,6 +63,11 @@ final class SearchState extends Equatable {
 
   final bool isSearching;
 
+  /// The full results on screen were read while the body index was still
+  /// being filled, so notes it has not reached yet may be missing. Cleared
+  /// by the pass the bloc re-runs once the index has caught up.
+  final bool stillIndexing;
+
   const SearchState({
     this.scope = const SearchScope.everywhere(),
     this.query = '',
@@ -75,6 +80,7 @@ final class SearchState extends Equatable {
     this.folderPaths = const {},
     this.labelledTotal = 0,
     this.isSearching = false,
+    this.stillIndexing = false,
   });
 
   bool get hasResults => titleHits.isNotEmpty || contentHits.isNotEmpty;
@@ -96,6 +102,7 @@ final class SearchState extends Equatable {
     Map<String, List<String>>? folderPaths,
     int? labelledTotal,
     bool? isSearching,
+    bool? stillIndexing,
   }) {
     return SearchState(
       scope: scope ?? this.scope,
@@ -109,6 +116,7 @@ final class SearchState extends Equatable {
       folderPaths: folderPaths ?? this.folderPaths,
       labelledTotal: labelledTotal ?? this.labelledTotal,
       isSearching: isSearching ?? this.isSearching,
+      stillIndexing: stillIndexing ?? this.stillIndexing,
     );
   }
 
@@ -125,5 +133,6 @@ final class SearchState extends Equatable {
     folderPaths,
     labelledTotal,
     isSearching,
+    stillIndexing,
   ];
 }

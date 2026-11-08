@@ -31,11 +31,18 @@ final class MergeOutcome extends Equatable {
 
   /// Notes only: the live local row a strictly newer remote overwrote while
   /// its change was still unpushed and its text differed, so the engine can
-  /// file it as a conflict copy (D3). Null otherwise.
+  /// file it as a conflict copy (D3) — or, when [loserIncoming], the note
+  /// whose newer local edit kept the remote's text out. Null otherwise.
   final Note? loser;
 
-  /// The [loser]'s body, read before the remote replaced its chunks.
+  /// The [loser]'s body, read before the remote replaced its chunks; the
+  /// remote's body when [loserIncoming].
   final String? loserContent;
+
+  /// Whether the text that lost is the remote's: another device's edit this
+  /// device's newer one kept out, and that device may already have taken
+  /// ours over it, so only this copy keeps it (scalability record S8).
+  final bool loserIncoming;
 
   /// Notes and folders only: the remote moved the row to another parent (a
   /// note's folder, a folder's parent), so the list it left must refresh too.
@@ -56,6 +63,7 @@ final class MergeOutcome extends Equatable {
     this.localHadPendingPush = false,
     this.loser,
     this.loserContent,
+    this.loserIncoming = false,
     this.moved = false,
     this.previousParent,
     this.mergedContent,
@@ -67,6 +75,7 @@ final class MergeOutcome extends Equatable {
     localHadPendingPush: localHadPendingPush,
     loser: loser,
     loserContent: loserContent,
+    loserIncoming: loserIncoming,
     moved: true,
     previousParent: parent,
     mergedContent: mergedContent,
@@ -78,6 +87,7 @@ final class MergeOutcome extends Equatable {
     localHadPendingPush: localHadPendingPush,
     loser: loser,
     loserContent: loserContent,
+    loserIncoming: loserIncoming,
     moved: moved,
     previousParent: previousParent,
     mergedContent: content,
@@ -89,6 +99,7 @@ final class MergeOutcome extends Equatable {
     localHadPendingPush,
     loser,
     loserContent,
+    loserIncoming,
     moved,
     previousParent,
     mergedContent,

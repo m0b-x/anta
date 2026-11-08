@@ -14,6 +14,8 @@ import 'package:anta/services/backup_service.dart';
 import 'package:anta/services/calendar_event_service.dart';
 import 'package:anta/services/counter_service.dart';
 
+import '../services/support/backup_archive.dart';
+
 /// Guards the seam a pull will reload the calendar through: a change made
 /// behind the bloc's back reaches a loaded calendar at once, in place — no
 /// spinner, the occurrence revision bumped once, nothing stale left behind.
@@ -178,7 +180,7 @@ void main() {
       ),
     ]);
     final backup = await BackupService.getInstance();
-    final archive = jsonEncode(await backup.exportAllData());
+    final archive = jsonEncode(await exportBackupArchive());
     final skippedAtEmit = <bool>[];
     final sub = bloc.stream.listen((state) {
       skippedAtEmit.add(EventSkips.isSkipped('restored', day));

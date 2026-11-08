@@ -1149,6 +1149,33 @@ void main() {
       expect((reports.foldCount, reports.scanCount), (6, 10), reason: '◄ ►');
     });
 
+    test('the lookbacks group the scope once, however many categories read '
+        'one (S13)', () {
+      final party = ev('party', 'friends', day(2026, 4, 2));
+      final events = [daily, service, party];
+      int groupingsWith(List<String> readers) {
+        CategoryProfiles.updateCache({
+          for (final id in readers) id: profile(id, CategoryKind.maintenance),
+        });
+        final before = CalendarReportService.debugCategoryGroupings;
+        CalendarReportService().report(augustAsked(events));
+        return CalendarReportService.debugCategoryGroupings - before;
+      }
+
+      final one = groupingsWith(['other']);
+      expect(one, 1, reason: 'one fold, one scope, one walk');
+      expect(groupingsWith(['gym', 'other', 'friends']), one);
+      expect(
+        CalendarReportService.sampleInput(augustAsked(events)).lastSeenBefore,
+        {
+          'gym': day(2026, 7, 31),
+          'other': day(2026, 5, 10),
+          'friends': day(2026, 4, 2),
+        },
+        reason: 'each group still finds its own last day',
+      );
+    });
+
     test('a profile change refolds once', () {
       final events = [daily];
       final reports = CalendarReportService();

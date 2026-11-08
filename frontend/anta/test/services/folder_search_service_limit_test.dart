@@ -8,6 +8,7 @@ import 'package:anta/services/folder_search_service.dart';
 import 'package:anta/services/note_storage_service.dart';
 
 import '../database/support/db_test_support.dart';
+import 'support/body_index_support.dart';
 
 /// Counts note bodies read on the way to a page of results.
 ///
@@ -15,6 +16,12 @@ import '../database/support/db_test_support.dart';
 /// how much it reads: `search` used to load the content of **every** hit and
 /// then throw away all but `limit` of them after sorting, so a common word
 /// pulled the whole note collection through memory to render ten rows.
+///
+/// Since S11 (`docs/scalability-roadmap.md` §5.5) the scoring itself reads
+/// the candidates' bodies — the body index is contentless — but in batched
+/// pages through `loadContentForNotes`, never one by one; the one-by-one
+/// `loadNoteContent` this counts is the offsets read, still `limit` at most.
+/// The batched pages are pinned beside it.
 class _CountingNoteStorage extends NoteStorageService {
   _CountingNoteStorage(NoteRepository repository)
     : super(repository: repository);
@@ -32,6 +39,7 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   late AppDatabase db;
+  late StatementCounter statements;
   late _CountingNoteStorage notes;
   late FolderSearchService search;
 
@@ -39,10 +47,14 @@ void main() {
 
   setUp(() async {
     SharedPreferences.setMockInitialValues({});
-    db = await openTestDatabase();
+    statements = StatementCounter();
+    db = await openTestDatabase(interceptor: statements);
     notes = _CountingNoteStorage(NoteRepository(database: db));
     await notes.initialize();
-    search = FolderSearchService(storageService: notes);
+    search = FolderSearchService(
+      storageService: notes,
+      indexer: bodyIndexerOver(db),
+    );
     await search.initialize();
 
     final folder = await db.folderDao.createFolder(name: 'Training');
@@ -62,6 +74,7 @@ void main() {
 
   test('a query matching every note loads at most `limit` bodies', () async {
     notes.contentLoads = 0;
+    statements.reset();
 
     final results = await search.search('squat', limit: 10);
 
@@ -74,9 +87,19 @@ void main() {
       notes.contentLoads,
       lessThanOrEqualTo(10),
       reason:
-          'relevance comes off the index, so the hit set can be ranked and cut '
-          'before a single body is read. $seeded notes match "squat"; loading '
-          'more than the 10 that are shown is the whole bug this guards.',
+          'the hit set is ranked and cut before any body is read one by one. '
+          '$seeded notes match "squat"; loading more than the 10 that are '
+          'shown is the whole bug this guards.',
+    );
+    expect(
+      statements
+          .matching('FROM "content_chunks"')
+          .where((sql) => sql.contains(' IN ('))
+          .length,
+      1,
+      reason:
+          'S11: scoring reads all $seeded candidate bodies, in one batched '
+          'page here, never one statement per candidate',
     );
   });
 

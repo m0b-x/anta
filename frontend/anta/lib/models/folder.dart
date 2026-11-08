@@ -12,9 +12,8 @@ class Folder extends Equatable {
   final String? noteSortOrder;
   final String? subfolderSortOrder;
 
-  /// Manual sort position within the folder's parent. Used to interleave
-  /// folders and notes in a single ordering when [FoldersSortOrder.positionAsc]
-  /// is active.
+  /// Manual sort position within the folder's parent, in the folders' own
+  /// sequence: the custom sort the browser reads it in.
   final int position;
 
   /// The optional colour label drawn at the trailing edge of the folder's

@@ -65,6 +65,10 @@ function Int([int]$i) { @{ integerValue = "$i" } }
 function Nul { @{ nullValue = $null } }
 function Map([hashtable]$fields) { @{ mapValue = @{ fields = $fields } } }
 function Ts([string]$iso) { @{ timestampValue = $iso } }
+function Bytes([int]$n) { @{ bytesValue = [Convert]::ToBase64String([byte[]]::new($n)) } }
+# A chunk document's data (wire 46): its hash, the gzip'd text as bytes
+# under `gz` — [gz] replaces it — and the text's length.
+function ChunkData([string]$hash, $gz) { Map @{ hash = (Str $hash); gz = $gz; length = (Int 1000) } }
 function ServerTime([string]$path) { @{ fieldPath = $path; setToServerValue = 'REQUEST_TIME' } }
 
 # The space document a push merges, as `set(…, merge: true)` sends it.
@@ -189,6 +193,11 @@ try {
     # Recorded, not judged: the rules check no parent, and the gateway never
     # writes a row without the space document in the same batch.
     Case 'a row alone, no space write, under a missing space' 'n/a' (Commit $owner @((Row 'u1' 'missing' 'folders' 'f8'))) -Info
+    # A chunk is immutable text under its hash: the rules hold its shape.
+    Case 'a chunk with gz bytes at 64 KB' 'allow' (Commit $owner @((Row 'u1' 's1' 'content_chunks' 'h1' -set @{ data = (ChunkData 'h1' (Bytes 65536)) }), (SpaceMerge 'u1' 's1' 43 'content_chunks')))
+    Case 'a chunk with gz over 64 KB' 'deny' (Commit $owner @((Row 'u1' 's1' 'content_chunks' 'h2' -set @{ data = (ChunkData 'h2' (Bytes 65537)) }), (SpaceMerge 'u1' 's1' 43 'content_chunks')))
+    Case 'a chunk as a tombstone' 'deny' (Commit $owner @((Row 'u1' 's1' 'content_chunks' 'h3' -set @{ op = (Str 'tombstone'); data = (Nul) }), (SpaceMerge 'u1' 's1' 43 'content_chunks')))
+    Case 'a chunk with gz not bytes' 'deny' (Commit $owner @((Row 'u1' 's1' 'content_chunks' 'h4' -set @{ data = (ChunkData 'h4' (Str 'text')) }), (SpaceMerge 'u1' 's1' 43 'content_chunks')))
     # Last: it raises the stored schema to 44.
     Case 'a space merge at a higher schema' 'allow' (Commit $owner @((Row 'u1' 's1' 'folders' 'f10'), (SpaceMerge 'u1' 's1' 44)))
 }

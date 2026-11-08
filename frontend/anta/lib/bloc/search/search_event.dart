@@ -99,3 +99,9 @@ final class SearchLabelsChanged extends SearchEvent {
 final class SearchCleared extends SearchEvent {
   const SearchCleared();
 }
+
+/// The body index caught up with a full search answered while it was still
+/// being filled; the bloc adds it itself to run that search again.
+final class SearchIndexSettled extends SearchEvent {
+  const SearchIndexSettled();
+}

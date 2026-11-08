@@ -32,7 +32,7 @@ import '../../../support/recording_sync_apply_hooks.dart';
 const String syncUid = 'u1';
 
 /// This build's schema, as the engines report it to the space.
-const int syncSchema = DatabaseSchema.currentVersion;
+const int syncSchema = DatabaseSchema.syncSchemaVersion;
 
 /// One wall clock for both databases that moves a millisecond on every
 /// read, so every stamp either device mints sorts after every stamp minted
@@ -76,6 +76,7 @@ class SyncDevice {
     FakeSyncGateway gateway,
     SyncEngineTiming timing,
     List<SyncTableBinding<Object>>? tables,
+    int schema,
   ) : binding = SyncBindingService.detached(db, settings) {
     engine = SyncEngine.detached(
       db: db,
@@ -84,16 +85,26 @@ class SyncDevice {
       status: status,
       hooks: hooks,
       deviceId: id,
-      schema: syncSchema,
+      schema: schema,
       currentUser: () => user,
       authChanges: auth.stream,
       scheduler: scheduler,
       timing: timing,
       tables: tables,
       lifecycleState: () => lifecycleState,
+      now: () => now(),
+      build: () => build,
     );
     _statusSubscription = engine.status.listen(statuses.add);
   }
+
+  /// The engine's wall clock — the quota retry and the full-pull age; a test
+  /// pins it on either side of the quota's reset.
+  DateTime Function() now = DateTime.now;
+
+  /// The build the engine stores beside its pull parks; a test changes it
+  /// between a stop and a start to stand for an update.
+  String build = SyncEngine.build;
 
   /// Runs "Sync now" and waits until the engine is idle again and its last
   /// status has reached [statuses].
@@ -109,6 +120,25 @@ class SyncDevice {
   Future<void> settle() async {
     await Future<void>.delayed(Duration.zero);
     await engine.whenIdle;
+  }
+
+  /// [sync] for a drain cut by bytes, which waits
+  /// [SyncEngine.minPartSpacing] between its parts on [scheduler]: the wall
+  /// clock stands still, so every wait is the whole spacing, and each is
+  /// fired as it comes. Returns how many waits fired with the report.
+  Future<(SyncRunReport, int)> syncFiringSpacing() async {
+    final clock = now;
+    final at = clock();
+    now = () => at;
+    var done = false;
+    var fired = 0;
+    final run = sync().whenComplete(() => done = true);
+    while (!done) {
+      await Future<void>.delayed(Duration.zero);
+      fired += scheduler.fire(SyncEngine.minPartSpacing);
+    }
+    now = clock;
+    return (await run, fired);
   }
 
   Future<void> _close() async {
@@ -136,15 +166,22 @@ class SyncPair {
   /// both engines' table bindings, for a test that wraps one to make its
   /// merge fail. [background] opens each database on a file in its own
   /// isolate, as the app does, where a SQLite error reaches the engine
-  /// wrapped in a `DriftRemoteException`. [wallAhead] puts the named
-  /// device's wall clock that far ahead of the shared one, for a case about
-  /// a device whose system clock is wrong.
+  /// wrapped in a `DriftRemoteException`. [setup] runs on each of those
+  /// file connections — a benchmark passes `configureSqliteConnection` to
+  /// time the production pragmas; without it the files run SQLite's stock
+  /// journal and synchronous modes. [wallAhead] puts the named device's wall
+  /// clock that far ahead of the shared one, for a case about a device whose
+  /// system clock is wrong. [buildSchema] is the schema both engines run at,
+  /// for a case about an older build meeting this build's space, which is
+  /// created at [syncSchema] whatever it is.
   static Future<SyncPair> open({
     bool bind = true,
     bool background = false,
+    DatabaseSetup? setup,
     SyncEngineTiming timing = const SyncEngineTiming(),
     List<SyncTableBinding<Object>>? tables,
     Map<String, Duration> wallAhead = const {},
+    int buildSchema = syncSchema,
   }) async {
     final gateway = FakeSyncGateway();
     final clock = _SharedClock();
@@ -155,7 +192,10 @@ class SyncPair {
       final statements = StatementCounter();
       final executor = files == null
           ? NativeDatabase.memory()
-          : NativeDatabase.createInBackground(File('${files.path}/$id.sqlite'));
+          : NativeDatabase.createInBackground(
+              File('${files.path}/$id.sqlite'),
+              setup: setup,
+            );
       final ahead = wallAhead[id] ?? Duration.zero;
       final db = AppDatabase.forTesting(
         executor.interceptWith(statements),
@@ -175,6 +215,7 @@ class SyncPair {
         gateway,
         timing,
         tables,
+        buildSchema,
       );
     }
 
@@ -212,7 +253,11 @@ class SyncPair {
   ///   unowned where it was written and owned by the account where it was
   ///   merged, the same owner either way (the envelope carries it);
   /// - the envelope's `deviceId` and `version`, left out of the string;
-  /// - every column the codec leaves out of the data.
+  /// - every column the codec leaves out of the data;
+  /// - a chunk's stamp: its rows carry the stamp of the note write that
+  ///   stored them on each device — a fetched chunk its merged note's, a
+  ///   written one the edit's that cut it — and its document is the text
+  ///   alone.
   ///
   /// A tombstone carries no data, so the codec alone would call two rows
   /// equal while their columns had diverged — the convergence suite was
@@ -242,8 +287,9 @@ class SyncPair {
         final data = envelope.data == null
             ? _tombstoneColumns(row)
             : ({...envelope.data!}..remove(JsonKeys.ownerId));
+        final stamp = synced.contentAddressed ? '' : '${envelope.hlc} ';
         rows['${binding.table}/${envelope.rowKey}'] =
-            '${envelope.hlc} ${envelope.op.name} ${jsonEncode(data)}';
+            '$stamp${envelope.op.name} ${jsonEncode(data)}';
       }
     }
     return rows;

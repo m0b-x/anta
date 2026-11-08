@@ -50,7 +50,7 @@ void main() {
     expect(
       [
         for (final t in syncedTables)
-          if (t.travelsWithParent) t.name,
+          if (t.contentAddressed) t.name,
       ],
       ['content_chunks'],
     );
@@ -148,21 +148,107 @@ void main() {
     expect((await outbox())[('folders', folder.id)], (newer, 'upsert'));
   });
 
-  test('content chunks are never queued but count among the stamps', () async {
+  Future<void> chunk(
+    String id,
+    String? hash,
+    String hlc, {
+    bool deleted = false,
+  }) => db.customStatement(
+    'INSERT INTO content_chunks (id, note_id, chunk_index, content, '
+    'is_compressed, hlc_timestamp, device_id, version, is_deleted, '
+    "content_hash) VALUES (?, 'n1', 0, 'body', 0, ?, 'chunk-device', 1, ?, ?)",
+    [id, hlc, if (deleted) 1 else 0, hash],
+  );
+
+  test('a chunk queues once per live hash, at the highest stamp holding '
+      'it; a legacy slice and a tombstone never, yet all count among the '
+      'stamps', () async {
     final folder = await db.folderDao.createFolder(name: 'Notes');
     const highest = 'fffffffffff0:0000:chunk-device';
-    await db.customStatement(
-      'INSERT INTO content_chunks (id, note_id, chunk_index, content, '
-      "is_compressed, hlc_timestamp, device_id, version) VALUES ('k1', "
-      "'n1', 0, 'body', 0, ?, 'chunk-device', 1)",
-      [highest],
-    );
+    await chunk('legacy', null, highest);
+    await chunk('k1', 'h1', '000000000001:0000:chunk-device');
+    await chunk('k2', 'h1', '000000000002:0000:chunk-device');
+    await chunk('gone', 'h2', '000000000003:0000:chunk-device', deleted: true);
+    // The chunks go by their note's owner, so they need one.
+    final note = await db.noteDao.createNote(folderId: folder.id, title: 'N');
+    await db.customStatement('UPDATE content_chunks SET note_id = ?', [
+      note.id,
+    ]);
     await db.syncOutboxDao.clear();
 
     await db.syncOutboxDao.requeueAll(boundUid: 'me');
 
-    expect((await outbox()).keys, [('folders', folder.id)]);
+    expect(await outbox(), {
+      ('folders', folder.id): (folder.hlcTimestamp, 'upsert'),
+      ('notes', note.id): (note.hlcTimestamp, 'upsert'),
+      ('content_chunks', 'h1'): ('000000000002:0000:chunk-device', 'upsert'),
+    });
     expect(await db.syncOutboxDao.maxHlc(), highest);
+  });
+
+  test('a chunk of a note another account owns is queued neither at bind '
+      'nor at the wire cutover, unless a note of ours holds it too '
+      '(D16)', () async {
+    final folder = await db.folderDao.createFolder(name: 'Notes');
+    final mine = await db.noteDao.createNote(
+      folderId: folder.id,
+      title: 'Mine',
+      content: 'shared text',
+    );
+    final theirs = await db.noteDao.createNote(
+      folderId: folder.id,
+      title: 'Theirs',
+      content: 'their secret',
+      ownerId: 'them',
+    );
+    await db.noteDao.createNote(
+      folderId: folder.id,
+      title: 'Theirs too',
+      content: 'shared text',
+      ownerId: 'them',
+    );
+    final shared = (await db.contentChunkDao.hashesOf(mine.id)).single!;
+    final secret = (await db.contentChunkDao.hashesOf(theirs.id)).single!;
+    Future<Set<String>> chunks() async => {
+      for (final (table, key) in (await outbox()).keys)
+        if (table == 'content_chunks') key,
+    };
+
+    await db.syncOutboxDao.clear();
+    await db.syncOutboxDao.requeueAll(boundUid: 'me');
+    expect(await chunks(), {shared});
+
+    await db.syncOutboxDao.clear();
+    await db.syncOutboxDao.requeueBodies(boundUid: 'me');
+    expect(await chunks(), {shared});
+    expect(await chunks(), isNot(contains(secret)));
+  });
+
+  test('the wire cutover queues every live note and live hash, no other '
+      'row and no tombstone', () async {
+    final folder = await db.folderDao.createFolder(name: 'Notes');
+    final kept = await db.noteDao.createNote(
+      folderId: folder.id,
+      title: 'Kept',
+      content: 'a body',
+    );
+    final gone = await db.noteDao.createNote(
+      folderId: folder.id,
+      title: 'Gone',
+      content: 'another body',
+    );
+    await db.noteDao.softDeleteNote(gone.id);
+    await event('e1');
+    await db.syncOutboxDao.clear();
+
+    final queued = await db.syncOutboxDao.requeueBodies(boundUid: 'me');
+
+    final hash = (await db.contentChunkDao.hashesOf(kept.id)).single!;
+    expect(await outbox(), {
+      ('notes', kept.id): (kept.hlcTimestamp, 'upsert'),
+      ('content_chunks', hash): (kept.hlcTimestamp, 'upsert'),
+    });
+    expect(queued, 2);
   });
 
   test('maxHlc is the highest row stamp, null on an empty database', () async {

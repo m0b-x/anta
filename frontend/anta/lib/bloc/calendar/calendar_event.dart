@@ -20,11 +20,52 @@ final class LoadCalendarEvents extends CalendarPageEvent {
   const LoadCalendarEvents();
 }
 
+/// Re-emits what the event service already holds, with no read: a page
+/// returning to a calendar whose store it knows the cache to hold — a Keep
+/// or a removal the alarm wrote through the service, a holiday removed, a
+/// settings trip whose category delete refreshed the cache before it popped.
+///
+/// A fresh list and both revisions bumped, as a reload emits: the Keep gate
+/// tells a reload by the list's identity, and the agenda rescans only on a
+/// revision. `LoadCalendarEvents` stays for the first load, a restore,
+/// "Delete all events" and a database switch, where the cache is not to be
+/// trusted.
+final class RefreshCalendarView extends CalendarPageEvent {
+  /// Whether the money ledger is refreshed too, as the reload this replaces
+  /// did — only after a settings trip, the one return whose cause the page
+  /// cannot name; a Keep, a removal or a holiday leaves every linked note
+  /// and its ledger as they were.
+  final bool refreshLedger;
+
+  const RefreshCalendarView({this.refreshLedger = false});
+
+  @override
+  List<Object?> get props => [refreshLedger];
+}
+
 /// The event store changed behind the bloc — a restore, or rows a pull
 /// merged. Fed from `CalendarEventService.externalChanges`; reloads in place
-/// while the calendar is loaded.
+/// while the calendar is loaded, or only rebuilds from the service when
+/// [cacheCurrent] vouches for its cache and [revision] is the next one.
 final class ExternalCalendarChange extends CalendarPageEvent {
-  const ExternalCalendarChange();
+  /// The `externalRevision` the change moved to.
+  final int revision;
+
+  /// Whether the announcer already brought the service's cache up to date.
+  final bool cacheCurrent;
+
+  /// Whether event rows themselves came in, so the light path still
+  /// refreshes the money ledger: a pulled event may link a new note.
+  final bool eventsMerged;
+
+  const ExternalCalendarChange({
+    required this.revision,
+    this.cacheCurrent = false,
+    this.eventsMerged = false,
+  });
+
+  @override
+  List<Object?> get props => [revision, cacheCurrent, eventsMerged];
 }
 
 final class SelectCalendarDay extends CalendarPageEvent {

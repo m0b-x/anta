@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/date_symbol_data_local.dart';
 
 import 'package:anta/constants/app_constants.dart';
+import 'package:anta/database/chunking/chunk_hasher.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/models/item_label.dart';
@@ -59,7 +60,7 @@ void main() {
       folders: () => folders,
       noteStorage: () => storage,
       counters: () async => counters,
-      reloadCalendar: () async {
+      reloadCalendar: (_) async {
         calls.add('calendar');
         if (calendarFailure != null) throw calendarFailure!;
       },
@@ -508,12 +509,21 @@ void main() {
       expect(await db.contentChunkDao.loadContent(copy.id), 'my unpushed set');
       expect(ItemLabel.fromStorage(copy.label), ItemLabel.teal);
       expect(copy.folderId, 'f1');
-      expect(copy.position, 2, reason: "the folder's next free position");
+      expect(
+        copy.position,
+        2 * AppConstants.positionStride,
+        reason: "the folder's next free position, one stride past the last",
+      );
       final queued = [
         for (final e in await db.syncOutboxDao.pending())
           '${e.syncedTable}/${e.rowKey}',
       ];
-      expect(queued, ['notes/${copy.id}']);
+      // Its one chunk too, ahead of it in the queue: the copy's body
+      // travels as its own document (scalability record S6).
+      expect(queued, [
+        'content_chunks/${ChunkHasher.hash('my unpushed set')}',
+        'notes/${copy.id}',
+      ]);
     });
 
     test('files nothing for a note an open editor holds unsaved: that page '
@@ -527,6 +537,29 @@ void main() {
 
       expect(id, isNull);
       expect(await copies(), isEmpty);
+    });
+
+    test('files the incoming text even for a note an open editor holds: the '
+        'merge kept that page\'s row, and the text that lost is one it never '
+        'showed (scalability S8)', () async {
+      final note = await loser();
+      editorNotes.add(note.id);
+
+      final id = await hooks.fileConflictCopy(
+        SyncNoteConflict(
+          loser: note,
+          loserContent: 'their kept-out set',
+          incoming: true,
+        ),
+      );
+
+      final copy = (await copies()).single;
+      expect(id, copy.id);
+      expect(
+        await db.contentChunkDao.loadContent(copy.id),
+        'their kept-out set',
+      );
+      expect(await db.contentChunkDao.loadContent(note.id), 'theirs');
     });
 
     test('a copy is still filed for a note no editor holds', () async {

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import '../../constants/calendar_cache_limits.dart';
 import '../../constants/event_alerts.dart';
 import '../../constants/event_digests.dart';
 import '../../constants/public_holidays.dart';
@@ -19,6 +20,7 @@ import '../../services/event_alert_service.dart';
 import '../../services/event_digest_service.dart';
 import '../../services/event_skip_service.dart';
 import '../../services/event_template_service.dart';
+import '../../services/event_window_index.dart';
 import '../../services/note_money_ledger_service.dart';
 import '../../services/public_holiday_service.dart';
 import '../../utils/event_agenda.dart';
@@ -90,14 +92,14 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
   /// which alter the result) are O(1) map lookups. Invalidated only when the
   /// event set or the filters change.
   ///
-  /// Bounded by [_evictColdDayCacheEntries], never by the lookup itself. A
+  /// Trimmed to the window by [_evictColdDayCacheEntries] on a genuine month
+  /// change, and held to [CalendarCacheLimits.maxDayCacheEntries] by
+  /// [_capOutsideWindow] on a miss — never cleared by the lookup itself. A
   /// clear inside [eventsForDay] would fire mid-build — between
   /// `eventLoader`'s and `_buildDayCell`'s lookups of the very day being
   /// painted — forcing a full re-expansion of the page the frame is already
-  /// drawing. Eviction instead runs from [_onChangeFocusedDay], on a genuine
-  /// month change.
+  /// drawing; the cap drops only the oldest day outside the window.
   final Map<DateTime, List<CalendarEvent>> _dayCache = {};
-  static const int _maxDayCacheEntries = 512;
 
   /// [_dayCache]'s twin for [allEventsForDay] — the unfiltered day, asked for
   /// by the day and timeline panels while `panelShowsAll` is on.
@@ -238,8 +240,16 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
     on<DeleteEventDigest>(_onDeleteEventDigest);
     on<ToggleEventDigest>(_onToggleEventDigest);
     on<ExternalCalendarChange>(_onExternalChange);
-    _externalChanges = CalendarEventService.externalChanges.listen((_) {
-      if (!isClosed) add(const ExternalCalendarChange());
+    on<RefreshCalendarView>(_onRefreshView);
+    _externalChanges = CalendarEventService.externalChanges.listen((change) {
+      if (isClosed) return;
+      add(
+        ExternalCalendarChange(
+          revision: change.revision,
+          cacheCurrent: change.cacheCurrent,
+          eventsMerged: change.eventsMerged,
+        ),
+      );
     });
   }
 
@@ -352,6 +362,7 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
     ]..sort(EventAgenda.compareWithinDay);
     final result = List<CalendarEvent>.unmodifiable(matches);
     _dayCache[key] = result;
+    _capOutsideWindow(_dayCache, current.focusedDay);
     return result;
   }
 
@@ -363,6 +374,7 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
   /// does **not** go through the window partition: it is asked for one day (the
   /// selected one), and alternating two source lists through the partition's
   /// single slot would rebuild it twice a frame to save a scan that runs once.
+  /// The [EventWindowIndex] has a slot per list, so it narrows this day too.
   List<CalendarEvent> allEventsForDay(DateTime day) {
     final current = state;
     if (current is! CalendarPageLoaded) return const [];
@@ -371,12 +383,16 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
     final key = DateTime.utc(day.year, day.month, day.day);
     final cached = _unfilteredDayCache[key];
     if (cached != null) return cached;
+    final candidates = EventWindowIndex.of(
+      current.allEvents,
+    ).eventsPossiblyIn(key, key);
     final matches = [
-      for (final e in current.allEvents)
+      for (final e in candidates)
         if (e.occursOnUtcDay(key)) e,
     ]..sort(EventAgenda.compareWithinDay);
     final result = List<CalendarEvent>.unmodifiable(matches);
     _unfilteredDayCache[key] = result;
+    _capOutsideWindow(_unfilteredDayCache, current.focusedDay);
     return result;
   }
 
@@ -439,14 +455,15 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
   /// reached, minus the ones whose rule provably cannot fire on [key]
   /// ([RecurrenceRule.candidateDaysIn]) and the one-time events whose single
   /// occurrence falls on some other day. Outside the window (a date picker,
-  /// the day or timeline panel, a birthday decades away) this is the full
-  /// [_visibleEvents] scan [eventsForDay] always ran, because the partition
-  /// was never built to cover that day.
+  /// the day or timeline panel, a birthday decades away) the partition was
+  /// never built to cover that day, so this is [_visibleEvents] narrowed by
+  /// its [EventWindowIndex]: the recurring events plus the one-time events of
+  /// [key]'s month.
   List<CalendarEvent> _dayCandidates(CalendarPageLoaded current, DateTime key) {
     final source = _visibleEvents(current);
     final (start, endExclusive) = dayCacheWindowFor(current.focusedDay);
     if (key.isBefore(start) || !key.isBefore(endExclusive)) {
-      return source;
+      return EventWindowIndex.of(source).eventsPossiblyIn(key, key);
     }
     final partition = _partitionFor(source, start, endExclusive);
     final sparseToday = partition.sparseByDay[key];
@@ -636,22 +653,37 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
   /// after its no-op guard, so a genuine month change pays for this and the
   /// page-settle re-report of the same month does not.
   ///
-  /// [_maxDayCacheEntries] stays a backstop rather than disappearing: the
-  /// date pickers and the day/timeline panels also call [eventsForDay], on
-  /// days that can land far outside the window with no focus change at all.
-  /// The window prune runs first; the wholesale clear only fires if the
-  /// cache is still over the cap afterwards, and — like the prune — only
-  /// from here, never from the lookup.
+  /// The date pickers and the day/timeline panels also call [eventsForDay],
+  /// on days that can land far outside the window with no focus change at
+  /// all; [_capOutsideWindow] bounds those between two month changes.
   void _evictColdDayCacheEntries(DateTime focusedDay) {
     final (start, endExclusive) = dayCacheWindowFor(focusedDay);
     bool cold(DateTime day, Object? _) =>
         day.isBefore(start) || !day.isBefore(endExclusive);
     _dayCache.removeWhere(cold);
-    if (_dayCache.length >= _maxDayCacheEntries) _dayCache.clear();
     // The panel's twin is only ever asked for the selected day, so it cannot
     // grow the way the grid's does — but it is pruned on the same signal
     // rather than left to accumulate a month per page turn.
     if (_unfilteredDayCache.isNotEmpty) _unfilteredDayCache.removeWhere(cold);
+  }
+
+  /// Holds [cache] to [CalendarCacheLimits.maxDayCacheEntries] after a miss
+  /// by dropping its oldest day outside [dayCacheWindowFor] — one per miss,
+  /// so a miss pays one removal, never a wholesale clear. The window's days
+  /// are never chosen: the window holds far fewer days than the cap, so an
+  /// older day outside it always exists once the cap is passed, and the day
+  /// just added is the newest.
+  static void _capOutsideWindow(
+    Map<DateTime, List<CalendarEvent>> cache,
+    DateTime focusedDay,
+  ) {
+    if (cache.length <= CalendarCacheLimits.maxDayCacheEntries) return;
+    final (start, endExclusive) = dayCacheWindowFor(focusedDay);
+    final oldest = cache.keys.firstWhere(
+      (day) => day.isBefore(start) || !day.isBefore(endExclusive),
+      orElse: () => endExclusive,
+    );
+    cache.remove(oldest);
   }
 
   /// Resolves every calendar service, then publishes the event set.
@@ -722,18 +754,108 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
   /// first load has emitted it only raises [_externalChangeBeforeLoaded]: the
   /// load in flight may have read the table before the change landed, and
   /// re-reads once before emitting.
+  ///
+  /// A change announced with `cacheCurrent` skips the read and rebuilds from
+  /// the service's cache — the sync hooks and the category delete brought it
+  /// up to date before announcing — but only when it is the very next
+  /// revision: one this bloc has not seen in between may be a restore or a
+  /// switch, which only a read answers. Decided synchronously on entry and
+  /// recorded before the first await, so a second light change queued behind
+  /// this one finds the revision it follows already seen. A cache whose last
+  /// read failed is never trusted. Pulled event rows still refresh the money
+  /// ledger on the light path — an event may now link a note — which is one
+  /// read of the linked notes, never of the store.
   Future<void> _onExternalChange(
     ExternalCalendarChange event,
     Emitter<CalendarPageState> emit,
   ) async {
+    final light =
+        event.cacheCurrent && event.revision == _seenExternalRevision + 1;
     if (state is! CalendarPageLoaded) {
       _externalChangeBeforeLoaded = true;
       return;
+    }
+    if (light) {
+      _seenExternalRevision = event.revision;
+      var service = _currentService();
+      if (service != null && event.eventsMerged) {
+        service = await _refreshLedgerOver(service);
+      }
+      final latest = state;
+      if (service != null && latest is CalendarPageLoaded) {
+        _emitFrom(service.events, latest, emit);
+        return;
+      }
     }
     final generation = ++_loadGeneration;
     final events = await _resolveAndReload();
     final latest = state;
     if (generation != _loadGeneration || latest is! CalendarPageLoaded) return;
+    _emitFrom(events, latest, emit);
+  }
+
+  /// A page came back to a store the service's cache already holds: the
+  /// cache re-emitted as a reload would emit it, with no read — and the
+  /// ledger refreshed over it only when [RefreshCalendarView.refreshLedger]
+  /// asks. A bloc whose store was replaced meanwhile, or whose cache failed
+  /// its last read, loads instead.
+  Future<void> _onRefreshView(
+    RefreshCalendarView event,
+    Emitter<CalendarPageState> emit,
+  ) async {
+    // Not loaded yet: the first load in flight may have read the store
+    // before the write this answers, so it reads once more before emitting —
+    // the flag an external change raises in the same window.
+    if (state is! CalendarPageLoaded) {
+      _externalChangeBeforeLoaded = true;
+      return;
+    }
+    var service = _currentService();
+    if (service == null) return _onLoad(const LoadCalendarEvents(), emit);
+    if (event.refreshLedger) {
+      service = await _refreshLedgerOver(service);
+      if (service == null) return _onLoad(const LoadCalendarEvents(), emit);
+    }
+    final latest = state;
+    if (latest is! CalendarPageLoaded) return;
+    _emitFrom(service.events, latest, emit);
+  }
+
+  /// Refreshes the money ledger over [service]'s cache, then hands back the
+  /// service still fit to emit from — its awaits may have let a switch or a
+  /// failed read land, and then only a load will do (null).
+  Future<CalendarEventService?> _refreshLedgerOver(
+    CalendarEventService service,
+  ) async {
+    try {
+      await (await NoteMoneyLedgerService.getInstance()).refresh(
+        service.events,
+      );
+    } catch (e, st) {
+      debugPrint('[CalendarBloc] Money ledger refresh error: $e\n$st');
+    }
+    return _currentService();
+  }
+
+  /// The service whose cache this bloc may emit as it stands: the one it
+  /// already resolved, while no restore or switch has replaced the store and
+  /// its last read succeeded. Null when only a read will do.
+  CalendarEventService? _currentService() {
+    if (isStale) return null;
+    final service = _service;
+    if (service == null || service.lastLoadFailed) return null;
+    return service;
+  }
+
+  /// The emit every in-place reload shares: a fresh list — the Keep gate
+  /// tells a reload by its identity — and both revisions bumped, since a
+  /// pull can bring descriptions and presence the agenda only rescans for on
+  /// the occurrence bump. The day cache is dropped in the same turn.
+  void _emitFrom(
+    List<CalendarEvent> events,
+    CalendarPageLoaded latest,
+    Emitter<CalendarPageState> emit,
+  ) {
     _invalidateDayCache();
     emit(
       latest.copyWith(
@@ -1152,7 +1274,7 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
     // a Sunday-night mark must reach Monday's notification. Asked only when
     // such a digest is on, so a mark costs no pass otherwise. (A skip needs
     // no such line: its event-scoped reconcile is already a full re-plan.)
-    if (EventDigests.all.any((d) => d.enabled && d.cadence.isReport)) {
+    if (AlertScheduler.reportDigestEnabled) {
       unawaited(_reconcileAllAlerts(AlertReconcileReason.eventChanged));
     }
     final latest = state;

@@ -2,13 +2,15 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:archive/archive.dart';
-import 'package:flutter/foundation.dart' show visibleForTesting;
+import 'package:archive/archive_io.dart';
+import 'package:flutter/foundation.dart'
+    show TargetPlatform, defaultTargetPlatform, visibleForTesting;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../constants/json_keys.dart';
+import '../constants/temp_file_names.dart';
 import '../models/calendar_event.dart';
 import '../models/export_format.dart';
 import '../models/folder.dart';
@@ -16,13 +18,14 @@ import '../models/item_label.dart';
 import '../models/note_metadata.dart';
 import '../repositories/note_repository.dart';
 import '../utils/ics_serializer.dart';
+import 'database_manager.dart';
 import 'duplicate_name_exception.dart';
 import 'folder_storage_service.dart';
 import 'note_storage_service.dart';
 
 /// Result of a successful export operation.
 class ExportResult {
-  /// Absolute path to the file written in the system temp directory.
+  /// Absolute path to the file written under the system temp directory.
   final String filePath;
 
   /// Format used for the export. Folders always report
@@ -41,9 +44,15 @@ class ExportResult {
   /// Number of calendar events written (calendar `.ics` exports only).
   final int eventsExported;
 
-  /// False for a file the app keeps — the live database the Databases page
-  /// shares — which [ImportExportService.cleanupExport] must never delete.
+  /// False for a file the app keeps ([ExportResult.file]), which
+  /// [ImportExportService.cleanupExport] must never delete.
   final bool isTemporary;
+
+  /// True for the database share's snapshot, which sits alone in a folder of
+  /// its own ([DatabaseManager.shareSnapshotPrefix]) that goes with it, and
+  /// only once the share sheet is done reading it
+  /// ([ImportExportService.shareExport]).
+  final bool isSnapshot;
 
   const ExportResult({
     required this.filePath,
@@ -52,17 +61,32 @@ class ExportResult {
     this.foldersExported = 0,
     this.notesExported = 0,
     this.eventsExported = 0,
-  }) : isTemporary = true;
+  }) : isTemporary = true,
+       isSnapshot = false;
 
   /// A file shared where it lives rather than written for the share, so
-  /// [ImportExportService.shareExport] leaves it in place afterwards.
+  /// [ImportExportService.shareExport] leaves it in place afterwards. No
+  /// production path shares one today — the Databases page hands over a
+  /// [ExportResult.snapshot] — and the guard stays for the next that does.
   const ExportResult.file(this.filePath)
     : format = null,
       isArchive = false,
       foldersExported = 0,
       notesExported = 0,
       eventsExported = 0,
-      isTemporary = false;
+      isTemporary = false,
+      isSnapshot = false;
+
+  /// The consistent copy of a database written for one share
+  /// ([DatabaseManager.snapshotForShare]).
+  const ExportResult.snapshot(this.filePath)
+    : format = null,
+      isArchive = false,
+      foldersExported = 0,
+      notesExported = 0,
+      eventsExported = 0,
+      isTemporary = true,
+      isSnapshot = true;
 }
 
 /// Result of a successful import operation.
@@ -117,6 +141,16 @@ class ImportExportService {
   static const String _archiveTypeFolder = 'folderArchive';
   static const String _archiveTypeNote = 'note';
 
+  /// What every file and folder ANTA leaves in the system temp directory is
+  /// named with ([TempFileNames.prefix]); [sweepStaleExports] deletes nothing
+  /// else, because on Windows that directory is every app's.
+  static const String tempPrefix = TempFileNames.prefix;
+
+  /// The folder note files and archives are written into
+  /// ([TempFileNames.exportDirectory]): their names are the user's titles,
+  /// which carry no prefix the sweep could recognise.
+  static const String exportDirectoryName = TempFileNames.exportDirectory;
+
   final NoteStorageService _noteStorage;
   final FolderStorageService _folderStorage;
   final NoteRepository _noteRepository;
@@ -131,8 +165,9 @@ class ImportExportService {
 
   // ─── Note export ────────────────────────────────────────────────────────
 
-  /// Write [metadata] (and its content) to a single file in the system temp
-  /// directory using [format] and return the resulting [ExportResult].
+  /// Write [metadata] (and its content) to a single file under
+  /// [exportDirectoryName] in the system temp directory using [format] and
+  /// return the resulting [ExportResult].
   Future<ExportResult> exportNote({
     required NoteMetadata metadata,
     required ExportFormat format,
@@ -149,8 +184,7 @@ class ImportExportService {
         : _sanitizeFileName(metadata.title);
     final fileName = '$baseName.${format.extension}';
 
-    final tempDir = await getTemporaryDirectory();
-    final file = File(p.join(tempDir.path, fileName));
+    final file = File(p.join((await _exportDirectory()).path, fileName));
     await file.writeAsString(body);
 
     return ExportResult(filePath: file.path, format: format);
@@ -200,31 +234,27 @@ class ImportExportService {
       throw ArgumentError('Folder $folderId not found');
     }
 
-    final archive = Archive();
     final counts = _Counts();
+    final file = await _writeArchive((archive) async {
+      await _walkFolderIntoArchive(
+        archive: archive,
+        folder: root,
+        pathPrefix: '',
+        noteFormat: noteFormat,
+        counts: counts,
+      );
 
-    await _walkFolderIntoArchive(
-      archive: archive,
-      folder: root,
-      pathPrefix: '',
-      noteFormat: noteFormat,
-      counts: counts,
-    );
-
-    _addJsonFile(archive, _manifestFileName, {
-      JsonKeys.type: _archiveTypeFolder,
-      archiveVersionKey: archiveVersion,
-      JsonKeys.exportedAt: DateTime.now().toIso8601String(),
-      'rootName': root.name,
-      'folderCount': counts.folders,
-      'noteCount': counts.notes,
-      'noteFormat': noteFormat.extension,
+      archive.addJson(_manifestFileName, {
+        JsonKeys.type: _archiveTypeFolder,
+        archiveVersionKey: archiveVersion,
+        JsonKeys.exportedAt: DateTime.now().toIso8601String(),
+        'rootName': root.name,
+        'folderCount': counts.folders,
+        'noteCount': counts.notes,
+        'noteFormat': noteFormat.extension,
+      });
+      return _sanitizeFileName(root.name);
     });
-
-    final file = await _writeArchive(
-      archive: archive,
-      baseName: _sanitizeFileName(root.name),
-    );
 
     return ExportResult(
       filePath: file.path,
@@ -254,79 +284,77 @@ class ImportExportService {
       throw ArgumentError('exportItems requires at least one id');
     }
 
-    final archive = Archive();
     final counts = _Counts();
     final usedRootNames = <String>{_manifestFileName.toLowerCase()};
 
-    // Loose notes first so their filenames have first claim on root names.
-    for (final id in noteIds) {
-      final lazy = await _noteStorage.loadNoteWithContent(id);
-      if (lazy == null) continue;
-      final note = lazy.metadata;
-      final base = note.title.trim().isEmpty
-          ? 'note_${id.substring(0, id.length.clamp(0, 8))}'
-          : _sanitizeFileName(note.title);
-      final fileName = _uniqueName(
-        '$base.${noteFormat.extension}',
-        usedRootNames,
-      );
-      usedRootNames.add(fileName.toLowerCase());
-      _addNoteFile(
-        archive: archive,
-        path: fileName,
-        metadata: note,
-        content: lazy.content ?? '',
-        format: noteFormat,
-      );
-      counts.notes++;
-    }
+    final file = await _writeArchive((archive) async {
+      // The name of the last item the walk resolved — the only one when the
+      // selection is a single item, which then names the archive. Taken from
+      // the walk's own read, so the name is the one of the item exported.
+      String? resolvedName;
 
-    // Then folders, each as a top-level subtree.
-    for (final id in folderIds) {
-      final folder = await _folderStorage.getFolderById(id);
-      if (folder == null) continue;
-      final segment = _uniqueName(
-        _sanitizeFileName(folder.name),
-        usedRootNames,
-      );
-      usedRootNames.add(segment.toLowerCase());
-      await _walkFolderIntoArchive(
-        archive: archive,
-        folder: folder,
-        pathPrefix: '',
-        rootSegmentOverride: segment,
-        noteFormat: noteFormat,
-        counts: counts,
-      );
-    }
+      // Loose notes first so their filenames have first claim on root names.
+      for (final id in noteIds) {
+        final lazy = await _noteStorage.loadNoteWithContent(id);
+        if (lazy == null) continue;
+        final note = lazy.metadata;
+        resolvedName = note.title;
+        final base = note.title.trim().isEmpty
+            ? 'note_${id.substring(0, id.length.clamp(0, 8))}'
+            : _sanitizeFileName(note.title);
+        final fileName = _uniqueName(
+          '$base.${noteFormat.extension}',
+          usedRootNames,
+        );
+        usedRootNames.add(fileName.toLowerCase());
+        _addNoteFile(
+          archive: archive,
+          path: fileName,
+          metadata: note,
+          content: lazy.content ?? '',
+          format: noteFormat,
+        );
+        counts.notes++;
+      }
 
-    if (counts.folders == 0 && counts.notes == 0) {
-      throw StateError('Selection resolved to no exportable items');
-    }
+      // Then folders, each as a top-level subtree.
+      for (final id in folderIds) {
+        final folder = await _folderStorage.getFolderById(id);
+        if (folder == null) continue;
+        resolvedName = folder.name;
+        final segment = _uniqueName(
+          _sanitizeFileName(folder.name),
+          usedRootNames,
+        );
+        usedRootNames.add(segment.toLowerCase());
+        await _walkFolderIntoArchive(
+          archive: archive,
+          folder: folder,
+          pathPrefix: '',
+          segmentOverride: segment,
+          noteFormat: noteFormat,
+          counts: counts,
+        );
+      }
 
-    _addJsonFile(archive, _manifestFileName, {
-      JsonKeys.type: _archiveTypeFolder,
-      archiveVersionKey: archiveVersion,
-      JsonKeys.exportedAt: DateTime.now().toIso8601String(),
-      'folderCount': counts.folders,
-      'noteCount': counts.notes,
-      'noteFormat': noteFormat.extension,
-      'selection': true,
+      if (counts.folders == 0 && counts.notes == 0) {
+        throw StateError('Selection resolved to no exportable items');
+      }
+
+      archive.addJson(_manifestFileName, {
+        JsonKeys.type: _archiveTypeFolder,
+        archiveVersionKey: archiveVersion,
+        JsonKeys.exportedAt: DateTime.now().toIso8601String(),
+        'folderCount': counts.folders,
+        'noteCount': counts.notes,
+        'noteFormat': noteFormat.extension,
+        'selection': true,
+      });
+
+      return (folderIds.length + noteIds.length) == 1
+          ? _sanitizeFileName(resolvedName ?? 'selection')
+          : 'selection';
     });
-
-    final baseName = (folderIds.length + noteIds.length) == 1
-        ? _sanitizeFileName(
-            folderIds.isNotEmpty
-                ? (await _folderStorage.getFolderById(folderIds.first))?.name ??
-                      'selection'
-                : (await _noteStorage.loadNoteWithContent(
-                        noteIds.first,
-                      ))?.metadata.title ??
-                      'selection',
-          )
-        : 'selection';
-
-    final file = await _writeArchive(archive: archive, baseName: baseName);
 
     return ExportResult(
       filePath: file.path,
@@ -341,25 +369,27 @@ class ImportExportService {
   /// honoring [noteFormat] for the note bodies.
   ///
   /// [pathPrefix] is the parent directory inside the archive; pass `''`
-  /// for a root-level folder. [rootSegmentOverride], when non-null, is
-  /// used as this folder's directory name instead of its sanitized title
-  /// — this lets [exportItems] de-duplicate sibling folder names at the
-  /// archive root without renaming the folder in the database.
+  /// for a root-level folder. [segmentOverride], when non-null, is used as
+  /// this folder's directory name instead of its sanitized title — the
+  /// caller's de-duplicated name, so two siblings whose names sanitize alike
+  /// ("A:B" and "A_B", two long names sharing their first 100 characters,
+  /// same-named folders a sync merge left side by side) never write the
+  /// same entries, which an import would read as one folder.
   Future<void> _walkFolderIntoArchive({
-    required Archive archive,
+    required _ArchiveWriter archive,
     required Folder folder,
     required String pathPrefix,
     required ExportFormat noteFormat,
     required _Counts counts,
-    String? rootSegmentOverride,
+    String? segmentOverride,
   }) async {
     counts.folders++;
-    final segment = rootSegmentOverride ?? _sanitizeFileName(folder.name);
+    final segment = segmentOverride ?? _sanitizeFileName(folder.name);
     final dirPath = pathPrefix.isEmpty
         ? segment
         : p.posix.join(pathPrefix, segment);
 
-    _addJsonFile(archive, p.posix.join(dirPath, _folderMetaFileName), {
+    archive.addJson(p.posix.join(dirPath, _folderMetaFileName), {
       JsonKeys.type: 'folder',
       JsonKeys.name: folder.name,
       JsonKeys.createdAt: folder.createdAt.toIso8601String(),
@@ -387,12 +417,20 @@ class ImportExportService {
       );
     }
 
+    // Child folders share the directory's names with its notes, the way the
+    // archive root's folders share them with the loose notes.
     final children = await _folderStorage.loadAllFoldersForParent(folder.id);
     for (final child in children) {
+      final childSegment = _uniqueName(
+        _sanitizeFileName(child.name),
+        usedNames,
+      );
+      usedNames.add(childSegment.toLowerCase());
       await _walkFolderIntoArchive(
         archive: archive,
         folder: child,
         pathPrefix: dirPath,
+        segmentOverride: childSegment,
         noteFormat: noteFormat,
         counts: counts,
       );
@@ -400,37 +438,71 @@ class ImportExportService {
   }
 
   void _addNoteFile({
-    required Archive archive,
+    required _ArchiveWriter archive,
     required String path,
     required NoteMetadata metadata,
     required String content,
     required ExportFormat format,
   }) {
-    final body = _encodeNote(
-      metadata: metadata,
-      content: content,
-      format: format,
+    archive.addText(
+      path,
+      _encodeNote(metadata: metadata, content: content, format: format),
     );
-    final bytes = utf8.encode(body);
-    archive.addFile(ArchiveFile(path, bytes.length, bytes));
   }
 
-  Future<File> _writeArchive({
-    required Archive archive,
-    required String baseName,
-  }) async {
-    final encoded = ZipEncoder().encode(archive);
-    final tempDir = await getTemporaryDirectory();
+  /// Runs [write] over a `.zip` opened under a provisional name and, once it
+  /// returns the archive's base name, closes the file and gives it its final
+  /// `<base>_<timestamp>.zip` name — so a half-written archive never carries
+  /// a name the share sheet or an import would take for a whole one. A walk
+  /// that throws — the walk, or a write that fails — closes the file and
+  /// deletes the partial archive.
+  ///
+  /// The failure path closes the handle itself, never the stream: closing
+  /// the stream flushes its buffer first, and a flush that failed once fails
+  /// again before the handle is closed — on Windows an open file cannot be
+  /// deleted.
+  Future<File> _writeArchive(
+    Future<String> Function(_ArchiveWriter archive) write,
+  ) async {
+    final directory = await _exportDirectory();
     final timestamp = DateTime.now().toIso8601String().replaceAll(':', '-');
-    final archiveName = '${baseName}_$timestamp.zip';
-    final file = File(p.join(tempDir.path, archiveName));
-    await file.writeAsBytes(encoded);
-    return file;
+    final partial = File(p.join(directory.path, 'archive_$timestamp.part'));
+    final handle = openArchiveHandle(partial.path);
+    final archive = _ArchiveWriter(OutputFileStream.withFileHandle(handle));
+    try {
+      final baseName = await write(archive);
+      await archive.close();
+      return await partial.rename(
+        p.join(directory.path, '${baseName}_$timestamp.zip'),
+      );
+    } catch (_) {
+      try {
+        await handle.close();
+      } catch (_) {
+        /* the delete below is what matters */
+      }
+      try {
+        if (await partial.exists()) await partial.delete();
+      } catch (_) {
+        /* left for sweepStaleExports */
+      }
+      rethrow;
+    }
   }
 
-  void _addJsonFile(Archive archive, String path, Map<String, dynamic> data) {
-    final bytes = utf8.encode(const JsonEncoder.withIndent('  ').convert(data));
-    archive.addFile(ArchiveFile(path, bytes.length, bytes));
+  /// Opens the file an archive is written into; a test wraps it to watch
+  /// each entry reach the file, or to fail a write or the close.
+  @visibleForTesting
+  AbstractFileHandle openArchiveHandle(String path) =>
+      FileHandle(path, mode: FileAccess.write);
+
+  /// [exportDirectoryName] under the system temp directory, created on
+  /// first use.
+  Future<Directory> _exportDirectory() async {
+    final tempDir = await getTemporaryDirectory();
+    final directory = Directory(p.join(tempDir.path, exportDirectoryName));
+    await directory.create(recursive: true);
+    return directory;
   }
 
   // ─── Calendar export ────────────────────────────────────────────────────
@@ -492,22 +564,57 @@ class ImportExportService {
   /// through its own share intent before we get control back, so removing
   /// the file afterwards is safe and prevents the temp dir from
   /// accumulating exports across sessions.
+  ///
+  /// A database snapshot ([ExportResult.isSnapshot]) is the exception: it
+  /// goes only once the sheet is done reading it ([_shareReleased]), else it
+  /// waits for the next share or the launch sweep.
   Future<void> shareExport(ExportResult result) async {
+    ShareResult? shared;
     try {
-      await SharePlus.instance.share(
+      shared = await SharePlus.instance.share(
         ShareParams(files: [XFile(result.filePath)]),
       );
     } finally {
-      await cleanupExport(result);
+      if (!result.isSnapshot || _shareReleased(shared)) {
+        await cleanupExport(result);
+      }
     }
   }
 
-  /// Best-effort delete of a previously-produced export file. Swallows
-  /// IO errors — failing to delete a temp file is never worth blocking
-  /// the user on.
+  /// Whether the share sheet is done with the file once `share()` returns.
+  /// A share that threw ([shared] is null) never reached a sheet, and
+  /// Android's share_plus copies the file into its own cache before the
+  /// sheet opens (`Share.kt`, 13.3.0). A desktop sheet may still be reading
+  /// the path, and `unavailable` does not say whether anything is.
+  ///
+  /// The platform is read through [defaultTargetPlatform] rather than
+  /// `Platform.isAndroid` so a test can drive each branch; in the app the two
+  /// name the same OS, and the share plugin is the one that OS loads.
+  static bool _shareReleased(ShareResult? shared) =>
+      shared == null ||
+      (defaultTargetPlatform == TargetPlatform.android &&
+          shared.status != ShareResultStatus.unavailable);
+
+  /// Best-effort delete of a previously-produced export file — a snapshot's
+  /// whole folder. Swallows IO errors — failing to delete a temp file is
+  /// never worth blocking the user on.
   Future<void> cleanupExport(ExportResult result) async {
     if (!result.isTemporary) return;
     try {
+      if (result.isSnapshot) {
+        final folder = File(result.filePath).parent;
+        // Never more than a folder the snapshot made, whatever path it got:
+        // prefixed, and directly in the temp directory.
+        final tempDir = await getTemporaryDirectory();
+        if (p
+                .basename(folder.path)
+                .startsWith(DatabaseManager.shareSnapshotPrefix) &&
+            p.equals(p.dirname(folder.path), tempDir.path) &&
+            await folder.exists()) {
+          await folder.delete(recursive: true);
+        }
+        return;
+      }
       final file = File(result.filePath);
       if (await file.exists()) {
         await file.delete();
@@ -520,9 +627,11 @@ class ImportExportService {
   /// Sweep stale export artefacts out of the system temp directory.
   /// Intended to be called from app startup so files left behind by a
   /// crash, a denied share dialog, or a previous build version don't
-  /// accumulate. Only files older than [maxAge] and whose name matches
-  /// the pattern this service produces (`*_<timestamp>.zip` or note
-  /// exports with our supported extensions) are considered.
+  /// accumulate. Only what is older than [maxAge] and named with
+  /// [tempPrefix] is considered: every file in [exportDirectoryName] (a
+  /// partial archive included), a database snapshot's folder, and a
+  /// prefixed file at the top with one of the extensions this service
+  /// writes (`anta_events_….ics`, the report's `anta_report_….md`).
   Future<void> sweepStaleExports({
     Duration maxAge = const Duration(hours: 24),
   }) async {
@@ -535,17 +644,31 @@ class ImportExportService {
         'ics',
         for (final f in ExportFormat.values) f.extension,
       };
-      await for (final entity in tempDir.list(followLinks: false)) {
-        if (entity is! File) continue;
-        final ext = p.extension(entity.path).toLowerCase().replaceAll('.', '');
-        if (!knownExtensions.contains(ext)) continue;
+      Future<void> deleteIfStale(FileSystemEntity entity) async {
         try {
           final stat = await entity.stat();
           if (stat.modified.isBefore(cutoff)) {
-            await entity.delete();
+            await entity.delete(recursive: true);
           }
         } catch (_) {
-          /* skip files we can't stat/delete */
+          /* skip what we can't stat/delete */
+        }
+      }
+
+      await for (final entity in tempDir.list(followLinks: false)) {
+        final name = p.basename(entity.path);
+        if (!name.startsWith(tempPrefix)) continue;
+        if (entity is Directory) {
+          if (name == exportDirectoryName) {
+            await for (final file in entity.list(followLinks: false)) {
+              if (file is File) await deleteIfStale(file);
+            }
+          } else if (name.startsWith(DatabaseManager.shareSnapshotPrefix)) {
+            await deleteIfStale(entity);
+          }
+        } else if (entity is File) {
+          final ext = p.extension(name).toLowerCase().replaceAll('.', '');
+          if (knownExtensions.contains(ext)) await deleteIfStale(entity);
         }
       }
     } catch (_) {
@@ -641,13 +764,29 @@ class ImportExportService {
 
   /// Import a folder archive (`.zip`) under [targetParentFolderId].
   /// `targetParentFolderId == null` imports at the root.
+  ///
+  /// The archive is read from the file, not loaded: decoding reads only its
+  /// directory, and each entry's bytes are read when that entry is imported
+  /// and dropped right after ([_consume]), so the peak is one entry.
   Future<ConvertImportResult> importArchive({
     required String filePath,
     String? targetParentFolderId,
   }) async {
-    final bytes = await File(filePath).readAsBytes();
-    final archive = ZipDecoder().decodeBytes(bytes);
+    final input = InputFileStream(filePath);
+    try {
+      return await _importArchive(
+        ZipDecoder().decodeStream(input),
+        targetParentFolderId: targetParentFolderId,
+      );
+    } finally {
+      await input.close();
+    }
+  }
 
+  Future<ConvertImportResult> _importArchive(
+    Archive archive, {
+    String? targetParentFolderId,
+  }) async {
     // Group entries by directory to drive the recursive recreation.
     // Map<dirPath, _DirEntry>.
     final entries = <String, _DirEntry>{};
@@ -705,7 +844,7 @@ class ImportExportService {
       ArchiveFile noteFile,
       String targetFolderId,
     ) async {
-      final raw = utf8.decode(noteFile.content as List<int>);
+      final raw = _consume(noteFile);
       final ext = p.extension(noteFile.name).toLowerCase().replaceAll('.', '');
       final format = ExportFormat.fromExtension(ext) ?? ExportFormat.json;
       try {
@@ -789,7 +928,7 @@ class ImportExportService {
   /// to safe defaults (directory name, current time, no sort prefs).
   _FolderMeta? _readFolderMeta(ArchiveFile file) {
     try {
-      final raw = utf8.decode(file.content as List<int>);
+      final raw = _consume(file);
       final decoded = jsonDecode(raw);
       if (decoded is! Map<String, dynamic>) return null;
       final name = decoded[JsonKeys.name];
@@ -812,7 +951,7 @@ class ImportExportService {
   /// before any DB writes happen.
   void _assertSupportedManifest(ArchiveFile manifest) {
     try {
-      final raw = utf8.decode(manifest.content as List<int>);
+      final raw = _consume(manifest);
       final decoded = jsonDecode(raw);
       if (decoded is! Map<String, dynamic>) return;
       final v = decoded[archiveVersionKey];
@@ -831,6 +970,18 @@ class ImportExportService {
   }
 
   // ─── Helpers ────────────────────────────────────────────────────────────
+
+  /// [file]'s text, after which its bytes are dropped ([ArchiveFile.clear]),
+  /// so an import holds one entry at a time. Never `close` / `closeSync`:
+  /// every entry reads through the archive's one file stream, which those
+  /// would close under the entries still to come.
+  static String _consume(ArchiveFile file) {
+    try {
+      return utf8.decode(file.content);
+    } finally {
+      file.clear();
+    }
+  }
 
   /// Strip characters that are illegal on Windows / unsafe in zip paths,
   /// trim whitespace and dots, and cap length so very long names don't
@@ -923,6 +1074,30 @@ class ImportExportService {
       }
     }
   }
+}
+
+/// One `.zip` written entry by entry: each entry is compressed and handed to
+/// the file as it is added, before the walk reads the next note, so an
+/// export holds the largest single note rather than the whole tree.
+class _ArchiveWriter {
+  _ArchiveWriter(OutputFileStream output) {
+    // Explicit: without a level the encoder deflates at 6, not the level 1
+    // `ZipEncoder.encode` always used.
+    _encoder.createWithStream(output, level: DeflateLevel.bestSpeed);
+  }
+
+  final _encoder = ZipFileEncoder();
+
+  void addText(String path, String text) {
+    final bytes = utf8.encode(text);
+    _encoder.addArchiveFile(ArchiveFile(path, bytes.length, bytes));
+  }
+
+  void addJson(String path, Map<String, dynamic> data) =>
+      addText(path, const JsonEncoder.withIndent('  ').convert(data));
+
+  /// Writes the central directory and closes the file.
+  Future<void> close() => _encoder.close();
 }
 
 class _DirEntry {

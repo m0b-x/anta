@@ -248,7 +248,9 @@ class SyncBindingService {
   /// - `bind_merge_pending` set, the floor rule's switch;
   /// - the floor written only when none exists: a never-bound database floors
   ///   now, a restored or unbound one keeps the floor written then, below
-  ///   which its rows are older than the space's (D15).
+  ///   which its rows are older than the space's (D15);
+  /// - a fresh [SyncDao.keyReplicaId], so a copy of this database bound
+  ///   elsewhere never files its counter taps under this one's (D8 A).
   ///
   /// Refused while [SyncSuspension] holds: a restore is rewriting the rows
   /// this would queue. Refused while a binding exists: a direct rebind would
@@ -300,7 +302,9 @@ class SyncBindingService {
         ),
       );
       for (final synced in syncedTables) {
-        if (synced.travelsWithParent) continue;
+        // A chunk is pushed under the bound account whatever its row holds,
+        // and stamping every chunk row would rewrite the bodies' table.
+        if (synced.contentAddressed) continue;
         await _db.customUpdate(
           'UPDATE ${synced.name} SET owner_id = ? WHERE owner_id IS NULL',
           variables: [Variable<String>(accountUid)],
@@ -312,9 +316,11 @@ class SyncBindingService {
       }
       await _db.syncOutboxDao.requeueAll(boundUid: accountUid);
       await _deletePullState();
+      await _keepNoteSeenFor(space);
       await _db.syncDao.setValue(SyncDao.keyBindMergePending, '1');
       await _db.syncDao.deleteValue(SyncDao.keyHealUnboundFrom);
       if (await bindFloor() == null) await writeBindFloor();
+      await _db.syncDao.mintReplicaId();
     });
     await _updateRegistry((registry, name) => registry.claim(space, name));
   }
@@ -347,6 +353,11 @@ class SyncBindingService {
       await _db.syncOutboxDao.clear();
       await _deletePullState();
       if (raiseFloor) await writeBindFloor();
+      // A healed copy keeps the database it was copied from tapping under
+      // the same replica id until it binds again, and the shards of the two
+      // would then join as one replica's — each keeping only the larger
+      // count.
+      await _db.syncDao.mintReplicaId();
       if (healedFrom != null) {
         await _db.syncDao.setValue(SyncDao.keyHealUnboundFrom, healedFrom);
       } else {
@@ -382,14 +393,33 @@ class SyncBindingService {
     return registry.holderOf(space, except: _databaseName());
   }
 
-  /// The cursors, the `pull_seen` marks, the initial-merge switch, and the
+  /// Keeps the `note_seen` stamps across a rebind to the space they were
+  /// recorded under and deletes them for any other — or when nothing says
+  /// which space that was: another space's peers write stamps these were
+  /// never compared with (scalability record S8).
+  Future<void> _keepNoteSeenFor(SyncSpaceRef space) async {
+    final name = '${space.ownerUid}/${space.spaceId}';
+    if (await _db.syncDao.getValue(SyncDao.keyNoteSeenSpace) == name) return;
+    await _db.syncDao.deleteByPrefix(SyncDao.noteSeenPrefix);
+    await _db.syncDao.setValue(SyncDao.keyNoteSeenSpace, name);
+  }
+
+  /// The cursors, the `pull_seen` and settled marks, the stored pull and
+  /// push parks, the initial-merge switch, the server time seen, and the
   /// quota pause and last-run times — they describe the previous space (F7).
   Future<void> _deletePullState() async {
     await _db.syncDao.deleteByPrefix(SyncDao.pullCursorPrefix);
     await _db.syncDao.deleteByPrefix(SyncDao.pullSeenPrefix);
+    await _db.syncDao.deleteByPrefix(SyncDao.pullSettledPrefix);
+    await _db.syncDao.deleteByPrefix(SyncDao.pullParkedPrefix);
+    await _db.syncDao.deleteValue(SyncDao.keyPullParkedBuild);
+    await _db.syncDao.deleteByPrefix(SyncDao.pushParkedPrefix);
+    await _db.syncDao.deleteValue(SyncDao.keyPushParkedBuild);
     await _db.syncDao.deleteValue(SyncDao.keyBindMergePending);
     await _db.syncDao.deleteValue(SyncDao.keyQuotaPausedAt);
     await _db.syncDao.deleteValue(SyncDao.keyLastPullAt);
+    await _db.syncDao.deleteValue(SyncDao.keyFullPullAt);
+    await _db.syncDao.deleteValue(SyncDao.keyServerSeen);
     await _db.syncDao.deleteValue(SyncDao.keyLastPushAt);
   }
 }

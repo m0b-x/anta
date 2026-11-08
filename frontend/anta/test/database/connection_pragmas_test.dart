@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:anta/constants/app_constants.dart';
 import 'package:anta/database/database.dart';
 
 /// Guards the connection pragmas, which are worth roughly a **20×** speedup on
@@ -61,6 +62,16 @@ void main() {
     // matters least of the four — but a positive value here would mean someone
     // reintroduced the page-count form by accident.
     expect(await pragma('cache_size'), lessThan(0));
+  });
+
+  test('caps the WAL a checkpoint leaves behind', () async {
+    // Without it the `-wal` keeps the size of the largest transaction it
+    // ever held — a migration step or an Optimize leaves one the size of the
+    // database on the phone for good.
+    expect(
+      await pragma('journal_size_limit'),
+      AppConstants.sqliteJournalSizeLimitBytes,
+    );
   });
 
   test('WAL sidecars land beside the database file', () async {

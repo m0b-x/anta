@@ -17,6 +17,8 @@ import 'package:anta/models/item_label.dart';
 import 'package:anta/services/backup_service.dart';
 import 'package:anta/services/counter_service.dart';
 
+import 'support/backup_archive.dart';
+
 /// Colour labels ride into the backup as an **additive** key on the existing
 /// note and folder maps, so the backup version does not move. That buys two
 /// obligations this file holds: a label written today comes back out of an
@@ -62,7 +64,7 @@ void main() {
     );
 
     final backup = await BackupService.getInstance();
-    final exported = await backup.exportAllData();
+    final exported = await exportBackupArchive();
 
     final exportedFolder = (exported['folders'] as List)
         .cast<Map<String, dynamic>>()

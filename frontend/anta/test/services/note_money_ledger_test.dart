@@ -33,7 +33,7 @@ void main() {
 
   late Directory tempDir;
   late NoteRepository seedRepository;
-  late NoteRepository repository;
+  late _CountingRepository repository;
   late NoteMoneyLedgerService ledger;
 
   final startDate = DateTime.utc(2026, 8, 10);
@@ -72,7 +72,7 @@ void main() {
     final db = await AppDatabase.getInstance();
     await db.userSettingsDao.setValue(SettingsKeys.moneyLedgerEnabled, 'true');
     seedRepository = NoteRepository(database: db);
-    repository = NoteRepository(database: db);
+    repository = _CountingRepository(database: db);
     GetIt.I.registerSingleton<NoteRepository>(repository);
     ledger = await NoteMoneyLedgerService.getInstance();
   });
@@ -194,4 +194,48 @@ void main() {
     expect(ledger.ledgerFor(note)!.net, -1000);
     expect(ledger.ledgerFor(noBlock)!.net, 4000);
   });
+
+  // S5 — auto-save writes a linked note every few seconds while typing; the
+  // ledger refolds the settled body once, not once per save.
+  group('a burst of saves on a linked note', () {
+    test('refolds at most twice and lands on the last body', () async {
+      final note = await createNote(r'$+ 1.00 start');
+      await ledger.refresh([linkedEvent('e-burst', note)]);
+      repository.contentReads = 0;
+
+      for (var i = 1; i <= 25; i++) {
+        await repository.updateNote(id: note, content: '\$+ $i.00 save $i');
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 1300));
+      await pumpEventQueue();
+
+      expect(repository.contentReads, lessThanOrEqualTo(2));
+      expect(ledger.ledgerFor(note)!.net, 2500);
+    });
+
+    test('a delete in the wait drops the entry for good', () async {
+      final note = await createNote(r'$+ 1.00 start');
+      await ledger.refresh([linkedEvent('e-gone', note)]);
+
+      await repository.updateNote(id: note, content: r'$+ 9.00 edit');
+      await repository.deleteNote(note);
+      await Future<void>.delayed(const Duration(milliseconds: 1300));
+      await pumpEventQueue();
+
+      expect(ledger.ledgerFor(note), isNull);
+    });
+  });
+}
+
+/// Counts the body reads a refold pays, the cost the debounce bounds.
+class _CountingRepository extends NoteRepository {
+  _CountingRepository({required super.database});
+
+  int contentReads = 0;
+
+  @override
+  Future<String> loadContent(String noteId, {bool forceRefresh = false}) {
+    contentReads++;
+    return super.loadContent(noteId, forceRefresh: forceRefresh);
+  }
 }

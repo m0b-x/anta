@@ -84,7 +84,18 @@ class AutoSaveService {
     this.onChangeDetected,
     this.saveInterval = const Duration(seconds: 30),
     this.debounceDelay = const Duration(seconds: 5),
-  });
+  }) {
+    _live.add(this);
+  }
+
+  /// Every instance not yet disposed, for [hasAnyPendingChanges].
+  static final Set<AutoSaveService> _live = {};
+
+  /// Whether any open editor holds text it has not written yet. The body
+  /// search index pauses its backfill on this rather than queue pages in
+  /// front of that save; nothing on the save path reads it.
+  static bool hasAnyPendingChanges() =>
+      _live.any((service) => service._hasPendingChanges);
 
   void startTracking(
     String title,
@@ -311,6 +322,7 @@ class AutoSaveService {
 
   void dispose() {
     _disposed = true;
+    _live.remove(this);
     _retryTimer?.cancel();
     _debounceTimer?.cancel();
     _intervalTimer?.cancel();

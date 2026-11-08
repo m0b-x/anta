@@ -41,9 +41,11 @@ import 'event_skip_service.dart';
 import 'public_holiday_service.dart';
 import 'settings_service.dart';
 
-/// Why a reconcile is running. Logged, never branched on — the pass is the
-/// same whatever provoked it, and a reason that changed the work would be a
-/// second definition of "what the OS should hold".
+/// Why a reconcile is running. The pass is the same whatever provoked it — a
+/// reason that changed the work would be a second definition of "what the OS
+/// should hold" — and the one branch on it decides only whether the pass runs:
+/// a launch or a resume may skip it when nothing can arm
+/// ([AlertScheduler.reconcileAll]).
 enum AlertReconcileReason {
   launch,
   resumed,
@@ -173,11 +175,14 @@ DateTime? noticeInstantFor({
 ///
 /// **The OS is the truth, in both directions.** A `.db` file imported from
 /// another device brings that device's registrations along, so a registry row
-/// the platform does not know is dropped before diffing; and the event-import
-/// wipe hard-deletes every registration while the platform keeps its entries,
-/// so a platform entry naming the **active** database that the plan does not
-/// contain is cancelled. Entries naming another database are never touched
-/// (A9) — switching databases must not silently disarm the one left behind.
+/// the platform does not know is dropped before diffing; and an event's delete
+/// or "Delete all events" hard-deletes registrations while the platform keeps
+/// their entries, as does a database recreated under an old name, so a
+/// platform entry naming the **active** database that the plan does not
+/// contain is cancelled — by every pass that runs, which at a launch or resume
+/// with nothing to arm is exactly when the platform still lists one
+/// ([reconcileAll]). Entries naming another database are never touched (A9) —
+/// switching databases must not silently disarm the one left behind.
 ///
 /// A plain singleton on the `DatabaseLifecycle` contract rather than a GetIt
 /// registration: it holds a DAO, and GetIt holds the *object*, so after a
@@ -357,9 +362,94 @@ class AlertScheduler {
     }
   }
 
-  /// Re-derives the whole horizon and makes the platform match it.
+  /// Re-derives the whole horizon and makes the platform match it — or, at a
+  /// launch or resume when [_nothingCanArm], skips the event store and every
+  /// facade: four one-row reads, the platform's pending list, and the moves
+  /// the plugin made, acknowledged as the pass would (with no registry row,
+  /// each is another database's or stale). Taking them is also what retries
+  /// a binding whose start failed, as every pass used to.
+  ///
+  /// Only those two reasons, the passes nothing provoked. Every other one
+  /// follows a write, and some writes hard-delete registry rows while the
+  /// platform still holds their entries — an event's delete, "Delete all
+  /// events" — so the registry is empty, nothing can arm, and that very pass
+  /// is the one whose stray sweep cancels what was left ringing.
   Future<void> reconcileAll(AlertReconcileReason reason) =>
-      _serialize(() => _reconcile(reason));
+      _serialize(() async {
+        final unprovoked =
+            reason == AlertReconcileReason.launch ||
+            reason == AlertReconcileReason.resumed;
+        if (unprovoked && await _nothingCanArm()) {
+          final now = _clock();
+          for (final move in await _gateway.takeMoves()) {
+            try {
+              await _applyMove(move, now);
+            } catch (e) {
+              debugPrint('[AlertScheduler] move for ${move.osId} failed: $e');
+            }
+          }
+          debugPrint(
+            '[AlertScheduler] reconcile(${reason.name}) skipped: '
+            'nothing can arm',
+          );
+          return;
+        }
+        await _reconcile(reason);
+      });
+
+  /// Whether a whole pass would plan nothing and cancel nothing: no live
+  /// enabled alert of an event's own or of a category, no enabled digest, an
+  /// empty registry with no strays marker, and no platform entry naming this
+  /// database.
+  ///
+  /// Asked before the pass resolves `CalendarEventService`, which loads the
+  /// whole event store — at launch and resume the biggest read there is, and
+  /// for a calendar with no alerts one that buys nothing (scalability
+  /// record §5.6, S15). The registry counts because an armed entry outlives
+  /// its alert: the last one disabled still leaves an entry to cancel, so any
+  /// row, whatever its state, runs the pass, whose sweep empties the registry
+  /// once its history is a week old. The marker a hard delete of registry
+  /// rows leaves counts the same way until a pass completes: a process death
+  /// between "Delete all events" and its pass must not let the next launch
+  /// skip the stray sweep that cancels what was armed for those events. Read
+  /// from the tables, never the facades, which nothing may have loaded yet
+  /// at launch; the registry first, since a calendar with alerts almost
+  /// always holds rows.
+  ///
+  /// The platform last, only when every table says nothing can arm: no row
+  /// and no marker describe an entry a database recreated under an old name
+  /// inherits ("Delete all data", a delete and a create, an import onto a
+  /// deleted name), a ring's entry a delete skipped while it rang and a
+  /// native Snooze kept, or a `fired` row the sweep dropped — and the stray
+  /// sweep is the only thing that cancels them. A binding that cannot list
+  /// its entries has the marker alone. A read that throws runs the pass; a
+  /// listing the gateway swallowed reads as empty, as it would for the full
+  /// pass, which would then cancel nothing either. Only
+  /// [reconcileAll] asks: one event's change always plans in full, for the
+  /// horizon's global `total` cap.
+  Future<bool> _nothingCanArm() async {
+    final db = _dao.attachedDatabase;
+    try {
+      if (await _dao.mayHoldEntries()) return false;
+      if (await db.eventAlertDao.hasEnabled()) return false;
+      if (await db.categoryAlertDao.hasEnabled()) return false;
+      if (await db.eventDigestDao.hasEnabled()) return false;
+      if (!_gateway.tracksPending) return true;
+      final entries = await _gateway.pendingEntries();
+      return !entries.any((entry) => entry.payload.database == _databaseName);
+    } catch (e) {
+      debugPrint('[AlertScheduler] nothing-can-arm check failed: $e');
+      return false;
+    }
+  }
+
+  /// Whether an enabled report digest folds attendance into its words — the
+  /// one rule for when presence, which arms nothing, still needs a pass: the
+  /// pass resolves the presence facade only then, a local mark asks for a
+  /// pass only then, and so does a pulled mark or category profile. Read
+  /// from the [EventDigests] facade, so its owner must have loaded it.
+  static bool get reportDigestEnabled =>
+      EventDigests.all.any((d) => d.enabled && d.cadence.isReport);
 
   /// [reconcileAll] for a settings row that holds no scheduler, swallowing
   /// every failure — the [reconcileEventById] rule, gateway check and all.
@@ -1074,7 +1164,7 @@ class AlertScheduler {
     await _resolveQuietly(EventDigestService.getInstance(), 'digests');
     // A report digest's words count attendance through the presence facade,
     // which nothing else here reads — resolved only when one would fold.
-    if (EventDigests.all.any((d) => d.enabled && d.cadence.isReport)) {
+    if (reportDigestEnabled) {
       await _resolveQuietly(EventPresenceService.getInstance(), 'presence');
     }
 
@@ -1107,6 +1197,11 @@ class AlertScheduler {
         '[AlertScheduler] reconcile(${reason.name}) currency failed: $e',
       );
     }
+
+    // Read before anything reads the registry: a delete that lands after it
+    // writes a new marker, and this pass, which never saw those rows go,
+    // leaves that one standing.
+    final straysMarker = await _dao.straysMarker();
 
     await _dao.sweep(now: now, retention: kAlertRegistrationRetention);
 
@@ -1396,6 +1491,10 @@ class AlertScheduler {
       }
       cancelled++;
     }
+
+    // The stray sweep above has run, so whatever the marked delete left on
+    // the platform is cancelled.
+    if (straysMarker != null) await _dao.clearStraysMarker(straysMarker);
 
     debugPrint(
       '[AlertScheduler] reconcile(${reason.name}'

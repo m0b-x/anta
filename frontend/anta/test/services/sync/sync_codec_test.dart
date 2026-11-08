@@ -1,11 +1,16 @@
 import 'dart:convert';
+import 'dart:io' show gzip;
+import 'dart:typed_data';
 
 import 'package:drift/drift.dart' show Value;
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:anta/database/chunking/body_cut.dart';
+import 'package:anta/database/chunking/chunk_hasher.dart';
 import 'package:anta/database/crdt/crdt_write.dart';
 import 'package:anta/database/crdt/hlc.dart';
 import 'package:anta/database/database.dart';
+import 'package:anta/database/migrations/database_schema.dart';
 import 'package:anta/models/note_metadata.dart';
 import 'package:anta/services/calendar_event_service.dart';
 import 'package:anta/services/category_profile_service.dart';
@@ -21,6 +26,7 @@ import 'package:anta/services/filter_preset_service.dart';
 import 'package:anta/services/overview_view_service.dart';
 import 'package:anta/services/sync/sync_gateway.dart';
 import 'package:anta/services/sync/sync_table_binding.dart';
+import 'package:anta/services/sync/sync_tables.dart';
 import 'package:anta/services/sync/tables/calendar_categories_binding.dart';
 import 'package:anta/services/sync/tables/calendar_category_alerts_binding.dart';
 import 'package:anta/services/sync/tables/calendar_category_profiles_binding.dart';
@@ -31,6 +37,7 @@ import 'package:anta/services/sync/tables/calendar_event_skips_binding.dart';
 import 'package:anta/services/sync/tables/calendar_event_templates_binding.dart';
 import 'package:anta/services/sync/tables/calendar_events_binding.dart';
 import 'package:anta/services/sync/tables/calendar_filter_presets_binding.dart';
+import 'package:anta/services/sync/tables/content_chunks_binding.dart';
 import 'package:anta/services/sync/tables/counter_values_binding.dart';
 import 'package:anta/services/sync/tables/counters_binding.dart';
 import 'package:anta/services/sync/tables/event_digests_binding.dart';
@@ -40,6 +47,7 @@ import 'package:anta/services/sync/tables/overview_views_binding.dart';
 import 'package:anta/services/sync/tables/vocabularies_binding.dart';
 import 'package:anta/services/sync/tables/vocabulary_items_binding.dart';
 import 'package:anta/services/vocabulary_service.dart';
+import 'package:anta/utils/compression_utils.dart';
 
 import '../../database/support/db_test_support.dart';
 
@@ -83,8 +91,41 @@ void main() {
 
   void expectTombstone(SyncEnvelope envelope) {
     expect(envelope.op, OutboxOp.tombstone);
-    expect(envelope.data, isNull);
+    expect(envelope.data, isNull, reason: _wireChanged);
   }
+
+  /// [envelope]'s `data` keys against the frozen [_wireKeys] — independent
+  /// of the backup and export maps the tests below also compare against, so
+  /// a change there that reaches the wire cannot pass unnoticed.
+  void expectWire(SyncEnvelope envelope) {
+    expect(
+      envelope.data!.keys.toSet(),
+      _wireKeys[envelope.table],
+      reason: _wireChanged,
+    );
+  }
+
+  test('the space carries the wire version, never above the local one', () {
+    expect(
+      DatabaseSchema.syncSchemaVersion,
+      46,
+      reason:
+          'raised only with a wire change and this file\'s snapshot; a '
+          'local-only migration leaves it, or every older device pauses as '
+          'appOutdated',
+    );
+    expect(
+      DatabaseSchema.syncSchemaVersion,
+      lessThanOrEqualTo(DatabaseSchema.currentVersion),
+      reason: 'a wire version names a schema some build has shipped',
+    );
+  });
+
+  test('the wire snapshot names every synced table', () {
+    expect(_wireKeys.keys.toSet(), {
+      for (final binding in syncTableBindings) binding.table,
+    }, reason: _wireChanged);
+  });
 
   /// [envelope] as a live upsert carrying [data] in place of its own.
   SyncEnvelope carrying(SyncEnvelope envelope, Map<String, Object?> data) =>
@@ -177,7 +218,8 @@ void main() {
 
       expectStamps(envelope, 'folders', 'f1');
       expect(envelope.op, OutboxOp.upsert);
-      // `BackupService.exportAllData`'s folder keys, dates as epoch-ms.
+      expectWire(envelope);
+      // The JSON backup's folder keys, dates as epoch-ms.
       expect(envelope.data!.keys.toSet(), {
         'id',
         'name',
@@ -230,31 +272,45 @@ void main() {
     const binding = NotesBinding();
     final body = List.generate(1400, (i) => 'set $i rep').join('\n');
 
-    test('a 14 KB body crosses whole and lands as it left', () async {
+    Future<Note> stored() => db.noteDao.createNote(
+      folderId: 'f1',
+      title: 'Squat log',
+      preview: NoteMetadata.generatePreview(body),
+      contentLength: body.length,
+      chunkCount: 2,
+      isCompressed: true,
+      content: body,
+      ownerId: uid,
+    );
+
+    /// [manifest] as a 45-build wrote it: the body under `content`.
+    SyncEnvelope legacy(SyncEnvelope manifest, String text) => carrying(
+      manifest,
+      {...manifest.data!}
+        ..remove(NotesBinding.chunksKey)
+        ..remove(NotesBinding.bodyHashKey)
+        ..['content'] = text,
+    );
+
+    test('a 14 KB body crosses as its manifest and is assembled again from '
+        'the chunks it names', () async {
       expect(body.length, greaterThan(14 * 1000));
-      final note = await db.noteDao.createNote(
-        folderId: 'f1',
-        title: 'Squat log',
-        preview: NoteMetadata.generatePreview(body),
-        contentLength: body.length,
-        chunkCount: 2,
-        isCompressed: true,
-        content: body,
-        ownerId: uid,
-      );
+      final note = await stored();
 
       final envelope = await encodeStored(binding, note.id);
 
       expect(envelope.rowKey, note.id);
       expect(envelope.hlc, note.hlcTimestamp);
       expect(envelope.op, OutboxOp.upsert);
-      // `BackupService.exportAllData`'s note keys, dates as epoch-ms, plus
-      // `position`.
+      expectWire(envelope);
+      // The JSON backup's note keys, dates as epoch-ms, the body replaced
+      // by its manifest, plus `position`.
       expect(envelope.data!.keys.toSet(), {
         'id',
         'folderId',
         'title',
-        'content',
+        'chunks',
+        'bodyHash',
         'preview',
         'createdAtMs',
         'updatedAtMs',
@@ -262,8 +318,11 @@ void main() {
         'ownerId',
         'position',
       });
-      expect(envelope.data!['content'], body);
-      expect(binding.contentOf(envelope), body);
+      final hashes = await db.contentChunkDao.hashesOf(note.id);
+      expect(hashes.length, greaterThan(1));
+      expect(envelope.data!['chunks'], hashes);
+      expect(envelope.data!['bodyHash'], ChunkHasher.hash(body));
+      expect(await binding.bodyOf(db, envelope), body);
 
       final decoded = binding.decode(envelope);
       expect(
@@ -276,11 +335,83 @@ void main() {
         reason: 'the body columns are derived on arrival',
       );
 
+      // Another note holding the same chunks: the body is assembled from
+      // any note's rows on the receiving device.
+      final other = await openTestDatabase();
+      addTearDown(other.close);
+      await other.noteDao.createNote(
+        folderId: 'f9',
+        title: 'Copy',
+        content: body,
+      );
+      await binding.mergeRemote(other, envelope);
+      expect(await other.noteDao.getNoteById(note.id), note);
+      expect(await other.contentChunkDao.loadContent(note.id), body);
+    });
+
+    test('a document an older build wrote, its body under content, still '
+        'lands as it left', () async {
+      final note = await stored();
+      final envelope = legacy(await encodeStored(binding, note.id), body);
+
+      expect(await binding.bodyOf(db, envelope), body);
       final other = await openTestDatabase();
       addTearDown(other.close);
       await binding.mergeRemote(other, envelope);
       expect(await other.noteDao.getNoteById(note.id), note);
       expect(await other.contentChunkDao.loadContent(note.id), body);
+    });
+
+    test('a manifest naming a chunk neither this device nor the fetch holds '
+        'is refused before anything is written', () async {
+      final note = await stored();
+      final envelope = await encodeStored(binding, note.id);
+      final other = await openTestDatabase();
+      addTearDown(other.close);
+
+      await expectLater(
+        binding.mergeRemote(other, envelope),
+        throwsA(
+          isA<FormatException>().having(
+            (e) => e.message,
+            'message',
+            contains('chunks are neither on this device nor readable'),
+          ),
+        ),
+      );
+      expect(await other.noteDao.getNoteById(note.id), isNull);
+    });
+
+    test(
+      'a manifest whose chunks do not make its body hash is refused',
+      () async {
+        final note = await stored();
+        final envelope = await encodeStored(binding, note.id);
+
+        await expectLater(
+          binding.bodyOf(
+            db,
+            carrying(envelope, {
+              ...envelope.data!,
+              'bodyHash': ChunkHasher.hash('another body'),
+            }),
+          ),
+          throwsFormatException,
+        );
+      },
+    );
+
+    test('the echo of a pushed manifest merges unchanged without assembling '
+        'its body', () async {
+      final note = await stored();
+      final envelope = await encodeStored(binding, note.id);
+      // Gone from this device: assembling would fail, the stamp says it
+      // needs no body.
+      await db.customStatement('DELETE FROM content_chunks');
+
+      final outcome = await binding.mergeRemote(db, envelope);
+
+      expect(outcome.result, MergeResult.unchanged);
     });
 
     test('a tombstone carries no body', () async {
@@ -290,7 +421,7 @@ void main() {
       final envelope = await encodeStored(binding, note.id);
 
       expectTombstone(envelope);
-      expect(binding.contentOf(envelope), isNull);
+      expect(await binding.bodyOf(db, envelope), isNull);
       final decoded = binding.decode(envelope);
       expect(decoded.isDeleted, isTrue);
       expect(
@@ -323,21 +454,32 @@ void main() {
       expect(decoded.title, 'Log');
     });
 
-    test('a live envelope without a body is refused, never emptied', () async {
+    test('a live envelope without a body or a manifest is refused, never '
+        'emptied', () async {
       final note = await db.noteDao.createNote(
         folderId: 'f1',
         title: 'Log',
         content: 'real text',
       );
-
-      await expectStrict(
-        binding,
-        note.id,
-        requiredKey: 'content',
-        idKey: 'id',
-        decode: binding.contentOf,
-      );
       final envelope = await encodeStored(binding, note.id);
+      final live = envelope.data!;
+
+      for (final data in [
+        {...live}..remove('chunks'),
+        {...live, 'chunks': 'not a list'},
+        {
+          ...live,
+          'chunks': [7],
+        },
+        {...live}..remove('bodyHash'),
+        legacy(envelope, '').data!..['content'] = 7,
+      ]) {
+        await expectLater(
+          binding.bodyOf(db, carrying(envelope, data)),
+          throwsFormatException,
+          reason: '$data',
+        );
+      }
       final bodyless = SyncEnvelope(
         table: envelope.table,
         rowKey: envelope.rowKey,
@@ -346,10 +488,89 @@ void main() {
         version: 9,
         op: OutboxOp.upsert,
         ownerId: envelope.ownerId,
-        data: {...envelope.data!}..remove('content'),
+        data: {...live}..remove('chunks'),
       );
-      expect(() => binding.mergeRemote(db, bodyless), throwsFormatException);
+      await expectLater(
+        binding.mergeRemote(db, bodyless),
+        throwsFormatException,
+      );
       expect(await db.contentChunkDao.loadContent(note.id), 'real text');
+    });
+  });
+
+  group('content_chunks', () {
+    const binding = ContentChunksBinding();
+    // One chunk stored plain, one gzip'd: the cutter's chunks run 4,096 to
+    // 16,384 code units and the store compresses above 5,000.
+    final short = List.generate(400, (i) => 'rep $i').join(' ');
+    final long = List.generate(1600, (i) => 'set $i rep').join('\n');
+
+    /// The first chunk of a note saved with [body], and its text.
+    Future<(ContentChunk, String)> chunkOf(String body) async {
+      final note = await db.noteDao.createNote(
+        folderId: 'f1',
+        title: 'Log',
+        content: body,
+        ownerId: uid,
+      );
+      final hash = (await db.contentChunkDao.hashesOf(note.id)).first!;
+      final row = (await binding.loadByKeys(db, [hash])).single;
+      return (row, BodyCut.inline(body).chunkText(0));
+    }
+
+    for (final (name, body, compressed) in [
+      ('a plain', short, false),
+      ('a gzip\'d', long, true),
+    ]) {
+      test('$name chunk crosses as its gzip\'d UTF-8 under its hash and '
+          'inflates back to its text', () async {
+        final (row, text) = await chunkOf(body);
+        expect(row.isCompressed, compressed);
+
+        final envelope = await binding.encode(db, row, boundUid: uid);
+
+        expect(envelope.rowKey, ChunkHasher.hash(text));
+        expect(envelope.hlc, row.hlcTimestamp);
+        expect(envelope.op, OutboxOp.upsert);
+        expect(envelope.ownerId, uid);
+        expectWire(envelope);
+        expect(envelope.data!['hash'], envelope.rowKey);
+        expect(envelope.data!['length'], text.length);
+        final gz = envelope.data!['gz']! as Uint8List;
+        expect(utf8.decode(gzip.decode(gz)), text);
+        expect(gz.length, lessThan(utf8.encode(text).length));
+        expect(ContentChunksBinding.textOf(envelope), text);
+      });
+    }
+
+    test('a row whose text no longer matches its hash is never pushed under '
+        'it', () async {
+      final (row, _) = await chunkOf(short);
+
+      await expectLater(
+        binding.encode(db, row.copyWith(content: '$short!'), boundUid: uid),
+        throwsFormatException,
+      );
+    });
+
+    test('a document that does not inflate to its key is refused', () async {
+      final (row, _) = await chunkOf(short);
+      final envelope = await binding.encode(db, row, boundUid: uid);
+      final live = envelope.data!;
+
+      for (final data in [
+        {...live, 'length': short.length + 1},
+        {...live, 'gz': CompressionUtils.compress('$short!')},
+        {...live, 'gz': Uint8List.fromList(utf8.encode(short))},
+        {...live, 'gz': 'not bytes'},
+        {...live, 'hash': 'another'},
+      ]) {
+        expect(
+          () => ContentChunksBinding.textOf(carrying(envelope, data)),
+          throwsFormatException,
+          reason: '$data',
+        );
+      }
     });
   });
 
@@ -384,6 +605,7 @@ void main() {
       final envelope = await encodeStored(binding, 'c1');
 
       expectStamps(envelope, 'counters', 'c1');
+      expectWire(envelope);
       // The backup's counter map, its ISO `createdAt` as epoch-ms (F7).
       expect(envelope.data!.keys.toSet(), {
         ...exported.keys.where((k) => k != 'createdAt'),
@@ -456,6 +678,9 @@ void main() {
           isDeleted: deleted,
           deletedAt: deleted ? deletedAt : null,
           ownerId: uid,
+          epochHlc: hlc,
+          epochValue: 10,
+          shards: '{"r1":[3,1]}',
         );
 
     test('the global value keys as counterId| and round-trips', () async {
@@ -464,16 +689,56 @@ void main() {
       final envelope = await encodeStored(binding, 'c1|');
 
       expectStamps(envelope, 'counter_values', 'c1|');
-      expect(envelope.data!.keys.toSet(), {
-        'counterId',
-        'noteId',
-        'value',
-        'isPinned',
-        'position',
-        'ownerId',
-      });
+      expectWire(envelope);
       expect(envelope.data!['noteId'], '');
+      expect(envelope.data!['shards'], {
+        'r1': [3, 1],
+      });
       expect(binding.decode(envelope), row(''));
+    });
+
+    test('an envelope without the PN-counter keys is a legacy absolute '
+        'state', () async {
+      await db.into(db.counterValues).insert(row(''));
+      final envelope = await encodeStored(binding, 'c1|');
+      final legacy = {...envelope.data!}
+        ..remove('epochHlc')
+        ..remove('epochValue')
+        ..remove('shards');
+
+      final decoded = binding.decode(carrying(envelope, legacy));
+
+      expect(decoded.value, 12);
+      expect(
+        (decoded.epochHlc, decoded.epochValue, decoded.shards),
+        (envelope.hlc, 12, ''),
+      );
+    });
+
+    test('a PN-counter that is partial, malformed or does not add up to its '
+        'value is refused', () async {
+      await db.into(db.counterValues).insert(row(''));
+      final envelope = await encodeStored(binding, 'c1|');
+      final live = envelope.data!;
+
+      for (final bad in <Map<String, Object?>>[
+        {...live}..remove('shards'),
+        {...live, 'value': 13},
+        {
+          ...live,
+          'shards': {
+            'r1': [3, -1],
+          },
+        },
+        {...live, 'shards': 'r1'},
+        {...live, 'epochHlc': 'not a stamp'},
+      ]) {
+        expect(
+          () => binding.decode(carrying(envelope, bad)),
+          throwsFormatException,
+          reason: '$bad',
+        );
+      }
     });
 
     test('a per-note tombstone keeps its composite identity', () async {
@@ -546,6 +811,7 @@ void main() {
       final envelope = await encodeStored(binding, 'v1');
 
       expectStamps(envelope, 'vocabularies', 'v1');
+      expectWire(envelope);
       expect(
         envelope.data!.keys.toSet(),
         exported.keys.toSet()..remove('items'),
@@ -617,6 +883,7 @@ void main() {
       final envelope = await encodeStored(binding, 'i1');
 
       expectStamps(envelope, 'vocabulary_items', 'i1');
+      expectWire(envelope);
       expect(envelope.data!.keys.toSet(), {...exported.keys, 'vocabularyId'});
       expect(binding.decode(envelope), row());
     });
@@ -671,6 +938,7 @@ void main() {
 
         expectStamps(envelope, binding.table, key);
         expect(envelope.op, OutboxOp.upsert);
+        expectWire(envelope);
         expect(envelope.data, await exported());
         expect(binding.decode(envelope), row());
       });
@@ -1315,3 +1583,253 @@ void main() {
     });
   });
 }
+
+const String _wireChanged =
+    'the wire changed: bump DatabaseSchema.syncSchemaVersion and update this '
+    'snapshot';
+
+/// The `data` keys each binding writes for a live, owned row — frozen here
+/// rather than derived from the backup or export maps, since those move for
+/// reasons of their own. A tombstone writes no `data` at all. The space's
+/// schema is `DatabaseSchema.syncSchemaVersion`, raised only when this set
+/// changes (`docs/scalability-roadmap.md` §5.1 S1).
+///
+/// Wire 46 (§5.3 S6): a note's body left its document — `content` gave way
+/// to the manifest's `chunks` and `bodyHash` — and `content_chunks` joined
+/// the wire, one immutable document per chunk text.
+const Map<String, Set<String>> _wireKeys = {
+  'content_chunks': {'hash', 'gz', 'length'},
+  'calendar_categories': {
+    'id',
+    'name',
+    'colorValue',
+    'iconKey',
+    'sortOrder',
+    'isBuiltIn',
+    'isHidden',
+    'createdAtMs',
+    'updatedAtMs',
+    'ownerId',
+  },
+  'calendar_event_templates': {
+    'id',
+    'name',
+    'category',
+    'sortOrder',
+    'ruleKind',
+    'rulePayload',
+    'startMinute',
+    'durationMinutes',
+    'description',
+    'iconKey',
+    'colorValue',
+    'tintIcon',
+    'priority',
+    'retroactive',
+    'countOccurrences',
+    'countStyle',
+    'tracksPresence',
+    'assumeAbsent',
+    'perOccurrenceDescriptions',
+    'createdAtMs',
+    'updatedAtMs',
+    'ownerId',
+  },
+  'calendar_events': {
+    'id',
+    'title',
+    'category',
+    'startDateMs',
+    'allDay',
+    'iconKey',
+    'ruleKind',
+    'rulePayload',
+    'endDateMs',
+    'startMinute',
+    'durationMinutes',
+    'description',
+    'noteId',
+    'colorValue',
+    'tintIcon',
+    'priority',
+    'retroactive',
+    'countOccurrences',
+    'countStyle',
+    'tracksPresence',
+    'assumeAbsent',
+    'assumeAbsentFromMs',
+    'perOccurrenceDescriptions',
+    'showInDayRail',
+    'removeAfterAlert',
+    'categoryAlerts',
+    'createdAtMs',
+    'updatedAtMs',
+    'ownerId',
+  },
+  'calendar_event_occurrences': {
+    'eventId',
+    'dayMs',
+    'description',
+    'createdAtMs',
+    'updatedAtMs',
+    'ownerId',
+  },
+  'calendar_event_absences': {
+    'eventId',
+    'dayMs',
+    'status',
+    'createdAtMs',
+    'updatedAtMs',
+    'ownerId',
+  },
+  'calendar_event_skips': {
+    'eventId',
+    'dayMs',
+    'createdAtMs',
+    'updatedAtMs',
+    'ownerId',
+  },
+  'calendar_event_alerts': {
+    'id',
+    'eventId',
+    'mode',
+    'offsetMinutes',
+    'daysBefore',
+    'dayMinute',
+    'sound',
+    'enabled',
+    'createdAtMs',
+    'updatedAtMs',
+    'ownerId',
+  },
+  'calendar_category_alerts': {
+    'id',
+    'categoryId',
+    'mode',
+    'offsetMinutes',
+    'daysBefore',
+    'dayMinute',
+    'sound',
+    'enabled',
+    'createdAtMs',
+    'updatedAtMs',
+    'ownerId',
+  },
+  'calendar_category_profiles': {
+    'id',
+    'categoryId',
+    'kind',
+    'area',
+    'measure',
+    'nominalMinutes',
+    'markVerb',
+    'marksNew',
+    'assumeAbsentNew',
+    'countsHours',
+    'targetKind',
+    'targetValue',
+    'targetPeriod',
+    'createdAtMs',
+    'updatedAtMs',
+    'ownerId',
+  },
+  'event_digests': {
+    'id',
+    'name',
+    'payload',
+    'enabled',
+    'sortOrder',
+    'createdAtMs',
+    'updatedAtMs',
+    'ownerId',
+  },
+  'calendar_filter_presets': {
+    'id',
+    'name',
+    'filters',
+    'sortOrder',
+    'createdAtMs',
+    'updatedAtMs',
+    'ownerId',
+  },
+  'overview_views': {
+    'id',
+    'name',
+    'payload',
+    'sortOrder',
+    'createdAtMs',
+    'updatedAtMs',
+    'ownerId',
+  },
+  'folders': {
+    'id',
+    'name',
+    'parentId',
+    'position',
+    'createdAtMs',
+    'updatedAtMs',
+    'noteSortOrder',
+    'subfolderSortOrder',
+    'label',
+    'ownerId',
+  },
+  'notes': {
+    'id',
+    'folderId',
+    'title',
+    'chunks',
+    'bodyHash',
+    'preview',
+    'createdAtMs',
+    'updatedAtMs',
+    'label',
+    'ownerId',
+    'position',
+  },
+  'counters': {
+    'id',
+    'name',
+    'counterStartValue',
+    'counterStep',
+    'counterScope',
+    'isPinned',
+    'createdAtMs',
+    'ownerId',
+    'position',
+  },
+  // The PN-counter keys (S20, D8 A) joined without a version bump, the one
+  // exception the record decided: an older build ignores them and reads
+  // `value`, so no device pauses as appOutdated. They are additive, not free:
+  // in the mixed-version window an older build's envelope, which lacks them,
+  // never joins and merges by stamp order, so its strictly newer write still
+  // overwrites the taps counted since (`CounterValuesBinding.mergeRemote`).
+  'counter_values': {
+    'counterId',
+    'noteId',
+    'value',
+    'isPinned',
+    'position',
+    'ownerId',
+    'epochHlc',
+    'epochValue',
+    'shards',
+  },
+  'vocabularies': {
+    'id',
+    'name',
+    'isEnabled',
+    'sortOrder',
+    'createdAtMs',
+    'updatedAtMs',
+    'ownerId',
+  },
+  'vocabulary_items': {
+    'id',
+    'term',
+    'sortOrder',
+    'createdAtMs',
+    'updatedAtMs',
+    'ownerId',
+    'vocabularyId',
+  },
+};

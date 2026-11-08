@@ -23,6 +23,7 @@ import 'package:anta/services/settings_service.dart';
 import 'package:anta/services/sync/sync_gateway.dart';
 import 'package:anta/services/sync/sync_status.dart';
 import 'package:anta/utils/auth_error.dart';
+import 'package:anta/utils/sync_moment_format.dart';
 import 'package:anta/widgets/form_rows.dart';
 import 'package:anta/widgets/sync_space_picker_sheet.dart';
 
@@ -494,6 +495,50 @@ void main() {
         await close(tester);
       });
     }
+
+    testWidgets('a quota pause whose time is known says until when', (
+      tester,
+    ) async {
+      final pausedAt = DateTime.now();
+      final robot = await open(
+        tester,
+        signedIn(
+          status: bound(
+            pause: SyncPause.quotaExhausted,
+          ).copyWith(quotaPausedAt: pausedAt),
+        ),
+      );
+      final until = l10n.syncPausedQuotaUntil(
+        formatSyncQuotaReset(
+          tester.element(robot.byId(SemanticsIds.sharingSyncStatus)),
+          SyncQuota.nextReset(pausedAt),
+        ),
+      );
+
+      expect(robot.shows(SemanticsIds.sharingSyncStatus, until), isTrue);
+      expect(robot.tile(SemanticsIds.sharingSyncNow).enabled, isTrue);
+      await close(tester);
+    });
+
+    testWidgets('a quota pause whose reset has passed says the plain pause', (
+      tester,
+    ) async {
+      final pausedAt = DateTime.now().subtract(const Duration(days: 2));
+      final robot = await open(
+        tester,
+        signedIn(
+          status: bound(
+            pause: SyncPause.quotaExhausted,
+          ).copyWith(quotaPausedAt: pausedAt),
+        ),
+      );
+
+      expect(
+        robot.shows(SemanticsIds.sharingSyncStatus, l10n.syncPausedQuota),
+        isTrue,
+      );
+      await close(tester);
+    });
 
     testWidgets('the details are one paragraph: the last sync, then the '
         'held-back changes, then the waiting ones (review D2-3, RC3b-3)', (

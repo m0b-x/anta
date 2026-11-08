@@ -10,7 +10,13 @@ export '../../services/sync/sync_gateway.dart'
     show SyncGatewayFailure, SyncSpaceInfo;
 export '../../services/sync/sync_space_service.dart' show SyncBindFailure;
 export '../../services/sync/sync_status.dart'
-    show SyncActivity, SyncPause, SyncStatus;
+    show
+        SyncActivity,
+        SyncHeldItem,
+        SyncHeldKind,
+        SyncHeldReason,
+        SyncPause,
+        SyncStatus;
 
 /// Where "Sync this database" — or "Stop syncing" — stands, carried by the
 /// account states so a status emit never drops the picker from under it.

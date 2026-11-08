@@ -227,6 +227,36 @@ class DatabaseSettingsRobot {
     ),
   );
 
+  /// The import dialog's bar: the copy's share, or `null` while the file is
+  /// checked.
+  double? get importBarValue => tester
+      .widget<LinearProgressIndicator>(
+        find.descendant(
+          of: _dialog,
+          matching: find.byType(LinearProgressIndicator),
+        ),
+      )
+      .value;
+
+  /// Whether the import dialog's Cancel takes a tap; only the copy honours
+  /// one.
+  bool get importCancelEnabled =>
+      tester
+          .widget<TextButton>(
+            find.descendant(
+              of: find.bySemanticsIdentifier(SemanticsIds.sheetCancel),
+              matching: find.byType(TextButton),
+            ),
+          )
+          .onPressed !=
+      null;
+
+  /// Whether the import dialog speaks [step]: both steps' lines are laid
+  /// out so the dialog never changes height, and only the shown one is in
+  /// the semantics tree. Needs semantics on in the test.
+  bool showsImportStep(String step) =>
+      find.bySemanticsLabel(step).evaluate().isNotEmpty;
+
   /// Taps outside the open dialog, where a dismissible one would close.
   Future<void> tapOutsideDialog() async {
     await tester.tapAt(const Offset(4, 4));

@@ -442,6 +442,7 @@ class _AppDrawerState extends State<AppDrawer> {
             AppLocalizations.of(context)!,
             status,
             formatMoment: (at) => formatSyncMoment(context, at),
+            formatQuotaReset: (reset) => formatSyncQuotaReset(context, reset),
           );
     final style = _subtitleStyle(
       context,

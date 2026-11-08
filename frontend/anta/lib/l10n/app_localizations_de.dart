@@ -2090,6 +2090,10 @@ class AppLocalizationsDe extends AppLocalizations {
   String get inTextSection => 'Im Text';
 
   @override
+  String get searchStillIndexing =>
+      'Notizen werden noch indexiert – einige fehlen eventuell';
+
+  @override
   String get clearSearchHistory => 'Suchverlauf löschen';
 
   @override
@@ -2249,13 +2253,12 @@ class AppLocalizationsDe extends AppLocalizations {
   String get optimizing => 'Datenbank wird optimiert...';
 
   @override
-  String get optimizationComplete => 'Datenbank erfolgreich optimiert';
+  String optimizeFreed(String size) {
+    return '$size freigegeben';
+  }
 
   @override
-  String get saved => 'gespart';
-
-  @override
-  String get alreadyOptimized => 'Datenbank bereits optimiert';
+  String get optimizeAlreadyCompact => 'Bereits kompakt';
 
   @override
   String get deleteConfirmation =>
@@ -2552,6 +2555,20 @@ class AppLocalizationsDe extends AppLocalizations {
   String get invalidDatabaseFile => 'Diese Datei ist keine gültige Datenbank.';
 
   @override
+  String get checkingDatabaseFile => 'Datei wird geprüft...';
+
+  @override
+  String get databaseImportCorrupt =>
+      'Diese Datenbankdatei ist beschädigt und kann nicht importiert werden.';
+
+  @override
+  String get databaseImportNotAnta => 'Diese Datei ist keine ANTA-Datenbank.';
+
+  @override
+  String get databaseImportTooNew =>
+      'Diese Datenbank stammt aus einer neueren ANTA-Version. Aktualisiere die App, um sie zu importieren.';
+
+  @override
   String get renameDatabase => 'Datenbank umbenennen';
 
   @override
@@ -2621,6 +2638,27 @@ class AppLocalizationsDe extends AppLocalizations {
   @override
   String get databaseOptimizeFailed =>
       'Die Datenbank konnte nicht optimiert werden';
+
+  @override
+  String databaseReclaimable(String size) {
+    return 'Freigebbar: $size';
+  }
+
+  @override
+  String get databaseReclaimableUnknown => 'Freigebbarer Speicher unbekannt';
+
+  @override
+  String get launchUpdatingData => 'Deine Daten werden aktualisiert…';
+
+  @override
+  String get launchOpeningData => 'Deine Daten werden geöffnet…';
+
+  @override
+  String get launchOpenFailed => 'Deine Daten konnten nicht geöffnet werden';
+
+  @override
+  String get launchOpenFailedNext =>
+      'Versuche es erneut oder starte die App neu. Wenn das wieder passiert, gib etwas Speicherplatz frei.';
 
   @override
   String deleteDatabaseConfirm(String name) {
@@ -4655,8 +4693,12 @@ class AppLocalizationsDe extends AppLocalizations {
   String get syncRetrying => 'Nicht synchronisiert – neuer Versuch folgt';
 
   @override
-  String get syncPausedQuota =>
-      'Pausiert – das heutige Sync-Limit ist erreicht';
+  String get syncPausedQuota => 'Pausiert – Tageslimit erreicht';
+
+  @override
+  String syncPausedQuotaUntil(String time) {
+    return 'Pausiert bis $time – Tageslimit erreicht';
+  }
 
   @override
   String get syncPausedSignedOut => 'Pausiert – abgemeldet';
@@ -4677,7 +4719,12 @@ class AppLocalizationsDe extends AppLocalizations {
   String get drawerAccountNotSyncing => 'Wird nicht synchronisiert';
 
   @override
-  String get drawerSyncPausedQuota => 'Pausiert – Tageslimit erreicht';
+  String get drawerSyncPausedQuota => 'Pausiert – Tageslimit';
+
+  @override
+  String drawerSyncPausedQuotaUntil(String time) {
+    return 'Pausiert bis $time';
+  }
 
   @override
   String get drawerSyncPausedOtherAccount => 'Pausiert – anderes Konto';
@@ -4743,6 +4790,88 @@ class AppLocalizationsDe extends AppLocalizations {
     );
     return '$_temp0';
   }
+
+  @override
+  String get syncHeldBackRefused => 'Von der Cloud-Kopie abgelehnt';
+
+  @override
+  String get syncHeldBackUnencodable =>
+      'Konnte nicht zum Senden vorbereitet werden';
+
+  @override
+  String get syncHeldBackAwaitingText => 'Wartet auf den Text';
+
+  @override
+  String get syncHeldBackUnreadable => 'Aus der Cloud-Kopie nicht lesbar';
+
+  @override
+  String syncHeldBackDeleted(String kind, String reason) {
+    String _temp0 = intl.Intl.selectLogic(kind, {'other': 'Gelöscht'});
+    return '$_temp0 · $reason';
+  }
+
+  @override
+  String syncHeldBackKind(String kind) {
+    String _temp0 = intl.Intl.selectLogic(kind, {
+      'note': 'Eine Notiz',
+      'folder': 'Ein Ordner',
+      'event': 'Ein Termin',
+      'category': 'Eine Kalenderkategorie',
+      'counter': 'Ein Zähler',
+      'template': 'Eine Terminvorlage',
+      'view': 'Eine gespeicherte Ansicht',
+      'filter': 'Ein gespeicherter Filter',
+      'digest': 'Eine Zusammenfassung',
+      'vocabulary': 'Eine Begriffsliste',
+      'other': 'Ein Eintrag',
+    });
+    return '$_temp0';
+  }
+
+  @override
+  String syncHeldBackMoreHeld(int count) {
+    final intl.NumberFormat countNumberFormat =
+        intl.NumberFormat.decimalPattern(localeName);
+    final String countString = countNumberFormat.format(count);
+
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Und $countString weitere noch zurückgestellt',
+      one: 'Und 1 weiterer noch zurückgestellt',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String syncHeldBackMoreSynced(int count) {
+    final intl.NumberFormat countNumberFormat =
+        intl.NumberFormat.decimalPattern(localeName);
+    final String countString = countNumberFormat.format(count);
+
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Die $countString weiteren wurden synchronisiert',
+      one: 'Der eine weitere wurde synchronisiert',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String syncHeldBackSynced(String kind) {
+    String _temp0 = intl.Intl.selectLogic(kind, {'other': 'Synchronisiert'});
+    return '$_temp0';
+  }
+
+  @override
+  String get syncHeldBackAllDone => 'Alles synchronisiert';
+
+  @override
+  String get syncHeldBackIntro => '„Jetzt synchronisieren“ versucht es erneut.';
+
+  @override
+  String get syncHeldBackIntroDone => 'Nichts wird mehr zurückgestellt.';
 
   @override
   String get syncNow => 'Jetzt synchronisieren';

@@ -129,44 +129,74 @@ class EventAlertService {
 
   /// Mutable working copy behind the published facade. A single event's edit
   /// patches this and republishes rather than re-reading the table.
-  final Map<String, List<EventAlert>> _byEvent = {};
+  Map<String, List<EventAlert>> _byEvent = {};
 
   /// The category half's working copy, published wholesale on every write —
   /// a handful of rows, and one category alert changes every event in its
   /// category anyway.
-  final Map<String, List<CategoryAlert>> _byCategory = {};
+  Map<String, List<CategoryAlert>> _byCategory = {};
+
+  /// Bumped by each single-event write once it has committed, so [_load] can
+  /// tell that the rows it is holding predate one.
+  int _writes = 0;
 
   Future<void> reload() async {
     await _load();
     await _loadCategories();
   }
 
+  /// Re-reads every event's alerts into a fresh map, twice at most — the
+  /// presence service's shape, for the same race.
+  ///
+  /// Built locally and swapped in once the rows are in: the working copy
+  /// used to be emptied before the `await`, so an editor save landing in
+  /// that window patched its one event into an empty map, and every other
+  /// event's alerts were missing from it until the next load. A write that
+  /// commits while the rows are in flight is not in them, so they are read
+  /// once more rather than swapped in over it.
   Future<void> _load() async {
-    _byEvent.clear();
-    try {
-      final rows = await _dao.getAllActive();
-      for (final row in rows) {
-        (_byEvent[row.eventId] ??= <EventAlert>[]).add(_rowToAlert(row));
+    for (var attempt = 0; attempt < 2; attempt++) {
+      final writes = _writes;
+      final next = <String, List<EventAlert>>{};
+      try {
+        final rows = await _dao.getAllActive();
+        for (final row in rows) {
+          (next[row.eventId] ??= <EventAlert>[]).add(_rowToAlert(row));
+        }
+      } catch (e, st) {
+        debugPrint('[EventAlertService] Load error: $e\n$st');
+        next.clear();
       }
-    } catch (e) {
-      debugPrint('[EventAlertService] Load error: $e');
-      _byEvent.clear();
+      _byEvent = next;
+      if (_writes == writes) break;
     }
     _publish();
   }
 
+  /// [_writes] for the category half: bumped by [replaceForCategory] and
+  /// [tombstoneForCategory] once they commit.
+  int _categoryWrites = 0;
+
+  /// The category half of [_load], built aside, swapped in once and read
+  /// again when a category write committed while the rows were in flight —
+  /// a swap of rows older than that write would drop the user's save.
   Future<void> _loadCategories() async {
-    _byCategory.clear();
-    try {
-      final rows = await _categoryDao.getAllActive();
-      for (final row in rows) {
-        (_byCategory[row.categoryId] ??= <CategoryAlert>[]).add(
-          _rowToCategoryAlert(row),
-        );
+    for (var attempt = 0; attempt < 2; attempt++) {
+      final writes = _categoryWrites;
+      final next = <String, List<CategoryAlert>>{};
+      try {
+        final rows = await _categoryDao.getAllActive();
+        for (final row in rows) {
+          (next[row.categoryId] ??= <CategoryAlert>[]).add(
+            _rowToCategoryAlert(row),
+          );
+        }
+      } catch (e, st) {
+        debugPrint('[EventAlertService] Category load error: $e\n$st');
+        next.clear();
       }
-    } catch (e) {
-      debugPrint('[EventAlertService] Category load error: $e');
-      _byCategory.clear();
+      _byCategory = next;
+      if (_categoryWrites == writes) break;
     }
     _publishCategories();
   }
@@ -248,6 +278,7 @@ class EventAlertService {
     await _dao.replaceForEvent(eventId, [
       for (final alert in owned) _toCompanion(alert),
     ], knownIds: knownIds);
+    _writes++;
     // The rows the DAO spared are still this event's alerts, so the cache
     // keeps them rather than waiting for the next full load to find them
     // again. Appended after the saved set: they arrived later than everything
@@ -282,6 +313,60 @@ class EventAlertService {
   /// transaction, so this only refreshes the published cache.
   Future<void> refreshAfterEventRemoval() => _load();
 
+  /// The live instance, or the one [_createOnce] is still reading; never a
+  /// new one — with neither, nothing is published, and the next
+  /// [getInstance] reads the table as the caller's write left it.
+  static Future<EventAlertService?> _liveOrCreating() async {
+    final pending = _initializing;
+    if (_instance != null || pending == null) return _instance;
+    try {
+      // A reset while it was awaited retired it: its alerts must not reach
+      // the facade the reset cleared.
+      final built = await pending;
+      return identical(_instance, built) ? built : null;
+    } catch (_) {
+      // The construction's failure is its own caller's to report.
+      return null;
+    }
+  }
+
+  /// Drops [eventId]'s own alerts from the facade after the event's delete
+  /// tombstoned them in its own transaction — that event alone, where the
+  /// whole table used to be read again for one delete.
+  static Future<void> forgetEvent(String eventId) async =>
+      (await _liveOrCreating())?._patchEvent(eventId, null);
+
+  /// Adds [eventId]'s own [alerts] back after `restoreCascade` revived them,
+  /// from the list it was handed rather than a read; an alert already cached
+  /// under the same id keeps its place.
+  static Future<void> restoreEvent(
+    String eventId,
+    List<EventAlert> alerts,
+  ) async => (await _liveOrCreating())?._patchEvent(eventId, [
+    for (final alert in alerts)
+      if (alert.categoryId == null)
+        alert.eventId == eventId ? alert : alert.copyWith(eventId: eventId),
+  ]);
+
+  /// One event's alerts dropped ([alerts] null) or added to. Counted as a
+  /// write, so a load whose rows may predate the cascade reads again rather
+  /// than publishing them over this.
+  void _patchEvent(String eventId, List<EventAlert>? alerts) {
+    _writes++;
+    if (alerts == null) {
+      _byEvent.remove(eventId);
+    } else if (alerts.isNotEmpty) {
+      final cached = _byEvent[eventId] ?? const <EventAlert>[];
+      final known = {for (final alert in cached) alert.id};
+      _byEvent[eventId] = [
+        ...cached,
+        for (final alert in alerts)
+          if (!known.contains(alert.id)) alert,
+      ];
+    }
+    _publishFor(eventId);
+  }
+
   Future<void> deleteAll() async {
     await _dao.deleteAll();
     await _load();
@@ -311,6 +396,7 @@ class EventAlertService {
     await _categoryDao.replaceForCategory(categoryId, [
       for (final alert in owned) _toCategoryCompanion(alert),
     ], knownIds: knownIds);
+    _categoryWrites++;
     final next = [
       ...owned,
       ..._unseenCategoryAlerts(categoryId, owned, knownIds),
@@ -341,6 +427,7 @@ class EventAlertService {
   /// for them — and republishes.
   Future<void> tombstoneForCategory(String categoryId) async {
     await _categoryDao.tombstoneForCategory(categoryId);
+    _categoryWrites++;
     _byCategory.remove(categoryId);
     _publishCategories();
   }

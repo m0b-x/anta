@@ -20,6 +20,7 @@
     { "collectionGroup": "calendar_event_templates", "fieldPath": "data", "indexes": [] },
     { "collectionGroup": "calendar_events", "fieldPath": "data", "indexes": [] },
     { "collectionGroup": "calendar_filter_presets", "fieldPath": "data", "indexes": [] },
+    { "collectionGroup": "content_chunks", "fieldPath": "data", "indexes": [] },
     { "collectionGroup": "counter_values", "fieldPath": "data", "indexes": [] },
     { "collectionGroup": "counters", "fieldPath": "data", "indexes": [] },
     { "collectionGroup": "event_digests", "fieldPath": "data", "indexes": [] },

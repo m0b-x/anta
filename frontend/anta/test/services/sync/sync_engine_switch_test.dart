@@ -65,7 +65,7 @@ void main() {
     expect(first.isStarted, isTrue);
     expect(
       first.schemaForTesting,
-      DatabaseSchema.currentVersion,
+      DatabaseSchema.syncSchemaVersion,
       reason: 'the app\'s engine reports this build\'s schema (review W-4)',
     );
 

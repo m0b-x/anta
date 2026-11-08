@@ -2,11 +2,12 @@ import 'package:drift/drift.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:anta/constants/event_presence.dart';
 import 'package:anta/database/daos/note_dao.dart';
-import 'package:anta/database/daos/content_chunk_dao.dart';
+import 'package:anta/database/chunking/content_chunker.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/models/item_label.dart';
 import 'package:anta/repositories/note_repository.dart';
 
+import '../support/scale_fixtures.dart';
 import 'support/db_test_support.dart';
 
 /// Guards that operations stay **O(1) in statements**, not O(rows).
@@ -205,8 +206,8 @@ void main() {
         });
 
         // Tombstoned directly rather than through
-        // `softDeleteFolderWithDescendants`: that path also rewrites `notes_fts`,
-        // which these batch-inserted rows were never added to.
+        // `softDeleteFolderWithDescendants`: only the folder's own flag is
+        // under test, not the cascade to its notes.
         await db.customStatement(
           "UPDATE folders SET is_deleted = 1 WHERE id = 'root0_1'",
         );
@@ -235,8 +236,9 @@ void main() {
   group('a bulk delete', () {
     late List<String> ids;
 
-    // Through the DAO rather than the file's batch seed: these rows have to
-    // exist in `notes_fts` for a delete to be allowed to remove them.
+    // Through the DAO rather than the file's batch seed, so the rows carry
+    // the stamps, chunks and outbox entries a real selection has. Each note
+    // counts a per-note value, which the delete tombstones with it.
     setUp(() async {
       ids = [];
       for (var i = 0; i < 40; i++) {
@@ -246,6 +248,7 @@ void main() {
           preview: 'squat',
         );
         ids.add(note.id);
+        await db.counterDao.upsertValue('reps', note.id, i);
       }
     });
 
@@ -271,15 +274,19 @@ void main() {
         isEmpty,
         reason: 'no row is read on the way to writing it',
       );
-      // Four, and only four: the notes update, the chunks update, the one
-      // outbox insert that queues every tombstoned note and the one
-      // `last_hlc` write their shared HLC costs. The FTS delete rides on
-      // `customStatement`, which this interceptor does not see — the count
-      // below is therefore about the tables it can.
-      expect(counter.matching('sync_outbox'), hasLength(1));
+      // Six, and only six: the notes update, the chunks update, the one
+      // `UPDATE … RETURNING` that tombstones every per-note counter value of
+      // those notes (S20 moved the pin from four, deliberately: a value no
+      // longer outlives its note), the two outbox inserts that queue the
+      // tombstoned notes and values, and the one `last_hlc` write their shared
+      // HLC costs. The FTS delete rides on `customStatement`, which this
+      // interceptor does not see — the count below is therefore about the
+      // tables it can.
+      expect(counter.matching('UPDATE counter_values'), hasLength(1));
+      expect(counter.matching('sync_outbox'), hasLength(2));
       expect(
         counter.count,
-        4,
+        6,
         reason: 'issued:\n${counter.statements.join('\n')}',
       );
     });
@@ -344,33 +351,58 @@ void main() {
     });
   });
 
-  test('reordering never reads a row to write it', () async {
-    final positions = {for (var i = 0; i < 50; i++) 'n$i': 50 - i};
-    counter.reset();
-    await db.noteDao.setNotePositions(positions);
+  /// The folder's notes in their custom order, `n0` first.
+  List<String> seeded() => [for (var i = 0; i < 60; i++) 'n$i'];
 
-    // One UPDATE per note is inherent — each row gets a different position.
-    // What is *not* inherent is a SELECT per note, which is what this had:
-    // 100 statements for 50 rows, purely to read `version` so it could write
-    // `version + 1`. SQL can do that arithmetic itself.
+  test('reordering never reads a row to write it', () async {
+    // The 50 loaded rows reversed: the worst case for one drag's plan.
+    final order = [
+      ...seeded().take(50).toList().reversed,
+      ...seeded().skip(50),
+    ];
+    counter.reset();
+    final moved = await db.noteDao.applyOrder(
+      folderId: _folderId,
+      loadedOrder: order.take(50).toList(),
+      descending: false,
+    );
+
+    // One read of the whole group, never one per row: the old path issued a
+    // SELECT **and** an UPDATE per note, 100 statements for 50 rows, purely
+    // to read `version` so it could write `version + 1`.
     expect(
-      counter.matching('SELECT'),
-      isEmpty,
+      counter.selects,
+      hasLength(1),
       reason:
           'reorder must not read each row before writing it. Issued:\n'
           '${counter.statements.take(6).join('\n')}',
     );
-    // Plus one batched outbox insert for every row that moved, and the one
-    // `last_hlc` write their shared HLC costs.
-    expect(counter.count, lessThanOrEqualTo(positions.length + 2));
+    // One prepared UPDATE run once per moved row, one batched outbox insert,
+    // and the one `last_hlc` write their shared HLC costs.
+    expect(counter.executions('UPDATE "notes"'), moved.length);
+    expect(counter.count, lessThanOrEqualTo(4));
+    expect(moved, isNotEmpty);
+
+    final stored = await db.noteDao.getNotesPaginated(
+      folderId: _folderId,
+      limit: 100,
+      offset: 0,
+      sortField: NoteSortField.position,
+      ascending: true,
+    );
+    expect([for (final note in stored) note.id], order);
   });
 
   test('reordering still bumps the CRDT version of each moved row', () async {
     final before = await db.noteDao.getNoteById('n0');
-    await db.noteDao.setNotePositions({'n0': 99});
+    await db.noteDao.applyOrder(
+      folderId: _folderId,
+      loadedOrder: [...seeded().skip(1), 'n0'],
+      descending: false,
+    );
     final after = await db.noteDao.getNoteById('n0');
 
-    expect(after!.position, 99);
+    expect(after!.position, greaterThan(59));
     // The whole reason the old code read the row first. Doing it in SQL must
     // not quietly drop the increment.
     expect(after.version, before!.version + 1);
@@ -379,7 +411,12 @@ void main() {
 
   test('reordering an unknown id is a no-op, not an insert', () async {
     final countBefore = await db.noteDao.getNoteCount(_folderId);
-    await db.noteDao.setNotePositions({'does-not-exist': 1});
+    final moved = await db.noteDao.applyOrder(
+      folderId: _folderId,
+      loadedOrder: ['does-not-exist'],
+      descending: false,
+    );
+    expect(moved, isEmpty);
     expect(await db.noteDao.getNoteCount(_folderId), countBefore);
   });
 
@@ -685,11 +722,14 @@ void main() {
     });
 
     test('a note mixing compressed and plain chunks round-trips', () async {
-      // Chunk size (10000) and the compression threshold (5000) are
+      // Chunk size (4,096 to 16,384) and the compression threshold (5000) are
       // independent, so a note longer than one chunk ends with a compressed
       // head and — here — a short, plain tail. Branching on `isCompressed` per
-      // *note* instead of per *row* corrupts one of the two.
-      final content = 'x' * ContentChunkDao.defaultChunkSize + 'tail';
+      // *note* instead of per *row* corrupts one of the two. A cut depends
+      // only on the text before it, so a body stopped 100 code units past its
+      // first cut keeps that cut and ends in a 100-unit tail.
+      final body = bigBody(100000);
+      final content = body.substring(0, ContentChunker.cut(body).first + 100);
       await db.noteDao.updateNote(id: 'n0', content: content);
       final chunks = await db.contentChunkDao.getChunksForNote('n0');
       expect(chunks.map((c) => c.isCompressed), [true, false]);
@@ -858,8 +898,7 @@ void main() {
     });
 
     // Through the DAO rather than the file's batch seed, for the reason the
-    // bulk-delete group gives: only a row that reached `notes_fts` may be
-    // removed from it.
+    // bulk-delete group gives.
     test('a tombstoned note takes its colour with it', () async {
       final note = await db.noteDao.createNote(
         folderId: otherFolderId,

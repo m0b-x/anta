@@ -82,19 +82,31 @@ class SyncAppliedRow extends Equatable {
   ];
 }
 
-/// A local note a newer remote overwrote before its edit was pushed.
+/// A local note a newer remote overwrote before its edit was pushed — or,
+/// when [incoming], another device's edit a newer local one kept out.
 class SyncNoteConflict extends Equatable {
   /// The local row as it stood before the merge: its folder and title place
-  /// the copy beside the note it came from.
+  /// the copy beside the note it came from. When [incoming], it carries the
+  /// remote's title and label.
   final Note loser;
 
-  /// The body that lost, read before the remote replaced the chunks.
+  /// The body that lost, read before the remote replaced the chunks; the
+  /// remote's body when [incoming].
   final String loserContent;
 
-  const SyncNoteConflict({required this.loser, required this.loserContent});
+  /// Whether the text that lost arrived with the pull. An open editor never
+  /// showed it and keeps its own text, so no editor claims this copy
+  /// (scalability record S8).
+  final bool incoming;
+
+  const SyncNoteConflict({
+    required this.loser,
+    required this.loserContent,
+    this.incoming = false,
+  });
 
   @override
-  List<Object?> get props => [loser, loserContent];
+  List<Object?> get props => [loser, loserContent, incoming];
 }
 
 /// Hooks that do nothing: for an engine whose pulls nothing above the DAO

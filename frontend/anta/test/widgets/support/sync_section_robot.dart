@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:anta/constants/app_theme.dart';
+import 'package:anta/constants/semantics_ids.dart';
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/pages/sync_settings_page.dart';
 
@@ -115,4 +116,45 @@ class SyncSectionRobot {
       await tester.pump();
     }
   }
+
+  /// The settings list's own scroll position, apart from the search
+  /// field's.
+  ScrollPosition get listPosition =>
+      tester.state<ScrollableState>(_list).position;
+
+  Finder get _list => find
+      .descendant(
+        of: byId(SemanticsIds.sharingList),
+        matching: find.byType(Scrollable),
+      )
+      .first;
+
+  /// Moves the settings list until [id] is built and on screen.
+  Future<void> reveal(String id) async {
+    await tester.scrollUntilVisible(byId(id), 200, scrollable: _list);
+    await tester.pump();
+  }
+
+  /// Where [measure] puts [target] in the settings list's own coordinates,
+  /// the list walked from its top until [target] is on screen: at 2.0 on a
+  /// small phone a header lies past the built extent, and two states still
+  /// compare however far the list had to move.
+  Future<Rect> listRect(Finder target, Rect Function() measure) async {
+    listPosition.jumpTo(0);
+    await tester.pump();
+    await tester.scrollUntilVisible(target, 200, scrollable: _list);
+    await tester.pump();
+    return measure().shift(Offset(0, listPosition.pixels));
+  }
+
+  /// The rect [text] is drawn at inside the node [id], its slot's invisible
+  /// templates left out.
+  Rect drawnTextRect(String id, String text) => tester.getRect(
+    find
+        .descendant(of: byId(id), matching: find.text(text))
+        .evaluate()
+        .where(drawn)
+        .map((element) => find.byElementPredicate((e) => e == element))
+        .first,
+  );
 }

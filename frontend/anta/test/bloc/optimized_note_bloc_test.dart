@@ -10,7 +10,6 @@ import 'package:anta/database/database.dart';
 import 'package:anta/models/item_label.dart';
 import 'package:anta/models/note_metadata.dart';
 import 'package:anta/repositories/note_repository.dart';
-import 'package:anta/services/folder_search_service.dart';
 import 'package:anta/services/note_storage_service.dart';
 import 'package:anta/utils/bloc_helpers.dart';
 
@@ -111,52 +110,6 @@ class _FakeNoteStorage extends NoteStorageService {
   void dispose() {}
 }
 
-class _FakeSearchService implements FolderSearchService {
-  final List<String> removed = [];
-
-  @override
-  Future<List<SearchResult>> quickSearch(
-    String query, {
-    Set<String>? folderIds,
-    Set<ItemLabel> labels = const {},
-    int limit = 10,
-    bool caseSensitive = false,
-  }) async => const [];
-
-  @override
-  Future<({List<SearchResult> results, int total})> labelledNotes({
-    required Set<ItemLabel> labels,
-    Set<String>? folderIds,
-    int limit = 50,
-  }) async => (results: const <SearchResult>[], total: 0);
-
-  @override
-  Future<List<SearchResult>> search(
-    String query, {
-    SearchFilter? filter,
-    int limit = 50,
-    bool caseSensitive = false,
-  }) async => const [];
-
-  @override
-  Future<void> initialize() async {}
-
-  @override
-  Future<void> buildIndex() async {}
-
-  @override
-  Future<void> updateIndex(String noteId, String title, String content) async {}
-
-  @override
-  Future<void> removeFromIndex(String noteId) async => removed.add(noteId);
-
-  @override
-  void dispose() {}
-
-  @override
-  Future<void> close() async {}
-}
-
 NoteMetadata _note(int index) {
   final now = DateTime(2026, 9, 7);
   return NoteMetadata(
@@ -175,7 +128,6 @@ NoteMetadata _note(int index) {
 void main() {
   late AppDatabase db;
   late _FakeNoteStorage storage;
-  late _FakeSearchService searchService;
 
   setUpAll(() => db = AppDatabase.forTesting(NativeDatabase.memory()));
   tearDownAll(() async => db.close());
@@ -183,11 +135,9 @@ void main() {
   setUp(() {
     storage = _FakeNoteStorage(NoteRepository(database: db));
     storage.all = [for (var i = 0; i < 60; i++) _note(i)];
-    searchService = _FakeSearchService();
   });
 
-  OptimizedNoteBloc buildBloc() =>
-      OptimizedNoteBloc(storageService: storage, searchService: searchService);
+  OptimizedNoteBloc buildBloc() => OptimizedNoteBloc(storageService: storage);
 
   List<String> idsIn(OptimizedNoteState state) => [
     for (final note in (state as OptimizedNoteLoaded).paginatedNotes.notes)
@@ -362,16 +312,6 @@ void main() {
         reason: 'one delete, one reload — the loop cost a reload per row',
       );
       expect(idsIn(bloc.state).contains('n000'), isFalse);
-      await bloc.close();
-    });
-
-    test('every deleted note leaves the search index', () async {
-      final bloc = await openedOnPageOne();
-
-      bloc.add(const DeleteOptimizedNotes(['n000', 'n001']));
-      await pumpEventQueue();
-
-      expect(searchService.removed, ['n000', 'n001']);
       await bloc.close();
     });
 

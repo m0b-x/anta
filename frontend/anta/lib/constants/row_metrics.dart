@@ -183,4 +183,11 @@ class RowMetrics {
   /// "No matches": the air above and below it and its glyph.
   static const double emptyStatePadding = 48.0;
   static const double emptyStateGlyphSize = 48.0;
+
+  /// How far down the screen the launch states' glyph slot sits. Anchored
+  /// to the screen rather than centred with what follows it, so the failed
+  /// state, taller by its next step, Retry and detail, moves neither the
+  /// slot nor the title when it replaces a spinner; a quarter keeps Retry in
+  /// view at 2.0 on a 360 × 780 phone.
+  static const double launchSlotTopShare = 1 / 4;
 }

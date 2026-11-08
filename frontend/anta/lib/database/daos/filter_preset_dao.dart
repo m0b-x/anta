@@ -122,7 +122,7 @@ class FilterPresetDao extends DatabaseAccessor<AppDatabase>
   /// display order the sheet hands over after a drag or a Move to top.
   ///
   /// One transaction of `UPDATE`s and **no reads**: `version = version + 1`
-  /// is done in SQL, the [NoteDao.setNotePositions] shape, rather than
+  /// is done in SQL, the [NoteDao.applyOrder] shape, rather than
   /// reading each row to compute it — `query_count_test` guards that a
   /// reorder never issues a `SELECT`. A row already at its position is left
   /// alone (`sort_order != ?`), so a drag that moves one row stamps one row

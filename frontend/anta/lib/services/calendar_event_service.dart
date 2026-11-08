@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:drift/drift.dart';
 import 'package:flutter/foundation.dart';
 
+import '../constants/calendar_cache_limits.dart';
 import '../constants/event_presence.dart';
 import '../constants/json_keys.dart';
 import '../database/database.dart';
@@ -19,6 +20,16 @@ import 'event_presence_service.dart';
 import 'event_skip_service.dart';
 import 'sync/sync_binding_service.dart';
 
+/// One [CalendarEventService.notifyExternalChange]: the
+/// [CalendarEventService.externalRevision] it moved to, so a listener can
+/// tell whether it saw every change before it, and whether the service's
+/// cache already holds it, and whether event rows themselves came in.
+typedef CalendarExternalChange = ({
+  int revision,
+  bool cacheCurrent,
+  bool eventsMerged,
+});
+
 /// Persists custom calendar events via Drift and exposes a synchronous
 /// in-memory cache so `CalendarBloc.eventsForDay` stays O(N) over a
 /// pre-loaded list without async hops in the table-calendar event loader.
@@ -33,7 +44,7 @@ class CalendarEventService {
 
   static Future<CalendarEventService> getInstance() async {
     if (_instance != null) return _instance!;
-    return _create(await AppDatabase.getInstance());
+    return _create(AppDatabase.getInstance);
   }
 
   /// Binds the singleton to an arbitrary [AppDatabase], bypassing
@@ -47,17 +58,71 @@ class CalendarEventService {
   @visibleForTesting
   static Future<CalendarEventService> forTesting(AppDatabase db) async {
     if (_instance != null) return _instance!;
-    return _create(db);
+    return _create(() async => db);
   }
 
-  static Future<CalendarEventService> _create(AppDatabase db) async {
-    final service = CalendarEventService._();
-    service._db = db;
-    service._dao = db.calendarEventDao;
-    await service._load();
-    _instance = service;
-    DatabaseLifecycle.registerResetHandler(reset);
-    return service;
+  /// The construction [_create] has in flight, so concurrent callers share
+  /// one load and a refresh can reach an instance still reading the table.
+  static Future<CalendarEventService>? _creating;
+
+  /// Bumped by every [reset], so a construction can tell it was overtaken by
+  /// one that no `DatabaseLifecycle` switch announced — a restore's.
+  static int _generation = 0;
+
+  /// One construction at a time, and never one a database switch overtook —
+  /// `CategoryProfileService`'s guard. A construction still reading when
+  /// [reset] ran read the closing database, and publishing it would hand the
+  /// bloc that database's events as the new one's; it discards itself and
+  /// hands its caller the instance the new database installs.
+  ///
+  /// [_creating] is set before the body runs, so the body's own `finally`
+  /// always has its future to compare — even when [open] throws before the
+  /// first await.
+  static Future<CalendarEventService> _create(
+    Future<AppDatabase> Function() open,
+  ) {
+    final existing = _instance;
+    if (existing != null) return Future.value(existing);
+    final pending = _creating;
+    if (pending != null) return pending;
+    final completer = Completer<CalendarEventService>();
+    final creating = _creating = completer.future;
+    completer.complete(_construct(open, creating));
+    return creating;
+  }
+
+  static Future<CalendarEventService> _construct(
+    Future<AppDatabase> Function() open,
+    Future<CalendarEventService> creating,
+  ) async {
+    final generation = _generation;
+    final lifecycle = DatabaseLifecycle.generation;
+    // A reset nulls [_creating], so a construction that no longer holds it
+    // was overtaken even where no generation moved.
+    bool overtaken() =>
+        generation != _generation ||
+        lifecycle != DatabaseLifecycle.generation ||
+        !identical(_creating, creating);
+
+    Future<CalendarEventService> restart() {
+      if (identical(_creating, creating)) _creating = null;
+      return _create(open);
+    }
+
+    try {
+      final db = await open();
+      if (overtaken()) return await restart();
+      final service = CalendarEventService._();
+      service._db = db;
+      service._dao = db.calendarEventDao;
+      await service._load();
+      if (overtaken()) return await restart();
+      _instance = service;
+      DatabaseLifecycle.registerResetHandler(reset);
+      return service;
+    } finally {
+      if (identical(_creating, creating)) _creating = null;
+    }
   }
 
   /// Counts wholesale replacements of the event store that no dispatch can
@@ -79,19 +144,38 @@ class CalendarEventService {
   /// nulling the instance.
   static int externalRevision = 0;
 
-  static final StreamController<void> _externalChanges =
-      StreamController<void>.broadcast();
+  static final StreamController<CalendarExternalChange> _externalChanges =
+      StreamController<CalendarExternalChange>.broadcast();
 
   /// Fires when the store changed behind every bloc's back — a restore, or
   /// rows a pull merged — so a bloc already showing the calendar reloads at
   /// once instead of waiting for the page to reappear. [reset] does not fire
   /// it: a switched database is picked up through [externalRevision].
-  static Stream<void> get externalChanges => _externalChanges.stream;
+  static Stream<CalendarExternalChange> get externalChanges =>
+      _externalChanges.stream;
 
   /// Bumps [externalRevision] and tells [externalChanges]'s listeners.
-  static void notifyExternalChange() {
+  ///
+  /// [cacheCurrent] says the caller already brought this service's cache up
+  /// to date — the sync hooks after their own events step succeeded, the
+  /// category delete after [refreshAfterCategoryRemoval] — so a bloc may
+  /// rebuild from [events] instead of reading the store a second time. Left
+  /// off, every listener re-reads: a restore and "Delete all events" change
+  /// the store wholesale, and nothing here vouches for the cache.
+  ///
+  /// [eventsMerged] says rows of `calendar_events` itself came in, so an
+  /// event may now link a note it did not: a bloc trusting the cache still
+  /// refreshes the money ledger over it. A full re-read always does.
+  static void notifyExternalChange({
+    bool cacheCurrent = false,
+    bool eventsMerged = false,
+  }) {
     externalRevision++;
-    _externalChanges.add(null);
+    _externalChanges.add((
+      revision: externalRevision,
+      cacheCurrent: cacheCurrent,
+      eventsMerged: eventsMerged,
+    ));
   }
 
   /// Re-reads a loaded cache after `CategoryService.deleteCategory`'s cascade
@@ -104,15 +188,77 @@ class CalendarEventService {
   /// on a synced column, while the agenda's allowlist drops those events
   /// until then even with Other ticked.
   ///
-  /// Only a live instance is refreshed, never constructed: with no instance
-  /// there is no cache to be stale, and a service must not open the database
-  /// from inside another service's write chain.
-  static Future<void> refreshAfterCategoryRemoval() async {
-    await _instance?._load();
+  /// Only a live or half-built instance is refreshed, never constructed: with
+  /// neither there is no cache to be stale, and a service must not open the
+  /// database from inside another service's write chain.
+  ///
+  /// True when the cache is current afterwards — reloaded, or absent — which
+  /// is what lets the caller announce the change with `cacheCurrent`.
+  static Future<bool> refreshAfterCategoryRemoval() => _reloadLive();
+
+  /// Re-reads a loaded cache after a pull merged event rows behind it, on
+  /// [refreshAfterCategoryRemoval]'s terms: the next [getInstance] reads the
+  /// merged table, so constructing one here would load the whole store for a
+  /// calendar nobody opened. The sync hooks' fallback when they do not know
+  /// which rows merged; [applyMerged] when they do.
+  static Future<bool> refreshAfterSync() => _reloadLive();
+
+  /// Patches the events a pull merged into a loaded cache by id: one keyed
+  /// read of [ids] instead of the whole store, on [refreshAfterSync]'s terms.
+  ///
+  /// A cached event whose start day held is replaced where it stands; one
+  /// that moved, and one new here, is merged in by start in one sorted pass;
+  /// a tombstone leaves. [getAll]'s order is the start date alone, so events
+  /// sharing a start may sit in another order than a reload would give them
+  /// — the one difference from a reload, and one no reader depends on.
+  ///
+  /// Falls back to the whole read when the patch cannot be trusted: more
+  /// than [CalendarCacheLimits.maxKeyedPatchIds] ids, a read or a row that
+  /// fails, or a load that started or landed while the rows were in flight.
+  /// True when the cache is current afterwards.
+  ///
+  /// [getAll]: CalendarEventDao.getAll
+  static Future<bool> applyMerged(Set<String> ids) async {
+    final service = await _liveOrCreating();
+    if (service == null) return true;
+    return service._applyMerged(ids);
   }
 
+  /// Reloads the live instance, or the one [_create] is still reading: that
+  /// read may have begun before the rows behind it changed, and the instance
+  /// it publishes is the one the bloc seeds from without a reload.
+  static Future<bool> _reloadLive() async {
+    final service = await _liveOrCreating();
+    return service == null || await service._load();
+  }
+
+  /// The live instance, or the one [_create] is still reading; never a new
+  /// one, and never one a [reset] retired while it was awaited — reading
+  /// through that one would read a closing database into a cache nobody
+  /// serves.
+  static Future<CalendarEventService?> _liveOrCreating() async {
+    final service = _instance;
+    final pending = _creating;
+    if (service != null || pending == null) return service;
+    try {
+      final built = await pending;
+      return identical(_instance, built) ? built : null;
+    } catch (_) {
+      // The construction's failure is its own caller's to report; with no
+      // instance there is nothing to refresh.
+      return null;
+    }
+  }
+
+  /// Whether an instance is live — the seam that proves a refresh above
+  /// never constructs one.
+  @visibleForTesting
+  static bool get isLive => _instance != null;
+
   static void reset() {
+    _generation++;
     _instance = null;
+    _creating = null;
     externalRevision++;
   }
 
@@ -139,7 +285,22 @@ class CalendarEventService {
   /// tell that the rows it is holding predate one.
   int _writes = 0;
 
-  Future<void> reload() => _load();
+  /// Re-reads the whole store; false when the read failed and the cache
+  /// kept what it held.
+  Future<bool> reload() => _load();
+
+  /// Whether the last whole read failed, so the cache may predate the store.
+  ///
+  /// A bloc told the cache is current trusts it only while this is false;
+  /// otherwise it pays for the read itself, which is what an announcement
+  /// without the flag would have cost anyway.
+  bool get lastLoadFailed => _lastLoadFailed;
+  bool _lastLoadFailed = false;
+
+  /// Whole reads started, so [_applyMerged] can tell one began under its
+  /// keyed read; [_loadsInFlight] says whether one is still running.
+  int _loadsStarted = 0;
+  int _loadsInFlight = 0;
 
   /// Re-reads the whole store into [_cache], twice at most.
   ///
@@ -149,18 +310,97 @@ class CalendarEventService {
   /// event could be planned out of the pass that saving it provoked. The
   /// second read is issued after that write, so it holds it; a write racing
   /// the second read is left to the next reload.
-  Future<void> _load() async {
-    for (var attempt = 0; attempt < 2; attempt++) {
-      final writes = _writes;
-      try {
-        final rows = await _dao.getAll();
-        _cache = List.unmodifiable(rows.map(_rowToEvent));
-      } catch (e) {
-        debugPrint('[CalendarEventService] Load error: $e');
-        _cache = const [];
+  ///
+  /// A failed read keeps the cache as it was and returns false. It used to
+  /// publish an empty store, which a caller could not tell from a calendar
+  /// with no events — and a bloc trusting the cache would have drawn it.
+  Future<bool> _load() async {
+    _loadsStarted++;
+    _loadsInFlight++;
+    try {
+      for (var attempt = 0; attempt < 2; attempt++) {
+        final writes = _writes;
+        try {
+          final rows = await _dao.getAll();
+          _cache = List.unmodifiable(rows.map(_rowToEvent));
+          _lastLoadFailed = false;
+        } catch (e, st) {
+          debugPrint('[CalendarEventService] Load error: $e\n$st');
+          _lastLoadFailed = true;
+          return false;
+        }
+        if (_writes == writes) break;
       }
-      if (_writes == writes) return;
+      return true;
+    } finally {
+      _loadsInFlight--;
     }
+  }
+
+  Future<bool> _applyMerged(Set<String> ids) async {
+    if (ids.isEmpty) return !_lastLoadFailed;
+    if (ids.length > CalendarCacheLimits.maxKeyedPatchIds ||
+        _loadsInFlight > 0 ||
+        _lastLoadFailed) {
+      return _load();
+    }
+    final cache = _cache;
+    final loads = _loadsStarted;
+    final Map<String, CalendarEvent?> merged;
+    try {
+      final rows = await _dao.getByIdsIncludingDeleted(ids.toList());
+      merged = {
+        for (final row in rows) row.id: row.isDeleted ? null : _rowToEvent(row),
+      };
+    } catch (e, st) {
+      debugPrint('[CalendarEventService] Merged rows error: $e\n$st');
+      return _load();
+    }
+    if (!identical(cache, _cache) || loads != _loadsStarted) return _load();
+    _cache = List.unmodifiable(_patched(cache, ids, merged));
+    return true;
+  }
+
+  /// [cache] with the events under [ids] as [merged] holds them: replaced in
+  /// place while their start holds, merged in by start otherwise, dropped
+  /// when [merged] has no live row for them.
+  static List<CalendarEvent> _patched(
+    List<CalendarEvent> cache,
+    Set<String> ids,
+    Map<String, CalendarEvent?> merged,
+  ) {
+    final kept = <CalendarEvent>[];
+    final placed = <String>{};
+    for (final event in cache) {
+      if (!ids.contains(event.id)) {
+        kept.add(event);
+        continue;
+      }
+      final fresh = merged[event.id];
+      if (fresh != null && fresh.startDate == event.startDate) {
+        kept.add(fresh);
+        placed.add(event.id);
+      }
+    }
+    final moved = [
+      for (final MapEntry(key: id, value: fresh) in merged.entries)
+        if (fresh != null && !placed.contains(id)) fresh,
+    ]..sort((a, b) => a.startDate.compareTo(b.startDate));
+    if (moved.isEmpty) return kept;
+    // One merge of two sorted runs; a moved event goes after the ones it
+    // ties with, as [_insertByStart] places a saved one.
+    final next = <CalendarEvent>[];
+    var i = 0;
+    for (final event in moved) {
+      while (i < kept.length && !kept[i].startDate.isAfter(event.startDate)) {
+        next.add(kept[i++]);
+      }
+      next.add(event);
+    }
+    while (i < kept.length) {
+      next.add(kept[i++]);
+    }
+    return next;
   }
 
   /// Inserts [event] where the store's start-date order puts it, after the
@@ -241,7 +481,9 @@ class CalendarEventService {
   ///
   /// **Live rows only**, as the facades held: a tombstone older than the
   /// delete is a day the user had already cleared, reset or un-skipped, and
-  /// [restoreCascade] must not resurrect it.
+  /// [restoreCascade] must not resurrect it. **That event's rows only**, one
+  /// keyed read per table: the capture used to read all four tables whole
+  /// and keep one event's rows.
   Future<
     ({
       List<EventAlert> alerts,
@@ -251,27 +493,20 @@ class CalendarEventService {
     })
   >
   captureCascade(String id) async {
-    final alerts = await _db.eventAlertDao.getAllActive();
-    final marks = await _db.eventAbsenceDao.getActiveKeys();
-    final descriptions = await _db.eventOccurrenceDao.getActive();
-    final skips = await _db.eventSkipDao.getActiveKeys();
+    final alerts = await _db.eventAlertDao.getActiveForEvent(id);
+    final marks = await _db.eventAbsenceDao.getActiveForEvent(id);
+    final descriptions = await _db.eventOccurrenceDao.getActiveForEvent(id);
+    final skips = await _db.eventSkipDao.getActiveForEvent(id);
     return (
-      alerts: [
-        for (final row in alerts)
-          if (row.eventId == id) EventAlertService.alertFrom(row),
-      ],
+      alerts: [for (final row in alerts) EventAlertService.alertFrom(row)],
       marks: {
         for (final row in marks)
-          if (row.eventId == id) _dateOnlyUtc(row.day): row.status,
+          _dateOnlyUtc(row.day): PresenceStatus.fromName(row.status),
       },
       descriptions: {
-        for (final row in descriptions)
-          if (row.eventId == id) _dateOnlyUtc(row.day): row.description,
+        for (final row in descriptions) _dateOnlyUtc(row.day): row.description,
       },
-      skips: {
-        for (final row in skips)
-          if (row.eventId == id) _dateOnlyUtc(row.day),
-      },
+      skips: {for (final row in skips) _dateOnlyUtc(row.day)},
     );
   }
 
@@ -312,10 +547,14 @@ class CalendarEventService {
     );
     _writes++;
     _cacheWritten(normalized);
-    await _refreshOccurrences();
-    await _refreshPresence();
-    await _refreshSkips();
-    await _refreshAlerts();
+    // Patched from the sets just written, never re-read: the facades gain
+    // this event's rows and nothing else moves.
+    await _patchChildren('restore', [
+      () => EventOccurrenceService.restoreEvent(normalized.id, descriptions),
+      () => EventPresenceService.restoreEvent(normalized.id, marks),
+      () => EventSkipService.restoreEvent(normalized.id, skips),
+      () => EventAlertService.restoreEvent(normalized.id, alerts),
+    ]);
   }
 
   /// Deletes the event and cascades to its per-occurrence description and
@@ -353,10 +592,32 @@ class CalendarEventService {
     });
     _writes++;
     _cache = List.unmodifiable(_cache.where((e) => e.id != id));
-    await _refreshOccurrences();
-    await _refreshPresence();
-    await _refreshSkips();
-    await _refreshAlerts();
+    // The cascade touched this event's rows alone, so the four facades drop
+    // them in place rather than reading four tables whole for one delete.
+    await _patchChildren('delete', [
+      () => EventOccurrenceService.forgetEvent(id),
+      () => EventPresenceService.forgetEvent(id),
+      () => EventSkipService.forgetEvent(id),
+      () => EventAlertService.forgetEvent(id),
+    ]);
+  }
+
+  /// Runs the four child patches of one event's delete or restore, each on
+  /// its own guard: the rows are written either way, and a facade that fails
+  /// to take its patch is read whole by its next load. The children patch
+  /// only a live or loading instance — with neither, nothing is published,
+  /// and the next `getInstance` reads the table the cascade left.
+  static Future<void> _patchChildren(
+    String what,
+    List<Future<void> Function()> patches,
+  ) async {
+    for (final patch in patches) {
+      try {
+        await patch();
+      } catch (e, st) {
+        debugPrint('[CalendarEventService] $what patch error: $e\n$st');
+      }
+    }
   }
 
   /// "Delete all events": tombstones every event this device may delete,
@@ -370,7 +631,11 @@ class CalendarEventService {
   ///
   /// The cache is re-read rather than emptied: another account's events
   /// survive the wipe (a restored archive on an unbound device), and an empty
-  /// cache would hide them until the next load.
+  /// cache would hide them until the next load. A re-read that fails keeps
+  /// the cache from before the wipe, with [lastLoadFailed] set: a bloc's
+  /// light and refresh paths refuse it and read, and the caller's un-flagged
+  /// announcement reads again — only a second failure in a row, on that
+  /// read, would leave the wiped events on screen.
   ///
   /// The platform pass at the end is what [deleteById]'s caller does for one
   /// event: the registry rows are gone, but the phone still holds the entries

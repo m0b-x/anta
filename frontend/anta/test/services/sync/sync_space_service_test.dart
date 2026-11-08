@@ -113,7 +113,7 @@ void main() {
         ownerUid: owner,
         name: name,
         deviceId: 'other-device',
-        schema: DatabaseSchema.currentVersion,
+        schema: DatabaseSchema.syncSchemaVersion,
       );
 
   /// Gives [space] a `lastWriteAt`, as any push does.
@@ -121,7 +121,7 @@ void main() {
     space.ref,
     const [],
     pushedBy: 'other-device',
-    schema: DatabaseSchema.currentVersion,
+    schema: DatabaseSchema.syncSchemaVersion,
   );
 
   Future<void> seedBuiltInCategories() {
@@ -152,7 +152,7 @@ void main() {
       expect(start, SyncBindStartBound(created.ref));
       expect(created.name, 'training');
       expect(created.createdBy, db.deviceId);
-      expect(created.schema, DatabaseSchema.currentVersion);
+      expect(created.schema, DatabaseSchema.syncSchemaVersion);
       final bound = await binding.read();
       expect(bound!.spaceId, created.ref.spaceId);
       expect(bound.ownerUid, _uid);
@@ -350,7 +350,7 @@ void main() {
     }
 
     for (final synced in syncedTables) {
-      if (synced.travelsWithParent) continue;
+      if (synced.contentAddressed) continue;
       test(
         'a live row of ${synced.name} does; its tombstone does not',
         () async {

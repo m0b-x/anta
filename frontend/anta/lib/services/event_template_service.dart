@@ -111,7 +111,14 @@ class EventTemplateService {
   ///
   /// Waits for a construction still in flight rather than missing it, and
   /// never starts one: with no instance there is no cache to be stale.
-  static Future<void> refreshAfterCategoryRemoval() async {
+  static Future<void> refreshAfterCategoryRemoval() => _reloadLive();
+
+  /// Re-reads after a pull merged template rows, on
+  /// [refreshAfterCategoryRemoval]'s terms: a pull never constructs the
+  /// service, since the next [getInstance] reads the merged table anyway.
+  static Future<void> refreshAfterSync() => _reloadLive();
+
+  static Future<void> _reloadLive() async {
     var service = _instance;
     final pending = _initializing;
     if (service == null && pending != null) {

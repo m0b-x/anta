@@ -7,6 +7,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:anta/services/sync/sync_tables.dart';
+import 'package:anta/services/sync/tables/content_chunks_binding.dart';
 
 /// Security rules are the only part of this feature with no local safety net:
 /// a mistake is silent, remote, and affects every install at once. Two
@@ -296,8 +297,24 @@ Map<String, Object?> _spaceMerge(
   ],
 };
 
-/// A row document as the gateway writes it; [fields] overrides some, [omit]
-/// drops some, [pushedAt] writes a client time instead of the server's.
+/// [length] bytes as a Firestore bytes value.
+Map<String, Object?> _bytes(int length) => {
+  'bytesValue': base64Encode(List.filled(length, 0x61)),
+};
+
+/// A chunk document's data as the gateway writes it (wire 46): the hash it
+/// is keyed by, the gzip'd text under `gz` — [gz] replaces it — and the
+/// text's length.
+Map<String, Object?> _chunkData(String hash, {Map<String, Object?>? gz}) =>
+    _map({
+      ContentChunksBinding.hashKey: _s(hash),
+      ContentChunksBinding.gzKey: gz ?? _bytes(1024),
+      ContentChunksBinding.lengthKey: _int(1000),
+    });
+
+/// A row document as the gateway writes it — a `content_chunks` one in the
+/// chunk shape — [fields] overrides some, [omit] drops some, [pushedAt]
+/// writes a client time instead of the server's.
 Map<String, Object?> _row(
   String owner,
   String spaceId,
@@ -314,7 +331,9 @@ Map<String, Object?> _row(
     'op': _s('upsert'),
     'ownerId': _s(owner),
     'pushedBy': _s('A'),
-    'data': _map({'id': _s(rowKey), 'name': _s('Training')}),
+    'data': table == 'content_chunks'
+        ? _chunkData(rowKey)
+        : _map({'id': _s(rowKey), 'name': _s('Training')}),
     ...fields,
   };
   for (final field in omit) {
@@ -1137,6 +1156,57 @@ void main() {
         );
       });
     }
+
+    // A chunk is immutable text under its hash (scalability record S6): the
+    // rules hold its shape, so no build can store a body it cannot carry.
+    group('a chunk document', () {
+      Future<int> pushChunk(Map<String, Object?> fields) => _push([
+        _row(uidA, 's1', 'content_chunks', 'h1', fields: fields),
+      ], table: 'content_chunks');
+
+      test('with gz bytes at 64 KB', () async {
+        await _seedSpace();
+        expect(
+          await pushChunk({
+            'data': _chunkData(
+              'h1',
+              gz: _bytes(ContentChunksBinding.maxGzBytes),
+            ),
+          }),
+          200,
+        );
+      });
+
+      test('as a tombstone', () async {
+        await _seedSpace();
+        expect(
+          await pushChunk({'op': _s('tombstone'), 'data': _nul}),
+          403,
+          reason: 'a manifest anywhere may still name it',
+        );
+      });
+
+      test('with gz over 64 KB', () async {
+        await _seedSpace();
+        expect(
+          await pushChunk({
+            'data': _chunkData(
+              'h1',
+              gz: _bytes(ContentChunksBinding.maxGzBytes + 1),
+            ),
+          }),
+          403,
+        );
+      });
+
+      test('with gz not bytes', () async {
+        await _seedSpace();
+        expect(
+          await pushChunk({'data': _chunkData('h1', gz: _s('text'))}),
+          403,
+        );
+      });
+    });
 
     test('pushedAt not the request time', () async {
       await _seedSpace();

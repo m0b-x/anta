@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
@@ -61,6 +63,11 @@ class SearchBloc extends Bloc<SearchEvent, SearchState> {
   /// nothing while the field plainly said "p".
   String? _pendingQuery;
 
+  /// The [_generation] of the quick pass on screen when it came back while
+  /// the body index was behind, so [SearchIndexSettled] runs it again once;
+  /// null when nothing waits on the index.
+  int? _quickAwaitingIndex;
+
   SearchBloc({
     required FolderSearchService searchService,
     required NoteStorageService noteService,
@@ -79,6 +86,7 @@ class SearchBloc extends Bloc<SearchEvent, SearchState> {
     on<SearchScopeChanged>(_onScopeChanged);
     on<SearchLabelsChanged>(_onLabelsChanged);
     on<SearchCleared>(_onCleared);
+    on<SearchIndexSettled>(_onIndexSettled);
   }
 
   @override
@@ -91,13 +99,22 @@ class SearchBloc extends Bloc<SearchEvent, SearchState> {
         _pendingQuery = null;
       case SearchScopeChanged() ||
           SearchLabelsChanged() ||
-          SearchLabelsPrimed():
+          SearchLabelsPrimed() ||
+          SearchIndexSettled():
         break;
     }
   }
 
   Future<void> _onOpened(SearchOpened event, Emitter<SearchState> emit) async {
     final generation = ++_generation;
+    // The one place the body index is asked to catch up before a search:
+    // its drain then runs while the user starts typing, and no keystroke
+    // ever starts or waits on one.
+    unawaited(
+      _searchService.catchUpIndex().catchError((Object e, StackTrace st) {
+        _logError('Starting the index catch-up failed', e, st);
+      }),
+    );
     emit(
       state.copyWith(
         scope: event.scope,
@@ -323,6 +340,38 @@ class SearchBloc extends Bloc<SearchEvent, SearchState> {
     await _emitUnqueried(emit, state.scope, generation, reloadLabels: true);
   }
 
+  /// Runs the search on screen again once the body index has caught up: a
+  /// full search, so its rows are complete and the indexing line goes, or a
+  /// quick pass that came back while the index was behind — once, and with
+  /// no notice, since typing shows none. Stands back when the surface has
+  /// moved on — another pass since, or a keystroke still inside its
+  /// debounce.
+  Future<void> _onIndexSettled(
+    SearchIndexSettled event,
+    Emitter<SearchState> emit,
+  ) async {
+    final quickWaited = _quickAwaitingIndex == _generation;
+    _quickAwaitingIndex = null;
+    if (state.phase == SearchPhase.quick && quickWaited) {
+      // The keystroke that ran this pass stays pending; another one still
+      // inside its debounce runs a pass of its own.
+      if (_pendingQuery != null && _pendingQuery != state.query) return;
+      final generation = ++_generation;
+      await _runQuick(
+        emit,
+        state.query,
+        state.scope,
+        generation,
+        awaitIndex: false,
+      );
+      return;
+    }
+    if (_pendingQuery != null) return;
+    if (!state.stillIndexing || state.phase != SearchPhase.full) return;
+    final generation = ++_generation;
+    await _runFull(emit, state.query, state.scope, generation);
+  }
+
   /// What an empty field means, which depends on whether a colour is picked:
   /// recents when nothing filters, and otherwise the listing of everything
   /// wearing the picked colours — "everything red" is a question, and idle
@@ -384,17 +433,20 @@ class SearchBloc extends Bloc<SearchEvent, SearchState> {
     }
   }
 
+  /// [awaitIndex] false for the one re-run [SearchIndexSettled] makes, so a
+  /// pass that is still behind never schedules another.
   Future<void> _runQuick(
     Emitter<SearchState> emit,
     String query,
     SearchScope scope,
     int generation, {
     bool reloadLabels = false,
+    bool awaitIndex = true,
   }) async {
     try {
       final folderIds = await _folderIdsFor(scope);
-      final (results, labelsInUse) = await (
-        _searchService.quickSearch(
+      final (found, labelsInUse) = await (
+        _searchService.quickSearchWithCoverage(
           query,
           folderIds: folderIds,
           labels: state.labels,
@@ -407,10 +459,18 @@ class SearchBloc extends Bloc<SearchEvent, SearchState> {
         query: query,
         scope: scope,
         phase: SearchPhase.quick,
-        results: results,
+        results: found.results,
         generation: generation,
         labelsInUse: labelsInUse,
       );
+      if (awaitIndex && found.incomplete && generation == _generation) {
+        _quickAwaitingIndex = generation;
+        unawaited(
+          _searchService.whenIndexed().then((_) {
+            if (!isClosed) add(const SearchIndexSettled());
+          }),
+        );
+      }
     } catch (e, stackTrace) {
       _logError('Quick search failed', e, stackTrace);
       if (generation != _generation) return;
@@ -428,8 +488,8 @@ class SearchBloc extends Bloc<SearchEvent, SearchState> {
     try {
       final folderIds = await _folderIdsFor(scope);
       final labels = state.labels;
-      final (results, labelsInUse) = await (
-        _searchService.search(
+      final (found, labelsInUse) = await (
+        _searchService.searchWithCoverage(
           query,
           filter: folderIds == null && labels.isEmpty
               ? null
@@ -437,15 +497,24 @@ class SearchBloc extends Bloc<SearchEvent, SearchState> {
         ),
         _labelsInUseIf(reloadLabels, folderIds),
       ).wait;
+      final stillIndexing = found.incomplete;
       await _emitResults(
         emit,
         query: query,
         scope: scope,
         phase: SearchPhase.full,
-        results: results,
+        results: found.results,
         generation: generation,
         labelsInUse: labelsInUse,
+        stillIndexing: stillIndexing,
       );
+      if (stillIndexing && generation == _generation) {
+        unawaited(
+          _searchService.whenIndexed().then((_) {
+            if (!isClosed) add(const SearchIndexSettled());
+          }),
+        );
+      }
     } catch (e, stackTrace) {
       _logError('Search failed', e, stackTrace);
       if (generation != _generation) return;
@@ -488,6 +557,7 @@ class SearchBloc extends Bloc<SearchEvent, SearchState> {
           labelsInUse: offered,
           labelledTotal: 0,
           isSearching: false,
+          stillIndexing: false,
         ),
       );
       _dropColoursNoLongerOffered(offered);
@@ -504,6 +574,7 @@ class SearchBloc extends Bloc<SearchEvent, SearchState> {
           folderPaths: const {},
           labelledTotal: 0,
           isSearching: false,
+          stillIndexing: false,
         ),
       );
     }
@@ -535,6 +606,12 @@ class SearchBloc extends Bloc<SearchEvent, SearchState> {
   /// matched is a title hit even when its body matched too, so it is listed
   /// once, under the section that explains why it is there.
   ///
+  /// "Matched" is [QuickQuery.titleHolds] — the rule the quick search lists
+  /// title hits first by — never where the raw query's highlight landed: a
+  /// trailing space or a `#tag` in the query would find no highlight in the
+  /// title and list the search's first row under "In text". A query of tags
+  /// alone names no title, so its rows are all text hits.
+  ///
   /// A label-only pass has no matched text anywhere, so every row would fall
   /// to "In text" under a heading about text nothing was found in. They are
   /// all title hits instead, and the surface heads them with the colours
@@ -548,14 +625,14 @@ class SearchBloc extends Bloc<SearchEvent, SearchState> {
     required int generation,
     List<ItemLabel>? labelsInUse,
     int labelledTotal = 0,
+    bool stillIndexing = false,
   }) async {
     final unqueried = query.trim().isEmpty;
+    final quick = QuickQuery.parse(query);
     final titleHits = <SearchResult>[];
     final contentHits = <SearchResult>[];
     for (final result in results) {
-      final isTitleHit =
-          unqueried ||
-          result.matches.any((match) => match.type == SearchMatchType.title);
+      final isTitleHit = unqueried || quick.titleHolds(result.metadata.title);
       (isTitleHit ? titleHits : contentHits).add(result);
     }
 
@@ -578,6 +655,7 @@ class SearchBloc extends Bloc<SearchEvent, SearchState> {
         labelsInUse: offered,
         labelledTotal: labelledTotal,
         isSearching: false,
+        stillIndexing: stillIndexing,
       ),
     );
     _dropColoursNoLongerOffered(offered);

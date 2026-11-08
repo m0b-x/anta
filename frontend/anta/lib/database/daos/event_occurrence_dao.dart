@@ -28,6 +28,17 @@ class EventOccurrenceDao extends DatabaseAccessor<AppDatabase>
     )..where((o) => o.isDeleted.equals(false))).get();
   }
 
+  /// One event's live day descriptions: the capture an event delete takes
+  /// for its Undo, a primary-key prefix read instead of every live row.
+  Future<List<EventOccurrenceRow>> getActiveForEvent(String eventId) {
+    return (select(eventOccurrenceDescriptions)..where(
+          (o) =>
+              o.eventId.equals(eventId) &
+              const CustomExpression<bool>('is_deleted = 0'),
+        ))
+        .get();
+  }
+
   /// Materializes one day's description, preserving `createdAt` on an existing
   /// row and stamping merge identity on both branches.
   ///

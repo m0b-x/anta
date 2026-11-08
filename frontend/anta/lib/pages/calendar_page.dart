@@ -546,7 +546,9 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
     final notice = AlertRemovalNotice.instance.take();
     if (notice == null) return;
     final bloc = context.read<CalendarBloc>();
-    bloc.add(const LoadCalendarEvents());
+    // The delete went through the service, whose cache dropped the event:
+    // re-emitting it is the whole reload.
+    bloc.add(const RefreshCalendarView());
     final l10n = AppLocalizations.of(context)!;
     CustomSnackbar.showWithAction(
       context,
@@ -562,6 +564,8 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
   /// the bloc still holds the event with "remove after it rings" on and the
   /// day panel still says so. The reload is the whole answer: there is
   /// nothing to undo and nothing to announce — the alarm page said "kept".
+  /// The service cached the write, so the reload is a re-emit with a fresh
+  /// list, which is what [_predatesKeep] tells it by.
   ///
   /// Counted before it is taken. The notice is one flag for every calendar
   /// on the navigator — a note opened from the calendar leads to a second
@@ -577,7 +581,7 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
     if (!_initialTargetDone && state is CalendarPageLoaded) {
       _eventsBeforeKeep = state.allEvents;
     }
-    bloc.add(const LoadCalendarEvents());
+    bloc.add(const RefreshCalendarView());
   }
 
   /// How many Keeps this page has heard of, whichever calendar answered
@@ -1548,7 +1552,8 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
     final holidayService = await PublicHolidayService.getInstance();
     await holidayService.removeOn(day);
     if (!context.mounted) return;
-    context.read<CalendarBloc>().add(const LoadCalendarEvents());
+    // No event changed; the re-emit drops the days the holiday decided.
+    context.read<CalendarBloc>().add(const RefreshCalendarView());
 
     final builtIn = info.builtIn;
     CustomSnackbar.showWithAction(
@@ -1562,7 +1567,7 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
           await holidayService.addCustom(day, info.customLabel ?? '');
         }
         if (!context.mounted) return;
-        context.read<CalendarBloc>().add(const LoadCalendarEvents());
+        context.read<CalendarBloc>().add(const RefreshCalendarView());
       },
     );
   }
@@ -1609,16 +1614,14 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
     final bloc = context.read<CalendarBloc>();
     await AppNavigator.toCalendarSettings(context);
     if (!mounted) return;
-    // `didPopNext` already re-read the appearance settings. The reload stays
-    // unconditional rather than going through `_reloadIfStale`, but no longer
-    // because it has to: the category delete it was written for — Settings ->
-    // Categories, which reassigns the events to `other` behind the service's
-    // cache — now bumps `externalRevision` and fires the stream (C71), so
-    // this is a third read of `calendar_events` for one delete. Redundant but
-    // safe, and left standing deliberately: a reload is cheap, while the
-    // external path's ordering against a returning route is not something to
-    // re-time without a device. Drop it with that measurement in hand.
-    bloc.add(const LoadCalendarEvents());
+    // `didPopNext` already re-read the appearance settings. The category
+    // delete this was written for — Settings -> Categories, which reassigns
+    // the events to `other` behind the service's cache — refreshes the cache
+    // before its route pops and announces it (C71), so the return re-emits
+    // the cache rather than reading `calendar_events` a third time; a
+    // restore or a switch made meanwhile still loads, through the bloc's
+    // stale check. The ledger is refreshed as the reload did.
+    bloc.add(const RefreshCalendarView(refreshLedger: true));
   }
 
   /// Warms [CalendarBloc.eventsForDay] for the month before and after

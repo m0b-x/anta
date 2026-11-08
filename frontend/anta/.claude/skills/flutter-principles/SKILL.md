@@ -69,6 +69,6 @@ Measured on 2026-10-11 over `lib/` (480 hand-written files, ~152k lines) and `te
 
 - Files past 1,500 lines (15; the largest: `event_editor_sheet.dart` 3,014, `calendar_page.dart` 2,694, `optimized_note_editor_page.dart` 2,643, `form_rows.dart` 2,614, `markdown_settings_page.dart` 2,527) — a change there extracts what it touches into a private widget or a controller rather than growing the file.
 - `late` (231, 130 in widgets) and `!` on anything but `AppLocalizations.of(context)!`; `dynamic` (166); `this.context` after an `await` (66 sites — `use_build_context_synchronously` is on, keep the `mounted` guard).
-- Dead code to remove when touched: `lib/utils/isolate_worker.dart` and `lib/core/types/result.dart` have no importers; `debounce` is defined twice (`bloc_helpers.dart:20` and a private copy at `note_picker_bloc.dart:10`).
+- Dead code to remove when touched: `lib/core/types/result.dart` has no importers (`lib/utils/isolate_worker.dart` went in S18, 2026-11-07); `debounce` is defined twice (`bloc_helpers.dart:20` and a private copy at `note_picker_bloc.dart:10`).
 - Duplicate ARB keys (`reset`, `restartRequired` in `app_en.arb` and `app_de.arb`) — JSON keeps the last silently; dedupe with the `l10n` skill.
 - `analysis_options.yaml` is bare `flutter_lints`; stricter lints (`prefer_const_constructors`, `prefer_final_locals`, `avoid_dynamic_calls`, `strict-casts`) are an owner decision because turning one on touches hundreds of files — propose, never flip in a feature change.

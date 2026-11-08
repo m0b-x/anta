@@ -194,4 +194,77 @@ void main() {
       expect(cache.get('c'), 3);
     });
   });
+
+  group('bounded by weight', () {
+    LruCache<String, String> weighted({int maxSize = 50, int maxWeight = 10}) =>
+        LruCache<String, String>(
+          maxSize: maxSize,
+          maxWeight: maxWeight,
+          weigh: (value) => value.length,
+        );
+
+    test('evicts the oldest entries until the sum fits', () {
+      final cache = weighted()
+        ..put('a', 'xxxx')
+        ..put('b', 'xxxx')
+        ..put('c', 'xxxx');
+
+      expect(cache.keys, <String>['b', 'c']);
+      expect(cache.weight, 8);
+    });
+
+    test('never evicts the newest entry, even past the bound alone', () {
+      final cache = weighted()
+        ..put('a', 'xx')
+        ..put('big', 'x' * 30);
+
+      expect(cache.keys, <String>['big']);
+      expect(cache.get('big'), 'x' * 30);
+      expect(cache.weight, 30);
+    });
+
+    test('a hit protects its entry from the next eviction', () {
+      final cache = weighted()
+        ..put('a', 'xxxx')
+        ..put('b', 'xxxx');
+      cache.get('a');
+      cache.put('c', 'xxxx');
+
+      expect(cache.keys, <String>['a', 'c']);
+    });
+
+    test('every mutator keeps the weight equal to the sum', () {
+      final cache = weighted(maxSize: 3, maxWeight: 100);
+      int sum() => cache.values.fold(0, (total, v) => total + v.length);
+
+      cache
+        ..put('a', 'xxx')
+        ..put('b', 'xxxxx')
+        ..put('a', 'x');
+      expect(cache.weight, sum());
+      cache
+        ..put('c', 'xx')
+        ..put('d', 'xxxx');
+      expect(cache.keys, <String>['a', 'c', 'd']);
+      expect(cache.weight, sum());
+      cache.remove('c');
+      expect(cache.weight, sum());
+      cache.remove('missing');
+      expect(cache.weight, sum());
+      cache.removeWhere((key, value) => key == 'a');
+      expect(cache.weight, sum());
+      cache.clear();
+      expect(cache.weight, 0);
+    });
+
+    test('the count bound still holds beside the weight', () {
+      final cache = weighted(maxSize: 2, maxWeight: 100)
+        ..put('a', 'x')
+        ..put('b', 'x')
+        ..put('c', 'x');
+
+      expect(cache.keys, <String>['b', 'c']);
+      expect(cache.weight, 2);
+    });
+  });
 }

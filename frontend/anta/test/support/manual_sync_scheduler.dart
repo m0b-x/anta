@@ -9,6 +9,10 @@ class ManualSyncScheduler implements SyncScheduler {
   /// Every timer scheduled, in order, fired and cancelled ones included.
   final List<ManualSyncTimer> timers = [];
 
+  /// The scheduler's own clock, moved only by [elapse]: a timer is due at
+  /// the time it was scheduled plus its delay.
+  Duration elapsed = Duration.zero;
+
   /// The delays of the timers still waiting, in schedule order.
   List<Duration> get pending => [
     for (final timer in timers)
@@ -17,7 +21,7 @@ class ManualSyncScheduler implements SyncScheduler {
 
   @override
   Timer schedule(Duration delay, void Function() callback) {
-    final timer = ManualSyncTimer._(delay, callback);
+    final timer = ManualSyncTimer._(delay, elapsed + delay, callback);
     timers.add(timer);
     return timer;
   }
@@ -34,15 +38,32 @@ class ManualSyncScheduler implements SyncScheduler {
     }
     return due.length;
   }
+
+  /// Moves [elapsed] on by [by] and fires the waiting timers due by then,
+  /// earliest first; returns how many fired.
+  int elapse(Duration by) {
+    elapsed += by;
+    final due = [
+      for (final timer in timers)
+        if (timer.isActive && timer.dueAt <= elapsed) timer,
+    ]..sort((x, y) => x.dueAt.compareTo(y.dueAt));
+    for (final timer in due) {
+      timer._fire();
+    }
+    return due.length;
+  }
 }
 
 class ManualSyncTimer implements Timer {
   final Duration delay;
+
+  /// When [ManualSyncScheduler.elapse] fires it, on the scheduler's clock.
+  final Duration dueAt;
   final void Function() _callback;
   bool _active = true;
   int _tick = 0;
 
-  ManualSyncTimer._(this.delay, this._callback);
+  ManualSyncTimer._(this.delay, this.dueAt, this._callback);
 
   @override
   bool get isActive => _active;

@@ -24,11 +24,12 @@ import '../constants/app_colors.dart';
 /// contrast band from every page after it and leave its buttons in this
 /// theme's colour whatever theme came next. So when the last ground leaves
 /// the screen the bar is put back in the state the app asks for at launch
-/// ([barsAfter]). Since U2.10 the root `AppSystemBars` region (`main.dart`),
-/// keyed on the app's resolved theme, is what the rest of the app's bars
-/// wear, but the hand-back is sent after the frame that removed the ground
-/// has already sent that region: [barsAfter] holds until the next frame the
-/// app composites, which on an idle page waits for the next interaction.
+/// ([barsAfter]). Since U2.10 the root `AppSystemBars` region
+/// (`app_system_bars.dart`, placed at the root by `main.dart`), keyed on the
+/// app's resolved theme, is what the rest of the app's bars wear, but the
+/// hand-back is sent after the frame that removed the ground has already
+/// sent that region: [barsAfter] holds until the next frame the app
+/// composites, which on an idle page waits for the next interaction.
 class AlarmGround extends StatefulWidget {
   const AlarmGround({super.key, this.child});
 

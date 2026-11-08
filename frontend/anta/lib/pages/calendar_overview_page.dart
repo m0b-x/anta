@@ -497,7 +497,7 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
     if (!mounted) return;
     _keepsHeard++;
     if (!AlertKeepNotice.instance.hasPending) return;
-    context.read<CalendarBloc>().add(const LoadCalendarEvents());
+    context.read<CalendarBloc>().add(const RefreshCalendarView());
   }
 
   @override
@@ -648,14 +648,14 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
   }
 
   /// The ⋮ menu's Calendar settings. Settings → Categories can delete a
-  /// category, which reassigns its events behind the service's cache without
-  /// bumping a revision, so the events are reloaded after the trip — as the
-  /// calendar does after its own.
+  /// category, which reassigns its events in SQL; the delete refreshes the
+  /// service's cache before its route pops, so the trip ends in a re-emit of
+  /// that cache — as the calendar's own does.
   Future<void> _openSettings() async {
     final bloc = context.read<CalendarBloc>();
     await AppNavigator.toCalendarSettings(context);
     if (!mounted) return;
-    bloc.add(const LoadCalendarEvents());
+    bloc.add(const RefreshCalendarView(refreshLedger: true));
   }
 
   void _exportEvents() {

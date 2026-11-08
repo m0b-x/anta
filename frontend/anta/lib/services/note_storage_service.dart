@@ -1,8 +1,8 @@
 import '../database/database.dart';
 import '../database/daos/note_dao.dart';
-import '../database/daos/content_chunk_dao.dart';
 import '../repositories/note_repository.dart';
 import '../models/item_label.dart';
+import '../models/movable_item.dart';
 import '../models/note_metadata.dart';
 import '../utils/compression_utils.dart';
 import '../constants/app_constants.dart';
@@ -152,9 +152,6 @@ class NoteStorageService {
 
     final shouldCompress = CompressionUtils.shouldCompress(content);
     final preview = NoteMetadata.generatePreview(content);
-    final chunkCount = (content.length / ContentChunkDao.defaultChunkSize)
-        .ceil()
-        .clamp(1, double.maxFinite.toInt());
 
     final note = await _repository.createNote(
       folderId: folderId,
@@ -162,7 +159,6 @@ class NoteStorageService {
       content: content,
       preview: preview,
       contentLength: content.length,
-      chunkCount: chunkCount,
       isCompressed: shouldCompress,
       label: label,
     );
@@ -195,9 +191,6 @@ class NoteStorageService {
 
     final shouldCompress = CompressionUtils.shouldCompress(content);
     final preview = NoteMetadata.generatePreview(content);
-    final chunkCount = (content.length / ContentChunkDao.defaultChunkSize)
-        .ceil()
-        .clamp(1, double.maxFinite.toInt());
 
     final note = await _repository.importNote(
       folderId: folderId,
@@ -205,7 +198,6 @@ class NoteStorageService {
       content: content,
       preview: preview,
       contentLength: content.length,
-      chunkCount: chunkCount,
       isCompressed: shouldCompress,
       label: label,
       createdAt: createdAt,
@@ -254,15 +246,12 @@ class NoteStorageService {
 
     String? newPreview;
     int? newContentLength;
-    int? newChunkCount;
     bool? newIsCompressed;
 
+    // The chunk count is the DAO's, from the chunks it stores the body as.
     if (content != null) {
       newPreview = NoteMetadata.generatePreview(content);
       newContentLength = content.length;
-      newChunkCount = (content.length / ContentChunkDao.defaultChunkSize)
-          .ceil()
-          .clamp(1, double.maxFinite.toInt());
       newIsCompressed = CompressionUtils.shouldCompress(content);
     }
 
@@ -271,7 +260,6 @@ class NoteStorageService {
       title: title,
       preview: newPreview,
       contentLength: newContentLength,
-      chunkCount: newChunkCount,
       isCompressed: newIsCompressed,
       content: content,
     );
@@ -461,19 +449,6 @@ class NoteStorageService {
     return notes.map(_noteToMetadata).toList();
   }
 
-  Future<List<NoteMetadata>> fullTextSearch(
-    String query, {
-    String? folderId,
-  }) async {
-    await initialize();
-    try {
-      final notes = await _repository.fullTextSearch(query, folderId: folderId);
-      return notes.map(_noteToMetadata).toList();
-    } catch (_) {
-      return searchNotes(query, folderId: folderId);
-    }
-  }
-
   NoteMetadata _noteToMetadata(Note note) {
     return NoteMetadata(
       id: note.id,
@@ -550,19 +525,24 @@ class NoteStorageService {
     return note != null ? _noteToMetadata(note) : null;
   }
 
+  /// Moves a whole selection in one transaction. Unlike [moveNote], a title
+  /// clash is not thrown: it is one item's outcome among the others, in
+  /// [BulkMoveResult.duplicates].
+  Future<BulkMoveResult> moveNotes({
+    required List<String> noteIds,
+    required String targetFolderId,
+  }) async {
+    await initialize();
+    return _repository.moveNotes(
+      noteIds: noteIds,
+      targetFolderId: targetFolderId,
+    );
+  }
+
   Stream<NoteChange> get changes => _repository.noteChanges;
 
   Stream<NoteChange> changesForFolder(String? folderId) =>
       _repository.noteChangesForFolder(folderId);
-
-  /// Reorder notes within a folder
-  Future<void> reorderNotes({
-    required String folderId,
-    required List<String> orderedIds,
-  }) async {
-    await initialize();
-    await _repository.reorderNotes(folderId: folderId, orderedIds: orderedIds);
-  }
 
   Stream<List<NoteMetadata>> watchNotesByFolder(String? folderId) {
     return _repository

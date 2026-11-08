@@ -48,4 +48,51 @@ void main() {
       'lists', () {
     expect(File('$resDir/raw/keep.xml').existsSync(), isFalse);
   });
+
+  /// A sync device id restored onto a second phone would give two devices
+  /// one id, and an equal stamp would no longer mean the same write — the
+  /// merge acknowledges the outbox entry on an equal stamp (scalability
+  /// record S9). Only that file is kept out of Auto Backup and device
+  /// transfer, at the path `AppDatabase` writes it to.
+  group('the sync device id stays on its device', () {
+    const deviceIdRule =
+        '<exclude domain="root" path="app_flutter/gym_notes/device_id" />';
+
+    test('the manifest names both rule files', () {
+      final manifest = File(
+        'android/app/src/main/AndroidManifest.xml',
+      ).readAsStringSync();
+
+      expect(
+        manifest,
+        contains('android:dataExtractionRules="@xml/data_extraction_rules"'),
+      );
+      expect(
+        manifest,
+        contains('android:fullBackupContent="@xml/backup_rules"'),
+      );
+    });
+
+    test('API 31+ excludes it from cloud backup and device transfer', () {
+      final rules = File(
+        '$resDir/xml/data_extraction_rules.xml',
+      ).readAsStringSync();
+
+      for (final section in ['cloud-backup', 'device-transfer']) {
+        final body = RegExp(
+          '<$section>(.*?)</$section>',
+          dotAll: true,
+        ).firstMatch(rules)?.group(1);
+        expect(body, contains(deviceIdRule), reason: section);
+        expect(body, isNot(contains('<include')), reason: section);
+      }
+    });
+
+    test('API 24-30 excludes it from Auto Backup', () {
+      final rules = File('$resDir/xml/backup_rules.xml').readAsStringSync();
+
+      expect(rules, contains(deviceIdRule));
+      expect(rules, isNot(contains('<include')));
+    });
+  });
 }

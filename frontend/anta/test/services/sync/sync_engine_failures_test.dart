@@ -13,7 +13,11 @@ import 'package:anta/services/sync/sync_status.dart';
 import 'package:anta/services/sync/sync_suspension.dart';
 import 'package:anta/services/sync/sync_table_binding.dart';
 import 'package:anta/services/sync/sync_tables.dart';
+import 'package:anta/services/sync/tables/content_chunks_binding.dart';
+import 'package:anta/services/sync/tables/notes_binding.dart';
 
+import '../../support/fake_sync_gateway.dart';
+import '../../support/scale_fixtures.dart';
 import 'support/sync_pair.dart';
 
 /// A table binding that merges like [_inner], except that the row keys in
@@ -32,6 +36,9 @@ class _FaultyMerge extends SyncTableBinding<Object> {
 
   @override
   SyncInvalidation get invalidation => _inner.invalidation;
+
+  @override
+  int? get pullPageLimit => _inner.pullPageLimit;
 
   @override
   Future<List<Object>> loadByKeys(AppDatabase db, Iterable<String> rowKeys) =>
@@ -202,13 +209,20 @@ void main() {
   test('quota pauses, is stored, retries in an hour and clears on the next '
       'success', () async {
     final folder = await a().db.folderDao.createFolder(name: 'Training');
+    // 04:00 in Los Angeles: the reset is twenty hours away.
+    final pausedAt = DateTime.utc(2026, 11, 8, 12);
+    a().now = () => pausedAt;
     pair.gateway.failNextWith(SyncGatewayFailure.quotaExhausted);
 
     final report = await a().sync();
 
     expect(report.failure, SyncGatewayFailure.quotaExhausted);
     expect(a().engine.current.pause, SyncPause.quotaExhausted);
-    expect(await a().db.syncDao.getValue(SyncDao.keyQuotaPausedAt), isNotNull);
+    expect(
+      await a().db.syncDao.getValue(SyncDao.keyQuotaPausedAt),
+      '${pausedAt.millisecondsSinceEpoch}',
+    );
+    expect(a().engine.current.quotaPausedAt, pausedAt);
     expect(a().scheduler.pending, [const Duration(hours: 1)]);
 
     a().scheduler.fire();
@@ -217,6 +231,18 @@ void main() {
     expect(spaceFolders().keys, [folder.id]);
     expect(a().engine.current.pause, SyncPause.none);
     expect(await a().db.syncDao.getValue(SyncDao.keyQuotaPausedAt), isNull);
+  });
+
+  test('a quota pause within the hour of the reset retries five minutes '
+      'after it', () async {
+    await a().db.folderDao.createFolder(name: 'Training');
+    // 23:30 in Los Angeles, standard time: the reset is 30 minutes away.
+    a().now = () => DateTime.utc(2026, 11, 8, 7, 30);
+    pair.gateway.failNextWith(SyncGatewayFailure.quotaExhausted);
+
+    await a().sync();
+
+    expect(a().scheduler.pending, [const Duration(minutes: 35)]);
   });
 
   test('a stored quota mark is deleted by any call that reaches the space, '
@@ -314,23 +340,171 @@ void main() {
       expect((await a().sync()).skipped, isNull);
     });
 
-    test('a parked note shortened since is pushed at once', () async {
+    // A note no longer parks for its size (S6): a refusal parks it the same
+    // way, at its stamp.
+    test('a parked note edited since is pushed at once', () async {
       final folder = await a().db.folderDao.createFolder(name: 'Big');
       final note = await writeNote(
         a(),
         folderId: folder.id,
         title: 'Huge',
-        body: 'x' * 950000,
+        body: 'refused',
       );
+      pair.gateway.refuse('notes', note.id, SyncGatewayFailure.invalidData);
       expect((await a().sync()).parked, 1);
+      pair.gateway.accept('notes', note.id);
 
       await editNote(a(), note.id, 'short now');
       final report = await a().sync();
 
-      expect(report.pushedRows, 1);
+      expect(report.pushedRows, 2, reason: 'its new chunk and the manifest');
       expect(pair.gateway.rowsOf(pair.space, 'notes').keys, [note.id]);
       expect(a().engine.current.parkedCount, 0);
       expect(await a().db.syncOutboxDao.count(), 0);
+    });
+
+    test('a refused chunk parks the manifest naming it unsent: the bisect '
+        'never lands a manifest without its chunks, and both land once the '
+        'refusal lifts', () async {
+      final folder = await a().db.folderDao.createFolder(name: 'Log');
+      final note = await writeNote(
+        a(),
+        folderId: folder.id,
+        title: 'Log',
+        body: bigBody(60 * 1000),
+      );
+      final hashes = (await a().db.contentChunkDao.hashesOf(
+        note.id,
+      )).cast<String>();
+      expect(hashes.length, greaterThan(2));
+      final refused = hashes.first;
+      pair.gateway.refuse(
+        'content_chunks',
+        refused,
+        SyncGatewayFailure.invalidData,
+      );
+
+      final report = await a().sync();
+
+      expect(report.parked, 2, reason: 'the chunk and its manifest');
+      final chunks = pair.gateway.rowsOf(pair.space, 'content_chunks');
+      expect(chunks.keys, unorderedEquals(hashes.skip(1)));
+      expect(
+        pair.gateway.rowsOf(pair.space, 'notes'),
+        isNot(contains(note.id)),
+      );
+      expect(
+        (await a().db.syncOutboxDao.pending()).map((e) => e.rowKey),
+        unorderedEquals([refused, note.id]),
+      );
+      final onB = await pair.b.sync();
+      expect(onB.parked, 0);
+      expect(await pair.b.db.noteDao.getNoteById(note.id), isNull);
+
+      pair.gateway.accept('content_chunks', refused);
+      await a().engine.stop();
+      await a().engine.start();
+      await a().settle();
+
+      expect(
+        pair.gateway.rowsOf(pair.space, 'content_chunks'),
+        contains(refused),
+      );
+      expect(pair.gateway.rowsOf(pair.space, 'notes'), contains(note.id));
+      expect(await a().db.syncOutboxDao.count(), 0);
+      await pair.b.sync();
+      expect(
+        await pair.b.db.contentChunkDao.loadContent(note.id),
+        await a().db.contentChunkDao.loadContent(note.id),
+      );
+    });
+
+    test('a note another account owns has none of its chunks pushed into '
+        'this space when it is saved (D16)', () async {
+      final folder = await a().db.folderDao.createFolder(name: 'Shared');
+      const secret = 'Another account\'s plan';
+      final theirs = await a().db.noteDao.createNote(
+        folderId: folder.id,
+        title: 'Theirs',
+        content: secret,
+        ownerId: 'them',
+      );
+      await editNote(a(), theirs.id, '$secret, edited here');
+
+      await a().sync();
+
+      expect(pair.gateway.rowsOf(pair.space, 'content_chunks'), isEmpty);
+      expect([
+        for (final entry in await a().db.syncOutboxDao.pending())
+          if (entry.syncedTable == 'content_chunks') entry,
+      ], isEmpty);
+    });
+
+    test('a text another account\'s note held first is still pushed for our '
+        'note that holds it too, ahead of our manifest', () async {
+      final folder = await a().db.folderDao.createFolder(name: 'Shared');
+      // Past the wire cutover, whose re-queue would cover the gap.
+      await a().sync();
+      const text = 'Squat 5x5';
+      await a().db.noteDao.createNote(
+        folderId: folder.id,
+        title: 'Theirs',
+        content: text,
+        ownerId: 'them',
+      );
+      // Held as a restore leaves it: unqueued, as the bind's re-seed keeps
+      // every row of another account (D16).
+      await a().db.syncOutboxDao.clear();
+      final mine = await writeNote(
+        a(),
+        folderId: folder.id,
+        title: 'Mine',
+        body: text,
+      );
+
+      await a().sync();
+      final onB = await pair.b.sync();
+
+      final hash = (await a().db.contentChunkDao.hashesOf(mine.id)).single!;
+      expect(pair.gateway.rowsOf(pair.space, 'content_chunks').keys, [hash]);
+      expect(onB.parked, 0);
+      expect(await pair.b.db.contentChunkDao.loadContent(mine.id), text);
+    });
+
+    test('a manifest in a later part waits on a chunk the bisect parked in '
+        'an earlier one, though that chunk was pushed in the drain', () async {
+      final folder = await a().db.folderDao.createFolder(name: 'Log');
+      await a().sync();
+      const text = 'Bench 3x8';
+      final first = await writeNote(
+        a(),
+        folderId: folder.id,
+        title: 'Monday',
+        body: text,
+      );
+      final second = await writeNote(
+        a(),
+        folderId: folder.id,
+        title: 'Thursday',
+        body: text,
+      );
+      final hash = (await a().db.contentChunkDao.hashesOf(first.id)).single!;
+      // The chunk and the first manifest in one part, the second manifest in
+      // the next.
+      pair.gateway.maxBatch = 2;
+      pair.gateway.refuse(
+        'content_chunks',
+        hash,
+        SyncGatewayFailure.invalidData,
+      );
+
+      final report = await a().sync();
+
+      expect(report.parked, 3);
+      expect(
+        pair.gateway.rowsOf(pair.space, 'notes'),
+        isNot(anyOf(contains(first.id), contains(second.id))),
+      );
     });
 
     test(
@@ -403,6 +577,24 @@ void main() {
       expect(a().engine.current.pause, SyncPause.appOutdated);
       expect((await a().sync()).skipped, SyncRunSkip.appOutdated);
     });
+
+    // The chunked wire's gate (scalability record S6): a 45 build would
+    // read a manifest as a note with no body.
+    test(
+      'a space this build wrote holds a build at 45 to appOutdated',
+      () async {
+        expect(syncSchema, 46);
+        await pair.close();
+        pair = await SyncPair.open(buildSchema: 45);
+        await a().db.folderDao.createFolder(name: 'Training');
+
+        final report = await a().sync();
+
+        expect(report.failure, SyncGatewayFailure.permissionDenied);
+        expect(a().engine.current.pause, SyncPause.appOutdated);
+        expect((await a().sync()).skipped, SyncRunSkip.appOutdated);
+      },
+    );
 
     test('a space at a newer schema does not lift a noAccess pause', () async {
       await a().db.folderDao.createFolder(name: 'Training');
@@ -847,45 +1039,72 @@ void main() {
       expect(await a().db.syncOutboxDao.count(), 1);
     });
 
-    test('a note over 900 KB is parked before the push', () async {
+    // It was parked before the push until S6 carried a body in pieces.
+    test('a note over 900 KB crosses as its chunk documents and a manifest, '
+        'in one push, with nothing parked', () async {
       final folder = await a().db.folderDao.createFolder(name: 'Big');
       final note = await writeNote(
         a(),
         folderId: folder.id,
         title: 'Huge',
-        body: 'x' * 950000,
+        body: noiseBody(475000, seed: 1),
       );
 
       final report = await a().sync();
 
-      expect(report.parked, 1);
+      expect(report.parked, 0);
       expect(spaceFolders().keys, [folder.id]);
-      expect(pair.gateway.rowsOf(pair.space, 'notes'), isEmpty);
+      final manifest = pair.gateway.rowsOf(pair.space, 'notes')[note.id];
+      final named = (manifest!.data![NotesBinding.chunksKey]! as List)
+          .cast<String>();
+      expect(named.length, greaterThan(1));
       expect(
-        pair.gateway.calls.where((c) => c.startsWith('push')),
-        hasLength(1),
+        pair.gateway.rowsOf(pair.space, 'content_chunks').keys,
+        unorderedEquals(named.toSet()),
       );
-      expect(a().engine.current.parkedCount, 1);
-      expect((await a().db.syncOutboxDao.pending()).single.rowKey, note.id);
+      expect(
+        FakeSyncGateway.bytesOf(pair.gateway.pushes.single),
+        greaterThan(maxDocumentBytesToday),
+      );
+      expect(a().engine.current.parkedCount, 0);
+      expect(await a().db.syncOutboxDao.count(), 0);
     });
 
-    test('a drain cuts its batch at about 8 MiB of row data: ten notes of '
-        '850 KB go out as nine and one', () async {
+    test('a drain cuts its parts by a byte budget that starts at 2 MiB and '
+        'doubles after each full part: a folder and ten notes of 850 KB go '
+        'out as parts filled to 2 MiB, to 4 MiB, and the rest', () async {
       final folder = await a().db.folderDao.createFolder(name: 'Big');
       for (var i = 0; i < 10; i++) {
         await writeNote(
           a(),
           folderId: folder.id,
           title: 'Big $i',
-          body: 'x' * 850000,
+          body: noiseBody(425000, seed: i),
         );
       }
 
-      final report = await a().sync();
+      final (report, spacings) = await a().syncFiringSpacing();
 
       expect(report.failure, isNull);
       expect(report.parked, 0);
-      expect([for (final batch in pair.gateway.pushes) batch.length], [10, 1]);
+      // A part ends at a chunk, wherever its note's other chunks fall: each
+      // full part is within one chunk document of its budget (S10; it was
+      // three, four and four notes before S6, nine and one under the fixed
+      // 8 MiB cut).
+      final bytes = [
+        for (final batch in pair.gateway.pushes) FakeSyncGateway.bytesOf(batch),
+      ];
+      expect(bytes, hasLength(3));
+      const mib = 1024 * 1024;
+      const slack = ContentChunksBinding.maxGzBytes;
+      expect(bytes[0], inInclusiveRange(2 * mib - slack, 2 * mib));
+      expect(bytes[1], inInclusiveRange(4 * mib - slack, 4 * mib));
+      expect(bytes[2], lessThanOrEqualTo(8 * mib));
+      expect(
+        [for (final batch in pair.gateway.pushes) batch.length],
+        [95, 195, 173],
+      );
+      expect(spacings, 2, reason: 'the two parts cut by bytes wait');
       expect(pair.gateway.rowsOf(pair.space, 'notes'), hasLength(10));
       expect(await a().db.syncOutboxDao.count(), 0);
     });

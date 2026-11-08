@@ -10,6 +10,7 @@ import 'package:anta/services/folder_storage_service.dart';
 import 'package:anta/services/note_storage_service.dart';
 
 import '../database/support/db_test_support.dart';
+import 'support/body_index_support.dart';
 
 /// Searching "in this folder" means the folder **and everything under it**.
 ///
@@ -36,7 +37,10 @@ void main() {
     await folders.initialize();
     notes = NoteStorageService(repository: NoteRepository(database: db));
     await notes.initialize();
-    search = FolderSearchService(storageService: notes);
+    search = FolderSearchService(
+      storageService: notes,
+      indexer: bodyIndexerOver(db),
+    );
     await search.initialize();
 
     rootId = (await folders.createFolder(name: 'Training')).id;

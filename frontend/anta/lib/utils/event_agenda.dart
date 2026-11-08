@@ -8,6 +8,7 @@ import '../models/calendar_event.dart';
 import '../models/fasting_appearance.dart';
 import '../models/recurrence_rule.dart';
 import '../models/upcoming_agenda_filters.dart';
+import '../services/event_window_index.dart';
 import 'event_query_matcher.dart';
 import 'event_search_query.dart';
 import 'within_day_order.dart';
@@ -292,7 +293,10 @@ abstract final class EventAgenda {
       labelTextOf: labelTextOf,
     );
     final candidates = <CalendarEvent>[];
-    for (final event in events) {
+    // The one-time events of untouched months could not occur in the window,
+    // so they are never filtered, matched or partitioned.
+    final possible = EventWindowIndex.of(events).eventsPossiblyIn(start, end);
+    for (final event in possible) {
       if (!passesEventFilters(
         event,
         hiddenCategoryIds: hiddenCategoryIds,

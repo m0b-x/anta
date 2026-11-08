@@ -4,10 +4,11 @@ import '../../../models/item_label.dart';
 import '../sync_gateway.dart';
 import '../sync_table_binding.dart';
 
-/// `folders` on the wire: the folder map of `BackupService.exportAllData`,
-/// except its dates, which cross as epoch milliseconds under `createdAtMs` /
-/// `updatedAtMs` as every calendar table writes them — the backup's local
-/// ISO strings carry no offset, so two zones would read different instants.
+/// `folders` on the wire: the JSON backup's folder map, as
+/// `BackupService.importFromJson` reads it, except its dates, which cross as
+/// epoch milliseconds under `createdAtMs` / `updatedAtMs` as every calendar
+/// table writes them — the backup's local ISO strings carry no offset, so two
+/// zones would read different instants.
 final class FoldersBinding extends SyncTableBinding<Folder> {
   const FoldersBinding();
 

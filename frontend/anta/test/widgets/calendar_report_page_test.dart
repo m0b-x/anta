@@ -79,6 +79,7 @@ class _RecordingCalendarBloc extends CalendarBloc {
 
   final List<SetOccurrencePresence> marks = [];
   int loads = 0;
+  int fullLoads = 0;
 
   /// The digests the footer's Send hands over, kept off the digest store's
   /// database for the marks' reason.
@@ -94,7 +95,10 @@ class _RecordingCalendarBloc extends CalendarBloc {
       savedDigests.add(event.digest);
       return;
     }
-    if (event is LoadCalendarEvents) loads++;
+    // A Keep is answered with a re-emit of the service's cache (S14); a
+    // whole load is counted apart, so a stray one is still caught.
+    if (event is RefreshCalendarView) loads++;
+    if (event is LoadCalendarEvents) fullLoads++;
     super.add(event);
   }
 
@@ -3155,10 +3159,12 @@ void main() {
         final recording = bloc as _RecordingCalendarBloc;
         await open(tester);
         expect(recording.loads, 0);
+        final fullLoads = recording.fullLoads;
 
         AlertKeepNotice.instance.publish();
         await tester.pump();
         expect(recording.loads, 1);
+        expect(recording.fullLoads, fullLoads, reason: 'no whole load asked');
         expect(AlertKeepNotice.instance.hasPending, isTrue);
       });
 
@@ -3172,10 +3178,12 @@ void main() {
           () => AlertKeepNotice.instance.removeListener(calendarBeneath),
         );
         await open(tester);
+        final fullLoads = recording.fullLoads;
 
         AlertKeepNotice.instance.publish();
         await tester.pump();
         expect(recording.loads, 0);
+        expect(recording.fullLoads, fullLoads);
         expect(AlertKeepNotice.instance.hasPending, isFalse);
       });
     });

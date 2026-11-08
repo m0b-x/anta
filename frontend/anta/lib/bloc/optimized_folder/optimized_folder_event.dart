@@ -113,13 +113,3 @@ class RefreshFolders extends OptimizedFolderEvent {
   @override
   List<Object?> get props => [parentId];
 }
-
-class ReorderFolders extends OptimizedFolderEvent {
-  final String? parentId;
-  final List<String> orderedIds;
-
-  const ReorderFolders({this.parentId, required this.orderedIds});
-
-  @override
-  List<Object?> get props => [parentId, orderedIds];
-}

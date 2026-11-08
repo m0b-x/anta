@@ -16,6 +16,7 @@ import 'bloc/counter/counter_bloc.dart';
 import 'bloc/import_export/import_export_bloc.dart';
 import 'bloc/markdown_bar/markdown_bar_bloc.dart';
 import 'constants/app_colors.dart';
+import 'constants/app_constants.dart';
 import 'constants/app_icon_sizes.dart';
 import 'constants/app_spacing.dart';
 import 'constants/app_theme.dart';
@@ -23,6 +24,7 @@ import 'core/di/injection.dart';
 import 'core/qa/qa_bootstrap.dart';
 import 'core/qa/qa_mode.dart';
 import 'core/qa/qa_overrides.dart';
+import 'database/database.dart';
 import 'models/alert_payload.dart';
 import 'models/calendar_event.dart';
 import 'pages/alarm_page.dart';
@@ -34,6 +36,7 @@ import 'services/alert_removal_notice.dart';
 import 'services/alert_scheduler.dart';
 import 'services/alert_skip_notice.dart';
 import 'services/app_navigator.dart';
+import 'services/body_search_indexer.dart';
 import 'services/calendar_event_service.dart';
 import 'services/counter_service.dart';
 import 'services/database_manager.dart';
@@ -46,14 +49,13 @@ import 'services/permission_service.dart';
 import 'services/session_chip.dart';
 import 'services/settings_service.dart';
 import 'services/window_insets_resync.dart';
+import 'widgets/app_bootstrap.dart';
+import 'widgets/app_system_bars.dart';
 import 'widgets/keyboard_inset_guard.dart';
 import 'widgets/lock_screen_curtain.dart';
 import 'widgets/permission_prompt_dialog.dart';
 
-/// How much of an exception string the on-screen placeholder carries. Long
-/// enough to name the widget and the assertion, short enough that the box
-/// stays a caption rather than a wall of stack frames.
-const int _errorDetailLimit = 300;
+export 'widgets/app_system_bars.dart' show AppSystemBars;
 
 const Duration _launchIntentPatience = Duration(seconds: 5);
 
@@ -124,8 +126,8 @@ AppLocalizations? _errorLocalizations() {
 Widget buildAppErrorWidget(FlutterErrorDetails details) {
   final l10n = _errorLocalizations();
   final raw = details.exceptionAsString();
-  final error = raw.length > _errorDetailLimit
-      ? '${raw.substring(0, _errorDetailLimit)}…'
+  final error = raw.length > AppConstants.errorDetailLimit
+      ? '${raw.substring(0, AppConstants.errorDetailLimit)}…'
       : raw;
   final title =
       l10n?.renderErrorTitle ?? 'This part of the screen could not be drawn';
@@ -214,6 +216,43 @@ void installErrorHooks() {
   };
 }
 
+/// Opens the database through [open] for launch, and completes once it is
+/// open. [AppBootstrap]'s updating state is shown through [show] (`runApp`
+/// in the app) only if the open runs a migration; a failed open shows its
+/// failed state, so launch waits on a message rather than a blank frame, and
+/// its Retry shows the opening state and runs [open] again. A failed open
+/// leaves no instance behind (`AppDatabase.getInstance` drops its memo), so
+/// the retry starts clean. The upgrade hook stays set after a success:
+/// the caller clears it once the services that could open a database are up.
+Future<void> openDatabaseForLaunch({
+  required Future<Object> Function() open,
+  void Function(Widget app) show = runApp,
+}) async {
+  var attempt = 0;
+  while (true) {
+    AppDatabase.onUpgradeStarting = () => show(const AppBootstrap.updating());
+    try {
+      await open();
+      return;
+    } catch (e, st) {
+      AppDatabase.onUpgradeStarting = null;
+      debugPrint('[main] database open failed: $e\n$st');
+      final retry = Completer<void>();
+      show(
+        AppBootstrap.failed(
+          e,
+          attempt: ++attempt,
+          onRetry: () {
+            if (!retry.isCompleted) retry.complete();
+          },
+        ),
+      );
+      await retry.future;
+      show(const AppBootstrap.opening());
+    }
+  }
+}
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   // Namespaces preferences and honours a reset marker before anything opens
@@ -229,6 +268,10 @@ void main() async {
       systemNavigationBarDividerColor: Colors.transparent,
     ),
   );
+
+  // Before Firebase and the services, so a migration is the first thing
+  // launch waits on and the only time it shows anything before the app.
+  await openDatabaseForLaunch(open: AppDatabase.getInstance);
 
   // Degrade to local-only rather than blocking launch: a checkout without
   // `google-services.json` must still start, just without sync.
@@ -248,6 +291,7 @@ void main() async {
   }
 
   await configureDependencies();
+  AppDatabase.onUpgradeStarting = null;
 
   await _primeLockScreenState();
 
@@ -265,6 +309,15 @@ void main() async {
   // (crashes, denied share dialogs, files from prior installs). Fire
   // and forget so app launch isn't gated on filesystem hygiene.
   unawaited(getIt<ImportExportService>().sweepStaleExports());
+
+  // An import the app died in leaves its temporary copy beside the
+  // databases. Awaited, unlike the sweep above: it lists one small directory,
+  // and only before the first frame is it certain that no import is running.
+  try {
+    await (await DatabaseManager.getInstance()).sweepStaleImports();
+  } catch (e) {
+    debugPrint('[main] import sweep skipped: $e');
+  }
 
   runApp(const MyApp());
 }
@@ -316,13 +369,18 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     PendingNavigationQueue.instance.addListener(_scheduleNavigationDrain);
     _listenForRings();
     _checkOnboarding();
-    // Post-frame and unawaited: the launch reconcile reads four services and
-    // talks to the platform, and none of that may sit between the user and
-    // the first frame. `all`, because a launch is the one moment nothing has
+    // Post-frame and unawaited: the launch reconcile reads the calendar's
+    // services and the event store and talks to the platform (with nothing
+    // that can arm, a few rows and the platform's pending list), and none of
+    // that may sit between the user and the first frame. `all`, because a
+    // launch is the one moment nothing has
     // told us what changed — a reboot, a force stop, a clock change and a
     // week of skipped occurrences all look the same from here.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       unawaited(_reconcileAlerts(AlertReconcileReason.launch));
+      // The body search index catches up in the background, page by page,
+      // and again after each database switch.
+      BodySearchIndexer.startAfterLaunch();
     });
   }
 
@@ -639,6 +697,15 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     }
   }
 
+  /// The note bodies cached for quick reopening are the app's largest
+  /// droppable memory: the OS asking for memory back gets them first.
+  @override
+  void didHaveMemoryPressure() {
+    if (getIt.isRegistered<NoteRepository>()) {
+      getIt<NoteRepository>().invalidateAll();
+    }
+  }
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.paused ||
@@ -817,45 +884,5 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     }
 
     return const OptimizedFolderContentPage(folderId: null, title: 'ANTA');
-  }
-}
-
-/// The system bars over every page, keyed on the theme the app resolved
-/// rather than the phone's: under the dark theme the navigation band would
-/// otherwise keep the launch style's dark buttons over a light scrim (U2.10).
-/// A page with its own region (an app bar's status bar, the ring screen's
-/// ground) still wins where it is drawn.
-class AppSystemBars extends StatelessWidget {
-  /// Wraps [child], the app's navigator.
-  const AppSystemBars({super.key, required this.child});
-
-  /// The app's navigator.
-  final Widget child;
-
-  /// The style over a ground of [brightness]: transparent bars, buttons in
-  /// the opposite brightness, and no contrast scrim, which Android paints as
-  /// a light band under the dark theme.
-  static SystemUiOverlayStyle over(Brightness brightness) {
-    final icons = brightness == Brightness.dark
-        ? Brightness.light
-        : Brightness.dark;
-    return SystemUiOverlayStyle(
-      statusBarColor: Colors.transparent,
-      statusBarIconBrightness: icons,
-      // iOS names the bar's background, not its icons.
-      statusBarBrightness: brightness,
-      systemNavigationBarColor: Colors.transparent,
-      systemNavigationBarDividerColor: Colors.transparent,
-      systemNavigationBarIconBrightness: icons,
-      systemNavigationBarContrastEnforced: false,
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AnnotatedRegion<SystemUiOverlayStyle>(
-      value: over(Theme.of(context).brightness),
-      child: child,
-    );
   }
 }

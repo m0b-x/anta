@@ -1,10 +1,12 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 
 import 'package:anta/database/database.dart';
+import 'package:anta/services/database_manager.dart';
 import 'package:anta/repositories/folder_repository.dart';
 import 'package:anta/repositories/note_repository.dart';
 import 'package:anta/services/folder_storage_service.dart';
@@ -15,8 +17,9 @@ import '../database/support/db_test_support.dart';
 
 /// What `shareExport` leaves behind: a temporary export is deleted after the
 /// share sheet returns, however it returned, and a file the app keeps —
-/// `ExportResult.file`, the live database the Databases page shares — never
-/// is (S6 of the settings rework, `docs/settings-rework-roadmap.md`).
+/// `ExportResult.file` — never is (S6 of the settings rework,
+/// `docs/settings-rework-roadmap.md`). The database share's snapshot has its
+/// own rule, at the end.
 ///
 /// Every file here is closed. On Windows an open file cannot be deleted at
 /// all and `cleanupExport` swallows the failure, so a test over an open file
@@ -44,6 +47,11 @@ void main() {
       noteRepository: notes,
     );
     dir = await Directory.systemTemp.createTemp('anta_export_result');
+    // The temp directory a snapshot's folder must sit directly in.
+    messenger.setMockMethodCallHandler(
+      const MethodChannel('plugins.flutter.io/path_provider'),
+      (call) async => dir.path,
+    );
   });
 
   tearDown(() async {
@@ -130,5 +138,118 @@ void main() {
     );
 
     expect(kept.readAsStringSync(), 'payload');
+  });
+
+  // S18 (D11): the Databases page shares a snapshot, alone in a folder of its
+  // own, which goes only once the share sheet is done reading it.
+  group('a database snapshot', () {
+    /// A snapshot as `DatabaseManager.snapshotForShare` leaves it.
+    File snapshot() {
+      final folder = Directory(
+        p.join(dir.path, '${DatabaseManager.shareSnapshotPrefix}1'),
+      )..createSync();
+      return File(p.join(folder.path, 'gym_notes.db'))
+        ..writeAsStringSync('payload');
+    }
+
+    void onPlatform(TargetPlatform platform) {
+      debugDefaultTargetPlatformOverride = platform;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+    }
+
+    /// What Android answers once the user picked a target: its package.
+    const picked = 'org.example.mail';
+
+    test('is temporary and named as a snapshot', () {
+      const result = ExportResult.snapshot('a');
+      expect(result.isTemporary, isTrue);
+      expect(result.isSnapshot, isTrue);
+      expect(const ExportResult(filePath: 'a').isSnapshot, isFalse);
+      expect(const ExportResult.file('a').isSnapshot, isFalse);
+    });
+
+    test(
+      'on Android goes with its folder once the sheet has its copy',
+      () async {
+        onPlatform(TargetPlatform.android);
+        messenger.setMockMethodCallHandler(
+          shareChannel,
+          (call) async => picked,
+        );
+        final file = snapshot();
+
+        await service.shareExport(ExportResult.snapshot(file.path));
+
+        expect(file.parent.existsSync(), isFalse);
+      },
+    );
+
+    test('waits when Android cannot say whether the sheet is done', () async {
+      onPlatform(TargetPlatform.android);
+      messenger.setMockMethodCallHandler(shareChannel, (call) async => null);
+      final file = snapshot();
+
+      await service.shareExport(ExportResult.snapshot(file.path));
+
+      expect(file.readAsStringSync(), 'payload');
+    });
+
+    for (final platform in [TargetPlatform.windows, TargetPlatform.macOS]) {
+      test('waits on ${platform.name}, where the sheet may still read the '
+          'path after the share returns', () async {
+        onPlatform(platform);
+        messenger.setMockMethodCallHandler(
+          shareChannel,
+          (call) async => picked,
+        );
+        final file = snapshot();
+
+        await service.shareExport(ExportResult.snapshot(file.path));
+
+        expect(file.readAsStringSync(), 'payload');
+      });
+    }
+
+    test(
+      'a share that throws takes the folder: no sheet ever had it',
+      () async {
+        onPlatform(TargetPlatform.windows);
+        messenger.setMockMethodCallHandler(
+          shareChannel,
+          (call) async => throw PlatformException(code: 'share_failed'),
+        );
+        final file = snapshot();
+
+        await expectLater(
+          service.shareExport(ExportResult.snapshot(file.path)),
+          throwsA(isA<PlatformException>()),
+        );
+
+        expect(file.parent.existsSync(), isFalse);
+      },
+    );
+
+    test('cleanup never deletes a folder no snapshot made', () async {
+      final folder = Directory(p.join(dir.path, 'documents'))..createSync();
+      final file = File(p.join(folder.path, 'gym_notes.db'))
+        ..writeAsStringSync('payload');
+
+      await service.cleanupExport(ExportResult.snapshot(file.path));
+
+      expect(file.readAsStringSync(), 'payload');
+    });
+
+    test('cleanup never deletes a prefixed folder outside the temp '
+        'directory itself', () async {
+      final folder = Directory(
+        p.join(dir.path, 'nested', '${DatabaseManager.shareSnapshotPrefix}1'),
+      )..createSync(recursive: true);
+      final file = File(p.join(folder.path, 'gym_notes.db'))
+        ..writeAsStringSync('payload');
+
+      await service.cleanupExport(ExportResult.snapshot(file.path));
+
+      expect(file.readAsStringSync(), 'payload');
+    });
   });
 }

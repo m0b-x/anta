@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
+
 import 'ghost_text.dart';
 import 'markdown_callout_syntax.dart';
 import 'markdown_chunker.dart';
@@ -26,6 +28,11 @@ import 'markdown_money_syntax.dart';
 /// which is why every line contributes rather than only the first.
 class MarkdownPlainText {
   MarkdownPlainText._();
+
+  /// How many source lines the last [strip] split off its content — the
+  /// pin that a capped preview of a large note reads only its first lines.
+  @visibleForTesting
+  static int lastLinesRead = 0;
 
   /// How deep a quoted block may nest another block shape before the
   /// walk stops unwrapping and emits the rest inline.
@@ -59,7 +66,10 @@ class MarkdownPlainText {
     if (content.isEmpty) return '';
 
     final out = StringBuffer();
-    final lines = const LineSplitter().convert(content);
+    // Split only as far as the walk reads: a capped preview of a long note
+    // stops after its first lines instead of splitting every line on every
+    // save (the walk only appends, so the cut-off text is the same).
+    final lines = _LineWindow(content);
     var state = MarkdownChunker.outsideBlock;
     // The open callout, stepped as the chunker steps it: only the line
     // that opens a block is its lead, so a `[!x]` on a body line stays
@@ -68,9 +78,15 @@ class MarkdownPlainText {
     // The previous line when it sat outside every fence and comment, the
     // only kind a setext underline can belong to.
     String? previous;
-    // A front matter is metadata, not text: the block is dropped whole.
-    final body = MarkdownChunker.frontMatterEnd(lines.length, (i) => lines[i]);
-    for (var i = body; i < lines.length; i++) {
+    // A front matter is metadata, not text: the block is dropped whole. The
+    // scan reads only as far as its stop, so it is handed an unbounded count
+    // and a blank line past the end — blank is neither a property nor a
+    // closer, so it stops there exactly where the true count would.
+    final body = MarkdownChunker.frontMatterEnd(
+      _LineWindow.unbounded,
+      (i) => lines.has(i) ? lines[i] : '',
+    );
+    for (var i = body; lines.has(i); i++) {
       final line = lines[i];
       final entry = state;
       state = MarkdownChunker.blockStateAfter(line, state);
@@ -90,27 +106,37 @@ class MarkdownPlainText {
       final openBefore = callout;
       callout = MarkdownCalloutSyntax.blockStep(line, callout);
       final isLead = openBefore == null && callout != null;
-      final next = i + 1 < lines.length ? lines[i + 1] : null;
       // A trailing `\` breaks the line only where the paragraph continues,
       // and never on a setext heading's text line. Only a line that ends
       // in one pays the paragraph test.
       final hardBreaks =
-          next != null &&
           line.endsWith(r'\') &&
+          lines.has(i + 1) &&
           MarkdownChunker.continuesParagraph(
             line,
-            next,
-            i + 2 < lines.length ? lines[i + 2] : null,
+            lines[i + 1],
+            lines.has(i + 2) ? lines[i + 2] : null,
           ) &&
-          MarkdownLineShape.setextLevelOf(line, next) == 0;
+          MarkdownLineShape.setextLevelOf(line, lines[i + 1]) == 0;
       final before = out.length;
       _line(line, out, palette, 0, money, hardBreaks, isLead: isLead);
-      if (out.length > before) out.write(' ');
+      if (out.length > before) {
+        out.write(' ');
+        // Once the collapsed text runs past the cap, later lines can only
+        // land beyond the cut. The raw length bounds the collapsed one, so
+        // the collapse is paid only past the cap.
+        if (maxLength > 0 &&
+            out.length > maxLength &&
+            _collapse(out.toString()).length > maxLength) {
+          break;
+        }
+      }
     }
+    lastLinesRead = lines.read;
 
     final collapsed = _collapse(out.toString());
     final text = collapsed.isEmpty
-        ? _collapse(_uncommented(lines.sublist(body), palette))
+        ? _collapse(_uncommented(lines.all.sublist(body), palette))
         : collapsed;
     return _cap(text, maxLength);
   }
@@ -475,5 +501,44 @@ class MarkdownPlainText {
       }
     }
     if (plainFrom < end) out.write(text.substring(plainFrom, end));
+  }
+}
+
+/// The lines of a text as [LineSplitter] cuts them, split only as far as
+/// they are read.
+class _LineWindow {
+  _LineWindow(String text) : _source = LineSplitter.split(text).iterator;
+
+  /// A line count no note reaches, for a scan that must not split ahead.
+  static const int unbounded = 1 << 30;
+
+  final Iterator<String> _source;
+  final List<String> _lines = [];
+  bool _done = false;
+
+  /// How many lines have been split off so far.
+  int get read => _lines.length;
+
+  /// Whether line [index] exists, splitting up to it.
+  bool has(int index) {
+    while (_lines.length <= index && !_done) {
+      if (_source.moveNext()) {
+        _lines.add(_source.current);
+      } else {
+        _done = true;
+      }
+    }
+    return index < _lines.length;
+  }
+
+  /// Line [index], already reached through [has].
+  String operator [](int index) => _lines[index];
+
+  /// Every line, splitting the rest.
+  List<String> get all {
+    while (!_done) {
+      has(_lines.length);
+    }
+    return _lines;
   }
 }

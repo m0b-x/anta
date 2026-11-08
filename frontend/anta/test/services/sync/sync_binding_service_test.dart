@@ -233,28 +233,29 @@ void main() {
       );
       expect(bound.boundAt, isNotNull);
       for (final table in syncedTables) {
-        if (table.travelsWithParent) continue;
+        if (table.contentAddressed) continue;
         expect(await unowned(table.name), 0, reason: table.name);
       }
       expect(
         await unowned('content_chunks'),
         greaterThan(0),
-        reason: 'chunks travel inside their note and stay unowned',
+        reason: 'a chunk is pushed under the bound account, its row unowned',
       );
       final queued = {
         for (final e in await db.syncOutboxDao.pending())
           '${e.syncedTable}/${e.rowKey}',
       };
+      final hash = (await db.contentChunkDao.hashesOf(note.id)).single;
       expect(
         queued,
         containsAll([
           'folders/${folder.id}',
           'notes/${note.id}',
+          'content_chunks/$hash',
           'counters/c1',
           'counter_values/c1|',
         ]),
       );
-      expect(queued.where((k) => k.startsWith('content_chunks/')), isEmpty);
       await expectNoPullState();
       expect(await db.syncDao.getValue(SyncDao.keyBindMergePending), '1');
       expect(await service.bindFloor(), isNotNull);
@@ -287,6 +288,63 @@ void main() {
       expect(await service.bindFloor(), isNot(atBind));
       expect(await service.bindFloor(), db.hlc.last.toString());
     });
+
+    test('mints a fresh replica id at every bind and unbind, never the '
+        'device id (S20)', () async {
+      final unbound = await db.syncDao.replicaId();
+
+      await service.bind(space: space, accountUid: 'account-1');
+      final bound = await db.syncDao.getValue(SyncDao.keyReplicaId);
+      await service.unbind();
+      final released = await db.syncDao.getValue(SyncDao.keyReplicaId);
+      await service.bind(space: space, accountUid: 'account-1');
+      final rebound = await db.syncDao.getValue(SyncDao.keyReplicaId);
+
+      expect({unbound, bound, released, rebound}, hasLength(4));
+      expect([bound, released, rebound], isNot(contains(db.deviceId)));
+    });
+
+    test('a database with no replica id mints one at its first tap and '
+        'keeps it (S20)', () async {
+      expect(await db.syncDao.getValue(SyncDao.keyReplicaId), isNull);
+
+      await db.counterDao.applyCount('c1', '', delta: 1, startValue: 0);
+      final minted = await db.syncDao.getValue(SyncDao.keyReplicaId);
+      await db.counterDao.applyCount('c1', '', delta: 1, startValue: 0);
+
+      expect(minted, isNotNull);
+      expect(await db.syncDao.getValue(SyncDao.keyReplicaId), minted);
+      final row = await db.select(db.counterValues).getSingle();
+      expect(row.shards, '{"$minted":[2,0]}');
+      expect(row.value, 2);
+    });
+
+    test(
+      'a replica id minted under another install\'s device id is replaced '
+      'at the first read, the old shard kept in the count (re-review N1)',
+      () async {
+        await db.syncDao.setValue(SyncDao.keyReplicaId, 'old-phone-replica');
+        await db.syncDao.setValue(SyncDao.keyReplicaIdDevice, db.deviceId);
+        await db.counterDao.applyCount('c1', '', delta: 3, startValue: 0);
+        // The file as Android backup lands it on a new phone: its sync_metadata
+        // whole, the install's device id not.
+        await db.syncDao.setValue(SyncDao.keyReplicaIdDevice, 'old-phone');
+
+        final fresh = await db.syncDao.replicaId();
+        await db.counterDao.applyCount('c1', '', delta: 2, startValue: 0);
+
+        expect(fresh, isNot('old-phone-replica'));
+        expect(await db.syncDao.replicaId(), fresh);
+        expect(
+          await db.syncDao.getValue(SyncDao.keyReplicaIdDevice),
+          db.deviceId,
+        );
+        final row = await db.select(db.counterValues).getSingle();
+        expect(row.value, 5);
+        expect(row.shards, contains('"old-phone-replica":[3,0]'));
+        expect(row.shards, contains('"$fresh":[2,0]'));
+      },
+    );
 
     test('clears the note of a heal that unbound this database as a copy '
         '(review X-2)', () async {

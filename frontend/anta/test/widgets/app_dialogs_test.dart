@@ -442,4 +442,98 @@ void main() {
       expect(acted, 1);
     });
   });
+
+  testWidgets('progress: the step\'s line and bar follow the work, Cancel is '
+      'disabled rather than hidden, the height never moves, and neither the '
+      'barrier nor back closes it', (tester) async {
+    final semantics = tester.ensureSemantics();
+    // A phone's width, and a second step that wraps where the first does
+    // not: a dialog sized by the shown line alone would grow at the switch.
+    tester.view.physicalSize = const Size(360, 640);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    const short = 'Copying';
+    const long =
+        'Checking the whole file, page by page, before it may become one of '
+        'your databases';
+    final state = ValueNotifier<ProgressDialogState>((
+      step: 0,
+      fraction: 0.4,
+      canCancel: true,
+    ));
+    addTearDown(state.dispose);
+    var cancels = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        locale: const Locale('en'),
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: Center(
+              child: TextButton(
+                onPressed: () => AppDialogs.progress(
+                  context,
+                  steps: const [short, long],
+                  listenable: state,
+                  read: () => state.value,
+                  onCancel: () => cancels++,
+                ),
+                child: const Text('open'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('open'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    LinearProgressIndicator bar() =>
+        tester.widget(find.byType(LinearProgressIndicator));
+    TextButton cancel() => tester.widget(
+      find.descendant(
+        of: find.bySemanticsIdentifier(SemanticsIds.sheetCancel),
+        matching: find.byType(TextButton),
+      ),
+    );
+    final surface = find
+        .descendant(
+          of: find.byType(AlertDialog),
+          matching: find.byType(Material),
+        )
+        .first;
+
+    // The hidden step counts as offstage to a finder, though it is laid out.
+    expect(
+      tester.getSize(find.text(long, skipOffstage: false)).height,
+      greaterThan(tester.getSize(find.text(short)).height),
+      reason: 'the second step wraps, so the pin below can fail',
+    );
+    expect(bar().value, 0.4);
+    expect(find.bySemanticsLabel(short), findsOneWidget);
+    expect(find.bySemanticsLabel(long), findsNothing);
+    final copyingSize = tester.getSize(surface);
+    await tester.tap(find.text('Cancel'));
+    expect(cancels, 1);
+
+    state.value = (step: 1, fraction: null, canCancel: false);
+    await tester.pump();
+
+    expect(bar().value, isNull);
+    expect(cancel().onPressed, isNull);
+    expect(find.text('Cancel'), findsOneWidget);
+    expect(find.bySemanticsLabel(long), findsOneWidget);
+    expect(find.bySemanticsLabel(short), findsNothing);
+    expect(tester.getSize(surface), copyingSize);
+
+    await tester.tapAt(const Offset(4, 4));
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.binding.handlePopRoute();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.byType(AlertDialog), findsOneWidget);
+
+    semantics.dispose();
+  });
 }

@@ -36,7 +36,7 @@ This is the minimum bar for any Dart change. Also analyze `packages/re_editor/li
 ## 3. Tests
 
 ```zsh
-flutter test                                             # whole suite (~6,800 tests, benchmarks skipped, ~75 s on the Mac)
+flutter test                                             # whole suite (~13,900 tests, benchmarks skipped; ~5 min on the Windows machine, measured 2026-11-07)
 flutter test test/utils/markdown_money_syntax_test.dart  # single file
 flutter test test/qa --plain-name "escaping"             # single case
 flutter test --tags benchmark --run-skipped              # seeded-volume DB timings

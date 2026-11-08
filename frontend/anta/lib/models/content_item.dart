@@ -5,11 +5,10 @@ import 'note_metadata.dart';
 /// Discriminated union representing a single entry in a unified
 /// folder + note ordering.
 ///
-/// Folders and notes live in separate tables with separate `position`
-/// columns, but the user-visible order in selection / position mode is a
-/// single shared sequence. [ContentItem] is the in-memory wrapper used by
-/// the UI and by [MixedReorderService] to operate on that unified sequence
-/// without leaking the underlying split.
+/// Folders and notes live in separate tables, each with its own `position`
+/// sequence, and the browser shows them as one list, folders first.
+/// [ContentItem] is the in-memory wrapper the UI and [MixedReorderService]
+/// pass that list around in without leaking the underlying split.
 sealed class ContentItem {
   const ContentItem();
 
@@ -56,10 +55,9 @@ class NoteItem extends ContentItem {
 /// The browser's display ordering: every folder, then every note, each group
 /// left in the order its own sort preference produced.
 ///
-/// Cross-kind interleaving is no longer shown — folders are a group with a
-/// label of their own — but the two `position` columns still share one index
-/// space, so a reorder within either group round-trips through
-/// [MixedReorderService] unchanged.
+/// Cross-kind interleaving is not shown — folders are a group with a label of
+/// their own — so each kind keeps its own `position` sequence and a reorder
+/// within either group round-trips through [MixedReorderService] unchanged.
 List<ContentItem> groupFoldersThenNotes({
   required List<Folder> folders,
   required List<NoteMetadata> notes,
@@ -81,30 +79,4 @@ List<ContentItem> regroupFoldersThenNotes(List<ContentItem> items) {
     for (final item in items)
       if (item is NoteItem) item,
   ];
-}
-
-/// Stable client-side merge of two already-sorted (by `position` ascending)
-/// lists into a single unified ordering. When both items share the same
-/// position, folders win the tie so the result is deterministic.
-List<ContentItem> mergeByPosition({
-  required List<Folder> folders,
-  required List<NoteMetadata> notes,
-}) {
-  final result = <ContentItem>[];
-  var i = 0;
-  var j = 0;
-  while (i < folders.length && j < notes.length) {
-    if (folders[i].position <= notes[j].position) {
-      result.add(FolderItem(folders[i++]));
-    } else {
-      result.add(NoteItem(notes[j++]));
-    }
-  }
-  while (i < folders.length) {
-    result.add(FolderItem(folders[i++]));
-  }
-  while (j < notes.length) {
-    result.add(NoteItem(notes[j++]));
-  }
-  return result;
 }

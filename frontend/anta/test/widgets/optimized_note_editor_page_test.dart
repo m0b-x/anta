@@ -173,10 +173,7 @@ void main() {
     // unmounts a leftover tree at the *start* of the next test — closing
     // them between tests turns any earlier failure into a confusing
     // "cannot add new events after calling close" cascade.
-    noteBloc = _TestNoteBloc(
-      storageService: storageService,
-      searchService: searchService,
-    );
+    noteBloc = _TestNoteBloc(storageService: storageService);
     barBloc = _RecordingBarBloc(
       barService: await MarkdownBarService.getInstance(),
     );
@@ -1727,16 +1724,6 @@ void main() {
             updatedAt: DateTime(2026, 9, 1),
           ),
         );
-        // `insertNote` is the raw row write; the DAO's own create path
-        // indexes right after it, and the seed has to as well. `notes_fts`
-        // is an external-content FTS5 table, so hard-deleting a row that
-        // was never indexed makes SQLite delete a term list that does not
-        // exist — reported as a malformed database image.
-        await db.customStatement(
-          'INSERT OR REPLACE INTO notes_fts(rowid, title, preview) '
-          'SELECT rowid, ?, ? FROM notes WHERE id = ?',
-          ['Training log', '', noteId],
-        );
       });
 
       final controller = await loadAndPark(
@@ -2115,13 +2102,6 @@ void main() {
             updatedAt: DateTime(2026, 9, 1),
           ),
         );
-        // Indexed as the self-link case explains: hard-deleting a row
-        // `notes_fts` never saw reads as a malformed database image.
-        await db.customStatement(
-          'INSERT OR REPLACE INTO notes_fts(rowid, title, preview) '
-          'SELECT rowid, ?, ? FROM notes WHERE id = ?',
-          ['Training log', '', noteId],
-        );
       });
       final text = <String>[
         'see [[Training log#Cool-down]] now',
@@ -2220,10 +2200,6 @@ void main() {
     });
 
     tearDown(() async {
-      // Both rows went in through the service, so the DAO's create path
-      // indexed them; hard-deleting an unindexed row out of the
-      // external-content `notes_fts` table is what reads as a malformed
-      // database image.
       await db.noteDao.hardDeleteNote(host.id);
       await db.noteDao.hardDeleteNote(linkTarget.id);
       await db.folderDao.hardDeleteFolder(stackFolder.id);
@@ -4163,6 +4139,93 @@ void main() {
       await teardownPage(tester);
     });
 
+    // S5 review — a large note's first load splits its lines off the UI
+    // isolate; a merge announced before that load lands found no text to
+    // compare against, and the pre-merge body the load carried was adopted.
+    testWidgets('a merge announced while a large note loads is not buried', (
+      tester,
+    ) async {
+      final preMerge = 'old line\n' * 40000;
+      await pumpPageFor(tester, synced);
+
+      await mergeFromElsewhere(
+        tester,
+        synced.id,
+        text: 'merged elsewhere',
+        settleAfter: false,
+      );
+      await tester.pump();
+      noteBloc.emitContentLoaded(synced, preMerge);
+      await tester.pump();
+      // The split runs on a real isolate.
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 500)),
+      );
+      await settleUntil(tester, () => editorFinder.evaluate().isNotEmpty);
+      final controller = editorOf(tester).controller;
+      await settleUntil(tester, () => controller.text == 'merged elsewhere');
+
+      expect(controller.text, 'merged elsewhere');
+      expect(appBar(tester).hasChanges, isFalse);
+      expect(await storedBody(tester, synced.id), 'merged elsewhere');
+      OverlaySnackbar.hide();
+      await teardownPage(tester);
+    });
+
+    // The replay's data-safety branch: a keystroke made once the large load
+    // has landed, while the replayed handler reads the row, makes the typed
+    // text the newer one — the arriving body is filed as a copy, not adopted.
+    testWidgets('a merge replayed after a large load files a copy when the '
+        'user typed meanwhile', (tester) async {
+      final preMerge = 'old line\n' * 40000;
+      useFlakyStorage();
+      final reading = Completer<void>();
+      flakyStorage.loadGate = reading;
+      await pumpPageFor(tester, synced);
+
+      await mergeFromElsewhere(
+        tester,
+        synced.id,
+        text: 'merged elsewhere',
+        settleAfter: false,
+      );
+      await tester.pump();
+      noteBloc.emitContentLoaded(synced, preMerge);
+      await tester.pump();
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 500)),
+      );
+      await settleUntil(tester, () => editorFinder.evaluate().isNotEmpty);
+      final controller = editorOf(tester).controller;
+      await settleUntil(tester, () => flakyStorage.loads > 0);
+      expect(controller.text, preMerge);
+
+      type(controller, 'mine ');
+      await tester.pump();
+      flakyStorage.loadGate = null;
+      reading.complete();
+      await settleUntil(
+        tester,
+        () => shown(
+          "Another device's version was saved as a copy",
+        ).evaluate().isNotEmpty,
+      );
+
+      expect(controller.text, 'mine $preMerge');
+      final filed = await copies(tester);
+      expect(filed, hasLength(1));
+      expect(
+        await tester.runAsync(
+          () => db.contentChunkDao.loadContent(filed.single.id),
+        ),
+        'merged elsewhere',
+      );
+      OverlaySnackbar.hide();
+      await autosave(tester);
+      expect(await storedBody(tester, synced.id), 'mine $preMerge');
+      await teardownPage(tester);
+    });
+
     testWidgets('a dirty editor keeps the typed text and files the arriving '
         'text as one conflict copy', (tester) async {
       final controller = await open(tester);
@@ -5370,7 +5433,7 @@ class _RecordingBarBloc extends MarkdownBarBloc {
 /// the moment the note's text reaches the page. Everything else — the state
 /// classes, the listener wiring, the page's own handling — stays real.
 class _TestNoteBloc extends OptimizedNoteBloc {
-  _TestNoteBloc({required super.storageService, required super.searchService});
+  _TestNoteBloc({required super.storageService});
 
   /// Every event the page dispatched, in order. The save cases assert on
   /// what the page *asked* for rather than on what the database ended up

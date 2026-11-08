@@ -7,6 +7,7 @@ import 'package:anta/services/folder_search_service.dart';
 import 'package:anta/services/note_storage_service.dart';
 
 import '../database/support/db_test_support.dart';
+import 'support/body_index_support.dart';
 
 /// Where a match is, in the text the row actually paints.
 ///
@@ -29,7 +30,10 @@ void main() {
     db = await openTestDatabase();
     notes = NoteStorageService(repository: NoteRepository(database: db));
     await notes.initialize();
-    search = FolderSearchService(storageService: notes);
+    search = FolderSearchService(
+      storageService: notes,
+      indexer: bodyIndexerOver(db),
+    );
     await search.initialize();
     folder = await db.folderDao.createFolder(name: 'Training');
   });
