@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:drift/native.dart';
@@ -52,6 +53,29 @@ void main() {
       await openDatabaseForLaunch(open: () async => Object(), show: shown.add);
 
       expect(shown, isEmpty);
+    });
+
+    test('the updating state is shown from the launch zone, not from the '
+        'zone the open fires the hook in', () async {
+      Zone? shownIn;
+      final launchZone = Zone.current;
+
+      await openDatabaseForLaunch(
+        open: () async {
+          // Drift calls the hook from a zone of its own under the opener's;
+          // the frame it schedules must not be bound to that zone.
+          await runZoned(
+            () async => AppDatabase.onUpgradeStarting?.call(),
+            zoneValues: {#opener: true},
+          );
+          return Object();
+        },
+        show: (_) => shownIn = Zone.current,
+      );
+
+      expect(shownIn, isNotNull);
+      expect(identical(shownIn, launchZone), isTrue);
+      expect(shownIn![#opener], isNull);
     });
 
     test('a failed open waits on the failed state, and Retry opens '
@@ -197,6 +221,32 @@ void main() {
     await old.close();
     await openAndClose();
     expect(fired, 1);
+  });
+
+  test('the hook runs in the zone it was installed from, not in the zone '
+      'the open runs the migration in', () async {
+    final dir = await Directory.systemTemp.createTemp('anta_bootstrap_');
+    addTearDown(() => dir.delete(recursive: true));
+    final file = File('${dir.path}/app.sqlite');
+    final fresh = AppDatabase.forTesting(NativeDatabase(file));
+    await fresh.customStatement('PRAGMA user_version = 46');
+    await fresh.close();
+
+    Zone? hookZone;
+    final installZone = runZoned(() {
+      AppDatabase.onUpgradeStarting = () => hookZone = Zone.current;
+      return Zone.current;
+    }, zoneValues: {#install: true});
+
+    // Opened from this zone, as launch opens from its own: Drift runs the
+    // migration, and with it the hook, in a zone forked under this one.
+    final db = AppDatabase.forTesting(NativeDatabase(file));
+    await db.customSelect('SELECT 1').get();
+    await db.close();
+
+    expect(hookZone, isNotNull);
+    expect(identical(hookZone, installZone), isTrue);
+    expect(hookZone![#install], isTrue);
   });
 
   group('AppBootstrap', () {

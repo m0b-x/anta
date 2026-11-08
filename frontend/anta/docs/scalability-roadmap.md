@@ -23,12 +23,17 @@ install on BOTH phones the same day with the second phone's sync stopped or
 offline until it runs the new build (§8.2 S6), then the two-device check by
 the sync record's §7 checklist. Migrations as built: v46 (S4) → v47 (S16) →
 v48 (S11) → v49 (S20) → v50 (S12) → v51 (§8.5, `sync_outbox.republish`); the wire version 45 → 46 in S6 only.
-**First install 2026-11-08 (§8.5):** the phone's first launch stalled on the
-cutover's drain and the whole-body re-read; fixed the same day in six passes
-(body work off the database lock on both sides, 2 MiB parts, the `republish`
-flag so the re-queue files no spurious conflict copy, "Finishing update" on
-the Sync page and in the drawer) — gated 14,902 green, settings device suite
-20/20, UNCOMMITTED. Fable 5.1 wrote this on 2026-11-07 from the owner's
+**First install 2026-11-08 (§8.5, §8.6):** the phone's first launch stalled
+on spinners. §8.5 read it as the cutover's drain and whole-body re-read and
+improved both the same day (body work off the database lock on both sides,
+2 MiB parts, the `republish` flag so the re-queue files no spurious conflict
+copy, "Finishing update" on the Sync page and in the drawer; committed in
+`d9f34776`). The second install of the day stalled identically, and §8.6
+found the stall itself: `onUpgradeStarting`'s `runApp` was the process's
+first `scheduleFrame` and ran inside Drift's open-time zone, so every frame
+of the session routed its reads to an executor the finished open had
+retired. Fixed by binding the hook to the zone it is installed from;
+UNCOMMITTED. Fable 5.1 wrote this on 2026-11-07 from the owner's
 request "identify the app's limits
 for the calendar and notes and make it scalable with the best practices apps
 use; I heard a one-letter change resends the document". The audit ran as one
@@ -2078,6 +2083,11 @@ tree once S7 has landed and the gate is green:
 
 ### 8.5 After the first install (2026-11-08)
 
+**Read with §8.6.** The stall described here had another cause — the
+upgrade launch's first frame bound to Drift's open-time zone — found when it
+recurred under this section's fix; the costs named below were real and their
+fixes stand.
+
 **What happened.** The owner installed `20d5da9c` on their phone at 13:12.
 The first launch sat on spinners on every page for minutes — the Calendar
 page a full-page spinner, the Folders root its list spinner under the static
@@ -2206,6 +2216,86 @@ device the same day — its cutover runs under the fix and files no spurious
 copies; on the phone, search "conflict copy" for copies filed today and
 delete those whose text the other device already had; put the phone on USB
 once so the crash buffer can be read; commit (§8.4, the second commit).
+
+### 8.6 The upgrade-launch stall, found (2026-11-08, evening)
+
+**What happened.** The owner installed `d9f34776` (v51, §8.5's fix
+included) over the v50 build at 16:51 and saw the same picture as at 13:12:
+spinners on every page — the Folders root with "All notes" bare of its
+count, no folder rows, no caption in the bottom bar, no calendar, no note
+would open — until the app was closed and opened again. Sync was bound both
+times, which is what pointed §8.5 at the cutover; its diagnosis named real
+costs, not the stall.
+
+**Reproduced** on `emulator-5556` with sync off entirely (`cloud=off`): the
+QA build of `6f4d7b2d` (v50) installed, `relaunch --fresh --seed` with 403
+notes (4.4 MB of bodies), one plain relaunch (healthy), then the
+`d9f34776` QA build installed over it and launched — "Updating your data…",
+then the Folders root with "All notes" bare, no rows, no "3 folders"
+caption, unchanged after 30 s. `qa errors` empty; the only app log line
+`[AlertScheduler] reconcile(launch) skipped: nothing can arm`, so database
+reads from that path were answered; `qa perf` counted 242 frames in 4.4 s,
+so the spinners animate and nothing below the UI is blocked.
+
+**Diagnosis**, read off the stuck process through the VM service (object
+walks — the debug APK carries no expression compiler). The Drift client
+channel held six requests the database isolate never answered:
+`FolderDao.getFolderCount` from the folder bloc (twice), `NoteDao.getNoteCount`
+from the root page, `UserSettingsDao.getValue` from the page's settings load
+and from `AppNavigator.restoreLastLocation` (via `_promptForPermissions`),
+and `SearchBloc._reloadLabelsInUse` — every trace resuming in a
+`_CustomZone`. In the database isolate, `ServerImplementation._executorBacklog`
+was **empty** and no executor was managed, so each waiting request named an
+executor id the server had already released: `_waitForTurn(id)` returns only
+when that id is first in the backlog. `PlatformDispatcher._onBeginFrameZone`
+and `_onDrawFrameZone` were that same `_CustomZone` (parent root), while
+`_onPointerDataPacketZone` was `_RootZone`. The chain: Drift runs `onUpgrade`
+inside `_runConnectionZoned(BeforeOpenRunner(this, executor), …)`, a zone
+whose value makes every statement issued under it resolve to the executor the
+open runs through (`RunBeforeOpen`'s `createdExecutor`, released when
+`beforeOpen` returns). `AppDatabase.onUpgrade` calls `onUpgradeStarting`
+there, and its `runApp(AppBootstrap.updating())` is the process's first
+`scheduleFrame`; `SchedulerBinding.ensureFrameCallbacksRegistered` sets
+`platformDispatcher.onBeginFrame` / `onDrawFrame` once (`??=`) and `dart:ui`
+stores `Zone.current` beside them — so every frame for the rest of the
+process ran in Drift's open-time zone: every build, `initState`, post-frame
+callback, every bloc a page creates and every read they start carried the
+retired id and waited for good. Reads rooted elsewhere kept working (the
+alert scheduler's serialized queue, `main`'s own awaits, `SettingsService`
+before the first frame), which is why the page itself drew and the log stayed
+clean; a restart's first `scheduleFrame` is `runApp(MyApp())` from `main`,
+in the root zone — hence "fine the second time". Neither sync nor the
+migration's content plays a part: v50 → v51 is one `ALTER TABLE`, and any
+launch that migrates stalled the same way, which is why both installs of the
+day did and no QA relaunch ever had (the QA database never migrates).
+
+**Fix.** `AppDatabase.onUpgradeStarting` is a setter/getter pair: the setter
+records `Zone.current`, the getter hands back the hook bound to that zone
+(`zone.run(hook)`), so Drift's `onUpgrade` — or anything standing in for it —
+runs the bootstrap in launch's zone and the engine's frame callbacks bind
+there. `main.dart` is unchanged. Pins in
+`test/widgets/app_bootstrap_test.dart`: a hook installed from a marked zone
+runs in that zone when a real file-backed open migrates (v46 → current), and
+`openDatabaseForLaunch`'s `show` runs in the launch zone when the open fires
+the hook from a forked zone; both fail on the previous code.
+
+**Verified on device** (`emulator-5556`, sync off): the same cycle — the v50
+QA build, `relaunch --fresh --seed` with 403 notes, a plain relaunch, the
+fixed `d9f34776` build installed over it and launched — showed the Folders
+root with its rows ("Inbox 400", "Money 1", "Training 2") and the "3
+folders" caption within the launch's first seconds; the Inbox listed its
+notes and "Big note 399" opened in the editor; the drawer's Calendar landed
+on the grid with "Lifting session" and no spinner. Gate: `dart analyze lib
+test` clean, the whole suite 14,904 green (17 benchmarks skipped). Left to
+the owner: install on the phone (the fix takes effect at the next schema
+bump — v51 → v51 migrates nothing), then commit with §8.4's second commit.
+
+**What §8.5 keeps.** Its changes stand on their own measurements (body work
+off the lock, pull parts, `republish`, the status line); none of them
+addressed the stall, and its "the cutover itself has run on no device" line
+still holds. The death on "Stop syncing" at 13:12 stays unread; a tap handled
+in a frame zone whose reads never return is a plausible path to an ANR-style
+kill, not a proven one.
 
 ## 9. Definition of done
 

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:drift/drift.dart';
 import 'package:flutter/foundation.dart' show debugPrint, visibleForTesting;
@@ -298,7 +299,31 @@ class AppDatabase extends _$AppDatabase {
   /// its first migration step: the launch shows that it is updating the data
   /// only while a step runs (D13), never on a normal open. Set by the app's
   /// bootstrap before the first open and cleared once launch is done.
-  static void Function()? onUpgradeStarting;
+  ///
+  /// Runs in the zone it was assigned from, never in the open's. Drift runs
+  /// `onUpgrade` inside a zone whose value routes every statement to the
+  /// executor the open holds, and Flutter binds the engine's frame callbacks
+  /// to the zone of the first `scheduleFrame` for the life of the process.
+  /// On an upgrade launch the hook's `runApp` is that first frame, so a hook
+  /// run where Drift calls it would leave every later frame — every page
+  /// build, every bloc a page creates — under the open's zone, and every
+  /// read they start would wait for an executor the finished open retired:
+  /// spinners on every page after an update, until a restart (2026-11-08,
+  /// scalability record §8.6).
+  static void Function()? get onUpgradeStarting {
+    final hook = _onUpgradeStarting;
+    if (hook == null) return null;
+    final zone = _onUpgradeStartingZone;
+    return () => zone.run(hook);
+  }
+
+  static set onUpgradeStarting(void Function()? hook) {
+    _onUpgradeStarting = hook;
+    _onUpgradeStartingZone = Zone.current;
+  }
+
+  static void Function()? _onUpgradeStarting;
+  static Zone _onUpgradeStartingZone = Zone.root;
 
   @override
   int get schemaVersion => DatabaseSchema.currentVersion;
