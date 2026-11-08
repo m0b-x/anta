@@ -11,9 +11,14 @@ recommended options (§4), this Fable session led the build with one Opus 5.5
 implementer and one reviewer per slice (§1), independent streams ran in
 parallel worktrees where their files were disjoint and were merged into the
 main tree by three-way patch, nothing is committed until the owner says so.
-**The owner's steps before installing a build that holds S6:** `firebase
-deploy --only firestore:rules,firestore:indexes --project
-alexs-note-tracking-app` first (the space gains `content_chunks`), then
+**The owner's steps before installing a build that holds S6:** the deploy
+first (the space gains `content_chunks`): check that the gitignored
+`firebase.json` still carries `"firestore": {"rules": "firestore.rules",
+"indexes": "firestore.indexes.json"}` beside its `flutter` block
+(`flutterfire configure` rewrites the file without it; found missing on
+2026-11-08), then `firebase deploy --only "firestore:rules,firestore:indexes"
+--project alexs-note-tracking-app`, the list quoted because PowerShell splits
+it at the comma; then
 install on BOTH phones the same day with the second phone's sync stopped or
 offline until it runs the new build (§8.2 S6), then the two-device check by
 the sync record's §7 checklist. Migrations as built: v46 (S4) → v47 (S16) →
