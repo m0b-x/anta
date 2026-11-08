@@ -942,6 +942,83 @@ void main() {
         }
       }
     }
+
+    // The page's words for the update were cut in the drawer's one line;
+    // the drawer has its own short ones, for the pull and the drain alike.
+    final updatingStates = <String, SyncStatus>{
+      'receiving': lastSynced.copyWith(
+        activity: SyncActivity.pulling,
+        updating: true,
+        updatingTotal: 120,
+        downloadedRows: 120,
+      ),
+      'sending': lastSynced.copyWith(
+        activity: SyncActivity.pushing,
+        updating: true,
+        updatingSending: true,
+        updatingTotal: 120,
+        updatingSent: 120,
+      ),
+      'noTotal': lastSynced.copyWith(
+        activity: SyncActivity.pulling,
+        updating: true,
+      ),
+    };
+    for (final code in const ['en', 'de', 'ro']) {
+      testWidgets('$code at 1.0 on a 360 × 780 phone: the update\'s line, at '
+          '120 of 120, fits the row', (tester) async {
+        tester.view.physicalSize = const Size(360, 780);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.reset);
+        await tester.pumpWidget(
+          BlocProvider<AppSettingsBloc>.value(
+            value: appSettingsBloc,
+            child: MaterialApp(
+              theme: AppTheme.light(),
+              localizationsDelegates: AppLocalizations.localizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+              locale: Locale(code),
+              home: const _DrawerHost(),
+            ),
+          ),
+        );
+        await settle(tester);
+        await openDrawer(tester);
+        final local = AppLocalizations.of(
+          tester.element(find.byType(AppDrawer)),
+        )!;
+        final status = find.descendant(
+          of: account(),
+          matching: find.byWidgetPredicate(
+            (widget) =>
+                widget is Text &&
+                widget.data != userA.displayName &&
+                (widget.data?.trim().isNotEmpty ?? false),
+          ),
+        );
+
+        for (final MapEntry(key: name, value: state)
+            in updatingStates.entries) {
+          engine.emit(state);
+          await settle(tester, rounds: 2);
+          expect(status, findsOneWidget, reason: name);
+          expect(
+            tester.renderObject<RenderParagraph>(status).didExceedMaxLines,
+            isFalse,
+            reason: '$name "${tester.widget<Text>(status).data}"',
+          );
+          expect(
+            tester.widget<Text>(status).data,
+            name == 'noTotal'
+                ? local.drawerSyncUpdatingNoTotal
+                : local.drawerSyncUpdating(120, 120),
+            reason: name,
+          );
+        }
+
+        await tester.pumpWidget(const SizedBox.shrink());
+      });
+    }
   });
 }
 

@@ -359,6 +359,35 @@ void main() {
 
       await closeDiscarding(tester);
     });
+
+    testWidgets('Space on an empty item nests it, as in a note', (
+      tester,
+    ) async {
+      await openSheet(tester, initialText: '');
+      await setText(tester, '- squat\n- ');
+      final controller = controllerOf(tester);
+      controller.selection = const CodeLineSelection.collapsed(
+        index: 1,
+        offset: 2,
+      );
+
+      // A soft keyboard's Space: the caret line one space longer.
+      controller.edit(
+        const TextEditingValue(
+          text: '-  ',
+          selection: TextSelection.collapsed(offset: 3),
+        ),
+      );
+      await tester.pump();
+
+      expect(controller.text, '- squat\n  - ');
+      expect(
+        controller.selection,
+        const CodeLineSelection.collapsed(index: 1, offset: 4),
+      );
+
+      await closeDiscarding(tester);
+    });
   });
 
   // U2 T15: the fence predicate reaches the editor, so a box or a heading

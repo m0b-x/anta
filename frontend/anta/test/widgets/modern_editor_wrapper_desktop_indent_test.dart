@@ -37,9 +37,10 @@ void main() {
     debugDefaultTargetPlatformOverride = null;
   });
 
-  String buildDocument({required String lineAt650}) {
+  String buildDocument({required String lineAt650, String? lineAbove}) {
     return List<String>.generate(documentLines, (i) {
       if (i == listLine) return lineAt650;
+      if (i == listLine - 1 && lineAbove != null) return lineAbove;
       return 'plain line $i';
     }).join('\n');
   }
@@ -107,9 +108,10 @@ void main() {
 
   testWidgets('Tab indents the caret list line and leaves the other '
       'segments shared', (tester) async {
+    // The item above lifts the nesting cap: a first item stays put.
     final e = await pumpEditor(
       tester,
-      text: buildDocument(lineAt650: '- squat 5x5'),
+      text: buildDocument(lineAt650: '- squat 5x5', lineAbove: '- warm-up'),
     );
     expect(e.controller.codeLines.segments, hasLength(3));
 

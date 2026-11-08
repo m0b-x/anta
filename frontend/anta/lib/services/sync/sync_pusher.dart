@@ -883,6 +883,9 @@ class _Pusher {
     tally.pushed += batch.length;
     for (final queued in batch) {
       tally.pushedBytes += queued.bytes;
+      if (_e._updating && queued.entry.syncedTable == 'notes') {
+        _e._updatingSent++;
+      }
     }
     await db.syncDao.setValue(
       SyncDao.keyLastPushAt,

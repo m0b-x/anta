@@ -66,6 +66,14 @@ lines bypass the memo.
 
 ## Done
 
+- [x] List nesting by indentation (2026-11-08, record
+      `docs/editor-list-nesting-roadmap.md`, D1–D16): Space on an empty item
+      nests it, a touch swipe on the caret line nests or unnests it, one
+      nesting cap for every indent path (never deeper than the item above
+      plus one), quoted items nest after their `>` run instead of padding the
+      caret, depth drawn at 1.25 em per level by letter spacing with the
+      content fixed on caret entry; the slices, reviews and the deferred
+      quote-bar shift and deep-level fallback at 2.0 are in the record.
 - [x] Quality-of-life pass (2026-10-19, record `docs/editor-qol-review-2026-10-19.md`,
       E1–E33): Backspace after a marker removes it in one keystroke on both
       keyboard paths, long-press on an empty line places the caret, IME

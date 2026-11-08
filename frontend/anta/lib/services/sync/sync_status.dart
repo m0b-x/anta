@@ -244,8 +244,32 @@ class SyncStatus extends Equatable {
   /// The rows held back, as the Sync page lists them.
   final List<SyncHeldItem> heldBack;
 
-  /// Rows applied so far by the initial pull after a bind, its progress.
+  /// Rows applied so far by the initial pull after a bind, its progress —
+  /// or, while [updating], the notes the wire cutover has read again.
   final int downloadedRows;
+
+  /// Whether the run in flight is the first under a new wire version
+  /// (the scalability record's S6 cutover), reading every note again and
+  /// then sending them: what keeps the browser and the calendar slow for a
+  /// while after an update, which the drawer and the Sync page then say
+  /// rather than a bare "Receiving…" or "Sending…".
+  final bool updating;
+
+  /// Whether the cutover's drain has begun, its second phase. Carried
+  /// apart from [activity], which still says pulling between the re-read's
+  /// end and the drain's first batch: an emit there must word the re-read
+  /// and count it against its own total, not the drain's.
+  final bool updatingSending;
+
+  /// What the cutover's current phase counts towards: until
+  /// [updatingSending], the live notes as the re-read began
+  /// ([downloadedRows]); after it, the notes queued as the drain began
+  /// ([updatingSent]), chunks apart. Null while unknown.
+  final int? updatingTotal;
+
+  /// The notes the cutover's drain has pushed so far, towards
+  /// [updatingTotal] once [updatingSending].
+  final int updatingSent;
 
   /// How far the clock seeded at open ran ahead of the wall clock, zero
   /// unless that is past the drift a remote may run ahead: a store written
@@ -280,6 +304,10 @@ class SyncStatus extends Equatable {
     this.parkedCount = 0,
     this.heldBack = const [],
     this.downloadedRows = 0,
+    this.updating = false,
+    this.updatingSending = false,
+    this.updatingTotal,
+    this.updatingSent = 0,
     this.clockAhead = Duration.zero,
     this.clampedRemotes = 0,
     this.binding,
@@ -310,8 +338,8 @@ class SyncStatus extends Equatable {
   }
 
   /// A copy with the given fields replaced; [clearLastFailure],
-  /// [clearBinding] and [clearUnboundAsCopyOf] set those to null, which a
-  /// null argument cannot say.
+  /// [clearUpdatingTotal], [clearBinding] and [clearUnboundAsCopyOf] set
+  /// those to null, which a null argument cannot say.
   SyncStatus copyWith({
     int? pendingCount,
     DateTime? lastPushAt,
@@ -323,6 +351,11 @@ class SyncStatus extends Equatable {
     int? parkedCount,
     List<SyncHeldItem>? heldBack,
     int? downloadedRows,
+    bool? updating,
+    bool? updatingSending,
+    int? updatingTotal,
+    bool clearUpdatingTotal = false,
+    int? updatingSent,
     Duration? clockAhead,
     int? clampedRemotes,
     SyncBinding? binding,
@@ -341,6 +374,12 @@ class SyncStatus extends Equatable {
       parkedCount: parkedCount ?? this.parkedCount,
       heldBack: heldBack ?? this.heldBack,
       downloadedRows: downloadedRows ?? this.downloadedRows,
+      updating: updating ?? this.updating,
+      updatingSending: updatingSending ?? this.updatingSending,
+      updatingTotal: clearUpdatingTotal
+          ? null
+          : updatingTotal ?? this.updatingTotal,
+      updatingSent: updatingSent ?? this.updatingSent,
       clockAhead: clockAhead ?? this.clockAhead,
       clampedRemotes: clampedRemotes ?? this.clampedRemotes,
       binding: clearBinding ? null : binding ?? this.binding,
@@ -362,6 +401,10 @@ class SyncStatus extends Equatable {
     parkedCount,
     heldBack,
     downloadedRows,
+    updating,
+    updatingSending,
+    updatingTotal,
+    updatingSent,
     clockAhead,
     clampedRemotes,
     binding,

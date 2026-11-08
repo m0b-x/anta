@@ -920,6 +920,9 @@ void main() {
       'hlc': 'TEXT notnull=1 pk=0',
       'op': 'TEXT notnull=1 pk=0',
       'enqueued_at': 'INTEGER notnull=1 pk=0',
+      // v51's ALTER; the upgrade chain test checks that an entry queued
+      // before it reads 0, not the DEFAULT clause itself.
+      'republish': 'INTEGER notnull=1 pk=0',
     });
   });
 

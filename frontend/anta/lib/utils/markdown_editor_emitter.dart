@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:re_editor/re_editor.dart';
 
+import '../constants/markdown_constants.dart';
+import 'editor_render_context.dart';
 import 'ghost_text.dart';
+import 'markdown_list_syntax.dart';
 
 /// The live editor's leaf emission: the one place a source range turns
 /// into spans, and the one place the surface's hard invariant is
@@ -44,6 +47,108 @@ class EditorSpanEmitter {
       context.copyWith(color: transparent, fontSize: concealedFontSize);
 
   static bool isSpace(int codeUnit) => codeUnit == 0x20 || codeUnit == 0x09;
+
+  /// Emits a list item's leading [indent] drawn
+  /// [MarkdownConstants.listIndentPerLevelEm] wide per grammar level
+  /// ([MarkdownListSyntax.indentLevel]), so every glyph of one depth
+  /// shares one column whatever mix of spaces and tabs got it there. The
+  /// width comes from letter spacing alone: the spans hold the source
+  /// indent unit for unit, so caret and search offsets stay 1:1, and both
+  /// reveal states call this so the line never shifts on caret entry.
+  ///
+  /// The first unit stays unspaced because SkParagraph shifts a line
+  /// whose first glyph is letter-spaced by half the spacing. A lone tab
+  /// cannot avoid that, so at the line start ([startsLine]) its spacing
+  /// is divided by 1.5: the half-spacing shift plus the full spacing then
+  /// add up to the level's width. Behind a quote's bars the tab is not
+  /// the line's first glyph and takes the plain division.
+  static void listIndent({
+    required String indent,
+    required TextStyle style,
+    required EditorRenderContext context,
+    required bool startsLine,
+    required List<InlineSpan> out,
+  }) {
+    final n = indent.length;
+    if (n == 0) return;
+    final level = MarkdownListSyntax.indentLevel(indent);
+    if (level == 0) {
+      out.add(TextSpan(text: indent, style: style));
+      return;
+    }
+    final advances = context.listAdvances(style.fontStyle);
+    var tabs = 0;
+    for (var i = 0; i < n; i++) {
+      if (indent.codeUnitAt(i) == 0x09) tabs++;
+    }
+    final natural = (n - tabs) * advances.space + tabs * advances.tab;
+    final width =
+        level *
+        (style.fontSize ?? 16.0) *
+        MarkdownConstants.listIndentPerLevelEm;
+    final base = style.letterSpacing ?? 0.0;
+    if (n == 1) {
+      out.add(
+        TextSpan(
+          text: indent,
+          style: style.copyWith(
+            letterSpacing: base + (width - natural) / (startsLine ? 1.5 : 1.0),
+          ),
+        ),
+      );
+      return;
+    }
+    out.add(TextSpan(text: indent[0], style: style));
+    out.add(
+      TextSpan(
+        text: indent.substring(1),
+        style: style.copyWith(
+          letterSpacing: base + (width - natural) / (n - 1),
+        ),
+      ),
+    );
+  }
+
+  /// Emits the gap `[start, end)` between a bullet's marker and its
+  /// content so the marker plus the gap is equally wide in both reveal
+  /// states: a concealed line draws the bold depth glyph, a revealed one
+  /// the raw [marker] code unit dimmed, and their advances differ (the
+  /// designer measured a `◦` 9 dp wider than a `-` at 16 px, its face a
+  /// fallback the editor font lacks), which moved the content and
+  /// the hanging indent on caret entry. The narrower state's gap takes
+  /// the difference as letter spacing — the gap is never a line's first
+  /// glyph, so the spacing lands whole — and the wider state's is left as
+  /// typed, so spacing is never negative.
+  ///
+  /// The glyph is measured upright because every caller draws it upright,
+  /// even in a quote's italic; the raw marker in [style]'s own font style.
+  static void bulletGap({
+    required String text,
+    required int start,
+    required int end,
+    required TextStyle style,
+    required EditorRenderContext context,
+    required int marker,
+    required int level,
+    required bool reveal,
+    required List<InlineSpan> out,
+  }) {
+    if (end <= start) return;
+    final glyph = context.listAdvances(FontStyle.normal).glyph(level);
+    final raw = context.listAdvances(style.fontStyle).marker(marker, level);
+    final extra = reveal ? glyph - raw : raw - glyph;
+    out.add(
+      TextSpan(
+        text: text.substring(start, end),
+        style: extra > 0
+            ? style.copyWith(
+                letterSpacing:
+                    (style.letterSpacing ?? 0.0) + extra / (end - start),
+              )
+            : style,
+      ),
+    );
+  }
 
   /// Whether [style] is the off-caret conceal style — transparent and
   /// collapsed to [concealedFontSize]. Concealed chrome paints nothing,

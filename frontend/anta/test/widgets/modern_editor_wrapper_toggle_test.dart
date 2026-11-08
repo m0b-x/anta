@@ -44,10 +44,11 @@ void main() {
   const documentLines = 700;
   const taskLine = 650;
 
-  String buildDocument({required String lineAt650}) {
+  String buildDocument({required String lineAt650, String? lineAbove}) {
     return List<String>.generate(documentLines, (i) {
       if (i == 0) return 'caret line';
       if (i == taskLine) return lineAt650;
+      if (i == taskLine - 1 && lineAbove != null) return lineAbove;
       return 'plain line $i';
     }).join('\n');
   }
@@ -385,9 +386,10 @@ void main() {
 
   testWidgets('Tab indents the caret list line and leaves the other '
       'segments shared', (tester) async {
+    // The item above lifts the nesting cap: a first item stays put.
     final e = await pumpEditor(
       tester,
-      text: buildDocument(lineAt650: '- squat 5x5'),
+      text: buildDocument(lineAt650: '- squat 5x5', lineAbove: '- warm-up'),
     );
 
     e.focusNode.requestFocus();
@@ -514,9 +516,10 @@ void main() {
     // A physical keyboard auto-repeats through `KeyRepeatEvent`s, which
     // the touch-platform key handler used to drop — so holding Tab (or
     // Backspace) did nothing past the first press, unlike on desktop.
+    // A nested item above lets the nesting cap take both steps.
     final e = await pumpEditor(
       tester,
-      text: buildDocument(lineAt650: '- squat 5x5'),
+      text: buildDocument(lineAt650: '- squat 5x5', lineAbove: '  - warm-up'),
     );
 
     e.focusNode.requestFocus();

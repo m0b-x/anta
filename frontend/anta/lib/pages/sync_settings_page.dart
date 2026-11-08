@@ -857,7 +857,10 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
       l10n.syncSending(count),
       l10n.syncDownloading(count),
       l10n.syncPendingCount(count),
+      l10n.syncUpdatingNotes(count, count),
+      l10n.syncUpdatingSending(count, count),
     ],
+    l10n.syncUpdating,
     l10n.syncReceiving,
     l10n.syncOffline,
     l10n.syncRetrying,
@@ -905,14 +908,21 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
     }
     switch (status.activity) {
       case SyncActivity.pushing:
+        if (syncUpdatingText(l10n, status) case final updating?) {
+          return (updating, Icons.cloud_upload_outlined, false);
+        }
         return (
           l10n.syncSending(status.pendingCount),
           Icons.cloud_upload_outlined,
           true,
         );
-      // A count only the initial download after a bind keeps: an ordinary
-      // pull is over too fast for one.
+      // A count only the initial download after a bind and the re-read of
+      // the notes after a wire update keep: an ordinary pull is over too
+      // fast for one.
       case SyncActivity.pulling:
+        if (syncUpdatingText(l10n, status) case final updating?) {
+          return (updating, Icons.cloud_download_outlined, false);
+        }
         return status.downloadedRows > 0
             ? (
                 l10n.syncDownloading(status.downloadedRows),

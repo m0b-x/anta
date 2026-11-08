@@ -100,6 +100,24 @@ class MarkdownConstants {
   /// Indent multiplier per level for checkboxes and lists
   static const double indentPerLevel = 16.0;
 
+  /// Live editor: the width one list nesting level is drawn at, in ems of
+  /// the line's font size. Two literal spaces (about half an em) left a
+  /// nested glyph inside its parent's marker; 1.25 em equals the task
+  /// marker's advance, so a nested task box lands on its parent's content
+  /// start, and it sits in the 1.25–2 em range other note apps step by.
+  static const double listIndentPerLevelEm = 1.25;
+
+  /// Live editor: the side of the painted level-3 bullet square, in ems of
+  /// the line's font size. A square covers more ink than a disc of the same
+  /// width, so 0.28 em carries the visual weight of the 0.32 em `•` and
+  /// `◦` it cycles with.
+  static const double bulletSquareSideEm = 0.28;
+
+  /// Live editor: the height above the baseline the painted bullet square
+  /// is centred on, in ems — half Roboto's x-height, where the `•` and `◦`
+  /// glyphs are centred, so all three depths sit on one line.
+  static const double bulletSquareCentreEm = 0.264;
+
   // Code block
   /// Font size for code blocks
   static const double codeBlockFontSize = 14.0;

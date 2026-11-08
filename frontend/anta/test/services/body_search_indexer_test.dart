@@ -115,6 +115,37 @@ void main() {
     );
   });
 
+  test('a page\'s transaction holds the index writes alone: its bodies are '
+      'read and decompressed before it opens', () async {
+    for (var i = 0; i < 3; i++) {
+      // Past the chunk compression threshold, so a read decompresses.
+      await note('Session $i', '${'squat bench row ' * 800}set $i');
+    }
+    final inside = <String>[];
+    var from = 0;
+    statements.onTransaction = (begins) {
+      if (begins) {
+        from = statements.count;
+      } else {
+        inside.addAll(statements.statements.skip(from));
+      }
+    };
+    statements.reset();
+
+    await indexerWith().drain();
+
+    expect(statements.executions('INSERT INTO note_body_fts'), 3);
+    expect(inside, isNotEmpty);
+    expect(
+      inside.where(
+        (sql) =>
+            !sql.contains('note_search_ledger') &&
+            !sql.contains('note_body_fts'),
+      ),
+      isEmpty,
+    );
+  });
+
   test('a page past the isolate threshold projects in an isolate', () async {
     // The closure an isolate receives must carry the page alone: one that
     // captured the indexer would fail to send its database.

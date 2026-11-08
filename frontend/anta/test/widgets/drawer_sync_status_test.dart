@@ -126,6 +126,82 @@ void main() {
     );
   });
 
+  test('8b: the pull of a run that cut over says it is finishing the update '
+      'in the drawer\'s short words, the count held to the total, the bare '
+      'words before the total', () {
+    final pulling = busy.copyWith(activity: SyncActivity.pulling);
+    expect(
+      lineOf(
+        pulling.copyWith(
+          updating: true,
+          updatingTotal: 120,
+          downloadedRows: 50,
+        ),
+      ),
+      (text: 'Finishing update (50 of 120)', isError: false),
+    );
+    expect(
+      lineOf(
+        pulling.copyWith(
+          updating: true,
+          updatingTotal: 120,
+          downloadedRows: 130,
+        ),
+      ).text,
+      l10n.drawerSyncUpdating(120, 120),
+    );
+    expect(lineOf(pulling.copyWith(updating: true)), (
+      text: l10n.drawerSyncUpdatingNoTotal,
+      isError: false,
+    ));
+  });
+
+  test('8c: the drain of a run that cut over says it too, counting the notes '
+      'sent, never the changes waiting', () {
+    expect(
+      lineOf(
+        busy.copyWith(
+          updating: true,
+          updatingSending: true,
+          updatingTotal: 120,
+          updatingSent: 7,
+          downloadedRows: 120,
+        ),
+      ),
+      (text: 'Finishing update (7 of 120)', isError: false),
+    );
+    expect(lineOf(busy.copyWith(updating: true)), (
+      text: l10n.drawerSyncUpdatingNoTotal,
+      isError: false,
+    ));
+  });
+
+  test('8d: a pause the user lifts outranks the update, and the update the '
+      'bare receiving and sending words', () {
+    for (final activity in [SyncActivity.pulling, SyncActivity.pushing]) {
+      final updating = busy.copyWith(
+        activity: activity,
+        updating: true,
+        updatingTotal: 120,
+      );
+      expect(
+        lineOf(updating.copyWith(pause: SyncPause.appOutdated)),
+        (text: l10n.drawerSyncPausedAppOutdated, isError: true),
+        reason: activity.name,
+      );
+      expect(
+        lineOf(updating.copyWith(pause: SyncPause.noAccess)),
+        (text: l10n.drawerSyncPausedNoAccess, isError: true),
+        reason: activity.name,
+      );
+      expect(
+        lineOf(updating).text,
+        l10n.drawerSyncUpdating(0, 120),
+        reason: '${activity.name}: never the bare receiving or sending words',
+      );
+    }
+  });
+
   test('9: an idle run after a failure says it will retry, offline apart', () {
     final idle = busy.copyWith(activity: SyncActivity.idle);
     expect(lineOf(idle), (text: l10n.drawerSyncRetrying, isError: false));

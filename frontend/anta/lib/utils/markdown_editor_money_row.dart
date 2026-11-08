@@ -76,15 +76,51 @@ class EditorMoneyRowBuilder {
           ? m.emphasisStart
           : m.markerStart;
       final lead = m.listMarkerStart >= 0 ? m.listMarkerStart : chromeFrom;
-      if (lead > 0) {
+      // A broken bulleted row's indent steps like its siblings'.
+      if (m.listMarkerStart > 0) {
+        EditorSpanEmitter.listIndent(
+          indent: text.substring(0, lead),
+          style: style,
+          context: context,
+          startsLine: true,
+          out: children,
+        );
+      } else if (lead > 0) {
         children.add(TextSpan(text: text.substring(0, lead), style: style));
       }
       if (reveal) {
+        final rawStyle = style.copyWith(color: warn);
+        var from = lead;
+        final mc = m.listMarkerStart >= 0
+            ? text.codeUnitAt(m.listMarkerStart)
+            : -1;
+        if (mc >= 0 && (mc < 0x30 || mc > 0x39)) {
+          // The raw bullet keeps the concealed glyph's advance, so the
+          // row's content stays put on caret entry like a list item's.
+          children.add(
+            TextSpan(
+              text: text.substring(lead, m.listMarkerEnd),
+              style: rawStyle,
+            ),
+          );
+          EditorSpanEmitter.bulletGap(
+            text: text,
+            start: m.listMarkerEnd,
+            end: chromeFrom,
+            style: rawStyle,
+            context: context,
+            marker: mc,
+            level: MarkdownListSyntax.indentLevel(text),
+            reveal: true,
+            out: children,
+          );
+          from = chromeFrom;
+        }
         EditorSpanEmitter.emit(
           text: text,
-          start: lead,
+          start: from,
           end: text.length,
-          style: style.copyWith(color: warn),
+          style: rawStyle,
           baseColor: baseColor,
           ghosts: ghosts,
           out: children,
@@ -105,6 +141,7 @@ class EditorMoneyRowBuilder {
           style: style,
           baseColor: baseColor,
           primary: primary,
+          context: context,
           reveal: false,
           out: children,
         );
@@ -178,11 +215,12 @@ class EditorMoneyRowBuilder {
       // emphasis opener may follow (`- ## $$`, `- *$~ 2 x*`) — they
       // conceal below just like the list-less shapes.
       if (m.listMarkerStart > 0) {
-        children.add(
-          TextSpan(
-            text: text.substring(0, m.listMarkerStart),
-            style: listStyle,
-          ),
+        EditorSpanEmitter.listIndent(
+          indent: text.substring(0, m.listMarkerStart),
+          style: listStyle,
+          context: context,
+          startsLine: true,
+          out: children,
         );
       }
       _emitListMarker(
@@ -192,6 +230,7 @@ class EditorMoneyRowBuilder {
         style: listStyle,
         baseColor: baseColor,
         primary: primary,
+        context: context,
         reveal: reveal,
         out: children,
       );
@@ -596,7 +635,8 @@ class EditorMoneyRowBuilder {
 
   /// A money row's list-marker prefix, `[listMarkerStart, markerStart)`:
   /// the bullet substitutes 1:1 with the depth's
-  /// [MarkdownListSyntax.bulletGlyph] exactly like a plain list item
+  /// [MarkdownListSyntax.bulletGlyph] (the `▪` painted as an
+  /// [EditorBulletSquareSpan]) exactly like a plain list item
   /// (ordered numbers stay as typed, tinted), and the gap spaces keep
   /// their width — every code unit at its offset, reading as a list
   /// item. Callers emit `[0, listMarkerStart)` (the indent) themselves.
@@ -613,6 +653,7 @@ class EditorMoneyRowBuilder {
     required TextStyle style,
     required Color baseColor,
     required Color primary,
+    required EditorRenderContext context,
     required bool reveal,
     required List<InlineSpan> out,
   }) {
@@ -624,27 +665,43 @@ class EditorMoneyRowBuilder {
           style: style.copyWith(color: primary, fontWeight: FontWeight.w600),
         ),
       );
-    } else {
-      out.add(
-        TextSpan(
-          text: reveal
-              ? text.substring(m.listMarkerStart, m.listMarkerEnd)
-              : MarkdownListSyntax.bulletGlyph(
-                  MarkdownListSyntax.indentLevel(text),
-                ),
-          style: reveal
-              ? EditorSpanEmitter.dimStyle(style, baseColor)
-              : style.copyWith(color: primary, fontWeight: FontWeight.bold),
-        ),
-      );
+      // [gapEnd] is where the next chrome piece begins: heading hashes,
+      // an emphasis opener, or the `$` itself — the caller knows.
+      if (m.listMarkerEnd < gapEnd) {
+        out.add(
+          TextSpan(text: text.substring(m.listMarkerEnd, gapEnd), style: style),
+        );
+      }
+      return;
     }
-    // [gapEnd] is where the next chrome piece begins: heading hashes,
-    // an emphasis opener, or the `$` itself — the caller knows.
-    if (m.listMarkerEnd < gapEnd) {
-      out.add(
-        TextSpan(text: text.substring(m.listMarkerEnd, gapEnd), style: style),
-      );
-    }
+    final level = MarkdownListSyntax.indentLevel(text);
+    out.add(
+      !reveal && EditorBulletSquareSpan.drawsLevel(level)
+          ? EditorBulletSquareSpan(
+              advance: context.listAdvances(FontStyle.normal).glyph(level),
+              fontSize: style.fontSize ?? 16.0,
+              color: primary,
+            )
+          : TextSpan(
+              text: reveal
+                  ? text.substring(m.listMarkerStart, m.listMarkerEnd)
+                  : MarkdownListSyntax.bulletGlyph(level),
+              style: reveal
+                  ? EditorSpanEmitter.dimStyle(style, baseColor)
+                  : style.copyWith(color: primary, fontWeight: FontWeight.bold),
+            ),
+    );
+    EditorSpanEmitter.bulletGap(
+      text: text,
+      start: m.listMarkerEnd,
+      end: gapEnd,
+      style: style,
+      context: context,
+      marker: mc,
+      level: level,
+      reveal: reveal,
+      out: out,
+    );
   }
 
   /// The emphasis closing run (plus any trailing spaces): chrome,

@@ -4728,6 +4728,35 @@ class AppLocalizationsRo extends AppLocalizations {
   }
 
   @override
+  String syncUpdatingNotes(int done, int total) {
+    final intl.NumberFormat doneNumberFormat = intl.NumberFormat.decimalPattern(
+      localeName,
+    );
+    final String doneString = doneNumberFormat.format(done);
+    final intl.NumberFormat totalNumberFormat =
+        intl.NumberFormat.decimalPattern(localeName);
+    final String totalString = totalNumberFormat.format(total);
+
+    return 'Se finalizează — notițe $doneString din $totalString';
+  }
+
+  @override
+  String get syncUpdating => 'Se finalizează';
+
+  @override
+  String syncUpdatingSending(int done, int total) {
+    final intl.NumberFormat doneNumberFormat = intl.NumberFormat.decimalPattern(
+      localeName,
+    );
+    final String doneString = doneNumberFormat.format(done);
+    final intl.NumberFormat totalNumberFormat =
+        intl.NumberFormat.decimalPattern(localeName);
+    final String totalString = totalNumberFormat.format(total);
+
+    return 'Se finalizează — se trimit $doneString din $totalString';
+  }
+
+  @override
   String get syncOffline => 'Offline — se reîncearcă';
 
   @override
@@ -4777,6 +4806,22 @@ class AppLocalizationsRo extends AppLocalizations {
 
   @override
   String get drawerSyncRetrying => 'Eșuat — se reîncearcă';
+
+  @override
+  String drawerSyncUpdating(int done, int total) {
+    final intl.NumberFormat doneNumberFormat = intl.NumberFormat.decimalPattern(
+      localeName,
+    );
+    final String doneString = doneNumberFormat.format(done);
+    final intl.NumberFormat totalNumberFormat =
+        intl.NumberFormat.decimalPattern(localeName);
+    final String totalString = totalNumberFormat.format(total);
+
+    return 'Se finalizează ($doneString din $totalString)';
+  }
+
+  @override
+  String get drawerSyncUpdatingNoTotal => 'Se finalizează';
 
   @override
   String syncLastSynced(String time) {

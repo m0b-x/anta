@@ -610,8 +610,23 @@ void main() {
     test('the bullet glyph cycles with nesting depth', () {
       expect(_renderOffCaret('- a').visibleText, '• a');
       expect(_renderOffCaret('  - a').visibleText, '  ◦ a');
-      expect(_renderOffCaret('    - a').visibleText, '    ▪ a');
+      // The third depth's `▪` is painted over one placeholder unit.
+      final square = _renderOffCaret('    - a');
+      expect(square.visibleText, '    ￼ a');
+      expect(
+        square.leaves.map((leaf) => leaf.span),
+        contains(isA<EditorBulletSquareSpan>()),
+      );
       expect(_renderOffCaret('      - a').visibleText, '      • a');
+    });
+
+    test('a level-2 money row paints the square too', () {
+      final render = _renderOffCaret(r'    - $+ 5 x', money: true);
+      expect(
+        render.leaves.map((leaf) => leaf.span),
+        contains(isA<EditorBulletSquareSpan>()),
+        reason: render.visibleText,
+      );
     });
 
     test('a nested money row takes the depth-1 glyph too', () {
@@ -2430,8 +2445,10 @@ const Map<int, String> _substitutions = <int, String>{
   0x0021: r'$', // ! — money error row marker
   0x25A3: '!', // ▣ — an image's or an embed's `!` (the picture glyph)
   // placeholder run — checkbox (off-caret, and on the caret line while
-  // the caret is past the marker), money chip, op glyph
-  0xFFFC: r'[$?^~!:',
+  // the caret is past the marker), money chip, op glyph, and the level-3
+  // bullet square: `▪` is emoji-capable and Android drew it from the
+  // emoji font, so the editor paints the square over its marker instead
+  0xFFFC: r'[$?^~!:-*+•',
 };
 
 /// The one substitution [_substitutions] cannot list, because it maps

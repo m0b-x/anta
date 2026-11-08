@@ -3,6 +3,8 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:re_editor/re_editor.dart';
 
+import '../constants/markdown_constants.dart';
+
 /// The live editor's custom-painted inline runs.
 ///
 /// Each one is a fork [CodeInlinePaintSpan]: a placeholder run that
@@ -147,6 +149,67 @@ class EditorCalloutIconSpan extends CodeInlinePaintSpan {
 
   @override
   int get hashCode => Object.hash(icon, accent, width, height, style);
+}
+
+/// The live editor's level-3 bullet (every third depth): a filled square
+/// painted into a placeholder run, substituting 1:1 for the marker's one
+/// code unit off-caret.
+///
+/// Painted rather than typed because `▪` (U+25AA) is emoji-capable: on
+/// Android the device drew it from the emoji font, grey and about three
+/// dots wide, ignoring [color]; a painted square is the same on every
+/// platform and needs no bundled font. The box is aligned on the
+/// alphabetic baseline and is twice
+/// [MarkdownConstants.bulletSquareCentreEm] tall, so its centre — where
+/// the square is drawn — is the x-height midpoint the `•` and `◦` share,
+/// and it stays far under the strut. Its [width] is the caller's: the
+/// bold `•`'s advance, so a square line's gap and content column are a
+/// dot line's.
+class EditorBulletSquareSpan extends CodeInlinePaintSpan {
+  final Color color;
+
+  /// The square's side, derived once at construction from the font size.
+  final double side;
+
+  const EditorBulletSquareSpan({
+    required double advance,
+    required double fontSize,
+    required this.color,
+  }) : side = fontSize * MarkdownConstants.bulletSquareSideEm,
+       super(
+         width: advance,
+         height: fontSize * MarkdownConstants.bulletSquareCentreEm * 2,
+         alignment: PlaceholderAlignment.baseline,
+         baseline: TextBaseline.alphabetic,
+       );
+
+  /// Whether a bullet at [level] draws this square: the third glyph of the
+  /// three-level cycle [MarkdownListSyntax.bulletGlyph] walks.
+  static bool drawsLevel(int level) => level % 3 == 2;
+
+  static final Paint _paint = Paint()..style = PaintingStyle.fill;
+
+  @override
+  void paint(Canvas canvas, Rect rect) {
+    _paint.color = color;
+    canvas.drawRect(
+      Rect.fromCenter(center: rect.center, width: side, height: side),
+      _paint,
+    );
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is EditorBulletSquareSpan &&
+          other.color == color &&
+          other.side == side &&
+          other.width == width &&
+          other.height == height &&
+          other.style == style;
+
+  @override
+  int get hashCode => Object.hash(color, side, width, height, style);
 }
 
 /// Which glyph the editor checkbox paints. `indeterminate` is a purely

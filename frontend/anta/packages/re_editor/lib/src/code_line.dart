@@ -473,6 +473,106 @@ extension CodeLineEditingBackspaceShape on CodeLineEditingController {
     return line.substring(0, caret).characters.last.length == 1;
   }
 
+  /// Whether [newValue] — the input method's view of the caret line — is
+  /// that line with exactly the one code unit [unit] inserted at a
+  /// collapsed caret, the caret right after it, and no composing region
+  /// on either side.
+  ///
+  /// The insertion sibling of [isSingleBackspace]: a soft keyboard's key
+  /// arrives as an [edit] that rewrites the line, so a host that gives a
+  /// key its own meaning at one spot (the app's Space on an empty list
+  /// item) reads the keystroke from this instead of diffing the line. The
+  /// inserted unit is checked first, so any other key costs no line scan.
+  bool isSingleInsert(TextEditingValue newValue, int unit) {
+    final CodeLineSelection current = selection;
+    if (!current.isCollapsed ||
+        isComposing ||
+        newValue.composing.end > newValue.composing.start) {
+      return false;
+    }
+    final int caret = current.extentOffset;
+    final TextSelection next = newValue.selection;
+    final String text = newValue.text;
+    if (!next.isCollapsed ||
+        next.baseOffset != caret + 1 ||
+        next.baseOffset > text.length ||
+        text.codeUnitAt(caret) != unit) {
+      return false;
+    }
+    final int index = current.extentIndex;
+    if (index < 0 || index >= codeLines.length) {
+      return false;
+    }
+    final String line = codeLines[index].text;
+    if (caret > line.length || text.length != line.length + 1) {
+      return false;
+    }
+    for (int i = 0; i < caret; i++) {
+      if (text.codeUnitAt(i) != line.codeUnitAt(i)) {
+        return false;
+      }
+    }
+    for (int i = caret; i < line.length; i++) {
+      if (text.codeUnitAt(i + 1) != line.codeUnitAt(i)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /// Whether [newValue] — the input method's view of the caret line — is
+  /// that line with the space right before a collapsed caret replaced by
+  /// `. `, the caret right after it, and no composing region on either
+  /// side.
+  ///
+  /// That is how a keyboard's double-space period arrives: the second
+  /// Space of a quick pair rewrites the first one. AOSP LatinIME (Gboard)
+  /// allows it after `]`, `)` and `+` too, so a hand-typed `- [ ] `,
+  /// `3) ` or `+ ` sends its second Space in this shape, and a host that
+  /// gives Space its own meaning there reads that Space from this rather
+  /// than from [isSingleInsert]. The `.` and the space are checked first,
+  /// so any other key costs no line scan.
+  bool isDoubleSpacePeriod(TextEditingValue newValue) {
+    final CodeLineSelection current = selection;
+    if (!current.isCollapsed ||
+        isComposing ||
+        newValue.composing.end > newValue.composing.start) {
+      return false;
+    }
+    final int caret = current.extentOffset;
+    final TextSelection next = newValue.selection;
+    final String text = newValue.text;
+    if (caret <= 0 ||
+        !next.isCollapsed ||
+        next.baseOffset != caret + 1 ||
+        next.baseOffset > text.length ||
+        text.codeUnitAt(caret - 1) != 0x2E ||
+        text.codeUnitAt(caret) != 0x20) {
+      return false;
+    }
+    final int index = current.extentIndex;
+    if (index < 0 || index >= codeLines.length) {
+      return false;
+    }
+    final String line = codeLines[index].text;
+    if (caret > line.length ||
+        text.length != line.length + 1 ||
+        line.codeUnitAt(caret - 1) != 0x20) {
+      return false;
+    }
+    for (int i = 0; i < caret - 1; i++) {
+      if (text.codeUnitAt(i) != line.codeUnitAt(i)) {
+        return false;
+      }
+    }
+    for (int i = caret; i < line.length; i++) {
+      if (text.codeUnitAt(i + 1) != line.codeUnitAt(i)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   /// The part of an input method's multi-line [text] that replaces the
   /// selection — what an IME paste inserts. Public so a delegate that
   /// transforms pastes (the app's list-aware paste) cuts the commit exactly

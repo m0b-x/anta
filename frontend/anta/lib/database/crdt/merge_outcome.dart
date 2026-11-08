@@ -26,7 +26,9 @@ final class MergeOutcome extends Equatable {
   final MergeResult result;
 
   /// Whether the remote won over a local row whose change had not been pushed
-  /// yet — its outbox entry was retired so it does not echo back.
+  /// yet — its outbox entry was retired so it does not echo back. Not for an
+  /// entry that only re-sent a version the space holds
+  /// (`SyncOutbox.republish`): that overwrite loses nothing.
   final bool localHadPendingPush;
 
   /// Notes only: the live local row a strictly newer remote overwrote while

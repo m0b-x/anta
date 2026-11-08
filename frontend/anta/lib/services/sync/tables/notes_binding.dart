@@ -1,6 +1,11 @@
 import '../../../constants/json_keys.dart';
 import '../../../database/chunking/chunk_hasher.dart';
+import '../../../database/crdt/crdt_merge.dart';
 import '../../../database/crdt/crdt_write.dart';
+import '../../../database/crdt/hlc.dart';
+import '../../../database/daos/content_chunk_dao.dart'
+    show ContentChunkDao, EncodedBody;
+import '../../../database/daos/sync_dao.dart';
 import '../../../database/database.dart';
 import '../../../models/item_label.dart';
 import '../sync_gateway.dart';
@@ -28,11 +33,11 @@ final class NotesBinding extends SyncTableBinding<Note> {
   ///
   /// Manifests shrank the page's own documents to a few KB, but did not lift
   /// it (S6b): a note new to this device has its whole body read as chunks
-  /// before the page, held in memory with it and stored in its one
-  /// transaction. Those reads are bounded on their own: a page whose missing
-  /// chunks outgrow `SyncEngine.chunkFetchBudget` is halved and pulled again,
-  /// down to one note, while an edit's page reads a chunk or two at any
-  /// size.
+  /// before the page, held in memory with it and stored by its transaction —
+  /// in parts past `SyncEngine.pullBodyBudget`. Those reads are bounded on
+  /// their own: a page whose missing chunks outgrow
+  /// `SyncEngine.chunkFetchBudget` is halved and pulled again, down to one
+  /// note, while an edit's page reads a chunk or two at any size.
   static const int pageLimit = 50;
 
   @override
@@ -122,31 +127,36 @@ final class NotesBinding extends SyncTableBinding<Note> {
     );
   }
 
-  /// The hashes and the body hash of [row]'s stored body, read in one
-  /// transaction so a save landing between them cannot pair one body's
-  /// chunks with another's hash.
+  /// The hashes and the body hash of [row]'s stored body, both from the
+  /// chunk rows one statement read, so a save landing meanwhile cannot pair
+  /// one body's chunks with another's hash. No transaction: the body is
+  /// decompressed and hashed after the read ([ContentChunkDao.bodyHashOf]),
+  /// and a cutover's drain does that for every note, which would hold the
+  /// browser's queries behind each whole body.
   static Future<({List<String> chunks, String bodyHash})> _manifestOf(
     AppDatabase db,
     Note row,
   ) async {
     final dao = db.contentChunkDao;
-    if ((await dao.hashesOf(row.id)).contains(null)) {
+    var rows = await dao.getChunksForNote(row.id);
+    if (rows.any((chunk) => chunk.contentHash == null)) {
       await dao.hashLegacy(
         row.id,
         hlc: row.hlcTimestamp,
         deviceId: row.deviceId,
       );
-    }
-    return db.transaction(() async {
-      final hashes = await dao.hashesOf(row.id);
-      if (hashes.contains(null)) {
+      rows = await dao.getChunksForNote(row.id);
+      if (rows.any((chunk) => chunk.contentHash == null)) {
         throw FormatException('notes: legacy chunks are not re-cut', row.id);
       }
-      return (
-        chunks: hashes.cast<String>(),
-        bodyHash: ChunkHasher.hash(await dao.loadContent(row.id)),
-      );
-    });
+    }
+    return (
+      chunks: [for (final chunk in rows) chunk.contentHash!],
+      bodyHash: await ContentChunkDao.bodyHashOf(
+        rows,
+        units: row.contentLength,
+      ),
+    );
   }
 
   /// The chunk hashes the live manifests among [envelopes] name that no
@@ -246,6 +256,191 @@ final class NotesBinding extends SyncTableBinding<Note> {
     return body;
   }
 
+  /// The bodies of a pull page's [envelopes], assembled before its
+  /// transaction — one entry per envelope, null where the merge reads no
+  /// body: each body a merge reads ([_readsNoBody], against the local rows
+  /// read here) assembled by [bodyOf], and marked when the merge will store
+  /// it ([CrdtMerge.remoteWrites]), which is what the page's parts are cut by
+  /// ([PreparedNoteBody.storedLength]). Nothing is cut or encoded here:
+  /// [readyBodies] does that for one part at a time, so a page of big
+  /// bodies never holds every cut and encoded chunk at once.
+  ///
+  /// A body that cannot be assembled is kept as its error, which
+  /// [mergeRemote] raises where [bodyOf] would — inside the envelope's
+  /// savepoint, so the envelope parks, or the part fails on a
+  /// [ChunkRowsMoved]. [fetched] and [asked] are [bodyOf]'s.
+  Future<List<PreparedNoteBody?>> prepareBodies(
+    AppDatabase db,
+    List<SyncEnvelope> envelopes, {
+    String? floor,
+    Map<String, String> fetched = const {},
+    Set<String>? asked,
+  }) async {
+    final live = [
+      for (final envelope in envelopes)
+        if (!isTombstone(envelope)) envelope.rowKey,
+    ];
+    if (live.isEmpty) return List.filled(envelopes.length, null);
+    final locals = {
+      for (final note in await db.noteDao.getByIdsIncludingDeleted(live))
+        note.id: note,
+    };
+    final prepared = List<PreparedNoteBody?>.filled(envelopes.length, null);
+    for (final (i, envelope) in envelopes.indexed) {
+      if (isTombstone(envelope)) continue;
+      final local = locals[envelope.rowKey];
+      if (_readsNoBody(db, envelope, local, floor)) continue;
+      try {
+        final body = await bodyOf(db, envelope, fetched: fetched, asked: asked);
+        prepared[i] = PreparedNoteBody._(
+          body!,
+          local: local,
+          stores: CrdtMerge.remoteWrites(
+            remoteHlc: envelope.hlc,
+            localHlc: local?.hlcTimestamp,
+            floor: floor,
+          ),
+        );
+      } catch (error, stack) {
+        prepared[i] = PreparedNoteBody._failed(error, stack);
+      }
+    }
+    return prepared;
+  }
+
+  /// One part of a page as [prepareBodies] left it, made ready for the
+  /// part's transaction: each body the merge will store cut, with its
+  /// chunks encoded, in one isolate hop for the part
+  /// ([ContentChunkDao.encodeBodies]). Drift's executor is exclusive while
+  /// the transaction runs, so the browser's and the calendar's queries wait
+  /// behind it: it must hold SQL alone, never the hashing and gzip of big
+  /// bodies.
+  ///
+  /// A body whose cut or encoding throws is kept as its error, which the
+  /// merge raises inside the envelope's savepoint, so that envelope parks
+  /// and the part's others merge: the part's hop failing is retried one
+  /// body at a time to find it.
+  ///
+  /// A remote that overwrites a local edit still queued carries that local
+  /// text too ([_unpushedTexts]), which the conflict check would otherwise
+  /// decompress inside the transaction — for every note another device
+  /// edited, on the run that cuts over to the chunked wire, which queues
+  /// every note.
+  Future<List<PreparedNoteBody?>> readyBodies(
+    AppDatabase db,
+    List<SyncEnvelope> envelopes,
+    List<PreparedNoteBody?> prepared, {
+    String? floor,
+  }) async {
+    final stored = [
+      for (final (i, body) in prepared.indexed)
+        if (body != null && body._stores && body._error == null) i,
+    ];
+    if (stored.isEmpty) return prepared;
+    final encoded = await _encodeEach(db, [
+      for (final i in stored)
+        (noteId: envelopes[i].rowKey, text: prepared[i]!.body),
+    ]);
+    final unpushed = await _unpushedTexts(db, [
+      for (final (j, i) in stored.indexed)
+        if (prepared[i]!._local case final local?
+            when encoded[j].body != null &&
+                !local.isDeleted &&
+                envelopes[i].hlc.compareTo(local.hlcTimestamp) > 0 &&
+                (floor == null || local.hlcTimestamp.compareTo(floor) > 0))
+          local,
+    ]);
+    final ready = [...prepared];
+    for (final (j, i) in stored.indexed) {
+      final (:body, :error, :stack) = encoded[j];
+      ready[i] = body != null
+          ? PreparedNoteBody._(
+              prepared[i]!.body,
+              stores: true,
+              ready: body,
+              localBody: unpushed[envelopes[i].rowKey],
+            )
+          : PreparedNoteBody._failed(error!, stack!);
+    }
+    return ready;
+  }
+
+  /// [ContentChunkDao.encodeBodies] for [bodies], each answered with its
+  /// encoding or the error it raised: one hop for all of them, and only
+  /// when that hop throws, one per body, so one bad body costs the others
+  /// nothing but the retry.
+  static Future<List<({EncodedBody? body, Object? error, StackTrace? stack})>>
+  _encodeEach(
+    AppDatabase db,
+    List<({String noteId, String text})> bodies,
+  ) async {
+    try {
+      return [
+        for (final body in await db.contentChunkDao.encodeBodies(bodies))
+          (body: body, error: null, stack: null),
+      ];
+    } catch (_) {
+      return [for (final body in bodies) await _encodeOne(db, body)];
+    }
+  }
+
+  static Future<({EncodedBody? body, Object? error, StackTrace? stack})>
+  _encodeOne(AppDatabase db, ({String noteId, String text}) body) async {
+    try {
+      final [encoded] = await db.contentChunkDao.encodeBodies([body]);
+      return (body: encoded, error: null, stack: null);
+    } catch (error, stack) {
+      return (body: null, error: error, stack: stack);
+    }
+  }
+
+  /// The text of each of [locals] that has an entry queued at or below its
+  /// stamp — an edit not pushed yet, the condition under which
+  /// `NoteDao.mergeNoteDocument` compares it with a newer remote — keyed by
+  /// note id, with the stamp the row carried when [locals] were read. The
+  /// texts are read after the rows, so a save landing in between leaves a
+  /// text newer than its stamp, and the merge, finding another stamp on
+  /// the row, reads the text again. A note whose chunks do not decode is
+  /// left out, for the merge to fail on as it does today.
+  ///
+  /// So is a note whose stamp is its `note_seen` value, and one whose entry
+  /// only re-sends a version the space holds (`SyncOutbox.republish`): the
+  /// merge files no copy of either, and on the run that cuts over to the
+  /// chunked wire, which queues every note, each text read here would be
+  /// read for nothing.
+  Future<Map<String, ({String hlc, String text})>> _unpushedTexts(
+    AppDatabase db,
+    List<Note> locals,
+  ) async {
+    if (locals.isEmpty) return const {};
+    final queued = await db.syncOutboxDao.pendingKeys(table, [
+      for (final local in locals) local.id,
+    ], unpushedOnly: true);
+    final pending = [
+      for (final local in locals)
+        if (queued[local.id] case final entry?
+            when entry.hlc.compareTo(local.hlcTimestamp) <= 0)
+          local,
+    ];
+    if (pending.isEmpty) return const {};
+    final seen = await db.syncDao.valuesOf([
+      for (final local in pending) SyncDao.keyNoteSeen(local.id),
+    ]);
+    final unpushed = [
+      for (final local in pending)
+        if (seen[SyncDao.keyNoteSeen(local.id)] != local.hlcTimestamp) local,
+    ];
+    if (unpushed.isEmpty) return const {};
+    final texts = await db.contentChunkDao.loadContentForNotes([
+      for (final local in unpushed) local.id,
+    ]);
+    return {
+      for (final local in unpushed)
+        if (texts[local.id] case final text?)
+          local.id: (hlc: local.hlcTimestamp, text: text),
+    };
+  }
+
   /// The manifest's hashes in body order; a non-hash refuses the document.
   static List<String> _hashesOf(WireFields f) => [
     for (final hash in f.field<List<Object?>>(chunksKey, const []))
@@ -292,6 +487,14 @@ final class NotesBinding extends SyncTableBinding<Note> {
   /// after its chunks, so the space holds them, and a second device cutting
   /// over to the chunked wire would otherwise upload every chunk the first
   /// already had (scalability record S6).
+  ///
+  /// [prepared] is the envelope's entry from [readyBodies]; without one
+  /// the body is assembled here, as a merge outside a pull page does. The
+  /// merge decides against the local row it reads now: one a save changed
+  /// since the preparation may read no body after all, or one the
+  /// preparation skipped — assembled here then, against the page's
+  /// [fetched] and [asked], so a chunk that save replaced fails the part
+  /// ([ChunkRowsMoved]) rather than parking the note.
   @override
   Future<MergeOutcome> mergeRemote(
     AppDatabase db,
@@ -299,6 +502,7 @@ final class NotesBinding extends SyncTableBinding<Note> {
     String? floor,
     Map<String, String> fetched = const {},
     Set<String>? asked,
+    PreparedNoteBody? prepared,
   }) async {
     final remote = decode(envelope);
     final local = await db.noteDao.getNoteById(remote.id);
@@ -308,12 +512,20 @@ final class NotesBinding extends SyncTableBinding<Note> {
     if (_readsNoBody(db, envelope, local, floor)) {
       outcome = await db.noteDao.mergeNoteDocument(remote, null, floor: floor);
     } else {
-      final body = await bodyOf(db, envelope, fetched: fetched, asked: asked);
+      final failure = prepared?._error;
+      if (failure != null) {
+        Error.throwWithStackTrace(failure, prepared!._stack!);
+      }
+      final body = prepared != null
+          ? prepared.body
+          : await bodyOf(db, envelope, fetched: fetched, asked: asked);
       outcome = await db.noteDao.mergeNoteDocument(
         remote,
         body,
         floor: floor,
         inSpace: manifest ? _hashesOf(WireFields(envelope)).toSet() : const {},
+        ready: prepared?.ready,
+        localBody: prepared?.localBody,
       );
     }
     if (manifest && outcome.result != MergeResult.keptLocal) {
@@ -323,14 +535,72 @@ final class NotesBinding extends SyncTableBinding<Note> {
       }
     } else if (!manifest &&
         !remote.isDeleted &&
-        outcome.result == MergeResult.unchanged) {
+        outcome.result == MergeResult.unchanged &&
+        // At the seed the merge acks nothing — an equal seed does not prove
+        // the space holds this version — so nothing was retired to queue
+        // again, and a republish would claim a version the space may lack.
+        remote.hlcTimestamp != HlcTimestamp.seed.toString()) {
       // This row's own write in an older build's shape, its whole body in
       // the document: the equal-stamp ack just retired the entry the wire
-      // cutover queued to replace it with a manifest, so it is queued again.
-      await db.syncOutboxDao.requeueRow(table, remote.id);
+      // cutover queued to replace it with a manifest, so it is queued again
+      // — as a republish: the space holds this version, and a newer remote
+      // overwriting it before the push loses no text.
+      await db.syncOutboxDao.requeueRow(table, remote.id, republish: true);
     }
     return outcome;
   }
+}
+
+/// One envelope's body as [NotesBinding.prepareBodies] left it before the
+/// page's transaction, assembled, and as [NotesBinding.readyBodies] left it
+/// before its part's: cut and encoded when the merge will store it — or the
+/// error assembling, cutting or encoding it raised.
+final class PreparedNoteBody {
+  PreparedNoteBody._(
+    this.body, {
+    required bool stores,
+    Note? local,
+    this.ready,
+    this.localBody,
+  }) : _stores = stores,
+       _local = local,
+       _error = null,
+       _stack = null;
+
+  PreparedNoteBody._failed(Object error, StackTrace stack)
+    : body = '',
+      ready = null,
+      localBody = null,
+      _stores = false,
+      _local = null,
+      _error = error,
+      _stack = stack;
+
+  /// The assembled body; empty for a failed one.
+  final String body;
+
+  /// [body] cut with its chunks encoded, when the merge will store it.
+  final EncodedBody? ready;
+
+  /// The local note's unpushed text this body overwrites, with the stamp
+  /// the row carried when it was read: what the conflict check compares
+  /// [body] with, read before the transaction.
+  final ({String hlc, String text})? localBody;
+
+  /// Whether the merge will store [body] ([CrdtMerge.remoteWrites]).
+  final bool _stores;
+
+  /// The local note as [NotesBinding.prepareBodies] read it, null when none:
+  /// whose unpushed text [NotesBinding.readyBodies] reads.
+  final Note? _local;
+
+  final Object? _error;
+  final StackTrace? _stack;
+
+  /// What storing this body writes, in code units: the measure a page's
+  /// write budget is spent in (`SyncEngine.pullBodyBudget`), known before
+  /// anything is cut. Zero for a body the merge only compares.
+  int get storedLength => _stores ? body.length : 0;
 }
 
 /// A manifest names chunks neither this device nor the space holds: the
@@ -344,8 +614,9 @@ final class ChunksMissing extends FormatException {
 
 /// A chunk a page's merge needed was on this device when the page's fetch
 /// was planned, so it was not read from the space, and a save replaced its
-/// row since. Transient: the puller fails the page, and the next run reads
-/// the chunk from the space (scalability record S6b).
+/// row since. Transient: the puller fails the page's part, and the next run
+/// reads the page again and the chunk from the space (scalability record
+/// S6b).
 final class ChunkRowsMoved implements Exception {
   /// The note whose body could not be assembled.
   final String noteId;

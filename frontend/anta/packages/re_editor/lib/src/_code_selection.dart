@@ -14,6 +14,7 @@ class _CodeSelectionGestureDetector extends StatefulWidget {
   final GlobalKey editorKey;
   final _SelectionOverlayController selectionOverlayController;
   final CodeEditorTapInterceptor? tapInterceptor;
+  final CodeEditorLineSwipeHandler? lineSwipeHandler;
   final Widget child;
 
   const _CodeSelectionGestureDetector({
@@ -24,11 +25,36 @@ class _CodeSelectionGestureDetector extends StatefulWidget {
     required this.editorKey,
     required this.selectionOverlayController,
     this.tapInterceptor,
+    this.lineSwipeHandler,
     required this.child,
   });
 
   @override
   State<StatefulWidget> createState() => _CodeSelectionGestureDetectorState();
+}
+
+/// The line swipe's horizontal drag. It joins the gesture arena only for a
+/// pointer [accepts] approves at pointer-down, so a pointer it refuses
+/// leaves every other recognizer — the editor's tap and long press, the
+/// scrollables, any ancestor's drag — resolving exactly as it would
+/// without this one. Its devices are the selection handles' set.
+class _LineSwipeGestureRecognizer extends HorizontalDragGestureRecognizer {
+  _LineSwipeGestureRecognizer({super.debugOwner})
+      : super(supportedDevices: const <PointerDeviceKind>{
+          PointerDeviceKind.touch,
+          PointerDeviceKind.stylus,
+          PointerDeviceKind.unknown,
+        });
+
+  bool Function(PointerDownEvent event)? accepts;
+
+  @override
+  bool isPointerAllowed(PointerEvent event) {
+    if (event is! PointerDownEvent || !super.isPointerAllowed(event)) {
+      return false;
+    }
+    return accepts?.call(event) ?? false;
+  }
 }
 
 class _CodeSelectionGestureDetectorState
@@ -158,10 +184,112 @@ class _CodeSelectionGestureDetectorState
     _interceptedTapDevice = null;
   }
 
+  /// The line the current swipe went down on, set when
+  /// [_CodeSelectionGestureDetector.lineSwipeHandler] accepts the pointer
+  /// and cleared when that drag ends or is cancelled — every accepted
+  /// pointer ends in one of the two, whether the drag won the arena or
+  /// not. While set, a second pointer is refused, so one finger owns the
+  /// swipe.
+  int? _swipeLineIndex;
+  double _swipeTravel = 0;
+  bool _swipeFired = false;
+
+  bool _acceptsSwipePointer(PointerDownEvent event) {
+    if (_swipeLineIndex != null) {
+      return false;
+    }
+    final CodeEditorLineSwipeHandler? handler = widget.lineSwipeHandler;
+    if (handler == null) {
+      return false;
+    }
+    final _CodeFieldRender? render = this.render;
+    // A touch in a shown handle's target belongs to the handle's pan, which
+    // accepts later than this drag would.
+    if (render == null ||
+        widget.selectionOverlayController
+            .handleTargetContains(event.position)) {
+      return false;
+    }
+    final CodeLinePosition? down = render.positionAt(position: event.position);
+    if (down == null ||
+        !_isOnLineParagraph(render, down.index, event.position) ||
+        !handler.shouldHandle(down)) {
+      return false;
+    }
+    _swipeLineIndex = down.index;
+    _swipeTravel = 0;
+    _swipeFired = false;
+    return true;
+  }
+
+  /// Whether [globalPosition] lies within line [index]'s own paragraph.
+  /// `positionAt` maps the top padding and the blank area under the last
+  /// line onto the nearest line, which a swipe must not read as that line.
+  bool _isOnLineParagraph(
+      _CodeFieldRender render, int index, Offset globalPosition) {
+    final CodeLineRenderParagraph? paragraph =
+        render.findDisplayParagraphByLineIndex(index);
+    return paragraph != null &&
+        paragraph.inVerticalRange(
+            render.globalToLocal(globalPosition) + render.paintOffset);
+  }
+
+  void _onSwipeUpdate(DragUpdateDetails details) {
+    final int? lineIndex = _swipeLineIndex;
+    if (lineIndex == null || _swipeFired) {
+      return;
+    }
+    _swipeTravel += details.primaryDelta ?? 0;
+    if (_swipeTravel.abs() < CodeEditor.lineSwipeDistance) {
+      return;
+    }
+    _swipeFired = true;
+    widget.lineSwipeHandler?.onSwipe(lineIndex, toRight: _swipeTravel > 0);
+  }
+
+  void _resetSwipe() {
+    _swipeLineIndex = null;
+    _swipeTravel = 0;
+    _swipeFired = false;
+  }
+
+  /// Wraps the touch detector in the line swipe. The swipe sits beside the
+  /// tap and long-press detector rather than in it, so those handlers keep
+  /// their recognizers untouched; it is built even without a handler (its
+  /// pointer test then refuses everything) so attaching one never
+  /// reparents the editable. Travel is measured from pointer-down, so the
+  /// distance is the finger's whole travel, not what is left after the
+  /// touch slop; semantics are excluded because a swipe is no
+  /// screen-reader action.
+  Widget _withLineSwipe(BuildContext context, Widget child) {
+    return RawGestureDetector(
+      behavior: widget.behavior,
+      excludeFromSemantics: true,
+      gestures: <Type, GestureRecognizerFactory>{
+        _LineSwipeGestureRecognizer:
+            GestureRecognizerFactoryWithHandlers<_LineSwipeGestureRecognizer>(
+          () => _LineSwipeGestureRecognizer(debugOwner: this),
+          (_LineSwipeGestureRecognizer instance) {
+            instance
+              ..accepts = _acceptsSwipePointer
+              ..dragStartBehavior = DragStartBehavior.down
+              ..gestureSettings = MediaQuery.maybeGestureSettingsOf(context)
+              ..onUpdate = _onSwipeUpdate
+              ..onEnd = (_) {
+                _resetSwipe();
+              }
+              ..onCancel = _resetSwipe;
+          },
+        ),
+      },
+      child: child,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_isMobile) {
-      return GestureDetector(
+      final Widget detector = GestureDetector(
         onLongPressMoveUpdate: (details) {
           if (_longPressOnSelection == true) {
             return;
@@ -231,6 +359,7 @@ class _CodeSelectionGestureDetectorState
         behavior: widget.behavior,
         child: widget.child,
       );
+      return _withLineSwipe(context, detector);
     } else {
       return GestureDetector(
         onVerticalDragUpdate: _onDrag,
@@ -663,6 +792,10 @@ abstract class _SelectionOverlayController {
 
   void hideHandle();
 
+  /// Whether [globalPosition] falls in the touch target of a handle that
+  /// is shown, so another recognizer can leave that touch to the handle.
+  bool handleTargetContains(Offset globalPosition);
+
   void showToolbar(BuildContext context, Offset position);
 
   void hideToolbar();
@@ -699,6 +832,9 @@ class _DesktopSelectionOverlayController
 
   @override
   void showHandle(BuildContext context) {}
+
+  @override
+  bool handleTargetContains(Offset globalPosition) => false;
 
   @override
   void hideToolbar() {
@@ -839,6 +975,53 @@ class _MobileSelectionOverlayController
       _handles![1].remove();
       _handles = null;
     }
+  }
+
+  /// Rebuilds the targets [_buildHandles] placed: each shown handle's
+  /// [_handleInteractiveRectOf], anchored where [_CodeFieldRender] paints
+  /// its leader layer.
+  @override
+  bool handleTargetContains(Offset globalPosition) {
+    final bool? collapsed = _handleCollapsed;
+    final _CodeFieldRender? render = this.render;
+    if (_handles == null || collapsed == null || render == null) {
+      return false;
+    }
+    if (_effectiveStartHandleVisibility.value) {
+      final TextSelectionHandleType type = collapsed
+          ? (kIsIOS
+              ? TextSelectionHandleType.right
+              : TextSelectionHandleType.collapsed)
+          : TextSelectionHandleType.left;
+      if (_handleTargetOf(render, controller.selection.start, type)
+              ?.contains(globalPosition) ??
+          false) {
+        return true;
+      }
+    }
+    if (!collapsed && _effectiveEndHandleVisibility.value) {
+      return _handleTargetOf(render, controller.selection.end,
+                  TextSelectionHandleType.right)
+              ?.contains(globalPosition) ??
+          false;
+    }
+    return false;
+  }
+
+  Rect? _handleTargetOf(_CodeFieldRender render, CodeLinePosition position,
+      TextSelectionHandleType type) {
+    final Offset? offset = render.calculateTextPositionViewportOffset(position);
+    if (offset == null) {
+      return null;
+    }
+    final double lineHeight = render.lineHeightOfLine(position.index);
+    final Offset anchor = render.localToGlobal(Offset(
+      clampDouble(offset.dx, 0.0, render.size.width),
+      clampDouble(offset.dy, 0.0, render.size.height) + lineHeight,
+    ));
+    return _handleInteractiveRectOf(
+            _handleRectOf(selectionControls, type, lineHeight))
+        .shift(anchor);
   }
 
   @override
@@ -1415,6 +1598,32 @@ class _MobileSelectionOverlayController
   }
 }
 
+/// A handle's painted rect relative to its anchor, the bottom of its line.
+Rect _handleRectOf(TextSelectionControls controls, TextSelectionHandleType type,
+    double lineHeight) {
+  final Offset handleAnchor = controls.getHandleAnchor(type, lineHeight);
+  final Size handleSize = controls.getHandleSize(lineHeight);
+  return Rect.fromLTWH(
+    -handleAnchor.dx,
+    -handleAnchor.dy,
+    handleSize.width,
+    handleSize.height,
+  );
+}
+
+/// The rect a handle's pan recognizer listens on: [handleRect] grown to a
+/// touch target. One function for the overlay and for the line swipe that
+/// stands aside inside it, so the two can never disagree.
+Rect _handleInteractiveRectOf(Rect handleRect) {
+  // Make sure the GestureDetector is big enough to be easily interactive.
+  return handleRect.expandToInclude(
+    Rect.fromCircle(
+      center: handleRect.center,
+      radius: kMinInteractiveDimension / 2,
+    ),
+  );
+}
+
 class _SelectionHandleOverlay extends StatefulWidget {
   /// Create selection overlay.
   const _SelectionHandleOverlay({
@@ -1488,28 +1697,12 @@ class _SelectionHandleOverlayState extends State<_SelectionHandleOverlay>
 
   @override
   Widget build(BuildContext context) {
-    final Offset handleAnchor = widget.selectionControls.getHandleAnchor(
+    final Rect handleRect = _handleRectOf(
+      widget.selectionControls,
       widget.type,
       widget.preferredLineHeight,
     );
-    final Size handleSize = widget.selectionControls.getHandleSize(
-      widget.preferredLineHeight,
-    );
-
-    final Rect handleRect = Rect.fromLTWH(
-      -handleAnchor.dx,
-      -handleAnchor.dy,
-      handleSize.width,
-      handleSize.height,
-    );
-
-    // Make sure the GestureDetector is big enough to be easily interactive.
-    final Rect interactiveRect = handleRect.expandToInclude(
-      Rect.fromCircle(
-        center: handleRect.center,
-        radius: kMinInteractiveDimension / 2,
-      ),
-    );
+    final Rect interactiveRect = _handleInteractiveRectOf(handleRect);
     final RelativeRect padding = RelativeRect.fromLTRB(
       max((interactiveRect.width - handleRect.width) / 2, 0),
       max((interactiveRect.height - handleRect.height) / 2, 0),

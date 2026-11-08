@@ -907,6 +907,16 @@ class NoteDao extends DatabaseAccessor<AppDatabase> with _$NoteDaoMixin {
   /// change, and a restore-then-rebind would file one copy per note (S3a
   /// review F2).
   ///
+  /// Nor for a local row whose stamp is its `note_seen` value, whatever the
+  /// outbox says, and its text is then never read: that version is another
+  /// device's, accepted from the space, so nothing of it can be lost. The
+  /// run that cuts over to the chunked wire queues every live note
+  /// (`SyncOutboxDao.requeueBodies`) and reads every one again, so without
+  /// this each note another device edited since this one's last pull would
+  /// file its already-synced text as a copy. `seen` is recorded at
+  /// acceptance, so no writer has to remember it, and a local edit moves
+  /// the stamp off it. A row with no `seen` keeps the rule above.
+  ///
   /// The other direction is [_keptOver]'s: a remote older than the local
   /// note, live or deleted, may be another device's edit that ours
   /// overwrites everywhere, and its text is then the loser
@@ -927,20 +937,36 @@ class NoteDao extends DatabaseAccessor<AppDatabase> with _$NoteDaoMixin {
   /// [inSpace] are the chunk hashes the remote's manifest named, which the
   /// stored chunks never queue: the space holds them (scalability record
   /// S6b). A body that came whole, in a legacy document, names none.
+  ///
+  /// [ready] is [content] cut and encoded before the caller's transaction
+  /// ([ContentChunkDao.encodeBodies]): a pull page's merges then store it
+  /// with SQL alone. Taken only for the very text it was made from.
+  ///
+  /// [localBody] is the local note's text read before the caller's
+  /// transaction, with the stamp the row carried then, for the conflict
+  /// check above to compare without decompressing the body inside the
+  /// transaction. Taken only while the row still carries that stamp: every
+  /// write that changes the text moves it, so another stamp means a save
+  /// landed in between, and the text is read again here.
   Future<MergeOutcome> mergeNoteDocument(
     Note remote,
     String? content, {
     String? floor,
     Set<String> inSpace = const {},
+    EncodedBody? ready,
+    ({String hlc, String text})? localBody,
   }) {
     final body = remote.isDeleted ? null : content ?? '';
+    final encoded = ready != null && identical(ready.source, body)
+        ? ready
+        : null;
 
     // The body is cut only by a merge that stores it: a pull hands every
     // note it reads to this merge — the echo of this device's own push
     // among them — and most are kept or unchanged.
     Future<(Note, BodyCut?)> mergedRow() async {
       if (body == null) return (remote, null);
-      final cut = await BodyCut.of(body);
+      final cut = encoded?.cut ?? await BodyCut.of(body);
       return (_withBody(remote, cut), cut);
     }
 
@@ -956,15 +982,21 @@ class NoteDao extends DatabaseAccessor<AppDatabase> with _$NoteDaoMixin {
         insert: () async {
           final (merged, cut) = await mergedRow();
           await into(notes).insert(merged);
-          if (cut != null) await _indexMergedBody(merged, cut, inSpace);
+          if (cut != null) {
+            await _indexMergedBody(merged, cut, inSpace, encoded);
+          }
         },
         overwrite: (applied) async {
           var outcome = applied;
           if (!local!.isDeleted) {
             if (applied.localHadPendingPush &&
                 remote.hlcTimestamp.compareTo(local.hlcTimestamp) > 0 &&
-                (floor == null || local.hlcTimestamp.compareTo(floor) > 0)) {
-              final text = await db.contentChunkDao.loadContent(local.id);
+                (floor == null || local.hlcTimestamp.compareTo(floor) > 0) &&
+                await db.syncDao.getValue(SyncDao.keyNoteSeen(local.id)) !=
+                    local.hlcTimestamp) {
+              final text = localBody?.hlc == local.hlcTimestamp
+                  ? localBody!.text
+                  : await db.contentChunkDao.loadContent(local.id);
               if (text != (body ?? '')) {
                 outcome = MergeOutcome(
                   applied.result,
@@ -993,7 +1025,7 @@ class NoteDao extends DatabaseAccessor<AppDatabase> with _$NoteDaoMixin {
           } else {
             final (merged, cut) = await mergedRow();
             await update(notes).replace(merged);
-            await _indexMergedBody(merged, cut!, inSpace);
+            await _indexMergedBody(merged, cut!, inSpace, encoded);
             if (local.folderId != remote.folderId) {
               outcome = outcome.movedFrom(local.folderId);
             }
@@ -1284,10 +1316,12 @@ class NoteDao extends DatabaseAccessor<AppDatabase> with _$NoteDaoMixin {
   /// chunk rows to clear: every tombstone path deletes them, and v47 purged
   /// the ones earlier builds kept. [inSpace] names the hashes the manifest
   /// the body came from already holds, so the write queues none of them.
+  /// [ready] carries [body]'s chunks encoded ahead of the transaction.
   Future<void> _indexMergedBody(
     Note note,
     BodyCut body,
     Set<String> inSpace,
+    EncodedBody? ready,
   ) async {
     await db.contentChunkDao.replaceChunks(
       noteId: note.id,
@@ -1297,6 +1331,7 @@ class NoteDao extends DatabaseAccessor<AppDatabase> with _$NoteDaoMixin {
       version: note.version,
       cut: body,
       inSpace: inSpace,
+      ready: ready,
     );
   }
 

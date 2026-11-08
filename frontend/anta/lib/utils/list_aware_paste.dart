@@ -1,9 +1,11 @@
 import 'package:flutter/services.dart';
 import 'package:re_editor/re_editor.dart';
 
+import 'editor_input_policy.dart';
 import 'markdown_line_shape.dart';
 import 'markdown_list_syntax.dart';
 import 'marker_backspace_policy.dart';
+import 'marker_space_policy.dart';
 
 /// Multi-line paste that continues the caret line's list.
 ///
@@ -31,7 +33,8 @@ import 'marker_backspace_policy.dart';
 /// Being the delegate every edit passes through, it is also where a
 /// Backspace right after a list or quote marker takes the whole marker
 /// ([MarkerBackspacePolicy]), from a hardware key and a soft keyboard
-/// alike.
+/// alike, and where a Space on an empty list item nests it
+/// ([MarkerSpacePolicy]).
 class ListAwarePasteController extends CodeLineEditingControllerDelegate {
   ListAwarePasteController({
     required super.delegate,
@@ -54,6 +57,12 @@ class ListAwarePasteController extends CodeLineEditingControllerDelegate {
   /// that shape too; any other single-unit Backspace goes on to the fork,
   /// which runs its own Backspace rules for it.
   ///
+  /// A single typed space is read the same way, for [MarkerSpacePolicy];
+  /// a space it does not claim is typed by the fork as any other key. So
+  /// is a keyboard's double-space period ([isDoubleSpacePeriod]): when the
+  /// policy claims the line as it stands, that second Space nests the item
+  /// and the `. ` never lands; anywhere else the period is the fork's.
+  ///
   /// A multi-line commit is the keyboard's own paste key (Gboard's
   /// clipboard strip): it gets the same list continuation as [paste], cut
   /// out of the commit exactly as the editor cuts it ([imeReplacement]),
@@ -62,6 +71,8 @@ class ListAwarePasteController extends CodeLineEditingControllerDelegate {
   @override
   void edit(TextEditingValue newValue) {
     if (isSingleBackspace(newValue) && _applyMarkerBackspace()) return;
+    if (isSingleInsert(newValue, 0x20) && _applyMarkerSpace()) return;
+    if (isDoubleSpacePeriod(newValue) && _applyMarkerSpace()) return;
     if (newValue.text.contains('\n') && _applyImePaste(newValue.text)) return;
     super.edit(newValue);
   }
@@ -102,6 +113,51 @@ class ListAwarePasteController extends CodeLineEditingControllerDelegate {
     final line = lines[index];
     final result = MarkerBackspacePolicy.apply(line.text, sel.extentOffset);
     if (result == null) return false;
+    runRevocableOp(() {
+      value = CodeLineEditingValue(
+        codeLines: lines.replaceLine(index, line.copyWith(text: result.line)),
+        selection: CodeLineSelection.collapsed(
+          index: index,
+          offset: result.caretOffset,
+        ),
+      );
+    });
+    makeCursorCenterIfInvisible();
+    return true;
+  }
+
+  /// Applies [MarkerSpacePolicy] to the collapsed caret's line as one undo
+  /// step, or returns false to let the space be typed. At the nesting cap
+  /// the key is swallowed with no undo node; the input method already
+  /// holds the space (or the `. ` of a double-space period), so it is
+  /// handed the unchanged line back.
+  bool _applyMarkerSpace() {
+    final sel = selection;
+    final index = sel.extentIndex;
+    final lines = codeLines;
+    if (index < 0 || index >= lines.length) return false;
+    final line = lines[index];
+    final caret = sel.extentOffset;
+    // Only a space after a blank can sit at an empty item's content start;
+    // every other space (the one ending a word) skips the line's parse.
+    if (caret == 0) return false;
+    final before = line.text.codeUnitAt(caret - 1);
+    if (before != 0x20 && before != 0x09) return false;
+    if (_isFenceLine?.call(index) ?? false) return false;
+    final result = MarkerSpacePolicy.apply(
+      line.text,
+      caret,
+      maxLevelOf: () => EditorInputPolicy.listIndentCap(
+        lineAt: (i) => lines[i].text,
+        index: index,
+        isFenceLine: _isFenceLine,
+      ),
+    );
+    if (result == null) return false;
+    if (result.line == line.text) {
+      notifyListeners();
+      return true;
+    }
     runRevocableOp(() {
       value = CodeLineEditingValue(
         codeLines: lines.replaceLine(index, line.copyWith(text: result.line)),

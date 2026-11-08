@@ -736,6 +736,11 @@ void main() {
           pause: SyncPause.noAccess,
           lastFailure: failure,
           parkedCount: 2,
+          downloadedRows: 7,
+          updating: true,
+          updatingSending: true,
+          updatingTotal: 30,
+          updatingSent: 12,
           lastPullAt: DateTime.utc(2026, 10, 24, 8),
         ),
       );
@@ -750,6 +755,11 @@ void main() {
       expect(status.pause, SyncPause.noAccess);
       expect(status.lastFailure, failure);
       expect(status.parkedCount, 2);
+      expect(status.downloadedRows, 7);
+      expect(status.updating, isTrue);
+      expect(status.updatingSending, isTrue);
+      expect(status.updatingTotal, 30);
+      expect(status.updatingSent, 12);
       expect(status.lastPullAt, DateTime.utc(2026, 10, 24, 8));
       await bloc.close();
     });

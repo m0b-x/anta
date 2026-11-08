@@ -1,10 +1,13 @@
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:anta/constants/json_keys.dart';
+import 'package:anta/database/crdt/hlc.dart';
 import 'package:anta/database/crdt/merge_outcome.dart';
 import 'package:anta/database/daos/sync_dao.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/models/item_label.dart';
 import 'package:anta/services/sync/sync_gateway.dart';
+import 'package:anta/services/sync/tables/notes_binding.dart';
 
 import '../../database/support/db_test_support.dart';
 import 'support/sync_pair.dart';
@@ -207,7 +210,7 @@ void main() {
     expect(seen.where((s) => s.isSelect), isEmpty);
     // The merge's own plan reads the chunk index of a stored body; no body
     // text is read, which only the rule's comparison would do.
-    expect(b().statements.captured.where(_readsBodyText), isEmpty);
+    expect(b().statements.captured.where(_readsChunkText), isEmpty);
     expect(b().hooks.conflicts, isEmpty);
   });
 
@@ -221,7 +224,7 @@ void main() {
     final outcome = await b().db.noteDao.mergeNoteDocument(accepted, 'base');
 
     expect(outcome, const MergeOutcome(MergeResult.keptLocal));
-    expect(b().statements.captured.where(_readsBodyText), isEmpty);
+    expect(b().statements.captured.where(_readsChunkText), isEmpty);
     expect(
       b().statements.captured.where((s) => touchesSeen(s) && !s.isSelect),
       isEmpty,
@@ -341,9 +344,193 @@ void main() {
       });
     }
   });
+
+  group('the run that cuts over to the chunked wire', () {
+    /// Lowers [device]'s wire version, so its next run queues every live
+    /// note at its own stamp and reads every one again.
+    Future<void> lowerWire(SyncDevice device) =>
+        device.db.syncDao.setValue(SyncDao.keyWireVersion, '${syncSchema - 1}');
+
+    test('files no copy of a version accepted from the space that another '
+        'device has edited since, and reads no body of it', () async {
+      final note = await sharedNote();
+      final accepted = (await b().db.noteDao.getNoteById(note.id))!;
+      expect(await seenOn(b(), note.id), accepted.hlcTimestamp);
+      await editNote(a(), note.id, 'typed on A');
+      await a().sync();
+      await lowerWire(b());
+      b().statements.reset();
+
+      final report = await b().sync();
+
+      expect(report.failure, isNull);
+      expect(b().hooks.conflicts, isEmpty);
+      expect(
+        b().statements.captured.where(
+          (s) => _readsChunkText(s) && s.args.contains(note.id),
+        ),
+        isEmpty,
+      );
+      await a().sync();
+      expect(a().hooks.conflicts, isEmpty);
+      await expectBody(note.id, 'typed on A');
+    });
+
+    test('still files a real unpushed edit once, with its text, under the '
+        'newer version from the other device', () async {
+      final note = await sharedNote();
+      await editNote(b(), note.id, 'typed on B');
+      pair.gateway.refuse('notes', note.id, SyncGatewayFailure.offline);
+      await b().sync();
+      // The refusal holds for every device, so it ends before A pushes.
+      pair.gateway.accept('notes', note.id);
+      await editNote(a(), note.id, 'typed on A');
+      await a().sync();
+      await lowerWire(b());
+
+      await b().sync();
+      await a().sync();
+
+      final conflict = b().hooks.conflicts.single;
+      expect(conflict.loser.id, note.id);
+      expect(conflict.loserContent, 'typed on B');
+      expect(a().hooks.conflicts, isEmpty);
+      await expectBody(note.id, 'typed on A');
+    });
+
+    // `note_seen` holds only versions from another device, so a note this
+    // device wrote and pushed has none: its entry from the cutover is a
+    // republish, which no overwrite reads as an unpushed edit.
+    test('of a note this device wrote and pushed, edited on the other since, '
+        'files no copy', () async {
+      final folder = await b().db.folderDao.createFolder(name: 'Training');
+      final note = await writeNote(
+        b(),
+        folderId: folder.id,
+        title: 'Log',
+        body: 'base',
+      );
+      await b().sync();
+      await a().sync();
+      await editNote(a(), note.id, 'typed on A');
+      await a().sync();
+      expect(await seenOn(b(), note.id), isNull);
+      await lowerWire(b());
+      b().hooks.clear();
+
+      final report = await b().sync();
+
+      expect(report.failure, isNull);
+      expect(b().hooks.conflicts, isEmpty);
+      await a().sync();
+      expect(a().hooks.conflicts, isEmpty);
+      await expectBody(note.id, 'typed on A');
+    });
+
+    // A device upgrading from a build before `note_seen` holds no key at
+    // its cutover; the republish mark alone keeps the copy out.
+    test('a device with no note_seen keys at its cutover files no copy for a '
+        'version another device edited since', () async {
+      final note = await sharedNote();
+      await b().db.customStatement(
+        'DELETE FROM sync_metadata WHERE key LIKE ?',
+        ['${SyncDao.noteSeenPrefix}%'],
+      );
+      expect(await seenOn(b(), note.id), isNull);
+      await editNote(a(), note.id, 'typed on A');
+      await a().sync();
+      await lowerWire(b());
+
+      final report = await b().sync();
+
+      expect(report.failure, isNull);
+      expect(b().hooks.conflicts, isEmpty);
+      await a().sync();
+      expect(a().hooks.conflicts, isEmpty);
+      await expectBody(note.id, 'typed on A');
+    });
+
+    test(
+      'a real edit made after the cutover re-queued the note is still a '
+      'pending push, filed once with its text under a newer version',
+      () async {
+        final note = await sharedNote();
+        // The cutover's re-queue, as `_cutOverWire` runs it; a run that cuts
+        // over would retire the entry again on the space's equal manifest.
+        await b().db.syncOutboxDao.requeueBodies(boundUid: syncUid);
+        Future<SyncOutboxRow?> entry() async => (await b().db.syncOutboxDao
+            .pendingKeys('notes', [note.id]))[note.id];
+        expect((await entry())!.republish, isTrue);
+
+        await editNote(b(), note.id, 'typed on B');
+        expect((await entry())!.republish, isFalse);
+        await editNote(a(), note.id, 'typed on A');
+        await a().sync();
+        await b().sync();
+        await a().sync();
+
+        final conflict = b().hooks.conflicts.single;
+        expect(conflict.loser.id, note.id);
+        expect(conflict.loserContent, 'typed on B');
+        expect(a().hooks.conflicts, isEmpty);
+        await expectBody(note.id, 'typed on A');
+      },
+    );
+
+    test('a document in the older shape at the seed stamp queues no '
+        'republish: an equal seed says nothing about what the space '
+        'holds', () async {
+      final db = b().db;
+      final seed = HlcTimestamp.seed.toString();
+      final created = await db.noteDao.createNote(
+        folderId: 'f1',
+        title: 'N',
+        content: 'base',
+      );
+      await db.customStatement(
+        'UPDATE notes SET hlc_timestamp = ? WHERE id = ?',
+        [seed, created.id],
+      );
+      await db.customStatement('DELETE FROM sync_outbox');
+      final note = (await db.noteDao.getNoteById(created.id))!;
+      final mine = await const NotesBinding().encode(
+        db,
+        note,
+        boundUid: syncUid,
+      );
+      final legacy = SyncEnvelope(
+        table: mine.table,
+        rowKey: mine.rowKey,
+        hlc: seed,
+        deviceId: mine.deviceId,
+        version: mine.version,
+        op: mine.op,
+        ownerId: syncUid,
+        data: {...mine.data!}
+          ..remove(NotesBinding.chunksKey)
+          ..remove(NotesBinding.bodyHashKey)
+          ..[JsonKeys.content] = 'base',
+      );
+
+      final outcome = await db.transaction(
+        () => const NotesBinding().mergeRemote(db, legacy),
+      );
+
+      expect(outcome.result, MergeResult.unchanged);
+      expect(
+        (await db.syncOutboxDao.pendingKeys('notes', [note.id]))[note.id],
+        isNull,
+      );
+    });
+  });
 }
 
-/// A read of a note's body text (`ContentChunkDao.loadContent`), as opposed
-/// to the chunk index a merge's write plan reads.
-bool _readsBodyText(CapturedStatement s) =>
-    s.isSelect && s.sql.contains('AS "content_chunks.content"');
+/// A read of chunk text in either shape a select takes: whole chunk rows
+/// (`SELECT * FROM "content_chunks"` — `ContentChunkDao.loadContent`,
+/// `loadContentForNotes`, `textsByHash`), or a join carrying the `content`
+/// column under its alias. The chunk index a merge's write plan reads
+/// selects neither.
+bool _readsChunkText(CapturedStatement s) =>
+    s.isSelect &&
+    (s.sql.startsWith('SELECT * FROM "content_chunks"') ||
+        s.sql.contains('AS "content_chunks.content"'));

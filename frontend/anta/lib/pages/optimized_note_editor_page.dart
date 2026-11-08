@@ -3477,8 +3477,13 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
   /// The bar's indent and outdent — the Tab edit a soft keyboard cannot
   /// send. Guarded like every other programmatic insert so the tracker
   /// never reads the indent's growth as typing or a paste.
+  ///
+  /// A tap that changes nothing (an Indent at the nesting cap, an Outdent
+  /// at column 0) is no edit: it must not mark the note unsaved or
+  /// schedule a save.
   void _shiftListIndent({required bool outdent}) {
     _focusContentFirst();
+    final CodeLines before = _contentController.codeLines;
     _edits.runGuarded(
       () => ListIndentAction.apply(
         _contentController,
@@ -3486,6 +3491,7 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
         isFenceLine: _render.lineInFence,
       ),
     );
+    if (_contentController.codeLines == before) return;
     _onTextChanged();
   }
 

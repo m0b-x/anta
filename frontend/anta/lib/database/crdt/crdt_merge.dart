@@ -70,6 +70,8 @@ abstract final class CrdtMerge {
   /// able to out-stamp a remote row it never merged. The puller raises the
   /// clock to the page's highest stamp once the page committed (R65).
   /// Nothing here mints a stamp or queues a remote row.
+  ///
+  /// [remoteWrites] answers ahead of the merge whether it will write.
   static Future<MergeOutcome> mergeRemoteRow(
     AppDatabase db, {
     required TableInfo table,
@@ -112,7 +114,7 @@ abstract final class CrdtMerge {
           : MergeJoin.local;
       switch (side) {
         case MergeJoin.remote:
-          final pending = await db.syncOutboxDao.ackThrough(
+          final pending = await db.syncOutboxDao.ackUnpushedThrough(
             name,
             rowKey,
             localHlc,
@@ -131,6 +133,22 @@ abstract final class CrdtMerge {
     }
     return outcome;
   }
+
+  /// Whether [mergeRemoteRow] with no `join` writes a remote stamped
+  /// [remoteHlc] over a local row stamped [localHlc] (null: none) under
+  /// [floor] — inserts it or overwrites with it. Asked before the merge's
+  /// transaction by a caller that prepares the remote's data ahead of it,
+  /// so only the rows the merge will store pay for that work; the merge
+  /// itself decides again against the row it reads.
+  static bool remoteWrites({
+    required String remoteHlc,
+    required String? localHlc,
+    String? floor,
+  }) =>
+      localHlc == null ||
+      (remoteHlc != localHlc &&
+          (remoteHlc.compareTo(localHlc) > 0 ||
+              _yieldsToFloor(localHlc, remoteHlc, floor)));
 
   static bool _yieldsToFloor(
     String localHlc,

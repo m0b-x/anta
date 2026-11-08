@@ -582,8 +582,10 @@ class _Puller {
         touched: touched,
         tally: tally,
         missing: missing,
+        // The bind's download counts every row; the wire cutover's re-read
+        // the notes it says it re-syncs.
+        counts: initial || (_e._updating && table is NotesBinding),
       );
-      if (initial) _e._downloadedRows += page.envelopes.length;
       _e._emit();
       cursor = page.next ?? cursor;
       scan = nextScan;
@@ -686,7 +688,29 @@ class _Puller {
   ///
   /// [missing] are the chunks a page of notes lacks, when the caller read
   /// them already ([NotesBinding.missingChunks]). A merge that finds one it
-  /// did not ask for gone ([ChunkRowsMoved]) fails the page whole.
+  /// did not ask for gone ([ChunkRowsMoved]) fails its part — the parts
+  /// before it stay committed, the run ends on the failure, and the next one
+  /// fetches the chunk. That is safe because no part but the last moves the
+  /// cursor: the next run reads the whole page again, a row an earlier part
+  /// stored merges unchanged against itself, and a park stored by an earlier
+  /// part is still ahead of the cursor, so the cursor never passes a park it
+  /// did not store.
+  ///
+  /// A notes page's bodies are assembled before any transaction
+  /// ([NotesBinding.prepareBodies]), and each part's are cut and encoded
+  /// right before its own ([NotesBinding.readyBodies]): Drift's executor is
+  /// exclusive while one runs, so the browser and the calendar wait behind
+  /// each page, and the page must hold SQL alone. A page whose stored bodies
+  /// outgrow [SyncEngine.pullBodyBudget] is committed in parts, each the
+  /// unit described above — its own transaction, parks, copies, stamp,
+  /// clock advance and hooks — with the cursor, the skipped documents and
+  /// [gone] in the last: a part never moves the cursor past an envelope of a
+  /// later one, so a run that ends between two parts reads the page again,
+  /// where what the first parts stored merges unchanged. [counts] adds each
+  /// part's rows to the run's progress as it commits — during the wire
+  /// cutover only the live notes that merged, since its total is the live
+  /// note count and a tombstone or a parked envelope would carry the line
+  /// to "N of N" before the re-read ends.
   Future<void> _apply(
     SyncBinding bound,
     SyncTableBinding<Object> table,
@@ -696,18 +720,110 @@ class _Puller {
     required _RunTally tally,
     List<String> gone = const [],
     List<String>? missing,
+    bool counts = false,
+  }) async {
+    final db = _e._db;
+    final envelopes = page.envelopes;
+    List<PreparedNoteBody?>? prepared;
+    Map<String, String> fetched = const {};
+    Set<String>? asked;
+    if (table is NotesBinding) {
+      final missed =
+          missing ??
+          await NotesBinding.missingChunks(db, envelopes, floor: floor);
+      fetched = await _fetchChunks(bound, missed, tally);
+      asked = missed.toSet();
+      // The first part's, before the bodies are read: the hook precedes all
+      // of a page's reads of this database.
+      await _e._hooks.beforePage(table.table);
+      // Before the reads, so a stop or a switch during the hook ends the run
+      // here instead of after a page of bodies.
+      await _e._checkHalt(bound);
+      prepared = await table.prepareBodies(
+        db,
+        envelopes,
+        floor: floor,
+        fetched: fetched,
+        asked: asked,
+      );
+    }
+    var start = 0;
+    for (final end in _partEnds(envelopes.length, prepared)) {
+      final last = end == envelopes.length;
+      final live = await _applyPart(
+        bound,
+        table,
+        envelopes.sublist(start, end),
+        prepared?.sublist(start, end),
+        floor: floor,
+        touched: touched,
+        tally: tally,
+        next: last ? page.next : null,
+        skipped: last ? page.skipped : const [],
+        gone: last ? gone : const [],
+        fetched: fetched,
+        asked: asked,
+        announced: start == 0 && prepared != null,
+      );
+      // A stored part's bodies are let go before the next part is encoded.
+      prepared?.fillRange(start, end, null);
+      if (counts) {
+        _e._downloadedRows += _e._updating ? live : end - start;
+        if (!last) _e._emit();
+      }
+      start = end;
+    }
+  }
+
+  /// The end of each part [_apply] commits a page of [length] envelopes in:
+  /// a new part starts where the next stored body would take the current
+  /// one past [SyncEngine.pullBodyBudget], so a part holds at least one
+  /// envelope whatever its size. A page of any other table, or of notes
+  /// whose bodies fit, is one part.
+  static List<int> _partEnds(int length, List<PreparedNoteBody?>? prepared) {
+    if (prepared == null) return [length];
+    final ends = <int>[];
+    var spent = 0;
+    for (var i = 0; i < length; i++) {
+      final size = prepared[i]?.storedLength ?? 0;
+      if (spent > 0 && spent + size > SyncEngine.pullBodyBudget) {
+        ends.add(i);
+        spent = 0;
+      }
+      spent += size;
+    }
+    return ends..add(length);
+  }
+
+  /// One part of [_apply]'s page: [envelopes] with their [prepared] bodies,
+  /// cut and encoded here, merged in one transaction that stores [next] as
+  /// the cursor when given and parks [skipped] and lets [gone] go.
+  /// [fetched] and [asked] are the page's, for a body the merge assembles
+  /// itself. [announced]: `beforePage` ran for it already. Returns how many
+  /// of [envelopes] merged as live rows.
+  Future<int> _applyPart(
+    SyncBinding bound,
+    SyncTableBinding<Object> table,
+    List<SyncEnvelope> envelopes,
+    List<PreparedNoteBody?>? prepared, {
+    required String? floor,
+    required Set<SyncInvalidation> touched,
+    required _RunTally tally,
+    required SyncCursor? next,
+    required List<String> skipped,
+    required List<String> gone,
+    Map<String, String> fetched = const {},
+    Set<String>? asked,
+    bool announced = false,
   }) async {
     final db = _e._db;
     final name = table.table;
-    final asked = table is NotesBinding
-        ? missing ??
-              await NotesBinding.missingChunks(db, page.envelopes, floor: floor)
-        : const <String>[];
-    final fetched = await _fetchChunks(bound, asked, tally);
-    final askedSet = asked.toSet();
-    await _e._hooks.beforePage(name);
+    if (!announced) await _e._hooks.beforePage(name);
     // The hook may have outlived the binding, the session or the engine.
     await _e._checkHalt(bound);
+    final ready = table is NotesBinding && prepared != null
+        ? await table.readyBodies(db, envelopes, prepared, floor: floor)
+        : prepared;
     final rows = <SyncAppliedRow>[];
     // The conflict copies filed in the transaction, announced with the
     // page's rows only once it committed.
@@ -728,7 +844,7 @@ class _Puller {
       // The queued stamps by key, read once for the page on its first park
       // under the floor.
       Map<String, String>? queued;
-      for (final envelope in page.envelopes) {
+      for (final (i, envelope) in envelopes.indexed) {
         final MergeOutcome outcome;
         try {
           outcome = await db.transaction(
@@ -738,7 +854,8 @@ class _Puller {
                     envelope,
                     floor: floor,
                     fetched: fetched,
-                    asked: askedSet,
+                    asked: asked,
+                    prepared: ready?[i],
                   )
                 : table.mergeRemote(db, envelope, floor: floor),
           );
@@ -789,7 +906,7 @@ class _Puller {
           );
         }
       }
-      for (final key in page.skipped) {
+      for (final key in skipped) {
         await _parkUnreadable(name, key);
       }
       for (final key in gone) {
@@ -808,7 +925,6 @@ class _Puller {
           );
         }
       }
-      final next = page.next;
       if (next != null) {
         await db.syncDao.setValue(SyncDao.keyPullCursor(name), next.value);
       }
@@ -842,6 +958,7 @@ class _Puller {
       // keeps throwing: it precedes the page, so failing there is right.
       _warn('afterPage for $name failed: $error\n$stack');
     }
+    return rows.where((row) => !row.tombstone).length;
   }
 
   /// Reads the [missing] chunks a page's manifests name and this device

@@ -22,7 +22,13 @@ it at the comma; then
 install on BOTH phones the same day with the second phone's sync stopped or
 offline until it runs the new build (§8.2 S6), then the two-device check by
 the sync record's §7 checklist. Migrations as built: v46 (S4) → v47 (S16) →
-v48 (S11) → v49 (S20) → v50 (S12); the wire version 45 → 46 in S6 only. Fable 5.1 wrote this on 2026-11-07 from the owner's
+v48 (S11) → v49 (S20) → v50 (S12) → v51 (§8.5, `sync_outbox.republish`); the wire version 45 → 46 in S6 only.
+**First install 2026-11-08 (§8.5):** the phone's first launch stalled on the
+cutover's drain and the whole-body re-read; fixed the same day in six passes
+(body work off the database lock on both sides, 2 MiB parts, the `republish`
+flag so the re-queue files no spurious conflict copy, "Finishing update" on
+the Sync page and in the drawer) — gated 14,902 green, settings device suite
+20/20, UNCOMMITTED. Fable 5.1 wrote this on 2026-11-07 from the owner's
 request "identify the app's limits
 for the calendar and notes and make it scalable with the best practices apps
 use; I heard a one-letter change resends the document". The audit ran as one
@@ -2061,6 +2067,145 @@ tree once S7 has landed and the gate is green:
 - Before installing the build on a phone: §8.2 S6's owner steps (deploy the
   rules and indexes first; both phones the same day; the second phone's sync
   stopped or offline until it runs the new build).
+- **The first-install fix (§8.5) is a second commit** after the round's
+  `20d5da9c`: its 43 files — the 40 of the patch, the seed-guard test's
+  allow-list entry, this record and the two references — staged by name
+  (another session's 35 uncommitted editor files sit beside them, so never
+  `git add -A`); suggested message `sync: the update's first run
+  holds the database only to write — bodies cut and encoded off the lock,
+  pages in 2 MiB parts, no spurious copy from the re-queue (v51 republish),
+  "Finishing the update" on the Sync page and in the drawer`.
+
+### 8.5 After the first install (2026-11-08)
+
+**What happened.** The owner installed `20d5da9c` on their phone at 13:12.
+The first launch sat on spinners on every page for minutes — the Calendar
+page a full-page spinner, the Folders root its list spinner under the static
+"All notes / Recent" card and a bottom bar without its count caption (the
+round changed nothing in that bar; the QA root screenshots before and after
+it are identical) — then Settings → Sync → "Stop syncing" ended the app, and
+the second launch was fine. The phone was not on USB, so its crash buffer is
+unread and the death unexplained; the stall is explained by the code and
+reproduced in tests.
+
+**Diagnosis.** (1) The run that cuts over (`SyncEngine._cutOverWire`)
+re-reads every note document whole and re-queues every live note. (2)
+`SyncPuller._apply` applied a page (50 notes) in one transaction with each
+body's decode, content cut, SHA-256 and gzip inside it; Drift's executor is
+exclusive during a transaction, so every UI query — the folder list, the
+calendar — waited behind each page. On the phone most pages merged at equal
+stamps, which cuts nothing, so (3) was the longer phase: the drain pushed
+every re-queued note, and each note still stored as pre-v46 slices — every
+note, since v46 only added `content_hash` — went through
+`ContentChunkDao.hashLegacy`, which encoded every chunk inside its
+transaction, and `NotesBinding._manifestOf` opened a transaction per note to
+decompress and hash the whole body. (4) Nothing told the user: the drawer and
+the Sync page said "Receiving…" / "Downloading N rows". (5) Found on the way:
+the re-queue gives every note an outbox entry at its own stamp, which
+`CrdtMerge.mergeRemoteRow` read as a pending edit, so a note another device
+edited since this device's last pull got a conflict copy of a text the space
+already held — on the first device today (search "conflict copy"), and on
+the second device at its cutover, which has no `note_seen` keys yet (they
+arrived in the same commit).
+
+**Fixed the same day** — six implementer passes in one worktree
+(`%TEMP%\anta-wt-fix`), two independent reviews (the sixth pass closes the
+second review's findings), merged into the main tree, UNCOMMITTED:
+
+- *Pull.* `NotesBinding.prepareBodies` assembles the bodies before the page
+  transaction and `readyBodies` cuts and encodes each part in one isolate
+  hop (`ContentChunkDao.encodeBodies`, `BodyCut.ofEach`;
+  `CrdtMerge.remoteWrites` predicts which bodies the merge stores, a wrong
+  prediction falls back to cutting inside). A page commits in parts of at
+  most `SyncEngine.pullBodyBudget` (2 MiB of body text): each part its own
+  transaction, parks, copies, clock advance and hooks; the cursor, `skipped`
+  and `gone` go with the last part, so the cursor never passes an unstored
+  park; a run cut between parts re-reads the page and the stored rows merge
+  unchanged (the S9 branch re-queues each legacy-shape note once, no
+  duplicate entry). `fetched`/`asked` reach the fallback merge (first review's
+  finding: a replaced chunk parked the note instead of failing the part).
+  `_checkHalt` runs before the reads. A body whose cut or encode throws parks
+  alone inside its savepoint.
+- *Push.* `_manifestOf` reads the chunk rows in one statement and hashes
+  outside any transaction (`ContentChunkDao.bodyHashOf`, off the UI isolate
+  above `BodyCut.isolateThreshold`); `hashLegacy` cuts and encodes the whole
+  text before its transaction (`EncodedBody` through `applyWrite`'s
+  `ready:`), the rows-unchanged guard kept.
+- *Conflict check.* The local text a copy would need is pre-read
+  (`PreparedNoteBody.localBody`) and used only while the local stamp still
+  matches; an accepted foreign version (`note_seen` equal to the local stamp)
+  files no copy; **v51** adds `sync_outbox.republish` — `requeueBodies` and
+  the S9 branch set it, every real write's upsert resets it (MIN(old, new),
+  so a re-queue never turns a real edit into a republish), and
+  `localHadPendingPush`, now read through `SyncOutboxDao.ackUnpushedThrough`,
+  ignores it — so the cutover files no spurious copy on any device, and a
+  real unpushed edit is still filed once with its text.
+- *Status.* `SyncStatus.updating`, `updatingTotal`, `updatingSent`,
+  `updatingSending`: the Sync page says "Finishing update — notes N of M"
+  through the pull (live merged notes only) and "Finishing update — sending
+  N of M" through the drain — the phase is the flag, set as the drain
+  starts, so no emit between the two phases words one with the other's
+  total; both strings sit in the page's `_statusLineTemplates`, so the
+  status row keeps its height (one-height test in en/de/ro at 1.0–2.0, the
+  second review's finding); the drawer's one-line row "Finishing update
+  (N of M)" (`drawerSyncUpdating`, fits 360 dp in en/de/ro); pauses outrank
+  it; false on a bind's first run. en/de/ro. The S9 republish branch skips a
+  document at the seed stamp (the merge runs no ack there), the guard
+  test's allow-list naming the comparison.
+- *Body search indexer.* Already loads and decompresses outside its
+  transaction; pinned.
+
+**Measured (desktop).** First pull of 40 × 300 KB notes: the longest wait of
+a trivial UI query 440–467 → 25–138 ms. Drain of the same: transactions
+44 → 4, time held 371 → 105 ms. The phone's scenario (every note held as
+legacy rows, whole-body documents in the space, the wire rolled back): time
+transactions were held 577 → 289–358 ms, the longest single transaction
+unchanged (~40 ms, a pull page). On a phone each removed hold is several
+times longer. `test/services/sync/sync_cutover_stall_benchmark_test.dart`
+(tag `benchmark`, skipped by default) prints the three numbers.
+
+**Pins.** `test/services/sync/sync_pull_page_work_test.dart` — no cut or
+encode inside a pull transaction, parts and the cursor, a run stopped
+between parts, the fallback with a replaced chunk, the re-read after a part
+split, the legacy re-cut encodes outside, the progress count, "Stop syncing"
+mid-cutover settles within the engine stop limit and a later bind cuts over
+cleanly; `sync_lost_edit_copy_test.dart`, group "the run that cuts over to
+the chunked wire" — no copy for an accepted or an own pushed version, a real
+edit filed once, a device without `note_seen` keys; the indexer's
+transaction scope in `test/services/body_search_indexer_test.dart`; v51 in
+`test/database/upgrade_chain_test.dart` and `schema_parity_test.dart`; the
+status and its precedence in the drawer, Sync-section and bloc suites; the
+drawer fit test in `test/widgets/app_drawer_test.dart`.
+
+**Gate.** `dart analyze lib test` clean; the whole suite 14,902 green on the
+main tree (14,897 before the sixth pass), beside the editor list-nesting
+session's 35 uncommitted files.
+**Device:** the QA build on `emulator-5556`, settings suite 20/20 green
+twice — before the sixth pass
+(`build/qa/pass/settings_20261108_155454_748_emulator-5556`) and on the
+final tree (`settings_20261108_163215_418_emulator-5556`) — twenty
+relaunches each of the QA database carried through v51 with no migration,
+Drift or `[SyncEngine]` error in any log; the saved suites cannot exercise
+the cutover itself (the QA database is unbound), so the cutover's device
+behaviour rests on the pins and the benchmark.
+
+**Not verified / open.** Why the app died on "Stop syncing" (the phone's
+crash buffer over USB would say); the cutover itself has run on no device
+(the saved suites' QA database is unbound — a two-device check against the
+Firestore emulator would be the proof); a status line on the Folders root
+during the re-sync (the owner's call). Accepted as they are from the second
+review: the progress totals are approximate (notes new from the space count
+past the local total and clamp at "N of N"; the drain's total includes
+parked entries, so the line can stop short); a transient encode failure
+parks the bodies that fail again, as before the fix; `syncUpdating` and
+`drawerSyncUpdatingNoTotal` are defensive fallbacks that never show in
+practice; `_manifestOf` reads a legacy note's rows twice on its first push.
+
+**Owner's steps.** Install this build on the phone, then on the second
+device the same day — its cutover runs under the fix and files no spurious
+copies; on the phone, search "conflict copy" for copies filed today and
+delete those whose text the other device already had; put the phone on USB
+once so the crash buffer can be read; commit (§8.4, the second commit).
 
 ## 9. Definition of done
 

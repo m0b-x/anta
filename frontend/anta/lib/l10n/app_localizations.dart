@@ -7900,6 +7900,24 @@ abstract class AppLocalizations {
   /// **'{count, plural, =1{Downloading — 1 item so far} other{Downloading — {count} items so far}}'**
   String syncDownloading(int count);
 
+  /// Sync status during the first sync after an app update that changed how notes sync: every note is read again, which slows the app for a while; done is how many notes were read so far, total how many notes this database holds
+  ///
+  /// In en, this message translates to:
+  /// **'Finishing update — notes {done} of {total}'**
+  String syncUpdatingNotes(int done, int total);
+
+  /// Sync status during the first sync after an app update that changed how notes sync, before the number of notes is known
+  ///
+  /// In en, this message translates to:
+  /// **'Finishing update'**
+  String get syncUpdating;
+
+  /// Sync status during the first sync after an app update that changed how notes sync, once every note was read again: the notes are sent to the cloud copy in the new form, which slows the app for a while; done is how many notes were sent so far, total how many were waiting to be sent
+  ///
+  /// In en, this message translates to:
+  /// **'Finishing update — sending {done} of {total}'**
+  String syncUpdatingSending(int done, int total);
+
   /// Sync status: the last sync found no connection and tries again by itself
   ///
   /// In en, this message translates to:
@@ -7989,6 +8007,18 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Couldn\'t sync — will retry'**
   String get drawerSyncRetrying;
+
+  /// Status line of the drawer's account row, short: the first sync after an app update that changed how notes sync, reading every note again and then sending them; done is how many notes that step has handled so far, total how many it handles
+  ///
+  /// In en, this message translates to:
+  /// **'Finishing update ({done} of {total})'**
+  String drawerSyncUpdating(int done, int total);
+
+  /// Status line of the drawer's account row, short: the first sync after an app update that changed how notes sync, before the number of notes is known
+  ///
+  /// In en, this message translates to:
+  /// **'Finishing update'**
+  String get drawerSyncUpdatingNoTotal;
 
   /// When this database last synced; time is a time of day today, else a date
   ///

@@ -1,0 +1,39 @@
+{
+  "version": 7,
+  "exportedAt": "2026-01-01T09:00:00.000",
+  "folders": [
+    {
+      "id": "qa-folder-nesting",
+      "name": "Nesting",
+      "parentId": null,
+      "position": 0,
+      "createdAt": "2026-01-01T09:00:00.000",
+      "updatedAt": "2026-01-01T09:00:00.000",
+      "noteSortOrder": null,
+      "subfolderSortOrder": null,
+      "label": "none"
+    }
+  ],
+  "notes": [
+    {
+      "id": "qa-note-nesting-depth",
+      "folderId": "qa-folder-nesting",
+      "title": "Depth",
+      "content": "# Depth\n\n- a\n  - b\n    - c\n      - d\n- [ ] task\n  - [x] done sub-task\n1. first\n  1. nested first\n  2. nested second\n- a nested item long enough to wrap twice on a narrow phone so the hanging indent under the content can be judged by eye at every text scale\n\t- tab child\n    - four spaces\n> - quoted\n>   - quoted nested\n- $+ 5 coffee\n  - $- 3 bus\n",
+      "preview": "# Depth",
+      "createdAt": "2026-01-01T09:05:00.000",
+      "updatedAt": "2026-01-01T09:05:00.000",
+      "label": "none"
+    },
+    {
+      "id": "qa-note-nesting-capture",
+      "folderId": "qa-folder-nesting",
+      "title": "Capture",
+      "content": "- warm-up\n- squat\n",
+      "preview": "- warm-up",
+      "createdAt": "2026-01-01T09:06:00.000",
+      "updatedAt": "2026-01-01T09:06:00.000",
+      "label": "none"
+    }
+  ]
+}

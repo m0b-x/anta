@@ -188,7 +188,8 @@ void main() {
     // alternative let an allow-listed file bind the DAO and then call
     // anything at all on it unchecked (A7 review R138).
     final retires = RegExp(
-      r'\bsyncOutboxDao ?\. ?(ackThrough|requeueRow|requeueAll|requeueBodies'
+      r'\bsyncOutboxDao ?\. ?(ackThrough|ackUnpushedThrough|requeueRow'
+      r'|requeueAll|requeueBodies'
       r'|clear|count|maxHlc|pending|pendingForTable|pendingKeys|tombstonedKeys'
       r'|watchQueued)'
       r' ?\('
@@ -276,6 +277,10 @@ void main() {
       'HlcTimestamp.seed': {
         'lib/database/crdt/crdt_write.dart',
         'lib/database/crdt/crdt_merge.dart',
+        // A comparison, never a write: the S9 republish branch must not take
+        // an equal seed as proof that the space holds the version, because
+        // the merge skips the ack there (scalability record §8.5).
+        'lib/services/sync/tables/notes_binding.dart',
       },
     };
     final patterns = {

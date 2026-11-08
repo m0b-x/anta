@@ -257,6 +257,11 @@ class DatabaseMigrations {
       toVersion: DatabaseSchema.v50QuickSearchIndex,
       migrate: _migrateV49ToV50,
     ),
+    Migration(
+      fromVersion: DatabaseSchema.v50QuickSearchIndex,
+      toVersion: DatabaseSchema.v51OutboxRepublish,
+      migrate: _migrateV50ToV51,
+    ),
   ];
 
   Future<void> runMigrations(Migrator m, int from, int to) async {
@@ -2250,5 +2255,20 @@ class DatabaseMigrations {
     }
     await DatabaseIndexes(_db).createBodySearchTables();
     await _db.customStatement('DELETE FROM note_search_ledger');
+  }
+
+  /// v50→v51: `sync_outbox.republish`, which tells an entry re-sending a
+  /// version the space holds from a write this device has not pushed, so a
+  /// newer remote overwriting the first files no conflict copy (scalability
+  /// record S6). Every entry already queued keeps the default 0 — read as a
+  /// real edit, as every entry was before — so the step never hides one.
+  /// Local-only: `syncSchemaVersion` stays at 46. Idempotent: guarded by the
+  /// column list.
+  Future<void> _migrateV50ToV51(Migrator m, GeneratedDatabase db) async {
+    if (!(await _columnsOf('sync_outbox')).contains('republish')) {
+      await _db.customStatement(
+        'ALTER TABLE sync_outbox ADD COLUMN republish INTEGER NOT NULL DEFAULT 0',
+      );
+    }
   }
 }

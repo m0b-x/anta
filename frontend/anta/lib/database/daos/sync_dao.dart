@@ -1,4 +1,5 @@
 import 'package:drift/drift.dart';
+import '../crdt/crdt_merge.dart';
 import '../database.dart';
 import '../tables/sync_metadata_table.dart';
 
@@ -215,6 +216,17 @@ class SyncDao extends DatabaseAccessor<AppDatabase> with _$SyncDaoMixin {
       syncMetadata,
     )..where((s) => _startsWith(s, prefix))).get();
     return [for (final row in rows) (row.key, row.value)];
+  }
+
+  /// The stored values among [keys], by key; a key with none is absent. One
+  /// statement per [CrdtMerge.keysPerStatement] keys, where [getValue] would
+  /// pay one per key.
+  Future<Map<String, String>> valuesOf(List<String> keys) async {
+    final rows = await CrdtMerge.loadInChunks(
+      keys,
+      (chunk) => (select(syncMetadata)..where((s) => s.key.isIn(chunk))).get(),
+    );
+    return {for (final row in rows) row.key: row.value};
   }
 
   /// [keyReplicaId], minted when absent — an unbound database taps too — or

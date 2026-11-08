@@ -5778,6 +5778,38 @@
       }
     }
   },
+  "syncUpdatingNotes": "Finishing update — notes {done} of {total}",
+  "@syncUpdatingNotes": {
+    "description": "Sync status during the first sync after an app update that changed how notes sync: every note is read again, which slows the app for a while; done is how many notes were read so far, total how many notes this database holds",
+    "placeholders": {
+      "done": {
+        "type": "int",
+        "format": "decimalPattern"
+      },
+      "total": {
+        "type": "int",
+        "format": "decimalPattern"
+      }
+    }
+  },
+  "syncUpdating": "Finishing update",
+  "@syncUpdating": {
+    "description": "Sync status during the first sync after an app update that changed how notes sync, before the number of notes is known"
+  },
+  "syncUpdatingSending": "Finishing update — sending {done} of {total}",
+  "@syncUpdatingSending": {
+    "description": "Sync status during the first sync after an app update that changed how notes sync, once every note was read again: the notes are sent to the cloud copy in the new form, which slows the app for a while; done is how many notes were sent so far, total how many were waiting to be sent",
+    "placeholders": {
+      "done": {
+        "type": "int",
+        "format": "decimalPattern"
+      },
+      "total": {
+        "type": "int",
+        "format": "decimalPattern"
+      }
+    }
+  },
   "syncOffline": "Offline — will retry",
   "@syncOffline": {
     "description": "Sync status: the last sync found no connection and tries again by itself"
@@ -5849,6 +5881,24 @@
   "drawerSyncRetrying": "Couldn't sync — will retry",
   "@drawerSyncRetrying": {
     "description": "Status line of the drawer's account row, short: the last sync failed for a reason other than no connection and tries again by itself"
+  },
+  "drawerSyncUpdating": "Finishing update ({done} of {total})",
+  "@drawerSyncUpdating": {
+    "description": "Status line of the drawer's account row, short: the first sync after an app update that changed how notes sync, reading every note again and then sending them; done is how many notes that step has handled so far, total how many it handles",
+    "placeholders": {
+      "done": {
+        "type": "int",
+        "format": "decimalPattern"
+      },
+      "total": {
+        "type": "int",
+        "format": "decimalPattern"
+      }
+    }
+  },
+  "drawerSyncUpdatingNoTotal": "Finishing update",
+  "@drawerSyncUpdatingNoTotal": {
+    "description": "Status line of the drawer's account row, short: the first sync after an app update that changed how notes sync, before the number of notes is known"
   },
   "syncLastSynced": "Last synced {time}",
   "@syncLastSynced": {

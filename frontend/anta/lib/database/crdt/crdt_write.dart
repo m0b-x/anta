@@ -210,7 +210,7 @@ extension CrdtWrite on AppDatabase {
         'VALUES (?, ?, ?, ?, ?) '
         'ON CONFLICT (table_name, row_key) DO UPDATE SET '
         'hlc = excluded.hlc, op = excluded.op, '
-        'enqueued_at = excluded.enqueued_at '
+        'enqueued_at = excluded.enqueued_at, republish = 0 '
         'WHERE excluded.hlc > sync_outbox.hlc',
         [contentChunks.actualTableName, hash, hlc, OutboxOp.upsert.name, now],
         [TableUpdate.onTable(syncOutbox, kind: UpdateKind.update)],
@@ -260,7 +260,7 @@ extension CrdtWrite on AppDatabase {
       'WHERE hlc_timestamp = ? AND id IN '
       '(${List.filled(keys.length, '?').join(', ')}) '
       'ON CONFLICT (table_name, row_key) DO UPDATE SET hlc = excluded.hlc, '
-      'op = excluded.op, enqueued_at = excluded.enqueued_at '
+      'op = excluded.op, enqueued_at = excluded.enqueued_at, republish = 0 '
       'WHERE excluded.hlc > sync_outbox.hlc',
       [
         name,
@@ -369,13 +369,16 @@ extension CrdtWrite on AppDatabase {
 
   /// An entry only ever moves forward: a write that commits after a newer
   /// one (or a stale re-queue) must not lower the HLC a push acknowledges
-  /// through, or the newer change would be retired unsent.
+  /// through, or the newer change would be retired unsent. A write that
+  /// raises an entry the wire cutover queued makes it a real edit again
+  /// ([SyncOutbox.republish]).
   DoUpdate<$SyncOutboxTable, SyncOutboxRow> get _newerWins {
     return DoUpdate.withExcluded(
       (old, excluded) => SyncOutboxCompanion.custom(
         hlc: excluded.hlc,
         op: excluded.op,
         enqueuedAt: excluded.enqueuedAt,
+        republish: const Constant(false),
       ),
       where: (old, excluded) => excluded.hlc.isBiggerThan(old.hlc),
     );

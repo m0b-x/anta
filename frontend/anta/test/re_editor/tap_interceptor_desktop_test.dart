@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:re_editor/re_editor.dart';
 
@@ -314,6 +315,66 @@ void main() {
     expect(e.taps.single.offset, lessThan(3));
     expectSameSelection(e.controller.selection, before);
     expect(e.focusNode.hasFocus, isFalse);
+
+    await teardownEditor(tester);
+  });
+
+  testWidgets('a line swipe handler leaves a horizontal mouse drag a '
+      'selection drag', (tester) async {
+    final controller = CodeLineEditingController.fromText(document);
+    final focusNode = FocusNode();
+    final asked = <CodeLinePosition>[];
+    final swipes = <int>[];
+    late CodeIndicatorValueNotifier notifier;
+    addTearDown(() {
+      focusNode.dispose();
+      controller.dispose();
+    });
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: CodeEditor(
+            controller: controller,
+            focusNode: focusNode,
+            autofocus: false,
+            padding: EdgeInsets.zero,
+            style: const CodeEditorStyle(fontSize: kTestFontSize),
+            lineSwipeHandler: CodeEditorLineSwipeHandler(
+              shouldHandle: (down) {
+                asked.add(down);
+                return true;
+              },
+              onSwipe: (lineIndex, {required toRight}) => swipes.add(lineIndex),
+            ),
+            indicatorBuilder: (context, editing, chunk, valueNotifier) {
+              notifier = valueNotifier;
+              return const SizedBox.shrink();
+            },
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    final gesture = await tester.startGesture(
+      zoneCellOf(tester, notifier, 0, 4),
+      kind: PointerDeviceKind.mouse,
+    );
+    await tester.pump();
+    for (var i = 0; i < 4; i++) {
+      await gesture.moveBy(const Offset(kTestFontSize, 0));
+      await tester.pump();
+    }
+    await gesture.up();
+    await tester.pump();
+
+    expect(swipes, isEmpty);
+    expect(asked, isEmpty, reason: 'the desktop branch has no line swipe');
+    expect(controller.selection.baseIndex, 0);
+    expect(controller.selection.baseOffset, 4);
+    expect(controller.selection.extentIndex, 0);
+    expect(controller.selection.extentOffset, 8);
 
     await teardownEditor(tester);
   });

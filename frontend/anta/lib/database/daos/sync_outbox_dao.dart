@@ -63,16 +63,23 @@ class SyncOutboxDao extends DatabaseAccessor<AppDatabase>
   /// The queued entries of [table] among [rowKeys], by key — the chunk
   /// entries a manifest's push has to send first, wherever they sit in the
   /// queue.
+  ///
+  /// [unpushedOnly] leaves out the entries that re-send a version the space
+  /// holds ([SyncOutbox.republish]): what the conflict check asks for, where
+  /// only a write this device never pushed can be lost.
   Future<Map<String, SyncOutboxRow>> pendingKeys(
     String table,
-    List<String> rowKeys,
-  ) async {
+    List<String> rowKeys, {
+    bool unpushedOnly = false,
+  }) async {
     final rows = await CrdtMerge.loadInChunks(
       rowKeys,
       (chunk) =>
-          (select(syncOutbox)..where(
-                (o) => o.syncedTable.equals(table) & o.rowKey.isIn(chunk),
-              ))
+          (select(syncOutbox)..where((o) {
+                final keyed =
+                    o.syncedTable.equals(table) & o.rowKey.isIn(chunk);
+                return unpushedOnly ? keyed & o.republish.equals(false) : keyed;
+              }))
               .get(),
     );
     return {for (final row in rows) row.rowKey: row};
@@ -109,11 +116,13 @@ class SyncOutboxDao extends DatabaseAccessor<AppDatabase>
       )
       .map((_) {});
 
-  Future<int> count() async {
+  /// The queued entries, of [table] alone when given — the notes a
+  /// cutover's drain says it is sending, apart from their chunks.
+  Future<int> count({String? table}) async {
     final countExpr = syncOutbox.rowKey.count();
-    final row = await (selectOnly(
-      syncOutbox,
-    )..addColumns([countExpr])).getSingle();
+    final query = selectOnly(syncOutbox)..addColumns([countExpr]);
+    if (table != null) query.where(syncOutbox.syncedTable.equals(table));
+    final row = await query.getSingle();
     return row.read(countExpr) ?? 0;
   }
 
@@ -132,6 +141,31 @@ class SyncOutboxDao extends DatabaseAccessor<AppDatabase>
             ))
             .go();
     return deleted > 0;
+  }
+
+  /// [ackThrough] for a merge whose newer remote overwrites the row: retires
+  /// the entry the same way and returns whether it stood for a write this
+  /// device had not pushed — false for none, and for an entry that only
+  /// re-sent a version the space holds ([SyncOutbox.republish]), whose
+  /// overwrite loses no text. One statement, so the answer is the entry the
+  /// delete took.
+  Future<bool> ackUnpushedThrough(
+    String table,
+    String rowKey,
+    String hlc,
+  ) async {
+    final retired = await customWriteReturning(
+      'DELETE FROM sync_outbox '
+      'WHERE table_name = ? AND row_key = ? AND hlc <= ? RETURNING republish',
+      variables: [
+        Variable<String>(table),
+        Variable<String>(rowKey),
+        Variable<String>(hlc),
+      ],
+      updates: {syncOutbox},
+      updateKind: UpdateKind.delete,
+    );
+    return retired.any((row) => row.read<int>('republish') == 0);
   }
 
   Future<void> clear() => delete(syncOutbox).go();
@@ -168,6 +202,13 @@ class SyncOutboxDao extends DatabaseAccessor<AppDatabase>
   /// Announced as an update, not an insert: the run that cuts over drains
   /// right after, so arming [watchQueued]'s debounced drain as well would
   /// only schedule a second, empty one.
+  ///
+  /// Each entry written is a republish ([SyncOutbox.republish]): the version
+  /// it sends is the space's already, so a newer remote that overwrites it
+  /// in the re-read that follows files no copy — `note_seen` alone cannot
+  /// say so for a device upgrading from a build that never recorded it, nor
+  /// for a note this device wrote. An entry already queued at the row's
+  /// stamp is an edit not pushed yet and is left as it is.
   Future<int> requeueBodies({required String boundUid}) {
     final notes = syncedTables.singleWhere((t) => t.name == 'notes');
     final chunks = syncedTables.singleWhere((t) => t.contentAddressed);
@@ -177,27 +218,43 @@ class SyncOutboxDao extends DatabaseAccessor<AppDatabase>
             boundUid,
             rows: 'is_deleted = 0',
             kind: UpdateKind.update,
+            republish: true,
           ) +
-          await _requeue(chunks, boundUid, kind: UpdateKind.update);
+          await _requeue(
+            chunks,
+            boundUid,
+            kind: UpdateKind.update,
+            republish: true,
+          );
     });
   }
 
   /// [requeueAll]'s statement for one table, narrowed to [rows], announced
-  /// to the outbox's watchers as [kind].
+  /// to the outbox's watchers as [kind], its entries marked [republish].
+  ///
+  /// An entry raised keeps a real edit's mark: a re-queue never turns an
+  /// entry that stood for an unpushed write into a republish, where the
+  /// wrong answer would drop a text rather than file a copy too many. For
+  /// the same reason a plain re-queue clears a republish at an equal stamp.
   Future<int> _requeue(
     SyncedTable table,
     String boundUid, {
     String rows = '1 = 1',
     UpdateKind kind = UpdateKind.insert,
+    bool republish = false,
   }) {
     return customUpdate(
-      'INSERT INTO sync_outbox (table_name, row_key, hlc, op, enqueued_at) '
+      'INSERT INTO sync_outbox '
+      '(table_name, row_key, hlc, op, enqueued_at, republish) '
       "SELECT '${table.name}', ${table.rowKeySql}, hlc_timestamp, "
-      "CASE is_deleted WHEN 1 THEN 'tombstone' ELSE 'upsert' END, ? "
+      "CASE is_deleted WHEN 1 THEN 'tombstone' ELSE 'upsert' END, ?, "
+      '${republish ? 1 : 0} '
       'FROM ${table.name} WHERE ${table.queuedRowsSql} AND $rows '
       'ON CONFLICT (table_name, row_key) DO UPDATE SET '
-      'hlc = excluded.hlc, op = excluded.op '
-      'WHERE excluded.hlc > sync_outbox.hlc',
+      'hlc = excluded.hlc, op = excluded.op, '
+      'republish = MIN(sync_outbox.republish, excluded.republish) '
+      'WHERE excluded.hlc > sync_outbox.hlc OR (excluded.hlc = '
+      'sync_outbox.hlc AND excluded.republish < sync_outbox.republish)',
       variables: [
         Variable<DateTime>(DateTime.now()),
         Variable<String>(boundUid),
@@ -215,19 +272,33 @@ class SyncOutboxDao extends DatabaseAccessor<AppDatabase>
   /// Mints nothing and never lowers an entry pending at a newer stamp. No
   /// owner predicate: a merge only ever names a row of the bound space. Never
   /// a content-addressed row: its document cannot be out of date.
-  Future<bool> requeueRow(String table, String rowKey) async {
+  ///
+  /// [republish]: the space holds this very version, only in a shape it is
+  /// sent again to replace ([SyncOutbox.republish]); raised over an existing
+  /// entry it keeps a real edit's mark, as [requeueBodies] does. A plain
+  /// re-queue clears the mark even at the entry's own stamp: the local row
+  /// beat the remote, so the space no longer holds this version.
+  Future<bool> requeueRow(
+    String table,
+    String rowKey, {
+    bool republish = false,
+  }) async {
     final synced = syncedTables.where((t) => t.name == table).firstOrNull;
     if (synced == null || synced.contentAddressed) {
       throw ArgumentError.value(table, 'table', 'not re-queued by a merge');
     }
     final written = await customUpdate(
-      'INSERT INTO sync_outbox (table_name, row_key, hlc, op, enqueued_at) '
+      'INSERT INTO sync_outbox '
+      '(table_name, row_key, hlc, op, enqueued_at, republish) '
       "SELECT '${synced.name}', ${synced.rowKeySql}, hlc_timestamp, "
-      "CASE is_deleted WHEN 1 THEN 'tombstone' ELSE 'upsert' END, ? "
+      "CASE is_deleted WHEN 1 THEN 'tombstone' ELSE 'upsert' END, ?, "
+      '${republish ? 1 : 0} '
       'FROM ${synced.name} WHERE ${synced.rowKeySql} = ? '
       'ON CONFLICT (table_name, row_key) DO UPDATE SET '
-      'hlc = excluded.hlc, op = excluded.op '
-      'WHERE excluded.hlc > sync_outbox.hlc',
+      'hlc = excluded.hlc, op = excluded.op, '
+      'republish = MIN(sync_outbox.republish, excluded.republish) '
+      'WHERE excluded.hlc > sync_outbox.hlc OR (excluded.hlc = '
+      'sync_outbox.hlc AND excluded.republish < sync_outbox.republish)',
       variables: [Variable<DateTime>(DateTime.now()), Variable<String>(rowKey)],
       updates: {syncOutbox},
       updateKind: UpdateKind.insert,

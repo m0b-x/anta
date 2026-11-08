@@ -243,6 +243,17 @@ class SyncEngine {
   /// to one note, which pulls whatever its size (scalability record S6).
   static const int chunkFetchBudget = 16 * 1024 * 1024;
 
+  /// The most body text, in code units, one transaction of a notes pull
+  /// stores: a page whose bodies to store add up past it is committed in
+  /// parts ([_Puller._apply]). Drift's executor is exclusive during a
+  /// transaction, so every query of the browser and the calendar waits for
+  /// the page in flight; with the bodies cut and encoded before it, what is
+  /// left is writing their chunk rows, and a page of fifty 300 KB notes
+  /// held them for seconds on a phone. 2 MiB keeps one wait to a fraction
+  /// of a second there, and costs a page of ordinary notes nothing: it is
+  /// one part, as before.
+  static const int pullBodyBudget = 2 * 1024 * 1024;
+
   /// What this build stores beside its pull parks: the app's version and the
   /// wire's, since a change to either may teach the decoders a document
   /// they refused.
@@ -307,6 +318,21 @@ class SyncEngine {
   bool _quotaHeld = false;
   SyncFailureInfo? _lastFailure;
   int _downloadedRows = 0;
+
+  /// Whether the run in flight cut over to this build's wire and is reading
+  /// every note again ([_cutOverWire]), then sending the notes that re-read
+  /// left queued; [SyncStatus.updating].
+  bool _updating = false;
+
+  /// Whether that run's drain has begun; [SyncStatus.updatingSending].
+  bool _updatingSending = false;
+
+  /// The live notes as that re-read began, then the notes queued as its
+  /// drain began; [SyncStatus.updatingTotal].
+  int? _updatingTotal;
+
+  /// The notes that drain has pushed so far; [SyncStatus.updatingSent].
+  int _updatingSent = 0;
   int _backoffStep = 0;
 
   /// The signal's own back-off, apart from the runs': a listener that keeps
@@ -853,6 +879,13 @@ class SyncEngine {
       // Never in a drain-only run, which would push the re-queued notes
       // before the re-read could retire the ones the space holds newer.
       final cutOver = mode != _RunMode.drain && await _cutOverWire(binding);
+      // A bind's first run cuts over too — a database never synced has no
+      // wire version — but that is the download the page already words.
+      if (cutOver && !initial) {
+        _downloadedRows = 0;
+        _updatingTotal = await _db.noteDao.getNoteCount(null);
+        _updating = true;
+      }
       final full = initial || mode == _RunMode.full || cutOver;
       final tables = full
           ? _pulledTables
@@ -873,8 +906,17 @@ class SyncEngine {
       // its end, `notes` again from the start; until then the re-queued
       // notes wait, since only that re-read retires the ones the space holds
       // newer, and a drain would push them over it at their local stamps.
+      var sending = 0;
       if (cutOver && pulled.complete) {
         await _db.syncDao.setValue(SyncDao.keyWireVersion, '$_schema');
+        // The progress goes on through the drain, the longer half: every
+        // note still in legacy slices is re-cut on its way out.
+        sending = _updating
+            ? await _db.syncOutboxDao.count(table: const NotesBinding().table)
+            : 0;
+        if (sending == 0) _endUpdating();
+      } else {
+        _endUpdating();
       }
       final held = {
         ...pulled.failedTables,
@@ -887,6 +929,14 @@ class SyncEngine {
           _drainAhead = false;
           _drainSwallowed = false;
           _cancelPushTimers();
+          // Only now the drain's total: until here the activity still says
+          // pulling, and an emit in between words the re-read against its
+          // own total.
+          if (sending > 0) {
+            _updatingTotal = sending;
+            _updatingSent = 0;
+            _updatingSending = true;
+          }
           await _pusher.drain(binding, tally, skipTables: held);
         }
       } finally {
@@ -928,9 +978,22 @@ class SyncEngine {
         // A scheduled retry runs a drain of its own.
         if (_retry == null) _armDebounce();
       }
+      _endUpdating();
       _activity = SyncActivity.idle;
       _emit();
     }
+  }
+
+  /// Ends the cutover's progress with the run that carried it, or with its
+  /// pull when that was cut short: such a run cuts over again next time and
+  /// counts afresh.
+  void _endUpdating() {
+    if (!_updating) return;
+    _updating = false;
+    _updatingSending = false;
+    _updatingTotal = null;
+    _updatingSent = 0;
+    _downloadedRows = 0;
   }
 
   /// The binding to sync when the engine may run now, else why not.
@@ -1509,6 +1572,10 @@ class SyncEngine {
     // start that is signed out or paused still lists what they hold back.
     final parked = _puller._restored && _pusher._restored ? _parkedRows : null;
     final downloaded = _downloadedRows;
+    final updating = _updating;
+    final updatingSending = _updatingSending;
+    final updatingTotal = _updatingTotal;
+    final updatingSent = _updatingSent;
     _emits = _emits.then((_) async {
       if (_statusController.isClosed) return;
       final SyncStatus stored;
@@ -1543,6 +1610,11 @@ class SyncEngine {
         parkedCount: held.length,
         heldBack: held,
         downloadedRows: downloaded,
+        updating: updating,
+        updatingSending: updatingSending,
+        updatingTotal: updatingTotal,
+        clearUpdatingTotal: updatingTotal == null,
+        updatingSent: updatingSent,
       );
       if (next == _current || _statusController.isClosed) return;
       _current = next;

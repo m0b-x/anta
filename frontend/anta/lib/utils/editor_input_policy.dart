@@ -154,15 +154,21 @@ class EditorTapZones {
 /// The result of a Tab / Shift-Tab on a single list line: the line's new
 /// [text] and the [delta] every caret offset on it shifts by. A [delta]
 /// of 0 leaves [text] unchanged and means "consume the key, change
-/// nothing" — an outdent already at column 0.
+/// nothing" — an outdent already at column 0, or an indent past the
+/// nesting cap.
+///
+/// [start] is where the step applies: `0` for a plain item, the end of
+/// the `>` run for a quoted one. An offset before it sits in the quote
+/// run, which never moves.
 class EditorListIndent extends Equatable {
-  const EditorListIndent(this.text, this.delta);
+  const EditorListIndent(this.text, this.delta, [this.start = 0]);
 
   final String text;
   final int delta;
+  final int start;
 
   @override
-  List<Object?> get props => [text, delta];
+  List<Object?> get props => [text, delta, start];
 }
 
 /// The pure input policy of the live markdown editor: which taps mean
@@ -650,17 +656,56 @@ class EditorInputPolicy {
   /// a tab-indented line untouched, while a Shift-Tab here still removes
   /// a single leading tab. Nothing is lost by being more useful where
   /// the fork does nothing at all.
+  ///
+  /// [maxLevel] caps an indent ([listIndentCap]): a step that would land
+  /// the item deeper than that level consumes the key and changes
+  /// nothing. `null` leaves the indent unbounded; an outdent is never
+  /// capped.
+  ///
+  /// A list item inside a quote (`> - a`) is a list line too: its `>` run
+  /// stays and the step applies to the remainder, read as
+  /// [MarkdownCalloutSyntax.quotedListItem] reads it, so `> - a` nests to
+  /// `>   - a` instead of the fork padding spaces at the caret.
   static EditorListIndent? listIndent({
     required String lineText,
     required bool outdent,
+    int? maxLevel,
   }) {
-    if (!MarkdownListUtils.isListLine(lineText)) return null;
+    if (MarkdownListUtils.isListLine(lineText)) {
+      return _itemIndent(lineText, outdent, maxLevel);
+    }
+    final quoted = MarkdownCalloutSyntax.quotedListItem(lineText);
+    if (quoted == null) return null;
+    final int base = quoted.base;
+    final EditorListIndent inner = _itemIndent(
+      lineText.substring(base),
+      outdent,
+      maxLevel,
+    );
+    return EditorListIndent(
+      lineText.substring(0, base) + inner.text,
+      inner.delta,
+      base,
+    );
+  }
+
+  /// [listIndent]'s grid step on an unquoted list line.
+  static EditorListIndent _itemIndent(
+    String lineText,
+    bool outdent,
+    int? maxLevel,
+  ) {
     final int unit = MarkdownListUtils.indentUnit;
     final int leading = _leadingSpaces(lineText);
     final int mod = leading % unit;
     final int step = mod == 0 ? unit : mod;
     if (!outdent) {
-      return EditorListIndent('${' ' * step}$lineText', step);
+      final String indented = '${' ' * step}$lineText';
+      if (maxLevel != null &&
+          MarkdownListSyntax.indentLevel(indented) > maxLevel) {
+        return EditorListIndent(lineText, 0);
+      }
+      return EditorListIndent(indented, step);
     }
     if (leading > 0) {
       return EditorListIndent(lineText.substring(step), -step);
@@ -669,6 +714,49 @@ class EditorInputPolicy {
       return EditorListIndent(lineText.substring(1), -1);
     }
     return EditorListIndent(lineText, 0);
+  }
+
+  /// The deepest level the list item on line [index] may be indented to:
+  /// one past the list item above it at the same quote depth, so no
+  /// indent path (Tab, the bar's Indent, Space on an empty item) opens a
+  /// gap of more than one level under its parent.
+  ///
+  /// Scans upward through [lineAt]: blank lines, empty quote lines and
+  /// continuation lines (a non-list line whose content starts with
+  /// whitespace — the item's own wrapped paragraph) are skipped; the
+  /// first list item at the same quote depth decides. Anything else — a
+  /// column-0 paragraph or heading, a line [isFenceLine] reports fenced,
+  /// a line at another quote depth, the document start — means the item
+  /// opens its list and caps at 0.
+  static int listIndentCap({
+    required String Function(int index) lineAt,
+    required int index,
+    bool Function(int index)? isFenceLine,
+  }) {
+    final int depth =
+        MarkdownCalloutSyntax.quoteMarkers(lineAt(index))?.depth ?? 0;
+    for (int i = index - 1; i >= 0; i--) {
+      if (isFenceLine?.call(i) ?? false) return 0;
+      final String line = lineAt(i);
+      if (line.trim().isEmpty) continue;
+      final MarkdownQuoteShape? quote = MarkdownCalloutSyntax.quoteMarkers(
+        line,
+      );
+      if ((quote?.depth ?? 0) != depth) return 0;
+      final MarkdownListItem? item = quote == null
+          ? MarkdownListSyntax.parse(line)
+          : MarkdownCalloutSyntax.quotedListItem(line, shape: quote)?.item;
+      if (item != null) return item.level + 1;
+      final String content = quote == null
+          ? line
+          : line.substring(quote.contentStart);
+      if (content.trim().isEmpty ||
+          content.trimLeft().length != content.length) {
+        continue;
+      }
+      return 0;
+    }
+    return 0;
   }
 
   /// How many spaces [text] starts with — the fork's

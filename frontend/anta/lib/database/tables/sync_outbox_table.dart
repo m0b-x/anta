@@ -28,6 +28,15 @@ class SyncOutbox extends Table {
   TextColumn get op => text()();
   DateTimeColumn get enqueuedAt => dateTime()();
 
+  /// Whether the entry re-sends a version the space already holds — the wire
+  /// cutover's re-queue of every note, and the re-queue of a note the space
+  /// holds in an older build's shape (**v51**) — rather than a write this
+  /// device has not pushed. A remote that overwrites such a row loses no
+  /// text, so the conflict check (`NoteDao.mergeNoteDocument`) reads the
+  /// entry as nothing pending. Every real write resets it; the drain, the
+  /// acks, the parks and the queue's order ignore it.
+  BoolColumn get republish => boolean().withDefault(const Constant(false))();
+
   @override
   Set<Column> get primaryKey => {syncedTable, rowKey};
 }

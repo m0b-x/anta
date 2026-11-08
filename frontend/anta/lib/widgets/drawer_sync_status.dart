@@ -1,15 +1,16 @@
 import '../l10n/app_localizations.dart';
 import '../services/sync/sync_gateway.dart';
 import '../services/sync/sync_status.dart';
+import '../utils/sync_moment_format.dart';
 
 /// The drawer account row's one status line, and whether it is drawn in the
 /// error colour: only the three pauses the user has to lift are (§12 (e) of
 /// `docs/cloud-sync-phase-02-own-space.md`).
 ///
 /// The order is the Sync section's — a pause outranks a run, and a run the
-/// last failure it will retry — but the pauses and the retry have words of
-/// their own: the page's are cut off in the drawer's narrower column (§12
-/// (h)). Only the
+/// last failure it will retry — but the pauses, the retry and the update
+/// after a wire change have words of their own: the page's are cut off in
+/// the drawer's narrower column (§12 (h)). Only the
 /// waiting count is said; the sending and held-back counts stay on the page
 /// (§12 (i)). [formatMoment] words the last sync, as the page does;
 /// [formatQuotaReset] the reset a quota pause waits for, said only while it
@@ -46,9 +47,15 @@ import '../services/sync/sync_status.dart';
   }
   switch (status.activity) {
     case SyncActivity.pushing:
-      return (text: l10n.syncSending(0), isError: false);
+      return (
+        text: drawerSyncUpdatingText(l10n, status) ?? l10n.syncSending(0),
+        isError: false,
+      );
     case SyncActivity.pulling:
-      return (text: l10n.syncReceiving, isError: false);
+      return (
+        text: drawerSyncUpdatingText(l10n, status) ?? l10n.syncReceiving,
+        isError: false,
+      );
     case SyncActivity.idle:
       break;
   }

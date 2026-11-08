@@ -129,45 +129,66 @@ class StatementCounter extends QueryInterceptor {
     return runs;
   }
 
+  /// Called as each statement is about to run, so a test can act at a point
+  /// of a workflow that has no hook of its own; a future it returns holds
+  /// the statement, and the workflow with it, until it completes.
+  Future<void>? Function(String statement, List<Object?> args)? onStatement;
+
+  /// Records [statement] and runs it, after [onStatement]'s hold if any —
+  /// at once without one, so the suites' timing is the database's own.
+  Future<T> _record<T>(
+    String statement,
+    List<Object?> args,
+    Future<T> Function() run,
+  ) {
+    captured.add(CapturedStatement(statement, args));
+    final hold = onStatement?.call(statement, args);
+    return hold == null ? run() : hold.then((_) => run());
+  }
+
   @override
   Future<List<Map<String, Object?>>> runSelect(
     QueryExecutor executor,
     String statement,
     List<Object?> args,
-  ) {
-    captured.add(CapturedStatement(statement, args));
-    return super.runSelect(executor, statement, args);
-  }
+  ) => _record(
+    statement,
+    args,
+    () => super.runSelect(executor, statement, args),
+  );
 
   @override
   Future<int> runInsert(
     QueryExecutor executor,
     String statement,
     List<Object?> args,
-  ) {
-    captured.add(CapturedStatement(statement, args));
-    return super.runInsert(executor, statement, args);
-  }
+  ) => _record(
+    statement,
+    args,
+    () => super.runInsert(executor, statement, args),
+  );
 
   @override
   Future<int> runUpdate(
     QueryExecutor executor,
     String statement,
     List<Object?> args,
-  ) {
-    captured.add(CapturedStatement(statement, args));
-    return super.runUpdate(executor, statement, args);
-  }
+  ) => _record(
+    statement,
+    args,
+    () => super.runUpdate(executor, statement, args),
+  );
 
   @override
   Future<int> runDelete(
     QueryExecutor executor,
     String statement,
     List<Object?> args,
-  ) {
-    captured.add(CapturedStatement(statement, args));
-    return super.runDelete(executor, statement, args);
-  }
+  ) => _record(
+    statement,
+    args,
+    () => super.runDelete(executor, statement, args),
+  );
 
   @override
   Future<void> runBatched(
@@ -182,5 +203,31 @@ class StatementCounter extends QueryInterceptor {
       captured.add(CapturedStatement(s, const [], runs: runs[i]));
     }
     return super.runBatched(executor, statements_);
+  }
+
+  /// Called as the outermost transaction begins (true) and as it commits or
+  /// rolls back (false), so a test can pin work that must not run while a
+  /// transaction holds the database: Drift's executor is exclusive then.
+  void Function(bool begins)? onTransaction;
+
+  /// Nested transactions — savepoints — included.
+  int _transactions = 0;
+
+  @override
+  TransactionExecutor beginTransaction(QueryExecutor parent) {
+    if (_transactions++ == 0) onTransaction?.call(true);
+    return super.beginTransaction(parent);
+  }
+
+  @override
+  Future<void> commitTransaction(TransactionExecutor inner) =>
+      super.commitTransaction(inner).whenComplete(_endTransaction);
+
+  @override
+  Future<void> rollbackTransaction(TransactionExecutor inner) =>
+      super.rollbackTransaction(inner).whenComplete(_endTransaction);
+
+  void _endTransaction() {
+    if (--_transactions == 0) onTransaction?.call(false);
   }
 }

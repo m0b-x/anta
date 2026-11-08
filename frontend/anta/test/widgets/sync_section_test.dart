@@ -402,6 +402,54 @@ void main() {
         l10n.syncDownloading(42),
         false,
       ),
+      'finishing the update': (
+        bound(
+          activity: SyncActivity.pulling,
+          downloaded: 42,
+        ).copyWith(updating: true, updatingTotal: 100),
+        l10n.syncUpdatingNotes(42, 100),
+        false,
+      ),
+      'finishing the update, the total unknown': (
+        bound(activity: SyncActivity.pulling).copyWith(updating: true),
+        l10n.syncUpdating,
+        false,
+      ),
+      // The drain of the run that cut over counts the notes it sent, never
+      // the changes waiting, which hold the notes' chunks too.
+      'finishing the update, sending': (
+        bound(activity: SyncActivity.pushing, pending: 9).copyWith(
+          updating: true,
+          updatingSending: true,
+          updatingTotal: 100,
+          updatingSent: 40,
+        ),
+        l10n.syncUpdatingSending(40, 100),
+        false,
+      ),
+      'paused for an update while finishing the update': (
+        bound(
+          pause: SyncPause.appOutdated,
+          activity: SyncActivity.pulling,
+          downloaded: 42,
+        ).copyWith(updating: true, updatingTotal: 100),
+        l10n.syncPausedAppOutdated,
+        false,
+      ),
+      'paused without access while finishing the update, sending': (
+        bound(
+          pause: SyncPause.noAccess,
+          activity: SyncActivity.pushing,
+          pending: 9,
+        ).copyWith(
+          updating: true,
+          updatingSending: true,
+          updatingTotal: 100,
+          updatingSent: 40,
+        ),
+        l10n.syncPausedNoAccess,
+        false,
+      ),
       'offline': (
         bound(
           failure: SyncFailureInfo(
@@ -2121,6 +2169,18 @@ void main() {
       bound(activity: SyncActivity.pushing, pending: 3),
       bound(activity: SyncActivity.pulling),
       bound(activity: SyncActivity.pulling, downloaded: 4200),
+      // The update's lines, at the widest count: a cutover that starts
+      // must not grow the row.
+      bound(
+        activity: SyncActivity.pulling,
+        downloaded: 4200,
+      ).copyWith(updating: true, updatingTotal: 99999),
+      bound(activity: SyncActivity.pushing, pending: 3).copyWith(
+        updating: true,
+        updatingSending: true,
+        updatingTotal: 99999,
+        updatingSent: 4200,
+      ),
       bound(pending: 2, failure: failed(SyncGatewayFailure.offline)),
       bound(parked: 1, failure: failed(SyncGatewayFailure.unknown)),
       for (final pause in SyncPause.values) bound(pause: pause, parked: 2),
@@ -2128,8 +2188,11 @@ void main() {
 
     for (final (locale, scale) in const [
       (Locale('en'), 1.0),
+      (Locale('en'), 2.0),
+      (Locale('de'), 1.0),
       (Locale('de'), 1.3),
       (Locale('de'), 2.0),
+      (Locale('ro'), 1.0),
       (Locale('ro'), 2.0),
     ]) {
       testWidgets('the status row is one height in every bound state, and '

@@ -512,6 +512,29 @@ void main() {
     expect(await _userVersion(db), DatabaseSchema.currentVersion);
   });
 
+  // v51 adds `sync_outbox.republish`; an entry queued before it reads as a
+  // real edit, as every entry did. Twice, because a step must be idempotent.
+  test(
+    'a v50 outbox gains republish and keeps its entries as real edits',
+    () async {
+      await db.customStatement('ALTER TABLE sync_outbox DROP COLUMN republish');
+      await db.customStatement(
+        'INSERT INTO sync_outbox (table_name, row_key, hlc, op, enqueued_at) '
+        "VALUES ('notes', 'n1', 'h', 'upsert', 1)",
+      );
+
+      await _upgrade(db, DatabaseSchema.v50QuickSearchIndex);
+      await _upgrade(db, DatabaseSchema.v50QuickSearchIndex);
+
+      final entry = await db
+          .customSelect('SELECT row_key, republish FROM sync_outbox')
+          .getSingle();
+      expect(entry.read<String>('row_key'), 'n1');
+      expect(entry.read<int>('republish'), 0);
+      expect(await _userVersion(db), DatabaseSchema.currentVersion);
+    },
+  );
+
   test('a fresh install has no notes_fts', () async {
     final names = await tableNames(db);
     expect(names.where((name) => name.startsWith('notes_fts')), isEmpty);

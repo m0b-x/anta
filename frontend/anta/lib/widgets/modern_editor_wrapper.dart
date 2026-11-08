@@ -13,6 +13,7 @@ import '../constants/font_constants.dart';
 import '../constants/markdown_constants.dart';
 import '../l10n/app_localizations.dart';
 import '../utils/editor_input_policy.dart';
+import '../utils/line_swipe_policy.dart';
 import '../utils/lru_cache.dart';
 import '../utils/markdown_color_syntax.dart';
 import '../utils/markdown_editor_span_builder.dart';
@@ -904,6 +905,40 @@ class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
     isFenceLine: widget.isFenceLine,
   );
 
+  /// A horizontal swipe on the caret's list line nests it one level per
+  /// swipe ([LineSwipePolicy]), so nesting costs one input on a phone,
+  /// whose soft keyboard has no Tab.
+  late final CodeEditorLineSwipeHandler _lineSwipeHandler =
+      CodeEditorLineSwipeHandler(
+        shouldHandle: (down) => _acceptsLineSwipe(down.index),
+        onSwipe: _onLineSwipe,
+      );
+
+  bool _acceptsLineSwipe(int lineIndex) => LineSwipePolicy.accepts(
+    hasFocus: widget.focusNode.hasFocus,
+    selection: widget.controller.selection,
+    lineIndex: lineIndex,
+    lineText: _lineTextAt(lineIndex),
+    isFenceLine: widget.isFenceLine,
+  );
+
+  /// Runs Tab's list edit on the swiped line. The policy is asked again
+  /// because the edit acts on the selection's line, which must still be the
+  /// one the finger went down on; [ListIndentAction.tryApply] never falls
+  /// back to the fork's plain indent, since a swipe is not typing, and the
+  /// click marks a level actually changed.
+  void _onLineSwipe(int lineIndex, {required bool toRight}) {
+    if (!_acceptsLineSwipe(lineIndex)) return;
+    final changed = ListIndentAction.tryApply(
+      widget.controller,
+      outdent: !toRight,
+      isFenceLine: widget.isFenceLine,
+    );
+    if (changed && widget.hapticsEnabled) {
+      HapticFeedback.selectionClick();
+    }
+  }
+
   /// Runs a desktop format shortcut as [ShortcutApplier.toggleWrap], one
   /// undo entry. Key events reach the bindings only while focus sits in
   /// the editor, and this wrapper never builds the editor read-only; the
@@ -1063,6 +1098,7 @@ class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
               widget.onOpenWikiLink != null)
           ? _tapInterceptor
           : null,
+      lineSwipeHandler: _lineSwipeHandler,
       chunkAnalyzer: const NonCodeChunkAnalyzer(),
       // List-aware Tab / Shift-Tab: indent/outdent the whole list item
       // when the caret is on one; otherwise re_editor's default applies.

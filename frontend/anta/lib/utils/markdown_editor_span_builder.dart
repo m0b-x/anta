@@ -39,14 +39,15 @@ import 'money_display_config.dart';
 /// [MarkdownInlineGrammar] tokens and owns the inline styles;
 /// `markdown_editor_money_row.dart` builds the money-ledger row; and
 /// `markdown_editor_paint_spans.dart` holds the custom-painted
-/// placeholder runs (money chip, task checkbox, callout icon). Callers
-/// import this file alone.
+/// placeholder runs (money chip, task checkbox, callout icon, bullet
+/// square). Callers import this file alone.
 ///
 /// Restyles one line at a time: headers at the preview's scale factors
 /// (the re_editor fork gives a line whose root span sets a non-base
 /// fontSize its own line height), bullets as the depth's
 /// [MarkdownListSyntax.bulletGlyph] (`•` / `◦` / `▪`, cycling every
-/// three levels), task boxes as
+/// three levels; the `▪` painted as an [EditorBulletSquareSpan]), task
+/// boxes as
 /// custom-painted placeholder marks (checked / unchecked / indeterminate
 /// when a parent's subtree is partially complete),
 /// every blockquote `>` as a `┃` bar — one bar per `>`, so `>> a` reads
@@ -923,6 +924,8 @@ class MarkdownEditorSpanBuilder {
                     fontWeight: blockAccent == null ? null : FontWeight.bold,
                   ),
           ),
+      context: ctx,
+      boldBars: blockAccent != null,
       reveal: reveal,
       out: children,
     );
@@ -1105,11 +1108,22 @@ class MarkdownEditorSpanBuilder {
   /// every `>` substitutes 1:1 with `┃` (raw and dimmed on reveal), and
   /// the single space each marker may carry stays visible between the
   /// bars. Emits exactly `[0, shape.contentStart)`.
+  ///
+  /// The bars ([boldBars] for a callout) and the raw `>`s differ in
+  /// advance — about 4 dp on a phone, whose bar comes from a wider
+  /// fallback face — which moved the content on caret entry. As
+  /// [EditorSpanEmitter.bulletGap] does for a bullet, the gap after the
+  /// last marker takes the run's whole difference as letter spacing in
+  /// the narrower state, never negative, so the content x is one value in
+  /// both. A run followed directly by content (`>a`) has no gap to carry
+  /// it and is left as typed.
   static void _emitQuoteBars({
     required String text,
     required MarkdownQuoteShape shape,
     required TextStyle style,
     required TextStyle barStyle,
+    required EditorRenderContext context,
+    required bool boldBars,
     required bool reveal,
     required List<InlineSpan> out,
   }) {
@@ -1120,9 +1134,26 @@ class MarkdownEditorSpanBuilder {
     for (var i = 0; i < shape.depth; i++) {
       out.add(TextSpan(text: reveal ? '>' : '┃', style: barStyle));
       final gapStart = offsets[i] + 1;
-      final gapEnd = i + 1 < shape.depth ? offsets[i + 1] : shape.contentStart;
+      final last = i + 1 == shape.depth;
+      final gapEnd = last ? shape.contentStart : offsets[i + 1];
       if (gapEnd > gapStart) {
-        out.add(TextSpan(text: text.substring(gapStart, gapEnd), style: style));
+        var gapStyle = style;
+        if (last) {
+          final advances = context.quoteAdvances(style.fontStyle);
+          final bar = boldBars ? advances.boldBar : advances.bar;
+          final extra =
+              shape.depth *
+              (reveal ? bar - advances.marker : advances.marker - bar);
+          if (extra > 0) {
+            gapStyle = style.copyWith(
+              letterSpacing:
+                  (style.letterSpacing ?? 0.0) + extra / (gapEnd - gapStart),
+            );
+          }
+        }
+        out.add(
+          TextSpan(text: text.substring(gapStart, gapEnd), style: gapStyle),
+        );
       }
     }
   }
@@ -1349,9 +1380,13 @@ class MarkdownEditorSpanBuilder {
     final baseColor = ctx.baseColor;
     final primary = ctx.primary;
     final children = prefix ?? <InlineSpan>[];
-    if (item.indent.isNotEmpty) {
-      children.add(TextSpan(text: item.indent, style: style));
-    }
+    EditorSpanEmitter.listIndent(
+      indent: item.indent,
+      style: style,
+      context: ctx,
+      startsLine: prefix == null,
+      out: children,
+    );
     var contentStyle = style;
     final indentEnd = base + item.indent.length;
     final contentStart = base + item.contentStart;
@@ -1360,28 +1395,38 @@ class MarkdownEditorSpanBuilder {
       case MarkdownListKind.bullet:
         final markerEnd = indentEnd + item.marker.length;
         children.add(
-          TextSpan(
-            text: reveal
-                ? item.marker
-                : MarkdownListSyntax.bulletGlyph(item.level),
-            style: reveal
-                ? EditorSpanEmitter.dimStyle(style, baseColor)
-                // Upright even in a quote's italic, as the preview draws it.
-                : style.copyWith(
-                    color: primary,
-                    fontWeight: FontWeight.bold,
-                    fontStyle: FontStyle.normal,
-                  ),
-          ),
+          !reveal && EditorBulletSquareSpan.drawsLevel(item.level)
+              ? EditorBulletSquareSpan(
+                  advance: ctx.listAdvances(FontStyle.normal).glyph(item.level),
+                  fontSize: style.fontSize ?? 16.0,
+                  color: primary,
+                )
+              : TextSpan(
+                  text: reveal
+                      ? item.marker
+                      : MarkdownListSyntax.bulletGlyph(item.level),
+                  style: reveal
+                      ? EditorSpanEmitter.dimStyle(style, baseColor)
+                      // Upright even in a quote's italic, as the preview
+                      // draws it.
+                      : style.copyWith(
+                          color: primary,
+                          fontWeight: FontWeight.bold,
+                          fontStyle: FontStyle.normal,
+                        ),
+                ),
         );
-        if (markerEnd < contentStart) {
-          children.add(
-            TextSpan(
-              text: text.substring(markerEnd, contentStart),
-              style: style,
-            ),
-          );
-        }
+        EditorSpanEmitter.bulletGap(
+          text: text,
+          start: markerEnd,
+          end: contentStart,
+          style: style,
+          context: ctx,
+          marker: item.marker.codeUnitAt(0),
+          level: item.level,
+          reveal: reveal,
+          out: children,
+        );
       case MarkdownListKind.ordered:
         final markerEnd =
             indentEnd + item.marker.length + item.delimiter.length;

@@ -219,4 +219,149 @@ void main() {
       expect(controller.text, 'a)');
     });
   });
+
+  /// The shape readers a host reads a soft keyboard's Space from: a typed
+  /// space, and the double-space period that rewrites the one before it.
+  group('a soft keyboard Space', () {
+    CodeLineEditingController caretAt(String text, int offset) {
+      final controller = controllerOf(text);
+      controller.selection = CodeLineSelection.collapsed(
+        index: 0,
+        offset: offset,
+      );
+      return controller;
+    }
+
+    TextEditingValue line(String text, int caret, {TextRange? composing}) =>
+        TextEditingValue(
+          text: text,
+          selection: TextSelection.collapsed(offset: caret),
+          composing: composing ?? TextRange.empty,
+        );
+
+    group('isSingleInsert', () {
+      test('one space at the caret, the caret after it', () {
+        final controller = caretAt('- a', 2);
+
+        expect(controller.isSingleInsert(line('-  a', 3), 0x20), isTrue);
+        expect(controller.isSingleInsert(line('-  a', 3), 0x2E), isFalse);
+      });
+
+      test('not while the controller is already composing', () {
+        final controller = caretAt('- ab', 4);
+        controller.composing = const TextRange(start: 2, end: 4);
+
+        expect(controller.isSingleInsert(line('- ab ', 5), 0x20), isFalse);
+      });
+
+      test('not with a composing region on the commit', () {
+        final controller = caretAt('- ', 2);
+
+        expect(
+          controller.isSingleInsert(
+            line('-  ', 3, composing: const TextRange(start: 2, end: 3)),
+            0x20,
+          ),
+          isFalse,
+        );
+      });
+
+      test('not over a selection replaced by the space', () {
+        final controller = controllerOf('- ab');
+        controller.selection = const CodeLineSelection(
+          baseIndex: 0,
+          baseOffset: 2,
+          extentIndex: 0,
+          extentOffset: 4,
+        );
+
+        expect(controller.isSingleInsert(line('-  ', 3), 0x20), isFalse);
+      });
+
+      test('not for a two-unit commit', () {
+        final controller = caretAt('- ', 2);
+
+        expect(controller.isSingleInsert(line('-   ', 4), 0x20), isFalse);
+      });
+
+      test('not for a space inserted before the caret', () {
+        final controller = caretAt('-a', 2);
+
+        // `-a` → `- a`: one space more, but at 1, not at the caret.
+        expect(controller.isSingleInsert(line('- a', 2), 0x20), isFalse);
+        expect(controller.isSingleInsert(line('- a', 3), 0x20), isFalse);
+      });
+    });
+
+    group('isDoubleSpacePeriod', () {
+      test('the space before the caret rewritten as `. `', () {
+        final controller = caretAt('- [ ] ', 6);
+
+        expect(controller.isDoubleSpacePeriod(line('- [ ]. ', 7)), isTrue);
+        expect(
+          controller.isSingleInsert(line('- [ ]. ', 7), 0x20),
+          isFalse,
+          reason: 'the shape a typed space is not',
+        );
+      });
+
+      test('with text after the caret kept', () {
+        final controller = caretAt('ab c', 3);
+
+        expect(controller.isDoubleSpacePeriod(line('ab. c', 4)), isTrue);
+      });
+
+      test('not while the controller is already composing', () {
+        final controller = caretAt('ab ', 3);
+        controller.composing = const TextRange(start: 0, end: 2);
+
+        expect(controller.isDoubleSpacePeriod(line('ab. ', 4)), isFalse);
+      });
+
+      test('not with a composing region on the commit', () {
+        final controller = caretAt('ab ', 3);
+
+        expect(
+          controller.isDoubleSpacePeriod(
+            line('ab. ', 4, composing: const TextRange(start: 0, end: 3)),
+          ),
+          isFalse,
+        );
+      });
+
+      test('not over a selection', () {
+        final controller = controllerOf('ab ');
+        controller.selection = const CodeLineSelection(
+          baseIndex: 0,
+          baseOffset: 2,
+          extentIndex: 0,
+          extentOffset: 3,
+        );
+
+        expect(controller.isDoubleSpacePeriod(line('ab. ', 4)), isFalse);
+      });
+
+      test('not when the unit before the caret is no space', () {
+        final controller = caretAt('abc', 3);
+
+        // `c` rewritten as `. ` is a correction, not the period.
+        expect(controller.isDoubleSpacePeriod(line('ab. ', 4)), isFalse);
+      });
+
+      test('not for a period typed after the space', () {
+        final controller = caretAt('ab ', 3);
+
+        expect(controller.isDoubleSpacePeriod(line('ab . ', 5)), isFalse);
+        expect(controller.isDoubleSpacePeriod(line('ab .', 4)), isFalse);
+      });
+
+      test('not for a space rewritten away from the caret', () {
+        final controller = caretAt('a b ', 4);
+
+        // The space at 1, not the one before the caret.
+        expect(controller.isDoubleSpacePeriod(line('a. b ', 5)), isFalse);
+        expect(controller.isDoubleSpacePeriod(line('a. b ', 3)), isFalse);
+      });
+    });
+  });
 }

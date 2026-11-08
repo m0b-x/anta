@@ -1290,6 +1290,172 @@ void main() {
         isNull,
       );
     });
+
+    test('an indent past maxLevel consumes the key and changes nothing', () {
+      expect(
+        EditorInputPolicy.listIndent(
+          lineText: '- squat',
+          outdent: false,
+          maxLevel: 0,
+        ),
+        const EditorListIndent('- squat', 0),
+      );
+      expect(
+        EditorInputPolicy.listIndent(
+          lineText: '  - squat',
+          outdent: false,
+          maxLevel: 1,
+        ),
+        const EditorListIndent('  - squat', 0),
+      );
+      expect(
+        EditorInputPolicy.listIndent(
+          lineText: '\t- squat',
+          outdent: false,
+          maxLevel: 1,
+        ),
+        const EditorListIndent('\t- squat', 0),
+      );
+    });
+
+    test('an indent up to maxLevel steps on the grid as before', () {
+      expect(
+        EditorInputPolicy.listIndent(
+          lineText: '- squat',
+          outdent: false,
+          maxLevel: 1,
+        ),
+        const EditorListIndent('  - squat', 2),
+      );
+      // ` - a` snaps to column 2, level 1 — within a cap of 1.
+      expect(
+        EditorInputPolicy.listIndent(
+          lineText: ' - squat',
+          outdent: false,
+          maxLevel: 1,
+        ),
+        const EditorListIndent('  - squat', 1),
+      );
+    });
+
+    test('a quoted item steps after its quote run, which stays', () {
+      EditorListIndent? indent(String line, {bool outdent = false}) =>
+          EditorInputPolicy.listIndent(lineText: line, outdent: outdent);
+
+      expect(indent('> - a'), const EditorListIndent('>   - a', 2, 2));
+      expect(indent('> > - a'), const EditorListIndent('> >   - a', 2, 4));
+      expect(indent('>> 1. a'), const EditorListIndent('>>   1. a', 2, 3));
+      expect(indent('> - [ ] a'), const EditorListIndent('>   - [ ] a', 2, 2));
+      // The remainder snaps to the grid as an unquoted line does.
+      expect(indent('>  - a'), const EditorListIndent('>   - a', 1, 2));
+      // A tab right after `>` is the marker's separator, not indent.
+      expect(indent('>\t- a'), const EditorListIndent('>\t  - a', 2, 2));
+      expect(
+        indent('>   - a', outdent: true),
+        const EditorListIndent('> - a', -2, 2),
+      );
+      expect(
+        indent('> >     - a', outdent: true),
+        const EditorListIndent('> >   - a', -2, 4),
+      );
+      expect(
+        indent('> - a', outdent: true),
+        const EditorListIndent('> - a', 0, 2),
+      );
+      expect(
+        EditorInputPolicy.listIndent(
+          lineText: '> - a',
+          outdent: false,
+          maxLevel: 0,
+        ),
+        const EditorListIndent('> - a', 0, 2),
+      );
+      // A quote with no list item in it is no list line.
+      expect(indent('> a'), isNull);
+      expect(indent('> '), isNull);
+      expect(indent('> [!TIP] title'), isNull);
+    });
+
+    test('an outdent is never capped', () {
+      expect(
+        EditorInputPolicy.listIndent(
+          lineText: '    - squat',
+          outdent: true,
+          maxLevel: 0,
+        ),
+        const EditorListIndent('  - squat', -2),
+      );
+    });
+  });
+
+  group('listIndentCap', () {
+    void row(
+      List<String> lines,
+      int expected, {
+      Set<int> fenced = const {},
+      String? reason,
+    }) {
+      final index = lines.length - 1;
+      expect(
+        EditorInputPolicy.listIndentCap(
+          lineAt: (i) => lines[i],
+          index: index,
+          isFenceLine: fenced.isEmpty ? null : fenced.contains,
+        ),
+        expected,
+        reason: reason ?? lines.join(r'\n'),
+      );
+    }
+
+    test('one level past the list item above', () {
+      row(['- a', '- '], 1);
+      row(['  - a', '- '], 2);
+      row(['- [ ] a', '1. '], 1);
+      row(['1. a', '    - [x] b', '- '], 3);
+      row(['\t- a', '- '], 2);
+    });
+
+    test('blank and continuation lines are skipped', () {
+      row(['- a', '', '- '], 1);
+      row(['- a', '   ', '\t', '- '], 1);
+      row(['- a', '  more of a', '- '], 1);
+      row(['  - a', '\tmore of a', '', '  - '], 2);
+    });
+
+    test('a column-0 line that is no list item stops at 0', () {
+      row(['intro', '- '], 0);
+      row(['- a', 'intro', '- '], 0);
+      row(['# Plan', '- '], 0);
+      row(['- a', '---', '- '], 0);
+      row(['- a', '- - -', '- '], 0);
+    });
+
+    test('the document start stops at 0', () {
+      row(['- '], 0);
+      row(['', '  ', '- '], 0);
+      row(['  continuation only', '- '], 0);
+    });
+
+    test('a fenced line stops at 0', () {
+      row(['- a', '```', '- b', '```', '- '], 0, fenced: {1, 2, 3});
+      row(['- a', '- b', '- '], 0, fenced: {1});
+      // Without the predicate the same lines read as a list.
+      row(['- a', '- b', '- '], 1);
+    });
+
+    test('the item is read at its own quote depth', () {
+      row(['> - a', '> - '], 1);
+      row(['>   - a', '> - '], 2);
+      row(['> > - a', '> > - '], 1);
+      row(['> - a', '>', '> - '], 1);
+      row(['> - a', '', '> - '], 1);
+      row(['> - a', '>   more of a', '> - '], 1);
+      row(['> intro', '> - '], 0);
+      row(['- a', '> - '], 0);
+      row(['> - a', '- '], 0);
+      row(['> - a', '> > - '], 0);
+      row(['> > - a', '> - '], 0);
+    });
   });
 
   group('GhostEngagement', () {

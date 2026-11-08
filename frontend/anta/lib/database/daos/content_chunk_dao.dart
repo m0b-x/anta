@@ -9,6 +9,7 @@ import '../crdt/crdt_write.dart';
 import '../database.dart';
 import '../tables/content_chunks_table.dart';
 import '../chunking/body_cut.dart';
+import '../chunking/chunk_hasher.dart';
 import '../chunking/chunk_planner.dart';
 import '../../utils/compression_utils.dart';
 
@@ -21,6 +22,12 @@ class ContentChunkDao extends DatabaseAccessor<AppDatabase>
     with _$ContentChunkDaoMixin {
   /// A chunk longer than this many code units is stored gzip'd and base64'd.
   static const int compressionThreshold = 5000;
+
+  /// How many chunk texts were encoded on this isolate's behalf, so a test
+  /// can pin a path that must not encode — inside a pull page's
+  /// transaction, above all — as [BodyCut.cutCount] pins the cut.
+  @visibleForTesting
+  static int encodeCount = 0;
 
   ContentChunkDao(super.db);
 
@@ -77,13 +84,47 @@ class ContentChunkDao extends DatabaseAccessor<AppDatabase>
       ? CompressionUtils.decompressFromBase64(row.content)
       : row.content;
 
+  /// The [ChunkHasher] hash of the body [rows] hold in body order — a
+  /// note's manifest `bodyHash` — decompressed and hashed off this isolate
+  /// once [units], the body's length, passes [BodyCut.isolateThreshold].
+  /// Meant for rows one statement read, with no transaction open: one
+  /// statement is consistent on its own, and while a transaction runs the
+  /// executor is exclusive, so the browser would wait behind the whole body.
+  static Future<String> bodyHashOf(
+    List<ContentChunk> rows, {
+    required int units,
+  }) async {
+    bodyHashCount++;
+    final stored = [for (final row in rows) (row.content, row.isCompressed)];
+    if (units <= BodyCut.isolateThreshold) return _bodyHash(stored);
+    return _bodyHashOffThread(stored);
+  }
+
+  /// How many bodies [bodyHashOf] hashed on this isolate's behalf, so a
+  /// test can pin that none is hashed while a transaction is open.
+  @visibleForTesting
+  static int bodyHashCount = 0;
+
+  /// Not async, so the closure the isolate receives captures [stored] alone.
+  static Future<String> _bodyHashOffThread(List<(String, bool)> stored) =>
+      Isolate.run(() => _bodyHash(stored));
+
+  static String _bodyHash(List<(String, bool)> stored) => ChunkHasher.hash(
+    [
+      for (final (text, compressed) in stored)
+        compressed ? CompressionUtils.decompressFromBase64(text) : text,
+    ].join(),
+  );
+
   /// Re-cuts a note still stored as legacy fixed slices under its own
   /// [hlc], as an unchanged save does, so every chunk has a hash its
   /// manifest can name; the new chunks are queued at that stamp. The text is
-  /// read and cut before the transaction, which writes only if the rows are
-  /// still the ones read. Returns whether the note was re-cut: false for a
-  /// note already hashed, a text that no longer decodes, or rows a save
-  /// rewrote meanwhile.
+  /// read, cut and every chunk encoded before the transaction, which writes
+  /// only if the rows are still the ones read: the cutover re-cuts every
+  /// pre-v46 note this way in a row, and an encode inside would hold the
+  /// database for each body's gzip. Returns whether the note was re-cut:
+  /// false for a note already hashed, a text that no longer decodes, or rows
+  /// a save rewrote meanwhile.
   Future<bool> hashLegacy(
     String noteId, {
     required String hlc,
@@ -95,12 +136,24 @@ class ContentChunkDao extends DatabaseAccessor<AppDatabase>
     }
     final text = await _legacyText(noteId);
     if (text == null) return false;
-    final cut = await BodyCut.of(text);
+    // A re-cut replaces every legacy row, so every chunk is an insert: none
+    // counts as held.
+    final [(cut, chunks)] = await BodyCut.ofEach([
+      text,
+    ], _encoderFor(const [<String>{}]));
+    encodeCount += chunks.length;
+    final ready = EncodedBody._(text, cut, chunks);
     return transaction(() async {
       final rows = await _liveRows(noteId);
       if (!listEquals(_signature(rows), _signature(before))) return false;
       final write = await planWrite(noteId, cut, compareLegacy: false);
-      await applyWrite(write, hlc: hlc, deviceId: deviceId, version: 1);
+      await applyWrite(
+        write,
+        hlc: hlc,
+        deviceId: deviceId,
+        version: 1,
+        ready: ready,
+      );
       // The note's count of its chunks follows the re-cut; its stamp does
       // not, since the text is the same.
       await customUpdate(
@@ -352,22 +405,36 @@ class ContentChunkDao extends DatabaseAccessor<AppDatabase>
   /// the same batch: no manifest can name it any more, and an offline run of
   /// saves would otherwise leave one dead entry per save for the next push to
   /// load and throw away.
+  ///
+  /// [ready] holds chunks [encodeBodies] encoded for this cut ahead of the
+  /// transaction; an insert it left out is encoded here.
   Future<void> applyWrite(
     ChunkWrite write, {
     required String hlc,
     required String deviceId,
     required int version,
     Set<String> inSpace = const {},
+    EncodedBody? ready,
   }) async {
     final plan = write.plan;
     if (plan.isEmpty) return;
     final cut = write.cut;
-    final prepared = write._encoded;
-    final encoded = prepared != null
-        ? [for (final index in plan.inserts) prepared[index]]
-        : await _encodeAll([
-            for (final index in plan.inserts) cut.chunkText(index),
-          ]);
+    final List<String?>? prepared =
+        write._encoded ??
+        (ready != null && identical(ready.cut, cut) ? ready._encoded : null);
+    final late = [
+      for (final index in plan.inserts)
+        if (prepared?[index] == null) index,
+    ];
+    final lateTexts = late.isEmpty
+        ? const <String>[]
+        : await _encodeAll([for (final index in late) cut.chunkText(index)]);
+    final lateByIndex = {
+      for (final (i, index) in late.indexed) index: lateTexts[i],
+    };
+    final encoded = [
+      for (final index in plan.inserts) prepared?[index] ?? lateByIndex[index]!,
+    ];
     final inserted = {
       for (final index in plan.inserts)
         if (!inSpace.contains(cut.hashes[index])) cut.hashes[index],
@@ -552,6 +619,7 @@ class ContentChunkDao extends DatabaseAccessor<AppDatabase>
   /// plain below. Off this isolate once they add up past
   /// [BodyCut.isolateThreshold], as the cut is.
   static Future<List<String>> _encodeAll(List<String> texts) async {
+    encodeCount += texts.length;
     var units = 0;
     for (final text in texts) {
       units += text.length;
@@ -565,11 +633,65 @@ class ContentChunkDao extends DatabaseAccessor<AppDatabase>
       Isolate.run(() => _encode(texts));
 
   static List<String> _encode(List<String> texts) => [
-    for (final text in texts)
-      text.length > compressionThreshold
-          ? CompressionUtils.compressToBase64(text)
-          : text,
+    for (final text in texts) _encodeOne(text),
   ];
+
+  static String _encodeOne(String text) => text.length > compressionThreshold
+      ? CompressionUtils.compressToBase64(text)
+      : text;
+
+  /// Cuts each remote body of [bodies] and encodes the chunks its note's
+  /// live rows do not already hold ([EncodedBody]) — every body in one
+  /// isolate hop above [BodyCut.isolateThreshold] — ahead of a pull page's
+  /// transaction, so its merges store them with SQL alone and the browser's
+  /// queries do not wait behind the page's CPU work. A chunk the merge
+  /// inserts that was held when this read the rows is encoded by the merge.
+  Future<List<EncodedBody>> encodeBodies(
+    List<({String noteId, String text})> bodies,
+  ) async {
+    if (bodies.isEmpty) return const [];
+    final rows = await CrdtMerge.loadInChunks(
+      [for (final body in bodies) body.noteId],
+      (chunk) =>
+          (selectOnly(contentChunks)
+                ..addColumns([contentChunks.noteId, contentChunks.contentHash])
+                ..where(
+                  contentChunks.noteId.isIn(chunk) &
+                      const CustomExpression<bool>('is_deleted = 0'),
+                ))
+              .get(),
+    );
+    final heldBy = <String, Set<String>>{};
+    for (final row in rows) {
+      final hash = row.read(contentChunks.contentHash);
+      if (hash == null) continue;
+      heldBy.putIfAbsent(row.read(contentChunks.noteId)!, () => {}).add(hash);
+    }
+    final made = await BodyCut.ofEach(
+      [for (final body in bodies) body.text],
+      _encoderFor([
+        for (final body in bodies) heldBy[body.noteId] ?? const <String>{},
+      ]),
+    );
+    final encoded = <EncodedBody>[];
+    for (final (i, (cut, chunks)) in made.indexed) {
+      encodeCount += chunks.nonNulls.length;
+      encoded.add(EncodedBody._(bodies[i].text, cut, chunks));
+    }
+    return encoded;
+  }
+
+  /// Static, so the closure an isolate may receive captures [held] alone,
+  /// never this DAO.
+  static List<String?> Function(BodyCut, int) _encoderFor(
+    List<Set<String>> held,
+  ) =>
+      (cut, index) => [
+        for (var i = 0; i < cut.length; i++)
+          held[index].contains(cut.hashes[i])
+              ? null
+              : _encodeOne(cut.chunkText(i)),
+      ];
 
   /// Deletes the chunk rows of notes being tombstoned, one statement per
   /// [AppConstants.sqlIdBatch] notes so a cascade of any size stays under
@@ -595,6 +717,7 @@ class ContentChunkDao extends DatabaseAccessor<AppDatabase>
   /// many chunks the body is stored as. A chunk no live row held before is
   /// queued ([applyWrite]): a body that arrived whole in a legacy document
   /// may name chunks the space never held — unless it is among [inSpace].
+  /// [ready], from [encodeBodies], carries [cut] with its chunks encoded.
   Future<int> replaceChunks({
     required String noteId,
     required String content,
@@ -603,10 +726,11 @@ class ContentChunkDao extends DatabaseAccessor<AppDatabase>
     required int version,
     BodyCut? cut,
     Set<String> inSpace = const {},
+    EncodedBody? ready,
   }) async {
     final write = await planWrite(
       noteId,
-      cut ?? await BodyCut.of(content),
+      cut ?? ready?.cut ?? await BodyCut.of(content),
       compareLegacy: false,
     );
     await applyWrite(
@@ -615,6 +739,7 @@ class ContentChunkDao extends DatabaseAccessor<AppDatabase>
       deviceId: deviceId,
       version: version,
       inSpace: inSpace,
+      ready: ready,
     );
     return write.chunkCount;
   }
@@ -702,6 +827,24 @@ final class PreparedBody {
   final String? _legacyText;
 
   final List<String>? _encoded;
+}
+
+/// A remote body cut, with the chunks its merge is expected to insert
+/// already encoded, by [ContentChunkDao.encodeBodies] ahead of a pull page's
+/// transaction.
+final class EncodedBody {
+  EncodedBody._(this.source, this.cut, this._encoded);
+
+  /// The text as it was handed in, before [BodyCut.wellFormed]: what a merge
+  /// checks is the body it stores before it takes [cut].
+  final String source;
+
+  /// The body, cut and hashed.
+  final BodyCut cut;
+
+  /// Each chunk of [cut] as stored, by index; null for a chunk the note held
+  /// when the rows were read, which the merge keeps rather than inserts.
+  final List<String?> _encoded;
 }
 
 class ContentStats {

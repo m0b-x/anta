@@ -250,6 +250,36 @@ class CodeEditorSemanticsZone {
   final String? value;
 }
 
+/// Lets the host app turn a horizontal touch swipe on one line into a
+/// line-level action (e.g. indenting a list item) without the editor
+/// moving the caret, changing the selection or requesting focus.
+///
+/// [shouldHandle] runs at pointer-down with the text position under the
+/// pointer; only when it returns true does the swipe compete in the
+/// gesture arena at all, so on every other line the tap, long-press and
+/// scroll recognizers resolve exactly as they would without a handler.
+/// A pointer-down that is not on a line's own paragraph (the top padding,
+/// the blank area under the last line) or that lies in a shown selection
+/// handle's touch target is refused before [shouldHandle] is asked: the
+/// first maps to the nearest line only by overflow, the second belongs to
+/// the handle's drag. [onSwipe] then runs once per drag, when the
+/// horizontal travel reaches [CodeEditor.lineSwipeDistance], with the line
+/// the pointer went down on and the direction of that travel. Touch and
+/// stylus only, on the Android/iOS gesture path: a desktop horizontal drag
+/// stays a selection drag. A read-only editor never consults the handler.
+/// With word wrap off, a line wider than the editor scrolls sideways and
+/// that scrollable wins the horizontal drag, so the swipe does not fire
+/// there.
+class CodeEditorLineSwipeHandler {
+  final bool Function(CodeLinePosition down) shouldHandle;
+  final void Function(int lineIndex, {required bool toRight}) onSwipe;
+
+  const CodeEditorLineSwipeHandler({
+    required this.shouldHandle,
+    required this.onSwipe,
+  });
+}
+
 class CodeEditor extends StatefulWidget {
   const CodeEditor({
     super.key,
@@ -283,8 +313,17 @@ class CodeEditor extends StatefulWidget {
     this.chunkAnalyzer,
     this.commentFormatter,
     this.tapInterceptor,
+    this.lineSwipeHandler,
   }) : assert(indicatorBuilder != null ||
             (indicatorBuilder == null && sperator == null));
+
+  /// The horizontal travel from pointer-down, in logical pixels, at which a
+  /// line swipe fires [CodeEditorLineSwipeHandler.onSwipe]: the width of one
+  /// touch target. Which gesture owns a drag is the touch slop's call — a
+  /// drag that passes the vertical slop first stays a scroll; this distance
+  /// only decides whether a drag the swipe owns fires, so a short
+  /// horizontal wobble in a tap or a scroll never does.
+  static const double lineSwipeDistance = 48.0;
 
   /// Similar to [TextField], editor uses [CodeLineEditingController] as the content controller.
   final CodeLineEditingController? controller;
@@ -409,6 +448,10 @@ class CodeEditor extends StatefulWidget {
   /// Claims taps on interactive text regions before the editor moves
   /// the caret or requests focus. See [CodeEditorTapInterceptor].
   final CodeEditorTapInterceptor? tapInterceptor;
+
+  /// Turns a horizontal touch swipe on a line the host accepts into a
+  /// line action. See [CodeEditorLineSwipeHandler].
+  final CodeEditorLineSwipeHandler? lineSwipeHandler;
 
   @override
   State<StatefulWidget> createState() => _CodeEditorState();
@@ -667,6 +710,10 @@ class _CodeEditorState extends State<CodeEditor> {
         behavior: HitTestBehavior.translucent,
         editorKey: _editorKey,
         tapInterceptor: widget.tapInterceptor,
+        // A swipe is an edit, so a read-only editor never offers one —
+        // the same rule the touch Tab path applies before the host's
+        // override.
+        lineSwipeHandler: readOnly ? null : widget.lineSwipeHandler,
         child: editable);
     final Widget child;
     if (kIsAndroid || kIsIOS) {

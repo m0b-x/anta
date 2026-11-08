@@ -3126,7 +3126,9 @@ void main() {
   /// which is why it is an explicit-children container rather than a merge.
   group('editor quality of life (R2a)', () {
     const taskContent = '- [ ] squat 5x5\nplain line';
-    const listContent = 'first line\n- squat 5x5\nthird line';
+    // The item above lifts the nesting cap, so the bar's Indent can nest
+    // the second one.
+    const listContent = '- warm-up\n- squat 5x5\nthird line';
     final tallContent = List.generate(60, (i) => 'line $i').join('\n');
 
     Future<CodeLineEditingController> loadText(
@@ -3370,6 +3372,30 @@ void main() {
         const CodeLineSelection.collapsed(index: 1, offset: 11),
       );
       expect(controller.text, listContent, reason: 'nothing else moved');
+      await teardownPage(tester);
+    });
+
+    testWidgets('a capped Indent and an Outdent at column 0 are no edit: the '
+        'note stays saved', (tester) async {
+      final controller = await loadText(tester, listContent);
+      controller.selection = const CodeLineSelection.collapsed(
+        index: 0,
+        offset: 9,
+      );
+      await tester.pump();
+
+      // The first item opens its list, so the cap holds it at column 0.
+      bar(tester).onIndent!();
+      await tester.pump();
+      bar(tester).onOutdent!();
+      await tester.pump();
+
+      expect(controller.text, listContent);
+      expect(appBar(tester).hasChanges, isFalse);
+      expect(appBar(tester).saveStatusNotifier!.value, SaveStatus.saved);
+      await tester.pump(const Duration(seconds: 6));
+      await settle(tester);
+      expect(noteBloc.updates, isEmpty, reason: 'no save was scheduled');
       await teardownPage(tester);
     });
 

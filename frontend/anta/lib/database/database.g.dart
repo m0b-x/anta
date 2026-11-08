@@ -18617,6 +18617,21 @@ class $SyncOutboxTable extends SyncOutbox
     type: DriftSqlType.dateTime,
     requiredDuringInsert: true,
   );
+  static const VerificationMeta _republishMeta = const VerificationMeta(
+    'republish',
+  );
+  @override
+  late final GeneratedColumn<bool> republish = GeneratedColumn<bool>(
+    'republish',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("republish" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
   @override
   List<GeneratedColumn> get $columns => [
     syncedTable,
@@ -18624,6 +18639,7 @@ class $SyncOutboxTable extends SyncOutbox
     hlc,
     op,
     enqueuedAt,
+    republish,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -18677,6 +18693,12 @@ class $SyncOutboxTable extends SyncOutbox
     } else if (isInserting) {
       context.missing(_enqueuedAtMeta);
     }
+    if (data.containsKey('republish')) {
+      context.handle(
+        _republishMeta,
+        republish.isAcceptableOrUnknown(data['republish']!, _republishMeta),
+      );
+    }
     return context;
   }
 
@@ -18706,6 +18728,10 @@ class $SyncOutboxTable extends SyncOutbox
         DriftSqlType.dateTime,
         data['${effectivePrefix}enqueued_at'],
       )!,
+      republish: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}republish'],
+      )!,
     );
   }
 
@@ -18730,12 +18756,22 @@ class SyncOutboxRow extends DataClass implements Insertable<SyncOutboxRow> {
   /// merges by HLC like any other write.
   final String op;
   final DateTime enqueuedAt;
+
+  /// Whether the entry re-sends a version the space already holds — the wire
+  /// cutover's re-queue of every note, and the re-queue of a note the space
+  /// holds in an older build's shape (**v51**) — rather than a write this
+  /// device has not pushed. A remote that overwrites such a row loses no
+  /// text, so the conflict check (`NoteDao.mergeNoteDocument`) reads the
+  /// entry as nothing pending. Every real write resets it; the drain, the
+  /// acks, the parks and the queue's order ignore it.
+  final bool republish;
   const SyncOutboxRow({
     required this.syncedTable,
     required this.rowKey,
     required this.hlc,
     required this.op,
     required this.enqueuedAt,
+    required this.republish,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -18745,6 +18781,7 @@ class SyncOutboxRow extends DataClass implements Insertable<SyncOutboxRow> {
     map['hlc'] = Variable<String>(hlc);
     map['op'] = Variable<String>(op);
     map['enqueued_at'] = Variable<DateTime>(enqueuedAt);
+    map['republish'] = Variable<bool>(republish);
     return map;
   }
 
@@ -18755,6 +18792,7 @@ class SyncOutboxRow extends DataClass implements Insertable<SyncOutboxRow> {
       hlc: Value(hlc),
       op: Value(op),
       enqueuedAt: Value(enqueuedAt),
+      republish: Value(republish),
     );
   }
 
@@ -18769,6 +18807,7 @@ class SyncOutboxRow extends DataClass implements Insertable<SyncOutboxRow> {
       hlc: serializer.fromJson<String>(json['hlc']),
       op: serializer.fromJson<String>(json['op']),
       enqueuedAt: serializer.fromJson<DateTime>(json['enqueuedAt']),
+      republish: serializer.fromJson<bool>(json['republish']),
     );
   }
   @override
@@ -18780,6 +18819,7 @@ class SyncOutboxRow extends DataClass implements Insertable<SyncOutboxRow> {
       'hlc': serializer.toJson<String>(hlc),
       'op': serializer.toJson<String>(op),
       'enqueuedAt': serializer.toJson<DateTime>(enqueuedAt),
+      'republish': serializer.toJson<bool>(republish),
     };
   }
 
@@ -18789,12 +18829,14 @@ class SyncOutboxRow extends DataClass implements Insertable<SyncOutboxRow> {
     String? hlc,
     String? op,
     DateTime? enqueuedAt,
+    bool? republish,
   }) => SyncOutboxRow(
     syncedTable: syncedTable ?? this.syncedTable,
     rowKey: rowKey ?? this.rowKey,
     hlc: hlc ?? this.hlc,
     op: op ?? this.op,
     enqueuedAt: enqueuedAt ?? this.enqueuedAt,
+    republish: republish ?? this.republish,
   );
   SyncOutboxRow copyWithCompanion(SyncOutboxCompanion data) {
     return SyncOutboxRow(
@@ -18807,6 +18849,7 @@ class SyncOutboxRow extends DataClass implements Insertable<SyncOutboxRow> {
       enqueuedAt: data.enqueuedAt.present
           ? data.enqueuedAt.value
           : this.enqueuedAt,
+      republish: data.republish.present ? data.republish.value : this.republish,
     );
   }
 
@@ -18817,13 +18860,15 @@ class SyncOutboxRow extends DataClass implements Insertable<SyncOutboxRow> {
           ..write('rowKey: $rowKey, ')
           ..write('hlc: $hlc, ')
           ..write('op: $op, ')
-          ..write('enqueuedAt: $enqueuedAt')
+          ..write('enqueuedAt: $enqueuedAt, ')
+          ..write('republish: $republish')
           ..write(')'))
         .toString();
   }
 
   @override
-  int get hashCode => Object.hash(syncedTable, rowKey, hlc, op, enqueuedAt);
+  int get hashCode =>
+      Object.hash(syncedTable, rowKey, hlc, op, enqueuedAt, republish);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -18832,7 +18877,8 @@ class SyncOutboxRow extends DataClass implements Insertable<SyncOutboxRow> {
           other.rowKey == this.rowKey &&
           other.hlc == this.hlc &&
           other.op == this.op &&
-          other.enqueuedAt == this.enqueuedAt);
+          other.enqueuedAt == this.enqueuedAt &&
+          other.republish == this.republish);
 }
 
 class SyncOutboxCompanion extends UpdateCompanion<SyncOutboxRow> {
@@ -18841,6 +18887,7 @@ class SyncOutboxCompanion extends UpdateCompanion<SyncOutboxRow> {
   final Value<String> hlc;
   final Value<String> op;
   final Value<DateTime> enqueuedAt;
+  final Value<bool> republish;
   final Value<int> rowid;
   const SyncOutboxCompanion({
     this.syncedTable = const Value.absent(),
@@ -18848,6 +18895,7 @@ class SyncOutboxCompanion extends UpdateCompanion<SyncOutboxRow> {
     this.hlc = const Value.absent(),
     this.op = const Value.absent(),
     this.enqueuedAt = const Value.absent(),
+    this.republish = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   SyncOutboxCompanion.insert({
@@ -18856,6 +18904,7 @@ class SyncOutboxCompanion extends UpdateCompanion<SyncOutboxRow> {
     required String hlc,
     required String op,
     required DateTime enqueuedAt,
+    this.republish = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : syncedTable = Value(syncedTable),
        rowKey = Value(rowKey),
@@ -18868,6 +18917,7 @@ class SyncOutboxCompanion extends UpdateCompanion<SyncOutboxRow> {
     Expression<String>? hlc,
     Expression<String>? op,
     Expression<DateTime>? enqueuedAt,
+    Expression<bool>? republish,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -18876,6 +18926,7 @@ class SyncOutboxCompanion extends UpdateCompanion<SyncOutboxRow> {
       if (hlc != null) 'hlc': hlc,
       if (op != null) 'op': op,
       if (enqueuedAt != null) 'enqueued_at': enqueuedAt,
+      if (republish != null) 'republish': republish,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -18886,6 +18937,7 @@ class SyncOutboxCompanion extends UpdateCompanion<SyncOutboxRow> {
     Value<String>? hlc,
     Value<String>? op,
     Value<DateTime>? enqueuedAt,
+    Value<bool>? republish,
     Value<int>? rowid,
   }) {
     return SyncOutboxCompanion(
@@ -18894,6 +18946,7 @@ class SyncOutboxCompanion extends UpdateCompanion<SyncOutboxRow> {
       hlc: hlc ?? this.hlc,
       op: op ?? this.op,
       enqueuedAt: enqueuedAt ?? this.enqueuedAt,
+      republish: republish ?? this.republish,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -18916,6 +18969,9 @@ class SyncOutboxCompanion extends UpdateCompanion<SyncOutboxRow> {
     if (enqueuedAt.present) {
       map['enqueued_at'] = Variable<DateTime>(enqueuedAt.value);
     }
+    if (republish.present) {
+      map['republish'] = Variable<bool>(republish.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -18930,6 +18986,7 @@ class SyncOutboxCompanion extends UpdateCompanion<SyncOutboxRow> {
           ..write('hlc: $hlc, ')
           ..write('op: $op, ')
           ..write('enqueuedAt: $enqueuedAt, ')
+          ..write('republish: $republish, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -27719,6 +27776,7 @@ typedef $$SyncOutboxTableCreateCompanionBuilder =
       required String hlc,
       required String op,
       required DateTime enqueuedAt,
+      Value<bool> republish,
       Value<int> rowid,
     });
 typedef $$SyncOutboxTableUpdateCompanionBuilder =
@@ -27728,6 +27786,7 @@ typedef $$SyncOutboxTableUpdateCompanionBuilder =
       Value<String> hlc,
       Value<String> op,
       Value<DateTime> enqueuedAt,
+      Value<bool> republish,
       Value<int> rowid,
     });
 
@@ -27762,6 +27821,11 @@ class $$SyncOutboxTableFilterComposer
 
   ColumnFilters<DateTime> get enqueuedAt => $composableBuilder(
     column: $table.enqueuedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get republish => $composableBuilder(
+    column: $table.republish,
     builder: (column) => ColumnFilters(column),
   );
 }
@@ -27799,6 +27863,11 @@ class $$SyncOutboxTableOrderingComposer
     column: $table.enqueuedAt,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<bool> get republish => $composableBuilder(
+    column: $table.republish,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$SyncOutboxTableAnnotationComposer
@@ -27828,6 +27897,9 @@ class $$SyncOutboxTableAnnotationComposer
     column: $table.enqueuedAt,
     builder: (column) => column,
   );
+
+  GeneratedColumn<bool> get republish =>
+      $composableBuilder(column: $table.republish, builder: (column) => column);
 }
 
 class $$SyncOutboxTableTableManager
@@ -27866,6 +27938,7 @@ class $$SyncOutboxTableTableManager
                 Value<String> hlc = const Value.absent(),
                 Value<String> op = const Value.absent(),
                 Value<DateTime> enqueuedAt = const Value.absent(),
+                Value<bool> republish = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => SyncOutboxCompanion(
                 syncedTable: syncedTable,
@@ -27873,6 +27946,7 @@ class $$SyncOutboxTableTableManager
                 hlc: hlc,
                 op: op,
                 enqueuedAt: enqueuedAt,
+                republish: republish,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -27882,6 +27956,7 @@ class $$SyncOutboxTableTableManager
                 required String hlc,
                 required String op,
                 required DateTime enqueuedAt,
+                Value<bool> republish = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => SyncOutboxCompanion.insert(
                 syncedTable: syncedTable,
@@ -27889,6 +27964,7 @@ class $$SyncOutboxTableTableManager
                 hlc: hlc,
                 op: op,
                 enqueuedAt: enqueuedAt,
+                republish: republish,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0

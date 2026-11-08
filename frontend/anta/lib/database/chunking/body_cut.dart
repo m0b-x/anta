@@ -38,6 +38,47 @@ final class BodyCut {
     return BodyCut._(body, ends, hashes);
   }
 
+  /// The cut of each of [texts], with what [then] makes of each cut
+  /// computed where the cut was: off the calling isolate in ONE hop once the
+  /// texts add up past [isolateThreshold], inline below it. A pull page cuts
+  /// its bodies and encodes their chunks this way before its transaction,
+  /// so the page pays one isolate start rather than one per note, and the
+  /// transaction pays for neither.
+  static Future<List<(BodyCut, T)>> ofEach<T>(
+    List<String> texts,
+    T Function(BodyCut cut, int index) then,
+  ) async {
+    cutCount += texts.length;
+    final bodies = [for (final text in texts) wellFormed(text)];
+    var units = 0;
+    for (final body in bodies) {
+      units += body.length;
+    }
+    final parts = units <= isolateThreshold
+        ? _each(bodies, then)
+        : await _eachOffThread(bodies, then);
+    return [
+      for (final (i, (ends, hashes, made)) in parts.indexed)
+        (BodyCut._(bodies[i], ends, hashes), made),
+    ];
+  }
+
+  /// Not async, so the closure the isolate receives captures [bodies] and
+  /// [then] alone; only the offsets, hashes and [then]'s results come back.
+  static Future<List<(List<int>, List<String>, T)>> _eachOffThread<T>(
+    List<String> bodies,
+    T Function(BodyCut cut, int index) then,
+  ) => Isolate.run(() => _each(bodies, then));
+
+  static List<(List<int>, List<String>, T)> _each<T>(
+    List<String> bodies,
+    T Function(BodyCut cut, int index) then,
+  ) => [
+    for (final (i, body) in bodies.indexed)
+      if (_cutAndHash(body) case (final ends, final hashes))
+        (ends, hashes, then(BodyCut._(body, ends, hashes), i)),
+  ];
+
   /// [text] with every lone surrogate replaced by U+FFFD, the same text
   /// when it has none. SQLite stores TEXT as UTF-8, which reads a lone
   /// surrogate back as U+FFFD, so a chunk hashed over the code units it was

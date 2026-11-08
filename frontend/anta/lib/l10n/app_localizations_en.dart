@@ -4644,6 +4644,35 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String syncUpdatingNotes(int done, int total) {
+    final intl.NumberFormat doneNumberFormat = intl.NumberFormat.decimalPattern(
+      localeName,
+    );
+    final String doneString = doneNumberFormat.format(done);
+    final intl.NumberFormat totalNumberFormat =
+        intl.NumberFormat.decimalPattern(localeName);
+    final String totalString = totalNumberFormat.format(total);
+
+    return 'Finishing update — notes $doneString of $totalString';
+  }
+
+  @override
+  String get syncUpdating => 'Finishing update';
+
+  @override
+  String syncUpdatingSending(int done, int total) {
+    final intl.NumberFormat doneNumberFormat = intl.NumberFormat.decimalPattern(
+      localeName,
+    );
+    final String doneString = doneNumberFormat.format(done);
+    final intl.NumberFormat totalNumberFormat =
+        intl.NumberFormat.decimalPattern(localeName);
+    final String totalString = totalNumberFormat.format(total);
+
+    return 'Finishing update — sending $doneString of $totalString';
+  }
+
+  @override
   String get syncOffline => 'Offline — will retry';
 
   @override
@@ -4692,6 +4721,22 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get drawerSyncRetrying => 'Couldn\'t sync — will retry';
+
+  @override
+  String drawerSyncUpdating(int done, int total) {
+    final intl.NumberFormat doneNumberFormat = intl.NumberFormat.decimalPattern(
+      localeName,
+    );
+    final String doneString = doneNumberFormat.format(done);
+    final intl.NumberFormat totalNumberFormat =
+        intl.NumberFormat.decimalPattern(localeName);
+    final String totalString = totalNumberFormat.format(total);
+
+    return 'Finishing update ($doneString of $totalString)';
+  }
+
+  @override
+  String get drawerSyncUpdatingNoTotal => 'Finishing update';
 
   @override
   String syncLastSynced(String time) {
