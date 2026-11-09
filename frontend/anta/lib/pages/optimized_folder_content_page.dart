@@ -269,6 +269,11 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
   // the terminal state transition.
   bool _ioLoadingDialogOpen = false;
 
+  /// Up from the first await of [_deleteSelected] until it returns, so a
+  /// second tap during the settings read neither stacks a second dialog nor
+  /// dispatches the delete twice.
+  bool _deletingSelected = false;
+
   /// Descendant-inclusive note count per visible folder id. Read for the
   /// whole page in one statement rather than two per row, which is what a
   /// row could do when it owned its own counts.
@@ -944,35 +949,50 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
     _selection.clear();
   }
 
+  /// Asks first unless "Confirm before delete" is off (record D24).
   Future<void> _deleteSelected() async {
+    if (_deletingSelected) return;
     final l10n = AppLocalizations.of(context)!;
     final items = _selection.items.toList(growable: false);
     if (items.isEmpty) return;
 
-    final confirmed = await AppDialogs.confirm(
-      context,
-      title: l10n.delete,
-      content: l10n.deleteSelectedConfirm(items.length),
-      confirmText: l10n.delete,
-      isDestructive: true,
-    );
-    if (!confirmed || !mounted) return;
+    _deletingSelected = true;
+    try {
+      final settings = await SettingsService.getInstance();
+      final confirm = await settings.getConfirmDelete();
+      if (!mounted) return;
+      if (confirm) {
+        final confirmed = await AppDialogs.confirm(
+          context,
+          title: l10n.delete,
+          content: l10n.deleteSelectedConfirm(items.length),
+          confirmText: l10n.delete,
+          isDestructive: true,
+        );
+        if (!confirmed || !mounted) return;
+      }
 
-    final folderIds = <String>[];
-    final noteIds = <String>[];
-    for (final ref in items) {
-      (ref.kind == MovableItemKind.folder ? folderIds : noteIds).add(ref.id);
-    }
+      final folderIds = <String>[];
+      final noteIds = <String>[];
+      for (final ref in items) {
+        (ref.kind == MovableItemKind.folder ? folderIds : noteIds).add(ref.id);
+      }
 
-    if (folderIds.isNotEmpty) {
-      context.read<OptimizedFolderBloc>().add(
-        DeleteOptimizedFolders(folderIds: folderIds, parentId: widget.folderId),
-      );
+      if (folderIds.isNotEmpty) {
+        context.read<OptimizedFolderBloc>().add(
+          DeleteOptimizedFolders(
+            folderIds: folderIds,
+            parentId: widget.folderId,
+          ),
+        );
+      }
+      if (noteIds.isNotEmpty) {
+        context.read<OptimizedNoteBloc>().add(DeleteOptimizedNotes(noteIds));
+      }
+      _selection.clear();
+    } finally {
+      _deletingSelected = false;
     }
-    if (noteIds.isNotEmpty) {
-      context.read<OptimizedNoteBloc>().add(DeleteOptimizedNotes(noteIds));
-    }
-    _selection.clear();
   }
 
   Future<void> _onDropOnFolder(
@@ -1860,27 +1880,35 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
     );
   }
 
+  /// Asks first unless "Confirm before delete" is off, as the folder row does
+  /// (record D24a); off, the note count only the dialog shows is not looked
+  /// up either.
   Future<void> _deleteCurrentFolder() async {
     final folder = _folder;
     if (folder == null) return;
     final l10n = AppLocalizations.of(context)!;
-    AppDialogs.showLoading(context, message: l10n.loadingContent);
-    final noteCount = await _folderStorageService.getNoteCountForDeletion(
-      folder.id,
-    );
+    final settings = await SettingsService.getInstance();
+    final confirm = await settings.getConfirmDelete();
     if (!mounted) return;
-    AppNavigator.pop(context);
+    if (confirm) {
+      AppDialogs.showLoading(context, message: l10n.loadingContent);
+      final noteCount = await _folderStorageService.getNoteCountForDeletion(
+        folder.id,
+      );
+      if (!mounted) return;
+      AppNavigator.pop(context);
 
-    final confirmed = await AppDialogs.confirm(
-      context,
-      title: l10n.deleteFolder,
-      content: noteCount > 0
-          ? l10n.deleteFolderWithNotesConfirm(folder.name, noteCount)
-          : l10n.deleteFolderConfirm(folder.name),
-      confirmText: l10n.delete,
-      isDestructive: true,
-    );
-    if (!confirmed || !mounted) return;
+      final confirmed = await AppDialogs.confirm(
+        context,
+        title: l10n.deleteFolder,
+        content: noteCount > 0
+            ? l10n.deleteFolderWithNotesConfirm(folder.name, noteCount)
+            : l10n.deleteFolderConfirm(folder.name),
+        confirmText: l10n.delete,
+        isDestructive: true,
+      );
+      if (!confirmed || !mounted) return;
+    }
     context.read<OptimizedFolderBloc>().add(
       DeleteOptimizedFolder(folderId: folder.id, parentId: folder.parentId),
     );

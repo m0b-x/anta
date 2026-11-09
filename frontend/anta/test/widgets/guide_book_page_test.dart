@@ -272,6 +272,22 @@ void main() {
     }
   });
 
+  testWidgets('the book search finds a page by a word only its card\'s coach '
+      'says', (tester) async {
+    await tester.pumpWidget(_app(const GuideBookPage(book: GuideBook.notes)));
+    await tester.pumpAndSettle();
+
+    // "nests" is in the lists card's nest step and in no row or example.
+    expect(en.notesGuideCoachListsNest, contains('nests'));
+    await tester.enterText(find.byType(TextField), 'nests');
+    await tester.pumpAndSettle();
+    expect(_hubRow(GuideBook.notes, NotesGuideTopic.lists), findsOneWidget);
+    for (final topic in NotesGuideTopic.values) {
+      if (topic == NotesGuideTopic.lists) continue;
+      expect(_hubRow(GuideBook.notes, topic), findsNothing, reason: topic.slug);
+    }
+  });
+
   for (final (book, topic) in _written) {
     testWidgets('${book.slug} ${topic.slug}: the heading, the lead and every '
         'row', (tester) async {

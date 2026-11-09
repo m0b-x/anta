@@ -120,7 +120,7 @@ class MoneyDetailSheet extends StatelessWidget {
                   ),
                   Text(
                     noTargetHeader
-                        ? 'no target'
+                        ? l10n.moneyNoTarget
                         : _format(headerValue, signed: signedHeader),
                     style: theme.textTheme.titleMedium?.copyWith(
                       color: headerColor,
@@ -189,7 +189,7 @@ class MoneyDetailSheet extends StatelessWidget {
                   final amount = isDisplay
                       ? (m.kind == MoneyLineKind.remaining &&
                                 MarkdownMoneySyntax.isNoTarget(e.valueAfter)
-                            ? 'no target'
+                            ? l10n.moneyNoTarget
                             : _format(
                                 e.valueAfter,
                                 signed: MarkdownMoneySyntax.isSignedKind(

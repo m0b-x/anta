@@ -412,6 +412,22 @@ abstract final class SemanticsIds {
   static String guideBookExample(String book, String slug) =>
       'guide-$book-example-$slug';
 
+  /// A book page's "Try it" editor card (D21), keyed by the card's slug: a
+  /// container node, so the stage's editor stays a node of its own. The
+  /// `settings/20_guide_books` flow and the editor card's suite find it.
+  /// Its back and forward keep the calendar's `try-<slug>-…` ids.
+  static String guideBookTry(String book, String slug) =>
+      'guide-$book-try-$slug';
+
+  /// The editor card's live coach line, read by a flow and the suite
+  /// whatever it says.
+  static String guideBookTryCaption(String book, String slug) =>
+      'guide-$book-try-$slug-caption';
+
+  /// The editor on the card's stage, where a flow taps to type.
+  static String guideBookTryEditor(String book, String slug) =>
+      'guide-$book-try-$slug-editor';
+
   /// The calendar guide's list: a flow waits on the page and scrolls inside
   /// it without depending on the guide's wording or the locale.
   static const String calendarGuide = 'calendar-guide';

@@ -1388,6 +1388,75 @@ void main() {
     });
   });
 
+  // Record D23: off, the page writes nothing on a timer — neither the
+  // debounce nor the sweep — whether it read the switch at open or on the
+  // way back from Settings.
+  group('D23 — auto-save off writes nothing on a timer', () {
+    /// Past both the default debounce and the 30 s sweep.
+    const pastSweep = Duration(seconds: 35);
+
+    tearDown(() => settings.setAutoSaveEnabled(true));
+
+    Future<void> typeIntoFirstLine(
+      WidgetTester tester,
+      CodeLineEditingController controller,
+    ) async {
+      controller.selection = const CodeLineSelection.collapsed(
+        index: 0,
+        offset: 'first line'.length,
+      );
+      controller.replaceSelection(' typed');
+      await tester.pump();
+    }
+
+    testWidgets('off at open: an edit is not written after 30 s', (
+      tester,
+    ) async {
+      await tester.runAsync(() => settings.setAutoSaveEnabled(false));
+      final controller = await loadNote(tester);
+      noteBloc.clearDispatched();
+
+      await typeIntoFirstLine(tester, controller);
+      await tester.pump(pastSweep);
+      await settle(tester);
+
+      expect(noteBloc.updates, isEmpty);
+      expect(appBar(tester).hasChanges, isTrue);
+      await teardownPage(tester);
+    });
+
+    testWidgets('turned off behind the open editor: the way back reads it', (
+      tester,
+    ) async {
+      final controller = await loadNote(tester);
+
+      final navigator = tester.state<NavigatorState>(find.byType(Navigator));
+      navigator.push(
+        MaterialPageRoute<void>(
+          builder: (_) => const Scaffold(body: Text('settings stand-in')),
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.runAsync(() => settings.setAutoSaveEnabled(false));
+
+      navigator.pop();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+      // The reload is a service round trip started from `didPopNext`.
+      await settle(tester);
+      noteBloc.clearDispatched();
+
+      await typeIntoFirstLine(tester, controller);
+      await tester.pump(pastSweep);
+      await settle(tester);
+
+      expect(noteBloc.updates, isEmpty);
+      expect(appBar(tester).hasChanges, isTrue);
+      await teardownPage(tester);
+    });
+  });
+
   group('B3 — editor settings apply on the way back', () {
     testWidgets('a flag changed under a pushed route lands on pop', (
       tester,
@@ -2986,6 +3055,9 @@ void main() {
 
       await openMenu(tester);
       await tester.tap(find.text(AppLocalizationsEn().deleteNote));
+      // The dialog waits on the "Confirm before delete" read, a real
+      // database round trip (record D24).
+      await settle(tester);
       await tester.pumpAndSettle();
       await tester.tap(find.widgetWithText(FilledButton, 'Delete'));
       await tester.pumpAndSettle();
@@ -3013,6 +3085,34 @@ void main() {
       await tester.pump(const Duration(seconds: 8));
       await settle(tester);
       expect(noteBloc.updates, isEmpty);
+
+      await teardownPage(tester);
+    });
+
+    testWidgets('with "Confirm before delete" off, Delete dispatches at once '
+        '(record D24)', (tester) async {
+      await tester.runAsync(() => settings.setConfirmDelete(false));
+      try {
+        await pushEditorOverFolder(tester);
+        noteBloc.clearDispatched();
+
+        await openMenu(tester);
+        await tester.tap(find.text(AppLocalizationsEn().deleteNote));
+        await settle(tester);
+        await tester.pumpAndSettle();
+        await settle(tester);
+
+        expect(find.byType(AlertDialog), findsNothing);
+        expect(find.widgetWithText(FilledButton, 'Delete'), findsNothing);
+        final deletes = noteBloc.dispatched
+            .whereType<DeleteOptimizedNote>()
+            .toList();
+        expect(deletes, hasLength(1));
+        expect(deletes.single.noteId, menuNote.id);
+        expect(pages(), findsNothing);
+      } finally {
+        await tester.runAsync(() => settings.setConfirmDelete(true));
+      }
 
       await teardownPage(tester);
     });

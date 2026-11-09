@@ -1,7 +1,9 @@
 import 'package:anta/constants/markdown_constants.dart';
+import 'package:anta/l10n/app_localizations_de.dart';
 import 'package:anta/utils/line_based_markdown_builder.dart';
 import 'package:anta/utils/markdown_color_syntax.dart';
 import 'package:anta/utils/markdown_link_patterns.dart';
+import 'package:anta/utils/markdown_money_syntax.dart';
 import 'package:anta/utils/money_display_config.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
@@ -1230,6 +1232,33 @@ void main() {
         MarkdownConstants.normalLineScale,
         MarkdownConstants.normalLineScale,
       ]);
+    });
+  });
+
+  // Record D25: a bare `$!` with no target above it says so in the
+  // reader's language, and in English when no messages are threaded.
+  group('the bare target chip', () {
+    String chip(MoneyErrorMessages? messages) {
+      final builder = LineBasedMarkdownBuilder(
+        style: _style,
+        colorPalette: MarkdownColorPalette.presets,
+        moneyConfig: MoneyDisplayConfig(enabled: true, errorMessages: messages),
+      );
+      addTearDown(builder.dispose);
+      const source = '\$+ 5 coffee\n\$!';
+      builder.prepare(source);
+      return _text(builder.buildLine(r'$!', 1));
+    }
+
+    test('speaks German with German messages', () {
+      final text = chip(MoneyErrorMessages.of(AppLocalizationsDe()));
+      expect(text, contains(' kein Ziel '));
+      expect(text, isNot(contains('no target')));
+    });
+
+    test('falls back to English without messages', () {
+      expect(chip(null), contains(' ${MarkdownMoneySyntax.noTargetLabel} '));
+      expect(MarkdownMoneySyntax.noTargetLabel, 'no target');
     });
   });
 }

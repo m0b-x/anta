@@ -454,6 +454,11 @@ class SettingsKeys {
   static const bool defaultConfirmDelete = true;
   static const bool defaultAutoSaveEnabled = true;
   static const int defaultAutoSaveInterval = 5;
+
+  /// The interval slider's bounds, also the clamp on the stored value: an
+  /// imported row of `0` must not write on every keystroke (record D23).
+  static const int autoSaveIntervalMinSeconds = 1;
+  static const int autoSaveIntervalMaxSeconds = 30;
   static const bool defaultShowNotePreview = true;
 
   /// Off (2026-10-30): character and line counts are noise under a first

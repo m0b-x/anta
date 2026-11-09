@@ -2368,14 +2368,21 @@ class AppLocalizationsDe extends AppLocalizations {
   String get autoSave => 'Notizen automatisch speichern';
 
   @override
-  String get autoSaveDesc => 'Notizen beim Bearbeiten automatisch speichern';
+  String get autoSaveDesc =>
+      'Beim Tippen speichern. Ausgeschaltet wird eine Notiz gespeichert, wenn du sie verlässt oder die App in den Hintergrund geht.';
 
   @override
   String get autoSaveInterval => 'Speicherintervall';
 
   @override
   String autoSaveIntervalDesc(int seconds) {
-    return 'Alle $seconds Sekunden speichern';
+    String _temp0 = intl.Intl.pluralLogic(
+      seconds,
+      locale: localeName,
+      other: 'Speichert $seconds Sekunden nach der letzten Änderung',
+      one: 'Speichert eine Sekunde nach der letzten Änderung',
+    );
+    return '$_temp0';
   }
 
   @override
@@ -10569,6 +10576,102 @@ class AppLocalizationsDe extends AppLocalizations {
   @override
   String get appGuideSyncConflictBody =>
       'Ändert sich dieselbe Notiz an zwei Orten, behält ANTA beide Fassungen: Die andere wird als Kopie neben deine gelegt, sodass nichts überschrieben wird.';
+
+  @override
+  String get moneyNoTarget => 'kein Ziel';
+
+  @override
+  String get notesGuideSeedMarkdown =>
+      'Beintag\nKniebeuge 5×5\nBankdrücken 3×8\nHeute stark gefühlt';
+
+  @override
+  String get notesGuideSeedLists =>
+      '- Beine\n- Kniebeuge\n- Ausfallschritte\n- Rücken';
+
+  @override
+  String get notesGuideSeedOwn =>
+      'Kreuzheben 140 kg\nNächste Woche: Kniebeuge\nGleiches Aufwärmen wie letztes Mal';
+
+  @override
+  String get notesGuideSeedMoney => '\$= 500 Budget\n\$- 40 Fitnessstudio';
+
+  @override
+  String get notesGuideCoachMarkdownHeading =>
+      'Setze # und ein Leerzeichen vor „Beintag“: daraus wird eine Überschrift.';
+
+  @override
+  String get notesGuideCoachMarkdownBold =>
+      'Setze zwei Sternchen auf jede Seite eines Wortes, wie **stark**: es wird fett.';
+
+  @override
+  String get notesGuideCoachMarkdownList =>
+      'Beginne eine Zeile mit - und einem Leerzeichen: daraus wird ein Aufzählungspunkt.';
+
+  @override
+  String get notesGuideCoachMarkdownTask =>
+      'Schreibe in eine neue Zeile - [ ] und ein Wort, dann tippe auf das Kästchen, um es abzuhaken.';
+
+  @override
+  String get notesGuideCoachListsEnter =>
+      'Tippe hinter „Rücken“ und drücke Enter: der nächste Punkt steht bereit.';
+
+  @override
+  String get notesGuideCoachListsNest =>
+      'Tippe auf „Kniebeuge“ und wische nach rechts: der Punkt rückt unter Beine.';
+
+  @override
+  String get notesGuideCoachListsOutdent =>
+      'Wische nach links: er rückt wieder heraus.';
+
+  @override
+  String get notesGuideCoachListsEnd =>
+      'Drücke Enter auf einem leeren Punkt: die Liste endet in einer normalen Zeile.';
+
+  @override
+  String get notesGuideCoachOwnTag =>
+      'Hänge #pr an die erste Zeile: ein Wort nach # ist ein Schlagwort.';
+
+  @override
+  String notesGuideCoachOwnGhost(String open, String close) {
+    return 'Schreibe hinter „Kniebeuge“ $open${open}Gewicht$close$close: eine Lücke zum späteren Ausfüllen.';
+  }
+
+  @override
+  String notesGuideCoachOwnColour(String open, String close) {
+    return 'Schreibe irgendwo ${open}red:schwer$close: das Wort wird rot.';
+  }
+
+  @override
+  String get notesGuideCoachOwnWiki =>
+      'Schreibe [[Beintag]] in doppelten eckigen Klammern: ein Link zur Notiz mit diesem Namen.';
+
+  @override
+  String get notesGuideCoachMoneySpend =>
+      'Füge eine Zeile \$- 25 Schuhe hinzu: eine weitere Ausgabe.';
+
+  @override
+  String get notesGuideCoachMoneyAdd =>
+      'Füge \$+ 25 Rückzahlung hinzu: Geld, das hereinkommt.';
+
+  @override
+  String get notesGuideCoachMoneyTotal =>
+      'Schreibe \$\$ in eine eigene Zeile: was übrig ist, als Chip.';
+
+  @override
+  String get notesGuideReportTag =>
+      'In einer Notiz zeigt ein Tipp auf ein Schlagwort jede Notiz, die es trägt.';
+
+  @override
+  String get notesGuideReportWiki =>
+      'In einer Notiz öffnet ein Tipp auf den Link diese Notiz.';
+
+  @override
+  String get notesGuideReportLink =>
+      'In einer Notiz öffnet ein Tipp auf einen Weblink ihn im Browser.';
+
+  @override
+  String get notesGuideReportMoney =>
+      'In einer Notiz zeigt ein Tipp auf eine Summe jede Zeile, die hineingeflossen ist.';
 
   @override
   String get appGuideSyncStopTitle => 'Beenden';

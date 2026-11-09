@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:intl/intl.dart';
 
 import '../constants/app_colors.dart';
@@ -39,7 +40,19 @@ abstract class GuideCardDemo extends ChangeNotifier {
   /// The line is an earlier step's, read back (D70).
   bool get reading => _coach.reading;
 
+  /// A report stands on the line (D47 / D49): a stage whose ordinary action
+  /// costs no rebuild asks, so the action that takes the report down — or a
+  /// read-back line ([reading]) — still redraws the card.
+  @protected
+  bool get hasReport => _coach.hasReport;
+
   bool get canBack => _coach.canBack;
+
+  /// Whether [action]'s step is done or skipped, for a stage whose steps are
+  /// read off what it shows (the notes cards' documents, D18): a step that
+  /// only means something after another asks first.
+  @protected
+  bool hasDone(String action) => _coach.hasDone(action);
 
   bool get canForward => _coach.canForward;
 
@@ -185,11 +198,17 @@ String calendarGuideLongestDate(DateFormat dates) {
 /// One "Try it" card of a page, under [card]'s title: its first instruction
 /// as its one entry's title — so the kit's search finds it (D48) — over the
 /// card's body, which draws the live coach line in the title's place.
+///
+/// [identifier] and [captionIdentifier] name the card and its line for a
+/// book's card (`guide-<book>-try-<slug>`, D21); the calendar's ids when
+/// null.
 SettingsSectionData calendarGuideTrySection({
   required AppLocalizations l10n,
   required GuideCardSpec card,
   required GuideCardDemo demo,
   required List<String> candidates,
+  String? identifier,
+  String? captionIdentifier,
 }) {
   return SettingsSectionData(
     icon: calendarGuidePracticeIcon,
@@ -198,11 +217,12 @@ SettingsSectionData calendarGuideTrySection({
       SettingsEntry(
         title: card.steps.first.line(l10n),
         titleStyle: calendarGuideParagraphStyle,
-        identifier: SemanticsIds.calendarGuideTry(card.slug),
+        identifier: identifier ?? SemanticsIds.calendarGuideTry(card.slug),
         builder: (context, _, _) => CalendarGuideTryCard(
           slug: card.slug,
           demo: demo,
           candidates: candidates,
+          captionIdentifier: captionIdentifier,
         ),
       ),
     ],
@@ -222,6 +242,7 @@ class CalendarGuideTryCard extends StatelessWidget {
     required this.slug,
     required this.demo,
     required this.candidates,
+    this.captionIdentifier,
   });
 
   final String slug;
@@ -229,6 +250,9 @@ class CalendarGuideTryCard extends StatelessWidget {
 
   /// Every line the coach can show, built once per locale by the page.
   final List<String> candidates;
+
+  /// The coach line's id on a book's card (D21); the calendar's when null.
+  final String? captionIdentifier;
 
   @override
   Widget build(BuildContext context) {
@@ -305,6 +329,7 @@ class CalendarGuideTryCard extends StatelessWidget {
                               ],
                               child: CalendarGuideCoachSemantics(
                                 identifier:
+                                    captionIdentifier ??
                                     SemanticsIds.calendarGuideTryCaption(slug),
                                 reading: reading,
                                 child: coachText(
@@ -483,6 +508,192 @@ class CalendarGuideCoachSemantics extends StatelessWidget {
       child: child,
     );
   }
+}
+
+/// Brings a card's coach line and what the focused field reports into view
+/// once the keyboard a focus on it raised has come to rest (D22): the line
+/// says what to type, and the field's own scroll would leave it — and what
+/// is under the field — under the keyboard. The finding card's search field
+/// over its matches ([last]), a notes card's editor on its own.
+///
+/// Once per focus gain, never per keystroke — the field keeps its own caret
+/// in view while she types. The inset counts as at rest a frame after it
+/// last moved, since a keyboard's rise reaches the app as a run of insets.
+/// It is the view's, as the field's own caret tracking reads it: the page's
+/// `Scaffold` takes the inset out of its body's `MediaQuery`.
+class GuideCaptionAboveKeyboard extends StatefulWidget {
+  const GuideCaptionAboveKeyboard({
+    super.key,
+    required this.focusNode,
+    required this.caption,
+    this.last,
+    this.lastExtent,
+    required this.child,
+  }) : assert(last == null || lastExtent == null);
+
+  final FocusNode focusNode;
+
+  /// The card's coach slot ([GuideCardDemo.captionSlotKey]).
+  final GlobalKey caption;
+
+  /// The last thing she needs to see under the field, when there is one;
+  /// the field itself otherwise.
+  final GlobalKey? last;
+
+  /// How much of the field, from its top, she needs to see, for a field
+  /// that scrolls itself: a notes card's six-line editor at 2.0 is taller
+  /// than a small phone's room above the keyboard, and judged whole it
+  /// would push the coach line off the top (D22) when the line and the
+  /// editor's first line fit together. Null, the whole field (or [last])
+  /// is judged.
+  final double? lastExtent;
+
+  final Widget child;
+
+  @override
+  State<GuideCaptionAboveKeyboard> createState() =>
+      _GuideCaptionAboveKeyboardState();
+}
+
+class _GuideCaptionAboveKeyboardState extends State<GuideCaptionAboveKeyboard>
+    with WidgetsBindingObserver {
+  double _inset = 0;
+
+  /// Focus was gained and the caption not yet brought into view.
+  bool _waiting = false;
+
+  /// The inset moved since the last frame's check.
+  bool _moved = false;
+
+  /// A check is scheduled after the coming frame.
+  bool _checking = false;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.focusNode.addListener(_onFocus);
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void didUpdateWidget(GuideCaptionAboveKeyboard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.focusNode != widget.focusNode) {
+      oldWidget.focusNode.removeListener(_onFocus);
+      widget.focusNode.addListener(_onFocus);
+    }
+  }
+
+  double _viewInset() {
+    final view = View.of(context);
+    return view.viewInsets.bottom / view.devicePixelRatio;
+  }
+
+  @override
+  void didChangeMetrics() {
+    if (!_waiting) return;
+    final inset = _viewInset();
+    if (inset == _inset) return;
+    _inset = inset;
+    _moved = true;
+    if (_checking) return;
+    _checking = true;
+    WidgetsBinding.instance.addPostFrameCallback(_check);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    widget.focusNode.removeListener(_onFocus);
+    super.dispose();
+  }
+
+  void _onFocus() {
+    _waiting = widget.focusNode.hasFocus;
+    if (_waiting) _inset = _viewInset();
+  }
+
+  void _check(Duration _) {
+    if (!mounted || !_waiting) {
+      _checking = false;
+      return;
+    }
+    if (_moved) {
+      // Still rising: look again after the next frame.
+      _moved = false;
+      WidgetsBinding.instance.addPostFrameCallback(_check);
+      WidgetsBinding.instance.scheduleFrame();
+      return;
+    }
+    _checking = false;
+    _waiting = false;
+    if (_inset > 0) _reveal();
+  }
+
+  /// Scrolls the coach line, which sits above the field, up to the top, as
+  /// `Scrollable.ensureVisible` at alignment 0.0 would, where the line, the
+  /// field and [GuideCaptionAboveKeyboard.last] (or the field's first
+  /// [GuideCaptionAboveKeyboard.lastExtent]) all fit above the keyboard;
+  /// otherwise the field goes to the top, as before the coach line (German
+  /// at 2.0 on a small phone). Never past the field — it keeps its caret in
+  /// view on every keystroke, so a page scrolled past it would jump back
+  /// under her at the first letter — and never back down.
+  void _reveal() {
+    final caption = widget.caption.currentContext?.findRenderObject();
+    // The node's context is the field's own: its box, and the air above
+    // the caret the field keeps when it scrolls itself into view.
+    final focused = widget.focusNode.context;
+    final field = focused?.findRenderObject();
+    final position = Scrollable.maybeOf(context)?.position;
+    if (caption == null || field is! RenderBox || position == null) return;
+    final viewport = RenderAbstractViewport.maybeOf(field);
+    if (viewport == null) return;
+    final air =
+        focused!
+            .findAncestorWidgetOfExactType<EditableText>()
+            ?.scrollPadding
+            .top ??
+        0;
+    final lineAtTop = viewport.getOffsetToReveal(caption, 0.0).offset;
+    // With nothing under it, the field is the last thing she needs to see.
+    final last = widget.last?.currentContext?.findRenderObject() ?? field;
+    final extent = widget.lastExtent;
+    final fits =
+        viewport
+            .getOffsetToReveal(
+              last,
+              1.0,
+              rect: extent == null
+                  ? null
+                  : Rect.fromLTWH(
+                      0,
+                      0,
+                      field.size.width,
+                      math.min(extent, field.size.height),
+                    ),
+            )
+            .offset <=
+        lineAtTop;
+    final target = fits
+        ? lineAtTop
+        : viewport
+              .getOffsetToReveal(
+                field,
+                0.0,
+                rect: Rect.fromLTRB(
+                  0,
+                  -air,
+                  field.size.width,
+                  field.size.height,
+                ),
+              )
+              .offset;
+    if (target <= position.pixels) return;
+    position.jumpTo(math.min(target, position.maxScrollExtent));
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
 }
 
 /// A stage's month of dots, drawn as the year tiles draw it at the largest

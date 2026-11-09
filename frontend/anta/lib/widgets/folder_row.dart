@@ -18,6 +18,7 @@ import '../models/movable_item.dart';
 import '../services/app_navigator.dart';
 import '../services/folder_storage_service.dart';
 import '../services/move_coordinator.dart';
+import '../services/settings_service.dart';
 import '../utils/custom_snackbar.dart';
 import 'app_dialogs.dart';
 import 'content_rows.dart';
@@ -323,24 +324,31 @@ class FolderRow extends StatelessWidget {
     );
   }
 
+  /// Asks first unless "Confirm before delete" is off (record D24); off, the
+  /// note count only the dialog shows is not looked up either.
   void _confirmDelete(BuildContext context) async {
     final l10n = AppLocalizations.of(context)!;
-    AppDialogs.showLoading(context, message: l10n.loadingContent);
-    final noteCount = await GetIt.I<FolderStorageService>()
-        .getNoteCountForDeletion(folder.id);
+    final settings = await SettingsService.getInstance();
+    final confirm = await settings.getConfirmDelete();
     if (!context.mounted) return;
-    AppNavigator.pop(context);
+    if (confirm) {
+      AppDialogs.showLoading(context, message: l10n.loadingContent);
+      final noteCount = await GetIt.I<FolderStorageService>()
+          .getNoteCountForDeletion(folder.id);
+      if (!context.mounted) return;
+      AppNavigator.pop(context);
 
-    final confirmed = await AppDialogs.confirm(
-      context,
-      title: l10n.deleteFolder,
-      content: noteCount > 0
-          ? l10n.deleteFolderWithNotesConfirm(folder.name, noteCount)
-          : l10n.deleteFolderConfirm(folder.name),
-      confirmText: l10n.delete,
-      isDestructive: true,
-    );
-    if (!confirmed || !context.mounted) return;
+      final confirmed = await AppDialogs.confirm(
+        context,
+        title: l10n.deleteFolder,
+        content: noteCount > 0
+            ? l10n.deleteFolderWithNotesConfirm(folder.name, noteCount)
+            : l10n.deleteFolderConfirm(folder.name),
+        confirmText: l10n.delete,
+        isDestructive: true,
+      );
+      if (!confirmed || !context.mounted) return;
+    }
     context.read<OptimizedFolderBloc>().add(
       DeleteOptimizedFolder(folderId: folder.id, parentId: parentId),
     );

@@ -2392,14 +2392,22 @@ class AppLocalizationsRo extends AppLocalizations {
   String get autoSave => 'Auto-salvare notițe';
 
   @override
-  String get autoSaveDesc => 'Salvează automat notițele în timpul editării';
+  String get autoSaveDesc =>
+      'Salvează în timp ce scrii. Oprit, o notiță se salvează când o părăsești sau când aplicația trece în fundal.';
 
   @override
   String get autoSaveInterval => 'Interval auto-salvare';
 
   @override
   String autoSaveIntervalDesc(int seconds) {
-    return 'Salvează la fiecare $seconds secunde';
+    String _temp0 = intl.Intl.pluralLogic(
+      seconds,
+      locale: localeName,
+      other: 'Salvează $seconds de secunde după ultima modificare',
+      few: 'Salvează $seconds secunde după ultima modificare',
+      one: 'Salvează o secundă după ultima modificare',
+    );
+    return '$_temp0';
   }
 
   @override
@@ -5591,7 +5599,7 @@ class AppLocalizationsRo extends AppLocalizations {
   String get editorZoneOpenMoney => 'Deschide detaliile registrului';
 
   @override
-  String get editorZoneSearchTag => 'Caută eticheta';
+  String get editorZoneSearchTag => 'Caută tagul';
 
   @override
   String get editorZoneOpenWikiLink => 'Deschide nota asociată';
@@ -5613,7 +5621,7 @@ class AppLocalizationsRo extends AppLocalizations {
 
   @override
   String editorZoneSearchTagNamed(String tag) {
-    return 'Caută eticheta: $tag';
+    return 'Caută tagul: $tag';
   }
 
   @override
@@ -9377,7 +9385,7 @@ class AppLocalizationsRo extends AppLocalizations {
   }
 
   @override
-  String get reportSectionTags => 'După etichetă';
+  String get reportSectionTags => 'După tag';
 
   @override
   String get reportSectionWhen => 'Când';
@@ -9456,12 +9464,12 @@ class AppLocalizationsRo extends AppLocalizations {
 
   @override
   String reportTagSpoken(String name, String facts) {
-    return 'eticheta $name, $facts';
+    return 'tagul $name, $facts';
   }
 
   @override
   String reportTagName(String name) {
-    return 'eticheta $name';
+    return 'tagul $name';
   }
 
   @override
@@ -9469,15 +9477,15 @@ class AppLocalizationsRo extends AppLocalizations {
     String _temp0 = intl.Intl.pluralLogic(
       count,
       locale: localeName,
-      other: 'Încă $count de etichete',
-      few: 'Încă $count etichete',
-      one: 'Încă o etichetă',
+      other: 'Încă $count de taguri',
+      few: 'Încă $count taguri',
+      one: 'Încă un tag',
     );
     return '$_temp0';
   }
 
   @override
-  String get reportTagsLessSpoken => 'Arată mai puține etichete';
+  String get reportTagsLessSpoken => 'Arată mai puține taguri';
 
   @override
   String reportWhenBusiest(String weekday, String hours) {
@@ -10725,6 +10733,102 @@ class AppLocalizationsRo extends AppLocalizations {
   @override
   String get appGuideSyncConflictBody =>
       'Dacă aceeași notiță se schimbă în două locuri, ANTA le păstrează pe amândouă: cealaltă versiune e pusă lângă a ta, ca o copie, așa că nimic nu e suprascris.';
+
+  @override
+  String get moneyNoTarget => 'fără țintă';
+
+  @override
+  String get notesGuideSeedMarkdown =>
+      'Zi de picioare\nGenuflexiuni 5×5\nÎmpins la bancă 3×8\nM-am simțit puternic azi';
+
+  @override
+  String get notesGuideSeedLists =>
+      '- Picioare\n- Genuflexiuni\n- Fandări\n- Spate';
+
+  @override
+  String get notesGuideSeedOwn =>
+      'Îndreptări 140 kg\nSăptămâna viitoare: genuflexiuni\nAceeași încălzire ca data trecută';
+
+  @override
+  String get notesGuideSeedMoney => '\$= 500 buget\n\$- 40 sală';
+
+  @override
+  String get notesGuideCoachMarkdownHeading =>
+      'Pune # și un spațiu înaintea lui „Zi de picioare”: devine un titlu.';
+
+  @override
+  String get notesGuideCoachMarkdownBold =>
+      'Pune două steluțe de fiecare parte a unui cuvânt, ca **puternic**: apare îngroșat.';
+
+  @override
+  String get notesGuideCoachMarkdownList =>
+      'Începe un rând cu - și un spațiu: devine un punct de listă.';
+
+  @override
+  String get notesGuideCoachMarkdownTask =>
+      'Pe un rând nou scrie - [ ] și un cuvânt, apoi atinge căsuța ca să o bifezi.';
+
+  @override
+  String get notesGuideCoachListsEnter =>
+      'Atinge după „Spate” și apasă Enter: următorul punct e gata.';
+
+  @override
+  String get notesGuideCoachListsNest =>
+      'Atinge „Genuflexiuni”, apoi glisează spre dreapta: intră sub Picioare.';
+
+  @override
+  String get notesGuideCoachListsOutdent =>
+      'Glisează spre stânga: iese înapoi.';
+
+  @override
+  String get notesGuideCoachListsEnd =>
+      'Apasă Enter pe un punct gol: lista se încheie cu un rând simplu.';
+
+  @override
+  String get notesGuideCoachOwnTag =>
+      'Adaugă #pr la capătul primului rând: un cuvânt după # e un tag.';
+
+  @override
+  String notesGuideCoachOwnGhost(String open, String close) {
+    return 'După „genuflexiuni” scrie $open${open}greutate$close$close: un loc gol de completat mai târziu.';
+  }
+
+  @override
+  String notesGuideCoachOwnColour(String open, String close) {
+    return 'Scrie oriunde ${open}red:greu$close: cuvântul devine roșu.';
+  }
+
+  @override
+  String get notesGuideCoachOwnWiki =>
+      'Scrie [[Zi de picioare]] între paranteze drepte duble: un link către notița cu acel nume.';
+
+  @override
+  String get notesGuideCoachMoneySpend =>
+      'Adaugă un rând \$- 25 pantofi: încă o cheltuială.';
+
+  @override
+  String get notesGuideCoachMoneyAdd =>
+      'Adaugă \$+ 25 rambursare: bani care intră.';
+
+  @override
+  String get notesGuideCoachMoneyTotal =>
+      'Scrie \$\$ pe un rând separat: cât a rămas, ca un jeton.';
+
+  @override
+  String get notesGuideReportTag =>
+      'Într-o notiță, atingerea unui tag arată fiecare notiță care îl poartă.';
+
+  @override
+  String get notesGuideReportWiki =>
+      'Într-o notiță, atingerea linkului deschide notița aceea.';
+
+  @override
+  String get notesGuideReportLink =>
+      'Într-o notiță, atingerea unui link web îl deschide în browser.';
+
+  @override
+  String get notesGuideReportMoney =>
+      'Într-o notiță, atingerea unui total arată fiecare rând care a intrat în el.';
 
   @override
   String get appGuideSyncStopTitle => 'Oprirea';

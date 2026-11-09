@@ -14,8 +14,8 @@ import '../widgets/settings_search_field.dart';
 import '../widgets/unified_app_bars.dart';
 
 /// The hub row that opens [topic]'s page of [book], for the book's own hub
-/// and the "How to use ANTA" hub's search (D2): found by its read rows and
-/// by its examples' captions and sources.
+/// and the "How to use ANTA" hub's search (D2): found by its read rows, by
+/// its examples' captions and sources, and by its editor cards' coach lines.
 GuideHubItem guideTopicHubItem(
   AppLocalizations l10n,
   GuideBook book,
@@ -33,6 +33,10 @@ GuideHubItem guideTopicHubItem(
           caption,
           source,
         ],
+      // Every coach line of every card too, as the calendar's hub (D58):
+      // what the page lets her try is a reason to open it.
+      for (final card in topic.editorCards)
+        for (final step in card.steps) step.line(l10n),
     ],
     rows: [
       for (final entry in entries)

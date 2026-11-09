@@ -1393,6 +1393,11 @@ class MarkdownMoneySyntax {
     }
   }
 
+  /// What a bare `$!` with no target above it says in place of a value,
+  /// when no `MoneyErrorMessages` are threaded — the EN fallback beside
+  /// [errorMessage]'s, for the same reason.
+  static const String noTargetLabel = 'no target';
+
   /// Whether [cents] sits exactly at the clamp limit — i.e. the
   /// computed value is the cap, not real arithmetic. Renderers show
   /// pinned values in the warning accent so a capped balance is never

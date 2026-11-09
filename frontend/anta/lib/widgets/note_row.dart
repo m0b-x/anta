@@ -18,6 +18,7 @@ import '../models/note_metadata.dart';
 import '../services/app_navigator.dart';
 import '../services/move_coordinator.dart';
 import '../services/note_storage_service.dart';
+import '../services/settings_service.dart';
 import '../utils/custom_snackbar.dart';
 import 'app_dialogs.dart';
 import 'content_rows.dart';
@@ -402,18 +403,24 @@ class NoteRow extends StatelessWidget {
     );
   }
 
+  /// Asks first unless "Confirm before delete" is off (record D24).
   void _confirmDelete(BuildContext context) async {
     final l10n = AppLocalizations.of(context)!;
-    final confirmed = await AppDialogs.confirm(
-      context,
-      title: l10n.deleteNote,
-      content: l10n.deleteNoteConfirm(
-        metadata.title.isEmpty ? l10n.deleteThisNote : metadata.title,
-      ),
-      confirmText: l10n.delete,
-      isDestructive: true,
-    );
-    if (!confirmed || !context.mounted) return;
+    final settings = await SettingsService.getInstance();
+    final confirm = await settings.getConfirmDelete();
+    if (!context.mounted) return;
+    if (confirm) {
+      final confirmed = await AppDialogs.confirm(
+        context,
+        title: l10n.deleteNote,
+        content: l10n.deleteNoteConfirm(
+          metadata.title.isEmpty ? l10n.deleteThisNote : metadata.title,
+        ),
+        confirmText: l10n.delete,
+        isDestructive: true,
+      );
+      if (!confirmed || !context.mounted) return;
+    }
     context.read<OptimizedNoteBloc>().add(DeleteOptimizedNote(metadata.id));
   }
 }

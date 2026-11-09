@@ -9,6 +9,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get_it/get_it.dart';
+import 'package:re_editor/re_editor.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:anta/bloc/app_settings/app_settings_bloc.dart';
@@ -186,7 +187,16 @@ void main() {
             ];
       final areas = [
         for (final offender in named)
-          for (final element in offender.finder.evaluate()) ?_box(element),
+          if (!offender.exact)
+            for (final element in offender.finder.evaluate()) ?_box(element),
+      ];
+      // An exact offender's node is its box as the list's viewport clips it:
+      // the walk scrolls it across the viewport's edges.
+      final boxes = [
+        for (final offender in named)
+          if (offender.exact)
+            for (final element in offender.finder.evaluate())
+              ?_box(element)?.intersect(tester.getRect(list!)),
       ];
       final texts = {
         for (final offender in named)
@@ -195,8 +205,11 @@ void main() {
       };
       final ratio = tester.view.devicePixelRatio;
       bool skip(bool isNamed) => only == null ? isNamed : !isNamed;
-      bool skipNode(SemanticsNode node) =>
-          skip(_within(areas, _logicalRect(node, ratio)));
+      bool skipNode(SemanticsNode node) {
+        final rect = _logicalRect(node, ratio);
+        return skip(_within(areas, rect) || _sameBox(boxes, rect));
+      }
+
       return switch (which) {
         _Guideline.tapTargets => _KitTapTargetGuideline(skipNode),
         _Guideline.labels => _KitLabelGuideline(skipNode),
@@ -336,27 +349,46 @@ void main() {
     });
 
     // A page of example rows: the typed block, the preview and the caption
-    // under the same matchers as the read rows.
-    testWidgets('a notes guide page with examples meets the guidelines, '
-        '${cell.label}', (tester) async {
-      final handle = tester.ensureSemantics();
-      setGoldenSurface(tester, cell);
-      await tester.pumpWidget(
-        goldenApp(
-          cell,
-          home: const GuideTopicPage(
-            book: GuideBook.notes,
-            topic: NotesGuideTopic.markdown,
+    // under the same matchers as the read rows. Its "Try it" editor (D17)
+    // brings the re_editor fork's touch selection detector, which publishes
+    // the editor's whole box as an unlabelled tap and long-press node beside
+    // the text field that names it — the note editor's own, pinned here by
+    // that exact box until the fork leaves it out of the semantics tree.
+    // Every page that holds a card, each on its own seed and coach lines.
+    for (final topic in const [
+      NotesGuideTopic.markdown,
+      NotesGuideTopic.lists,
+      NotesGuideTopic.own,
+      NotesGuideTopic.money,
+    ]) {
+      testWidgets('a notes guide page with examples meets the guidelines, '
+          '${topic.slug}, ${cell.label}', (tester) async {
+        final handle = tester.ensureSemantics();
+        setGoldenSurface(tester, cell);
+        await tester.pumpWidget(
+          goldenApp(
+            cell,
+            home: GuideTopicPage(book: GuideBook.notes, topic: topic),
           ),
-        ),
-      );
-      await settle(tester);
+        );
+        await settle(tester);
 
-      expect(tester.takeException(), isNull);
-      await meetsAll(tester);
-      await tester.pumpWidget(const SizedBox.shrink());
-      handle.dispose();
-    });
+        expect(tester.takeException(), isNull);
+        await meetsAll(
+          tester,
+          offenders: [
+            _Offender(
+              _Guideline.labels,
+              'the editor\'s selection detector',
+              find.byType(CodeEditor),
+              exact: true,
+            ),
+          ],
+        );
+        await tester.pumpWidget(const SizedBox.shrink());
+        handle.dispose();
+      });
+    }
 
     testWidgets('the settings hub meets the guidelines, ${cell.label}', (
       tester,
@@ -1413,7 +1445,7 @@ class _OfflineAuthService extends FakeAuthService {
 /// restyles every one; until then each is pinned failing, so the restyle
 /// that fixes one flips its pin and takes it off the list.
 class _Offender {
-  const _Offender(this.guideline, this.name, this.finder);
+  const _Offender(this.guideline, this.name, this.finder, {this.exact = false});
 
   final _Guideline guideline;
 
@@ -1424,6 +1456,11 @@ class _Offender {
   /// their boxes for the tap-target and label guidelines, a node reading one
   /// of their [Text]s for the contrast guideline.
   final Finder finder;
+
+  /// Only a node whose box is exactly one of [finder]'s boxes is excused —
+  /// for an offender that is the widget's whole box (the editor's selection
+  /// detector), so nothing drawn inside that box hides behind the pin.
+  final bool exact;
 }
 
 /// Markdown settings' pre-existing failures, all restyled by §9 of
@@ -1593,6 +1630,13 @@ bool _within(List<Rect> areas, Rect rect) => areas.any((area) {
   final room = area.inflate(0.5);
   return room.contains(rect.topLeft) && room.contains(rect.bottomRight);
 });
+
+/// Whether [rect] is one of [boxes], to half a pixel at each corner.
+bool _sameBox(List<Rect> boxes, Rect rect) => boxes.any(
+  (box) =>
+      (rect.topLeft - box.topLeft).distance <= 0.5 &&
+      (rect.bottomRight - box.bottomRight).distance <= 0.5,
+);
 
 /// Android's 48 dp tap-target guideline, judged node for node as the stock
 /// one judges it but for the nodes [_skip] names (the walk's offenders).

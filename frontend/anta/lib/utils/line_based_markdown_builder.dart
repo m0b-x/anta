@@ -1533,7 +1533,7 @@ class LineBasedMarkdownBuilder {
       // could not be made, and that outranks row styling.
       InlineSpan pill = TextSpan(
         text: noTarget
-            ? ' no target '
+            ? ' ${moneyConfig.errorMessages?.noTarget ?? MarkdownMoneySyntax.noTargetLabel} '
             : signed
             ? ' ${MarkdownMoneySyntax.formatCentsSignedWithSymbol(value, symbol: moneyConfig.currencySymbol, suffix: moneyConfig.currencySuffix)} '
             : ' ${MarkdownMoneySyntax.formatCentsWithSymbol(value, symbol: moneyConfig.currencySymbol, suffix: moneyConfig.currencySuffix)} ',

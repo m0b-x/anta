@@ -52,6 +52,11 @@ enum AppGuideTopic implements GuideTopic {
     for (final row in _rows(l10n)) GuideReadEntry(row),
   ];
 
+  /// None: backup, sync and settings act on her real data, which no sandbox
+  /// stands in for.
+  @override
+  List<GuideEditorCard> get editorCards => const [];
+
   List<CalendarGuideRow> _rows(AppLocalizations l10n) => switch (this) {
     menu => [
       CalendarGuideRow(

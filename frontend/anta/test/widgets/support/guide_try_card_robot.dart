@@ -11,14 +11,24 @@ import 'package:anta/widgets/settings_section_list.dart';
 /// `SemanticsIds` a device flow uses. The real sheets the stage opens are
 /// driven by their own ids, through [tapId].
 class GuideTryCardRobot {
-  const GuideTryCardRobot(this.tester, this.slug);
+  const GuideTryCardRobot(this.tester, this.slug) : book = null;
+
+  /// A book page's card (`guide-<book>-try-<slug>`, D21): the same card,
+  /// under the book's ids; its back and forward keep the calendar's.
+  const GuideTryCardRobot.book(this.tester, String this.book, this.slug);
 
   final WidgetTester tester;
   final String slug;
 
+  /// The book's slug for a book page's card; null for the calendar's.
+  final String? book;
+
   Finder _byId(String id) => find.bySemanticsIdentifier(id);
 
-  Finder get card => _byId(SemanticsIds.calendarGuideTry(slug));
+  Finder get card => _byId(switch (book) {
+    final book? => SemanticsIds.guideBookTry(book, slug),
+    null => SemanticsIds.calendarGuideTry(slug),
+  });
 
   Finder control(String name) =>
       _byId(SemanticsIds.calendarGuideTryControl(slug, name));

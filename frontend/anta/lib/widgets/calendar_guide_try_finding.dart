@@ -1,7 +1,4 @@
-import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart';
 
 import '../constants/app_colors.dart';
 import '../constants/calendar_categories.dart';
@@ -236,10 +233,10 @@ class GuideFindingDemo extends GuideCardDemo {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _CaptionAboveKeyboard(
+        GuideCaptionAboveKeyboard(
           focusNode: _searchFocus,
           caption: captionSlotKey,
-          firstMatch: _firstMatchKey,
+          last: _firstMatchKey,
           child: FormRowGroup(
             children: [
               FormSearchRow(
@@ -315,155 +312,4 @@ class GuideFindingDemo extends GuideCardDemo {
       ],
     );
   }
-}
-
-/// Brings what the search field reports into view once the keyboard a focus
-/// on it raised has come to rest: the matches under the field are what she
-/// types to see, with the coach line above it where the room allows, and
-/// the field's own scroll would leave the matches under the keyboard.
-///
-/// Once per focus gain, never per keystroke — the field keeps its own caret
-/// in view while she types. The inset counts as at rest a frame after it
-/// last moved, since a keyboard's rise reaches the app as a run of insets.
-/// It is the view's, as the field's own caret tracking reads it: the page's
-/// `Scaffold` takes the inset out of its body's `MediaQuery`.
-class _CaptionAboveKeyboard extends StatefulWidget {
-  const _CaptionAboveKeyboard({
-    required this.focusNode,
-    required this.caption,
-    required this.firstMatch,
-    required this.child,
-  });
-
-  final FocusNode focusNode;
-  final GlobalKey caption;
-  final GlobalKey firstMatch;
-  final Widget child;
-
-  @override
-  State<_CaptionAboveKeyboard> createState() => _CaptionAboveKeyboardState();
-}
-
-class _CaptionAboveKeyboardState extends State<_CaptionAboveKeyboard>
-    with WidgetsBindingObserver {
-  double _inset = 0;
-
-  /// Focus was gained and the caption not yet brought into view.
-  bool _waiting = false;
-
-  /// The inset moved since the last frame's check.
-  bool _moved = false;
-
-  /// A check is scheduled after the coming frame.
-  bool _checking = false;
-
-  @override
-  void initState() {
-    super.initState();
-    widget.focusNode.addListener(_onFocus);
-    WidgetsBinding.instance.addObserver(this);
-  }
-
-  @override
-  void didUpdateWidget(_CaptionAboveKeyboard oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.focusNode != widget.focusNode) {
-      oldWidget.focusNode.removeListener(_onFocus);
-      widget.focusNode.addListener(_onFocus);
-    }
-  }
-
-  double _viewInset() {
-    final view = View.of(context);
-    return view.viewInsets.bottom / view.devicePixelRatio;
-  }
-
-  @override
-  void didChangeMetrics() {
-    if (!_waiting) return;
-    final inset = _viewInset();
-    if (inset == _inset) return;
-    _inset = inset;
-    _moved = true;
-    if (_checking) return;
-    _checking = true;
-    WidgetsBinding.instance.addPostFrameCallback(_check);
-  }
-
-  @override
-  void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
-    widget.focusNode.removeListener(_onFocus);
-    super.dispose();
-  }
-
-  void _onFocus() {
-    _waiting = widget.focusNode.hasFocus;
-    if (_waiting) _inset = _viewInset();
-  }
-
-  void _check(Duration _) {
-    if (!mounted || !_waiting) {
-      _checking = false;
-      return;
-    }
-    if (_moved) {
-      // Still rising: look again after the next frame.
-      _moved = false;
-      WidgetsBinding.instance.addPostFrameCallback(_check);
-      WidgetsBinding.instance.scheduleFrame();
-      return;
-    }
-    _checking = false;
-    _waiting = false;
-    if (_inset > 0) _reveal();
-  }
-
-  /// Scrolls the coach line, which sits above the field, up to the top, as
-  /// `Scrollable.ensureVisible` at alignment 0.0 would, where the line, the
-  /// field and the first match all fit above the keyboard; otherwise the
-  /// field goes to the top, the matches under it, as before the coach line
-  /// (German at 2.0 on a small phone). Never past the field — it keeps its
-  /// caret in view on every keystroke, so a page scrolled past it would
-  /// jump back under her at the first letter — and never back down.
-  void _reveal() {
-    final caption = widget.caption.currentContext?.findRenderObject();
-    // The node's context is the field's own: its box, and the air above
-    // the caret the field keeps when it scrolls itself into view.
-    final focused = widget.focusNode.context;
-    final field = focused?.findRenderObject();
-    final position = Scrollable.maybeOf(context)?.position;
-    if (caption == null || field is! RenderBox || position == null) return;
-    final viewport = RenderAbstractViewport.maybeOf(field);
-    if (viewport == null) return;
-    final air =
-        focused!
-            .findAncestorWidgetOfExactType<EditableText>()
-            ?.scrollPadding
-            .top ??
-        0;
-    final lineAtTop = viewport.getOffsetToReveal(caption, 0.0).offset;
-    // With no match, the field is the last thing she needs to see.
-    final last = widget.firstMatch.currentContext?.findRenderObject() ?? field;
-    final fits = viewport.getOffsetToReveal(last, 1.0).offset <= lineAtTop;
-    final target = fits
-        ? lineAtTop
-        : viewport
-              .getOffsetToReveal(
-                field,
-                0.0,
-                rect: Rect.fromLTRB(
-                  0,
-                  -air,
-                  field.size.width,
-                  field.size.height,
-                ),
-              )
-              .offset;
-    if (target <= position.pixels) return;
-    position.jumpTo(math.min(target, position.maxScrollExtent));
-  }
-
-  @override
-  Widget build(BuildContext context) => widget.child;
 }

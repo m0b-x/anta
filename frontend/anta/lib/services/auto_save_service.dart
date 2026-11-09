@@ -1,6 +1,9 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 
+import '../constants/app_constants.dart';
+import '../constants/settings_keys.dart';
+
 enum SaveStatus { saved, unsaved, saving, error }
 
 /// Raised by [AutoSaveService.onSave] to refuse a write for now — a
@@ -40,7 +43,6 @@ class SaveRefused implements Exception {
 
 class AutoSaveService {
   final Duration saveInterval;
-  final Duration debounceDelay;
   final Future<void> Function(String? title, String? content) onSave;
   final void Function(bool hasChanges)? onChangeDetected;
 
@@ -66,6 +68,11 @@ class AutoSaveService {
 
   Timer? _debounceTimer;
   Timer? _intervalTimer;
+
+  /// Between [startTracking] and [stopTracking]. Kept apart from the timers
+  /// because a disabled service tracks with neither armed, and a hold must
+  /// still re-arm its debounce there (see [_rearmDebounce]).
+  bool _tracking = false;
   bool _isSaving = false;
   bool _disposed = false;
   Completer<void>? _inFlightSave;
@@ -82,10 +89,59 @@ class AutoSaveService {
   AutoSaveService({
     required this.onSave,
     this.onChangeDetected,
-    this.saveInterval = const Duration(seconds: 30),
-    this.debounceDelay = const Duration(seconds: 5),
-  }) {
+    this.saveInterval = AppConstants.autoSaveInterval,
+    Duration debounceDelay = const Duration(
+      seconds: SettingsKeys.defaultAutoSaveInterval,
+    ),
+    bool enabled = true,
+  }) : _debounceDelay = debounceDelay,
+       _enabled = enabled {
     _live.add(this);
+  }
+
+  /// How long after the last change the debounced write runs — the
+  /// Settings slider's value once the editor applies it through [configure].
+  Duration get debounceDelay => _debounceDelay;
+  Duration _debounceDelay;
+
+  /// The Settings switch: off, nothing is written on a timer — no debounce,
+  /// no periodic sweep — and the text stays honestly `unsaved` until a
+  /// [forceSave] (the exit and lifecycle-pause flushes) writes it. Holds,
+  /// refusals and the retry ladder behave as they do when on (record D23).
+  bool get enabled => _enabled;
+  bool _enabled;
+
+  /// Applies the auto-save settings to a service that may already be
+  /// tracking, so a change made in Settings behind an open editor takes
+  /// effect without reopening the note.
+  ///
+  /// Turning it off cancels the debounce and the sweep; turning it on, or
+  /// changing the delay, arms the sweep again and gives text already pending
+  /// a debounce of the new length at once — otherwise it would wait for the
+  /// next keystroke. Changing only the delay while off leaves the timers
+  /// alone: the one armed then is a held or partial flush's recovery
+  /// ([_rearmDebounce]), not a timed save. Applying the values it already
+  /// has is a no-op, so a reload that changed nothing keeps a running
+  /// debounce's deadline.
+  void configure({required bool enabled, required Duration debounceDelay}) {
+    if (_disposed) return;
+    if (enabled == _enabled && debounceDelay == _debounceDelay) return;
+    final wasEnabled = _enabled;
+    _enabled = enabled;
+    _debounceDelay = debounceDelay;
+    if (!_tracking) return;
+    if (!enabled) {
+      if (!wasEnabled) return;
+      _debounceTimer?.cancel();
+      _intervalTimer?.cancel();
+      _debounceTimer = null;
+      _intervalTimer = null;
+      return;
+    }
+    _intervalTimer ??= Timer.periodic(saveInterval, (_) {
+      _checkAndSave();
+    });
+    if (_hasPendingChanges) _armDebounce();
   }
 
   /// Every instance not yet disposed, for [hasAnyPendingChanges].
@@ -117,12 +173,15 @@ class AutoSaveService {
     // in flight reports its own outcome when it lands.
     if (!_isSaving) _updateStatus(SaveStatus.saved);
 
+    _tracking = true;
+    if (!_enabled) return;
     _intervalTimer = Timer.periodic(saveInterval, (_) {
       _checkAndSave();
     });
   }
 
   void stopTracking() {
+    _tracking = false;
     _debounceTimer?.cancel();
     _intervalTimer?.cancel();
     _retryTimer?.cancel();
@@ -139,8 +198,13 @@ class AutoSaveService {
     _updateStatus(SaveStatus.unsaved);
     onChangeDetected?.call(true);
 
+    if (_enabled) _armDebounce();
+  }
+
+  /// Times a fresh [debounceDelay] from now, dropping any deadline before it.
+  void _armDebounce() {
     _debounceTimer?.cancel();
-    _debounceTimer = Timer(debounceDelay, () async {
+    _debounceTimer = Timer(_debounceDelay, () async {
       await _checkAndSave();
     });
   }
@@ -246,10 +310,15 @@ class AutoSaveService {
   /// a fresh [debounceDelay] from here would make that keystroke wait up to
   /// twice its own debounce (R14). Only while tracking — a stopped service
   /// (saves disabled for a delete) writes nothing, and re-arming would loop.
+  /// A tracking service with auto-save off re-arms too: this is the hold's
+  /// and the leftover keystrokes' recovery after a flush, not a timed save,
+  /// and dropping it would leave a held pause flush (or preview toggle,
+  /// `didPushNext`) unwritten. An exit flush needs none — the page disposes
+  /// on leaving, and [dispose] cancels this timer.
   void _rearmDebounce() {
-    if (_disposed || _intervalTimer == null) return;
+    if (_disposed || !_tracking) return;
     if (_debounceTimer?.isActive ?? false) return;
-    _debounceTimer = Timer(debounceDelay, () async {
+    _debounceTimer = Timer(_debounceDelay, () async {
       await _checkAndSave();
     });
   }

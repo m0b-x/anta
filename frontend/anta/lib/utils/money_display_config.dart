@@ -13,6 +13,11 @@ class MoneyErrorMessages {
   final String amountTooLarge;
   final String tooManyDecimals;
 
+  /// The bare `$!` chip's text when no target is declared above it — not a
+  /// [MoneyLineError], so [resolve] never returns it, but carried here so
+  /// the chip follows the locale with the rest (record D25).
+  final String noTarget;
+
   const MoneyErrorMessages({
     required this.missingAmount,
     required this.unknownColour,
@@ -21,6 +26,7 @@ class MoneyErrorMessages {
     required this.divideByZero,
     required this.amountTooLarge,
     required this.tooManyDecimals,
+    required this.noTarget,
   });
 
   /// The localized messages for [l10n] — the one place the ARB keys map
@@ -34,6 +40,7 @@ class MoneyErrorMessages {
     divideByZero: l10n.moneyErrorDivideByZero,
     amountTooLarge: l10n.moneyErrorAmountTooLarge,
     tooManyDecimals: l10n.moneyErrorTooManyDecimals,
+    noTarget: l10n.moneyNoTarget,
   );
 
   String resolve(MoneyLineError e) {
@@ -65,7 +72,8 @@ class MoneyErrorMessages {
           invalidCount == other.invalidCount &&
           divideByZero == other.divideByZero &&
           amountTooLarge == other.amountTooLarge &&
-          tooManyDecimals == other.tooManyDecimals;
+          tooManyDecimals == other.tooManyDecimals &&
+          noTarget == other.noTarget;
 
   @override
   int get hashCode => Object.hash(
@@ -76,6 +84,7 @@ class MoneyErrorMessages {
     divideByZero,
     amountTooLarge,
     tooManyDecimals,
+    noTarget,
   );
 }
 

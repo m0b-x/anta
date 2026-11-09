@@ -183,6 +183,12 @@ abstract final class GuideMetrics {
   /// that, so a picked day changes the rows and never the card's height.
   static const double fastingPanelHeight = 220;
 
+  /// A notes card's editor, in lines of the editor's default font at the
+  /// current text scale (D20): a seed's four lines and the two a lesson
+  /// adds, fixed from the first frame so typing never grows the card; a
+  /// longer lesson scrolls inside it.
+  static const int editorStageLines = 6;
+
   /// A guide hub's search field under its bar: the calendar guide's placing
   /// from before there were several hubs, shared so the top hub and every
   /// book's hub start their lists at one height.

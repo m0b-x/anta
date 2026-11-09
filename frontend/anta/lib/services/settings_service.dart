@@ -659,6 +659,8 @@ class SettingsService {
     SettingsKeys.editorFontSize,
     SettingsKeys.previewFontSize,
     SettingsKeys.hapticFeedback,
+    SettingsKeys.autoSaveEnabled,
+    SettingsKeys.autoSaveInterval,
   ];
 
   /// Every setting the note editor page needs before it can mount, in one
@@ -763,6 +765,14 @@ class SettingsService {
       hapticFeedback: _decodeBool(
         values[SettingsKeys.hapticFeedback],
         SettingsKeys.defaultHapticFeedback,
+      ),
+      autoSaveEnabled: _decodeBool(
+        values[SettingsKeys.autoSaveEnabled],
+        SettingsKeys.defaultAutoSaveEnabled,
+      ),
+      autoSaveIntervalSeconds: _decodeInt(
+        values[SettingsKeys.autoSaveInterval],
+        SettingsKeys.defaultAutoSaveInterval,
       ),
     );
   }

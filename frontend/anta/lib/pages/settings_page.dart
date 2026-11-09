@@ -123,7 +123,15 @@ class _SettingsPageState extends State<SettingsPage> {
       _noteSwipeEnabled = noteSwipe;
       _confirmDelete = confirmDel;
       _autoSaveEnabled = autoSave;
-      _autoSaveInterval = autoSaveInt;
+      // Clamped like the editor clamps it (record D23): a row imported or
+      // edited by hand outside 1–30 would otherwise trip the slider's
+      // value assertion and take the page down with it.
+      _autoSaveInterval = autoSaveInt
+          .clamp(
+            SettingsKeys.autoSaveIntervalMinSeconds,
+            SettingsKeys.autoSaveIntervalMaxSeconds,
+          )
+          .toInt();
       _showNotePreview = showPreview;
       _labelStyle = labelStyle;
       _showStatsBar = showStats;
@@ -519,9 +527,11 @@ class _SettingsPageState extends State<SettingsPage> {
             title: title,
             description: description,
             value: _autoSaveInterval.toDouble(),
-            min: 1,
-            max: 30,
-            divisions: 29,
+            min: SettingsKeys.autoSaveIntervalMinSeconds.toDouble(),
+            max: SettingsKeys.autoSaveIntervalMaxSeconds.toDouble(),
+            divisions:
+                SettingsKeys.autoSaveIntervalMaxSeconds -
+                SettingsKeys.autoSaveIntervalMinSeconds,
             labelBuilder: l10n.autoSaveSeconds,
             // The sentence, not the thumb's "12 s": the row's description is
             // out of semantics, so this is all TalkBack says of the value.

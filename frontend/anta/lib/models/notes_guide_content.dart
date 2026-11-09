@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../l10n/app_localizations.dart';
 import 'calendar_guide_content.dart';
 import 'guide_content.dart';
+import 'notes_guide_tries.dart';
 
 /// The "Notes and the editor" book's pages, in reading order (§3.2 of
 /// `docs/guide-hub-roadmap.md`); the hub picks its "Start here" from them.
@@ -77,6 +78,17 @@ enum NotesGuideTopic implements GuideTopic {
     autocomplete => l10n.notesGuideAutocompleteLead,
     counters => l10n.notesGuideCountersLead,
     settings => l10n.notesGuideSettingsLead(l10n.settingsHubTitle),
+  };
+
+  /// Only a page where a mark is read gets a card (D17): the editor's chrome
+  /// a stage cannot show stays in words.
+  @override
+  List<GuideEditorCard> get editorCards => switch (this) {
+    markdown => [notesGuideMarkdownTry],
+    lists => [notesGuideListsTry],
+    own => [notesGuideOwnTry],
+    money => [notesGuideMoneyTry],
+    _ => const [],
   };
 
   /// A source or body that shows a brace takes it through `open` / `close`:

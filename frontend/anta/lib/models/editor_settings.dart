@@ -75,6 +75,15 @@ class EditorSettings extends Equatable {
   /// toolbar honour it without a read of their own on every tap.
   final bool hapticFeedback;
 
+  /// The Settings auto-save switch and its debounce, read with the rest so a
+  /// change made behind an open editor arrives on `didPopNext` (record D23).
+  final bool autoSaveEnabled;
+
+  /// The interval slider's seconds, which time the debounce after the last
+  /// change — not the periodic sweep, which stays at
+  /// `AppConstants.autoSaveInterval` while auto-save is on.
+  final int autoSaveIntervalSeconds;
+
   /// Not `const`: [toolbarUtilityConfig] defaults to a freshly built list, so
   /// the fill happens in the initializer rather than in a default value. The
   /// list is stored unmodifiable because [defaults] is one shared instance —
@@ -103,6 +112,8 @@ class EditorSettings extends Equatable {
     this.editorFontSize = FontConstants.defaultFontSize,
     this.previewFontSize = FontConstants.defaultFontSize,
     this.hapticFeedback = SettingsKeys.defaultHapticFeedback,
+    this.autoSaveEnabled = SettingsKeys.defaultAutoSaveEnabled,
+    this.autoSaveIntervalSeconds = SettingsKeys.defaultAutoSaveInterval,
   }) : toolbarUtilityConfig = List.unmodifiable(
          toolbarUtilityConfig ?? UtilityButtonConfig.defaults(),
        );
@@ -140,6 +151,8 @@ class EditorSettings extends Equatable {
     double? editorFontSize,
     double? previewFontSize,
     bool? hapticFeedback,
+    bool? autoSaveEnabled,
+    int? autoSaveIntervalSeconds,
   }) {
     return EditorSettings(
       noteSwipeEnabled: noteSwipeEnabled ?? this.noteSwipeEnabled,
@@ -169,6 +182,9 @@ class EditorSettings extends Equatable {
       editorFontSize: editorFontSize ?? this.editorFontSize,
       previewFontSize: previewFontSize ?? this.previewFontSize,
       hapticFeedback: hapticFeedback ?? this.hapticFeedback,
+      autoSaveEnabled: autoSaveEnabled ?? this.autoSaveEnabled,
+      autoSaveIntervalSeconds:
+          autoSaveIntervalSeconds ?? this.autoSaveIntervalSeconds,
     );
   }
 
@@ -195,5 +211,7 @@ class EditorSettings extends Equatable {
     editorFontSize,
     previewFontSize,
     hapticFeedback,
+    autoSaveEnabled,
+    autoSaveIntervalSeconds,
   ];
 }

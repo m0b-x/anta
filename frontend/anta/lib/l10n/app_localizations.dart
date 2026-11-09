@@ -4066,10 +4066,10 @@ abstract class AppLocalizations {
   /// **'Auto-save notes'**
   String get autoSave;
 
-  /// Auto-save description
+  /// Auto-save description: what the switch's off state still writes, so nobody expects text to be lost
   ///
   /// In en, this message translates to:
-  /// **'Automatically save notes while editing'**
+  /// **'Save while you type. Off, a note is saved when you leave it or the app goes to the background.'**
   String get autoSaveDesc;
 
   /// Auto-save interval setting
@@ -4078,10 +4078,10 @@ abstract class AppLocalizations {
   /// **'Auto-save interval'**
   String get autoSaveInterval;
 
-  /// Auto-save interval description
+  /// Auto-save interval description: the slider sets the debounce after the last keystroke, not a fixed cadence
   ///
   /// In en, this message translates to:
-  /// **'Save every {seconds} seconds'**
+  /// **'{seconds, plural, =1{Saves one second after the last change} other{Saves {seconds} seconds after the last change}}'**
   String autoSaveIntervalDesc(int seconds);
 
   /// The auto-save interval slider's value label: a number of seconds with the unit's symbol
@@ -15870,6 +15870,150 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'If the same note changes in two places, ANTA keeps both: the other version is filed beside yours as a copy, so nothing is overwritten.'**
   String get appGuideSyncConflictBody;
+
+  /// The bare $! chip's text in the preview when no $! target stands above it, shown in place of an amount
+  ///
+  /// In en, this message translates to:
+  /// **'no target'**
+  String get moneyNoTarget;
+
+  /// The markdown page's Try it editor as seeded: plain lines without markdown, so every step starts undone
+  ///
+  /// In en, this message translates to:
+  /// **'Leg day\nSquat 5×5\nBench 3×8\nFelt strong today'**
+  String get notesGuideSeedMarkdown;
+
+  /// The lists page's Try it editor as seeded: four flat bullets, nothing nested
+  ///
+  /// In en, this message translates to:
+  /// **'- Legs\n- Squat\n- Lunges\n- Back'**
+  String get notesGuideSeedLists;
+
+  /// The own-markdown page's Try it editor as seeded: no tag, ghost, colour or wiki link yet
+  ///
+  /// In en, this message translates to:
+  /// **'Deadlift 140 kg\nNext week: squat\nSame warm-up as last time'**
+  String get notesGuideSeedOwn;
+
+  /// The money page's Try it editor as seeded: a start amount and one spend
+  ///
+  /// In en, this message translates to:
+  /// **'\$= 500 budget\n\$- 40 gym'**
+  String get notesGuideSeedMoney;
+
+  /// Coach line of the markdown card; quotes the seed's first line
+  ///
+  /// In en, this message translates to:
+  /// **'Put # and a space in front of “Leg day”: it becomes a heading.'**
+  String get notesGuideCoachMarkdownHeading;
+
+  /// Coach line of the markdown card
+  ///
+  /// In en, this message translates to:
+  /// **'Put two stars on each side of a word, like **strong**: it comes out bold.'**
+  String get notesGuideCoachMarkdownBold;
+
+  /// Coach line of the markdown card
+  ///
+  /// In en, this message translates to:
+  /// **'Start a line with - and a space: it becomes a bullet.'**
+  String get notesGuideCoachMarkdownList;
+
+  /// Coach line of the markdown card; done when a task line is ticked
+  ///
+  /// In en, this message translates to:
+  /// **'On a new line type - [ ] and a word, then tap the box to tick it.'**
+  String get notesGuideCoachMarkdownTask;
+
+  /// Coach line of the lists card; quotes the seed's last item
+  ///
+  /// In en, this message translates to:
+  /// **'Tap after “Back” and press Enter: the next bullet is ready.'**
+  String get notesGuideCoachListsEnter;
+
+  /// Coach line of the lists card; quotes two seed items
+  ///
+  /// In en, this message translates to:
+  /// **'Tap “Squat”, then swipe it to the right: it nests under Legs.'**
+  String get notesGuideCoachListsNest;
+
+  /// Coach line of the lists card
+  ///
+  /// In en, this message translates to:
+  /// **'Swipe it to the left: it comes back out.'**
+  String get notesGuideCoachListsOutdent;
+
+  /// Coach line of the lists card
+  ///
+  /// In en, this message translates to:
+  /// **'Press Enter on an empty bullet: the list ends in a plain line.'**
+  String get notesGuideCoachListsEnd;
+
+  /// Coach line of the own-markdown card
+  ///
+  /// In en, this message translates to:
+  /// **'Add #pr at the end of the first line: a word after # is a tag.'**
+  String get notesGuideCoachOwnTag;
+
+  /// Coach line of the own-markdown card; the braces travel as placeholders because ICU reads a bare brace as an argument
+  ///
+  /// In en, this message translates to:
+  /// **'After “squat” type {open}{open}weight{close}{close}: a blank to fill in later.'**
+  String notesGuideCoachOwnGhost(String open, String close);
+
+  /// Coach line of the own-markdown card; `red` is a preset colour name in every language, as the colour example uses it
+  ///
+  /// In en, this message translates to:
+  /// **'Write {open}red:heavy{close} anywhere: the word turns red.'**
+  String notesGuideCoachOwnColour(String open, String close);
+
+  /// Coach line of the own-markdown card
+  ///
+  /// In en, this message translates to:
+  /// **'Write [[Leg day]] in double brackets: a link to the note of that name.'**
+  String get notesGuideCoachOwnWiki;
+
+  /// Coach line of the money card
+  ///
+  /// In en, this message translates to:
+  /// **'Add a line \$- 25 shoes: another spend.'**
+  String get notesGuideCoachMoneySpend;
+
+  /// Coach line of the money card
+  ///
+  /// In en, this message translates to:
+  /// **'Add \$+ 25 refund: money coming in.'**
+  String get notesGuideCoachMoneyAdd;
+
+  /// Coach line of the money card
+  ///
+  /// In en, this message translates to:
+  /// **'Type \$\$ on a line of its own: what is left, as a chip.'**
+  String get notesGuideCoachMoneyTotal;
+
+  /// A Try it editor's report after a tap on a tag, which a sandbox cannot act on; never quotes the tag
+  ///
+  /// In en, this message translates to:
+  /// **'In a note, tapping a tag lists every note that carries it.'**
+  String get notesGuideReportTag;
+
+  /// A Try it editor's report after a tap on a wiki link
+  ///
+  /// In en, this message translates to:
+  /// **'In a note, tapping the link opens that note.'**
+  String get notesGuideReportWiki;
+
+  /// A Try it editor's report after a tap on a web link
+  ///
+  /// In en, this message translates to:
+  /// **'In a note, tapping a web link opens it in your browser.'**
+  String get notesGuideReportLink;
+
+  /// A Try it editor's report after a tap on a money chip
+  ///
+  /// In en, this message translates to:
+  /// **'In a note, tapping a total shows every line that went into it.'**
+  String get notesGuideReportMoney;
 
   /// No description provided for @appGuideSyncStopTitle.
   ///

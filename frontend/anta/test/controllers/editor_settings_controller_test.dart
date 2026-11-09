@@ -102,6 +102,47 @@ void main() {
     expect(controller.canPreview, isTrue);
   });
 
+  test('the auto-save switch and interval come from the service', () async {
+    await controller.reload();
+    expect(
+      controller.value.autoSaveEnabled,
+      SettingsKeys.defaultAutoSaveEnabled,
+    );
+    expect(
+      controller.value.autoSaveIntervalSeconds,
+      SettingsKeys.defaultAutoSaveInterval,
+    );
+
+    await settings.setAutoSaveEnabled(false);
+    await settings.setAutoSaveInterval(12);
+    counter.reset();
+    await controller.reload();
+
+    // Still the one bundle read: the two rows join the keyed select, so a
+    // change made in Settings arrives on the page's `didPopNext` reload.
+    expect(counter.selects, hasLength(1));
+    expect(notifications, 2);
+    expect(controller.value.autoSaveEnabled, isFalse);
+    expect(controller.value.autoSaveIntervalSeconds, 12);
+  });
+
+  test('copyWith carries the auto-save switch and interval', () {
+    final base = EditorSettings.defaults;
+
+    final changed = base.copyWith(
+      autoSaveEnabled: false,
+      autoSaveIntervalSeconds: 12,
+    );
+    expect(changed.autoSaveEnabled, isFalse);
+    expect(changed.autoSaveIntervalSeconds, 12);
+    expect(changed, isNot(base));
+
+    // Omitted, both keep their value rather than falling back to a default.
+    final kept = changed.copyWith(hapticFeedback: false);
+    expect(kept.autoSaveEnabled, isFalse);
+    expect(kept.autoSaveIntervalSeconds, 12);
+  });
+
   test('the value is the defaults before the first reload lands', () {
     expect(controller.loaded, isFalse);
     expect(controller.value, EditorSettings.defaults);

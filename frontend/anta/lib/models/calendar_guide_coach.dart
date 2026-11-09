@@ -164,6 +164,10 @@ class GuideCoach {
 
   String? report(AppLocalizations l10n) => _report?.call(l10n);
 
+  /// A report stands on the line, for a stage that redraws only when an
+  /// action would take something down.
+  bool get hasReport => _report != null;
+
   /// The line: one clause (D49) — the step read back while [reading], else
   /// the last action's report while it stands, otherwise what is next.
   /// Reports and the closing line are never read back (D93).

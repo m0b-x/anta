@@ -250,7 +250,7 @@ void main() {
     for (final (locale, more4, fewer) in const [
       ('en', '4 more tags', 'Show fewer tags'),
       ('de', '4 weitere Schlagwörter', 'Weniger Schlagwörter anzeigen'),
-      ('ro', 'Încă 4 etichete', 'Arată mai puține etichete'),
+      ('ro', 'Încă 4 taguri', 'Arată mai puține taguri'),
     ]) {
       folds = ReportGroupFolds();
       await pumpStack(

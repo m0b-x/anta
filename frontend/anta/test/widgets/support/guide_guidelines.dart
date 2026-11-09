@@ -5,6 +5,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:re_editor/re_editor.dart';
 import 'package:table_calendar/table_calendar.dart';
 
 import 'package:anta/constants/guide_metrics.dart';
@@ -14,8 +15,8 @@ import 'package:anta/widgets/calendar_bottom_panel.dart';
 import 'package:anta/widgets/calendar_day_cell.dart';
 import 'package:anta/widgets/form_rows.dart';
 
-/// Android's 48 dp tap-target guideline with the calendar guide's three
-/// accepted exceptions taken out by name rather than the check skipped:
+/// Android's 48 dp tap-target guideline with the guides' four accepted
+/// exceptions taken out by name rather than the check skipped:
 ///
 /// * a day cell of a grid inside [GuideTapTargetGuideline.of]'s `gridsOf` —
 ///   a "Try it" card's stage is 40 dp narrower than the screen, so at 360
@@ -25,7 +26,17 @@ import 'package:anta/widgets/form_rows.dart';
 ///   here as it is there (record §6 c);
 /// * the practice band's back and forward, 40 wide × 48 tall (D87): two
 ///   full targets wrapped the band's line and broke its pinned height
-///   (D39); a node there is let off only at that width and the full height.
+///   (D39); a node there is let off only at that width and the full height;
+/// * the note editor's inline zones on a notes card's stage — a tag, a link,
+///   a wiki link, a box, a chip she typed, each published as a labelled node
+///   that the editor sizes to the text it marks (an inline run, a 25 dp box
+///   at 1.0), in the note editor as on the stage. They are let off because
+///   that sizing is the editor's, app-wide, and open in
+///   `docs/guide-hub-roadmap.md` §7 — not because WCAG 2.5.8 excuses them:
+///   a box at the start of a line is a control, not a target inside a
+///   sentence. A node there is let off only when it is labelled, shorter
+///   than the target, wholly inside a `CodeEditor`'s box and narrower than
+///   that box — an inline run, never a whole line or the field.
 ///
 /// Every other node is judged as the stock guideline judges it.
 class GuideTapTargetGuideline extends MinimumTapTargetGuideline {
@@ -34,6 +45,7 @@ class GuideTapTargetGuideline extends MinimumTapTargetGuideline {
     this._grids,
     this._segments,
     this._bandPair,
+    this._editors,
   ) : super(size: _android.size, link: _android.link);
 
   static final MinimumTapTargetGuideline _android =
@@ -74,6 +86,7 @@ class GuideTapTargetGuideline extends MinimumTapTargetGuideline {
                   widget.identifier == SemanticsIds.practiceSkip),
         ),
       ),
+      areas(find.byType(CodeEditor)),
     );
   }
 
@@ -83,6 +96,7 @@ class GuideTapTargetGuideline extends MinimumTapTargetGuideline {
   final List<Rect> _grids;
   final List<Rect> _segments;
   final List<Rect> _bandPair;
+  final List<Rect> _editors;
 
   @override
   bool shouldSkipNode(SemanticsNode node) {
@@ -110,27 +124,44 @@ class GuideTapTargetGuideline extends MinimumTapTargetGuideline {
     final bandButton =
         rect.width >= GuideMetrics.bannerButtonWidth - 0.5 &&
         rect.height >= size.height;
+    final inlineZone = node.label.isNotEmpty && rect.height < size.height;
     return _segments.any(inside) ||
         (narrowCell && _grids.any(inside)) ||
-        (bandButton && _bandPair.any(inside));
+        (bandButton && _bandPair.any(inside)) ||
+        (inlineZone &&
+            _editors.any(
+              (editor) => inside(editor) && rect.width < editor.width - 0.5,
+            ));
   }
 
   @override
   String get description =>
-      '${super.description}, the guide\'s three named exceptions aside';
+      '${super.description}, the guide\'s four named exceptions aside';
 }
 
-/// Flutter's labelled-target guideline with one exception taken out by
-/// name: the blank slots `AgendaMonthGrid` leaves for the days outside its
-/// month (`outsideDaysVisible: false`), which `table_calendar` still wraps in
-/// its tap and long-press detector — a tappable node with nothing to say, on
-/// the real overview page's Month as on the guide's stage. A node there is
-/// let off only when it holds no drawn day and has no label, tooltip or
-/// value.
+/// Flutter's labelled-target guideline with two exceptions taken out by
+/// name:
+///
+/// * the blank slots `AgendaMonthGrid` leaves for the days outside its month
+///   (`outsideDaysVisible: false`), which `table_calendar` still wraps in its
+///   tap and long-press detector — a tappable node with nothing to say, on
+///   the real overview page's Month as on the guide's stage. A node there is
+///   let off only when it holds no drawn day and has no label, tooltip or
+///   value;
+/// * the re_editor fork's touch selection detector, which publishes the
+///   editor's whole box as a tap and long-press node beside the text field
+///   that names it — in the note editor as on a notes card's stage. A node is
+///   let off only when it covers exactly a `CodeEditor`'s box and has no
+///   label, tooltip or value.
 class GuideLabeledTapTargetGuideline extends AccessibilityGuideline {
-  GuideLabeledTapTargetGuideline._(this._ratio, this._grids, this._days);
+  GuideLabeledTapTargetGuideline._(
+    this._ratio,
+    this._grids,
+    this._days,
+    this._editors,
+  );
 
-  /// The exception where it stands now.
+  /// The exceptions where they stand now.
   factory GuideLabeledTapTargetGuideline.of(WidgetTester tester) {
     List<Rect> areas(Finder finder) => [
       for (final element in finder.evaluate())
@@ -142,6 +173,7 @@ class GuideLabeledTapTargetGuideline extends AccessibilityGuideline {
       tester.view.devicePixelRatio,
       areas(grids),
       areas(find.descendant(of: grids, matching: find.byType(CalendarDayCell))),
+      areas(find.byType(CodeEditor)),
     );
   }
 
@@ -150,11 +182,12 @@ class GuideLabeledTapTargetGuideline extends AccessibilityGuideline {
   /// Logical pixels, as the widgets measure.
   final List<Rect> _grids;
   final List<Rect> _days;
+  final List<Rect> _editors;
 
   @override
   String get description =>
       '${labeledTapTargetGuideline.description}, the month grid\'s blank '
-      'slots aside';
+      'slots and the editor\'s selection detector aside';
 
   @override
   FutureOr<Evaluation> evaluate(WidgetTester tester) {
@@ -184,7 +217,9 @@ class GuideLabeledTapTargetGuideline extends AccessibilityGuideline {
       return result;
     }
     if (data.label.isNotEmpty || data.tooltip.isNotEmpty) return result;
-    if (data.value.isEmpty && _blankSlot(node)) return result;
+    if (data.value.isEmpty && (_blankSlot(node) || _editorBox(node))) {
+      return result;
+    }
     return result +
         Evaluation.fail(
           '$node: expected tappable node to have semantic label, '
@@ -192,19 +227,34 @@ class GuideLabeledTapTargetGuideline extends AccessibilityGuideline {
         );
   }
 
-  bool _blankSlot(SemanticsNode node) {
+  /// [node]'s box in logical pixels, as the widgets measure.
+  Rect _rectOf(SemanticsNode node) {
     var physical = node.rect;
     for (SemanticsNode? n = node; n != null; n = n.parent) {
       if (n.transform case final transform?) {
         physical = MatrixUtils.transformRect(transform, physical);
       }
     }
-    final rect = Rect.fromLTRB(
+    return Rect.fromLTRB(
       physical.left / _ratio,
       physical.top / _ratio,
       physical.right / _ratio,
       physical.bottom / _ratio,
     );
+  }
+
+  bool _editorBox(SemanticsNode node) {
+    final rect = _rectOf(node);
+    bool same(Offset a, Offset b) => (a - b).distance <= 0.5;
+    return _editors.any(
+      (editor) =>
+          same(rect.topLeft, editor.topLeft) &&
+          same(rect.bottomRight, editor.bottomRight),
+    );
+  }
+
+  bool _blankSlot(SemanticsNode node) {
+    final rect = _rectOf(node);
     final room = rect.inflate(0.5);
     bool inside(Rect area) {
       final grid = area.inflate(0.5);

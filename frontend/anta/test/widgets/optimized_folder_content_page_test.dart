@@ -3340,6 +3340,9 @@ void main() {
       final (folderTitle, noteTitle) = await selectOnePair(tester, 200);
 
       await tester.tap(find.byIcon(Icons.delete_outline));
+      // The dialog waits on the "Confirm before delete" read, a real
+      // database round trip (record D24).
+      await settle(tester);
       await tester.pumpAndSettle();
 
       final seen = <OptimizedFolderState>[];
@@ -3580,6 +3583,251 @@ void main() {
       await teardownPage(tester);
     });
   });
+
+  /// Record D24/D24a: "Confirm before delete" gates the rows' Delete, the
+  /// selection bar's and the open folder's own. Its fixtures live in a root
+  /// folder of their own, made here, so the deletes below touch nothing an
+  /// earlier case counts.
+  group('confirm before delete', () {
+    late Folder gate;
+    late Folder doomedOpen;
+    late Folder keptOpen;
+
+    setUpAll(() async {
+      gate = await db.folderDao.createFolder(name: 'Delete gate');
+      await db.folderDao.createFolder(name: 'Doomed folder', parentId: gate.id);
+      doomedOpen = await db.folderDao.createFolder(
+        name: 'Doomed open folder',
+        parentId: gate.id,
+      );
+      keptOpen = await db.folderDao.createFolder(
+        name: 'Kept open folder',
+        parentId: gate.id,
+      );
+      for (var i = 1; i <= 4; i++) {
+        await noteService.createNote(
+          folderId: gate.id,
+          title: 'Doomed note $i',
+          content: 'gone soon',
+        );
+      }
+    });
+
+    setUp(events.clear);
+
+    tearDown(() => settings.setConfirmDelete(true));
+
+    /// Also makes the surface tall enough that the row sheet's last action,
+    /// Delete, sits on screen rather than below the default 600 px.
+    Future<void> setConfirm(WidgetTester tester, bool value) {
+      tester.view.physicalSize = const Size(800, 1000);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      return tester.runAsync(() => settings.setConfirmDelete(value));
+    }
+
+    /// A sheet's or a dialog's route animation, then the page's real async
+    /// work; no `pumpAndSettle`, since the reload a delete ends in can leave
+    /// a spinner animating.
+    Future<void> flush(WidgetTester tester) async {
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      await settle(tester);
+    }
+
+    Future<void> deleteFromRow(WidgetTester tester, String title) async {
+      await tester.longPress(find.text(title));
+      await flush(tester);
+      await tester.tap(find.text(l10n.delete).last);
+      await flush(tester);
+    }
+
+    String noteIdOf(WidgetTester tester, String title) => tester
+        .widget<NoteRow>(
+          find.ancestor(of: find.text(title), matching: find.byType(NoteRow)),
+        )
+        .metadata
+        .id;
+
+    /// Swaps in a folder service that counts the note-count lookups only
+    /// the confirm dialog needs, for the rest of the case.
+    _CountingFolderStorageService spyOnCounts() {
+      final real = GetIt.I<FolderStorageService>();
+      final spy = _CountingFolderStorageService(
+        repository: GetIt.I<FolderRepository>(),
+      );
+      GetIt.I.unregister<FolderStorageService>();
+      GetIt.I.registerSingleton<FolderStorageService>(spy);
+      addTearDown(() {
+        GetIt.I.unregister<FolderStorageService>();
+        GetIt.I.registerSingleton<FolderStorageService>(real);
+      });
+      return spy;
+    }
+
+    testWidgets('off: a note row\'s Delete dispatches without a dialog', (
+      tester,
+    ) async {
+      await setConfirm(tester, false);
+      await pumpPage(tester, folderId: gate.id, title: 'Delete gate');
+      final id = noteIdOf(tester, 'Doomed note 1');
+
+      await deleteFromRow(tester, 'Doomed note 1');
+
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(find.text(l10n.deleteNote), findsNothing);
+      expect(events.of<DeleteOptimizedNote>().single.noteId, id);
+
+      await teardownPage(tester);
+    });
+
+    testWidgets('on: a note row\'s Delete asks first', (tester) async {
+      await setConfirm(tester, true);
+      await pumpPage(tester, folderId: gate.id, title: 'Delete gate');
+
+      await deleteFromRow(tester, 'Doomed note 2');
+
+      expect(find.text(l10n.deleteNote), findsOneWidget);
+      expect(events.of<DeleteOptimizedNote>(), isEmpty);
+
+      await tester.tap(find.text(l10n.cancel));
+      await flush(tester);
+      expect(events.of<DeleteOptimizedNote>(), isEmpty);
+
+      await teardownPage(tester);
+    });
+
+    testWidgets('off: a folder row\'s Delete skips the count and the dialog', (
+      tester,
+    ) async {
+      await setConfirm(tester, false);
+      final spy = spyOnCounts();
+      await pumpPage(tester, folderId: gate.id, title: 'Delete gate');
+
+      await deleteFromRow(tester, 'Doomed folder');
+
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(find.text(l10n.deleteFolder), findsNothing);
+      expect(find.text(l10n.loadingContent), findsNothing);
+      expect(spy.countLookups, 0);
+      expect(events.of<DeleteOptimizedFolder>(), hasLength(1));
+      expect(events.of<DeleteOptimizedFolder>().single.parentId, gate.id);
+
+      await teardownPage(tester);
+    });
+
+    testWidgets('off: the open folder\'s Delete folder dispatches without a '
+        'dialog', (tester) async {
+      await setConfirm(tester, false);
+      final spy = spyOnCounts();
+      await pumpPage(tester, folderId: gate.id, title: 'Delete gate');
+      await pushFolder(tester, doomedOpen);
+
+      await openMenu(tester);
+      await tester.tap(find.text(l10n.deleteFolder));
+      await flush(tester);
+
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(find.text(l10n.loadingContent), findsNothing);
+      expect(spy.countLookups, 0);
+      final dispatched = events.of<DeleteOptimizedFolder>().single;
+      expect(dispatched.folderId, doomedOpen.id);
+      expect(dispatched.parentId, gate.id);
+      // It leaves the deleted folder, as the confirmed path does; the pop
+      // came after the setting's read, so its transition is still running.
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(find.byType(OptimizedFolderContentPage), findsOneWidget);
+      expect(
+        tester
+            .widget<OptimizedFolderContentPage>(
+              find.byType(OptimizedFolderContentPage),
+            )
+            .folderId,
+        gate.id,
+      );
+
+      await teardownPage(tester);
+    });
+
+    testWidgets('on: the open folder\'s Delete folder asks first', (
+      tester,
+    ) async {
+      await setConfirm(tester, true);
+      final spy = spyOnCounts();
+      await pumpPage(tester, folderId: gate.id, title: 'Delete gate');
+      await pushFolder(tester, keptOpen);
+
+      await openMenu(tester);
+      await tester.tap(find.text(l10n.deleteFolder));
+      await flush(tester);
+
+      expect(
+        find.text(l10n.deleteFolderConfirm('Kept open folder')),
+        findsOneWidget,
+      );
+      expect(spy.countLookups, 1);
+      expect(events.of<DeleteOptimizedFolder>(), isEmpty);
+
+      await tester.tap(find.text(l10n.cancel));
+      await flush(tester);
+      expect(events.of<DeleteOptimizedFolder>(), isEmpty);
+
+      await teardownPage(tester);
+    });
+
+    testWidgets('off: Delete selected dispatches without a dialog', (
+      tester,
+    ) async {
+      await setConfirm(tester, false);
+      await pumpPage(tester, folderId: gate.id, title: 'Delete gate');
+      final id = noteIdOf(tester, 'Doomed note 3');
+
+      await enterSelection(tester);
+      await tester.tap(find.text('Doomed note 3'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byIcon(Icons.delete_outline));
+      await flush(tester);
+
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(find.text(l10n.deleteSelectedConfirm(1)), findsNothing);
+      expect(events.of<DeleteOptimizedNotes>().single.noteIds, [id]);
+
+      await teardownPage(tester);
+    });
+
+    testWidgets('a second tap on Delete selected does not delete twice', (
+      tester,
+    ) async {
+      await setConfirm(tester, false);
+      await pumpPage(tester, folderId: gate.id, title: 'Delete gate');
+
+      await enterSelection(tester);
+      await tester.tap(find.text('Doomed note 4'));
+      await tester.pumpAndSettle();
+      // Both land while the first is still reading the setting.
+      await tester.tap(find.byIcon(Icons.delete_outline));
+      await tester.tap(find.byIcon(Icons.delete_outline));
+      await flush(tester);
+
+      expect(events.of<DeleteOptimizedNotes>(), hasLength(1));
+
+      await teardownPage(tester);
+    });
+  });
+}
+
+/// The real folder service, counting the note-count lookups a folder delete
+/// makes only to word its confirm dialog.
+class _CountingFolderStorageService extends FolderStorageService {
+  _CountingFolderStorageService({required super.repository});
+
+  int countLookups = 0;
+
+  @override
+  Future<int> getNoteCountForDeletion(String folderId) {
+    countLookups++;
+    return super.getNoteCountForDeletion(folderId);
+  }
 }
 
 /// Every BLoC event the page dispatched, in order.

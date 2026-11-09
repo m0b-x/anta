@@ -3291,7 +3291,7 @@ void main() {
       final ro = lookupAppLocalizations(const Locale('ro'));
       expect(en.reportTagName('ana'), 'tag ana');
       expect(de.reportTagName('ana'), 'Schlagwort ana');
-      expect(ro.reportTagName('ana'), 'eticheta ana');
+      expect(ro.reportTagName('ana'), 'tagul ana');
       expect(
         en.reportGroupMoreSpoken(2, en.reportTagName('ana')),
         '2 more in tag ana',
@@ -3301,13 +3301,13 @@ void main() {
       expect(en.reportTagsMoreSpoken(4), '4 more tags');
       expect(de.reportTagsMoreSpoken(1), '1 weiteres Schlagwort');
       expect(de.reportTagsMoreSpoken(4), '4 weitere Schlagwörter');
-      expect(ro.reportTagsMoreSpoken(1), 'Încă o etichetă');
-      expect(ro.reportTagsMoreSpoken(4), 'Încă 4 etichete');
-      expect(ro.reportTagsMoreSpoken(20), 'Încă 20 de etichete');
+      expect(ro.reportTagsMoreSpoken(1), 'Încă un tag');
+      expect(ro.reportTagsMoreSpoken(4), 'Încă 4 taguri');
+      expect(ro.reportTagsMoreSpoken(20), 'Încă 20 de taguri');
 
       expect(en.reportTagsLessSpoken, 'Show fewer tags');
       expect(de.reportTagsLessSpoken, 'Weniger Schlagwörter anzeigen');
-      expect(ro.reportTagsLessSpoken, 'Arată mai puține etichete');
+      expect(ro.reportTagsLessSpoken, 'Arată mai puține taguri');
     });
 
     test('compare names', () {

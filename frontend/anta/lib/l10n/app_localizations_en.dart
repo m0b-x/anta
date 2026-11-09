@@ -2356,14 +2356,21 @@ class AppLocalizationsEn extends AppLocalizations {
   String get autoSave => 'Auto-save notes';
 
   @override
-  String get autoSaveDesc => 'Automatically save notes while editing';
+  String get autoSaveDesc =>
+      'Save while you type. Off, a note is saved when you leave it or the app goes to the background.';
 
   @override
   String get autoSaveInterval => 'Auto-save interval';
 
   @override
   String autoSaveIntervalDesc(int seconds) {
-    return 'Save every $seconds seconds';
+    String _temp0 = intl.Intl.pluralLogic(
+      seconds,
+      locale: localeName,
+      other: 'Saves $seconds seconds after the last change',
+      one: 'Saves one second after the last change',
+    );
+    return '$_temp0';
   }
 
   @override
@@ -10490,6 +10497,100 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get appGuideSyncConflictBody =>
       'If the same note changes in two places, ANTA keeps both: the other version is filed beside yours as a copy, so nothing is overwritten.';
+
+  @override
+  String get moneyNoTarget => 'no target';
+
+  @override
+  String get notesGuideSeedMarkdown =>
+      'Leg day\nSquat 5×5\nBench 3×8\nFelt strong today';
+
+  @override
+  String get notesGuideSeedLists => '- Legs\n- Squat\n- Lunges\n- Back';
+
+  @override
+  String get notesGuideSeedOwn =>
+      'Deadlift 140 kg\nNext week: squat\nSame warm-up as last time';
+
+  @override
+  String get notesGuideSeedMoney => '\$= 500 budget\n\$- 40 gym';
+
+  @override
+  String get notesGuideCoachMarkdownHeading =>
+      'Put # and a space in front of “Leg day”: it becomes a heading.';
+
+  @override
+  String get notesGuideCoachMarkdownBold =>
+      'Put two stars on each side of a word, like **strong**: it comes out bold.';
+
+  @override
+  String get notesGuideCoachMarkdownList =>
+      'Start a line with - and a space: it becomes a bullet.';
+
+  @override
+  String get notesGuideCoachMarkdownTask =>
+      'On a new line type - [ ] and a word, then tap the box to tick it.';
+
+  @override
+  String get notesGuideCoachListsEnter =>
+      'Tap after “Back” and press Enter: the next bullet is ready.';
+
+  @override
+  String get notesGuideCoachListsNest =>
+      'Tap “Squat”, then swipe it to the right: it nests under Legs.';
+
+  @override
+  String get notesGuideCoachListsOutdent =>
+      'Swipe it to the left: it comes back out.';
+
+  @override
+  String get notesGuideCoachListsEnd =>
+      'Press Enter on an empty bullet: the list ends in a plain line.';
+
+  @override
+  String get notesGuideCoachOwnTag =>
+      'Add #pr at the end of the first line: a word after # is a tag.';
+
+  @override
+  String notesGuideCoachOwnGhost(String open, String close) {
+    return 'After “squat” type $open${open}weight$close$close: a blank to fill in later.';
+  }
+
+  @override
+  String notesGuideCoachOwnColour(String open, String close) {
+    return 'Write ${open}red:heavy$close anywhere: the word turns red.';
+  }
+
+  @override
+  String get notesGuideCoachOwnWiki =>
+      'Write [[Leg day]] in double brackets: a link to the note of that name.';
+
+  @override
+  String get notesGuideCoachMoneySpend =>
+      'Add a line \$- 25 shoes: another spend.';
+
+  @override
+  String get notesGuideCoachMoneyAdd => 'Add \$+ 25 refund: money coming in.';
+
+  @override
+  String get notesGuideCoachMoneyTotal =>
+      'Type \$\$ on a line of its own: what is left, as a chip.';
+
+  @override
+  String get notesGuideReportTag =>
+      'In a note, tapping a tag lists every note that carries it.';
+
+  @override
+  String get notesGuideReportWiki =>
+      'In a note, tapping the link opens that note.';
+
+  @override
+  String get notesGuideReportLink =>
+      'In a note, tapping a web link opens it in your browser.';
+
+  @override
+  String get notesGuideReportMoney =>
+      'In a note, tapping a total shows every line that went into it.';
 
   @override
   String get appGuideSyncStopTitle => 'Stopping';

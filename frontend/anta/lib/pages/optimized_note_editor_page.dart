@@ -487,6 +487,10 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
       unawaited(_refreshVocabularies());
     }
     if (settings.showStatsBar) _stats.resume();
+    _saves.configureAutoSave(
+      enabled: settings.autoSaveEnabled,
+      intervalSeconds: settings.autoSaveIntervalSeconds,
+    );
     _markEditorReady();
   }
 
@@ -3220,20 +3224,26 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
   /// delete is dispatched, because a debounced auto-save landing afterwards
   /// would write into a row that is already a tombstone, and the early
   /// create of a never-persisted note would bring it back outright.
+  /// "Confirm before delete" off skips the dialog (record D24).
   Future<void> _deleteNote() async {
     final l10n = AppLocalizations.of(context)!;
     final noteId = _saves.effectiveNoteId ?? widget.noteId;
     final title = _titleController.text.trim();
-    final confirmed = await AppDialogs.confirm(
-      context,
-      title: l10n.deleteNote,
-      content: l10n.deleteNoteConfirm(
-        title.isEmpty ? l10n.deleteThisNote : title,
-      ),
-      confirmText: l10n.delete,
-      isDestructive: true,
-    );
-    if (!confirmed || !mounted) return;
+    final settings = await SettingsService.getInstance();
+    final confirm = await settings.getConfirmDelete();
+    if (!mounted) return;
+    if (confirm) {
+      final confirmed = await AppDialogs.confirm(
+        context,
+        title: l10n.deleteNote,
+        content: l10n.deleteNoteConfirm(
+          title.isEmpty ? l10n.deleteThisNote : title,
+        ),
+        confirmText: l10n.delete,
+        isDestructive: true,
+      );
+      if (!confirmed || !mounted) return;
+    }
     _saves.disableSaves();
     if (noteId != null) {
       context.read<OptimizedNoteBloc>().add(DeleteOptimizedNote(noteId));

@@ -26,6 +26,7 @@ each is reversible in one line.
 - §6 Slices and the gate
 - §7 Deferred
 - §8 Must not change
+- §9 Phase 2 — the "Try it" editors and the four fixes (2026-11-09)
 
 ## 0. How to run this
 
@@ -504,11 +505,10 @@ pass (`qa-runner`, 2026-11-09, `emulator-5556`, APK built from this tree):
 
 ## 7. Deferred
 
-- **Phase 2 — a practice note and "Try it" editors.** A sandbox
-  `CodeEditor` over an in-memory note, with the calendar's coach frame:
-  write a heading, make a list, nest an item, tick a task, add a money
-  line. The equivalent of the practice calendar; the most valuable page
-  and the most expensive. Owner's call after the content has been used.
+- **Phase 2 — the "Try it" editors: §9 (2026-11-09).** Four cards, each a
+  real editor over an in-memory seed, on the markdown, lists, own and
+  money pages. Still deferred from it: a practice-note *page* with the
+  bar and the title (D17 says why the cards came first).
 - **Pairing** is not described: the Sync & sharing page's Pairing section
   links two accounts and says "Linked. Nothing is shared yet." — the guide
   waits for shared folders.
@@ -521,16 +521,10 @@ pass (`qa-runner`, 2026-11-09, `emulator-5556`, APK built from this tree):
 - **`calendarGuideNotesBody`** ("The rest of ANTA") on the calendar's Good
   to know page could point at the notes book by name; left as is so the
   calendar guide's strings do not change in this change.
-- **App bugs the reviews surfaced, outside this change (owner's call):**
-  the General page's "Auto-save notes" switch and its interval slider are
-  read by nothing (`getAutoSaveEnabled` / `getAutoSaveInterval` only from
-  `settings_page.dart`; the editor's `AutoSaveService` is built with fixed
-  5 s / 30 s) — the guide stopped naming them; "Confirm before delete" has
-  no reader outside its page either; the bare-`$!` "no target" chip text is
-  the hardcoded English `' no target '`
-  (`line_based_markdown_builder.dart` ~1534), so a German or Romanian
-  reader of a bare `$!` with no target above sees English — it needs a key
-  threaded through `MoneyErrorMessages`.
+- **App bugs the reviews surfaced — fixed in §9 (D23–D25, 2026-11-09):**
+  the General page's "Auto-save notes" switch and its interval slider were
+  read by nothing; "Confirm before delete" had no reader outside its page;
+  the bare-`$!` "no target" chip text was hardcoded English.
 - **Renderer limits the guide shows at 2.0 (design review 4, 5):** in the
   money preview at de 2.0 the grey `= balance` wraps onto its own line, and
   the ghost placeholders (~2.8:1 light) and the running balance (~3.3:1)
@@ -544,10 +538,45 @@ pass (`qa-runner`, 2026-11-09, `emulator-5556`, APK built from this tree):
   the real Droid Sans Mono width of the de 2.0 sources; Android 14
   non-linear 200 % scaling of the 13 px eyebrow and source text; the preview
   block's edge in dark; list previews' real heights at de 2.0.
-- **The Romanian word for a #tag**: the editor's search zone label
-  (`editorZoneSearchTag`, "Caută eticheta") uses *etichetă*, the colour
-  label's word; the guide says *tag*. One of the two should move — the
-  owner's call, since Romanian readers meet both.
+- **The Romanian word for a #tag** — settled in §9 (D26): the editor's
+  search zone and the report say *tag*; *etichetă* is the colour label's
+  word alone.
+- **Editor inks under 4.5:1, now taught by the stage** (design review of
+  the cards): `EditorSpanEmitter.dimAlpha` 0.45 puts the dimmed markers and
+  the ghost placeholders at 2.78:1 light / 3.76:1 dark on `pageGround`
+  (the list-nesting record's "dim-marker contrast" item, same token); the
+  light money inks measure 3.84–4.46:1 (`moneyPositive` `#2E7D32` 4.46 on
+  the ground, 3.84 on its 0.12 chip tint; negative 4.08 on the chip;
+  neutral 4.09) in `lib/constants/markdown_constants.dart` ~221. Both are
+  the note editor's own values; lifting them is an app-wide decision. The
+  guide's own `GuideTextContrastGuideline` cannot see re_editor's painted
+  lines, so only a token test would pin them.
+- **The full-bleed stage at 1.0** (design review): B1 chose full bleed at
+  every scale so the editor keeps 328 of 360 dp and its text starts under
+  the coach line; the calendar cards go full-bleed only from 1.3, and at
+  1.0 the notes card reads as a coach strip over a page-coloured band
+  joined by hairlines. The alternative is the inset patch
+  (`stageFullBleed => false`) with the editor padding reduced so the text x
+  stays 32 dp. A taste call; the owner decides.
+- **After the keyboard reveal the coach line sits flush under the bar**
+  (design review, severity 1): alignment 0.0, inherited from the finding
+  card; a few dp of air would need the reveal to aim below the list's top.
+- **The Try-it stage passes no `onFormatShortcut`** (review of B1 + B2,
+  finding 7): on desktop Ctrl+B / Ctrl+I do nothing in a card, because the
+  editor page's handler runs the bar's shortcut inserter. A card could pass
+  a minimal toggler; small when wanted.
+- **The editor's inline tap zones are under 48 dp** (B2's guideline run):
+  a typed `#pr` publishes "Search tag: #pr" over about 32 × 25 dp, in the
+  note editor as on the stage. WCAG 2.5.8 exempts inline targets, which is
+  why the guide suite lets them off by name; whether the wrapper should pad
+  its zones is the owner's call.
+- **The fork's selection detector has no `excludeFromSemantics`**
+  (`packages/re_editor/lib/src/_code_selection.dart` ~292, found by B1's
+  guideline run): every editor — the note editor included — publishes its
+  whole box as an unlabelled tap/long-press node beside the text field's.
+  One line in the owned fork plus a check of
+  `modern_editor_wrapper_semantics_test`; the owner's call, since it changes
+  the real editor's semantics tree.
 - **`11_hub_guide.txt`**: its header's reasoning for the search-first way
   in (the calendar row used to be the hub list's last) is weaker now; the
   steps still pass because "calendar works" matches no new row.
@@ -568,3 +597,480 @@ drawer row's id `drawer-how-to` and the settings hub's
 `settings-hub-row-calendarGuide`; `SimpleMarkdownPreview`'s contract; the
 `onboardingHowToHint` string (now true). A new row gets a slug, an icon and
 the three languages in one change.
+
+## 9. Phase 2 — the "Try it" editors and the four fixes (2026-11-09)
+
+**Status: BUILT 2026-11-09, UNCOMMITTED pending the owner — planned by the
+Fable 5.1 lead (strings en/de/ro, 24 keys plus 10 edits); slices A, B1, B2
+and three fix passes by Opus 5.5 implementers; one code review per slice
+and one design review of the cards, their findings fixed or recorded
+(§9.6, §7); gate green on `main` and `qa pass settings` 21 / 21 with three
+card probes (§9.6); left to the owner's phone: the real keyboard lift.** The owner, shown §7's list, said: fix the app bugs the reviews
+found, and build the most useful interactive widgets for the guide. Phase
+1's content stands unchanged; this section is read on its own by the
+implementers (§9.1–§9.4) and the reviewers (§9.1, §9.4, §8).
+
+### 9.1 Decisions D17–D26
+
+- **D17 — Four cards, one stage.** The notes book gets a "Try it" card on
+  `markdown`, `lists`, `own` and `money`: the real live-rendering editor
+  (`ModernEditorWrapper` over a `ListAwarePasteController`, an
+  `EditorRenderController` and an `EditorEditTracker`, exactly as
+  `optimized_note_editor_page.dart` wires them) over an in-memory seed. So
+  every path the book describes works in the card for free — Enter
+  continues a list, Space on an empty item and the swipe nest it, a tap
+  ticks a box, `$` lines fold — rather than a model of the editor that
+  would drift from it. No practice-note *page* yet (§7): a card on the page
+  where a mark is read teaches it in place, and the chrome a stage cannot
+  show (the bar, the title, the ⋮) stays in words. The `editor`, `basics`
+  and `safe` pages keep read rows only for that reason.
+- **D18 — A step is read off the document, never off a tap.** Each step
+  carries a check over the lines (`GuideEditorStep.done`), run on every
+  text change through the grammar modules — `MarkdownLineShape.headingAt`,
+  `MarkdownListSyntax.parse` / `isListLine` / `indentLevel`,
+  `MarkdownInlineGrammar.tokenize` (with the card's palette),
+  `GhostText.findGhosts`, `MarkdownMoneySyntax.parse` — never a scanner of
+  the guide's own (the markdown-engine rule: one grammar per syntax). The
+  coach's done set is sticky, so an edit undone later does not un-teach a
+  step. A check that only means something after another step
+  (`lists-outdent` after `lists-nest`) reads `hasDone` and is otherwise the
+  same shape. The seeds satisfy no step, which a test pins.
+- **D19 — A tap that would leave the note is a report.** Tag, wiki link,
+  web link and money-chip taps reach the wrapper's callbacks as in a note;
+  in a card they `say` what a note would do (`notesGuideReport*`, the
+  D47/D49 rule) and never quote the typed text, so each report has one
+  length and the coach slot one height. The checkbox tap is the one tap
+  that acts, because the editor acts on it itself.
+- **D20 — The stage is the editor at its default size, not hers.** Font
+  `EditorSettings.defaults.editorFontSize` with `followsTextScale: true`,
+  height `GuideMetrics.editorStageLines` (6) lines of
+  `MarkdownConstants.lineHeight` at the current text scale plus the stage
+  padding — fixed from the first frame, scrolling inside when a lesson runs
+  past six lines. Her money config (ledger forced on, as §4) and her palette
+  arrive asynchronously through `applyMoneyConfig` / `applyPalette` and a
+  repaint, never a remount (the editor page's own rule, ~2946). Haptics
+  follow the wrapper's default.
+- **D21 — The card is the calendar's.** `calendarGuideTrySection` and
+  `CalendarGuideTryCard` draw it, their id family parameterised and
+  defaulting to the calendar's: `guide-notes-try-<slug>`,
+  `guide-notes-try-<slug>-caption`, `guide-notes-try-<slug>-editor` for the
+  stage's editor; back and skip keep `try-<slug>-step-back` /
+  `try-<slug>-skip-step` (the four slugs collide with no calendar card's).
+  Section title `calendarGuideTryIt`, closing line `calendarGuideCoachDone`:
+  "Nothing here was real" is as true of a sandbox note.
+- **D22 — The keyboard.** The finding card's once-per-focus reveal
+  (`_CaptionAboveKeyboard`) becomes a shared widget of the card file; an
+  editor card brings its coach line and stage above the IME when the editor
+  takes focus, so the line that says what to type is never under the
+  keyboard.
+- **D23 — Auto-save obeys its switch and slider.** Off: no debounce and no
+  half-minute sweep; the note is still written when the page is left, when
+  the app pauses, and by a new note's early create — the writes that keep
+  the no-lost-text bar — and the status reads unsaved honestly meanwhile.
+  The slider's N is the debounce (N s after the last change); the 30 s
+  sweep stays. Both are read into `EditorSettings` with the rest of the
+  bundle, so `didPopNext`'s reload picks up a change made in Settings behind
+  an open editor. `autoSaveIntervalDesc` now says what the slider does, and
+  `autoSaveDesc` what off still writes. Two edges settled by the slice-A
+  review: off, a forced flush (pause, preview toggle, `didPushNext`) that
+  fails keeps its three retry rungs but has no 30 s sweep behind them — the
+  error dot stays until the next exit or pause flush, which is what "no
+  background writes" means, so D23 wins over §9.4's retry line there; and a
+  forced flush that was *held* (a remote merge in progress) or only partly
+  written still re-arms the N-second debounce while off, because the
+  lifecycle asked for that write and the hold was transient. The stored
+  interval is clamped to the slider's 1–30 s (named constants), so an
+  imported row of `0` cannot write on every keystroke.
+- **D24 — "Confirm before delete" gates every note and folder delete:** the
+  rows' menus, the editor's ⋮ Delete, the browser's Delete selected. Off,
+  the delete runs at once (a soft delete; there is no bin, D15 stands).
+  Calendar, counter and database deletes keep their dialogs: the setting's
+  own text names notes and folders.
+- **D25 — The bare `$!` chip speaks the language.** `moneyNoTarget` is
+  threaded as `MoneyErrorMessages.noTarget` beside the seven messages; the
+  English fallback moves next to `MarkdownMoneySyntax.errorMessage`. All
+  three surfaces that draw the chip read it: the preview
+  (`line_based_markdown_builder.dart`), the live editor's money row
+  (`markdown_editor_money_row.dart`, through the money config the span
+  builder holds) and the money detail sheet (`money_detail_sheet.dart`,
+  through its `AppLocalizations`) — the slice-A review found the last two
+  still hardcoded.
+- **D24a — Five delete sites, not four.** The open folder's own "Delete
+  folder" in the browser's overflow (`_deleteCurrentFolder`) is a note/folder
+  delete too and is gated like the others (slice-A review finding 1).
+- **D26 — Romanian says *tag*.** `editorZoneSearchTag(Named)` and the
+  report's `reportSectionTags` / `reportTag*` move from *etichetă* to *tag*
+  ("Caută tagul", "După tag", "tagul {name}", "taguri"), so *etichetă* is
+  the colour label's word alone; the guide already said *tag*. German keeps
+  *Schlagwort*.
+
+### 9.2 The cards — content catalogue
+
+Keys: seed `notesGuideSeed<Page>`, coach lines `notesGuideCoach<Page><Step>`
+(the `own` ghost and colour lines take `open` / `close`), reports
+`notesGuideReport<Kind>`. Actions are frozen like slugs.
+
+| Page · card slug | Seed | Steps (action · line key · done when) | Reports |
+| --- | --- | --- | --- |
+| `markdown` · `markdown` | `notesGuideSeedMarkdown` | `heading` · MarkdownHeading · any line `headingAt != null` · `bold` · MarkdownBold · any `InlineEmphasis` of kind `bold` or `boldItalic` · `list` · MarkdownList · any `parse(line)?.kind == bullet` · `task` · MarkdownTask · any task item with `checked` | link, tag, wiki, money (whatever she types) |
+| `lists` · `lists` | `notesGuideSeedLists` | `enter` · ListsEnter · more list lines than the seed's four · `nest` · ListsNest · any list line with `indentLevel >= 1` · `outdent` · ListsOutdent · the document before this change had a list line with `indentLevel >= 1` and this one has none (the transition itself, so a skipped `nest` cannot stand in for one — review finding 3) · `end` · ListsEnd · a blank line directly after a list line and not directly before one (the list ended, rather than a line opened above an item — review finding 2) | same four |
+| `own` · `own` | `notesGuideSeedOwn` | `tag` · OwnTag · any `InlineTag` · `ghost` · OwnGhost · any ghost run · `colour` · OwnColour · any `InlineColor`, or an `InlineEmphasis` with a `tintSpec` · `wiki` · OwnWiki · any `InlineWikiLink` | same four |
+| `money` · `money` | `notesGuideSeedMoney` | `spend` · MoneySpend · two or more `subtract` lines · `add` · MoneyAdd · an `add` line · `total` · MoneyTotal · a `total` line | same four |
+
+Every card's `reports(l10n)` lists all four reports: a card cannot know
+what she will type, and the slot is sized once per locale.
+
+A check reads the document as the stage draws it (D18): a line inside a
+code fence, a `%%` comment or front matter — `EditorRenderController.
+blockStateAt` / `lineInFence` — is handed to the checks as blank, so `# x`
+typed inside a fence credits no heading (review finding 1). The document
+also carries the lines as they stood before the change (for `outdent`) and
+one shared tokenization per line, computed lazily, so a card with several
+inline checks tokenizes each line once per change (review finding 8).
+
+### 9.3 Files
+
+- `lib/models/guide_content.dart` — `GuideEditorStep extends
+  GuideCoachStep` with `done(List<String> lines, bool Function(String)
+  hasDone)`; `GuideEditorCard(spec, seed)`; `GuideTopic.editorCards`
+  (`const []` for the app book).
+- `lib/models/notes_guide_tries.dart` — the four cards: specs, seeds, the
+  checks as named functions over the grammar modules; pure, tested alone.
+- `lib/widgets/guide_try_editor.dart` — `GuideEditorDemo extends
+  GuideCardDemo`: owns the controller, the render controller, the edit
+  tracker, the focus and scroll controllers, an unused
+  `ReEditorSearchController` (the wrapper requires one); seeds with
+  `loadText`; listens to the controller and runs the checks; `buildStage`
+  returns the sized `ModernEditorWrapper` under
+  `SemanticsIds.guideBookTryEditor`; `adoptRenderConfig(money, palette)`.
+- `lib/pages/guide_topic_page.dart` — owns the demos as
+  `CalendarGuideTopicPage` does (create in `initState`, candidates per
+  locale in `didChangeDependencies`, dispose), hands them the money config
+  and palette it already loads, lists the Try sections before "How it
+  works".
+- `lib/constants/semantics_ids.dart` — `guideBookTry`, `guideBookTryCaption`,
+  `guideBookTryEditor`; `lib/constants/guide_metrics.dart` —
+  `editorStageLines`.
+- `lib/widgets/calendar_guide_try_card.dart` — optional `identifier` /
+  `captionIdentifier` on the section and the card; the shared keyboard
+  reveal (D22).
+- Fixes: `lib/services/auto_save_service.dart`,
+  `lib/controllers/note_save_coordinator.dart`,
+  `lib/models/editor_settings.dart`,
+  `lib/controllers/editor_settings_controller.dart`,
+  `lib/services/settings_service.dart` (`getEditorSettings`),
+  `lib/pages/optimized_note_editor_page.dart`, `lib/widgets/folder_row.dart`,
+  `lib/widgets/note_row.dart`, `lib/pages/optimized_folder_content_page.dart`,
+  `lib/utils/money_display_config.dart`,
+  `lib/utils/markdown_money_syntax.dart`,
+  `lib/utils/line_based_markdown_builder.dart`.
+
+### 9.4 Must not change (in addition to §8)
+
+`AutoSaveService`'s exit, pause, retry and hold contracts (`saveBeforeExit`,
+`saveOnLifecyclePause`, `SaveHeld`, `SaveRefused`); the early create;
+`MoneyErrorMessages` value equality; the calendar cards' ids and suites;
+the wrapper's tap and swipe policies; the one-grammar rule; the example rows
+and the read rows of every page.
+
+### 9.5 Slices and the gate
+
+- **Slice A — the four fixes** (D23–D26; strings already in the ARBs): one
+  `implementer`, in a detached worktree beside B1. Tests:
+  `auto_save_service_test.dart` (off: no debounce, no sweep, exit flush
+  writes; on again with pending changes: a write after the new debounce;
+  interval 12: a write at 12 s, not 5), `editor_settings_controller_test.dart`
+  (the two fields), `note_save_coordinator_test.dart` (the forward), a
+  builder case for the `$!` chip in German, the delete gate where a harness
+  exists.
+- **Slice B1 — the stage and the markdown card** (D17–D22, §9.2 row 1,
+  §9.3): one `implementer` on `main`. Tests: the checks alone
+  (`test/models/notes_guide_tries_test.dart`, seeds satisfy nothing), the
+  card on the page (`test/widgets/guide_try_editor_test.dart`: seed shown,
+  typing advances the coach, a box tap ticks and completes, ids, de/ro 2.0
+  on both phone sizes, the guide guideline matchers of
+  `calendar_guide_try_cards_test.dart`), `guide_book_page_test.dart` still
+  green.
+- **Slice B2 — the lists, own and money cards** (§9.2 rows 2–4): one
+  `implementer` after B1; a case per card in the two suites; `20_guide_books`
+  gains the markdown page's card (`expect id:guide-notes-try-markdown`, a
+  shot).
+- **Reviews:** one `reviewer` over slice A; one `reviewer` and one
+  `design-reviewer` over B1 + B2 together. **Device pass:** `qa-runner`,
+  `qa pass settings -d emulator-5556` after `qa fleet install --build`.
+- **Gate** per slice: `dart analyze lib test`, the whole suite, `flutter
+  gen-l10n` a no-op. **Land:** on the owner's word.
+
+### 9.6 As built
+
+**Slice B1 (2026-11-09, Opus 5.5 implementer, on `main`).** As §9.3, with
+these choices (lettered by the implementer, kept by the lead):
+
+- (a) The page seeds each demo from `didChangeDependencies` before the first
+  frame; `seed` runs once, so a language change keeps her text (D20).
+- (b) The stage is full-bleed (`stageFullBleed => true`) with the editor's
+  own padding `EdgeInsets.symmetric(horizontal: GuideMetrics.cardInset)`, so
+  the text starts under the coach line at every scale; height
+  `scaledFontSize(defaults.editorFontSize) × MarkdownConstants.lineHeight ×
+  GuideMetrics.editorStageLines`, inside the existing `GuideStageSlot`, which
+  hands a drag past the editor's end on to the page.
+- (c) `paintGround: false`: the stage already paints the page ground.
+- (d) Checks take one `GuideEditorDocument(lines, hasDone, palette)`, so the
+  bold check reads the card's palette; they run on text changes only, never
+  on caret moves; an edit that passes no step takes a standing report down.
+- The finding card's `_CaptionAboveKeyboard` became the public
+  `GuideCaptionAboveKeyboard` in the card file (`firstMatch` → optional
+  `last`); the finding card's suite is unchanged.
+- `GuideTopicPage` gained a `didUpdateWidget` path that rebuilds the demos
+  when the topic changes: only `guide_book_page_test` pumps topics into one
+  state, the app pushes a page per topic.
+- Two accessibility offenders the editor brings to the kit guideline suite
+  were pinned by name in `settings_kit_guidelines_test.dart`: the re_editor
+  fork's touch-selection `GestureDetector`
+  (`packages/re_editor/lib/src/_code_selection.dart` ~292, no
+  `excludeFromSemantics`) publishes the editor's box as an unlabelled
+  tap/long-press node — the real note editor has the same node, so it is the
+  owner's call and is in §7; and the wrapper's 18 dp scroll rail at 2.0 —
+  B2 drops the rail on the stage (`showScrollIndicator: false`) and the pin.
+- Gate in B1's run: `dart analyze lib test` clean; whole suite
+  `+15023 ~17 -2`, the two reds being `report_labels_test` and
+  `report_group_stack_test` pinning the Romanian *etichetă* that D26 moved
+  (slice A updates them); `gen-l10n` a no-op. Not verified on a device: IME
+  typing, the drag hand-off, the keyboard lift.
+
+**Slice B2 (2026-11-09, Opus 5.5 implementer, on `main`).** The `lists`,
+`own` and `money` cards as §9.2, eleven named checks over the grammar
+modules (`notesGuideHasMoreItems`, `…NestedItem`, `…Outdented` (reads
+`hasDone('nest')`), `…EndedList`; `…Tag`, `…Ghost` (through `GhostText`,
+not the tokenizer's ghost token — (c)), `…Colour`, `…WikiLink`; `…Spends`,
+`…Income`, `…Total`). The swipe direction was confirmed in code
+(`ModernEditorWrapper._onLineSwipe` → `ListIndentAction.tryApply(outdent:
+!toRight)`): right nests, left outdents, as the lines say. The stage drops
+its scroll rail (`showScrollIndicator: false`) and B1's pin for it. Choices:
+(a) the shared `GuideTapTargetGuideline` gained a fourth named exception —
+a labelled node under 48 dp wholly inside a `CodeEditor`'s box, the editor's
+inline tap zones (a typed `#pr` publishes "Search tag: #pr" over 32 × 25 dp),
+cited to WCAG 2.5.8's inline exception; the same zones are under 48 dp in
+the note editor itself, which is outside this change (§7); (b) `enter`
+compares with a constant seed count of four, pinned by the seeds test; (d)
+the lists walk nests and outdents through real swipe gestures. Suites:
+`notes_guide_tries_test` +23, `guide_try_editor_test` +44 (all four pages:
+ids, seed, walks to the closing line, matchers in both themes at 360 and
+412, de/ro at 2.0), `flows_lint_test` +29; whole suite `+15067 ~17 -2` with
+the same two Romanian pins as the only reds. `20_guide_books.txt` opens the
+markdown page and expects `guide-notes-try-markdown` with a shot.
+
+**Code review of B1 + B2 (2026-11-09, Opus 5.5 reviewer, read-only).** No
+data loss, crash or stuck state; fifteen findings, all PLAUSIBLE except the
+line endings (CONFIRMED). Fixed in the fix pass below: (1) the checks read
+each line without block context, so `# x` inside a fence credited a heading
+(§9.2's new paragraph); (2) `end` passed for a blank line opened *above* an
+item (Enter at column 0 of `- Squat`); (3) `outdent` passed on the next
+keystroke after a *skipped* `nest`, because `GuideCoach.hasDone` counts
+skips — both rules rewritten in §9.2; (4) the demo's `_reportStands` flag
+mirrored the coach's state and went stale (a Skip clears the coach's report
+but not the flag), and an edit under a read-back line did not snap back to
+the live line (D70) — replaced by `changed()` when `reading || hasReport`;
+(5) the notes hub's search did not index the coach lines as the calendar
+hub does (D58); (6) the stage's money error text kept the language the page
+opened in; (8) the own card tokenized the document up to four times per
+change — one lazy tokenization per line on the document; (9) the seed test
+pinned the `enter` constant in one direction; (10) the report test called
+the callbacks directly, no real tap; (11) untested: a language change, the
+remount after a scroll, `adoptRenderConfig` not remounting; (12) both
+guideline exceptions were broader than their comments; (13) eight new or
+moved files were LF in a CRLF tree; (14) comments cited §9.6's letters
+without naming the record, five public members without `///`; (15)
+`GuideEditorCard.steps` silently dropped a step of the wrong type. Left as
+found, recorded in §7: (7) the stage passes no `onFormatShortcut`, so
+desktop Ctrl+B / Ctrl+I do nothing in a card (the real page's handler
+pulls in the bar's inserter), and the editor's inline tap zones are under
+48 dp in the note editor itself. Sound: the lifecycle (every owned object
+disposed once; the `didUpdateWidget` swap moves listeners in each widget's
+own `didUpdateWidget`), the wiring against the editor page, every done-when
+rule as §9.2 then read, the ids (no collision with the calendar's slugs),
+the fixed stage height, the verbatim move of the keyboard reveal.
+
+**Fix pass (2026-11-09, Opus 5.5 implementer, on `main`).** All eight items:
+`GuideEditorDocument` carries `previousLines`, a lazily memoised per-line
+`inlineTokens` (one `tokenize` per line, ghost runs passed in, walking link
+text, emphasis content and colour insides outermost first) and
+`blankBlocks`; the demo blanks lines through `EditorRenderController.
+lineInFence`, whose role covers fence delimiters and bodies, `%%` comments
+and front matter (`blockStateAt` walks a segment per call and is for
+pastes). `outdent` is the nested → flat transition, `end` requires the next
+line absent or not a list line. `_reportStands` is gone; `GuideCardDemo`
+gained protected `hasReport` over an additive `GuideCoach.hasReport`, and a
+non-step edit calls `changed()` only when `reading || hasReport`. The book
+hub indexes the coach lines. On a locale change the topic page rebuilds the
+money config's `errorMessages` and re-adopts it. `GuideEditorCard` asserts
+every step carries a check; `notesGuideListsSeedItems` is
+`@visibleForTesting` and the en/de/ro seeds are pinned at exactly four
+items. The inline-zone exception also requires the node narrower than the
+editor's box; the kit suite's selection-detector pin matches the editor's
+box exactly (intersected with the list's viewport, since the walk scrolls
+the editor across its edges). Comments name the record; `///` on the new
+members; nine working-copy files normalised to CRLF (the eight plus
+`calendar_guide_coach.dart`). New cases: fenced heading / `#pr` / `$-` /
+`- [x]`, a `%%` comment and front matter credit nothing; the one-tokenize
+memo; Enter at column 0 opens no `end`; a flat list after a skipped `nest`
+is no `outdent`; a non-step edit snaps a read-back line to the live one; a
+real tap on a typed `#pr` shows the tag report; de → ro keeps the text and
+the same `CodeEditor` State while the slot's candidates turn Romanian;
+"nests" (a word only the lists card's coach says) finds the lists page in
+the hub's search. Gate: analyze clean; the eight named suites `+616`;
+whole suite `+15080 ~17 -2` (the two Romanian pins); `gen-l10n` a no-op.
+`previousLines` is `const []` for the first evaluation (the seeds are flat,
+so no check notices).
+
+**Slice A as built (2026-11-09, Opus 5.5 implementer, worktree
+`anta-wt-fixes`).** 19 files, +621/−58, handed over as a patch (l10n, docs
+and the plugin registrants `pub get` regenerated excluded) and applied to
+`main` with `git apply --3way`, every hunk clean. `AutoSaveService` gained
+`enabled` and `configure`; `NoteSaveCoordinator.configureAutoSave`;
+`EditorSettings.autoSaveEnabled` / `autoSaveIntervalSeconds` read in
+`getEditorSettings`; the editor page applies them with the bundle; the four
+delete sites read `getConfirmDelete`; `MoneyErrorMessages.noTarget` with
+`MarkdownMoneySyntax.noTargetLabel` as the fallback; the two Romanian test
+pins updated; new cases in `auto_save_service_test`,
+`editor_settings_controller_test`, `note_save_coordinator_test`,
+`line_based_markdown_builder_test`, `optimized_folder_content_page_test`,
+`optimized_note_editor_page_test`. The implementer's own whole-suite run in
+the worktree hung (one `flutter_tester` alive 58 min on a 4–7 min suite —
+the background-suite trap); the lead killed it and cut the patch. The
+read-only review of the slice (§9.6 below) ran in the worktree.
+
+**Code review of slice A (2026-11-09, Opus 5.5 reviewer, read-only, in the
+worktree).** Twelve findings. Fixed in the slice-A fix pass: (1) a fifth
+delete site, the browser's own "Delete folder" (`_deleteCurrentFolder`),
+still always asked — D24a; (2) the `$!` chip stayed English in the live
+editor's money row and in the money detail sheet — D25 now names all three
+surfaces; (5) `configure` while staying off cancelled the recovery timer a
+held flush had armed; (6) a second tap on Delete selected during the
+settings read dispatched twice; (8) a stored interval outside 1–30 was not
+clamped; (11) the 30 s and 5 s defaults were literals beside existing
+constants, one `///` missing; (12) tests that would pass with the page
+wiring reverted — the editor-page probes, the ⋮ Delete off case, a spy on
+the folder count, `copyWith` pins. Settled in the record, no code: (3) off,
+a failed forced flush keeps its three rungs and no sweep (D23's edge); (4)
+a held or partial forced flush still re-arms the debounce while off (D23's
+second edge); (7) the on path now reads the setting before the dialog (two
+existing tests gained a settle); (9) a settings read that throws leaves
+auto-save on; (10) the `anta-context` reference's auto-save line is updated
+by the lead with this record. Sound: `AutoSaveService` against HEAD
+(`forceSave`, `_performSave`, hold, refusal, retry, baseline, `dispose`,
+`hasAnyPendingChanges` unchanged), every `configure` transition, the early
+create and both flushes under off (pinned), the bundle fields in
+`copyWith` / `props` / `getEditorSettings`, the page wiring on first load
+and on `didPopNext`, the four gates' `mounted` guards, `MoneyErrorMessages`
+equality, the Romanian pins.
+
+**Design review of the four cards (2026-11-09, Opus 5.5 design-reviewer,
+read-only, on `main`).** Rendered in both themes, en/de/ro, 1.0/1.3/2.0,
+360 × 780 and 412 × 915, every coach state and the keyboard up. The spec
+holds: stage height 148.8 / 193.44 / 297.6 dp, constant across all 32
+configurations and every state; the coach slot fixed across every line
+(the four reports and the closing line included), clamped at 1.3 (D66);
+the editor's text and the coach line start at one x (32 dp, B1 (b)); back
+and skip 48 dp, skip disabled not hidden at the end; read-back inks as D90;
+seed text 14.85 / 14.35, checked-task text 4.56 / 6.07, the unchecked box
+4.29 / 5.76; no overflow at de/ro 2.0 on either phone. One real defect,
+severity 3, CONFIRMED: at de 2.0 on 360 × 780 the keyboard reveal scrolled
+the coach line off the screen (slot top −101 dp) because `_reveal` fitted
+the whole six-line field under the line instead of one line of it — the
+visual fix pass gives the reveal a `lastExtent`. Severity 1, fixed in the
+same pass: a sixth line clipped by 1.2 / 2.4 dp because the fork rounds
+each line (25 / 32 / 50 dp) and the stage multiplied the unrounded height;
+a comment that cited WCAG 2.5.8's inline exception for a task box; the kit
+suite's notes case covering one topic and the guide suite's matchers
+running at 1.0 only. Left to the owner (§7): the dimmed markers and ghost
+placeholders at `dimAlpha` 0.45 measure 2.78:1 light / 3.76:1 dark on the
+stage ground and the light money inks 3.84–4.46:1 — app-wide tokens the
+stage now teaches; the full-bleed stage at 1.0 reads as a coach strip over
+a page-coloured band (the calendar cards go full-bleed only from 1.3); the
+reveal leaves the coach line flush under the bar (inherited from the
+finding card); `GuideTextContrastGuideline` cannot see re_editor's painted
+text, so only a token test could pin the editor's inks. Not seen: the
+editor's glyphs in real Roboto (`FontConstants.editorFontFamily` is null,
+so the editor stays in the test font) — the device bucket has them.
+
+**Visual fix pass (2026-11-09, Opus 5.5 implementer, on `main`).**
+`GuideCaptionAboveKeyboard` gained an optional `lastExtent` (asserted
+exclusive with `last`): `_reveal` fits the caption plus that much of the
+field's top — the editor passes one rounded line plus
+`GuideMetrics.stagePadding` — and the finding card's call is unchanged
+(`rect` null). The stage is sized from the fork's rule — the line height is
+`TextPainter.preferredLineHeight` of the editor's style
+(`packages/re_editor/lib/src/_code_field.dart` ~1804), which the text
+engine rounds to the nearest whole pixel (24.8 → 25, 49.6 → 50) — so six
+plain lines fit exactly (`(scaledFontSize × lineHeight).roundToDouble() ×
+6`; checked at device pixel ratio 1 only, the device bucket has the rest).
+The guideline comment names the real reason the inline zones are let off.
+The kit suite's notes case loops over all four card topics (8 cells, ~2 s);
+the guide suite gained a 2.0 cell (`own`, de, light, 360) for the tap-target
+and label guidelines idle and after `#pr` is typed. New cases: de 2.0 on
+360 × 780 with a 320 dp inset keeps the coach slot and the stage's hairline
+at or below the list's top and the first line above the keyboard (red with
+`lastExtent` null: slot top −101); six plain lines in the lists card, the
+sixth unclipped and `maxScrollExtent == 0` (red without rounding: 276.2
+against 275.0). Gate: analyze clean; the five named suites `+559`;
+`gen-l10n` a no-op.
+
+**Slice A fix pass (2026-11-09, Opus 5.5 implementer, worktree; the
+increment cut as the unstaged diff over the staged slice and applied to
+`main` with `git apply --3way`, clean).** `_deleteCurrentFolder` gated like
+the row (D24a; off: no loading dialog, no count, no dialog, pop as before);
+the live editor's chip reads `config.errorMessages?.noTarget` (an
+`EditorMoneyTotalSpan` placeholder — the line's code units are unchanged,
+pinned at exactly two) and the detail sheet `l10n.moneyNoTarget` (D25);
+`configure` cancels timers only on the on → off change, so a held flush's
+re-armed write survives a delay change while off; `_deletingSelected`
+guards a second tap during the settings read (proven: two taps, one
+dispatch); `SettingsKeys.autoSaveIntervalMinSeconds` / `MaxSeconds` (1 /
+30) feed the slider and the coordinator's clamp (0 → 1 s, 99 → 30 s), and
+the lead added the same clamp where the General page loads the stored
+value into the slider (an imported `0` would have tripped the `Slider`
+assertion); the sweep default is `AppConstants.autoSaveInterval`, the
+debounce default `SettingsKeys.defaultAutoSaveInterval`. New cases: off at
+open and off behind a pushed route (the `didPopNext` reload) write nothing
+after 35 s; ⋮ Delete with confirm off dispatches at once and pops; the
+folder-row off case counts zero `getNoteCountForDeletion` calls through a
+counting storage fake; `copyWith` carries both fields; "kein Ziel" in the
+editor chip. Suites in the worktree: `auto_save_service_test` +60,
+`note_save_coordinator_test` +61, `editor_settings_controller_test` +19,
+`markdown_editor_span_builder_units_test` +436,
+`line_based_markdown_builder_test` +97, `optimized_folder_content_page_test`
++125, `optimized_note_editor_page_test` +138, `settings_page_golden_test`
++3. No money detail sheet suite exists, so the sheet's chip has no test.
+
+**Gate on `main` (2026-11-09, the lead, foreground).** After A + B1 + B2 +
+the B fix pass + strings: `dart analyze lib test` "No issues found!";
+`flutter test` `04:14 +15102 ~17: All other tests passed!`. After the
+slice-A fix pass, the visual fix pass and the slider clamp: `dart analyze
+lib test` "No issues found!"; `flutter test` `04:08 +15121 ~17: All other
+tests passed!` (17 skipped, no red); `flutter gen-l10n` a no-op with
+`untranslated.txt` `{}`. 47 paths changed outside `lib/l10n/` (43 tracked
+plus the four new files), uncommitted.
+
+**Device pass (2026-11-09, `qa-runner`, Sonnet 5.5, `emulator-5556`, APK
+built from this tree).** `qa pass settings` 21 / 21 green in 299 s
+(`20_guide_books` reached the markdown card and took
+`20_guide_notes_markdown_try`; `01_drawer_places`, `11_hub_guide` green);
+report `build/qa/pass/settings_20261109_205737_152_emulator-5556/`. Probes
+through the harness verbs (shots under `build/qa/shots/`): on the markdown
+card a tap focuses the editor without the page moving, typing `# ` before
+"Leg day" renders the heading with a dim `#` and moves the coach line to
+the bold step; on the lists card a 200 px right swipe on "Squat" nests it
+and a left swipe brings it back, neither taken by the page scroll — the
+coach line stayed on the Enter instruction, which is D18's done set at
+work (the line names the first step not yet done; the nest and the outdent
+were credited silently and the line jumped straight to `end` once Enter was
+pressed); Enter after "Back" then Enter on the empty bullet ended the list
+with the closing line, five lines inside the stage, hairline visible,
+nothing clipped, no emoji-font glyph. Semantics order: caption, back, skip,
+editor; inside the editor the id node, the fork's unlabelled `click,long`
+detector (§7) and the text field. Not verifiable in the driver build (it
+never raises the soft keyboard): the real IME lift (D22) and the caret
+above a real keyboard — the owner's phone. Noticed: the harness's field echo
+shows a leading zero-width character after typing, likely the fork's input
+sentinel, not new to this change.

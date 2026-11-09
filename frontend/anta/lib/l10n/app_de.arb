@@ -1222,7 +1222,7 @@
   "@autoSave": {
     "description": "Auto-save setting"
   },
-  "autoSaveDesc": "Notizen beim Bearbeiten automatisch speichern",
+  "autoSaveDesc": "Beim Tippen speichern. Ausgeschaltet wird eine Notiz gespeichert, wenn du sie verlässt oder die App in den Hintergrund geht.",
   "@autoSaveDesc": {
     "description": "Auto-save description"
   },
@@ -1230,7 +1230,7 @@
   "@autoSaveInterval": {
     "description": "Auto-save interval setting"
   },
-  "autoSaveIntervalDesc": "Alle {seconds} Sekunden speichern",
+  "autoSaveIntervalDesc": "{seconds, plural, =1{Speichert eine Sekunde nach der letzten Änderung} other{Speichert {seconds} Sekunden nach der letzten Änderung}}",
   "@autoSaveIntervalDesc": {
     "description": "Auto-save interval description",
     "placeholders": {
@@ -4088,6 +4088,30 @@
   "appGuideSyncOtherBody": "Melde dich mit demselben Konto an und schalte auch dort „{syncThisDatabase}“ ein. ANTA listet die Bereiche in deinem Konto; wähle deinen, und er wird als neue Datenbank auf dieses Telefon geladen. Danach werden nur noch Änderungen übertragen.",
   "appGuideSyncConflictTitle": "Zwei Telefone, eine Notiz",
   "appGuideSyncConflictBody": "Ändert sich dieselbe Notiz an zwei Orten, behält ANTA beide Fassungen: Die andere wird als Kopie neben deine gelegt, sodass nichts überschrieben wird.",
+  "moneyNoTarget": "kein Ziel",
+  "notesGuideSeedMarkdown": "Beintag\nKniebeuge 5×5\nBankdrücken 3×8\nHeute stark gefühlt",
+  "notesGuideSeedLists": "- Beine\n- Kniebeuge\n- Ausfallschritte\n- Rücken",
+  "notesGuideSeedOwn": "Kreuzheben 140 kg\nNächste Woche: Kniebeuge\nGleiches Aufwärmen wie letztes Mal",
+  "notesGuideSeedMoney": "$= 500 Budget\n$- 40 Fitnessstudio",
+  "notesGuideCoachMarkdownHeading": "Setze # und ein Leerzeichen vor „Beintag“: daraus wird eine Überschrift.",
+  "notesGuideCoachMarkdownBold": "Setze zwei Sternchen auf jede Seite eines Wortes, wie **stark**: es wird fett.",
+  "notesGuideCoachMarkdownList": "Beginne eine Zeile mit - und einem Leerzeichen: daraus wird ein Aufzählungspunkt.",
+  "notesGuideCoachMarkdownTask": "Schreibe in eine neue Zeile - [ ] und ein Wort, dann tippe auf das Kästchen, um es abzuhaken.",
+  "notesGuideCoachListsEnter": "Tippe hinter „Rücken“ und drücke Enter: der nächste Punkt steht bereit.",
+  "notesGuideCoachListsNest": "Tippe auf „Kniebeuge“ und wische nach rechts: der Punkt rückt unter Beine.",
+  "notesGuideCoachListsOutdent": "Wische nach links: er rückt wieder heraus.",
+  "notesGuideCoachListsEnd": "Drücke Enter auf einem leeren Punkt: die Liste endet in einer normalen Zeile.",
+  "notesGuideCoachOwnTag": "Hänge #pr an die erste Zeile: ein Wort nach # ist ein Schlagwort.",
+  "notesGuideCoachOwnGhost": "Schreibe hinter „Kniebeuge“ {open}{open}Gewicht{close}{close}: eine Lücke zum späteren Ausfüllen.",
+  "notesGuideCoachOwnColour": "Schreibe irgendwo {open}red:schwer{close}: das Wort wird rot.",
+  "notesGuideCoachOwnWiki": "Schreibe [[Beintag]] in doppelten eckigen Klammern: ein Link zur Notiz mit diesem Namen.",
+  "notesGuideCoachMoneySpend": "Füge eine Zeile $- 25 Schuhe hinzu: eine weitere Ausgabe.",
+  "notesGuideCoachMoneyAdd": "Füge $+ 25 Rückzahlung hinzu: Geld, das hereinkommt.",
+  "notesGuideCoachMoneyTotal": "Schreibe $$ in eine eigene Zeile: was übrig ist, als Chip.",
+  "notesGuideReportTag": "In einer Notiz zeigt ein Tipp auf ein Schlagwort jede Notiz, die es trägt.",
+  "notesGuideReportWiki": "In einer Notiz öffnet ein Tipp auf den Link diese Notiz.",
+  "notesGuideReportLink": "In einer Notiz öffnet ein Tipp auf einen Weblink ihn im Browser.",
+  "notesGuideReportMoney": "In einer Notiz zeigt ein Tipp auf eine Summe jede Zeile, die hineingeflossen ist.",
   "appGuideSyncStopTitle": "Beenden",
   "appGuideSyncStopBody": "„{syncStop}“ lässt deine Notizen auf diesem Telefon und hört auf zu senden und zu empfangen; die Kopie in deinem Konto bleibt. „{signOut}“ pausiert Sync für jede Datenbank, bis du dich wieder anmeldest."
 }

@@ -685,6 +685,81 @@ void main() {
     });
   });
 
+  // Record D23: the page hands the Settings switch and slider through.
+  group('configureAutoSave', () {
+    test('the switch and the interval reach the service', () {
+      final h = _Harness.existing();
+
+      h.coordinator.configureAutoSave(enabled: false, intervalSeconds: 12);
+
+      expect(h.autoSave.enabled, isFalse);
+      expect(h.autoSave.debounceDelay, const Duration(seconds: 12));
+
+      h.dispose();
+    });
+
+    test('the interval is clamped to the slider\'s 1-30 s', () {
+      final h = _Harness.existing();
+
+      h.coordinator.configureAutoSave(enabled: true, intervalSeconds: 0);
+      expect(h.autoSave.debounceDelay, const Duration(seconds: 1));
+
+      h.coordinator.configureAutoSave(enabled: true, intervalSeconds: 99);
+      expect(h.autoSave.debounceDelay, const Duration(seconds: 30));
+
+      h.dispose();
+    });
+
+    test('off: nothing is written on a timer, the exit flush writes', () {
+      fakeAsync((async) {
+        final h = _Harness.existing()..coordinator.start();
+        h.coordinator.configureAutoSave(enabled: false, intervalSeconds: 5);
+
+        h.type('v1');
+        async.elapse(_Harness.interval * 2);
+        expect(h.updates, isEmpty);
+        expect(h.coordinator.hasChanges.value, isTrue);
+        expect(h.coordinator.saveStatus.value, SaveStatus.unsaved);
+
+        unawaited(h.coordinator.saveBeforeExit());
+        async.flushMicrotasks();
+
+        expect(h.updates.single.content, 'v1');
+
+        h.dispose();
+      });
+    });
+
+    test('off: a lifecycle pause still writes', () {
+      fakeAsync((async) {
+        final h = _Harness.existing()..coordinator.start();
+        h.coordinator.configureAutoSave(enabled: false, intervalSeconds: 5);
+
+        h.type('v1');
+        h.coordinator.saveOnLifecyclePause();
+        async.flushMicrotasks();
+
+        expect(h.updates.single.content, 'v1');
+
+        h.dispose();
+      });
+    });
+
+    test('off: a new note is still created early', () {
+      fakeAsync((async) {
+        final h = _Harness()..coordinator.start();
+        h.coordinator.configureAutoSave(enabled: false, intervalSeconds: 5);
+
+        h.type('hello');
+        async.flushMicrotasks();
+
+        expect(h.creates.single.content, 'hello');
+
+        h.dispose();
+      });
+    });
+  });
+
   group('saveBeforeExit', () {
     test('an empty new note leaves nothing behind', () {
       fakeAsync((async) {
@@ -1177,7 +1252,7 @@ class _Harness {
         return mayWrite || leaving;
       },
       autoSaveFactory: ({required onSave, required onChangeDetected}) =>
-          AutoSaveService(
+          autoSave = AutoSaveService(
             onSave: onSave,
             onChangeDetected: onChangeDetected,
             debounceDelay: debounce,
@@ -1185,6 +1260,9 @@ class _Harness {
           ),
     );
   }
+
+  /// The service the factory built, so a test can read what reached it.
+  late final AutoSaveService autoSave;
 
   /// A note that already exists, opened with a stored title.
   factory _Harness.existing({String? originalTitle = 'Original'}) => _Harness(

@@ -1,6 +1,7 @@
 import 'dart:ui' as ui;
 
 import 'package:anta/constants/markdown_constants.dart';
+import 'package:anta/l10n/app_localizations_de.dart';
 import 'package:anta/utils/editor_render_context.dart';
 import 'package:anta/utils/markdown_callout_syntax.dart';
 import 'package:anta/utils/markdown_color_syntax.dart';
@@ -1450,6 +1451,47 @@ void main() {
         isNot(MarkdownConstants.moneyWarning(dark: false)),
         reason: 'a declaration precedes the row, so it is not a no-target',
       );
+    });
+
+    // Record D25: the bare `$!` chip reads the config's messages, as the
+    // preview does, and stays English without them.
+    test('a bare target chip with no target speaks the config\'s language', () {
+      String chipLabel(MoneyDisplayConfig config) {
+        final controller = CodeLineEditingController.fromText(
+          <String>[_pad, r'$!', _pad].join('\n'),
+        );
+        addTearDown(controller.dispose);
+        final builder = MarkdownEditorSpanBuilder()..bind(controller);
+        builder.configureMoney(config);
+        controller.selection = const CodeLineSelection.collapsed(
+          index: 0,
+          offset: 0,
+        );
+        final span = builder.build(
+          context: _renderContext,
+          index: 1,
+          codeLine: controller.codeLines[1],
+        )!;
+        expect(span.toPlainText(includePlaceholders: true).length, 2);
+        return _visibleLeaves(span)
+            .map((leaf) => leaf.span)
+            .whereType<EditorMoneyTotalSpan>()
+            .single
+            .label;
+      }
+
+      final german = chipLabel(
+        MoneyDisplayConfig(
+          enabled: true,
+          currencySymbol: 'lei',
+          currencySuffix: true,
+          errorMessages: MoneyErrorMessages.of(AppLocalizationsDe()),
+        ),
+      );
+      expect(german, contains('kein Ziel'));
+      expect(german, isNot(contains('no target')));
+
+      expect(chipLabel(_moneyEnabled), contains('no target'));
     });
   });
 

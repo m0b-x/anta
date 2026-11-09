@@ -6,6 +6,7 @@ import 'package:flutter/scheduler.dart';
 import '../bloc/optimized_note/optimized_note_bloc.dart'
     show NoteWriteRefusedException;
 import '../bloc/optimized_note/optimized_note_event.dart';
+import '../constants/settings_keys.dart';
 import '../services/auto_save_service.dart';
 
 /// Builds the [AutoSaveService] a [NoteSaveCoordinator] saves through.
@@ -243,6 +244,26 @@ class NoteSaveCoordinator {
     } else {
       _setHasChanges(false);
     }
+  }
+
+  /// Applies the Settings auto-save switch and debounce to the service; the
+  /// page calls it with every editor-settings bundle it applies, so a change
+  /// made in Settings reaches an editor already open. The exit and pause
+  /// flushes and the early create write whatever [enabled] says. The
+  /// interval is clamped to the slider's range, so a stored value the slider
+  /// could never set (an imported `0`) cannot write on every keystroke.
+  void configureAutoSave({
+    required bool enabled,
+    required int intervalSeconds,
+  }) {
+    final seconds = intervalSeconds.clamp(
+      SettingsKeys.autoSaveIntervalMinSeconds,
+      SettingsKeys.autoSaveIntervalMaxSeconds,
+    );
+    _autoSave.configure(
+      enabled: enabled,
+      debounceDelay: Duration(seconds: seconds),
+    );
   }
 
   /// Marks the note dirty for the edits that bypass the text listener — a

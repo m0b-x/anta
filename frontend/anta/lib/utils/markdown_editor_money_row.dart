@@ -812,8 +812,10 @@ class EditorMoneyRowBuilder {
     // the number shown is the cap, not real arithmetic. Checked here so
     // the marker chip and the slot chip can never disagree. A bare `$!`
     // with no target above it is the same shape of exception: the
-    // sentinel is not money, so the chip says "no target" in the same
-    // warning accent instead of formatting it.
+    // sentinel is not money, so the chip says "no target" (in the config's
+    // language, record D25) in the same warning accent instead of
+    // formatting it. The label is painted, so its length never touches the
+    // line's code units.
     final noTarget =
         kind == MoneyLineKind.remaining &&
         MarkdownMoneySyntax.isNoTarget(balance);
@@ -822,7 +824,7 @@ class EditorMoneyRowBuilder {
     }
     final signed = MarkdownMoneySyntax.isSignedKind(kind);
     final value = noTarget
-        ? 'no target'
+        ? config.errorMessages?.noTarget ?? MarkdownMoneySyntax.noTargetLabel
         : signed
         ? MarkdownMoneySyntax.formatCentsSignedWithSymbol(
             balance,

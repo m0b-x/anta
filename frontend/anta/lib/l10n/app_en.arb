@@ -2877,17 +2877,17 @@
   "@autoSave": {
     "description": "Auto-save setting"
   },
-  "autoSaveDesc": "Automatically save notes while editing",
+  "autoSaveDesc": "Save while you type. Off, a note is saved when you leave it or the app goes to the background.",
   "@autoSaveDesc": {
-    "description": "Auto-save description"
+    "description": "Auto-save description: what the switch's off state still writes, so nobody expects text to be lost"
   },
   "autoSaveInterval": "Auto-save interval",
   "@autoSaveInterval": {
     "description": "Auto-save interval setting"
   },
-  "autoSaveIntervalDesc": "Save every {seconds} seconds",
+  "autoSaveIntervalDesc": "{seconds, plural, =1{Saves one second after the last change} other{Saves {seconds} seconds after the last change}}",
   "@autoSaveIntervalDesc": {
-    "description": "Auto-save interval description",
+    "description": "Auto-save interval description: the slider sets the debounce after the last keystroke, not a fixed cadence",
     "placeholders": {
       "seconds": {
         "type": "int"
@@ -13173,6 +13173,118 @@
   },
   "appGuideSyncConflictTitle": "Two phones, one note",
   "appGuideSyncConflictBody": "If the same note changes in two places, ANTA keeps both: the other version is filed beside yours as a copy, so nothing is overwritten.",
+  "moneyNoTarget": "no target",
+  "@moneyNoTarget": {
+    "description": "The bare $! chip's text in the preview when no $! target stands above it, shown in place of an amount"
+  },
+  "notesGuideSeedMarkdown": "Leg day\nSquat 5×5\nBench 3×8\nFelt strong today",
+  "@notesGuideSeedMarkdown": {
+    "description": "The markdown page's Try it editor as seeded: plain lines without markdown, so every step starts undone"
+  },
+  "notesGuideSeedLists": "- Legs\n- Squat\n- Lunges\n- Back",
+  "@notesGuideSeedLists": {
+    "description": "The lists page's Try it editor as seeded: four flat bullets, nothing nested"
+  },
+  "notesGuideSeedOwn": "Deadlift 140 kg\nNext week: squat\nSame warm-up as last time",
+  "@notesGuideSeedOwn": {
+    "description": "The own-markdown page's Try it editor as seeded: no tag, ghost, colour or wiki link yet"
+  },
+  "notesGuideSeedMoney": "$= 500 budget\n$- 40 gym",
+  "@notesGuideSeedMoney": {
+    "description": "The money page's Try it editor as seeded: a start amount and one spend"
+  },
+  "notesGuideCoachMarkdownHeading": "Put # and a space in front of “Leg day”: it becomes a heading.",
+  "@notesGuideCoachMarkdownHeading": {
+    "description": "Coach line of the markdown card; quotes the seed's first line"
+  },
+  "notesGuideCoachMarkdownBold": "Put two stars on each side of a word, like **strong**: it comes out bold.",
+  "@notesGuideCoachMarkdownBold": {
+    "description": "Coach line of the markdown card"
+  },
+  "notesGuideCoachMarkdownList": "Start a line with - and a space: it becomes a bullet.",
+  "@notesGuideCoachMarkdownList": {
+    "description": "Coach line of the markdown card"
+  },
+  "notesGuideCoachMarkdownTask": "On a new line type - [ ] and a word, then tap the box to tick it.",
+  "@notesGuideCoachMarkdownTask": {
+    "description": "Coach line of the markdown card; done when a task line is ticked"
+  },
+  "notesGuideCoachListsEnter": "Tap after “Back” and press Enter: the next bullet is ready.",
+  "@notesGuideCoachListsEnter": {
+    "description": "Coach line of the lists card; quotes the seed's last item"
+  },
+  "notesGuideCoachListsNest": "Tap “Squat”, then swipe it to the right: it nests under Legs.",
+  "@notesGuideCoachListsNest": {
+    "description": "Coach line of the lists card; quotes two seed items"
+  },
+  "notesGuideCoachListsOutdent": "Swipe it to the left: it comes back out.",
+  "@notesGuideCoachListsOutdent": {
+    "description": "Coach line of the lists card"
+  },
+  "notesGuideCoachListsEnd": "Press Enter on an empty bullet: the list ends in a plain line.",
+  "@notesGuideCoachListsEnd": {
+    "description": "Coach line of the lists card"
+  },
+  "notesGuideCoachOwnTag": "Add #pr at the end of the first line: a word after # is a tag.",
+  "@notesGuideCoachOwnTag": {
+    "description": "Coach line of the own-markdown card"
+  },
+  "notesGuideCoachOwnGhost": "After “squat” type {open}{open}weight{close}{close}: a blank to fill in later.",
+  "@notesGuideCoachOwnGhost": {
+    "description": "Coach line of the own-markdown card; the braces travel as placeholders because ICU reads a bare brace as an argument",
+    "placeholders": {
+      "open": {
+        "type": "String"
+      },
+      "close": {
+        "type": "String"
+      }
+    }
+  },
+  "notesGuideCoachOwnColour": "Write {open}red:heavy{close} anywhere: the word turns red.",
+  "@notesGuideCoachOwnColour": {
+    "description": "Coach line of the own-markdown card; `red` is a preset colour name in every language, as the colour example uses it",
+    "placeholders": {
+      "open": {
+        "type": "String"
+      },
+      "close": {
+        "type": "String"
+      }
+    }
+  },
+  "notesGuideCoachOwnWiki": "Write [[Leg day]] in double brackets: a link to the note of that name.",
+  "@notesGuideCoachOwnWiki": {
+    "description": "Coach line of the own-markdown card"
+  },
+  "notesGuideCoachMoneySpend": "Add a line $- 25 shoes: another spend.",
+  "@notesGuideCoachMoneySpend": {
+    "description": "Coach line of the money card"
+  },
+  "notesGuideCoachMoneyAdd": "Add $+ 25 refund: money coming in.",
+  "@notesGuideCoachMoneyAdd": {
+    "description": "Coach line of the money card"
+  },
+  "notesGuideCoachMoneyTotal": "Type $$ on a line of its own: what is left, as a chip.",
+  "@notesGuideCoachMoneyTotal": {
+    "description": "Coach line of the money card"
+  },
+  "notesGuideReportTag": "In a note, tapping a tag lists every note that carries it.",
+  "@notesGuideReportTag": {
+    "description": "A Try it editor's report after a tap on a tag, which a sandbox cannot act on; never quotes the tag"
+  },
+  "notesGuideReportWiki": "In a note, tapping the link opens that note.",
+  "@notesGuideReportWiki": {
+    "description": "A Try it editor's report after a tap on a wiki link"
+  },
+  "notesGuideReportLink": "In a note, tapping a web link opens it in your browser.",
+  "@notesGuideReportLink": {
+    "description": "A Try it editor's report after a tap on a web link"
+  },
+  "notesGuideReportMoney": "In a note, tapping a total shows every line that went into it.",
+  "@notesGuideReportMoney": {
+    "description": "A Try it editor's report after a tap on a money chip"
+  },
   "appGuideSyncStopTitle": "Stopping",
   "appGuideSyncStopBody": "“{syncStop}” leaves your notes on this phone and stops sending and receiving; the copy in your account stays. “{signOut}” pauses sync for every database until you sign in again.",
   "@appGuideSyncStopBody": {

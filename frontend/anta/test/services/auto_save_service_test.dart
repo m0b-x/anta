@@ -79,12 +79,13 @@ class _Harness {
 
   String content = 'v0';
 
-  _Harness({Duration? saveInterval, Duration? debounceDelay}) {
+  _Harness({Duration? saveInterval, Duration? debounceDelay, bool? enabled}) {
     service = AutoSaveService(
       onSave: (title, content) => saver(title, content),
       onChangeDetected: changeFlags.add,
       saveInterval: saveInterval ?? const Duration(seconds: 30),
       debounceDelay: debounceDelay ?? const Duration(seconds: 5),
+      enabled: enabled ?? true,
     );
     service.saveStatusNotifier.addListener(_recordStatus);
   }
@@ -1163,6 +1164,203 @@ void main() {
         async.elapse(const Duration(minutes: 10));
 
         expect(h.saver.callCount, 1);
+      });
+    });
+  });
+
+  // Record D23: the Settings switch and slider reach the service. Off, no
+  // timer writes, but the flushes the no-lost-text bar rests on still do.
+  group('the auto-save settings', () {
+    test('off: no write after the debounce, none after the sweep', () {
+      fakeAsync((async) {
+        final h = _Harness(enabled: false)..track(initial: 'v0');
+
+        h.type('v1');
+        async.elapse(h.service.debounceDelay);
+        expect(h.saver.callCount, 0);
+        async.elapse(h.service.saveInterval * 2);
+
+        expect(h.saver.callCount, 0);
+        expect(h.service.hasPendingChanges, isTrue);
+        expect(h.service.saveStatusNotifier.value, SaveStatus.unsaved);
+        expect(h.changeFlags.last, isTrue);
+
+        h.dispose();
+      });
+    });
+
+    test('off: the exit flush still writes', () {
+      fakeAsync((async) {
+        final h = _Harness(enabled: false)..track(initial: 'v0');
+
+        h.type('v1');
+        unawaited(h.service.forceSave());
+        async.flushMicrotasks();
+
+        expect(h.saver.callCount, 1);
+        expect(h.saver.last.content, 'v1');
+        expect(h.service.saveStatusNotifier.value, SaveStatus.saved);
+
+        h.dispose();
+      });
+    });
+
+    test('off: a held flush still re-arms its debounce', () {
+      fakeAsync((async) {
+        final h = _Harness(enabled: false)..track(initial: 'v0');
+        h.saver.holds = 1;
+
+        h.type('v1');
+        unawaited(h.service.forceSave());
+        async.flushMicrotasks();
+        expect(h.saver.callCount, 1);
+        expect(h.service.saveStatusNotifier.value, SaveStatus.unsaved);
+
+        async.elapse(h.service.debounceDelay);
+
+        expect(h.saver.callCount, 2);
+        expect(h.service.hasPendingChanges, isFalse);
+
+        h.dispose();
+      });
+    });
+
+    test('off: a new delay while off keeps a held flush\'s re-armed write', () {
+      fakeAsync((async) {
+        final h = _Harness(enabled: false)..track(initial: 'v0');
+        h.saver.holds = 1;
+
+        h.type('v1');
+        unawaited(h.service.forceSave());
+        async.flushMicrotasks();
+        expect(h.saver.callCount, 1);
+
+        h.service.configure(
+          enabled: false,
+          debounceDelay: const Duration(seconds: 12),
+        );
+        async.elapse(const Duration(seconds: 5));
+
+        expect(h.saver.callCount, 2);
+        expect(h.saver.last.content, 'v1');
+        expect(h.service.hasPendingChanges, isFalse);
+
+        h.dispose();
+      });
+    });
+
+    test('turning it off cancels an armed debounce and the sweep', () {
+      fakeAsync((async) {
+        final h = _Harness()..track(initial: 'v0');
+
+        h.type('v1');
+        h.service.configure(
+          enabled: false,
+          debounceDelay: h.service.debounceDelay,
+        );
+        async.elapse(h.service.saveInterval * 2);
+
+        expect(h.saver.callCount, 0);
+        expect(h.service.hasPendingChanges, isTrue);
+
+        h.dispose();
+      });
+    });
+
+    test('on again with pending changes: one write after the new debounce', () {
+      fakeAsync((async) {
+        final h = _Harness(enabled: false)..track(initial: 'v0');
+
+        h.type('v1');
+        async.elapse(const Duration(seconds: 2));
+        h.service.configure(
+          enabled: true,
+          debounceDelay: const Duration(seconds: 8),
+        );
+        async.elapse(
+          const Duration(seconds: 8) - const Duration(milliseconds: 1),
+        );
+        expect(h.saver.callCount, 0);
+
+        async.elapse(const Duration(milliseconds: 1));
+        expect(h.saver.callCount, 1);
+        expect(h.saver.last.content, 'v1');
+
+        async.elapse(const Duration(seconds: 20));
+        expect(h.saver.callCount, 1);
+
+        h.dispose();
+      });
+    });
+
+    test('on again: the sweep runs again', () {
+      fakeAsync((async) {
+        final h = _Harness(enabled: false)..track(initial: 'v0');
+        h.service.configure(
+          enabled: true,
+          debounceDelay: h.service.saveInterval * 2,
+        );
+
+        h.type('v1');
+        async.elapse(h.service.saveInterval);
+
+        expect(h.saver.callCount, 1);
+
+        h.dispose();
+      });
+    });
+
+    test('an interval of 12 s writes at 12 s, not at 5 s', () {
+      fakeAsync((async) {
+        final h = _Harness()..track(initial: 'v0');
+        h.service.configure(
+          enabled: true,
+          debounceDelay: const Duration(seconds: 12),
+        );
+
+        h.type('v1');
+        async.elapse(const Duration(seconds: 5));
+        expect(h.saver.callCount, 0);
+
+        async.elapse(const Duration(seconds: 7));
+        expect(h.saver.callCount, 1);
+        expect(h.service.debounceDelay, const Duration(seconds: 12));
+        expect(h.service.saveInterval, const Duration(seconds: 30));
+
+        h.dispose();
+      });
+    });
+
+    test('the same values again keep a running deadline', () {
+      fakeAsync((async) {
+        final h = _Harness()..track(initial: 'v0');
+
+        h.type('v1');
+        async.elapse(const Duration(seconds: 3));
+        h.service.configure(
+          enabled: true,
+          debounceDelay: h.service.debounceDelay,
+        );
+        async.elapse(const Duration(seconds: 2));
+
+        expect(h.saver.callCount, 1);
+
+        h.dispose();
+      });
+    });
+
+    test('configured before tracking, tracking starts with no sweep', () {
+      fakeAsync((async) {
+        final h = _Harness();
+        h.service.configure(
+          enabled: false,
+          debounceDelay: h.service.debounceDelay,
+        );
+        h.track(initial: 'v0');
+
+        expect(async.pendingTimers, isEmpty);
+
+        h.dispose();
       });
     });
   });
