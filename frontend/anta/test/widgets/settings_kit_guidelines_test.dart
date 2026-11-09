@@ -27,13 +27,17 @@ import 'package:anta/models/app_permission.dart';
 import 'package:anta/models/app_user.dart';
 import 'package:anta/models/dev_options.dart';
 import 'package:anta/models/fasting_appearance.dart';
+import 'package:anta/models/guide_book.dart';
 import 'package:anta/models/label_style.dart';
+import 'package:anta/models/notes_guide_content.dart';
 import 'package:anta/models/pair_record.dart';
 import 'package:anta/models/sync_binding.dart';
 import 'package:anta/pages/alert_settings_page.dart';
 import 'package:anta/pages/calendar_settings_page.dart';
 import 'package:anta/pages/database_settings_page.dart';
 import 'package:anta/pages/fasting_settings_page.dart';
+import 'package:anta/pages/guide_hub_page.dart';
+import 'package:anta/pages/guide_topic_page.dart';
 import 'package:anta/pages/markdown_settings_page.dart';
 import 'package:anta/pages/note_bar_assignment_page.dart';
 import 'package:anta/pages/note_money_currency_page.dart';
@@ -317,6 +321,43 @@ void main() {
       handle.dispose();
     });
 
+    testWidgets('How to use ANTA meets the guidelines, ${cell.label}', (
+      tester,
+    ) async {
+      final handle = tester.ensureSemantics();
+      setGoldenSurface(tester, cell);
+      await tester.pumpWidget(goldenApp(cell, home: const GuideHubPage()));
+      await settle(tester);
+
+      expect(tester.takeException(), isNull);
+      await meetsAll(tester);
+      await tester.pumpWidget(const SizedBox.shrink());
+      handle.dispose();
+    });
+
+    // A page of example rows: the typed block, the preview and the caption
+    // under the same matchers as the read rows.
+    testWidgets('a notes guide page with examples meets the guidelines, '
+        '${cell.label}', (tester) async {
+      final handle = tester.ensureSemantics();
+      setGoldenSurface(tester, cell);
+      await tester.pumpWidget(
+        goldenApp(
+          cell,
+          home: const GuideTopicPage(
+            book: GuideBook.notes,
+            topic: NotesGuideTopic.markdown,
+          ),
+        ),
+      );
+      await settle(tester);
+
+      expect(tester.takeException(), isNull);
+      await meetsAll(tester);
+      await tester.pumpWidget(const SizedBox.shrink());
+      handle.dispose();
+    });
+
     testWidgets('the settings hub meets the guidelines, ${cell.label}', (
       tester,
     ) async {
@@ -374,16 +415,25 @@ void main() {
 
       expect(tester.takeException(), isNull);
       await meetsAll(tester);
-      // Read at the list's end, where [meetsAll] stopped: at 2.0 both rows
-      // sit below the first screen.
+      // Read back up from the list's end, where [meetsAll] stopped: at 2.0
+      // both rows sit below the first screen, and the How to section's three
+      // guide rows under them push them out of the built range at the end.
       final l10n = lookupAppLocalizations(cell.locale);
-      expect(find.text(l10n.permissionsRowAttention(1)), findsOneWidget);
-      expect(
+      final list = find
+          .descendant(
+            of: find.byType(SettingsSectionList),
+            matching: find.byType(Scrollable),
+          )
+          .first;
+      for (final row in [
+        find.text(l10n.permissionsRowAttention(1)),
         find.bySemanticsIdentifier(
           SemanticsIds.settingsHubRow('developerOptions'),
         ),
-        findsOneWidget,
-      );
+      ]) {
+        await tester.scrollUntilVisible(row, -200, scrollable: list);
+        expect(row, findsOneWidget);
+      }
       await tester.pumpWidget(const SizedBox.shrink());
       handle.dispose();
     });

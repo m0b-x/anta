@@ -29,7 +29,7 @@ existing grammar (`{{ }}` ghosts, `{cN}` shortcut tokens, list markers, tags).
 | `$/ 2` | Divide the balance (e.g. split a bill). |
 | `$$ label` | Show the running total at this point. |
 | `$? label` | Show the net change since the last `$=` (or note start). |
-| `$! 500 label` | Spending target: shows the remaining budget (target − spent since the last `$=`), green under budget, red over. Inert to the balance. |
+| `$! 500 label` | Declares a spending target and shows the target. A bare `$!` line below it shows what is left of it (target − spent since the declaration; `$=` checkpoints count as spending), green under, red over. Both are inert to the balance. |
 
 Amounts take `.` or `,` decimals (2 for `= + -`, 4 for `* /`; up to 8 integer
 digits for amounts, 4 for factors — so a single amount can never exceed the

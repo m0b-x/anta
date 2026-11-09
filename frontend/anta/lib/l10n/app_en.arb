@@ -12226,5 +12226,963 @@
         "example": "1650 hours"
       }
     }
+  },
+  "howToUseAntaDesc": "Calendar, notes, backup and settings",
+  "guideHubIntro": "Three short guides. Search here to look through all of them at once.",
+  "guideHubSectionGuides": "Guides",
+  "guideBookCalendarCaption": "The screen, events, alerts, attendance, the overview, a practice calendar",
+  "guideBookNotesTitle": "Notes and the editor",
+  "guideBookNotesCaption": "Folders, writing, markdown, lists, the money ledger, autocomplete, counters",
+  "guideBookAppTitle": "Backup, sync and settings",
+  "guideBookAppCaption": "The main menu, keeping a copy of your notes, syncing between phones, the settings",
+  "notesGuideIntro": "Tap a page. Each example shows what you type and what you get.",
+  "appGuideIntro": "Tap a page. Nothing here changes a setting.",
+  "guideExampleTyped": "You type",
+  "guideExampleShown": "You get",
+  "notesGuidePageBasics": "Folders and notes",
+  "notesGuidePageBasicsCaption": "Making a note, finding it again, moving, labelling, deleting",
+  "notesGuideBasicsLead": "ANTA keeps notes in folders, like pages in binders. The first screen holds your folders: make one there, and your notes go inside it.",
+  "notesGuideBasicsCreateTitle": "Making a note",
+  "notesGuideBasicsCreateBody": "Open a folder and tap “{newNote}” at the bottom. The note opens at once and is kept from the first letter. A title can come later: tap the title at the top to set it.",
+  "@notesGuideBasicsCreateBody": {
+    "placeholders": {
+      "newNote": {
+        "type": "String"
+      }
+    }
+  },
+  "notesGuideBasicsFoldersTitle": "Folders inside folders",
+  "notesGuideBasicsFoldersBody": "“{newFolder}” makes a folder where you are. Folders can hold folders, so a binder can have sections. Tap a folder to go in; the arrow at the top takes you back out.",
+  "@notesGuideBasicsFoldersBody": {
+    "placeholders": {
+      "newFolder": {
+        "type": "String"
+      }
+    }
+  },
+  "notesGuideBasicsSavedTitle": "There is no Save button",
+  "notesGuideBasicsSavedBody": "A note is saved on its own a few seconds after you stop typing, and again when you leave it. The word at the top of a note says “{saveStatusSaved}” when it is done.",
+  "@notesGuideBasicsSavedBody": {
+    "placeholders": {
+      "saveStatusSaved": {
+        "type": "String"
+      }
+    }
+  },
+  "notesGuideBasicsReopenTitle": "ANTA opens where you left it",
+  "notesGuideBasicsReopenBody": "Close the app in the middle of a note and it comes back to that note, on the same line. Folders remember their place too.",
+  "notesGuideBasicsMenuTitle": "A folder's ⋮ menu",
+  "notesGuideBasicsMenuBody": "“{renameFolder}”, “{moveToFolder}”, “{sortBy}”, “{shareFolder}” and “{importNoteOrFolder}” are in the ⋮ at the top of a folder; the first screen's ⋮ has only “{sortBy}”, “{select}” and “{importNoteOrFolder}”. “{select}” starts picking several notes at once.",
+  "@notesGuideBasicsMenuBody": {
+    "placeholders": {
+      "renameFolder": {
+        "type": "String"
+      },
+      "moveToFolder": {
+        "type": "String"
+      },
+      "sortBy": {
+        "type": "String"
+      },
+      "shareFolder": {
+        "type": "String"
+      },
+      "importNoteOrFolder": {
+        "type": "String"
+      },
+      "select": {
+        "type": "String"
+      }
+    }
+  },
+  "notesGuideBasicsHoldTitle": "Hold to select several",
+  "notesGuideBasicsHoldBody": "Hold a note or a folder to select it, then tap others to add them. A bar appears with “{moveSelected}”, “{labelSelected}”, “{shareSelected}” and “{deleteSelected}” for the whole selection.",
+  "@notesGuideBasicsHoldBody": {
+    "placeholders": {
+      "moveSelected": {
+        "type": "String"
+      },
+      "labelSelected": {
+        "type": "String"
+      },
+      "shareSelected": {
+        "type": "String"
+      },
+      "deleteSelected": {
+        "type": "String"
+      }
+    }
+  },
+  "notesGuideBasicsSortTitle": "Sorting and arranging",
+  "notesGuideBasicsSortBody": "“{sortNotes}” orders a folder by title, by date or by colour label. Choose “{sortByCustom}” to arrange notes and folders yourself, by dragging them.",
+  "@notesGuideBasicsSortBody": {
+    "placeholders": {
+      "sortNotes": {
+        "type": "String"
+      },
+      "sortByCustom": {
+        "type": "String"
+      }
+    }
+  },
+  "notesGuideBasicsLabelsTitle": "Colour labels",
+  "notesGuideBasicsLabelsBody": "“{labelAction}” gives a note or a folder a colour, drawn as a stripe along its edge. Sorting by “{sortByLabel}” groups them by colour.",
+  "@notesGuideBasicsLabelsBody": {
+    "placeholders": {
+      "labelAction": {
+        "type": "String"
+      },
+      "sortByLabel": {
+        "type": "String"
+      }
+    }
+  },
+  "notesGuideBasicsDeleteTitle": "Deleting",
+  "notesGuideBasicsDeleteBody": "Deleting asks first, and then it is final: there is no bin to take a note back from. A deleted folder takes its notes with it. The way back is a backup — the “{guideBookAppTitle}” guide shows how to keep one.",
+  "@notesGuideBasicsDeleteBody": {
+    "placeholders": {
+      "guideBookAppTitle": {
+        "type": "String"
+      }
+    }
+  },
+  "notesGuideBasicsSearchTitle": "Finding a note",
+  "notesGuideBasicsSearchBody": "The magnifier at the top searches every folder: titles and the text inside notes. Tap a result to open the note.",
+  "notesGuideBasicsAllTitle": "All notes, recent notes",
+  "notesGuideBasicsAllBody": "The first folder has two rows that are not folders: “{allNotes}” lists every note in one place and “{recent}” the ones you touched last.",
+  "@notesGuideBasicsAllBody": {
+    "placeholders": {
+      "allNotes": {
+        "type": "String"
+      },
+      "recent": {
+        "type": "String"
+      }
+    }
+  },
+  "notesGuidePageEditor": "Writing a note",
+  "notesGuidePageEditorCaption": "The screen, the bar above the keyboard, the ⋮ menu, undo, find",
+  "notesGuideEditorLead": "A note is a page of text. A few symbols shape it, and the bar above the keyboard types them for you.",
+  "notesGuideEditorLiveTitle": "You see the result as you type",
+  "notesGuideEditorLiveBody": "Type **bold** and the stars disappear, leaving bold text. The symbols show again only on the line you are on, so you can change them; move away and they hide.",
+  "notesGuideEditorBarTitle": "The bar above the keyboard",
+  "notesGuideEditorBarBody": "Each button writes a shape for you — “{headers}”, “{bulletList}”, “{checkbox}” — so you never have to remember a symbol. Select text first and the shape wraps it. The bar scrolls sideways; there is more to the right.",
+  "@notesGuideEditorBarBody": {
+    "placeholders": {
+      "headers": {
+        "type": "String"
+      },
+      "bulletList": {
+        "type": "String"
+      },
+      "checkbox": {
+        "type": "String"
+      }
+    }
+  },
+  "notesGuideEditorUndoTitle": "Undo and redo",
+  "notesGuideEditorUndoBody": "The two arrows on the bar take back or redo your last changes, as many steps as you need.",
+  "notesGuideEditorTitleTitle": "The title",
+  "notesGuideEditorTitleBody": "Tap the title at the top to change it. Two notes in one folder cannot share a title; ANTA tells you when one would.",
+  "notesGuideEditorMenuTitle": "The ⋮ menu",
+  "notesGuideEditorMenuBody": "“{shareNote}” hands the text to another app, “{moveToFolder}” files it elsewhere, “{labelAction}” colours it, “{openFolder}” shows where it lives and “{deleteNote}” removes it — after asking.",
+  "@notesGuideEditorMenuBody": {
+    "placeholders": {
+      "shareNote": {
+        "type": "String"
+      },
+      "moveToFolder": {
+        "type": "String"
+      },
+      "labelAction": {
+        "type": "String"
+      },
+      "openFolder": {
+        "type": "String"
+      },
+      "deleteNote": {
+        "type": "String"
+      }
+    }
+  },
+  "notesGuideEditorFindTitle": "Find in this note",
+  "notesGuideEditorFindBody": "The magnifier at the top searches this note only. The arrows step through the hits, tapping the counter lists them all, and the bar's options menu adds a field that replaces.",
+  "notesGuideEditorFontTitle": "Bigger or smaller text",
+  "notesGuideEditorFontBody": "“{decreaseFontSize}” and “{increaseFontSize}” on the bar change the text size of every note. Your phone's own text size applies on top.",
+  "@notesGuideEditorFontBody": {
+    "placeholders": {
+      "decreaseFontSize": {
+        "type": "String"
+      },
+      "increaseFontSize": {
+        "type": "String"
+      }
+    }
+  },
+  "notesGuideEditorTapTitle": "Things you can tap",
+  "notesGuideEditorTapBody": "Tap a checkbox to tick it, a #tag to find every note that has it, a [[note link]] to open that note, a $$ total to see what went into it, a web link to open it.",
+  "notesGuidePageMarkdown": "Markdown basics",
+  "notesGuidePageMarkdownCaption": "Headings, bold, lists, checkboxes, quotes, links, tables",
+  "notesGuideMarkdownLead": "Markdown is a handful of symbols that shape plain text. Type them, or let the bar do it.",
+  "notesGuideExHeadingSource": "# Leg day\n## Warm-up\nFive minutes on the bike",
+  "notesGuideExHeadingCaption": "A # and a space start a heading. Two make a smaller one.",
+  "notesGuideExEmphasisSource": "**Heavy** day, *felt good*, ~~skipped~~ the rows, ==new record==",
+  "notesGuideExEmphasisCaption": "Two stars make bold, one star italic, two tildes cross out, two equals signs highlight.",
+  "notesGuideExListSource": "- Squat\n- Bench\n- Row",
+  "notesGuideExListCaption": "A dash and a space make a bullet. Enter at the end of an item starts the next; Enter on an empty item ends the list.",
+  "notesGuideExNumberedSource": "1. Warm up\n2. Work sets\n3. Stretch",
+  "notesGuideExNumberedCaption": "A number and a dot make a numbered list. Enter continues the count for you.",
+  "notesGuideExTaskSource": "- [ ] Water\n- [x] Protein",
+  "notesGuideExTaskCaption": "A dash, a space and [ ] make a checkbox. Tap it to tick it; the bar's “{checkbox}” button starts one.",
+  "@notesGuideExTaskCaption": {
+    "placeholders": {
+      "checkbox": {
+        "type": "String"
+      }
+    }
+  },
+  "notesGuideExQuoteSource": "> Form before weight",
+  "notesGuideExQuoteCaption": "A > sets a line apart as a quote, with a bar at its left.",
+  "notesGuideExLinkSource": "[Program](https://example.com)",
+  "notesGuideExLinkCaption": "Text in square brackets, the address in round ones. Tap the text to open the address.",
+  "notesGuideMarkdownTableTitle": "Tables, lightly",
+  "notesGuideMarkdownTableBody": "Cells between vertical bars make a table row. ANTA keeps such a row in a fixed-width font so the columns line up; the bar's “{shortcutTable}” button writes an empty one.",
+  "@notesGuideMarkdownTableBody": {
+    "placeholders": {
+      "shortcutTable": {
+        "type": "String"
+      }
+    }
+  },
+  "notesGuidePageLists": "Lists and nesting",
+  "notesGuidePageListsCaption": "Continuing a list, nesting items, pulling them back, checkboxes",
+  "notesGuideListsLead": "Most notes are lists: exercises, sets, groceries. ANTA keeps them tidy while you type.",
+  "notesGuideExNestedSource": "- Legs\n  - Squat 5×5\n  - Lunges\n- Back\n  - Deadlift",
+  "notesGuideExNestedCaption": "An item pushed in under another is nested. It gets a hollow bullet; a third level gets a square.",
+  "notesGuideListsEnterTitle": "Enter continues the list",
+  "notesGuideListsEnterBody": "Enter at the end of an item starts the next at the same depth — a checkbox item starts another empty box, a numbered item the next number. Enter on an empty item moves it out one level; on an outermost item it ends the list and leaves a plain line.",
+  "notesGuideListsNestTitle": "Three ways to nest",
+  "notesGuideListsNestBody": "On an empty item, press Space once to push it under the item above. Or swipe the line you are on to the right. Or tap the bar's indent arrow. Swipe left, tap the outdent arrow, or press Enter on an empty item to pull it back out.",
+  "notesGuideListsCapTitle": "One step at a time",
+  "notesGuideListsCapBody": "An item can sit one level deeper than the item above it, never more, so a list cannot wander off the screen.",
+  "notesGuideListsTaskTitle": "Ticking off",
+  "notesGuideListsTaskBody": "Tap a checkbox to tick it and tap it again to clear it. The keyboard stays where it is, so a list of sets can be ticked off mid-workout.",
+  "notesGuidePageOwn": "ANTA's own markdown",
+  "notesGuidePageOwnCaption": "Tags, callouts, colours, placeholders, links between notes, today's date",
+  "notesGuideOwnLead": "A few shapes are ANTA's own. Each has a button on the bar too.",
+  "notesGuideExTagSource": "Deadlift 140 kg #pr #legday",
+  "notesGuideExTagCaption": "A word after # is a tag. Tap it to find every note that carries it.",
+  "notesGuideExCalloutSource": "> [!TIP]\n> Warm up before the heavy sets",
+  "notesGuideExCalloutCaption": "A quote that starts with [!TIP] becomes a coloured box with an icon. NOTE, WARNING, IMPORTANT, SUCCESS and QUESTION work the same way in place of TIP.",
+  "notesGuideExColourSource": "{open}red:Max effort{close} and ==green:done==",
+  "@notesGuideExColourSource": {
+    "placeholders": {
+      "open": {
+        "type": "String"
+      },
+      "close": {
+        "type": "String"
+      }
+    }
+  },
+  "notesGuideExColourCaption": "A colour name before the text colours it; inside two equals signs it colours the highlight. The names are red, orange, yellow, green, teal, blue, purple, pink and gray — or your own, from “{markdownColorsTitle}”.",
+  "@notesGuideExColourCaption": {
+    "placeholders": {
+      "markdownColorsTitle": {
+        "type": "String"
+      }
+    }
+  },
+  "notesGuideExGhostSource": "Squat {open}{open}weight{close}{close} kg × {open}{open}reps{close}{close}",
+  "@notesGuideExGhostSource": {
+    "placeholders": {
+      "open": {
+        "type": "String"
+      },
+      "close": {
+        "type": "String"
+      }
+    }
+  },
+  "notesGuideExGhostCaption": "Text in double braces is a placeholder, shown dimmed. Tap it and type to fill it in — a template for a workout you repeat. The bar's “{shortcutGhostText}” button makes one.",
+  "@notesGuideExGhostCaption": {
+    "placeholders": {
+      "shortcutGhostText": {
+        "type": "String"
+      }
+    }
+  },
+  "notesGuideExWikiSource": "Same warm-up as [[Leg day]]",
+  "notesGuideExWikiCaption": "A note's title in double brackets links to that note. Tap it to open the note; if no note has that title, ANTA says so.",
+  "notesGuideOwnDateTitle": "Today's date",
+  "notesGuideOwnDateBody": "The bar's “{currentDate}” button types today's date, so a log line starts itself.",
+  "@notesGuideOwnDateBody": {
+    "placeholders": {
+      "currentDate": {
+        "type": "String"
+      }
+    }
+  },
+  "notesGuidePageMoney": "The money ledger",
+  "notesGuidePageMoneyCaption": "Lines that start with $ add up",
+  "notesGuideMoneyLead": "Any note can keep a running total. Switch on “{moneyLedgerEnabledLabel}” in “{settingsRowEditor}” › “{moneySection}” first; then lines that start with $ are the ledger and everything else stays ordinary text.",
+  "@notesGuideMoneyLead": {
+    "placeholders": {
+      "moneyLedgerEnabledLabel": {
+        "type": "String"
+      },
+      "settingsRowEditor": {
+        "type": "String"
+      },
+      "moneySection": {
+        "type": "String"
+      }
+    }
+  },
+  "notesGuideExMoneyBasicSource": "$= 500 budget\n$- 40 gym\n$+ 25 refund\n$$ left",
+  "notesGuideExMoneyBasicCaption": "$= sets the starting amount, $- spends, $+ adds — each shows the balance after it in grey. $$ shows the total so far as a coloured chip.",
+  "notesGuideExMoneyMonthsSource": "## March\n$= 500\n$- 120 shoes\n$? March",
+  "notesGuideExMoneyMonthsCaption": "$? shows how much changed since the last $=. One $= under each month's heading makes a monthly ledger.",
+  "notesGuideExMoneyTargetSource": "$= 500\n$! 300 groceries\n$- 120 groceries\n$!",
+  "notesGuideExMoneyTargetCaption": "$! with an amount sets a target. A $! on its own shows what is left of it after the spending since then — green while under, red when over. Neither changes the balance.",
+  "notesGuideMoneyTapTitle": "Tap a total",
+  "notesGuideMoneyTapBody": "Tap a $$ or $? value to see every line that went into it.",
+  "notesGuideMoneyMoreTitle": "Multiply and divide",
+  "notesGuideMoneyMoreBody": "$* 1.19 multiplies the balance, for a tax; $/ 2 divides it, for a bill split in two.",
+  "notesGuideMoneySettingsTitle": "Currency and start balance",
+  "notesGuideMoneySettingsBody": "“{settingsRowEditor}” › “{moneySection}” also sets the symbol, where it goes and a start balance every note begins from; a single note can have its own currency. If $ lines show as plain text, “{moneyLedgerEnabledLabel}” is still off there.",
+  "@notesGuideMoneySettingsBody": {
+    "placeholders": {
+      "settingsRowEditor": {
+        "type": "String"
+      },
+      "moneySection": {
+        "type": "String"
+      },
+      "moneyLedgerEnabledLabel": {
+        "type": "String"
+      }
+    }
+  },
+  "notesGuideMoneyCalendarTitle": "On the calendar",
+  "notesGuideMoneyCalendarBody": "An event's linked note shows its money on the calendar: a bar under the day and the month's total in the header.",
+  "notesGuideMoneyButtonsTitle": "On the bar",
+  "notesGuideMoneyButtonsBody": "Each ledger line has a button: “{shortcutMoneyAdd}”, “{shortcutMoneySubtract}”, “{shortcutMoneyStart}”, “{shortcutMoneyTotal}”, “{shortcutMoneyChange}”, “{shortcutMoneyTarget}”.",
+  "@notesGuideMoneyButtonsBody": {
+    "placeholders": {
+      "shortcutMoneyAdd": {
+        "type": "String"
+      },
+      "shortcutMoneySubtract": {
+        "type": "String"
+      },
+      "shortcutMoneyStart": {
+        "type": "String"
+      },
+      "shortcutMoneyTotal": {
+        "type": "String"
+      },
+      "shortcutMoneyChange": {
+        "type": "String"
+      },
+      "shortcutMoneyTarget": {
+        "type": "String"
+      }
+    }
+  },
+  "notesGuidePageBar": "The bar",
+  "notesGuidePageBarCaption": "Rearranging buttons, your own shortcuts, several bars",
+  "notesGuideBarLead": "The bar above the keyboard is yours to arrange. Everything about it lives in “{settingsRowEditor}”.",
+  "@notesGuideBarLead": {
+    "placeholders": {
+      "settingsRowEditor": {
+        "type": "String"
+      }
+    }
+  },
+  "notesGuideBarShortcutsTitle": "Shortcuts",
+  "notesGuideBarShortcutsBody": "Each button is a shortcut: text it types, or wraps around what you selected. In “{shortcuts}”, drag to reorder them, hide the ones you never use, or change what one types.",
+  "@notesGuideBarShortcutsBody": {
+    "placeholders": {
+      "shortcuts": {
+        "type": "String"
+      }
+    }
+  },
+  "notesGuideBarOwnTitle": "Your own shortcut",
+  "notesGuideBarOwnBody": "Tap + in “{shortcuts}” to make one. A line you type often — a set format, the heading you start every day with — becomes a button.",
+  "@notesGuideBarOwnBody": {
+    "placeholders": {
+      "shortcuts": {
+        "type": "String"
+      }
+    }
+  },
+  "notesGuideBarUtilityTitle": "Utility buttons",
+  "notesGuideBarUtilityBody": "Undo, redo, indent, paste, text size, share, counters, jump to the top or the bottom: “{utilityButtons}” chooses which of them show, and in what order.",
+  "@notesGuideBarUtilityBody": {
+    "placeholders": {
+      "utilityButtons": {
+        "type": "String"
+      }
+    }
+  },
+  "notesGuideBarReorderTitle": "Rearrange from the note",
+  "notesGuideBarReorderBody": "The bar's “{reorderShortcuts}” button turns the buttons into chips you can drag, right there in the note.",
+  "@notesGuideBarReorderBody": {
+    "placeholders": {
+      "reorderShortcuts": {
+        "type": "String"
+      }
+    }
+  },
+  "notesGuideBarProfilesTitle": "Several bars",
+  "notesGuideBarProfilesBody": "“{manageBarProfiles}” keeps more than one bar — one for workouts, one for money. With two or more, the bar's “{switchBar}” button changes the bar for the note you are in, and “{perNoteBarAssignment}” lists those choices.",
+  "@notesGuideBarProfilesBody": {
+    "placeholders": {
+      "manageBarProfiles": {
+        "type": "String"
+      },
+      "switchBar": {
+        "type": "String"
+      },
+      "perNoteBarAssignment": {
+        "type": "String"
+      }
+    }
+  },
+  "notesGuideBarLayoutTitle": "Two strips or one",
+  "notesGuideBarLayoutBody": "“{splitToolbar}” keeps the utility buttons in a strip of their own at the right, scrolling apart from your shortcuts; “{pinUndoRedo}” keeps undo and redo in view while the rest of the bar scrolls.",
+  "@notesGuideBarLayoutBody": {
+    "placeholders": {
+      "splitToolbar": {
+        "type": "String"
+      },
+      "pinUndoRedo": {
+        "type": "String"
+      }
+    }
+  },
+  "notesGuidePageAutocomplete": "Autocomplete",
+  "notesGuidePageAutocompleteCaption": "Your own word lists, offered while you type",
+  "notesGuideAutocompleteLead": "Give ANTA your lists — exercises, meals, clients — and it offers them as you type, so a long name is one tap.",
+  "notesGuideAutoListsTitle": "Make a list",
+  "notesGuideAutoListsBody": "“{settingsRowEditor}” › “{vocabularySection}” › “{manageVocabularies}”: one entry per line. A line starting with ;; is a heading inside the list and is never offered.",
+  "@notesGuideAutoListsBody": {
+    "placeholders": {
+      "settingsRowEditor": {
+        "type": "String"
+      },
+      "vocabularySection": {
+        "type": "String"
+      },
+      "manageVocabularies": {
+        "type": "String"
+      }
+    }
+  },
+  "notesGuideAutoTriggerTitle": "Type @ and a few letters",
+  "notesGuideAutoTriggerBody": "After a space, type the trigger (“{vocabularyTriggerLabel}”, @ unless you change it) and the start of a word: @ben offers Bench press. Tap the suggestion and it is typed for you, as plain text.",
+  "@notesGuideAutoTriggerBody": {
+    "placeholders": {
+      "vocabularyTriggerLabel": {
+        "type": "String"
+      }
+    }
+  },
+  "notesGuideAutoScopeTitle": "One list only",
+  "notesGuideAutoScopeBody": "Name the list before a colon — @exercises:ben — and only that list is searched. Two names with a comma between them search both.",
+  "notesGuideAutoGhostTitle": "Placeholders know your lists",
+  "notesGuideAutoGhostBody": "Tap a placeholder whose name matches one of your lists — {open}{open}exercise{close}{close} for a list called Exercises — and that list is offered. A template fills itself in two taps.",
+  "@notesGuideAutoGhostBody": {
+    "placeholders": {
+      "open": {
+        "type": "String"
+      },
+      "close": {
+        "type": "String"
+      }
+    }
+  },
+  "notesGuideAutoIgnoreTitle": "Ignoring it costs nothing",
+  "notesGuideAutoIgnoreBody": "Keep typing and the suggestions close; what you typed stays exactly as it is. “{vocabularySuggestionsLabel}” turns the feature off altogether.",
+  "@notesGuideAutoIgnoreBody": {
+    "placeholders": {
+      "vocabularySuggestionsLabel": {
+        "type": "String"
+      }
+    }
+  },
+  "notesGuidePageCounters": "Counters",
+  "notesGuidePageCountersCaption": "Numbers you tap up: sets, glasses of water, days in a row",
+  "notesGuideCountersLead": "A counter is a number with its own + button. Keep one across the app, or one per note.",
+  "notesGuideCountersMakeTitle": "Make one",
+  "notesGuideCountersMakeBody": "“{counterSettings}” in the main menu lists your counters. “{addCounter}” makes a new one: give it a name, a start value and a step.",
+  "@notesGuideCountersMakeBody": {
+    "placeholders": {
+      "counterSettings": {
+        "type": "String"
+      },
+      "addCounter": {
+        "type": "String"
+      }
+    }
+  },
+  "notesGuideCountersNoteTitle": "From inside a note",
+  "notesGuideCountersNoteBody": "The bar's “{counterInsertTooltip}” button lists your counters. Pick one: it goes up by one step and the new number is typed where you are.",
+  "@notesGuideCountersNoteBody": {
+    "placeholders": {
+      "counterInsertTooltip": {
+        "type": "String"
+      }
+    }
+  },
+  "notesGuideCountersScopeTitle": "Across the app, or per note",
+  "notesGuideCountersScopeBody": "“{counterScope}” decides: “{counterScopeGlobalDesc}”, or “{counterScopePerNoteDesc}” — a tally that belongs to that note alone.",
+  "@notesGuideCountersScopeBody": {
+    "placeholders": {
+      "counterScope": {
+        "type": "String"
+      },
+      "counterScopeGlobalDesc": {
+        "type": "String"
+      },
+      "counterScopePerNoteDesc": {
+        "type": "String"
+      }
+    }
+  },
+  "notesGuideCountersPinTitle": "Pinning",
+  "notesGuideCountersPinBody": "“{pinCounter}” keeps a counter at the top of the list, so the ones you use every day come first.",
+  "@notesGuideCountersPinBody": {
+    "placeholders": {
+      "pinCounter": {
+        "type": "String"
+      }
+    }
+  },
+  "notesGuideCountersShortcutTitle": "A button that counts",
+  "notesGuideCountersShortcutBody": "In “{shortcuts}”, a shortcut can be bound to a counter (“{counterBindingsTitle}”): each tap can count it up and type its number — one button per set.",
+  "@notesGuideCountersShortcutBody": {
+    "placeholders": {
+      "shortcuts": {
+        "type": "String"
+      },
+      "counterBindingsTitle": {
+        "type": "String"
+      }
+    }
+  },
+  "notesGuidePageSettings": "Where the settings are",
+  "notesGuidePageSettingsCaption": "Which page holds what",
+  "notesGuideSettingsLead": "“{settingsHubTitle}” in the main menu lists every settings page with a line on what it holds; its search finds the page that holds a section by the section's name.",
+  "@notesGuideSettingsLead": {
+    "placeholders": {
+      "settingsHubTitle": {
+        "type": "String"
+      }
+    }
+  },
+  "notesGuideSettingsGeneralTitle": "“{settingsRowGeneral}”",
+  "@notesGuideSettingsGeneralTitle": {
+    "placeholders": {
+      "settingsRowGeneral": {
+        "type": "String"
+      }
+    }
+  },
+  "notesGuideSettingsGeneralBody": "{settingsRowGeneralDesc}: what opens at launch, how a folder shows its notes, the editor's line wrapping and line numbers.",
+  "@notesGuideSettingsGeneralBody": {
+    "placeholders": {
+      "settingsRowGeneralDesc": {
+        "type": "String"
+      }
+    }
+  },
+  "notesGuideSettingsEditorTitle": "“{settingsRowEditor}”",
+  "@notesGuideSettingsEditorTitle": {
+    "placeholders": {
+      "settingsRowEditor": {
+        "type": "String"
+      }
+    }
+  },
+  "notesGuideSettingsEditorBody": "Shortcuts and bars, utility buttons, text colours, the money ledger, autocomplete — each a section you can fold away.",
+  "notesGuideSettingsCountersTitle": "“{counterSettings}”",
+  "@notesGuideSettingsCountersTitle": {
+    "placeholders": {
+      "counterSettings": {
+        "type": "String"
+      }
+    }
+  },
+  "notesGuideSettingsCountersBody": "Your counters, their pins, and which of them vary per note.",
+  "notesGuideSettingsLookTitle": "“{settingsRowTheme}” and “{languageSettings}”",
+  "@notesGuideSettingsLookTitle": {
+    "placeholders": {
+      "settingsRowTheme": {
+        "type": "String"
+      },
+      "languageSettings": {
+        "type": "String"
+      }
+    }
+  },
+  "notesGuideSettingsLookBody": "{themeSettingsDesc}; English, German or Romanian. Text size follows your phone's setting.",
+  "@notesGuideSettingsLookBody": {
+    "placeholders": {
+      "themeSettingsDesc": {
+        "type": "String"
+      }
+    }
+  },
+  "notesGuideSettingsPerNoteTitle": "What a single note can have",
+  "notesGuideSettingsPerNoteBody": "Its own bar, its own currency and its own counter values. Everything else is shared by all notes.",
+  "notesGuidePageSafe": "Nothing gets lost",
+  "notesGuidePageSafeCaption": "Auto-save, the word at the top, the way back",
+  "notesGuideSafeLead": "ANTA is built so a note survives anything short of losing the phone.",
+  "notesGuideSafeAutosaveTitle": "Saved as you go",
+  "notesGuideSafeAutosaveBody": "Text is saved a few seconds after you stop typing and every half minute while you keep going; a save that fails is retried. The most you could lose is the last moment.",
+  "notesGuideSafeStatusTitle": "The word at the top",
+  "notesGuideSafeStatusBody": "“{saveStatusSaved}”, “{saveStatusSaving}” or “{saveStatusUnsaved}” — a glance says where things stand. “{saveStatusError}” means the phone refused the write; keep going, ANTA tries again.",
+  "@notesGuideSafeStatusBody": {
+    "placeholders": {
+      "saveStatusSaved": {
+        "type": "String"
+      },
+      "saveStatusSaving": {
+        "type": "String"
+      },
+      "saveStatusUnsaved": {
+        "type": "String"
+      },
+      "saveStatusError": {
+        "type": "String"
+      }
+    }
+  },
+  "notesGuideSafeEventTitle": "A note on an event",
+  "notesGuideSafeEventBody": "A calendar event can point to a note (“{eventLinkedNote}”): the plan for a session, what it cost. Open the note from the event.",
+  "@notesGuideSafeEventBody": {
+    "placeholders": {
+      "eventLinkedNote": {
+        "type": "String"
+      }
+    }
+  },
+  "notesGuideSafeBackupTitle": "The way back",
+  "notesGuideSafeBackupBody": "Deleting is final, and this phone holds the only copy until you keep another. The “{guideBookAppTitle}” guide shows how to back up and how to sync.",
+  "@notesGuideSafeBackupBody": {
+    "placeholders": {
+      "guideBookAppTitle": {
+        "type": "String"
+      }
+    }
+  },
+  "notesGuideSafeShareTitle": "Getting text out",
+  "notesGuideSafeShareBody": "“{shareNote}” hands a note to any other app — a message, mail, a drive — as a file in the format you pick.",
+  "@notesGuideSafeShareBody": {
+    "placeholders": {
+      "shareNote": {
+        "type": "String"
+      }
+    }
+  },
+  "appGuidePageMenu": "The main menu",
+  "appGuidePageMenuCaption": "What the ☰ at the top left holds",
+  "appGuideMenuLead": "The ☰ at the top left opens the main menu. It lists places, not settings: every row is somewhere you go.",
+  "appGuideMenuAccountTitle": "The top row",
+  "appGuideMenuAccountBody": "Once you are signed in, the top row shows who it is and when the notes last synced — or “{drawerAccountNotSyncing}” while sync is off. Tap it to open “{sharingSettings}”.",
+  "@appGuideMenuAccountBody": {
+    "placeholders": {
+      "drawerAccountNotSyncing": {
+        "type": "String"
+      },
+      "sharingSettings": {
+        "type": "String"
+      }
+    }
+  },
+  "appGuideMenuCalendarTitle": "“{calendar}”",
+  "@appGuideMenuCalendarTitle": {
+    "placeholders": {
+      "calendar": {
+        "type": "String"
+      }
+    }
+  },
+  "appGuideMenuCalendarBody": "“{calendar}” is the month; “{calendarOverview}” lists what is coming; “{reportTitle}” counts what you did; “{calendarCategories}” and “{alertsTitle}” manage colours and alerts. The “{calendarGuideTitle}” guide, under “{howToUseAnta}”, explains them all.",
+  "@appGuideMenuCalendarBody": {
+    "placeholders": {
+      "calendar": {
+        "type": "String"
+      },
+      "calendarOverview": {
+        "type": "String"
+      },
+      "reportTitle": {
+        "type": "String"
+      },
+      "calendarCategories": {
+        "type": "String"
+      },
+      "alertsTitle": {
+        "type": "String"
+      },
+      "calendarGuideTitle": {
+        "type": "String"
+      },
+      "howToUseAnta": {
+        "type": "String"
+      }
+    }
+  },
+  "appGuideMenuNotesTitle": "“{notes}”",
+  "@appGuideMenuNotesTitle": {
+    "placeholders": {
+      "notes": {
+        "type": "String"
+      }
+    }
+  },
+  "appGuideMenuNotesBody": "“{counterSettings}”: your counters and their pins. The notes themselves are not in the menu: they are the folders ANTA opens on.",
+  "@appGuideMenuNotesBody": {
+    "placeholders": {
+      "counterSettings": {
+        "type": "String"
+      }
+    }
+  },
+  "appGuideMenuAppTitle": "“{appGroupLabel}”",
+  "@appGuideMenuAppTitle": {
+    "placeholders": {
+      "appGroupLabel": {
+        "type": "String"
+      }
+    }
+  },
+  "appGuideMenuAppBody": "“{settingsHubTitle}” holds every setting; “{howToUseAnta}” is this guide; “{about}” shows the version.",
+  "@appGuideMenuAppBody": {
+    "placeholders": {
+      "settingsHubTitle": {
+        "type": "String"
+      },
+      "howToUseAnta": {
+        "type": "String"
+      },
+      "about": {
+        "type": "String"
+      }
+    }
+  },
+  "appGuideMenuBackTitle": "Going back",
+  "appGuideMenuBackBody": "The arrow at the top left, or your phone's back gesture, returns to where you came from — in the end, to your folders.",
+  "appGuidePageSettings": "Settings worth knowing",
+  "appGuidePageSettingsCaption": "Dark mode, language, permissions, where ANTA opens",
+  "appGuideSettingsLead": "Everything is in “{settingsHubTitle}”. These are the settings a newcomer meets first.",
+  "@appGuideSettingsLead": {
+    "placeholders": {
+      "settingsHubTitle": {
+        "type": "String"
+      }
+    }
+  },
+  "appGuideSettingsThemeTitle": "“{settingsRowTheme}”",
+  "@appGuideSettingsThemeTitle": {
+    "placeholders": {
+      "settingsRowTheme": {
+        "type": "String"
+      }
+    }
+  },
+  "appGuideSettingsThemeBody": "{themeSettingsDesc}. Text size follows your phone's own setting.",
+  "@appGuideSettingsThemeBody": {
+    "placeholders": {
+      "themeSettingsDesc": {
+        "type": "String"
+      }
+    }
+  },
+  "appGuideSettingsLanguageTitle": "“{languageSettings}”",
+  "@appGuideSettingsLanguageTitle": {
+    "placeholders": {
+      "languageSettings": {
+        "type": "String"
+      }
+    }
+  },
+  "appGuideSettingsLanguageBody": "English, German or Romanian, for the whole app.",
+  "appGuideSettingsPermissionsTitle": "“{permissionsTitle}”",
+  "@appGuideSettingsPermissionsTitle": {
+    "placeholders": {
+      "permissionsTitle": {
+        "type": "String"
+      }
+    }
+  },
+  "appGuideSettingsPermissionsBody": "What the phone lets ANTA do: ring an alarm, show a notification, and so on. When something needed is off, the “{settingsHubTitle}” row in the main menu says so in red.",
+  "@appGuideSettingsPermissionsBody": {
+    "placeholders": {
+      "settingsHubTitle": {
+        "type": "String"
+      }
+    }
+  },
+  "appGuideSettingsStartupTitle": "Where ANTA opens",
+  "appGuideSettingsStartupBody": "“{settingsRowGeneral}” › “{startupSection}”: “{restoreLocation}” chooses what ANTA reopens after a restart — everything, only your folders and notes, or nothing, so it always starts at your folders.",
+  "@appGuideSettingsStartupBody": {
+    "placeholders": {
+      "settingsRowGeneral": {
+        "type": "String"
+      },
+      "startupSection": {
+        "type": "String"
+      },
+      "restoreLocation": {
+        "type": "String"
+      }
+    }
+  },
+  "appGuideSettingsSearchTitle": "Finding a setting",
+  "appGuideSettingsSearchBody": "The search at the top of “{settingsHubTitle}” looks through every page's sections: type “{autoSaveSection}” or “{languageSettings}” and the page that holds it appears.",
+  "@appGuideSettingsSearchBody": {
+    "placeholders": {
+      "settingsHubTitle": {
+        "type": "String"
+      },
+      "autoSaveSection": {
+        "type": "String"
+      },
+      "languageSettings": {
+        "type": "String"
+      }
+    }
+  },
+  "appGuidePageBackup": "Backup and restore",
+  "appGuidePageBackupCaption": "Keeping a copy of your notes, and getting it back",
+  "appGuideBackupLead": "Your notes live on this phone. A copy somewhere else is what makes a lost phone a nuisance instead of a loss.",
+  "appGuideBackupFolderTitle": "Share a folder",
+  "appGuideBackupFolderBody": "“{shareFolder}” in a folder's ⋮ menu packs it — notes and subfolders — into one file and hands it to another app: mail it to yourself, or drop it in a drive.",
+  "@appGuideBackupFolderBody": {
+    "placeholders": {
+      "shareFolder": {
+        "type": "String"
+      }
+    }
+  },
+  "appGuideBackupSelectionTitle": "Share a selection",
+  "appGuideBackupSelectionBody": "Hold to select notes and folders, then “{shareSelected}” packs just those.",
+  "@appGuideBackupSelectionBody": {
+    "placeholders": {
+      "shareSelected": {
+        "type": "String"
+      }
+    }
+  },
+  "appGuideBackupImportTitle": "Bring a copy back",
+  "appGuideBackupImportBody": "“{importNoteOrFolder}” in a folder's ⋮ menu takes such a file — or a single markdown file — and puts its notes in that folder.",
+  "@appGuideBackupImportBody": {
+    "placeholders": {
+      "importNoteOrFolder": {
+        "type": "String"
+      }
+    }
+  },
+  "appGuideBackupDatabaseTitle": "The whole database",
+  "appGuideBackupDatabaseBody": "“{settingsRowDatabases}” in “{settingsHubTitle}” works on everything at once: “{shareDatabase}” sends one file with every folder, note, counter and event; “{importDatabase}” loads such a file as a new database.",
+  "@appGuideBackupDatabaseBody": {
+    "placeholders": {
+      "settingsRowDatabases": {
+        "type": "String"
+      },
+      "settingsHubTitle": {
+        "type": "String"
+      },
+      "shareDatabase": {
+        "type": "String"
+      },
+      "importDatabase": {
+        "type": "String"
+      }
+    }
+  },
+  "appGuideBackupSwitchTitle": "More than one database",
+  "appGuideBackupSwitchBody": "You can keep several databases — work and home — and switch between them on the same page. ANTA restarts on the one you pick.",
+  "appGuideBackupFirstRunTitle": "On a new phone",
+  "appGuideBackupFirstRunBody": "The first screen offers “{restoreFromBackup}”: pick a backup file and everything is back before you have made a single note.",
+  "@appGuideBackupFirstRunBody": {
+    "placeholders": {
+      "restoreFromBackup": {
+        "type": "String"
+      }
+    }
+  },
+  "appGuidePageSync": "Sync between phones",
+  "appGuidePageSyncCaption": "Sign in once, the same notes on every device",
+  "appGuideSyncLead": "Sync keeps a copy of a database in your account and sends every change to your other devices. It is off until you turn it on.",
+  "appGuideSyncSignInTitle": "Sign in",
+  "appGuideSyncSignInBody": "“{sharingSettings}” in “{settingsHubTitle}”: “{signInWithGoogle}”. Your notes stay on the phone; signing in alone sends nothing.",
+  "@appGuideSyncSignInBody": {
+    "placeholders": {
+      "sharingSettings": {
+        "type": "String"
+      },
+      "settingsHubTitle": {
+        "type": "String"
+      },
+      "signInWithGoogle": {
+        "type": "String"
+      }
+    }
+  },
+  "appGuideSyncOnTitle": "Turn it on",
+  "appGuideSyncOnBody": "“{syncThisDatabase}” on the same page starts syncing the database you are using. {syncThisDatabaseDesc}.",
+  "@appGuideSyncOnBody": {
+    "placeholders": {
+      "syncThisDatabase": {
+        "type": "String"
+      },
+      "syncThisDatabaseDesc": {
+        "type": "String"
+      }
+    }
+  },
+  "appGuideSyncStatusTitle": "Where it stands",
+  "appGuideSyncStatusBody": "The page says “{syncUpToDate}”, “{syncOffline}” or how many changes are waiting; the main menu's top row shows when it last synced. Nothing is lost offline: changes go once the connection is back, and “{syncNow}” does not wait.",
+  "@appGuideSyncStatusBody": {
+    "placeholders": {
+      "syncUpToDate": {
+        "type": "String"
+      },
+      "syncOffline": {
+        "type": "String"
+      },
+      "syncNow": {
+        "type": "String"
+      }
+    }
+  },
+  "appGuideSyncOtherTitle": "On the other phone",
+  "appGuideSyncOtherBody": "Sign in with the same account and turn “{syncThisDatabase}” on there too. ANTA lists the spaces in your account; pick yours and it is downloaded into a new database on that phone. After that, only changes travel.",
+  "@appGuideSyncOtherBody": {
+    "placeholders": {
+      "syncThisDatabase": {
+        "type": "String"
+      }
+    }
+  },
+  "appGuideSyncConflictTitle": "Two phones, one note",
+  "appGuideSyncConflictBody": "If the same note changes in two places, ANTA keeps both: the other version is filed beside yours as a copy, so nothing is overwritten.",
+  "appGuideSyncStopTitle": "Stopping",
+  "appGuideSyncStopBody": "“{syncStop}” leaves your notes on this phone and stops sending and receiving; the copy in your account stays. “{signOut}” pauses sync for every database until you sign in again.",
+  "@appGuideSyncStopBody": {
+    "placeholders": {
+      "syncStop": {
+        "type": "String"
+      },
+      "signOut": {
+        "type": "String"
+      }
+    }
   }
 }

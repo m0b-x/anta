@@ -173,7 +173,7 @@ void main() {
     'permissions',
     'developerOptions',
   ];
-  const howToRows = ['calendarGuide'];
+  const howToRows = ['calendarGuide', 'notesGuide', 'appGuide'];
   const allRows = [...calendarRows, ...notesRows, ...appRows, ...howToRows];
 
   testWidgets('every row sits in its section, by id', (tester) async {
@@ -245,6 +245,8 @@ void main() {
       ('syncSettings', NavDestinationKind.syncSettings),
       ('permissions', NavDestinationKind.permissions),
       ('calendarGuide', NavDestinationKind.calendarGuide),
+      ('notesGuide', NavDestinationKind.notesGuide),
+      ('appGuide', NavDestinationKind.appGuide),
     ]) {
       testWidgets('$kind is stamped ${stamp.name}', (tester) async {
         await pumpHub(tester);

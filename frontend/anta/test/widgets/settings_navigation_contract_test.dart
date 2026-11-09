@@ -26,6 +26,7 @@ import 'package:anta/l10n/app_localizations_en.dart';
 import 'package:anta/models/counter.dart';
 import 'package:anta/models/dev_options.dart';
 import 'package:anta/models/fasting_appearance.dart';
+import 'package:anta/models/guide_book.dart';
 import 'package:anta/models/nav_destination.dart';
 import 'package:anta/pages/alert_settings_page.dart';
 import 'package:anta/pages/alerts_page.dart';
@@ -43,6 +44,8 @@ import 'package:anta/pages/database_settings_page.dart';
 import 'package:anta/pages/developer_options_page.dart';
 import 'package:anta/pages/event_templates_page.dart';
 import 'package:anta/pages/fasting_settings_page.dart';
+import 'package:anta/pages/guide_book_page.dart';
+import 'package:anta/pages/guide_hub_page.dart';
 import 'package:anta/pages/markdown_colors_page.dart';
 import 'package:anta/pages/markdown_settings_page.dart';
 import 'package:anta/pages/note_bar_assignment_page.dart';
@@ -1032,6 +1035,34 @@ void main() {
       await teardownApp(tester);
     });
 
+    // Both kinds rebuild the same page type; only its book tells them apart.
+    testWidgets('a restored notesGuide opens the notes book and appGuide the '
+        'app book', (tester) async {
+      const books = {
+        NavDestinationKind.notesGuide: GuideBook.notes,
+        NavDestinationKind.appGuide: GuideBook.app,
+      };
+      await saveStack(tester, [
+        for (final kind in books.keys) destinationOf(kind),
+      ]);
+      await pumpApp(tester);
+      observer.clear();
+
+      await restore(tester);
+
+      expect(observer.pageRoutes, hasLength(books.length));
+      for (final route in observer.pageRoutes) {
+        final kind = (route.settings.arguments! as NavDestination).kind;
+        expect(
+          (pageOf(route) as GuideBookPage).book,
+          books[kind],
+          reason: kind.name,
+        );
+      }
+
+      await teardownApp(tester);
+    });
+
     for (final kind in _restorable.keys) {
       testWidgets('a restored ${kind.name} popped lands beneath with no '
           'drawer raised (D3)', (tester) async {
@@ -1227,7 +1258,11 @@ void main() {
     testWidgets('a stack stored before reportSettings existed restores '
         'unchanged: the kind is appended after fastingSettings, so no stored '
         'name moves', (tester) async {
-      expect(NavDestinationKind.values.last, NavDestinationKind.reportSettings);
+      expect(
+        NavDestinationKind.values.indexOf(NavDestinationKind.reportSettings),
+        NavDestinationKind.values.indexOf(NavDestinationKind.fastingSettings) +
+            1,
+      );
       final db = await tester.runAsync(AppDatabase.getInstance);
       await tester.runAsync(
         () => db!.userSettingsDao.setValue(
@@ -1509,8 +1544,8 @@ final _drawerRows = <_Row>[
   _Row(
     name: 'How to use ANTA',
     rowId: SemanticsIds.drawerHowTo,
-    pageType: CalendarGuidePage,
-    stamp: const NavDestination(NavDestinationKind.calendarGuide),
+    pageType: GuideHubPage,
+    stamp: const NavDestination(NavDestinationKind.guideHub),
   ),
 ];
 
@@ -1616,6 +1651,18 @@ final _hubRows = <_Row>[
     pageType: CalendarGuidePage,
     stamp: const NavDestination(NavDestinationKind.calendarGuide),
   ),
+  _Row(
+    name: 'Notes and the editor',
+    rowId: SemanticsIds.settingsHubRow('notesGuide'),
+    pageType: GuideBookPage,
+    stamp: const NavDestination(NavDestinationKind.notesGuide),
+  ),
+  _Row(
+    name: 'Backup, sync and settings',
+    rowId: SemanticsIds.settingsHubRow('appGuide'),
+    pageType: GuideBookPage,
+    stamp: const NavDestination(NavDestinationKind.appGuide),
+  ),
 ];
 
 _Row _row(String rowId) => _hubRows.singleWhere((row) => row.rowId == rowId);
@@ -1645,6 +1692,9 @@ const _restorable = <NavDestinationKind, Type>{
   NavDestinationKind.alertSettings: AlertSettingsPage,
   NavDestinationKind.fastingSettings: FastingSettingsPage,
   NavDestinationKind.reportSettings: CalendarReportSettingsPage,
+  NavDestinationKind.guideHub: GuideHubPage,
+  NavDestinationKind.notesGuide: GuideBookPage,
+  NavDestinationKind.appGuide: GuideBookPage,
 };
 
 class _RecordingObserver extends NavigatorObserver {

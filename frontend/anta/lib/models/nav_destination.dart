@@ -47,7 +47,12 @@ enum NavDestinationKind {
   developerOptions,
   alertSettings,
   fastingSettings,
-  reportSettings;
+  reportSettings,
+
+  /// "How to use ANTA" and its two books (`docs/guide-hub-roadmap.md` D9).
+  guideHub,
+  notesGuide,
+  appGuide;
 
   /// Whether this destination belongs to the folder/note substrate rather
   /// than to the calendar or settings layered on top. Backs the "folders and

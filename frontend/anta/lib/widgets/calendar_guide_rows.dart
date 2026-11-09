@@ -15,11 +15,18 @@ const TextStyle calendarGuideParagraphStyle = TextStyle(
 
 /// [row] as a kit entry, searchable by its title and paragraph, drawn the same
 /// on its page and among the hub's search results.
-SettingsEntry calendarGuideReadEntry(CalendarGuideRow row) {
+///
+/// [identifier] is the calendar guide's row id unless given: the notes and
+/// app books draw their rows through here under ids of their own
+/// (`SemanticsIds.guideBookRow`) rather than through a copy of the row.
+SettingsEntry calendarGuideReadEntry(
+  CalendarGuideRow row, {
+  String? identifier,
+}) {
   return SettingsEntry(
     title: row.title,
     description: row.body,
-    identifier: SemanticsIds.calendarGuideRow(row.slug),
+    identifier: identifier ?? SemanticsIds.calendarGuideRow(row.slug),
     descriptionStyle: calendarGuideParagraphStyle,
     builder: (context, title, description) => CalendarGuideReadRow(
       icon: row.icon,
@@ -48,12 +55,12 @@ class CalendarGuideReadRow extends StatelessWidget {
     final colorScheme = Theme.of(context).colorScheme;
     return MergeSemantics(
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+        padding: GuideMetrics.readRowPadding,
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             ExcludeSemantics(child: Icon(icon, color: colorScheme.primary)),
-            const SizedBox(width: 16),
+            const SizedBox(width: GuideMetrics.readRowGlyphGap),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,

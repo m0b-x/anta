@@ -10,6 +10,7 @@ import '../core/di/injection.dart';
 import '../l10n/app_localizations.dart';
 import '../models/custom_markdown_shortcut.dart';
 import '../models/dev_options.dart';
+import '../models/guide_book.dart';
 import '../services/app_navigator.dart';
 import '../services/permission_service.dart';
 import '../utils/settings_search.dart';
@@ -439,6 +440,25 @@ class _SettingsHubPageState extends State<SettingsHubPage> {
               () => AppNavigator.toCalendarGuide(context),
             ),
           ),
+          // The two books beside the calendar's guide (D10 of
+          // docs/guide-hub-roadmap.md), found by their pages' titles.
+          for (final (kind, book) in const [
+            ('notesGuide', GuideBook.notes),
+            ('appGuide', GuideBook.app),
+          ])
+            SettingsEntry(
+              title: book.title(l10n),
+              description: book.caption(l10n),
+              keywords: [for (final topic in book.topics) topic.title(l10n)],
+              identifier: SemanticsIds.settingsHubRow(kind),
+              builder: (_, title, description) => _pageRow(
+                colorScheme,
+                book.icon,
+                title,
+                description,
+                () => AppNavigator.toGuideBook(context, book),
+              ),
+            ),
         ],
       ),
     ];

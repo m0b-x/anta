@@ -14310,6 +14310,1578 @@ abstract class AppLocalizations {
     String hours,
     String lastHours,
   );
+
+  /// No description provided for @howToUseAntaDesc.
+  ///
+  /// In en, this message translates to:
+  /// **'Calendar, notes, backup and settings'**
+  String get howToUseAntaDesc;
+
+  /// No description provided for @guideHubIntro.
+  ///
+  /// In en, this message translates to:
+  /// **'Three short guides. Search here to look through all of them at once.'**
+  String get guideHubIntro;
+
+  /// No description provided for @guideHubSectionGuides.
+  ///
+  /// In en, this message translates to:
+  /// **'Guides'**
+  String get guideHubSectionGuides;
+
+  /// No description provided for @guideBookCalendarCaption.
+  ///
+  /// In en, this message translates to:
+  /// **'The screen, events, alerts, attendance, the overview, a practice calendar'**
+  String get guideBookCalendarCaption;
+
+  /// No description provided for @guideBookNotesTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Notes and the editor'**
+  String get guideBookNotesTitle;
+
+  /// No description provided for @guideBookNotesCaption.
+  ///
+  /// In en, this message translates to:
+  /// **'Folders, writing, markdown, lists, the money ledger, autocomplete, counters'**
+  String get guideBookNotesCaption;
+
+  /// No description provided for @guideBookAppTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Backup, sync and settings'**
+  String get guideBookAppTitle;
+
+  /// No description provided for @guideBookAppCaption.
+  ///
+  /// In en, this message translates to:
+  /// **'The main menu, keeping a copy of your notes, syncing between phones, the settings'**
+  String get guideBookAppCaption;
+
+  /// No description provided for @notesGuideIntro.
+  ///
+  /// In en, this message translates to:
+  /// **'Tap a page. Each example shows what you type and what you get.'**
+  String get notesGuideIntro;
+
+  /// No description provided for @appGuideIntro.
+  ///
+  /// In en, this message translates to:
+  /// **'Tap a page. Nothing here changes a setting.'**
+  String get appGuideIntro;
+
+  /// No description provided for @guideExampleTyped.
+  ///
+  /// In en, this message translates to:
+  /// **'You type'**
+  String get guideExampleTyped;
+
+  /// No description provided for @guideExampleShown.
+  ///
+  /// In en, this message translates to:
+  /// **'You get'**
+  String get guideExampleShown;
+
+  /// No description provided for @notesGuidePageBasics.
+  ///
+  /// In en, this message translates to:
+  /// **'Folders and notes'**
+  String get notesGuidePageBasics;
+
+  /// No description provided for @notesGuidePageBasicsCaption.
+  ///
+  /// In en, this message translates to:
+  /// **'Making a note, finding it again, moving, labelling, deleting'**
+  String get notesGuidePageBasicsCaption;
+
+  /// No description provided for @notesGuideBasicsLead.
+  ///
+  /// In en, this message translates to:
+  /// **'ANTA keeps notes in folders, like pages in binders. The first screen holds your folders: make one there, and your notes go inside it.'**
+  String get notesGuideBasicsLead;
+
+  /// No description provided for @notesGuideBasicsCreateTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Making a note'**
+  String get notesGuideBasicsCreateTitle;
+
+  /// No description provided for @notesGuideBasicsCreateBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Open a folder and tap “{newNote}” at the bottom. The note opens at once and is kept from the first letter. A title can come later: tap the title at the top to set it.'**
+  String notesGuideBasicsCreateBody(String newNote);
+
+  /// No description provided for @notesGuideBasicsFoldersTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Folders inside folders'**
+  String get notesGuideBasicsFoldersTitle;
+
+  /// No description provided for @notesGuideBasicsFoldersBody.
+  ///
+  /// In en, this message translates to:
+  /// **'“{newFolder}” makes a folder where you are. Folders can hold folders, so a binder can have sections. Tap a folder to go in; the arrow at the top takes you back out.'**
+  String notesGuideBasicsFoldersBody(String newFolder);
+
+  /// No description provided for @notesGuideBasicsSavedTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'There is no Save button'**
+  String get notesGuideBasicsSavedTitle;
+
+  /// No description provided for @notesGuideBasicsSavedBody.
+  ///
+  /// In en, this message translates to:
+  /// **'A note is saved on its own a few seconds after you stop typing, and again when you leave it. The word at the top of a note says “{saveStatusSaved}” when it is done.'**
+  String notesGuideBasicsSavedBody(String saveStatusSaved);
+
+  /// No description provided for @notesGuideBasicsReopenTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'ANTA opens where you left it'**
+  String get notesGuideBasicsReopenTitle;
+
+  /// No description provided for @notesGuideBasicsReopenBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Close the app in the middle of a note and it comes back to that note, on the same line. Folders remember their place too.'**
+  String get notesGuideBasicsReopenBody;
+
+  /// No description provided for @notesGuideBasicsMenuTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'A folder\'s ⋮ menu'**
+  String get notesGuideBasicsMenuTitle;
+
+  /// No description provided for @notesGuideBasicsMenuBody.
+  ///
+  /// In en, this message translates to:
+  /// **'“{renameFolder}”, “{moveToFolder}”, “{sortBy}”, “{shareFolder}” and “{importNoteOrFolder}” are in the ⋮ at the top of a folder; the first screen\'s ⋮ has only “{sortBy}”, “{select}” and “{importNoteOrFolder}”. “{select}” starts picking several notes at once.'**
+  String notesGuideBasicsMenuBody(
+    String renameFolder,
+    String moveToFolder,
+    String sortBy,
+    String shareFolder,
+    String importNoteOrFolder,
+    String select,
+  );
+
+  /// No description provided for @notesGuideBasicsHoldTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Hold to select several'**
+  String get notesGuideBasicsHoldTitle;
+
+  /// No description provided for @notesGuideBasicsHoldBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Hold a note or a folder to select it, then tap others to add them. A bar appears with “{moveSelected}”, “{labelSelected}”, “{shareSelected}” and “{deleteSelected}” for the whole selection.'**
+  String notesGuideBasicsHoldBody(
+    String moveSelected,
+    String labelSelected,
+    String shareSelected,
+    String deleteSelected,
+  );
+
+  /// No description provided for @notesGuideBasicsSortTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Sorting and arranging'**
+  String get notesGuideBasicsSortTitle;
+
+  /// No description provided for @notesGuideBasicsSortBody.
+  ///
+  /// In en, this message translates to:
+  /// **'“{sortNotes}” orders a folder by title, by date or by colour label. Choose “{sortByCustom}” to arrange notes and folders yourself, by dragging them.'**
+  String notesGuideBasicsSortBody(String sortNotes, String sortByCustom);
+
+  /// No description provided for @notesGuideBasicsLabelsTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Colour labels'**
+  String get notesGuideBasicsLabelsTitle;
+
+  /// No description provided for @notesGuideBasicsLabelsBody.
+  ///
+  /// In en, this message translates to:
+  /// **'“{labelAction}” gives a note or a folder a colour, drawn as a stripe along its edge. Sorting by “{sortByLabel}” groups them by colour.'**
+  String notesGuideBasicsLabelsBody(String labelAction, String sortByLabel);
+
+  /// No description provided for @notesGuideBasicsDeleteTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Deleting'**
+  String get notesGuideBasicsDeleteTitle;
+
+  /// No description provided for @notesGuideBasicsDeleteBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Deleting asks first, and then it is final: there is no bin to take a note back from. A deleted folder takes its notes with it. The way back is a backup — the “{guideBookAppTitle}” guide shows how to keep one.'**
+  String notesGuideBasicsDeleteBody(String guideBookAppTitle);
+
+  /// No description provided for @notesGuideBasicsSearchTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Finding a note'**
+  String get notesGuideBasicsSearchTitle;
+
+  /// No description provided for @notesGuideBasicsSearchBody.
+  ///
+  /// In en, this message translates to:
+  /// **'The magnifier at the top searches every folder: titles and the text inside notes. Tap a result to open the note.'**
+  String get notesGuideBasicsSearchBody;
+
+  /// No description provided for @notesGuideBasicsAllTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'All notes, recent notes'**
+  String get notesGuideBasicsAllTitle;
+
+  /// No description provided for @notesGuideBasicsAllBody.
+  ///
+  /// In en, this message translates to:
+  /// **'The first folder has two rows that are not folders: “{allNotes}” lists every note in one place and “{recent}” the ones you touched last.'**
+  String notesGuideBasicsAllBody(String allNotes, String recent);
+
+  /// No description provided for @notesGuidePageEditor.
+  ///
+  /// In en, this message translates to:
+  /// **'Writing a note'**
+  String get notesGuidePageEditor;
+
+  /// No description provided for @notesGuidePageEditorCaption.
+  ///
+  /// In en, this message translates to:
+  /// **'The screen, the bar above the keyboard, the ⋮ menu, undo, find'**
+  String get notesGuidePageEditorCaption;
+
+  /// No description provided for @notesGuideEditorLead.
+  ///
+  /// In en, this message translates to:
+  /// **'A note is a page of text. A few symbols shape it, and the bar above the keyboard types them for you.'**
+  String get notesGuideEditorLead;
+
+  /// No description provided for @notesGuideEditorLiveTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'You see the result as you type'**
+  String get notesGuideEditorLiveTitle;
+
+  /// No description provided for @notesGuideEditorLiveBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Type **bold** and the stars disappear, leaving bold text. The symbols show again only on the line you are on, so you can change them; move away and they hide.'**
+  String get notesGuideEditorLiveBody;
+
+  /// No description provided for @notesGuideEditorBarTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'The bar above the keyboard'**
+  String get notesGuideEditorBarTitle;
+
+  /// No description provided for @notesGuideEditorBarBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Each button writes a shape for you — “{headers}”, “{bulletList}”, “{checkbox}” — so you never have to remember a symbol. Select text first and the shape wraps it. The bar scrolls sideways; there is more to the right.'**
+  String notesGuideEditorBarBody(
+    String headers,
+    String bulletList,
+    String checkbox,
+  );
+
+  /// No description provided for @notesGuideEditorUndoTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Undo and redo'**
+  String get notesGuideEditorUndoTitle;
+
+  /// No description provided for @notesGuideEditorUndoBody.
+  ///
+  /// In en, this message translates to:
+  /// **'The two arrows on the bar take back or redo your last changes, as many steps as you need.'**
+  String get notesGuideEditorUndoBody;
+
+  /// No description provided for @notesGuideEditorTitleTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'The title'**
+  String get notesGuideEditorTitleTitle;
+
+  /// No description provided for @notesGuideEditorTitleBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Tap the title at the top to change it. Two notes in one folder cannot share a title; ANTA tells you when one would.'**
+  String get notesGuideEditorTitleBody;
+
+  /// No description provided for @notesGuideEditorMenuTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'The ⋮ menu'**
+  String get notesGuideEditorMenuTitle;
+
+  /// No description provided for @notesGuideEditorMenuBody.
+  ///
+  /// In en, this message translates to:
+  /// **'“{shareNote}” hands the text to another app, “{moveToFolder}” files it elsewhere, “{labelAction}” colours it, “{openFolder}” shows where it lives and “{deleteNote}” removes it — after asking.'**
+  String notesGuideEditorMenuBody(
+    String shareNote,
+    String moveToFolder,
+    String labelAction,
+    String openFolder,
+    String deleteNote,
+  );
+
+  /// No description provided for @notesGuideEditorFindTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Find in this note'**
+  String get notesGuideEditorFindTitle;
+
+  /// No description provided for @notesGuideEditorFindBody.
+  ///
+  /// In en, this message translates to:
+  /// **'The magnifier at the top searches this note only. The arrows step through the hits, tapping the counter lists them all, and the bar\'s options menu adds a field that replaces.'**
+  String get notesGuideEditorFindBody;
+
+  /// No description provided for @notesGuideEditorFontTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Bigger or smaller text'**
+  String get notesGuideEditorFontTitle;
+
+  /// No description provided for @notesGuideEditorFontBody.
+  ///
+  /// In en, this message translates to:
+  /// **'“{decreaseFontSize}” and “{increaseFontSize}” on the bar change the text size of every note. Your phone\'s own text size applies on top.'**
+  String notesGuideEditorFontBody(
+    String decreaseFontSize,
+    String increaseFontSize,
+  );
+
+  /// No description provided for @notesGuideEditorTapTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Things you can tap'**
+  String get notesGuideEditorTapTitle;
+
+  /// No description provided for @notesGuideEditorTapBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Tap a checkbox to tick it, a #tag to find every note that has it, a [[note link]] to open that note, a \$\$ total to see what went into it, a web link to open it.'**
+  String get notesGuideEditorTapBody;
+
+  /// No description provided for @notesGuidePageMarkdown.
+  ///
+  /// In en, this message translates to:
+  /// **'Markdown basics'**
+  String get notesGuidePageMarkdown;
+
+  /// No description provided for @notesGuidePageMarkdownCaption.
+  ///
+  /// In en, this message translates to:
+  /// **'Headings, bold, lists, checkboxes, quotes, links, tables'**
+  String get notesGuidePageMarkdownCaption;
+
+  /// No description provided for @notesGuideMarkdownLead.
+  ///
+  /// In en, this message translates to:
+  /// **'Markdown is a handful of symbols that shape plain text. Type them, or let the bar do it.'**
+  String get notesGuideMarkdownLead;
+
+  /// No description provided for @notesGuideExHeadingSource.
+  ///
+  /// In en, this message translates to:
+  /// **'# Leg day\n## Warm-up\nFive minutes on the bike'**
+  String get notesGuideExHeadingSource;
+
+  /// No description provided for @notesGuideExHeadingCaption.
+  ///
+  /// In en, this message translates to:
+  /// **'A # and a space start a heading. Two make a smaller one.'**
+  String get notesGuideExHeadingCaption;
+
+  /// No description provided for @notesGuideExEmphasisSource.
+  ///
+  /// In en, this message translates to:
+  /// **'**Heavy** day, *felt good*, ~~skipped~~ the rows, ==new record=='**
+  String get notesGuideExEmphasisSource;
+
+  /// No description provided for @notesGuideExEmphasisCaption.
+  ///
+  /// In en, this message translates to:
+  /// **'Two stars make bold, one star italic, two tildes cross out, two equals signs highlight.'**
+  String get notesGuideExEmphasisCaption;
+
+  /// No description provided for @notesGuideExListSource.
+  ///
+  /// In en, this message translates to:
+  /// **'- Squat\n- Bench\n- Row'**
+  String get notesGuideExListSource;
+
+  /// No description provided for @notesGuideExListCaption.
+  ///
+  /// In en, this message translates to:
+  /// **'A dash and a space make a bullet. Enter at the end of an item starts the next; Enter on an empty item ends the list.'**
+  String get notesGuideExListCaption;
+
+  /// No description provided for @notesGuideExNumberedSource.
+  ///
+  /// In en, this message translates to:
+  /// **'1. Warm up\n2. Work sets\n3. Stretch'**
+  String get notesGuideExNumberedSource;
+
+  /// No description provided for @notesGuideExNumberedCaption.
+  ///
+  /// In en, this message translates to:
+  /// **'A number and a dot make a numbered list. Enter continues the count for you.'**
+  String get notesGuideExNumberedCaption;
+
+  /// No description provided for @notesGuideExTaskSource.
+  ///
+  /// In en, this message translates to:
+  /// **'- [ ] Water\n- [x] Protein'**
+  String get notesGuideExTaskSource;
+
+  /// No description provided for @notesGuideExTaskCaption.
+  ///
+  /// In en, this message translates to:
+  /// **'A dash, a space and [ ] make a checkbox. Tap it to tick it; the bar\'s “{checkbox}” button starts one.'**
+  String notesGuideExTaskCaption(String checkbox);
+
+  /// No description provided for @notesGuideExQuoteSource.
+  ///
+  /// In en, this message translates to:
+  /// **'> Form before weight'**
+  String get notesGuideExQuoteSource;
+
+  /// No description provided for @notesGuideExQuoteCaption.
+  ///
+  /// In en, this message translates to:
+  /// **'A > sets a line apart as a quote, with a bar at its left.'**
+  String get notesGuideExQuoteCaption;
+
+  /// No description provided for @notesGuideExLinkSource.
+  ///
+  /// In en, this message translates to:
+  /// **'[Program](https://example.com)'**
+  String get notesGuideExLinkSource;
+
+  /// No description provided for @notesGuideExLinkCaption.
+  ///
+  /// In en, this message translates to:
+  /// **'Text in square brackets, the address in round ones. Tap the text to open the address.'**
+  String get notesGuideExLinkCaption;
+
+  /// No description provided for @notesGuideMarkdownTableTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Tables, lightly'**
+  String get notesGuideMarkdownTableTitle;
+
+  /// No description provided for @notesGuideMarkdownTableBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Cells between vertical bars make a table row. ANTA keeps such a row in a fixed-width font so the columns line up; the bar\'s “{shortcutTable}” button writes an empty one.'**
+  String notesGuideMarkdownTableBody(String shortcutTable);
+
+  /// No description provided for @notesGuidePageLists.
+  ///
+  /// In en, this message translates to:
+  /// **'Lists and nesting'**
+  String get notesGuidePageLists;
+
+  /// No description provided for @notesGuidePageListsCaption.
+  ///
+  /// In en, this message translates to:
+  /// **'Continuing a list, nesting items, pulling them back, checkboxes'**
+  String get notesGuidePageListsCaption;
+
+  /// No description provided for @notesGuideListsLead.
+  ///
+  /// In en, this message translates to:
+  /// **'Most notes are lists: exercises, sets, groceries. ANTA keeps them tidy while you type.'**
+  String get notesGuideListsLead;
+
+  /// No description provided for @notesGuideExNestedSource.
+  ///
+  /// In en, this message translates to:
+  /// **'- Legs\n  - Squat 5×5\n  - Lunges\n- Back\n  - Deadlift'**
+  String get notesGuideExNestedSource;
+
+  /// No description provided for @notesGuideExNestedCaption.
+  ///
+  /// In en, this message translates to:
+  /// **'An item pushed in under another is nested. It gets a hollow bullet; a third level gets a square.'**
+  String get notesGuideExNestedCaption;
+
+  /// No description provided for @notesGuideListsEnterTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter continues the list'**
+  String get notesGuideListsEnterTitle;
+
+  /// No description provided for @notesGuideListsEnterBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter at the end of an item starts the next at the same depth — a checkbox item starts another empty box, a numbered item the next number. Enter on an empty item moves it out one level; on an outermost item it ends the list and leaves a plain line.'**
+  String get notesGuideListsEnterBody;
+
+  /// No description provided for @notesGuideListsNestTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Three ways to nest'**
+  String get notesGuideListsNestTitle;
+
+  /// No description provided for @notesGuideListsNestBody.
+  ///
+  /// In en, this message translates to:
+  /// **'On an empty item, press Space once to push it under the item above. Or swipe the line you are on to the right. Or tap the bar\'s indent arrow. Swipe left, tap the outdent arrow, or press Enter on an empty item to pull it back out.'**
+  String get notesGuideListsNestBody;
+
+  /// No description provided for @notesGuideListsCapTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'One step at a time'**
+  String get notesGuideListsCapTitle;
+
+  /// No description provided for @notesGuideListsCapBody.
+  ///
+  /// In en, this message translates to:
+  /// **'An item can sit one level deeper than the item above it, never more, so a list cannot wander off the screen.'**
+  String get notesGuideListsCapBody;
+
+  /// No description provided for @notesGuideListsTaskTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Ticking off'**
+  String get notesGuideListsTaskTitle;
+
+  /// No description provided for @notesGuideListsTaskBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Tap a checkbox to tick it and tap it again to clear it. The keyboard stays where it is, so a list of sets can be ticked off mid-workout.'**
+  String get notesGuideListsTaskBody;
+
+  /// No description provided for @notesGuidePageOwn.
+  ///
+  /// In en, this message translates to:
+  /// **'ANTA\'s own markdown'**
+  String get notesGuidePageOwn;
+
+  /// No description provided for @notesGuidePageOwnCaption.
+  ///
+  /// In en, this message translates to:
+  /// **'Tags, callouts, colours, placeholders, links between notes, today\'s date'**
+  String get notesGuidePageOwnCaption;
+
+  /// No description provided for @notesGuideOwnLead.
+  ///
+  /// In en, this message translates to:
+  /// **'A few shapes are ANTA\'s own. Each has a button on the bar too.'**
+  String get notesGuideOwnLead;
+
+  /// No description provided for @notesGuideExTagSource.
+  ///
+  /// In en, this message translates to:
+  /// **'Deadlift 140 kg #pr #legday'**
+  String get notesGuideExTagSource;
+
+  /// No description provided for @notesGuideExTagCaption.
+  ///
+  /// In en, this message translates to:
+  /// **'A word after # is a tag. Tap it to find every note that carries it.'**
+  String get notesGuideExTagCaption;
+
+  /// No description provided for @notesGuideExCalloutSource.
+  ///
+  /// In en, this message translates to:
+  /// **'> [!TIP]\n> Warm up before the heavy sets'**
+  String get notesGuideExCalloutSource;
+
+  /// No description provided for @notesGuideExCalloutCaption.
+  ///
+  /// In en, this message translates to:
+  /// **'A quote that starts with [!TIP] becomes a coloured box with an icon. NOTE, WARNING, IMPORTANT, SUCCESS and QUESTION work the same way in place of TIP.'**
+  String get notesGuideExCalloutCaption;
+
+  /// No description provided for @notesGuideExColourSource.
+  ///
+  /// In en, this message translates to:
+  /// **'{open}red:Max effort{close} and ==green:done=='**
+  String notesGuideExColourSource(String open, String close);
+
+  /// No description provided for @notesGuideExColourCaption.
+  ///
+  /// In en, this message translates to:
+  /// **'A colour name before the text colours it; inside two equals signs it colours the highlight. The names are red, orange, yellow, green, teal, blue, purple, pink and gray — or your own, from “{markdownColorsTitle}”.'**
+  String notesGuideExColourCaption(String markdownColorsTitle);
+
+  /// No description provided for @notesGuideExGhostSource.
+  ///
+  /// In en, this message translates to:
+  /// **'Squat {open}{open}weight{close}{close} kg × {open}{open}reps{close}{close}'**
+  String notesGuideExGhostSource(String open, String close);
+
+  /// No description provided for @notesGuideExGhostCaption.
+  ///
+  /// In en, this message translates to:
+  /// **'Text in double braces is a placeholder, shown dimmed. Tap it and type to fill it in — a template for a workout you repeat. The bar\'s “{shortcutGhostText}” button makes one.'**
+  String notesGuideExGhostCaption(String shortcutGhostText);
+
+  /// No description provided for @notesGuideExWikiSource.
+  ///
+  /// In en, this message translates to:
+  /// **'Same warm-up as [[Leg day]]'**
+  String get notesGuideExWikiSource;
+
+  /// No description provided for @notesGuideExWikiCaption.
+  ///
+  /// In en, this message translates to:
+  /// **'A note\'s title in double brackets links to that note. Tap it to open the note; if no note has that title, ANTA says so.'**
+  String get notesGuideExWikiCaption;
+
+  /// No description provided for @notesGuideOwnDateTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Today\'s date'**
+  String get notesGuideOwnDateTitle;
+
+  /// No description provided for @notesGuideOwnDateBody.
+  ///
+  /// In en, this message translates to:
+  /// **'The bar\'s “{currentDate}” button types today\'s date, so a log line starts itself.'**
+  String notesGuideOwnDateBody(String currentDate);
+
+  /// No description provided for @notesGuidePageMoney.
+  ///
+  /// In en, this message translates to:
+  /// **'The money ledger'**
+  String get notesGuidePageMoney;
+
+  /// No description provided for @notesGuidePageMoneyCaption.
+  ///
+  /// In en, this message translates to:
+  /// **'Lines that start with \$ add up'**
+  String get notesGuidePageMoneyCaption;
+
+  /// No description provided for @notesGuideMoneyLead.
+  ///
+  /// In en, this message translates to:
+  /// **'Any note can keep a running total. Switch on “{moneyLedgerEnabledLabel}” in “{settingsRowEditor}” › “{moneySection}” first; then lines that start with \$ are the ledger and everything else stays ordinary text.'**
+  String notesGuideMoneyLead(
+    String moneyLedgerEnabledLabel,
+    String settingsRowEditor,
+    String moneySection,
+  );
+
+  /// No description provided for @notesGuideExMoneyBasicSource.
+  ///
+  /// In en, this message translates to:
+  /// **'\$= 500 budget\n\$- 40 gym\n\$+ 25 refund\n\$\$ left'**
+  String get notesGuideExMoneyBasicSource;
+
+  /// No description provided for @notesGuideExMoneyBasicCaption.
+  ///
+  /// In en, this message translates to:
+  /// **'\$= sets the starting amount, \$- spends, \$+ adds — each shows the balance after it in grey. \$\$ shows the total so far as a coloured chip.'**
+  String get notesGuideExMoneyBasicCaption;
+
+  /// No description provided for @notesGuideExMoneyMonthsSource.
+  ///
+  /// In en, this message translates to:
+  /// **'## March\n\$= 500\n\$- 120 shoes\n\$? March'**
+  String get notesGuideExMoneyMonthsSource;
+
+  /// No description provided for @notesGuideExMoneyMonthsCaption.
+  ///
+  /// In en, this message translates to:
+  /// **'\$? shows how much changed since the last \$=. One \$= under each month\'s heading makes a monthly ledger.'**
+  String get notesGuideExMoneyMonthsCaption;
+
+  /// No description provided for @notesGuideExMoneyTargetSource.
+  ///
+  /// In en, this message translates to:
+  /// **'\$= 500\n\$! 300 groceries\n\$- 120 groceries\n\$!'**
+  String get notesGuideExMoneyTargetSource;
+
+  /// No description provided for @notesGuideExMoneyTargetCaption.
+  ///
+  /// In en, this message translates to:
+  /// **'\$! with an amount sets a target. A \$! on its own shows what is left of it after the spending since then — green while under, red when over. Neither changes the balance.'**
+  String get notesGuideExMoneyTargetCaption;
+
+  /// No description provided for @notesGuideMoneyTapTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Tap a total'**
+  String get notesGuideMoneyTapTitle;
+
+  /// No description provided for @notesGuideMoneyTapBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Tap a \$\$ or \$? value to see every line that went into it.'**
+  String get notesGuideMoneyTapBody;
+
+  /// No description provided for @notesGuideMoneyMoreTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Multiply and divide'**
+  String get notesGuideMoneyMoreTitle;
+
+  /// No description provided for @notesGuideMoneyMoreBody.
+  ///
+  /// In en, this message translates to:
+  /// **'\$* 1.19 multiplies the balance, for a tax; \$/ 2 divides it, for a bill split in two.'**
+  String get notesGuideMoneyMoreBody;
+
+  /// No description provided for @notesGuideMoneySettingsTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Currency and start balance'**
+  String get notesGuideMoneySettingsTitle;
+
+  /// No description provided for @notesGuideMoneySettingsBody.
+  ///
+  /// In en, this message translates to:
+  /// **'“{settingsRowEditor}” › “{moneySection}” also sets the symbol, where it goes and a start balance every note begins from; a single note can have its own currency. If \$ lines show as plain text, “{moneyLedgerEnabledLabel}” is still off there.'**
+  String notesGuideMoneySettingsBody(
+    String settingsRowEditor,
+    String moneySection,
+    String moneyLedgerEnabledLabel,
+  );
+
+  /// No description provided for @notesGuideMoneyCalendarTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'On the calendar'**
+  String get notesGuideMoneyCalendarTitle;
+
+  /// No description provided for @notesGuideMoneyCalendarBody.
+  ///
+  /// In en, this message translates to:
+  /// **'An event\'s linked note shows its money on the calendar: a bar under the day and the month\'s total in the header.'**
+  String get notesGuideMoneyCalendarBody;
+
+  /// No description provided for @notesGuideMoneyButtonsTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'On the bar'**
+  String get notesGuideMoneyButtonsTitle;
+
+  /// No description provided for @notesGuideMoneyButtonsBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Each ledger line has a button: “{shortcutMoneyAdd}”, “{shortcutMoneySubtract}”, “{shortcutMoneyStart}”, “{shortcutMoneyTotal}”, “{shortcutMoneyChange}”, “{shortcutMoneyTarget}”.'**
+  String notesGuideMoneyButtonsBody(
+    String shortcutMoneyAdd,
+    String shortcutMoneySubtract,
+    String shortcutMoneyStart,
+    String shortcutMoneyTotal,
+    String shortcutMoneyChange,
+    String shortcutMoneyTarget,
+  );
+
+  /// No description provided for @notesGuidePageBar.
+  ///
+  /// In en, this message translates to:
+  /// **'The bar'**
+  String get notesGuidePageBar;
+
+  /// No description provided for @notesGuidePageBarCaption.
+  ///
+  /// In en, this message translates to:
+  /// **'Rearranging buttons, your own shortcuts, several bars'**
+  String get notesGuidePageBarCaption;
+
+  /// No description provided for @notesGuideBarLead.
+  ///
+  /// In en, this message translates to:
+  /// **'The bar above the keyboard is yours to arrange. Everything about it lives in “{settingsRowEditor}”.'**
+  String notesGuideBarLead(String settingsRowEditor);
+
+  /// No description provided for @notesGuideBarShortcutsTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Shortcuts'**
+  String get notesGuideBarShortcutsTitle;
+
+  /// No description provided for @notesGuideBarShortcutsBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Each button is a shortcut: text it types, or wraps around what you selected. In “{shortcuts}”, drag to reorder them, hide the ones you never use, or change what one types.'**
+  String notesGuideBarShortcutsBody(String shortcuts);
+
+  /// No description provided for @notesGuideBarOwnTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Your own shortcut'**
+  String get notesGuideBarOwnTitle;
+
+  /// No description provided for @notesGuideBarOwnBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Tap + in “{shortcuts}” to make one. A line you type often — a set format, the heading you start every day with — becomes a button.'**
+  String notesGuideBarOwnBody(String shortcuts);
+
+  /// No description provided for @notesGuideBarUtilityTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Utility buttons'**
+  String get notesGuideBarUtilityTitle;
+
+  /// No description provided for @notesGuideBarUtilityBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Undo, redo, indent, paste, text size, share, counters, jump to the top or the bottom: “{utilityButtons}” chooses which of them show, and in what order.'**
+  String notesGuideBarUtilityBody(String utilityButtons);
+
+  /// No description provided for @notesGuideBarReorderTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Rearrange from the note'**
+  String get notesGuideBarReorderTitle;
+
+  /// No description provided for @notesGuideBarReorderBody.
+  ///
+  /// In en, this message translates to:
+  /// **'The bar\'s “{reorderShortcuts}” button turns the buttons into chips you can drag, right there in the note.'**
+  String notesGuideBarReorderBody(String reorderShortcuts);
+
+  /// No description provided for @notesGuideBarProfilesTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Several bars'**
+  String get notesGuideBarProfilesTitle;
+
+  /// No description provided for @notesGuideBarProfilesBody.
+  ///
+  /// In en, this message translates to:
+  /// **'“{manageBarProfiles}” keeps more than one bar — one for workouts, one for money. With two or more, the bar\'s “{switchBar}” button changes the bar for the note you are in, and “{perNoteBarAssignment}” lists those choices.'**
+  String notesGuideBarProfilesBody(
+    String manageBarProfiles,
+    String switchBar,
+    String perNoteBarAssignment,
+  );
+
+  /// No description provided for @notesGuideBarLayoutTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Two strips or one'**
+  String get notesGuideBarLayoutTitle;
+
+  /// No description provided for @notesGuideBarLayoutBody.
+  ///
+  /// In en, this message translates to:
+  /// **'“{splitToolbar}” keeps the utility buttons in a strip of their own at the right, scrolling apart from your shortcuts; “{pinUndoRedo}” keeps undo and redo in view while the rest of the bar scrolls.'**
+  String notesGuideBarLayoutBody(String splitToolbar, String pinUndoRedo);
+
+  /// No description provided for @notesGuidePageAutocomplete.
+  ///
+  /// In en, this message translates to:
+  /// **'Autocomplete'**
+  String get notesGuidePageAutocomplete;
+
+  /// No description provided for @notesGuidePageAutocompleteCaption.
+  ///
+  /// In en, this message translates to:
+  /// **'Your own word lists, offered while you type'**
+  String get notesGuidePageAutocompleteCaption;
+
+  /// No description provided for @notesGuideAutocompleteLead.
+  ///
+  /// In en, this message translates to:
+  /// **'Give ANTA your lists — exercises, meals, clients — and it offers them as you type, so a long name is one tap.'**
+  String get notesGuideAutocompleteLead;
+
+  /// No description provided for @notesGuideAutoListsTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Make a list'**
+  String get notesGuideAutoListsTitle;
+
+  /// No description provided for @notesGuideAutoListsBody.
+  ///
+  /// In en, this message translates to:
+  /// **'“{settingsRowEditor}” › “{vocabularySection}” › “{manageVocabularies}”: one entry per line. A line starting with ;; is a heading inside the list and is never offered.'**
+  String notesGuideAutoListsBody(
+    String settingsRowEditor,
+    String vocabularySection,
+    String manageVocabularies,
+  );
+
+  /// No description provided for @notesGuideAutoTriggerTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Type @ and a few letters'**
+  String get notesGuideAutoTriggerTitle;
+
+  /// No description provided for @notesGuideAutoTriggerBody.
+  ///
+  /// In en, this message translates to:
+  /// **'After a space, type the trigger (“{vocabularyTriggerLabel}”, @ unless you change it) and the start of a word: @ben offers Bench press. Tap the suggestion and it is typed for you, as plain text.'**
+  String notesGuideAutoTriggerBody(String vocabularyTriggerLabel);
+
+  /// No description provided for @notesGuideAutoScopeTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'One list only'**
+  String get notesGuideAutoScopeTitle;
+
+  /// No description provided for @notesGuideAutoScopeBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Name the list before a colon — @exercises:ben — and only that list is searched. Two names with a comma between them search both.'**
+  String get notesGuideAutoScopeBody;
+
+  /// No description provided for @notesGuideAutoGhostTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Placeholders know your lists'**
+  String get notesGuideAutoGhostTitle;
+
+  /// No description provided for @notesGuideAutoGhostBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Tap a placeholder whose name matches one of your lists — {open}{open}exercise{close}{close} for a list called Exercises — and that list is offered. A template fills itself in two taps.'**
+  String notesGuideAutoGhostBody(String open, String close);
+
+  /// No description provided for @notesGuideAutoIgnoreTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Ignoring it costs nothing'**
+  String get notesGuideAutoIgnoreTitle;
+
+  /// No description provided for @notesGuideAutoIgnoreBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Keep typing and the suggestions close; what you typed stays exactly as it is. “{vocabularySuggestionsLabel}” turns the feature off altogether.'**
+  String notesGuideAutoIgnoreBody(String vocabularySuggestionsLabel);
+
+  /// No description provided for @notesGuidePageCounters.
+  ///
+  /// In en, this message translates to:
+  /// **'Counters'**
+  String get notesGuidePageCounters;
+
+  /// No description provided for @notesGuidePageCountersCaption.
+  ///
+  /// In en, this message translates to:
+  /// **'Numbers you tap up: sets, glasses of water, days in a row'**
+  String get notesGuidePageCountersCaption;
+
+  /// No description provided for @notesGuideCountersLead.
+  ///
+  /// In en, this message translates to:
+  /// **'A counter is a number with its own + button. Keep one across the app, or one per note.'**
+  String get notesGuideCountersLead;
+
+  /// No description provided for @notesGuideCountersMakeTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Make one'**
+  String get notesGuideCountersMakeTitle;
+
+  /// No description provided for @notesGuideCountersMakeBody.
+  ///
+  /// In en, this message translates to:
+  /// **'“{counterSettings}” in the main menu lists your counters. “{addCounter}” makes a new one: give it a name, a start value and a step.'**
+  String notesGuideCountersMakeBody(String counterSettings, String addCounter);
+
+  /// No description provided for @notesGuideCountersNoteTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'From inside a note'**
+  String get notesGuideCountersNoteTitle;
+
+  /// No description provided for @notesGuideCountersNoteBody.
+  ///
+  /// In en, this message translates to:
+  /// **'The bar\'s “{counterInsertTooltip}” button lists your counters. Pick one: it goes up by one step and the new number is typed where you are.'**
+  String notesGuideCountersNoteBody(String counterInsertTooltip);
+
+  /// No description provided for @notesGuideCountersScopeTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Across the app, or per note'**
+  String get notesGuideCountersScopeTitle;
+
+  /// No description provided for @notesGuideCountersScopeBody.
+  ///
+  /// In en, this message translates to:
+  /// **'“{counterScope}” decides: “{counterScopeGlobalDesc}”, or “{counterScopePerNoteDesc}” — a tally that belongs to that note alone.'**
+  String notesGuideCountersScopeBody(
+    String counterScope,
+    String counterScopeGlobalDesc,
+    String counterScopePerNoteDesc,
+  );
+
+  /// No description provided for @notesGuideCountersPinTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Pinning'**
+  String get notesGuideCountersPinTitle;
+
+  /// No description provided for @notesGuideCountersPinBody.
+  ///
+  /// In en, this message translates to:
+  /// **'“{pinCounter}” keeps a counter at the top of the list, so the ones you use every day come first.'**
+  String notesGuideCountersPinBody(String pinCounter);
+
+  /// No description provided for @notesGuideCountersShortcutTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'A button that counts'**
+  String get notesGuideCountersShortcutTitle;
+
+  /// No description provided for @notesGuideCountersShortcutBody.
+  ///
+  /// In en, this message translates to:
+  /// **'In “{shortcuts}”, a shortcut can be bound to a counter (“{counterBindingsTitle}”): each tap can count it up and type its number — one button per set.'**
+  String notesGuideCountersShortcutBody(
+    String shortcuts,
+    String counterBindingsTitle,
+  );
+
+  /// No description provided for @notesGuidePageSettings.
+  ///
+  /// In en, this message translates to:
+  /// **'Where the settings are'**
+  String get notesGuidePageSettings;
+
+  /// No description provided for @notesGuidePageSettingsCaption.
+  ///
+  /// In en, this message translates to:
+  /// **'Which page holds what'**
+  String get notesGuidePageSettingsCaption;
+
+  /// No description provided for @notesGuideSettingsLead.
+  ///
+  /// In en, this message translates to:
+  /// **'“{settingsHubTitle}” in the main menu lists every settings page with a line on what it holds; its search finds the page that holds a section by the section\'s name.'**
+  String notesGuideSettingsLead(String settingsHubTitle);
+
+  /// No description provided for @notesGuideSettingsGeneralTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'“{settingsRowGeneral}”'**
+  String notesGuideSettingsGeneralTitle(String settingsRowGeneral);
+
+  /// No description provided for @notesGuideSettingsGeneralBody.
+  ///
+  /// In en, this message translates to:
+  /// **'{settingsRowGeneralDesc}: what opens at launch, how a folder shows its notes, the editor\'s line wrapping and line numbers.'**
+  String notesGuideSettingsGeneralBody(String settingsRowGeneralDesc);
+
+  /// No description provided for @notesGuideSettingsEditorTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'“{settingsRowEditor}”'**
+  String notesGuideSettingsEditorTitle(String settingsRowEditor);
+
+  /// No description provided for @notesGuideSettingsEditorBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Shortcuts and bars, utility buttons, text colours, the money ledger, autocomplete — each a section you can fold away.'**
+  String get notesGuideSettingsEditorBody;
+
+  /// No description provided for @notesGuideSettingsCountersTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'“{counterSettings}”'**
+  String notesGuideSettingsCountersTitle(String counterSettings);
+
+  /// No description provided for @notesGuideSettingsCountersBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Your counters, their pins, and which of them vary per note.'**
+  String get notesGuideSettingsCountersBody;
+
+  /// No description provided for @notesGuideSettingsLookTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'“{settingsRowTheme}” and “{languageSettings}”'**
+  String notesGuideSettingsLookTitle(
+    String settingsRowTheme,
+    String languageSettings,
+  );
+
+  /// No description provided for @notesGuideSettingsLookBody.
+  ///
+  /// In en, this message translates to:
+  /// **'{themeSettingsDesc}; English, German or Romanian. Text size follows your phone\'s setting.'**
+  String notesGuideSettingsLookBody(String themeSettingsDesc);
+
+  /// No description provided for @notesGuideSettingsPerNoteTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'What a single note can have'**
+  String get notesGuideSettingsPerNoteTitle;
+
+  /// No description provided for @notesGuideSettingsPerNoteBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Its own bar, its own currency and its own counter values. Everything else is shared by all notes.'**
+  String get notesGuideSettingsPerNoteBody;
+
+  /// No description provided for @notesGuidePageSafe.
+  ///
+  /// In en, this message translates to:
+  /// **'Nothing gets lost'**
+  String get notesGuidePageSafe;
+
+  /// No description provided for @notesGuidePageSafeCaption.
+  ///
+  /// In en, this message translates to:
+  /// **'Auto-save, the word at the top, the way back'**
+  String get notesGuidePageSafeCaption;
+
+  /// No description provided for @notesGuideSafeLead.
+  ///
+  /// In en, this message translates to:
+  /// **'ANTA is built so a note survives anything short of losing the phone.'**
+  String get notesGuideSafeLead;
+
+  /// No description provided for @notesGuideSafeAutosaveTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Saved as you go'**
+  String get notesGuideSafeAutosaveTitle;
+
+  /// No description provided for @notesGuideSafeAutosaveBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Text is saved a few seconds after you stop typing and every half minute while you keep going; a save that fails is retried. The most you could lose is the last moment.'**
+  String get notesGuideSafeAutosaveBody;
+
+  /// No description provided for @notesGuideSafeStatusTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'The word at the top'**
+  String get notesGuideSafeStatusTitle;
+
+  /// No description provided for @notesGuideSafeStatusBody.
+  ///
+  /// In en, this message translates to:
+  /// **'“{saveStatusSaved}”, “{saveStatusSaving}” or “{saveStatusUnsaved}” — a glance says where things stand. “{saveStatusError}” means the phone refused the write; keep going, ANTA tries again.'**
+  String notesGuideSafeStatusBody(
+    String saveStatusSaved,
+    String saveStatusSaving,
+    String saveStatusUnsaved,
+    String saveStatusError,
+  );
+
+  /// No description provided for @notesGuideSafeEventTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'A note on an event'**
+  String get notesGuideSafeEventTitle;
+
+  /// No description provided for @notesGuideSafeEventBody.
+  ///
+  /// In en, this message translates to:
+  /// **'A calendar event can point to a note (“{eventLinkedNote}”): the plan for a session, what it cost. Open the note from the event.'**
+  String notesGuideSafeEventBody(String eventLinkedNote);
+
+  /// No description provided for @notesGuideSafeBackupTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'The way back'**
+  String get notesGuideSafeBackupTitle;
+
+  /// No description provided for @notesGuideSafeBackupBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Deleting is final, and this phone holds the only copy until you keep another. The “{guideBookAppTitle}” guide shows how to back up and how to sync.'**
+  String notesGuideSafeBackupBody(String guideBookAppTitle);
+
+  /// No description provided for @notesGuideSafeShareTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Getting text out'**
+  String get notesGuideSafeShareTitle;
+
+  /// No description provided for @notesGuideSafeShareBody.
+  ///
+  /// In en, this message translates to:
+  /// **'“{shareNote}” hands a note to any other app — a message, mail, a drive — as a file in the format you pick.'**
+  String notesGuideSafeShareBody(String shareNote);
+
+  /// No description provided for @appGuidePageMenu.
+  ///
+  /// In en, this message translates to:
+  /// **'The main menu'**
+  String get appGuidePageMenu;
+
+  /// No description provided for @appGuidePageMenuCaption.
+  ///
+  /// In en, this message translates to:
+  /// **'What the ☰ at the top left holds'**
+  String get appGuidePageMenuCaption;
+
+  /// No description provided for @appGuideMenuLead.
+  ///
+  /// In en, this message translates to:
+  /// **'The ☰ at the top left opens the main menu. It lists places, not settings: every row is somewhere you go.'**
+  String get appGuideMenuLead;
+
+  /// No description provided for @appGuideMenuAccountTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'The top row'**
+  String get appGuideMenuAccountTitle;
+
+  /// No description provided for @appGuideMenuAccountBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Once you are signed in, the top row shows who it is and when the notes last synced — or “{drawerAccountNotSyncing}” while sync is off. Tap it to open “{sharingSettings}”.'**
+  String appGuideMenuAccountBody(
+    String drawerAccountNotSyncing,
+    String sharingSettings,
+  );
+
+  /// No description provided for @appGuideMenuCalendarTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'“{calendar}”'**
+  String appGuideMenuCalendarTitle(String calendar);
+
+  /// No description provided for @appGuideMenuCalendarBody.
+  ///
+  /// In en, this message translates to:
+  /// **'“{calendar}” is the month; “{calendarOverview}” lists what is coming; “{reportTitle}” counts what you did; “{calendarCategories}” and “{alertsTitle}” manage colours and alerts. The “{calendarGuideTitle}” guide, under “{howToUseAnta}”, explains them all.'**
+  String appGuideMenuCalendarBody(
+    String calendar,
+    String calendarOverview,
+    String reportTitle,
+    String calendarCategories,
+    String alertsTitle,
+    String calendarGuideTitle,
+    String howToUseAnta,
+  );
+
+  /// No description provided for @appGuideMenuNotesTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'“{notes}”'**
+  String appGuideMenuNotesTitle(String notes);
+
+  /// No description provided for @appGuideMenuNotesBody.
+  ///
+  /// In en, this message translates to:
+  /// **'“{counterSettings}”: your counters and their pins. The notes themselves are not in the menu: they are the folders ANTA opens on.'**
+  String appGuideMenuNotesBody(String counterSettings);
+
+  /// No description provided for @appGuideMenuAppTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'“{appGroupLabel}”'**
+  String appGuideMenuAppTitle(String appGroupLabel);
+
+  /// No description provided for @appGuideMenuAppBody.
+  ///
+  /// In en, this message translates to:
+  /// **'“{settingsHubTitle}” holds every setting; “{howToUseAnta}” is this guide; “{about}” shows the version.'**
+  String appGuideMenuAppBody(
+    String settingsHubTitle,
+    String howToUseAnta,
+    String about,
+  );
+
+  /// No description provided for @appGuideMenuBackTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Going back'**
+  String get appGuideMenuBackTitle;
+
+  /// No description provided for @appGuideMenuBackBody.
+  ///
+  /// In en, this message translates to:
+  /// **'The arrow at the top left, or your phone\'s back gesture, returns to where you came from — in the end, to your folders.'**
+  String get appGuideMenuBackBody;
+
+  /// No description provided for @appGuidePageSettings.
+  ///
+  /// In en, this message translates to:
+  /// **'Settings worth knowing'**
+  String get appGuidePageSettings;
+
+  /// No description provided for @appGuidePageSettingsCaption.
+  ///
+  /// In en, this message translates to:
+  /// **'Dark mode, language, permissions, where ANTA opens'**
+  String get appGuidePageSettingsCaption;
+
+  /// No description provided for @appGuideSettingsLead.
+  ///
+  /// In en, this message translates to:
+  /// **'Everything is in “{settingsHubTitle}”. These are the settings a newcomer meets first.'**
+  String appGuideSettingsLead(String settingsHubTitle);
+
+  /// No description provided for @appGuideSettingsThemeTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'“{settingsRowTheme}”'**
+  String appGuideSettingsThemeTitle(String settingsRowTheme);
+
+  /// No description provided for @appGuideSettingsThemeBody.
+  ///
+  /// In en, this message translates to:
+  /// **'{themeSettingsDesc}. Text size follows your phone\'s own setting.'**
+  String appGuideSettingsThemeBody(String themeSettingsDesc);
+
+  /// No description provided for @appGuideSettingsLanguageTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'“{languageSettings}”'**
+  String appGuideSettingsLanguageTitle(String languageSettings);
+
+  /// No description provided for @appGuideSettingsLanguageBody.
+  ///
+  /// In en, this message translates to:
+  /// **'English, German or Romanian, for the whole app.'**
+  String get appGuideSettingsLanguageBody;
+
+  /// No description provided for @appGuideSettingsPermissionsTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'“{permissionsTitle}”'**
+  String appGuideSettingsPermissionsTitle(String permissionsTitle);
+
+  /// No description provided for @appGuideSettingsPermissionsBody.
+  ///
+  /// In en, this message translates to:
+  /// **'What the phone lets ANTA do: ring an alarm, show a notification, and so on. When something needed is off, the “{settingsHubTitle}” row in the main menu says so in red.'**
+  String appGuideSettingsPermissionsBody(String settingsHubTitle);
+
+  /// No description provided for @appGuideSettingsStartupTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Where ANTA opens'**
+  String get appGuideSettingsStartupTitle;
+
+  /// No description provided for @appGuideSettingsStartupBody.
+  ///
+  /// In en, this message translates to:
+  /// **'“{settingsRowGeneral}” › “{startupSection}”: “{restoreLocation}” chooses what ANTA reopens after a restart — everything, only your folders and notes, or nothing, so it always starts at your folders.'**
+  String appGuideSettingsStartupBody(
+    String settingsRowGeneral,
+    String startupSection,
+    String restoreLocation,
+  );
+
+  /// No description provided for @appGuideSettingsSearchTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Finding a setting'**
+  String get appGuideSettingsSearchTitle;
+
+  /// No description provided for @appGuideSettingsSearchBody.
+  ///
+  /// In en, this message translates to:
+  /// **'The search at the top of “{settingsHubTitle}” looks through every page\'s sections: type “{autoSaveSection}” or “{languageSettings}” and the page that holds it appears.'**
+  String appGuideSettingsSearchBody(
+    String settingsHubTitle,
+    String autoSaveSection,
+    String languageSettings,
+  );
+
+  /// No description provided for @appGuidePageBackup.
+  ///
+  /// In en, this message translates to:
+  /// **'Backup and restore'**
+  String get appGuidePageBackup;
+
+  /// No description provided for @appGuidePageBackupCaption.
+  ///
+  /// In en, this message translates to:
+  /// **'Keeping a copy of your notes, and getting it back'**
+  String get appGuidePageBackupCaption;
+
+  /// No description provided for @appGuideBackupLead.
+  ///
+  /// In en, this message translates to:
+  /// **'Your notes live on this phone. A copy somewhere else is what makes a lost phone a nuisance instead of a loss.'**
+  String get appGuideBackupLead;
+
+  /// No description provided for @appGuideBackupFolderTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Share a folder'**
+  String get appGuideBackupFolderTitle;
+
+  /// No description provided for @appGuideBackupFolderBody.
+  ///
+  /// In en, this message translates to:
+  /// **'“{shareFolder}” in a folder\'s ⋮ menu packs it — notes and subfolders — into one file and hands it to another app: mail it to yourself, or drop it in a drive.'**
+  String appGuideBackupFolderBody(String shareFolder);
+
+  /// No description provided for @appGuideBackupSelectionTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Share a selection'**
+  String get appGuideBackupSelectionTitle;
+
+  /// No description provided for @appGuideBackupSelectionBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Hold to select notes and folders, then “{shareSelected}” packs just those.'**
+  String appGuideBackupSelectionBody(String shareSelected);
+
+  /// No description provided for @appGuideBackupImportTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Bring a copy back'**
+  String get appGuideBackupImportTitle;
+
+  /// No description provided for @appGuideBackupImportBody.
+  ///
+  /// In en, this message translates to:
+  /// **'“{importNoteOrFolder}” in a folder\'s ⋮ menu takes such a file — or a single markdown file — and puts its notes in that folder.'**
+  String appGuideBackupImportBody(String importNoteOrFolder);
+
+  /// No description provided for @appGuideBackupDatabaseTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'The whole database'**
+  String get appGuideBackupDatabaseTitle;
+
+  /// No description provided for @appGuideBackupDatabaseBody.
+  ///
+  /// In en, this message translates to:
+  /// **'“{settingsRowDatabases}” in “{settingsHubTitle}” works on everything at once: “{shareDatabase}” sends one file with every folder, note, counter and event; “{importDatabase}” loads such a file as a new database.'**
+  String appGuideBackupDatabaseBody(
+    String settingsRowDatabases,
+    String settingsHubTitle,
+    String shareDatabase,
+    String importDatabase,
+  );
+
+  /// No description provided for @appGuideBackupSwitchTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'More than one database'**
+  String get appGuideBackupSwitchTitle;
+
+  /// No description provided for @appGuideBackupSwitchBody.
+  ///
+  /// In en, this message translates to:
+  /// **'You can keep several databases — work and home — and switch between them on the same page. ANTA restarts on the one you pick.'**
+  String get appGuideBackupSwitchBody;
+
+  /// No description provided for @appGuideBackupFirstRunTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'On a new phone'**
+  String get appGuideBackupFirstRunTitle;
+
+  /// No description provided for @appGuideBackupFirstRunBody.
+  ///
+  /// In en, this message translates to:
+  /// **'The first screen offers “{restoreFromBackup}”: pick a backup file and everything is back before you have made a single note.'**
+  String appGuideBackupFirstRunBody(String restoreFromBackup);
+
+  /// No description provided for @appGuidePageSync.
+  ///
+  /// In en, this message translates to:
+  /// **'Sync between phones'**
+  String get appGuidePageSync;
+
+  /// No description provided for @appGuidePageSyncCaption.
+  ///
+  /// In en, this message translates to:
+  /// **'Sign in once, the same notes on every device'**
+  String get appGuidePageSyncCaption;
+
+  /// No description provided for @appGuideSyncLead.
+  ///
+  /// In en, this message translates to:
+  /// **'Sync keeps a copy of a database in your account and sends every change to your other devices. It is off until you turn it on.'**
+  String get appGuideSyncLead;
+
+  /// No description provided for @appGuideSyncSignInTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Sign in'**
+  String get appGuideSyncSignInTitle;
+
+  /// No description provided for @appGuideSyncSignInBody.
+  ///
+  /// In en, this message translates to:
+  /// **'“{sharingSettings}” in “{settingsHubTitle}”: “{signInWithGoogle}”. Your notes stay on the phone; signing in alone sends nothing.'**
+  String appGuideSyncSignInBody(
+    String sharingSettings,
+    String settingsHubTitle,
+    String signInWithGoogle,
+  );
+
+  /// No description provided for @appGuideSyncOnTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Turn it on'**
+  String get appGuideSyncOnTitle;
+
+  /// No description provided for @appGuideSyncOnBody.
+  ///
+  /// In en, this message translates to:
+  /// **'“{syncThisDatabase}” on the same page starts syncing the database you are using. {syncThisDatabaseDesc}.'**
+  String appGuideSyncOnBody(
+    String syncThisDatabase,
+    String syncThisDatabaseDesc,
+  );
+
+  /// No description provided for @appGuideSyncStatusTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Where it stands'**
+  String get appGuideSyncStatusTitle;
+
+  /// No description provided for @appGuideSyncStatusBody.
+  ///
+  /// In en, this message translates to:
+  /// **'The page says “{syncUpToDate}”, “{syncOffline}” or how many changes are waiting; the main menu\'s top row shows when it last synced. Nothing is lost offline: changes go once the connection is back, and “{syncNow}” does not wait.'**
+  String appGuideSyncStatusBody(
+    String syncUpToDate,
+    String syncOffline,
+    String syncNow,
+  );
+
+  /// No description provided for @appGuideSyncOtherTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'On the other phone'**
+  String get appGuideSyncOtherTitle;
+
+  /// No description provided for @appGuideSyncOtherBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Sign in with the same account and turn “{syncThisDatabase}” on there too. ANTA lists the spaces in your account; pick yours and it is downloaded into a new database on that phone. After that, only changes travel.'**
+  String appGuideSyncOtherBody(String syncThisDatabase);
+
+  /// No description provided for @appGuideSyncConflictTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Two phones, one note'**
+  String get appGuideSyncConflictTitle;
+
+  /// No description provided for @appGuideSyncConflictBody.
+  ///
+  /// In en, this message translates to:
+  /// **'If the same note changes in two places, ANTA keeps both: the other version is filed beside yours as a copy, so nothing is overwritten.'**
+  String get appGuideSyncConflictBody;
+
+  /// No description provided for @appGuideSyncStopTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Stopping'**
+  String get appGuideSyncStopTitle;
+
+  /// No description provided for @appGuideSyncStopBody.
+  ///
+  /// In en, this message translates to:
+  /// **'“{syncStop}” leaves your notes on this phone and stops sending and receiving; the copy in your account stays. “{signOut}” pauses sync for every database until you sign in again.'**
+  String appGuideSyncStopBody(String syncStop, String signOut);
 }
 
 class _AppLocalizationsDelegate

@@ -7,6 +7,8 @@ import '../models/counter.dart';
 import '../models/custom_markdown_shortcut.dart';
 import '../models/date_range.dart';
 import '../models/dev_options.dart';
+import '../models/guide_book.dart';
+import '../models/guide_content.dart';
 import '../models/nav_destination.dart';
 import '../models/note_metadata.dart';
 import '../models/overview_period.dart';
@@ -40,6 +42,9 @@ import '../pages/counter_per_note_page.dart';
 import '../pages/database_settings_page.dart';
 import '../pages/developer_options_page.dart';
 import '../pages/fasting_settings_page.dart';
+import '../pages/guide_book_page.dart';
+import '../pages/guide_hub_page.dart';
+import '../pages/guide_topic_page.dart';
 import '../pages/markdown_colors_page.dart';
 import '../pages/markdown_settings_page.dart';
 import '../pages/note_bar_assignment_page.dart';
@@ -688,6 +693,48 @@ abstract final class AppNavigator {
       const CalendarGuidePage(),
       destination: const NavDestination(NavDestinationKind.calendarGuide),
     );
+  }
+
+  /// "How to use ANTA", the drawer's hub of every guide
+  /// (`docs/guide-hub-roadmap.md` D1, D9): stamped, so a relaunch comes
+  /// back to it like the calendar guide.
+  static Future<void> toGuideHub(BuildContext context) {
+    if (_isOnTop(context, NavDestinationKind.guideHub)) {
+      return Future<void>.value();
+    }
+    return push(
+      context,
+      const GuideHubPage(),
+      destination: const NavDestination(NavDestinationKind.guideHub),
+    );
+  }
+
+  /// One guide book's hub, stamped like the calendar guide's. The calendar
+  /// book is the calendar guide itself.
+  static Future<void> toGuideBook(BuildContext context, GuideBook book) {
+    final kind = switch (book) {
+      GuideBook.calendar => null,
+      GuideBook.notes => NavDestinationKind.notesGuide,
+      GuideBook.app => NavDestinationKind.appGuide,
+    };
+    if (kind == null) return toCalendarGuide(context);
+    if (_isOnTop(context, kind)) return Future<void>.value();
+    return push(
+      context,
+      GuideBookPage(book: book),
+      destination: NavDestination(kind),
+    );
+  }
+
+  /// One page of a guide book. Never stamped, as the calendar guide's pages
+  /// are not: a page is a few seconds' reading, so a relaunch lands on the
+  /// book's hub.
+  static Future<void> toGuideTopic(
+    BuildContext context,
+    GuideBook book,
+    GuideTopic topic,
+  ) {
+    return push<void>(context, GuideTopicPage(book: book, topic: topic));
   }
 
   /// The report page (D35): a feature beside the calendar and the overview,
@@ -1377,6 +1424,11 @@ abstract final class AppNavigator {
       NavDestinationKind.alertSettings => const AlertSettingsPage(),
       NavDestinationKind.fastingSettings => const FastingSettingsPage(),
       NavDestinationKind.reportSettings => const CalendarReportSettingsPage(),
+      NavDestinationKind.guideHub => const GuideHubPage(),
+      NavDestinationKind.notesGuide => const GuideBookPage(
+        book: GuideBook.notes,
+      ),
+      NavDestinationKind.appGuide => const GuideBookPage(book: GuideBook.app),
     };
   }
 }

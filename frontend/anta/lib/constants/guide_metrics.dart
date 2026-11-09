@@ -182,4 +182,45 @@ abstract final class GuideMetrics {
   /// unless several traditions are on — scrolling inside the slot past
   /// that, so a picked day changes the rows and never the card's height.
   static const double fastingPanelHeight = 220;
+
+  /// A guide hub's search field under its bar: the calendar guide's placing
+  /// from before there were several hubs, shared so the top hub and every
+  /// book's hub start their lists at one height.
+  static const EdgeInsets searchFieldPadding = EdgeInsets.fromLTRB(
+    16,
+    0,
+    16,
+    4,
+  );
+
+  /// A guide row's inset and the gap from its glyph to its text, read by the
+  /// read row and the example row alike (`docs/guide-hub-roadmap.md` §4):
+  /// a card can hold both kinds, and their text must start on one edge, so
+  /// the numbers live once rather than in each row.
+  static const EdgeInsets readRowPadding = EdgeInsets.fromLTRB(16, 12, 16, 12);
+  static const double readRowGlyphGap = 16;
+
+  /// The markdown as typed: a step under the paragraph's 14 px, so the
+  /// source reads as the raw material and the preview below it as the
+  /// result. A line longer than the block scrolls sideways rather than
+  /// wrapping, since a wrapped line would teach a line break she never typed.
+  static const double exampleSourceFontSize = 13;
+
+  /// Each example block's corners: the shortcut editor's preview box, the one
+  /// place the app already shows markdown beside its result.
+  static const double exampleRadius = 8;
+
+  /// Each block's inner air: a step under the row's own 16 inset (the
+  /// shortcut editor's box takes 16 on a page of its own), so the block reads
+  /// as inside the row, and the source keeps the width beside the glyph
+  /// column.
+  static const double examplePadding = 12;
+
+  /// From an eyebrow label to its block: the label belongs to the block, so
+  /// less than the gap between the blocks.
+  static const double exampleLabelGap = 4;
+
+  /// Between the typed block and the shown one, and from the shown one to
+  /// the caption: the two halves and the sentence are separate thoughts.
+  static const double exampleBlockGap = 12;
 }

@@ -14,9 +14,18 @@ void main() {
           as Map<String, dynamic>;
 
   final english = read('en');
+  // Every guide's keys (D6 of docs/guide-hub-roadmap.md): the hub and the
+  // notes and app books quote the app the same way.
+  const prefixes = [
+    'calendarGuide',
+    'guideHub',
+    'guideBook',
+    'notesGuide',
+    'appGuide',
+  ];
   final guideKeys = [
     for (final key in english.keys)
-      if (key.startsWith('calendarGuide')) key,
+      if (prefixes.any(key.startsWith)) key,
   ];
 
   test('the guide has strings to check', () {

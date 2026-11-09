@@ -9441,4 +9441,1061 @@ class AppLocalizationsEn extends AppLocalizations {
   ) {
     return '$area, $hours, last year $lastHours';
   }
+
+  @override
+  String get howToUseAntaDesc => 'Calendar, notes, backup and settings';
+
+  @override
+  String get guideHubIntro =>
+      'Three short guides. Search here to look through all of them at once.';
+
+  @override
+  String get guideHubSectionGuides => 'Guides';
+
+  @override
+  String get guideBookCalendarCaption =>
+      'The screen, events, alerts, attendance, the overview, a practice calendar';
+
+  @override
+  String get guideBookNotesTitle => 'Notes and the editor';
+
+  @override
+  String get guideBookNotesCaption =>
+      'Folders, writing, markdown, lists, the money ledger, autocomplete, counters';
+
+  @override
+  String get guideBookAppTitle => 'Backup, sync and settings';
+
+  @override
+  String get guideBookAppCaption =>
+      'The main menu, keeping a copy of your notes, syncing between phones, the settings';
+
+  @override
+  String get notesGuideIntro =>
+      'Tap a page. Each example shows what you type and what you get.';
+
+  @override
+  String get appGuideIntro => 'Tap a page. Nothing here changes a setting.';
+
+  @override
+  String get guideExampleTyped => 'You type';
+
+  @override
+  String get guideExampleShown => 'You get';
+
+  @override
+  String get notesGuidePageBasics => 'Folders and notes';
+
+  @override
+  String get notesGuidePageBasicsCaption =>
+      'Making a note, finding it again, moving, labelling, deleting';
+
+  @override
+  String get notesGuideBasicsLead =>
+      'ANTA keeps notes in folders, like pages in binders. The first screen holds your folders: make one there, and your notes go inside it.';
+
+  @override
+  String get notesGuideBasicsCreateTitle => 'Making a note';
+
+  @override
+  String notesGuideBasicsCreateBody(String newNote) {
+    return 'Open a folder and tap “$newNote” at the bottom. The note opens at once and is kept from the first letter. A title can come later: tap the title at the top to set it.';
+  }
+
+  @override
+  String get notesGuideBasicsFoldersTitle => 'Folders inside folders';
+
+  @override
+  String notesGuideBasicsFoldersBody(String newFolder) {
+    return '“$newFolder” makes a folder where you are. Folders can hold folders, so a binder can have sections. Tap a folder to go in; the arrow at the top takes you back out.';
+  }
+
+  @override
+  String get notesGuideBasicsSavedTitle => 'There is no Save button';
+
+  @override
+  String notesGuideBasicsSavedBody(String saveStatusSaved) {
+    return 'A note is saved on its own a few seconds after you stop typing, and again when you leave it. The word at the top of a note says “$saveStatusSaved” when it is done.';
+  }
+
+  @override
+  String get notesGuideBasicsReopenTitle => 'ANTA opens where you left it';
+
+  @override
+  String get notesGuideBasicsReopenBody =>
+      'Close the app in the middle of a note and it comes back to that note, on the same line. Folders remember their place too.';
+
+  @override
+  String get notesGuideBasicsMenuTitle => 'A folder\'s ⋮ menu';
+
+  @override
+  String notesGuideBasicsMenuBody(
+    String renameFolder,
+    String moveToFolder,
+    String sortBy,
+    String shareFolder,
+    String importNoteOrFolder,
+    String select,
+  ) {
+    return '“$renameFolder”, “$moveToFolder”, “$sortBy”, “$shareFolder” and “$importNoteOrFolder” are in the ⋮ at the top of a folder; the first screen\'s ⋮ has only “$sortBy”, “$select” and “$importNoteOrFolder”. “$select” starts picking several notes at once.';
+  }
+
+  @override
+  String get notesGuideBasicsHoldTitle => 'Hold to select several';
+
+  @override
+  String notesGuideBasicsHoldBody(
+    String moveSelected,
+    String labelSelected,
+    String shareSelected,
+    String deleteSelected,
+  ) {
+    return 'Hold a note or a folder to select it, then tap others to add them. A bar appears with “$moveSelected”, “$labelSelected”, “$shareSelected” and “$deleteSelected” for the whole selection.';
+  }
+
+  @override
+  String get notesGuideBasicsSortTitle => 'Sorting and arranging';
+
+  @override
+  String notesGuideBasicsSortBody(String sortNotes, String sortByCustom) {
+    return '“$sortNotes” orders a folder by title, by date or by colour label. Choose “$sortByCustom” to arrange notes and folders yourself, by dragging them.';
+  }
+
+  @override
+  String get notesGuideBasicsLabelsTitle => 'Colour labels';
+
+  @override
+  String notesGuideBasicsLabelsBody(String labelAction, String sortByLabel) {
+    return '“$labelAction” gives a note or a folder a colour, drawn as a stripe along its edge. Sorting by “$sortByLabel” groups them by colour.';
+  }
+
+  @override
+  String get notesGuideBasicsDeleteTitle => 'Deleting';
+
+  @override
+  String notesGuideBasicsDeleteBody(String guideBookAppTitle) {
+    return 'Deleting asks first, and then it is final: there is no bin to take a note back from. A deleted folder takes its notes with it. The way back is a backup — the “$guideBookAppTitle” guide shows how to keep one.';
+  }
+
+  @override
+  String get notesGuideBasicsSearchTitle => 'Finding a note';
+
+  @override
+  String get notesGuideBasicsSearchBody =>
+      'The magnifier at the top searches every folder: titles and the text inside notes. Tap a result to open the note.';
+
+  @override
+  String get notesGuideBasicsAllTitle => 'All notes, recent notes';
+
+  @override
+  String notesGuideBasicsAllBody(String allNotes, String recent) {
+    return 'The first folder has two rows that are not folders: “$allNotes” lists every note in one place and “$recent” the ones you touched last.';
+  }
+
+  @override
+  String get notesGuidePageEditor => 'Writing a note';
+
+  @override
+  String get notesGuidePageEditorCaption =>
+      'The screen, the bar above the keyboard, the ⋮ menu, undo, find';
+
+  @override
+  String get notesGuideEditorLead =>
+      'A note is a page of text. A few symbols shape it, and the bar above the keyboard types them for you.';
+
+  @override
+  String get notesGuideEditorLiveTitle => 'You see the result as you type';
+
+  @override
+  String get notesGuideEditorLiveBody =>
+      'Type **bold** and the stars disappear, leaving bold text. The symbols show again only on the line you are on, so you can change them; move away and they hide.';
+
+  @override
+  String get notesGuideEditorBarTitle => 'The bar above the keyboard';
+
+  @override
+  String notesGuideEditorBarBody(
+    String headers,
+    String bulletList,
+    String checkbox,
+  ) {
+    return 'Each button writes a shape for you — “$headers”, “$bulletList”, “$checkbox” — so you never have to remember a symbol. Select text first and the shape wraps it. The bar scrolls sideways; there is more to the right.';
+  }
+
+  @override
+  String get notesGuideEditorUndoTitle => 'Undo and redo';
+
+  @override
+  String get notesGuideEditorUndoBody =>
+      'The two arrows on the bar take back or redo your last changes, as many steps as you need.';
+
+  @override
+  String get notesGuideEditorTitleTitle => 'The title';
+
+  @override
+  String get notesGuideEditorTitleBody =>
+      'Tap the title at the top to change it. Two notes in one folder cannot share a title; ANTA tells you when one would.';
+
+  @override
+  String get notesGuideEditorMenuTitle => 'The ⋮ menu';
+
+  @override
+  String notesGuideEditorMenuBody(
+    String shareNote,
+    String moveToFolder,
+    String labelAction,
+    String openFolder,
+    String deleteNote,
+  ) {
+    return '“$shareNote” hands the text to another app, “$moveToFolder” files it elsewhere, “$labelAction” colours it, “$openFolder” shows where it lives and “$deleteNote” removes it — after asking.';
+  }
+
+  @override
+  String get notesGuideEditorFindTitle => 'Find in this note';
+
+  @override
+  String get notesGuideEditorFindBody =>
+      'The magnifier at the top searches this note only. The arrows step through the hits, tapping the counter lists them all, and the bar\'s options menu adds a field that replaces.';
+
+  @override
+  String get notesGuideEditorFontTitle => 'Bigger or smaller text';
+
+  @override
+  String notesGuideEditorFontBody(
+    String decreaseFontSize,
+    String increaseFontSize,
+  ) {
+    return '“$decreaseFontSize” and “$increaseFontSize” on the bar change the text size of every note. Your phone\'s own text size applies on top.';
+  }
+
+  @override
+  String get notesGuideEditorTapTitle => 'Things you can tap';
+
+  @override
+  String get notesGuideEditorTapBody =>
+      'Tap a checkbox to tick it, a #tag to find every note that has it, a [[note link]] to open that note, a \$\$ total to see what went into it, a web link to open it.';
+
+  @override
+  String get notesGuidePageMarkdown => 'Markdown basics';
+
+  @override
+  String get notesGuidePageMarkdownCaption =>
+      'Headings, bold, lists, checkboxes, quotes, links, tables';
+
+  @override
+  String get notesGuideMarkdownLead =>
+      'Markdown is a handful of symbols that shape plain text. Type them, or let the bar do it.';
+
+  @override
+  String get notesGuideExHeadingSource =>
+      '# Leg day\n## Warm-up\nFive minutes on the bike';
+
+  @override
+  String get notesGuideExHeadingCaption =>
+      'A # and a space start a heading. Two make a smaller one.';
+
+  @override
+  String get notesGuideExEmphasisSource =>
+      '**Heavy** day, *felt good*, ~~skipped~~ the rows, ==new record==';
+
+  @override
+  String get notesGuideExEmphasisCaption =>
+      'Two stars make bold, one star italic, two tildes cross out, two equals signs highlight.';
+
+  @override
+  String get notesGuideExListSource => '- Squat\n- Bench\n- Row';
+
+  @override
+  String get notesGuideExListCaption =>
+      'A dash and a space make a bullet. Enter at the end of an item starts the next; Enter on an empty item ends the list.';
+
+  @override
+  String get notesGuideExNumberedSource =>
+      '1. Warm up\n2. Work sets\n3. Stretch';
+
+  @override
+  String get notesGuideExNumberedCaption =>
+      'A number and a dot make a numbered list. Enter continues the count for you.';
+
+  @override
+  String get notesGuideExTaskSource => '- [ ] Water\n- [x] Protein';
+
+  @override
+  String notesGuideExTaskCaption(String checkbox) {
+    return 'A dash, a space and [ ] make a checkbox. Tap it to tick it; the bar\'s “$checkbox” button starts one.';
+  }
+
+  @override
+  String get notesGuideExQuoteSource => '> Form before weight';
+
+  @override
+  String get notesGuideExQuoteCaption =>
+      'A > sets a line apart as a quote, with a bar at its left.';
+
+  @override
+  String get notesGuideExLinkSource => '[Program](https://example.com)';
+
+  @override
+  String get notesGuideExLinkCaption =>
+      'Text in square brackets, the address in round ones. Tap the text to open the address.';
+
+  @override
+  String get notesGuideMarkdownTableTitle => 'Tables, lightly';
+
+  @override
+  String notesGuideMarkdownTableBody(String shortcutTable) {
+    return 'Cells between vertical bars make a table row. ANTA keeps such a row in a fixed-width font so the columns line up; the bar\'s “$shortcutTable” button writes an empty one.';
+  }
+
+  @override
+  String get notesGuidePageLists => 'Lists and nesting';
+
+  @override
+  String get notesGuidePageListsCaption =>
+      'Continuing a list, nesting items, pulling them back, checkboxes';
+
+  @override
+  String get notesGuideListsLead =>
+      'Most notes are lists: exercises, sets, groceries. ANTA keeps them tidy while you type.';
+
+  @override
+  String get notesGuideExNestedSource =>
+      '- Legs\n  - Squat 5×5\n  - Lunges\n- Back\n  - Deadlift';
+
+  @override
+  String get notesGuideExNestedCaption =>
+      'An item pushed in under another is nested. It gets a hollow bullet; a third level gets a square.';
+
+  @override
+  String get notesGuideListsEnterTitle => 'Enter continues the list';
+
+  @override
+  String get notesGuideListsEnterBody =>
+      'Enter at the end of an item starts the next at the same depth — a checkbox item starts another empty box, a numbered item the next number. Enter on an empty item moves it out one level; on an outermost item it ends the list and leaves a plain line.';
+
+  @override
+  String get notesGuideListsNestTitle => 'Three ways to nest';
+
+  @override
+  String get notesGuideListsNestBody =>
+      'On an empty item, press Space once to push it under the item above. Or swipe the line you are on to the right. Or tap the bar\'s indent arrow. Swipe left, tap the outdent arrow, or press Enter on an empty item to pull it back out.';
+
+  @override
+  String get notesGuideListsCapTitle => 'One step at a time';
+
+  @override
+  String get notesGuideListsCapBody =>
+      'An item can sit one level deeper than the item above it, never more, so a list cannot wander off the screen.';
+
+  @override
+  String get notesGuideListsTaskTitle => 'Ticking off';
+
+  @override
+  String get notesGuideListsTaskBody =>
+      'Tap a checkbox to tick it and tap it again to clear it. The keyboard stays where it is, so a list of sets can be ticked off mid-workout.';
+
+  @override
+  String get notesGuidePageOwn => 'ANTA\'s own markdown';
+
+  @override
+  String get notesGuidePageOwnCaption =>
+      'Tags, callouts, colours, placeholders, links between notes, today\'s date';
+
+  @override
+  String get notesGuideOwnLead =>
+      'A few shapes are ANTA\'s own. Each has a button on the bar too.';
+
+  @override
+  String get notesGuideExTagSource => 'Deadlift 140 kg #pr #legday';
+
+  @override
+  String get notesGuideExTagCaption =>
+      'A word after # is a tag. Tap it to find every note that carries it.';
+
+  @override
+  String get notesGuideExCalloutSource =>
+      '> [!TIP]\n> Warm up before the heavy sets';
+
+  @override
+  String get notesGuideExCalloutCaption =>
+      'A quote that starts with [!TIP] becomes a coloured box with an icon. NOTE, WARNING, IMPORTANT, SUCCESS and QUESTION work the same way in place of TIP.';
+
+  @override
+  String notesGuideExColourSource(String open, String close) {
+    return '${open}red:Max effort$close and ==green:done==';
+  }
+
+  @override
+  String notesGuideExColourCaption(String markdownColorsTitle) {
+    return 'A colour name before the text colours it; inside two equals signs it colours the highlight. The names are red, orange, yellow, green, teal, blue, purple, pink and gray — or your own, from “$markdownColorsTitle”.';
+  }
+
+  @override
+  String notesGuideExGhostSource(String open, String close) {
+    return 'Squat $open${open}weight$close$close kg × $open${open}reps$close$close';
+  }
+
+  @override
+  String notesGuideExGhostCaption(String shortcutGhostText) {
+    return 'Text in double braces is a placeholder, shown dimmed. Tap it and type to fill it in — a template for a workout you repeat. The bar\'s “$shortcutGhostText” button makes one.';
+  }
+
+  @override
+  String get notesGuideExWikiSource => 'Same warm-up as [[Leg day]]';
+
+  @override
+  String get notesGuideExWikiCaption =>
+      'A note\'s title in double brackets links to that note. Tap it to open the note; if no note has that title, ANTA says so.';
+
+  @override
+  String get notesGuideOwnDateTitle => 'Today\'s date';
+
+  @override
+  String notesGuideOwnDateBody(String currentDate) {
+    return 'The bar\'s “$currentDate” button types today\'s date, so a log line starts itself.';
+  }
+
+  @override
+  String get notesGuidePageMoney => 'The money ledger';
+
+  @override
+  String get notesGuidePageMoneyCaption => 'Lines that start with \$ add up';
+
+  @override
+  String notesGuideMoneyLead(
+    String moneyLedgerEnabledLabel,
+    String settingsRowEditor,
+    String moneySection,
+  ) {
+    return 'Any note can keep a running total. Switch on “$moneyLedgerEnabledLabel” in “$settingsRowEditor” › “$moneySection” first; then lines that start with \$ are the ledger and everything else stays ordinary text.';
+  }
+
+  @override
+  String get notesGuideExMoneyBasicSource =>
+      '\$= 500 budget\n\$- 40 gym\n\$+ 25 refund\n\$\$ left';
+
+  @override
+  String get notesGuideExMoneyBasicCaption =>
+      '\$= sets the starting amount, \$- spends, \$+ adds — each shows the balance after it in grey. \$\$ shows the total so far as a coloured chip.';
+
+  @override
+  String get notesGuideExMoneyMonthsSource =>
+      '## March\n\$= 500\n\$- 120 shoes\n\$? March';
+
+  @override
+  String get notesGuideExMoneyMonthsCaption =>
+      '\$? shows how much changed since the last \$=. One \$= under each month\'s heading makes a monthly ledger.';
+
+  @override
+  String get notesGuideExMoneyTargetSource =>
+      '\$= 500\n\$! 300 groceries\n\$- 120 groceries\n\$!';
+
+  @override
+  String get notesGuideExMoneyTargetCaption =>
+      '\$! with an amount sets a target. A \$! on its own shows what is left of it after the spending since then — green while under, red when over. Neither changes the balance.';
+
+  @override
+  String get notesGuideMoneyTapTitle => 'Tap a total';
+
+  @override
+  String get notesGuideMoneyTapBody =>
+      'Tap a \$\$ or \$? value to see every line that went into it.';
+
+  @override
+  String get notesGuideMoneyMoreTitle => 'Multiply and divide';
+
+  @override
+  String get notesGuideMoneyMoreBody =>
+      '\$* 1.19 multiplies the balance, for a tax; \$/ 2 divides it, for a bill split in two.';
+
+  @override
+  String get notesGuideMoneySettingsTitle => 'Currency and start balance';
+
+  @override
+  String notesGuideMoneySettingsBody(
+    String settingsRowEditor,
+    String moneySection,
+    String moneyLedgerEnabledLabel,
+  ) {
+    return '“$settingsRowEditor” › “$moneySection” also sets the symbol, where it goes and a start balance every note begins from; a single note can have its own currency. If \$ lines show as plain text, “$moneyLedgerEnabledLabel” is still off there.';
+  }
+
+  @override
+  String get notesGuideMoneyCalendarTitle => 'On the calendar';
+
+  @override
+  String get notesGuideMoneyCalendarBody =>
+      'An event\'s linked note shows its money on the calendar: a bar under the day and the month\'s total in the header.';
+
+  @override
+  String get notesGuideMoneyButtonsTitle => 'On the bar';
+
+  @override
+  String notesGuideMoneyButtonsBody(
+    String shortcutMoneyAdd,
+    String shortcutMoneySubtract,
+    String shortcutMoneyStart,
+    String shortcutMoneyTotal,
+    String shortcutMoneyChange,
+    String shortcutMoneyTarget,
+  ) {
+    return 'Each ledger line has a button: “$shortcutMoneyAdd”, “$shortcutMoneySubtract”, “$shortcutMoneyStart”, “$shortcutMoneyTotal”, “$shortcutMoneyChange”, “$shortcutMoneyTarget”.';
+  }
+
+  @override
+  String get notesGuidePageBar => 'The bar';
+
+  @override
+  String get notesGuidePageBarCaption =>
+      'Rearranging buttons, your own shortcuts, several bars';
+
+  @override
+  String notesGuideBarLead(String settingsRowEditor) {
+    return 'The bar above the keyboard is yours to arrange. Everything about it lives in “$settingsRowEditor”.';
+  }
+
+  @override
+  String get notesGuideBarShortcutsTitle => 'Shortcuts';
+
+  @override
+  String notesGuideBarShortcutsBody(String shortcuts) {
+    return 'Each button is a shortcut: text it types, or wraps around what you selected. In “$shortcuts”, drag to reorder them, hide the ones you never use, or change what one types.';
+  }
+
+  @override
+  String get notesGuideBarOwnTitle => 'Your own shortcut';
+
+  @override
+  String notesGuideBarOwnBody(String shortcuts) {
+    return 'Tap + in “$shortcuts” to make one. A line you type often — a set format, the heading you start every day with — becomes a button.';
+  }
+
+  @override
+  String get notesGuideBarUtilityTitle => 'Utility buttons';
+
+  @override
+  String notesGuideBarUtilityBody(String utilityButtons) {
+    return 'Undo, redo, indent, paste, text size, share, counters, jump to the top or the bottom: “$utilityButtons” chooses which of them show, and in what order.';
+  }
+
+  @override
+  String get notesGuideBarReorderTitle => 'Rearrange from the note';
+
+  @override
+  String notesGuideBarReorderBody(String reorderShortcuts) {
+    return 'The bar\'s “$reorderShortcuts” button turns the buttons into chips you can drag, right there in the note.';
+  }
+
+  @override
+  String get notesGuideBarProfilesTitle => 'Several bars';
+
+  @override
+  String notesGuideBarProfilesBody(
+    String manageBarProfiles,
+    String switchBar,
+    String perNoteBarAssignment,
+  ) {
+    return '“$manageBarProfiles” keeps more than one bar — one for workouts, one for money. With two or more, the bar\'s “$switchBar” button changes the bar for the note you are in, and “$perNoteBarAssignment” lists those choices.';
+  }
+
+  @override
+  String get notesGuideBarLayoutTitle => 'Two strips or one';
+
+  @override
+  String notesGuideBarLayoutBody(String splitToolbar, String pinUndoRedo) {
+    return '“$splitToolbar” keeps the utility buttons in a strip of their own at the right, scrolling apart from your shortcuts; “$pinUndoRedo” keeps undo and redo in view while the rest of the bar scrolls.';
+  }
+
+  @override
+  String get notesGuidePageAutocomplete => 'Autocomplete';
+
+  @override
+  String get notesGuidePageAutocompleteCaption =>
+      'Your own word lists, offered while you type';
+
+  @override
+  String get notesGuideAutocompleteLead =>
+      'Give ANTA your lists — exercises, meals, clients — and it offers them as you type, so a long name is one tap.';
+
+  @override
+  String get notesGuideAutoListsTitle => 'Make a list';
+
+  @override
+  String notesGuideAutoListsBody(
+    String settingsRowEditor,
+    String vocabularySection,
+    String manageVocabularies,
+  ) {
+    return '“$settingsRowEditor” › “$vocabularySection” › “$manageVocabularies”: one entry per line. A line starting with ;; is a heading inside the list and is never offered.';
+  }
+
+  @override
+  String get notesGuideAutoTriggerTitle => 'Type @ and a few letters';
+
+  @override
+  String notesGuideAutoTriggerBody(String vocabularyTriggerLabel) {
+    return 'After a space, type the trigger (“$vocabularyTriggerLabel”, @ unless you change it) and the start of a word: @ben offers Bench press. Tap the suggestion and it is typed for you, as plain text.';
+  }
+
+  @override
+  String get notesGuideAutoScopeTitle => 'One list only';
+
+  @override
+  String get notesGuideAutoScopeBody =>
+      'Name the list before a colon — @exercises:ben — and only that list is searched. Two names with a comma between them search both.';
+
+  @override
+  String get notesGuideAutoGhostTitle => 'Placeholders know your lists';
+
+  @override
+  String notesGuideAutoGhostBody(String open, String close) {
+    return 'Tap a placeholder whose name matches one of your lists — $open${open}exercise$close$close for a list called Exercises — and that list is offered. A template fills itself in two taps.';
+  }
+
+  @override
+  String get notesGuideAutoIgnoreTitle => 'Ignoring it costs nothing';
+
+  @override
+  String notesGuideAutoIgnoreBody(String vocabularySuggestionsLabel) {
+    return 'Keep typing and the suggestions close; what you typed stays exactly as it is. “$vocabularySuggestionsLabel” turns the feature off altogether.';
+  }
+
+  @override
+  String get notesGuidePageCounters => 'Counters';
+
+  @override
+  String get notesGuidePageCountersCaption =>
+      'Numbers you tap up: sets, glasses of water, days in a row';
+
+  @override
+  String get notesGuideCountersLead =>
+      'A counter is a number with its own + button. Keep one across the app, or one per note.';
+
+  @override
+  String get notesGuideCountersMakeTitle => 'Make one';
+
+  @override
+  String notesGuideCountersMakeBody(String counterSettings, String addCounter) {
+    return '“$counterSettings” in the main menu lists your counters. “$addCounter” makes a new one: give it a name, a start value and a step.';
+  }
+
+  @override
+  String get notesGuideCountersNoteTitle => 'From inside a note';
+
+  @override
+  String notesGuideCountersNoteBody(String counterInsertTooltip) {
+    return 'The bar\'s “$counterInsertTooltip” button lists your counters. Pick one: it goes up by one step and the new number is typed where you are.';
+  }
+
+  @override
+  String get notesGuideCountersScopeTitle => 'Across the app, or per note';
+
+  @override
+  String notesGuideCountersScopeBody(
+    String counterScope,
+    String counterScopeGlobalDesc,
+    String counterScopePerNoteDesc,
+  ) {
+    return '“$counterScope” decides: “$counterScopeGlobalDesc”, or “$counterScopePerNoteDesc” — a tally that belongs to that note alone.';
+  }
+
+  @override
+  String get notesGuideCountersPinTitle => 'Pinning';
+
+  @override
+  String notesGuideCountersPinBody(String pinCounter) {
+    return '“$pinCounter” keeps a counter at the top of the list, so the ones you use every day come first.';
+  }
+
+  @override
+  String get notesGuideCountersShortcutTitle => 'A button that counts';
+
+  @override
+  String notesGuideCountersShortcutBody(
+    String shortcuts,
+    String counterBindingsTitle,
+  ) {
+    return 'In “$shortcuts”, a shortcut can be bound to a counter (“$counterBindingsTitle”): each tap can count it up and type its number — one button per set.';
+  }
+
+  @override
+  String get notesGuidePageSettings => 'Where the settings are';
+
+  @override
+  String get notesGuidePageSettingsCaption => 'Which page holds what';
+
+  @override
+  String notesGuideSettingsLead(String settingsHubTitle) {
+    return '“$settingsHubTitle” in the main menu lists every settings page with a line on what it holds; its search finds the page that holds a section by the section\'s name.';
+  }
+
+  @override
+  String notesGuideSettingsGeneralTitle(String settingsRowGeneral) {
+    return '“$settingsRowGeneral”';
+  }
+
+  @override
+  String notesGuideSettingsGeneralBody(String settingsRowGeneralDesc) {
+    return '$settingsRowGeneralDesc: what opens at launch, how a folder shows its notes, the editor\'s line wrapping and line numbers.';
+  }
+
+  @override
+  String notesGuideSettingsEditorTitle(String settingsRowEditor) {
+    return '“$settingsRowEditor”';
+  }
+
+  @override
+  String get notesGuideSettingsEditorBody =>
+      'Shortcuts and bars, utility buttons, text colours, the money ledger, autocomplete — each a section you can fold away.';
+
+  @override
+  String notesGuideSettingsCountersTitle(String counterSettings) {
+    return '“$counterSettings”';
+  }
+
+  @override
+  String get notesGuideSettingsCountersBody =>
+      'Your counters, their pins, and which of them vary per note.';
+
+  @override
+  String notesGuideSettingsLookTitle(
+    String settingsRowTheme,
+    String languageSettings,
+  ) {
+    return '“$settingsRowTheme” and “$languageSettings”';
+  }
+
+  @override
+  String notesGuideSettingsLookBody(String themeSettingsDesc) {
+    return '$themeSettingsDesc; English, German or Romanian. Text size follows your phone\'s setting.';
+  }
+
+  @override
+  String get notesGuideSettingsPerNoteTitle => 'What a single note can have';
+
+  @override
+  String get notesGuideSettingsPerNoteBody =>
+      'Its own bar, its own currency and its own counter values. Everything else is shared by all notes.';
+
+  @override
+  String get notesGuidePageSafe => 'Nothing gets lost';
+
+  @override
+  String get notesGuidePageSafeCaption =>
+      'Auto-save, the word at the top, the way back';
+
+  @override
+  String get notesGuideSafeLead =>
+      'ANTA is built so a note survives anything short of losing the phone.';
+
+  @override
+  String get notesGuideSafeAutosaveTitle => 'Saved as you go';
+
+  @override
+  String get notesGuideSafeAutosaveBody =>
+      'Text is saved a few seconds after you stop typing and every half minute while you keep going; a save that fails is retried. The most you could lose is the last moment.';
+
+  @override
+  String get notesGuideSafeStatusTitle => 'The word at the top';
+
+  @override
+  String notesGuideSafeStatusBody(
+    String saveStatusSaved,
+    String saveStatusSaving,
+    String saveStatusUnsaved,
+    String saveStatusError,
+  ) {
+    return '“$saveStatusSaved”, “$saveStatusSaving” or “$saveStatusUnsaved” — a glance says where things stand. “$saveStatusError” means the phone refused the write; keep going, ANTA tries again.';
+  }
+
+  @override
+  String get notesGuideSafeEventTitle => 'A note on an event';
+
+  @override
+  String notesGuideSafeEventBody(String eventLinkedNote) {
+    return 'A calendar event can point to a note (“$eventLinkedNote”): the plan for a session, what it cost. Open the note from the event.';
+  }
+
+  @override
+  String get notesGuideSafeBackupTitle => 'The way back';
+
+  @override
+  String notesGuideSafeBackupBody(String guideBookAppTitle) {
+    return 'Deleting is final, and this phone holds the only copy until you keep another. The “$guideBookAppTitle” guide shows how to back up and how to sync.';
+  }
+
+  @override
+  String get notesGuideSafeShareTitle => 'Getting text out';
+
+  @override
+  String notesGuideSafeShareBody(String shareNote) {
+    return '“$shareNote” hands a note to any other app — a message, mail, a drive — as a file in the format you pick.';
+  }
+
+  @override
+  String get appGuidePageMenu => 'The main menu';
+
+  @override
+  String get appGuidePageMenuCaption => 'What the ☰ at the top left holds';
+
+  @override
+  String get appGuideMenuLead =>
+      'The ☰ at the top left opens the main menu. It lists places, not settings: every row is somewhere you go.';
+
+  @override
+  String get appGuideMenuAccountTitle => 'The top row';
+
+  @override
+  String appGuideMenuAccountBody(
+    String drawerAccountNotSyncing,
+    String sharingSettings,
+  ) {
+    return 'Once you are signed in, the top row shows who it is and when the notes last synced — or “$drawerAccountNotSyncing” while sync is off. Tap it to open “$sharingSettings”.';
+  }
+
+  @override
+  String appGuideMenuCalendarTitle(String calendar) {
+    return '“$calendar”';
+  }
+
+  @override
+  String appGuideMenuCalendarBody(
+    String calendar,
+    String calendarOverview,
+    String reportTitle,
+    String calendarCategories,
+    String alertsTitle,
+    String calendarGuideTitle,
+    String howToUseAnta,
+  ) {
+    return '“$calendar” is the month; “$calendarOverview” lists what is coming; “$reportTitle” counts what you did; “$calendarCategories” and “$alertsTitle” manage colours and alerts. The “$calendarGuideTitle” guide, under “$howToUseAnta”, explains them all.';
+  }
+
+  @override
+  String appGuideMenuNotesTitle(String notes) {
+    return '“$notes”';
+  }
+
+  @override
+  String appGuideMenuNotesBody(String counterSettings) {
+    return '“$counterSettings”: your counters and their pins. The notes themselves are not in the menu: they are the folders ANTA opens on.';
+  }
+
+  @override
+  String appGuideMenuAppTitle(String appGroupLabel) {
+    return '“$appGroupLabel”';
+  }
+
+  @override
+  String appGuideMenuAppBody(
+    String settingsHubTitle,
+    String howToUseAnta,
+    String about,
+  ) {
+    return '“$settingsHubTitle” holds every setting; “$howToUseAnta” is this guide; “$about” shows the version.';
+  }
+
+  @override
+  String get appGuideMenuBackTitle => 'Going back';
+
+  @override
+  String get appGuideMenuBackBody =>
+      'The arrow at the top left, or your phone\'s back gesture, returns to where you came from — in the end, to your folders.';
+
+  @override
+  String get appGuidePageSettings => 'Settings worth knowing';
+
+  @override
+  String get appGuidePageSettingsCaption =>
+      'Dark mode, language, permissions, where ANTA opens';
+
+  @override
+  String appGuideSettingsLead(String settingsHubTitle) {
+    return 'Everything is in “$settingsHubTitle”. These are the settings a newcomer meets first.';
+  }
+
+  @override
+  String appGuideSettingsThemeTitle(String settingsRowTheme) {
+    return '“$settingsRowTheme”';
+  }
+
+  @override
+  String appGuideSettingsThemeBody(String themeSettingsDesc) {
+    return '$themeSettingsDesc. Text size follows your phone\'s own setting.';
+  }
+
+  @override
+  String appGuideSettingsLanguageTitle(String languageSettings) {
+    return '“$languageSettings”';
+  }
+
+  @override
+  String get appGuideSettingsLanguageBody =>
+      'English, German or Romanian, for the whole app.';
+
+  @override
+  String appGuideSettingsPermissionsTitle(String permissionsTitle) {
+    return '“$permissionsTitle”';
+  }
+
+  @override
+  String appGuideSettingsPermissionsBody(String settingsHubTitle) {
+    return 'What the phone lets ANTA do: ring an alarm, show a notification, and so on. When something needed is off, the “$settingsHubTitle” row in the main menu says so in red.';
+  }
+
+  @override
+  String get appGuideSettingsStartupTitle => 'Where ANTA opens';
+
+  @override
+  String appGuideSettingsStartupBody(
+    String settingsRowGeneral,
+    String startupSection,
+    String restoreLocation,
+  ) {
+    return '“$settingsRowGeneral” › “$startupSection”: “$restoreLocation” chooses what ANTA reopens after a restart — everything, only your folders and notes, or nothing, so it always starts at your folders.';
+  }
+
+  @override
+  String get appGuideSettingsSearchTitle => 'Finding a setting';
+
+  @override
+  String appGuideSettingsSearchBody(
+    String settingsHubTitle,
+    String autoSaveSection,
+    String languageSettings,
+  ) {
+    return 'The search at the top of “$settingsHubTitle” looks through every page\'s sections: type “$autoSaveSection” or “$languageSettings” and the page that holds it appears.';
+  }
+
+  @override
+  String get appGuidePageBackup => 'Backup and restore';
+
+  @override
+  String get appGuidePageBackupCaption =>
+      'Keeping a copy of your notes, and getting it back';
+
+  @override
+  String get appGuideBackupLead =>
+      'Your notes live on this phone. A copy somewhere else is what makes a lost phone a nuisance instead of a loss.';
+
+  @override
+  String get appGuideBackupFolderTitle => 'Share a folder';
+
+  @override
+  String appGuideBackupFolderBody(String shareFolder) {
+    return '“$shareFolder” in a folder\'s ⋮ menu packs it — notes and subfolders — into one file and hands it to another app: mail it to yourself, or drop it in a drive.';
+  }
+
+  @override
+  String get appGuideBackupSelectionTitle => 'Share a selection';
+
+  @override
+  String appGuideBackupSelectionBody(String shareSelected) {
+    return 'Hold to select notes and folders, then “$shareSelected” packs just those.';
+  }
+
+  @override
+  String get appGuideBackupImportTitle => 'Bring a copy back';
+
+  @override
+  String appGuideBackupImportBody(String importNoteOrFolder) {
+    return '“$importNoteOrFolder” in a folder\'s ⋮ menu takes such a file — or a single markdown file — and puts its notes in that folder.';
+  }
+
+  @override
+  String get appGuideBackupDatabaseTitle => 'The whole database';
+
+  @override
+  String appGuideBackupDatabaseBody(
+    String settingsRowDatabases,
+    String settingsHubTitle,
+    String shareDatabase,
+    String importDatabase,
+  ) {
+    return '“$settingsRowDatabases” in “$settingsHubTitle” works on everything at once: “$shareDatabase” sends one file with every folder, note, counter and event; “$importDatabase” loads such a file as a new database.';
+  }
+
+  @override
+  String get appGuideBackupSwitchTitle => 'More than one database';
+
+  @override
+  String get appGuideBackupSwitchBody =>
+      'You can keep several databases — work and home — and switch between them on the same page. ANTA restarts on the one you pick.';
+
+  @override
+  String get appGuideBackupFirstRunTitle => 'On a new phone';
+
+  @override
+  String appGuideBackupFirstRunBody(String restoreFromBackup) {
+    return 'The first screen offers “$restoreFromBackup”: pick a backup file and everything is back before you have made a single note.';
+  }
+
+  @override
+  String get appGuidePageSync => 'Sync between phones';
+
+  @override
+  String get appGuidePageSyncCaption =>
+      'Sign in once, the same notes on every device';
+
+  @override
+  String get appGuideSyncLead =>
+      'Sync keeps a copy of a database in your account and sends every change to your other devices. It is off until you turn it on.';
+
+  @override
+  String get appGuideSyncSignInTitle => 'Sign in';
+
+  @override
+  String appGuideSyncSignInBody(
+    String sharingSettings,
+    String settingsHubTitle,
+    String signInWithGoogle,
+  ) {
+    return '“$sharingSettings” in “$settingsHubTitle”: “$signInWithGoogle”. Your notes stay on the phone; signing in alone sends nothing.';
+  }
+
+  @override
+  String get appGuideSyncOnTitle => 'Turn it on';
+
+  @override
+  String appGuideSyncOnBody(
+    String syncThisDatabase,
+    String syncThisDatabaseDesc,
+  ) {
+    return '“$syncThisDatabase” on the same page starts syncing the database you are using. $syncThisDatabaseDesc.';
+  }
+
+  @override
+  String get appGuideSyncStatusTitle => 'Where it stands';
+
+  @override
+  String appGuideSyncStatusBody(
+    String syncUpToDate,
+    String syncOffline,
+    String syncNow,
+  ) {
+    return 'The page says “$syncUpToDate”, “$syncOffline” or how many changes are waiting; the main menu\'s top row shows when it last synced. Nothing is lost offline: changes go once the connection is back, and “$syncNow” does not wait.';
+  }
+
+  @override
+  String get appGuideSyncOtherTitle => 'On the other phone';
+
+  @override
+  String appGuideSyncOtherBody(String syncThisDatabase) {
+    return 'Sign in with the same account and turn “$syncThisDatabase” on there too. ANTA lists the spaces in your account; pick yours and it is downloaded into a new database on that phone. After that, only changes travel.';
+  }
+
+  @override
+  String get appGuideSyncConflictTitle => 'Two phones, one note';
+
+  @override
+  String get appGuideSyncConflictBody =>
+      'If the same note changes in two places, ANTA keeps both: the other version is filed beside yours as a copy, so nothing is overwritten.';
+
+  @override
+  String get appGuideSyncStopTitle => 'Stopping';
+
+  @override
+  String appGuideSyncStopBody(String syncStop, String signOut) {
+    return '“$syncStop” leaves your notes on this phone and stops sending and receiving; the copy in your account stays. “$signOut” pauses sync for every database until you sign in again.';
+  }
 }

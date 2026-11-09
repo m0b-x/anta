@@ -382,6 +382,36 @@ abstract final class SemanticsIds {
   static const String calendarGuideOpen = 'calendar-guide-open';
   static const String calendarSettingsOpen = 'calendar-settings-open';
 
+  /// The "How to use ANTA" hub's list (`docs/guide-hub-roadmap.md` D8): the
+  /// drawer flows wait on it after the drawer's How to row.
+  static const String guideHub = 'guide-hub';
+
+  /// A hub row that opens one guide, keyed by the book's slug; the
+  /// `settings/20_guide_books` flow and the hub's suite tap it.
+  static String guideHubBook(String book) => 'guide-hub-book-$book';
+
+  /// A book's hub list, as [calendarGuide] is the calendar's: a flow waits
+  /// on it after the push and scrolls inside it.
+  static String guideBook(String book) => 'guide-$book';
+
+  /// A book hub's row that opens one of its pages; the `page-` infix keeps
+  /// it apart from a read row of the same slug. The flows and the book
+  /// suite tap it.
+  static String guideBookPage(String book, String slug) =>
+      'guide-$book-page-$slug';
+
+  /// One book page's list: a flow waits on it after the push.
+  static String guideBookTopic(String book, String slug) =>
+      'guide-$book-topic-$slug';
+
+  /// One read row of a book, keyed by a slug frozen in the catalogue, so a
+  /// flow and the book suite check it is there whatever its text says.
+  static String guideBookRow(String book, String slug) => 'guide-$book-$slug';
+
+  /// One example row of a book (§4 of the record), for the book suite.
+  static String guideBookExample(String book, String slug) =>
+      'guide-$book-example-$slug';
+
   /// The calendar guide's list: a flow waits on the page and scrolls inside
   /// it without depending on the guide's wording or the locale.
   static const String calendarGuide = 'calendar-guide';

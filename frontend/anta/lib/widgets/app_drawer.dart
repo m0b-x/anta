@@ -208,9 +208,9 @@ class _AppDrawerState extends State<AppDrawer> {
                       context: context,
                       icon: Icons.school_rounded,
                       title: l10n.howToUseAnta,
-                      subtitle: l10n.calendarGuideTitle,
+                      subtitle: l10n.howToUseAntaDesc,
                       identifier: SemanticsIds.drawerHowTo,
-                      onTap: () => _go(context, AppNavigator.toCalendarGuide),
+                      onTap: () => _go(context, AppNavigator.toGuideHub),
                     ),
                     _buildMenuItem(
                       context: context,

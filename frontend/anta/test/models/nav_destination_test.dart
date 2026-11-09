@@ -251,6 +251,9 @@ void main() {
           'alertSettings',
           'fastingSettings',
           'reportSettings',
+          'guideHub',
+          'notesGuide',
+          'appGuide',
         ]);
       },
     );

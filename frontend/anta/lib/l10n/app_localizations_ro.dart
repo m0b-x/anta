@@ -9669,4 +9669,1068 @@ class AppLocalizationsRo extends AppLocalizations {
   ) {
     return '$area, $hours, anul trecut $lastHours';
   }
+
+  @override
+  String get howToUseAntaDesc => 'Calendar, notițe, copii de rezervă și setări';
+
+  @override
+  String get guideHubIntro =>
+      'Trei ghiduri scurte. Căutarea de aici caută în toate trei deodată.';
+
+  @override
+  String get guideHubSectionGuides => 'Ghiduri';
+
+  @override
+  String get guideBookCalendarCaption =>
+      'Ecranul, evenimentele, alertele, prezența, sumarul, un calendar de exercițiu';
+
+  @override
+  String get guideBookNotesTitle => 'Notițele și editorul';
+
+  @override
+  String get guideBookNotesCaption =>
+      'Dosare, scris, markdown, liste, registrul de bani, autocompletare, contoare';
+
+  @override
+  String get guideBookAppTitle => 'Copii de rezervă, sincronizare și setări';
+
+  @override
+  String get guideBookAppCaption =>
+      'Meniul principal, o copie a notițelor tale, sincronizarea între telefoane, setările';
+
+  @override
+  String get notesGuideIntro =>
+      'Atinge o pagină. Fiecare exemplu arată ce scrii și ce obții.';
+
+  @override
+  String get appGuideIntro =>
+      'Atinge o pagină. Nimic de aici nu schimbă o setare.';
+
+  @override
+  String get guideExampleTyped => 'Scrii';
+
+  @override
+  String get guideExampleShown => 'Obții';
+
+  @override
+  String get notesGuidePageBasics => 'Dosare și notițe';
+
+  @override
+  String get notesGuidePageBasicsCaption =>
+      'Cum creezi, regăsești, muți, etichetezi și ștergi o notiță';
+
+  @override
+  String get notesGuideBasicsLead =>
+      'ANTA ține notițele în dosare, ca foile în bibliorafturi. Pe primul ecran sunt dosarele tale: creează unul acolo, iar notițele merg înăuntru.';
+
+  @override
+  String get notesGuideBasicsCreateTitle => 'Cum faci o notiță';
+
+  @override
+  String notesGuideBasicsCreateBody(String newNote) {
+    return 'Deschide un dosar și atinge „$newNote” din partea de jos. Notița se deschide pe loc și e păstrată de la prima literă. Titlul poate veni mai târziu: atinge titlul de sus pentru a-l scrie.';
+  }
+
+  @override
+  String get notesGuideBasicsFoldersTitle => 'Dosare în dosare';
+
+  @override
+  String notesGuideBasicsFoldersBody(String newFolder) {
+    return '„$newFolder” face un dosar acolo unde ești. Dosarele pot ține dosare, așa că un biblioraft poate avea secțiuni. Atinge un dosar pentru a intra; săgeata de sus te scoate înapoi.';
+  }
+
+  @override
+  String get notesGuideBasicsSavedTitle => 'Nu există buton de salvare';
+
+  @override
+  String notesGuideBasicsSavedBody(String saveStatusSaved) {
+    return 'O notiță se salvează singură la câteva secunde după ce te oprești din scris, și încă o dată când o părăsești. Cuvântul din partea de sus a notiței spune „$saveStatusSaved” când s-a terminat.';
+  }
+
+  @override
+  String get notesGuideBasicsReopenTitle => 'ANTA se deschide unde ai rămas';
+
+  @override
+  String get notesGuideBasicsReopenBody =>
+      'Închide aplicația în mijlocul unei notițe și ea revine la notița aceea, pe același rând. Și dosarele își țin minte locul.';
+
+  @override
+  String get notesGuideBasicsMenuTitle => 'Meniul ⋮ al unui dosar';
+
+  @override
+  String notesGuideBasicsMenuBody(
+    String renameFolder,
+    String moveToFolder,
+    String sortBy,
+    String shareFolder,
+    String importNoteOrFolder,
+    String select,
+  ) {
+    return '„$renameFolder”, „$moveToFolder”, „$sortBy”, „$shareFolder” și „$importNoteOrFolder” stau în ⋮ din partea de sus a unui dosar; meniul ⋮ de pe primul ecran are doar „$sortBy”, „$select” și „$importNoteOrFolder”. „$select” începe alegerea mai multor notițe deodată.';
+  }
+
+  @override
+  String get notesGuideBasicsHoldTitle =>
+      'Ține apăsat pentru a alege mai multe';
+
+  @override
+  String notesGuideBasicsHoldBody(
+    String moveSelected,
+    String labelSelected,
+    String shareSelected,
+    String deleteSelected,
+  ) {
+    return 'Ține apăsat pe o notiță sau pe un dosar pentru a-l selecta, apoi atinge altele pentru a le adăuga. Apare o bară cu „$moveSelected”, „$labelSelected”, „$shareSelected” și „$deleteSelected” pentru toată selecția.';
+  }
+
+  @override
+  String get notesGuideBasicsSortTitle => 'Sortare și aranjare';
+
+  @override
+  String notesGuideBasicsSortBody(String sortNotes, String sortByCustom) {
+    return '„$sortNotes” ordonează un dosar după titlu, după dată sau după eticheta de culoare. Alege „$sortByCustom” pentru a aranja singur notițele și dosarele, trăgându-le.';
+  }
+
+  @override
+  String get notesGuideBasicsLabelsTitle => 'Etichete de culoare';
+
+  @override
+  String notesGuideBasicsLabelsBody(String labelAction, String sortByLabel) {
+    return '„$labelAction” dă unei notițe sau unui dosar o culoare, desenată ca o dungă pe margine. Sortarea după „$sortByLabel” le grupează după culoare.';
+  }
+
+  @override
+  String get notesGuideBasicsDeleteTitle => 'Ștergerea';
+
+  @override
+  String notesGuideBasicsDeleteBody(String guideBookAppTitle) {
+    return 'Ștergerea întreabă mai întâi, apoi e definitivă: nu există un coș din care să iei notița înapoi. Un dosar șters își ia notițele cu el. Calea înapoi e o copie de rezervă – ghidul „$guideBookAppTitle” arată cum să ții una.';
+  }
+
+  @override
+  String get notesGuideBasicsSearchTitle => 'Cum găsești o notiță';
+
+  @override
+  String get notesGuideBasicsSearchBody =>
+      'Lupa de sus caută în toate dosarele: în titluri și în textul din notițe. Atinge un rezultat pentru a deschide notița.';
+
+  @override
+  String get notesGuideBasicsAllTitle => 'Toate notițele, cele recente';
+
+  @override
+  String notesGuideBasicsAllBody(String allNotes, String recent) {
+    return 'Primul dosar are două rânduri care nu sunt dosare: „$allNotes” arată fiecare notiță într-un singur loc, iar „$recent” pe cele atinse ultima dată.';
+  }
+
+  @override
+  String get notesGuidePageEditor => 'Cum scrii o notiță';
+
+  @override
+  String get notesGuidePageEditorCaption =>
+      'Ecranul, bara de deasupra tastaturii, meniul ⋮, anulare, căutare';
+
+  @override
+  String get notesGuideEditorLead =>
+      'O notiță e o pagină de text. Câteva semne îi dau formă, iar bara de deasupra tastaturii le scrie pentru tine.';
+
+  @override
+  String get notesGuideEditorLiveTitle => 'Vezi rezultatul în timp ce scrii';
+
+  @override
+  String get notesGuideEditorLiveBody =>
+      'Scrie **îngroșat** și stelele dispar, lăsând text îngroșat. Semnele reapar doar pe rândul pe care te afli, ca să le poți schimba; pleci mai departe și se ascund.';
+
+  @override
+  String get notesGuideEditorBarTitle => 'Bara de deasupra tastaturii';
+
+  @override
+  String notesGuideEditorBarBody(
+    String headers,
+    String bulletList,
+    String checkbox,
+  ) {
+    return 'Fiecare buton scrie o formă pentru tine – „$headers”, „$bulletList”, „$checkbox” – așa că nu trebuie să ții minte niciun semn. Selectează mai întâi un text și forma îl îmbracă. Bara se derulează lateral; mai sunt butoane spre dreapta.';
+  }
+
+  @override
+  String get notesGuideEditorUndoTitle => 'Anulare și refacere';
+
+  @override
+  String get notesGuideEditorUndoBody =>
+      'Cele două săgeți de pe bară iau înapoi sau refac ultimele schimbări, de câți pași ai nevoie.';
+
+  @override
+  String get notesGuideEditorTitleTitle => 'Titlul';
+
+  @override
+  String get notesGuideEditorTitleBody =>
+      'Atinge titlul de sus pentru a-l schimba. Două notițe din același dosar nu pot purta același titlu; ANTA îți spune când s-ar întâmpla.';
+
+  @override
+  String get notesGuideEditorMenuTitle => 'Meniul ⋮';
+
+  @override
+  String notesGuideEditorMenuBody(
+    String shareNote,
+    String moveToFolder,
+    String labelAction,
+    String openFolder,
+    String deleteNote,
+  ) {
+    return '„$shareNote” dă textul notiței altei aplicații, „$moveToFolder” o mută în alt dosar, „$labelAction” o colorează, „$openFolder” arată unde stă, iar „$deleteNote” o șterge – după ce întreabă.';
+  }
+
+  @override
+  String get notesGuideEditorFindTitle => 'Căutare în această notiță';
+
+  @override
+  String get notesGuideEditorFindBody =>
+      'Lupa de sus caută doar în această notiță. Săgețile sar din potrivire în potrivire, o atingere pe numărul de potriviri le listează pe toate, iar meniul de opțiuni al barei adaugă un câmp de înlocuire.';
+
+  @override
+  String get notesGuideEditorFontTitle => 'Text mai mare sau mai mic';
+
+  @override
+  String notesGuideEditorFontBody(
+    String decreaseFontSize,
+    String increaseFontSize,
+  ) {
+    return '„$decreaseFontSize” și „$increaseFontSize” de pe bară schimbă mărimea textului în toate notițele. Mărimea textului din telefon se aplică peste.';
+  }
+
+  @override
+  String get notesGuideEditorTapTitle => 'Ce poți atinge';
+
+  @override
+  String get notesGuideEditorTapBody =>
+      'Atinge o casetă de bifat ca să o bifezi, un #tag ca să găsești fiecare notiță care îl are, un [[link către o notiță]] ca să o deschizi, un total \$\$ ca să vezi ce a intrat în el, un link web ca să îl deschizi.';
+
+  @override
+  String get notesGuidePageMarkdown => 'Bazele markdown';
+
+  @override
+  String get notesGuidePageMarkdownCaption =>
+      'Titluri, îngroșat, liste, casete de bifat, citate, linkuri, tabele';
+
+  @override
+  String get notesGuideMarkdownLead =>
+      'Markdown e un pumn de semne care dau formă textului simplu. Le scrii tu, sau le scrie bara.';
+
+  @override
+  String get notesGuideExHeadingSource =>
+      '# Zi de picioare\n## Încălzire\nCinci minute pe bicicletă';
+
+  @override
+  String get notesGuideExHeadingCaption =>
+      'Un # și un spațiu încep un titlu. Două fac unul mai mic.';
+
+  @override
+  String get notesGuideExEmphasisSource =>
+      'Zi **grea**, *a mers bine*, ~~ramat~~ sărit, ==record nou==';
+
+  @override
+  String get notesGuideExEmphasisCaption =>
+      'Două stele fac textul îngroșat, una cursiv, două tilde îl taie, două semne egal îl evidențiază.';
+
+  @override
+  String get notesGuideExListSource =>
+      '- Genuflexiuni\n- Împins din culcat\n- Ramat';
+
+  @override
+  String get notesGuideExListCaption =>
+      'O liniuță și un spațiu fac o bulină. Enter la capătul unui element începe următorul; Enter pe un element gol încheie lista.';
+
+  @override
+  String get notesGuideExNumberedSource =>
+      '1. Încălzire\n2. Seturi de lucru\n3. Întindere';
+
+  @override
+  String get notesGuideExNumberedCaption =>
+      'Un număr și un punct fac o listă numerotată. Enter continuă numărătoarea pentru tine.';
+
+  @override
+  String get notesGuideExTaskSource => '- [ ] Apă\n- [x] Proteină';
+
+  @override
+  String notesGuideExTaskCaption(String checkbox) {
+    return 'Liniuță, spațiu și [ ] fac o casetă de bifat. Atinge-o ca să o bifezi; butonul „$checkbox” al barei începe una.';
+  }
+
+  @override
+  String get notesGuideExQuoteSource => '> Tehnica înaintea greutății';
+
+  @override
+  String get notesGuideExQuoteCaption =>
+      'Un > separă un rând ca citat, cu o bară în stânga lui.';
+
+  @override
+  String get notesGuideExLinkSource => '[Program](https://example.com)';
+
+  @override
+  String get notesGuideExLinkCaption =>
+      'Textul în paranteze drepte, adresa în paranteze rotunde. Atinge textul pentru a deschide adresa.';
+
+  @override
+  String get notesGuideMarkdownTableTitle => 'Tabele, în varianta simplă';
+
+  @override
+  String notesGuideMarkdownTableBody(String shortcutTable) {
+    return 'Celulele dintre bare verticale fac un rând de tabel. ANTA afișează un astfel de rând într-un font cu lățime fixă, ca să se alinieze coloanele; butonul „$shortcutTable” al barei scrie unul gol.';
+  }
+
+  @override
+  String get notesGuidePageLists => 'Liste și imbricare';
+
+  @override
+  String get notesGuidePageListsCaption =>
+      'Continuarea unei liste, indentarea elementelor și readucerea lor, casete de bifat';
+
+  @override
+  String get notesGuideListsLead =>
+      'Cele mai multe notițe sunt liste: exerciții, seturi, cumpărături. ANTA le ține în ordine în timp ce scrii.';
+
+  @override
+  String get notesGuideExNestedSource =>
+      '- Picioare\n  - Genuflexiuni 5×5\n  - Fandări\n- Spate\n  - Îndreptări';
+
+  @override
+  String get notesGuideExNestedCaption =>
+      'Un element împins înăuntru sub altul e imbricat. Primește o bulină goală; un al treilea nivel, un pătrat.';
+
+  @override
+  String get notesGuideListsEnterTitle => 'Enter continuă lista';
+
+  @override
+  String get notesGuideListsEnterBody =>
+      'Enter la capătul unui element începe următorul la aceeași adâncime – la o casetă de bifat, o casetă nouă goală; la un număr, numărul următor. Enter pe un element gol îl scoate cu un nivel în afară; pe un element de pe primul nivel, încheie lista și lasă un rând simplu.';
+
+  @override
+  String get notesGuideListsNestTitle => 'Trei feluri de a imbrica';
+
+  @override
+  String get notesGuideListsNestBody =>
+      'Pe un element gol, apasă Spațiu o dată ca să-l împingi sub elementul de deasupra. Sau glisează spre dreapta rândul pe care ești. Sau atinge săgeata de indentare a barei. Glisarea spre stânga, săgeata de reducere a indentării sau Enter pe un element gol îl scoate înapoi.';
+
+  @override
+  String get notesGuideListsCapTitle => 'Câte o treaptă';
+
+  @override
+  String get notesGuideListsCapBody =>
+      'Un element poate sta cu un nivel mai adânc decât elementul de deasupra lui, niciodată mai mult, așa că o listă nu poate fugi de pe ecran.';
+
+  @override
+  String get notesGuideListsTaskTitle => 'Bifatul';
+
+  @override
+  String get notesGuideListsTaskBody =>
+      'Atinge o casetă de bifat ca să o bifezi și încă o dată ca să o debifezi. Tastatura rămâne unde e, așa că o listă de seturi se poate bifa în mijlocul antrenamentului.';
+
+  @override
+  String get notesGuidePageOwn => 'Markdown-ul propriu al ANTA';
+
+  @override
+  String get notesGuidePageOwnCaption =>
+      'Taguri, casete, culori, text fantomă, linkuri între notițe, data de azi';
+
+  @override
+  String get notesGuideOwnLead =>
+      'Câteva forme sunt doar ale ANTA. Fiecare are și un buton pe bară.';
+
+  @override
+  String get notesGuideExTagSource => 'Îndreptări 140 kg #record #picioare';
+
+  @override
+  String get notesGuideExTagCaption =>
+      'Un cuvânt după # e un tag. Atinge-l ca să găsești fiecare notiță care îl poartă.';
+
+  @override
+  String get notesGuideExCalloutSource =>
+      '> [!TIP]\n> Încălzește-te înainte de seturile grele';
+
+  @override
+  String get notesGuideExCalloutCaption =>
+      'Un citat care începe cu [!TIP] devine o casetă colorată cu o pictogramă. NOTE, WARNING, IMPORTANT, SUCCESS și QUESTION merg la fel, în locul lui TIP.';
+
+  @override
+  String notesGuideExColourSource(String open, String close) {
+    return '${open}red:Efort maxim$close și ==green:gata==';
+  }
+
+  @override
+  String notesGuideExColourCaption(String markdownColorsTitle) {
+    return 'Un nume de culoare înaintea textului îl colorează; între două semne egal, colorează evidențierea. Numele sunt red, orange, yellow, green, teal, blue, purple, pink și gray – sau ale tale, din „$markdownColorsTitle”.';
+  }
+
+  @override
+  String notesGuideExGhostSource(String open, String close) {
+    return 'Genuflexiuni $open${open}greutate$close$close kg × $open${open}repetări$close$close';
+  }
+
+  @override
+  String notesGuideExGhostCaption(String shortcutGhostText) {
+    return 'Textul între acolade duble e text fantomă, un loc de completat afișat estompat. Atinge-l și scrie ca să-l completezi – un șablon pentru un antrenament pe care îl repeți. Butonul „$shortcutGhostText” al barei face unul.';
+  }
+
+  @override
+  String get notesGuideExWikiSource =>
+      'Aceeași încălzire ca la [[Zi de picioare]]';
+
+  @override
+  String get notesGuideExWikiCaption =>
+      'Titlul unei notițe între paranteze drepte duble face un link către ea. Atinge-l ca să deschizi notița; dacă nicio notiță nu are titlul acela, ANTA îți spune.';
+
+  @override
+  String get notesGuideOwnDateTitle => 'Data de azi';
+
+  @override
+  String notesGuideOwnDateBody(String currentDate) {
+    return 'Butonul „$currentDate” al barei scrie data de azi, așa că un rând de jurnal începe de la sine.';
+  }
+
+  @override
+  String get notesGuidePageMoney => 'Registrul de bani';
+
+  @override
+  String get notesGuidePageMoneyCaption =>
+      'Rândurile care încep cu \$ se adună';
+
+  @override
+  String notesGuideMoneyLead(
+    String moneyLedgerEnabledLabel,
+    String settingsRowEditor,
+    String moneySection,
+  ) {
+    return 'Orice notiță poate ține un total cumulat. Pornește mai întâi „$moneyLedgerEnabledLabel” din „$settingsRowEditor” › „$moneySection”; apoi rândurile care încep cu \$ sunt registrul, iar restul rămâne text obișnuit.';
+  }
+
+  @override
+  String get notesGuideExMoneyBasicSource =>
+      '\$= 500 buget\n\$- 40 sală\n\$+ 25 rambursare\n\$\$ rămas';
+
+  @override
+  String get notesGuideExMoneyBasicCaption =>
+      '\$= stabilește suma inițială, \$- cheltuie, \$+ adaugă – fiecare dintre ele arată soldul de după el, în gri. \$\$ arată totalul de până aici ca un jeton colorat.';
+
+  @override
+  String get notesGuideExMoneyMonthsSource =>
+      '## Martie\n\$= 500\n\$- 120 pantofi\n\$? Martie';
+
+  @override
+  String get notesGuideExMoneyMonthsCaption =>
+      '\$? arată cât s-a schimbat de la ultimul \$=. Un \$= sub titlul fiecărei luni face un registru lunar.';
+
+  @override
+  String get notesGuideExMoneyTargetSource =>
+      '\$= 500\n\$! 300 cumpărături\n\$- 120 cumpărături\n\$!';
+
+  @override
+  String get notesGuideExMoneyTargetCaption =>
+      '\$! cu o sumă pune o țintă. Un \$! singur arată cât a mai rămas din ea după cheltuielile de atunci – verde cât ești sub ea, roșu când ai trecut peste. Niciunul nu schimbă soldul.';
+
+  @override
+  String get notesGuideMoneyTapTitle => 'Atinge un total';
+
+  @override
+  String get notesGuideMoneyTapBody =>
+      'Atinge o valoare \$\$ sau \$? ca să vezi fiecare rând care a intrat în ea.';
+
+  @override
+  String get notesGuideMoneyMoreTitle => 'Înmulțire și împărțire';
+
+  @override
+  String get notesGuideMoneyMoreBody =>
+      '\$* 1.19 înmulțește soldul, pentru o taxă; \$/ 2 îl împarte, pentru o notă de plată împărțită la doi.';
+
+  @override
+  String get notesGuideMoneySettingsTitle => 'Moneda și soldul inițial';
+
+  @override
+  String notesGuideMoneySettingsBody(
+    String settingsRowEditor,
+    String moneySection,
+    String moneyLedgerEnabledLabel,
+  ) {
+    return '„$settingsRowEditor” › „$moneySection” stabilește și simbolul, locul lui și un sold inițial de la care începe fiecare notiță; fiecare notiță poate avea și propria monedă. Dacă rândurile cu \$ apar ca text simplu, „$moneyLedgerEnabledLabel” e încă oprit acolo.';
+  }
+
+  @override
+  String get notesGuideMoneyCalendarTitle => 'În calendar';
+
+  @override
+  String get notesGuideMoneyCalendarBody =>
+      'Notița asociată unui eveniment își arată banii în calendar: o bară sub zi și totalul lunii în antet.';
+
+  @override
+  String get notesGuideMoneyButtonsTitle => 'Pe bară';
+
+  @override
+  String notesGuideMoneyButtonsBody(
+    String shortcutMoneyAdd,
+    String shortcutMoneySubtract,
+    String shortcutMoneyStart,
+    String shortcutMoneyTotal,
+    String shortcutMoneyChange,
+    String shortcutMoneyTarget,
+  ) {
+    return 'Fiecare rând de registru are un buton: „$shortcutMoneyAdd”, „$shortcutMoneySubtract”, „$shortcutMoneyStart”, „$shortcutMoneyTotal”, „$shortcutMoneyChange”, „$shortcutMoneyTarget”.';
+  }
+
+  @override
+  String get notesGuidePageBar => 'Bara';
+
+  @override
+  String get notesGuidePageBarCaption =>
+      'Rearanjarea butoanelor, scurtăturile tale, mai multe bare';
+
+  @override
+  String notesGuideBarLead(String settingsRowEditor) {
+    return 'Bara de deasupra tastaturii e a ta, s-o aranjezi. Tot ce ține de ea se află în „$settingsRowEditor”.';
+  }
+
+  @override
+  String get notesGuideBarShortcutsTitle => 'Scurtături';
+
+  @override
+  String notesGuideBarShortcutsBody(String shortcuts) {
+    return 'Fiecare buton e o scurtătură: un text pe care îl scrie sau îl pune în jurul selecției tale. În „$shortcuts”, trage-le ca să le reordonezi, ascunde-le pe cele pe care nu le folosești sau schimbă ce scrie una.';
+  }
+
+  @override
+  String get notesGuideBarOwnTitle => 'Scurtătura ta';
+
+  @override
+  String notesGuideBarOwnBody(String shortcuts) {
+    return 'Atinge + în „$shortcuts” ca să faci una. Un rând pe care îl scrii des – un format de set, titlul cu care începi fiecare zi – devine un buton.';
+  }
+
+  @override
+  String get notesGuideBarUtilityTitle => 'Butoane utilitare';
+
+  @override
+  String notesGuideBarUtilityBody(String utilityButtons) {
+    return 'Anulare, refacere, indentare, lipire, mărimea textului, partajare, contoare, salt la început sau la sfârșit: „$utilityButtons” alege care dintre ele apar și în ce ordine.';
+  }
+
+  @override
+  String get notesGuideBarReorderTitle => 'Rearanjare din notiță';
+
+  @override
+  String notesGuideBarReorderBody(String reorderShortcuts) {
+    return 'Butonul „$reorderShortcuts” al barei transformă butoanele în jetoane pe care le poți trage, chiar acolo, în notiță.';
+  }
+
+  @override
+  String get notesGuideBarProfilesTitle => 'Mai multe bare';
+
+  @override
+  String notesGuideBarProfilesBody(
+    String manageBarProfiles,
+    String switchBar,
+    String perNoteBarAssignment,
+  ) {
+    return '„$manageBarProfiles” păstrează mai mult de o bară – una pentru antrenamente, una pentru bani. De la două în sus, butonul „$switchBar” al barei schimbă bara pentru notița în care ești, iar „$perNoteBarAssignment” listează aceste alegeri.';
+  }
+
+  @override
+  String get notesGuideBarLayoutTitle => 'Două fâșii sau una';
+
+  @override
+  String notesGuideBarLayoutBody(String splitToolbar, String pinUndoRedo) {
+    return '„$splitToolbar” ține butoanele utilitare într-o fâșie a lor, în dreapta, care se derulează separat de scurtăturile tale; „$pinUndoRedo” ține anularea și refacerea la vedere cât timp restul barei se derulează.';
+  }
+
+  @override
+  String get notesGuidePageAutocomplete => 'Autocompletare';
+
+  @override
+  String get notesGuidePageAutocompleteCaption =>
+      'Listele tale de cuvinte, oferite în timp ce scrii';
+
+  @override
+  String get notesGuideAutocompleteLead =>
+      'Dă-i aplicației ANTA listele tale – exerciții, mese, clienți – și le oferă în timp ce scrii, așa că un nume lung e o singură atingere.';
+
+  @override
+  String get notesGuideAutoListsTitle => 'Fă o listă';
+
+  @override
+  String notesGuideAutoListsBody(
+    String settingsRowEditor,
+    String vocabularySection,
+    String manageVocabularies,
+  ) {
+    return '„$settingsRowEditor” › „$vocabularySection” › „$manageVocabularies”: un termen pe rând. Un rând care începe cu ;; e un titlu în listă și nu e oferit niciodată.';
+  }
+
+  @override
+  String get notesGuideAutoTriggerTitle => 'Scrie @ și câteva litere';
+
+  @override
+  String notesGuideAutoTriggerBody(String vocabularyTriggerLabel) {
+    return 'După un spațiu, scrie caracterul declanșator („$vocabularyTriggerLabel”, @ dacă nu îl schimbi) și începutul unui cuvânt: @gen oferă Genuflexiuni. Atinge sugestia și e scrisă pentru tine, ca text simplu.';
+  }
+
+  @override
+  String get notesGuideAutoScopeTitle => 'O singură listă';
+
+  @override
+  String get notesGuideAutoScopeBody =>
+      'Numește lista înaintea celor două puncte – @exerciții:gen – și se caută doar în ea. Două nume cu virgulă între ele caută în amândouă.';
+
+  @override
+  String get notesGuideAutoGhostTitle => 'Textul fantomă îți știe listele';
+
+  @override
+  String notesGuideAutoGhostBody(String open, String close) {
+    return 'Atinge un text fantomă al cărui nume se potrivește cu una dintre listele tale – $open${open}exerciții$close$close pentru o listă numită Exerciții – și lista aceea e oferită. Un șablon se completează din două atingeri.';
+  }
+
+  @override
+  String get notesGuideAutoIgnoreTitle => 'Să le ignori nu costă nimic';
+
+  @override
+  String notesGuideAutoIgnoreBody(String vocabularySuggestionsLabel) {
+    return 'Scrie mai departe și sugestiile se închid; ce ai scris rămâne exact așa. „$vocabularySuggestionsLabel” oprește funcția de tot.';
+  }
+
+  @override
+  String get notesGuidePageCounters => 'Contoare';
+
+  @override
+  String get notesGuidePageCountersCaption =>
+      'Numere pe care le crești cu o atingere: seturi, pahare de apă, zile la rând';
+
+  @override
+  String get notesGuideCountersLead =>
+      'Un contor e un număr cu propriul lui +. Ține unul pentru toată aplicația, sau unul per notiță.';
+
+  @override
+  String get notesGuideCountersMakeTitle => 'Fă unul';
+
+  @override
+  String notesGuideCountersMakeBody(String counterSettings, String addCounter) {
+    return '„$counterSettings” din meniul principal listează contoarele tale. „$addCounter” face unul nou: dă-i un nume, o valoare de pornire și un pas.';
+  }
+
+  @override
+  String get notesGuideCountersNoteTitle => 'Din interiorul unei notițe';
+
+  @override
+  String notesGuideCountersNoteBody(String counterInsertTooltip) {
+    return 'Butonul „$counterInsertTooltip” al barei listează contoarele tale. Alege unul: crește cu un pas, iar numărul nou e scris acolo unde ești.';
+  }
+
+  @override
+  String get notesGuideCountersScopeTitle =>
+      'Pentru toată aplicația sau per notiță';
+
+  @override
+  String notesGuideCountersScopeBody(
+    String counterScope,
+    String counterScopeGlobalDesc,
+    String counterScopePerNoteDesc,
+  ) {
+    return '„$counterScope” decide: „$counterScopeGlobalDesc” sau „$counterScopePerNoteDesc” – o numărătoare care e doar a acelei notițe.';
+  }
+
+  @override
+  String get notesGuideCountersPinTitle => 'Fixarea';
+
+  @override
+  String notesGuideCountersPinBody(String pinCounter) {
+    return '„$pinCounter” ține un contor în capul listei, ca cele folosite zilnic să fie primele.';
+  }
+
+  @override
+  String get notesGuideCountersShortcutTitle => 'Un buton care numără';
+
+  @override
+  String notesGuideCountersShortcutBody(
+    String shortcuts,
+    String counterBindingsTitle,
+  ) {
+    return 'În „$shortcuts”, o scurtătură poate fi legată de un contor („$counterBindingsTitle”): fiecare atingere îl poate crește și îi poate scrie numărul – un buton pentru fiecare set.';
+  }
+
+  @override
+  String get notesGuidePageSettings => 'Unde sunt setările';
+
+  @override
+  String get notesGuidePageSettingsCaption => 'Ce găsești pe fiecare pagină';
+
+  @override
+  String notesGuideSettingsLead(String settingsHubTitle) {
+    return '„$settingsHubTitle” din meniul principal listează fiecare pagină de setări cu un rând despre ce conține; căutarea ei găsește pagina care conține o secțiune, după numele secțiunii.';
+  }
+
+  @override
+  String notesGuideSettingsGeneralTitle(String settingsRowGeneral) {
+    return '„$settingsRowGeneral”';
+  }
+
+  @override
+  String notesGuideSettingsGeneralBody(String settingsRowGeneralDesc) {
+    return '$settingsRowGeneralDesc: ce se deschide la pornire, cum își arată un dosar notițele, încadrarea rândurilor și numerele de rând din editor.';
+  }
+
+  @override
+  String notesGuideSettingsEditorTitle(String settingsRowEditor) {
+    return '„$settingsRowEditor”';
+  }
+
+  @override
+  String get notesGuideSettingsEditorBody =>
+      'Scurtături și bare, butoane utilitare, culori de text, registrul de bani, autocompletarea – fiecare o secțiune pe care o poți plia.';
+
+  @override
+  String notesGuideSettingsCountersTitle(String counterSettings) {
+    return '„$counterSettings”';
+  }
+
+  @override
+  String get notesGuideSettingsCountersBody =>
+      'Contoarele tale, fixările lor și care dintre ele diferă per notiță.';
+
+  @override
+  String notesGuideSettingsLookTitle(
+    String settingsRowTheme,
+    String languageSettings,
+  ) {
+    return '„$settingsRowTheme” și „$languageSettings”';
+  }
+
+  @override
+  String notesGuideSettingsLookBody(String themeSettingsDesc) {
+    return '$themeSettingsDesc; engleză, germană sau română. Mărimea textului urmează setarea telefonului.';
+  }
+
+  @override
+  String get notesGuideSettingsPerNoteTitle =>
+      'Ce poate avea fiecare notiță în parte';
+
+  @override
+  String get notesGuideSettingsPerNoteBody =>
+      'Bara ei, moneda ei și valorile ei de contor. Tot restul e comun tuturor notițelor.';
+
+  @override
+  String get notesGuidePageSafe => 'Nimic nu se pierde';
+
+  @override
+  String get notesGuidePageSafeCaption =>
+      'Salvarea automată, cuvântul de sus, calea înapoi';
+
+  @override
+  String get notesGuideSafeLead =>
+      'ANTA e făcută ca o notiță să supraviețuiască oricărui lucru, în afară de pierderea telefonului.';
+
+  @override
+  String get notesGuideSafeAutosaveTitle => 'Salvat pe măsură ce scrii';
+
+  @override
+  String get notesGuideSafeAutosaveBody =>
+      'Textul se salvează la câteva secunde după ce te oprești din scris și la fiecare jumătate de minut cât timp continui; o salvare eșuată se reîncearcă. Cel mult ultimul moment s-ar putea pierde.';
+
+  @override
+  String get notesGuideSafeStatusTitle => 'Cuvântul de sus';
+
+  @override
+  String notesGuideSafeStatusBody(
+    String saveStatusSaved,
+    String saveStatusSaving,
+    String saveStatusUnsaved,
+    String saveStatusError,
+  ) {
+    return '„$saveStatusSaved”, „$saveStatusSaving” sau „$saveStatusUnsaved” – o privire spune cum stau lucrurile. „$saveStatusError” înseamnă că telefonul a refuzat scrierea; continuă, ANTA încearcă din nou.';
+  }
+
+  @override
+  String get notesGuideSafeEventTitle => 'O notiță la un eveniment';
+
+  @override
+  String notesGuideSafeEventBody(String eventLinkedNote) {
+    return 'Un eveniment din calendar poate arăta spre o notiță („$eventLinkedNote”): planul unui antrenament, cât a costat. Deschide notița din eveniment.';
+  }
+
+  @override
+  String get notesGuideSafeBackupTitle => 'Calea înapoi';
+
+  @override
+  String notesGuideSafeBackupBody(String guideBookAppTitle) {
+    return 'Ștergerea e definitivă, iar acest telefon ține singura copie până când mai faci una. Ghidul „$guideBookAppTitle” arată cum faci o copie de rezervă și cum sincronizezi.';
+  }
+
+  @override
+  String get notesGuideSafeShareTitle => 'Cum scoți textul afară';
+
+  @override
+  String notesGuideSafeShareBody(String shareNote) {
+    return '„$shareNote” dă o notiță oricărei alte aplicații – un mesaj, un e-mail, un spațiu de stocare – ca fișier în formatul pe care îl alegi.';
+  }
+
+  @override
+  String get appGuidePageMenu => 'Meniul principal';
+
+  @override
+  String get appGuidePageMenuCaption => 'Ce conține ☰ din stânga sus';
+
+  @override
+  String get appGuideMenuLead =>
+      '☰ din stânga sus deschide meniul principal. El listează locuri, nu setări: fiecare rând e un loc unde mergi.';
+
+  @override
+  String get appGuideMenuAccountTitle => 'Rândul de sus';
+
+  @override
+  String appGuideMenuAccountBody(
+    String drawerAccountNotSyncing,
+    String sharingSettings,
+  ) {
+    return 'Odată conectat, rândul de sus arată cine ești și când s-au sincronizat ultima dată notițele – sau „$drawerAccountNotSyncing” cât timp sincronizarea e oprită. Atinge-l ca să deschizi „$sharingSettings”.';
+  }
+
+  @override
+  String appGuideMenuCalendarTitle(String calendar) {
+    return '„$calendar”';
+  }
+
+  @override
+  String appGuideMenuCalendarBody(
+    String calendar,
+    String calendarOverview,
+    String reportTitle,
+    String calendarCategories,
+    String alertsTitle,
+    String calendarGuideTitle,
+    String howToUseAnta,
+  ) {
+    return '„$calendar” e luna; „$calendarOverview” listează ce urmează; „$reportTitle” numără ce ai făcut; „$calendarCategories” și „$alertsTitle” gestionează culorile și alertele. Ghidul „$calendarGuideTitle”, de sub „$howToUseAnta”, le explică pe toate.';
+  }
+
+  @override
+  String appGuideMenuNotesTitle(String notes) {
+    return '„$notes”';
+  }
+
+  @override
+  String appGuideMenuNotesBody(String counterSettings) {
+    return '„$counterSettings”: contoarele tale și fixările lor. Notițele propriu-zise nu sunt în meniu: ele sunt dosarele pe care se deschide ANTA.';
+  }
+
+  @override
+  String appGuideMenuAppTitle(String appGroupLabel) {
+    return '„$appGroupLabel”';
+  }
+
+  @override
+  String appGuideMenuAppBody(
+    String settingsHubTitle,
+    String howToUseAnta,
+    String about,
+  ) {
+    return '„$settingsHubTitle” conține toate setările; „$howToUseAnta” e acest ghid; „$about” arată versiunea.';
+  }
+
+  @override
+  String get appGuideMenuBackTitle => 'Înapoi';
+
+  @override
+  String get appGuideMenuBackBody =>
+      'Săgeata din stânga sus sau gestul de înapoi al telefonului te întoarce de unde ai venit – până la urmă, la dosarele tale.';
+
+  @override
+  String get appGuidePageSettings => 'Setări bune de știut';
+
+  @override
+  String get appGuidePageSettingsCaption =>
+      'Mod întunecat, limbă, permisiuni, unde se deschide ANTA';
+
+  @override
+  String appGuideSettingsLead(String settingsHubTitle) {
+    return 'Totul e în „$settingsHubTitle”. Acestea sunt primele setări de care dai.';
+  }
+
+  @override
+  String appGuideSettingsThemeTitle(String settingsRowTheme) {
+    return '„$settingsRowTheme”';
+  }
+
+  @override
+  String appGuideSettingsThemeBody(String themeSettingsDesc) {
+    return '$themeSettingsDesc. Mărimea textului urmează setarea telefonului.';
+  }
+
+  @override
+  String appGuideSettingsLanguageTitle(String languageSettings) {
+    return '„$languageSettings”';
+  }
+
+  @override
+  String get appGuideSettingsLanguageBody =>
+      'Engleză, germană sau română, pentru toată aplicația.';
+
+  @override
+  String appGuideSettingsPermissionsTitle(String permissionsTitle) {
+    return '„$permissionsTitle”';
+  }
+
+  @override
+  String appGuideSettingsPermissionsBody(String settingsHubTitle) {
+    return 'Ce îi permite telefonul aplicației ANTA să facă: să sune o alarmă, să arate o notificare și așa mai departe. Când lipsește ceva necesar, rândul „$settingsHubTitle” din meniul principal o spune cu roșu.';
+  }
+
+  @override
+  String get appGuideSettingsStartupTitle => 'Unde se deschide ANTA';
+
+  @override
+  String appGuideSettingsStartupBody(
+    String settingsRowGeneral,
+    String startupSection,
+    String restoreLocation,
+  ) {
+    return '„$settingsRowGeneral” › „$startupSection”: „$restoreLocation” alege ce redeschide ANTA după o repornire – tot, doar dosarele și notițele tale, sau nimic, ca să pornească mereu la dosarele tale.';
+  }
+
+  @override
+  String get appGuideSettingsSearchTitle => 'Cum găsești o setare';
+
+  @override
+  String appGuideSettingsSearchBody(
+    String settingsHubTitle,
+    String autoSaveSection,
+    String languageSettings,
+  ) {
+    return 'Căutarea din capul paginii „$settingsHubTitle” trece prin secțiunile fiecărei pagini: scrie „$autoSaveSection” sau „$languageSettings” și apare pagina care o conține.';
+  }
+
+  @override
+  String get appGuidePageBackup => 'Copii de rezervă și restaurare';
+
+  @override
+  String get appGuidePageBackupCaption =>
+      'Cum ții o copie a notițelor și cum o aduci înapoi';
+
+  @override
+  String get appGuideBackupLead =>
+      'Notițele tale se află pe acest telefon. O copie în alt loc face dintr-un telefon pierdut o neplăcere, nu o pierdere.';
+
+  @override
+  String get appGuideBackupFolderTitle => 'Partajează un dosar';
+
+  @override
+  String appGuideBackupFolderBody(String shareFolder) {
+    return '„$shareFolder” din meniul ⋮ al unui dosar îl împachetează – notițe și subdosare – într-un singur fișier și îl dă altei aplicații: trimite-ți-l pe e-mail sau pune-l într-un spațiu de stocare.';
+  }
+
+  @override
+  String get appGuideBackupSelectionTitle => 'Partajează o selecție';
+
+  @override
+  String appGuideBackupSelectionBody(String shareSelected) {
+    return 'Ține apăsat ca să selectezi notițe și dosare, apoi „$shareSelected” le împachetează doar pe acelea.';
+  }
+
+  @override
+  String get appGuideBackupImportTitle => 'Adu o copie înapoi';
+
+  @override
+  String appGuideBackupImportBody(String importNoteOrFolder) {
+    return '„$importNoteOrFolder” din meniul ⋮ al unui dosar ia un asemenea fișier – sau un singur fișier markdown – și îi pune notițele în dosarul acela.';
+  }
+
+  @override
+  String get appGuideBackupDatabaseTitle => 'Toată baza de date';
+
+  @override
+  String appGuideBackupDatabaseBody(
+    String settingsRowDatabases,
+    String settingsHubTitle,
+    String shareDatabase,
+    String importDatabase,
+  ) {
+    return '„$settingsRowDatabases” din „$settingsHubTitle” lucrează cu tot deodată: „$shareDatabase” trimite un singur fișier cu fiecare dosar, notiță, contor și eveniment; „$importDatabase” încarcă un asemenea fișier ca bază de date nouă.';
+  }
+
+  @override
+  String get appGuideBackupSwitchTitle => 'Mai mult de o bază de date';
+
+  @override
+  String get appGuideBackupSwitchBody =>
+      'Poți ține mai multe baze de date – serviciu și acasă – și poți trece de la una la alta pe aceeași pagină. ANTA repornește pe cea pe care o alegi.';
+
+  @override
+  String get appGuideBackupFirstRunTitle => 'Pe un telefon nou';
+
+  @override
+  String appGuideBackupFirstRunBody(String restoreFromBackup) {
+    return 'Primul ecran oferă „$restoreFromBackup”: alege o copie de rezervă și totul revine înainte să fi făcut o singură notiță.';
+  }
+
+  @override
+  String get appGuidePageSync => 'Sincronizare între telefoane';
+
+  @override
+  String get appGuidePageSyncCaption =>
+      'Te conectezi o dată, aceleași notițe pe fiecare dispozitiv';
+
+  @override
+  String get appGuideSyncLead =>
+      'Sincronizarea ține o copie a unei baze de date în contul tău și trimite fiecare schimbare celorlalte dispozitive ale tale. E oprită până o pornești.';
+
+  @override
+  String get appGuideSyncSignInTitle => 'Conectare';
+
+  @override
+  String appGuideSyncSignInBody(
+    String sharingSettings,
+    String settingsHubTitle,
+    String signInWithGoogle,
+  ) {
+    return '„$sharingSettings” din „$settingsHubTitle”: „$signInWithGoogle”. Notițele rămân pe telefon; conectarea singură nu trimite nimic.';
+  }
+
+  @override
+  String get appGuideSyncOnTitle => 'Pornirea';
+
+  @override
+  String appGuideSyncOnBody(
+    String syncThisDatabase,
+    String syncThisDatabaseDesc,
+  ) {
+    return '„$syncThisDatabase” de pe aceeași pagină începe sincronizarea bazei de date pe care o folosești. $syncThisDatabaseDesc.';
+  }
+
+  @override
+  String get appGuideSyncStatusTitle => 'Cum stau lucrurile';
+
+  @override
+  String appGuideSyncStatusBody(
+    String syncUpToDate,
+    String syncOffline,
+    String syncNow,
+  ) {
+    return 'Pagina spune „$syncUpToDate”, „$syncOffline” sau câte schimbări așteaptă; rândul de sus al meniului principal arată când s-a sincronizat ultima dată. Offline nu se pierde nimic: schimbările pleacă de îndată ce revine conexiunea, iar „$syncNow” nu așteaptă.';
+  }
+
+  @override
+  String get appGuideSyncOtherTitle => 'Pe celălalt telefon';
+
+  @override
+  String appGuideSyncOtherBody(String syncThisDatabase) {
+    return 'Conectează-te cu același cont și pornește și acolo „$syncThisDatabase”. ANTA listează spațiile din contul tău; alege-l pe al tău și e descărcat ca bază de date nouă pe telefonul acela. După aceea circulă doar schimbările.';
+  }
+
+  @override
+  String get appGuideSyncConflictTitle => 'Două telefoane, o notiță';
+
+  @override
+  String get appGuideSyncConflictBody =>
+      'Dacă aceeași notiță se schimbă în două locuri, ANTA le păstrează pe amândouă: cealaltă versiune e pusă lângă a ta, ca o copie, așa că nimic nu e suprascris.';
+
+  @override
+  String get appGuideSyncStopTitle => 'Oprirea';
+
+  @override
+  String appGuideSyncStopBody(String syncStop, String signOut) {
+    return '„$syncStop” îți lasă notițele pe acest telefon și încetează să trimită și să primească; copia din contul tău rămâne. „$signOut” pune pe pauză sincronizarea pentru fiecare bază de date până te conectezi din nou.';
+  }
 }

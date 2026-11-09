@@ -1,0 +1,36 @@
+# The drawer's How to use ANTA hub opens the two guide books
+# (docs/guide-hub-roadmap.md D1, D11): the notes book and its first page,
+# then the app book and its backup page, each left by system back down to
+# the hub and then to the folder root. The drawer row alone is
+# 01_drawer_places; the calendar guide is 11_hub_guide and calendar/26_guide.
+# - Each page is known by its list's id: guide-hub, guide-<book>,
+#   guide-<book>-topic-<slug>; a read row by guide-<book>-<slug>.
+# - How to use ANTA sits low in the drawer, so it is scrolled to inside the
+#   list before the tap (--in id:drawer-list).
+tap id:nav-menu
+wait id:drawer-calendar
+scroll-to id:drawer-how-to --in id:drawer-list
+tap id:drawer-how-to
+wait id:guide-hub
+tap id:guide-hub-book-notes
+wait id:guide-notes
+tap id:guide-notes-page-basics
+wait id:guide-notes-topic-basics
+expect id:guide-notes-basics-create
+shot 20_guide_notes_basics
+key back
+wait id:guide-notes
+key back
+wait id:guide-hub
+tap id:guide-hub-book-app
+wait id:guide-app
+tap id:guide-app-page-backup
+wait id:guide-app-topic-backup
+expect id:guide-app-backup-folder
+key back
+wait id:guide-app
+key back
+wait id:guide-hub
+key back
+wait id:create-folder
+errors
