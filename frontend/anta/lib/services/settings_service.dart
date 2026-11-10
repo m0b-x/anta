@@ -20,6 +20,7 @@ import '../models/overview_list_options.dart';
 import '../models/overview_period.dart';
 import '../models/report_cards.dart';
 import '../models/restore_location_mode.dart';
+import 'sync/sync_cadence.dart';
 import '../models/sync_binding.dart';
 import '../database/database.dart';
 import '../database/database_lifecycle.dart';
@@ -2492,6 +2493,15 @@ class SettingsService {
       );
     });
   }
+
+  /// When the sync engine runs on its own; [SyncCadence.automatic] until the
+  /// user chooses otherwise.
+  Future<SyncCadence> getSyncCadence() async => SyncCadence.parse(
+    await _db.userSettingsDao.getValue(SettingsKeys.syncCadence),
+  );
+
+  Future<void> setSyncCadence(SyncCadence cadence) =>
+      _db.userSettingsDao.setValue(SettingsKeys.syncCadence, cadence.name);
 
   /// Writes a value, or removes the row entirely when it is null — "absent"
   /// and "empty string" must not be the same state for pairing.

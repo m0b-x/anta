@@ -1,8 +1,11 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:anta/constants/json_keys.dart';
 import 'package:anta/database/chunking/chunk_hasher.dart';
+import 'package:anta/database/crdt/hlc.dart';
 import 'package:anta/database/daos/sync_dao.dart';
+import 'package:anta/models/app_user.dart';
 import 'package:anta/services/sync/sync_engine.dart';
 import 'package:anta/services/sync/sync_gateway.dart';
 import 'package:anta/services/sync/sync_status.dart';
@@ -11,9 +14,10 @@ import 'package:anta/services/sync/sync_tables.dart';
 import 'support/sync_pair.dart';
 
 /// What a run costs (scalability record S9): the equal-stamp ack that keeps
-/// a rebind from uploading everything again, the resume that pulls only
-/// what the snapshot names, the overlap re-read skipped for a settled table,
-/// the quota retry's time and the run's counters.
+/// a rebind from uploading everything again, the resume and the start that
+/// pull only what the snapshot names (record §13), the overlap re-read
+/// skipped for a settled table, the quota retry's time and the run's
+/// counters.
 void main() {
   late SyncPair pair;
   SyncDevice a() => pair.a;
@@ -209,6 +213,245 @@ void main() {
       expect(
         a().scheduler.pending,
         isNot(contains(SyncEngine.resumeSnapshotWait)),
+      );
+    });
+  });
+
+  group('the start', () {
+    /// A started A that pulled everything once and was stopped: what a
+    /// launch after the last session finds.
+    Future<void> startThenStop() async {
+      await a().engine.start();
+      await a().settle();
+      await a().engine.stop();
+      pair.gateway.calls.clear();
+      pair.gateway.resumedPulls.clear();
+    }
+
+    /// The stamp one counter step past [hlc] at the same wall time, from
+    /// device C: above [hlc], below the next millisecond's stamps.
+    String justAfter(String hlc) {
+      final stamp = HlcTimestamp.parse(hlc);
+      final wall = stamp.wallTime.toRadixString(16).padLeft(12, '0');
+      final counter = (stamp.logicalCounter + 1)
+          .toRadixString(16)
+          .padLeft(4, '0');
+      return '$wall:$counter:C';
+    }
+
+    test('a quiet start pulls nothing when the snapshot names nothing new, '
+        'and only what moved after a push — a launch costs one read, not a '
+        'page per table', () async {
+      await startThenStop();
+
+      await a().engine.start();
+      await a().settle();
+
+      expect(pulls(), isEmpty, reason: 'the snapshot names nothing new');
+      expect(
+        a().scheduler.pending,
+        isNot(contains(SyncEngine.resumeSnapshotWait)),
+        reason: 'the snapshot cancelled the fallback',
+      );
+
+      await a().engine.stop();
+      await b().db.folderDao.createFolder(name: 'From B');
+      await b().sync();
+      pair.gateway.calls.clear();
+      await a().engine.start();
+      await a().settle();
+
+      expect(pulls(), ['folders']);
+      expect(await a().db.select(a().db.folders).get(), hasLength(1));
+    });
+
+    test('a start whose snapshot does not come pulls every table after '
+        '5 s', () async {
+      await startThenStop();
+      pair.gateway.holdSignals = true;
+
+      await a().engine.start();
+      await a().settle();
+      expect(pulls(), isEmpty);
+      expect(a().scheduler.pending, contains(SyncEngine.resumeSnapshotWait));
+
+      expect(a().scheduler.fire(SyncEngine.resumeSnapshotWait), 1);
+      await a().settle();
+
+      expect(pulls(), hasLength(pulledTables.length));
+    });
+
+    test('a start a day after the last full pull pulls every table at '
+        'once', () async {
+      await startThenStop();
+      final dayAgo = DateTime.now().subtract(SyncEngine.fullPullInterval);
+      await a().db.syncDao.setValue(
+        SyncDao.keyFullPullAt,
+        '${dayAgo.millisecondsSinceEpoch}',
+      );
+
+      await a().engine.start();
+      await a().settle();
+
+      expect(pulls(), hasLength(pulledTables.length));
+      expect(
+        a().scheduler.pending,
+        isNot(contains(SyncEngine.resumeSnapshotWait)),
+      );
+    });
+
+    test('the first start after a bind pulls every table: the merge the bind '
+        'owes', () async {
+      await a().engine.start();
+      await a().settle();
+
+      expect(pulls(), hasLength(pulledTables.length));
+      expect(
+        await a().db.syncDao.getValue(SyncDao.keyBindMergePending),
+        isNull,
+      );
+    });
+
+    test('a start under a stored quota pause runs every table at once: the '
+        'retry of that pause', () async {
+      await a().engine.start();
+      await a().settle();
+      pair.gateway.failNextWith(SyncGatewayFailure.quotaExhausted);
+      await a().sync();
+      expect(a().engine.current.pause, SyncPause.quotaExhausted);
+      await a().engine.stop();
+      pair.gateway.calls.clear();
+
+      await a().engine.start();
+      await a().settle();
+
+      expect(pulls(), hasLength(pulledTables.length));
+      expect(a().engine.current.pause, SyncPause.none);
+    });
+
+    test('a start that owes stored parks their retry pulls every table, so '
+        'they are read again as before', () async {
+      final folder = await a().db.folderDao.createFolder(name: 'Training');
+      await a().engine.start();
+      await a().settle();
+      // A document for the folder this build cannot merge, above the local
+      // stamp: parked, and stored for the next start.
+      pair.gateway.plant(
+        pair.space,
+        folderEnvelope(
+          folder.id,
+          justAfter(
+            (await a().db.folderDao.getFolderById(folder.id))!.hlcTimestamp,
+          ),
+          data: {JsonKeys.id: folder.id},
+        ),
+      );
+      await a().sync();
+      expect(a().engine.current.parkedCount, 1);
+      await a().engine.stop();
+      pair.gateway.calls.clear();
+
+      await a().engine.start();
+      await a().settle();
+
+      expect(pulls(), hasLength(pulledTables.length));
+      expect(
+        pair.gateway.calls,
+        contains('read:folders'),
+        reason: 'the stored park was read again',
+      );
+    });
+
+    test('the account the auth stream replays to the start\'s listener '
+        'requests nothing; a change does', () async {
+      await startThenStop();
+
+      await a().engine.start();
+      await a().settle();
+      a().auth.add(a().user);
+      await a().settle();
+
+      expect(pulls(), isEmpty, reason: 'the same account, twice over');
+      expect(
+        pair.gateway.calls,
+        isEmpty,
+        reason: 'a replay must not be taken for a sign-in',
+      );
+    });
+
+    test('an account restored a moment after the start runs as the quiet '
+        'start does: only what moved', () async {
+      await startThenStop();
+      await b().db.folderDao.createFolder(name: 'From B');
+      await b().sync();
+      pair.gateway.calls.clear();
+      a().user = null;
+      await a().engine.start();
+      await a().settle();
+      expect(pulls(), isEmpty, reason: 'signed out, nothing runs');
+
+      a().user = const AppUser(uid: syncUid);
+      a().auth.add(a().user);
+      await a().settle();
+
+      expect(pulls(), ['folders']);
+      expect(await a().db.select(a().db.folders).get(), hasLength(1));
+    });
+
+    test('a run whose live snapshot named no table stamps the last pull; a '
+        'leave\'s drain alone does not', () async {
+      await startThenStop();
+      final before = int.parse(
+        (await a().db.syncDao.getValue(SyncDao.keyLastPullAt))!,
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 2));
+
+      await a().engine.start();
+      await a().settle();
+
+      expect(pulls(), isEmpty);
+      final after = int.parse(
+        (await a().db.syncDao.getValue(SyncDao.keyLastPullAt))!,
+      );
+      expect(after, greaterThan(before), reason: 'the device is current');
+
+      await Future<void>.delayed(const Duration(milliseconds: 2));
+      await a().db.folderDao.createFolder(name: 'Typed');
+      await a().engine.onAppBackgrounded();
+      await a().settle();
+
+      expect(pair.gateway.calls, contains('push:A'));
+      expect(
+        await a().db.syncDao.getValue(SyncDao.keyLastPullAt),
+        '$after',
+        reason: 'a drain judges nothing about the space',
+      );
+    });
+
+    test('a debounced drain stamps no last pull on a snapshot an earlier run '
+        'already judged — offline, the listener keeps its last one', () async {
+      await startThenStop();
+      await a().engine.start();
+      await a().settle();
+      final stamped = await a().db.syncDao.getValue(SyncDao.keyLastPullAt);
+      await Future<void>.delayed(const Duration(milliseconds: 2));
+
+      // The link is down: the drain's push fails, so no snapshot follows
+      // it, and the snapshot of the start is all the run has.
+      await a().db.folderDao.createFolder(name: 'Typed');
+      await a().settle();
+      pair.gateway.failNextWith(SyncGatewayFailure.offline);
+      expect(a().scheduler.fire(const SyncEngineTiming().pushDebounce), 1);
+      await a().settle();
+
+      expect(
+        a().engine.current.lastFailure?.failure,
+        SyncGatewayFailure.offline,
+      );
+      expect(
+        await a().db.syncDao.getValue(SyncDao.keyLastPullAt),
+        stamped,
+        reason: 'no snapshot arrived since the start\'s run',
       );
     });
   });

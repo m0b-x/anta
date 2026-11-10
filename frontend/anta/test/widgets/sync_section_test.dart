@@ -20,6 +20,7 @@ import 'package:anta/models/sync_binding.dart';
 import 'package:anta/pages/sync_settings_page.dart';
 import 'package:anta/services/pairing_service.dart';
 import 'package:anta/services/settings_service.dart';
+import 'package:anta/services/sync/sync_cadence.dart';
 import 'package:anta/services/sync/sync_gateway.dart';
 import 'package:anta/services/sync/sync_status.dart';
 import 'package:anta/utils/auth_error.dart';
@@ -164,6 +165,7 @@ void main() {
     SyncFailureInfo? failure,
     DateTime? lastPushAt,
     DateTime? lastPullAt,
+    SyncCadence cadence = SyncCadence.automatic,
   }) => SyncStatus(
     binding: _binding,
     pause: pause,
@@ -174,6 +176,7 @@ void main() {
     lastFailure: failure,
     lastPushAt: lastPushAt,
     lastPullAt: lastPullAt,
+    cadence: cadence,
   );
 
   SyncFailureInfo failed(SyncGatewayFailure failure) =>
@@ -528,6 +531,44 @@ void main() {
         l10n.syncOffline,
         true,
       ),
+      // The manual cadence (record §13): nothing retries by itself and
+      // nothing keeps the device current, so no line promises either.
+      'manual and idle': (
+        bound(lastPullAt: DateTime(2026, 11, 9), cadence: SyncCadence.manual),
+        l10n.syncManualIdle,
+        true,
+      ),
+      'manual before the first pull': (
+        bound(cadence: SyncCadence.manual),
+        l10n.syncWaitingFirst,
+        true,
+      ),
+      'manual with changes waiting': (
+        bound(pending: 3, cadence: SyncCadence.manual),
+        l10n.syncPendingCount(3),
+        true,
+      ),
+      'manual and offline': (
+        bound(
+          failure: failed(SyncGatewayFailure.offline),
+          cadence: SyncCadence.manual,
+        ),
+        l10n.syncOfflineManual,
+        true,
+      ),
+      'manual after another failure': (
+        bound(
+          failure: failed(SyncGatewayFailure.unknown),
+          cadence: SyncCadence.manual,
+        ),
+        l10n.syncFailedManual,
+        true,
+      ),
+      'manual while paused on the quota': (
+        bound(pause: SyncPause.quotaExhausted, cadence: SyncCadence.manual),
+        l10n.syncPausedQuota,
+        true,
+      ),
     };
 
     for (final MapEntry(key: name, value: (status, line, canSync))
@@ -758,6 +799,174 @@ void main() {
         expect(syncBloc!.events.length, before, reason: pause.name);
       }
       await close(tester);
+    });
+
+    group('the Sync automatically switch (record §13)', () {
+      SwitchListTile switchOf(WidgetTester tester) =>
+          tester.widget<SwitchListTile>(
+            find.descendant(
+              of: find.bySemanticsIdentifier(SemanticsIds.sharingSyncAutomatic),
+              matching: find.byType(SwitchListTile),
+            ),
+          );
+
+      testWidgets('bound, it sits between Sync now and Stop, on by default '
+          'with its subtitle; unbound it is absent', (tester) async {
+        final robot = await open(tester, signedIn(status: bound()));
+
+        expect(robot.byId(SemanticsIds.sharingSyncAutomatic), findsOneWidget);
+        expect(switchOf(tester).value, isTrue);
+        expect(
+          robot.shows(SemanticsIds.sharingSyncAutomatic, l10n.syncAutomatic),
+          isTrue,
+        );
+        expect(
+          robot.shows(
+            SemanticsIds.sharingSyncAutomatic,
+            l10n.syncAutomaticOnDesc,
+          ),
+          isTrue,
+        );
+        final syncNow = tester.getRect(robot.byId(SemanticsIds.sharingSyncNow));
+        final automatic = tester.getRect(
+          robot.byId(SemanticsIds.sharingSyncAutomatic),
+        );
+        final stop = tester.getRect(robot.byId(SemanticsIds.sharingSyncStop));
+        expect(syncNow.top, lessThan(automatic.top));
+        expect(automatic.top, lessThan(stop.top));
+
+        syncBloc!.show(signedIn(status: SyncStatus.empty));
+        await robot.settle();
+
+        expect(robot.byId(SemanticsIds.sharingSyncAutomatic), findsNothing);
+        await close(tester);
+      });
+
+      testWidgets('off under the manual cadence, with its subtitle, and Sync '
+          'now stays enabled', (tester) async {
+        final robot = await open(
+          tester,
+          signedIn(
+            status: bound(
+              lastPullAt: DateTime(2026, 11, 9),
+              cadence: SyncCadence.manual,
+            ),
+          ),
+        );
+
+        expect(switchOf(tester).value, isFalse);
+        expect(
+          robot.shows(
+            SemanticsIds.sharingSyncAutomatic,
+            l10n.syncAutomaticOffDesc,
+          ),
+          isTrue,
+        );
+        expect(
+          robot.shows(SemanticsIds.sharingSyncStatus, l10n.syncManualIdle),
+          isTrue,
+        );
+        expect(robot.tile(SemanticsIds.sharingSyncNow).enabled, isTrue);
+        await close(tester);
+      });
+
+      testWidgets('a tap sends the cadence it switches to, signed in and '
+          'signed out alike', (tester) async {
+        final robot = await open(tester, signedIn(status: bound()));
+        var before = syncBloc!.events.length;
+
+        await robot.tap(SemanticsIds.sharingSyncAutomatic);
+
+        expect(syncBloc!.events.sublist(before), [
+          const SyncCadenceChanged(SyncCadence.manual),
+        ]);
+
+        syncBloc!.show(signedIn(status: bound(cadence: SyncCadence.manual)));
+        await robot.settle();
+        before = syncBloc!.events.length;
+        await robot.tap(SemanticsIds.sharingSyncAutomatic);
+        expect(syncBloc!.events.sublist(before), [
+          const SyncCadenceChanged(SyncCadence.automatic),
+        ]);
+
+        syncBloc!.show(
+          SyncSignedOut(status: bound(pause: SyncPause.signedOut)),
+        );
+        await robot.settle();
+        before = syncBloc!.events.length;
+        await robot.tap(SemanticsIds.sharingSyncAutomatic);
+        expect(syncBloc!.events.sublist(before), [
+          const SyncCadenceChanged(SyncCadence.manual),
+        ]);
+        await close(tester);
+      });
+
+      testWidgets('held while a step runs, like every row, and while the '
+          'state carries no status of its own', (tester) async {
+        final robot = await open(
+          tester,
+          signedIn(status: bound(), flow: const SyncBindStopping()),
+        );
+
+        expect(switchOf(tester).onChanged, isNull);
+        var before = syncBloc!.events.length;
+        await robot.tap(SemanticsIds.sharingSyncAutomatic);
+        expect(syncBloc!.events.length, before);
+
+        // A failed sign-out draws the last status known: a flip could not
+        // be shown there, so none is offered.
+        syncBloc!.show(
+          const SyncFailure(
+            AuthError.unknown,
+            action: SyncAccountAction.signOut,
+            user: userA,
+          ),
+        );
+        await robot.settle();
+        expect(robot.byId(SemanticsIds.sharingSyncAutomatic), findsOneWidget);
+        expect(switchOf(tester).onChanged, isNull);
+        before = syncBloc!.events.length;
+        await robot.tap(SemanticsIds.sharingSyncAutomatic);
+        expect(syncBloc!.events.length, before);
+        await close(tester);
+      });
+
+      testWidgets('a quota pause under the manual cadence names no time it '
+          'resumes at', (tester) async {
+        final robot = await open(
+          tester,
+          signedIn(
+            status: bound(
+              pause: SyncPause.quotaExhausted,
+              cadence: SyncCadence.manual,
+            ).copyWith(quotaPausedAt: DateTime.now()),
+          ),
+        );
+
+        expect(
+          robot.shows(SemanticsIds.sharingSyncStatus, l10n.syncPausedQuota),
+          isTrue,
+        );
+        await close(tester);
+      });
+
+      testWidgets('one height on and off, so Stop never moves', (tester) async {
+        final robot = await open(tester, signedIn(status: bound()));
+        final on = robot.height(SemanticsIds.sharingSyncAutomatic);
+        final stopOn = tester.getTopLeft(
+          robot.byId(SemanticsIds.sharingSyncStop),
+        );
+
+        syncBloc!.show(signedIn(status: bound(cadence: SyncCadence.manual)));
+        await robot.settle();
+
+        expect(robot.height(SemanticsIds.sharingSyncAutomatic), on);
+        expect(
+          tester.getTopLeft(robot.byId(SemanticsIds.sharingSyncStop)),
+          stopOn,
+        );
+        await close(tester);
+      });
     });
 
     testWidgets('a sign-in keeps the bound rows on the last status known, '
@@ -2184,6 +2393,16 @@ void main() {
       bound(pending: 2, failure: failed(SyncGatewayFailure.offline)),
       bound(parked: 1, failure: failed(SyncGatewayFailure.unknown)),
       for (final pause in SyncPause.values) bound(pause: pause, parked: 2),
+      // The manual cadence's lines, and the switch's two subtitles.
+      bound(lastPullAt: DateTime(2026), cadence: SyncCadence.manual),
+      bound(
+        failure: failed(SyncGatewayFailure.offline),
+        cadence: SyncCadence.manual,
+      ),
+      bound(
+        failure: failed(SyncGatewayFailure.unknown),
+        cadence: SyncCadence.manual,
+      ),
     ];
 
     for (final (locale, scale) in const [

@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:anta/l10n/app_localizations_en.dart';
 import 'package:anta/models/sync_binding.dart';
+import 'package:anta/services/sync/sync_cadence.dart';
 import 'package:anta/services/sync/sync_gateway.dart';
 import 'package:anta/services/sync/sync_status.dart';
 import 'package:anta/widgets/drawer_sync_status.dart';
@@ -189,11 +190,10 @@ void main() {
         (text: l10n.drawerSyncPausedAppOutdated, isError: true),
         reason: activity.name,
       );
-      expect(
-        lineOf(updating.copyWith(pause: SyncPause.noAccess)),
-        (text: l10n.drawerSyncPausedNoAccess, isError: true),
-        reason: activity.name,
-      );
+      expect(lineOf(updating.copyWith(pause: SyncPause.noAccess)), (
+        text: l10n.drawerSyncPausedNoAccess,
+        isError: true,
+      ), reason: activity.name);
       expect(
         lineOf(updating).text,
         l10n.drawerSyncUpdating(0, 120),
@@ -246,6 +246,68 @@ void main() {
         SyncStatus(binding: binding, lastPushAt: later, lastPullAt: pulled),
       ),
       (text: l10n.syncLastSynced(moment(later)), isError: false),
+    );
+  });
+
+  test('13: under the manual cadence a failure promises no retry', () {
+    final manual = SyncStatus(
+      binding: binding,
+      lastFailure: failure,
+      lastPullAt: pulled,
+      cadence: SyncCadence.manual,
+    );
+
+    expect(lineOf(manual), (text: l10n.syncFailedManual, isError: false));
+    expect(
+      lineOf(
+        manual.copyWith(
+          lastFailure: SyncFailureInfo(
+            SyncGatewayFailure.offline,
+            at: failure.at,
+          ),
+        ),
+      ),
+      (text: l10n.syncOfflineManual, isError: false),
+    );
+    expect(l10n.syncOfflineManual, isNot(contains('retry')));
+  });
+
+  test('15: under the manual cadence a quota pause names no reset, since '
+      'nothing resumes at it', () {
+    expect(
+      lineOf(
+        busy.copyWith(
+          pause: SyncPause.quotaExhausted,
+          quotaPausedAt: DateTime.utc(2026, 11, 8, 7, 30),
+          cadence: SyncCadence.manual,
+        ),
+      ),
+      (text: l10n.drawerSyncPausedQuota, isError: false),
+    );
+  });
+
+  test('14: under the manual cadence the idle line is still the last sync, '
+      'and a pause its pause', () {
+    expect(
+      lineOf(
+        SyncStatus(
+          binding: binding,
+          lastPullAt: pulled,
+          cadence: SyncCadence.manual,
+        ),
+      ),
+      (text: l10n.syncLastSynced(moment(pulled)), isError: false),
+    );
+    expect(
+      lineOf(
+        SyncStatus(
+          binding: binding,
+          pause: SyncPause.noAccess,
+          lastFailure: failure,
+          cadence: SyncCadence.manual,
+        ),
+      ),
+      (text: l10n.drawerSyncPausedNoAccess, isError: true),
     );
   });
 

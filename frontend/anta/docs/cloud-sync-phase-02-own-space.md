@@ -57,6 +57,7 @@ roadmap lists; desktop stays local-only (`SyncAvailability.isSupported`).
 10. Definition of done
 11. What it costs on the Spark plan (from the owner's export)
 12. The drawer's account row (2026-11-07)
+13. Sync cadence and the quiet start (2026-11-09)
 
 ---
 
@@ -3158,8 +3159,10 @@ meets an empty space loses even that protection (§4 F-1, F-2).**
 - Tombstone purge after every device acknowledged (needs device presence
   in the space document); a persistent park list; "Delete cloud copy" (D6
   A); the Worker (D7 A); a Wi-Fi-only switch (the volumes in §11 make it
-  moot); a per-device "ring here" toggle (readiness D11 B); renaming a
-  space; space row counts in the picker (would need maintained counters).
+  moot; the manual cadence of §13 is the knob for a metered link); a
+  per-device "ring here" toggle (readiness D11 B); renaming a space; space
+  row counts in the picker (would need maintained counters); the echo skip
+  and a "Sync now" on the drawer's account row (§13, deferred).
 - iOS (the Mac-side work the master roadmap lists); desktop sign-in
   (readiness §8).
 - Settings that are note data (money currency, markdown bar assignment)
@@ -3576,3 +3579,209 @@ next pass: a cloud QA build is signed in as the QA account from launch
 (`FirebaseAuthService`, `QaMode.qaAccount`), so the row shows "Not
 syncing" on it before any Google sign-in — that is a signed-in identity,
 not a signed-out row.
+
+---
+
+## 13. Sync cadence and the quiet start (2026-11-09)
+
+**The question.** The owner asked whether the app serves two kinds of
+user: the one who syncs once in a while and wants to do it by hand, and
+the one who syncs often — and to build whatever was missing, with quality
+the brief. Decisions delegated ("go with your most advanced model");
+built by the Fable session itself, reviewed by an Opus reviewer.
+
+**What the audit found.** The engine (§3.5, scalability S7–S10) was
+already strong on the mechanics both profiles need: cursors persist per
+page and part, so a catch-up after weeks resumes where it stopped; the
+outbox is keyed per row and orphaned chunks leave it, so a month of
+offline edits uploads only the final text; tombstones are never purged,
+so a device that returns after months resurrects nothing; conflicts file
+copies; the push is debounced 30 s with a 3-minute cap and runs at once on
+a leave, so a hand-off between devices is quick; the quota pause retries
+by the reset. Two gaps, one per profile:
+
+- *The often-syncing user paid for every launch.* `start()` always ran a
+  full run — a page read per pulled table, nineteen reads and nineteen
+  round trips before "Receiving…" cleared — while a quiet resume (S9) had
+  long pulled only the tables the space's snapshot named. Android kills
+  the process often, so a day of opening the app cost hundreds of reads
+  and a visible "Receiving" flash each time, for nothing new.
+- *The manual user did not exist.* Bound meant live: the signal followed
+  while the app is open, a push after every edit, a drain on every leave,
+  retries on a back-off. The only way to stop the engine reaching the
+  network was "Stop syncing", which unbinds. Someone on a metered link, a
+  flaky one, or who simply wants to say when, had no setting.
+
+**Decisions (all the lead's, under the owner's delegation).**
+
+- **A — The quiet start is a quiet resume.** `start()` now runs
+  `_reevaluate(run: true, resume: _pause == SyncPause.none)`: it attaches
+  the signal, waits up to `resumeSnapshotWait` (5 s) for the first
+  snapshot and pulls only the tables whose `touched` passed `pull_seen`;
+  every table when no snapshot comes, when `full_pull_at` is 24 h old or
+  missing (so the first start after a bind, a rebind or an unbind is
+  full), when the bind's merge is pending, when the wire cuts over, or
+  when the stored pull parks still owe their retry (`_Puller.owesRetry`
+  — a pull of no table retries none, and S7 promised a retry at every
+  start; parks are rare, so this costs nothing in practice). A start under
+  a stored quota pause runs in full at once, the launch's retry of that
+  pause, as before. Cost: an idle launch is one read instead of nineteen,
+  and no "Receiving…" flash.
+- **B — "Last synced" on a confirmed snapshot.** A stale run whose live
+  snapshot named no table stamps `last_pull_at` (`_Puller.pull(confirmed:
+  true)`): the device is as current as a pull would leave it, and the
+  drawer must not read "Last synced 7 days ago" to someone who opens the
+  app every morning while the other device writes nothing. A drain-only
+  run judges nothing and stamps nothing.
+- **C — A cadence setting, two values.** `SyncCadence { automatic, manual
+  }` (`lib/services/sync/sync_cadence.dart`), stored per database under
+  `SettingsKeys.syncCadence` as the enum's name through
+  `SettingsService.getSyncCadence/setSyncCadence` and
+  `SyncBindingService.cadence/setCadence`; a missing or unknown value is
+  `automatic`. Outside `syncSpacePrefix` on purpose: a preference, carried
+  by a backup like every other, never a binding. Not a Wi-Fi-only switch
+  (§8 keeps that deferred; the manual cadence is the knob for a metered
+  link) and not a third "on open and close" mode — the live mode already
+  pulls on open and pushes on leave, so the middle mode would differ from
+  it only by the listener, which costs nothing while idle (§11).
+- **D — What manual means in the engine.** `SyncEngine` reads the cadence
+  at every `start()` (`_cadence`, `_autoRuns`), emits it in
+  `SyncStatus.cadence`, and under `manual`: attaches no signal (`_run`,
+  `_reevaluate`), arms no push timer (`_armDebounce`, and `_drainIfQueued`
+  re-checks after its count), drains nothing on a leave
+  (`onAppBackgrounded` answers `SyncRunSkip.manual`; a run in flight still
+  stops pulling before its next page), schedules no back-off and no hourly
+  quota retry (`_scheduleBackoff`, `_failed`; the pause and the failure
+  stay shown until the next press), re-subscribes no listener
+  (`_scheduleSignalRetry`), and on a return lifts no hold and re-checks no
+  access. What still runs: **"Sync now"** (full, parks retried, the quota
+  hold lifted — unchanged), **the bind's first merge** while
+  `bind_merge_pending` stands (at a start and a return; the bind the user
+  asked for owes it, whatever the cadence — otherwise "Sync this database"
+  under the manual cadence would bind and then sit), and **a "Sync now" a
+  leave cut short**, which the return finishes (`_resumeOwed`, once):
+  nothing else would continue what the user pressed for.
+- **E — Switching mid-session.** `SyncEngine.setCadence(next)` stores the
+  value first, then applies it: to manual it cancels every timer and drops
+  the signal (a run in flight ends on its own); to automatic it lifts a
+  quota hold as a return does, re-checks access, and runs the way a quiet
+  start does (signal-driven, full when the full pull is old or a pause or
+  failure stands). A stopped engine only stores it; the next `start()`
+  reads it back. `SyncBloc` handles `SyncCadenceChanged`: the status shown
+  flips at once, then the engine is told; `_withEngine` lays the engine's
+  cadence over a reader's status; `SyncStatusService.read` reads the stored
+  value so the first frame is right.
+- **F — The surface.** The bound Sync section gains one row between "Sync
+  now" and "Stop syncing": a `SwitchListTile` "Sync automatically"
+  (`SemanticsIds.sharingSyncAutomatic`, glyph `autorenew_rounded` on the
+  first line like its neighbours), subtitle "Changes sync while the app is
+  open, and when you leave it" / "Only when you tap “Sync now”" in one
+  `_FixedLinesSlot` so the flip moves nothing below; held while a step
+  runs, like every row; shown bound only, signed in or out — the cadence
+  is local. The status line under the manual cadence: a failure says
+  "Offline — couldn't sync" / "Couldn't sync" (`syncOfflineManual`,
+  `syncFailedManual`; the drawer shares them) instead of promising a retry
+  it will not make, and idle with nothing waiting reads "Syncs when you
+  tap “Sync now”" (`syncManualIdle`) instead of "Up to date", which a week
+  later would still read so; pauses, runs, the waiting count and "Waiting
+  for the first sync" are unchanged; the drawer's idle line stays "Last
+  synced …". All three in `_statusLineTemplates`; en/de/ro; `syncKeywords`
+  gains "automatic, manual". The drawer's account row keeps its one tap
+  (§12); a "Sync now" affordance there is deferred (§8).
+
+**Must not change (added).** The run order pull-then-push and every §3.5
+rule; the bind's first merge runs whatever the cadence; "Sync now" is the
+same run in both cadences; a start under a stored quota pause, a pending
+merge, a cutover or owed parks pulls every table; `full_pull_at` is
+written only by a run that pulled every table; the manual cadence never
+reaches the network unasked — no listener, no timer, no leave drain.
+
+**Tests.** `test/services/sync/sync_engine_runs_test.dart` "the start"
+(seven cases: the quiet start pulls nothing, then only what moved; the
+5 s fallback; the 24 h full pull; the first start after a bind; the quota
+pause; owed parks; the confirmed stamp against a drain) and
+`sync_engine_cadence_test.dart` (thirteen: the manual start, the bind's
+merge, no push timer and "Sync now", the leave, the quota pause and the
+return, the back-off, the cut "Sync now" finishing once on the return, the
+switch both ways, the hold lifted on the switch back, the stored value
+read back, a stopped engine, an account change, `parse`); the bloc, the
+section (the switch's place, states, taps, hold and one height; the
+manual lines in the status table and the one-height states), the drawer
+line and the status reader. `sync_held_back_section_test` measures the
+Pairing header through `listRect` like its sibling, since the taller Sync
+section put it past the built extent at 2.0 on 360 × 780. The whole suite
+green; `dart analyze lib test` clean; `untranslated.txt` `{}`.
+
+**Deferred.** The echo skip (the writer reads its own rows back, §11 —
+needs a per-table write counter on the space document, a rules change and
+a same-day install on every device; the volumes do not ask for it yet); a
+"Sync now" on the drawer's account row for the manual user (two taps
+today: the row, then the page's "Sync now"); a Wi-Fi-only switch.
+
+**Review (2026-11-09, one Opus `reviewer` on the diff after the gate) and
+the fixes, as built.** Twelve findings, eleven acted on:
+
+1. *HIGH, confirmed — the quiet start did nothing in production.* The
+   `AuthService` contract replays the current account to every new
+   listener, and `start()` subscribes at every start: the replay reached
+   `_onAuthChanged`, which requested a full run beside the start's own.
+   Every launch still pulled every table; the suites missed it because the
+   pair's auth fake was a plain controller. Fixed: `_followedUid` holds the
+   account the engine follows (set at `start()` from `_currentUser()`, moved
+   by every change acted on), and an event for that account is ignored; a
+   real change runs as a quiet start does (`resume:` when no pause or
+   failure waits — so an account restored a moment after the engine started
+   still costs one read), in full when it lifts a `noAccess` pause. The
+   harness now replays like production (`SyncDevice`'s `authChanges` is a
+   `Stream.multi` that adds the current user first), so every engine suite
+   runs under the replay.
+2. *MEDIUM — the switch could look stuck.* In `SyncFailure` and
+   `SyncSigningIn` the section draws the last status known; the flip could
+   not be shown there, and the engine's emit is dropped in those states.
+   Fixed: the switch is held while the state carries no status of its own
+   (`carried == null`), beside the step hold.
+3. *MEDIUM-LOW — a switch back to automatic under a stored quota pause ran
+   quietly.* `quiet` was judged after `_liftQuotaHold()`. Fixed: judged
+   before it, as a return judges it, so that run is the pause's full retry
+   and its first call clears the stored mark.
+4.–6. *LOW — runs nobody asked for under the manual cadence.* A stale run
+   queued behind the run in flight when the switch turned manual still ran
+   (and, with the signal gone, pulled every table); a `_reevaluate` whose
+   cadence flipped during an await could still request a full run;
+   `_resumeOwed` was set for any cut pull. Fixed: `_request(mode, asked:)`
+   marks the runs the user or the bind owes — "Sync now", the first merge
+   (`asked: pending` in `_reevaluate`), a cut "Sync now" on the return —
+   and `_run` answers an unasked run under manual with
+   `SyncRunSkip.manual` before it reaches the space; `_reevaluate` judges
+   the cadence after its last await; `_resumeOwed` only for an asked run.
+7. *LOW, visual — the glyph sat centred.* `SwitchListTile` has no
+   `titleAlignment`. Fixed: the tile under `ListTileTheme.merge(
+   titleAlignment: top)`, so the glyph sits on the first line like its
+   neighbours'; dimmed to the disabled opacity while held.
+8. *LOW — the confirmed stamp trusted a snapshot of unknown age.* Offline,
+   the listener keeps its last server snapshot, and a debounced drain that
+   found nothing stale would have stamped "Last synced" as now. Fixed:
+   `_signalFresh`, set by `_onSignal`, cleared by every run as it begins
+   and by a detach — only a run with a snapshot of its own may stamp.
+9. *LOW, copy.* Under manual the quota pause names no time it resumes at
+   (the plain `syncPausedQuota` / `drawerSyncPausedQuota`); the app guide's
+   sync topic gains "When it syncs" (`appGuideSyncCadenceTitle/Body`, row
+   `sync-cadence` after "Where it stands") so the guide no longer promises
+   that changes go by themselves under manual; de `syncManualIdle` is
+   "Synchronisierung nur über „Jetzt synchronisieren“" (the first wording
+   read as a past tense).
+10. *LOW, cost — accepted.* `SyncStatusService.read()` does one more
+    indexed `user_settings` SELECT per read, once per pulled page through
+    `_emit`; kept, so the first frame before the engine's emit is right.
+11. *LOW — the optimistic flip was never rolled back.* Fixed: when the
+    engine is unavailable or `setCadence` throws, the bloc shows the
+    previous cadence again (`_showCadence`).
+12. *Tests.* Added for 1 (the replay is ignored; the restored account runs
+    quietly), 2 (the switch held in `SyncFailure`), 3 (a stored quota pause
+    holds a manual start and the switch back is its full retry), 4 (a run
+    queued across the switch reaches nothing), 8 (an offline drain stamps
+    nothing), 9 (the quota line under manual, page and drawer), 11 (the
+    rollback). The start group is ten cases, the cadence suite fifteen.
+
+**Owner's steps.** None beyond a plain install: no wire, rules or schema
+change; the setting defaults to the behaviour every device has today.

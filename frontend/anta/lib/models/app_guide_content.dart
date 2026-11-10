@@ -219,6 +219,12 @@ enum AppGuideTopic implements GuideTopic {
         ),
       ),
       CalendarGuideRow(
+        'sync-cadence',
+        Icons.autorenew_rounded,
+        l10n.appGuideSyncCadenceTitle,
+        l10n.appGuideSyncCadenceBody(l10n.syncAutomatic, l10n.syncNow),
+      ),
+      CalendarGuideRow(
         'sync-other',
         Icons.devices_rounded,
         l10n.appGuideSyncOtherTitle,

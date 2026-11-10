@@ -9,6 +9,7 @@ import '../../database/database_lifecycle.dart';
 import '../../models/sync_binding.dart';
 import '../database_manager.dart';
 import '../settings_service.dart';
+import 'sync_cadence.dart';
 import 'sync_gateway.dart';
 import 'sync_space_registry.dart';
 import 'sync_suspension.dart';
@@ -214,6 +215,14 @@ class SyncBindingService {
   }
 
   Future<SyncBinding?> read() => _settings.getSyncBinding();
+
+  /// When the engine may run unasked over this database (record §13); the
+  /// engine reads it at every start and the status reader with every read.
+  Future<SyncCadence> cadence() => _settings.getSyncCadence();
+
+  /// Stores [cadence]; the engine applies it to the session itself.
+  Future<void> setCadence(SyncCadence cadence) =>
+      _settings.setSyncCadence(cadence);
 
   Future<String?> bindFloor() => _db.syncDao.getValue(SyncDao.keyBindFloor);
 

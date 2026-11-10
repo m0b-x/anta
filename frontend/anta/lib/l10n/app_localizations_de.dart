@@ -4636,7 +4636,7 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get syncKeywords =>
-      'Cloud, Sync, synchronisieren, Geräte, Handy, Tablet, Bereich, zusammenführen, herunterladen, hochladen, Status, offline, beenden';
+      'Cloud, Sync, synchronisieren, Geräte, Handy, Tablet, Bereich, zusammenführen, herunterladen, hochladen, Status, offline, beenden, automatisch, manuell';
 
   @override
   String get syncThisDatabase => 'Diese Datenbank synchronisieren';
@@ -4727,6 +4727,16 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get syncRetrying => 'Nicht synchronisiert – neuer Versuch folgt';
+
+  @override
+  String get syncOfflineManual => 'Offline – nicht synchronisiert';
+
+  @override
+  String get syncFailedManual => 'Nicht synchronisiert';
+
+  @override
+  String get syncManualIdle =>
+      'Synchronisierung nur über „Jetzt synchronisieren“';
 
   @override
   String get syncPausedQuota => 'Pausiert – Tageslimit erreicht';
@@ -4927,6 +4937,17 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get syncNow => 'Jetzt synchronisieren';
+
+  @override
+  String get syncAutomatic => 'Automatisch synchronisieren';
+
+  @override
+  String get syncAutomaticOnDesc =>
+      'Änderungen werden synchronisiert, solange die App offen ist, und wenn du sie verlässt';
+
+  @override
+  String get syncAutomaticOffDesc =>
+      'Nur wenn du auf „Jetzt synchronisieren“ tippst';
 
   @override
   String get syncStop => 'Synchronisierung beenden';
@@ -10560,6 +10581,14 @@ class AppLocalizationsDe extends AppLocalizations {
     String syncNow,
   ) {
     return 'Die Seite sagt „$syncUpToDate“, „$syncOffline“ oder wie viele Änderungen warten; die oberste Zeile des Hauptmenüs zeigt, wann zuletzt synchronisiert wurde. Offline geht nichts verloren: Änderungen gehen raus, sobald die Verbindung zurück ist, und „$syncNow“ wartet nicht.';
+  }
+
+  @override
+  String get appGuideSyncCadenceTitle => 'Wann synchronisiert wird';
+
+  @override
+  String appGuideSyncCadenceBody(String syncAutomatic, String syncNow) {
+    return '„$syncAutomatic“ auf derselben Seite ist zu Beginn an: Änderungen werden synchronisiert, solange die App offen ist, und wenn du sie verlässt. Schalte es aus, und nichts bewegt sich, bis du auf „$syncNow“ tippst – für eine getaktete Verbindung, oder wenn du selbst bestimmen willst, wann.';
   }
 
   @override

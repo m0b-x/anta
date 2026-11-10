@@ -120,6 +120,11 @@ class _Puller {
     _retryAll = true;
   }
 
+  /// Whether this start still owes the stored parks their retry
+  /// ([_retryParks]), read after [restoreParks]: the engine then pulls every
+  /// table, since a pull of none retries none.
+  bool get owesRetry => _retryDue && _stored.isNotEmpty;
+
   /// This session's parks and the stored ones, each key once, with the
   /// stamp each holds and why.
   List<SyncParkedRow> get parks => [
@@ -278,15 +283,30 @@ class _Puller {
   ///
   /// A pull that reached the end of every table ends on
   /// [_refileStrandedNotes], after the initial merge's flag is cleared.
+  /// [confirmed] says a live snapshot chose [tables]: with none to pull the
+  /// device is current, and the last pull is stamped (record §13).
   Future<_PullOutcome> pull(
     SyncBinding bound,
     List<SyncTableBinding<Object>> tables, {
     required bool initial,
     required bool everyTable,
+    bool confirmed = false,
     required _RunTally tally,
   }) async {
-    if (tables.isEmpty) return const _PullOutcome(complete: true);
     final db = _e._db;
+    if (tables.isEmpty) {
+      // Nothing to read, but a live snapshot said every table is current
+      // ([confirmed]): the device is as synced as a pull would leave it, and
+      // "Last synced" says so rather than ageing through a quiet week in
+      // which only this device opened the app (record §13).
+      if (confirmed) {
+        await db.syncDao.setValue(
+          SyncDao.keyLastPullAt,
+          '${DateTime.now().millisecondsSinceEpoch}',
+        );
+      }
+      return const _PullOutcome(complete: true);
+    }
     final floor = initial ? await _e._binding.bindFloor() : null;
     // Each attempt at the initial merge counts its own pages: an attempt a
     // leave cut or a fault ended would otherwise add its rows to the last

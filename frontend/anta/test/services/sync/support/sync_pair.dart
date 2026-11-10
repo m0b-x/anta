@@ -87,7 +87,18 @@ class SyncDevice {
       deviceId: id,
       schema: schema,
       currentUser: () => user,
-      authChanges: auth.stream,
+      // The `AuthService` contract: the current account first, then every
+      // change — so a start meets the replay production hands it (record
+      // §13, review 2026-11-09).
+      authChanges: Stream<AppUser?>.multi((listener) {
+        listener.add(user);
+        final changes = auth.stream.listen(
+          listener.add,
+          onError: listener.addError,
+          onDone: listener.close,
+        );
+        listener.onCancel = changes.cancel;
+      }, isBroadcast: true),
       scheduler: scheduler,
       timing: timing,
       tables: tables,

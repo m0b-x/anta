@@ -427,6 +427,12 @@ class SettingsKeys {
   static const String syncSpaceAccountUid = 'sync_space_account_uid';
   static const String syncSpaceBoundAt = 'sync_space_bound_at';
 
+  /// When the engine runs on its own — a `SyncCadence` name, `automatic`
+  /// when absent. Per database like the binding, but outside
+  /// [syncSpacePrefix] on purpose: a preference, not a binding, so a restore
+  /// carries it the way it carries every other preference.
+  static const String syncCadence = 'sync_cadence';
+
   /// Install-wide, so in `SharedPreferences` rather than `user_settings`:
   /// which database of this install holds which space (record §3.6). Two
   /// databases of one install share one `device_id`, and two writers with

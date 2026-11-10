@@ -3,6 +3,7 @@ import 'package:equatable/equatable.dart';
 import '../../models/app_user.dart';
 import '../../models/sync_binding.dart';
 import '../../utils/sync_quota_reset.dart';
+import 'sync_cadence.dart';
 import 'sync_gateway.dart';
 
 /// When the space's daily quota comes back, for the engine's retry and the
@@ -224,10 +225,15 @@ class SyncStatus extends Equatable {
   /// When a push was last acknowledged; null until Phase 02 pushes.
   final DateTime? lastPushAt;
 
-  /// When a pulled page was last applied; null before the first pull.
+  /// When a pulled page was last applied, or a live snapshot last found every
+  /// table current (record §13); null before the first pull.
   final DateTime? lastPullAt;
 
   final SyncPause pause;
+
+  /// When the engine runs on its own; the page's switch and the lines that
+  /// promise a retry read it (record §13).
+  final SyncCadence cadence;
 
   /// Whether the engine is pulling or pushing, so the page can show progress
   /// instead of a stale "last synced".
@@ -299,6 +305,7 @@ class SyncStatus extends Equatable {
     this.lastPushAt,
     this.lastPullAt,
     this.pause = SyncPause.none,
+    this.cadence = SyncCadence.automatic,
     this.activity = SyncActivity.idle,
     this.lastFailure,
     this.parkedCount = 0,
@@ -345,6 +352,7 @@ class SyncStatus extends Equatable {
     DateTime? lastPushAt,
     DateTime? lastPullAt,
     SyncPause? pause,
+    SyncCadence? cadence,
     SyncActivity? activity,
     SyncFailureInfo? lastFailure,
     bool clearLastFailure = false,
@@ -369,6 +377,7 @@ class SyncStatus extends Equatable {
       lastPushAt: lastPushAt ?? this.lastPushAt,
       lastPullAt: lastPullAt ?? this.lastPullAt,
       pause: pause ?? this.pause,
+      cadence: cadence ?? this.cadence,
       activity: activity ?? this.activity,
       lastFailure: clearLastFailure ? null : lastFailure ?? this.lastFailure,
       parkedCount: parkedCount ?? this.parkedCount,
@@ -396,6 +405,7 @@ class SyncStatus extends Equatable {
     lastPushAt,
     lastPullAt,
     pause,
+    cadence,
     activity,
     lastFailure,
     parkedCount,

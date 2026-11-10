@@ -4676,7 +4676,7 @@ class AppLocalizationsRo extends AppLocalizations {
 
   @override
   String get syncKeywords =>
-      'cloud, sincronizare, dispozitive, telefon, tabletă, spațiu, unire, descărcare, încărcare, stare, offline, oprire';
+      'cloud, sincronizare, dispozitive, telefon, tabletă, spațiu, unire, descărcare, încărcare, stare, offline, oprire, automat, manual';
 
   @override
   String get syncThisDatabase => 'Sincronizează această bază de date';
@@ -4769,6 +4769,16 @@ class AppLocalizationsRo extends AppLocalizations {
 
   @override
   String get syncRetrying => 'Sincronizare eșuată — se reîncearcă';
+
+  @override
+  String get syncOfflineManual => 'Offline — nu s-a sincronizat';
+
+  @override
+  String get syncFailedManual => 'Sincronizare eșuată';
+
+  @override
+  String get syncManualIdle =>
+      'Se sincronizează când atingi „Sincronizează acum”';
 
   @override
   String get syncPausedQuota => 'În pauză — limita zilnică atinsă';
@@ -4984,6 +4994,16 @@ class AppLocalizationsRo extends AppLocalizations {
 
   @override
   String get syncNow => 'Sincronizează acum';
+
+  @override
+  String get syncAutomatic => 'Sincronizare automată';
+
+  @override
+  String get syncAutomaticOnDesc =>
+      'Modificările se sincronizează cât timp aplicația e deschisă și când o părăsești';
+
+  @override
+  String get syncAutomaticOffDesc => 'Doar când atingi „Sincronizează acum”';
 
   @override
   String get syncStop => 'Oprește sincronizarea';
@@ -10717,6 +10737,14 @@ class AppLocalizationsRo extends AppLocalizations {
     String syncNow,
   ) {
     return 'Pagina spune „$syncUpToDate”, „$syncOffline” sau câte schimbări așteaptă; rândul de sus al meniului principal arată când s-a sincronizat ultima dată. Offline nu se pierde nimic: schimbările pleacă de îndată ce revine conexiunea, iar „$syncNow” nu așteaptă.';
+  }
+
+  @override
+  String get appGuideSyncCadenceTitle => 'Când se sincronizează';
+
+  @override
+  String appGuideSyncCadenceBody(String syncAutomatic, String syncNow) {
+    return '„$syncAutomatic” de pe aceeași pagină este pornită la început: modificările se sincronizează cât timp aplicația e deschisă și când o părăsești. Oprește-o și nimic nu se mișcă până nu atingi „$syncNow” — pentru o conexiune cu trafic limitat sau când vrei să decizi tu când.';
   }
 
   @override

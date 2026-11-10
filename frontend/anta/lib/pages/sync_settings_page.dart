@@ -13,6 +13,7 @@ import '../constants/semantics_ids.dart';
 import '../core/di/injection.dart';
 import '../l10n/app_localizations.dart';
 import '../services/pairing_service.dart';
+import '../services/sync/sync_cadence.dart';
 import '../utils/auth_error.dart';
 import '../utils/custom_snackbar.dart';
 import '../utils/pairing_error.dart';
@@ -744,6 +745,7 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
         status.activity == SyncActivity.idle &&
         !stepping;
     final (line, glyph, carriesCount) = _statusLine(context, l10n, status);
+    final automatic = status.cadence == SyncCadence.automatic;
     final lastSync = status.lastSyncAt;
     // The details (review D2-3): the last sync, the ones held back — said
     // nowhere else, so before what an ellipsis cuts first (RC3b-3) — then the
@@ -805,6 +807,54 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
             onTap: () => context.read<SyncBloc>().add(const SyncNowRequested()),
           ),
         ),
+        // The cadence (record §13): on, the engine runs by itself; off, only
+        // the row above does. Local to this database, so it flips signed in
+        // or out; held while a step runs, as every row is, and while the
+        // state carries no status of its own (a sign-in in flight, a
+        // failure) — the row then shows the last status known, where a flip
+        // could not be shown. The two subtitles share one slot, so the flip
+        // moves nothing below; the glyph sits on the first line like its
+        // neighbours', which `SwitchListTile` has no parameter for.
+        SettingsEntry(
+          title: l10n.syncAutomatic,
+          description: automatic
+              ? l10n.syncAutomaticOnDesc
+              : l10n.syncAutomaticOffDesc,
+          keywords: keywords,
+          identifier: SemanticsIds.sharingSyncAutomatic,
+          builder: (context, title, description) {
+            final held = stepping || carried == null;
+            return ListTileTheme.merge(
+              titleAlignment: ListTileTitleAlignment.top,
+              child: SwitchListTile(
+                secondary: Icon(
+                  Icons.autorenew_rounded,
+                  color: held
+                      ? colorScheme.onSurface.withValues(
+                          alpha: FormMetrics.disabledOpacity,
+                        )
+                      : colorScheme.onSurfaceVariant,
+                ),
+                title: title,
+                subtitle: _FixedLinesSlot(
+                  templates: [
+                    l10n.syncAutomaticOnDesc,
+                    l10n.syncAutomaticOffDesc,
+                  ],
+                  child: description!,
+                ),
+                value: automatic,
+                onChanged: held
+                    ? null
+                    : (value) => context.read<SyncBloc>().add(
+                        SyncCadenceChanged(
+                          value ? SyncCadence.automatic : SyncCadence.manual,
+                        ),
+                      ),
+              ),
+            );
+          },
+        ),
         // No failure line: a failed stop is said by its snackbar alone, so
         // the row is one height and Pairing below it never moves (final
         // review D-4).
@@ -864,6 +914,9 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
     l10n.syncReceiving,
     l10n.syncOffline,
     l10n.syncRetrying,
+    l10n.syncOfflineManual,
+    l10n.syncFailedManual,
+    l10n.syncManualIdle,
     l10n.syncUpToDate,
     l10n.syncWaitingFirst,
   ];
@@ -885,9 +938,15 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
     SyncStatus status,
   ) {
     const paused = Icons.pause_circle_outline_rounded;
+    // Under the manual cadence nothing retries by itself and nothing keeps
+    // the device current between presses, so the failure lines promise no
+    // retry, the quota pause names no time it will resume at, and the idle
+    // line says how a sync happens rather than "Up to date", which a week
+    // later would still read so (record §13).
+    final manual = status.cadence == SyncCadence.manual;
     switch (status.pause) {
       case SyncPause.quotaExhausted:
-        final reset = status.quotaResetAfter(DateTime.now());
+        final reset = manual ? null : status.quotaResetAfter(DateTime.now());
         return (
           reset == null
               ? l10n.syncPausedQuota
@@ -935,8 +994,16 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
     }
     if (status.lastFailure case final failure?) {
       return failure.failure == SyncGatewayFailure.offline
-          ? (l10n.syncOffline, Icons.cloud_off_outlined, false)
-          : (l10n.syncRetrying, Icons.error_outline_rounded, false);
+          ? (
+              manual ? l10n.syncOfflineManual : l10n.syncOffline,
+              Icons.cloud_off_outlined,
+              false,
+            )
+          : (
+              manual ? l10n.syncFailedManual : l10n.syncRetrying,
+              Icons.error_outline_rounded,
+              false,
+            );
     }
     if (status.pendingCount > 0) {
       return (
@@ -949,6 +1016,9 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
     // synced yet" beside it.
     if (status.lastPullAt == null) {
       return (l10n.syncWaitingFirst, Icons.cloud_queue_rounded, false);
+    }
+    if (manual) {
+      return (l10n.syncManualIdle, Icons.cloud_outlined, false);
     }
     return (l10n.syncUpToDate, Icons.cloud_done_outlined, false);
   }

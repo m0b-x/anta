@@ -8,6 +8,7 @@ import 'package:anta/constants/sync_limits.dart';
 import 'package:anta/models/app_user.dart';
 import 'package:anta/models/sync_binding.dart';
 import 'package:anta/services/auth_service.dart';
+import 'package:anta/services/sync/sync_cadence.dart';
 import 'package:anta/services/sync/sync_engine.dart';
 import 'package:anta/services/sync/sync_gateway.dart';
 import 'package:anta/services/sync/sync_space_service.dart';
@@ -650,6 +651,94 @@ void main() {
       await pumpEventQueue();
 
       expect(states.last, const SyncSignedOut(status: signedOut));
+      await bloc.close();
+    });
+
+    test('the cadence switch flips the status shown at once, signed in, and '
+        'reaches the engine', () async {
+      final engine = FakeSyncEngine();
+      final (bloc, _, states) = await _pumpBloc(user: _user, engine: engine);
+      engine.emit(pulling);
+      await pumpEventQueue();
+
+      bloc.add(const SyncCadenceChanged(SyncCadence.manual));
+      await pumpEventQueue();
+
+      expect(
+        states.last,
+        SyncSignedIn(
+          _user,
+          status: pulling.copyWith(cadence: SyncCadence.manual),
+          statusRead: true,
+        ),
+      );
+      expect(engine.calls, contains('cadence:manual'));
+      expect(engine.cadence, SyncCadence.manual);
+      await bloc.close();
+    });
+
+    test('the cadence switch flips the signed-out status too', () async {
+      final engine = FakeSyncEngine();
+      final (bloc, _, states) = await _pumpBloc(engine: engine);
+      const signedOut = SyncStatus(pause: SyncPause.signedOut);
+      engine.emit(signedOut);
+      await pumpEventQueue();
+
+      bloc.add(const SyncCadenceChanged(SyncCadence.manual));
+      await pumpEventQueue();
+
+      expect(
+        states.last,
+        SyncSignedOut(status: signedOut.copyWith(cadence: SyncCadence.manual)),
+      );
+      expect(engine.calls, contains('cadence:manual'));
+      await bloc.close();
+    });
+
+    test(
+      'a flip the engine could not store goes back to what is stored',
+      () async {
+        final engine = FakeSyncEngine()..setCadenceError = StateError('closed');
+        final (bloc, _, states) = await _pumpBloc(user: _user, engine: engine);
+        engine.emit(pulling);
+        await pumpEventQueue();
+
+        bloc.add(const SyncCadenceChanged(SyncCadence.manual));
+        await pumpEventQueue();
+
+        expect(
+          states.last,
+          const SyncSignedIn(_user, status: pulling, statusRead: true),
+        );
+        expect(
+          states.reversed.skip(1).first,
+          SyncSignedIn(
+            _user,
+            status: pulling.copyWith(cadence: SyncCadence.manual),
+            statusRead: true,
+          ),
+          reason: 'the flip showed, then went back',
+        );
+        await bloc.close();
+      },
+    );
+
+    test('the engine\'s cadence lays over a reader\'s status', () async {
+      final engine = FakeSyncEngine()
+        ..current = const SyncStatus(cadence: SyncCadence.manual);
+      final reader = _FakeStatusReader()..pendingCount = 2;
+      final (bloc, _, states) = await _pumpBloc(
+        user: _user,
+        engine: engine,
+        reader: reader,
+      );
+
+      bloc.add(const RefreshSyncStatus());
+      await pumpEventQueue();
+
+      final status = (states.last as SyncSignedIn).status;
+      expect(status.pendingCount, 2);
+      expect(status.cadence, SyncCadence.manual);
       await bloc.close();
     });
 

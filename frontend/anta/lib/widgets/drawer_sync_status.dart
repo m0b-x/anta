@@ -1,4 +1,5 @@
 import '../l10n/app_localizations.dart';
+import '../services/sync/sync_cadence.dart';
 import '../services/sync/sync_gateway.dart';
 import '../services/sync/sync_status.dart';
 import '../utils/sync_moment_format.dart';
@@ -27,7 +28,11 @@ import '../utils/sync_moment_format.dart';
   }
   switch (status.pause) {
     case SyncPause.quotaExhausted:
-      final reset = status.quotaResetAfter(now ?? DateTime.now());
+      // Under the manual cadence nothing resumes at the reset: the pause
+      // names no time (record §13).
+      final reset = status.cadence == SyncCadence.manual
+          ? null
+          : status.quotaResetAfter(now ?? DateTime.now());
       return (
         text: reset == null
             ? l10n.drawerSyncPausedQuota
@@ -60,10 +65,14 @@ import '../utils/sync_moment_format.dart';
       break;
   }
   if (status.lastFailure case final failure?) {
+    // Under the manual cadence nothing retries by itself, so the line
+    // promises none (record §13).
+    final manual = status.cadence == SyncCadence.manual;
+    final offline = failure.failure == SyncGatewayFailure.offline;
     return (
-      text: failure.failure == SyncGatewayFailure.offline
-          ? l10n.syncOffline
-          : l10n.drawerSyncRetrying,
+      text: manual
+          ? (offline ? l10n.syncOfflineManual : l10n.syncFailedManual)
+          : (offline ? l10n.syncOffline : l10n.drawerSyncRetrying),
       isError: false,
     );
   }

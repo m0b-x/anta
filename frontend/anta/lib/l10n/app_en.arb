@@ -5726,7 +5726,7 @@
   "@syncSection": {
     "description": "Sharing page section that syncs this database with the account's other devices"
   },
-  "syncKeywords": "cloud, sync, devices, phone, tablet, space, merge, download, upload, status, offline, stop",
+  "syncKeywords": "cloud, sync, devices, phone, tablet, space, merge, download, upload, status, offline, stop, automatic, manual",
   "@syncKeywords": {
     "description": "Comma-separated hidden search synonyms for the Sync section of the sharing settings"
   },
@@ -5817,6 +5817,18 @@
   "syncRetrying": "Couldn't sync — will retry",
   "@syncRetrying": {
     "description": "Sync status: the last sync failed for another reason and tries again by itself"
+  },
+  "syncOfflineManual": "Offline — couldn't sync",
+  "@syncOfflineManual": {
+    "description": "Sync status while Sync automatically is off: the last Sync now met no connection, and nothing retries by itself"
+  },
+  "syncFailedManual": "Couldn't sync",
+  "@syncFailedManual": {
+    "description": "Sync status while Sync automatically is off: the last Sync now failed for another reason, and nothing retries by itself"
+  },
+  "syncManualIdle": "Syncs when you tap “Sync now”",
+  "@syncManualIdle": {
+    "description": "Sync status while Sync automatically is off and nothing waits or failed: says how syncing happens, since nothing runs by itself"
   },
   "syncPausedQuota": "Paused — daily limit reached",
   "@syncPausedQuota": {
@@ -6024,6 +6036,18 @@
   "syncNow": "Sync now",
   "@syncNow": {
     "description": "Row that runs a sync at once"
+  },
+  "syncAutomatic": "Sync automatically",
+  "@syncAutomatic": {
+    "description": "Switch in the bound Sync section: on, syncing runs by itself; off, only the Sync now row runs it"
+  },
+  "syncAutomaticOnDesc": "Changes sync while the app is open, and when you leave it",
+  "@syncAutomaticOnDesc": {
+    "description": "Subtitle of the Sync automatically switch while it is on"
+  },
+  "syncAutomaticOffDesc": "Only when you tap “Sync now”",
+  "@syncAutomaticOffDesc": {
+    "description": "Subtitle of the Sync automatically switch while it is off"
   },
   "syncStop": "Stop syncing",
   "@syncStop": {
@@ -13155,6 +13179,18 @@
         "type": "String"
       },
       "syncOffline": {
+        "type": "String"
+      },
+      "syncNow": {
+        "type": "String"
+      }
+    }
+  },
+  "appGuideSyncCadenceTitle": "When it syncs",
+  "appGuideSyncCadenceBody": "“{syncAutomatic}” on the same page is on to begin with: changes sync while the app is open and when you leave it. Turn it off and nothing moves until you tap “{syncNow}” — for a metered connection, or when you want to say when.",
+  "@appGuideSyncCadenceBody": {
+    "placeholders": {
+      "syncAutomatic": {
         "type": "String"
       },
       "syncNow": {

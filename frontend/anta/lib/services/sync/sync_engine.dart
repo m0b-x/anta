@@ -27,6 +27,7 @@ import '../permission_service.dart';
 import 'app_sync_apply_hooks.dart';
 import 'sync_apply_hooks.dart';
 import 'sync_binding_service.dart';
+import 'sync_cadence.dart';
 import 'sync_gateway.dart';
 import 'sync_lifecycle_bridge.dart';
 import 'sync_scheduler.dart';
@@ -85,6 +86,11 @@ enum SyncRunSkip {
   /// background drain: a push before the floor pull would put the pre-bind
   /// rows over the space (record §3.5).
   initialMergePending,
+
+  /// The cadence is [SyncCadence.manual] and nobody asked: a leave drains
+  /// nothing, a snapshot's or a timer's run queued before the switch reaches
+  /// nothing; only "Sync now" and the bind's first merge run (record §13).
+  manual,
 }
 
 /// What one run did, for "Sync now" to report and for the tests to read.
@@ -116,8 +122,8 @@ class SyncRunReport extends Equatable {
   /// Push calls made, refused and failed ones included.
   final int pushAttempts;
 
-  /// Resumes whose snapshot did not come in time, so this run pulled every
-  /// table instead of the ones a snapshot named.
+  /// Resumes and starts whose snapshot did not come in time, so this run
+  /// pulled every table instead of the ones a snapshot named.
   final int resumeFallbacks;
 
   /// How long the run took, gate to status.
@@ -346,6 +352,32 @@ class SyncEngine {
   /// return made while stopped neither cuts every pull nor goes without a
   /// signal (S3d review M4).
   bool _foreground = true;
+
+  /// When the engine runs unasked, as stored for this database and read at
+  /// every [start]; [setCadence] changes it mid-session (record §13).
+  SyncCadence _cadence = SyncCadence.automatic;
+
+  /// Whether the engine may run unasked now: every trigger but "Sync now"
+  /// and the bind's own first merge asks this first.
+  bool get _autoRuns => _cadence == SyncCadence.automatic;
+
+  /// Whether a leave cut a pull the user asked for under the manual cadence:
+  /// nothing continues it on its own there, so the return runs it to its
+  /// end — what the user pressed for.
+  bool _resumeOwed = false;
+
+  /// The account the engine follows, as of [start] and of every account
+  /// change it acted on. The auth stream replays the current account to a
+  /// new listener (the `AuthService` contract), and before this the replay
+  /// was taken for a change and requested a full run beside the start's own
+  /// — every launch pulled every table, quiet start or not (review
+  /// 2026-11-09, record §13).
+  String? _followedUid;
+
+  /// Whether a snapshot arrived since the last run began: only then may a
+  /// run that found no table stale stamp the last pull — offline, the
+  /// listener keeps its last server snapshot, which says nothing about now.
+  bool _signalFresh = false;
 
   /// Whether [_lastFailure] is the signal's: a healthy snapshot clears it,
   /// while a run's failure waits for a run that succeeds.
@@ -593,8 +625,15 @@ class SyncEngine {
   }
 
   /// Starts following the space: the outbox trigger, the account changes,
-  /// the space's signal while runnable — and a full run at once, which is
-  /// also the launch's retry of a quota pause kept from the last session.
+  /// the space's signal while runnable — and a run at once. A quiet start
+  /// — no quota pause kept from the last session — runs as a quiet resume
+  /// does: it waits for the signal's first snapshot and pulls only the
+  /// tables it names, every table when none comes within
+  /// [resumeSnapshotWait], when the last full pull is [fullPullInterval]
+  /// old, when the bind's first merge is pending or when stored parks are
+  /// owed a retry (record §13); a start under a quota pause runs in full at
+  /// once, the launch's retry of that pause. Under [SyncCadence.manual]
+  /// only the bind's first merge runs.
   Future<void> start() async {
     if (_started) return;
     _started = true;
@@ -620,22 +659,26 @@ class SyncEngine {
     // M7).
     final state = _lifecycleState?.call();
     if (state != null) _foreground = !SyncLifecycleBridge.isLeave(state);
+    _resumeOwed = false;
     final generation = ++_startGeneration;
     final quotaPaused =
         await _db.syncDao.getValue(SyncDao.keyQuotaPausedAt) != null;
     final serverSeen = int.tryParse(
       await _db.syncDao.getValue(SyncDao.keyServerSeen) ?? '',
     );
+    final cadence = await _binding.cadence();
     if (generation != _startGeneration) return;
     _serverSeen = serverSeen;
+    _cadence = cadence;
     if (quotaPaused) _pause = SyncPause.quotaExhausted;
     unawaited(_outboxSubscription?.cancel());
     unawaited(_authSubscription?.cancel());
     _outboxSubscription = _db.syncOutboxDao.watchQueued().listen(
       (_) => _armDebounce(),
     );
+    _followedUid = _currentUser()?.uid;
     _authSubscription = _authChanges?.listen(_onAuthChanged);
-    await _reevaluate(run: true);
+    await _reevaluate(run: true, resume: _pause == SyncPause.none);
   }
 
   /// Ends every subscription and timer at once and waits for a run in
@@ -688,12 +731,51 @@ class SyncEngine {
     _liftQuotaHold();
     _recheckAccess = true;
     _retryEveryPark = true;
-    return _request(_RunMode.full);
+    return _request(_RunMode.full, asked: true);
   }
 
   /// Set by [syncNow] and taken by the next run as it starts, never during
   /// one: a drain in flight reads the push's parks as it bisects.
   bool _retryEveryPark = false;
+
+  /// When the engine runs unasked, as it stands now.
+  SyncCadence get cadence => _cadence;
+
+  /// Stores [next] for this database and applies it to the session (record
+  /// §13). To [SyncCadence.manual]: the signal is dropped and every timer
+  /// cancelled — a run in flight ends on its own. To
+  /// [SyncCadence.automatic]: the user acted, so a quota hold lifts as it
+  /// does on a return, the signal is followed again and a run starts the way
+  /// a quiet [start] does. A stopped engine only stores it: the next [start]
+  /// reads it back.
+  Future<void> setCadence(SyncCadence next) async {
+    await _binding.setCadence(next);
+    if (_cadence == next) return;
+    _cadence = next;
+    if (!_started || _stopped) return;
+    switch (next) {
+      case SyncCadence.manual:
+        _cancelPushTimers();
+        _retry?.cancel();
+        _retry = null;
+        _signalRetry?.cancel();
+        _signalRetry = null;
+        _resumeFallback?.cancel();
+        _resumeFallback = null;
+        _detachSignal();
+        _emit();
+      case SyncCadence.automatic:
+        // Judged before the lift, as a return judges it: a quota pause kept
+        // from the last session is the retry this run owes, so it runs in
+        // full and its first call clears the stored mark.
+        final quiet = _pause == SyncPause.none && _lastFailure == null;
+        _backoffStep = 0;
+        _signalBackoffStep = 0;
+        _liftQuotaHold();
+        _recheckAccess = true;
+        await _reevaluate(run: true, resume: quiet);
+    }
+  }
 
   /// Lifts a quota hold, the pause with it: a run that makes no gateway call
   /// at all — a stale run with no stale table and an empty outbox — reaches
@@ -714,9 +796,23 @@ class SyncEngine {
   /// a full run starts when no snapshot comes within [resumeSnapshotWait]
   /// or the last full pull is older than [fullPullInterval]. Any other
   /// resume is the retry it replaces and runs in full at once.
+  ///
+  /// Under [SyncCadence.manual] a return lifts nothing and follows nothing:
+  /// it runs the bind's first merge while that is pending, and a "Sync now"
+  /// the leave cut short ([_resumeOwed]) — the pause and the failure shown
+  /// stay as they are until the user presses again (record §13).
   void onAppResumed() {
     _foreground = true;
     if (!_started) return;
+    if (!_autoRuns) {
+      if (_resumeOwed) {
+        _resumeOwed = false;
+        unawaited(_request(_RunMode.full, asked: true));
+      } else {
+        _track(_reevaluate(run: true));
+      }
+      return;
+    }
     final quiet = _pause == SyncPause.none && _lastFailure == null;
     _backoffStep = 0;
     _signalBackoffStep = 0;
@@ -740,6 +836,8 @@ class SyncEngine {
   /// Answers with the drain's report, the one reader of
   /// [SyncRunSkip.initialMergePending]: a caller — and the suite — can tell
   /// a drain that ran from one the pending merge held back (A7 review R142).
+  /// Under [SyncCadence.manual] nothing is drained — [SyncRunSkip.manual] —
+  /// a run in flight still stops pulling before its next page.
   Future<SyncRunReport> onAppBackgrounded() async {
     _foreground = false;
     if (!_started) {
@@ -753,15 +851,21 @@ class SyncEngine {
     _resumeFallback?.cancel();
     _resumeFallback = null;
     _detachSignal();
+    if (!_autoRuns) return const SyncRunReport(skipped: SyncRunSkip.manual);
     return _request(_RunMode.drain);
   }
 
   // ---------------------------------------------------------------------------
   // Runs
 
-  Future<SyncRunReport> _request(_RunMode mode) {
+  /// [asked] marks a run the user or the bind owes — "Sync now", the first
+  /// merge, a cut "Sync now" finished on the return — which the manual
+  /// cadence lets through; requests merged into one run keep the mark if
+  /// any of them had it.
+  Future<SyncRunReport> _request(_RunMode mode, {bool asked = false}) {
     final request = _queued ??= _RunRequest();
     if (mode.index > request.mode.index) request.mode = mode;
+    if (asked) request.asked = true;
     _pump();
     return request.done.future;
   }
@@ -783,7 +887,7 @@ class SyncEngine {
         _queued = null;
         SyncRunReport report;
         try {
-          report = await _run(request.mode);
+          report = await _run(request);
         } catch (error, stack) {
           // `_run` nets its own body, but not the handlers that report a
           // failure: a throw from one of those must still answer the
@@ -815,9 +919,14 @@ class SyncEngine {
   /// A pull that reached every table drains the tables that did not fault,
   /// each pulled in full under the floor, so one table that keeps faulting
   /// does not hold every push (record §3.5, S3d review M3).
-  Future<SyncRunReport> _run(_RunMode mode) async {
+  Future<SyncRunReport> _run(_RunRequest request) async {
+    final mode = request.mode;
     final tally = _RunTally();
     final clock = Stopwatch()..start();
+    // Consumed by this run whatever it does: a later run that found no table
+    // stale may stamp the last pull only on a snapshot of its own.
+    final fresh = _signalFresh;
+    _signalFresh = false;
     final fallbacks = _resumeFallbacks;
     _resumeFallbacks = 0;
     final parkedBefore = _parks;
@@ -857,8 +966,15 @@ class SyncEngine {
         if (skip != SyncRunSkip.suspended) _detachSignal();
         return SyncRunReport(skipped: skip, resumeFallbacks: fallbacks);
       }
+      // A run nobody asked for — a snapshot's or a timer's, queued behind
+      // the run in flight when the cadence turned manual — reaches nothing.
+      if (!_autoRuns && !request.asked) {
+        return report(skipped: SyncRunSkip.manual);
+      }
       reached = true;
-      if (_started && _foreground) _attachSignal(_spaceOf(binding));
+      if (_started && _foreground && _autoRuns) {
+        _attachSignal(_spaceOf(binding));
+      }
       if (_retryEveryPark && mode == _RunMode.full) {
         _retryEveryPark = false;
         _puller.retryAll();
@@ -886,7 +1002,15 @@ class SyncEngine {
         _updatingTotal = await _db.noteDao.getNoteCount(null);
         _updating = true;
       }
-      final full = initial || mode == _RunMode.full || cutOver;
+      // The stored parks are owed their retry at every start (scalability
+      // record S7), and a run that pulls no table retries none: the first
+      // run of a start that still owes them pulls every table, whatever a
+      // snapshot named — parks are rare, so this costs nothing in practice.
+      final full =
+          initial ||
+          mode == _RunMode.full ||
+          cutOver ||
+          (mode == _RunMode.stale && _puller.owesRetry);
       final tables = full
           ? _pulledTables
           : mode == _RunMode.stale
@@ -900,8 +1024,19 @@ class SyncEngine {
         // A stale run with no snapshot pulls every table too, and counts as
         // the full pull a resume measures its age from.
         everyTable: full || tables.length == _pulledTables.length,
+        // A stale run whose live snapshot named no table found every table
+        // current: that is a sync as far as the user can tell, so it stamps
+        // the last pull like one that read pages (record §13).
+        confirmed:
+            mode == _RunMode.stale &&
+            fresh &&
+            _signalOf(_spaceOf(binding)) != null,
         tally: tally,
       );
+      // A leave cut a pull the user or the bind asked for under the manual
+      // cadence: nothing continues it on its own there, so the return will
+      // (`onAppResumed`).
+      if (pulled.cut && !_autoRuns && request.asked) _resumeOwed = true;
       // The cutover is done once a run that cut over read every table to
       // its end, `notes` again from the start; until then the re-queued
       // notes wait, since only that re-read retires the ones the space holds
@@ -1235,10 +1370,14 @@ class SyncEngine {
           // launch's retry at once is lost.
           _warn('quota pause not stored: $error');
         }
-        _scheduleRetry(
-          quotaRetryDelay(pausedAt, _timing.quotaRetry),
-          liftsQuota: true,
-        );
+        // Under the manual cadence the hold stands until "Sync now" lifts
+        // it: the pause is shown, and the user decides when to try again.
+        if (_autoRuns) {
+          _scheduleRetry(
+            quotaRetryDelay(pausedAt, _timing.quotaRetry),
+            liftsQuota: true,
+          );
+        }
       case SyncGatewayFailure.permissionDenied:
         // A pull's denial; a push's is diagnosed before it gets here.
         _loseAccess(SyncPause.noAccess);
@@ -1287,9 +1426,10 @@ class SyncEngine {
   }
 
   /// The next back-off step, only while in the foreground: in the background
-  /// the resume retries at once instead.
+  /// the resume retries at once instead. Never under [SyncCadence.manual],
+  /// where the failure waits for the next press.
   void _scheduleBackoff() {
-    if (_stopped || !_foreground) return;
+    if (_stopped || !_foreground || !_autoRuns) return;
     _scheduleRetry(_timing._backoffAt(_backoffStep++));
   }
 
@@ -1309,14 +1449,23 @@ class SyncEngine {
   /// [run] also starts a full run when runnable. With [resume] the run waits
   /// for the signal's snapshot instead and pulls what it names, unless the
   /// last full pull is [fullPullInterval] old ([onAppResumed]).
+  ///
+  /// Under [SyncCadence.manual] no signal is followed and [run] runs only
+  /// the bind's first merge, while `bind_merge_pending` stands: the bind the
+  /// user asked for owes it, whatever the cadence (record §13).
   Future<void> _reevaluate({required bool run, bool resume = false}) async {
     if (_stopped) return;
     final SyncBinding? binding;
     final SyncRunSkip? skip;
     var full = true;
+    var pending = false;
     try {
       (binding, skip) = await _gate();
-      if (binding != null && run && resume) full = await _fullPullDue();
+      if (binding != null && run) {
+        pending =
+            await _db.syncDao.getValue(SyncDao.keyBindMergePending) != null;
+        if (resume && _autoRuns) full = await _fullPullDue();
+      }
     } catch (error) {
       // A closed database: nothing to follow, and a run would fail the same
       // way — it reports the failure when one is asked for.
@@ -1324,19 +1473,22 @@ class SyncEngine {
       return;
     }
     if (_stopped) return;
+    // Judged after the last await: a switch to manual that landed during
+    // one must not let a run nobody asked for through.
+    if (run && !_autoRuns) run = pending;
     if (binding != null) {
       final space = _spaceOf(binding);
       final live = _signalOf(space) != null;
-      if (_started && _foreground) _attachSignal(space);
+      if (_started && _foreground && _autoRuns) _attachSignal(space);
       if (run && full) {
-        unawaited(_request(_RunMode.full));
+        unawaited(_request(_RunMode.full, asked: pending));
       } else if (run && live) {
         // The listener outlived the leave: its snapshot is current.
-        unawaited(_request(_RunMode.stale));
+        unawaited(_request(_RunMode.stale, asked: pending));
       } else if (run && _signalSubscription != null) {
         _awaitSnapshot();
       } else if (run) {
-        unawaited(_request(_RunMode.full));
+        unawaited(_request(_RunMode.full, asked: pending));
       }
     } else if (skip != SyncRunSkip.suspended) {
       // A suspension keeps the signal: nothing announces its end, and the
@@ -1369,15 +1521,23 @@ class SyncEngine {
     });
   }
 
+  /// An account change — never the stream's replay of the account the
+  /// engine already follows ([_followedUid]). A sign-in with nothing waiting
+  /// runs as a quiet start does, so a launch whose account is restored a
+  /// moment after the engine started still costs one read; one that lifts a
+  /// `noAccess` pause is the retry that pause promised and runs in full.
   void _onAuthChanged(AppUser? user) {
+    if (user?.uid == _followedUid) return;
+    _followedUid = user?.uid;
+    final quiet = _pause == SyncPause.none && _lastFailure == null;
     // "Until the next sign-in": a fresh account session tries the space
     // again.
     if (user != null && _pause == SyncPause.noAccess) _pause = SyncPause.none;
-    _track(_reevaluate(run: true));
+    _track(_reevaluate(run: true, resume: quiet));
   }
 
   void _armDebounce() {
-    if (_stopped) return;
+    if (_stopped || !_autoRuns) return;
     _debounce?.cancel();
     _debounce = _scheduler.schedule(_timing.pushDebounce, () {
       _debounce = null;
@@ -1412,6 +1572,8 @@ class SyncEngine {
       debugPrint('[SyncEngine] debounced drain skipped: $error');
       return;
     }
+    // The cadence may have turned manual over the count.
+    if (!_autoRuns) return;
     await _request(_RunMode.stale);
   }
 
@@ -1448,6 +1610,7 @@ class SyncEngine {
     _signalSubscription = null;
     _signalSpace = null;
     _signal = null;
+    _signalFresh = false;
     if (subscription != null) unawaited(subscription.cancel());
   }
 
@@ -1461,6 +1624,7 @@ class SyncEngine {
     if (!signal.exists) return _loseAccess(SyncPause.noAccess);
     if (signal.schema > _schema) return _loseAccess(SyncPause.appOutdated);
     _signal = signal;
+    _signalFresh = true;
     _signalBackoffStep = 0;
     _resumeFallback?.cancel();
     _resumeFallback = null;
@@ -1521,7 +1685,7 @@ class SyncEngine {
   /// snapshot that arrives pulls what moved anyway. Foreground only, like
   /// the runs' back-off.
   void _scheduleSignalRetry() {
-    if (_stopped || !_foreground) return;
+    if (_stopped || !_foreground || !_autoRuns) return;
     _signalRetry?.cancel();
     _signalRetry = _scheduler.schedule(
       _timing._backoffAt(_signalBackoffStep++),
@@ -1567,6 +1731,7 @@ class SyncEngine {
   void _emit() {
     final activity = _activity;
     final pause = _pause;
+    final cadence = _cadence;
     final failure = _lastFailure;
     // Until a run past the gate restored them, the parks are only stored: a
     // start that is signed out or paused still lists what they hold back.
@@ -1605,6 +1770,7 @@ class SyncEngine {
       final next = stored.copyWith(
         activity: activity,
         pause: pauseOver(read: stored.pause, engine: pause),
+        cadence: cadence,
         lastFailure: failure,
         clearLastFailure: failure == null,
         parkedCount: held.length,
@@ -1638,6 +1804,9 @@ enum _RunMode {
 
 class _RunRequest {
   _RunMode mode = _RunMode.drain;
+
+  /// Whether the user or the bind asked for it ([SyncEngine._request]).
+  bool asked = false;
   final Completer<SyncRunReport> done = Completer<SyncRunReport>();
 }
 

@@ -1,6 +1,7 @@
 import 'package:equatable/equatable.dart';
 
 import '../../models/app_user.dart';
+import '../../services/sync/sync_cadence.dart';
 import 'sync_state.dart';
 
 sealed class SyncEvent extends Equatable {
@@ -83,6 +84,17 @@ final class BindFlowDismissed extends SyncEvent {
 /// account (D5 A's way out) or signed out alike.
 final class StopSyncingRequested extends SyncEvent {
   const StopSyncingRequested();
+}
+
+/// The Sync section's "Sync automatically" switch (record §13): stored
+/// through the engine, which applies it to the session at once.
+final class SyncCadenceChanged extends SyncEvent {
+  final SyncCadence cadence;
+
+  const SyncCadenceChanged(this.cadence);
+
+  @override
+  List<Object?> get props => [cadence];
 }
 
 /// Fed from the engine's status stream, so a run's progress, pause or

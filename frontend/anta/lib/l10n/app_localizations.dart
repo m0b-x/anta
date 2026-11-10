@@ -7843,7 +7843,7 @@ abstract class AppLocalizations {
   /// Comma-separated hidden search synonyms for the Sync section of the sharing settings
   ///
   /// In en, this message translates to:
-  /// **'cloud, sync, devices, phone, tablet, space, merge, download, upload, status, offline, stop'**
+  /// **'cloud, sync, devices, phone, tablet, space, merge, download, upload, status, offline, stop, automatic, manual'**
   String get syncKeywords;
 
   /// Row that turns sync on for the open database; also the title of the sheet that picks a cloud space
@@ -7929,6 +7929,24 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Couldn\'t sync — will retry'**
   String get syncRetrying;
+
+  /// Sync status while Sync automatically is off: the last Sync now met no connection, and nothing retries by itself
+  ///
+  /// In en, this message translates to:
+  /// **'Offline — couldn\'t sync'**
+  String get syncOfflineManual;
+
+  /// Sync status while Sync automatically is off: the last Sync now failed for another reason, and nothing retries by itself
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t sync'**
+  String get syncFailedManual;
+
+  /// Sync status while Sync automatically is off and nothing waits or failed: says how syncing happens, since nothing runs by itself
+  ///
+  /// In en, this message translates to:
+  /// **'Syncs when you tap “Sync now”'**
+  String get syncManualIdle;
 
   /// Sync status: the account's daily cloud quota ran out and its reset has passed; sync tries again by itself
   ///
@@ -8127,6 +8145,24 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Sync now'**
   String get syncNow;
+
+  /// Switch in the bound Sync section: on, syncing runs by itself; off, only the Sync now row runs it
+  ///
+  /// In en, this message translates to:
+  /// **'Sync automatically'**
+  String get syncAutomatic;
+
+  /// Subtitle of the Sync automatically switch while it is on
+  ///
+  /// In en, this message translates to:
+  /// **'Changes sync while the app is open, and when you leave it'**
+  String get syncAutomaticOnDesc;
+
+  /// Subtitle of the Sync automatically switch while it is off
+  ///
+  /// In en, this message translates to:
+  /// **'Only when you tap “Sync now”'**
+  String get syncAutomaticOffDesc;
 
   /// Row in the Sync section that stops syncing the open database; the cloud copy stays. Short: the section already says Sync, the confirm names the database
   ///
@@ -15846,6 +15882,18 @@ abstract class AppLocalizations {
     String syncOffline,
     String syncNow,
   );
+
+  /// No description provided for @appGuideSyncCadenceTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'When it syncs'**
+  String get appGuideSyncCadenceTitle;
+
+  /// No description provided for @appGuideSyncCadenceBody.
+  ///
+  /// In en, this message translates to:
+  /// **'“{syncAutomatic}” on the same page is on to begin with: changes sync while the app is open and when you leave it. Turn it off and nothing moves until you tap “{syncNow}” — for a metered connection, or when you want to say when.'**
+  String appGuideSyncCadenceBody(String syncAutomatic, String syncNow);
 
   /// No description provided for @appGuideSyncOtherTitle.
   ///

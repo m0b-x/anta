@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:anta/services/sync/sync_cadence.dart';
 import 'package:anta/services/sync/sync_engine.dart';
 import 'package:anta/services/sync/sync_status.dart';
 
@@ -59,6 +60,22 @@ class FakeSyncEngine implements SyncEngine {
   Future<SyncRunReport> syncNow() async {
     calls.add('syncNow');
     return report;
+  }
+
+  @override
+  SyncCadence cadence = SyncCadence.automatic;
+
+  /// When set, [setCadence] throws it instead of storing — a closed
+  /// database.
+  Object? setCadenceError;
+
+  /// Recorded as `cadence:<name>`; the status is not re-emitted, so a test
+  /// sees the bloc's own flip apart from the engine's confirmation.
+  @override
+  Future<void> setCadence(SyncCadence next) async {
+    calls.add('cadence:${next.name}');
+    if (setCadenceError case final error?) throw error;
+    cadence = next;
   }
 
   @override

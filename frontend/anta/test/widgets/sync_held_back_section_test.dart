@@ -421,9 +421,17 @@ void main() {
       size: const Size(360, 780),
       textScale: 2.0,
     );
-    // Scrolled to the end of the list, where the user reads it.
-    robot.listPosition.jumpTo(robot.listPosition.maxScrollExtent);
-    await tester.pump();
+    // Scrolled to the end of the list, where the user reads it: twice, since
+    // the first jump lands on an estimate of the extent the unbuilt rows
+    // still refine.
+    Future<void> toEnd() async {
+      for (var i = 0; i < 3; i++) {
+        robot.listPosition.jumpTo(robot.listPosition.maxScrollExtent);
+        await tester.pump();
+      }
+    }
+
+    await toEnd();
     final pairing = find.text(
       l10n.pairingSection.toUpperCase(),
       skipOffstage: false,
@@ -432,14 +440,25 @@ void main() {
       l10n.syncParkedCount(3).toUpperCase(),
       skipOffstage: false,
     );
-    // The headers' screen tops, and every row's rect.
-    List<Object> geometry(Finder header) => [
-      tester.getRect(pairing).top,
-      tester.getRect(header).top,
-      for (var index = 0; index < _three.length; index++)
-        tester.getRect(robot.byId(rowId(index))),
-    ];
-    final before = geometry(header);
+    // The Pairing header's top in list coordinates — at 2.0 on a small
+    // phone it lies past the built extent at the end of the list, so it is
+    // walked to from the top as the sibling test does — then, back at the
+    // end, the held-back header's screen top and every row's rect.
+    Future<List<Object>> geometry(Finder header) async {
+      final pairingTop = (await robot.listRect(
+        pairing,
+        () => tester.getRect(pairing),
+      )).top;
+      await toEnd();
+      return [
+        pairingTop,
+        tester.getRect(header).top,
+        for (var index = 0; index < _three.length; index++)
+          tester.getRect(robot.byId(rowId(index))),
+      ];
+    }
+
+    final before = await geometry(header);
 
     await show(robot, held([_three[1]]));
 
@@ -463,7 +482,7 @@ void main() {
     );
     final live = find.text(l10n.syncParkedCount(1).toUpperCase());
     expect(live, findsOneWidget, reason: 'the header counts what is held');
-    expect(geometry(live), before);
+    expect(await geometry(live), before);
     final title = tester.widget<RichText>(
       find.descendant(
         of: robot.byId(rowId(0)),
@@ -490,7 +509,7 @@ void main() {
       findsOneWidget,
       reason: 'kept unseen, holding the intro as tall as it was',
     );
-    expect(geometry(done), before);
+    expect(await geometry(done), before);
     await close(tester);
     await open(tester, held(const []));
     expect(listedRows(), findsNothing);

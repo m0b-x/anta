@@ -4594,7 +4594,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get syncKeywords =>
-      'cloud, sync, devices, phone, tablet, space, merge, download, upload, status, offline, stop';
+      'cloud, sync, devices, phone, tablet, space, merge, download, upload, status, offline, stop, automatic, manual';
 
   @override
   String get syncThisDatabase => 'Sync this database';
@@ -4684,6 +4684,15 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get syncRetrying => 'Couldn\'t sync — will retry';
+
+  @override
+  String get syncOfflineManual => 'Offline — couldn\'t sync';
+
+  @override
+  String get syncFailedManual => 'Couldn\'t sync';
+
+  @override
+  String get syncManualIdle => 'Syncs when you tap “Sync now”';
 
   @override
   String get syncPausedQuota => 'Paused — daily limit reached';
@@ -4881,6 +4890,16 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get syncNow => 'Sync now';
+
+  @override
+  String get syncAutomatic => 'Sync automatically';
+
+  @override
+  String get syncAutomaticOnDesc =>
+      'Changes sync while the app is open, and when you leave it';
+
+  @override
+  String get syncAutomaticOffDesc => 'Only when you tap “Sync now”';
 
   @override
   String get syncStop => 'Stop syncing';
@@ -10481,6 +10500,14 @@ class AppLocalizationsEn extends AppLocalizations {
     String syncNow,
   ) {
     return 'The page says “$syncUpToDate”, “$syncOffline” or how many changes are waiting; the main menu\'s top row shows when it last synced. Nothing is lost offline: changes go once the connection is back, and “$syncNow” does not wait.';
+  }
+
+  @override
+  String get appGuideSyncCadenceTitle => 'When it syncs';
+
+  @override
+  String appGuideSyncCadenceBody(String syncAutomatic, String syncNow) {
+    return '“$syncAutomatic” on the same page is on to begin with: changes sync while the app is open and when you leave it. Turn it off and nothing moves until you tap “$syncNow” — for a metered connection, or when you want to say when.';
   }
 
   @override

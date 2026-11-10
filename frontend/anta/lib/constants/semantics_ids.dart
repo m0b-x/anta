@@ -250,6 +250,9 @@ abstract final class SemanticsIds {
   static const String sharingSync = 'sharing-sync';
   static const String sharingSyncStatus = 'sharing-sync-status';
   static const String sharingSyncNow = 'sharing-sync-now';
+
+  /// The bound Sync section's "Sync automatically" switch (record §13).
+  static const String sharingSyncAutomatic = 'sharing-sync-automatic';
   static const String sharingSyncStop = 'sharing-sync-stop';
   static const String sharingSyncStopConfirm = 'sharing-sync-stop-confirm';
   static const String sharingSyncRestart = 'sharing-sync-restart';

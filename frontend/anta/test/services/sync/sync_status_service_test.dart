@@ -6,6 +6,7 @@ import 'package:anta/models/app_user.dart';
 import 'package:anta/models/sync_binding.dart';
 import 'package:anta/services/settings_service.dart';
 import 'package:anta/services/sync/sync_binding_service.dart';
+import 'package:anta/services/sync/sync_cadence.dart';
 import 'package:anta/services/sync/sync_gateway.dart';
 import 'package:anta/services/sync/sync_status.dart';
 import 'package:anta/services/sync/sync_status_service.dart';
@@ -71,6 +72,15 @@ void main() {
   test('an unbound database never pauses', () async {
     expect((await service.read(user: _accountB)).pause, SyncPause.none);
     expect((await service.read()).pause, SyncPause.none);
+  });
+
+  test('the cadence reads automatic until stored, then as stored', () async {
+    expect((await service.read()).cadence, SyncCadence.automatic);
+
+    await settings.setSyncCadence(SyncCadence.manual);
+
+    expect((await service.read()).cadence, SyncCadence.manual);
+    expect(await settings.getSyncCadence(), SyncCadence.manual);
   });
 
   test('the push and pull times read back as stored', () async {

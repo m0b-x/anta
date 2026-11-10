@@ -85,6 +85,7 @@ class SyncStatusService implements SyncStatusReader {
       lastPushAt: await _instantAt(SyncDao.keyLastPushAt),
       lastPullAt: await _instantAt(SyncDao.keyLastPullAt),
       pause: SyncPause.forAccount(binding, uid),
+      cadence: await _binding.cadence(),
       clockAhead: ahead > AppDatabase.clockMaxDrift ? ahead : Duration.zero,
       clampedRemotes: _db.clockClampedRemotes,
       binding: binding,

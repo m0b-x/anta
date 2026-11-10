@@ -6,6 +6,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../constants/sync_limits.dart';
 import '../../models/app_user.dart';
 import '../../services/auth_service.dart';
+import '../../services/sync/sync_cadence.dart';
 import '../../services/sync/sync_engine.dart';
 import '../../services/sync/sync_space_service.dart';
 import '../../services/sync/sync_status.dart';
@@ -106,6 +107,7 @@ class SyncBloc extends Bloc<SyncEvent, SyncState> {
     on<AuthStateChanged>(_onAuthStateChanged);
     on<RefreshSyncStatus>(_onRefresh);
     on<SyncNowRequested>(_onSyncNow);
+    on<SyncCadenceChanged>(_onCadenceChanged);
     on<SyncEngineStatusChanged>(_onEngineStatus);
     on<SyncThisDatabaseRequested>(_onSyncThisDatabase);
     on<MergeIntoSpaceRequested>(
@@ -380,6 +382,7 @@ class SyncBloc extends Bloc<SyncEvent, SyncState> {
     if (engine == null || engine == SyncStatus.empty) return read;
     final pause = SyncEngine.pauseOver(read: read.pause, engine: engine.pause);
     return read.copyWith(
+      cadence: engine.cadence,
       activity: engine.activity,
       lastFailure: engine.lastFailure,
       clearLastFailure: engine.lastFailure == null,
@@ -414,6 +417,57 @@ class SyncBloc extends Bloc<SyncEvent, SyncState> {
       await (await thunk())?.syncNow();
     } catch (e, st) {
       debugPrint('[SyncBloc] sync now failed: $e\n$st');
+    }
+  }
+
+  /// The switch flips at once on the status shown — the engine's own emit
+  /// then confirms it — and the engine stores and applies the cadence
+  /// (record §13). Without an engine the row is never shown: the section
+  /// offers it bound only, and a bound database on a build without sync
+  /// draws the unavailable row.
+  Future<void> _onCadenceChanged(
+    SyncCadenceChanged event,
+    Emitter<SyncState> emit,
+  ) async {
+    final previous = _showCadence(emit, event.cadence);
+    final engine = await _resolveEngine();
+    try {
+      if (engine == null) throw StateError('no sync engine to store it');
+      await engine.setCadence(event.cadence);
+    } catch (e, st) {
+      debugPrint('[SyncBloc] the sync cadence was not stored: $e\n$st');
+      // Back to what is stored: a flip the engine never took would stand
+      // until the next read, promising a cadence the engine does not run.
+      if (previous != null && !emit.isDone) _showCadence(emit, previous);
+    }
+  }
+
+  /// Shows [cadence] on the status of the account state on screen, and
+  /// answers the one it replaced — null when the state carries no status
+  /// (a sign-in in flight, a failure), where the page holds the switch.
+  SyncCadence? _showCadence(Emitter<SyncState> emit, SyncCadence cadence) {
+    switch (state) {
+      case SyncSignedIn(:final user, :final status, :final flow):
+        _put(
+          emit,
+          SyncSignedIn(
+            user,
+            status: status.copyWith(cadence: cadence),
+            flow: flow,
+          ),
+        );
+        return status.cadence;
+      case SyncSignedOut(:final status, :final flow):
+        _put(
+          emit,
+          SyncSignedOut(
+            status: status.copyWith(cadence: cadence),
+            flow: flow,
+          ),
+        );
+        return status.cadence;
+      default:
+        return null;
     }
   }
 
