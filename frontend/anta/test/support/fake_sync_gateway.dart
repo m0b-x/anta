@@ -98,6 +98,26 @@ class FakeSyncGateway implements SyncGateway {
   /// writes nothing.
   int? pushBytesPerCall;
 
+  /// The account signed in on this device, when a test sets one: every call
+  /// on another owner's space is then `permissionDenied` and changes nothing,
+  /// reads included — the rules' owner-only clause — and is never logged in
+  /// [calls]. Null, the fake answers whoever asks. Checked before a scripted
+  /// failure is spent: the rules refuse the call before it reaches the link.
+  String? actingAccount;
+
+  /// When true, nobody is signed in: every call is `permissionDenied` and
+  /// changes nothing, as the rules answer an unauthenticated one, whatever
+  /// [actingAccount] says.
+  bool signedOut = false;
+
+  /// While set, every [deleteRows] waits for it before it does anything, so a
+  /// test can see what its caller did while an emptying is still in flight.
+  /// The owner is judged when the call is sent, before the wait, as
+  /// Firestore judges a call, and a refusal is answered when the wait ends:
+  /// an account change during the hold refuses the next call, never the
+  /// held one.
+  Completer<void>? holdDeleteRows;
+
   SyncGatewayException? _nextFailure;
   int _failuresLeft = 0;
   final Map<(String, String), SyncGatewayFailure> _refused = {};
@@ -200,6 +220,22 @@ class FakeSyncGateway implements SyncGateway {
     throw failure;
   }
 
+  /// Throws what the rules answer [actingAccount] for a space of [ownerUid].
+  void _ensureOwner(String ownerUid) {
+    if (signedOut) {
+      throw const SyncGatewayException(
+        SyncGatewayFailure.permissionDenied,
+        'signed out',
+      );
+    }
+    final acting = actingAccount;
+    if (acting == null || acting == ownerUid) return;
+    throw const SyncGatewayException(
+      SyncGatewayFailure.permissionDenied,
+      'another account\'s space',
+    );
+  }
+
   /// The bytes [envelopes] carry on the wire, as the pusher counts them.
   static int bytesOf(Iterable<SyncEnvelope> envelopes) {
     var bytes = 0;
@@ -254,6 +290,7 @@ class FakeSyncGateway implements SyncGateway {
     required String pushedBy,
     required int schema,
   }) async {
+    _ensureOwner(space.ownerUid);
     _throwIfScripted();
     calls.add('push:$pushedBy');
     if (batch.length > maxBatch) {
@@ -334,6 +371,7 @@ class FakeSyncGateway implements SyncGateway {
     bool resumed = false,
     SyncCursor? scan,
   }) async {
+    _ensureOwner(space.ownerUid);
     _throwIfScripted();
     calls.add('pull:$table');
     final rereads = resumed && after != null;
@@ -398,6 +436,7 @@ class FakeSyncGateway implements SyncGateway {
     String table,
     List<String> rowKeys,
   ) async {
+    _ensureOwner(space.ownerUid);
     _throwIfScripted();
     calls.add('read:$table');
     if (failRowReads.contains(table)) {
@@ -447,6 +486,7 @@ class FakeSyncGateway implements SyncGateway {
     required String deviceId,
     required int schema,
   }) async {
+    _ensureOwner(ownerUid);
     _throwIfScripted();
     // Runes, not `length`: CEL's `size()` counts code points, so a name of
     // 60 emoji is 60 to the rules and 120 to `String.length` (A8 review R154).
@@ -473,6 +513,7 @@ class FakeSyncGateway implements SyncGateway {
 
   @override
   Future<List<SyncSpaceInfo>> listSpaces(String ownerUid) async {
+    _ensureOwner(ownerUid);
     _throwIfScripted();
     return [
       for (final record in _spaces.values)
@@ -483,6 +524,7 @@ class FakeSyncGateway implements SyncGateway {
   @override
   Future<SyncSpaceInfo?> readSpace(SyncSpaceRef space) async {
     readSpaceCalls++;
+    _ensureOwner(space.ownerUid);
     _throwIfScripted();
     return _spaces[space]?.info;
   }
@@ -490,6 +532,7 @@ class FakeSyncGateway implements SyncGateway {
   @override
   Stream<SyncSpaceSignal> watchSpace(SyncSpaceRef space) {
     try {
+      _ensureOwner(space.ownerUid);
       _throwIfScripted();
     } on SyncGatewayException catch (error) {
       return Stream.multi((listener) {
@@ -513,6 +556,7 @@ class FakeSyncGateway implements SyncGateway {
 
   @override
   Future<void> markSpaceDeleted(SyncSpaceRef space) async {
+    _ensureOwner(space.ownerUid);
     _throwIfScripted();
     calls.add('mark');
     final record = _spaces[space];
@@ -523,6 +567,14 @@ class FakeSyncGateway implements SyncGateway {
 
   @override
   Future<int> deleteRows(SyncSpaceRef space, String table, {int? limit}) async {
+    SyncGatewayException? refused;
+    try {
+      _ensureOwner(space.ownerUid);
+    } on SyncGatewayException catch (error) {
+      refused = error;
+    }
+    await holdDeleteRows?.future;
+    if (refused != null) throw refused;
     _throwIfScripted();
     calls.add('deleteRows:$table');
     deleteLimits.add(limit);
@@ -547,6 +599,7 @@ class FakeSyncGateway implements SyncGateway {
 
   @override
   Future<void> deleteSpace(SyncSpaceRef space) async {
+    _ensureOwner(space.ownerUid);
     _throwIfScripted();
     calls.add('deleteSpace');
     final record = _spaces[space];

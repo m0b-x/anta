@@ -176,17 +176,24 @@ String? emulatorFatalLine(String logText) {
 /// the pattern. The engine's accessibility bridge logs one line per node it
 /// is asked about before its first layout — scrolling a settings page with
 /// semantics on does it — and only that line is noise, so the message is the
-/// pattern, not the tag.
+/// pattern, not the tag. The Firestore plugin tears down every transaction's
+/// event channel with a `cancel` its native side never registered, one line
+/// per transaction — dozens in a sync pass — so only that method on a
+/// transaction channel is noise, not every `MissingPluginException`.
 final List<RegExp> knownNoisePatterns = [
   RegExp('FirebearStorageCryptoHelper'),
   RegExp(
     r'AccessibilityBridge\(\s*\d+\): transform has not been initialized for id = \d+',
   ),
+  RegExp(
+    r'MissingPluginException\(No implementation found for method cancel on '
+    r'channel plugins\.flutter\.io/firebase_firestore/transaction/[\w-]+\)',
+  ),
 ];
 
 /// Whether a line is one of the errors that is always there and never means
 /// anything — Firebase with no signed-in user, the accessibility bridge's
-/// uninitialised transform, so far.
+/// uninitialised transform, the Firestore transaction stream's cancel, so far.
 bool isKnownNoise(String line) =>
     knownNoisePatterns.any((pattern) => pattern.hasMatch(line));
 

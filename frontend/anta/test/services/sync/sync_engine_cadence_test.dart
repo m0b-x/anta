@@ -116,6 +116,49 @@ void main() {
     expect(callsAfterPushOfB(), isEmpty);
   });
 
+  test('a local write shows in the status as a change waiting, with no run '
+      'and no timer', () async {
+    await startManual();
+    pair.gateway.readSpaceCalls = 0;
+    expect(a().engine.current.pendingCount, 0);
+
+    await a().db.folderDao.createFolder(name: 'Typed');
+    await pumpEventQueue();
+    await a().settle();
+
+    expect(a().engine.current.pendingCount, 1);
+    expect(a().scheduler.pending, isEmpty);
+    expect(pair.gateway.calls, isEmpty);
+    expect(pair.gateway.readSpaceCalls, 0);
+  });
+
+  test('a burst of writes waits behind one status read at most and ends on '
+      'the final count (review K5)', () async {
+    await startManual();
+    a().statements.reset();
+
+    // The outbox count is the status read's own statement.
+    int statusReads() => [
+      for (final statement in a().statements.captured)
+        if (statement.sql.contains('COUNT(') &&
+            statement.sql.contains('sync_outbox'))
+          statement,
+    ].length;
+
+    const writes = 30;
+    await Future.wait([
+      for (var i = 0; i < writes; i++)
+        a().db.folderDao.createFolder(name: 'Typed $i'),
+    ]);
+    await pumpEventQueue();
+    await a().settle();
+
+    expect(statusReads(), lessThanOrEqualTo(3));
+    expect(a().engine.current.pendingCount, writes);
+    expect(a().statuses.last.pendingCount, writes);
+    expect(pair.gateway.calls, isEmpty);
+  });
+
   test('a leave drains nothing, and says so', () async {
     await startManual();
     await a().db.folderDao.createFolder(name: 'Typed');

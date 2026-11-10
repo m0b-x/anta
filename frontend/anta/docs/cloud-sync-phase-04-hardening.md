@@ -1,6 +1,11 @@
 # Cloud Sync Phase 04 — Hardening
 
-**Status: planned.** No schema change. The phase where sync earns trust.
+**Status: SUPERSEDED 2026-11-10 — history only. Its integration hazards
+were built in the readiness phase and Phase 02 (the restore's unbind and
+suspension, the switch handlers, the status row) and cloud deletion as D1
+of `cloud-multi-user-roadmap.md`; what is left of the scenario matrix — a
+pair ended and made again, a folder unshared and shared again — is E2 and
+N2 of that record.** No schema change. The phase where sync earns trust.
 
 ## Scenario matrix to survive
 

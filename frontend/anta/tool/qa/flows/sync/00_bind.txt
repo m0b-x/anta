@@ -1,0 +1,11 @@
+# "Sync this database" on an account with no space: one tap binds without
+# the picker, the row turns into the bound section, and the status row
+# reads "Up to date" once the seed's rows are sent and the first pull is
+# behind it (it reads "N changes waiting" / "Not synced yet" first).
+tap id:sharing-sync
+wait id:sharing-sync-status --timeout 30
+expect --absent id:sync-picker --absent id:sharing-sync
+expect id:sharing-sync-status "Up to date" --timeout 60
+expect id:sharing-sync-now id:sharing-sync-automatic id:sharing-sync-stop id:sharing-sync-delete
+shot bound
+errors

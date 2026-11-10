@@ -6089,9 +6089,9 @@
   "@syncDeleteCloudDesc": {
     "description": "Subtitle of the Delete cloud copy row"
   },
-  "syncDeleteCloudProgress": "{count, plural, =0{Deleting…} =1{Deleting — 1 item removed} other{Deleting — {count} items removed}}",
+  "syncDeleteCloudProgress": "{count, plural, =0{Starting…} =1{1 item removed} other{{count} items removed}}",
   "@syncDeleteCloudProgress": {
-    "description": "Subtitle of the Delete cloud copy and Finish deleting rows while the cloud copy is being deleted, with the items removed so far; at zero, before the first items are gone, it only says the deletion is running",
+    "description": "Subtitle of the Deleting cloud copy row while a cloud copy is being deleted in the background, counting the items removed so far — at zero, before the first items are gone, it says the deletion is starting; also the subtitle of the Cloud copy deleted row, counting what was removed in all. The title already says what is being deleted, so this only counts",
     "placeholders": {
       "count": {
         "type": "int",
@@ -6113,11 +6113,23 @@
   },
   "syncDeleteCloudDone": "Cloud copy deleted",
   "@syncDeleteCloudDone": {
-    "description": "Announced to screen readers when deleting a cloud copy has finished"
+    "description": "Announced to screen readers when deleting a cloud copy has finished; also the title the Cloud copy deletion section's row keeps, muted under a check, once the deletion ended while the page was open"
+  },
+  "syncDeletionSection": "Cloud copy deletion",
+  "@syncDeletionSection": {
+    "description": "Header of the last section of the Sync & sharing page, shown while deleting a cloud copy runs or is left unfinished"
+  },
+  "syncDeleteCloudRunning": "Deleting cloud copy",
+  "@syncDeleteCloudRunning": {
+    "description": "Title of the Cloud copy deletion section's row while a cloud copy's deletion runs in the background; the row's subtitle counts the items removed"
   },
   "syncDeleteCloudFinish": "Finish deleting",
   "@syncDeleteCloudFinish": {
-    "description": "Row in the Sync section of a database that does not sync, shown while deleting a cloud copy was cut short: finishes the deletion"
+    "description": "Title of the Cloud copy deletion section's row while deleting a cloud copy was cut short: a tap finishes the deletion"
+  },
+  "syncDeleteCloudFinishUpdate": "Update ANTA to finish",
+  "@syncDeleteCloudFinishUpdate": {
+    "description": "Subtitle of the Finish deleting row, held, when only a newer version of the app can finish the deletion (a newer ANTA wrote to the cloud copy)"
   },
   "syncDeleteCloudFinishDesc": "Partly deleted from your account: “{space}”",
   "@syncDeleteCloudFinishDesc": {

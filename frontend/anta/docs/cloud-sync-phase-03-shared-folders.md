@@ -1,10 +1,11 @@
 # Cloud Sync Phase 03 — Shared Folders
 
-**Status: planned; predates the readiness decisions (2026-10-23) — sharing
-is now a grant on an owner's space, v44, and the ownership and consent
-material of the August Phase 02 doc belongs here (readiness record §7,
-D16, D18).** Depends on Phase 02's engine (`cloud-sync-phase-02-own-space.md`).
-Symbol names are targets — re-verify at implementation time.
+**Status: SUPERSEDED 2026-11-10 — history only. The plan for sharing is
+`cloud-multi-user-roadmap.md` (its groups E and N: two paired users,
+selected events and then notes, on the engine as built). Nothing below was
+built, and its migration number (v27), `is_shared`, `NoteSyncService` and
+the chunks keyed by index all predate the readiness decisions (2026-10-23)
+and the scalability round's chunked wire.**
 
 ## Goal
 

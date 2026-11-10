@@ -1,0 +1,22 @@
+# After a deletion the account holds no space: "Sync this database" binds
+# in one tap without the picker (the deleted space is not offered back) and
+# reads "Up to date"; a second deletion runs as the first did — the row
+# ends as "Cloud copy deleted" and is gone from the page opened again — and
+# leaves the emulator with no space, which is where the next pass starts.
+expect id:sharing-sync --absent id:sharing-sync-finish-delete
+tap id:sharing-sync
+wait id:sharing-sync-status --timeout 30
+expect --absent id:sync-picker --absent id:sharing-sync
+expect id:sharing-sync-status "Up to date" --timeout 60
+tap id:sharing-sync-delete
+wait id:sharing-sync-delete-confirm
+tap id:sharing-sync-delete-confirm --wait id:sharing-sync-finish-delete --wait-timeout 5
+expect id:sharing-sync --absent id:sharing-sync-status --absent id:sharing-sync-delete
+expect id:sharing-sync-finish-delete "Cloud copy deleted" --absent "Finish deleting" --timeout 60
+expect id:sharing-sync --absent id:sharing-sync-status
+key back
+wait id:settings-bar-hub
+tap id:settings-hub-row-syncSettings
+wait id:settings-bar-sharing
+expect id:sharing-sign-out id:sharing-sync --absent id:sharing-sync-finish-delete --absent id:sharing-sync-status
+errors

@@ -80,8 +80,9 @@ class QaAgent {
   void _onFrameTimings(List<ui.FrameTiming> timings) {
     if (!_recordingFrames) return;
     _timings.addAll(timings);
-    if (_timings.length > 20000)
+    if (_timings.length > 20000) {
       _timings.removeRange(0, _timings.length - 20000);
+    }
   }
 
   LiveWidgetController get _controller =>
@@ -921,8 +922,9 @@ class QaAgent {
 
   LogicalKeyboardKey _lookupKey(String name) {
     final alias = agentKeyAliases[name.toLowerCase()];
-    if (alias != null && _logicalKeys.containsKey(alias))
+    if (alias != null && _logicalKeys.containsKey(alias)) {
       return _logicalKeys[alias]!;
+    }
     for (final key in LogicalKeyboardKey.knownLogicalKeys) {
       if (key.keyLabel.toLowerCase() == name.toLowerCase() &&
           key.keyLabel.isNotEmpty) {

@@ -5,7 +5,7 @@
 # available on this platform: on the first visit its list shows that
 # disabled row under its own id (S7), and the Sync section its disabled
 # "Sync this database" row. A QA build with cloud allowed would open signed
-# out, on sharing-sign-in.
+# out, on sharing-sign-in; the `sync` suite covers that build.
 tap id:nav-menu
 wait id:drawer-calendar
 scroll-to id:drawer-settings --in id:drawer-list

@@ -2,7 +2,6 @@ import 'package:equatable/equatable.dart';
 
 import '../../models/app_user.dart';
 import '../../services/sync/sync_gateway.dart';
-import '../../services/sync/sync_space_registry.dart';
 import '../../services/sync/sync_space_service.dart';
 import '../../services/sync/sync_status.dart';
 import '../../utils/auth_error.dart';
@@ -10,7 +9,8 @@ import '../../utils/auth_error.dart';
 export '../../services/sync/sync_gateway.dart'
     show SyncGatewayFailure, SyncSpaceInfo;
 export '../../services/sync/sync_space_registry.dart' show SyncPendingDeletion;
-export '../../services/sync/sync_space_service.dart' show SyncBindFailure;
+export '../../services/sync/sync_space_service.dart'
+    show SyncBindFailure, SyncDeletionStatus;
 export '../../services/sync/sync_status.dart'
     show
         SyncActivity,
@@ -91,19 +91,14 @@ final class SyncBindStopping extends SyncBindFlow {
   bool get isBusy => true;
 }
 
-/// "Delete cloud copy" or "Finish deleting" being carried out
-/// (cloud-multi-user-roadmap §5): [removed] is the documents gone so far,
-/// one emit per page, so the row shows the deletion moving.
+/// "Delete cloud copy" being carried out (cloud-multi-user-roadmap §5): the
+/// mark and the unbind only — the emptying that follows is the service's
+/// background run, which [SyncSignedIn.deletion] follows.
 final class SyncBindDeleting extends SyncBindFlow {
-  final int removed;
-
-  const SyncBindDeleting({this.removed = 0});
+  const SyncBindDeleting();
 
   @override
   bool get isBusy => true;
-
-  @override
-  List<Object?> get props => [removed];
 }
 
 /// The last step failed; stays until it is dismissed or the flow starts
@@ -115,9 +110,11 @@ final class SyncBindFailed extends SyncBindFlow {
   /// the space.
   final String? holderDatabase;
 
-  /// Whether the step that failed was a deletion: the page says so on the
-  /// deletion's row, not as the stop's or the bind's failure that a bound
-  /// or an unbound section would otherwise take it for.
+  /// Whether the step that failed was "Delete cloud copy" — nothing changed,
+  /// still bound: the page says so on the Delete row, not as the stop's
+  /// failure a bound section would otherwise take it for. A background
+  /// run's failure is never a flow's; [SyncDeletionStatus.failure] carries
+  /// it.
   final bool deleting;
 
   const SyncBindFailed(
@@ -221,11 +218,12 @@ final class SyncSignedIn extends SyncState {
   /// out leaves it false.
   final bool statusRead;
 
-  /// The cloud copies this account began deleting on this install and has
-  /// not finished, oldest first: the unbound section offers "Finish
-  /// deleting" while any is left. Signed out none is shown — only their
-  /// owner may finish them.
-  final List<SyncPendingDeletion> pendingDeletions;
+  /// Where this account's cloud-copy deletions stand on this install, as
+  /// the service's background run reports them: the page ends with a
+  /// deletion section while one is pending or running. Null until the first
+  /// status arrives; signed out there is none — only their owner may finish
+  /// them.
+  final SyncDeletionStatus? deletion;
 
   const SyncSignedIn(
     this.user, {
@@ -233,7 +231,7 @@ final class SyncSignedIn extends SyncState {
     this.flow = const SyncBindIdle(),
     this.stepInFlight = false,
     this.statusRead = false,
-    this.pendingDeletions = const [],
+    this.deletion,
   });
 
   @override
@@ -243,7 +241,7 @@ final class SyncSignedIn extends SyncState {
     flow: flow,
     stepInFlight: value,
     statusRead: statusRead,
-    pendingDeletions: pendingDeletions,
+    deletion: deletion,
   );
 
   /// This state with [statusRead] set to [value].
@@ -253,19 +251,18 @@ final class SyncSignedIn extends SyncState {
     flow: flow,
     stepInFlight: stepInFlight,
     statusRead: value,
-    pendingDeletions: pendingDeletions,
+    deletion: deletion,
   );
 
-  /// This state with [pendingDeletions] set to [value].
-  SyncSignedIn withPendingDeletions(List<SyncPendingDeletion> value) =>
-      SyncSignedIn(
-        user,
-        status: status,
-        flow: flow,
-        stepInFlight: stepInFlight,
-        statusRead: statusRead,
-        pendingDeletions: value,
-      );
+  /// This state with [deletion] set to [value].
+  SyncSignedIn withDeletion(SyncDeletionStatus? value) => SyncSignedIn(
+    user,
+    status: status,
+    flow: flow,
+    stepInFlight: stepInFlight,
+    statusRead: statusRead,
+    deletion: value,
+  );
 
   @override
   List<Object?> get props => [
@@ -274,7 +271,7 @@ final class SyncSignedIn extends SyncState {
     flow,
     stepInFlight,
     statusRead,
-    pendingDeletions,
+    deletion,
   ];
 }
 
@@ -292,12 +289,22 @@ final class SyncFailure extends SyncState {
   /// naming so it stays the signed-in row's shape (review D3-2).
   final AppUser? user;
 
+  /// [user]'s cloud-copy deletions, as [SyncSignedIn.deletion] carries them:
+  /// the account is still signed in, and its deletion row must go on
+  /// following the run (review K3). Null without a [user].
+  final SyncDeletionStatus? deletion;
+
   const SyncFailure(
     this.error, {
     this.action = SyncAccountAction.signIn,
     this.user,
+    this.deletion,
   });
 
+  /// This state with [deletion] set to [value].
+  SyncFailure withDeletion(SyncDeletionStatus? value) =>
+      SyncFailure(error, action: action, user: user, deletion: value);
+
   @override
-  List<Object?> get props => [error, action, user];
+  List<Object?> get props => [error, action, user, deletion];
 }

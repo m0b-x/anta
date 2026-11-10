@@ -259,8 +259,8 @@ abstract final class SemanticsIds {
 
   /// The bound section's last row, "Delete cloud copy"
   /// (cloud-multi-user-roadmap §5), and its dialog's destructive confirm;
-  /// [sharingSyncFinishDelete] is the unbound section's "Finish deleting",
-  /// there only while a deletion is left unfinished.
+  /// [sharingSyncFinishDelete] is the one row of the deletion's own section,
+  /// last on the page: "Deleting cloud copy", "Finish deleting", or done.
   static const String sharingSyncDelete = 'sharing-sync-delete';
   static const String sharingSyncDeleteConfirm = 'sharing-sync-delete-confirm';
   static const String sharingSyncFinishDelete = 'sharing-sync-finish-delete';

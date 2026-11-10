@@ -8224,10 +8224,10 @@ abstract class AppLocalizations {
   /// **'Removes it from your account. This device keeps everything.'**
   String get syncDeleteCloudDesc;
 
-  /// Subtitle of the Delete cloud copy and Finish deleting rows while the cloud copy is being deleted, with the items removed so far; at zero, before the first items are gone, it only says the deletion is running
+  /// Subtitle of the Deleting cloud copy row while a cloud copy is being deleted in the background, counting the items removed so far — at zero, before the first items are gone, it says the deletion is starting; also the subtitle of the Cloud copy deleted row, counting what was removed in all. The title already says what is being deleted, so this only counts
   ///
   /// In en, this message translates to:
-  /// **'{count, plural, =0{Deleting…} =1{Deleting — 1 item removed} other{Deleting — {count} items removed}}'**
+  /// **'{count, plural, =0{Starting…} =1{1 item removed} other{{count} items removed}}'**
   String syncDeleteCloudProgress(int count);
 
   /// Title of the dialog confirming Delete cloud copy
@@ -8248,17 +8248,35 @@ abstract class AppLocalizations {
   /// **'Delete cloud copy'**
   String get syncDeleteCloudConfirmAction;
 
-  /// Announced to screen readers when deleting a cloud copy has finished
+  /// Announced to screen readers when deleting a cloud copy has finished; also the title the Cloud copy deletion section's row keeps, muted under a check, once the deletion ended while the page was open
   ///
   /// In en, this message translates to:
   /// **'Cloud copy deleted'**
   String get syncDeleteCloudDone;
 
-  /// Row in the Sync section of a database that does not sync, shown while deleting a cloud copy was cut short: finishes the deletion
+  /// Header of the last section of the Sync & sharing page, shown while deleting a cloud copy runs or is left unfinished
+  ///
+  /// In en, this message translates to:
+  /// **'Cloud copy deletion'**
+  String get syncDeletionSection;
+
+  /// Title of the Cloud copy deletion section's row while a cloud copy's deletion runs in the background; the row's subtitle counts the items removed
+  ///
+  /// In en, this message translates to:
+  /// **'Deleting cloud copy'**
+  String get syncDeleteCloudRunning;
+
+  /// Title of the Cloud copy deletion section's row while deleting a cloud copy was cut short: a tap finishes the deletion
   ///
   /// In en, this message translates to:
   /// **'Finish deleting'**
   String get syncDeleteCloudFinish;
+
+  /// Subtitle of the Finish deleting row, held, when only a newer version of the app can finish the deletion (a newer ANTA wrote to the cloud copy)
+  ///
+  /// In en, this message translates to:
+  /// **'Update ANTA to finish'**
+  String get syncDeleteCloudFinishUpdate;
 
   /// Subtitle of the Finish deleting row, naming the cloud space whose deletion was cut short; the name goes last so a long one is the part an ellipsis cuts
   ///

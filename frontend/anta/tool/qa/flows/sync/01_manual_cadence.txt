@@ -1,0 +1,36 @@
+# The cadence (record §13): "Sync automatically" off, the status row says
+# how a sync happens instead of "Up to date" and the switch says only "Sync
+# now" does. One local change — a folder made on the root — waits: back on
+# Sync & sharing the status row counts it ("1 change waiting") and no run
+# starts; "Sync now" sends it and the row comes back to the manual line with
+# nothing waiting; the switch on again, the row reads "Up to date". The
+# manual line is shown only while the engine is idle, so it is also what
+# says "Sync now" is enabled.
+expect id:sharing-sync-status "Up to date" --timeout 60
+tap id:sharing-sync-automatic
+expect "Syncs when you tap" "Only when you tap" --timeout 15
+key back
+wait id:settings-bar-hub
+key back
+wait id:create-folder
+tap id:create-folder
+wait id:sheet-confirm
+type "QA sync folder"
+tap id:sheet-confirm
+wait id:sheet-confirm --gone
+expect "QA sync folder" --timeout 10
+tap id:nav-menu
+wait id:drawer-calendar
+scroll-to id:drawer-settings --in id:drawer-list
+tap id:drawer-settings
+wait id:settings-bar-hub
+tap id:settings-hub-row-syncSettings
+wait id:settings-bar-sharing
+expect id:sharing-sync-status "1 change waiting" "Only when you tap" --absent "Syncs when you tap" --timeout 15
+shot waiting
+tap id:sharing-sync-now
+expect id:sharing-sync-status "Syncs when you tap" --absent "waiting" --timeout 30
+shot manual
+tap id:sharing-sync-automatic
+expect id:sharing-sync-status "Up to date" "Changes sync while the app is open" --timeout 30
+errors

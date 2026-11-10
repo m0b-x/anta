@@ -6,8 +6,10 @@ import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../constants/alert_constants.dart';
+import '../../services/auth_service.dart';
 import '../../services/backup_service.dart';
 import '../../services/settings_service.dart';
+import '../di/injection.dart';
 import 'qa_mode.dart';
 
 /// Imports a full-backup JSON document and reports whether it succeeded and
@@ -45,8 +47,10 @@ class QaBootstrap {
     required this.importSeed,
     required this.isOnboardingCompleted,
     required this.markOnboardingCompleted,
+    required this.signOut,
     this.databaseName = QaMode.databaseName,
     this.skipOnboarding = QaMode.skipOnboarding,
+    this.signOutOnReset = QaMode.useFirebaseEmulator,
     this.enabled = true,
   });
 
@@ -69,6 +73,20 @@ class QaBootstrap {
   final String databaseName;
 
   final bool skipOnboarding;
+
+  /// Ends the install's Firebase session — `AuthService.signOut` in the app.
+  final Future<void> Function() signOut;
+
+  /// Whether a reset also signs out. A Firebase session lives outside the
+  /// database and the preferences a reset clears, so on the emulator build a
+  /// reseeded run would otherwise open on the last pass's account — against
+  /// a restarted Auth emulator a bare uid that behaves offline. Only that
+  /// build: a QA build without the emulator never reaches Firebase.
+  final bool signOutOnReset;
+
+  /// Whether [applyResetMarker] fired in this process, which is what makes a
+  /// launch fresh for [applyResetSignOut].
+  bool _resetApplied = false;
 
   /// False turns every hook into a no-op, which is what a non-QA build is.
   final bool enabled;
@@ -98,12 +116,14 @@ class QaBootstrap {
     await (await _forApp()).applyResetMarker();
   }
 
-  /// The seed marker plus the onboarding skip. Runs after
-  /// `configureDependencies()`, since importing a backup needs the services
-  /// that `BackupService` resolves.
+  /// The reset's sign-out, the seed marker and the onboarding skip. Runs
+  /// after `configureDependencies()`, since importing a backup needs the
+  /// services that `BackupService` resolves and signing out needs the bound
+  /// `AuthService`.
   static Future<void> afterDependencies() async {
     if (!QaMode.enabled) return;
     final bootstrap = await _forApp();
+    await bootstrap.applyResetSignOut();
     await bootstrap.applySeedMarker();
     await bootstrap.applyOnboardingSkip();
   }
@@ -152,6 +172,7 @@ class QaBootstrap {
           (await SettingsService.getInstance()).isOnboardingCompleted(),
       markOnboardingCompleted: () async =>
           (await SettingsService.getInstance()).setOnboardingCompleted(true),
+      signOut: () => getIt<AuthService>().signOut(),
     );
   }
 
@@ -183,8 +204,26 @@ class QaBootstrap {
     }
 
     await _deleteQuietly(marker);
+    _resetApplied = true;
     _say('reset', true, 'reset: cleared preferences and $databaseName.db');
     return true;
+  }
+
+  /// Signs out when this launch applied the reset marker on a build that
+  /// signs out on reset, so every reseeded run opens signed out. A failed
+  /// sign-out is logged, never thrown: the page then shows the stale account,
+  /// which the flow's first expectation reports. Returns whether it signed
+  /// out.
+  Future<bool> applyResetSignOut() async {
+    if (!enabled || !signOutOnReset || !_resetApplied) return false;
+    try {
+      await signOut();
+      _say('signout', true, 'signed out of the emulator account');
+      return true;
+    } catch (e) {
+      _say('signout', false, 'sign-out threw $e');
+      return false;
+    }
   }
 
   /// Imports the seed marker's contents, then removes the marker — including

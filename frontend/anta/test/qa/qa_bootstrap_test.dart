@@ -17,17 +17,25 @@ void main() {
   late bool seedThrows;
   late bool onboardingCompleted;
   late int onboardingMarked;
+  late int signOuts;
+  late bool signOutThrows;
 
   QaBootstrap build({
     String databaseName = 'qa',
     bool skipOnboarding = true,
+    bool signOutOnReset = false,
     bool enabled = true,
   }) {
     return QaBootstrap(
       documentsPath: documents,
       databaseName: databaseName,
       skipOnboarding: skipOnboarding,
+      signOutOnReset: signOutOnReset,
       enabled: enabled,
+      signOut: () async {
+        signOuts++;
+        if (signOutThrows) throw StateError('auth down');
+      },
       clearPreferences: () async => prefsCleared++,
       importSeed: (json) async {
         importedSeeds.add(json);
@@ -66,6 +74,8 @@ void main() {
     seedThrows = false;
     onboardingCompleted = false;
     onboardingMarked = 0;
+    signOuts = 0;
+    signOutThrows = false;
   });
 
   tearDown(() async {
@@ -184,18 +194,71 @@ void main() {
     });
   });
 
+  group('reset sign-out', () {
+    test('a reset launch on the emulator build signs out', () async {
+      await marker('qa_reset').writeAsString('');
+      final bootstrap = build(signOutOnReset: true);
+      await bootstrap.applyResetMarker();
+
+      expect(await bootstrap.applyResetSignOut(), isTrue);
+      expect(signOuts, 1);
+      expect(QaBootstrap.entries.last.kind, 'signout');
+      expect(QaBootstrap.entries.last.ok, isTrue);
+    });
+
+    test('a launch without the reset keeps the session', () async {
+      final bootstrap = build(signOutOnReset: true);
+      await bootstrap.applyResetMarker();
+
+      expect(await bootstrap.applyResetSignOut(), isFalse);
+      expect(signOuts, 0);
+    });
+
+    test('a reset refused for the owner database keeps the session', () async {
+      await marker('qa_reset').writeAsString('');
+      final bootstrap = build(databaseName: 'gym_notes', signOutOnReset: true);
+      await bootstrap.applyResetMarker();
+
+      expect(await bootstrap.applyResetSignOut(), isFalse);
+      expect(signOuts, 0);
+    });
+
+    test('a build without the emulator never signs out', () async {
+      await marker('qa_reset').writeAsString('');
+      final bootstrap = build();
+      await bootstrap.applyResetMarker();
+
+      expect(await bootstrap.applyResetSignOut(), isFalse);
+      expect(signOuts, 0);
+    });
+
+    test('a sign-out that throws is a logged failure, not a crash', () async {
+      signOutThrows = true;
+      await marker('qa_reset').writeAsString('');
+      final bootstrap = build(signOutOnReset: true);
+      await bootstrap.applyResetMarker();
+
+      expect(await bootstrap.applyResetSignOut(), isFalse);
+      expect(signOuts, 1);
+      expect(QaBootstrap.entries.last.kind, 'signout');
+      expect(QaBootstrap.entries.last.ok, isFalse);
+    });
+  });
+
   group('disabled', () {
     test('every hook is a no-op and every marker survives', () async {
       await seedDatabaseFiles();
       await marker('qa_reset').writeAsString('');
       await marker('qa_seed.json').writeAsString('{}');
 
-      final bootstrap = build(enabled: false);
+      final bootstrap = build(enabled: false, signOutOnReset: true);
       expect(await bootstrap.applyResetMarker(), isFalse);
+      expect(await bootstrap.applyResetSignOut(), isFalse);
       await bootstrap.applySeedMarker();
       expect(await bootstrap.applyOnboardingSkip(), isFalse);
 
       expect(prefsCleared, 0);
+      expect(signOuts, 0);
       expect(importedSeeds, isEmpty);
       expect(onboardingMarked, 0);
       expect(await database('qa').exists(), isTrue);

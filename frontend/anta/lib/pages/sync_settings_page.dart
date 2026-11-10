@@ -82,6 +82,22 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
   SyncStatus? _spokenStatus;
   String? _bindingSpaceName;
 
+  /// Whether the deletion section was on screen at the last state outside a
+  /// step: one that was stays, held, through a delete step, so nothing
+  /// above it moves on a page scrolled to its end (review K6).
+  bool _deletionShownBeforeStep = false;
+
+  /// The account whose deletion section has had something running or
+  /// pending since the page opened: its deletion ending leaves the row in
+  /// place as done, as a held-back row that lands stays, so nothing moves;
+  /// a page opened afresh shows no section with nothing left.
+  String? _deletionSeenFor;
+
+  /// Whether the deletion step in flight has seen its run's status running:
+  /// a delete whose space was already gone needs no run, and its step's end
+  /// is then what says it (review H4).
+  bool _deletionRanInStep = false;
+
   /// The binding a step that ended is still to show, said when it does: a
   /// settle whose read failed keeps the status the step started from, and
   /// the outcome arrives with a later status (review RC2-3). Null when none
@@ -162,15 +178,25 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
             BlocListener<SyncBloc, SyncState>(
               listener: (context, state) {
                 _announce(context, l10n, state);
+                _followDeletion(state);
                 if (_carriedStatusOf(state) case final status?) {
                   _lastStatus = status;
                 }
                 _rememberHeld(state);
               },
             ),
+            BlocListener<SyncBloc, SyncState>(
+              listenWhen: _deletionRunEnded,
+              listener: (context, state) =>
+                  _sayDeletionEnded(context, l10n, state),
+            ),
           ],
           child: BlocConsumer<SyncBloc, SyncState>(
-            listenWhen: (previous, current) => current is SyncFailure,
+            // A deletion status re-stamping a failure is not a new failure.
+            listenWhen: (previous, current) =>
+                current is SyncFailure &&
+                (previous is! SyncFailure ||
+                    previous.withDeletion(null) != current.withDeletion(null)),
             listener: (context, state) {
               if (state is SyncFailure) {
                 CustomSnackbar.showError(
@@ -267,6 +293,8 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
         ),
       // Last, so nothing above it moves when it comes or goes.
       ?_heldBackSection(context, l10n, state),
+      // Last of all, for the same reason (review H2).
+      ?_deletionSection(context, l10n, state),
     ];
   }
 
@@ -679,11 +707,10 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
 
   /// Rendered in every state, like Pairing: a disabled row keeps the
   /// section findable by the settings search. Unbound it is "Sync this
-  /// database", with "Finish deleting" under it while a deletion is left
-  /// unfinished; bound (D4) the status row, Sync now, the switch, the stop
+  /// database"; bound (D4) the status row, Sync now, the switch, the stop
   /// row and "Delete cloud copy" — signed out too, where the binding stays
   /// and pauses (D5), and while a sign-in runs or has failed, on the last
-  /// status known.
+  /// status known. A deletion that runs on is shown by its own section.
   SettingsSectionData _syncSection(
     BuildContext context,
     AppLocalizations l10n,
@@ -701,9 +728,6 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
 
     if (!bound) {
       final copyOf = status.unboundAsCopyOf;
-      final pending = state is SyncSignedIn
-          ? state.pendingDeletions
-          : const <SyncPendingDeletion>[];
       return SettingsSectionData(
         icon: Icons.sync_rounded,
         title: l10n.syncSection,
@@ -748,44 +772,6 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
               ),
             ),
           ),
-          // A deletion cut short (cloud-multi-user-roadmap §5.2 g): asked
-          // when it began, so a tap finishes every one left without asking
-          // again. Also up while a deletion runs, so its count shows on a
-          // section that turned unbound under it.
-          if (pending.isNotEmpty || flow is SyncBindDeleting)
-            SettingsEntry(
-              title: l10n.syncDeleteCloudFinish,
-              // The space's name last, so an ellipsis cuts the name and never
-              // the meaning; with several left the row counts them, since a
-              // tap finishes them all (review S2, S8).
-              description: flow is SyncBindDeleting
-                  ? l10n.syncDeleteCloudProgress(flow.removed)
-                  : pending.length > 1
-                  ? l10n.syncDeleteCloudFinishMany(pending.length)
-                  : l10n.syncDeleteCloudFinishDesc(pending.first.spaceName),
-              keywords: keywords,
-              identifier: SemanticsIds.sharingSyncFinishDelete,
-              builder: (context, title, description) => _deletionRow(
-                context,
-                l10n,
-                flow,
-                title,
-                _deletionSlot(
-                  l10n,
-                  description!,
-                  also: [
-                    l10n.syncDeleteCloudFinishDesc(''),
-                    l10n.syncDeleteCloudFinishMany(_copiesTemplate),
-                  ],
-                ),
-                glyph: Icons.delete_sweep_outlined,
-                glyphColor: Theme.of(context).colorScheme.primary,
-                enabled: _signedIn(state) && !stepping,
-                onTap: () => context.read<SyncBloc>().add(
-                  const FinishDeletingRequested(),
-                ),
-              ),
-            ),
         ],
       );
     }
@@ -947,9 +933,7 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
         // deleting" follows it (review S3).
         SettingsEntry(
           title: l10n.syncDeleteCloud,
-          description: flow is SyncBindDeleting
-              ? l10n.syncDeleteCloudProgress(flow.removed)
-              : l10n.syncDeleteCloudDesc,
+          description: l10n.syncDeleteCloudDesc,
           // Dimmed as every disabled title is: an explicit colour would
           // outlive the disabled tile's.
           titleStyle: TextStyle(
@@ -964,7 +948,10 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
             l10n,
             flow,
             title,
-            _deletionSlot(l10n, description!),
+            _FixedLinesSlot(
+              templates: [l10n.syncDeleteCloudDesc],
+              child: description!,
+            ),
             glyph: Icons.delete_forever_outlined,
             glyphColor: colorScheme.error,
             enabled: canDelete,
@@ -973,6 +960,185 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
           ),
         ),
       ],
+    );
+  }
+
+  /// The deletion status of the account [state] carries — a failed
+  /// sign-out's included, which the bloc stamps as it does the account's
+  /// (reviews H5, K3); null for every state without the account.
+  static SyncDeletionStatus? _deletionOf(SyncState state) => switch (state) {
+    SyncSignedIn(:final deletion) => deletion,
+    SyncFailure(action: SyncAccountAction.signOut, :final deletion) => deletion,
+    _ => null,
+  };
+
+  /// The deletion [state] would show in its section, a step aside: one
+  /// that runs or is left unfinished, or one that ended since the page saw
+  /// it live.
+  SyncDeletionStatus? _shownDeletion(SyncState state) {
+    final deletion = _deletionOf(state);
+    if (deletion == null) return null;
+    final live = deletion.running || deletion.pending.isNotEmpty;
+    if (!live && deletion.accountUid != _deletionSeenFor) return null;
+    return deletion;
+  }
+
+  /// A cloud copy's deletion (cloud-multi-user-roadmap §5) in a section of
+  /// its own, last on the page, as the held-back rows are: its coming,
+  /// changing and going move nothing above it (review H2). Shown while the
+  /// account's deletion runs or is left unfinished; one that ended while
+  /// the page is open stays as done until the page is opened again. A
+  /// delete step whose own row spins alone (review H1) brings no section
+  /// in; one already on screen stays through it, held, since its leaving
+  /// would shrink a page scrolled to its end under the finger (review K6).
+  SettingsSectionData? _deletionSection(
+    BuildContext context,
+    AppLocalizations l10n,
+    SyncState state,
+  ) {
+    final deletion = _shownDeletion(state);
+    if (deletion == null) return null;
+    final live = deletion.running || deletion.pending.isNotEmpty;
+    final stepping = _stepping(state);
+    final flow = _syncOf(state).flow;
+    if (stepping &&
+        (flow is SyncBindDeleting || _stepIsDeletion) &&
+        !_deletionShownBeforeStep) {
+      return null;
+    }
+    return SettingsSectionData(
+      icon: Icons.delete_sweep_outlined,
+      title: l10n.syncDeletionSection,
+      entries: [
+        _deletionEntry(
+          context,
+          l10n,
+          deletion,
+          _keywords(l10n.syncKeywords),
+          done: !live,
+          enabled: !stepping,
+        ),
+      ],
+    );
+  }
+
+  /// The deletion section's one row. While the service's background run is
+  /// in flight it spins over the documents removed so far and asks nothing;
+  /// between runs it is "Finish deleting" — asked when the deletion began,
+  /// so a tap finishes every one left without asking again — with the last
+  /// run's failure as its value under the error glyph, held when only an
+  /// update can finish it (review H3); [done], muted under a check, with no
+  /// count — a resumed deletion's last run knows only its own (review K8).
+  /// The title and the subtitle each sit in a slot sized from everything
+  /// they may say, so the row is one height in every state, the empty
+  /// subtitle of [done] included; a space's name too long for it
+  /// ellipsizes, and a screen reader hears it whole.
+  SettingsEntry _deletionEntry(
+    BuildContext context,
+    AppLocalizations l10n,
+    SyncDeletionStatus deletion,
+    List<String> keywords, {
+    required bool done,
+    required bool enabled,
+  }) {
+    final running = deletion.running;
+    final pending = deletion.pending;
+    final failure = done || running ? null : deletion.failure;
+    final outdated = failure == SyncBindFailure.appOutdated;
+    final colorScheme = Theme.of(context).colorScheme;
+    return SettingsEntry(
+      title: done
+          ? l10n.syncDeleteCloudDone
+          : running
+          ? l10n.syncDeleteCloudRunning
+          : l10n.syncDeleteCloudFinish,
+      titleStyle: done ? TextStyle(color: colorScheme.onSurfaceVariant) : null,
+      // The space's name last, so an ellipsis cuts the name and never the
+      // meaning; with several left the row counts them, since a tap
+      // finishes them all (review S2, S8).
+      description: done
+          ? null
+          : running
+          ? l10n.syncDeleteCloudProgress(deletion.removed)
+          : outdated
+          ? l10n.syncDeleteCloudFinishUpdate
+          : pending.length > 1
+          ? l10n.syncDeleteCloudFinishMany(pending.length)
+          : l10n.syncDeleteCloudFinishDesc(pending.first.spaceName),
+      keywords: keywords,
+      identifier: SemanticsIds.sharingSyncFinishDelete,
+      builder: (context, title, description) {
+        const titleAlignment = ListTileTitleAlignment.top;
+        final titleSlot = FormCaptionSlot(
+          candidates: [
+            Text(l10n.syncDeleteCloudRunning),
+            Text(l10n.syncDeleteCloudFinish),
+            Text(l10n.syncDeleteCloudDone),
+          ],
+          child: title,
+        );
+        final subtitleSlot = _FixedLinesSlot(
+          templates: [
+            l10n.syncDeleteCloudProgress(0),
+            l10n.syncDeleteCloudProgress(_countTemplate),
+            l10n.syncDeleteCloudFinishDesc(''),
+            l10n.syncDeleteCloudFinishMany(_copiesTemplate),
+            l10n.syncDeleteCloudFinishUpdate,
+          ],
+          child: description ?? const SizedBox.shrink(),
+        );
+        if (running) {
+          return _BusyValue(
+            busy: true,
+            child: ListTile(
+              titleAlignment: titleAlignment,
+              leading: const _RowBusyIndicator(),
+              title: titleSlot,
+              subtitle: subtitleSlot,
+            ),
+          );
+        }
+        if (done) {
+          return ListTile(
+            titleAlignment: titleAlignment,
+            leading: Icon(
+              Icons.check_rounded,
+              color: colorScheme.onSurfaceVariant,
+            ),
+            title: titleSlot,
+            subtitle: subtitleSlot,
+          );
+        }
+        final glyph = failure == null
+            ? Icon(Icons.delete_sweep_outlined, color: colorScheme.primary)
+            : Icon(Icons.error_outline_rounded, color: colorScheme.error);
+        return Semantics(
+          value: failure == null
+              ? null
+              : _bindFailureText(
+                  l10n,
+                  SyncBindFailed(failure),
+                  stopping: false,
+                ),
+          child: !enabled || outdated
+              ? _disabledTile(
+                  context,
+                  glyph: glyph,
+                  title: titleSlot,
+                  description: subtitleSlot,
+                  titleAlignment: titleAlignment,
+                )
+              : ListTile(
+                  titleAlignment: titleAlignment,
+                  leading: glyph,
+                  title: titleSlot,
+                  subtitle: subtitleSlot,
+                  onTap: () => context.read<SyncBloc>().add(
+                    const FinishDeletingRequested(),
+                  ),
+                ),
+        );
+      },
     );
   }
 
@@ -1309,11 +1475,11 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
     if (confirmed) bloc.add(const StopSyncingRequested());
   }
 
-  /// "Delete cloud copy" and "Finish deleting" (cloud-multi-user-roadmap
-  /// §5). While a deletion runs the spinner takes the glyph, the slot says
-  /// the count and the tap does nothing; after a failed one the glyph turns
-  /// to the error and the reason is the row's value, as the stop row's is —
-  /// the snackbar says it once. Held, it is this page's disabled tile.
+  /// "Delete cloud copy" (cloud-multi-user-roadmap §5). During its short
+  /// step the spinner takes the glyph and the tap does nothing, as the stop
+  /// row's do during a stop; after a failed one the glyph turns to the
+  /// error and the reason is the row's value, as the stop row's is — the
+  /// snackbar says it once. Held, it is this page's disabled tile.
   Widget _deletionRow(
     BuildContext context,
     AppLocalizations l10n,
@@ -1358,24 +1524,6 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
       ),
     );
   }
-
-  /// The deletion rows' subtitle: one slot for the description, the
-  /// progress line at its widest count and the row's own texts in [also],
-  /// so a deletion that starts or counts on moves nothing below. A space's
-  /// name too long for it ellipsizes, as the bind row's heal note does; a
-  /// screen reader hears it whole.
-  Widget _deletionSlot(
-    AppLocalizations l10n,
-    Widget description, {
-    List<String> also = const [],
-  }) => _FixedLinesSlot(
-    templates: [
-      l10n.syncDeleteCloudDesc,
-      l10n.syncDeleteCloudProgress(_countTemplate),
-      ...also,
-    ],
-    child: description,
-  );
 
   /// Destructive, the page's one such dialog: the copy in the account is
   /// gone for good, and the body says what stays.
@@ -1458,29 +1606,33 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
     final carried = _carriedStatusOf(state);
     final stepping = _stepping(state);
     if (flow is SyncBindChecking) _bindingSpaceName = null;
+    if (flow is SyncBindDeleting && !_wasStepping) _deletionRanInStep = false;
     if (flow.isBusy) {
-      // The step's first flow names it: a bind that finishes an older
-      // deletion first shows the deleting flow, and is still a bind.
-      if (!_wasStepping) {
-        _stepIsStop = flow is SyncBindStopping;
-        _stepIsDeletion = flow is SyncBindDeleting;
-      }
+      _stepIsStop = flow is SyncBindStopping;
+      _stepIsDeletion = flow is SyncBindDeleting;
       _awaitedBinding = null;
     }
+    String? message;
     if (_wasStepping && !stepping && flow is SyncBindIdle) {
-      _awaitedBinding = !_stepIsStop && !_stepIsDeletion;
+      // A deletion's step ends with its run going on, which the deletion
+      // section shows and [_followDeletion] says the end of — unless the
+      // space was already gone and no run was needed: then the step's end
+      // is the deletion's (review H4).
+      _awaitedBinding = _stepIsDeletion ? null : !_stepIsStop;
+      if (_stepIsDeletion &&
+          !_deletionRanInStep &&
+          !(_deletionOf(state)?.running ?? false)) {
+        message = l10n.syncDeleteCloudDone;
+      }
     }
     _wasStepping = stepping;
-    String? message;
     if (carried != null) {
       final bound = carried.binding != null;
       if (_awaitedBinding == bound) {
         _awaitedBinding = null;
         final name = _bindingSpaceName;
         message = !bound
-            ? _stepIsDeletion
-                  ? l10n.syncDeleteCloudDone
-                  : l10n.syncAnnounceStopped
+            ? l10n.syncAnnounceStopped
             : name == null
             ? l10n.syncAnnounceBoundUnnamed
             : l10n.syncAnnounceBound(name);
@@ -1505,6 +1657,58 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
       message,
       Directionality.of(context),
     );
+  }
+
+  /// What the deletion section is judged by, as each state comes: the
+  /// account seen deleting, whether the delete step's run was seen, and
+  /// whether the section is on screen outside a step.
+  void _followDeletion(SyncState state) {
+    final deletion = _deletionOf(state);
+    if (deletion != null && (deletion.running || deletion.pending.isNotEmpty)) {
+      _deletionSeenFor = deletion.accountUid;
+    }
+    if (deletion?.running ?? false) _deletionRanInStep = true;
+    if (!_stepping(state)) {
+      _deletionShownBeforeStep = _shownDeletion(state) != null;
+    }
+  }
+
+  /// Whether the account's deletion status turned from running to ended
+  /// between [previous] and [current] — on the account or on a failed
+  /// sign-out, which still carries it (review K3). A status found on
+  /// opening the page, or another account's, is no such turn.
+  static bool _deletionRunEnded(SyncState previous, SyncState current) {
+    final before = _deletionOf(previous);
+    final deletion = _deletionOf(current);
+    return before != null &&
+        deletion != null &&
+        before.accountUid == deletion.accountUid &&
+        before.running &&
+        !deletion.running;
+  }
+
+  /// The end of a deletion's background run, once: "Cloud copy deleted"
+  /// said politely when nothing is left and nothing failed, the failure's
+  /// snackbar when it stopped short — the row keeps the reason as its value.
+  void _sayDeletionEnded(
+    BuildContext context,
+    AppLocalizations l10n,
+    SyncState state,
+  ) {
+    final deletion = _deletionOf(state)!;
+    final failure = deletion.failure;
+    if (failure != null) {
+      CustomSnackbar.showError(
+        context,
+        _bindFailureText(l10n, SyncBindFailed(failure), stopping: false),
+      );
+    } else if (deletion.pending.isEmpty) {
+      SemanticsService.sendAnnouncement(
+        View.of(context),
+        l10n.syncDeleteCloudDone,
+        Directionality.of(context),
+      );
+    }
   }
 
   String _pairingTitleFor(AppLocalizations l10n, PairingState state) =>

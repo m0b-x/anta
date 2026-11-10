@@ -8,9 +8,10 @@ deploy and phone check left); Phases 03–04 planned, their docs predate the
 readiness decisions, and Phase 03's migration is no longer v44 — the
 analytics run took v44 and v45, so it takes the next free number.** **Since 2026-11-10 the plan for
 everything after Phase 02 is `cloud-multi-user-roadmap.md`: two paired
-users sharing selected events and notes, thirty counted slices, deletion
-first — its slice D1, "Delete cloud copy", BUILT AND REVIEWED 2026-11-10
-(the rules deploy and the phone check left to the owner).** Master
+users sharing selected events and notes, thirty-one counted slices,
+deletion first — its slice D1, "Delete cloud copy", DONE 2026-11-11 (the
+rules deploy, the phone check and the move of the database to the
+European Union left to the owner).** Master
 document for the cloud migration; per-phase implementation docs live
 alongside this file (`cloud-sync-phase-01-pairing.md`,
 `cloud-sync-phase-02-own-space.md`, `cloud-sync-phase-03-shared-folders.md`,

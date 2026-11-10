@@ -95,8 +95,21 @@ final class DeleteCloudCopyRequested extends SyncEvent {
 
 /// "Finish deleting": every deletion the signed-in account began on this
 /// install and did not finish, taken to its end — confirmed when it began.
+/// It only asks the service's background run; the binding and the engine
+/// stay as they are.
 final class FinishDeletingRequested extends SyncEvent {
   const FinishDeletingRequested();
+}
+
+/// Fed from the service's deletion status of the account signed in, so a
+/// background run's progress and end reach the page.
+final class SyncDeletionStatusChanged extends SyncEvent {
+  final SyncDeletionStatus status;
+
+  const SyncDeletionStatusChanged(this.status);
+
+  @override
+  List<Object?> get props => [status];
 }
 
 /// The Sync section's "Sync automatically" switch (record §13): stored

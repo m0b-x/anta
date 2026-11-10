@@ -4943,9 +4943,9 @@ class AppLocalizationsEn extends AppLocalizations {
     String _temp0 = intl.Intl.pluralLogic(
       count,
       locale: localeName,
-      other: 'Deleting — $countString items removed',
-      one: 'Deleting — 1 item removed',
-      zero: 'Deleting…',
+      other: '$countString items removed',
+      one: '1 item removed',
+      zero: 'Starting…',
     );
     return '$_temp0';
   }
@@ -4965,7 +4965,16 @@ class AppLocalizationsEn extends AppLocalizations {
   String get syncDeleteCloudDone => 'Cloud copy deleted';
 
   @override
+  String get syncDeletionSection => 'Cloud copy deletion';
+
+  @override
+  String get syncDeleteCloudRunning => 'Deleting cloud copy';
+
+  @override
   String get syncDeleteCloudFinish => 'Finish deleting';
+
+  @override
+  String get syncDeleteCloudFinishUpdate => 'Update ANTA to finish';
 
   @override
   String syncDeleteCloudFinishDesc(String space) {

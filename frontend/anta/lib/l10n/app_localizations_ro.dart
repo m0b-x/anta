@@ -5050,10 +5050,10 @@ class AppLocalizationsRo extends AppLocalizations {
     String _temp0 = intl.Intl.pluralLogic(
       count,
       locale: localeName,
-      other: 'Se șterge — $countString de elemente eliminate',
-      few: 'Se șterge — $countString elemente eliminate',
-      one: 'Se șterge — un element eliminat',
-      zero: 'Se șterge…',
+      other: '$countString de elemente eliminate',
+      few: '$countString elemente eliminate',
+      one: 'Un element eliminat',
+      zero: 'Se pornește…',
     );
     return '$_temp0';
   }
@@ -5073,11 +5073,20 @@ class AppLocalizationsRo extends AppLocalizations {
   String get syncDeleteCloudDone => 'Copia din cloud a fost ștearsă';
 
   @override
+  String get syncDeletionSection => 'Ștergerea copiei din cloud';
+
+  @override
+  String get syncDeleteCloudRunning => 'Se șterge copia din cloud';
+
+  @override
   String get syncDeleteCloudFinish => 'Termină ștergerea';
 
   @override
+  String get syncDeleteCloudFinishUpdate => 'Actualizează ANTA ca să termini';
+
+  @override
   String syncDeleteCloudFinishDesc(String space) {
-    return 'Șters doar parțial din contul tău: „$space”';
+    return 'Ștearsă doar parțial din contul tău: „$space”';
   }
 
   @override

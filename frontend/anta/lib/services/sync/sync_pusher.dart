@@ -680,6 +680,10 @@ class _Pusher {
         final half = _budget ~/ 2;
         _budget = _ceiling = half < minPartBytes ? minPartBytes : half;
       }
+      // Every whole batch denied is diagnosed afresh: a space marked since an
+      // earlier batch's row was refused must pause the drain, not park the
+      // rows of this one (review F5).
+      drain.diagnosed = false;
       if (!await _refusesRows(bound, error, drain)) rethrow;
       await _isolate(bound, batch, error, tally, drain);
       return;
@@ -696,8 +700,9 @@ class _Pusher {
 
   /// Whether [error] refuses rows of the batch — `invalidData`, or a denial
   /// the space's diagnosis pinned on a row's shape — rather than the whole
-  /// drain. The diagnosis runs once per drain, on the first denial, and
-  /// throws [_AccessLost] when the denial is the space's.
+  /// drain. The diagnosis runs once per batch [_push] sends, on its first
+  /// denial — the whole batch's or one inside its bisect — and throws
+  /// [_AccessLost] when the denial is the space's.
   Future<bool> _refusesRows(
     SyncBinding bound,
     SyncGatewayException error,
@@ -709,6 +714,7 @@ class _Pusher {
       case SyncGatewayFailure.permissionDenied:
         if (!drain.diagnosed) {
           drain.diagnosed = true;
+          drain.judged = error;
           await _diagnose(bound, error);
         }
         return true;
@@ -767,10 +773,23 @@ class _Pusher {
       return;
     }
     if (batch.length == 1) {
+      final retry = _isRetry(batch.single.entry);
+      // The batch's diagnosis is older than the halves that landed since: a
+      // space marked meanwhile refuses a fresh row too, and must pause the
+      // drain rather than park it (review G5). Read again unless the space
+      // was read for this very denial, or the row is a stored park tried
+      // again, whose refusal is known (review K1). So a drain reads the
+      // space once per denied batch and once per fresh row parked, and the
+      // refused-rows cap bounds the fresh rows.
+      if (refusal.failure == SyncGatewayFailure.permissionDenied &&
+          !retry &&
+          !identical(refusal, drain.judged)) {
+        await _diagnose(bound, refusal);
+      }
       await _park(batch.single.entry, refusal);
       // Only a fresh row's refusal is evidence the rules changed.
       if (refusal.failure == SyncGatewayFailure.permissionDenied &&
-          !_isRetry(batch.single.entry) &&
+          !retry &&
           ++drain.refused > maxRefusedPerDrain) {
         // The space reads fine — the rules changed — so reading it again
         // proves nothing.

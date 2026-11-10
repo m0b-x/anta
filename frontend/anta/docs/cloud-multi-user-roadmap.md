@@ -1,10 +1,14 @@
 # Cloud Multi-User Roadmap — ANTA
 
-**Status: D1 BUILT AND REVIEWED 2026-11-10, uncommitted — "Delete cloud
-copy": four build runs, one review in two sittings, two fix passes, the
-gate green (`+15303 ~17`), two device passes green against the Firestore
-emulator; §5.9 is the truth over §5.1–5.6. Left to the owner: the rules
-deploy, the build on every device, the phone check (§5.8), the commit.
+**Status: D1 DONE 2026-11-11 — "Delete cloud copy", committed `f67c942a`
+(2026-11-10) and its debt pass after it (2026-11-11): the long part of a
+deletion runs in the background, resumes by itself and has a section of
+its own; reviewed three times, the final gate green (`+15400 ~17`), the
+saved `sync` device suite green. §5.1–5.8 state the design as built, §5.9
+the history. Decided 2026-11-11 on the owner's word: the region is the
+European Union (R1, the owner runs the move); a second account on one
+phone is accepted (R4, not built). Left to the owner: the rules deploy,
+the build on every device, the phone check (§5.8), the region move (R1).
 Every other slice is PLAN: one row of §3, with its own design section or
 record when it starts; D2 (delete my account) is next. The target is the
 owner's (§1).** Written from the
@@ -114,15 +118,16 @@ build.
 | N1 | A folder I share shows on my partner's phone, read-only | L | yes |
 | N2 | Stopping a folder share takes it off my partner's phone | M | yes |
 | N3 | My partner may edit the notes I share, when I allow it | L | yes |
-| R1 | The database in the region the owner chose | S | yes — before the partner's data |
+| R1 | The database in the European Union — `eur3`, decided; the owner runs the move | S | yes — before the partner's data |
 | R2 | The app says where synced data lives and who can read it | S | yes |
 | R3 | The cloud copy stops growing (old note text, old tombstones) | L | later |
-| R4 | A second account on one phone cannot see or feed the first one's data | M | later — owner's call |
+| R4 | A second account on one phone cannot see or feed the first one's data | M | decided: not built |
 | R5 | Two people on two app versions: "update ANTA" instead of silence | S | yes — inside E1 |
 | R6 | Knowing why sync broke on a phone I do not hold | M | later |
 | R7 | iPhone | L | only if the partner has one |
 | R8 | Sign-in on Windows and macOS | L | later |
 | R9 | Backups and restores that hold shared rows | M | yes — with E2 |
+| R10 | The device pass for sharing in one command: a saved suite on two guests | M | yes — before E1's device pass |
 | P1 | App Check: only the real app may talk to the database | S | no |
 | P2 | The paid plan with a budget alert | S | no |
 | P3 | Privacy policy, terms, the Play data-safety form | S | no |
@@ -131,10 +136,11 @@ build.
 | P6 | Push: notified while the app is closed | M | no |
 | P7 | More than one partner | L | no |
 
-**Thirty slices.** Fifteen are on the road to the target (D1, D2, E0–E5,
-N1–N3, R1, R2, R5, R9); two are optional on it (E6, E7); five wait for a
-reason of their own (R3, R4, R6, R7, R8); eight matter only for a public
-listing (D3, P1–P4, P6) or a later ambition (P5, P7).
+**Thirty-one slices.** Sixteen are on the road to the target (D1, D2,
+E0–E5, N1–N3, R1, R2, R5, R9, R10); two are optional on it (E6, E7); four
+wait for a reason of their own (R3, R6, R7, R8); one is decided against
+(R4); eight matter only for a public listing (D3, P1–P4, P6) or a later
+ambition (P5, P7).
 
 Where each finding of the investigation went: nothing deletes cloud data →
 D1, D2, D3; one shared free quota → P2; no abuse protection → P1; the
@@ -163,20 +169,29 @@ R9.
 
 ## 5. D1 — Delete cloud copy (design)
 
+§5.1–5.8 state the design as it was built — rewritten on 2026-11-11, after
+the debt pass moved the long part of a deletion out of the foreground.
+§5.9 is the history: every run, both reviews' ledgers and the device
+passes, in order.
+
 ### 5.1 What the user gets
 
-In Settings → Sync & sharing, the Sync section of a syncing database gains
-a last row, **Delete cloud copy**, under "Stop syncing". It asks once,
-naming the space; on yes the copy in the account is removed for good, this
-database stops syncing, and every note and event stays on the phone. The
-account's other devices that synced with that copy stop with the words
-"the cloud copy was deleted" and keep what they hold.
+In Settings → Sync & sharing, the Sync section of a syncing database ends
+with **Delete cloud copy**, under "Stop syncing". It asks once: the copy
+is removed from the account for good, this database stops syncing, nothing
+is deleted on this device, and the other devices keep what they hold and
+stop too. On yes the database is unbound within a second or two and the
+page is free again; the emptying of the cloud copy goes on in the
+background and is shown in a section of its own at the end of the page —
+"Deleting cloud copy", a count of the items removed, then "Cloud copy
+deleted". A deletion that was cut short — the app closed, the link lost —
+resumes by itself when the account is next known, and waits as "Finish
+deleting" when it cannot. The account's other devices that synced with
+that copy stop with "Paused — the cloud copy was deleted" and keep what
+they hold.
 
-Today the only way out is "Stop syncing", which unbinds locally and leaves
-the space in the cloud for ever (`SyncSpaceService.stopSyncing`,
-`sync_space_service.dart:309`; the page's own comment at
-`sync_settings_page.dart:1180`: "nothing is deleted — the cloud copy
-stays").
+Before D1 the only way out was "Stop syncing", which unbinds locally and
+leaves the space in the cloud for ever.
 
 ### 5.2 Decisions taken by the lead (lettered, reversible before the build)
 
@@ -202,37 +217,74 @@ stays").
   live space keeps the engine's oldest invariant — a row disappears by
   tombstone, never by a missing document — enforced on the server, not
   only by this client. R3 will widen it on purpose.
-- **g. Any device finishes a half-done deletion.** The space document
-  carries the mark, so the next "Sync this database" on any device of the
-  account finishes marked spaces before it lists the others, and the
-  device that started it shows a "Finish deleting" row meanwhile.
+- **g. A half-done deletion is always finished.** The space document
+  carries the mark and the install keeps a record of the deletion: the
+  service's background run resumes it when the account is next known, the
+  "Finish deleting" row asks for it, and "Sync this database" on any
+  device of the account records a marked space it meets and never offers
+  it.
 - **h. No wire bump.** The space document gains a key; no row's `data`
   changes; `syncSchemaVersion` stays 46.
+- **i. The long part is not a step of the page** (the debt pass,
+  2026-11-11). After the unbind a deletion touches nothing local — only
+  the cloud and the install-wide record — so the emptying belongs to a
+  background run of the service, and the page is held only for the local
+  phase.
 
 ### 5.3 The protocol
 
-1. **Mark.** The space document gets `deletedAt` = the server time. From
+**The local phase** — awaited by the page's step, the engine stopped
+first (`SyncSpaceService.deleteCloudCopy`):
+
+1. **Read** the space. Gone already: unbind and return. Its `schema`
+   above this build's: refused (`appOutdated`) with nothing changed — a
+   newer build may have written a table this one does not list, and
+   removing the space document over it would strand those rows.
+2. **Mark.** The space document gets `deletedAt` = the server time. From
    then on the rules refuse every update of that document — and every push
-   of this app writes it in the row's own transaction
-   (`touched`, `lastWriter`, `lastWriteAt`), so a push to a marked space
-   fails whole.
-2. **Empty.** For every table of the registry
+   of this app writes it in the row's own transaction (`touched`,
+   `lastWriter`, `lastWriteAt`), so a push to a marked space fails whole.
+   A failure here changes nothing: still bound, still syncing.
+3. **Read again.** The schema is final once the space is marked; a newer
+   one found here leaves the mark standing and the database bound and
+   paused, for an updated app to finish.
+4. **Record** the deletion install-wide. From here the account's status
+   reads "running".
+5. **Unbind**, exactly as "Stop syncing" does.
+
+**The remote phase** — in the service's background run, one at a time for
+the whole process:
+
+6. **Empty.** For every table of the registry
    (`lib/database/crdt/synced_tables.dart`, `content_chunks` included —
    the client SDK cannot list subcollections, so the registry is the list):
-   read a page of documents, delete them in one write-only transaction,
-   repeat until the table reads empty. Nothing new can land after the
-   mark, so the loop ends.
-3. **Remove** the space document, last.
+   read a page of twenty documents (`SyncGateway.rowDeleteBatch`), delete
+   them in one write-only transaction, repeat until the table reads empty.
+   Nothing new can land after the mark, so the loop ends. A page refused
+   while emptying is followed by a read of the space: gone means another
+   device finished it.
+7. **Remove** the space document, last, and clear the record.
 
-A build older than the space's `schema` refuses to delete ("update ANTA
-first"): a newer build may have written a table this one does not know,
-and removing the space document over it would strand those rows.
+**Twenty** because each deleted row costs the rules one `get()` of the
+space, and Firestore allows twenty document-access calls in one
+transaction; the emulator does not enforce that limit, so the documented
+number is the contract.
 
-Cost: one read and one delete per document, one more read per batch for
+**The run** takes every record of its account in turn. A record whose
+space is gone or reads unmarked is cleared, never marked: the mark is the
+only authority to delete. A record whose space a newer build wrote to is
+passed over and the run ends as `appOutdated`. A failure of the link or of
+the account stops the run and leaves the records. It is requested by the
+delete step, by "Finish deleting", by "Sync this database" meeting a
+marked space, and by the account becoming known (the app's start, a
+sign-in): once per process and account, and again after a run that ended
+only on the moment — a refusal or offline.
+
+Cost: one read and one delete per document, one more read per page for
 the rule's look at the space, and at least one read per table. The owner's
 space is about 312 rows plus note chunks. The free plan allows 20,000
-deletes a day; past that the job stops with the quota reason and resumes
-another day.
+deletes a day; past that the run stops with the quota reason and waits for
+"Finish deleting" or the next start.
 
 ### 5.4 The rules (a sketch — the emulator suite is the judge)
 
@@ -272,37 +324,51 @@ Nothing is lost — an unbind clears the parks and the update reads the mark
 ### 5.5 Code
 
 - **Gateway** (`sync_gateway.dart`, `firestore_sync_gateway.dart`,
-  `test/support/fake_sync_gateway.dart`): mark a space, delete up to *n*
-  documents of one table and answer how many, delete the space document;
-  `SyncSpaceInfo` and `SyncSpaceSignal` say whether the space is marked.
-  Deletes go through the write-only transaction the pushes use, so nothing
-  is ever queued offline. `content_chunks` pages are small (a chunk is up
-  to 64 KB and the SDK returns whole documents); a page that times out
-  halves that table's page for the rest of the job. The fake's existing
-  `deleteSpace` test helper (a console delete) is renamed, not reused.
-- **Service** (`sync_space_service.dart`): `deleteCloudCopy` with a
-  progress callback — read the binding, mark (a failure here changes
-  nothing: still bound, still syncing), unbind exactly as "Stop syncing"
-  does and record the pending deletion install-wide beside the space
-  registry (`sync_space_registry.dart`), empty, remove, clear the record.
-  `start()` finishes marked spaces first, best effort, and never offers
-  one; binding or downloading a marked space answers `spaceGone`.
+  `test/support/fake_sync_gateway.dart`): `markSpaceDeleted`,
+  `deleteRows` (at most `rowDeleteBatch`, the count answered, 0 for an
+  empty table), `deleteSpace`; `markedForDeletion` on `SyncSpaceInfo` and
+  `SyncSpaceSignal`. Deletes go through the write-only transaction the
+  pushes use, so nothing is ever queued offline; a page that times out
+  halves that table's page for the rest of the run. The fake models who
+  is signed in (an acting account, a signed-out state) and can hold a
+  call open.
+- **Service** (`sync_space_service.dart`, `sync_space_registry.dart`):
+  `deleteCloudCopy()` — the local phase, then the run requested; the
+  background run and its queue; `SyncDeletionStatus {accountUid, pending,
+  running, removed, failure}` through `deletionStatus` and the broadcast
+  `deletionStatusOf`; `finishPendingDeletions` (a request);
+  `followAccounts` (the resume, wired at start-up in
+  `lib/core/di/injection.dart`); the install-wide record
+  `SyncPendingDeletion` under `SettingsKeys.syncPendingDeletions`.
+  `start()` records a marked space, requests the run and never offers the
+  space; binding or downloading a marked or missing space answers
+  `spaceGone`.
 - **Engine** (`sync_engine.dart`, `sync_pusher.dart`, `sync_status.dart`):
-  a pause `spaceDeleted` for a space that is marked or missing — from the
-  signal (`_onSignal`, today `noAccess` for a missing space) and from the
-  diagnosis of a denied push (`_diagnose`). It behaves as `noAccess` does:
-  nothing runs, one "Sync now" re-reads the space once. `noAccess` keeps
-  the refusals.
-- **Bloc** (`lib/bloc/sync/`): an event and a busy flow with the count
-  removed so far, run through `_step` like every other change of binding.
+  the pause `spaceDeleted` for a space that is marked or gone — from the
+  signal, from the diagnosis of a denied push (every denied batch, and
+  before a fresh row is parked), from the one read "Sync now" makes under
+  either pause and, under the manual cadence, from the read an asked run
+  makes first. It holds as `noAccess` does — nothing runs, the outbox and
+  the parks stay, the engine never unbinds — and a refusal stays
+  `noAccess`.
+- **Bloc** (`lib/bloc/sync/`): `DeleteCloudCopyRequested`, a short step
+  through `_step` (`SyncBindDeleting`); `FinishDeletingRequested`, a
+  request and no step; the account's `SyncDeletionStatus` followed and
+  carried by every state that carries the signed-in account; one rule,
+  `SyncStatus.canDeleteCloudCopy` (bound, and not under `accountMismatch`,
+  `appOutdated` or `spaceDeleted`), for the page and the bloc.
 - **Page and drawer** (`sync_settings_page.dart`,
-  `lib/widgets/drawer_sync_status.dart`): the row, the confirmation, the
-  progress line, the "Finish deleting" row on the unbound section, the
-  pause's line on both surfaces (the page's line joins
-  `_statusLineTemplates`, so the status row keeps one height), the "Stop
-  syncing" confirmation's second wording, an announcement at the end, a row
-  in the app guide's sync topic.
-- **Strings** en/de/ro; `sync-and-accounts.md` gains the as-built bullet.
+  `lib/widgets/drawer_sync_status.dart`): the Delete row and its
+  destructive confirmation; the section "Cloud copy deletion", last on the
+  page, whose one row (`sharing-sync-finish-delete`) is running, waiting,
+  failed, held until an update, or ended — nothing above it ever moves;
+  the pause's line on both surfaces (the page's joins
+  `_statusLineTemplates`); the "Stop syncing" confirmation's second body;
+  the announcements; a row in the app guide's sync topic.
+- **Strings** en/de/ro; `sync-and-accounts.md` holds the as-built entry.
+- **Device** (`tool/qa/flows/sync/`, `lib/core/qa/qa_bootstrap.dart`): the
+  saved `sync` suite, and the seam that makes a reseeded cloud QA build
+  open signed out.
 
 ### 5.6 Tests
 
@@ -312,16 +378,21 @@ Nothing is lost — an unbind clears the parks and the update reads the mark
   delete once marked; another account can do none of it; `deletedAt` must
   be the server time and cannot be set at create. The probe
   (`tool/firebase/rules_probe.ps1`) gains the same cases.
-- Fake gateway contract; the service (the whole path; offline at the mark
-  leaves the database bound; a failure while emptying leaves it unbound
-  with the pending record and resumes; the quota; the older-build refusal;
-  `start()` finishing a marked space and never offering it); the engine
-  (the pause from the signal and from a denied push, nothing running under
-  it, the one re-read); the bloc; the page at 1.0, 1.3 and 2.0 in en, de
-  and ro with the kit's guideline cases.
-- A device pass against the Firestore emulator: bind, push, delete, the
-  emulator holds no document under the space, the database is intact and
-  unbound; a second guest bound to the same space reads the pause.
+- Fake gateway contract; the service
+  (`test/services/sync/sync_space_delete_test.dart`: the local phase's
+  order and each of its failures, the run's status sequence, its queue,
+  its resume rule, a failure while emptying and its finish, the quota, the
+  older-build refusal, `start()` recording a marked space); the engine
+  (the pause from the signal, from a denied push and from the manual read;
+  nothing running under it; no row parked on a stale diagnosis); the bloc
+  (the status followed, the short step, the refusals); the page at 1.0,
+  1.3 and 2.0 in en, de and ro on both phone sizes with the kit's
+  guideline cases.
+- The saved device suite, `qa pass sync -d emulator-5556`, against the
+  Firestore emulator on one guest (bind, the manual cadence with a waiting
+  change, stop and merge, delete, bind again and delete); the two-guest
+  pass of 2026-11-10 by hand (the second device reads the pause) until
+  R10 saves it.
 
 ### 5.7 Must not change
 
@@ -638,6 +709,313 @@ cancel` teardown lines in the logs. Still not run anywhere but in unit
 tests: a table of more than twenty rows (no fixture has one) and an
 interrupted deletion — the first is step 3 of §5.8.
 
+**Committed `f67c942a` (2026-11-10, pushed), then the debt pass on the
+owner's word ("do not leave tech debt") — it supersedes the blocks above
+wherever they differ.**
+
+**Debt run 1 — the deletion's long part leaves the foreground
+(2026-11-10; gate from the lead: analyze clean, the whole suite `+15315
+~17` green).** The recorded limits had one cause: the whole deletion ran
+as a step of the page. After the unbind a deletion touches nothing local,
+so:
+
+- `deleteCloudCopy()` keeps its local phase exactly (read, checks, mark,
+  read again, record, unbind) and then *requests* the owner's run and
+  returns. A failure while emptying is never this call's.
+- **The run** belongs to the service, one per process: one run at a time,
+  in the order asked; asking again for an account that runs or waits
+  changes nothing; another account's waits its turn. It re-reads the
+  account's records before each one, clears a record whose space is gone
+  or reads unmarked, empties and removes a marked one.
+- **The status:** `SyncDeletionStatus {accountUid, pending, running,
+  removed, failure}` through `deletionStatus(uid)` and the broadcast
+  `deletionStatusOf(uid)` (the current value first, then every change).
+  `finishPendingDeletions({accountUid})` is a request that returns at
+  once; `resumePendingDeletions(uid)` requests the run once per process
+  and account when records are pending, so an interrupted deletion
+  resumes by itself and a failed one waits for "Finish deleting";
+  `deletionRunsIdle()` lets a test await the end.
+- `start()` finishes nothing inline any more: a marked space of the
+  account is recorded, the run requested, and the bind decided at once
+  over the unmarked spaces.
+- **F5 closed:** a push denial is diagnosed for every whole batch that is
+  denied, not once per drain, so a space marked in the middle of a drain
+  pauses as `spaceDeleted` instead of parking rows. **F13 closed:** the
+  gate's skip matches the pause its re-read left.
+- The fake gateway takes an acting account (another owner's space is
+  refused, reads included) and can hold `deleteRows` open; the Firestore
+  gateway has one read-back helper for create, mark and delete.
+
+**Debt run 2 — the bloc and the page follow the run (2026-11-10; gate
+from the lead: analyze clean, the whole suite `+15333 ~17` green,
+`untranslated.txt` `{}`).**
+
+- **Bloc:** a signed-in state follows `deletionStatusOf(uid)` and carries
+  it as `SyncSignedIn.deletion` (it replaces `pendingDeletions`); the
+  subscription is remade on every account change and cancelled on
+  sign-out and on close; `resumePendingDeletions(uid)` is asked when the
+  account becomes known. `DeleteCloudCopyRequested` is a short step
+  (`SyncBindDeleting()`, no count); `FinishDeletingRequested` is no step —
+  it stops no engine and only asks the service, with something pending
+  and nothing running. A request the rule forbids is judged before a
+  failed sign-out's account is put back, so it emits nothing.
+- **Page:** one row, `sharing-sync-finish-delete`, ends the Sync section
+  in both states — after "Delete cloud copy" when bound, after "Sync this
+  database" when unbound — while something is pending or a run is in
+  flight. Running: "Deleting cloud copy", the busy indicator, "Deleting…"
+  then "Deleting — N items removed", no tap. Waiting: "Finish deleting",
+  the space named last or several counted, a tap; with a failure, the
+  error glyph and the failure's words as the row's value. The Delete row's
+  subtitle is its description alone. "Cloud copy deleted" is announced
+  when a run ends with nothing pending and no failure; a run that fails
+  raises the failure snackbar once.
+- **The service's run skips what it cannot finish for the record's own
+  reason:** a space whose schema is above this build's stays recorded, the
+  later records are still finished, and the run ends as `appOutdated`. A
+  failure of the link or of the account still stops it at once.
+- **Removed with the foreground design:** the count on the deleting flow,
+  the deleting flow during "Sync this database", the announcement rule
+  written for it, the bloc's pending reads, the page's shared deletion
+  slot. `SyncBindFailed.deleting` stays: it words a failed delete *step*
+  (offline at the mark, an outdated app, a restore running) on the Delete
+  row.
+- **Heights** (360 × 780, one height per row across every state and both
+  sections; en / de / ro): Delete 80 / 80 / 80 at 1.0, 96 at 1.3, 172 /
+  212 / 212 at 2.0; the deletion row 80 / 62 / 80 at 1.0, 96 at 1.3, 212
+  at 2.0.
+- **What this closed of the recorded limits:** the page is held only for
+  the local phase (seconds); the section turns unbound at once, so no
+  "Up to date" stands over a running deletion; "Sync this database" no
+  longer waits on an older deletion or shows its count.
+
+**Review of the debt pass, first sitting — the run, the pusher, the bloc
+(2026-11-10, one `reviewer` probing in a copy).** The run never empties an
+unmarked space and never touches the binding, the engine or the local
+database. The ledger and what the lead decided:
+
+| Id | Finding | Decision |
+| --- | --- | --- |
+| G1 | CONFIRMED — a deletion status that arrives while a status read is in flight makes the bloc drop that read (its identity guard), and the real stream always sends one when the account becomes known; the bloc suite's fake stream stayed silent, so no case saw it | **Fix:** a deletion status never invalidates a status read; the fake replays like the real stream |
+| G2 | CONFIRMED — a run cut by a sign-out or an account change ends as a refusal and, "once per process and account", is never resumed when the account returns | **Fix:** a run that ended on the account's or the link's moment (a refusal, offline) may be resumed the next time the account is known |
+| G3 | CONFIRMED — nothing resumes at launch: only a `SyncBloc` asked, and one exists only once the drawer or the page is opened; the drawer's bloc thereby started a deletion run, against its own "only loads" rule | **Fix:** the resume follows the account from the app's start, outside any bloc |
+| G4 | CONFIRMED — between the record and the run's request, the status read "pending, not running" with the previous run's failure | **Fix:** recording a deletion clears the account's last failure |
+| G5 | CONFIRMED — F5 was closed only between batches; a space marked during one batch's bisect still parked healthy rows | **Fix:** no row is parked as refused without a read of the space saying it is live at that moment (bounded by the refused-rows cap) |
+| G6 | A throw in the run's tail would leave the waiting accounts "running" for the life of the process | **Fix:** the run loop survives any throw |
+| G7 | A failed first read of the status left "Finish deleting" unavailable | **Fix:** the first value never fails the stream |
+| — | `start()` failed a bind when recording a marked space failed; a comment claimed synchronous delivery; `pending`'s doc still said "this install began" | **Fix** |
+| — | The fake gateway has no signed-out state and spends a scripted failure before its owner check | **Fix** |
+
+**The saved `sync` suite (2026-11-10; one implementer who wrote the flows
+and ran them on `anta_qa_1`): `qa pass sync -d emulator-5556`, 5/5 green
+twice, each against a freshly started emulator suite, 36–38 s a pass.**
+
+- **The seam:** on a QA build pointed at the Firebase emulator
+  (`QaMode.useFirebaseEmulator`) a fresh launch signs out once
+  dependencies exist (`QaBootstrap.applyResetSignOut`), so a reseeded app
+  opens signed out. The hand-driven passes each met a session that had
+  survived the reseed. Five cases in `test/qa/qa_bootstrap_test.dart`.
+- **The suite** (`tool/qa/flows/sync/`, `reseed=suite`, `shard=no`, a
+  prelude that fails at once on a cloud-off build): `00_bind`,
+  `01_manual_cadence`, `02_stop_and_merge` (through the picker),
+  `03_delete_cloud_copy`, `04_bind_again_and_delete` — it ends with no
+  space left, so the next pass meets the same start. "Up to date" is read
+  off the status row's own words. Its note:
+  `.claude/skills/qa-emulator/references/sync-pass.md`.
+- **Measured on the guest:** the section reads unbound about half a second
+  after the delete is confirmed, and the deletion row is gone about half a
+  second after that.
+- **What the device showed that no test had** (each decided): the deletion
+  row opened as "Finish deleting — Partly deleted…" for a moment (G4 — the
+  fix is in the service); under the manual cadence a waiting change was
+  not counted on the status row until a run (the outbox trigger emitted
+  nothing under manual — fixed in the engine); every Firestore transaction
+  logs a `MissingPluginException … cancel` from the plugin's own stream,
+  which buries real lines in `errors` (the harness filters that one line);
+  the cadence switch's id sits on the row, not on the switch, so a flow
+  reads its subtitle (left: the row is a container by the kit's rule).
+- Not covered by one guest: a second device (R10), an interrupted
+  deletion, a table of more than twenty rows.
+
+**Review of the debt pass, second sitting — the page, the strings
+(2026-11-10/11, the same `reviewer`).** One height holds for the deletion
+row in every state, both sections, three scales, three languages and both
+phone sizes (real fonts); four of five reverted behaviours turned a case
+red. The ledger and what the lead decided:
+
+| Id | Finding | Decision |
+| --- | --- | --- |
+| H1 | During the delete step the row arrived in the bound section, held and worded "Partly deleted…", then spun beside the spinning Delete row | **Fix:** with H2 — the row leaves the Sync section |
+| H2 | The row comes and goes at the end of the Sync section, so Pairing shifts by 62 to 212 dp each time — against the page's own rule that nothing moves | **Fix:** a deletion has its own section, last on the page, as "held back" items have; a deletion that ends while the page is open stays in place as "Cloud copy deleted" until the page is opened again |
+| H3 | "Finish deleting" could be tapped when only an app update can finish it (the last run ended `appOutdated`) | **Fix:** held then, its words saying to update |
+| H4 | A delete whose space was already gone ends without a word to a screen reader | **Fix:** announced at the step's end when no run was needed |
+| H5 | A failed sign-out hid the row though the account is still signed in | **Fix:** drawn for every state that still carries the account |
+| H6 | Words: "Deleting…" under the title "Deleting cloud copy" repeats it; the Romanian "Șters doar parțial" is the wrong gender for the copy | **Fix:** the subtitle counts ("Starting…", then "N items removed"); "Ștearsă" |
+| H7 | Not pinned: the row under the delete step, the held row in the bound section, the heights at 412 × 915, the guideline cases for the held row, "another account's status says nothing"; the bloc suite's fake stream does not replay as the real one does | **Fix:** cases added; the fake replays |
+
+**Fix pass C1 — the run, the engine, the start (2026-11-11; gate from the
+lead: analyze clean, the whole suite `+15352 ~17` green). It supersedes
+"Debt run 1" and "Debt run 2" wherever they differ.**
+
+- **The resume is the app's, not a bloc's (G3, G2):**
+  `SyncSpaceService.followAccounts(Stream<String?>)`, called from
+  `configureDependencies` right after the engine starts when sync is
+  available, follows the account stream for the life of the process; the
+  stream's replay of the current account is the resume at launch.
+  `resumePendingDeletions` is gone and the bloc only listens. **The rule:**
+  when an account becomes known, its run is requested if something is
+  pending and either no run was asked for it in this process or its last
+  run ended on the moment — a refusal (signed out or another account under
+  it) or offline. A run that ended on the quota, an outdated app or an
+  unknown failure waits for "Finish deleting" or the next process. With
+  nothing pending it costs one read of the install-wide record and no
+  network call.
+- **No moment that reads as a failed deletion (G4):** from the record on,
+  the account's status reads running with no failure; a failed unbind
+  settles it pending, not running, with no failure.
+- **G6, G7:** the run loop survives a throw anywhere in a run and the
+  accounts behind it still run; `deletionStatusOf` never fails its first
+  value. `start()` binds all the same when a marked space cannot be
+  recorded.
+- **G5:** inside a bisect, a row is parked as refused only after a read of
+  the space says it is live at that moment — marked or gone pauses as
+  `spaceDeleted` with nothing parked. A drain with two refused rows reads
+  the space three times (the batch, then each row); bounded by the rows
+  parked.
+- **The manual cadence shows what is waiting:** a write to the outbox makes
+  the engine emit its status under manual too — no run, no timer.
+- The fake gateway has a signed-out state and checks the owner before it
+  spends a scripted failure.
+
+**Fix pass C2 — the bloc and the page (2026-11-11; gate from the lead:
+analyze clean, the whole suite `+15383 ~17` green, `untranslated.txt`
+`{}`). It supersedes "Debt run 2" wherever they differ.**
+
+- **G1:** a deletion status that arrives while the sync status is being
+  read no longer costs that read — the bloc remembers which state a
+  re-stamped state came from, and the read lands on it. The bloc suite's
+  fake stream now replays like the real one, and a case holds the reader
+  open across a status.
+- **The deletion has its own section, last on the page (H1, H2, H5):**
+  "Cloud copy deletion" (`syncDeletionSection`), after Pairing and after
+  the held-back section, for every state that still carries the signed-in
+  account (a failed sign-out included). Both shapes of the Sync section
+  end as they did before a deletion row existed, and during the delete
+  step the Delete row spins alone. Its one row, `sharing-sync-finish-delete`:
+  - running — "Deleting cloud copy", the busy indicator, "Starting…" then
+    "N items removed", no tap;
+  - waiting — "Finish deleting", "Partly deleted from your account:
+    “{space}”" or the count of several, a tap; held while a step runs;
+  - failed — the error glyph, the failure's words as the row's value;
+  - held until an update (H3) — after a run that ended `appOutdated`:
+    "Update ANTA to finish" (`syncDeleteCloudFinishUpdate`), no tap;
+  - ended while the page is open — "Cloud copy deleted", muted, the check
+    glyph, the count beneath, no tap; gone at the next open.
+  Nothing above the section moves when it appears, changes or ends
+  (eighteen cells: three languages, three scales, both phone sizes).
+- **H4:** a delete that needed no run — its space already gone — is
+  announced at its step's end; a run's end is announced once, as before.
+- **Words (H6):** the progress line counts and never repeats its title;
+  the Romanian "Ștearsă doar parțial…".
+- **Heights** (real fonts, one height across every state, bound, unbound
+  and a failed sign-out; en / de / ro): at 360 × 780 — 80 / 62 / 80 at
+  1.0, 96 / 96 / 122 at 1.3, 212 / 176 / 212 at 2.0; at 412 × 915 — 80 /
+  62 / 80, 96 / 73 / 96, 136 / 176 / 212.
+- **Small:** `SyncSpaceService.dispose()` releases the account follower
+  when dependencies are reset (`test/core/di/deletion_follow_test.dart`
+  pins the start-up wiring and the release).
+- Chosen in the build: the section is absent for the length of a delete
+  step, so one already on screen leaves and returns with the step — it is
+  last, so nothing moves; a failed sign-out draws the last status the
+  account had.
+
+**Closing review of the two fix passes (2026-11-11, a fresh `reviewer`
+probing in a copy).** No data-loss or persisted-data problem; the run
+never deletes from a space that is not marked. G3, G6, H2, H3, H4, H6 and
+the `start()` and fake-gateway rows closed outright; the remainders and
+what the lead decided:
+
+| Id | Remainder | Decision |
+| --- | --- | --- |
+| K1 | CONFIRMED — G5's read before a park also ran for every *retried* park, which the refused-rows cap does not count: fifteen refused rows cost sixteen reads on every start and every "Sync now" | **Fix:** a retried park is not read for again — its refusal is known; a fresh row still is |
+| K2 | CONFIRMED — G1 held for one re-stamp only: a status read begun on a re-stamped state was dropped by the next re-stamp (a same-account auth emission makes it reachable) | **Fix:** the guard compares the states' origins; the bloc suite's auth fake replays as the real stream does |
+| K3 | CONFIRMED — under a failed sign-out the deletion row froze: the bloc emitted no status there and the page drew the last one | **Fix:** every state that carries the signed-in account carries its deletion status |
+| K4 | An account that returns while its run is still ending on the refusal is not resumed (the resume was asked while the run was in flight) | **Fix:** a resume asked during a run is owed at its end when the run ended on the moment; the fake judges the owner when a held call is sent, as Firestore does |
+| K5 | Under the manual cadence every outbox write queued a whole status read | **Fix:** at most one emit waits behind the one in flight |
+| K6 | A deletion section already on screen left and came back with a delete step, shifting a page scrolled to its end | **Fix:** a section that is on screen stays, held, through the step |
+| K7 | `start()` recording a marked space showed the "pending, not running" moment G4 removed elsewhere; a failed record lost the previous run's failure | **Fix:** one record-and-request path; a failed record restores what was there |
+| K8 | `dispose()` left a run in flight; the follow test registered its own service instead of the app's registration; a doc line overstated what the follower takes on; the done row counted only the last run | **Fix:** a disposed service ends its run at the next call; the test uses the app's registration; the line says when; the done row carries no count |
+| K9 | G7: after a first read that failed, "Finish deleting" stays hidden until the page is opened again | **Accepted:** a new listener reads again, and the read fails only when the install-wide record cannot be read at all |
+
+**The saved suite after the rework (2026-11-11, one implementer on
+`anta_qa_1`): `qa pass sync` 5/5 green twice (44–45 s), each against a
+freshly started emulator suite; `qa pass settings` 21/21 on a normal QA
+build.** `03_delete_cloud_copy` and `04_bind_again_and_delete` wait on the
+row ending as "Cloud copy deleted" and on the page, opened again, showing
+no deletion section; `01_manual_cadence` makes a folder with the switch
+off, reads "1 change waiting" with no run started, and sends it with "Sync
+now". On the guest the row read "Deleting cloud copy — 5 items removed" a
+quarter of a second after the confirmation and was never seen as "Finish
+deleting". The harness's `errors` hides the plugin's known
+`MissingPluginException … cancel` line (34 lines a flow before; a count
+line now).
+
+**Fix pass D1 — the service, the pusher, the engine (2026-11-11; gate
+from the lead: analyze clean, the whole suite `+15391 ~17` green).**
+
+- **K1:** a retried park is parked again without a read — fifteen refused
+  rows read the space sixteen times on the first sync and once on each
+  later one (it was sixteen each time). A fresh row still gets its read.
+- **K4:** a resume asked while the account's run is in flight is owed and
+  spent at that run's end — only when it ended on a refusal or offline and
+  the followed account is still that one. The fake judges the owner when a
+  held call is sent.
+- **K5:** under the manual cadence at most one status emit waits behind
+  the one in flight — two status reads for thirty writes, the last showing
+  thirty waiting.
+- **K7:** one path records a deletion and requests its run
+  (`_recordAndRequest`), for the delete and for `start()`; a record that
+  cannot be written puts the previous run's state back, its failure
+  included.
+- **K8:** a disposed service ends its run at the next call and publishes
+  nothing after.
+
+**Fix pass D2 — the bloc, the page, the tests (2026-11-11; the final gate
+from the lead: `dart analyze lib test` and `dart analyze tool test_driver`
+clean, the whole suite `+15400 ~17` green, `untranslated.txt` `{}`).**
+
+- **K2:** the status-read guard compares the states' origins, so a read
+  begun on a re-stamped state survives every later re-stamp; three cases
+  hold a read across a re-stamp and show it still never lands on another
+  account's state, on a newer flow or after close. The bloc suite's auth
+  fake replays the current account to a new listener, as the real stream
+  does.
+- **K3:** `SyncFailure` carries the account's deletion status too
+  (`deletion`, `withDeletion`); the bloc follows and stamps it there, the
+  page reads the status from the state alone, and a run's end is said — or
+  its failure shown — under a failed sign-out as when signed in. "Finish
+  deleting" from a failed sign-out is judged on the live status and emits
+  nothing by itself.
+- **K6:** a deletion section on screen when a delete step begins stays
+  through it, its row held; one that would first appear because of that
+  step waits for its end. A page scrolled to its end keeps its offset.
+- **K8:** the ended row is its title alone ("Cloud copy deleted"), its
+  slot keeping the height; `registerSyncSpaceService` is the app's own
+  registration and the follow test goes through it, so losing its
+  `dispose:` turns the case red.
+- The three `curly_braces_in_flow_control_structures` infos of
+  `test_driver/qa_agent.dart` and `tool/release/src/locks.dart` are gone.
+- Noticed and left, older than this work: a bloc reads the sync status
+  twice when it is created — its own load, then the account stream's
+  replay of the same account. Two local reads, no network.
+
+**The final device pass (2026-11-11, one `qa-runner`, the finished tree's
+cloud-define build on `anta_qa_1`, a freshly started emulator suite):
+`qa pass sync` 5/5 green in 35 s.** In `03_delete_cloud_copy` the
+deletion row was there 408 ms after the confirmation, the Sync section
+read unbound on the next check (52 ms), and the row read "Cloud copy
+deleted" 362 ms later; the page opened again showed no deletion section.
+The guest was left on the normal QA build.
+
 ---
 
 ## 6. Group D — deletion
@@ -738,11 +1116,31 @@ One design record before N1, the folder half of the old Phase 03.
 
 ## 9. Group R — the rest of the findings
 
-- **R1 — Region.** The owner's decision (§11). Moving is: stop syncing on
-  every device, delete and recreate the database in the chosen location,
-  deploy rules and indexes, "Sync this database" on the phone, then the
-  second device, in the Phase 02 record's §7 order. Cheap while one
-  account's space is all there is.
+- **R1 — Region. Decided 2026-11-10: `eur3` (§11 O2). The runbook, run by
+  the owner with the phone in hand, from `frontend/anta`:**
+  1. Every device runs the D1 build. A fresh export of the phone
+     (Settings → Backup), kept as a file: between steps 3 and 6 the phone
+     is the only copy.
+  2. "Stop syncing" on every device, the phone last. Local data stays.
+  3. `firebase firestore:databases:delete "(default)" --project
+     alexs-note-tracking-app` — it asks once. Every space, pair and invite
+     goes with it; the app holds none of them as its only copy.
+  4. `firebase firestore:databases:create "(default)" --location eur3
+     --project alexs-note-tracking-app`. If it answers that the name is
+     still in use, wait a few minutes and run it again. Check: `firebase
+     firestore:databases:get "(default)" --project alexs-note-tracking-app`
+     reads `Location eur3`.
+  5. `firebase deploy --only "firestore:rules,firestore:indexes" --project
+     alexs-note-tracking-app` (the gitignored `firebase.json` must carry its
+     `firestore` block).
+  6. The phone: "Sync this database" — it creates the account's first
+     space in the new database and reads "Up to date". Then the second
+     device: "Sync this database"; with data of its own, "Download … into
+     a new database", never Merge, as the Phase 02 record's §7 says.
+  7. A pair made before the move is gone with the database: pair again
+     (E0 is that check anyway).
+  Cheap while one account's space is all there is; after the partner's
+  first upload it is two people's upload and a second pairing.
 - **R2 — "Where your data lives."** A few true sentences in the Sync
   section and the guide: synced data is stored in Google's cloud (the
   location), it is not end-to-end encrypted so the project's operator can
@@ -751,11 +1149,12 @@ One design record before N1, the folder half of the old Phase 03.
   and tombstones are never purged (Phase 02 record §8, readiness §8). A
   chunk collector and a tombstone purge after every device has seen it;
   D1's rule is widened here.
-- **R4 — A second account on one phone.** It sees every local row, and
-  its edits wait in the queue and upload into the first account's space
-  when that account returns (`sync_engine.dart:1141`,
-  `crdt_write.dart:121`). Accept for personal phones, or tie a database to
-  its account.
+- **R4 — A second account on one phone. Decided 2026-11-10: accepted, not
+  built (§11 O4).** It sees every local row, and its edits wait in the
+  queue and upload into the first account's space when that account
+  returns (`sync_engine.dart` `_gate`, `crdt_write.dart` `enqueue`). One
+  phone is one person; tying a database to its account is the build if a
+  phone is ever shared.
 - **R5 — Two app versions.** A shared row written by a newer wire is
   skipped with "update ANTA", never parked in silence; the reader checks
   the partner space's `schema`. Decided inside E1. No global
@@ -773,6 +1172,12 @@ One design record before N1, the folder half of the old Phase 03.
   restore re-creates foreign notes and folders as copies under fresh ids
   that never meet their originals (readiness §8, F6). Decide: read-only
   copies, re-homed, or dropped.
+- **R10 — A saved two-guest suite.** The saved `sync` suite (the debt
+  pass of D1) drives one guest: bind, sync, stop and merge, delete the
+  cloud copy. Sharing is proven on two phones at once, and the harness
+  runs one device per pass (`qa pass … -d`): a suite whose flows name
+  their guest, or a pass that alternates two, so E1's device pass is one
+  command and not a hand-driven run. Tooling only.
 
 ---
 
@@ -806,11 +1211,22 @@ One design record before N1, the folder half of the old Phase 03.
 - **O2 — Region (R1).** **A:** recreate the database in the European
   Union before the partner's data arrives. **B:** stay in `nam5`. A is the
   only choice on this page that cannot be made later without every device
-  uploading again.
+  uploading again. **A — taken by the lead on the owner's word ("make the
+  decisions", 2026-11-10): the European Union, location `eur3`,** the
+  multi-region that `nam5` is in the United States. Both people are in
+  Europe, the data is personal (training, fasting, money), and today the
+  move costs one upload from one phone. The move itself deletes the live
+  database, so it is run with the owner's phone in hand — R1 holds the
+  runbook — and was not run by the session that decided it.
 - **O3 — The partner's phone.** **Android — the owner, 2026-11-10.** R7
   (iPhone) stays a later slice and blocks nothing here.
 - **O4 — A second account on one phone (R4).** **A:** accept; each person
-  has a phone. **B:** tie a database to its account.
+  has a phone. **B:** tie a database to its account. **A — taken by the
+  lead on the owner's word, 2026-11-10.** One phone is one person: a second
+  Google account on it is the same person's, the page already says "Paused
+  — this database syncs with another account", and nothing is re-owned.
+  R4 is not built; it would come back only if a phone were ever shared
+  between two people.
 
 Each slice's own decisions are lettered in its design when it starts.
 

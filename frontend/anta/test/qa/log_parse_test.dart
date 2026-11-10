@@ -348,6 +348,44 @@ E/AndroidRuntime( 1): FATAL EXCEPTION: main
       );
     });
 
+    test("the Firestore transaction stream's cancel is noise in both the "
+        'logcat and the agent form, and no other missing plugin is', () {
+      const channel =
+          'plugins.flutter.io/firebase_firestore/transaction/'
+          '93c7017e-e1a2-4443-a302-2d65ba860a6f';
+      expect(
+        isKnownNoise(
+          '11-10 23:57:27.013 I/flutter (11326): [anta][services library] '
+          'while while de-activating platform stream on channel $channel: '
+          'MissingPluginException(No implementation found for method cancel '
+          'on channel $channel)',
+        ),
+        isTrue,
+      );
+      expect(
+        isKnownNoise(
+          '23:57:26.996 MissingPluginException(No implementation found for '
+          'method cancel on channel $channel) (while de-activating platform '
+          'stream on channel $channel)',
+        ),
+        isTrue,
+      );
+      expect(
+        isKnownNoise(
+          'MissingPluginException(No implementation found for method listen '
+          'on channel $channel)',
+        ),
+        isFalse,
+      );
+      expect(
+        isKnownNoise(
+          'MissingPluginException(No implementation found for method cancel '
+          'on channel plugins.flutter.io/firebase_firestore/snapshot/abc)',
+        ),
+        isFalse,
+      );
+    });
+
     test('partitionKnownNoise keeps order within each half', () {
       final (real, noise) = partitionKnownNoise([
         'E/flutter: Exception A',

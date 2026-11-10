@@ -64,8 +64,9 @@ Future<List<String>> releaseBuildLocks({
       runner,
       close: true,
     );
-    if (closed > 0)
+    if (closed > 0) {
       notes.add('closed $closed Explorer window(s) under build\\');
+    }
   }
   return notes;
 }

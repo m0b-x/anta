@@ -1,0 +1,18 @@
+# Sync & sharing from the drawer through the hub, signed out and then signed
+# in. The reset sign-out (QaBootstrap.applyResetSignOut) ends the session a
+# previous pass left, so the first expectation is the signed-out account row
+# over the unbound row's signed-out line — which a cloud-off build (no
+# sharing-sign-in, sharing-unavailable instead) and a stale session
+# (sharing-sign-out) both fail at once. The line tells SyncSignedOut from
+# SyncInitial, whose account row carries the same id for a moment.
+tap id:nav-menu
+wait id:drawer-calendar
+scroll-to id:drawer-settings --in id:drawer-list
+tap id:drawer-settings
+wait id:settings-bar-hub
+tap id:settings-hub-row-syncSettings
+wait id:settings-bar-sharing
+expect id:sharing-sign-in "Sign in to sync this database" --timeout 10
+tap id:sharing-sign-in
+wait id:sharing-sign-out --timeout 30
+expect id:sharing-sync --absent id:sharing-sync-status --absent id:sharing-sign-in

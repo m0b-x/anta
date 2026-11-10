@@ -38,90 +38,86 @@ void main() {
   const noteCount = 40;
   const noteChars = 300 * 1000;
 
-  test(
-    'the cutover run of a phone holding $noteCount legacy notes of 300 KB '
-    'holds the database briefly through its pull and its drain',
-    () async {
-      final pair = await SyncPair.open(
-        background: true,
-        setup: configureSqliteConnection,
-      );
-      try {
-        final folder = await pair.a.db.folderDao.createFolder(name: 'Logs');
-        final random = Random(7);
-        final ids = [
-          for (var n = 0; n < noteCount; n++)
-            (await writeNote(
-              pair.a,
-              folderId: folder.id,
-              title: 'Log $n',
-              body: _body(random, n, noteChars),
-            )).id,
-        ];
-        await pair.a.syncFiringSpacing();
-        await pair.b.syncFiringSpacing();
-        expect(await pair.b.db.noteDao.getNoteCount(null), noteCount);
+  test('the cutover run of a phone holding $noteCount legacy notes of 300 KB '
+      'holds the database briefly through its pull and its drain', () async {
+    final pair = await SyncPair.open(
+      background: true,
+      setup: configureSqliteConnection,
+    );
+    try {
+      final folder = await pair.a.db.folderDao.createFolder(name: 'Logs');
+      final random = Random(7);
+      final ids = [
+        for (var n = 0; n < noteCount; n++)
+          (await writeNote(
+            pair.a,
+            folderId: folder.id,
+            title: 'Log $n',
+            body: _body(random, n, noteChars),
+          )).id,
+      ];
+      await pair.a.syncFiringSpacing();
+      await pair.b.syncFiringSpacing();
+      expect(await pair.b.db.noteDao.getNoteCount(null), noteCount);
 
-        for (final id in ids) {
-          final manifest = pair.gateway.rowsOf(pair.space, 'notes')[id]!;
-          pair.gateway.plant(
-            pair.space,
-            SyncEnvelope(
-              table: manifest.table,
-              rowKey: manifest.rowKey,
-              hlc: manifest.hlc,
-              deviceId: manifest.deviceId,
-              version: manifest.version,
-              op: manifest.op,
-              ownerId: manifest.ownerId,
-              data: {...manifest.data!}
-                ..remove(NotesBinding.chunksKey)
-                ..remove(NotesBinding.bodyHashKey)
-                ..[JsonKeys.content] = await pair.a.db.contentChunkDao
-                    .loadContent(id),
-            ),
-          );
-        }
-        await pair.b.db.customStatement(
-          'UPDATE content_chunks SET content_hash = NULL',
+      for (final id in ids) {
+        final manifest = pair.gateway.rowsOf(pair.space, 'notes')[id]!;
+        pair.gateway.plant(
+          pair.space,
+          SyncEnvelope(
+            table: manifest.table,
+            rowKey: manifest.rowKey,
+            hlc: manifest.hlc,
+            deviceId: manifest.deviceId,
+            version: manifest.version,
+            op: manifest.op,
+            ownerId: manifest.ownerId,
+            data: {...manifest.data!}
+              ..remove(NotesBinding.chunksKey)
+              ..remove(NotesBinding.bodyHashKey)
+              ..[JsonKeys.content] = await pair.a.db.contentChunkDao
+                  .loadContent(id),
+          ),
         );
-        await pair.b.db.syncDao.setValue(
-          SyncDao.keyWireVersion,
-          '${syncSchema - 1}',
-        );
-
-        final run = await _probed(
-          pair.b,
-          () async => (await pair.b.syncFiringSpacing()).$1,
-        );
-
-        expect(run.report.failure, isNull);
-        expect(
-          await pair.b.db.syncDao.getValue(SyncDao.keyWireVersion),
-          '$syncSchema',
-        );
-        expect(run.report.pushedRows, greaterThanOrEqualTo(noteCount));
-        expect(await pair.b.db.syncOutboxDao.count(), 0);
-        for (final id in ids) {
-          expect(
-            await pair.b.db.contentChunkDao.hashesOf(id),
-            everyElement(isNotNull),
-            reason: id,
-          );
-        }
-        // ignore: avoid_print
-        print(
-          '\n=== cutover run, pull and drain: $noteCount legacy notes x '
-          '$noteChars chars ===\n'
-          '${run.table('${run.report.pulledRows} rows pulled in '
-          '${run.report.pages} pages, ${run.report.pushedRows} pushed')}',
-        );
-      } finally {
-        await pair.close();
       }
-    },
-    timeout: const Timeout(Duration(minutes: 10)),
-  );
+      await pair.b.db.customStatement(
+        'UPDATE content_chunks SET content_hash = NULL',
+      );
+      await pair.b.db.syncDao.setValue(
+        SyncDao.keyWireVersion,
+        '${syncSchema - 1}',
+      );
+
+      final run = await _probed(
+        pair.b,
+        () async => (await pair.b.syncFiringSpacing()).$1,
+      );
+
+      expect(run.report.failure, isNull);
+      expect(
+        await pair.b.db.syncDao.getValue(SyncDao.keyWireVersion),
+        '$syncSchema',
+      );
+      expect(run.report.pushedRows, greaterThanOrEqualTo(noteCount));
+      expect(await pair.b.db.syncOutboxDao.count(), 0);
+      for (final id in ids) {
+        expect(
+          await pair.b.db.contentChunkDao.hashesOf(id),
+          everyElement(isNotNull),
+          reason: id,
+        );
+      }
+      // ignore: avoid_print
+      print(
+        '\n=== cutover run, pull and drain: $noteCount legacy notes x '
+        '$noteChars chars ===\n'
+        '${run.table('${run.report.pulledRows} rows pulled in '
+        '${run.report.pages} pages, ${run.report.pushedRows} pushed')}',
+      );
+    } finally {
+      await pair.close();
+    }
+  }, timeout: const Timeout(Duration(minutes: 10)));
 }
 
 /// What [_probed] measured around one run.

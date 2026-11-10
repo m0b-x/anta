@@ -40,8 +40,20 @@ class _FakeAuthService implements AuthService {
   @override
   bool get isAvailable => available;
 
+  /// As Firebase's own stream: a new listener hears the account signed in
+  /// now first, in a later microtask, then every change (review K2).
   @override
-  Stream<AppUser?> get authStateChanges => _controller.stream;
+  Stream<AppUser?> get authStateChanges => Stream.multi((listener) {
+    var heard = false;
+    final subscription = _controller.stream.listen((user) {
+      heard = true;
+      listener.add(user);
+    });
+    listener.onCancel = subscription.cancel;
+    scheduleMicrotask(() {
+      if (!heard) listener.add(_user);
+    });
+  }, isBroadcast: true);
 
   @override
   AppUser? get currentUser => _user;
@@ -93,6 +105,10 @@ class _FakeStatusReader implements SyncStatusReader {
 
   /// When set, the next read waits for it, then clears it.
   Completer<void>? gate;
+
+  /// When set, every read waits for it — the load's and the one the auth
+  /// stream's first answer asks for alike.
+  Completer<void>? stall;
   final List<String?> reads = [];
 
   @override
@@ -101,6 +117,7 @@ class _FakeStatusReader implements SyncStatusReader {
     final waiting = gate;
     gate = null;
     if (waiting != null) await waiting.future;
+    if (stall case final stalled?) await stalled.future;
     if (error != null) throw error!;
     return SyncStatus(
       pendingCount: pendingCount,
@@ -153,21 +170,9 @@ class _FakeSpaceService implements SyncSpaceService {
     if (error != null) throw error!;
   }
 
-  /// The running totals [start] reports as it finishes the account's older
-  /// deletions, one per page, before it decides.
-  List<int> startProgress = const [];
-
   @override
-  Future<SyncBindStart> start({
-    required String accountUid,
-    SyncDeleteProgress? onProgress,
-  }) async {
+  Future<SyncBindStart> start({required String accountUid}) async {
     await _step('start:$accountUid');
-    for (final removed in startProgress) {
-      onProgress?.call(removed);
-      this.onProgress?.call(removed);
-      await Future<void>.delayed(Duration.zero);
-    }
     return startResult;
   }
 
@@ -196,46 +201,78 @@ class _FakeSpaceService implements SyncSpaceService {
   @override
   Future<void> stopSyncing() => _step('stop');
 
-  /// The running totals a deletion reports, one per page, before it ends.
-  List<int> progress = const [];
+  /// Each account's deletion status, as the service's own stream gives it: a
+  /// listener of [deletionStatusOf] hears the current one first — nothing
+  /// pending when unset — in a later microtask, then every [publish], never
+  /// the same one twice in a row (review G1, H7).
+  final Map<String, SyncDeletionStatus> deletions = {};
+  final StreamController<SyncDeletionStatus> _deletionChanges =
+      StreamController<SyncDeletionStatus>.broadcast(sync: true);
 
-  /// What [pendingDeletions] answers, whoever asks; each read is recorded.
-  List<SyncPendingDeletion> pending = const [];
-  final List<String> pendingReads = [];
+  /// The accounts whose status was followed and whose following ended, each
+  /// in order.
+  final List<String> followed = [];
+  final List<String> unfollowed = [];
 
-  /// Runs as a deletion reports each total, so a test can read the state
-  /// that report put up.
-  void Function(int removed)? onProgress;
-
-  Future<void> _deletion(String call, SyncDeleteProgress? report) async {
-    calls.add(call);
-    onStep?.call(call);
-    for (final removed in progress) {
-      report?.call(removed);
-      onProgress?.call(removed);
-      await Future<void>.delayed(Duration.zero);
-    }
-    final waiting = gate;
-    gate = null;
-    if (waiting != null) await waiting.future;
-    if (error != null) throw error!;
+  /// [status] as the service's next one for its account.
+  void publish(SyncDeletionStatus status) {
+    deletions[status.accountUid] = status;
+    _deletionChanges.add(status);
   }
 
   @override
-  Future<void> deleteCloudCopy({SyncDeleteProgress? onProgress}) =>
-      _deletion('delete', onProgress);
+  Future<void> deleteCloudCopy() => _step('delete');
 
   @override
-  Future<void> finishPendingDeletions({
-    required String accountUid,
-    SyncDeleteProgress? onProgress,
-  }) => _deletion('finish:$accountUid', onProgress);
+  Future<void> finishPendingDeletions({required String accountUid}) =>
+      _step('finish:$accountUid');
 
   @override
-  Future<List<SyncPendingDeletion>> pendingDeletions(String accountUid) async {
-    pendingReads.add(accountUid);
-    return pending;
-  }
+  void followAccounts(Stream<String?> accounts) =>
+      throw StateError('the app\'s start-up follows the accounts, no bloc');
+
+  @override
+  Future<List<SyncPendingDeletion>> pendingDeletions(String accountUid) async =>
+      deletions[accountUid]?.pending ?? const [];
+
+  @override
+  Future<SyncDeletionStatus> deletionStatus(String accountUid) async =>
+      deletions[accountUid] ?? SyncDeletionStatus(accountUid: accountUid);
+
+  @override
+  Stream<SyncDeletionStatus> deletionStatusOf(String accountUid) =>
+      Stream.multi((listener) {
+        followed.add(accountUid);
+        SyncDeletionStatus? last;
+        void add(SyncDeletionStatus status) {
+          if (status == last) return;
+          last = status;
+          listener.add(status);
+        }
+
+        final subscription = _deletionChanges.stream
+            .where((status) => status.accountUid == accountUid)
+            .listen(add);
+        listener.onCancel = () {
+          unfollowed.add(accountUid);
+          return subscription.cancel();
+        };
+        // A change published since the listen is newer than the first read.
+        scheduleMicrotask(() {
+          if (last == null) {
+            add(
+              deletions[accountUid] ??
+                  SyncDeletionStatus(accountUid: accountUid),
+            );
+          }
+        });
+      }, isBroadcast: true);
+
+  @override
+  Future<void> deletionRunsIdle() async {}
+
+  @override
+  Future<void> dispose() async {}
 
   @override
   Future<List<SyncSpaceInfo>> listSpaces(String accountUid) async => [_space];
@@ -459,7 +496,8 @@ void main() {
           statusRead: true,
         ),
       ]);
-      expect(reader.reads, [_user.uid]);
+      // The load's read, then the one the auth stream's first answer asks.
+      expect(reader.reads, [_user.uid, _user.uid]);
       await bloc.close();
     });
 
@@ -503,7 +541,7 @@ void main() {
           statusRead: true,
         ),
       ]);
-      expect(reader.reads, [null, _partner.uid]);
+      expect(reader.reads, [null, null, _partner.uid]);
       await bloc.close();
     });
 
@@ -548,10 +586,11 @@ void main() {
       loadGate.complete();
       await pumpEventQueue();
 
+      // Read already: the auth stream's first answer asked again, ungated.
       expect(states, [
         const SyncSignedOut(),
         const SyncSigningIn(),
-        const SyncSignedIn(_user),
+        const SyncSignedIn(_user, statusRead: true),
         const SyncSignedIn(
           _user,
           status: SyncStatus(pendingCount: 6),
@@ -564,7 +603,7 @@ void main() {
     test('a stalled reader times out to the empty status', () {
       fakeAsync((async) {
         final fake = _FakeAuthService(available: true, user: _user);
-        final reader = _FakeStatusReader()..gate = Completer<void>();
+        final reader = _FakeStatusReader()..stall = Completer<void>();
         final bloc = SyncBloc(authService: fake, statusReader: () => reader);
         final states = <SyncState>[];
         bloc.stream.listen(states.add);
@@ -575,7 +614,9 @@ void main() {
         // Timed out, the account is still waiting for its first status.
         expect(states, [const SyncSignedIn(_user)]);
         // A refresh afterwards reads again and lands its status.
-        reader.pendingCount = 2;
+        reader
+          ..stall = null
+          ..pendingCount = 2;
         bloc.add(const RefreshSyncStatus());
         async.flushMicrotasks();
         expect(
@@ -661,7 +702,7 @@ void main() {
       await pumpEventQueue();
 
       expect(states, [const SyncSignedIn(_user)]);
-      expect(reader.reads, hasLength(2));
+      expect(reader.reads, hasLength(3));
       await bloc.close();
     });
 
@@ -966,10 +1007,11 @@ void main() {
         await pumpEventQueue();
 
         // The identity re-reports the same account: its status is read anew.
+        final before = reader.reads.length;
         fake.emitAuth(_user);
         await pumpEventQueue();
 
-        expect(reader.reads, hasLength(2));
+        expect(reader.reads, hasLength(before + 1));
         expect((states.last as SyncSignedIn).status.pause, pause);
         await bloc.close();
       });
@@ -1470,67 +1512,35 @@ void main() {
         accountUid: 'uid-1',
       );
 
-      for (final (label, event, call, binding) in [
-        (
-          '"Delete cloud copy"',
-          const DeleteCloudCopyRequested(),
-          'delete',
-          bound,
-        ),
-        (
-          '"Finish deleting"',
-          const FinishDeletingRequested(),
-          'finish:uid-1',
-          null,
-        ),
-      ]) {
-        test('$label stops the engine first, counts each page, and ends idle '
-            'on the status and the deletions read again', () async {
-          final spaces = _FakeSpaceService()
-            ..pending = const [left]
-            ..progress = const [3, 7];
-          final (bloc, _, states, engine, reader) = await pumpBinding(
-            spaces,
-            binding: binding,
-          );
-          expect((bloc.state as SyncSignedIn).pendingDeletions, [left]);
-          spaces.pendingReads.clear();
-          List<String>? toldBeforeChange;
-          spaces.onStep = (_) {
-            toldBeforeChange = List.of(engine.calls);
-            // The deletion finishes what was left.
-            spaces.pending = const [];
-          };
-          final shownPerReport = <SyncBindFlow>[];
-          spaces.onProgress = (_) =>
-              shownPerReport.add((bloc.state as SyncSignedIn).flow);
+      const pendingLeft = SyncDeletionStatus(
+        accountUid: 'uid-1',
+        pending: [left],
+      );
 
-          bloc.add(event);
-          await pumpEventQueue();
+      test('"Delete cloud copy" stops the engine first, ends idle as soon as '
+          'the service returns — no count — and starts the engine again on '
+          'the status read again', () async {
+        final spaces = _FakeSpaceService();
+        final (bloc, _, states, engine, reader) = await pumpBinding(
+          spaces,
+          binding: bound,
+        );
+        List<String>? toldBeforeChange;
+        spaces.onStep = (_) => toldBeforeChange = List.of(engine.calls);
 
-          expect(spaces.calls, [call]);
-          expect(toldBeforeChange, ['stop']);
-          expect(engine.calls, ['stop', 'start']);
-          expect(flows(states), [
-            const SyncBindDeleting(),
-            const SyncBindDeleting(removed: 3),
-            const SyncBindDeleting(removed: 7),
-            const SyncBindIdle(),
-          ]);
-          expect(shownPerReport, const [
-            SyncBindDeleting(removed: 3),
-            SyncBindDeleting(removed: 7),
-          ]);
-          expect(reader.reads, ['uid-1']);
-          expect(spaces.pendingReads, ['uid-1']);
-          expect((bloc.state as SyncSignedIn).pendingDeletions, isEmpty);
-          expect(bloc.state.stepInFlight, isFalse);
-          await bloc.close();
-        });
-      }
+        bloc.add(const DeleteCloudCopyRequested());
+        await pumpEventQueue();
 
-      test('a deletion that fails after its mark ends failed as a deletion, '
-          'with the deletion it left carried', () async {
+        expect(spaces.calls, ['delete']);
+        expect(toldBeforeChange, ['stop']);
+        expect(engine.calls, ['stop', 'start']);
+        expect(flows(states), [const SyncBindDeleting(), const SyncBindIdle()]);
+        expect(reader.reads, ['uid-1']);
+        expect(bloc.state.stepInFlight, isFalse);
+        await bloc.close();
+      });
+
+      test('a delete that fails ends failed as a deletion', () async {
         final spaces = _FakeSpaceService()
           ..error = const SyncSpaceException(SyncBindFailure.offline);
         final (bloc, _, states, engine, _) = await pumpBinding(
@@ -1538,8 +1548,6 @@ void main() {
           binding: bound,
         );
         engine.isStarted = true;
-        // The service records the deletion once the space is marked.
-        spaces.onStep = (_) => spaces.pending = const [left];
 
         bloc.add(const DeleteCloudCopyRequested());
         await pumpEventQueue();
@@ -1549,16 +1557,61 @@ void main() {
           const SyncBindFailed(SyncBindFailure.offline, deleting: true),
         ]);
         expect(engine.calls, ['stop', 'start']);
-        expect((bloc.state as SyncSignedIn).pendingDeletions, [left]);
         await bloc.close();
       });
+
+      test('"Finish deleting" asks the service with something pending and '
+          'nothing running: no step, no engine stop, no emit', () async {
+        final spaces = _FakeSpaceService()..deletions['uid-1'] = pendingLeft;
+        final (bloc, _, states, engine, reader) = await pumpBinding(spaces);
+        expect((bloc.state as SyncSignedIn).deletion, pendingLeft);
+        engine.calls.clear();
+
+        bloc.add(const FinishDeletingRequested());
+        await pumpEventQueue();
+
+        expect(spaces.calls, ['finish:uid-1']);
+        expect(engine.calls, isEmpty);
+        expect(reader.reads, isEmpty);
+        expect(states, isEmpty);
+        await bloc.close();
+      });
+
+      for (final (label, deletion) in [
+        ('nothing pending', const SyncDeletionStatus(accountUid: 'uid-1')),
+        (
+          'a run in flight',
+          const SyncDeletionStatus(
+            accountUid: 'uid-1',
+            pending: [left],
+            running: true,
+          ),
+        ),
+      ]) {
+        test('"Finish deleting" with $label asks nothing', () async {
+          final spaces = _FakeSpaceService()..deletions['uid-1'] = deletion;
+          final (bloc, _, states, engine, _) = await pumpBinding(spaces);
+          expect((bloc.state as SyncSignedIn).deletion, deletion);
+          engine.calls.clear();
+
+          bloc.add(const FinishDeletingRequested());
+          await pumpEventQueue();
+
+          expect(spaces.calls, isEmpty);
+          expect(engine.calls, isEmpty);
+          expect(states, isEmpty);
+          await bloc.close();
+        });
+      }
 
       for (final event in const [
         DeleteCloudCopyRequested(),
         FinishDeletingRequested(),
       ]) {
         test('${event.runtimeType} during another step is refused', () async {
-          final spaces = _FakeSpaceService()..gate = Completer<void>();
+          final spaces = _FakeSpaceService()
+            ..gate = Completer<void>()
+            ..deletions['uid-1'] = pendingLeft;
           final (bloc, _, _, _, _) = await pumpBinding(spaces);
           final stopping = spaces.gate!;
 
@@ -1595,36 +1648,18 @@ void main() {
       // Review S6: by the page's own rule, a request that can do nothing
       // runs no step — the engine is never stopped, so its pause and
       // back-off stand.
-      for (final (label, event, binding, pause, pending) in [
-        (
-          'a delete with no binding',
-          const DeleteCloudCopyRequested(),
-          null,
-          SyncPause.none,
-          const [left],
-        ),
+      for (final (label, binding, pause) in [
+        ('a delete with no binding', null, SyncPause.none),
         for (final pause in const [
           SyncPause.accountMismatch,
           SyncPause.appOutdated,
           SyncPause.spaceDeleted,
         ])
-          (
-            'a delete under the ${pause.name} pause',
-            const DeleteCloudCopyRequested(),
-            bound,
-            pause,
-            const <SyncPendingDeletion>[],
-          ),
-        (
-          'a finish with nothing pending',
-          const FinishDeletingRequested(),
-          null,
-          SyncPause.none,
-          const <SyncPendingDeletion>[],
-        ),
+          ('a delete under the ${pause.name} pause', bound, pause),
       ]) {
         test('$label is refused: no step, no engine stop, no emit', () async {
-          final spaces = _FakeSpaceService()..pending = pending;
+          const event = DeleteCloudCopyRequested();
+          final spaces = _FakeSpaceService();
           final (bloc, _, states, engine, _) = await pumpBinding(
             spaces,
             binding: binding,
@@ -1643,7 +1678,10 @@ void main() {
         });
       }
 
-      for (final pause in const [SyncPause.noAccess, SyncPause.quotaExhausted]) {
+      for (final pause in const [
+        SyncPause.noAccess,
+        SyncPause.quotaExhausted,
+      ]) {
         test('a delete under the ${pause.name} pause runs: a copy that will '
             'not sync may still be deleted', () async {
           final spaces = _FakeSpaceService();
@@ -1663,92 +1701,430 @@ void main() {
         });
       }
 
-      test('"Sync this database" shows the deleting flow with its count while '
-          'start() finishes older deletions, then goes on to the picker '
-          '(review F7)', () async {
-        final spaces = _FakeSpaceService()
-          ..startProgress = const [4, 9]
-          ..startResult = const SyncBindStartPick(
-            spaces: [_space],
-            holdsData: true,
-          );
-        final (bloc, _, states, _, _) = await pumpBinding(spaces);
-        final shownPerReport = <SyncBindFlow>[];
-        spaces.onProgress = (_) =>
-            shownPerReport.add((bloc.state as SyncSignedIn).flow);
+      test('from a failed sign-out a refused delete emits nothing: the rule '
+          'is judged before the account is put back', () async {
+        final spaces = _FakeSpaceService();
+        final (bloc, auth, states, engine, _) = await pumpBinding(spaces);
+        auth.signOutError = const AuthException(AuthError.unknown);
+        bloc.add(const SignOutRequested());
+        await pumpEventQueue();
+        expect(bloc.state, isA<SyncFailure>());
+        states.clear();
+        engine.calls.clear();
 
-        bloc.add(const SyncThisDatabaseRequested());
+        bloc.add(const DeleteCloudCopyRequested());
         await pumpEventQueue();
 
-        expect(spaces.calls, ['start:uid-1']);
-        expect(flows(states), const [
-          SyncBindChecking(),
-          SyncBindDeleting(removed: 4),
-          SyncBindDeleting(removed: 9),
-          SyncBindPicking(spaces: [_space], holdsData: true),
-        ]);
-        expect(shownPerReport, const [
-          SyncBindDeleting(removed: 4),
-          SyncBindDeleting(removed: 9),
-        ]);
-        expect(bloc.state.stepInFlight, isFalse);
+        expect(states, isEmpty);
+        expect(spaces.calls, isEmpty);
+        expect(engine.calls, isEmpty);
         await bloc.close();
       });
 
+      test('from a failed sign-out an allowed delete puts the account back '
+          'and runs', () async {
+        final spaces = _FakeSpaceService();
+        final (bloc, auth, states, _, _) = await pumpBinding(
+          spaces,
+          binding: bound,
+        );
+        auth.signOutError = const AuthException(AuthError.unknown);
+        bloc.add(const SignOutRequested());
+        await pumpEventQueue();
+        expect(bloc.state, isA<SyncFailure>());
+        states.clear();
+
+        bloc.add(const DeleteCloudCopyRequested());
+        await pumpEventQueue();
+
+        expect(spaces.calls, ['delete']);
+        expect(states.first, isA<SyncSignedIn>());
+        expect(flows(states), contains(const SyncBindDeleting()));
+        expect(flows(states).last, const SyncBindIdle());
+        await bloc.close();
+      });
+    });
+
+    group('following the deletion status (cloud-multi-user-roadmap §5)', () {
+      const left = SyncPendingDeletion(
+        space: SyncSpaceRef(ownerUid: 'uid-1', spaceId: 'space-1'),
+        spaceName: 'Phone',
+      );
+
+      /// The deletion statuses [states] carried, a repeat dropped.
+      List<SyncDeletionStatus?> carried(List<SyncState> states) {
+        final seen = <SyncDeletionStatus?>[];
+        for (final state in states.whereType<SyncSignedIn>()) {
+          if (seen.isEmpty || seen.last != state.deletion) {
+            seen.add(state.deletion);
+          }
+        }
+        return seen;
+      }
+
       test(
-        'the deletions left are read at load, for the account signed in',
+        'reaches the state in order, for the signed-in account only',
         () async {
-          final spaces = _FakeSpaceService()..pending = const [left];
-          final (bloc, _, _) = await _pumpBloc(
+          final spaces = _FakeSpaceService()
+            ..deletions['uid-1'] = const SyncDeletionStatus(
+              accountUid: 'uid-1',
+              pending: [left],
+            );
+          final (bloc, _, states) = await _pumpBloc(
             user: _user,
             reader: _FakeStatusReader(),
             spaces: spaces,
           );
+          expect(
+            (bloc.state as SyncSignedIn).deletion,
+            spaces.deletions['uid-1'],
+          );
+          states.clear();
+          const running = SyncDeletionStatus(
+            accountUid: 'uid-1',
+            pending: [left],
+            running: true,
+          );
+          const counting = SyncDeletionStatus(
+            accountUid: 'uid-1',
+            pending: [left],
+            running: true,
+            removed: 20,
+          );
+          const ended = SyncDeletionStatus(accountUid: 'uid-1', removed: 31);
 
-          expect(spaces.pendingReads, ['uid-1']);
-          expect((bloc.state as SyncSignedIn).pendingDeletions, [left]);
+          spaces
+            ..publish(running)
+            ..publish(const SyncDeletionStatus(accountUid: 'uid-2'))
+            ..publish(counting)
+            ..publish(ended);
+          await pumpEventQueue();
+
+          expect(carried(states), [running, counting, ended]);
           await bloc.close();
         },
       );
 
-      test('the deletions left are read after a sign-in, and none shown '
-          'signed out', () async {
-        final spaces = _FakeSpaceService()..pending = const [left];
-        final (bloc, auth, _) = await _pumpBloc(
-          reader: _FakeStatusReader(),
+      test('a status that arrives while the sync status is read never costs '
+          'that read: it lands on the state as the deletion left it (review '
+          'G1)', () async {
+        const waiting = SyncDeletionStatus(
+          accountUid: 'uid-1',
+          pending: [left],
+        );
+        final held = Completer<void>();
+        final reader = _FakeStatusReader()
+          ..pendingCount = 4
+          ..stall = held;
+        final spaces = _FakeSpaceService()..deletions['uid-1'] = waiting;
+        final (bloc, _, _) = await _pumpBloc(
+          user: _user,
+          reader: reader,
           spaces: spaces,
         );
-        expect(bloc.state, isA<SyncSignedOut>());
-        expect(spaces.pendingReads, isEmpty);
+        // The first status landed while the read is still held.
+        expect((bloc.state as SyncSignedIn).deletion, waiting);
+        expect((bloc.state as SyncSignedIn).statusRead, isFalse);
 
-        auth.signInResult = _user;
-        bloc.add(const SignInRequested());
+        held.complete();
         await pumpEventQueue();
 
-        expect(spaces.pendingReads, ['uid-1']);
-        expect((bloc.state as SyncSignedIn).pendingDeletions, [left]);
+        final shown = bloc.state as SyncSignedIn;
+        expect(shown.statusRead, isTrue);
+        expect(shown.status.pendingCount, 4);
+        expect(shown.deletion, waiting);
         await bloc.close();
       });
 
-      test('another account never shows the last one\'s deletions', () async {
-        final spaces = _FakeSpaceService()..pending = const [left];
+      const running = SyncDeletionStatus(
+        accountUid: 'uid-1',
+        pending: [left],
+        running: true,
+      );
+      const counting = SyncDeletionStatus(
+        accountUid: 'uid-1',
+        pending: [left],
+        running: true,
+        removed: 20,
+      );
+      const pendingLeft = SyncDeletionStatus(
+        accountUid: 'uid-1',
+        pending: [left],
+      );
+      const bound = SyncBinding(
+        spaceId: 'space-1',
+        ownerUid: 'uid-1',
+        accountUid: 'uid-1',
+      );
+
+      test('a read begun on a state a status re-stamped survives the next '
+          're-stamp too: the same account reported again reads on it (review '
+          'K2)', () async {
+        final reader = _FakeStatusReader()..pendingCount = 1;
+        final spaces = _FakeSpaceService();
+        final (bloc, auth, _) = await _pumpBloc(
+          user: _user,
+          reader: reader,
+          spaces: spaces,
+        );
+        spaces.publish(running);
+        await pumpEventQueue();
+        final held = Completer<void>();
+        reader
+          ..pendingCount = 9
+          ..gate = held;
+
+        // An equal account state is dropped, so the read is begun on the
+        // re-stamp still on screen.
+        auth.emitAuth(_user);
+        await pumpEventQueue();
+        spaces.publish(counting);
+        await pumpEventQueue();
+        held.complete();
+        await pumpEventQueue();
+
+        final shown = bloc.state as SyncSignedIn;
+        expect(shown.status.pendingCount, 9);
+        expect(shown.deletion, counting);
+        await bloc.close();
+      });
+
+      group('a read begun on a re-stamp still never lands on', () {
+        /// The account loaded and re-stamped, a read for it held from a
+        /// same-account report, then [moveOn] and another re-stamp; the
+        /// held read is released last, answering [stale] pending rows.
+        Future<SyncBloc> heldRead(
+          Future<void> Function(
+            SyncBloc bloc,
+            _FakeAuthService auth,
+            _FakeSpaceService spaces,
+          )
+          moveOn, {
+          required int stale,
+        }) async {
+          final reader = _FakeStatusReader()
+            ..binding = bound
+            ..pendingCount = 1;
+          final spaces = _FakeSpaceService();
+          final (bloc, auth, _) = await _pumpBloc(
+            user: _user,
+            reader: reader,
+            engine: FakeSyncEngine(),
+            spaces: spaces,
+          );
+          spaces.publish(running);
+          await pumpEventQueue();
+          final held = Completer<void>();
+          reader.gate = held;
+          auth.emitAuth(_user);
+          await pumpEventQueue();
+
+          await moveOn(bloc, auth, spaces);
+          spaces.publish(counting);
+          await pumpEventQueue();
+          reader.pendingCount = stale;
+          held.complete();
+          await pumpEventQueue();
+          return bloc;
+        }
+
+        test('another account\'s state', () async {
+          final bloc = await heldRead((bloc, auth, spaces) async {
+            auth.emitAuth(_partner);
+            await pumpEventQueue();
+          }, stale: 9);
+
+          expect((bloc.state as SyncSignedIn).user, _partner);
+          await bloc.close();
+        });
+
+        test('a newer flow', () async {
+          final step = Completer<void>();
+          final bloc = await heldRead((bloc, auth, spaces) async {
+            spaces.gate = step;
+            bloc.add(const DeleteCloudCopyRequested());
+            await pumpEventQueue();
+            expect((bloc.state as SyncSignedIn).flow, const SyncBindDeleting());
+          }, stale: 9);
+
+          final shown = bloc.state as SyncSignedIn;
+          expect(shown.flow, const SyncBindDeleting());
+          expect(shown.status.pendingCount, 1);
+          step.complete();
+          await pumpEventQueue();
+          await bloc.close();
+        });
+
+        test('a closed bloc', () async {
+          final states = <SyncState>[];
+          final bloc = await heldRead((bloc, auth, spaces) async {
+            bloc.stream.listen(states.add);
+            await bloc.close();
+          }, stale: 9);
+
+          expect(bloc.isClosed, isTrue);
+          expect(states, isEmpty);
+        });
+      });
+
+      test('a failed sign-out carries the account\'s deletion status and '
+          'follows it: the run\'s progress and end reach the failure itself '
+          '(review K3)', () async {
+        final spaces = _FakeSpaceService()..deletions['uid-1'] = pendingLeft;
+        final (bloc, auth, states, _, _) = await pumpBinding(spaces);
+        auth.signOutError = const AuthException(AuthError.unknown);
+        bloc.add(const SignOutRequested());
+        await pumpEventQueue();
+        expect((bloc.state as SyncFailure).deletion, pendingLeft);
+        states.clear();
+
+        const ended = SyncDeletionStatus(accountUid: 'uid-1', removed: 31);
+        spaces
+          ..publish(running)
+          ..publish(counting)
+          ..publish(ended);
+        await pumpEventQueue();
+
+        expect(states, [
+          for (final deletion in const [running, counting, ended])
+            SyncFailure(
+              AuthError.unknown,
+              action: SyncAccountAction.signOut,
+              user: _user,
+              deletion: deletion,
+            ),
+        ]);
+        await bloc.close();
+      });
+
+      test('"Finish deleting" from a failed sign-out is judged on the live '
+          'status: asked while waiting, refused once a run is in flight, and '
+          'the failure stays on screen (review K3)', () async {
+        final spaces = _FakeSpaceService()..deletions['uid-1'] = pendingLeft;
+        final (bloc, auth, states, engine, _) = await pumpBinding(spaces);
+        auth.signOutError = const AuthException(AuthError.unknown);
+        bloc.add(const SignOutRequested());
+        await pumpEventQueue();
+        states.clear();
+        engine.calls.clear();
+
+        bloc.add(const FinishDeletingRequested());
+        await pumpEventQueue();
+        expect(spaces.calls, ['finish:uid-1']);
+        expect(states, isEmpty);
+
+        spaces.publish(running);
+        await pumpEventQueue();
+        bloc.add(const FinishDeletingRequested());
+        await pumpEventQueue();
+
+        expect(spaces.calls, ['finish:uid-1']);
+        expect(engine.calls, isEmpty);
+        expect(bloc.state, isA<SyncFailure>());
+        await bloc.close();
+      });
+
+      test('the following ends on an account change and on sign-out, and '
+          'the next account never shows the last one\'s status', () async {
+        const theirs = SyncDeletionStatus(accountUid: 'uid-1', pending: [left]);
+        final spaces = _FakeSpaceService()..deletions['uid-1'] = theirs;
         final (bloc, auth, states) = await _pumpBloc(
           user: _user,
           reader: _FakeStatusReader(),
           spaces: spaces,
         );
+        expect(spaces.followed, ['uid-1']);
         states.clear();
-        // Read for the partner: its own list, empty.
-        spaces.pending = const [];
 
         auth.emitAuth(_partner);
         await pumpEventQueue();
 
+        expect(spaces.followed, ['uid-1', 'uid-2']);
+        expect(spaces.unfollowed, ['uid-1']);
         expect(states, isNotEmpty);
         for (final state in states) {
-          expect((state as SyncSignedIn).pendingDeletions, isEmpty);
+          expect((state as SyncSignedIn).deletion, isNot(theirs));
         }
-        expect(spaces.pendingReads.last, 'uid-2');
+        spaces.publish(
+          const SyncDeletionStatus(
+            accountUid: 'uid-1',
+            pending: [left],
+            running: true,
+          ),
+        );
+        await pumpEventQueue();
+        expect(
+          (bloc.state as SyncSignedIn).deletion,
+          const SyncDeletionStatus(accountUid: 'uid-2'),
+        );
+
+        auth.emitAuth(null);
+        await pumpEventQueue();
+
+        expect(bloc.state, isA<SyncSignedOut>());
+        expect(spaces.unfollowed, ['uid-1', 'uid-2']);
+        expect(spaces.followed, ['uid-1', 'uid-2']);
+        await bloc.close();
+      });
+
+      test('the following ends on close', () async {
+        final spaces = _FakeSpaceService();
+        final (bloc, _, _) = await _pumpBloc(
+          user: _user,
+          reader: _FakeStatusReader(),
+          spaces: spaces,
+        );
+
+        await bloc.close();
+
+        expect(spaces.followed, ['uid-1']);
+        expect(spaces.unfollowed, ['uid-1']);
+      });
+
+      test('a second bloc — the drawer\'s beside the page\'s — sees the same '
+          'status', () async {
+        final spaces = _FakeSpaceService();
+        final (first, _, _) = await _pumpBloc(
+          user: _user,
+          reader: _FakeStatusReader(),
+          spaces: spaces,
+        );
+        final (second, _, _) = await _pumpBloc(
+          user: _user,
+          reader: _FakeStatusReader(),
+          spaces: spaces,
+        );
+        const running = SyncDeletionStatus(
+          accountUid: 'uid-1',
+          pending: [left],
+          running: true,
+          removed: 4,
+        );
+
+        spaces.publish(running);
+        await pumpEventQueue();
+
+        expect((first.state as SyncSignedIn).deletion, running);
+        expect((second.state as SyncSignedIn).deletion, running);
+        await first.close();
+        await second.close();
+      });
+
+      test('the deletions are never followed signed out, and followed at a '
+          'sign-in for the account signed in', () async {
+        final spaces = _FakeSpaceService();
+        final (bloc, auth, _) = await _pumpBloc(
+          reader: _FakeStatusReader(),
+          spaces: spaces,
+        );
+        expect(bloc.state, isA<SyncSignedOut>());
+        expect(spaces.followed, isEmpty);
+
+        auth.signInResult = _user;
+        bloc.add(const SignInRequested());
+        await pumpEventQueue();
+
+        expect(spaces.followed, ['uid-1']);
         await bloc.close();
       });
     });
@@ -2245,13 +2621,15 @@ void main() {
 
         async.elapse(SyncLimits.engineStop + const Duration(seconds: 1));
         expect(auth.signOutCalled, isTrue);
-        // The sign-out's, so the page offers Sign out again, not a sign-in.
+        // The sign-out's, so the page offers Sign out again, not a sign-in;
+        // the account still signed in carries its deletion status (K3).
         expect(
           bloc.state,
           const SyncFailure(
             AuthError.unknown,
             action: SyncAccountAction.signOut,
             user: _user,
+            deletion: SyncDeletionStatus(accountUid: 'uid-1'),
           ),
         );
 
@@ -2290,6 +2668,7 @@ void main() {
             AuthError.unknown,
             action: SyncAccountAction.signOut,
             user: _user,
+            deletion: SyncDeletionStatus(accountUid: 'uid-1'),
           ),
         );
         states.clear();
@@ -2401,6 +2780,7 @@ void main() {
           AuthError.unknown,
           action: SyncAccountAction.signOut,
           user: _user,
+          deletion: SyncDeletionStatus(accountUid: 'uid-1'),
         );
         auth.signOutError = const AuthException(AuthError.unknown);
         bloc.add(const SignOutRequested());

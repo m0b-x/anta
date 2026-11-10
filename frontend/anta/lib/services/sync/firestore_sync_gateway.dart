@@ -29,9 +29,9 @@ class FirestoreSyncGateway implements SyncGateway {
   /// its own long before it.
   static const Duration _timeout = Duration(seconds: 60);
 
-  /// What [_createdSpace] gets: short, because the failed [createSpace] it
-  /// follows has already spent [_timeout], and the caller is waiting on an
-  /// answer it can act on.
+  /// What [_readBack] gets: short, because the failed write it follows has
+  /// already spent [_timeout], and the caller is waiting on an answer it can
+  /// act on.
   static const Duration _createdReadTimeout = Duration(seconds: 10);
 
   /// Attempts the SDK gives a push's write-only transaction. Its default: the
@@ -341,28 +341,11 @@ class FirestoreSyncGateway implements SyncGateway {
         return _infoOf(ref, created.data()) ?? unread();
       });
     } on SyncGatewayException {
-      final created = await _createdSpace(doc);
+      // The server not holding the space, or not answering in time, is the
+      // expected answer here — the commit did not land.
+      final created = (await _readBack(doc, after: 'create'))?.data();
       if (created == null) rethrow;
       return _infoOf(ref, created) ?? unread();
-    }
-  }
-
-  /// The space document [createSpace] drew, read once after its call failed,
-  /// or null when the server does not hold it or cannot be asked in time. Its
-  /// own short budget: the call has already spent the gateway's. A failure
-  /// here is the expected answer — the commit did not land — so the failure
-  /// that brought us here is the one the caller sees.
-  Future<Map<String, dynamic>?> _createdSpace(
-    DocumentReference<Map<String, dynamic>> doc,
-  ) async {
-    try {
-      final snapshot = await doc
-          .get(const GetOptions(source: Source.server))
-          .timeout(_createdReadTimeout);
-      return snapshot.data();
-    } catch (error) {
-      debugPrint('[FirestoreSyncGateway] create not read back: $error');
-      return null;
     }
   }
 
@@ -436,7 +419,7 @@ class FirestoreSyncGateway implements SyncGateway {
       if (ref == null) rethrow;
       // `update` never creates, so a missing space fails here too; so does a
       // mark that already landed, and a reply lost on the way back.
-      final read = await _readBack(ref);
+      final read = await _readBack(ref, after: 'mark');
       if (read == null) rethrow;
       final data = read.data();
       if (data != null && !FirestoreSyncWire.isMarked(data)) rethrow;
@@ -485,25 +468,26 @@ class FirestoreSyncGateway implements SyncGateway {
     } on SyncGatewayException {
       final ref = doc;
       if (ref == null) rethrow;
-      final read = await _readBack(ref);
+      final read = await _readBack(ref, after: 'delete');
       if (read == null || read.exists) rethrow;
     }
   }
 
-  /// The space document read once after a mark or a delete failed, or null
-  /// when it cannot be read in time. Its own short budget, as
-  /// [_createdSpace]: the call has already spent the gateway's, and the
-  /// failure that brought us here is the one the caller sees unless the read
-  /// proves the write is done.
+  /// The space document read once from the server after a create, a mark or
+  /// a delete failed ([after] names which, for the log), or null when it
+  /// cannot be read in time. Its own short budget: the call has already
+  /// spent the gateway's, and the failure that brought us here is the one
+  /// the caller sees unless the read proves the write is done.
   Future<DocumentSnapshot<Map<String, dynamic>>?> _readBack(
-    DocumentReference<Map<String, dynamic>> doc,
-  ) async {
+    DocumentReference<Map<String, dynamic>> doc, {
+    required String after,
+  }) async {
     try {
       return await doc
           .get(const GetOptions(source: Source.server))
           .timeout(_createdReadTimeout);
     } catch (error) {
-      debugPrint('[FirestoreSyncGateway] space not read back: $error');
+      debugPrint('[FirestoreSyncGateway] $after not read back: $error');
       return null;
     }
   }

@@ -364,7 +364,8 @@ void main() {
     expect(gateway.rowsOf(space, 'folders').keys, ['a']);
   });
 
-  test('a deleted space denies pushes and signals it is gone', () async {
+  test('a space deleted from the console denies pushes and signals it is '
+      'gone', () async {
     await push([envelope('a', 1)]);
     final signals = <SyncSpaceSignal>[];
     final subscription = gateway.watchSpace(space).listen(signals.add);
@@ -380,6 +381,100 @@ void main() {
       push([envelope('b', 2)]),
       failsWith(SyncGatewayFailure.permissionDenied),
     );
+  });
+
+  test('with an acting account, every call on another owner\'s space is '
+      'refused, reads included, and nothing changes', () async {
+    await push([envelope('a', 1)]);
+    gateway.calls.clear();
+    gateway.actingAccount = 'partner';
+
+    for (final call in <Future<Object?> Function()>[
+      () => gateway.readSpace(space),
+      () => gateway.listSpaces('owner'),
+      () => gateway.pullPage(space, 'folders'),
+      () => gateway.readRows(space, 'folders', const ['a']),
+      () => push([envelope('b', 2)]),
+      () => gateway.markSpaceDeleted(space),
+      () => gateway.deleteRows(space, 'folders'),
+      () => gateway.deleteSpace(space),
+      () => gateway.createSpace(
+        ownerUid: 'owner',
+        name: 'Theirs',
+        deviceId: 'dev',
+        schema: 43,
+      ),
+    ]) {
+      await expectLater(call(), failsWith(SyncGatewayFailure.permissionDenied));
+    }
+    await expectLater(
+      gateway.watchSpace(space).first,
+      failsWith(SyncGatewayFailure.permissionDenied),
+    );
+    expect(gateway.calls, isEmpty);
+
+    gateway.actingAccount = 'owner';
+    final read = await gateway.readSpace(space);
+    expect(read!.markedForDeletion, isFalse);
+    expect(gateway.rowsOf(space, 'folders').keys, ['a']);
+    expect(await gateway.listSpaces('owner'), hasLength(1));
+  });
+
+  test('signed out, every call is refused, the owner\'s own included, and '
+      'nothing changes', () async {
+    await push([envelope('a', 1)]);
+    gateway.calls.clear();
+    gateway
+      ..actingAccount = 'owner'
+      ..signedOut = true;
+
+    for (final call in <Future<Object?> Function()>[
+      () => gateway.readSpace(space),
+      () => gateway.listSpaces('owner'),
+      () => gateway.pullPage(space, 'folders'),
+      () => gateway.readRows(space, 'folders', const ['a']),
+      () => push([envelope('b', 2)]),
+      () => gateway.markSpaceDeleted(space),
+      () => gateway.deleteRows(space, 'folders'),
+      () => gateway.deleteSpace(space),
+      () => gateway.createSpace(
+        ownerUid: 'owner',
+        name: 'Mine',
+        deviceId: 'dev',
+        schema: 43,
+      ),
+    ]) {
+      await expectLater(call(), failsWith(SyncGatewayFailure.permissionDenied));
+    }
+    await expectLater(
+      gateway.watchSpace(space).first,
+      failsWith(SyncGatewayFailure.permissionDenied),
+    );
+    expect(gateway.calls, isEmpty);
+
+    gateway.signedOut = false;
+    expect((await gateway.readSpace(space))!.markedForDeletion, isFalse);
+    expect(gateway.rowsOf(space, 'folders').keys, ['a']);
+    expect(await gateway.listSpaces('owner'), hasLength(1));
+  });
+
+  test('the owner is checked before a scripted failure is spent', () async {
+    gateway
+      ..actingAccount = 'partner'
+      ..failNextWith(SyncGatewayFailure.offline);
+
+    await expectLater(
+      gateway.readSpace(space),
+      failsWith(SyncGatewayFailure.permissionDenied),
+    );
+
+    gateway.actingAccount = 'owner';
+    await expectLater(
+      gateway.readSpace(space),
+      failsWith(SyncGatewayFailure.offline),
+      reason: 'the refused call left the scripted failure unspent',
+    );
+    expect(await gateway.readSpace(space), isNotNull);
   });
 
   test('a planted row is pulled like a pushed one, past every check', () async {

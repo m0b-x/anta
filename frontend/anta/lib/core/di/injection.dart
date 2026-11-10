@@ -16,6 +16,7 @@ import '../../services/folder_search_service.dart';
 import '../../services/import_export_service.dart';
 import '../../services/markdown_bar_service.dart';
 import '../../services/counter_service.dart';
+import '../../services/database_manager.dart';
 import '../../services/calendar_event_service.dart';
 import '../../services/mixed_reorder_service.dart';
 import '../../services/move_history_service.dart';
@@ -218,9 +219,7 @@ Future<void> _registerServices() async {
     getIt.registerSingleton<SyncGateway>(FirestoreSyncGateway());
     // Global over the gateway; everything per database it resolves per
     // call, so a database switch has nothing here to reset.
-    getIt.registerSingleton<SyncSpaceService>(
-      SyncSpaceService(gateway: getIt<SyncGateway>()),
-    );
+    registerSyncSpaceService();
   }
 
   // The engine follows the identity, so it starts once the auth service is
@@ -228,6 +227,7 @@ Future<void> _registerServices() async {
   // Not awaited: the first run reaches the network, and launch must not wait
   // on it.
   if (_syncEngineEnabled) unawaited(_startSyncEngine());
+  followAccountsForDeletions();
 
   // Stateless and global for the same reason the two above are: it holds no
   // database reference, so a database switch has nothing to reset here. The
@@ -330,6 +330,32 @@ void _registerBlocs() {
 
   getIt.registerFactory<PermissionsBloc>(
     () => PermissionsBloc(service: getIt<PermissionService>()),
+  );
+}
+
+/// The space service over the bound [SyncGateway], released with the
+/// dependencies: its `dispose` ends the account following start-up gave it.
+/// Public so a test exercises this registration itself (review K8), with
+/// [databases] standing in for the install's database manager.
+@visibleForTesting
+void registerSyncSpaceService({
+  Future<DatabaseManager> Function() databases = DatabaseManager.getInstance,
+}) {
+  getIt.registerSingleton<SyncSpaceService>(
+    SyncSpaceService(gateway: getIt<SyncGateway>(), databases: databases),
+    dispose: (s) => s.dispose(),
+  );
+}
+
+/// Where sync runs, a deletion the last process did not see end resumes as
+/// soon as its account is known, whether a sync surface is ever opened or
+/// not. A listen only: the replay arrives later, so launch waits on nothing.
+/// Public so a test can wire this seam alone over its own registrations.
+@visibleForTesting
+void followAccountsForDeletions() {
+  if (!_syncEngineEnabled) return;
+  getIt<SyncSpaceService>().followAccounts(
+    getIt<AuthService>().authStateChanges.map((user) => user?.uid),
   );
 }
 

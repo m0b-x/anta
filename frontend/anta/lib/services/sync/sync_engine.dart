@@ -308,6 +308,12 @@ class SyncEngine {
   SyncStatus _current = SyncStatus.empty;
   Future<void> _emits = Future.value();
 
+  /// Whether an outbox write's emit is queued behind [_emits] and not begun:
+  /// a later write joins it, so a burst of auto-saves under the manual
+  /// cadence reads the status once per emit in flight, not once per write
+  /// (review K5).
+  bool _outboxEmitQueued = false;
+
   SyncActivity _activity = SyncActivity.idle;
 
   /// The pauses the engine decides: `noAccess`, `spaceDeleted`,
@@ -729,8 +735,8 @@ class SyncEngine {
 
   /// Pulls every table, then drains — "Sync now". Lifts a quota hold: the
   /// user asked, so the space is tried once more; a `noAccess` or
-  /// `spaceDeleted` pause is re-checked with one read of the space. A request during a run is served
-  /// by the one run that follows it.
+  /// `spaceDeleted` pause is re-checked with one read of the space. A
+  /// request during a run is served by the one run that follows it.
   ///
   /// The parks are tried again on the way, as a start tries them: the
   /// [maxParkRetries] oldest of the pull's and of the push's, every one
@@ -798,7 +804,8 @@ class SyncEngine {
 
   /// The app came back: the signal is followed again, skipping whatever
   /// back-off or quota wait was pending, after one read of the space when a
-  /// `noAccess` or `spaceDeleted` pause holds. Unless started, only the foreground is noted.
+  /// `noAccess` or `spaceDeleted` pause holds. Unless started, only the
+  /// foreground is noted.
   ///
   /// A quiet resume — no pause, no failure waiting for its retry — pulls
   /// only the tables the space's snapshot says moved, so an idle return
@@ -1159,12 +1166,16 @@ class SyncEngine {
       return (null, SyncRunSkip.accountMismatch);
     }
     if (SyncSuspension.isSuspended) return (null, SyncRunSkip.suspended);
+    // The skip names the pause the re-read left, which may have turned a
+    // `noAccess` into `appOutdated` (review F13).
     if (_accessLost && !await _regainsAccess(binding)) {
       return (
         null,
-        _pause == SyncPause.spaceDeleted
-            ? SyncRunSkip.spaceDeleted
-            : SyncRunSkip.noAccess,
+        switch (_pause) {
+          SyncPause.spaceDeleted => SyncRunSkip.spaceDeleted,
+          SyncPause.appOutdated => SyncRunSkip.appOutdated,
+          _ => SyncRunSkip.noAccess,
+        },
       );
     }
     if (_pause == SyncPause.appOutdated) {
@@ -1595,8 +1606,21 @@ class SyncEngine {
     _track(_reevaluate(run: true, resume: quiet));
   }
 
+  /// The outbox trigger. Under the manual cadence it arms nothing and only
+  /// emits, so the status counts the change waiting for "Sync now" — at most
+  /// one emit waiting behind the one in flight, which takes its snapshot
+  /// when it begins and so counts every write that joined it.
   void _armDebounce() {
-    if (_stopped || !_autoRuns) return;
+    if (_stopped) return;
+    if (!_autoRuns) {
+      if (_outboxEmitQueued) return;
+      _outboxEmitQueued = true;
+      _emits = _emits.then((_) {
+        _outboxEmitQueued = false;
+        _emit();
+      });
+      return;
+    }
     _debounce?.cancel();
     _debounce = _scheduler.schedule(_timing.pushDebounce, () {
       _debounce = null;
@@ -1894,9 +1918,15 @@ class _RunTally {
 class _DrainState {
   int refused = 0;
 
-  /// Whether this drain already read the space to judge a denial: once is
-  /// enough to tell the space's denial from a row's.
+  /// Whether the space was read to judge a denial of the batch being pushed:
+  /// once per batch tells the space's denial from a row's inside its bisect;
+  /// the next batch denied reads it again (review F5).
   bool diagnosed = false;
+
+  /// The denial that diagnosis judged, so a row refused by that very push is
+  /// parked on it without a second read (review G5); a stored park tried
+  /// again is parked without one whatever refused it (review K1).
+  SyncGatewayException? judged;
 
   /// The chunk encoded for a part it did not fit, kept for the next part:
   /// its text cannot change under its hash, and encoding it again would

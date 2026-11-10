@@ -529,7 +529,8 @@ void main() {
     );
   });
 
-  test('a drain with two rows the rules refuse reads the space once', () async {
+  test('a drain with two rows the rules refuse reads the space for the batch, '
+      'then once per row before it is parked', () async {
     final folders = [
       for (final name in ['One', 'Two', 'Three'])
         await a().db.folderDao.createFolder(name: name),
@@ -546,7 +547,33 @@ void main() {
 
     expect(report.parked, 2);
     expect(spaceFolders().keys, [folders[1].id]);
-    expect(pair.gateway.readSpaceCalls, 1);
+    expect(pair.gateway.readSpaceCalls, 3);
+  });
+
+  test('fifteen rows the rules refuse: the first drain reads the space once '
+      'per row, every later one only for the batch, since a park tried again '
+      'is a known refusal (review K1)', () async {
+    for (var i = 0; i < 15; i++) {
+      final folder = await a().db.folderDao.createFolder(name: 'Refused $i');
+      pair.gateway.refuse(
+        'folders',
+        folder.id,
+        SyncGatewayFailure.permissionDenied,
+      );
+    }
+
+    final reads = <int>[];
+    for (var sync = 0; sync < 3; sync++) {
+      pair.gateway.readSpaceCalls = 0;
+      final report = await a().sync();
+      expect(report.parked, 15);
+      expect(report.failure, isNull);
+      reads.add(pair.gateway.readSpaceCalls);
+    }
+
+    expect(reads, [16, 1, 1]);
+    expect(a().engine.current.pause, SyncPause.none);
+    expect(a().engine.current.parkedCount, 15);
   });
 
   group('a denied push is diagnosed', () {
@@ -575,6 +602,61 @@ void main() {
       expect(a().scheduler.pending, isEmpty, reason: 'no retry when deleted');
       expect(await a().db.syncOutboxDao.count(), 1);
       expect(pair.gateway.rowsOf(pair.space, 'folders'), isEmpty);
+    });
+
+    test('a space marked mid-drain pauses as deleted though an earlier batch '
+        'held a refused row: the later rows are not parked (review '
+        'F5)', () async {
+      final folders = [
+        for (final name in ['One', 'Two', 'Three'])
+          await a().db.folderDao.createFolder(name: name),
+      ];
+      pair.gateway
+        ..maxBatch = 1
+        ..refuse('folders', folders[0].id, SyncGatewayFailure.permissionDenied)
+        ..onPushBatch = (batch) async {
+          if (batch.single.rowKey == folders[1].id) {
+            await pair.gateway.markSpaceDeleted(pair.space);
+          }
+        };
+
+      final report = await a().sync();
+
+      expect(report.failure, SyncGatewayFailure.permissionDenied);
+      expect(report.parked, 1, reason: 'only the row the rules refused');
+      expect(a().engine.current.pause, SyncPause.spaceDeleted);
+      expect(pair.gateway.readSpaceCalls, 2, reason: 'once per denied batch');
+      expect(spaceFolders().keys, [folders[1].id]);
+    });
+
+    test('a space marked during one batch\'s bisect pauses as deleted: only '
+        'the row the rules refused is parked (review G5)', () async {
+      final folders = [
+        for (final name in ['One', 'Two', 'Three', 'Four'])
+          await a().db.folderDao.createFolder(name: name),
+      ];
+      pair.gateway
+        ..maxBatch = 4
+        ..refuse('folders', folders[0].id, SyncGatewayFailure.permissionDenied)
+        ..onPushBatch = (batch) async {
+          if (batch.any((row) => row.rowKey == folders[1].id)) {
+            await pair.gateway.markSpaceDeleted(pair.space);
+          }
+        };
+
+      final report = await a().sync();
+
+      expect(report.failure, SyncGatewayFailure.permissionDenied);
+      expect(report.parked, 1, reason: 'only the row the rules refused');
+      expect(a().engine.current.pause, SyncPause.spaceDeleted);
+      expect(spaceFolders().keys, [folders[1].id]);
+      expect(
+        pair.gateway.readSpaceCalls,
+        3,
+        reason:
+            'the batch\'s diagnosis, then one read per row about to be '
+            'parked',
+      );
     });
 
     test('a refusal whose space then reads gone turns into the deleted '
@@ -642,7 +724,8 @@ void main() {
 
       final report = await a().sync();
 
-      expect(report.skipped, SyncRunSkip.noAccess);
+      // The skip names the pause the re-read left (review F13).
+      expect(report.skipped, SyncRunSkip.appOutdated);
       expect(pair.gateway.calls, isEmpty, reason: 'nothing pulled or pushed');
       expect(a().engine.current.pause, SyncPause.appOutdated);
       expect((await a().sync()).skipped, SyncRunSkip.appOutdated);

@@ -161,21 +161,33 @@ void main() {
     SyncBindFlow flow = const SyncBindIdle(),
   }) => SyncSignedIn(userA, status: status, flow: flow);
 
-  /// Signed in, unbound, with [pending] — one cloud copy's deletion by
-  /// default — left unfinished.
+  /// Signed in over [status] — unbound by default — with a deletion status
+  /// of [pending] (one cloud copy's deletion by default) and its run's
+  /// [running], [removed] and [failure].
   SyncSignedIn withPending({
+    SyncStatus status = SyncStatus.empty,
     SyncBindFlow flow = const SyncBindIdle(),
     List<SyncPendingDeletion> pending = const [_left],
-  }) => SyncSignedIn(userA, flow: flow, pendingDeletions: pending);
+    bool running = false,
+    int removed = 0,
+    SyncBindFailure? failure,
+  }) => SyncSignedIn(
+    userA,
+    status: status,
+    flow: flow,
+    deletion: SyncDeletionStatus(
+      accountUid: userA.uid,
+      pending: pending,
+      running: running,
+      removed: removed,
+      failure: failure,
+    ),
+  );
 
   /// The page's held look (review S5), as the other held rows wear it: the
   /// tile disabled, no spinner, the glyph and the title dimmed, the row
   /// announced disabled.
-  void expectHeldLook(
-    WidgetTester tester,
-    SyncSectionRobot robot,
-    String id,
-  ) {
+  void expectHeldLook(WidgetTester tester, SyncSectionRobot robot, String id) {
     final row = find.descendant(
       of: robot.byId(id),
       matching: find.byType(ListTile),
@@ -420,20 +432,34 @@ void main() {
     });
 
     group('Finish deleting (cloud-multi-user-roadmap §5.2 g)', () {
-      testWidgets('absent with no deletion left; with one, a row under "Sync '
-          'this database" naming its space, whose tap finishes every one '
-          'without asking', (tester) async {
+      testWidgets('absent with no deletion left; with one, a section of its '
+          'own after Pairing, its row naming the space, whose tap finishes '
+          'every one without asking (review H2)', (tester) async {
         final robot = await open(tester, signedIn());
         expect(robot.byId(SemanticsIds.sharingSyncFinishDelete), findsNothing);
+        expect(find.text(l10n.syncDeletionSection.toUpperCase()), findsNothing);
 
         syncBloc!.show(withPending());
         await robot.settle();
-        final bind = tester.getRect(robot.byId(SemanticsIds.sharingSync));
+        await robot.reveal(SemanticsIds.sharingSyncFinishDelete);
+        final header = tester.getRect(
+          find.text(l10n.syncDeletionSection.toUpperCase()),
+        );
         final finish = tester.getRect(
           robot.byId(SemanticsIds.sharingSyncFinishDelete),
         );
-        // Only the group's hairline divider between the two.
-        expect(finish.top, inInclusiveRange(bind.bottom, bind.bottom + 1));
+        expect(
+          header.top,
+          greaterThan(tester.getRect(robot.byId(SemanticsIds.sharingPair)).top),
+        );
+        expect(finish.top, greaterThan(header.bottom));
+        expect(
+          robot.shows(
+            SemanticsIds.sharingSyncFinishDelete,
+            l10n.syncDeleteCloudFinish,
+          ),
+          isTrue,
+        );
         expect(
           robot.shows(
             SemanticsIds.sharingSyncFinishDelete,
@@ -453,16 +479,23 @@ void main() {
         await close(tester);
       });
 
-      testWidgets('while it runs, the row spins in place over the count and '
-          'the bind row is held, looking held', (tester) async {
+      testWidgets('while a run is in flight, the same row is "Deleting cloud '
+          'copy", spinning in place over the count with no tap, and the bind '
+          'row stays usable', (tester) async {
         final robot = await open(tester, withPending());
         final idle = robot.height(SemanticsIds.sharingSyncFinishDelete);
-        final bindIdle = robot.height(SemanticsIds.sharingSync);
 
-        syncBloc!.show(withPending(flow: const SyncBindDeleting(removed: 12)));
+        syncBloc!.show(withPending(running: true, removed: 12));
         await robot.settle();
 
         expect(robot.busy(SemanticsIds.sharingSyncFinishDelete), isTrue);
+        expect(
+          robot.shows(
+            SemanticsIds.sharingSyncFinishDelete,
+            l10n.syncDeleteCloudRunning,
+          ),
+          isTrue,
+        );
         expect(
           robot.shows(
             SemanticsIds.sharingSyncFinishDelete,
@@ -470,38 +503,110 @@ void main() {
           ),
           isTrue,
         );
+        expect(
+          robot.shows(
+            SemanticsIds.sharingSyncFinishDelete,
+            l10n.syncDeleteCloudFinish,
+          ),
+          isFalse,
+        );
         expect(robot.height(SemanticsIds.sharingSyncFinishDelete), idle);
-        expectHeldLook(tester, robot, SemanticsIds.sharingSync);
-        expect(robot.height(SemanticsIds.sharingSync), bindIdle);
+        expect(robot.tile(SemanticsIds.sharingSync).enabled, isTrue);
         final before = syncBloc!.events.length;
         await robot.tap(SemanticsIds.sharingSyncFinishDelete);
-        await robot.tap(SemanticsIds.sharingSync);
         expect(syncBloc!.events.length, before);
         await close(tester);
       });
 
-      testWidgets('at zero the progress line says only that it is deleting '
-          '(review S7)', (tester) async {
+      testWidgets('a run that outlives the records it took — none left — '
+          'still spins until it ends; ended, the row stays in place, muted '
+          'under a check, saying it is done with no count — a resumed '
+          'deletion\'s last run knows only its own (review K8) — and no tap; '
+          'the next opening shows no section', (tester) async {
         final robot = await open(
           tester,
-          withPending(flow: const SyncBindDeleting()),
+          withPending(pending: const [], running: true, removed: 31),
+        );
+        await robot.reveal(SemanticsIds.sharingSyncFinishDelete);
+        expect(robot.busy(SemanticsIds.sharingSyncFinishDelete), isTrue);
+        final running = tester.getRect(
+          robot.byId(SemanticsIds.sharingSyncFinishDelete),
         );
 
+        syncBloc!.show(withPending(pending: const [], removed: 31));
+        await robot.settle();
+
         expect(
-          robot.shows(SemanticsIds.sharingSyncFinishDelete, 'Deleting…'),
+          tester.getRect(robot.byId(SemanticsIds.sharingSyncFinishDelete)),
+          running,
+        );
+        expect(robot.busy(SemanticsIds.sharingSyncFinishDelete), isFalse);
+        expect(
+          robot.shows(
+            SemanticsIds.sharingSyncFinishDelete,
+            l10n.syncDeleteCloudDone,
+          ),
           isTrue,
         );
         expect(
-          lookupAppLocalizations(
-            const Locale('de'),
-          ).syncDeleteCloudProgress(0),
-          'Wird gelöscht…',
+          robot.shows(SemanticsIds.sharingSyncFinishDelete, '31 items removed'),
+          isFalse,
         );
+        final tile = robot.tile(SemanticsIds.sharingSyncFinishDelete);
+        expect(tile.onTap, isNull);
+        expect((tile.leading! as Icon).icon, Icons.check_rounded);
+        final before = syncBloc!.events.length;
+        await robot.tap(SemanticsIds.sharingSyncFinishDelete);
+        expect(syncBloc!.events.length, before);
+        await close(tester);
+
+        // A page opened afresh, nothing left: no section.
+        await robot.pumpPage();
+        syncBloc!.show(withPending(pending: const [], removed: 31));
+        await robot.settle();
+        expect(robot.byId(SemanticsIds.sharingSyncFinishDelete), findsNothing);
+        expect(find.text(l10n.syncDeletionSection.toUpperCase()), findsNothing);
+        await close(tester);
+      });
+
+      testWidgets('the progress line counts, never repeating the title: '
+          '"Starting…" at zero (review H6)', (tester) async {
+        final robot = await open(tester, withPending(running: true));
+
+        expect(
+          robot.shows(SemanticsIds.sharingSyncFinishDelete, 'Starting…'),
+          isTrue,
+        );
+        for (final (locale, zero, one, many) in const [
+          (Locale('en'), 'Starting…', '1 item removed', '40 items removed'),
+          (
+            Locale('de'),
+            'Wird gestartet…',
+            '1 Eintrag entfernt',
+            '40 Einträge entfernt',
+          ),
+          (
+            Locale('ro'),
+            'Se pornește…',
+            'Un element eliminat',
+            '40 de elemente eliminate',
+          ),
+        ]) {
+          final local = lookupAppLocalizations(locale);
+          expect(local.syncDeleteCloudProgress(0), zero);
+          expect(local.syncDeleteCloudProgress(1), one);
+          expect(local.syncDeleteCloudProgress(40), many);
+        }
+        expect(
+          lookupAppLocalizations(const Locale('ro')).syncDeleteCloudProgress(3),
+          '3 elemente eliminate',
+        );
+        // The copy is feminine in Romanian (copia).
         expect(
           lookupAppLocalizations(
             const Locale('ro'),
-          ).syncDeleteCloudProgress(0),
-          'Se șterge…',
+          ).syncDeleteCloudFinishDesc('X'),
+          startsWith('Ștearsă doar parțial'),
         );
         await close(tester);
       });
@@ -551,13 +656,12 @@ void main() {
         await close(tester);
       });
 
-      testWidgets('a failed finish is the row\'s: its reason the row\'s '
-          'value, the bind row\'s description untouched', (tester) async {
+      testWidgets('a run that failed is the row\'s: the error glyph, its '
+          'reason the row\'s value, the tap still finishing, the bind row\'s '
+          'description untouched', (tester) async {
         final robot = await open(
           tester,
-          withPending(
-            flow: const SyncBindFailed(SyncBindFailure.offline, deleting: true),
-          ),
+          withPending(failure: SyncBindFailure.quotaExhausted),
         );
 
         expect(
@@ -565,10 +669,200 @@ void main() {
               .getSemantics(robot.byId(SemanticsIds.sharingSyncFinishDelete))
               .getSemanticsData()
               .value,
-          l10n.syncFailedOffline,
+          l10n.syncFailedQuota,
+        );
+        expect(
+          find.descendant(
+            of: robot.byId(SemanticsIds.sharingSyncFinishDelete),
+            matching: find.byIcon(Icons.error_outline_rounded),
+          ),
+          findsOneWidget,
         );
         expect(
           robot.shows(SemanticsIds.sharingSync, l10n.syncThisDatabaseDesc),
+          isTrue,
+        );
+        final before = syncBloc!.events.length;
+        await robot.tap(SemanticsIds.sharingSyncFinishDelete);
+        expect(syncBloc!.events.sublist(before), [
+          const FinishDeletingRequested(),
+        ]);
+        await close(tester);
+      });
+
+      testWidgets('a run that ended because the app is outdated is held, '
+          'saying to update: only an update can finish it (review H3)', (
+        tester,
+      ) async {
+        final robot = await open(tester, withPending());
+        await robot.reveal(SemanticsIds.sharingSyncFinishDelete);
+        final waiting = robot.height(SemanticsIds.sharingSyncFinishDelete);
+
+        syncBloc!.show(withPending(failure: SyncBindFailure.appOutdated));
+        await robot.settle();
+
+        expectHeldLook(tester, robot, SemanticsIds.sharingSyncFinishDelete);
+        expect(
+          robot.shows(
+            SemanticsIds.sharingSyncFinishDelete,
+            l10n.syncDeleteCloudFinishUpdate,
+          ),
+          isTrue,
+        );
+        expect(
+          tester
+              .getSemantics(robot.byId(SemanticsIds.sharingSyncFinishDelete))
+              .getSemanticsData()
+              .value,
+          l10n.syncFailedAppOutdated,
+        );
+        expect(
+          find.descendant(
+            of: robot.byId(SemanticsIds.sharingSyncFinishDelete),
+            matching: find.byIcon(Icons.error_outline_rounded),
+          ),
+          findsOneWidget,
+        );
+        expect(robot.height(SemanticsIds.sharingSyncFinishDelete), waiting);
+        final before = syncBloc!.events.length;
+        await robot.tap(SemanticsIds.sharingSyncFinishDelete);
+        expect(syncBloc!.events.length, before);
+        await close(tester);
+      });
+
+      testWidgets('a failed sign-out keeps the section from the status it '
+          'carries, the account still signed in, and its tap still finishes; '
+          'a failed sign-in or another account does not (reviews H5, K3)', (
+        tester,
+      ) async {
+        final robot = await open(tester, withPending());
+
+        syncBloc!.show(
+          SyncFailure(
+            AuthError.unknown,
+            action: SyncAccountAction.signOut,
+            user: userA,
+            deletion: withPending().deletion,
+          ),
+        );
+        await robot.settle();
+        await robot.reveal(SemanticsIds.sharingSyncFinishDelete);
+
+        expect(
+          robot.shows(
+            SemanticsIds.sharingSyncFinishDelete,
+            l10n.syncDeleteCloudFinishDesc('Phone'),
+          ),
+          isTrue,
+        );
+        expect(robot.tile(SemanticsIds.sharingSyncFinishDelete).enabled, true);
+        final before = syncBloc!.events.length;
+        await robot.tap(SemanticsIds.sharingSyncFinishDelete);
+        expect(syncBloc!.events.sublist(before), [
+          const FinishDeletingRequested(),
+        ]);
+
+        syncBloc!.show(
+          const SyncFailure(
+            AuthError.unknown,
+            action: SyncAccountAction.signOut,
+            user: userB,
+          ),
+        );
+        await robot.settle();
+        expect(robot.byId(SemanticsIds.sharingSyncFinishDelete), findsNothing);
+
+        syncBloc!.show(const SyncFailure(AuthError.unknown));
+        await robot.settle();
+        expect(robot.byId(SemanticsIds.sharingSyncFinishDelete), findsNothing);
+        await close(tester);
+      });
+
+      testWidgets('under a failed sign-out the row follows the run it '
+          'carries — the count ticks, held in place — and a tap is judged '
+          'on what the row says now (review K3)', (tester) async {
+        final robot = await open(tester, withPending());
+        SyncFailure failed(SyncSignedIn carrying) => SyncFailure(
+          AuthError.unknown,
+          action: SyncAccountAction.signOut,
+          user: userA,
+          deletion: carrying.deletion,
+        );
+
+        syncBloc!.show(failed(withPending(running: true, removed: 12)));
+        await robot.settle();
+        await robot.reveal(SemanticsIds.sharingSyncFinishDelete);
+        final running = tester.getRect(
+          robot.byId(SemanticsIds.sharingSyncFinishDelete),
+        );
+        expect(robot.busy(SemanticsIds.sharingSyncFinishDelete), isTrue);
+        expect(
+          robot.shows(
+            SemanticsIds.sharingSyncFinishDelete,
+            l10n.syncDeleteCloudProgress(12),
+          ),
+          isTrue,
+        );
+        expect(find.text(l10n.authSignOutFailedRetry), findsOneWidget);
+        ScaffoldMessenger.of(
+          tester.element(robot.byId(SemanticsIds.sharingSync)),
+        ).removeCurrentSnackBar();
+        await robot.settle();
+
+        syncBloc!.show(failed(withPending(running: true, removed: 40)));
+        await robot.settle();
+        expect(
+          robot.shows(
+            SemanticsIds.sharingSyncFinishDelete,
+            l10n.syncDeleteCloudProgress(40),
+          ),
+          isTrue,
+        );
+        expect(
+          tester.getRect(robot.byId(SemanticsIds.sharingSyncFinishDelete)),
+          running,
+        );
+        // A status re-stamping the failure is no new failure.
+        expect(find.byType(SnackBar), findsNothing);
+        final before = syncBloc!.events.length;
+        await robot.tap(SemanticsIds.sharingSyncFinishDelete);
+        expect(syncBloc!.events.length, before);
+
+        // The run's end is said there as it is signed in: its failure's
+        // snackbar, then a tap that finishes.
+        syncBloc!.show(failed(withPending(failure: SyncBindFailure.offline)));
+        await robot.settle();
+        expect(robot.busy(SemanticsIds.sharingSyncFinishDelete), isFalse);
+        expect(
+          find.descendant(
+            of: find.byType(SnackBar),
+            matching: find.text(l10n.syncFailedOffline),
+          ),
+          findsOneWidget,
+        );
+        await robot.tap(SemanticsIds.sharingSyncFinishDelete);
+        expect(syncBloc!.events.sublist(before), [
+          const FinishDeletingRequested(),
+        ]);
+
+        // And a run that ends with nothing left is announced.
+        tester.takeAnnouncements();
+        syncBloc!.show(failed(withPending(running: true, removed: 41)));
+        await robot.settle();
+        syncBloc!.show(failed(withPending(pending: const [], removed: 52)));
+        await robot.settle();
+        expect(tester.takeAnnouncements(), [
+          isAccessibilityAnnouncement(
+            l10n.syncDeleteCloudDone,
+            textDirection: TextDirection.ltr,
+            assertiveness: Assertiveness.polite,
+          ),
+        ]);
+        expect(
+          robot.shows(
+            SemanticsIds.sharingSyncFinishDelete,
+            l10n.syncDeleteCloudDone,
+          ),
           isTrue,
         );
         await close(tester);
@@ -1601,28 +1895,31 @@ void main() {
         await close(tester);
       });
 
-      testWidgets('while deleting, the row spins in place over the count, '
-          'asks nothing, and Stop is held, looking held', (tester) async {
+      testWidgets('during its step, the row spins in place over its '
+          'description, asks nothing, and Stop is held, looking held', (
+        tester,
+      ) async {
         final robot = await open(tester, signedIn(status: bound()));
         await robot.reveal(SemanticsIds.sharingSyncDelete);
         final idle = robot.height(SemanticsIds.sharingSyncDelete);
         final stopIdle = robot.height(SemanticsIds.sharingSyncStop);
 
         syncBloc!.show(
-          signedIn(
-            status: bound(),
-            flow: const SyncBindDeleting(removed: 1234),
-          ),
+          signedIn(status: bound(), flow: const SyncBindDeleting()),
         );
         await robot.settle();
 
         expect(robot.busy(SemanticsIds.sharingSyncDelete), isTrue);
         expect(
+          robot.shows(SemanticsIds.sharingSyncDelete, l10n.syncDeleteCloudDesc),
+          isTrue,
+        );
+        expect(
           robot.shows(
             SemanticsIds.sharingSyncDelete,
-            l10n.syncDeleteCloudProgress(1234),
+            l10n.syncDeleteCloudProgress(0),
           ),
-          isTrue,
+          isFalse,
         );
         expect(robot.height(SemanticsIds.sharingSyncDelete), idle);
         expectHeldLook(tester, robot, SemanticsIds.sharingSyncStop);
@@ -1630,6 +1927,180 @@ void main() {
         expect(robot.tile(SemanticsIds.sharingSyncNow).enabled, isFalse);
         await robot.tap(SemanticsIds.sharingSyncDelete);
         expect(find.byType(AlertDialog), findsNothing);
+        await close(tester);
+      });
+
+      testWidgets('under the delete step the Delete row spins alone: its run '
+          'reads running, yet no deletion row is drawn, in the Sync section '
+          'or after it (review H1)', (tester) async {
+        final robot = await open(tester, signedIn(status: bound()));
+
+        syncBloc!.show(
+          withPending(
+            status: bound(),
+            flow: const SyncBindDeleting(),
+            running: true,
+          ),
+        );
+        await robot.settle();
+        await robot.scrollThrough();
+
+        expect(robot.byId(SemanticsIds.sharingSyncFinishDelete), findsNothing);
+        expect(
+          find.text(
+            l10n.syncDeletionSection.toUpperCase(),
+            skipOffstage: false,
+          ),
+          findsNothing,
+        );
+        await robot.reveal(SemanticsIds.sharingSyncDelete);
+        expect(robot.busy(SemanticsIds.sharingSyncDelete), isTrue);
+        expect(find.byType(CircularProgressIndicator), findsOneWidget);
+
+        // The step ends with the run going on: the section comes, last.
+        syncBloc!.show(withPending(running: true));
+        await robot.settle();
+        await robot.reveal(SemanticsIds.sharingSyncFinishDelete);
+        expect(robot.busy(SemanticsIds.sharingSyncFinishDelete), isTrue);
+        await close(tester);
+      });
+
+      for (final (label, shownBefore) in [
+        ('"Finish deleting"', [withPending(status: bound())]),
+        (
+          'an ended deletion',
+          [
+            withPending(status: bound(), pending: const [], running: true),
+            withPending(status: bound(), pending: const [], removed: 3),
+          ],
+        ),
+      ]) {
+        testWidgets('with $label on screen, a delete step keeps the section, '
+            'its row held, and nothing moves on a page scrolled to its end '
+            '(review K6)', (tester) async {
+          final robot = await open(
+            tester,
+            shownBefore.first,
+            size: const Size(360, 780),
+          );
+          for (final state in shownBefore.skip(1)) {
+            syncBloc!.show(state);
+            await robot.settle();
+          }
+          final position = robot.listPosition;
+          position.jumpTo(position.maxScrollExtent);
+          await tester.pump();
+          final end = position.pixels;
+          Rect at(String id) => tester.getRect(robot.byId(id));
+          final row = at(SemanticsIds.sharingSyncFinishDelete);
+          final pair = at(SemanticsIds.sharingPair);
+
+          for (final state in [
+            withPending(
+              status: bound(),
+              flow: const SyncBindDeleting(),
+              pending: shownBefore.last.deletion!.pending,
+              removed: shownBefore.last.deletion!.removed,
+            ),
+            // The step's own run starts while it is still in flight.
+            withPending(
+              status: bound(),
+              flow: const SyncBindDeleting(),
+              running: true,
+            ),
+          ]) {
+            syncBloc!.show(state);
+            await robot.settle();
+
+            expect(position.pixels, end);
+            expect(at(SemanticsIds.sharingSyncFinishDelete), row);
+            expect(at(SemanticsIds.sharingPair), pair);
+            expect(
+              robot.tile(SemanticsIds.sharingSyncFinishDelete).onTap,
+              isNull,
+            );
+          }
+
+          // Ended, the run goes on in the same section.
+          syncBloc!.show(withPending(running: true));
+          await robot.settle();
+          await robot.reveal(SemanticsIds.sharingSyncFinishDelete);
+          expect(robot.busy(SemanticsIds.sharingSyncFinishDelete), isTrue);
+          await close(tester);
+        });
+      }
+
+      testWidgets('the Delete row\'s slot is sized from its description '
+          'alone, never from a progress line', (tester) async {
+        final robot = await open(tester, signedIn(status: bound()));
+        await robot.reveal(SemanticsIds.sharingSyncDelete);
+        final slot = find.descendant(
+          of: robot.byId(SemanticsIds.sharingSyncDelete),
+          matching: find.byType(FormCaptionSlot),
+        );
+
+        expect(slot, findsOneWidget);
+        expect(
+          tester
+              .widget<FormCaptionSlot>(slot)
+              .candidates
+              .map((candidate) => (candidate as Text).data),
+          [l10n.syncDeleteCloudDesc],
+        );
+        await close(tester);
+      });
+
+      testWidgets('bound, a deletion in progress has the same section after '
+          'Pairing, with the same id and height as unbound, and the Sync '
+          'section still ends with Delete', (tester) async {
+        final robot = await open(tester, withPending());
+        await robot.reveal(SemanticsIds.sharingSyncFinishDelete);
+        final unbound = robot.height(SemanticsIds.sharingSyncFinishDelete);
+
+        syncBloc!.show(withPending(status: bound(), running: true));
+        await robot.settle();
+        await robot.reveal(SemanticsIds.sharingSyncFinishDelete);
+        final row = tester.getRect(
+          robot.byId(SemanticsIds.sharingSyncFinishDelete),
+        );
+
+        expect(
+          row.top,
+          greaterThan(tester.getRect(robot.byId(SemanticsIds.sharingPair)).top),
+        );
+        await robot.reveal(SemanticsIds.sharingSyncDelete);
+        final delete = tester.getRect(
+          robot.byId(SemanticsIds.sharingSyncDelete),
+        );
+        final pairingHeader = tester.getRect(
+          find.text(l10n.pairingSection.toUpperCase()),
+        );
+        // Nothing between Delete and the Pairing header but the gap.
+        expect(pairingHeader.top, greaterThan(delete.bottom));
+        expect(
+          pairingHeader.top - delete.bottom,
+          lessThan(robot.height(SemanticsIds.sharingSyncFinishDelete)),
+        );
+        await robot.reveal(SemanticsIds.sharingSyncFinishDelete);
+        expect(robot.busy(SemanticsIds.sharingSyncFinishDelete), isTrue);
+        expect(row.height, unbound);
+
+        syncBloc!.show(withPending(status: bound()));
+        await robot.settle();
+
+        expect(
+          robot.shows(
+            SemanticsIds.sharingSyncFinishDelete,
+            l10n.syncDeleteCloudFinish,
+          ),
+          isTrue,
+        );
+        expect(robot.height(SemanticsIds.sharingSyncFinishDelete), unbound);
+        final before = syncBloc!.events.length;
+        await robot.tap(SemanticsIds.sharingSyncFinishDelete);
+        expect(syncBloc!.events.sublist(before), [
+          const FinishDeletingRequested(),
+        ]);
         await close(tester);
       });
     });
@@ -2051,20 +2522,6 @@ void main() {
       await close(tester);
     });
 
-    testWidgets('a bind that first finishes an older deletion is still said '
-        'as a bind, never as a deletion (review F7)', (tester) async {
-      final robot = await open(tester, signedIn());
-      tester.takeAnnouncements();
-
-      await show(robot, signedIn(flow: const SyncBindChecking()));
-      await show(robot, signedIn(flow: const SyncBindDeleting(removed: 4)));
-      await show(robot, signedIn(flow: const SyncBindDeleting(removed: 9)));
-      expect(tester.takeAnnouncements(), isEmpty);
-      await show(robot, signedIn(status: bound()));
-      expect(tester.takeAnnouncements(), [said(l10n.syncAnnounceBoundUnnamed)]);
-      await close(tester);
-    });
-
     testWidgets('a merge the picker named is said with the space\'s name', (
       tester,
     ) async {
@@ -2102,8 +2559,9 @@ void main() {
       await close(tester);
     });
 
-    testWidgets('a deletion is said once it settles, never its count, and '
-        'a finished one the same way', (tester) async {
+    testWidgets('a deletion\'s step that ends well says nothing by itself; '
+        'its run ending with nothing left says "Cloud copy deleted" once, '
+        'never its count, and later states say nothing more', (tester) async {
       final robot = await open(tester, signedIn(status: bound()));
       tester.takeAnnouncements();
 
@@ -2111,17 +2569,120 @@ void main() {
         robot,
         signedIn(status: bound(), flow: const SyncBindDeleting()),
       );
+      await show(robot, withPending(running: true));
+      await show(robot, withPending(running: true, removed: 40));
+      expect(tester.takeAnnouncements(), isEmpty);
+      await show(robot, withPending(pending: const [], removed: 52));
+      expect(tester.takeAnnouncements(), [said(l10n.syncDeleteCloudDone)]);
+      expect(find.byType(SnackBar), findsNothing);
+
+      // A later bind is said as a bind, never as the deletion.
+      await show(robot, withPending(pending: const [], removed: 52));
+      await show(robot, signedIn(flow: const SyncBindChecking()));
+      await show(robot, signedIn(status: bound()));
+      expect(tester.takeAnnouncements(), [said(l10n.syncAnnounceBoundUnnamed)]);
+      await close(tester);
+    });
+
+    testWidgets('a delete that needed no run — its space already gone — is '
+        'said once at its step\'s end, and nothing later says it again '
+        '(review H4)', (tester) async {
+      final robot = await open(tester, signedIn(status: bound()));
+      tester.takeAnnouncements();
+
       await show(
         robot,
-        signedIn(status: bound(), flow: const SyncBindDeleting(removed: 40)),
+        signedIn(status: bound(), flow: const SyncBindDeleting()),
       );
       expect(tester.takeAnnouncements(), isEmpty);
-      await show(robot, signedIn());
+      // Unbound, and the account's status never read running.
+      await show(robot, withPending(pending: const []));
       expect(tester.takeAnnouncements(), [said(l10n.syncDeleteCloudDone)]);
 
-      await show(robot, signedIn(flow: const SyncBindDeleting(removed: 3)));
+      await show(robot, withPending(pending: const [], removed: 0));
       await show(robot, signedIn());
+      expect(tester.takeAnnouncements(), isEmpty);
+      // No run was seen, so no section either.
+      expect(robot.byId(SemanticsIds.sharingSyncFinishDelete), findsNothing);
+      await close(tester);
+    });
+
+    testWidgets('a deletion status of another account says nothing', (
+      tester,
+    ) async {
+      final robot = await open(tester, withPending(running: true, removed: 5));
+      tester.takeAnnouncements();
+
+      await show(
+        robot,
+        SyncSignedIn(
+          userB,
+          deletion: SyncDeletionStatus(accountUid: userB.uid),
+        ),
+      );
+
+      expect(tester.takeAnnouncements(), isEmpty);
+      expect(find.byType(SnackBar), findsNothing);
+      await close(tester);
+    });
+
+    testWidgets('"Finish deleting" ending well is said the same way, with no '
+        'step at all', (tester) async {
+      final robot = await open(tester, withPending());
+      tester.takeAnnouncements();
+
+      await show(robot, withPending(running: true, removed: 3));
+      await show(robot, withPending(pending: const [], removed: 3));
+
       expect(tester.takeAnnouncements(), [said(l10n.syncDeleteCloudDone)]);
+      await close(tester);
+    });
+
+    testWidgets('a run that ends with a failure raises the failure snackbar '
+        'once and says nothing of its own', (tester) async {
+      final robot = await open(tester, withPending(running: true, removed: 8));
+      tester.takeAnnouncements();
+
+      await show(
+        robot,
+        withPending(removed: 8, failure: SyncBindFailure.offline),
+      );
+      expect(
+        find.descendant(
+          of: find.byType(SnackBar),
+          matching: find.text(l10n.syncFailedOffline),
+        ),
+        findsOneWidget,
+      );
+      expect(tester.takeAnnouncements(), isEmpty);
+      // Dismissed, it is never raised again by a later state.
+      ScaffoldMessenger.of(
+        tester.element(robot.byId(SemanticsIds.sharingSync)),
+      ).removeCurrentSnackBar();
+      await robot.settle();
+      await show(
+        robot,
+        withPending(
+          flow: const SyncBindChecking(),
+          removed: 8,
+          failure: SyncBindFailure.offline,
+        ),
+      );
+      expect(find.byType(SnackBar), findsNothing);
+      await close(tester);
+    });
+
+    testWidgets('a run that had ended before the page opened says nothing', (
+      tester,
+    ) async {
+      final robot = await open(tester, signedIn());
+      tester.takeAnnouncements();
+
+      await show(robot, withPending(failure: SyncBindFailure.offline));
+      await show(robot, withPending(pending: const [], removed: 9));
+
+      expect(tester.takeAnnouncements(), isEmpty);
+      expect(find.byType(SnackBar), findsNothing);
       await close(tester);
     });
 
@@ -2829,18 +3390,16 @@ void main() {
           'the delete row',
         );
 
-        syncBloc!.show(
-          signedIn(status: bound(), flow: const SyncBindDeleting(removed: 7)),
-        );
+        syncBloc!.show(withPending(running: true, removed: 7));
         await robot.settle();
         expectToken(
           tester,
           within(
-            SemanticsIds.sharingSyncDelete,
+            SemanticsIds.sharingSyncFinishDelete,
             l10n.syncDeleteCloudProgress(7),
           ),
           scheme.onSurfaceVariant,
-          'the delete row\'s progress',
+          'the deletion row\'s progress',
         );
 
         syncBloc!.show(withPending());
@@ -2853,6 +3412,19 @@ void main() {
           ),
           scheme.onSurfaceVariant,
           'the Finish row',
+        );
+
+        // Ended while the page is open: the title itself is muted.
+        syncBloc!.show(withPending(pending: const [], removed: 7));
+        await robot.settle();
+        expectToken(
+          tester,
+          within(
+            SemanticsIds.sharingSyncFinishDelete,
+            l10n.syncDeleteCloudDone,
+          ),
+          scheme.onSurfaceVariant,
+          'the done row\'s title',
         );
         await close(tester);
       });
@@ -3257,15 +3829,17 @@ void main() {
 
     for (final (locale, scale) in const [
       (Locale('en'), 1.0),
+      (Locale('en'), 1.3),
       (Locale('en'), 2.0),
       (Locale('de'), 1.0),
       (Locale('de'), 1.3),
       (Locale('de'), 2.0),
       (Locale('ro'), 1.0),
+      (Locale('ro'), 1.3),
       (Locale('ro'), 2.0),
     ]) {
-      testWidgets('the delete and Finish rows are one height idle, busy, held '
-          'and failed, ${locale.languageCode} at $scale', (tester) async {
+      testWidgets('the Delete row is one height idle, busy, held and failed, '
+          '${locale.languageCode} at $scale', (tester) async {
         final robot = await open(
           tester,
           signedIn(status: bound()),
@@ -3288,72 +3862,204 @@ void main() {
         final delete = await heights(SemanticsIds.sharingSyncDelete, [
           signedIn(status: bound()),
           signedIn(status: bound(), flow: const SyncBindDeleting()),
-          signedIn(
-            status: bound(),
-            flow: const SyncBindDeleting(removed: 99999),
-          ),
           signedIn(status: bound(pause: SyncPause.accountMismatch)),
           signedIn(status: bound(pause: SyncPause.appOutdated)),
           signedIn(status: bound(pause: SyncPause.spaceDeleted)),
           signedIn(status: bound(), flow: const SyncBindStopping()),
           signedIn(status: bound(), flow: failed),
           SyncSignedOut(status: bound(pause: SyncPause.signedOut)),
-        ]);
-        final finish = await heights(SemanticsIds.sharingSyncFinishDelete, [
-          withPending(),
-          withPending(flow: const SyncBindDeleting()),
-          withPending(flow: const SyncBindDeleting(removed: 99999)),
-          withPending(flow: const SyncBindChecking()),
-          withPending(flow: failed),
-          // A name too long for the slot, which it cuts rather than grows.
-          withPending(
-            pending: [
-              SyncPendingDeletion(space: _left.space, spaceName: 'W' * 40),
-            ],
-          ),
-          // The count of several left, at two digits.
-          withPending(pending: List.filled(12, _left)),
+          // With a deletion running, whose section follows the page.
+          withPending(status: bound(), running: true, removed: 99999),
         ]);
 
         expect(delete, hasLength(1));
-        expect(finish, hasLength(1));
-        // The progress line at its widest count is whole, never cut.
-        syncBloc!.show(
-          withPending(flow: const SyncBindDeleting(removed: 99999)),
-        );
-        await robot.settle(rounds: 3);
-        final progress = lookupAppLocalizations(
-          locale,
-        ).syncDeleteCloudProgress(99999);
-        final drawn = find
-            .descendant(
-              of: robot.byId(SemanticsIds.sharingSyncFinishDelete),
-              matching: find.text(progress),
-            )
-            .evaluate()
-            .where(SyncSectionRobot.drawn);
-        expect(
-          (drawn.single.renderObject! as RenderParagraph).didExceedMaxLines,
-          isFalse,
-        );
-        // So is the count of several left.
-        syncBloc!.show(withPending(pending: List.filled(12, _left)));
-        await robot.settle(rounds: 3);
-        final many = find
-            .descendant(
-              of: robot.byId(SemanticsIds.sharingSyncFinishDelete),
-              matching: find.text(
-                lookupAppLocalizations(locale).syncDeleteCloudFinishMany(12),
-              ),
-            )
-            .evaluate()
-            .where(SyncSectionRobot.drawn);
-        expect(
-          (many.single.renderObject! as RenderParagraph).didExceedMaxLines,
-          isFalse,
-        );
         await close(tester);
       });
+    }
+
+    for (final size in const [Size(360, 780), Size(412, 915)]) {
+      for (final (locale, scale) in const [
+        (Locale('en'), 1.0),
+        (Locale('en'), 1.3),
+        (Locale('en'), 2.0),
+        (Locale('de'), 1.0),
+        (Locale('de'), 1.3),
+        (Locale('de'), 2.0),
+        (Locale('ro'), 1.0),
+        (Locale('ro'), 1.3),
+        (Locale('ro'), 2.0),
+      ]) {
+        final cell =
+            '${locale.languageCode} at $scale on '
+            '${size.width.toInt()} × ${size.height.toInt()}';
+
+        testWidgets('the deletion section is last: nothing above it moves as '
+            'it comes, changes and ends, its row is one height in every '
+            'state, bound and unbound, and it fits, $cell (review H2)', (
+          tester,
+        ) async {
+          final local = lookupAppLocalizations(locale);
+          final pairing = find.text(
+            local.pairingSection.toUpperCase(),
+            skipOffstage: false,
+          );
+          late SyncSectionRobot robot;
+          final rows = <double>{};
+          final errors = await layoutErrorsDuring(() async {
+            robot = await open(
+              tester,
+              signedIn(),
+              size: size,
+              locale: locale,
+              textScale: scale,
+            );
+            for (final status in [SyncStatus.empty, bound()]) {
+              final above = <Rect>{};
+              Future<void> measure(
+                SyncState state, {
+                bool row = true,
+                bool anchor = true,
+              }) async {
+                syncBloc!.show(state);
+                await robot.settle(rounds: 3);
+                if (anchor) {
+                  above.add(
+                    await robot.listRect(
+                      pairing,
+                      () => tester.getRect(pairing),
+                    ),
+                  );
+                }
+                if (row) {
+                  await robot.reveal(SemanticsIds.sharingSyncFinishDelete);
+                  rows.add(robot.height(SemanticsIds.sharingSyncFinishDelete));
+                }
+              }
+
+              await measure(signedIn(status: status), row: false);
+              await measure(withPending(status: status, running: true));
+              await measure(
+                withPending(status: status, running: true, removed: 99999),
+              );
+              await measure(
+                withPending(status: status, pending: const [], running: true),
+              );
+              await measure(withPending(status: status));
+              // On screen when a delete step begins — which runs bound — it
+              // stays, held, through the step and the run it starts
+              // (review K6).
+              if (status.binding != null) {
+                await measure(
+                  withPending(status: status, flow: const SyncBindDeleting()),
+                );
+                await measure(
+                  withPending(
+                    status: status,
+                    flow: const SyncBindDeleting(),
+                    running: true,
+                  ),
+                );
+              }
+              // Held under another step.
+              await measure(
+                withPending(status: status, flow: const SyncBindChecking()),
+              );
+              await measure(
+                withPending(status: status, failure: SyncBindFailure.offline),
+              );
+              await measure(
+                withPending(
+                  status: status,
+                  failure: SyncBindFailure.appOutdated,
+                ),
+              );
+              // A name too long for the slot, which it cuts rather than
+              // grows.
+              await measure(
+                withPending(
+                  status: status,
+                  pending: [
+                    SyncPendingDeletion(
+                      space: _left.space,
+                      spaceName: 'W' * 40,
+                    ),
+                  ],
+                ),
+              );
+              // The count of several left, at two digits.
+              await measure(
+                withPending(status: status, pending: List.filled(12, _left)),
+              );
+              // Ended while the page is open, with and without a count.
+              await measure(
+                withPending(status: status, pending: const [], removed: 31),
+              );
+              await measure(withPending(status: status, pending: const []));
+              if (status.binding != null) {
+                await measure(
+                  withPending(
+                    status: status,
+                    pending: const [],
+                    flow: const SyncBindDeleting(),
+                  ),
+                );
+              }
+              // A failed sign-out carries no sync status of its own: its
+              // rows above are judged elsewhere, this one here, on the
+              // deletion status it carries (review K3).
+              await measure(
+                SyncFailure(
+                  AuthError.unknown,
+                  action: SyncAccountAction.signOut,
+                  user: userA,
+                  deletion: withPending(status: status).deletion,
+                ),
+                anchor: false,
+              );
+              expect(above, hasLength(1), reason: '$status');
+            }
+
+            // The progress line at its widest count is whole, never cut, and
+            // so is the count of several left.
+            for (final (state, text) in [
+              (
+                withPending(running: true, removed: 99999),
+                local.syncDeleteCloudProgress(99999),
+              ),
+              (
+                withPending(pending: List.filled(12, _left)),
+                local.syncDeleteCloudFinishMany(12),
+              ),
+              (
+                withPending(failure: SyncBindFailure.appOutdated),
+                local.syncDeleteCloudFinishUpdate,
+              ),
+            ]) {
+              syncBloc!.show(state);
+              await robot.settle(rounds: 3);
+              await robot.reveal(SemanticsIds.sharingSyncFinishDelete);
+              final drawn = find
+                  .descendant(
+                    of: robot.byId(SemanticsIds.sharingSyncFinishDelete),
+                    matching: find.text(text),
+                  )
+                  .evaluate()
+                  .where(SyncSectionRobot.drawn);
+              expect(
+                (drawn.single.renderObject! as RenderParagraph)
+                    .didExceedMaxLines,
+                isFalse,
+                reason: text,
+              );
+            }
+          });
+
+          expect(errors.map((e) => e.exceptionAsString()), isEmpty);
+          expect(tester.takeException(), isNull);
+          expect(rows, hasLength(1));
+          await close(tester);
+        });
+      }
     }
 
     for (final locale in const [Locale('en'), Locale('de'), Locale('ro')]) {
@@ -3556,23 +4262,33 @@ void main() {
                   dark: dark,
                 );
                 await robot.scrollThrough();
-                // The deletion rows at their widest count.
+                // The Delete row busy, the deletion row under it at its
+                // widest count.
                 syncBloc!.show(
-                  signedIn(
+                  withPending(
                     status: bound(),
-                    flow: const SyncBindDeleting(removed: 99999),
+                    flow: const SyncBindDeleting(),
+                    running: true,
+                    removed: 99999,
                   ),
                 );
                 await robot.settle();
                 await robot.scrollThrough();
                 syncBloc!.show(
-                  SyncSignedIn(
-                    userA,
+                  withPending(
+                    status: bound(),
+                    failure: SyncBindFailure.permissionDenied,
+                  ),
+                );
+                await robot.settle();
+                await robot.scrollThrough();
+                syncBloc!.show(
+                  withPending(
                     flow: const SyncBindFailed(
                       SyncBindFailure.spaceHeldByAnotherDatabase,
                       holderDatabase: 'Datenbank des Telefons',
                     ),
-                    pendingDeletions: const [
+                    pending: const [
                       SyncPendingDeletion(
                         space: SyncSpaceRef(
                           ownerUid: 'uid-a',
@@ -3581,13 +4297,12 @@ void main() {
                         spaceName: 'Trainingstagebuch und Kalender',
                       ),
                     ],
+                    failure: SyncBindFailure.quotaExhausted,
                   ),
                 );
                 await robot.settle();
                 await robot.scrollThrough();
-                syncBloc!.show(
-                  withPending(flow: const SyncBindDeleting(removed: 99999)),
-                );
+                syncBloc!.show(withPending(running: true, removed: 99999));
                 await robot.settle();
                 await robot.scrollThrough();
               });

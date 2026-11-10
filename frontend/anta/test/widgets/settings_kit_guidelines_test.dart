@@ -636,14 +636,20 @@ void main() {
         await settle(tester);
 
         expect(tester.takeException(), isNull);
-        // The deletion rows sit last in the section, below the fold at 2.0
-        // (review S10): the walk must reach each one shown.
+        // The Delete row sits last in the Sync section and the deletion's
+        // own row last on the page, below the fold at 2.0 (review S10): the
+        // walk must reach each one shown — the deletion row in its held and
+        // running states too, and never under the delete step, where the
+        // Delete row spins alone.
         await meetsAll(
           tester,
           judged: [
             if (state case SyncSignedIn(status: SyncStatus(binding: _?)))
               SemanticsIds.sharingSyncDelete,
-            if (state case SyncSignedIn(pendingDeletions: [_, ...]))
+            if (state case SyncSignedIn(
+              deletion: SyncDeletionStatus(:final pending, :final running),
+              :final flow,
+            ) when (running || pending.isNotEmpty) && flow is! SyncBindDeleting)
               SemanticsIds.sharingSyncFinishDelete,
           ],
         );
@@ -1419,22 +1425,79 @@ final _syncSectionStates = <(String, SyncState)>[
     SyncSignedIn(
       userA,
       status: SyncStatus(binding: _binding, lastPullAt: DateTime(2026, 3, 4)),
-      flow: const SyncBindDeleting(removed: 120),
+      flow: const SyncBindDeleting(),
+      deletion: const SyncDeletionStatus(
+        accountUid: 'uid-a',
+        pending: [_leftDeletion],
+        running: true,
+        removed: 120,
+      ),
+    ),
+  ),
+  (
+    'with a deletion that failed under a bound database',
+    SyncSignedIn(
+      userA,
+      status: SyncStatus(binding: _binding, lastPullAt: DateTime(2026, 3, 4)),
+      deletion: const SyncDeletionStatus(
+        accountUid: 'uid-a',
+        pending: [_leftDeletion],
+        failure: SyncBindFailure.offline,
+      ),
+    ),
+  ),
+  (
+    'with a deletion running',
+    const SyncSignedIn(
+      userA,
+      deletion: SyncDeletionStatus(
+        accountUid: 'uid-a',
+        pending: [_leftDeletion],
+        running: true,
+        removed: 120,
+      ),
     ),
   ),
   (
     'with a deletion to finish',
     const SyncSignedIn(
       userA,
-      pendingDeletions: [
-        SyncPendingDeletion(
-          space: SyncSpaceRef(ownerUid: 'uid-a', spaceId: 'space-9'),
-          spaceName: 'Phone',
-        ),
-      ],
+      deletion: SyncDeletionStatus(
+        accountUid: 'uid-a',
+        pending: [_leftDeletion],
+      ),
+    ),
+  ),
+  (
+    'with a deletion held under another step',
+    const SyncSignedIn(
+      userA,
+      flow: SyncBindChecking(),
+      deletion: SyncDeletionStatus(
+        accountUid: 'uid-a',
+        pending: [_leftDeletion],
+        failure: SyncBindFailure.quotaExhausted,
+      ),
+    ),
+  ),
+  (
+    'with a deletion held until the app is updated',
+    SyncSignedIn(
+      userA,
+      status: SyncStatus(binding: _binding, lastPullAt: DateTime(2026, 3, 4)),
+      deletion: const SyncDeletionStatus(
+        accountUid: 'uid-a',
+        pending: [_leftDeletion],
+        failure: SyncBindFailure.appOutdated,
+      ),
     ),
   ),
 ];
+
+const _leftDeletion = SyncPendingDeletion(
+  space: SyncSpaceRef(ownerUid: 'uid-a', spaceId: 'space-9'),
+  spaceName: 'Phone',
+);
 
 SyncSpaceInfo _space(String id, String name) => SyncSpaceInfo(
   ref: SyncSpaceRef(ownerUid: userA.uid, spaceId: id),

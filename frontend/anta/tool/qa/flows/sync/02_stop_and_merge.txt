@@ -1,0 +1,20 @@
+# "Stop syncing" through its own confirm turns the section unbound and
+# leaves the space in the cloud, so the next "Sync this database" opens the
+# picker on it; Merge asks first (the database holds data) and the rebind
+# reads "Up to date" after a short "Receiving changes".
+expect id:sharing-sync-status "Up to date" --timeout 60
+tap id:sharing-sync-stop
+wait id:sharing-sync-stop-confirm
+tap id:sharing-sync-stop-confirm
+wait id:sharing-sync --timeout 20
+expect --absent id:sharing-sync-status --absent id:sharing-sync-stop
+tap id:sharing-sync
+wait id:sync-picker --timeout 20
+expect id:sync-picker-merge id:sync-picker-download id:sync-picker-upload
+tap id:sync-picker-merge
+wait id:sync-picker-merge-confirm
+tap id:sync-picker-merge-confirm
+wait id:sharing-sync-status --timeout 30
+expect --absent id:sync-picker --absent id:sharing-sync
+expect id:sharing-sync-status "Up to date" --timeout 60
+errors

@@ -1,0 +1,25 @@
+# The sync suite for `qa pass sync`: the Sync section of a database that
+# really syncs, against the local Firebase emulator suite (cloud-sync phase
+# 02 and the cloud-multi-user roadmap's D1). It binds the seeded database,
+# runs it on the manual cadence, stops and merges back through the picker,
+# deletes the cloud copy, binds again on an account left empty and deletes
+# once more, so it ends with no space left in the emulator and a second
+# pass against a freshly started suite meets the same start.
+# - It needs the cloud-define QA build installed (`qa build --define
+#   ANTA_QA_CLOUD=true --define ANTA_QA_FIREBASE_EMULATOR=10.0.2.2 --define
+#   ANTA_QA_ACCOUNT=qa1:qa1@example.com`, then `qa install`) and a freshly
+#   started emulator suite (`tool\firebase\emulators.cmd`). A normal QA build
+#   fails the prelude at its first expectation; a suite that still holds a
+#   space from an interrupted pass makes 00 meet the picker.
+# - The flows run in order on one seed and one sign-in, each starting where
+#   the last one left the page, so the suite is never sharded and a red
+#   flow reddens the ones after it.
+# - "Up to date" is the status row's own line, which the page says only when
+#   the engine is idle with nothing waiting and a pull behind it: every
+#   bind waits for it, never for the row alone (it first reads "N changes
+#   waiting" or "Receiving changes"). The cookbook: .claude/skills/
+#   qa-emulator/references/sync-pass.md.
+fixture=tool/qa/fixtures/basic.json
+reseed=suite
+shard=no
+prelude=_prelude.txt
