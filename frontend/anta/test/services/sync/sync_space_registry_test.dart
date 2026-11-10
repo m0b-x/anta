@@ -129,6 +129,76 @@ void main() {
         isFalse,
       );
     });
+
+    group('pending deletions', () {
+      const gymDeletion = SyncPendingDeletion(space: gym, spaceName: 'Gym');
+      const homeDeletion = SyncPendingDeletion(space: home, spaceName: 'Home');
+
+      test('are kept once per space, in the order they began, and '
+          'cleared one by one', () async {
+        await registry.addPendingDeletion(gymDeletion);
+        await registry.addPendingDeletion(homeDeletion);
+        await registry.addPendingDeletion(gymDeletion);
+
+        expect(registry.pendingDeletions(), [gymDeletion, homeDeletion]);
+
+        await registry.clearPendingDeletion(home);
+        expect(registry.pendingDeletions(), [gymDeletion]);
+        await registry.clearPendingDeletion(gym);
+        expect(prefs.containsKey(SettingsKeys.syncPendingDeletions), isFalse);
+      });
+
+      test('recording a recorded space changes nothing', () async {
+        await registry.addPendingDeletion(gymDeletion);
+        await registry.addPendingDeletion(homeDeletion);
+        final stored = prefs.getString(SettingsKeys.syncPendingDeletions);
+
+        await registry.addPendingDeletion(
+          const SyncPendingDeletion(space: gym, spaceName: 'Renamed'),
+        );
+
+        expect(prefs.getString(SettingsKeys.syncPendingDeletions), stored);
+        expect(registry.pendingDeletions(), [gymDeletion, homeDeletion]);
+      });
+
+      test('a malformed entry is dropped, the rest survive', () async {
+        await prefs.setString(SettingsKeys.syncPendingDeletions, '{not json');
+        expect(registry.pendingDeletions(), isEmpty);
+
+        await prefs.setString(
+          SettingsKeys.syncPendingDeletions,
+          '[{"spaceId":"space-gym","ownerUid":"uid-1"},7,{"spaceId":'
+          '"space-home","ownerUid":"uid-1","spaceName":"Home"}]',
+        );
+        expect(registry.pendingDeletions(), [homeDeletion]);
+
+        await registry.addPendingDeletion(gymDeletion);
+        expect(registry.pendingDeletions(), [homeDeletion, gymDeletion]);
+      });
+
+      test('live apart from the claims: a release keeps them', () async {
+        await registry.claim(gym, 'training');
+        await registry.addPendingDeletion(gymDeletion);
+
+        await registry.release('training');
+
+        expect(registry.pendingDeletions(), [gymDeletion]);
+        expect(registry.claims(), isEmpty);
+      });
+
+      test('the key is neither a binding key nor the claims\' key', () {
+        expect(
+          SettingsKeys.syncPendingDeletions.startsWith(
+            SettingsKeys.syncSpacePrefix,
+          ),
+          isFalse,
+        );
+        expect(
+          SettingsKeys.syncPendingDeletions,
+          isNot(SettingsKeys.syncBoundSpaces),
+        );
+      });
+    });
   });
 
   group('through DatabaseManager', () {

@@ -93,38 +93,37 @@ void main() {
       expect(pair.gateway.calls, isEmpty);
     });
 
-    test('a space deleted under a started A means no access', () async {
+    test('a space deleted under a started A pauses as deleted', () async {
       await a().engine.start();
       await a().settle();
 
-      pair.gateway.deleteSpace(pair.space);
+      pair.gateway.consoleDeleteSpace(pair.space);
       await a().settle();
 
-      expect(a().engine.current.pause, SyncPause.noAccess);
+      expect(a().engine.current.pause, SyncPause.spaceDeleted);
     });
 
     test('a resume reads a deleted space once and keeps the pause; once the '
         'space is back, the next resume lifts it and runs', () async {
       await a().engine.start();
       await a().settle();
-      pair.gateway.deleteSpace(pair.space);
+      pair.gateway.consoleDeleteSpace(pair.space);
       await a().settle();
-      expect(a().engine.current.pause, SyncPause.noAccess);
+      expect(a().engine.current.pause, SyncPause.spaceDeleted);
       final reads = pair.gateway.readSpaceCalls;
 
       a().engine.onAppResumed();
       await a().settle();
 
-      expect(a().engine.current.pause, SyncPause.noAccess);
+      expect(a().engine.current.pause, SyncPause.spaceDeleted);
       expect(pair.gateway.readSpaceCalls, reads + 1);
 
-      final back = await pair.gateway.createSpace(
-        ownerUid: syncUid,
+      pair.gateway.consoleRestoreSpace(
+        pair.space,
         name: 'Main',
         deviceId: 'C',
         schema: syncSchema,
       );
-      expect(back.ref, pair.space);
       pair.gateway.calls.clear();
       a().engine.onAppResumed();
       await a().settle();
@@ -132,6 +131,54 @@ void main() {
       expect(a().engine.current.pause, SyncPause.none);
       expect(pair.gateway.readSpaceCalls, reads + 2);
       expect(pair.gateway.calls, contains('pull:folders'));
+    });
+
+    test('another device marking the space for deletion pauses a started A '
+        'before it pushes; nothing runs under the pause and the outbox is '
+        'kept', () async {
+      await a().engine.start();
+      await b().engine.start();
+      await a().settle();
+      await b().settle();
+      await a().db.folderDao.createFolder(name: 'Queued');
+      await a().settle();
+      pair.gateway.calls.clear();
+
+      await pair.gateway.markSpaceDeleted(pair.space);
+      await a().settle();
+      await b().settle();
+
+      expect(a().engine.current.pause, SyncPause.spaceDeleted);
+      expect(b().engine.current.pause, SyncPause.spaceDeleted);
+      final queued = await a().db.syncOutboxDao.count();
+      expect(queued, greaterThan(0));
+      const timing = SyncEngineTiming();
+      a().scheduler.fire(timing.pushDebounce);
+      a().scheduler.fire(timing.pushMaxWait);
+      await a().settle();
+
+      expect(pair.gateway.calls, ['mark'], reason: 'nothing pulled or pushed');
+      expect(pair.gateway.rowsOf(pair.space, 'folders'), isEmpty);
+      expect(await a().db.syncOutboxDao.count(), queued);
+      expect(await a().binding.read(), isNotNull, reason: 'never unbound');
+    });
+
+    test('"Sync now" under a marked space reads it once and keeps the '
+        'pause', () async {
+      await a().engine.start();
+      await a().settle();
+      await pair.gateway.markSpaceDeleted(pair.space);
+      await a().settle();
+      expect(a().engine.current.pause, SyncPause.spaceDeleted);
+      final reads = pair.gateway.readSpaceCalls;
+      pair.gateway.calls.clear();
+
+      final report = await a().sync();
+
+      expect(report.skipped, SyncRunSkip.spaceDeleted);
+      expect(pair.gateway.readSpaceCalls, reads + 1);
+      expect(pair.gateway.calls, isEmpty, reason: 'nothing pulled or pushed');
+      expect(a().engine.current.pause, SyncPause.spaceDeleted);
     });
 
     test('"Sync now" lifts a pull\'s denial once the space reads', () async {
@@ -918,20 +965,23 @@ void main() {
       },
     );
 
-    test('the emitted pause follows pauseOver: a sign-out shows over the '
-        'no-access pause the engine still holds (S4b-1 review L14)', () async {
-      await a().engine.start();
-      await a().settle();
-      pair.gateway.deleteSpace(pair.space);
-      await a().settle();
-      expect(a().engine.current.pause, SyncPause.noAccess);
+    test(
+      'the emitted pause follows pauseOver: a sign-out shows over the '
+      'space-deleted pause the engine still holds (S4b-1 review L14)',
+      () async {
+        await a().engine.start();
+        await a().settle();
+        pair.gateway.consoleDeleteSpace(pair.space);
+        await a().settle();
+        expect(a().engine.current.pause, SyncPause.spaceDeleted);
 
-      a().user = null;
-      a().auth.add(null);
-      await a().settle();
+        a().user = null;
+        a().auth.add(null);
+        await a().settle();
 
-      expect(a().engine.current.pause, SyncPause.signedOut);
-    });
+        expect(a().engine.current.pause, SyncPause.signedOut);
+      },
+    );
 
     test('an unbound database skips as unbound', () async {
       await a().binding.unbind();

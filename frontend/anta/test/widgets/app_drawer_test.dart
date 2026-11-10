@@ -832,6 +832,7 @@ void main() {
       'pausedOtherAccount': mismatch,
       'pausedAppOutdated': lastSynced.copyWith(pause: SyncPause.appOutdated),
       'pausedNoAccess': lastSynced.copyWith(pause: SyncPause.noAccess),
+      'pausedSpaceDeleted': lastSynced.copyWith(pause: SyncPause.spaceDeleted),
       'sending': lastSynced.copyWith(
         activity: SyncActivity.pushing,
         pendingCount: 1234,

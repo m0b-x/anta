@@ -4636,7 +4636,7 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get syncKeywords =>
-      'Cloud, Sync, synchronisieren, Geräte, Handy, Tablet, Bereich, zusammenführen, herunterladen, hochladen, Status, offline, beenden, automatisch, manuell';
+      'Cloud, Sync, synchronisieren, Geräte, Handy, Tablet, Bereich, zusammenführen, herunterladen, hochladen, Status, offline, beenden, automatisch, manuell, löschen';
 
   @override
   String get syncThisDatabase => 'Diese Datenbank synchronisieren';
@@ -4762,6 +4762,10 @@ class AppLocalizationsDe extends AppLocalizations {
       'Pausiert – die Cloud-Kopie ist nicht erreichbar';
 
   @override
+  String get syncPausedSpaceDeleted =>
+      'Pausiert – die Cloud-Kopie wurde gelöscht';
+
+  @override
   String get drawerAccountNotSyncing => 'Wird nicht synchronisiert';
 
   @override
@@ -4780,6 +4784,9 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get drawerSyncPausedNoAccess => 'Pausiert – kein Zugriff';
+
+  @override
+  String get drawerSyncPausedSpaceDeleted => 'Pausiert – Cloud-Kopie gelöscht';
 
   @override
   String get drawerSyncRetrying => 'Fehler – neuer Versuch';
@@ -4968,6 +4975,70 @@ class AppLocalizationsDe extends AppLocalizations {
       'Synchronisierung konnte nicht beendet werden – versuch es erneut';
 
   @override
+  String get syncStopConfirmBodyDeleted =>
+      'Die Cloud-Kopie dieser Datenbank wurde gelöscht. Dieses Gerät behält alles und versucht nicht mehr zu synchronisieren.';
+
+  @override
+  String get syncDeleteCloud => 'Cloud-Kopie löschen';
+
+  @override
+  String get syncDeleteCloudDesc =>
+      'Entfernt sie aus deinem Konto. Dieses Gerät behält alles.';
+
+  @override
+  String syncDeleteCloudProgress(int count) {
+    final intl.NumberFormat countNumberFormat =
+        intl.NumberFormat.decimalPattern(localeName);
+    final String countString = countNumberFormat.format(count);
+
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Wird gelöscht – $countString Einträge entfernt',
+      one: 'Wird gelöscht – 1 Eintrag entfernt',
+      zero: 'Wird gelöscht…',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get syncDeleteCloudConfirmTitle =>
+      'Cloud-Kopie dieser Datenbank löschen?';
+
+  @override
+  String get syncDeleteCloudConfirmBody =>
+      'Die Kopie wird endgültig aus deinem Konto entfernt, und diese Datenbank synchronisiert nicht mehr. Auf diesem Gerät wird nichts gelöscht. Deine anderen Geräte behalten, was sie haben, und synchronisieren ebenfalls nicht mehr.';
+
+  @override
+  String get syncDeleteCloudConfirmAction => 'Cloud-Kopie löschen';
+
+  @override
+  String get syncDeleteCloudDone => 'Cloud-Kopie gelöscht';
+
+  @override
+  String get syncDeleteCloudFinish => 'Löschen abschließen';
+
+  @override
+  String syncDeleteCloudFinishDesc(String space) {
+    return 'Cloud-Kopie erst teilweise gelöscht: „$space“';
+  }
+
+  @override
+  String syncDeleteCloudFinishMany(int count) {
+    final intl.NumberFormat countNumberFormat =
+        intl.NumberFormat.decimalPattern(localeName);
+    final String countString = countNumberFormat.format(count);
+
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$countString Cloud-Kopien erst teilweise gelöscht',
+      one: '1 Cloud-Kopie erst teilweise gelöscht',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get syncPickerSpaces => 'Cloud-Bereiche';
 
   @override
@@ -5027,6 +5098,10 @@ class AppLocalizationsDe extends AppLocalizations {
   @override
   String get syncFailedSpaceGone =>
       'Diesen Cloud-Bereich gibt es nicht mehr – wähl einen anderen oder lade diese Datenbank als neuen Bereich hoch';
+
+  @override
+  String get syncFailedAppOutdated =>
+      'Eine neuere ANTA-Version hat in diese Cloud-Kopie geschrieben – aktualisiere zuerst die App';
 
   @override
   String get syncFailedSuspended =>
@@ -10708,5 +10783,13 @@ class AppLocalizationsDe extends AppLocalizations {
   @override
   String appGuideSyncStopBody(String syncStop, String signOut) {
     return '„$syncStop“ lässt deine Notizen auf diesem Telefon und hört auf zu senden und zu empfangen; die Kopie in deinem Konto bleibt. „$signOut“ pausiert Sync für jede Datenbank, bis du dich wieder anmeldest.';
+  }
+
+  @override
+  String get appGuideSyncDeleteTitle => 'Die Cloud-Kopie löschen';
+
+  @override
+  String appGuideSyncDeleteBody(String delete) {
+    return '„$delete“ entfernt die Datenbank endgültig aus deinem Konto. Sie bleibt auf diesem Telefon, das sie nicht mehr synchronisiert; deine anderen Geräte behalten ihre Kopie und hören ebenfalls auf.';
   }
 }

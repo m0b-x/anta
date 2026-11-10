@@ -6,7 +6,11 @@ phase DONE 2026-10-23 (`cloud-sync-readiness-roadmap.md`, owns v43, all in
 `cloud-sync-phase-02-own-space.md` (S1–S6 on `main`; the owner's rules
 deploy and phone check left); Phases 03–04 planned, their docs predate the
 readiness decisions, and Phase 03's migration is no longer v44 — the
-analytics run took v44 and v45, so it takes the next free number.** Master
+analytics run took v44 and v45, so it takes the next free number.** **Since 2026-11-10 the plan for
+everything after Phase 02 is `cloud-multi-user-roadmap.md`: two paired
+users sharing selected events and notes, thirty counted slices, deletion
+first — its slice D1, "Delete cloud copy", BUILT AND REVIEWED 2026-11-10
+(the rules deploy and the phone check left to the owner).** Master
 document for the cloud migration; per-phase implementation docs live
 alongside this file (`cloud-sync-phase-01-pairing.md`,
 `cloud-sync-phase-02-own-space.md`, `cloud-sync-phase-03-shared-folders.md`,
@@ -61,8 +65,8 @@ D1–D3 decide where a row lives remotely for that.
 | 01 | Pairing two accounts (`invites/{code}` → `pairs/{pairId}`) | none | **Shipped 2026-08-17** |
 | R | Readiness — CRDT columns on categories and counters, `owner_id`, the outbox, clock persistence, tombstoned wipes, engine seams (`cloud-sync-readiness-roadmap.md`) | v43 | **DONE 2026-10-23** — R1–R3b committed (`729a25f`, `14c9250`, `596998d`, `4fd26aa`); R5, R6, R4 built and reviewed, R7 gate 9,584 green + emulator pass, commit pending; D15 amended (bind floor = the clock at unbind) |
 | 02 | Own space on N devices — the engine for all eighteen tables, bind flow, `owner_id` backfill at bind, initial merge, drain cadence, status; the Worker's "pull now" optional (readiness D1–D3, D15, D17, D19; `cloud-sync-phase-02-own-space.md`) | none (later tables arrived with the analytics run's v44/v45, already CRDT-shaped) | **BUILT 2026-11-06, FINAL REVIEW + FIX PASS 2026-11-07** — S1–S6 on `main` (S4b-2 "Sync this database" + the picker, two review rounds, the two-device emulator pass green); the five-agent final review (GO WITH CONDITIONS) and its fix pass `d2b3da32` … `a69a65d0` (the seed stamp below every edit, the heal keeping the floor, the bind flow holding the page, the Merge confirm, the status row read full); the rules and indexes verified LIVE on the real project (deployed 2026-11-05, checked 2026-11-07, record §7); the drawer's account row built and reviewed 2026-11-07 (record §12); left: the owner's phone check in the record's §7 order |
-| 03 | Sharing between accounts — grants on a space, shared folders, selected events (`shared_with`), ownership and consent, child-row routing (readiness D16, D18) | v44 | Planned; its doc predates these decisions |
-| 04 | Hardening (restore-vs-sync, DB switching, status UI, tests) | none | Planned |
+| 03 | Sharing between accounts — grants on a space, shared folders, selected events (`shared_with`), ownership and consent, child-row routing (readiness D16, D18) | v52 on | Planned — the plan is `cloud-multi-user-roadmap.md` (2026-11-10: two paired users, selected events then notes; its groups E and N); the Phase 03 doc is history |
+| 04 | Hardening (restore-vs-sync, DB switching, status UI, tests) | none | Its integration hazards were built in the readiness phase and Phase 02 (the restore's unbind and suspension, the switch handlers, the status row); cloud deletion and the pair-ending and re-share scenarios are D1, D2, E2 and N2 of `cloud-multi-user-roadmap.md` |
 
 ## Phase 00 — what actually shipped (deviations from the original plan)
 

@@ -413,6 +413,101 @@ class FirestoreSyncGateway implements SyncGateway {
     }, isBroadcast: true);
   }
 
+  @override
+  Future<void> markSpaceDeleted(SyncSpaceRef space) async {
+    // Resolved inside the guard, as every call here is, so a handle that
+    // cannot be had fails as a gateway failure too (review F10).
+    DocumentReference<Map<String, dynamic>>? doc;
+    try {
+      await _guard(() {
+        final ref = doc = _space(space);
+        return _writeOnly(
+          (transaction) => transaction.update(
+            ref,
+            FirestoreSyncWire.spaceMarkOf(FieldValue.serverTimestamp()),
+          ),
+          // One attempt: a retry of a mark that landed is an update of a
+          // marked space, which the rules refuse.
+          attempts: 1,
+        );
+      });
+    } on SyncGatewayException {
+      final ref = doc;
+      if (ref == null) rethrow;
+      // `update` never creates, so a missing space fails here too; so does a
+      // mark that already landed, and a reply lost on the way back.
+      final read = await _readBack(ref);
+      if (read == null) rethrow;
+      final data = read.data();
+      if (data != null && !FirestoreSyncWire.isMarked(data)) rethrow;
+    }
+  }
+
+  @override
+  Future<int> deleteRows(SyncSpaceRef space, String table, {int? limit}) async {
+    const most = SyncGateway.rowDeleteBatch;
+    final take = limit ?? most;
+    if (take < 1 || take > most) {
+      throw ArgumentError.value(take, 'limit', 'not within 1..$most');
+    }
+    final page = await _guard(
+      () => _space(space)
+          .collection(table)
+          .limit(take)
+          .get(const GetOptions(source: Source.server)),
+    );
+    if (page.docs.isEmpty) return 0;
+    // Deleting a document already gone is allowed under a marked space, so
+    // the SDK's own retries of this write are safe.
+    await _guard(
+      () => _writeOnly((transaction) {
+        for (final doc in page.docs) {
+          transaction.delete(doc.reference);
+        }
+      }),
+    );
+    return page.docs.length;
+  }
+
+  @override
+  Future<void> deleteSpace(SyncSpaceRef space) async {
+    DocumentReference<Map<String, dynamic>>? doc;
+    try {
+      await _guard(() {
+        final ref = doc = _space(space);
+        // One attempt: a retry of a delete that landed meets no document,
+        // and the rules refuse a delete with no mark to read.
+        return _writeOnly(
+          (transaction) => transaction.delete(ref),
+          attempts: 1,
+        );
+      });
+    } on SyncGatewayException {
+      final ref = doc;
+      if (ref == null) rethrow;
+      final read = await _readBack(ref);
+      if (read == null || read.exists) rethrow;
+    }
+  }
+
+  /// The space document read once after a mark or a delete failed, or null
+  /// when it cannot be read in time. Its own short budget, as
+  /// [_createdSpace]: the call has already spent the gateway's, and the
+  /// failure that brought us here is the one the caller sees unless the read
+  /// proves the write is done.
+  Future<DocumentSnapshot<Map<String, dynamic>>?> _readBack(
+    DocumentReference<Map<String, dynamic>> doc,
+  ) async {
+    try {
+      return await doc
+          .get(const GetOptions(source: Source.server))
+          .timeout(_createdReadTimeout);
+    } catch (error) {
+      debugPrint('[FirestoreSyncGateway] space not read back: $error');
+      return null;
+    }
+  }
+
   SyncSpaceSignal _signalOf(Map<String, dynamic>? data) {
     if (data == null) {
       return const SyncSpaceSignal(
@@ -437,6 +532,7 @@ class FirestoreSyncGateway implements SyncGateway {
       touched: Map.unmodifiable(touched),
       lastWriter: lastWriter is String ? lastWriter : null,
       schema: schema is num ? schema.toInt() : 0,
+      markedForDeletion: FirestoreSyncWire.isMarked(data),
     );
   }
 
@@ -454,6 +550,7 @@ class FirestoreSyncGateway implements SyncGateway {
       schema: schema is num ? schema.toInt() : 0,
       lastWriteAt: _dateOf(data['lastWriteAt']),
       lastWriter: lastWriter is String ? lastWriter : null,
+      markedForDeletion: FirestoreSyncWire.isMarked(data),
     );
   }
 
@@ -703,6 +800,20 @@ abstract final class FirestoreSyncWire {
     'createdBy': deviceId,
     'schema': schema,
   };
+
+  /// The space document's mark (record cloud-multi-user-roadmap §5.3), the
+  /// key `firestore.rules`' `marked()` tests for.
+  static const String markKey = 'deletedAt';
+
+  /// What a mark writes into the space document: [markKey] as [serverTime],
+  /// the only value the rules accept.
+  static Map<String, Object?> spaceMarkOf(Object serverTime) => {
+    markKey: serverTime,
+  };
+
+  /// Whether a space document carries the mark. Presence, not the value, as
+  /// the rules judge it.
+  static bool isMarked(Map<String, Object?> data) => data.containsKey(markKey);
 
   /// A Firestore error code in the engine's terms.
   static SyncGatewayFailure failureOf(String code) => switch (code) {

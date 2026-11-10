@@ -86,6 +86,19 @@ final class StopSyncingRequested extends SyncEvent {
   const StopSyncingRequested();
 }
 
+/// "Delete cloud copy" (cloud-multi-user-roadmap §5): the space this
+/// database syncs with removed from the account for good, nothing on this
+/// device touched. Signed in only — the space's owner deletes it.
+final class DeleteCloudCopyRequested extends SyncEvent {
+  const DeleteCloudCopyRequested();
+}
+
+/// "Finish deleting": every deletion the signed-in account began on this
+/// install and did not finish, taken to its end — confirmed when it began.
+final class FinishDeletingRequested extends SyncEvent {
+  const FinishDeletingRequested();
+}
+
 /// The Sync section's "Sync automatically" switch (record §13): stored
 /// through the engine, which applies it to the session at once.
 final class SyncCadenceChanged extends SyncEvent {

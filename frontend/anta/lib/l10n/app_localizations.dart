@@ -7843,7 +7843,7 @@ abstract class AppLocalizations {
   /// Comma-separated hidden search synonyms for the Sync section of the sharing settings
   ///
   /// In en, this message translates to:
-  /// **'cloud, sync, devices, phone, tablet, space, merge, download, upload, status, offline, stop, automatic, manual'**
+  /// **'cloud, sync, devices, phone, tablet, space, merge, download, upload, status, offline, stop, automatic, manual, delete'**
   String get syncKeywords;
 
   /// Row that turns sync on for the open database; also the title of the sheet that picks a cloud space
@@ -7978,11 +7978,17 @@ abstract class AppLocalizations {
   /// **'Paused — update ANTA on this device'**
   String get syncPausedAppOutdated;
 
-  /// Sync status: the cloud copy is gone or this account may not read it
+  /// Sync status: this account may not read or write the cloud copy
   ///
   /// In en, this message translates to:
   /// **'Paused — the cloud copy can\'t be reached'**
   String get syncPausedNoAccess;
+
+  /// Sync status: the cloud copy this database synced with was deleted, from this account's other device or the console
+  ///
+  /// In en, this message translates to:
+  /// **'Paused — the cloud copy was deleted'**
+  String get syncPausedSpaceDeleted;
 
   /// Status line of the drawer's account row: this database is not bound to a cloud space
   ///
@@ -8014,11 +8020,17 @@ abstract class AppLocalizations {
   /// **'Paused — update ANTA'**
   String get drawerSyncPausedAppOutdated;
 
-  /// Status line of the drawer's account row, short: the cloud copy is gone or this account may not read it
+  /// Status line of the drawer's account row, short: this account may not read or write the cloud copy
   ///
   /// In en, this message translates to:
   /// **'Paused — no access'**
   String get drawerSyncPausedNoAccess;
+
+  /// Status line of the drawer's account row, short: the cloud copy this database synced with was deleted
+  ///
+  /// In en, this message translates to:
+  /// **'Paused — cloud copy deleted'**
+  String get drawerSyncPausedSpaceDeleted;
 
   /// Status line of the drawer's account row, short: the last sync failed for a reason other than no connection and tries again by itself
   ///
@@ -8194,6 +8206,72 @@ abstract class AppLocalizations {
   /// **'Syncing couldn\'t be stopped — try again'**
   String get syncStopFailed;
 
+  /// Body of the dialog confirming Stop syncing while sync is paused because the cloud copy was deleted from another device
+  ///
+  /// In en, this message translates to:
+  /// **'This database\'s cloud copy was deleted. This device keeps everything and stops trying to sync.'**
+  String get syncStopConfirmBodyDeleted;
+
+  /// Last row of the Sync section of a syncing database: removes the database's copy from the cloud account for good; nothing on the device is deleted
+  ///
+  /// In en, this message translates to:
+  /// **'Delete cloud copy'**
+  String get syncDeleteCloud;
+
+  /// Subtitle of the Delete cloud copy row
+  ///
+  /// In en, this message translates to:
+  /// **'Removes it from your account. This device keeps everything.'**
+  String get syncDeleteCloudDesc;
+
+  /// Subtitle of the Delete cloud copy and Finish deleting rows while the cloud copy is being deleted, with the items removed so far; at zero, before the first items are gone, it only says the deletion is running
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =0{Deleting…} =1{Deleting — 1 item removed} other{Deleting — {count} items removed}}'**
+  String syncDeleteCloudProgress(int count);
+
+  /// Title of the dialog confirming Delete cloud copy
+  ///
+  /// In en, this message translates to:
+  /// **'Delete this database\'s cloud copy?'**
+  String get syncDeleteCloudConfirmTitle;
+
+  /// Body of the dialog confirming Delete cloud copy
+  ///
+  /// In en, this message translates to:
+  /// **'The copy is removed from your account for good, and this database stops syncing. Nothing is deleted on this device. Your other devices keep what they hold and stop syncing too.'**
+  String get syncDeleteCloudConfirmBody;
+
+  /// Destructive confirm button of the Delete cloud copy dialog
+  ///
+  /// In en, this message translates to:
+  /// **'Delete cloud copy'**
+  String get syncDeleteCloudConfirmAction;
+
+  /// Announced to screen readers when deleting a cloud copy has finished
+  ///
+  /// In en, this message translates to:
+  /// **'Cloud copy deleted'**
+  String get syncDeleteCloudDone;
+
+  /// Row in the Sync section of a database that does not sync, shown while deleting a cloud copy was cut short: finishes the deletion
+  ///
+  /// In en, this message translates to:
+  /// **'Finish deleting'**
+  String get syncDeleteCloudFinish;
+
+  /// Subtitle of the Finish deleting row, naming the cloud space whose deletion was cut short; the name goes last so a long one is the part an ellipsis cuts
+  ///
+  /// In en, this message translates to:
+  /// **'Partly deleted from your account: “{space}”'**
+  String syncDeleteCloudFinishDesc(String space);
+
+  /// Subtitle of the Finish deleting row when the deletions of several cloud spaces were cut short: says how many instead of naming one
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 cloud copy is partly deleted from your account} other{{count} cloud copies are partly deleted from your account}}'**
+  String syncDeleteCloudFinishMany(int count);
+
   /// Section label over the account's cloud spaces in the sheet that picks one
   ///
   /// In en, this message translates to:
@@ -8283,6 +8361,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'That cloud space no longer exists — pick another, or upload this database as a new space'**
   String get syncFailedSpaceGone;
+
+  /// Deleting the cloud copy failed before anything changed: a newer version of the app wrote to it, and this version may not know all of its data
+  ///
+  /// In en, this message translates to:
+  /// **'A newer ANTA wrote to this cloud copy — update the app first'**
+  String get syncFailedAppOutdated;
 
   /// Turning sync on or off failed: a restore or import is rewriting the database
   ///
@@ -16074,6 +16158,18 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'“{syncStop}” leaves your notes on this phone and stops sending and receiving; the copy in your account stays. “{signOut}” pauses sync for every database until you sign in again.'**
   String appGuideSyncStopBody(String syncStop, String signOut);
+
+  /// No description provided for @appGuideSyncDeleteTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Deleting the cloud copy'**
+  String get appGuideSyncDeleteTitle;
+
+  /// No description provided for @appGuideSyncDeleteBody.
+  ///
+  /// In en, this message translates to:
+  /// **'“{delete}” removes the database from your account for good. It stays on this phone, which stops syncing it; your other devices keep theirs and stop too.'**
+  String appGuideSyncDeleteBody(String delete);
 }
 
 class _AppLocalizationsDelegate

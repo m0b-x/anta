@@ -550,16 +550,47 @@ void main() {
   });
 
   group('a denied push is diagnosed', () {
-    test('a deleted space means no access', () async {
+    test('a deleted space pauses as deleted', () async {
       await a().db.folderDao.createFolder(name: 'Training');
-      pair.gateway.deleteSpace(pair.space);
+      pair.gateway.consoleDeleteSpace(pair.space);
 
       final report = await a().sync();
 
       expect(report.failure, SyncGatewayFailure.permissionDenied);
+      expect(a().engine.current.pause, SyncPause.spaceDeleted);
+      expect(a().scheduler.pending, isEmpty, reason: 'no retry when deleted');
+      expect((await a().sync()).skipped, SyncRunSkip.spaceDeleted);
+    });
+
+    test('a space marked for deletion pauses as deleted and keeps the '
+        'outbox', () async {
+      await a().db.folderDao.createFolder(name: 'Training');
+      await pair.gateway.markSpaceDeleted(pair.space);
+
+      final report = await a().sync();
+
+      expect(report.failure, SyncGatewayFailure.permissionDenied);
+      expect(report.parked, 0, reason: 'the space refused, not the row');
+      expect(a().engine.current.pause, SyncPause.spaceDeleted);
+      expect(a().scheduler.pending, isEmpty, reason: 'no retry when deleted');
+      expect(await a().db.syncOutboxDao.count(), 1);
+      expect(pair.gateway.rowsOf(pair.space, 'folders'), isEmpty);
+    });
+
+    test('a refusal whose space then reads gone turns into the deleted '
+        'pause at the next "Sync now"', () async {
+      pair.gateway.failNextWith(SyncGatewayFailure.permissionDenied);
+      await a().sync();
       expect(a().engine.current.pause, SyncPause.noAccess);
-      expect(a().scheduler.pending, isEmpty, reason: 'no retry on no access');
-      expect((await a().sync()).skipped, SyncRunSkip.noAccess);
+      pair.gateway.consoleDeleteSpace(pair.space);
+      pair.gateway.calls.clear();
+
+      final report = await a().sync();
+
+      expect(report.skipped, SyncRunSkip.spaceDeleted);
+      expect(pair.gateway.readSpaceCalls, 1);
+      expect(pair.gateway.calls, isEmpty, reason: 'nothing pulled or pushed');
+      expect(a().engine.current.pause, SyncPause.spaceDeleted);
     });
 
     test('a space at a newer schema means the app is outdated', () async {

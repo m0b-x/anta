@@ -180,18 +180,27 @@ service cloud.firestore {
       function validSpace() {
         let d = request.resource.data;
         return d.keys().hasOnly(['name', 'createdAt', 'createdBy', 'schema',
-                                 'touched', 'lastWriter', 'lastWriteAt'])
+                                 'touched', 'lastWriter', 'lastWriteAt',
+                                 'deletedAt'])
             && d.name is string && d.name.size() > 0 && d.name.size() <= 100
             && d.schema is int && d.schema > 0
             && d.createdBy is string && d.createdBy.size() <= 64;
       }
+      // Marked for deletion (record cloud-multi-user-roadmap §5.3): once
+      // marked, the document takes no update — every push writes it in the
+      // rows' own transaction, so a push to it fails whole — and only now may
+      // its rows and then the document itself be deleted.
+      function marked() { return 'deletedAt' in resource.data; }
       allow get, list: if isOwner();
       allow create: if isOwner() && validSpace()
-                    && request.resource.data.createdAt == request.time;
-      allow update: if isOwner() && validSpace()
+                    && request.resource.data.createdAt == request.time
+                    && !('deletedAt' in request.resource.data);
+      allow update: if isOwner() && validSpace() && !marked()
                     && request.resource.data.createdAt == resource.data.createdAt
-                    && request.resource.data.schema >= resource.data.schema;
-      allow delete: if false;
+                    && request.resource.data.schema >= resource.data.schema
+                    && (!('deletedAt' in request.resource.data)
+                        || request.resource.data.deletedAt == request.time);
+      allow delete: if isOwner() && marked();
 
       match /{table}/{rowKey} {
         function syncedTable() {
@@ -225,9 +234,16 @@ service cloud.firestore {
               && d.pushedBy is string
               && (table != 'content_chunks' || validChunk());
         }
+        // A row of a live space leaves only as a tombstone, never as a
+        // missing document: a device that missed the delete would keep the
+        // row for good. One read of the space per request, however many rows
+        // the batch deletes.
+        function spaceMarked() {
+          return 'deletedAt' in get(/databases/$(database)/documents/users/$(owner)/spaces/$(spaceId)).data;
+        }
         allow get, list: if isOwner() && syncedTable();
         allow create, update: if isOwner() && syncedTable() && validEnvelope();
-        allow delete: if false;
+        allow delete: if isOwner() && syncedTable() && spaceMarked();
       }
     }
   }

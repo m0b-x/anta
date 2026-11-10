@@ -115,6 +115,13 @@ void main() {
     ));
   });
 
+  test('6b: a deleted space is a pause the user lifts, in error', () {
+    expect(lineOf(busy.copyWith(pause: SyncPause.spaceDeleted)), (
+      text: l10n.drawerSyncPausedSpaceDeleted,
+      isError: true,
+    ));
+  });
+
   test('7: a push says it is sending, without the count', () {
     expect(lineOf(busy), (text: l10n.syncSending(0), isError: false));
     expect(l10n.syncSending(0), 'Sending changes');
@@ -194,6 +201,11 @@ void main() {
         text: l10n.drawerSyncPausedNoAccess,
         isError: true,
       ), reason: activity.name);
+      expect(
+        lineOf(updating.copyWith(pause: SyncPause.spaceDeleted)),
+        (text: l10n.drawerSyncPausedSpaceDeleted, isError: true),
+        reason: activity.name,
+      );
       expect(
         lineOf(updating).text,
         l10n.drawerSyncUpdating(0, 120),

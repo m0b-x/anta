@@ -88,8 +88,9 @@ enum SyncGatewayFailure {
   /// The day's quota ran out: pause until it resets (D19).
   quotaExhausted,
 
-  /// The rules refused the call: the space is gone or another account's, the
-  /// app is older than the space's schema, or a row's shape is malformed.
+  /// The rules refused the call: the space is gone, marked for deletion or
+  /// another account's, the app is older than the space's schema, or a row's
+  /// shape is malformed.
   /// The engine tells these apart by reading the space (record §3.5).
   permissionDenied,
 
@@ -178,6 +179,11 @@ class SyncSpaceInfo extends Equatable {
   /// in the picker; null until something was pushed.
   final String? lastWriter;
 
+  /// The space was marked by [SyncGateway.markSpaceDeleted]: it takes no
+  /// more pushes and is on its way out, so it is never offered for binding —
+  /// only finished ([SyncGateway.deleteRows], then [SyncGateway.deleteSpace]).
+  final bool markedForDeletion;
+
   const SyncSpaceInfo({
     required this.ref,
     required this.name,
@@ -186,6 +192,7 @@ class SyncSpaceInfo extends Equatable {
     required this.schema,
     this.lastWriteAt,
     this.lastWriter,
+    this.markedForDeletion = false,
   });
 
   @override
@@ -197,6 +204,7 @@ class SyncSpaceInfo extends Equatable {
     schema,
     lastWriteAt,
     lastWriter,
+    markedForDeletion,
   ];
 }
 
@@ -218,15 +226,27 @@ class SyncSpaceSignal extends Equatable {
   final String? lastWriter;
   final int schema;
 
+  /// The space was marked by [SyncGateway.markSpaceDeleted] — `exists` stays
+  /// true until the space document itself is deleted — so a listener can
+  /// stop before a push is denied. Always false while `exists` is false.
+  final bool markedForDeletion;
+
   const SyncSpaceSignal({
     required this.exists,
     required this.touched,
     required this.lastWriter,
     required this.schema,
+    this.markedForDeletion = false,
   });
 
   @override
-  List<Object?> get props => [exists, touched, lastWriter, schema];
+  List<Object?> get props => [
+    exists,
+    touched,
+    lastWriter,
+    schema,
+    markedForDeletion,
+  ];
 }
 
 class SyncGatewayException implements Exception {
@@ -382,4 +402,61 @@ abstract interface class SyncGateway {
   /// the same stream never throws — on the error path least of all, where a
   /// retry may re-subscribe to the stream it already holds.
   Stream<SyncSpaceSignal> watchSpace(SyncSpaceRef space);
+
+  /// The first step of deleting a space (record cloud-multi-user-roadmap
+  /// §5.3): stamps it as marked with the server's time, after which
+  /// [readSpace], [listSpaces] and [watchSpace] report
+  /// `markedForDeletion`. It cannot be undone: a marked space refuses every
+  /// change of its document, so every [pushBatch] to it is
+  /// [SyncGatewayFailure.permissionDenied] whole, while [pullPage] and
+  /// [readRows] still answer. Only a marked space lets [deleteRows] and
+  /// [deleteSpace] through — the rules keep a live space's rows leaving by
+  /// tombstone alone.
+  ///
+  /// Completes normally when the space is already marked or no longer
+  /// exists, so a caller that lost a reply simply calls again. Never retried
+  /// inside the call — a repeat of a mark that landed would be refused as a
+  /// change of a marked space — so after a refusal or a failure that may
+  /// have landed (a timeout, a dropped link) it reads the space once and
+  /// answers by what the server shows: marked or gone completes, anything
+  /// else rethrows the original failure. Offline it fails as
+  /// [SyncGatewayFailure.offline] and nothing is marked.
+  Future<void> markSpaceDeleted(SyncSpaceRef space);
+
+  /// The most documents one [deleteRows] call deletes, and its default. The
+  /// rules `get()` the space document for every row delete, and Firestore
+  /// documents a limit of twenty document-access calls per multi-document
+  /// request; only the emulator was ever seen accepting more, and whether
+  /// the live service caches that `get()` across one request cannot be
+  /// verified from here, so the documented limit is the contract (record
+  /// cloud-multi-user-roadmap §5, review F9).
+  static const int rowDeleteBatch = 20;
+
+  /// Deletes up to [limit] documents of [table] — `limit ?? rowDeleteBatch`;
+  /// above [rowDeleteBatch] or below 1 is an [ArgumentError] — and answers
+  /// how many it deleted: one page read from the server, then one
+  /// all-or-nothing write of its deletes. 0 means the table reads empty,
+  /// which is when the caller moves on to the next table; anything else, it
+  /// calls again. A table's documents can be large (`content_chunks`, up to
+  /// 64 KB each), so a caller whose page timed out asks for a smaller
+  /// [limit] next.
+  ///
+  /// [SyncGatewayFailure.permissionDenied] when the table holds documents
+  /// and the space is not marked ([markSpaceDeleted]) or no longer exists;
+  /// an empty table answers 0 whatever the space's state, because nothing
+  /// was asked of the rules. The client cannot list a space's tables, so the
+  /// caller walks the registry, `content_chunks` included.
+  Future<int> deleteRows(SyncSpaceRef space, String table, {int? limit});
+
+  /// The last step of deleting a space: removes the space document, after
+  /// which [readSpace] answers null and [watchSpace] `exists: false`. It
+  /// deletes none of the rows — Firestore has no recursive delete — so the
+  /// caller empties every table with [deleteRows] first; a row left behind
+  /// can never be deleted by this app again, its space no longer marked.
+  ///
+  /// [SyncGatewayFailure.permissionDenied] when the space is not marked.
+  /// Completes normally when the document is already gone, and, like
+  /// [markSpaceDeleted], reads the space once after a refusal or a failure
+  /// that may have landed and completes when it is gone.
+  Future<void> deleteSpace(SyncSpaceRef space);
 }

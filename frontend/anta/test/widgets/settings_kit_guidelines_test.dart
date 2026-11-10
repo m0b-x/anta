@@ -169,10 +169,14 @@ void main() {
   /// of its own guideline only, so every other node is still judged, and is
   /// pinned failing somewhere in the walk, so the slice that fixes one sees
   /// that one pin flip.
+  ///
+  /// [judged] are rows, by semantics id, that some step of the walk must
+  /// show whole, so a row below the fold is proved judged, not assumed.
   Future<void> meetsAll(
     WidgetTester tester, {
     Finder? list,
     List<_Offender> offenders = const [],
+    List<String> judged = const [],
   }) async {
     // The settings bars' 42 dp pair left in S7; one coming back is a tap
     // target to judge, not an exception to excuse.
@@ -229,12 +233,23 @@ void main() {
         )
         .first;
     final position = tester.state<ScrollableState>(list).position;
+    final seenWhole = <String>{};
     while (true) {
       final at =
           'at ${position.pixels.round()} of '
           '${position.maxScrollExtent.round()}';
       for (final which in _Guideline.values) {
         await expectLater(tester, meetsGuideline(guideline(which)), reason: at);
+      }
+      final viewport = tester.getRect(list);
+      for (final id in judged) {
+        final row = find.bySemanticsIdentifier(id);
+        if (row.evaluate().isEmpty) continue;
+        final rect = tester.getRect(row);
+        if (rect.top >= viewport.top - 0.5 &&
+            rect.bottom <= viewport.bottom + 0.5) {
+          seenWhole.add(id);
+        }
       }
       for (final offender in offenders) {
         if (seenFailing.contains(offender)) continue;
@@ -253,6 +268,7 @@ void main() {
       );
       await tester.pump();
     }
+    expect(seenWhole, judged.toSet(), reason: 'rows the walk judged whole');
     for (final offender in offenders) {
       expect(
         seenFailing,
@@ -620,7 +636,17 @@ void main() {
         await settle(tester);
 
         expect(tester.takeException(), isNull);
-        await meetsAll(tester);
+        // The deletion rows sit last in the section, below the fold at 2.0
+        // (review S10): the walk must reach each one shown.
+        await meetsAll(
+          tester,
+          judged: [
+            if (state case SyncSignedIn(status: SyncStatus(binding: _?)))
+              SemanticsIds.sharingSyncDelete,
+            if (state case SyncSignedIn(pendingDeletions: [_, ...]))
+              SemanticsIds.sharingSyncFinishDelete,
+          ],
+        );
         await tester.pumpWidget(const SizedBox.shrink());
         handle.dispose();
       });
@@ -1386,6 +1412,26 @@ final _syncSectionStates = <(String, SyncState)>[
     const SyncSignedIn(
       userA,
       flow: SyncBindFailed(SyncBindFailure.permissionDenied),
+    ),
+  ),
+  (
+    'deleting the cloud copy',
+    SyncSignedIn(
+      userA,
+      status: SyncStatus(binding: _binding, lastPullAt: DateTime(2026, 3, 4)),
+      flow: const SyncBindDeleting(removed: 120),
+    ),
+  ),
+  (
+    'with a deletion to finish',
+    const SyncSignedIn(
+      userA,
+      pendingDeletions: [
+        SyncPendingDeletion(
+          space: SyncSpaceRef(ownerUid: 'uid-a', spaceId: 'space-9'),
+          spaceName: 'Phone',
+        ),
+      ],
     ),
   ),
 ];

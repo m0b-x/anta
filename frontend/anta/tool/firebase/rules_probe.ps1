@@ -1,5 +1,6 @@
 # Probes firestore.rules on the Firestore emulator through its REST API: the
-# allow/deny cases of the sync space (record cloud-sync-phase-02 §3.7, S5).
+# allow/deny cases of the sync space (record cloud-sync-phase-02 §3.7, S5)
+# and of its deletion (record cloud-multi-user-roadmap §5.6).
 #
 # A Windows convenience, not the coverage: the same cases run in the gate as
 # `test/firestore/rules_test.dart` (tag `firestore-rules`), which is what a
@@ -94,6 +95,23 @@ function Row([string]$owner, [string]$space, [string]$table, [string]$key, [hash
     if ($fixedPushedAt) { $fields['pushedAt'] = (Ts $fixedPushedAt) } else { $write.updateTransforms = @((ServerTime 'pushedAt')) }
     $write
 }
+
+# A mark as `markSpaceDeleted` sends it: an update, never a create, of
+# `deletedAt` alone, as the server's time unless [clientTime] is given.
+function Mark([string]$owner, [string]$space, [string]$clientTime = '') {
+    $write = @{
+        update          = @{ name = "$docRoot/users/$owner/spaces/$space"; fields = @{} }
+        updateMask      = @{ fieldPaths = @() }
+        currentDocument = @{ exists = $true }
+    }
+    if ($clientTime) {
+        $write.update.fields.deletedAt = (Ts $clientTime)
+        $write.updateMask.fieldPaths = @('deletedAt')
+    } else { $write.updateTransforms = @((ServerTime 'deletedAt')) }
+    $write
+}
+
+function Delete([string]$path) { @{ delete = "$docRoot/$path" } }
 
 function Invoke-Emulator([string]$method, [string]$uri, [string]$token, $body) {
     $headers = @{}
@@ -198,8 +216,47 @@ try {
     Case 'a chunk with gz over 64 KB' 'deny' (Commit $owner @((Row 'u1' 's1' 'content_chunks' 'h2' -set @{ data = (ChunkData 'h2' (Bytes 65537)) }), (SpaceMerge 'u1' 's1' 43 'content_chunks')))
     Case 'a chunk as a tombstone' 'deny' (Commit $owner @((Row 'u1' 's1' 'content_chunks' 'h3' -set @{ op = (Str 'tombstone'); data = (Nul) }), (SpaceMerge 'u1' 's1' 43 'content_chunks')))
     Case 'a chunk with gz not bytes' 'deny' (Commit $owner @((Row 'u1' 's1' 'content_chunks' 'h4' -set @{ data = (ChunkData 'h4' (Str 'text')) }), (SpaceMerge 'u1' 's1' 43 'content_chunks')))
-    # Last: it raises the stored schema to 44.
+    # Last of s1: it raises the stored schema to 44.
     Case 'a space merge at a higher schema' 'allow' (Commit $owner @((Row 'u1' 's1' 'folders' 'f10'), (SpaceMerge 'u1' 's1' 44)))
+
+    # Deleting a space: marked, emptied, removed — in this order, on d1.
+    $doomed = 'users/u1/spaces/d1'
+    Case 'owner creates a space to delete' 'allow' (Commit $owner @(@{
+                update           = @{ name = "$docRoot/$doomed"; fields = @{ name = (Str 'Old'); createdBy = (Str 'A'); schema = (Int 43) } }
+                updateTransforms = @((ServerTime 'createdAt'))
+            }))
+    Case 'owner pushes a row to the space to delete' 'allow' (Commit $owner @((Row 'u1' 'd1' 'folders' 'f1'), (SpaceMerge 'u1' 'd1' 43)))
+    # A whole page of deletes later: twenty rows, as SyncGateway.rowDeleteBatch.
+    $twenty = @(0..19 | ForEach-Object { 'p{0:D2}' -f $_ })
+    Case 'owner pushes twenty rows to the space to delete' 'allow' (Commit $owner (@($twenty | ForEach-Object { Row 'u1' 'd1' 'folders' $_ }) + @((SpaceMerge 'u1' 'd1' 43))))
+    Case 'a row of an unmarked space cannot be deleted' 'deny' (Commit $owner @((Delete "$doomed/folders/f1")))
+    Case 'an unmarked space cannot be deleted' 'deny' (Commit $owner @((Delete $doomed)))
+    Case 'a space created already marked' 'deny' (Commit $owner @(@{
+                update           = @{ name = "$docRoot/users/u1/spaces/d2"; fields = @{ name = (Str 'Gone'); createdBy = (Str 'A'); schema = (Int 43) } }
+                updateTransforms = @((ServerTime 'createdAt'), (ServerTime 'deletedAt'))
+            }))
+    Case 'a stranger marks the space' 'deny' (Commit $stranger @((Mark 'u1' 'd1')))
+    Case 'a mark at a client time' 'deny' (Commit $owner @((Mark 'u1' 'd1' '2026-01-01T00:00:00Z')))
+    Case 'the owner marks the space' 'allow' (Commit $owner @((Mark 'u1' 'd1')))
+    Case 'a second mark' 'deny' (Commit $owner @((Mark 'u1' 'd1')))
+    Case 'a push to a marked space' 'deny' (Commit $owner @((Row 'u1' 'd1' 'folders' 'f2'), (SpaceMerge 'u1' 'd1' 43)))
+    Case 'the mark removed' 'deny' (Commit $owner @(@{
+                update     = @{ name = "$docRoot/$doomed"; fields = @{} }
+                updateMask = @{ fieldPaths = @('deletedAt') }
+            }))
+    Case 'a stranger deletes a row of a marked space' 'deny' (Commit $stranger @((Delete "$doomed/folders/f1")))
+    Case 'a row of an unknown table under a marked space' 'deny' (Commit $owner @((Delete "$doomed/secrets/x1")))
+    # f8 is the row the INFO case above left under a space that never existed.
+    Case 'a row under a missing space' 'deny' (Commit $owner @((Delete 'users/u1/spaces/missing/folders/f8')))
+    Case 'the owner deletes a row of a marked space' 'allow' (Commit $owner @((Delete "$doomed/folders/f1")))
+    # One commit, one rules get() of the space per delete (review F9).
+    Case 'the owner deletes twenty rows of a marked space in one commit' 'allow' (Commit $owner @($twenty | ForEach-Object { Delete "$doomed/folders/$_" }))
+    # What makes a repeated delete of a page safe to retry.
+    Case 'a row already gone under a marked space' 'allow' (Commit $owner @((Delete "$doomed/folders/f1")))
+    Case 'a stranger deletes the marked space' 'deny' (Commit $stranger @((Delete $doomed)))
+    Case 'the owner deletes the marked space' 'allow' (Commit $owner @((Delete $doomed)))
+    # A space already gone has no mark to read; the gateway reads it instead.
+    Case 'a space already gone' 'deny' (Commit $owner @((Delete $doomed)))
 }
 finally {
     if ($emulator -and -not $emulator.HasExited) {

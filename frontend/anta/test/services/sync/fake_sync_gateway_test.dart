@@ -370,7 +370,7 @@ void main() {
     final subscription = gateway.watchSpace(space).listen(signals.add);
     await pumpEventQueue();
 
-    gateway.deleteSpace(space);
+    gateway.consoleDeleteSpace(space);
     await pumpEventQueue();
     await subscription.cancel();
 
@@ -654,5 +654,174 @@ void main() {
       schema: 43,
     );
     expect(emoji.name.runes.length, 60);
+  });
+
+  // The deletion's remote contract (record cloud-multi-user-roadmap §5.3),
+  // as `firestore.rules` judges it in test/firestore/rules_test.dart.
+  group('deleting a space', () {
+    test('a mark is reported everywhere and a second one is a no-op', () async {
+      expect(created.markedForDeletion, isFalse);
+      final signals = <SyncSpaceSignal>[];
+      final subscription = gateway.watchSpace(space).listen(signals.add);
+      await pumpEventQueue();
+
+      await gateway.markSpaceDeleted(space);
+      final marked = (await gateway.readSpace(space))!;
+      await gateway.markSpaceDeleted(space);
+      await pumpEventQueue();
+      await subscription.cancel();
+
+      expect(marked.markedForDeletion, isTrue);
+      expect(await gateway.readSpace(space), marked);
+      expect(await gateway.listSpaces('owner'), [marked]);
+      expect(signals.map((s) => s.markedForDeletion), [false, true]);
+      expect(signals.last.exists, isTrue);
+      expect(gateway.calls, ['mark', 'mark']);
+    });
+
+    test(
+      'marking a space that does not exist completes and creates nothing',
+      () async {
+        await gateway.markSpaceDeleted(other);
+
+        expect(await gateway.readSpace(other), isNull);
+        expect(await gateway.listSpaces('owner'), [created]);
+      },
+    );
+
+    test(
+      'a push to a marked space is denied whole; pulls still answer',
+      () async {
+        await push([envelope('a', 1)]);
+        await gateway.markSpaceDeleted(space);
+
+        await expectLater(
+          push([envelope('b', 2), envelope('n', 3, table: 'notes')]),
+          failsWith(SyncGatewayFailure.permissionDenied),
+        );
+
+        expect(gateway.rowsOf(space, 'folders').keys, ['a']);
+        expect(gateway.rowsOf(space, 'notes'), isEmpty);
+        expect(gateway.pushes, hasLength(1));
+        expect((await gateway.pullPage(space, 'folders')).envelopes, [
+          envelope('a', 1),
+        ]);
+        expect((await gateway.readRows(space, 'folders', ['a'])).envelopes, [
+          envelope('a', 1),
+        ]);
+      },
+    );
+
+    test(
+      'rows of an unmarked space are refused; an empty table answers 0',
+      () async {
+        await push([envelope('a', 1)]);
+
+        await expectLater(
+          gateway.deleteRows(space, 'folders'),
+          failsWith(SyncGatewayFailure.permissionDenied),
+        );
+        expect(gateway.rowsOf(space, 'folders').keys, ['a']);
+        expect(await gateway.deleteRows(space, 'notes'), 0);
+      },
+    );
+
+    test('rows go in pages of the limit until the table reads empty', () async {
+      await push([for (var i = 1; i <= 7; i++) envelope('r$i', i)]);
+      await push([envelope('n', 8, table: 'notes')]);
+      await gateway.markSpaceDeleted(space);
+
+      final counts = [
+        for (var i = 0; i < 4; i++)
+          await gateway.deleteRows(space, 'folders', limit: 3),
+      ];
+
+      expect(counts, [3, 3, 1, 0]);
+      expect(gateway.rowsOf(space, 'folders'), isEmpty);
+      expect(gateway.rowsOf(space, 'notes').keys, ['n']);
+      expect(await gateway.deleteRows(space, 'notes'), 1);
+    });
+
+    test('a limit outside 1..rowDeleteBatch is a programming error, and '
+        'rowDeleteBatch is the default page', () async {
+      await push([for (var i = 1; i <= 25; i++) envelope('r$i', i)]);
+      await gateway.markSpaceDeleted(space);
+
+      for (final limit in [0, SyncGateway.rowDeleteBatch + 1]) {
+        await expectLater(
+          gateway.deleteRows(space, 'folders', limit: limit),
+          throwsArgumentError,
+        );
+      }
+      expect(gateway.rowsOf(space, 'folders'), hasLength(25));
+      expect(await gateway.deleteRows(space, 'folders'), 20);
+      expect(await gateway.deleteRows(space, 'folders'), 5);
+    });
+
+    test('the space document goes only once marked, and only once', () async {
+      final signals = <SyncSpaceSignal>[];
+      final subscription = gateway.watchSpace(space).listen(signals.add);
+      await pumpEventQueue();
+
+      await expectLater(
+        gateway.deleteSpace(space),
+        failsWith(SyncGatewayFailure.permissionDenied),
+      );
+      expect(await gateway.readSpace(space), isNotNull);
+
+      await gateway.markSpaceDeleted(space);
+      await gateway.deleteSpace(space);
+      await gateway.deleteSpace(space);
+      await pumpEventQueue();
+      await subscription.cancel();
+
+      expect(await gateway.readSpace(space), isNull);
+      expect(await gateway.listSpaces('owner'), isEmpty);
+      expect(signals.last.exists, isFalse);
+      expect(signals.last.markedForDeletion, isFalse);
+      expect((await gateway.watchSpace(space).first).exists, isFalse);
+      await expectLater(
+        push([envelope('a', 1)]),
+        failsWith(SyncGatewayFailure.permissionDenied),
+      );
+    });
+
+    test(
+      'a scripted failure on each step throws once and changes nothing',
+      () async {
+        await push([envelope('a', 1)]);
+
+        gateway.failNextWith(SyncGatewayFailure.offline);
+        await expectLater(
+          gateway.markSpaceDeleted(space),
+          failsWith(SyncGatewayFailure.offline),
+        );
+        expect((await gateway.readSpace(space))!.markedForDeletion, isFalse);
+        await gateway.markSpaceDeleted(space);
+
+        gateway.failNextWithException(const SyncGatewayException.timedOut());
+        await expectLater(
+          gateway.deleteRows(space, 'folders'),
+          throwsA(
+            isA<SyncGatewayException>().having(
+              (e) => e.timedOut,
+              'timedOut',
+              true,
+            ),
+          ),
+        );
+        expect(gateway.rowsOf(space, 'folders').keys, ['a']);
+        expect(await gateway.deleteRows(space, 'folders'), 1);
+
+        gateway.failNextWith(SyncGatewayFailure.quotaExhausted);
+        await expectLater(
+          gateway.deleteSpace(space),
+          failsWith(SyncGatewayFailure.quotaExhausted),
+        );
+        expect(await gateway.readSpace(space), isNotNull);
+        await gateway.deleteSpace(space);
+        expect(await gateway.readSpace(space), isNull);
+      },
+    );
   });
 }

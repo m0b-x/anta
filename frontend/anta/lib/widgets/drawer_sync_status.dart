@@ -5,7 +5,7 @@ import '../services/sync/sync_status.dart';
 import '../utils/sync_moment_format.dart';
 
 /// The drawer account row's one status line, and whether it is drawn in the
-/// error colour: only the three pauses the user has to lift are (§12 (e) of
+/// error colour: only the pauses the user has to lift are (§12 (e) of
 /// `docs/cloud-sync-phase-02-own-space.md`).
 ///
 /// The order is the Sync section's — a pause outranks a run, and a run the
@@ -47,6 +47,8 @@ import '../utils/sync_moment_format.dart';
       return (text: l10n.drawerSyncPausedAppOutdated, isError: true);
     case SyncPause.noAccess:
       return (text: l10n.drawerSyncPausedNoAccess, isError: true);
+    case SyncPause.spaceDeleted:
+      return (text: l10n.drawerSyncPausedSpaceDeleted, isError: true);
     case SyncPause.none:
       break;
   }

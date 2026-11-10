@@ -4676,7 +4676,7 @@ class AppLocalizationsRo extends AppLocalizations {
 
   @override
   String get syncKeywords =>
-      'cloud, sincronizare, dispozitive, telefon, tabletă, spațiu, unire, descărcare, încărcare, stare, offline, oprire, automat, manual';
+      'cloud, sincronizare, dispozitive, telefon, tabletă, spațiu, unire, descărcare, încărcare, stare, offline, oprire, automat, manual, ștergere';
 
   @override
   String get syncThisDatabase => 'Sincronizează această bază de date';
@@ -4803,6 +4803,10 @@ class AppLocalizationsRo extends AppLocalizations {
       'În pauză — copia din cloud nu poate fi accesată';
 
   @override
+  String get syncPausedSpaceDeleted =>
+      'În pauză — copia din cloud a fost ștearsă';
+
+  @override
   String get drawerAccountNotSyncing => 'Nu se sincronizează';
 
   @override
@@ -4821,6 +4825,9 @@ class AppLocalizationsRo extends AppLocalizations {
 
   @override
   String get drawerSyncPausedNoAccess => 'În pauză — fără acces';
+
+  @override
+  String get drawerSyncPausedSpaceDeleted => 'În pauză — copia ștearsă';
 
   @override
   String get drawerSyncRetrying => 'Eșuat — se reîncearcă';
@@ -5024,6 +5031,74 @@ class AppLocalizationsRo extends AppLocalizations {
       'Sincronizarea nu a putut fi oprită — încearcă din nou';
 
   @override
+  String get syncStopConfirmBodyDeleted =>
+      'Copia din cloud a acestei baze de date a fost ștearsă. Acest dispozitiv păstrează tot și nu mai încearcă să sincronizeze.';
+
+  @override
+  String get syncDeleteCloud => 'Șterge copia din cloud';
+
+  @override
+  String get syncDeleteCloudDesc =>
+      'O elimină din contul tău. Acest dispozitiv păstrează tot.';
+
+  @override
+  String syncDeleteCloudProgress(int count) {
+    final intl.NumberFormat countNumberFormat =
+        intl.NumberFormat.decimalPattern(localeName);
+    final String countString = countNumberFormat.format(count);
+
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Se șterge — $countString de elemente eliminate',
+      few: 'Se șterge — $countString elemente eliminate',
+      one: 'Se șterge — un element eliminat',
+      zero: 'Se șterge…',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get syncDeleteCloudConfirmTitle =>
+      'Ștergi copia din cloud a acestei baze de date?';
+
+  @override
+  String get syncDeleteCloudConfirmBody =>
+      'Copia este eliminată definitiv din contul tău, iar această bază de date nu mai sincronizează. Nimic nu se șterge de pe acest dispozitiv. Celelalte dispozitive păstrează ce au și nu mai sincronizează nici ele.';
+
+  @override
+  String get syncDeleteCloudConfirmAction => 'Șterge copia din cloud';
+
+  @override
+  String get syncDeleteCloudDone => 'Copia din cloud a fost ștearsă';
+
+  @override
+  String get syncDeleteCloudFinish => 'Termină ștergerea';
+
+  @override
+  String syncDeleteCloudFinishDesc(String space) {
+    return 'Șters doar parțial din contul tău: „$space”';
+  }
+
+  @override
+  String syncDeleteCloudFinishMany(int count) {
+    final intl.NumberFormat countNumberFormat =
+        intl.NumberFormat.decimalPattern(localeName);
+    final String countString = countNumberFormat.format(count);
+
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other:
+          '$countString de copii din cloud sunt șterse doar parțial din contul tău',
+      few:
+          '$countString copii din cloud sunt șterse doar parțial din contul tău',
+      one: 'O copie din cloud este ștearsă doar parțial din contul tău',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get syncPickerSpaces => 'Spații în cloud';
 
   @override
@@ -5083,6 +5158,10 @@ class AppLocalizationsRo extends AppLocalizations {
   @override
   String get syncFailedSpaceGone =>
       'Acel spațiu din cloud nu mai există — alege altul sau încarcă această bază de date ca spațiu nou';
+
+  @override
+  String get syncFailedAppOutdated =>
+      'O versiune mai nouă de ANTA a scris în această copie din cloud — actualizează mai întâi aplicația';
 
   @override
   String get syncFailedSuspended =>
@@ -10864,5 +10943,13 @@ class AppLocalizationsRo extends AppLocalizations {
   @override
   String appGuideSyncStopBody(String syncStop, String signOut) {
     return '„$syncStop” îți lasă notițele pe acest telefon și încetează să trimită și să primească; copia din contul tău rămâne. „$signOut” pune pe pauză sincronizarea pentru fiecare bază de date până te conectezi din nou.';
+  }
+
+  @override
+  String get appGuideSyncDeleteTitle => 'Ștergerea copiei din cloud';
+
+  @override
+  String appGuideSyncDeleteBody(String delete) {
+    return '„$delete” elimină definitiv baza de date din contul tău. Rămâne pe acest telefon, care nu o mai sincronizează; celelalte dispozitive o păstrează pe a lor și se opresc și ele.';
   }
 }

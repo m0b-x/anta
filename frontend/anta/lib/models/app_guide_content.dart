@@ -242,6 +242,12 @@ enum AppGuideTopic implements GuideTopic {
         l10n.appGuideSyncStopTitle,
         l10n.appGuideSyncStopBody(l10n.syncStop, l10n.signOut),
       ),
+      CalendarGuideRow(
+        'sync-delete',
+        Icons.delete_forever_outlined,
+        l10n.appGuideSyncDeleteTitle,
+        l10n.appGuideSyncDeleteBody(l10n.syncDeleteCloud),
+      ),
     ],
   };
 }

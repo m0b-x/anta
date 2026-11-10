@@ -5726,7 +5726,7 @@
   "@syncSection": {
     "description": "Sharing page section that syncs this database with the account's other devices"
   },
-  "syncKeywords": "cloud, sync, devices, phone, tablet, space, merge, download, upload, status, offline, stop, automatic, manual",
+  "syncKeywords": "cloud, sync, devices, phone, tablet, space, merge, download, upload, status, offline, stop, automatic, manual, delete",
   "@syncKeywords": {
     "description": "Comma-separated hidden search synonyms for the Sync section of the sharing settings"
   },
@@ -5858,7 +5858,11 @@
   },
   "syncPausedNoAccess": "Paused — the cloud copy can't be reached",
   "@syncPausedNoAccess": {
-    "description": "Sync status: the cloud copy is gone or this account may not read it"
+    "description": "Sync status: this account may not read or write the cloud copy"
+  },
+  "syncPausedSpaceDeleted": "Paused — the cloud copy was deleted",
+  "@syncPausedSpaceDeleted": {
+    "description": "Sync status: the cloud copy this database synced with was deleted, from this account's other device or the console"
   },
   "drawerAccountNotSyncing": "Not syncing",
   "@drawerAccountNotSyncing": {
@@ -5888,7 +5892,11 @@
   },
   "drawerSyncPausedNoAccess": "Paused — no access",
   "@drawerSyncPausedNoAccess": {
-    "description": "Status line of the drawer's account row, short: the cloud copy is gone or this account may not read it"
+    "description": "Status line of the drawer's account row, short: this account may not read or write the cloud copy"
+  },
+  "drawerSyncPausedSpaceDeleted": "Paused — cloud copy deleted",
+  "@drawerSyncPausedSpaceDeleted": {
+    "description": "Status line of the drawer's account row, short: the cloud copy this database synced with was deleted"
   },
   "drawerSyncRetrying": "Couldn't sync — will retry",
   "@drawerSyncRetrying": {
@@ -6069,6 +6077,67 @@
   "@syncStopFailed": {
     "description": "Error when stopping sync failed for an unknown reason"
   },
+  "syncStopConfirmBodyDeleted": "This database's cloud copy was deleted. This device keeps everything and stops trying to sync.",
+  "@syncStopConfirmBodyDeleted": {
+    "description": "Body of the dialog confirming Stop syncing while sync is paused because the cloud copy was deleted from another device"
+  },
+  "syncDeleteCloud": "Delete cloud copy",
+  "@syncDeleteCloud": {
+    "description": "Last row of the Sync section of a syncing database: removes the database's copy from the cloud account for good; nothing on the device is deleted"
+  },
+  "syncDeleteCloudDesc": "Removes it from your account. This device keeps everything.",
+  "@syncDeleteCloudDesc": {
+    "description": "Subtitle of the Delete cloud copy row"
+  },
+  "syncDeleteCloudProgress": "{count, plural, =0{Deleting…} =1{Deleting — 1 item removed} other{Deleting — {count} items removed}}",
+  "@syncDeleteCloudProgress": {
+    "description": "Subtitle of the Delete cloud copy and Finish deleting rows while the cloud copy is being deleted, with the items removed so far; at zero, before the first items are gone, it only says the deletion is running",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "format": "decimalPattern"
+      }
+    }
+  },
+  "syncDeleteCloudConfirmTitle": "Delete this database's cloud copy?",
+  "@syncDeleteCloudConfirmTitle": {
+    "description": "Title of the dialog confirming Delete cloud copy"
+  },
+  "syncDeleteCloudConfirmBody": "The copy is removed from your account for good, and this database stops syncing. Nothing is deleted on this device. Your other devices keep what they hold and stop syncing too.",
+  "@syncDeleteCloudConfirmBody": {
+    "description": "Body of the dialog confirming Delete cloud copy"
+  },
+  "syncDeleteCloudConfirmAction": "Delete cloud copy",
+  "@syncDeleteCloudConfirmAction": {
+    "description": "Destructive confirm button of the Delete cloud copy dialog"
+  },
+  "syncDeleteCloudDone": "Cloud copy deleted",
+  "@syncDeleteCloudDone": {
+    "description": "Announced to screen readers when deleting a cloud copy has finished"
+  },
+  "syncDeleteCloudFinish": "Finish deleting",
+  "@syncDeleteCloudFinish": {
+    "description": "Row in the Sync section of a database that does not sync, shown while deleting a cloud copy was cut short: finishes the deletion"
+  },
+  "syncDeleteCloudFinishDesc": "Partly deleted from your account: “{space}”",
+  "@syncDeleteCloudFinishDesc": {
+    "description": "Subtitle of the Finish deleting row, naming the cloud space whose deletion was cut short; the name goes last so a long one is the part an ellipsis cuts",
+    "placeholders": {
+      "space": {
+        "type": "String"
+      }
+    }
+  },
+  "syncDeleteCloudFinishMany": "{count, plural, =1{1 cloud copy is partly deleted from your account} other{{count} cloud copies are partly deleted from your account}}",
+  "@syncDeleteCloudFinishMany": {
+    "description": "Subtitle of the Finish deleting row when the deletions of several cloud spaces were cut short: says how many instead of naming one",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "format": "decimalPattern"
+      }
+    }
+  },
   "syncPickerSpaces": "Cloud spaces",
   "@syncPickerSpaces": {
     "description": "Section label over the account's cloud spaces in the sheet that picks one"
@@ -6153,6 +6222,10 @@
   "syncFailedSpaceGone": "That cloud space no longer exists — pick another, or upload this database as a new space",
   "@syncFailedSpaceGone": {
     "description": "Downloading a cloud space failed because the space was deleted from the cloud since the picker listed it"
+  },
+  "syncFailedAppOutdated": "A newer ANTA wrote to this cloud copy — update the app first",
+  "@syncFailedAppOutdated": {
+    "description": "Deleting the cloud copy failed before anything changed: a newer version of the app wrote to it, and this version may not know all of its data"
   },
   "syncFailedSuspended": "A restore is running — try again when it finishes",
   "@syncFailedSuspended": {
@@ -13329,6 +13402,15 @@
         "type": "String"
       },
       "signOut": {
+        "type": "String"
+      }
+    }
+  },
+  "appGuideSyncDeleteTitle": "Deleting the cloud copy",
+  "appGuideSyncDeleteBody": "“{delete}” removes the database from your account for good. It stays on this phone, which stops syncing it; your other devices keep theirs and stop too.",
+  "@appGuideSyncDeleteBody": {
+    "placeholders": {
+      "delete": {
         "type": "String"
       }
     }

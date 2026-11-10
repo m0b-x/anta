@@ -25,9 +25,15 @@ enum SyncPause {
   /// suspended with a visible reason, never re-owned (D3 ii).
   accountMismatch,
 
-  /// The space is gone, or the rules refused this account: nothing is
-  /// pulled or pushed until the next sign-in or launch.
+  /// The rules refused this account: nothing is pulled or pushed until the
+  /// next sign-in or launch.
   noAccess,
+
+  /// The space was marked for deletion or no longer exists — deleted from
+  /// another device or the console. It holds as [noAccess] does and the
+  /// engine never unbinds the database itself: "Stop syncing" is the way
+  /// out (record D1, §5.2 d).
+  spaceDeleted,
 
   /// The space was written by a newer app schema than this build knows; the
   /// rules refuse its writes by design until the app is updated.

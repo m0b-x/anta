@@ -4594,7 +4594,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get syncKeywords =>
-      'cloud, sync, devices, phone, tablet, space, merge, download, upload, status, offline, stop, automatic, manual';
+      'cloud, sync, devices, phone, tablet, space, merge, download, upload, status, offline, stop, automatic, manual, delete';
 
   @override
   String get syncThisDatabase => 'Sync this database';
@@ -4716,6 +4716,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get syncPausedNoAccess => 'Paused — the cloud copy can\'t be reached';
 
   @override
+  String get syncPausedSpaceDeleted => 'Paused — the cloud copy was deleted';
+
+  @override
   String get drawerAccountNotSyncing => 'Not syncing';
 
   @override
@@ -4734,6 +4737,9 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get drawerSyncPausedNoAccess => 'Paused — no access';
+
+  @override
+  String get drawerSyncPausedSpaceDeleted => 'Paused — cloud copy deleted';
 
   @override
   String get drawerSyncRetrying => 'Couldn\'t sync — will retry';
@@ -4918,6 +4924,70 @@ class AppLocalizationsEn extends AppLocalizations {
   String get syncStopFailed => 'Syncing couldn\'t be stopped — try again';
 
   @override
+  String get syncStopConfirmBodyDeleted =>
+      'This database\'s cloud copy was deleted. This device keeps everything and stops trying to sync.';
+
+  @override
+  String get syncDeleteCloud => 'Delete cloud copy';
+
+  @override
+  String get syncDeleteCloudDesc =>
+      'Removes it from your account. This device keeps everything.';
+
+  @override
+  String syncDeleteCloudProgress(int count) {
+    final intl.NumberFormat countNumberFormat =
+        intl.NumberFormat.decimalPattern(localeName);
+    final String countString = countNumberFormat.format(count);
+
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Deleting — $countString items removed',
+      one: 'Deleting — 1 item removed',
+      zero: 'Deleting…',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get syncDeleteCloudConfirmTitle =>
+      'Delete this database\'s cloud copy?';
+
+  @override
+  String get syncDeleteCloudConfirmBody =>
+      'The copy is removed from your account for good, and this database stops syncing. Nothing is deleted on this device. Your other devices keep what they hold and stop syncing too.';
+
+  @override
+  String get syncDeleteCloudConfirmAction => 'Delete cloud copy';
+
+  @override
+  String get syncDeleteCloudDone => 'Cloud copy deleted';
+
+  @override
+  String get syncDeleteCloudFinish => 'Finish deleting';
+
+  @override
+  String syncDeleteCloudFinishDesc(String space) {
+    return 'Partly deleted from your account: “$space”';
+  }
+
+  @override
+  String syncDeleteCloudFinishMany(int count) {
+    final intl.NumberFormat countNumberFormat =
+        intl.NumberFormat.decimalPattern(localeName);
+    final String countString = countNumberFormat.format(count);
+
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$countString cloud copies are partly deleted from your account',
+      one: '1 cloud copy is partly deleted from your account',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get syncPickerSpaces => 'Cloud spaces';
 
   @override
@@ -4977,6 +5047,10 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get syncFailedSpaceGone =>
       'That cloud space no longer exists — pick another, or upload this database as a new space';
+
+  @override
+  String get syncFailedAppOutdated =>
+      'A newer ANTA wrote to this cloud copy — update the app first';
 
   @override
   String get syncFailedSuspended =>
@@ -10625,5 +10699,13 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String appGuideSyncStopBody(String syncStop, String signOut) {
     return '“$syncStop” leaves your notes on this phone and stops sending and receiving; the copy in your account stays. “$signOut” pauses sync for every database until you sign in again.';
+  }
+
+  @override
+  String get appGuideSyncDeleteTitle => 'Deleting the cloud copy';
+
+  @override
+  String appGuideSyncDeleteBody(String delete) {
+    return '“$delete” removes the database from your account for good. It stays on this phone, which stops syncing it; your other devices keep theirs and stop too.';
   }
 }

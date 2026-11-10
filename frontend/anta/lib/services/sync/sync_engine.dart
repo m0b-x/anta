@@ -78,9 +78,13 @@ enum SyncRunSkip {
   /// runs until the app is updated.
   appOutdated,
 
-  /// The space is gone or no longer readable by this account; nothing runs
-  /// until the next sign-in or launch.
+  /// The space is no longer readable by this account; nothing runs until
+  /// the next sign-in or launch.
   noAccess,
+
+  /// The space was marked for deletion or is gone; it holds as [noAccess]
+  /// does.
+  spaceDeleted,
 
   /// The initial merge is still pending and the run pulls nothing — the
   /// background drain: a push before the floor pull would put the pre-bind
@@ -306,18 +310,24 @@ class SyncEngine {
 
   SyncActivity _activity = SyncActivity.idle;
 
-  /// The pauses the engine decides: `noAccess`, `appOutdated` and
-  /// `quotaExhausted`; the status service decides the account ones.
+  /// The pauses the engine decides: `noAccess`, `spaceDeleted`,
+  /// `appOutdated` and `quotaExhausted`; the status service decides the
+  /// account ones.
   SyncPause _pause = SyncPause.none;
 
-  /// Whether one read of the space may lift a `noAccess` pause: a space gone
-  /// or unreadable may come back, while rules that refused too many rows are
-  /// not disproved by a readable space.
+  /// Whether one read of the space may lift a `noAccess` or `spaceDeleted`
+  /// pause: a space gone or unreadable may come back, while rules that
+  /// refused too many rows are not disproved by a readable space.
   bool _accessRecheckable = false;
 
   /// Set by a resume and by "Sync now": the next gate reads the space once
-  /// before it believes a `noAccess` pause (record §3.3).
+  /// before it believes a `noAccess` or `spaceDeleted` pause (record §3.3).
   bool _recheckAccess = false;
+
+  /// Whether the gate of the run in flight lifted a pause on a read of the
+  /// space it made ([_regainsAccess]): under the manual cadence that read
+  /// is the run's look at the space, never a second one ([_confirmSpace]).
+  bool _spaceReadByGate = false;
 
   /// Whether the quota pause still blocks runs: its retry, a resume and
   /// "Sync now" lift it, while [_pause] stays until a call succeeds.
@@ -718,8 +728,8 @@ class SyncEngine {
   }
 
   /// Pulls every table, then drains — "Sync now". Lifts a quota hold: the
-  /// user asked, so the space is tried once more; a `noAccess` pause is
-  /// re-checked with one read of the space. A request during a run is served
+  /// user asked, so the space is tried once more; a `noAccess` or
+  /// `spaceDeleted` pause is re-checked with one read of the space. A request during a run is served
   /// by the one run that follows it.
   ///
   /// The parks are tried again on the way, as a start tries them: the
@@ -788,7 +798,7 @@ class SyncEngine {
 
   /// The app came back: the signal is followed again, skipping whatever
   /// back-off or quota wait was pending, after one read of the space when a
-  /// `noAccess` pause holds. Unless started, only the foreground is noted.
+  /// `noAccess` or `spaceDeleted` pause holds. Unless started, only the foreground is noted.
   ///
   /// A quiet resume — no pause, no failure waiting for its retry — pulls
   /// only the tables the space's snapshot says moved, so an idle return
@@ -961,6 +971,7 @@ class SyncEngine {
     }
 
     try {
+      _spaceReadByGate = false;
       final (binding, skip) = await _gate();
       if (binding == null) {
         if (skip != SyncRunSkip.suspended) _detachSignal();
@@ -970,6 +981,12 @@ class SyncEngine {
       // the run in flight when the cadence turned manual — reaches nothing.
       if (!_autoRuns && !request.asked) {
         return report(skipped: SyncRunSkip.manual);
+      }
+      if (!_autoRuns && !_spaceReadByGate) {
+        final confirmed = await _confirmSpace(binding);
+        if (confirmed != null) {
+          return SyncRunReport(skipped: confirmed, resumeFallbacks: fallbacks);
+        }
       }
       reached = true;
       if (_started && _foreground && _autoRuns) {
@@ -1142,8 +1159,13 @@ class SyncEngine {
       return (null, SyncRunSkip.accountMismatch);
     }
     if (SyncSuspension.isSuspended) return (null, SyncRunSkip.suspended);
-    if (_pause == SyncPause.noAccess && !await _regainsAccess(binding)) {
-      return (null, SyncRunSkip.noAccess);
+    if (_accessLost && !await _regainsAccess(binding)) {
+      return (
+        null,
+        _pause == SyncPause.spaceDeleted
+            ? SyncRunSkip.spaceDeleted
+            : SyncRunSkip.noAccess,
+      );
     }
     if (_pause == SyncPause.appOutdated) {
       return (null, SyncRunSkip.appOutdated);
@@ -1152,11 +1174,17 @@ class SyncEngine {
     return (binding, null);
   }
 
-  /// Whether a `noAccess` pause lifts now: only when a resume or "Sync now"
-  /// asked and the pause is one a readable space disproves — then one
-  /// [SyncGateway.readSpace]; a space that answers lifts it, a missing one or
-  /// any failure keeps it. A transient refusal must not hold sync until the
-  /// next sign-in or launch (record §3.3).
+  /// Whether the engine holds a `noAccess` or `spaceDeleted` pause — the two
+  /// that one read of the space settles ([_regainsAccess]).
+  bool get _accessLost =>
+      _pause == SyncPause.noAccess || _pause == SyncPause.spaceDeleted;
+
+  /// Whether a `noAccess` or `spaceDeleted` pause lifts now: only when a
+  /// resume or "Sync now" asked and the pause is one a readable space
+  /// disproves — then one [SyncGateway.readSpace], and the pause becomes
+  /// what it shows: a live space lifts it, a missing or marked one is
+  /// `spaceDeleted`, any failure keeps it. A transient refusal must not hold
+  /// sync until the next sign-in or launch (record §3.3).
   Future<bool> _regainsAccess(SyncBinding binding) async {
     if (!_recheckAccess || !_accessRecheckable) return false;
     _recheckAccess = false;
@@ -1166,7 +1194,10 @@ class SyncEngine {
     } on SyncGatewayException {
       return false;
     }
-    if (info == null) return false;
+    if (info == null || info.markedForDeletion) {
+      _pause = SyncPause.spaceDeleted;
+      return false;
+    }
     // A space written by a newer build reads fine and denies every write:
     // lifting the pause here would burn a whole pull and a push on every
     // resume before the diagnosis says so (A4 review R88).
@@ -1175,7 +1206,34 @@ class SyncEngine {
       return false;
     }
     _pause = SyncPause.none;
+    _spaceReadByGate = true;
     return true;
+  }
+
+  /// Under [SyncCadence.manual] no signal follows the space, so a run the
+  /// user asked for reads it once first, or a space marked or removed by
+  /// another device would go on pulling as if live (record D1, review F1).
+  /// Settles as [_regainsAccess] does: missing or marked is
+  /// `spaceDeleted`, a newer schema `appOutdated` — the skip returned, the
+  /// pause held; a live space is null and the run goes on. A failed read is
+  /// null too: the run meets the same failure on its first call and reports
+  /// it as it always has.
+  Future<SyncRunSkip?> _confirmSpace(SyncBinding binding) async {
+    final SyncSpaceInfo? info;
+    try {
+      info = await _gateway.readSpace(_spaceOf(binding));
+    } on SyncGatewayException {
+      return null;
+    }
+    if (info == null || info.markedForDeletion) {
+      _loseAccess(SyncPause.spaceDeleted);
+      return SyncRunSkip.spaceDeleted;
+    }
+    if (info.schema > _schema) {
+      _loseAccess(SyncPause.appOutdated);
+      return SyncRunSkip.appOutdated;
+    }
+    return null;
   }
 
   SyncSpaceRef _spaceOf(SyncBinding binding) =>
@@ -1525,14 +1583,15 @@ class SyncEngine {
   /// engine already follows ([_followedUid]). A sign-in with nothing waiting
   /// runs as a quiet start does, so a launch whose account is restored a
   /// moment after the engine started still costs one read; one that lifts a
-  /// `noAccess` pause is the retry that pause promised and runs in full.
+  /// `noAccess` or `spaceDeleted` pause is the retry that pause promised and
+  /// runs in full.
   void _onAuthChanged(AppUser? user) {
     if (user?.uid == _followedUid) return;
     _followedUid = user?.uid;
     final quiet = _pause == SyncPause.none && _lastFailure == null;
     // "Until the next sign-in": a fresh account session tries the space
     // again.
-    if (user != null && _pause == SyncPause.noAccess) _pause = SyncPause.none;
+    if (user != null && _accessLost) _pause = SyncPause.none;
     _track(_reevaluate(run: true, resume: quiet));
   }
 
@@ -1621,7 +1680,11 @@ class SyncEngine {
 
   void _onSignal(SyncSpaceSignal signal) {
     if (_stopped) return;
-    if (!signal.exists) return _loseAccess(SyncPause.noAccess);
+    // A marked space takes no more writes and is being emptied: pulling it
+    // would merge a copy that shrinks under the run (record D1, §5.2 d).
+    if (!signal.exists || signal.markedForDeletion) {
+      return _loseAccess(SyncPause.spaceDeleted);
+    }
     if (signal.schema > _schema) return _loseAccess(SyncPause.appOutdated);
     _signal = signal;
     _signalFresh = true;
@@ -1710,7 +1773,8 @@ class SyncEngine {
   /// [SyncPause.signedOut] / [SyncPause.accountMismatch] win — no user, or
   /// the wrong one, makes any pause the engine stored for the run stale —
   /// otherwise the engine's own [SyncPause.noAccess] /
-  /// [SyncPause.appOutdated] / [SyncPause.quotaExhausted]; otherwise none.
+  /// [SyncPause.spaceDeleted] / [SyncPause.appOutdated] /
+  /// [SyncPause.quotaExhausted]; otherwise none.
   static SyncPause pauseOver({
     required SyncPause read,
     required SyncPause engine,
@@ -1720,6 +1784,7 @@ class SyncEngine {
     }
     return switch (engine) {
       SyncPause.noAccess ||
+      SyncPause.spaceDeleted ||
       SyncPause.appOutdated ||
       SyncPause.quotaExhausted => engine,
       _ => SyncPause.none,

@@ -29,12 +29,17 @@ class FakeSyncGateway implements SyncGateway {
 
   /// Every pull and push attempted past a scripted failure, in order, as
   /// `pull:<table>` and `push:<pushedBy>` — so a test can read the order a
-  /// run made its calls in, and which tables a pull touched.
+  /// run made its calls in, and which tables a pull touched. A deletion's
+  /// steps join them as `mark`, `deleteRows:<table>` and `deleteSpace`.
   final List<String> calls = [];
 
   /// How many [readSpace] calls were made, scripted failures included — kept
   /// out of [calls] so the suites' exact call lists stay as they are.
   int readSpaceCalls = 0;
+
+  /// The `limit` of every [deleteRows] call past a scripted failure, in
+  /// order, null when none was passed.
+  final List<int?> deleteLimits = [];
 
   /// How many arrival numbers before the cursor a resumed pull starts, so the
   /// engine's tests see the repeats Firestore's resume overlap delivers.
@@ -94,16 +99,27 @@ class FakeSyncGateway implements SyncGateway {
   int? pushBytesPerCall;
 
   SyncGatewayException? _nextFailure;
+  int _failuresLeft = 0;
   final Map<(String, String), SyncGatewayFailure> _refused = {};
 
-  /// Makes the next call — any of them — throw [failure] and change nothing.
-  void failNextWith(SyncGatewayFailure failure) =>
-      _nextFailure = SyncGatewayException(failure, 'scripted');
+  /// The spaces [createSpace] has minted, never counted down: as Firestore's
+  /// random ids never come back, a removed space's id is never reused.
+  int _spacesCreated = 0;
+
+  /// Makes the next call — any of them — throw [failure] and change nothing;
+  /// the next [times] calls, for a link that stays down past a manual run's
+  /// read of the space.
+  void failNextWith(SyncGatewayFailure failure, {int times = 1}) {
+    _nextFailure = SyncGatewayException(failure, 'scripted');
+    _failuresLeft = times;
+  }
 
   /// Makes the next call throw [error] and change nothing — for a kind
   /// [failNextWith] cannot name, such as [SyncGatewayException.timedOut].
-  void failNextWithException(SyncGatewayException error) =>
-      _nextFailure = error;
+  void failNextWithException(SyncGatewayException error) {
+    _nextFailure = error;
+    _failuresLeft = 1;
+  }
 
   /// Makes every batch that carries [rowKey] of [table] fail with [failure]
   /// and write nothing, for as long as the test runs — the way the server
@@ -115,13 +131,32 @@ class FakeSyncGateway implements SyncGateway {
   /// Lifts a [refuse], for an upload that is only late, not refused for good.
   void accept(String table, String rowKey) => _refused.remove((table, rowKey));
 
-  /// Removes a space, as a console delete would: pushes are denied, reads
-  /// answer null, listeners hear `exists: false`.
-  void deleteSpace(SyncSpaceRef space) {
+  /// Removes a space and every row under it at once, as a console delete
+  /// would — no mark, no emptying: pushes are denied, reads answer null,
+  /// listeners hear `exists: false`. The app's own delete is [deleteSpace].
+  void consoleDeleteSpace(SyncSpaceRef space) {
     _spaces.remove(space);
     _store.remove(space);
     _sequences.remove(space);
     _signals[space]?.add(_signalNow(space));
+  }
+
+  /// Puts a space back under [space]'s own id, as a console restore would:
+  /// [createSpace] never reuses an id, so this is how a test brings a
+  /// removed space back.
+  void consoleRestoreSpace(
+    SyncSpaceRef space, {
+    required String name,
+    required String deviceId,
+    required int schema,
+  }) {
+    final record = _Space(space)
+      ..name = name
+      ..createdAt = _tick()
+      ..createdBy = deviceId
+      ..schema = schema;
+    _spaces[space] = record;
+    _signals[space]?.add(record.signal);
   }
 
   /// Delivers [failure] as an error to every listener of [space]'s signal,
@@ -161,7 +196,7 @@ class FakeSyncGateway implements SyncGateway {
   void _throwIfScripted() {
     final failure = _nextFailure;
     if (failure == null) return;
-    _nextFailure = null;
+    if (--_failuresLeft <= 0) _nextFailure = null;
     throw failure;
   }
 
@@ -238,6 +273,12 @@ class FakeSyncGateway implements SyncGateway {
       throw const SyncGatewayException(
         SyncGatewayFailure.permissionDenied,
         'no such space',
+      );
+    }
+    if (record.deletedAt != null) {
+      throw const SyncGatewayException(
+        SyncGatewayFailure.permissionDenied,
+        'space marked for deletion',
       );
     }
     if (schema < record.schema) {
@@ -418,7 +459,7 @@ class FakeSyncGateway implements SyncGateway {
     }
     final ref = SyncSpaceRef(
       ownerUid: ownerUid,
-      spaceId: 'space-${_spaces.length + 1}',
+      spaceId: 'space-${++_spacesCreated}',
     );
     final record = _Space(ref)
       ..name = name
@@ -469,6 +510,57 @@ class FakeSyncGateway implements SyncGateway {
       listener.onCancel = subscription.cancel;
     }, isBroadcast: true);
   }
+
+  @override
+  Future<void> markSpaceDeleted(SyncSpaceRef space) async {
+    _throwIfScripted();
+    calls.add('mark');
+    final record = _spaces[space];
+    if (record == null || record.deletedAt != null) return;
+    record.deletedAt = _tick();
+    _signalOf(space).add(record.signal);
+  }
+
+  @override
+  Future<int> deleteRows(SyncSpaceRef space, String table, {int? limit}) async {
+    _throwIfScripted();
+    calls.add('deleteRows:$table');
+    deleteLimits.add(limit);
+    const most = SyncGateway.rowDeleteBatch;
+    final take = limit ?? most;
+    if (take < 1 || take > most) {
+      throw ArgumentError.value(take, 'limit', 'not within 1..$most');
+    }
+    final rows = _store[space]?[table];
+    if (rows == null || rows.isEmpty) return 0;
+    if (_spaces[space]?.deletedAt == null) {
+      throw const SyncGatewayException(
+        SyncGatewayFailure.permissionDenied,
+        'rows of a space not marked for deletion',
+      );
+    }
+    // Firestore's default order, by document id.
+    final page = (rows.keys.toList()..sort()).take(take).toList();
+    page.forEach(rows.remove);
+    return page.length;
+  }
+
+  @override
+  Future<void> deleteSpace(SyncSpaceRef space) async {
+    _throwIfScripted();
+    calls.add('deleteSpace');
+    final record = _spaces[space];
+    if (record == null) return;
+    if (record.deletedAt == null) {
+      throw const SyncGatewayException(
+        SyncGatewayFailure.permissionDenied,
+        'space not marked for deletion',
+      );
+    }
+    // The rows stay, as Firestore leaves a deleted document's subcollections.
+    _spaces.remove(space);
+    _signals[space]?.add(_signalNow(space));
+  }
 }
 
 class _Arrival {
@@ -492,6 +584,9 @@ class _Space {
   String? lastWriter;
   DateTime? lastWriteAt;
 
+  /// Set by [FakeSyncGateway.markSpaceDeleted], never cleared.
+  DateTime? deletedAt;
+
   _Space(this.ref);
 
   SyncSpaceSignal get signal => SyncSpaceSignal(
@@ -499,6 +594,7 @@ class _Space {
     touched: Map.unmodifiable(touched),
     lastWriter: lastWriter,
     schema: schema,
+    markedForDeletion: deletedAt != null,
   );
 
   SyncSpaceInfo get info => SyncSpaceInfo(
@@ -509,5 +605,6 @@ class _Space {
     schema: schema,
     lastWriteAt: lastWriteAt,
     lastWriter: lastWriter,
+    markedForDeletion: deletedAt != null,
   );
 }

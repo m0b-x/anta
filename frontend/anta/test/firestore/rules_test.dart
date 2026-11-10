@@ -375,6 +375,43 @@ Future<void> _seedSpace({
   expect(status, 200, reason: 'seed of space $owner/$spaceId failed');
 }
 
+/// A mark as `markSpaceDeleted` sends it: an `update` — never a create —
+/// whose only change is `deletedAt`, riding as a server timestamp unless
+/// [clientTime] writes that instead.
+Map<String, Object?> _mark(
+  String owner,
+  String spaceId, {
+  DateTime? clientTime,
+}) => {
+  'update': {
+    'name': '$_docRoot/${_spaceDoc(owner, spaceId)}',
+    'fields': {if (clientTime != null) 'deletedAt': _ts(clientTime)},
+  },
+  'updateMask': {
+    'fieldPaths': [if (clientTime != null) 'deletedAt'],
+  },
+  if (clientTime == null) 'updateTransforms': [_serverTime('deletedAt')],
+  'currentDocument': {'exists': true},
+};
+
+Map<String, Object?> _delete(String path) => {'delete': '$_docRoot/$path'};
+
+/// Seeds space `s1` of [uidA] with a row `folders/f1`, then marks it — both
+/// through the rules.
+Future<void> _seedMarked() async {
+  await _seedSpace();
+  expect(
+    await _push([_row(uidA, 's1', 'folders', 'f1')]),
+    200,
+    reason: 'seed push failed',
+  );
+  expect(
+    await _commit([_mark(uidA, 's1')], uid: uidA),
+    200,
+    reason: 'seed mark failed',
+  );
+}
+
 void main() {
   setUpAll(() async {
     try {
@@ -1237,6 +1274,188 @@ void main() {
         200,
         reason: 'the schema only ever rises, and a newer device raises it',
       );
+    });
+  });
+
+  /// Deleting a space (record cloud-multi-user-roadmap §5.3, §5.6): marked,
+  /// emptied, removed. Case for case the same set as the probe's.
+  group('deleting a space', () {
+    final row = '${_spaceDoc(uidA, 's1')}/folders/f1';
+    final space = _spaceDoc(uidA, 's1');
+
+    test('a row of an unmarked space cannot be deleted', () async {
+      await _seedSpace();
+      expect(await _push([_row(uidA, 's1', 'folders', 'f1')]), 200);
+      expect(
+        await _commit([_delete(row)], uid: uidA),
+        403,
+        reason: 'a live space loses a row by tombstone only',
+      );
+    });
+
+    test('an unmarked space cannot be deleted', () async {
+      await _seedSpace();
+      expect(await _commit([_delete(space)], uid: uidA), 403);
+    });
+
+    test('the owner marks the space', () async {
+      await _seedSpace();
+      expect(await _commit([_mark(uidA, 's1')], uid: uidA), 200);
+    });
+
+    test('a stranger marks the space', () async {
+      await _seedSpace();
+      expect(await _commit([_mark(uidA, 's1')], uid: uidB), 403);
+    });
+
+    test('a mark at a client time', () async {
+      await _seedSpace();
+      expect(
+        await _commit([
+          _mark(uidA, 's1', clientTime: DateTime.utc(2026)),
+        ], uid: uidA),
+        403,
+      );
+    });
+
+    test('a space created already marked', () async {
+      expect(
+        await _commit([
+          {
+            ..._createSpace(uidA, 's2'),
+            'updateTransforms': [
+              _serverTime('createdAt'),
+              _serverTime('deletedAt'),
+            ],
+          },
+        ], uid: uidA),
+        403,
+      );
+    });
+
+    test('a second mark', () async {
+      await _seedMarked();
+      expect(await _commit([_mark(uidA, 's1')], uid: uidA), 403);
+    });
+
+    test('a push to a marked space', () async {
+      await _seedMarked();
+      expect(
+        await _push([_row(uidA, 's1', 'folders', 'f2')]),
+        403,
+        reason: 'the space merge is an update, and a marked space takes none',
+      );
+    });
+
+    test('the mark removed', () async {
+      await _seedMarked();
+      expect(
+        await _commit([
+          {
+            'update': {'name': '$_docRoot/$space', 'fields': {}},
+            'updateMask': {
+              'fieldPaths': ['deletedAt'],
+            },
+          },
+        ], uid: uidA),
+        403,
+      );
+    });
+
+    test('the owner deletes a row of a marked space', () async {
+      await _seedMarked();
+      expect(await _commit([_delete(row)], uid: uidA), 200);
+    });
+
+    // A whole page as `deleteRows` sends it: twenty rows in one commit, each
+    // delete one `get()` of the space (review F9; SyncGateway.rowDeleteBatch).
+    test(
+      'the owner deletes twenty rows of a marked space in one commit',
+      () async {
+        await _seedSpace();
+        final keys = [
+          for (var i = 0; i < 20; i++) 'p${i.toString().padLeft(2, '0')}',
+        ];
+        expect(
+          await _push([
+            for (final key in keys) _row(uidA, 's1', 'folders', key),
+          ]),
+          200,
+        );
+        expect(await _commit([_mark(uidA, 's1')], uid: uidA), 200);
+        expect(
+          await _commit([
+            for (final key in keys)
+              _delete('${_spaceDoc(uidA, 's1')}/folders/$key'),
+          ], uid: uidA),
+          200,
+        );
+        for (final key in keys) {
+          expect(
+            await _get('${_spaceDoc(uidA, 's1')}/folders/$key', uid: uidA),
+            404,
+          );
+        }
+      },
+    );
+
+    test('a stranger deletes a row of a marked space', () async {
+      await _seedMarked();
+      expect(await _commit([_delete(row)], uid: uidB), 403);
+    });
+
+    // What makes a repeated delete of a page safe to retry.
+    test('a row already gone under a marked space', () async {
+      await _seedMarked();
+      expect(
+        await _commit([
+          _delete('${_spaceDoc(uidA, 's1')}/folders/never'),
+        ], uid: uidA),
+        200,
+      );
+    });
+
+    test('a row of an unknown table under a marked space', () async {
+      await _seedMarked();
+      expect(
+        await _commit([
+          _delete('${_spaceDoc(uidA, 's1')}/secrets/x1'),
+        ], uid: uidA),
+        403,
+      );
+    });
+
+    test('a row under a missing space', () async {
+      expect(
+        await _commit([_row(uidA, 'missing', 'folders', 'f8')], uid: uidA),
+        200,
+      );
+      expect(
+        await _commit([
+          _delete('${_spaceDoc(uidA, 'missing')}/folders/f8'),
+        ], uid: uidA),
+        403,
+      );
+    });
+
+    test('the owner deletes the rows, then the marked space', () async {
+      await _seedMarked();
+      expect(await _commit([_delete(row)], uid: uidA), 200);
+      expect(await _commit([_delete(space)], uid: uidA), 200);
+      expect(await _get(space, uid: uidA), 404);
+    });
+
+    test('a stranger deletes the marked space', () async {
+      await _seedMarked();
+      expect(await _commit([_delete(space)], uid: uidB), 403);
+    });
+
+    // Recorded: a space already gone has no mark to read, so a repeated
+    // delete is refused — the gateway reads the space and completes.
+    test('a space already gone', () async {
+      await _seedMarked();
+      expect(await _commit([_delete(space)], uid: uidA), 200);
+      expect(await _commit([_delete(space)], uid: uidA), 403);
     });
   });
 }

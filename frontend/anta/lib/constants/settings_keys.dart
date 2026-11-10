@@ -448,6 +448,13 @@ class SettingsKeys {
   /// BA-M2). Never in a backup.
   static const String syncDownloadInFlight = 'sync_download_in_flight';
 
+  /// Install-wide like [syncBoundSpaces], beside it: the cloud copies whose
+  /// deletion began on this install and has not finished
+  /// (`SyncPendingDeletion`). The database that started one is unbound by
+  /// then, so only this install remembers the space to finish. Never in a
+  /// backup.
+  static const String syncPendingDeletions = 'sync_pending_deletions';
+
   /// The prefixes a restore never writes back, whatever the archive's
   /// settings map carries: a hand-edited or foreign backup must not pair or
   /// bind the database it is restored onto.

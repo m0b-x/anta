@@ -71,6 +71,11 @@ class SyncBloc extends Bloc<SyncEvent, SyncState> {
   /// RC2-4). A getter, not a state field, so no state's equality changes.
   bool get engineStatusSeen => _engineStatusSeen;
 
+  /// The unfinished deletions last read, with the account they were read
+  /// for: [_put] stamps them on that account's states only, so another
+  /// account never shows the last one's "Finish deleting".
+  (String, List<SyncPendingDeletion>)? _pending;
+
   /// How long an account state waits for its status before showing none: a
   /// database still opening must not leave the account behind a spinner.
   static const Duration statusTimeout = Duration(seconds: 3);
@@ -131,6 +136,24 @@ class SyncBloc extends Bloc<SyncEvent, SyncState> {
     );
     on<BindFlowDismissed>(_onBindFlowDismissed);
     on<StopSyncingRequested>(_onStopSyncing);
+    on<DeleteCloudCopyRequested>(
+      (event, emit) => _deleting(
+        emit,
+        (shown) => shown.status.canDeleteCloudCopy,
+        (spaces, uid, onProgress) =>
+            spaces.deleteCloudCopy(onProgress: onProgress),
+      ),
+    );
+    on<FinishDeletingRequested>(
+      (event, emit) => _deleting(
+        emit,
+        (shown) => shown.pendingDeletions.isNotEmpty,
+        (spaces, uid, onProgress) => spaces.finishPendingDeletions(
+          accountUid: uid,
+          onProgress: onProgress,
+        ),
+      ),
+    );
   }
 
   Future<void> _onLoad(LoadSyncStatus event, Emitter<SyncState> emit) async {
@@ -339,7 +362,9 @@ class SyncBloc extends Bloc<SyncEvent, SyncState> {
     // review R112). Bounded by the same timeout as the read — an engine that
     // never resolves must not keep the refresh from emitting.
     await _followEngine().timeout(statusTimeout, onTimeout: () {});
+    final pending = _readPending(user?.uid);
     final read = await _readStatus(user);
+    await pending;
     onRead?.call();
     // A failed read keeps the status on screen — unless the flow says the
     // database was switched, which leaves that status the old one's.
@@ -507,12 +532,18 @@ class SyncBloc extends Bloc<SyncEvent, SyncState> {
     if (shown is! SyncSignedIn || shown.flow.isBusy) return;
     final uid = shown.user.uid;
     // A step like the picker's choices: D1's paths create or bind a space in
-    // this same call.
+    // this same call. The account's older deletions it finishes first show
+    // as the deleting flow with their count (review F7), until the step's
+    // own outcome replaces it.
     await _step(
       emit,
       uid,
       const SyncBindChecking(),
-      () async => switch (await spaces.start(accountUid: uid)) {
+      () async => switch (await spaces.start(
+        accountUid: uid,
+        onProgress: (removed) =>
+            _emitFlow(emit, uid, SyncBindDeleting(removed: removed)),
+      )) {
         SyncBindStartBound() => const SyncBindIdle(),
         SyncBindStartPick(:final spaces, :final holdsData, :final heldBy) =>
           SyncBindPicking(spaces: spaces, holdsData: holdsData, heldBy: heldBy),
@@ -600,6 +631,43 @@ class SyncBloc extends Bloc<SyncEvent, SyncState> {
     });
   }
 
+  /// A deletion begun or finished, run by [run] as a step of the signed-in
+  /// account — the owner, the only one the rules let delete; a failed
+  /// sign-out left that account signed in, and it takes the screen again as
+  /// for a bind. Each page removed is the busy flow's count, so the row
+  /// never sits on one spinner through hundreds of documents.
+  ///
+  /// A request [allowed] refuses on the state shown runs no step — no
+  /// engine stop and start, which would drop its pause and back-off, for a
+  /// deletion that can do nothing (review S6).
+  Future<void> _deleting(
+    Emitter<SyncState> emit,
+    bool Function(SyncSignedIn shown) allowed,
+    Future<void> Function(
+      SyncSpaceService spaces,
+      String accountUid,
+      SyncDeleteProgress onProgress,
+    )
+    run,
+  ) async {
+    final spaces = _spaces;
+    if (spaces == null || _stepRefused) return;
+    if (state case SyncFailure(action: SyncAccountAction.signOut)) {
+      _emitAccount(_authService.currentUser, emit);
+    }
+    final shown = state;
+    if (shown is! SyncSignedIn || shown.flow.isBusy || !allowed(shown)) return;
+    final uid = shown.user.uid;
+    await _step(emit, uid, const SyncBindDeleting(), () async {
+      await run(
+        spaces,
+        uid,
+        (removed) => _emitFlow(emit, uid, SyncBindDeleting(removed: removed)),
+      );
+      return const SyncBindIdle();
+    });
+  }
+
   /// A step that may change this database's binding, shown as [busy] until
   /// it has settled, then the flow [change] answers — or its failure — in one
   /// emit with the status read after the engine started again, so the page
@@ -646,7 +714,7 @@ class SyncBloc extends Bloc<SyncEvent, SyncState> {
       try {
         outcome = await change();
       } catch (e, st) {
-        outcome = _failed(e, st);
+        outcome = _failed(e, st, deleting: busy is SyncBindDeleting);
         changed = false;
       }
       // The old database's status must not dress the one switched to.
@@ -746,11 +814,16 @@ class SyncBloc extends Bloc<SyncEvent, SyncState> {
     }
   }
 
-  /// Every state goes out through here: stamped with the step flag, and an
-  /// account state's status kept as the last one known.
+  /// Every state goes out through here: stamped with the step flag and, on
+  /// an account, with its unfinished deletions; an account state's status
+  /// kept as the last one known.
   void _put(Emitter<SyncState> emit, SyncState next) {
     var stamped = next.withStepInFlight(_stepInFlight);
-    if (stamped is SyncSignedIn) stamped = stamped.withStatusRead(_statusRead);
+    if (stamped is SyncSignedIn) {
+      stamped = stamped
+          .withStatusRead(_statusRead)
+          .withPendingDeletions(_pendingOf(stamped.user.uid));
+    }
     if (stamped
         case SyncSignedIn(:final status) || SyncSignedOut(:final status)) {
       _known = status;
@@ -758,15 +831,20 @@ class SyncBloc extends Bloc<SyncEvent, SyncState> {
     emit(stamped);
   }
 
-  SyncBindFailed _failed(Object error, StackTrace stack) {
+  SyncBindFailed _failed(
+    Object error,
+    StackTrace stack, {
+    bool deleting = false,
+  }) {
     if (error is SyncSpaceException) {
       return SyncBindFailed(
         error.failure,
         holderDatabase: error.holderDatabase,
+        deleting: deleting,
       );
     }
     debugPrint('[SyncBloc] binding failed: $error\n$stack');
-    return const SyncBindFailed(SyncBindFailure.unknown);
+    return SyncBindFailed(SyncBindFailure.unknown, deleting: deleting);
   }
 
   /// Resolves the engine and follows its status stream, starting from its
@@ -852,10 +930,41 @@ class SyncBloc extends Bloc<SyncEvent, SyncState> {
     AppUser? user,
     Emitter<SyncState> emit,
   ) async {
+    final pending = _readPending(user?.uid);
     final read = await _readStatus(user);
-    if (read == null || emit.isDone || !identical(state, shown)) return;
+    await pending;
+    if (emit.isDone || !identical(state, shown)) return;
+    if (read == null) {
+      // The status shown stays; the deletions read still reach the screen
+      // (an equal state is dropped by the bloc).
+      if (shown is SyncSignedIn) _put(emit, shown);
+      return;
+    }
     _statusRead = true;
     _put(emit, _stateFor(user, _withEngine(read), _flowOf(shown)));
+  }
+
+  /// [uid]'s unfinished deletions, as last read for that account; none for
+  /// another.
+  List<SyncPendingDeletion> _pendingOf(String uid) => switch (_pending) {
+    (final owner, final pending) when owner == uid => pending,
+    _ => const [],
+  };
+
+  /// Reads [uid]'s unfinished deletions for [_put] to stamp, beside each
+  /// status read — at a load, an account change and every step's settle,
+  /// whatever the step's outcome, since a deletion that failed after its
+  /// mark leaves one behind. Signed out, or where sync is not, there is
+  /// nothing to read; a read that fails or stalls keeps the list last read.
+  Future<void> _readPending(String? uid) async {
+    final spaces = _spaces;
+    if (spaces == null || uid == null) return;
+    try {
+      final pending = await spaces.pendingDeletions(uid).timeout(statusTimeout);
+      _pending = (uid, pending);
+    } catch (e, st) {
+      debugPrint('[SyncBloc] reading the unfinished deletions failed: $e\n$st');
+    }
   }
 
   /// A reader that fails or stalls never breaks the state: null, and the

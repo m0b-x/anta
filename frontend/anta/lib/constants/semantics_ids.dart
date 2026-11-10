@@ -257,6 +257,14 @@ abstract final class SemanticsIds {
   static const String sharingSyncStopConfirm = 'sharing-sync-stop-confirm';
   static const String sharingSyncRestart = 'sharing-sync-restart';
 
+  /// The bound section's last row, "Delete cloud copy"
+  /// (cloud-multi-user-roadmap §5), and its dialog's destructive confirm;
+  /// [sharingSyncFinishDelete] is the unbound section's "Finish deleting",
+  /// there only while a deletion is left unfinished.
+  static const String sharingSyncDelete = 'sharing-sync-delete';
+  static const String sharingSyncDeleteConfirm = 'sharing-sync-delete-confirm';
+  static const String sharingSyncFinishDelete = 'sharing-sync-finish-delete';
+
   /// The Sharing page's held-back section, last on the page: one row per
   /// held-back row by its 0-based place in the list shown — a key would put
   /// a table name and a note id into the id — and the row that counts the

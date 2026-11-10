@@ -42,7 +42,9 @@ void main() {
   ];
 
   /// A with the bind's first merge done and its cadence stored as manual,
-  /// started afresh with the call log empty.
+  /// started afresh with the call log empty. Its "Sync now" reads the space
+  /// before anything else, so a failure scripted for the run's first pull
+  /// is scripted `times: 2` — the read meets it too, as on a real link.
   Future<void> startManual() async {
     await a().sync();
     await a().engine.stop();
@@ -130,7 +132,7 @@ void main() {
   test('a quota pause schedules no retry and a return lifts nothing; "Sync '
       'now" lifts it', () async {
     await startManual();
-    pair.gateway.failNextWith(SyncGatewayFailure.quotaExhausted);
+    pair.gateway.failNextWith(SyncGatewayFailure.quotaExhausted, times: 2);
     await a().sync();
     expect(a().engine.current.pause, SyncPause.quotaExhausted);
     expect(a().scheduler.pending, isEmpty, reason: 'no hourly retry');
@@ -153,7 +155,7 @@ void main() {
   test('a failure schedules no back-off; the status keeps it until a press '
       'succeeds', () async {
     await startManual();
-    pair.gateway.failNextWith(SyncGatewayFailure.offline);
+    pair.gateway.failNextWith(SyncGatewayFailure.offline, times: 2);
 
     await a().sync();
 
@@ -243,7 +245,7 @@ void main() {
     'switching back to automatic lifts a quota hold, as a return does',
     () async {
       await startManual();
-      pair.gateway.failNextWith(SyncGatewayFailure.quotaExhausted);
+      pair.gateway.failNextWith(SyncGatewayFailure.quotaExhausted, times: 2);
       await a().sync();
       expect(a().engine.current.pause, SyncPause.quotaExhausted);
       pair.gateway.calls.clear();
@@ -274,7 +276,7 @@ void main() {
   test('a quota pause stored from the last session holds a manual start, and '
       'the switch to automatic is its full retry', () async {
     await startManual();
-    pair.gateway.failNextWith(SyncGatewayFailure.quotaExhausted);
+    pair.gateway.failNextWith(SyncGatewayFailure.quotaExhausted, times: 2);
     await a().sync();
     await a().engine.stop();
     pair.gateway.calls.clear();
@@ -347,6 +349,117 @@ void main() {
 
     expect(pair.gateway.calls, isEmpty);
     expect(a().engine.current.cadence, SyncCadence.manual);
+  });
+
+  group('"Sync now" reads the space first, with no signal to say it '
+      '(record D1, review F1)', () {
+    test('a space another device marked: read once, paused as deleted, '
+        'nothing pulled or pushed', () async {
+      await startManual();
+      await a().db.folderDao.createFolder(name: 'Queued');
+      await a().settle();
+      await pair.gateway.markSpaceDeleted(pair.space);
+      pair.gateway.calls.clear();
+      final reads = pair.gateway.readSpaceCalls;
+
+      final report = await a().sync();
+
+      expect(report.skipped, SyncRunSkip.spaceDeleted);
+      expect(pair.gateway.readSpaceCalls, reads + 1);
+      expect(pair.gateway.calls, isEmpty);
+      expect(a().engine.current.pause, SyncPause.spaceDeleted);
+      expect(await a().db.syncOutboxDao.count(), 1);
+    });
+
+    test('a space deleted from the console: read once, paused as deleted, '
+        'nothing pulled', () async {
+      await startManual();
+      pair.gateway.consoleDeleteSpace(pair.space);
+      final reads = pair.gateway.readSpaceCalls;
+
+      final report = await a().sync();
+
+      expect(report.skipped, SyncRunSkip.spaceDeleted);
+      expect(pair.gateway.readSpaceCalls, reads + 1);
+      expect(pair.gateway.calls, isEmpty);
+      expect(a().engine.current.pause, SyncPause.spaceDeleted);
+    });
+
+    test(
+      'a space a newer build wrote to: read once, paused as outdated',
+      () async {
+        await startManual();
+        await pair.gateway.pushBatch(
+          pair.space,
+          const [],
+          pushedBy: 'C',
+          schema: syncSchema + 1,
+        );
+        pair.gateway.calls.clear();
+        final reads = pair.gateway.readSpaceCalls;
+
+        final report = await a().sync();
+
+        expect(report.skipped, SyncRunSkip.appOutdated);
+        expect(pair.gateway.readSpaceCalls, reads + 1);
+        expect(pair.gateway.calls, isEmpty);
+        expect(a().engine.current.pause, SyncPause.appOutdated);
+      },
+    );
+
+    test('a live space: exactly one read, then the usual run', () async {
+      await startManual();
+      await b().db.folderDao.createFolder(name: 'From B');
+      await b().sync();
+      pair.gateway.calls.clear();
+      final reads = pair.gateway.readSpaceCalls;
+
+      final report = await a().sync();
+
+      expect(report.skipped, isNull);
+      expect(report.failure, isNull);
+      expect(pair.gateway.readSpaceCalls, reads + 1);
+      expect(pulls(), hasLength(pulledTables.length));
+      expect(await a().db.select(a().db.folders).get(), hasLength(1));
+      expect(a().engine.current.pause, SyncPause.none);
+    });
+
+    test('a read that fails is no verdict: the run goes on', () async {
+      await startManual();
+      pair.gateway.failNextWith(SyncGatewayFailure.offline);
+      pair.gateway.calls.clear();
+      final reads = pair.gateway.readSpaceCalls;
+
+      final report = await a().sync();
+
+      expect(pair.gateway.readSpaceCalls, reads + 1);
+      expect(report.skipped, isNull);
+      expect(pulls(), hasLength(pulledTables.length));
+      expect(a().engine.current.pause, SyncPause.none);
+    });
+
+    test(
+      'a pause the gate lifts on its own read costs no second one',
+      () async {
+        await startManual();
+        pair.gateway.consoleDeleteSpace(pair.space);
+        await a().sync();
+        expect(a().engine.current.pause, SyncPause.spaceDeleted);
+        pair.gateway.consoleRestoreSpace(
+          pair.space,
+          name: 'Main',
+          deviceId: 'C',
+          schema: syncSchema,
+        );
+        final reads = pair.gateway.readSpaceCalls;
+
+        final report = await a().sync();
+
+        expect(report.skipped, isNull);
+        expect(pair.gateway.readSpaceCalls, reads + 1);
+        expect(a().engine.current.pause, SyncPause.none);
+      },
+    );
   });
 
   test(

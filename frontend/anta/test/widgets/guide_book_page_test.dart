@@ -256,6 +256,29 @@ void main() {
     expect(_hubRow(GuideBook.app, AppGuideTopic.menu), findsNothing);
   });
 
+  testWidgets('the book search finds the cloud copy\'s deletion under the '
+      'sync page, right after stopping', (tester) async {
+    await tester.pumpWidget(_app(const GuideBookPage(book: GuideBook.app)));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField), en.appGuideSyncDeleteTitle);
+    await tester.pumpAndSettle();
+    final row = _row(GuideBook.app, 'sync-delete');
+    expect(row, findsOneWidget);
+    expect(
+      find.descendant(
+        of: _cardOf(row),
+        matching: _hubRow(GuideBook.app, AppGuideTopic.sync),
+      ),
+      findsOneWidget,
+    );
+    final slugs = [
+      for (final entry in AppGuideTopic.sync.entries(en))
+        if (entry is GuideReadEntry) entry.row.slug,
+    ];
+    expect(slugs.sublist(slugs.length - 2), ['sync-stop', 'sync-delete']);
+  });
+
   testWidgets('the book search finds a page by a word only an example '
       'caption holds', (tester) async {
     await tester.pumpWidget(_app(const GuideBookPage(book: GuideBook.notes)));
@@ -654,6 +677,12 @@ void main() {
               l10n.shareFolder,
             ),
             (GuideBook.app, AppGuideTopic.sync, 'sync-stop', l10n.syncStop),
+            (
+              GuideBook.app,
+              AppGuideTopic.sync,
+              'sync-delete',
+              l10n.syncDeleteCloud,
+            ),
           ]) {
         testWidgets('${locale.languageCode}: ${book.slug} $slug', (
           tester,

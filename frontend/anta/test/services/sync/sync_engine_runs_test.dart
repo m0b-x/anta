@@ -182,12 +182,12 @@ void main() {
     test('a resume whose first snapshot says the space is gone drops the '
         'fallback with the listener', () async {
       await startThenLeave();
-      pair.gateway.deleteSpace(pair.space);
+      pair.gateway.consoleDeleteSpace(pair.space);
 
       a().engine.onAppResumed();
       await a().settle();
 
-      expect(a().engine.current.pause, SyncPause.noAccess);
+      expect(a().engine.current.pause, SyncPause.spaceDeleted);
       expect(
         a().scheduler.pending,
         isNot(contains(SyncEngine.resumeSnapshotWait)),

@@ -29,6 +29,13 @@ enum SyncBindFailure {
   /// account check [permissionDenied] asks for (review X-13).
   spaceGone,
 
+  /// The space's [SyncSpaceInfo.schema] is above this build's
+  /// [DatabaseSchema.syncSchemaVersion], so a deletion is refused before
+  /// anything changes: a newer build may have written a table this one does
+  /// not list, and removing the space document over it would strand those
+  /// rows for good (cloud-multi-user-roadmap §5.3). The way on is an update.
+  appOutdated,
+
   /// A restore or import is rewriting this database right now.
   suspended,
 
@@ -65,6 +72,10 @@ class SyncSpaceException implements Exception {
       '${holderDatabase == null ? '' : ': $holderDatabase'})';
 }
 
+/// Hears the documents a deletion removed so far — the running total over
+/// the whole call, after every page.
+typedef SyncDeleteProgress = void Function(int removed);
+
 /// What a "Sync this database" tap led to (record §2 D1, D2).
 sealed class SyncBindStart extends Equatable {
   const SyncBindStart();
@@ -81,7 +92,8 @@ final class SyncBindStartBound extends SyncBindStart {
   List<Object?> get props => [space];
 }
 
-/// The picker's data: the account's spaces, most recently written first.
+/// The picker's data: the account's spaces, most recently written first —
+/// never one marked for deletion.
 final class SyncBindStartPick extends SyncBindStart {
   final List<SyncSpaceInfo> spaces;
 
@@ -135,29 +147,44 @@ class SyncSpaceService {
   /// app), created and bound; this
   /// database holding nothing and exactly one space that no other database
   /// here holds → that space bound; otherwise the picker's data.
-  Future<SyncBindStart> start({required String accountUid}) =>
-      _mapped(() async {
-        await _ensureBindable();
-        final spaces = await listSpaces(accountUid);
-        if (spaces.isEmpty) {
-          final created = await _createAndBind(
-            accountUid: accountUid,
-            name: await _defaultSpaceName(),
-          );
-          return SyncBindStartBound(created.ref);
-        }
-        final holdsData = await databaseHoldsData();
-        final heldBy = await _heldBy(spaces);
-        if (!holdsData && spaces.length == 1 && heldBy.isEmpty) {
-          await _bind(spaces.single.ref, accountUid: accountUid);
-          return SyncBindStartBound(spaces.single.ref);
-        }
-        return SyncBindStartPick(
-          spaces: spaces,
-          holdsData: holdsData,
-          heldBy: heldBy,
-        );
-      });
+  ///
+  /// The account's spaces marked for deletion are finished first, by any
+  /// device (cloud-multi-user-roadmap §5.2 g) — best effort: one that fails
+  /// is logged, left for the next tap, and the bind goes on — and the
+  /// decision counts the unmarked spaces only, so a dying space is never
+  /// offered, and with none left the first space is created. [onProgress]
+  /// hears the documents that pass removed so far, its count running on
+  /// across the spaces, as [finishPendingDeletions]'s does.
+  Future<SyncBindStart> start({
+    required String accountUid,
+    SyncDeleteProgress? onProgress,
+  }) => _mapped(() async {
+    await _ensureBindable();
+    final listed = await listSpaces(accountUid);
+    await _finishMarked(listed, _counter(onProgress));
+    final spaces = [
+      for (final space in listed)
+        if (!space.markedForDeletion) space,
+    ];
+    if (spaces.isEmpty) {
+      final created = await _createAndBind(
+        accountUid: accountUid,
+        name: await _defaultSpaceName(),
+      );
+      return SyncBindStartBound(created.ref);
+    }
+    final holdsData = await databaseHoldsData();
+    final heldBy = await _heldBy(spaces);
+    if (!holdsData && spaces.length == 1 && heldBy.isEmpty) {
+      await _bind(spaces.single.ref, accountUid: accountUid);
+      return SyncBindStartBound(spaces.single.ref);
+    }
+    return SyncBindStartPick(
+      spaces: spaces,
+      holdsData: holdsData,
+      heldBy: heldBy,
+    );
+  });
 
   /// The account's spaces, the most recently written first; a space never
   /// written to sorts after every written one, the newest created first.
@@ -227,9 +254,15 @@ class SyncSpaceService {
 
   /// "Merge this database into the space": this database bound to [space],
   /// its rows settled against the space's under the floor (D15).
+  ///
+  /// The space is read first: one gone from the cloud or marked for deletion
+  /// since the picker listed it is [SyncBindFailure.spaceGone], nothing
+  /// bound.
   Future<void> bindExisting(SyncSpaceRef space, {required String accountUid}) =>
       _mapped(() async {
         await _ensureBindable();
+        await _ensureNotHeld(space);
+        await _ensureLive(space);
         await _bind(space, accountUid: accountUid);
       });
 
@@ -244,8 +277,9 @@ class SyncSpaceService {
   /// database the user started from and deletes the new file, which holds
   /// nothing but the schema.
   ///
-  /// The space is read first, so offline or a space gone from the cloud is
-  /// refused before anything here changes (review BA-M3). From the switch to
+  /// The space is read first, so offline or a space gone from the cloud —
+  /// or marked for deletion — is refused before anything here changes
+  /// (review BA-M3). From the switch to
   /// the bind, [DatabaseManager.markDownloadInFlight] lets a launch after a
   /// kill switch back (BA-M2). The database the user started from keeps its
   /// own binding and claim.
@@ -257,9 +291,7 @@ class SyncSpaceService {
       throw const SyncSpaceException(SyncBindFailure.suspended);
     }
     await _ensureNotHeld(space.ref);
-    if (await _gateway.readSpace(space.ref) == null) {
-      throw const SyncSpaceException(SyncBindFailure.spaceGone);
-    }
+    await _ensureLive(space.ref);
     final databases = await _databases();
     final previous = databases.getActiveDatabaseName();
     // Past the holder check, a claim on the space by the database left is
@@ -311,6 +343,222 @@ class SyncSpaceService {
     if (await binding.read() == null) return;
     await binding.unbind();
   });
+
+  /// "Delete cloud copy" (cloud-multi-user-roadmap §5): the space this
+  /// database syncs with removed from the account for good; every row on
+  /// this device stays. The caller stops the engine first, as it does for
+  /// [stopSyncing]; this call never touches it.
+  ///
+  /// The order is the design. Unbound, nothing happens. The space is read:
+  /// gone already, this database is unbound as [stopSyncing] does and the
+  /// call returns. Then the space is marked — from here there is no way
+  /// back — and read again, since only from the mark on is its schema
+  /// final: a newer build may have pushed a table this build does not list
+  /// in between (review F3). Then the deletion is recorded install-wide
+  /// ([pendingDeletions]) and only then this database unbound as
+  /// [stopSyncing] does, so an app that dies in between never leaves a
+  /// marked space that no device shows (review F6); every table emptied,
+  /// the space document removed and the record cleared. A space marked
+  /// already — a second call on a database still bound to it — is carried
+  /// to the end the same way.
+  ///
+  /// [onProgress] hears the documents removed so far, after every page.
+  ///
+  /// Throws [SyncSpaceException]. With nothing changed — still bound, still
+  /// syncing: [SyncBindFailure.suspended] while a restore runs,
+  /// [SyncBindFailure.appOutdated] for a space a newer build wrote to, and
+  /// any failure of the read or the mark (`offline`, `quotaExhausted`,
+  /// `permissionDenied` when another account is signed in).
+  ///
+  /// In one race the mark stands with nothing else done: a newer build that
+  /// wrote between the first read and the mark, which the second read finds
+  /// — [SyncBindFailure.appOutdated], nothing recorded, still bound — or a
+  /// failure of that second read. The database stays bound and its engine
+  /// pauses as `spaceDeleted`; an updated app, or a second call, finishes
+  /// it. Any failure after the record leaves this database unbound and the
+  /// deletion pending: [finishPendingDeletions] finishes it, and so does
+  /// the next [start] of any device of the account.
+  Future<void> deleteCloudCopy({SyncDeleteProgress? onProgress}) =>
+      _mapped(() async {
+        final binding = await _binding();
+        final bound = await binding.read();
+        if (bound == null) return;
+        if (SyncSuspension.isSuspended) {
+          throw const SyncSpaceException(SyncBindFailure.suspended);
+        }
+        final space = SyncSpaceRef(
+          ownerUid: bound.ownerUid,
+          spaceId: bound.spaceId,
+        );
+        final registry = (await _databases()).spaceRegistry;
+        final info = await _gateway.readSpace(space);
+        if (info == null) {
+          await binding.unbind();
+          await registry.clearPendingDeletion(space);
+          return;
+        }
+        // Refuses the common case before anything changes.
+        _ensureKnownSchema(info);
+        await _gateway.markSpaceDeleted(space);
+        final marked = await _gateway.readSpace(space);
+        if (marked == null) {
+          await binding.unbind();
+          await registry.clearPendingDeletion(space);
+          return;
+        }
+        _ensureKnownSchema(marked);
+        await registry.addPendingDeletion(
+          SyncPendingDeletion(space: space, spaceName: marked.name),
+        );
+        await binding.unbind();
+        await _emptyAndRemove(space, registry, _counter(onProgress));
+      });
+
+  /// The deletions this install began for [accountUid]'s spaces and has not
+  /// finished, in the order they began — what the "Finish deleting" row
+  /// offers. Another account's are never listed: only their owner may
+  /// finish them.
+  Future<List<SyncPendingDeletion>> pendingDeletions(String accountUid) =>
+      _mapped(
+        () async => [
+          for (final pending
+              in (await _databases()).spaceRegistry.pendingDeletions())
+            if (pending.space.ownerUid == accountUid) pending,
+        ],
+      );
+
+  /// "Finish deleting": every [pendingDeletions] of [accountUid] taken to the
+  /// end, one after another — emptied, removed, its record cleared — with
+  /// [deleteCloudCopy]'s paging, schema guard and [onProgress], whose count
+  /// runs on across the spaces. Only the mark licenses a deletion, never
+  /// the record (review F8): a record whose space is gone is cleared, and so
+  /// is one whose space reads unmarked, which is never marked or emptied
+  /// here. Another account's stay untouched. Local data is never read or
+  /// written, so it runs bound or not.
+  ///
+  /// Throws [SyncSpaceException] at the first space that fails —
+  /// [SyncBindFailure.appOutdated], or the gateway's failure mapped — with
+  /// that record and every later one left in place for the next try.
+  Future<void> finishPendingDeletions({
+    required String accountUid,
+    SyncDeleteProgress? onProgress,
+  }) => _mapped(() async {
+    final registry = (await _databases()).spaceRegistry;
+    final removed = _counter(onProgress);
+    for (final pending in registry.pendingDeletions()) {
+      if (pending.space.ownerUid != accountUid) continue;
+      final info = await _gateway.readSpace(pending.space);
+      if (info == null || !info.markedForDeletion) {
+        await registry.clearPendingDeletion(pending.space);
+        continue;
+      }
+      await _finish(info, registry, removed);
+    }
+  });
+
+  /// [start]'s pass over the marked spaces: each finished, a failure logged
+  /// and left for the next tap.
+  Future<void> _finishMarked(
+    List<SyncSpaceInfo> spaces,
+    void Function(int page) removed,
+  ) async {
+    final marked = [
+      for (final space in spaces)
+        if (space.markedForDeletion) space,
+    ];
+    if (marked.isEmpty) return;
+    final registry = (await _databases()).spaceRegistry;
+    for (final space in marked) {
+      try {
+        await _finish(space, registry, removed);
+      } catch (e, st) {
+        debugPrint(
+          '[SyncSpaceService] marked space ${space.ref.spaceId} not '
+          'finished: $e\n$st',
+        );
+      }
+    }
+  }
+
+  /// A marked [space] emptied and removed; never marks — the caller read
+  /// the mark (review F8).
+  Future<void> _finish(
+    SyncSpaceInfo space,
+    SyncSpaceRegistry registry,
+    void Function(int page) removed,
+  ) async {
+    _ensureKnownSchema(space);
+    await _emptyAndRemove(space.ref, registry, removed);
+  }
+
+  /// Every table of the registry emptied in pages of
+  /// [SyncGateway.rowDeleteBatch], then the space document removed — last,
+  /// since a row under a missing space can never be deleted — then the
+  /// record cleared. A page that times out halves its table's page for the
+  /// rest of the job; one that times out at a single document fails as
+  /// offline. A page refused because another device removed the space
+  /// meanwhile — two finishing one space — means the deletion is done
+  /// (review F4).
+  Future<void> _emptyAndRemove(
+    SyncSpaceRef space,
+    SyncSpaceRegistry registry,
+    void Function(int page) removed,
+  ) async {
+    for (final synced in syncedTables) {
+      var limit = SyncGateway.rowDeleteBatch;
+      while (true) {
+        final int count;
+        try {
+          count = await _gateway.deleteRows(space, synced.name, limit: limit);
+        } on SyncGatewayException catch (e) {
+          if (e.failure == SyncGatewayFailure.permissionDenied) {
+            if (!await _spaceGone(space)) rethrow;
+            await registry.clearPendingDeletion(space);
+            return;
+          }
+          if (!e.timedOut || limit <= 1) rethrow;
+          limit ~/= 2;
+          continue;
+        }
+        if (count == 0) break;
+        removed(count);
+      }
+    }
+    await _gateway.deleteSpace(space);
+    await registry.clearPendingDeletion(space);
+  }
+
+  /// Whether [space] reads as gone; a failed read is not proof of it.
+  Future<bool> _spaceGone(SyncSpaceRef space) async {
+    try {
+      return await _gateway.readSpace(space) == null;
+    } on SyncGatewayException {
+      return false;
+    }
+  }
+
+  /// A page counter that tells [onProgress] the running total.
+  static void Function(int page) _counter(SyncDeleteProgress? onProgress) {
+    var total = 0;
+    return (page) {
+      total += page;
+      onProgress?.call(total);
+    };
+  }
+
+  void _ensureKnownSchema(SyncSpaceInfo space) {
+    if (space.schema > DatabaseSchema.syncSchemaVersion) {
+      throw const SyncSpaceException(SyncBindFailure.appOutdated);
+    }
+  }
+
+  /// A space gone from the cloud or marked for deletion is never bound.
+  Future<void> _ensureLive(SyncSpaceRef space) async {
+    final info = await _gateway.readSpace(space);
+    if (info == null || info.markedForDeletion) {
+      throw const SyncSpaceException(SyncBindFailure.spaceGone);
+    }
+  }
 
   Future<SyncSpaceInfo> _createAndBind({
     required String accountUid,

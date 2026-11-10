@@ -264,7 +264,7 @@ void main() {
     test('a space gone from the cloud fails as gone, not as no access '
         '(review X-13)', () async {
       final space = await createSpace('Tablet');
-      gateway.deleteSpace(space.ref);
+      gateway.consoleDeleteSpace(space.ref);
 
       await expectLater(
         SyncSpaceService(
