@@ -62,6 +62,24 @@ abstract class PairingGateway {
     required String pairId,
     required PairProfile profile,
   });
+
+  /// A page of the pairs [uid] is a member of, ended ones included — what
+  /// an account's deletion walks, deleting as it goes and asking again
+  /// until a page reads empty (cloud-multi-user-roadmap §6.1 g).
+  Future<List<PairRecord>> findPairs(String uid);
+
+  /// Removes an ended pair's document for good; the rules refuse an active
+  /// one, which is ended first so the partner's device hears a tombstone.
+  /// Completes normally when the document is already gone — the rules let
+  /// a delete of a missing pair through, as they do for an invite, so two
+  /// walks removing the same documents never fail each other.
+  Future<void> deletePair(String pairId);
+
+  /// A page of the codes of the invites [uid] created or redeemed, spent
+  /// and expired ones included — walked like [findPairs], each deleted with
+  /// [deleteInvite]. The rules answer for one's own only, so no code can be
+  /// enumerated this way.
+  Future<List<String>> findOwnInvites(String uid);
 }
 
 /// Bound wherever cloud sync is unavailable. Refuses every call rather than
@@ -129,6 +147,15 @@ class NoOpPairingGateway implements PairingGateway {
     required String pairId,
     required PairProfile profile,
   }) async => _unavailable();
+
+  @override
+  Future<List<PairRecord>> findPairs(String uid) async => _unavailable();
+
+  @override
+  Future<void> deletePair(String pairId) async => _unavailable();
+
+  @override
+  Future<List<String>> findOwnInvites(String uid) async => _unavailable();
 }
 
 class FirestorePairingGateway implements PairingGateway {
@@ -142,6 +169,11 @@ class FirestorePairingGateway implements PairingGateway {
   /// handful is a race or an attack, and reading it all would burn the free
   /// tier's daily quota in a single page open.
   static const int _maxActivePairs = 10;
+
+  /// How many documents one page of an account deletion's walk reads
+  /// ([findPairs], [findOwnInvites]): the walk asks again until a page reads
+  /// empty, so the size bounds a call, not the walk.
+  static const int _sweepPage = 20;
 
   final FirebaseFirestore? _injected;
 
@@ -305,6 +337,44 @@ class FirestorePairingGateway implements PairingGateway {
     }),
   );
 
+  @override
+  Future<List<PairRecord>> findPairs(String uid) => _guard(() async {
+    final result = await _pairs
+        .where('members', arrayContains: uid)
+        .limit(_sweepPage)
+        .get(const GetOptions(source: Source.server));
+    // Every document the query answers, a malformed one included: the walk
+    // has to remove it too, or it would report an account's pairs gone with
+    // the uid still in one.
+    return result.docs
+        .map((doc) => _pairFrom(doc.id, doc.data(), lenient: true))
+        .whereType<PairRecord>()
+        .toList();
+  });
+
+  @override
+  Future<void> deletePair(String pairId) =>
+      _guard(() => _pairs.doc(pairId).delete());
+
+  @override
+  Future<List<String>> findOwnInvites(String uid) => _guard(() async {
+    const server = GetOptions(source: Source.server);
+    // Two queries: the rules answer a listing only when it is provably the
+    // caller's own, and no single filter says "created or redeemed by".
+    final created = await _invites
+        .where('creatorUid', isEqualTo: uid)
+        .limit(_sweepPage)
+        .get(server);
+    final redeemed = await _invites
+        .where('redeemedBy', isEqualTo: uid)
+        .limit(_sweepPage)
+        .get(server);
+    return {
+      for (final doc in created.docs) doc.id,
+      for (final doc in redeemed.docs) doc.id,
+    }.toList();
+  });
+
   Map<String, dynamic> _profileData(PairProfile profile) => {
     'displayName': profile.displayName,
     'photoUrl': profile.photoUrl,
@@ -326,10 +396,19 @@ class FirestorePairingGateway implements PairingGateway {
     );
   }
 
-  PairRecord? _pairFrom(String pairId, Map<String, dynamic>? data) {
+  /// [lenient] reads a document without a `createdAt` too, at the epoch —
+  /// only for [findPairs], whose caller removes what it is given and never
+  /// compares the dates.
+  PairRecord? _pairFrom(
+    String pairId,
+    Map<String, dynamic>? data, {
+    bool lenient = false,
+  }) {
     if (data == null) return null;
     final members = data['members'];
-    final createdAt = _dateFrom(data['createdAt']);
+    final createdAt =
+        _dateFrom(data['createdAt']) ??
+        (lenient ? DateTime.fromMillisecondsSinceEpoch(0, isUtc: true) : null);
     // A cached snapshot taken between the write and the server's reply has a
     // null `createdAt`. Skipping it is deliberate: an invented timestamp
     // would corrupt the earliest-wins tie-break.

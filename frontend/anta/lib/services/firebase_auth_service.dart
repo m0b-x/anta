@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:firebase_auth/firebase_auth.dart';
@@ -64,7 +65,17 @@ class FirebaseAuthService implements AuthService {
 
   @override
   Future<AppUser?> signInWithGoogle() => _guard(() async {
-    if (QaMode.useFirebaseEmulator) return _signInQaAccount();
+    final credential = await _credential();
+    if (credential == null) return null;
+    final result = await _auth.signInWithCredential(credential);
+    return _toAppUser(result.user);
+  });
+
+  /// What a sign-in, or a sign-in asked again, hands Firebase: the QA
+  /// account's on the Auth emulator, otherwise Google's from its interactive
+  /// flow — null when the user dismissed that.
+  Future<AuthCredential?> _credential() async {
+    if (QaMode.useFirebaseEmulator) return _qaCredential();
     await _ensureInitialized();
 
     if (!GoogleSignIn.instance.supportsAuthenticate()) {
@@ -83,17 +94,14 @@ class FirebaseAuthService implements AuthService {
     if (idToken == null) {
       throw const NoIdTokenException();
     }
+    return GoogleAuthProvider.credential(idToken: idToken);
+  }
 
-    final credential = GoogleAuthProvider.credential(idToken: idToken);
-    final result = await _auth.signInWithCredential(credential);
-    return _toAppUser(result.user);
-  });
-
-  /// Signs in as [QaMode.qaAccount] on the Auth emulator, without Google:
-  /// the emulator takes an unsigned JSON "ID token" as a Google credential,
-  /// its `sub` the account's key (Firebase docs, "Connect your app to the
-  /// Authentication Emulator").
-  Future<AppUser?> _signInQaAccount() async {
+  /// [QaMode.qaAccount] as a credential for the Auth emulator, without
+  /// Google: the emulator takes an unsigned JSON "ID token" as a Google
+  /// credential, its `sub` the account's key (Firebase docs, "Connect your
+  /// app to the Authentication Emulator").
+  AuthCredential _qaCredential() {
     final account = QaMode.qaAccount;
     final colon = account.indexOf(':');
     if (colon <= 0) {
@@ -104,25 +112,81 @@ class FirebaseAuthService implements AuthService {
       'email': account.substring(colon + 1),
       'email_verified': true,
     });
-    final result = await _auth.signInWithCredential(
-      GoogleAuthProvider.credential(idToken: token),
-    );
-    return _toAppUser(result.user);
+    return GoogleAuthProvider.credential(idToken: token);
   }
 
   @override
   Future<void> signOut() async {
     // Best-effort on the Google side: whatever happens there, the Firebase
     // session must still end, or the user is stranded signed in.
+    await _leaveGoogle('sign-out', () => GoogleSignIn.instance.signOut());
+    await _auth.signOut();
+  }
+
+  @override
+  Future<bool> reauthenticate() => _guard(() async {
+    final user = _auth.currentUser;
+    if (user == null) throw const AuthException(AuthError.unknown);
+    final credential = await _credential();
+    if (credential == null) return false;
+    try {
+      await user.reauthenticateWithCredential(credential);
+    } on FirebaseAuthException catch (e) {
+      if (e.code != 'user-mismatch') rethrow;
+      // Google now holds the other account as the one it would offer first;
+      // dropped, so the next attempt asks which account again.
+      await _leaveGoogle('sign-out', () => GoogleSignIn.instance.signOut());
+      throw const OtherAccountException();
+    }
+    return true;
+  });
+
+  /// How long [deleteAccount] waits for the server: the call is the last of
+  /// a background run that every other deletion queues behind, and one that
+  /// never answered would hold them all.
+  static const Duration deleteAccountTimeout = Duration(seconds: 30);
+
+  @override
+  Future<void> deleteAccount() => _guard(() async {
+    final user = _auth.currentUser;
+    if (user == null) throw const AuthException(AuthError.unknown);
+    try {
+      await user.delete().timeout(deleteAccountTimeout);
+    } on TimeoutException {
+      throw const AuthException(AuthError.offline);
+    } on FirebaseAuthException catch (e) {
+      switch (e.code) {
+        case 'requires-recent-login':
+          throw const RecentSignInRequiredException();
+        // Deleted already, from another device: what is left is this
+        // session, which only a sign-out ends.
+        case 'user-not-found':
+          await _auth.signOut();
+        default:
+          rethrow;
+      }
+    }
+    // The app's grant in the Google account goes with the account: a later
+    // sign-in is a new account's and asks for consent again. Not awaited:
+    // the account is gone whatever Google answers, and a prompt that never
+    // did would hold the run that called this.
+    unawaited(
+      _leaveGoogle('disconnect', () => GoogleSignIn.instance.disconnect()),
+    );
+  });
+
+  /// [leave] on the Google side, logged and never thrown: the Firebase
+  /// session is what the app reads, and it must change whatever Google
+  /// answers.
+  Future<void> _leaveGoogle(String what, Future<void> Function() leave) async {
     try {
       await _ensureInitialized();
-      await GoogleSignIn.instance.signOut();
+      await leave();
     } on GoogleSignInException catch (e) {
-      _logCause(AuthError.unknown, 'google sign-out ${e.code.name}');
+      _logCause(AuthError.unknown, 'google $what ${e.code.name}');
     } catch (e) {
-      _logCause(AuthError.unknown, 'google sign-out ${e.runtimeType}');
+      _logCause(AuthError.unknown, 'google $what ${e.runtimeType}');
     }
-    await _auth.signOut();
   }
 
   @override
@@ -142,6 +206,10 @@ class FirebaseAuthService implements AuthService {
     try {
       return await action();
     } on AuthException {
+      rethrow;
+    } on OtherAccountException {
+      rethrow;
+    } on RecentSignInRequiredException {
       rethrow;
     } on FirebaseAuthException catch (e) {
       final cause = _networkCode(e.code)

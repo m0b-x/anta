@@ -218,6 +218,32 @@ Future<void> _seedInvite(
   expect(status, 200, reason: 'admin seed of invite $inviteCode failed');
 }
 
+/// The invites whose [field] is [value] — the one listing the rules answer,
+/// and only for the caller's own uid.
+Future<({int status, String body})> _queryInvites(
+  String field,
+  String value, {
+  required String? uid,
+}) => _call(
+  'POST',
+  '$_base:runQuery',
+  uid: uid,
+  body: {
+    'structuredQuery': {
+      'from': [
+        {'collectionId': 'invites'},
+      ],
+      'where': {
+        'fieldFilter': {
+          'field': {'fieldPath': field},
+          'op': 'EQUAL',
+          'value': _s(value),
+        },
+      },
+    },
+  },
+);
+
 Future<void> _seedPair(
   String id, {
   List<String> members = const [uidA, uidB],
@@ -656,6 +682,45 @@ void main() {
         expect(result.body, isNot(contains('pairs/theirs')));
       },
     );
+
+    test('a pair that does not exist reads as absent, not as forbidden — '
+        'a member has to tell a pair its partner removed from one that was '
+        'never theirs', () async {
+      expect(await _get('pairs/gone', uid: uidA), 404);
+      expect(await _get('pairs/gone'), 403);
+    });
+
+    test('an account deletion\'s walk returns the caller\'s pairs, ended '
+        'ones included, and nobody else\'s', () async {
+      await _seedPair('live', members: const [uidA, uidB]);
+      await _seedPair('over', members: const [uidA, uidC], status: 'ended');
+      await _seedPair('theirs', members: const [uidB, uidC]);
+
+      final result = await _call(
+        'POST',
+        '$_base:runQuery',
+        uid: uidA,
+        body: {
+          'structuredQuery': {
+            'from': [
+              {'collectionId': 'pairs'},
+            ],
+            'where': {
+              'fieldFilter': {
+                'field': {'fieldPath': 'members'},
+                'op': 'ARRAY_CONTAINS',
+                'value': _s(uidA),
+              },
+            },
+          },
+        },
+      );
+
+      expect(result.status, 200);
+      expect(result.body, contains('pairs/live'));
+      expect(result.body, contains('pairs/over'));
+      expect(result.body, isNot(contains('pairs/theirs')));
+    });
   });
 
   group('pairs update and delete', () {
@@ -764,15 +829,49 @@ void main() {
       );
     });
 
-    test('nobody may delete a pair, member included', () async {
+    test('nobody may delete an active pair, member included', () async {
+      await _seedPair('p1');
+      expect(
+        await _commit([_delete('pairs/p1')], uid: uidA),
+        403,
+        reason:
+            'the partner learns of an ending from the tombstone: a pair '
+            'must be ended before it can go',
+      );
+    });
+
+    test('a member may delete an ended pair, as an account\'s deletion '
+        'does; a stranger may not', () async {
+      await _seedPair('p1', status: 'ended');
+      expect(await _commit([_delete('pairs/p1')], uid: uidC), 403);
+      expect(await _commit([_delete('pairs/p1')]), 403);
+      expect(await _commit([_delete('pairs/p1')], uid: uidB), 200);
+      expect(await _get('pairs/p1', uid: uidA), 404);
+    });
+
+    test('a pair already gone is deleted again without a refusal, so two '
+        'account deletions walking the same pair never fail each other; '
+        'signed out it still is refused', () async {
+      await _seedPair('p1', status: 'ended');
+      expect(await _commit([_delete('pairs/p1')], uid: uidA), 200);
+      expect(await _commit([_delete('pairs/p1')], uid: uidB), 200);
+      expect(await _commit([_delete('pairs/never')], uid: uidC), 200);
+      expect(await _commit([_delete('pairs/p1')]), 403);
+    });
+
+    test('a member ends the pair and deletes it, in that order', () async {
       await _seedPair('p1');
       expect(
         await _commit([
-          {'delete': '$_docRoot/pairs/p1'},
+          _updatePair(
+            'p1',
+            {'status': _s('ended'), 'endedBy': _s(uidA)},
+            serverTimeFields: const ['endedAt'],
+          ),
         ], uid: uidA),
-        403,
-        reason: 'the tombstone model depends on the document surviving',
+        200,
       );
+      expect(await _commit([_delete('pairs/p1')], uid: uidA), 200);
     });
   });
 
@@ -958,20 +1057,77 @@ void main() {
       );
     });
 
-    test('only the creator may cancel an invite', () async {
+    test('only the creator may cancel a pending invite', () async {
       await _seedInvite(code, creatorUid: uidB);
-      expect(
-        await _commit([
-          {'delete': '$_docRoot/invites/$code'},
-        ], uid: uidA),
-        403,
+      expect(await _commit([_delete('invites/$code')], uid: uidA), 403);
+      expect(await _commit([_delete('invites/$code')]), 403);
+      expect(await _commit([_delete('invites/$code')], uid: uidB), 200);
+    });
+
+    test(
+      'a spent invite is removed by either side, never by a stranger',
+      () async {
+        await _seedInvite(
+          code,
+          creatorUid: uidB,
+          pairId: 'p1',
+          redeemedBy: uidA,
+        );
+        expect(await _commit([_delete('invites/$code')], uid: uidC), 403);
+        expect(await _commit([_delete('invites/$code')], uid: uidA), 200);
+
+        await _seedInvite(
+          'SPENT234',
+          creatorUid: uidB,
+          pairId: 'p2',
+          redeemedBy: uidA,
+        );
+        expect(await _commit([_delete('invites/SPENT234')], uid: uidB), 200);
+      },
+    );
+
+    test('an invite already gone is deleted again without a refusal; '
+        'signed out it still is refused', () async {
+      await _seedInvite(code, creatorUid: uidB);
+      expect(await _commit([_delete('invites/$code')], uid: uidB), 200);
+      expect(await _commit([_delete('invites/$code')], uid: uidB), 200);
+      expect(await _commit([_delete('invites/$code')], uid: uidA), 200);
+      expect(await _commit([_delete('invites/$code')]), 403);
+    });
+
+    test('an account lists the invites it created and the ones it '
+        'redeemed, expired ones included', () async {
+      await _seedInvite(code, creatorUid: uidA);
+      await _seedInvite(
+        'EXPIRED2',
+        creatorUid: uidA,
+        lifetime: const Duration(minutes: -1),
       );
-      expect(
-        await _commit([
-          {'delete': '$_docRoot/invites/$code'},
-        ], uid: uidB),
-        200,
+      await _seedInvite(
+        'SPENT234',
+        creatorUid: uidB,
+        pairId: 'p1',
+        redeemedBy: uidA,
       );
+      await _seedInvite('THEIRS23', creatorUid: uidB);
+
+      final created = await _queryInvites('creatorUid', uidA, uid: uidA);
+      expect(created.status, 200);
+      expect(created.body, contains('invites/$code'));
+      expect(created.body, contains('invites/EXPIRED2'));
+      expect(created.body, isNot(contains('invites/THEIRS23')));
+
+      final redeemed = await _queryInvites('redeemedBy', uidA, uid: uidA);
+      expect(redeemed.status, 200);
+      expect(redeemed.body, contains('invites/SPENT234'));
+      expect(redeemed.body, isNot(contains('invites/$code')));
+    });
+
+    test('a listing of another account\'s invites is refused', () async {
+      await _seedInvite(code, creatorUid: uidB);
+      expect((await _queryInvites('creatorUid', uidB, uid: uidC)).status, 403);
+      expect((await _queryInvites('redeemedBy', uidB, uid: uidC)).status, 403);
+      expect((await _queryInvites('creatorUid', uidB, uid: null)).status, 403);
     });
   });
 

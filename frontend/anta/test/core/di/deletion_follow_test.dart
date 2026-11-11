@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:anta/core/di/injection.dart';
 import 'package:anta/services/auth_service.dart';
 import 'package:anta/services/database_manager.dart';
+import 'package:anta/services/pairing_gateway.dart';
 import 'package:anta/services/sync/sync_gateway.dart';
 
 import '../../services/pairing_support.dart';
@@ -35,6 +36,8 @@ void main() {
   void register({required bool available}) {
     auth = FakeAuthService(available: available);
     getIt.registerSingleton<AuthService>(auth);
+    // What the service's account closer is built over.
+    getIt.registerSingleton<PairingGateway>(FakePairingGateway());
     getIt.registerSingleton<SyncGateway>(FakeSyncGateway());
     registerSyncSpaceService(
       databases: () {

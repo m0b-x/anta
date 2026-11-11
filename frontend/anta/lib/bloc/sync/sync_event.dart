@@ -101,6 +101,27 @@ final class FinishDeletingRequested extends SyncEvent {
   const FinishDeletingRequested();
 }
 
+/// "Delete account", and "Finish deleting account" while one waits
+/// (cloud-multi-user-roadmap §6.1): the sign-in asked again, then every
+/// cloud copy of the signed-in account marked for deletion, this database
+/// unbound when it syncs with one, and the account recorded as going once
+/// they are gone. Nothing on this device is touched; the emptying and the
+/// account's end are the service's background run.
+final class DeleteAccountRequested extends SyncEvent {
+  const DeleteAccountRequested();
+}
+
+/// Fed from the service as it deletes the account [uid], so the signed-out
+/// state its session ends in can say what happened.
+final class SyncAccountDeleted extends SyncEvent {
+  final String uid;
+
+  const SyncAccountDeleted(this.uid);
+
+  @override
+  List<Object?> get props => [uid];
+}
+
 /// Fed from the service's deletion status of the account signed in, so a
 /// background run's progress and end reach the page.
 final class SyncDeletionStatusChanged extends SyncEvent {

@@ -140,6 +140,115 @@ void main() {
     },
   );
 
+  group('an unbind releases the account\'s rows '
+      '(cloud-multi-user-roadmap §6.1 f)', () {
+    const space = SyncSpaceRef(ownerUid: 'account-1', spaceId: 'space-1');
+
+    Future<String?> ownerOf(String id) async {
+      final row = await db
+          .customSelect(
+            'SELECT owner_id FROM folders WHERE id = ?',
+            variables: [Variable<String>(id)],
+          )
+          .getSingle();
+      return row.read<String?>('owner_id');
+    }
+
+    Future<void> ownedBy(String id, String uid) => db.customStatement(
+      'UPDATE folders SET owner_id = ? WHERE id = ?',
+      [uid, id],
+    );
+
+    /// How many rows across every synced table [uid] owns.
+    Future<int> rowsOwnedBy(String uid) async {
+      var rows = 0;
+      for (final synced in syncedTables) {
+        final row = await db
+            .customSelect(
+              'SELECT COUNT(*) AS n FROM ${synced.name} WHERE owner_id = ?',
+              variables: [Variable<String>(uid)],
+            )
+            .getSingle();
+        rows += row.read<int>('n');
+      }
+      return rows;
+    }
+
+    test('every row the bound account owns is unowned again, on every '
+        'table; a partner\'s row keeps its owner', () async {
+      final mine = await db.folderDao.createFolder(name: 'Mine');
+      final shared = await db.folderDao.createFolder(name: 'Shared');
+      await db.noteDao.createNote(folderId: mine.id, title: 'Squats');
+      await service.bind(space: space, accountUid: 'account-1');
+      await ownedBy(shared.id, 'partner');
+      // The folder and the note: two tables.
+      expect(await rowsOwnedBy('account-1'), 2);
+
+      await service.unbind();
+
+      expect(await rowsOwnedBy('account-1'), 0);
+      expect(await ownerOf(mine.id), isNull);
+      expect(await ownerOf(shared.id), 'partner');
+    });
+
+    test('so the next bind takes every row up, whichever account binds — '
+        'the same person back under a new uid uploads everything', () async {
+      final folder = await db.folderDao.createFolder(name: 'Training');
+      await service.bind(space: space, accountUid: 'account-1');
+      await service.unbind();
+      expect(await db.syncOutboxDao.count(), 0);
+
+      await service.bind(
+        space: const SyncSpaceRef(ownerUid: 'account-2', spaceId: 'space-2'),
+        accountUid: 'account-2',
+      );
+
+      expect(await ownerOf(folder.id), 'account-2');
+      expect(await rowsOwnedBy('account-1'), 0);
+      final queued = await db.syncOutboxDao.pending(limit: 1000);
+      expect(
+        queued.where((entry) => entry.rowKey == folder.id),
+        hasLength(1),
+        reason: 'a row left to the first account would never be uploaded',
+      );
+    });
+
+    test('only the account that bound is released: a space owner\'s row, '
+        'where the two differ, is somebody else\'s and keeps its '
+        'owner', () async {
+      final a = await db.folderDao.createFolder(name: 'A');
+      final b = await db.folderDao.createFolder(name: 'B');
+      expect(binding.ownerUid, isNot(binding.accountUid));
+      await settings.setSyncBinding(binding);
+      await ownedBy(a.id, binding.accountUid);
+      await ownedBy(b.id, binding.ownerUid);
+
+      await service.unbind();
+
+      expect(await ownerOf(a.id), isNull);
+      expect(await ownerOf(b.id), binding.ownerUid);
+    });
+
+    test('the heal\'s unbind releases them as Stop syncing does', () async {
+      final folder = await db.folderDao.createFolder(name: 'Copy');
+      await service.bind(space: space, accountUid: 'account-1');
+
+      await service.unbind(raiseFloor: false);
+
+      expect(await ownerOf(folder.id), isNull);
+    });
+
+    test('unbound already, nothing is released: a partner\'s rows and an '
+        'earlier account\'s alike stay as they are', () async {
+      final folder = await db.folderDao.createFolder(name: 'Old');
+      await ownedBy(folder.id, 'someone');
+
+      await service.unbind();
+
+      expect(await ownerOf(folder.id), 'someone');
+    });
+  });
+
   test('the floor is the clock, never a held row stamp above it', () async {
     final row = await db.folderDao.createFolder(name: 'Row');
     // A merge stored a far-ahead remote stamp the clock held back.
@@ -355,16 +464,26 @@ void main() {
       expect(await db.syncDao.getValue(SyncDao.keyHealUnboundFrom), isNull);
     });
 
-    test('never re-owns a row another account owns', () async {
-      final folder = await db.folderDao.createFolder(name: 'Shared');
+    test('takes up a row still naming an account that no longer binds this '
+        'database, and queues it: an unbound database holds only this '
+        'device\'s own rows (cloud-multi-user-roadmap §6.1 f)', () async {
+      // As a build from before an unbind released its rows left it, or an
+      // imported backup of a synced database did.
+      final folder = await db.folderDao.createFolder(name: 'Left behind');
       await db.customStatement('UPDATE folders SET owner_id = ? WHERE id = ?', [
-        'partner',
+        'an-earlier-account',
         folder.id,
       ]);
+      await db.syncOutboxDao.clear();
 
       await service.bind(space: space, accountUid: 'account-1');
 
-      expect((await db.folderDao.getFolderById(folder.id))!.ownerId, 'partner');
+      expect(
+        (await db.folderDao.getFolderById(folder.id))!.ownerId,
+        'account-1',
+      );
+      final queued = await db.syncOutboxDao.pending(limit: 1000);
+      expect(queued.where((entry) => entry.rowKey == folder.id), hasLength(1));
     });
 
     test('over an existing binding is refused, and writes nothing', () async {

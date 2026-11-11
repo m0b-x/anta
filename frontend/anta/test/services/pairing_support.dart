@@ -43,6 +43,37 @@ class FakeAuthService implements AuthService {
     _user = null;
   }
 
+  /// What [reauthenticate] answers; false is a dismissed prompt.
+  bool reauthenticates = true;
+
+  /// Thrown by [reauthenticate] when set.
+  Object? reauthenticateError;
+
+  int reauthenticateCalls = 0;
+
+  @override
+  Future<bool> reauthenticate() async {
+    reauthenticateCalls++;
+    if (reauthenticateError case final error?) throw error;
+    return reauthenticates;
+  }
+
+  /// Thrown by [deleteAccount] when set, which then deletes nothing.
+  Object? deleteAccountError;
+
+  /// The accounts [deleteAccount] removed, in order.
+  final List<String> deletedAccounts = [];
+
+  /// Ends the session as the real one does: the stream hears null.
+  @override
+  Future<void> deleteAccount() async {
+    if (deleteAccountError case final error?) throw error;
+    final user = _user;
+    if (user == null) throw StateError('nobody is signed in');
+    deletedAccounts.add(user.uid);
+    emitAuth(null);
+  }
+
   @override
   Future<void> dispose() async {
     await _controller.close();
@@ -50,8 +81,9 @@ class FakeAuthService implements AuthService {
 }
 
 /// An in-memory stand-in for Firestore that keeps the rules the real gateway
-/// relies on: an invite is create-only and claimable once, a pair is never
-/// deleted, and `createdAt` is assigned here rather than by the caller.
+/// relies on: an invite is create-only and claimable once, a pair is deleted
+/// only once ended, and `createdAt` is assigned here rather than by the
+/// caller.
 class FakePairingGateway implements PairingGateway {
   FakePairingGateway({this.available = true});
 
@@ -267,6 +299,38 @@ class FakePairingGateway implements PairingGateway {
       profiles: {...pair.profiles, profile.uid: profile},
     );
     _emitPair(pairId);
+  }
+
+  @override
+  Future<List<PairRecord>> findPairs(String uid) async {
+    _maybeFail();
+    return pairs.values.where((pair) => pair.contains(uid)).toList();
+  }
+
+  /// The pairs [deletePair] removed, in order.
+  final List<String> deletedPairs = [];
+
+  /// Refuses an active pair, as the rules do.
+  @override
+  Future<void> deletePair(String pairId) async {
+    _maybeFail();
+    final pair = pairs[pairId];
+    if (pair == null) return;
+    if (pair.isActive) {
+      throw const PairingException(PairingError.permissionDenied);
+    }
+    pairs.remove(pairId);
+    deletedPairs.add(pairId);
+    _emitPair(pairId);
+  }
+
+  @override
+  Future<List<String>> findOwnInvites(String uid) async {
+    _maybeFail();
+    return [
+      for (final invite in invites.values)
+        if (invite.creatorUid == uid || invite.redeemedBy == uid) invite.code,
+    ];
   }
 
   bool hasPairListener(String pairId) =>

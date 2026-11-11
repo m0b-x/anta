@@ -4997,6 +4997,48 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String get syncDeleteAccount => 'Delete account';
+
+  @override
+  String get syncDeleteAccountDesc =>
+      'Removes the account and all its cloud copies. This device keeps everything.';
+
+  @override
+  String get syncDeleteAccountConfirmTitle => 'Delete your account?';
+
+  @override
+  String get syncDeleteAccountConfirmBody =>
+      'Every cloud copy of this account is removed for good, sharing with your partner ends, and the account itself is deleted. Nothing is deleted on this device. Google will ask you to sign in once more.';
+
+  @override
+  String get syncDeleteAccountRunning => 'Deleting account';
+
+  @override
+  String get syncDeleteAccountFinish => 'Finish deleting account';
+
+  @override
+  String get syncDeleteAccountFinishDesc => 'Sign in again to finish';
+
+  @override
+  String get syncDeleteAccountDone => 'Account deleted';
+
+  @override
+  String get syncFailedOtherAccount =>
+      'That is another account — nothing was deleted';
+
+  @override
+  String get syncDeleteAccountFailed =>
+      'The account couldn\'t be deleted — try again';
+
+  @override
+  String get syncFailedAccountDeleting =>
+      'This account is being deleted — finish that, or sign out to keep the account';
+
+  @override
+  String get signOutConfirmDeleting =>
+      'Sign out? Your account stays. Cloud copies already being deleted are still removed.';
+
+  @override
   String get syncPickerSpaces => 'Cloud spaces';
 
   @override
@@ -10931,5 +10973,13 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String appGuideSyncDeleteBody(String delete) {
     return '“$delete” removes the database from your account for good. It stays on this phone, which stops syncing it; your other devices keep theirs and stop too.';
+  }
+
+  @override
+  String get appGuideSyncDeleteAccountTitle => 'Deleting your account';
+
+  @override
+  String appGuideSyncDeleteAccountBody(String deleteAccount) {
+    return '“$deleteAccount” on the same page removes every cloud copy of the account, ends sharing with your partner and deletes the account itself, once Google has asked you to sign in again. Everything stays on this phone.';
   }
 }

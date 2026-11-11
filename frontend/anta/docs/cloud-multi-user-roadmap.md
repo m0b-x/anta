@@ -1,17 +1,20 @@
 # Cloud Multi-User Roadmap — ANTA
 
-**Status: D1 DONE 2026-11-11 — "Delete cloud copy", committed `f67c942a`
-(2026-11-10) and its debt pass after it (2026-11-11): the long part of a
-deletion runs in the background, resumes by itself and has a section of
-its own; reviewed three times, the final gate green (`+15400 ~17`), the
-saved `sync` device suite green. §5.1–5.8 state the design as built, §5.9
-the history. Decided 2026-11-11 on the owner's word: the region is the
-European Union (R1, the owner runs the move); a second account on one
-phone is accepted (R4, not built). Left to the owner: the rules deploy,
-the build on every device, the phone check (§5.8), the region move (R1).
-Every other slice is PLAN: one row of §3, with its own design section or
-record when it starts; D2 (delete my account) is next. The target is the
-owner's (§1).** Written from the
+**Status: D1 and D2 DONE 2026-11-11. D1 — "Delete cloud copy", committed
+`f67c942a` (2026-11-10) and its debt pass after it (2026-11-11): the long
+part of a deletion runs in the background, resumes by itself and has a
+section of its own; reviewed three times, the saved `sync` device suite
+green. §5.1–5.8 state the design as built, §5.9 the history. D2 — "Delete
+account" (§6.1, design and as-built): built on D1's run, reviewed, the
+gate green (`+15822 ~17`, the rules suite 124 of 124); no device pass yet
+— it rides the two-guest suite (R10). Decided 2026-11-11 on the owner's
+word: the region is the European Union (R1, the owner runs the move); a
+second account on one phone is accepted (R4, not built). Left to the
+owner: the rules deploy (now carrying D2's pair and invite
+rules), the build on every device, the phone checks (§5.8, §6.1), the
+region move (R1). Every other slice is PLAN: one row of §3, with its own
+design section or record when it starts. The target is the owner's
+(§1).** Written from the
 investigation of 2026-11-10 at `14a1dc58`: two code sweeps, the cloud
 records read by section, the live database's metadata, the Firebase and
 store documentation. Master ladder: `cloud-sync-roadmap.md`. This record is
@@ -104,8 +107,8 @@ build.
 
 | Id | What the user gets | Size | For the two-user target |
 | --- | --- | --- | --- |
-| **D1** | Delete a database's cloud copy | M | yes — first |
-| D2 | Delete my account and everything it holds in the cloud | M | yes |
+| **D1** | Delete a database's cloud copy | M | yes — first; done |
+| **D2** | Delete my account and everything it holds in the cloud | M | yes — done (§6.1) |
 | D3 | Ask for deletion from outside the app (a web page) | S | no — listing only |
 | E0 | Pairing proven between two real accounts on the live project | S | yes |
 | E1 | An event I share shows on my partner's calendar, read-only | L | yes |
@@ -1028,14 +1031,225 @@ The guest was left on the normal QA build.
   **The order is the design:** data first, the account last — a deleted
   account that signs in again is a new uid and could never reach what the
   old one left. Firebase asks for a fresh sign-in before it deletes an
-  account, so the flow re-authenticates with Google first. Open: an ended
-  pair document keeps both uids for ever (`members` never shrinks, no
-  delete) — decide whether a member may delete an ended pair.
+  account, so the flow re-authenticates with Google first. The question
+  left open here — an ended pair document keeps both uids for ever — is
+  answered in §6.1 g: a member's account deletion removes its pairs.
+  **DONE 2026-11-11, §6.1.**
 - **D3 — Deletion from outside the app.** A page (the project's free
   Hosting domain) that says how to ask, and the operator's runbook:
   `firebase firestore:delete --recursive` on `users/<uid>` and the
   console's user delete. Google Play requires the link for any listed app
   that lets people create accounts; nothing else does.
+
+### 6.1 D2 — Delete my account (design)
+
+Decided and built in the session of 2026-11-11 (the owner: "implement the
+roadmap, make the decisions that are mine to make, ask the rest"). The
+bullet above is the plan it started from; this section states the design
+as built, and its last block the history.
+
+**What the user gets.** In Settings → Sync & sharing the Account section
+has a second row, **Delete account**, drawn destructive — always there
+under the account, held while nobody is signed in, so signing in and out
+moves nothing. It asks once: every cloud copy of the account is deleted
+for good, pairing ends, the account itself is removed, nothing on this
+device is deleted. On yes Google asks for the account once more; then
+every cloud copy is marked, this database stops syncing, and the page is
+free again. The emptying runs in the background in the page's last
+section — "Deleting account", a count — and when the last copy is gone the
+pair and invite documents are removed, the sign-in account is deleted and
+the page reads signed out, with "Account deleted" said once. A deletion
+that could not finish — the app closed, the link lost, the fresh sign-in
+gone stale — waits as "Finish deleting account", and its tap asks Google
+again. While an account is going, "Sync this database" is held; signing
+out is the way to keep the account, and the sign-out's question says so.
+
+**Decisions taken by the lead (lettered, reversible before a release).**
+
+- **a. Scope.** On the server: every space of the account, bound on this
+  install or not (D1's operation, once per space); every pair document the
+  account is a member of; every invite it created or redeemed; the sign-in
+  account. On any device: nothing.
+- **b. The order is the design.** Spaces, then pairs and invites, then the
+  account — a deleted account that signs in again is a new uid and could
+  never reach what the old one left. The account is deleted only after a
+  listing of its spaces reads empty, and three things keep that true to
+  the last moment: from the record on, this install refuses every bind of
+  the account (`SyncBindFailure.accountDeleting` — a copy made now could
+  land after the last listing); a `deleteAccount` call still marking
+  spaces holds the run's close; and the closer asks once more right before
+  the account's own delete (`stillWanted`), where a space of the account
+  recorded meanwhile, the deletion given up, or the session changed each
+  mean no.
+- **c. A fresh sign-in, asked first, and a window.** Firebase deletes an
+  account only minutes after a sign-in (five), so Google is asked right
+  after the confirmation, before anything is touched; another account
+  chosen there is refused (`SyncBindFailure.otherAccount`). Each
+  `deleteAccount` call hands the run it starts or joins a licence dated at
+  the call, and the run may begin the account's end only within four
+  minutes of it (`SyncSpaceService.accountCloseWindow`): the pairs and
+  invites go before the account, so past the window they are left alone —
+  sharing is never ended for an account the server would then refuse to
+  delete. A run with no licence — resumed at a start-up, asked by "Finish
+  deleting", started by a later cloud copy's deletion — finishes the
+  copies and waits as "Finish deleting account", whose tap signs in again;
+  so does one whose window passed, with no failure shown. An attempt takes
+  back only the licence it began under, never a later call's.
+- **d. No undo for the copies; a way out for the account.** A marked copy
+  is gone (D1 c). The account's own deletion is dropped by signing out —
+  the sign-out confirmation says so, and it is dropped before the sign-out
+  itself, whether or not that then lands, so a run in its last steps
+  cannot finish them meanwhile — and by another account signing in; the
+  copies already marked are still removed.
+- **e. D1's run carries it.** One install-wide record more (the uid whose
+  account is being deleted, `SettingsKeys.syncPendingAccountDeletion`),
+  one field more on `SyncDeletionStatus` (`account`), one step more at the
+  end of the account's run (`AccountCloser`). No second queue, no second
+  status stream, no second section on the page.
+- **f. An unbind releases the account's rows, and a bind takes up every
+  row.** `owner_id = <the account that bound>` becomes NULL on every synced
+  table when a database is unbound — "Stop syncing", a restore, the heal,
+  a deletion — and a bind owns every row not already the binding
+  account's (`owner_id IS NOT ?`), so one left naming an earlier account
+  by an older build or an import is uploaded too. An unbound database
+  holds only rows that are simply "mine"; before this a person returning
+  under a new uid (which a deleted account always is) or a second Google
+  account left every old row out of the next bind's upload, and with
+  sharing those rows would read as another account's. Only the binding
+  account's rows are released: a row any other uid owns is somebody
+  else's. (Imports still store an archive's `ownerId`; R9 settles that
+  with the sharing build, and a partner's rows are purged at an unbind
+  there, before this release.)
+- **g. Pair documents are removed, not only ended.** The active pair is
+  ended first — the partner's device hears a tombstone — then every pair
+  document of the account is deleted. The rules gain: a member may delete
+  an ended pair; a missing pair reads as "not found" instead of "denied"
+  (the invites' precedent) and may be "deleted" by anyone signed in, so
+  two deletions walking the same pair never refuse each other. A refused
+  `endPair` is read back before it counts: the partner may have ended or
+  removed the pair since it was listed. The deleting device forgets its
+  own pairing first (`PairingService.forget`), so it never tells itself
+  the partner ended sharing. A partner's device raises the ended notice
+  when its pair reads gone — at a reconcile, or when its listener hears
+  "no document" after a live one (never before: a pair just written
+  reads as none until its server time arrives) — since only an account's
+  deletion removes one. Accepted: another device of the deleted account
+  blames the partner for the hour its session outlives the account.
+- **h. Invites.** The rules gain: an account may list the invites it
+  created or redeemed, and delete them — one already gone goes through.
+  Codes stay impossible to enumerate — a listing is only ever one's own.
+- **i. The account's other devices pause.** Their space is marked, then
+  gone ("Paused — the cloud copy was deleted"); their session ends when
+  its token does, within the hour, and reads signed out. Accepted limit:
+  inside that hour such a device — unlike this install (b) — could still
+  create a space, which nobody could reach afterwards.
+- **j. No wire bump, no migration.**
+- **k. Nothing this final starts unseen.** The step begins only for the
+  account the prompt confirmed and only from a page still there: an
+  account that changed or signed out while Google's prompt was up, or a
+  page left meanwhile, starts nothing. The account's own delete is bounded
+  (30 s, then "offline"; the deletion waits), and Google's `disconnect`
+  after it is best-effort and never awaited.
+- **l. The words follow what happened.** A failure with no better reason
+  says "The account couldn't be deleted", never "Sync couldn't be turned
+  on"; the done row says "Account deleted" only when the run the page
+  last saw was deleting the account — a deletion given up ends as its
+  copies' do.
+
+**The protocol.** The bloc re-authenticates (`AuthService.reauthenticate`),
+then runs one short step with the engine stopped
+(`SyncSpaceService.deleteAccount`): refused while a restore runs; the
+account's spaces listed — a failure here changes nothing, and so does a
+space a newer build wrote to (`appOutdated`); the account deletion
+recorded; the space this database syncs with, if it is the account's,
+marked, recorded and unbound first, as "Delete cloud copy" does less its
+second read — a newer build's write between the listing and the mark is
+met by the run, which passes that space over with the database already
+unbound; then every other unmarked space marked and recorded, one by one,
+so a failure midway leaves marks and records in step; the account's run
+requested and licensed. The run empties and removes the spaces as D1's
+does and then, when it holds a licence inside its window (c) and a
+listing reads empty, closes the account (`AccountCloser`): the open
+database's pairing forgotten, pairs ended and deleted, invites deleted,
+the caller asked once more (b), the sign-in account deleted, the record
+cleared, the account named on `accountsDeleted`. A space found at that
+listing — made or marked elsewhere since — is recorded when marked and
+left for the next tap when not: only a person marks. What reaches a run
+while it judges the account's end — a space recorded, a later call's
+licence — is looked at again before the run ends.
+
+**Rules** (`firestore.rules`; additive, deployed before the build):
+
+```
+match /pairs/{pairId} {
+  allow get: if signedIn() && (resource == null || uid() in resource.data.members);
+  allow list: if isMember();
+  allow delete: if signedIn() && (resource == null
+      || (uid() in resource.data.members && resource.data.status == 'ended'));
+}
+match /invites/{code} {
+  allow list: if signedIn() && (resource.data.creatorUid == uid()
+                                || resource.data.redeemedBy == uid());
+  allow delete: if signedIn() && (resource == null
+      || resource.data.creatorUid == uid()
+      || ('redeemedBy' in resource.data && resource.data.redeemedBy == uid()));
+}
+```
+
+**Must not change.** D1's protocol, statuses and strings; pairing's
+create, redeem, reconcile and unpair; the engine; `owner_id` NULL meaning
+"mine"; backups; the page's one-height rows.
+
+**What only the owner does.** The rules deploy before the build installs
+(the same command as §5.8) — without it the account's end stops as
+"permission denied" at its pairs, with every cloud copy already gone and
+the account waiting. On the phone, once, with a throw-away Google
+account: sign in, sync a database, pair, delete the account — the console
+then shows no `users/<uid>` documents, no pair, no invite, and the user
+gone from Authentication. That is the one thing the emulator cannot
+prove: Firebase's fresh-sign-in window, which the Auth emulator does not
+enforce.
+
+**As built (2026-11-11).** One session on Fable, the build inline.
+
+- *Code.* `AuthService.reauthenticate` / `deleteAccount` (+
+  `OtherAccountException`, `RecentSignInRequiredException`);
+  `PairingGateway.findPairs` / `deletePair` / `findOwnInvites`;
+  `PairingService.forget` and the listener's "no document" path;
+  `AccountCloser` / `PairedAccountCloser`
+  (`lib/services/sync/account_closer.dart`); in `SyncSpaceService`
+  `deleteAccount`, `abandonAccountDeletion`, `accountsDeleted`, the
+  licence and its window, the bind refusal; `SyncSpaceRegistry`'s account
+  record; `SyncBindingService`'s release and take-up (f); the bloc's
+  `DeleteAccountRequested` / `SyncAccountDeleted`, `SyncAccountDeleting`,
+  `SyncSignedOut.accountDeleted`; the page's row, dialog, deletion-row
+  wording and snackbar; fourteen strings in en/de/ro; the guide row
+  "Delete account"; `firestore.rules`.
+- *Reviews.* The lead's own pass replaced a per-process "may close" set
+  with the per-run licence. One independent review (the `reviewer` agent
+  on Fable) returned twenty findings, no blocker; nineteen were addressed
+  — the bind refusal, the abandon before the sign-out and the closer's
+  last question (b, d), the take-up at a bind (f), `forget` and the
+  read-back of a refused `endPair` (g), the deletes of what is already
+  gone (g, h), the bound on the account's delete (k), the window (c), the
+  marking guard and the second look (b), the wording (l), the suites and
+  this record — and one accepted: the record of an account already gone
+  can remain when the process dies between the account's delete and the
+  record's clearing; nothing reads it as a deletion and any sign-in drops
+  it. The fix pass then found four of its own: a later call's licence
+  could be taken back by an older attempt, the window was dated at the
+  end of a slow marking instead of the call, a space recorded while the
+  closer worked did not hold the account's delete, and the done row could
+  read "Account deleted" after a deletion given up.
+- *Gate.* `dart analyze lib test tool test_driver` clean; the whole suite
+  `+15822 ~17`; the rules suite 124 of 124 against the emulator. Suites:
+  `account_closer_test` (21), `sync_account_delete_test` (38, its guards
+  checked by mutation), the bloc's group (149 in the file), the page's
+  group (293 in `sync_section_test`), `pairing_service_test` (28),
+  `sync_binding_service_test` (36), the registry's (22).
+- *Not proven here.* Firebase's fresh-sign-in window and the real Google
+  prompt (the owner's phone check above); a device pass of the flow waits
+  for the two-guest suite (R10), which carries a "delete account" flow.
 
 ---
 

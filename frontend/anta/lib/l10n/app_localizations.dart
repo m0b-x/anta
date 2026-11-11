@@ -8290,6 +8290,78 @@ abstract class AppLocalizations {
   /// **'{count, plural, =1{1 cloud copy is partly deleted from your account} other{{count} cloud copies are partly deleted from your account}}'**
   String syncDeleteCloudFinishMany(int count);
 
+  /// Second row of the Account section of the Sync & sharing page, drawn destructive: deletes the signed-in account and everything it holds in the cloud, nothing on the device. Also the destructive confirm button of its dialog
+  ///
+  /// In en, this message translates to:
+  /// **'Delete account'**
+  String get syncDeleteAccount;
+
+  /// Subtitle of the Delete account row
+  ///
+  /// In en, this message translates to:
+  /// **'Removes the account and all its cloud copies. This device keeps everything.'**
+  String get syncDeleteAccountDesc;
+
+  /// Title of the dialog confirming Delete account
+  ///
+  /// In en, this message translates to:
+  /// **'Delete your account?'**
+  String get syncDeleteAccountConfirmTitle;
+
+  /// Body of the dialog confirming Delete account; after the confirm button Google's own sign-in prompt appears
+  ///
+  /// In en, this message translates to:
+  /// **'Every cloud copy of this account is removed for good, sharing with your partner ends, and the account itself is deleted. Nothing is deleted on this device. Google will ask you to sign in once more.'**
+  String get syncDeleteAccountConfirmBody;
+
+  /// Title of the deletion section's row while an account's deletion runs in the background; the row's subtitle counts the items removed
+  ///
+  /// In en, this message translates to:
+  /// **'Deleting account'**
+  String get syncDeleteAccountRunning;
+
+  /// Title of the deletion section's row while an account's deletion was cut short: a tap asks Google for the sign-in again and finishes it
+  ///
+  /// In en, this message translates to:
+  /// **'Finish deleting account'**
+  String get syncDeleteAccountFinish;
+
+  /// Subtitle of the Finish deleting account row: the tap opens Google's sign-in prompt first
+  ///
+  /// In en, this message translates to:
+  /// **'Sign in again to finish'**
+  String get syncDeleteAccountFinishDesc;
+
+  /// Snackbar on the Sync & sharing page once the account was deleted and the page reads signed out
+  ///
+  /// In en, this message translates to:
+  /// **'Account deleted'**
+  String get syncDeleteAccountDone;
+
+  /// Snackbar when the Google account chosen to confirm Delete account is not the one signed in
+  ///
+  /// In en, this message translates to:
+  /// **'That is another account — nothing was deleted'**
+  String get syncFailedOtherAccount;
+
+  /// Snackbar, and the spoken value of the row, when deleting the account failed for no reason the app can name
+  ///
+  /// In en, this message translates to:
+  /// **'The account couldn\'t be deleted — try again'**
+  String get syncDeleteAccountFailed;
+
+  /// Snackbar when syncing a database is refused because the signed-in account's own deletion is under way or waiting to be finished
+  ///
+  /// In en, this message translates to:
+  /// **'This account is being deleted — finish that, or sign out to keep the account'**
+  String get syncFailedAccountDeleting;
+
+  /// Body of the sign-out confirmation while the account's own deletion is unfinished: signing out gives that deletion up
+  ///
+  /// In en, this message translates to:
+  /// **'Sign out? Your account stays. Cloud copies already being deleted are still removed.'**
+  String get signOutConfirmDeleting;
+
   /// Section label over the account's cloud spaces in the sheet that picks one
   ///
   /// In en, this message translates to:
@@ -16473,6 +16545,18 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'“{delete}” removes the database from your account for good. It stays on this phone, which stops syncing it; your other devices keep theirs and stop too.'**
   String appGuideSyncDeleteBody(String delete);
+
+  /// No description provided for @appGuideSyncDeleteAccountTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Deleting your account'**
+  String get appGuideSyncDeleteAccountTitle;
+
+  /// No description provided for @appGuideSyncDeleteAccountBody.
+  ///
+  /// In en, this message translates to:
+  /// **'“{deleteAccount}” on the same page removes every cloud copy of the account, ends sharing with your partner and deletes the account itself, once Google has asked you to sign in again. Everything stays on this phone.'**
+  String appGuideSyncDeleteAccountBody(String deleteAccount);
 }
 
 class _AppLocalizationsDelegate

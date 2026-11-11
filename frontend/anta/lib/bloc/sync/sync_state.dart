@@ -101,6 +101,17 @@ final class SyncBindDeleting extends SyncBindFlow {
   bool get isBusy => true;
 }
 
+/// "Delete account" being started (cloud-multi-user-roadmap §6.1): the
+/// sign-in asked again, then every cloud copy marked and this database
+/// unbound — the emptying and the account's own end are the service's
+/// background run, which [SyncSignedIn.deletion] follows.
+final class SyncAccountDeleting extends SyncBindFlow {
+  const SyncAccountDeleting();
+
+  @override
+  bool get isBusy => true;
+}
+
 /// The last step failed; stays until it is dismissed or the flow starts
 /// again.
 final class SyncBindFailed extends SyncBindFlow {
@@ -117,14 +128,20 @@ final class SyncBindFailed extends SyncBindFlow {
   /// it.
   final bool deleting;
 
+  /// Whether what failed was "Delete account" — the sign-in asked again, or
+  /// the step after it: the page says so on that row, and never as a
+  /// stop's or a cloud copy's failure.
+  final bool account;
+
   const SyncBindFailed(
     this.failure, {
     this.holderDatabase,
     this.deleting = false,
+    this.account = false,
   });
 
   @override
-  List<Object?> get props => [failure, holderDatabase, deleting];
+  List<Object?> get props => [failure, holderDatabase, deleting, account];
 }
 
 /// The one rule "Delete cloud copy" follows, read by the page to hold its
@@ -184,18 +201,28 @@ final class SyncSignedOut extends SyncState {
   @override
   final bool stepInFlight;
 
+  /// Whether this is the signed-out state an account's deletion ended in
+  /// (cloud-multi-user-roadmap §6.1): the page says "Account deleted" once,
+  /// as it turns true. The states that follow carry false again.
+  final bool accountDeleted;
+
   const SyncSignedOut({
     this.status = SyncStatus.empty,
     this.flow = const SyncBindIdle(),
     this.stepInFlight = false,
+    this.accountDeleted = false,
   });
 
   @override
-  SyncSignedOut withStepInFlight(bool value) =>
-      SyncSignedOut(status: status, flow: flow, stepInFlight: value);
+  SyncSignedOut withStepInFlight(bool value) => SyncSignedOut(
+    status: status,
+    flow: flow,
+    stepInFlight: value,
+    accountDeleted: accountDeleted,
+  );
 
   @override
-  List<Object?> get props => [status, flow, stepInFlight];
+  List<Object?> get props => [status, flow, stepInFlight, accountDeleted];
 }
 
 final class SyncSigningIn extends SyncState {

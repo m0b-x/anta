@@ -104,7 +104,14 @@ service cloud.firestore {
             && request.resource.data.permissions[uid()].allowPartnerEdit is bool;
       }
 
-      allow get, list: if isMember();
+      // A missing pair reads as "not found", never "denied" — the invites'
+      // precedent below. Since a member deleting their account removes the
+      // pair (the delete rule), the partner's device has to be able to tell
+      // "gone" from "not mine". Pair ids are random, so nothing is learned
+      // from a guess.
+      allow get: if signedIn()
+        && (resource == null || uid() in resource.data.members);
+      allow list: if isMember();
 
       allow create: if signedIn()
         && request.resource.data.keys().hasOnly([
@@ -129,7 +136,18 @@ service cloud.firestore {
         && request.resource.data.createdAt == resource.data.createdAt
         && (tombstones() || rewritesOwnProfile() || rewritesOwnConsent());
 
-      allow delete: if false;
+      // Only an ended pair, and only by a member: what an account's deletion
+      // does to every pair it is in, after ending the active one — the
+      // tombstone is what the partner's listening device hears first
+      // (record cloud-multi-user-roadmap §6.1 g). An active pair never
+      // disappears without that word. A pair already gone may be "deleted"
+      // by anyone signed in — it removes nothing — so two deletions walking
+      // the same pair, the partners' or two devices of one account, never
+      // refuse each other.
+      allow delete: if signedIn()
+        && (resource == null
+            || (uid() in resource.data.members
+                && resource.data.status == 'ended'));
     }
 
     match /invites/{code} {
@@ -143,7 +161,14 @@ service cloud.firestore {
       // instead of "that code is not valid".
       allow get: if signedIn()
         && (resource == null || resource.data.expiresAt > request.time);
-      allow list: if false;
+      // A listing is only ever one's own — the invites an account created,
+      // or the ones it redeemed, each asked for by its own equality filter —
+      // so that an account's deletion can find and remove them (record
+      // cloud-multi-user-roadmap §6.1 h). Any other query is refused, and
+      // codes stay impossible to enumerate.
+      allow list: if signedIn()
+        && (resource.data.creatorUid == uid()
+            || resource.data.redeemedBy == uid());
 
       // `expiresAt` is written from the device clock, so it is bounded here
       // rather than trusted: a skewed device would otherwise mint an invite
@@ -172,7 +197,14 @@ service cloud.firestore {
         && request.resource.data.pairId.size() > 0
         && request.resource.data.redeemedBy == uid();
 
-      allow delete: if signedIn() && resource.data.creatorUid == uid();
+      // The creator cancels a pending invite; either side removes a spent
+      // one when its account is deleted. One already gone goes through, as
+      // a pair's does.
+      allow delete: if signedIn()
+        && (resource == null
+            || resource.data.creatorUid == uid()
+            || ('redeemedBy' in resource.data
+                && resource.data.redeemedBy == uid()));
     }
 
     match /users/{owner}/spaces/{spaceId} {

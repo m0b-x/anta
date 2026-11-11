@@ -247,9 +247,15 @@ class SyncBindingService {
   /// so a failure anywhere leaves it unbound (record §3.6):
   ///
   /// - the binding stored;
-  /// - every unowned row of the seventeen queued tables owned by
-  ///   [accountUid], the owner the rules require (readiness D17) —
-  ///   `content_chunks` travel inside their note and stay unowned;
+  /// - every row of the seventeen queued tables owned by [accountUid], the
+  ///   owner the rules require (readiness D17) — the unowned ones, and those
+  ///   still carrying the uid of an earlier binding: an unbound database
+  ///   holds only this device's own rows (an unbind releases them,
+  ///   [_releaseRows]; one unbound by a build from before that, or filled by
+  ///   an import, may still name an account that no longer binds it), and a
+  ///   row left to that uid would never be uploaded
+  ///   (cloud-multi-user-roadmap §6.1 f) — `content_chunks` travel inside
+  ///   their note and stay unowned;
   /// - every row re-queued at its own stamp, so each one is either uploaded
   ///   or settled against the space by the initial merge;
   /// - the pull cursors and `pull_seen` marks deleted, so the first pull
@@ -314,9 +320,14 @@ class SyncBindingService {
         // A chunk is pushed under the bound account whatever its row holds,
         // and stamping every chunk row would rewrite the bodies' table.
         if (synced.contentAddressed) continue;
+        // `IS NOT`, so the unowned rows and those an earlier binding's
+        // account left behind are taken alike.
         await _db.customUpdate(
-          'UPDATE ${synced.name} SET owner_id = ? WHERE owner_id IS NULL',
-          variables: [Variable<String>(accountUid)],
+          'UPDATE ${synced.name} SET owner_id = ? WHERE owner_id IS NOT ?',
+          variables: [
+            Variable<String>(accountUid),
+            Variable<String>(accountUid),
+          ],
           updates: {
             _db.allTables.firstWhere((t) => t.actualTableName == synced.name),
           },
@@ -341,6 +352,10 @@ class SyncBindingService {
   /// held at this moment. One transaction, so no half-unbound state survives
   /// a crash.
   ///
+  /// The bound account's rows become unowned again ([_releaseRows]): an
+  /// unbound database holds rows that are simply this device's, whichever
+  /// account binds it next.
+  ///
   /// [raiseFloor] false leaves the floor where it stands, for the claim
   /// heal alone ([_healClaim]): Stop syncing and the restore's unbind mean
   /// "the space wins what I hold now", the heal never decided that.
@@ -358,7 +373,9 @@ class SyncBindingService {
   /// otherwise outlive it until the next bind (review RA1-7).
   Future<void> _unbind({required bool raiseFloor, String? healedFrom}) async {
     await _db.transaction(() async {
+      final bound = await read();
       await _settings.setSyncBinding(null);
+      if (bound != null) await _releaseRows(bound);
       await _db.syncOutboxDao.clear();
       await _deletePullState();
       if (raiseFloor) await writeBindFloor();
@@ -374,6 +391,31 @@ class SyncBindingService {
       }
     });
     await _updateRegistry((registry, name) => registry.release(name));
+  }
+
+  /// The reverse of the bind's backfill: every row [bound]'s account owns
+  /// goes back to `owner_id` NULL — "mine, bound to nothing" (readiness
+  /// D17). Without it the rows would stay the account's for good, and the
+  /// next bind under any other uid — a second account of the same person,
+  /// or the same person after deleting the first, who always returns under
+  /// a new uid — would leave every one of them out of its upload and read
+  /// them as another account's (cloud-multi-user-roadmap §6.1 f). The
+  /// account that bound, whose rows the backfill and every pull of its own
+  /// space stamped — a row any other account owns is never touched.
+  /// `content_chunks` are skipped as the backfill skips them: a chunk goes
+  /// by its note's owner.
+  Future<void> _releaseRows(SyncBinding bound) async {
+    for (final synced in syncedTables) {
+      if (synced.contentAddressed) continue;
+      await _db.customUpdate(
+        'UPDATE ${synced.name} SET owner_id = NULL WHERE owner_id = ?',
+        variables: [Variable<String>(bound.accountUid)],
+        updates: {
+          _db.allTables.firstWhere((t) => t.actualTableName == synced.name),
+        },
+        updateKind: UpdateKind.update,
+      );
+    }
   }
 
   /// After the transaction has committed, never inside it: the registry is

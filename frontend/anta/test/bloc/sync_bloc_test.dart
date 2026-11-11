@@ -89,6 +89,25 @@ class _FakeAuthService implements AuthService {
     _user = null;
   }
 
+  /// What a sign-in asked again answers — false is a dismissed prompt —
+  /// once [reauthGate], when set, lets it; [reauthError] is thrown instead.
+  bool reauthResult = true;
+  Object? reauthError;
+  Completer<void>? reauthGate;
+  int reauthCalls = 0;
+
+  @override
+  Future<bool> reauthenticate() async {
+    reauthCalls++;
+    if (reauthGate case final gate?) await gate.future;
+    if (reauthError case final error?) throw error;
+    return reauthResult;
+  }
+
+  @override
+  Future<void> deleteAccount() =>
+      throw StateError('the service deletes the account, never the bloc');
+
   @override
   Future<void> dispose() async {
     await _controller.close();
@@ -222,6 +241,31 @@ class _FakeSpaceService implements SyncSpaceService {
 
   @override
   Future<void> deleteCloudCopy() => _step('delete');
+
+  @override
+  Future<void> deleteAccount({required String accountUid}) =>
+      _step('deleteAccount:$accountUid');
+
+  /// The accounts whose deletion a sign-out gave up, in order. Apart from
+  /// [calls]: the bloc calls it behind every sign-out, not as a step.
+  final List<String> abandoned = [];
+
+  /// Runs as a deletion is given up, so a test can see what had happened
+  /// by then.
+  void Function()? onAbandon;
+
+  @override
+  Future<void> abandonAccountDeletion(String accountUid) async {
+    onAbandon?.call();
+    abandoned.add(accountUid);
+  }
+
+  /// The service's word that it deleted an account: add a uid to say so.
+  final StreamController<String> deletedAccounts =
+      StreamController<String>.broadcast();
+
+  @override
+  Stream<String> get accountsDeleted => deletedAccounts.stream;
 
   @override
   Future<void> finishPendingDeletions({required String accountUid}) =>
@@ -2976,6 +3020,354 @@ void main() {
       expect(bloc.state, isA<SyncSignedOut>());
       expect(reader.reads, [null]);
       await bloc.close();
+    });
+
+    group('deleting the account (cloud-multi-user-roadmap §6.1)', () {
+      const bound = SyncBinding(
+        spaceId: 'space-1',
+        ownerUid: 'uid-1',
+        accountUid: 'uid-1',
+      );
+
+      test('"Delete account" asks for the sign-in again before the step: '
+          'the engine is untouched while the prompt is up, then stopped for '
+          'the service and started again', () async {
+        final spaces = _FakeSpaceService();
+        final (bloc, auth, states, engine, _) = await pumpBinding(
+          spaces,
+          binding: bound,
+        );
+        final prompt = auth.reauthGate = Completer<void>();
+
+        bloc.add(const DeleteAccountRequested());
+        await pumpEventQueue();
+
+        expect(auth.reauthCalls, 1);
+        expect(engine.calls, isEmpty);
+        expect(spaces.calls, isEmpty);
+        expect(flows(states), [const SyncAccountDeleting()]);
+        expect(bloc.state.stepInFlight, isFalse);
+
+        List<String>? toldBeforeChange;
+        spaces.onStep = (_) => toldBeforeChange = List.of(engine.calls);
+        prompt.complete();
+        await pumpEventQueue();
+
+        expect(spaces.calls, ['deleteAccount:uid-1']);
+        expect(toldBeforeChange, ['stop']);
+        expect(engine.calls, ['stop', 'start']);
+        expect(flows(states).toSet(), {
+          const SyncAccountDeleting(),
+          const SyncBindIdle(),
+        });
+        expect(flows(states).last, const SyncBindIdle());
+        expect(bloc.state.stepInFlight, isFalse);
+        await bloc.close();
+      });
+
+      test('a dismissed prompt changes nothing: no step, no engine stop, '
+          'the flow back to idle', () async {
+        final spaces = _FakeSpaceService();
+        final (bloc, auth, states, engine, _) = await pumpBinding(
+          spaces,
+          binding: bound,
+        );
+        auth.reauthResult = false;
+
+        bloc.add(const DeleteAccountRequested());
+        await pumpEventQueue();
+
+        expect(spaces.calls, isEmpty);
+        expect(engine.calls, isEmpty);
+        expect(flows(states), [
+          const SyncAccountDeleting(),
+          const SyncBindIdle(),
+        ]);
+        await bloc.close();
+      });
+
+      for (final (label, Object error, failure) in [
+        (
+          'another account chosen',
+          const OtherAccountException(),
+          SyncBindFailure.otherAccount,
+        ),
+        (
+          'no connection',
+          const AuthException(AuthError.offline),
+          SyncBindFailure.offline,
+        ),
+        (
+          'a throw of any other kind',
+          StateError('boom'),
+          SyncBindFailure.unknown,
+        ),
+      ]) {
+        test('the prompt ending on $label fails as the account\'s, with '
+            'nothing asked of the service or the engine', () async {
+          final spaces = _FakeSpaceService();
+          final (bloc, auth, states, engine, _) = await pumpBinding(
+            spaces,
+            binding: bound,
+          );
+          auth.reauthError = error;
+
+          bloc.add(const DeleteAccountRequested());
+          await pumpEventQueue();
+
+          expect(spaces.calls, isEmpty);
+          expect(engine.calls, isEmpty);
+          expect(flows(states), [
+            const SyncAccountDeleting(),
+            SyncBindFailed(failure, account: true),
+          ]);
+          await bloc.close();
+        });
+      }
+
+      test('a service failure ends failed as the account\'s, and the engine '
+          'that was running runs again', () async {
+        final spaces = _FakeSpaceService()
+          ..error = const SyncSpaceException(SyncBindFailure.appOutdated);
+        final (bloc, _, states, engine, _) = await pumpBinding(
+          spaces,
+          binding: bound,
+        );
+        engine.isStarted = true;
+
+        bloc.add(const DeleteAccountRequested());
+        await pumpEventQueue();
+
+        expect(
+          flows(states).last,
+          const SyncBindFailed(SyncBindFailure.appOutdated, account: true),
+        );
+        expect(engine.calls, ['stop', 'start']);
+        await bloc.close();
+      });
+
+      test('no step starts while the prompt is up', () async {
+        final spaces = _FakeSpaceService();
+        final (bloc, auth, _, engine, _) = await pumpBinding(
+          spaces,
+          binding: bound,
+        );
+        final prompt = auth.reauthGate = Completer<void>();
+        auth.reauthResult = false;
+
+        bloc.add(const DeleteAccountRequested());
+        await pumpEventQueue();
+        bloc
+          ..add(const StopSyncingRequested())
+          ..add(const DeleteCloudCopyRequested())
+          ..add(const DeleteAccountRequested());
+        await pumpEventQueue();
+
+        expect(spaces.calls, isEmpty);
+        expect(engine.calls, isEmpty);
+        expect(auth.reauthCalls, 1);
+        prompt.complete();
+        await pumpEventQueue();
+        expect(spaces.calls, isEmpty);
+        await bloc.close();
+      });
+
+      test('"Delete account" during another step is refused', () async {
+        final spaces = _FakeSpaceService()..gate = Completer<void>();
+        final (bloc, auth, _, _, _) = await pumpBinding(spaces, binding: bound);
+        final stopping = spaces.gate!;
+
+        bloc.add(const StopSyncingRequested());
+        await pumpEventQueue();
+        bloc.add(const DeleteAccountRequested());
+        await pumpEventQueue();
+        stopping.complete();
+        await pumpEventQueue();
+
+        expect(auth.reauthCalls, 0);
+        expect(spaces.calls, ['stop']);
+        await bloc.close();
+      });
+
+      test('"Delete account" signed out does nothing', () async {
+        final spaces = _FakeSpaceService();
+        final (bloc, auth, states, _, _) = await pumpBinding(
+          spaces,
+          user: null,
+        );
+
+        bloc.add(const DeleteAccountRequested());
+        await pumpEventQueue();
+
+        expect(auth.reauthCalls, 0);
+        expect(spaces.calls, isEmpty);
+        expect(states, isEmpty);
+        await bloc.close();
+      });
+
+      test('while the account\'s deletion runs, another request adds '
+          'nothing; while it waits, the same request finishes it', () async {
+        const running = SyncDeletionStatus(
+          accountUid: 'uid-1',
+          running: true,
+          account: true,
+        );
+        const waiting = SyncDeletionStatus(accountUid: 'uid-1', account: true);
+        final spaces = _FakeSpaceService()..deletions['uid-1'] = running;
+        final (bloc, auth, _, _, _) = await pumpBinding(spaces);
+        expect((bloc.state as SyncSignedIn).deletion, running);
+
+        bloc.add(const DeleteAccountRequested());
+        await pumpEventQueue();
+        expect(auth.reauthCalls, 0);
+        expect(spaces.calls, isEmpty);
+
+        spaces.publish(waiting);
+        await pumpEventQueue();
+        bloc.add(const DeleteAccountRequested());
+        await pumpEventQueue();
+        expect(auth.reauthCalls, 1);
+        expect(spaces.calls, ['deleteAccount:uid-1']);
+        await bloc.close();
+      });
+
+      for (final (label, after) in [
+        ('the account changed', _partner),
+        ('the account signed out', null),
+      ]) {
+        test('$label while the prompt was up: nothing is deleted on the old '
+            'confirmation', () async {
+          final spaces = _FakeSpaceService();
+          final (bloc, auth, _, engine, _) = await pumpBinding(
+            spaces,
+            binding: bound,
+          );
+          final prompt = auth.reauthGate = Completer<void>();
+
+          bloc.add(const DeleteAccountRequested());
+          await pumpEventQueue();
+          auth.emitAuth(after);
+          await pumpEventQueue();
+          prompt.complete();
+          await pumpEventQueue();
+
+          expect(spaces.calls, isEmpty);
+          expect(engine.calls, isEmpty);
+          expect(bloc.state.stepInFlight, isFalse);
+          await bloc.close();
+        });
+      }
+
+      test('a page left while the prompt was up starts nothing when it is '
+          'answered', () async {
+        final spaces = _FakeSpaceService();
+        final (bloc, auth, _, engine, _) = await pumpBinding(
+          spaces,
+          binding: bound,
+        );
+        final prompt = auth.reauthGate = Completer<void>();
+
+        bloc.add(const DeleteAccountRequested());
+        await pumpEventQueue();
+        await bloc.close();
+        prompt.complete();
+        await pumpEventQueue();
+
+        expect(spaces.calls, isEmpty);
+        expect(engine.calls, isEmpty);
+      });
+
+      test('a sign-out gives the account\'s deletion up before it signs out, '
+          'whether or not it then goes through', () async {
+        final spaces = _FakeSpaceService();
+        final (bloc, auth, _, _, _) = await pumpBinding(spaces);
+        bool? signingOutByThen;
+        spaces.onAbandon = () => signingOutByThen = auth.signOutCalled;
+        auth.signOutError = const AuthException(AuthError.unknown);
+
+        bloc.add(const SignOutRequested());
+        await pumpEventQueue();
+        expect(spaces.abandoned, ['uid-1']);
+        expect(signingOutByThen, isFalse);
+        expect(bloc.state, isA<SyncFailure>());
+
+        auth.signOutError = null;
+        bloc.add(const SignOutRequested());
+        await pumpEventQueue();
+        expect(spaces.abandoned, ['uid-1', 'uid-1']);
+        expect(bloc.state, isA<SyncSignedOut>());
+        await bloc.close();
+      });
+
+      test('a sign-out with nobody signed in gives nothing up', () async {
+        final spaces = _FakeSpaceService();
+        final (bloc, _, _, _, _) = await pumpBinding(spaces, user: null);
+
+        bloc.add(const SignOutRequested());
+        await pumpEventQueue();
+
+        expect(spaces.abandoned, isEmpty);
+        await bloc.close();
+      });
+
+      List<bool> deletedFlags(List<SyncState> states) => [
+        for (final state in states)
+          if (state is SyncSignedOut) state.accountDeleted,
+      ];
+
+      test('the service\'s word, then the session\'s end: the signed-out '
+          'state says the account was deleted, once', () async {
+        final spaces = _FakeSpaceService();
+        final (bloc, auth, states, _, _) = await pumpBinding(spaces);
+
+        spaces.deletedAccounts.add('uid-1');
+        await pumpEventQueue();
+        expect(states, isEmpty);
+        auth.emitAuth(null);
+        await pumpEventQueue();
+
+        expect(deletedFlags(states).where((deleted) => deleted), hasLength(1));
+        expect(deletedFlags(states).last, isFalse);
+        expect(bloc.state, isA<SyncSignedOut>());
+        await bloc.close();
+      });
+
+      test('the session\'s end, then the service\'s word: the signed-out '
+          'state on screen says it', () async {
+        final spaces = _FakeSpaceService();
+        final (bloc, auth, states, _, _) = await pumpBinding(spaces);
+
+        auth.emitAuth(null);
+        await pumpEventQueue();
+        expect(deletedFlags(states), everyElement(isFalse));
+        spaces.deletedAccounts.add('uid-1');
+        await pumpEventQueue();
+
+        expect(
+          bloc.state,
+          isA<SyncSignedOut>().having(
+            (state) => state.accountDeleted,
+            'accountDeleted',
+            isTrue,
+          ),
+        );
+        await bloc.close();
+      });
+
+      test('a sign-out without that word is a sign-out, and another '
+          'account\'s deletion is not this one\'s', () async {
+        final spaces = _FakeSpaceService();
+        final (bloc, auth, states, _, _) = await pumpBinding(spaces);
+
+        spaces.deletedAccounts.add('uid-2');
+        await pumpEventQueue();
+        auth.emitAuth(null);
+        await pumpEventQueue();
+
+        expect(deletedFlags(states), isNotEmpty);
+        expect(deletedFlags(states), everyElement(isFalse));
+        await bloc.close();
+      });
     });
   });
 

@@ -68,3 +68,26 @@ class AuthException implements Exception {
   @override
   String toString() => 'AuthException(${error.name})';
 }
+
+/// The account chosen to confirm a sign-in again is not the one signed in:
+/// nothing was confirmed, and the session stays as it was. A type of its
+/// own, not an [AuthError]: it is no reason a sign-in failed, and whoever
+/// asked for the confirmation words it — an account's deletion, as
+/// "that is another account".
+class OtherAccountException implements Exception {
+  const OtherAccountException();
+
+  @override
+  String toString() => 'OtherAccountException';
+}
+
+/// The sign-in is too old for what was asked: Firebase deletes an account
+/// only minutes after one. The way on is to sign in again
+/// (`AuthService.reauthenticate`), never to retry — which is why it is no
+/// [AuthError], whose every value a retry may cure.
+class RecentSignInRequiredException implements Exception {
+  const RecentSignInRequiredException();
+
+  @override
+  String toString() => 'RecentSignInRequiredException';
+}

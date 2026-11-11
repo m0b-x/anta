@@ -24,6 +24,28 @@ abstract class AuthService {
 
   Future<void> signOut();
 
+  /// Asks the signed-in account to sign in once more, interactively — the
+  /// proof of presence [deleteAccount] needs. False when the user dismissed
+  /// it, and then nothing changed.
+  ///
+  /// Throws [OtherAccountException] when another account was chosen — the
+  /// session stays the first one's — and [AuthException] for anything else,
+  /// [AuthError.unknown] when nobody is signed in.
+  Future<bool> reauthenticate();
+
+  /// Deletes the signed-in account itself and ends the session, so
+  /// [authStateChanges] emits null. Its data is not this call's: whatever
+  /// the account holds in the cloud is deleted first, by the caller, because
+  /// the same person signing in again is a new account that could never
+  /// reach it (cloud-multi-user-roadmap §6.1 b).
+  ///
+  /// Throws [RecentSignInRequiredException] when the sign-in is older than
+  /// the few minutes the server allows — nothing was deleted, and
+  /// [reauthenticate] is the way on — and [AuthException] otherwise;
+  /// [AuthError.offline] too when the call outlasted its bound, in which
+  /// case the delete may still land and the session then ends by itself.
+  Future<void> deleteAccount();
+
   Future<void> dispose();
 }
 
@@ -46,6 +68,16 @@ class NoOpAuthService implements AuthService {
 
   @override
   Future<void> signOut() async {}
+
+  @override
+  Future<bool> reauthenticate() async {
+    throw const AuthException(AuthError.unavailable);
+  }
+
+  @override
+  Future<void> deleteAccount() async {
+    throw const AuthException(AuthError.unavailable);
+  }
 
   @override
   Future<void> dispose() async {}

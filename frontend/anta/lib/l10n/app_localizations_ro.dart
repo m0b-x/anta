@@ -5108,6 +5108,49 @@ class AppLocalizationsRo extends AppLocalizations {
   }
 
   @override
+  String get syncDeleteAccount => 'Șterge contul';
+
+  @override
+  String get syncDeleteAccountDesc =>
+      'Elimină contul și toate copiile lui din cloud. Acest dispozitiv păstrează tot.';
+
+  @override
+  String get syncDeleteAccountConfirmTitle => 'Îți ștergi contul?';
+
+  @override
+  String get syncDeleteAccountConfirmBody =>
+      'Fiecare copie din cloud a acestui cont este eliminată definitiv, partajarea cu partenerul tău se încheie, iar contul însuși este șters. Nimic nu se șterge de pe acest dispozitiv. Google îți va cere să te conectezi încă o dată.';
+
+  @override
+  String get syncDeleteAccountRunning => 'Se șterge contul';
+
+  @override
+  String get syncDeleteAccountFinish => 'Termină ștergerea contului';
+
+  @override
+  String get syncDeleteAccountFinishDesc =>
+      'Conectează-te din nou ca să termini';
+
+  @override
+  String get syncDeleteAccountDone => 'Contul a fost șters';
+
+  @override
+  String get syncFailedOtherAccount =>
+      'Acesta este alt cont — nu s-a șters nimic';
+
+  @override
+  String get syncDeleteAccountFailed =>
+      'Contul nu a putut fi șters — încearcă din nou';
+
+  @override
+  String get syncFailedAccountDeleting =>
+      'Acest cont este în curs de ștergere — termină ștergerea sau deconectează-te ca să păstrezi contul';
+
+  @override
+  String get signOutConfirmDeleting =>
+      'Te deconectezi? Contul tău rămâne. Copiile din cloud aflate deja în curs de ștergere sunt eliminate oricum.';
+
+  @override
   String get syncPickerSpaces => 'Spații în cloud';
 
   @override
@@ -11174,5 +11217,13 @@ class AppLocalizationsRo extends AppLocalizations {
   @override
   String appGuideSyncDeleteBody(String delete) {
     return '„$delete” elimină definitiv baza de date din contul tău. Rămâne pe acest telefon, care nu o mai sincronizează; celelalte dispozitive o păstrează pe a lor și se opresc și ele.';
+  }
+
+  @override
+  String get appGuideSyncDeleteAccountTitle => 'Ștergerea contului';
+
+  @override
+  String appGuideSyncDeleteAccountBody(String deleteAccount) {
+    return '„$deleteAccount” de pe aceeași pagină elimină fiecare copie din cloud a contului, încheie partajarea cu partenerul tău și șterge contul însuși, după ce Google îți cere să te conectezi din nou. Totul rămâne pe acest telefon.';
   }
 }

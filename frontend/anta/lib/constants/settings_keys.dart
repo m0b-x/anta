@@ -455,6 +455,14 @@ class SettingsKeys {
   /// backup.
   static const String syncPendingDeletions = 'sync_pending_deletions';
 
+  /// Install-wide like [syncPendingDeletions], beside it: the uid of the
+  /// account whose own deletion was asked for on this install and has not
+  /// finished (cloud-multi-user-roadmap §6.1) — its cloud copies are the
+  /// records above; this says the account goes once they are gone. One
+  /// account at most: another one signing in drops it. Never in a backup.
+  static const String syncPendingAccountDeletion =
+      'sync_pending_account_deletion';
+
   /// The prefixes a restore never writes back, whatever the archive's
   /// settings map carries: a hand-edited or foreign backup must not pair or
   /// bind the database it is restored onto.

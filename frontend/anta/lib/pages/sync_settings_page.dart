@@ -79,6 +79,10 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
   bool _wasStepping = false;
   bool _stepIsStop = false;
   bool _stepIsDeletion = false;
+
+  /// Whether the deletion step in flight is "Delete account": its end is
+  /// said by the account's own end, never as a cloud copy's.
+  bool _stepIsAccount = false;
   SyncStatus? _spokenStatus;
   String? _bindingSpaceName;
 
@@ -92,6 +96,14 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
   /// place as done, as a held-back row that lands stays, so nothing moves;
   /// a page opened afresh shows no section with nothing left.
   String? _deletionSeenFor;
+
+  /// The account whose own deletion was running at the last status the page
+  /// saw with anything left: a status with nothing left right after it is
+  /// that run having ended the account, which the signed-out state says —
+  /// not "Cloud copy deleted". Only a run ends an account, so a deletion
+  /// that was waiting, or was given up on the way, ends as its copies' do
+  /// and never reads as an account deleted.
+  String? _accountRunSeenFor;
 
   /// Whether the deletion step in flight has seen its run's status running:
   /// a delete whose space was already gone needs no run, and its step's end
@@ -190,6 +202,19 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
               listener: (context, state) =>
                   _sayDeletionEnded(context, l10n, state),
             ),
+            // The account's deletion ended in this signed-out state: said
+            // once, as it turns up. A snackbar, so a screen reader hears it
+            // too.
+            BlocListener<SyncBloc, SyncState>(
+              listenWhen: (previous, current) =>
+                  current is SyncSignedOut &&
+                  current.accountDeleted &&
+                  !(previous is SyncSignedOut && previous.accountDeleted),
+              listener: (context, state) => CustomSnackbar.showSuccess(
+                context,
+                l10n.syncDeleteAccountDone,
+              ),
+            ),
           ],
           child: BlocConsumer<SyncBloc, SyncState>(
             // A deletion status re-stamping a failure is not a new failure.
@@ -265,6 +290,12 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
             builder: (context, title, description) =>
                 _accountRow(context, l10n, state, pairing, title, description),
           ),
+          // In every state but the one where no account can exist here: held
+          // while nobody is signed in, like every row of this page that
+          // needs an account, so a sign-in or a sign-out moves nothing below
+          // and the settings search still finds it.
+          if (state is! SyncUnavailable)
+            _deleteAccountEntry(context, l10n, state),
         ],
       ),
       _syncSection(context, l10n, state),
@@ -406,6 +437,54 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
           onTap: () => context.read<SyncBloc>().add(const SignInRequested()),
         );
     }
+  }
+
+  /// "Delete account" (cloud-multi-user-roadmap §6.1), the Account
+  /// section's destructive row. During its start — Google's prompt, then the
+  /// short step — the spinner takes the glyph; after a failed one the glyph
+  /// turns to the error and the reason is the row's value, as the cloud
+  /// copy's row does it. Held while nobody is signed in, while another step
+  /// runs and while the account's deletion is already running, which the
+  /// page's last section shows.
+  SettingsEntry _deleteAccountEntry(
+    BuildContext context,
+    AppLocalizations l10n,
+    SyncState state,
+  ) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final flow = _syncOf(state).flow;
+    final starting = flow is SyncAccountDeleting;
+    final deletion = _deletionOf(state);
+    final running = deletion != null && deletion.account && deletion.running;
+    final enabled = _signedIn(state) && !_stepping(state) && !running;
+    return SettingsEntry(
+      title: l10n.syncDeleteAccount,
+      description: l10n.syncDeleteAccountDesc,
+      // Dimmed as every disabled title is: an explicit colour would outlive
+      // the disabled tile's.
+      titleStyle: TextStyle(
+        color: enabled || starting ? colorScheme.error : null,
+      ),
+      keywords: _keywords(l10n.sharingKeywords),
+      identifier: SemanticsIds.sharingDeleteAccount,
+      builder: (context, title, description) => _deletionRow(
+        context,
+        title,
+        _FixedLinesSlot(
+          templates: [l10n.syncDeleteAccountDesc],
+          child: description!,
+        ),
+        glyph: Icons.person_remove_outlined,
+        glyphColor: colorScheme.error,
+        busy: starting,
+        failure: flow is SyncBindFailed && flow.account
+            ? _bindFailureText(l10n, flow, stopping: false)
+            : null,
+        enabled: enabled,
+        onTap: () => _deleteAccount(context, l10n),
+        titleAlignment: ListTileTitleAlignment.top,
+      ),
+    );
   }
 
   /// A row whose tap is its action, the action's word read as its value in
@@ -735,7 +814,7 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
           SettingsEntry(
             title: l10n.syncThisDatabase,
             description:
-                (flow is SyncBindFailed && !flow.deleting
+                (flow is SyncBindFailed && _bindOrStopFailed(flow)
                     ? _bindFailureText(l10n, flow, stopping: false)
                     : null) ??
                 switch (state) {
@@ -945,8 +1024,6 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
           identifier: SemanticsIds.sharingSyncDelete,
           builder: (context, title, description) => _deletionRow(
             context,
-            l10n,
-            flow,
             title,
             _FixedLinesSlot(
               templates: [l10n.syncDeleteCloudDesc],
@@ -954,6 +1031,10 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
             ),
             glyph: Icons.delete_forever_outlined,
             glyphColor: colorScheme.error,
+            busy: flow is SyncBindDeleting,
+            failure: flow is SyncBindFailed && flow.deleting
+                ? _bindFailureText(l10n, flow, stopping: false)
+                : null,
             enabled: canDelete,
             onTap: () => _deleteCloudCopy(context, l10n),
             titleAlignment: ListTileTitleAlignment.top,
@@ -978,19 +1059,21 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
   SyncDeletionStatus? _shownDeletion(SyncState state) {
     final deletion = _deletionOf(state);
     if (deletion == null) return null;
-    final live = deletion.running || deletion.pending.isNotEmpty;
-    if (!live && deletion.accountUid != _deletionSeenFor) return null;
+    if (!deletion.isLive && deletion.accountUid != _deletionSeenFor) {
+      return null;
+    }
     return deletion;
   }
 
-  /// A cloud copy's deletion (cloud-multi-user-roadmap §5) in a section of
-  /// its own, last on the page, as the held-back rows are: its coming,
-  /// changing and going move nothing above it (review H2). Shown while the
-  /// account's deletion runs or is left unfinished; one that ended while
-  /// the page is open stays as done until the page is opened again. A
-  /// delete step whose own row spins alone (review H1) brings no section
-  /// in; one already on screen stays through it, held, since its leaving
-  /// would shrink a page scrolled to its end under the finger (review K6).
+  /// A deletion — a cloud copy's (cloud-multi-user-roadmap §5) or the
+  /// account's with its copies (§6.1) — in a section of its own, last on
+  /// the page, as the held-back rows are: its coming, changing and going
+  /// move nothing above it (review H2). Shown while the account's deletion
+  /// runs or is left unfinished; one that ended while the page is open
+  /// stays as done until the page is opened again. A delete step whose own
+  /// row spins alone (review H1) brings no section in; one already on
+  /// screen stays through it, held, since its leaving would shrink a page
+  /// scrolled to its end under the finger (review K6).
   SettingsSectionData? _deletionSection(
     BuildContext context,
     AppLocalizations l10n,
@@ -998,11 +1081,10 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
   ) {
     final deletion = _shownDeletion(state);
     if (deletion == null) return null;
-    final live = deletion.running || deletion.pending.isNotEmpty;
     final stepping = _stepping(state);
     final flow = _syncOf(state).flow;
     if (stepping &&
-        (flow is SyncBindDeleting || _stepIsDeletion) &&
+        (_deletionStep(flow) || _stepIsDeletion) &&
         !_deletionShownBeforeStep) {
       return null;
     }
@@ -1015,7 +1097,8 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
           l10n,
           deletion,
           _keywords(l10n.syncKeywords),
-          done: !live,
+          done: !deletion.isLive,
+          accountEnded: deletion.accountUid == _accountRunSeenFor,
           enabled: !stepping,
         ),
       ],
@@ -1033,22 +1116,39 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
   /// they may say, so the row is one height in every state, the empty
   /// subtitle of [done] included; a space's name too long for it
   /// ellipsizes, and a screen reader hears it whole.
+  ///
+  /// While the account itself is being deleted (cloud-multi-user-roadmap
+  /// §6.1) the row is the account's: "Deleting account" over the same
+  /// count, and between runs "Finish deleting account", whose tap asks
+  /// again and then has Google sign the account in once more — the copies
+  /// left are its part, so they are not named. [accountEnded]: the run the
+  /// page last saw was deleting this account, so [done] is the account's
+  /// end, said for the moment before the session's own end takes the
+  /// section away.
   SettingsEntry _deletionEntry(
     BuildContext context,
     AppLocalizations l10n,
     SyncDeletionStatus deletion,
     List<String> keywords, {
     required bool done,
+    required bool accountEnded,
     required bool enabled,
   }) {
     final running = deletion.running;
     final pending = deletion.pending;
+    final account = deletion.account;
     final failure = done || running ? null : deletion.failure;
     final outdated = failure == SyncBindFailure.appOutdated;
     final colorScheme = Theme.of(context).colorScheme;
     return SettingsEntry(
       title: done
-          ? l10n.syncDeleteCloudDone
+          ? (accountEnded
+                ? l10n.syncDeleteAccountDone
+                : l10n.syncDeleteCloudDone)
+          : account
+          ? (running
+                ? l10n.syncDeleteAccountRunning
+                : l10n.syncDeleteAccountFinish)
           : running
           ? l10n.syncDeleteCloudRunning
           : l10n.syncDeleteCloudFinish,
@@ -1062,6 +1162,8 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
           ? l10n.syncDeleteCloudProgress(deletion.removed)
           : outdated
           ? l10n.syncDeleteCloudFinishUpdate
+          : account
+          ? l10n.syncDeleteAccountFinishDesc
           : pending.length > 1
           ? l10n.syncDeleteCloudFinishMany(pending.length)
           : l10n.syncDeleteCloudFinishDesc(pending.first.spaceName),
@@ -1074,6 +1176,9 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
             Text(l10n.syncDeleteCloudRunning),
             Text(l10n.syncDeleteCloudFinish),
             Text(l10n.syncDeleteCloudDone),
+            Text(l10n.syncDeleteAccountRunning),
+            Text(l10n.syncDeleteAccountFinish),
+            Text(l10n.syncDeleteAccountDone),
           ],
           child: title,
         );
@@ -1084,6 +1189,7 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
             l10n.syncDeleteCloudFinishDesc(''),
             l10n.syncDeleteCloudFinishMany(_copiesTemplate),
             l10n.syncDeleteCloudFinishUpdate,
+            l10n.syncDeleteAccountFinishDesc,
           ],
           child: description ?? const SizedBox.shrink(),
         );
@@ -1117,7 +1223,7 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
               ? null
               : _bindFailureText(
                   l10n,
-                  SyncBindFailed(failure),
+                  SyncBindFailed(failure, account: account),
                   stopping: false,
                 ),
           child: !enabled || outdated
@@ -1133,9 +1239,11 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
                   leading: glyph,
                   title: titleSlot,
                   subtitle: subtitleSlot,
-                  onTap: () => context.read<SyncBloc>().add(
-                    const FinishDeletingRequested(),
-                  ),
+                  onTap: account
+                      ? () => _deleteAccount(context, l10n)
+                      : () => context.read<SyncBloc>().add(
+                          const FinishDeletingRequested(),
+                        ),
                 ),
         );
       },
@@ -1298,9 +1406,29 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
           : l10n.syncFailedHeld(failed.holderDatabase!),
     SyncBindFailure.invalidSpaceName => l10n.syncFailedInvalidName,
     SyncBindFailure.newDatabaseFailed => l10n.syncFailedNewDatabase,
+    SyncBindFailure.otherAccount => l10n.syncFailedOtherAccount,
+    SyncBindFailure.accountDeleting => l10n.syncFailedAccountDeleting,
+    // Worded for what failed: a failure with no better reason must not say
+    // "sync couldn't be turned on" of an account's deletion.
     SyncBindFailure.unknown =>
-      stopping ? l10n.syncStopFailed : l10n.syncFailedUnknown,
+      failed.account
+          ? l10n.syncDeleteAccountFailed
+          : stopping
+          ? l10n.syncStopFailed
+          : l10n.syncFailedUnknown,
   };
+
+  /// Whether [flow] is a failure of the bind or the stop — the two the Sync
+  /// section's first and stop rows word as their own. A deletion's failure,
+  /// a cloud copy's or the account's, is said on its own row.
+  static bool _bindOrStopFailed(SyncBindFlow flow) =>
+      flow is SyncBindFailed && !flow.deleting && !flow.account;
+
+  /// Whether [flow] is a deletion's own short step — a cloud copy's or the
+  /// account's — during which the deleting row spins alone and the bind and
+  /// stop rows only look held (review S5).
+  static bool _deletionStep(SyncBindFlow flow) =>
+      flow is SyncBindDeleting || flow is SyncAccountDeleting;
 
   /// Enabled once signed in. While the flow checks or binds, a spinner
   /// takes the glyph's box and the tap does nothing — the text stays, so the
@@ -1318,8 +1446,11 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
     final colorScheme = Theme.of(context).colorScheme;
     final loading = state is SyncInitial;
     // A deletion spins on its own row, and its failure is that row's; held
-    // meanwhile, this one looks held (review S5).
-    final deleting = flow is SyncBindDeleting;
+    // meanwhile, this one looks held (review S5). Held too for as long as
+    // the account itself is being deleted: the service refuses every bind
+    // then, since a copy made now could outlive the account.
+    final deleting =
+        _deletionStep(flow) || (_deletionOf(state)?.account ?? false);
     if ((!_signedIn(state) && !loading) || deleting) {
       return _disabledTile(
         context,
@@ -1329,7 +1460,7 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
       );
     }
     final busy = loading || _stepping(state);
-    final failed = flow is SyncBindFailed && !flow.deleting;
+    final failed = _bindOrStopFailed(flow);
     return _BusyValue(
       busy: busy,
       child: ListTile(
@@ -1411,7 +1542,7 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
     final colorScheme = Theme.of(context).colorScheme;
     // A deletion spins, and fails, on its own row; held meanwhile, this one
     // looks held (review S5).
-    if (stepping && flow is SyncBindDeleting) {
+    if (stepping && _deletionStep(flow)) {
       return _disabledTile(
         context,
         glyph: Icon(
@@ -1423,8 +1554,8 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
         titleAlignment: ListTileTitleAlignment.top,
       );
     }
-    final failed = flow is SyncBindFailed && !flow.deleting;
-    final failure = failed && !stepping
+    final failed = _bindOrStopFailed(flow);
+    final failure = flow is SyncBindFailed && failed && !stepping
         ? _bindFailureText(l10n, flow, stopping: true)
         : null;
     return _BusyValue(
@@ -1475,25 +1606,26 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
     if (confirmed) bloc.add(const StopSyncingRequested());
   }
 
-  /// "Delete cloud copy" (cloud-multi-user-roadmap §5). During its short
-  /// step the spinner takes the glyph and the tap does nothing, as the stop
-  /// row's do during a stop; after a failed one the glyph turns to the
-  /// error and the reason is the row's value, as the stop row's is — the
-  /// snackbar says it once. Held, it is this page's disabled tile.
+  /// A destructive row of the page — "Delete cloud copy"
+  /// (cloud-multi-user-roadmap §5) and "Delete account" (§6.1). While
+  /// [busy], its own short step, the spinner takes the glyph and the tap
+  /// does nothing, as the stop row's do during a stop; after a failed one
+  /// the glyph turns to the error and [failure], the reason, is the row's
+  /// value, as the stop row's is — the snackbar says it once. Held, it is
+  /// this page's disabled tile.
   Widget _deletionRow(
     BuildContext context,
-    AppLocalizations l10n,
-    SyncBindFlow flow,
     Widget title,
     Widget description, {
     required IconData glyph,
     required Color glyphColor,
+    required bool busy,
+    required String? failure,
     required bool enabled,
     required VoidCallback onTap,
     ListTileTitleAlignment? titleAlignment,
   }) {
-    final deleting = flow is SyncBindDeleting;
-    if (!enabled && !deleting) {
+    if (!enabled && !busy) {
       return _disabledTile(
         context,
         glyph: Icon(glyph, color: glyphColor),
@@ -1502,24 +1634,21 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
         titleAlignment: titleAlignment,
       );
     }
-    final failure = flow is SyncBindFailed && flow.deleting
-        ? _bindFailureText(l10n, flow, stopping: false)
-        : null;
     final colorScheme = Theme.of(context).colorScheme;
     return _BusyValue(
-      busy: deleting,
+      busy: busy,
       child: Semantics(
         value: failure,
         child: ListTile(
           titleAlignment: titleAlignment,
-          leading: deleting
+          leading: busy
               ? const _RowBusyIndicator()
               : failure != null
               ? Icon(Icons.error_outline_rounded, color: colorScheme.error)
               : Icon(glyph, color: glyphColor),
           title: title,
           subtitle: description,
-          onTap: deleting ? null : onTap,
+          onTap: busy ? null : onTap,
         ),
       ),
     );
@@ -1542,6 +1671,27 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
       confirmIdentifier: SemanticsIds.sharingSyncDeleteConfirm,
     );
     if (confirmed && !bloc.isClosed) bloc.add(const DeleteCloudCopyRequested());
+  }
+
+  /// Destructive, and asked every time — from the Account section's row
+  /// and from "Finish deleting account" alike: finishing marks whatever
+  /// cloud copies the account has by then, so the same words hold. Google's
+  /// own prompt follows the confirm.
+  Future<void> _deleteAccount(
+    BuildContext context,
+    AppLocalizations l10n,
+  ) async {
+    final bloc = context.read<SyncBloc>();
+    final confirmed = await AppDialogs.confirm(
+      context,
+      title: l10n.syncDeleteAccountConfirmTitle,
+      content: l10n.syncDeleteAccountConfirmBody,
+      confirmText: l10n.syncDeleteAccount,
+      icon: Icons.person_remove_outlined,
+      isDestructive: true,
+      confirmIdentifier: SemanticsIds.sharingDeleteAccountConfirm,
+    );
+    if (confirmed && !bloc.isClosed) bloc.add(const DeleteAccountRequested());
   }
 
   /// A failure's snackbar is the moment; the bind row keeps the reason until
@@ -1572,7 +1722,7 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
           _bindFailureText(
             l10n,
             flow,
-            stopping: status.binding != null && !flow.deleting,
+            stopping: status.binding != null && _bindOrStopFailed(flow),
           ),
         );
       // The download switched the app to the new database in place; the
@@ -1609,7 +1759,8 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
     if (flow is SyncBindDeleting && !_wasStepping) _deletionRanInStep = false;
     if (flow.isBusy) {
       _stepIsStop = flow is SyncBindStopping;
-      _stepIsDeletion = flow is SyncBindDeleting;
+      _stepIsDeletion = _deletionStep(flow);
+      _stepIsAccount = flow is SyncAccountDeleting;
       _awaitedBinding = null;
     }
     String? message;
@@ -1617,9 +1768,11 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
       // A deletion's step ends with its run going on, which the deletion
       // section shows and [_followDeletion] says the end of — unless the
       // space was already gone and no run was needed: then the step's end
-      // is the deletion's (review H4).
+      // is the deletion's (review H4). An account's is never said here: its
+      // end is the signed-out state's "Account deleted".
       _awaitedBinding = _stepIsDeletion ? null : !_stepIsStop;
       if (_stepIsDeletion &&
+          !_stepIsAccount &&
           !_deletionRanInStep &&
           !(_deletionOf(state)?.running ?? false)) {
         message = l10n.syncDeleteCloudDone;
@@ -1660,12 +1813,16 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
   }
 
   /// What the deletion section is judged by, as each state comes: the
-  /// account seen deleting, whether the delete step's run was seen, and
-  /// whether the section is on screen outside a step.
+  /// account seen deleting, whether what ran last was the account's own
+  /// deletion, whether the delete step's run was seen, and whether the
+  /// section is on screen outside a step.
   void _followDeletion(SyncState state) {
     final deletion = _deletionOf(state);
-    if (deletion != null && (deletion.running || deletion.pending.isNotEmpty)) {
+    if (deletion != null && deletion.isLive) {
       _deletionSeenFor = deletion.accountUid;
+      _accountRunSeenFor = deletion.account && deletion.running
+          ? deletion.accountUid
+          : null;
     }
     if (deletion?.running ?? false) _deletionRanInStep = true;
     if (!_stepping(state)) {
@@ -1690,6 +1847,11 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
   /// The end of a deletion's background run, once: "Cloud copy deleted"
   /// said politely when nothing is left and nothing failed, the failure's
   /// snackbar when it stopped short — the row keeps the reason as its value.
+  ///
+  /// An account's run says its own: stopped with nothing failed it waits
+  /// for the sign-in, and says so; ended with the account gone it says
+  /// nothing here — the signed-out state that follows says "Account
+  /// deleted".
   void _sayDeletionEnded(
     BuildContext context,
     AppLocalizations l10n,
@@ -1697,18 +1859,30 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
   ) {
     final deletion = _deletionOf(state)!;
     final failure = deletion.failure;
+    final String message;
     if (failure != null) {
       CustomSnackbar.showError(
         context,
-        _bindFailureText(l10n, SyncBindFailed(failure), stopping: false),
+        _bindFailureText(
+          l10n,
+          SyncBindFailed(failure, account: deletion.account),
+          stopping: false,
+        ),
       );
-    } else if (deletion.pending.isEmpty) {
-      SemanticsService.sendAnnouncement(
-        View.of(context),
-        l10n.syncDeleteCloudDone,
-        Directionality.of(context),
-      );
+      return;
+    } else if (deletion.account) {
+      message = l10n.syncDeleteAccountFinishDesc;
+    } else if (deletion.pending.isEmpty &&
+        deletion.accountUid != _accountRunSeenFor) {
+      message = l10n.syncDeleteCloudDone;
+    } else {
+      return;
     }
+    SemanticsService.sendAnnouncement(
+      View.of(context),
+      message,
+      Directionality.of(context),
+    );
   }
 
   String _pairingTitleFor(AppLocalizations l10n, PairingState state) =>
@@ -1857,17 +2031,23 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
   }
 
   /// The whole account row signs out, so a stray tap must not: it always
-  /// asks, and while a pair exists it says that sharing stops too.
+  /// asks, and while a pair exists it says that sharing stops too. While
+  /// the account's own deletion is unfinished it says what signing out
+  /// does to that instead — it gives it up (cloud-multi-user-roadmap §6.1
+  /// d) — which matters more than the pause.
   Future<void> _signOut(
     BuildContext context,
     AppLocalizations l10n,
     PairingState pairing,
   ) async {
     final bloc = context.read<SyncBloc>();
+    final deleting = _deletionOf(bloc.state)?.account ?? false;
     final confirmed = await AppDialogs.confirm(
       context,
       title: l10n.signOut,
-      content: pairing is PairingPaired
+      content: deleting
+          ? l10n.signOutConfirmDeleting
+          : pairing is PairingPaired
           ? l10n.pairingSignOutConfirm(
               pairing.partner?.displayName ?? l10n.pairingPartnerUnknown,
             )

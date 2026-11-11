@@ -5049,6 +5049,49 @@ class AppLocalizationsDe extends AppLocalizations {
   }
 
   @override
+  String get syncDeleteAccount => 'Konto löschen';
+
+  @override
+  String get syncDeleteAccountDesc =>
+      'Entfernt das Konto und alle seine Cloud-Kopien. Dieses Gerät behält alles.';
+
+  @override
+  String get syncDeleteAccountConfirmTitle => 'Dein Konto löschen?';
+
+  @override
+  String get syncDeleteAccountConfirmBody =>
+      'Jede Cloud-Kopie dieses Kontos wird endgültig entfernt, das Teilen mit deinem Partner endet, und das Konto selbst wird gelöscht. Auf diesem Gerät wird nichts gelöscht. Google bittet dich, dich noch einmal anzumelden.';
+
+  @override
+  String get syncDeleteAccountRunning => 'Konto wird gelöscht';
+
+  @override
+  String get syncDeleteAccountFinish => 'Löschen des Kontos abschließen';
+
+  @override
+  String get syncDeleteAccountFinishDesc =>
+      'Melde dich erneut an, um abzuschließen';
+
+  @override
+  String get syncDeleteAccountDone => 'Konto gelöscht';
+
+  @override
+  String get syncFailedOtherAccount =>
+      'Das ist ein anderes Konto – es wurde nichts gelöscht';
+
+  @override
+  String get syncDeleteAccountFailed =>
+      'Das Konto konnte nicht gelöscht werden – versuch es erneut';
+
+  @override
+  String get syncFailedAccountDeleting =>
+      'Dieses Konto wird gerade gelöscht – schließ das ab oder melde dich ab, um das Konto zu behalten';
+
+  @override
+  String get signOutConfirmDeleting =>
+      'Abmelden? Dein Konto bleibt. Cloud-Kopien, die schon gelöscht werden, werden trotzdem entfernt.';
+
+  @override
   String get syncPickerSpaces => 'Cloud-Bereiche';
 
   @override
@@ -11015,5 +11058,13 @@ class AppLocalizationsDe extends AppLocalizations {
   @override
   String appGuideSyncDeleteBody(String delete) {
     return '„$delete“ entfernt die Datenbank endgültig aus deinem Konto. Sie bleibt auf diesem Telefon, das sie nicht mehr synchronisiert; deine anderen Geräte behalten ihre Kopie und hören ebenfalls auf.';
+  }
+
+  @override
+  String get appGuideSyncDeleteAccountTitle => 'Dein Konto löschen';
+
+  @override
+  String appGuideSyncDeleteAccountBody(String deleteAccount) {
+    return '„$deleteAccount“ auf derselben Seite entfernt jede Cloud-Kopie des Kontos, beendet das Teilen mit deinem Partner und löscht das Konto selbst, nachdem Google dich um eine erneute Anmeldung gebeten hat. Auf diesem Telefon bleibt alles.';
   }
 }

@@ -586,10 +586,31 @@ void main() {
               findsOneWidget,
             );
           } else {
+            // The Account section first — Sign out and, since
+            // cloud-multi-user-roadmap §6.1, Delete account — then the
+            // Pairing row, walked to: at the largest cell the two action
+            // rows no longer share a screen.
             expect(
-              find.bySemanticsIdentifier(SemanticsIds.sharingUnpair),
+              find.bySemanticsIdentifier(SemanticsIds.sharingDeleteAccount),
               findsOneWidget,
             );
+            expect(tester.takeException(), isNull);
+            await meetsAll(tester);
+            final unpair = find.bySemanticsIdentifier(
+              SemanticsIds.sharingUnpair,
+            );
+            await tester.scrollUntilVisible(
+              unpair,
+              200,
+              scrollable: find
+                  .descendant(
+                    of: find.bySemanticsIdentifier(SemanticsIds.sharingList),
+                    matching: find.byType(Scrollable),
+                  )
+                  .first,
+            );
+            await settle(tester);
+            expect(unpair, findsOneWidget);
           }
 
           expect(tester.takeException(), isNull);

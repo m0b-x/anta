@@ -1466,6 +1466,18 @@
   "syncDeleteCloudFinishUpdate": "Actualizează ANTA ca să termini",
   "syncDeleteCloudFinishDesc": "Ștearsă doar parțial din contul tău: „{space}”",
   "syncDeleteCloudFinishMany": "{count, plural, =1{O copie din cloud este ștearsă doar parțial din contul tău} few{{count} copii din cloud sunt șterse doar parțial din contul tău} other{{count} de copii din cloud sunt șterse doar parțial din contul tău}}",
+  "syncDeleteAccount": "Șterge contul",
+  "syncDeleteAccountDesc": "Elimină contul și toate copiile lui din cloud. Acest dispozitiv păstrează tot.",
+  "syncDeleteAccountConfirmTitle": "Îți ștergi contul?",
+  "syncDeleteAccountConfirmBody": "Fiecare copie din cloud a acestui cont este eliminată definitiv, partajarea cu partenerul tău se încheie, iar contul însuși este șters. Nimic nu se șterge de pe acest dispozitiv. Google îți va cere să te conectezi încă o dată.",
+  "syncDeleteAccountRunning": "Se șterge contul",
+  "syncDeleteAccountFinish": "Termină ștergerea contului",
+  "syncDeleteAccountFinishDesc": "Conectează-te din nou ca să termini",
+  "syncDeleteAccountDone": "Contul a fost șters",
+  "syncFailedOtherAccount": "Acesta este alt cont — nu s-a șters nimic",
+  "syncDeleteAccountFailed": "Contul nu a putut fi șters — încearcă din nou",
+  "syncFailedAccountDeleting": "Acest cont este în curs de ștergere — termină ștergerea sau deconectează-te ca să păstrezi contul",
+  "signOutConfirmDeleting": "Te deconectezi? Contul tău rămâne. Copiile din cloud aflate deja în curs de ștergere sunt eliminate oricum.",
   "syncPickerSpaces": "Spații în cloud",
   "syncPickerTitle": "Alege un spațiu",
   "syncPickerLastUsed": "Folosit ultima dată: {time}",
@@ -3058,5 +3070,7 @@
   "appGuideSyncStopTitle": "Oprirea",
   "appGuideSyncStopBody": "„{syncStop}” îți lasă notițele pe acest telefon și încetează să trimită și să primească; copia din contul tău rămâne. „{signOut}” pune pe pauză sincronizarea pentru fiecare bază de date până te conectezi din nou.",
   "appGuideSyncDeleteTitle": "Ștergerea copiei din cloud",
-  "appGuideSyncDeleteBody": "„{delete}” elimină definitiv baza de date din contul tău. Rămâne pe acest telefon, care nu o mai sincronizează; celelalte dispozitive o păstrează pe a lor și se opresc și ele."
+  "appGuideSyncDeleteBody": "„{delete}” elimină definitiv baza de date din contul tău. Rămâne pe acest telefon, care nu o mai sincronizează; celelalte dispozitive o păstrează pe a lor și se opresc și ele.",
+  "appGuideSyncDeleteAccountTitle": "Ștergerea contului",
+  "appGuideSyncDeleteAccountBody": "„{deleteAccount}” de pe aceeași pagină elimină fiecare copie din cloud a contului, încheie partajarea cu partenerul tău și șterge contul însuși, după ce Google îți cere să te conectezi din nou. Totul rămâne pe acest telefon."
 }

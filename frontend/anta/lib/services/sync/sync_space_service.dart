@@ -8,6 +8,7 @@ import '../../database/crdt/synced_tables.dart';
 import '../../database/database.dart';
 import '../../database/migrations/database_schema.dart';
 import '../database_manager.dart';
+import 'account_closer.dart';
 import 'sync_binding_service.dart';
 import 'sync_gateway.dart';
 import 'sync_space_registry.dart';
@@ -55,6 +56,16 @@ enum SyncBindFailure {
   /// The new database a download needs could not be created or opened; the
   /// user is still on the database they started from.
   newDatabaseFailed,
+
+  /// The account chosen to confirm an account's deletion is not the one
+  /// signed in: nothing was confirmed and nothing changed
+  /// (cloud-multi-user-roadmap §6.1 c).
+  otherAccount,
+
+  /// The account's own deletion is under way or waiting, so nothing new of
+  /// it may reach the cloud: a bind is refused until the deletion is
+  /// finished or given up.
+  accountDeleting,
 
   unknown,
 }
@@ -108,23 +119,68 @@ class SyncDeletionStatus extends Equatable {
   /// finished, and before the first in this process.
   final SyncBindFailure? failure;
 
+  /// Whether the account itself is being deleted, its cloud copies first
+  /// (cloud-multi-user-roadmap §6.1): asked for on this install and not
+  /// finished. While it is, [running] covers the account's last steps too —
+  /// its pairs, its invites, the sign-in account — and with nothing running
+  /// the deletion waits for the user to sign in again and finish it
+  /// ([SyncSpaceService.deleteAccount]), whether or not [failure] says why
+  /// it stopped.
+  final bool account;
+
   const SyncDeletionStatus({
     required this.accountUid,
     this.pending = const [],
     this.running = false,
     this.removed = 0,
     this.failure,
+    this.account = false,
   });
 
+  /// Whether anything of the account's is still to delete: a cloud copy, or
+  /// the account itself.
+  bool get isLive => running || pending.isNotEmpty || account;
+
   @override
-  List<Object?> get props => [accountUid, pending, running, removed, failure];
+  List<Object?> get props => [
+    accountUid,
+    pending,
+    running,
+    removed,
+    failure,
+    account,
+  ];
+}
+
+/// One [SyncSpaceService.deleteAccount] call's word that a run may end the
+/// account itself, dated by the moment the call was made — right after its
+/// caller had the account sign in again. Compared by identity: an attempt
+/// that began under one licence never takes back a later call's.
+final class _Licence {
+  final DateTime at;
+
+  _Licence(this.at);
 }
 
 /// One account's run as the service tracks it.
 class _DeletionRun {
   int removed = 0;
   SyncBindFailure? failure;
+
+  /// What licenses this run to end the account itself once its spaces are
+  /// gone (cloud-multi-user-roadmap §6.1 c); null for a run that may not.
+  /// Set only by [SyncSpaceService.deleteAccount] on the run that call
+  /// started or joined — and taken back the moment an attempt under it
+  /// finds it cannot, or the deletion is given up. A run resumed at a
+  /// start-up, asked by "Finish deleting" or started by a later cloud
+  /// copy's deletion finishes the copies and leaves the account waiting, so
+  /// an account is never deleted by a run nobody asked that of.
+  _Licence? licence;
 }
+
+/// What the install records for one account: the half of a
+/// [SyncDeletionStatus] that is stored, where the run's half is in memory.
+typedef _DeletionRecords = ({List<SyncPendingDeletion> pending, bool account});
 
 /// What a "Sync this database" tap led to (record §2 D1, D2).
 sealed class SyncBindStart extends Equatable {
@@ -182,6 +238,30 @@ class SyncSpaceService {
   final Future<SyncBindingService> Function() _binding;
   final Future<DatabaseManager> Function() _databases;
 
+  /// What ends an account once its spaces are gone; null where an account
+  /// cannot be deleted from here, and [deleteAccount] then refuses.
+  final AccountCloser? _closer;
+
+  /// The clock a run's licence is aged by; a test's own.
+  final DateTime Function() _now;
+
+  /// How long after the sign-in a run may still start the account's own
+  /// end. The server deletes an account only within minutes of a sign-in
+  /// (five, by Firebase's documented behaviour), and the pairs and invites
+  /// go first: a run that began them past the window would remove those and
+  /// then be refused the account — sharing ended, the account kept. Under
+  /// the window with a margin, the two go together or not at all; past it
+  /// the account waits for a sign-in, untouched.
+  static const Duration accountCloseWindow = Duration(minutes: 4);
+
+  /// The accounts a [deleteAccount] call is still marking the spaces of,
+  /// counted per call: their run must not close the account yet — the
+  /// listing it would judge by is about to change.
+  final Map<String, int> _marking = {};
+
+  final StreamController<String> _accountsDeleted =
+      StreamController<String>.broadcast();
+
   /// The accounts whose run is requested and not yet under way, in the
   /// order asked; [_runningFor] is the one under way.
   final List<String> _waiting = [];
@@ -232,10 +312,14 @@ class SyncSpaceService {
     Future<SyncBindingService> Function() binding =
         SyncBindingService.getInstance,
     Future<DatabaseManager> Function() databases = DatabaseManager.getInstance,
+    AccountCloser? closer,
+    DateTime Function() now = DateTime.now,
   }) : _gateway = gateway,
        _database = database,
        _binding = binding,
-       _databases = databases;
+       _databases = databases,
+       _closer = closer,
+       _now = now;
 
   /// The "Sync this database" tap (D1, D2): no space yet → the account's
   /// first space, named after this database (the default one after the
@@ -253,6 +337,7 @@ class SyncSpaceService {
   /// a later "Sync this database" meets it again.
   Future<SyncBindStart> start({required String accountUid}) =>
       _mapped(() async {
+        await _ensureAccountStays(accountUid);
         await _ensureBindable();
         final listed = await listSpaces(accountUid);
         try {
@@ -331,6 +416,7 @@ class SyncSpaceService {
     required String accountUid,
     String? name,
   }) => _mapped(() async {
+    await _ensureAccountStays(accountUid);
     await _ensureBindable();
     return _createAndBind(
       accountUid: accountUid,
@@ -358,6 +444,7 @@ class SyncSpaceService {
   /// bound.
   Future<void> bindExisting(SyncSpaceRef space, {required String accountUid}) =>
       _mapped(() async {
+        await _ensureAccountStays(accountUid);
         await _ensureBindable();
         await _ensureNotHeld(space);
         await _ensureLive(space);
@@ -385,6 +472,7 @@ class SyncSpaceService {
     SyncSpaceInfo space, {
     required String accountUid,
   }) => _mapped(() async {
+    await _ensureAccountStays(accountUid);
     if (SyncSuspension.isSuspended) {
       throw const SyncSpaceException(SyncBindFailure.suspended);
     }
@@ -517,13 +605,146 @@ class SyncSpaceService {
       return;
     }
     _ensureKnownSchema(marked);
-    await _recordAndRequest(
-      space.ownerUid,
-      registry,
-      [SyncPendingDeletion(space: space, spaceName: marked.name)],
-      then: binding.unbind,
-    );
+    await _recordAndRequest(space.ownerUid, registry, [
+      SyncPendingDeletion(space: space, spaceName: marked.name),
+    ], then: binding.unbind);
   });
+
+  /// "Delete account" (cloud-multi-user-roadmap §6.1): every cloud copy of
+  /// [accountUid] marked for deletion, this database unbound when it syncs
+  /// with one of them, and the account itself recorded as going once they
+  /// are gone. Every row on this device stays. The caller has just had the
+  /// account sign in again and stops the engine first, as for
+  /// [deleteCloudCopy]; this call touches neither. Asked again while the
+  /// deletion waits — "Finish deleting account" — it goes on from where the
+  /// last attempt stopped.
+  ///
+  /// The order is the design. The account's spaces are listed, and nothing
+  /// has changed if that fails, if a restore is running
+  /// ([SyncBindFailure.suspended]) or if one of them was written by a newer
+  /// build ([SyncBindFailure.appOutdated]: this build could never finish
+  /// it). Then the account's deletion is recorded, and each space is marked
+  /// and recorded one by one — this database's own first, unbound as soon
+  /// as it is — so a failure midway leaves marks and records in step: what
+  /// was marked is finished like any cloud copy, and the account waits.
+  ///
+  /// Unlike [deleteCloudCopy] it does not read a space again after its
+  /// mark: a newer build's write that landed in between is met by the run,
+  /// which passes that space over as it does any other ([_run]), with this
+  /// database unbound already — there is no account left to keep it bound
+  /// for.
+  ///
+  /// The call returns there, with the account's run requested. The run
+  /// empties and removes the spaces as [finishPendingDeletions] describes,
+  /// then — this run alone, the one this call started or joined, never one
+  /// resumed or asked for otherwise, and only within [accountCloseWindow]
+  /// of this call — reads the account's spaces once more and, when none is
+  /// left, has the [AccountCloser] end its pairs, its invites and the
+  /// account itself; [accountsDeleted] then names it. A space met there is
+  /// recorded when it is marked, and left alone when it is not — made
+  /// since, and only a person marks one — in which case the account waits
+  /// for the next call, as it does when the window has passed by then: with
+  /// no failure, since nothing failed.
+  ///
+  /// From the record on, no bind of this account is accepted
+  /// ([SyncBindFailure.accountDeleting]) until the deletion finishes or is
+  /// given up ([abandonAccountDeletion]).
+  ///
+  /// Throws [SyncSpaceException]; [SyncBindFailure.unknown] where no
+  /// [AccountCloser] is bound.
+  Future<void> deleteAccount({required String accountUid}) => _mapped(() async {
+    if (_closer == null) {
+      throw const SyncSpaceException(SyncBindFailure.unknown);
+    }
+    if (SyncSuspension.isSuspended) {
+      throw const SyncSpaceException(SyncBindFailure.suspended);
+    }
+    // The sign-in is as old as this call at least: the window is counted
+    // from here, never from the end of the marking below, which a slow link
+    // stretches.
+    final licence = _Licence(_now());
+    final binding = await _binding();
+    final registry = (await _databases()).spaceRegistry;
+    final listed = await _gateway.listSpaces(accountUid);
+    listed.forEach(_ensureKnownSchema);
+
+    _recording[accountUid] = (_recording[accountUid] ?? 0) + 1;
+    _marking[accountUid] = (_marking[accountUid] ?? 0) + 1;
+    try {
+      await registry.setPendingAccountDeletion(accountUid);
+      // From the record on the last run's failure is that attempt's, as
+      // [_recordAndRequest] has it.
+      if (!_requested(accountUid)) _runs[accountUid] = _DeletionRun();
+      _publish(accountUid, registry);
+
+      final bound = await binding.read();
+      final own = bound != null && bound.ownerUid == accountUid
+          ? SyncSpaceRef(ownerUid: bound.ownerUid, spaceId: bound.spaceId)
+          : null;
+      final ordered = [
+        for (final space in listed)
+          if (space.ref == own) space,
+        for (final space in listed)
+          if (space.ref != own) space,
+      ];
+      for (final space in ordered) {
+        if (!space.markedForDeletion) {
+          await _gateway.markSpaceDeleted(space.ref);
+        }
+        await registry.addPendingDeletion(
+          SyncPendingDeletion(space: space.ref, spaceName: space.name),
+        );
+        _publish(accountUid, registry);
+        if (space.ref == own) await binding.unbind();
+      }
+      // Bound to a space of the account that is no longer listed: gone
+      // already, and nothing is left to sync with.
+      if (own != null && ordered.every((space) => space.ref != own)) {
+        await binding.unbind();
+      }
+    } catch (_) {
+      _endMarking(accountUid);
+      _endRecording(accountUid);
+      _publish(accountUid, registry);
+      rethrow;
+    }
+    _endMarking(accountUid);
+    _endRecording(accountUid);
+    _request(accountUid, registry);
+    // The run just requested, or the one already emptying this account's
+    // copies, which then ends the account too — and looks again when this
+    // reaches it at its very end ([_run]).
+    _runs[accountUid]?.licence = licence;
+  });
+
+  void _endMarking(String accountUid) {
+    final left = (_marking[accountUid] ?? 1) - 1;
+    if (left > 0) {
+      _marking[accountUid] = left;
+    } else {
+      _marking.remove(accountUid);
+    }
+  }
+
+  /// Gives up [accountUid]'s own deletion — the user asked to sign out,
+  /// which is the way out the page names (cloud-multi-user-roadmap §6.1 d).
+  /// The account stays: the record is cleared and a run in flight loses its
+  /// licence at once, so it finishes the copies and stops there even when
+  /// it is already past its listing ([_closeAccount] asks again before the
+  /// account's own delete). The cloud copies already marked are still
+  /// removed, by their owner's next run. Nothing changes when no deletion
+  /// of that account is recorded.
+  Future<void> abandonAccountDeletion(String accountUid) => _mapped(() async {
+    _runs[accountUid]?.licence = null;
+    final registry = (await _databases()).spaceRegistry;
+    await registry.clearPendingAccountDeletion(accountUid);
+    _publish(accountUid, registry);
+  });
+
+  /// The uid of each account this service deleted, as its session ends —
+  /// what tells a sign-out that is the end of a deletion from any other.
+  /// Broadcast, never replayed, never an error.
+  Stream<String> get accountsDeleted => _accountsDeleted.stream;
 
   /// The deletions this install knows of for [accountUid]'s spaces and has
   /// not finished, in the order they were recorded — what the "Finish
@@ -618,7 +839,7 @@ class SyncSpaceService {
       _mapped(() async {
         final registry = (await _databases()).spaceRegistry;
         _publish(accountUid, registry);
-        return _statusOf(accountUid, _pendingOf(accountUid, registry));
+        return _statusOf(accountUid, _recordsOf(accountUid, registry));
       });
 
   /// [accountUid]'s [deletionStatus], followed: a new listener hears the
@@ -628,30 +849,29 @@ class SyncSpaceService {
   /// never fails: a first read that cannot be made is logged and heard as
   /// the account's status with nothing pending — or what was last published
   /// — which the next change corrects (review G7).
-  Stream<SyncDeletionStatus> deletionStatusOf(
-    String accountUid,
-  ) => Stream.multi((listener) {
-    SyncDeletionStatus? last;
-    void add(SyncDeletionStatus status) {
-      if (status == last) return;
-      last = status;
-      listener.add(status);
-    }
+  Stream<SyncDeletionStatus> deletionStatusOf(String accountUid) =>
+      Stream.multi((listener) {
+        SyncDeletionStatus? last;
+        void add(SyncDeletionStatus status) {
+          if (status == last) return;
+          last = status;
+          listener.add(status);
+        }
 
-    final subscription = _statusChanges.stream.listen((status) {
-      if (status.accountUid == accountUid) add(status);
-    });
-    listener.onCancel = subscription.cancel;
-    deletionStatus(accountUid).then(
-      // A change published since the read began is newer than it.
-      (status) => last == null ? add(status) : null,
-      onError: (Object e, StackTrace st) {
-        debugPrint('[SyncSpaceService] deletion status not read: $e\n$st');
-        if (last != null) return;
-        add(_statusOf(accountUid, _published[accountUid]?.pending ?? const []));
-      },
-    );
-  }, isBroadcast: true);
+        final subscription = _statusChanges.stream.listen((status) {
+          if (status.accountUid == accountUid) add(status);
+        });
+        listener.onCancel = subscription.cancel;
+        deletionStatus(accountUid).then(
+          // A change published since the read began is newer than it.
+          (status) => last == null ? add(status) : null,
+          onError: (Object e, StackTrace st) {
+            debugPrint('[SyncSpaceService] deletion status not read: $e\n$st');
+            if (last != null) return;
+            add(_statusOf(accountUid, _lastRecords(accountUid)));
+          },
+        );
+      }, isBroadcast: true);
 
   /// Completes once no run is in flight or waiting — at once when none is.
   /// Never fails: a run's failure is its status's. What a test awaits after
@@ -730,15 +950,25 @@ class SyncSpaceService {
   }
 
   /// [followAccounts]' resume of [accountUid]; logged, never thrown.
+  ///
+  /// Another account's own deletion still recorded is dropped first
+  /// (cloud-multi-user-roadmap §6.1 d): one install deletes the account
+  /// signed in, and that one no longer is. Its cloud copies stay recorded
+  /// for it.
   Future<void> _resume(String accountUid) async {
     try {
       if (_disposed) return;
-      if (_attempted.contains(accountUid)) {
-        // That run may yet end on the moment this emission came back from.
-        if (_runningFor == accountUid) _owed.add(accountUid);
-        return;
-      }
+      // Judged before the first await, in the turn the emission arrived in:
+      // that run may yet end on the moment this emission came back from.
+      final attempted = _attempted.contains(accountUid);
+      if (attempted && _runningFor == accountUid) _owed.add(accountUid);
       final registry = (await _databases()).spaceRegistry;
+      final deleting = registry.pendingAccountDeletion();
+      if (deleting != null && deleting != accountUid) {
+        await registry.clearPendingAccountDeletion(deleting);
+        _publish(deleting, registry);
+      }
+      if (attempted) return;
       if (_pendingOf(accountUid, registry).isEmpty) return;
       _request(accountUid, registry);
     } catch (e, st) {
@@ -799,7 +1029,7 @@ class SyncSpaceService {
         } catch (e, st) {
           run.failure ??= _failureOf(e, st).failure;
           _runningFor = null;
-          _publishWith(accountUid, _published[accountUid]?.pending ?? const []);
+          _publishWith(accountUid, _lastRecords(accountUid));
         }
         final owed = _owed.remove(accountUid);
         if (_momentary(run.failure)) {
@@ -820,6 +1050,10 @@ class SyncSpaceService {
   /// the link does, so its record is passed over and the run goes on with
   /// the later ones, ending as [SyncBindFailure.appOutdated] with that
   /// record left; a failure of the link or the account stops it at once.
+  ///
+  /// With every record done and none passed over, an account that is itself
+  /// being deleted is closed ([_closeAccount]); the marked spaces that
+  /// finds are taken like any other record, so the loop goes round again.
   Future<void> _run(String accountUid, _DeletionRun run) async {
     SyncSpaceRegistry? registry;
     try {
@@ -830,7 +1064,19 @@ class SyncSpaceService {
           for (final deletion in _pendingOf(accountUid, known))
             if (!outdated.contains(deletion.space)) deletion,
         ];
-        if (pending.isEmpty) break;
+        if (pending.isEmpty) {
+          if (outdated.isNotEmpty) break;
+          final licence = run.licence;
+          if (await _closeAccount(accountUid, run, known)) continue;
+          // What arrived while the account's end was being judged found
+          // this run in flight and asked for none of its own: a deletion
+          // recorded meanwhile, or a [deleteAccount] call's licence. Each
+          // call hands over one licence, so this never loops.
+          final since = _pendingOf(accountUid, known);
+          if (since.any((d) => !outdated.contains(d.space))) continue;
+          if (run.licence != null && !identical(run.licence, licence)) continue;
+          break;
+        }
         final space = pending.first.space;
         _checkDisposed();
         final info = await _gateway.readSpace(space);
@@ -858,8 +1104,97 @@ class SyncSpaceService {
     if (registry != null) {
       _publish(accountUid, registry);
     } else {
-      _publishWith(accountUid, _published[accountUid]?.pending ?? const []);
+      _publishWith(accountUid, _lastRecords(accountUid));
     }
+  }
+
+  /// The account's own end, once [run] finds none of its records left
+  /// (cloud-multi-user-roadmap §6.1 b, c): nothing unless [_mayClose] — the
+  /// account is being deleted, [run] holds a licence still young enough,
+  /// and no [deleteAccount] is still marking the account's spaces. Then the
+  /// spaces are listed once more — data first, the account last — and only
+  /// an empty listing lets the [AccountCloser] end the pairs, the invites
+  /// and the account, after which the record is cleared and
+  /// [accountsDeleted] names it.
+  ///
+  /// True when the listing held marked spaces, now recorded for the run to
+  /// take. Everything else that keeps the account is a wait, never a
+  /// failure: an unmarked space, made since the deletion was asked for —
+  /// only a person marks one, so the licence ends there; the window passed,
+  /// before the closer was called or by the server's own word; the deletion
+  /// given up while this was under way, or a space of the account recorded
+  /// meanwhile — both asked again after the listing and by the closer right
+  /// before the account's delete. Anything else the closer throws is the
+  /// run's failure.
+  ///
+  /// A wait takes back the licence this attempt began under and no other:
+  /// one a [deleteAccount] call handed over meanwhile is that call's, and
+  /// [_run] tries again under it.
+  Future<bool> _closeAccount(
+    String accountUid,
+    _DeletionRun run,
+    SyncSpaceRegistry registry,
+  ) async {
+    final closer = _closer;
+    if (closer == null || !_mayClose(accountUid, run, registry)) return false;
+    final licence = run.licence;
+    void takeBack() {
+      if (identical(run.licence, licence)) run.licence = null;
+    }
+
+    _checkDisposed();
+    final left = await _gateway.listSpaces(accountUid);
+    if (!_mayClose(accountUid, run, registry)) return false;
+    if (left.isNotEmpty) {
+      var marked = false;
+      for (final space in left) {
+        if (!space.markedForDeletion) {
+          takeBack();
+          continue;
+        }
+        marked = true;
+        await registry.addPendingDeletion(
+          SyncPendingDeletion(space: space.ref, spaceName: space.name),
+        );
+      }
+      return marked;
+    }
+    _checkDisposed();
+    try {
+      await closer.close(
+        accountUid,
+        stillWanted: () =>
+            _mayClose(accountUid, run, registry) &&
+            _pendingOf(accountUid, registry).isEmpty,
+      );
+    } on AccountCloseException catch (e) {
+      if (e.failure != AccountCloseFailure.recentSignInRequired &&
+          e.failure != AccountCloseFailure.withdrawn) {
+        rethrow;
+      }
+      takeBack();
+      return false;
+    }
+    run.licence = null;
+    await registry.clearPendingAccountDeletion(accountUid);
+    if (!_disposed) _accountsDeleted.add(accountUid);
+    return false;
+  }
+
+  /// Whether [run] may end [accountUid]'s account now: its deletion is
+  /// still recorded, the run holds the licence of a [deleteAccount] call
+  /// made no longer ago than [accountCloseWindow], and none is marking
+  /// spaces.
+  bool _mayClose(
+    String accountUid,
+    _DeletionRun run,
+    SyncSpaceRegistry registry,
+  ) {
+    final licence = run.licence;
+    return licence != null &&
+        _now().difference(licence.at) <= accountCloseWindow &&
+        registry.pendingAccountDeletion() == accountUid &&
+        !_marking.containsKey(accountUid);
   }
 
   List<SyncPendingDeletion> _pendingOf(
@@ -870,28 +1205,44 @@ class SyncSpaceService {
       if (pending.space.ownerUid == accountUid) pending,
   ];
 
-  SyncDeletionStatus _statusOf(
-    String accountUid,
-    List<SyncPendingDeletion> pending,
-  ) {
+  /// What the install records for [accountUid]: its unfinished cloud-copy
+  /// deletions, and whether the account itself goes with them.
+  _DeletionRecords _recordsOf(String accountUid, SyncSpaceRegistry registry) =>
+      (
+        pending: _pendingOf(accountUid, registry),
+        account: registry.pendingAccountDeletion() == accountUid,
+      );
+
+  /// [accountUid]'s records as last published, for the status of a moment
+  /// the registry cannot be read in.
+  _DeletionRecords _lastRecords(String accountUid) {
+    final last = _published[accountUid];
+    return (
+      pending: last?.pending ?? const [],
+      account: last?.account ?? false,
+    );
+  }
+
+  SyncDeletionStatus _statusOf(String accountUid, _DeletionRecords records) {
     final run = _runs[accountUid];
     return SyncDeletionStatus(
       accountUid: accountUid,
-      pending: pending,
+      pending: records.pending,
       running: _requested(accountUid) || _recording.containsKey(accountUid),
       removed: run?.removed ?? 0,
       failure: run?.failure,
+      account: records.account,
     );
   }
 
   /// [accountUid]'s status sent to [deletionStatusOf]'s listeners when it
   /// changed since the last one sent.
   void _publish(String accountUid, SyncSpaceRegistry registry) =>
-      _publishWith(accountUid, _pendingOf(accountUid, registry));
+      _publishWith(accountUid, _recordsOf(accountUid, registry));
 
-  void _publishWith(String accountUid, List<SyncPendingDeletion> pending) {
+  void _publishWith(String accountUid, _DeletionRecords records) {
     if (_disposed) return;
-    final status = _statusOf(accountUid, pending);
+    final status = _statusOf(accountUid, records);
     if (_published[accountUid] == status) return;
     _published[accountUid] = status;
     _statusChanges.add(status);
@@ -991,6 +1342,18 @@ class SyncSpaceService {
     await (await _binding()).bind(space: space, accountUid: accountUid);
   }
 
+  /// Refuses every bind for an account whose own deletion is recorded
+  /// (cloud-multi-user-roadmap §6.1 b): a space made now could land between
+  /// the run's last listing of the account's spaces and the account's
+  /// delete, and nobody could reach it afterwards. The way on is the one
+  /// the page names — finish the deletion, or sign out to give it up.
+  Future<void> _ensureAccountStays(String accountUid) async {
+    final registry = (await _databases()).spaceRegistry;
+    if (registry.pendingAccountDeletion() == accountUid) {
+      throw const SyncSpaceException(SyncBindFailure.accountDeleting);
+    }
+  }
+
   /// The refusals [SyncBindingService.bind] makes again inside its
   /// transaction, made first so a space is never created for a bind that
   /// cannot happen.
@@ -1087,6 +1450,17 @@ class SyncSpaceService {
             SyncBindFailure.permissionDenied,
           SyncGatewayFailure.invalidData ||
           SyncGatewayFailure.unknown => SyncBindFailure.unknown,
+        });
+      // A stale sign-in and a withdrawn deletion never arrive here:
+      // [_closeAccount] takes each as a wait, not a failure.
+      case AccountCloseException(:final failure):
+        return SyncSpaceException(switch (failure) {
+          AccountCloseFailure.offline => SyncBindFailure.offline,
+          AccountCloseFailure.permissionDenied =>
+            SyncBindFailure.permissionDenied,
+          AccountCloseFailure.recentSignInRequired ||
+          AccountCloseFailure.withdrawn ||
+          AccountCloseFailure.unknown => SyncBindFailure.unknown,
         });
       default:
         debugPrint('[SyncSpaceService] failed: $error\n$stack');

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:drift/drift.dart' show driftRuntimeOptions;
 import 'package:flutter_test/flutter_test.dart';
 
@@ -40,6 +42,46 @@ Future<_Device> _boot({
   );
   return _Device(db, auth, gateway, service);
 }
+
+/// [inner]'s pairs and invites, with every read of one pair failing as a
+/// refusal — a pair this account may not read, or a link that dropped.
+class _FailingReads extends FakePairingGateway {
+  _FailingReads(FakePairingGateway inner) {
+    pairs.addAll(inner.pairs);
+    invites.addAll(inner.invites);
+  }
+
+  @override
+  Future<PairRecord?> readPair(String pairId) async =>
+      throw const PairingException(PairingError.permissionDenied);
+}
+
+/// A gateway whose pair listener hears only what the test sends it — the
+/// snapshots a device really gets, one that reads as no document included —
+/// and that counts the queries a reconcile makes.
+class _ScriptedSnapshots extends FakePairingGateway {
+  final StreamController<PairRecord?> snapshots =
+      StreamController<PairRecord?>.broadcast();
+
+  int activeQueries = 0;
+
+  @override
+  Stream<PairRecord?> watchPair(String pairId) => snapshots.stream;
+
+  @override
+  Future<List<PairRecord>> findActivePairs(String uid) {
+    activeQueries++;
+    return super.findActivePairs(uid);
+  }
+
+  @override
+  Future<void> dispose() async {
+    await snapshots.close();
+    await super.dispose();
+  }
+}
+
+const _lifetime = Duration(minutes: 10);
 
 void main() {
   // Each "device" opens its own in-memory database on purpose — that is what
@@ -343,6 +385,170 @@ void main() {
       final status = await redeemer.service.load();
       expect(status.isPaired, isFalse);
       expect(status.endedNoticePending, isTrue);
+    });
+
+    test('a pair removed while this device was away raises the ended '
+        'notice too: only the partner deleting their account removes one '
+        '(cloud-multi-user-roadmap §6.1 g)', () async {
+      final gateway = FakePairingGateway();
+      addTearDown(gateway.dispose);
+      final creator = await _boot(
+        gateway: gateway,
+        auth: FakeAuthService(user: userA),
+      );
+      final code = (await creator.service.generateInvite()).pendingCode!;
+      final redeemer = await _boot(
+        gateway: gateway,
+        auth: FakeAuthService(user: userB),
+      );
+      final paired = await redeemer.service.redeem(code);
+
+      await gateway.endPair(pairId: paired.pairId!, endedBy: userA.uid);
+      await gateway.deletePair(paired.pairId!);
+
+      final status = await redeemer.service.load();
+      expect(status.isPaired, isFalse);
+      expect(status.endedNoticePending, isTrue);
+    });
+
+    test('a pair that could not be read says nothing: unpaired, with no '
+        'notice blaming the partner', () async {
+      final gateway = FakePairingGateway();
+      addTearDown(gateway.dispose);
+      final creator = await _boot(
+        gateway: gateway,
+        auth: FakeAuthService(user: userA),
+      );
+      final code = (await creator.service.generateInvite()).pendingCode!;
+      final redeemer = await _boot(
+        gateway: gateway,
+        auth: FakeAuthService(user: userB),
+      );
+      final paired = await redeemer.service.redeem(code);
+      await gateway.endPair(pairId: paired.pairId!, endedBy: userB.uid);
+      // The reconcile's query answers; the read of the pair after it fails.
+      final reads = _FailingReads(gateway);
+      final device = await _boot(
+        gateway: reads,
+        auth: FakeAuthService(user: userB),
+        database: redeemer.db,
+      );
+
+      final status = await device.service.load();
+      expect(status.isPaired, isFalse);
+      expect(status.endedNoticePending, isFalse);
+    });
+
+    test('a pair removed while this device listens — heard as a snapshot '
+        'with no document, after a live one — is asked of the server and '
+        'raises the ended notice', () async {
+      final gateway = _ScriptedSnapshots();
+      addTearDown(gateway.dispose);
+      await gateway.createInvite(
+        code: 'K7M2P4XQ',
+        creatorUid: userA.uid,
+        lifetime: _lifetime,
+      );
+      final device = await _boot(
+        gateway: gateway,
+        auth: FakeAuthService(user: userB),
+      );
+      final paired = await device.service.redeem('K7M2P4XQ');
+      final statuses = <PairingStatus>[];
+      final heard = device.service.changes.listen(statuses.add);
+      addTearDown(heard.cancel);
+      gateway.snapshots.add(gateway.pairs[paired.pairId!]);
+      await pumpEventQueue();
+
+      // The partner deleted their account: the pair ended and was removed
+      // within a round trip, and only the removal was heard.
+      gateway.pairs.remove(paired.pairId!);
+      gateway.snapshots.add(null);
+      await pumpEventQueue();
+
+      expect(device.service.status.isPaired, isFalse);
+      expect(device.service.status.endedNoticePending, isTrue);
+      expect(statuses.last.endedNoticePending, isTrue);
+    });
+
+    test('a first snapshot that reads as no document — a pair just written, '
+        'its server time still to come — decides nothing', () async {
+      final gateway = _ScriptedSnapshots();
+      addTearDown(gateway.dispose);
+      await gateway.createInvite(
+        code: 'K7M2P4XQ',
+        creatorUid: userA.uid,
+        lifetime: _lifetime,
+      );
+      final device = await _boot(
+        gateway: gateway,
+        auth: FakeAuthService(user: userB),
+      );
+      await device.service.redeem('K7M2P4XQ');
+      final asked = gateway.activeQueries;
+
+      gateway.snapshots.add(null);
+      await pumpEventQueue();
+
+      // No reconcile: a query that does not see the new pair yet would read
+      // as the pair having vanished.
+      expect(gateway.activeQueries, asked);
+      expect(device.service.status.isPaired, isTrue);
+    });
+
+    test(
+      'forget drops the pairing with no word to the server, no notice '
+      'and no listener left: what the account\'s own deletion then does '
+      'to the pair blames nobody (cloud-multi-user-roadmap §6.1 g)',
+      () async {
+        final gateway = FakePairingGateway();
+        addTearDown(gateway.dispose);
+        await gateway.createInvite(
+          code: 'K7M2P4XQ',
+          creatorUid: userA.uid,
+          lifetime: _lifetime,
+        );
+        final device = await _boot(
+          gateway: gateway,
+          auth: FakeAuthService(user: userB),
+        );
+        final paired = await device.service.redeem('K7M2P4XQ');
+        final pairId = paired.pairId!;
+        expect(gateway.hasPairListener(pairId), isTrue);
+        final statuses = <PairingStatus>[];
+        final heard = device.service.changes.listen(statuses.add);
+        addTearDown(heard.cancel);
+
+        final status = await device.service.forget();
+        await pumpEventQueue();
+
+        expect(status.isPaired, isFalse);
+        expect(status.endedNoticePending, isFalse);
+        expect(statuses, [status]);
+        expect(gateway.endedPairs, isEmpty);
+        expect(gateway.pairs[pairId]!.isActive, isTrue);
+        expect(gateway.hasPairListener(pairId), isFalse);
+
+        await gateway.endPair(pairId: pairId, endedBy: userB.uid);
+        await gateway.deletePair(pairId);
+        await pumpEventQueue();
+        expect(device.service.status.endedNoticePending, isFalse);
+        expect(statuses, [status]);
+      },
+    );
+
+    test('forget with nothing paired is still quiet', () async {
+      final gateway = FakePairingGateway();
+      addTearDown(gateway.dispose);
+      final device = await _boot(
+        gateway: gateway,
+        auth: FakeAuthService(user: userB),
+      );
+
+      final status = await device.service.forget();
+
+      expect(status.isPaired, isFalse);
+      expect(status.endedNoticePending, isFalse);
     });
 
     test('unpairing yourself does not raise an ended notice', () async {

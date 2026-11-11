@@ -97,6 +97,10 @@ class PairingService {
   PairingSettings _cached = PairingSettings.empty;
   PairProfile? _partner;
 
+  /// Whether the pair listener attached now has shown its pair active: only
+  /// then does a snapshot with no document mean the pair was removed.
+  bool _pairSeenLive = false;
+
   PairingService._();
 
   static Future<PairingService> getInstance(
@@ -337,6 +341,18 @@ class PairingService {
     return status;
   }
 
+  /// Drops what this database remembers of a pairing, with no word to the
+  /// server and no notice — for the account's own deletion, which ends and
+  /// removes its pairs itself (cloud-multi-user-roadmap §6.1 g): a listener
+  /// left on the pair would see it vanish and blame the partner.
+  Future<PairingStatus> forget() async {
+    _detachListeners();
+    _partner = null;
+    await _write(PairingSettings(accountUid: _cached.accountUid));
+    _statusController.add(status);
+    return status;
+  }
+
   Future<PairingStatus> dismissEndedNotice() async {
     // The notice only exists in an unpaired state, so acknowledging it leaves
     // nothing but the account the settings belong to.
@@ -389,20 +405,32 @@ class PairingService {
     await _write(_cached.clearPendingInvite());
   }
 
-  /// The stored pair is no longer active. It is still readable — membership
-  /// never shrinks — so the tombstone can say who ended it.
+  /// The stored pair is no longer active. While its document stands it is
+  /// still readable — membership never shrinks — so the tombstone can say
+  /// who ended it. A document that is gone says it too: only an account's
+  /// deletion removes one (cloud-multi-user-roadmap §6.1 g), and one's own
+  /// forgets the pairing here before it does ([forget]), so it was the
+  /// partner's. A read that failed says nothing, and raises no notice.
+  ///
+  /// Accepted: another device of an account deleted elsewhere blames the
+  /// partner for the hour its session outlives the account, and so does a
+  /// device that never heard its own account end a pair the partner's
+  /// deletion later removed.
   Future<void> _handleVanishedPair(String uid) async {
     final pairId = _cached.pairId;
     if (pairId == null) return;
 
     PairRecord? ended;
+    var gone = false;
     try {
       ended = await _gateway.readPair(pairId);
+      gone = ended == null;
     } on PairingException {
       ended = null;
     }
 
-    final endedByPartner = ended?.endedBy != null && ended!.endedBy != uid;
+    final endedByPartner =
+        gone || (ended?.endedBy != null && ended!.endedBy != uid);
     await _write(
       PairingSettings(
         accountUid: uid,
@@ -470,6 +498,7 @@ class PairingService {
   /// changed the status publish it themselves — this only moves subscriptions.
   void _attachListeners() {
     _detachListeners();
+    _pairSeenLive = false;
 
     final pairId = _cached.pairId;
     if (pairId != null && isAvailable) {
@@ -538,9 +567,26 @@ class PairingService {
   }
 
   Future<void> _onPairChanged(PairRecord? pair) async {
-    if (pair == null) return;
     final user = _auth.currentUser;
+    if (pair == null) {
+      // A document this listener showed live and now cannot read: removed —
+      // a partner deleting their account ends the pair and removes it within
+      // a round trip (cloud-multi-user-roadmap §6.1 g), so a device that was
+      // briefly away hears only this. Never before a live one: the first
+      // snapshot of a pair just written carries no server time yet and reads
+      // as none. The server decides, as for a tombstone; unreachable, the
+      // next reconcile will.
+      if (!_pairSeenLive || user == null || _cached.pairId == null) return;
+      try {
+        await reconcile();
+      } on PairingException {
+        return;
+      }
+      _statusController.add(status);
+      return;
+    }
     if (user == null || pair.pairId != _cached.pairId) return;
+    if (pair.isActive) _pairSeenLive = true;
 
     if (!pair.isActive) {
       // Not necessarily a break-up: the dedup path tombstones the losing pair

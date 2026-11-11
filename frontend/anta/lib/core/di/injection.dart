@@ -30,9 +30,11 @@ import '../../services/android_permission_gateway.dart';
 import '../../services/auth_service.dart';
 import '../../services/firebase_auth_service.dart';
 import '../../services/pairing_gateway.dart';
+import '../../services/pairing_service.dart';
 import '../../services/permission_gateway.dart';
 import '../../services/permission_service.dart';
 import '../../services/sync_availability.dart';
+import '../../services/sync/account_closer.dart';
 import '../../services/sync/firestore_sync_gateway.dart';
 import '../../services/sync/sync_engine.dart';
 import '../../services/sync/sync_gateway.dart';
@@ -342,7 +344,23 @@ void registerSyncSpaceService({
   Future<DatabaseManager> Function() databases = DatabaseManager.getInstance,
 }) {
   getIt.registerSingleton<SyncSpaceService>(
-    SyncSpaceService(gateway: getIt<SyncGateway>(), databases: databases),
+    SyncSpaceService(
+      gateway: getIt<SyncGateway>(),
+      databases: databases,
+      closer: PairedAccountCloser(
+        auth: getIt<AuthService>(),
+        pairing: getIt<PairingGateway>(),
+        // Resolved when an account is closed, never here: the pairing
+        // service is per database, and start-up must not open one for it.
+        forgetLocalPairing: () async {
+          final pairing = await PairingService.getInstance(
+            getIt<AuthService>(),
+            getIt<PairingGateway>(),
+          );
+          await pairing.forget();
+        },
+      ),
+    ),
     dispose: (s) => s.dispose(),
   );
 }

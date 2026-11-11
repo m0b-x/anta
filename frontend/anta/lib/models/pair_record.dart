@@ -25,9 +25,10 @@ class PairProfile extends Equatable {
   List<Object?> get props => [uid, displayName, photoUrl];
 }
 
-/// A link between two accounts. Never deleted and never reused: unpairing
-/// flips [isActive] to false and leaves [members] intact, so the partner keeps
-/// read access and can still find out who ended it.
+/// A link between two accounts. Never reused: unpairing flips [isActive] to
+/// false and leaves [members] intact, so the partner keeps read access and
+/// can still find out who ended it. Only a member deleting their account
+/// removes the document, once it is ended (cloud-multi-user-roadmap §6.1 g).
 class PairRecord extends Equatable {
   final String pairId;
   final List<String> members;

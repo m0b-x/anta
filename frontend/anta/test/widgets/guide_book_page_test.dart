@@ -276,7 +276,12 @@ void main() {
       for (final entry in AppGuideTopic.sync.entries(en))
         if (entry is GuideReadEntry) entry.row.slug,
     ];
-    expect(slugs.sublist(slugs.length - 2), ['sync-stop', 'sync-delete']);
+    // The account's own deletion closes the page, after its copies'.
+    expect(slugs.sublist(slugs.length - 3), [
+      'sync-stop',
+      'sync-delete',
+      'sync-delete-account',
+    ]);
   });
 
   testWidgets('the book search finds a page by a word only an example '
@@ -782,6 +787,12 @@ void main() {
               AppGuideTopic.sync,
               'sync-delete',
               l10n.syncDeleteCloud,
+            ),
+            (
+              GuideBook.app,
+              AppGuideTopic.sync,
+              'sync-delete-account',
+              l10n.syncDeleteAccount,
             ),
           ]) {
         testWidgets('${locale.languageCode}: ${book.slug} $slug', (

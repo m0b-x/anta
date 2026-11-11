@@ -6150,6 +6150,54 @@
       }
     }
   },
+  "syncDeleteAccount": "Delete account",
+  "@syncDeleteAccount": {
+    "description": "Second row of the Account section of the Sync & sharing page, drawn destructive: deletes the signed-in account and everything it holds in the cloud, nothing on the device. Also the destructive confirm button of its dialog"
+  },
+  "syncDeleteAccountDesc": "Removes the account and all its cloud copies. This device keeps everything.",
+  "@syncDeleteAccountDesc": {
+    "description": "Subtitle of the Delete account row"
+  },
+  "syncDeleteAccountConfirmTitle": "Delete your account?",
+  "@syncDeleteAccountConfirmTitle": {
+    "description": "Title of the dialog confirming Delete account"
+  },
+  "syncDeleteAccountConfirmBody": "Every cloud copy of this account is removed for good, sharing with your partner ends, and the account itself is deleted. Nothing is deleted on this device. Google will ask you to sign in once more.",
+  "@syncDeleteAccountConfirmBody": {
+    "description": "Body of the dialog confirming Delete account; after the confirm button Google's own sign-in prompt appears"
+  },
+  "syncDeleteAccountRunning": "Deleting account",
+  "@syncDeleteAccountRunning": {
+    "description": "Title of the deletion section's row while an account's deletion runs in the background; the row's subtitle counts the items removed"
+  },
+  "syncDeleteAccountFinish": "Finish deleting account",
+  "@syncDeleteAccountFinish": {
+    "description": "Title of the deletion section's row while an account's deletion was cut short: a tap asks Google for the sign-in again and finishes it"
+  },
+  "syncDeleteAccountFinishDesc": "Sign in again to finish",
+  "@syncDeleteAccountFinishDesc": {
+    "description": "Subtitle of the Finish deleting account row: the tap opens Google's sign-in prompt first"
+  },
+  "syncDeleteAccountDone": "Account deleted",
+  "@syncDeleteAccountDone": {
+    "description": "Snackbar on the Sync & sharing page once the account was deleted and the page reads signed out"
+  },
+  "syncFailedOtherAccount": "That is another account — nothing was deleted",
+  "@syncFailedOtherAccount": {
+    "description": "Snackbar when the Google account chosen to confirm Delete account is not the one signed in"
+  },
+  "syncDeleteAccountFailed": "The account couldn't be deleted — try again",
+  "@syncDeleteAccountFailed": {
+    "description": "Snackbar, and the spoken value of the row, when deleting the account failed for no reason the app can name"
+  },
+  "syncFailedAccountDeleting": "This account is being deleted — finish that, or sign out to keep the account",
+  "@syncFailedAccountDeleting": {
+    "description": "Snackbar when syncing a database is refused because the signed-in account's own deletion is under way or waiting to be finished"
+  },
+  "signOutConfirmDeleting": "Sign out? Your account stays. Cloud copies already being deleted are still removed.",
+  "@signOutConfirmDeleting": {
+    "description": "Body of the sign-out confirmation while the account's own deletion is unfinished: signing out gives that deletion up"
+  },
   "syncPickerSpaces": "Cloud spaces",
   "@syncPickerSpaces": {
     "description": "Section label over the account's cloud spaces in the sheet that picks one"
@@ -13753,6 +13801,15 @@
   "@appGuideSyncDeleteBody": {
     "placeholders": {
       "delete": {
+        "type": "String"
+      }
+    }
+  },
+  "appGuideSyncDeleteAccountTitle": "Deleting your account",
+  "appGuideSyncDeleteAccountBody": "“{deleteAccount}” on the same page removes every cloud copy of the account, ends sharing with your partner and deletes the account itself, once Google has asked you to sign in again. Everything stays on this phone.",
+  "@appGuideSyncDeleteAccountBody": {
+    "placeholders": {
+      "deleteAccount": {
         "type": "String"
       }
     }

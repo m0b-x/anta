@@ -78,6 +78,14 @@ class SyncBloc extends Bloc<SyncEvent, SyncState> {
   String? _deletionAccount;
   SyncDeletionStatus? _deletion;
 
+  /// The service's word that an account was deleted, followed for the
+  /// bloc's life, and the account it named while that account was still on
+  /// screen: the session's end arrives on the identity's own stream, before
+  /// or after, and whichever comes second says "deleted"
+  /// ([SyncSignedOut.accountDeleted]).
+  StreamSubscription<String>? _accountsDeletedSubscription;
+  String? _deletedAccount;
+
   /// For a state a deletion status put up, the state it first re-stamped:
   /// the same account, status and flow with another deletion, so a status
   /// read awaited on that state — or on any re-stamp of it — still lands
@@ -147,6 +155,8 @@ class SyncBloc extends Bloc<SyncEvent, SyncState> {
     on<DeleteCloudCopyRequested>(_onDeleteCloudCopy);
     on<FinishDeletingRequested>(_onFinishDeleting);
     on<SyncDeletionStatusChanged>(_onDeletionStatus);
+    on<DeleteAccountRequested>(_onDeleteAccount);
+    on<SyncAccountDeleted>(_onAccountDeleted);
   }
 
   Future<void> _onLoad(LoadSyncStatus event, Emitter<SyncState> emit) async {
@@ -164,6 +174,9 @@ class SyncBloc extends Bloc<SyncEvent, SyncState> {
     _authSubscription ??= _authService.authStateChanges.listen(
       (user) => add(AuthStateChanged(user)),
     );
+    _accountsDeletedSubscription ??= _spaces?.accountsDeleted.listen((uid) {
+      if (!isClosed) add(SyncAccountDeleted(uid));
+    });
     unawaited(_followEngine());
     await _emitStatus(shown, user, emit);
   }
@@ -234,6 +247,11 @@ class SyncBloc extends Bloc<SyncEvent, SyncState> {
         _emitAccount(_authService.currentUser, emit);
       }
       try {
+        // Before the sign-out, not after it: the confirmation promised the
+        // account stays, and a deletion's run in its last steps would
+        // otherwise finish them while the sign-out is still on its way.
+        final leaving = _authService.currentUser?.uid;
+        if (leaving != null) await _abandonAccountDeletion(leaving);
         // Bounded: a hung sign-out would hold the pending count, and with it
         // every step, for the page's life (review RC1b-4). Past the limit it
         // fails as a thrown one does, so the user is told and offered a retry
@@ -285,6 +303,20 @@ class SyncBloc extends Bloc<SyncEvent, SyncState> {
     user: _authService.currentUser,
   );
 
+  /// A sign-out asked for gives up [uid]'s own deletion — the way out the
+  /// sign-out's confirmation names (cloud-multi-user-roadmap §6.1 d) —
+  /// whether or not the sign-out then lands: the person was told the
+  /// account stays. Logged, never thrown: the sign-out goes on either way,
+  /// and a record left behind only offers "Finish deleting account" again
+  /// at that account's next sign-in.
+  Future<void> _abandonAccountDeletion(String uid) async {
+    try {
+      await _spaces?.abandonAccountDeletion(uid);
+    } catch (e, st) {
+      debugPrint('[SyncBloc] the account deletion was not given up: $e\n$st');
+    }
+  }
+
   /// Waits out a bind or stop step: a sign-in or a sign-out asked for
   /// meanwhile runs once it has settled — never dropped, never mid-step,
   /// where the step's settle would find another account on screen and the
@@ -319,7 +351,47 @@ class SyncBloc extends Bloc<SyncEvent, SyncState> {
     // An in-flight interactive sign-in owns the state until it resolves, so
     // the stream's intermediate "still signed out" must not clear the spinner.
     if (state is SyncSigningIn && event.user == null) return;
-    await _emitStatus(_emitAccount(event.user, emit), event.user, emit);
+    // The session's end after the service's word that it deleted the
+    // account on screen: this signed-out state is that deletion's.
+    final deleted =
+        event.user == null &&
+        _deletedAccount != null &&
+        _deletedAccount == _accountOf(state);
+    if (event.user == null || deleted) _deletedAccount = null;
+    final shown = _emitAccount(event.user, emit);
+    if (deleted && shown is SyncSignedOut) {
+      _put(
+        emit,
+        SyncSignedOut(
+          status: shown.status,
+          flow: shown.flow,
+          accountDeleted: true,
+        ),
+      );
+    }
+    await _emitStatus(state, event.user, emit);
+  }
+
+  /// The service deleted the account [SyncAccountDeleted.uid]. Its session
+  /// ends on the identity's stream, in either order: already signed out,
+  /// the state on screen is the deletion's and says so; still showing the
+  /// account, the sign-out that follows will ([_onAuthStateChanged]).
+  void _onAccountDeleted(SyncAccountDeleted event, Emitter<SyncState> emit) {
+    final shown = state;
+    switch (shown) {
+      case SyncSignedOut(:final status, :final flow, accountDeleted: false):
+        _put(
+          emit,
+          SyncSignedOut(status: status, flow: flow, accountDeleted: true),
+        );
+        // The same account state said again, as a deletion status re-stamps
+        // one: a status read still awaited on it must land.
+        if (!identical(state, shown)) {
+          _restampOf[state] = _restampOf[shown] ?? shown;
+        }
+      default:
+        if (_accountOf(shown) == event.uid) _deletedAccount = event.uid;
+    }
   }
 
   Future<void> _onRefresh(RefreshSyncStatus event, Emitter<SyncState> emit) =>
@@ -671,6 +743,71 @@ class SyncBloc extends Bloc<SyncEvent, SyncState> {
     }
   }
 
+  /// "Delete account", and "Finish deleting account" while one waits: the
+  /// same request, which goes on from wherever the last attempt stopped
+  /// (cloud-multi-user-roadmap §6.1). Ignored while the account's deletion
+  /// is running — there is nothing to add to it.
+  ///
+  /// The sign-in is asked again first, before the step and outside it: a
+  /// step stops the engine, and a prompt the user dismisses must cost
+  /// nothing — no stop and start, which would drop a pause and its back-off
+  /// (the rule "Delete cloud copy" follows, review S6). While the prompt is
+  /// up the account's flow reads busy, which is what keeps every step from
+  /// starting — nothing else is held, so a prompt that never answers costs
+  /// this page its rows and no later bloc anything, as a sign-in that never
+  /// answers does. Dismissed, the flow goes back to idle; another account
+  /// chosen, or a failure, is the account row's ([SyncBindFailed.account]).
+  ///
+  /// Then a short step like "Delete cloud copy": it ends once the service
+  /// has marked the account's cloud copies and unbound this database, and
+  /// the rest is the service's background run. Only for the account the
+  /// prompt confirmed, and only from a page still there: an account that
+  /// signed out or changed while the prompt was up is not deleted on an old
+  /// confirmation, and a bloc closed meanwhile starts nothing — every other
+  /// step begins with its event, this one alone after a wait, and nothing
+  /// this final starts with nobody left to show how it went.
+  Future<void> _onDeleteAccount(
+    DeleteAccountRequested event,
+    Emitter<SyncState> emit,
+  ) async {
+    final spaces = _spaces;
+    if (spaces == null || _stepRefused) return;
+    final account = _requestingAccount();
+    if (account == null || account.flow.isBusy) return;
+    final uid = account.user.uid;
+    final deletion = _deletionOf(uid);
+    if (deletion != null && deletion.account && deletion.running) return;
+    if (state is SyncFailure) _emitAccount(account.user, emit);
+
+    final bool confirmed;
+    try {
+      _emitFlow(emit, uid, const SyncAccountDeleting());
+      confirmed = await _authService.reauthenticate();
+    } catch (e, st) {
+      final failure = switch (e) {
+        OtherAccountException() => SyncBindFailure.otherAccount,
+        AuthException(error: AuthError.offline) => SyncBindFailure.offline,
+        _ => SyncBindFailure.unknown,
+      };
+      if (failure == SyncBindFailure.unknown) {
+        debugPrint('[SyncBloc] signing in again failed: $e\n$st');
+      }
+      _emitFlow(emit, uid, SyncBindFailed(failure, account: true));
+      return;
+    }
+    if (!confirmed ||
+        isClosed ||
+        _authService.currentUser?.uid != uid ||
+        _stepRefused) {
+      _emitFlow(emit, uid, const SyncBindIdle());
+      return;
+    }
+    await _step(emit, uid, const SyncAccountDeleting(), () async {
+      await spaces.deleteAccount(accountUid: uid);
+      return const SyncBindIdle();
+    });
+  }
+
   /// The account a deletion request acts for, with the status and flow it
   /// is judged on: the one on screen, or the one a failed sign-out left
   /// signed in, as [_emitAccount] would put it back. Null otherwise.
@@ -789,7 +926,12 @@ class SyncBloc extends Bloc<SyncEvent, SyncState> {
       try {
         outcome = await change();
       } catch (e, st) {
-        outcome = _failed(e, st, deleting: busy is SyncBindDeleting);
+        outcome = _failed(
+          e,
+          st,
+          deleting: busy is SyncBindDeleting,
+          account: busy is SyncAccountDeleting,
+        );
         changed = false;
       }
       // The old database's status must not dress the one switched to.
@@ -923,16 +1065,22 @@ class SyncBloc extends Bloc<SyncEvent, SyncState> {
     Object error,
     StackTrace stack, {
     bool deleting = false,
+    bool account = false,
   }) {
     if (error is SyncSpaceException) {
       return SyncBindFailed(
         error.failure,
         holderDatabase: error.holderDatabase,
         deleting: deleting,
+        account: account,
       );
     }
     debugPrint('[SyncBloc] binding failed: $error\n$stack');
-    return SyncBindFailed(SyncBindFailure.unknown, deleting: deleting);
+    return SyncBindFailed(
+      SyncBindFailure.unknown,
+      deleting: deleting,
+      account: account,
+    );
   }
 
   /// Resolves the engine and follows its status stream, starting from its
@@ -1067,6 +1215,7 @@ class SyncBloc extends Bloc<SyncEvent, SyncState> {
     _engineSubscription?.cancel();
     _deletionSubscription?.cancel();
     _deletionSubscription = null;
+    _accountsDeletedSubscription?.cancel();
     return super.close();
   }
 }

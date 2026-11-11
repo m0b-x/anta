@@ -401,26 +401,34 @@ void main() {
           ),
         );
 
-    /// The title of every action row, laid out: its width, and whether that
-    /// width holds its longest word — a narrower one breaks mid-word.
-    List<({double width, bool wholeWords})> actionTitles(WidgetTester tester) =>
-        [
-          for (final tile in tester.widgetList<SettingsYieldingTile>(
-            find.byType(SettingsYieldingTile),
-          ))
-            for (final paragraph in tester.renderObjectList<RenderParagraph>(
-              find.descendant(
-                of: find.byWidget(tile.title),
-                matching: find.byType(RichText),
+    /// The title of every action row — of the one row with the id [under]
+    /// when given — laid out: its width, and whether that width holds its
+    /// longest word — a narrower one breaks mid-word.
+    List<({double width, bool wholeWords})> actionTitles(
+      WidgetTester tester, {
+      String? under,
+    }) => [
+      for (final tile in tester.widgetList<SettingsYieldingTile>(
+        under == null
+            ? find.byType(SettingsYieldingTile)
+            : find.descendant(
+                of: find.bySemanticsIdentifier(under),
+                matching: find.byType(SettingsYieldingTile),
               ),
-            ))
-              (
-                width: paragraph.size.width,
-                wholeWords:
-                    paragraph.size.width + 0.5 >=
-                    paragraph.getMinIntrinsicWidth(double.infinity),
-              ),
-        ];
+      ))
+        for (final paragraph in tester.renderObjectList<RenderParagraph>(
+          find.descendant(
+            of: find.byWidget(tile.title),
+            matching: find.byType(RichText),
+          ),
+        ))
+          (
+            width: paragraph.size.width,
+            wholeWords:
+                paragraph.size.width + 0.5 >=
+                paragraph.getMinIntrinsicWidth(double.infinity),
+          ),
+    ];
 
     testWidgets('signed out, de 2.0 on 360 × 780 fits with no exception', (
       tester,
@@ -442,10 +450,27 @@ void main() {
       expect(errors.map((e) => e.exceptionAsString()), isEmpty);
       expect(tester.takeException(), isNull);
       // The two rows S5 named for their trailing buttons, Abmelden and
-      // Kopplung aufheben, now values that yield to the title.
-      final titles = actionTitles(tester);
-      expect(titles, hasLength(2));
-      for (final title in titles) {
+      // Kopplung aufheben, now values that yield to the title — each
+      // measured on its own row. The second lies below the first screen
+      // since the Account section gained its Delete account row, so the
+      // list is walked to it.
+      final signOut = actionTitles(tester, under: SemanticsIds.sharingSignOut);
+      expect(signOut, hasLength(1));
+      await tester.scrollUntilVisible(
+        find.bySemanticsIdentifier(SemanticsIds.sharingUnpair),
+        200,
+        scrollable: find
+            .descendant(
+              of: find.bySemanticsIdentifier(SemanticsIds.sharingList),
+              matching: find.byType(Scrollable),
+            )
+            .first,
+      );
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+      final unpair = actionTitles(tester, under: SemanticsIds.sharingUnpair);
+      expect(unpair, hasLength(1));
+      for (final title in [...signOut, ...unpair]) {
         expect(title.width, greaterThan(0));
         expect(title.wholeWords, isTrue);
       }

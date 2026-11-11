@@ -199,6 +199,64 @@ void main() {
         );
       });
     });
+
+    group('the account being deleted (cloud-multi-user-roadmap §6.1)', () {
+      test('is one uid, kept until its own clear', () async {
+        expect(registry.pendingAccountDeletion(), isNull);
+
+        await registry.setPendingAccountDeletion('uid-1');
+        expect(registry.pendingAccountDeletion(), 'uid-1');
+
+        await registry.clearPendingAccountDeletion('uid-2');
+        expect(
+          registry.pendingAccountDeletion(),
+          'uid-1',
+          reason: 'another account\'s clear must not drop this one\'s',
+        );
+
+        await registry.clearPendingAccountDeletion('uid-1');
+        expect(registry.pendingAccountDeletion(), isNull);
+        expect(
+          prefs.containsKey(SettingsKeys.syncPendingAccountDeletion),
+          isFalse,
+        );
+      });
+
+      test('a second account replaces the first: one install deletes the '
+          'account signed in', () async {
+        await registry.setPendingAccountDeletion('uid-1');
+        await registry.setPendingAccountDeletion('uid-2');
+
+        expect(registry.pendingAccountDeletion(), 'uid-2');
+      });
+
+      test('an empty value reads as none', () async {
+        await prefs.setString(SettingsKeys.syncPendingAccountDeletion, '');
+
+        expect(registry.pendingAccountDeletion(), isNull);
+      });
+
+      test('lives apart from the copies\' deletions and the claims', () async {
+        const gymDeletion = SyncPendingDeletion(space: gym, spaceName: 'Gym');
+        await registry.claim(gym, 'training');
+        await registry.addPendingDeletion(gymDeletion);
+        await registry.setPendingAccountDeletion('uid-1');
+
+        await registry.clearPendingDeletion(gym);
+        await registry.release('training');
+        expect(registry.pendingAccountDeletion(), 'uid-1');
+
+        await registry.addPendingDeletion(gymDeletion);
+        await registry.clearPendingAccountDeletion('uid-1');
+        expect(registry.pendingDeletions(), [gymDeletion]);
+        expect(
+          SettingsKeys.syncPendingAccountDeletion.startsWith(
+            SettingsKeys.syncSpacePrefix,
+          ),
+          isFalse,
+        );
+      });
+    });
   });
 
   group('through DatabaseManager', () {

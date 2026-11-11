@@ -96,8 +96,9 @@ class SyncPendingDeletion extends Equatable {
 /// applies there) rather than in the per-database `user_settings`, and it is
 /// never in a backup. `SyncBindingService` claims on a bind and releases on
 /// every unbind; `DatabaseManager` releases on a delete and follows a rename.
-/// Beside the claims, under their own key, it keeps the deletions this
-/// install began and has not finished ([SyncPendingDeletion]).
+/// Beside the claims, under their own keys, it keeps the deletions this
+/// install began and has not finished ([SyncPendingDeletion]) and the
+/// account being deleted with them ([pendingAccountDeletion]).
 class SyncSpaceRegistry {
   final SharedPreferences _prefs;
   final Future<bool> Function(String databaseName) _databaseExists;
@@ -189,6 +190,27 @@ class SyncSpaceRegistry {
     for (final pending in pendingDeletions())
       if (pending.space != space) pending,
   ]);
+
+  /// The account whose own deletion was asked for on this install and has
+  /// not finished (cloud-multi-user-roadmap §6.1), or null. Its cloud copies
+  /// are among [pendingDeletions]; this is what says the account itself
+  /// goes once they are gone.
+  String? pendingAccountDeletion() {
+    final uid = _prefs.getString(SettingsKeys.syncPendingAccountDeletion);
+    return uid == null || uid.isEmpty ? null : uid;
+  }
+
+  /// [accountUid]'s deletion began; another account's record is replaced —
+  /// one install deletes one account at a time, the one signed in.
+  Future<void> setPendingAccountDeletion(String accountUid) =>
+      _prefs.setString(SettingsKeys.syncPendingAccountDeletion, accountUid);
+
+  /// [accountUid]'s deletion finished or was given up; another account's
+  /// record is left alone.
+  Future<void> clearPendingAccountDeletion(String accountUid) async {
+    if (pendingAccountDeletion() != accountUid) return;
+    await _prefs.remove(SettingsKeys.syncPendingAccountDeletion);
+  }
 
   Future<void> _writeDeletions(List<SyncPendingDeletion> deletions) async {
     if (deletions.isEmpty) {

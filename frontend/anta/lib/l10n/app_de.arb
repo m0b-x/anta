@@ -2595,6 +2595,18 @@
   "syncDeleteCloudFinishUpdate": "Aktualisiere ANTA, um abzuschließen",
   "syncDeleteCloudFinishDesc": "Cloud-Kopie erst teilweise gelöscht: „{space}“",
   "syncDeleteCloudFinishMany": "{count, plural, =1{1 Cloud-Kopie erst teilweise gelöscht} other{{count} Cloud-Kopien erst teilweise gelöscht}}",
+  "syncDeleteAccount": "Konto löschen",
+  "syncDeleteAccountDesc": "Entfernt das Konto und alle seine Cloud-Kopien. Dieses Gerät behält alles.",
+  "syncDeleteAccountConfirmTitle": "Dein Konto löschen?",
+  "syncDeleteAccountConfirmBody": "Jede Cloud-Kopie dieses Kontos wird endgültig entfernt, das Teilen mit deinem Partner endet, und das Konto selbst wird gelöscht. Auf diesem Gerät wird nichts gelöscht. Google bittet dich, dich noch einmal anzumelden.",
+  "syncDeleteAccountRunning": "Konto wird gelöscht",
+  "syncDeleteAccountFinish": "Löschen des Kontos abschließen",
+  "syncDeleteAccountFinishDesc": "Melde dich erneut an, um abzuschließen",
+  "syncDeleteAccountDone": "Konto gelöscht",
+  "syncFailedOtherAccount": "Das ist ein anderes Konto – es wurde nichts gelöscht",
+  "syncDeleteAccountFailed": "Das Konto konnte nicht gelöscht werden – versuch es erneut",
+  "syncFailedAccountDeleting": "Dieses Konto wird gerade gelöscht – schließ das ab oder melde dich ab, um das Konto zu behalten",
+  "signOutConfirmDeleting": "Abmelden? Dein Konto bleibt. Cloud-Kopien, die schon gelöscht werden, werden trotzdem entfernt.",
   "syncPickerSpaces": "Cloud-Bereiche",
   "syncPickerTitle": "Bereich wählen",
   "syncPickerLastUsed": "Zuletzt verwendet {time}",
@@ -4183,5 +4195,7 @@
   "appGuideSyncStopTitle": "Beenden",
   "appGuideSyncStopBody": "„{syncStop}“ lässt deine Notizen auf diesem Telefon und hört auf zu senden und zu empfangen; die Kopie in deinem Konto bleibt. „{signOut}“ pausiert Sync für jede Datenbank, bis du dich wieder anmeldest.",
   "appGuideSyncDeleteTitle": "Die Cloud-Kopie löschen",
-  "appGuideSyncDeleteBody": "„{delete}“ entfernt die Datenbank endgültig aus deinem Konto. Sie bleibt auf diesem Telefon, das sie nicht mehr synchronisiert; deine anderen Geräte behalten ihre Kopie und hören ebenfalls auf."
+  "appGuideSyncDeleteBody": "„{delete}“ entfernt die Datenbank endgültig aus deinem Konto. Sie bleibt auf diesem Telefon, das sie nicht mehr synchronisiert; deine anderen Geräte behalten ihre Kopie und hören ebenfalls auf.",
+  "appGuideSyncDeleteAccountTitle": "Dein Konto löschen",
+  "appGuideSyncDeleteAccountBody": "„{deleteAccount}“ auf derselben Seite entfernt jede Cloud-Kopie des Kontos, beendet das Teilen mit deinem Partner und löscht das Konto selbst, nachdem Google dich um eine erneute Anmeldung gebeten hat. Auf diesem Telefon bleibt alles."
 }
