@@ -4,6 +4,25 @@ paths:
   - "lib/pages/alerts_page.dart"
   - "lib/pages/alarm_page.dart"
   - "lib/bloc/calendar/**"
+  - "lib/bloc/calendar_report/**"
+  - "lib/**/report_*.dart"
+  - "lib/**/overview_*.dart"
+  - "lib/**/category_*.dart"
+  - "lib/**/digest_*.dart"
+  - "lib/**/fasting_*.dart"
+  - "lib/**/recurrence_*.dart"
+  - "lib/**/public_holiday*.dart"
+  - "lib/**/presence_*.dart"
+  - "lib/**/quick_alarm*.dart"
+  - "lib/**/time_pad_*.dart"
+  - "lib/**/alarm_*.dart"
+  - "lib/widgets/alert_*.dart"
+  - "lib/pages/alert_settings_page.dart"
+  - "lib/pages/fasting_settings_page.dart"
+  - "lib/widgets/year_month_tile.dart"
+  - "lib/widgets/month_dot_matrix.dart"
+  - "lib/widgets/month_year_picker_sheet.dart"
+  - "lib/widgets/list_scrubber.dart"
   - "lib/services/calendar_*.dart"
   - "lib/services/category_service.dart"
   - "lib/services/public_holiday_service.dart"
@@ -29,5 +48,5 @@ paths:
 - Load the `calendar-events` skill (the rulebook and file map); for anything visual also `ui-language` and `calendar-ui`. Read the skill's `references/` and `docs/calendar-events-feature.md` **by section**, never whole.
 - Alerts are opt-in: seed defaults ship as `none`; never arm an alert the owner did not ask for. Only the Alarm tier reaches `packages/alarm/`; the Reminder tier stays on `flutter_local_notifications`.
 - Recurrence, holidays and fasting are pure Dart over UTC date-only values; a local-midnight `add(Duration)` is an hour off on DST days — construct `DateTime(y, m, d, 0, minutes)` instead.
-- The saved device passes must stay green: `qa pass calendar -d emulator-5556` (30 flows, a fresh seed before each; `qa fleet pass calendar` shards it when the owner asks) and `qa pass alerts -d emulator-5556` (one clock-relative seed, in order, never through `qa run`); a slice that changes a screen updates its flow in the same slice, and a new control a flow targets gets a `SemanticsIds` entry.
+- The saved device passes must stay green: `qa pass calendar -d emulator-5556` (every flow under `tool/qa/flows/calendar/`, a fresh seed before each; `qa fleet pass calendar` shards it when the owner asks) and `qa pass alerts -d emulator-5556` (one clock-relative seed, in order, never through `qa run`); a slice that changes a screen updates its flow in the same slice, and a new control a flow targets gets a `SemanticsIds` entry.
 - A change in persisted event data is a migration plus backup/import coverage (the `database` rule applies).

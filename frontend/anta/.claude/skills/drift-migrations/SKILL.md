@@ -65,23 +65,29 @@ The app switches between local databases (`DatabaseManager`). Every DB-backed si
 2. Register `DatabaseLifecycle.registerResetHandler(reset)` inside the `getInstance()` first-time-init block, **after** `_instance` is fully constructed.
 3. If the service publishes into a separate static cache (pattern: `PublicHolidayService` → `PublicHolidays._cache`), `reset()` must clear that cache too.
 
+4. **Publish the instance only when it is whole.** A `getInstance()` that assigns `_instance` before its first `await` hands a concurrent caller a service whose `late` fields are unset (`LateInitializationError`, found 2026-11-06 when 46 widget tests went red). Build into a local, memoize the in-flight open, assign last — `SettingsService.getInstance` is the shape to copy, including how its `_opening` slot is cleared only by the open that set it:
+
 ```dart
-static Future<MyService> getInstance() async {
-  if (_instance == null) {
-    _instance = MyService._();
-    _instance!._db = await AppDatabase.getInstance();
-    await _instance!._load();
-    DatabaseLifecycle.registerResetHandler(reset);
-  }
-  return _instance!;
+static Future<MyService> getInstance() {
+  final existing = _instance;
+  if (existing != null) return Future.value(existing);
+  return _opening ??= _open();   // SettingsService shows the settle step
 }
 
-static void reset() { _instance = null; }
+static Future<MyService> _open() async {
+  final service = MyService._();
+  service._db = await AppDatabase.getInstance();
+  await service._load();
+  DatabaseLifecycle.registerResetHandler(reset);
+  return _instance = service;
+}
+
+static void reset() { _instance = null; _opening = null; }
 ```
 
 Handlers fire once per `notifyDatabaseSwitching()` and the registry self-clears — re-registration happens naturally on the next `getInstance()`. Anti-patterns: a `late AppDatabase _db` singleton without reset+registration (latent crash after switch); static caches with no owning `reset()`; registering from a constructor that runs more than once.
 
-Services already on the contract: `CounterService`, `CalendarEventService`, `CategoryService`, `CategoryProfileService` (with `CategoryService`'s generation guard: a construction a switch overtook restarts and never publishes), `PublicHolidayService`, `MarkdownBarService`, `SettingsService`, `DevOptionsService`, `BackupService`, `NotePositionService`. New singletons must join.
+Services already on the contract: `CounterService`, `CalendarEventService`, `CategoryService`, `CategoryProfileService` (with `CategoryService`'s generation guard: a construction a switch overtook restarts and never publishes), `PublicHolidayService`, `MarkdownBarService`, `SettingsService`, `DevOptionsService`, `BackupService`, `NotePositionService`. New singletons must join. Five of them still assign `_instance` before their await — `BackupService`, `CounterService`, `DevOptionsService`, `MarkdownBarService`, `NotePositionService` — a latent race to close when one is touched, never a shape to copy.
 
 ## Settings
 

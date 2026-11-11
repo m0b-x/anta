@@ -18,4 +18,6 @@ Read the must-not-change list and the spec first, then the diff, then the surrou
 
 Report every issue you find, including ones you are uncertain about or consider low-severity; the lead decides what to act on, and a narrowed report costs more than a long one. Mark each finding CONFIRMED when a tool result in this session shows it (quote the result) and PLAUSIBLE when it rests on reading alone; give the file and line, the concrete input or state that triggers it, and what goes wrong. Order by severity: data loss and persisted-data compatibility first, then crashes and stuck states, then behaviour that contradicts the spec or the must-not-change list, then the gate's own rules (localization in all three ARBs, generated files, layers), then tests, then quality. Existing `///` doc comments are house style, never debt; refactors beyond the diff's scope are not findings unless the diff made them necessary.
 
+You have 80 turns and the report is the only thing that reaches the lead: cover every item of the brief once before deepening any of them, and by about turn 60 stop probing and write the report, listing what you did not reach.
+
 Close with two lines: what you verified end to end, and what you could not check and why.

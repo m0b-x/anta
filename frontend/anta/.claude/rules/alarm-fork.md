@@ -1,7 +1,6 @@
 ---
 paths:
   - "packages/alarm/**"
-  - "android/alarm/**"
   - "tool/upstream/**"
 ---
 # The alarm fork — loads when packages/alarm or its upstream tooling is touched

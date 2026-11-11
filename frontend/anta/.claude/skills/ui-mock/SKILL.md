@@ -46,5 +46,5 @@ The answers become `D`-numbered decisions in the design record (`ui-revamp` §1)
 
 ## Cost rules
 
-- The main thread or an `implementer` agent draws the mock; never `fable-max`, never a review agent on a mock — the owner is the reviewer.
+- The `designer` agent draws the mock when a rework starts from one (it renders the current surface first); the lead draws it when the question is small enough to sketch. Never `fable-max`, never a review agent on a mock — the owner is the reviewer.
 - Draw after the idiom and the facts are settled, so the page is drawn once.

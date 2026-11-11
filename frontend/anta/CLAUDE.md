@@ -43,7 +43,7 @@ Page/Widget -> BLoC -> Service -> Repository -> DAO -> Drift (SQLite)
 | Need | Run |
 | --- | --- |
 | Any Dart change | `dart analyze lib` (never `flutter analyze` on the whole workspace) |
-| Tests | `flutter test` — the whole suite, one run at a time, never beside a QA `flutter run` |
+| Tests | `flutter test --reporter failures-only` — the whole suite, in the foreground, one run at a time, never beside a QA `flutter run` |
 | ARB edit | `flutter gen-l10n`, then check `untranslated.txt` |
 | Drift change | `dart run build_runner build --delete-conflicting-outputs` |
 | Run the app | `flutter run` (Android), `flutter run -d windows` / `-d macos` |
@@ -54,7 +54,7 @@ The gate for any change: analyze clean, whole suite green, gen-l10n when ARBs ch
 
 ## How work runs here — the budget
 
-- **Model per job.** Opus 5.5 is the workhorse: implementation sessions, the `implementer`, `reviewer`, `designer` and `design-reviewer` agents (the `designer` judges a surface from real-font renders and returns one exact visual spec before the build; the `design-reviewer` checks the built surface against it in a fresh context). Fable 5.1 is for design decisions, plans and the reviews the owner names. Sonnet 5.5 runs mechanical work (QA passes, doc placement); Sonnet or Haiku explores. The roster in `.claude/agents/` carries these; load the `delegation` skill before spawning anything.
+- **Model per job.** Fable 5.2 at `high` effort leads: plans, design decisions, records, briefs and the reviews the owner names. Opus 5.5 is the workhorse that builds and reviews: the `implementer`, `reviewer`, `designer` and `design-reviewer` agents, and the session that implements an approved plan with nothing left to decide (the `designer` judges a surface from real-font renders and returns one exact visual spec before the build; the `design-reviewer` checks the built surface against it in a fresh context). Sonnet 5.5 runs only the mechanical work (QA passes, doc placement); Haiku 5.5 explores. Each model has its own allowance — when one runs low, the `delegation` skill says what takes its place. The roster in `.claude/agents/` carries these; load `delegation` before spawning anything.
 - **Read by section, never whole.** Records, references and feature docs have tables of contents — grep to the section the task needs. No file over ~300 lines is read end to end unless the task is to rewrite it.
 - **One of each.** One mock (`ui-mock`); one implementer and one reviewer per slice (`ui-revamp`); no workflow unless the owner says "use a workflow"; `fable-max` only when the owner names it.
 - **Check in at boundaries.** At each slice boundary say how many files are uncommitted and offer a ready commit; when the owner signals low usage, finish the step, write what is left into the record's Deferred section, and stop.

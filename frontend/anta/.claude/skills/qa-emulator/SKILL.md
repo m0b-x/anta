@@ -1,6 +1,6 @@
 ---
 name: qa-emulator
-description: Drive the ANTA app on the Android emulator fleet, the iOS simulator or the macOS desktop build through the `tool/qa/qa` CLI, against an isolated QA database that never touches the owner's data. Load it for any device pass (`qa fleet pass <suite>` runs a whole suite in one call and writes a JSON report); for running the app to see a change working on a device; for screenshots and the accessibility dump; for tapping, typing, scrolling or waiting by semantics id; for reading runtime errors and device logs; for the saved calendar, browser and alerts passes with their seeds and flows; for booting, installing on and stopping the minimized fleet AVDs; and for proving an alarm is armed on Android. The wrapper is `./tool/qa/qa` on macOS and Git Bash, `tool\qa\qa.cmd` in PowerShell. Load together with anta-context, and with verify when the pass is part of a change's gate.
+description: Drive the ANTA app on the Android emulator fleet, the iOS simulator or the macOS desktop build through the `tool/qa/qa` CLI, against an isolated QA database that never touches the owner's data. Load it for any device pass (`qa fleet pass <suite>` runs a whole suite in one call and writes a JSON report); for running the app to see a change working on a device; for screenshots and the accessibility dump; for tapping, typing, scrolling or waiting by semantics id; for reading runtime errors and device logs; for the saved calendar, browser, settings, alerts and sync passes with their seeds and flows; for booting, installing on and stopping the minimized fleet AVDs; and for proving an alarm is armed on Android. The wrapper is `./tool/qa/qa` on macOS and Git Bash, `tool\qa\qa.cmd` in PowerShell. Load together with anta-context, and with verify when the pass is part of a change's gate.
 ---
 
 # QA device harness
@@ -39,7 +39,7 @@ q=./tool/qa/qa
 $q fleet status                        # what is up, what carries which build, launches since boot
 $q fleet boot 1                        # ONE guest is the default: anta_qa_1 on emulator-5556 — windowed but minimized, P-core pinned; ≈ 16–20 s once booted before (--priority below makes its qemu yield to the owner's foreground; default normal until M2 is measured)
 $q fleet install --build               # build the QA driver APK once (≈ 10–40 s), install on every booted guest (≈ 3 s each)
-$q pass calendar -d emulator-5556      # 26 flows, a fresh seed before each: ≈ 6.6 min on a fresh guest — run it in the background (a worn guest took over 10 min, past a foreground tool call's cap)
+$q pass calendar -d emulator-5556      # every calendar flow, a fresh seed before each: ≈ 6.6 min on a fresh guest when the suite had 26 flows, longer now — run it in the background (a worn guest took over 10 min, past a foreground tool call's cap)
 $q pass browser -d emulator-5556       # the browser suite: ≈ 15 s
 $q pass settings -d emulator-5556      # the settings suite: a fresh basic.json seed before each flow, no prelude (each starts on the folder root)
 $q pass alerts -d emulator-5556        # clock-relative suites run whole on one device (reseed=suite, shard=no): ≈ 4.5 min
@@ -55,7 +55,7 @@ A `pass` on a fleet guest recycles it first when it is worn — over 40 launches
 ```bash
 $q fleet boot --all                    # anta_qa_1..3, one at a time (≈ 1 min)
 $q fleet install --build
-$q fleet pass calendar                 # 26 flows sharded over the fleet: ≈ 2.5 min wall, one summary, one report
+$q fleet pass calendar                 # the suite sharded over the fleet: ≈ 2.5 min wall at 26 flows, one summary, one report
 $q fleet pass browser
 ```
 

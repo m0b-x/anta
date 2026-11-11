@@ -5,14 +5,14 @@ description: How to validate and run ANTA changes end-to-end - the gate every ch
 
 # Verifying Changes in ANTA
 
-All commands run from the app root (`frontend/anta`): zsh on the owner's Mac (the primary machine since 2026-09), PowerShell on Windows. The Dart tools take the same verbs on both — `./tool/release/release` / `tool\release\release.cmd`, `./tool/qa/qa` / `tool\qa\qa.cmd`. Run **only what the change requires**, in this order.
+All commands run from the app root (`frontend/anta`): zsh on the owner's Mac, PowerShell on Windows (the `Platform` line of your environment says which). The Dart tools take the same verbs on both — `./tool/release/release` / `tool\release\release.cmd`, `./tool/qa/qa` / `tool\qa\qa.cmd`. Run **only what the change requires**, in this order.
 
 ## 0. The gate
 
 A change is done when all of these hold; a rework's slice is done only when they hold (the `ui-revamp` skill):
 
 1. `dart analyze lib` is clean — `dart analyze lib test` when tests changed; add `packages/re_editor/lib`, `packages/alarm/lib` or `tool test_driver` when those changed.
-2. `flutter test` is green — the **whole** suite, not only the files you touched. **One `flutter test` at a time**, and never while a QA `flutter run` is up: two Flutter processes race on `build/native_assets` and kill each other.
+2. `flutter test --reporter failures-only` is green — the **whole** suite, not only the files you touched; quote its last line (`+N: All tests passed!`). **One `flutter test` at a time, in the foreground** (a timeout of 600000 ms; a background runner that hangs is never reaped), and never while a QA `flutter run` is up: two Flutter processes race on `build/native_assets` and kill each other. The suite includes the golden matrix (`test/goldens/`): a visual change that is intended ends with `flutter test test/goldens --update-goldens` and a look at the rewritten PNGs.
 3. If an ARB changed, `flutter gen-l10n` has run and `untranslated.txt` is empty.
 4. If the change carried a must-not-change list, it was re-read against the diff.
 
@@ -36,7 +36,8 @@ This is the minimum bar for any Dart change. Also analyze `packages/re_editor/li
 ## 3. Tests
 
 ```zsh
-flutter test                                             # whole suite (~13,900 tests, benchmarks skipped; ~5 min on the Windows machine, measured 2026-11-07)
+flutter test --reporter failures-only                    # whole suite (~15,000 tests, benchmarks skipped; ~5 min on the Windows machine); prints failures and the final count only
+flutter test test/goldens --update-goldens               # redraw the visual matrix after an intended visual change
 flutter test test/utils/markdown_money_syntax_test.dart  # single file
 flutter test test/qa --plain-name "escaping"             # single case
 flutter test --tags benchmark --run-skipped              # seeded-volume DB timings

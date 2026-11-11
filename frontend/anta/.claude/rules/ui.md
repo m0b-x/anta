@@ -5,7 +5,7 @@ paths:
   - "lib/constants/form_metrics.dart"
   - "lib/constants/row_metrics.dart"
   - "lib/constants/app_bar_metrics.dart"
-  - "lib/constants/surface_roles.dart"
+  - "lib/constants/app_colors.dart"
   - "lib/constants/app_theme.dart"
 ---
 # Visual work — loads when a widget, page or UI-language constant is touched
