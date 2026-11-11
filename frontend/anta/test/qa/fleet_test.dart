@@ -440,6 +440,18 @@ void main() {
         reason:
             'a one-guest fleet pass has no --shard, and its child still never recycles',
       );
+      expect(
+        fleetPassChildArgs(
+          serial: 'emulator-5556',
+          suite: 'alerts',
+          shard: null,
+          jsonPath: 'a.json',
+          flowCeiling: '600',
+          maxMinutes: '0',
+        ),
+        containsAllInOrder(['--flow-ceiling=600', '--max-minutes=0']),
+        reason: 'fleet pass forwards the ceilings to every shard',
+      );
       expect(fleetInstallChildArgs('emulator-5560'), [
         '-d',
         'emulator-5560',
@@ -467,33 +479,48 @@ void main() {
       expect(dart.leading, ['run', r'C:\anta\tool\qa\qa.dart']);
     });
 
-    test(
-      'only flow and shard verdicts, and the quiet line, are echoed live',
-      () {
-        expect(isPassProgressLine('=== 00_open: ok in 2104 ms'), isTrue);
-        expect(
-          isPassProgressLine('=== 22_palette: FAILED (exit 2) in 9000 ms'),
-          isTrue,
-        );
-        expect(
-          isPassProgressLine(
-            'pass: 9/9 green in 230.0 s on emulator-5556 — report x',
-          ),
-          isTrue,
-        );
-        expect(
-          isPassProgressLine('device left quiet (0 alarms armed) in 5.4 s'),
-          isTrue,
-        );
-        expect(
-          isPassProgressLine('device not left quiet: relaunch --fresh: exit 3'),
-          isTrue,
-        );
-        expect(isPassProgressLine('[quiet] relaunch --fresh'), isFalse);
-        expect(isPassProgressLine('=== flow 3/9: 06_matrix'), isFalse);
-        expect(isPassProgressLine('[2/5] tap "Day"'), isFalse);
-      },
-    );
+    test('only flow and shard verdicts, and the quiet line, are echoed live', () {
+      expect(isPassProgressLine('=== 00_open: ok in 2104 ms'), isTrue);
+      expect(
+        isPassProgressLine('=== 22_palette: FAILED (exit 2) in 9000 ms'),
+        isTrue,
+      );
+      expect(
+        isPassProgressLine(
+          'pass: 9/9 green in 230.0 s on emulator-5556 — report x',
+        ),
+        isTrue,
+      );
+      expect(
+        isPassProgressLine('device left quiet (0 alarms armed) in 5.4 s'),
+        isTrue,
+      );
+      expect(
+        isPassProgressLine('device not left quiet: relaunch --fresh: exit 3'),
+        isTrue,
+      );
+      expect(
+        isPassProgressLine(
+          '=== 02_dies: device failure (device, guest not on adb) in 812 ms',
+        ),
+        isTrue,
+      );
+      expect(
+        isPassProgressLine(
+          'recovery: 02_dies — device (guest not on adb): rerun, 20.7 s, green',
+        ),
+        isTrue,
+      );
+      expect(
+        isPassProgressLine(
+          'stopped early: the recovery budget is spent (2 per pass)',
+        ),
+        isTrue,
+      );
+      expect(isPassProgressLine('[quiet] relaunch --fresh'), isFalse);
+      expect(isPassProgressLine('=== flow 3/9: 06_matrix'), isFalse);
+      expect(isPassProgressLine('[2/5] tap "Day"'), isFalse);
+    });
 
     test('the SDK root sits two levels above adb', () {
       expect(

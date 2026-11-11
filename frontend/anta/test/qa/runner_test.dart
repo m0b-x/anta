@@ -10,6 +10,19 @@ import '../../tool/qa/src/process_runner.dart';
 import '../../tool/qa/src/runner.dart';
 import 'fake_process_runner.dart';
 
+/// A runner whose every call fails the way a timed-out one does.
+class _ThrowingRunner implements ProcessRunner {
+  @override
+  Future<RunOutcome> run(
+    String executable,
+    List<String> arguments, {
+    Duration timeout = const Duration(seconds: 30),
+    bool binary = false,
+    String? workingDirectory,
+    String? stdin,
+  }) async => throw DeviceFailure('timed out after 20s: $executable');
+}
+
 void main() {
   group('buildFlutterArgs', () {
     test('run carries the QA defines, the driver target and --print-dtd', () {
@@ -187,19 +200,286 @@ void main() {
 
     test('killRecordedRun is a no-op with no run.pid', () async {
       paths.ensureBuildQa();
-      expect(await killRecordedRun(paths, FakeProcessRunner()), isNull);
+      final ended = await killRecordedRun(paths, FakeProcessRunner());
+      expect((ended.killed, ended.note), (null, null));
     });
 
-    test('killRecordedRun takes the whole tree down on Windows', () async {
-      paths.ensureBuildQa();
-      File(paths.runPid).writeAsStringSync('4242');
-      final fake = FakeProcessRunner();
-      final pid = await killRecordedRun(paths, fake);
-      expect(pid, 4242);
-      expect(File(paths.runPid).existsSync(), isFalse);
-      if (Platform.isWindows) {
-        expect(fake.lines.single, 'taskkill /PID 4242 /T /F');
+    group('killRecordedRun on Windows', () {
+      String probe(int pid) =>
+          'powershell.exe -NoProfile -NonInteractive -Command '
+          '${recordedRunProbeScript(pid, paths.runWrapperFor(windows: true))}';
+
+      FakeProcessRunner answering(String said) =>
+          FakeProcessRunner()..script(probe(4242), RunOutcome(0, said, ''));
+
+      setUp(() {
+        paths.ensureBuildQa();
+        File(paths.runPid).writeAsStringSync('4242');
+      });
+
+      test(
+        'takes the whole tree down while the pid is still the run',
+        () async {
+          final fake = answering('ours');
+          final ended = await killRecordedRun(paths, fake, windows: true);
+          expect(ended.killed, 4242);
+          expect(File(paths.runPid).existsSync(), isFalse);
+          expect(fake.lines, [probe(4242), 'taskkill /PID 4242 /T /F']);
+        },
+      );
+
+      test('the probe names this checkout\'s wrapper by its full path', () {
+        final wrapper = paths.runWrapperFor(windows: true);
+        final script = recordedRunProbeScript(4242, wrapper);
+        expect(script, contains("IndexOf('$wrapper'"));
+        expect(
+          script,
+          isNot(contains('*run_cmd.bat*')),
+          reason: 'another checkout\'s run is not this one\'s to kill',
+        );
+        expect(
+          recordedRunProbeScript(1, r"D:\it's\run_cmd.bat"),
+          contains(r"IndexOf('D:\it''s\run_cmd.bat'"),
+        );
+      });
+
+      test('a kill that failed keeps run.pid for the next try', () async {
+        final fake = answering('ours')
+          ..script(
+            'taskkill /PID 4242 /T /F',
+            const RunOutcome(1, '', 'ERROR: Access is denied.'),
+          );
+        final ended = await killRecordedRun(paths, fake, windows: true);
+        expect(ended.killed, isNull);
+        expect(ended.note, contains('could not kill run pid 4242'));
+        expect(File(paths.runPid).existsSync(), isTrue);
+      });
+
+      test(
+        'a pid that now belongs to something else loses only its file',
+        () async {
+          final fake = answering('other');
+          final ended = await killRecordedRun(paths, fake, windows: true);
+          expect(ended.killed, isNull);
+          expect(
+            ended.note,
+            contains('is no longer the harness\'s run (left running)'),
+          );
+          expect(File(paths.runPid).existsSync(), isFalse);
+          expect(fake.lines.where((l) => l.startsWith('taskkill')), isEmpty);
+        },
+      );
+
+      test('a pid that is gone loses its file', () async {
+        final ended = await killRecordedRun(
+          paths,
+          answering('gone'),
+          windows: true,
+        );
+        expect(ended.note, 'forgot run.pid: pid 4242 is gone');
+        expect(File(paths.runPid).existsSync(), isFalse);
+      });
+
+      test('a probe with no answer kills nothing and keeps the file', () async {
+        final fake = answering('');
+        final ended = await killRecordedRun(paths, fake, windows: true);
+        expect(ended.killed, isNull);
+        expect(ended.note, contains('could not be checked'));
+        expect(File(paths.runPid).existsSync(), isTrue);
+        expect(fake.lines.where((l) => l.startsWith('taskkill')), isEmpty);
+      });
+    });
+
+    group('killRecordedRun off Windows', () {
+      const ps = '/bin/ps -o command= -p 4242';
+      setUp(() {
+        paths.ensureBuildQa();
+        File(paths.runPid).writeAsStringSync('4242');
+      });
+
+      test(
+        'a live pid that does not run this checkout\'s wrapper is never signalled',
+        () async {
+          final fake = FakeProcessRunner()
+            ..script(ps, const RunOutcome(0, '/usr/bin/vim notes.txt', ''));
+          final ended = await killRecordedRun(paths, fake, windows: false);
+          expect(ended.killed, isNull);
+          expect(ended.note, contains('no longer the harness\'s run'));
+          expect(fake.lines.where((l) => l.contains('kill')), isEmpty);
+        },
+      );
+
+      test('the wrapper\'s pid is sent a TERM, then forgotten', () async {
+        final fake = FakeProcessRunner()
+          ..script(
+            ps,
+            RunOutcome(0, '/bin/sh ${paths.runWrapperFor(windows: false)}', ''),
+          );
+        final ended = await killRecordedRun(paths, fake, windows: false);
+        expect(ended.killed, 4242);
+        expect(fake.lines.last, '/bin/kill -TERM 4242');
+        expect(File(paths.runPid).existsSync(), isFalse);
+      });
+
+      test('a ps that could not answer keeps the file', () async {
+        final fake = FakeProcessRunner()
+          ..script(ps, const RunOutcome(1, '', 'ps: not permitted'));
+        final ended = await killRecordedRun(paths, fake, windows: false);
+        expect(ended.note, contains('could not be checked'));
+        expect(File(paths.runPid).existsSync(), isTrue);
+      });
+    });
+  });
+
+  group('RealProcessRunner', () {
+    test(
+      'a call that times out takes its grandchildren down too',
+      () async {
+        // A cmd that starts a ping: the ping is the grandchild a plain kill
+        // of the cmd leaves running. The address is this test's own mark.
+        const mark = '127.0.0.47';
+        await expectLater(
+          const RealProcessRunner().run('cmd.exe', [
+            '/c',
+            'ping -n 30 $mark > nul',
+          ], timeout: const Duration(seconds: 2)),
+          throwsA(isA<DeviceFailure>()),
+        );
+        final left = await Process.run('powershell.exe', [
+          '-NoProfile',
+          '-NonInteractive',
+          '-Command',
+          "@(Get-CimInstance Win32_Process -Filter 'Name=''PING.EXE''' | "
+              "Where-Object { \$_.CommandLine -like '*$mark*' }).Count",
+        ]);
+        expect((left.stdout as String).trim(), '0');
+      },
+      skip: Platform.isWindows ? false : 'the tree kill is Windows-only',
+    );
+  });
+
+  group('processLiveness', () {
+    const windowsProbe =
+        'powershell.exe -NoProfile -NonInteractive -Command '
+        "if (Get-Process -Id 42 -ErrorAction SilentlyContinue) "
+        "{ 'alive' } else { 'gone' }";
+
+    test('only a plain answer is alive or gone', () async {
+      for (final (said, expected) in [
+        ('alive', Liveness.alive),
+        ('gone\r\n', Liveness.gone),
+        ('', Liveness.unknown),
+        ('Get-Process : blocked by policy', Liveness.unknown),
+      ]) {
+        final fake = FakeProcessRunner()
+          ..script(windowsProbe, RunOutcome(0, said, ''));
+        expect(
+          await processLiveness(42, fake, windows: true),
+          expected,
+          reason: said,
+        );
       }
+    });
+
+    test('a probe that errors or times out is unknown, never gone', () async {
+      expect(
+        await processLiveness(42, _ThrowingRunner(), windows: true),
+        Liveness.unknown,
+      );
+      final fake = FakeProcessRunner()
+        ..script(
+          '/bin/sh -c ${posixLivenessScript(42)}',
+          const RunOutcome(0, 'alive', ''),
+        );
+      expect(await processLiveness(42, fake, windows: false), Liveness.alive);
+      expect(
+        await processLiveness(43, fake, windows: false),
+        Liveness.unknown,
+        reason: 'no output proves nothing',
+      );
+    });
+  });
+
+  group('the timeout kill', () {
+    test('adb loses only its direct child, everything else its tree', () {
+      for (final adb in ['adb', 'adb.exe', r'C:\Sdk\platform-tools\adb.exe']) {
+        expect(
+          treeKillsOnTimeout(adb),
+          isFalse,
+          reason: '$adb may have started the shared server on 5037',
+        );
+      }
+      for (final other in ['cmd.exe', 'flutter.bat', 'powershell.exe']) {
+        expect(treeKillsOnTimeout(other), isTrue, reason: other);
+      }
+    });
+  });
+
+  group('the fleet state directory', () {
+    test('is one per user, never per checkout', () {
+      expect(
+        hostFleetStateDir(
+          const {'LOCALAPPDATA': r'C:\Users\me\AppData\Local'},
+          windows: true,
+          macos: false,
+        ),
+        endsWith(['anta-qa', 'fleet'].join(Platform.pathSeparator)),
+      );
+      expect(
+        hostFleetStateDir(
+          const {'LOCALAPPDATA': r'C:\L'},
+          windows: true,
+          macos: false,
+        ),
+        startsWith(r'C:\L'),
+      );
+      expect(
+        hostFleetStateDir(
+          const {'HOME': '/Users/me'},
+          windows: false,
+          macos: true,
+        ),
+        startsWith('/Users/me${Platform.pathSeparator}Library'),
+      );
+      expect(
+        hostFleetStateDir(
+          const {'HOME': '/home/me', 'XDG_STATE_HOME': '/state'},
+          windows: false,
+          macos: false,
+        ),
+        startsWith('/state'),
+      );
+    });
+
+    test('$fleetStateEnv overrides it', () {
+      expect(
+        hostFleetStateDir(
+          const {fleetStateEnv: r'D:\x', 'LOCALAPPDATA': r'C:\L'},
+          windows: true,
+          macos: false,
+        ),
+        r'D:\x',
+      );
+    });
+
+    test('holds the guest and guard files; the run stays per checkout', () {
+      final paths = QaPaths(r'D:\repo', fleetState: r'C:\fleet');
+      for (final shared in [
+        paths.guestStateFor('anta_qa_1'),
+        paths.guardPid,
+        paths.guardLog,
+        paths.guardExeFor(1),
+      ]) {
+        expect(shared, startsWith(r'C:\fleet'));
+      }
+      for (final own in [paths.runPid, paths.apkJson, paths.passRoot]) {
+        expect(own, startsWith(r'D:\repo'));
+      }
+      expect(
+        QaPaths(r'D:\repo').fleetState,
+        startsWith(r'D:\repo'),
+        reason: 'a test\'s paths never reach the host-wide directory',
+      );
     });
   });
 

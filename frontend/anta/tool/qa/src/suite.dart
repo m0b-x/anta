@@ -27,6 +27,7 @@ class SuiteManifest {
     this.shard = true,
     this.settings = const [],
     this.prelude,
+    this.flowCeiling,
   });
 
   /// The manifest's file name inside a flow directory.
@@ -38,6 +39,7 @@ class SuiteManifest {
     'shard',
     'settings',
     'prelude',
+    'flow_ceiling',
   ];
 
   final String suite;
@@ -55,6 +57,11 @@ class SuiteManifest {
   /// A step file in the suite directory, run after each reseed.
   final String? prelude;
 
+  /// `flow_ceiling=<seconds>`: how long one flow of this suite may take,
+  /// its reseed and prelude included, before `pass` calls it a device
+  /// failure; null keeps the harness default.
+  final Duration? flowCeiling;
+
   /// Parses `key=value` lines; `#` starts a comment line. Every key but
   /// `settings` may appear once, and an unknown key is refused so a typo
   /// cannot silently fall back to a default.
@@ -63,6 +70,7 @@ class SuiteManifest {
     ReseedMode? reseed;
     bool? shard;
     String? prelude;
+    Duration? flowCeiling;
     final settings = <String>[];
     final seen = <String>{};
     final lines = text.split('\n');
@@ -113,6 +121,13 @@ class SuiteManifest {
           settings.add(value);
         case 'prelude':
           prelude = value;
+        case 'flow_ceiling':
+          flowCeiling =
+              parseCeilingSeconds(value) ??
+              (throw UsageFailure(
+                '$where: flow_ceiling takes a number of seconds above 0 '
+                '(got "$value")',
+              ));
       }
     }
     return SuiteManifest(
@@ -122,6 +137,7 @@ class SuiteManifest {
       shard: shard ?? true,
       settings: settings,
       prelude: prelude,
+      flowCeiling: flowCeiling,
     );
   }
 
@@ -137,6 +153,15 @@ class SuiteManifest {
     }
     return SuiteManifest.parse(file.readAsStringSync(), suite: suite);
   }
+}
+
+/// `360` or `2.5` as a ceiling, or null for anything that is not a number
+/// of seconds above 0. A fraction is allowed so a test, or a live showing
+/// of the ceiling, need not wait whole seconds.
+Duration? parseCeilingSeconds(String raw) {
+  final seconds = double.tryParse(raw.trim());
+  if (seconds == null || !seconds.isFinite || seconds <= 0) return null;
+  return Duration(milliseconds: (seconds * 1000).round());
 }
 
 /// A file in a flow directory whose name starts with `_` is the suite's

@@ -141,6 +141,7 @@ class FlowRecord {
     this.preludeMs,
     this.steps = const [],
     this.failure,
+    this.recovered = false,
   });
 
   factory FlowRecord.fromJson(Map<String, dynamic> json) => FlowRecord(
@@ -158,6 +159,7 @@ class FlowRecord {
         : FlowFailure.fromJson(
             (json['failure'] as Map).cast<String, dynamic>(),
           ),
+    recovered: json['recovered'] as bool? ?? false,
   );
 
   final String name;
@@ -170,6 +172,13 @@ class FlowRecord {
   final List<StepRecord> steps;
   final FlowFailure? failure;
 
+  /// True when this flow's green came from a rerun on a guest the pass
+  /// recovered (H8): its first attempt failed for the fleet, and the
+  /// report's `infra` entry for it holds that attempt's evidence. A rerun
+  /// that is red again is a plain red, its entry's outcome `red`. Written
+  /// only when true.
+  final bool recovered;
+
   Map<String, dynamic> toJson() => {
     'name': name,
     'status': status.name,
@@ -178,7 +187,103 @@ class FlowRecord {
     'preludeMs': preludeMs,
     'steps': [for (final step in steps) step.toJson()],
     'failure': failure?.toJson(),
+    if (recovered) 'recovered': true,
   };
+}
+
+/// One time a pass recovered its fleet guest after a device failure (H8):
+/// why, what it did, how long the stop and boot took, how the flow then
+/// went, and where the failed attempt's evidence is. The recovery is the
+/// fleet stumbling, not the app, so it is kept apart from the flows.
+class InfraRecord {
+  const InfraRecord({
+    required this.flow,
+    required this.cause,
+    required this.guest,
+    required this.message,
+    required this.action,
+    required this.ms,
+    required this.outcome,
+    this.shot,
+    this.dump,
+    this.errors,
+  });
+
+  factory InfraRecord.fromJson(Map<String, dynamic> json) {
+    final evidence = (json['evidence'] as Map?)?.cast<String, dynamic>();
+    return InfraRecord(
+      flow: json['flow'] as String,
+      cause: json['cause'] as String,
+      guest: json['guest'] as String? ?? '',
+      message: json['message'] as String? ?? '',
+      action: json['action'] as String,
+      ms: json['ms'] as int? ?? 0,
+      outcome: json['outcome'] as String,
+      shot: evidence?['shot'] as String?,
+      dump: evidence?['dump'] as String?,
+      errors: evidence?['errors'] as String?,
+    );
+  }
+
+  /// The flow whose attempt failed.
+  final String flow;
+
+  /// `ceiling`, `device` (a step exited 3) or `reseed` (the seed did not
+  /// go in).
+  final String cause;
+
+  /// What the probe found: `healthy` (a ceiling recovers a healthy guest
+  /// too), `not on adb`, `offline`, `off adb or still booting`, `its qemu
+  /// is gone`.
+  final String guest;
+
+  /// The failed attempt's failure, cut to one line.
+  final String message;
+
+  /// `rerun` (the flow again on a fresh seed), `restart suite` (a
+  /// `reseed=suite` suite from its first flow) or `stop` (a `reseed=none`
+  /// pass: the guest is back, the state the flows ran on is not).
+  final String action;
+
+  /// The stop and the boot together.
+  final int ms;
+
+  /// How it ended: the rerun's `green`, `red` or `skipped`, `pending`
+  /// while it runs, `stopped` after the `stop` action, or `stop failed` /
+  /// `boot failed`.
+  final String outcome;
+  final String? shot;
+  final String? dump;
+  final String? errors;
+
+  InfraRecord withOutcome(String outcome) => InfraRecord(
+    flow: flow,
+    cause: cause,
+    guest: guest,
+    message: message,
+    action: action,
+    ms: ms,
+    outcome: outcome,
+    shot: shot,
+    dump: dump,
+    errors: errors,
+  );
+
+  Map<String, dynamic> toJson() => {
+    'flow': flow,
+    'cause': cause,
+    'guest': guest,
+    'message': message,
+    'action': action,
+    'ms': ms,
+    'outcome': outcome,
+    'evidence': {'shot': shot, 'dump': dump, 'errors': errors},
+  };
+
+  /// `ceiling (guest healthy): rerun after a 21.3 s stop and boot → green`.
+  String get summary =>
+      '$cause (guest $guest): $action after a '
+      '${(ms / 1000).toStringAsFixed(1)} s stop and boot → $outcome';
 }
 
 /// How long one verb took across a pass.
@@ -262,6 +367,10 @@ class PassReport {
     this.quietDevices,
     this.quietUncounted,
     this.recycle,
+    this.bootMs,
+    this.interrupted = false,
+    this.infra = const [],
+    this.infraStop,
   });
 
   factory PassReport.fromJson(Map<String, dynamic> json) {
@@ -310,6 +419,13 @@ class PassReport {
       recycle: recycle == null
           ? null
           : (reason: recycle['reason'] as String, ms: recycle['ms'] as int),
+      bootMs: (json['booted'] as Map?)?['ms'] as int?,
+      interrupted: json['interrupted'] as bool? ?? false,
+      infra: [
+        for (final entry in (json['infra'] as List? ?? const []))
+          InfraRecord.fromJson((entry as Map).cast<String, dynamic>()),
+      ],
+      infraStop: json['infraStop'] as String?,
     );
   }
 
@@ -375,9 +491,32 @@ class PassReport {
   /// [durationMs], so a recycled pass reads apart from a slow one.
   final ({String reason, int ms})? recycle;
 
+  /// How long the pass took to boot its fleet guest, which was not up when
+  /// it started (`booted: {ms}`); absent when it found the guest up. Inside
+  /// [durationMs], like [recycle].
+  final int? bootMs;
+
+  /// True when a Ctrl+C ended the pass; written only then. Such a report
+  /// is also [partial].
+  final bool interrupted;
+
+  /// Each recovery of the fleet guest, in order; absent from the JSON when
+  /// there was none, so a pass that never stumbled reads as it always did.
+  final List<InfraRecord> infra;
+
+  /// Why the pass stopped early for the fleet's sake — the recovery budget
+  /// spent, a guest that did not come back, the pass ceiling, a
+  /// `reseed=none` pass whose state a recovery took — or null. Such a pass
+  /// could not finish, so it exits 3 whatever its flows say.
+  final String? infraStop;
+
   int get durationMs => finished.difference(started).inMilliseconds;
 
   int count(FlowStatus status) => flows.where((f) => f.status == status).length;
+
+  /// Green flows whose green came from a rerun on a recovered guest.
+  int get recoveredCount =>
+      flows.where((f) => f.recovered && f.status == FlowStatus.passed).length;
 
   /// A partial report is never green: the flows it lacks did not pass.
   bool get allPassed =>
@@ -407,6 +546,10 @@ class PassReport {
     'quietUncounted': quietUncounted,
     if (recycle != null)
       'recycle': {'reason': recycle!.reason, 'ms': recycle!.ms},
+    if (bootMs != null) 'booted': {'ms': bootMs},
+    if (interrupted) 'interrupted': true,
+    if (infra.isNotEmpty) 'infra': [for (final entry in infra) entry.toJson()],
+    if (infraStop != null) 'infraStop': infraStop,
     'summary': {
       'flows': flows.length,
       'passed': count(FlowStatus.passed),
@@ -479,6 +622,7 @@ PassReport mergeReports(List<PassReport> reports) {
   final ran = reports.where((r) => r.quietMs != null && r.quietFailure == null);
   final anyRan = ran.isNotEmpty;
   int deviceCount(PassReport r) => r.devices?.length ?? 1;
+  final infraStops = reports.map((r) => r.infraStop).nonNulls.toSet();
   return PassReport(
     suite: first.suite,
     label: reports.map((r) => r.label).nonNulls.firstOrNull,
@@ -528,6 +672,18 @@ PassReport mergeReports(List<PassReport> reports) {
                 (r.quietUncounted ??
                     (r.quietAlarms == null ? deviceCount(r) : 0)),
           ),
+    // The slowest device's boot, like the quiet end: what the merged pass
+    // waited for.
+    bootMs: reports
+        .map((r) => r.bootMs)
+        .nonNulls
+        .fold<int?>(
+          null,
+          (slowest, ms) => slowest == null ? ms : math.max(slowest, ms),
+        ),
+    interrupted: reports.any((r) => r.interrupted),
+    infra: [for (final report in reports) ...report.infra],
+    infraStop: infraStops.isEmpty ? null : infraStops.join('; '),
   );
 }
 
@@ -581,6 +737,11 @@ String headline(String message, {int max = 160}) {
 /// flows it lists are not the suite.
 const String partialLine = 'PARTIAL — the pass did not finish';
 
+/// The summary's mark for a flow that went green on a rerun after the pass
+/// recovered its guest: green, yet apart from a plain `ok` so the fleet's
+/// stumble is seen, and never read as `FAIL`.
+const String recoveredMark = 'ok* ';
+
 /// What `qa pass` prints at the end, and what `--summary` and `--merge`
 /// print: one line per flow, the verdict line, then the verb table.
 List<String> summaryLines(PassReport report, {required String reportPath}) {
@@ -588,15 +749,21 @@ List<String> summaryLines(PassReport report, {required String reportPath}) {
   final lines = <String>[];
   for (final flow in report.flows) {
     final mark = switch (flow.status) {
+      FlowStatus.passed when flow.recovered => recoveredMark,
       FlowStatus.passed => 'ok  ',
       FlowStatus.failed => 'FAIL',
       FlowStatus.skipped => 'skip',
     };
     final failure = flow.failure;
     final ms = flow.status == FlowStatus.skipped ? '' : '${flow.durationMs} ms';
-    final tail = failure == null
-        ? ''
-        : '  step ${failure.step}: ${failure.line} — ${headline(failure.message)}';
+    final recovery = flow.recovered
+        ? report.infra.where((e) => e.flow == flow.name).lastOrNull
+        : null;
+    final tail = failure != null
+        ? '  step ${failure.step}: ${failure.line} — ${headline(failure.message)}'
+        : recovery != null
+        ? '  recovered: ${recovery.cause} (guest ${recovery.guest})'
+        : '';
     lines.add(
       '$mark  ${flow.name.padRight(width)}  ${ms.padLeft(9)}$tail'.trimRight(),
     );
@@ -605,16 +772,31 @@ List<String> summaryLines(PassReport report, {required String reportPath}) {
       ? report.device!.id
       : (report.devices ?? const []).map((d) => d.id).join(', ');
   final seconds = (report.durationMs / 1000).toStringAsFixed(1);
+  final recovered = report.recoveredCount;
   lines.add(
     'pass: ${report.count(FlowStatus.passed)}/${report.flows.length} '
-    'green in $seconds s on $ids — report $reportPath',
+    'green${recovered == 0 ? '' : ', $recovered recovered'} in $seconds s on '
+    '$ids — report $reportPath',
   );
+  for (final entry in report.infra) {
+    lines.add('recovery: ${entry.flow} — ${entry.summary}');
+  }
+  final infraStop = report.infraStop;
+  if (infraStop != null) lines.add('stopped early: $infraStop');
   final recycle = report.recycle;
   if (recycle != null) {
     lines.add(
       'recycled in ${(recycle.ms / 1000).toStringAsFixed(1)} s: ${recycle.reason}',
     );
   }
+  final bootMs = report.bootMs;
+  if (bootMs != null) {
+    lines.add(
+      'booted the guest in ${(bootMs / 1000).toStringAsFixed(1)} s: it was '
+      'not up',
+    );
+  }
+  if (report.interrupted) lines.add('interrupted (Ctrl+C)');
   if (report.partial) lines.add(partialLine);
   final quiet = quietLine(report);
   if (quiet != null) lines.add(quiet);

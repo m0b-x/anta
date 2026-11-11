@@ -36,7 +36,7 @@ This is the minimum bar for any Dart change. Also analyze `packages/re_editor/li
 ## 3. Tests
 
 ```zsh
-flutter test --reporter failures-only                    # whole suite (~15,000 tests, benchmarks skipped; ~5 min on the Windows machine); prints failures and the final count only
+flutter test --reporter failures-only                    # whole suite (~15,000 tests, benchmarks skipped; ~5 min on the Windows machine); no progress lines — failures, what the tests themselves log, and the final count, so read the last line
 flutter test test/goldens --update-goldens               # redraw the visual matrix after an intended visual change
 flutter test test/utils/markdown_money_syntax_test.dart  # single file
 flutter test test/qa --plain-name "escaping"             # single case

@@ -146,7 +146,9 @@ class MacosDevice implements Device {
       interval: const Duration(milliseconds: 200),
       probe: () async {
         for (final pid in pids) {
-          if (await isProcessAlive(pid, runner)) return null;
+          if (await processLiveness(pid, runner) != Liveness.gone) {
+            return null;
+          }
         }
         return true;
       },

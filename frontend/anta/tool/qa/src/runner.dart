@@ -202,6 +202,9 @@ String findFlutter({Map<String, String>? environment}) {
   );
 }
 
+/// The `Start-Process -WindowStyle` every wrapper console gets on Windows.
+const String consoleWindowStyle = 'Hidden';
+
 /// Starts the wrapper so that it outlives this process and holds no handle of
 /// the shell that invoked us, and returns its pid.
 ///
@@ -225,6 +228,11 @@ String findFlutter({Map<String, String>? environment}) {
 /// without one. Its own stdout is never read — the pid comes back through a
 /// file, so nothing here waits on a pipe the long-lived tree also holds, which
 /// is what would otherwise keep the caller's shell from returning.
+///
+/// The console is started **hidden** ([consoleWindowStyle]): a hidden
+/// console is still a console, so `flutter.bat` still writes and the idle
+/// pipe still holds stdin open, but it no longer leaves a terminal window on
+/// the owner's desktop for the life of every emulator and every `qa run`.
 Future<int> startWrapperDetached({
   required QaPaths paths,
   required File wrapper,
@@ -253,6 +261,7 @@ Future<int> startWrapperDetached({
         "-ArgumentList '/c','\"${quote(wrapper.path)}\"' "
         "-RedirectStandardOutput '${quote(logPath)}' "
         "-RedirectStandardError '${quote(errPath)}' "
+        '-WindowStyle $consoleWindowStyle '
         '-PassThru; '
         "Set-Content -Path '${quote(pidPath)}' -Value \$p.Id",
   ], mode: ProcessStartMode.normal);
@@ -266,26 +275,50 @@ Future<int> startWrapperDetached({
   throw DeviceFailure('the wrapper never reported a pid into $pidPath');
 }
 
-/// Whether a pid is still running, without signalling it.
+/// What a process probe could tell. [unknown] is its own answer, never
+/// folded into [gone]: a PowerShell that errors, is blocked, times out or
+/// prints nothing proves nothing, and every stop, kill or delete the
+/// harness bases on a process being over needs a [gone].
+enum Liveness { alive, gone, unknown }
+
+/// The POSIX probe behind [processLiveness]: `kill -0` fails for a process
+/// of another user too, so `ps` gets the last word before `gone`.
+String posixLivenessScript(int pid) =>
+    'if kill -0 $pid 2>/dev/null || ps -p $pid >/dev/null 2>&1; '
+    'then echo alive; else echo gone; fi';
+
+/// Whether a pid is still running, without signalling it; [windows]
+/// defaults to this host.
 ///
 /// `boot` polls this so a launcher that died on its first second aborts the
 /// wait instead of sitting out six minutes.
-Future<bool> isProcessAlive(int pid, ProcessRunner runner) async {
-  if (Platform.isWindows) {
-    final result = await runner.run('powershell.exe', [
-      '-NoProfile',
-      '-NonInteractive',
-      '-Command',
-      'if (Get-Process -Id $pid -ErrorAction SilentlyContinue) '
-          "{ 'alive' } else { 'gone' }",
-    ], timeout: const Duration(seconds: 20));
-    return result.stdout.contains('alive');
+Future<Liveness> processLiveness(
+  int pid,
+  ProcessRunner runner, {
+  bool? windows,
+}) async {
+  final RunOutcome result;
+  try {
+    result = (windows ?? Platform.isWindows)
+        ? await runner.run('powershell.exe', [
+            '-NoProfile',
+            '-NonInteractive',
+            '-Command',
+            'if (Get-Process -Id $pid -ErrorAction SilentlyContinue) '
+                "{ 'alive' } else { 'gone' }",
+          ], timeout: const Duration(seconds: 20))
+        : await runner.run('/bin/sh', [
+            '-c',
+            posixLivenessScript(pid),
+          ], timeout: const Duration(seconds: 10));
+  } on QaException {
+    return Liveness.unknown;
   }
-  final result = await runner.run('/bin/sh', [
-    '-c',
-    'kill -0 $pid',
-  ], timeout: const Duration(seconds: 10));
-  return result.ok;
+  return switch (result.stdout.trim()) {
+    'alive' => Liveness.alive,
+    'gone' => Liveness.gone,
+    _ => Liveness.unknown,
+  };
 }
 
 /// Starts a background `flutter` command and waits for its service URIs.
@@ -385,32 +418,151 @@ String tailLines(String text, {int lines = 25}) {
   );
 }
 
-/// Kills the `flutter run` recorded in `run.pid`, if any, and returns its pid.
-///
-/// On Windows the recorded pid is the `cmd` wrapper, so the whole tree goes.
-Future<int?> killRecordedRun(QaPaths paths, ProcessRunner runner) async {
-  final file = File(paths.runPid);
-  if (!file.existsSync()) return null;
-  final pid = int.tryParse(file.readAsStringSync().trim());
-  file.deleteSync();
-  if (pid == null) return null;
-  if (Platform.isWindows) {
-    await runner.run('taskkill', [
-      '/PID',
-      '$pid',
-      '/T',
-      '/F',
-    ], timeout: const Duration(seconds: 20));
-  } else {
-    final alive = await isProcessAlive(pid, runner);
-    if (!alive) return null;
-    try {
-      Process.killPid(pid, ProcessSignal.sigterm);
-    } on Object {
-      return null;
+/// PowerShell that says what [pid] is: `ours` while it is the `cmd`
+/// running this checkout's launch wrapper [wrapper] (another checkout's
+/// run is not this one's to kill), `other` when the pid now belongs to
+/// something else, `gone` when nothing has it. The path is matched as
+/// text, not as a `-like` pattern, so brackets in it match themselves.
+String recordedRunProbeScript(int pid, String wrapper) =>
+    "\$p = Get-CimInstance Win32_Process -Filter 'ProcessId=$pid'; "
+    "if (\$null -eq \$p) { 'gone' } "
+    "elseif (\$p.CommandLine -and \$p.CommandLine.IndexOf('${wrapper.replaceAll("'", "''")}', "
+    "[StringComparison]::OrdinalIgnoreCase) -ge 0) { 'ours' } else { 'other' }";
+
+/// What the pid in `run.pid` is ([recordedRunProbeScript]): `ours`,
+/// `other` or `gone`, or null when the probe could not answer. Off Windows
+/// `ps` reads the pid's command line, which must name this checkout's
+/// wrapper as well: a live pid alone is not the harness's run.
+Future<String?> probeRecordedRun(
+  int pid,
+  QaPaths paths,
+  ProcessRunner runner, {
+  bool? windows,
+}) async {
+  final onWindows = windows ?? Platform.isWindows;
+  final wrapper = paths.runWrapperFor(windows: onWindows);
+  try {
+    if (onWindows) {
+      final result = await runner.run('powershell.exe', [
+        '-NoProfile',
+        '-NonInteractive',
+        '-Command',
+        recordedRunProbeScript(pid, wrapper),
+      ], timeout: const Duration(seconds: 20));
+      final said = result.stdout.trim();
+      return const {'ours', 'other', 'gone'}.contains(said) ? said : null;
     }
+    final result = await runner.run('/bin/ps', [
+      '-o',
+      'command=',
+      '-p',
+      '$pid',
+    ], timeout: const Duration(seconds: 10));
+    final command = result.stdout.trim();
+    if (result.ok && command.isNotEmpty) {
+      return command.contains(wrapper) ? 'ours' : 'other';
+    }
+    // `ps -p` exits 1 with nothing printed for a pid nothing has.
+    return result.exitCode == 1 && command.isEmpty && result.stderr.isEmpty
+        ? 'gone'
+        : null;
+  } on QaException {
+    return null;
   }
-  return pid;
+}
+
+/// Kills the `flutter run` recorded in `run.pid`, if any: [killed] is its
+/// pid when it was killed, [note] says why a recorded pid was not.
+///
+/// The recorded pid is the wrapper (`cmd` on Windows, `sh` elsewhere), so
+/// on Windows the whole tree goes — but only while [probeRecordedRun] still
+/// finds this checkout's wrapper under that pid: a run that ended long ago
+/// leaves a pid the system may have handed to anything since, and a kill of
+/// it would take that down instead. `run.pid` goes only once the kill
+/// succeeded or the pid is shown gone; a probe or a kill that failed keeps
+/// it for the next try.
+Future<({int? killed, String? note})> killRecordedRun(
+  QaPaths paths,
+  ProcessRunner runner, {
+  bool? windows,
+}) async {
+  final onWindows = windows ?? Platform.isWindows;
+  final file = File(paths.runPid);
+  final String text;
+  try {
+    text = file.readAsStringSync();
+  } on PathNotFoundException {
+    return (killed: null, note: null);
+  } on FileSystemException catch (e) {
+    return (
+      killed: null,
+      note: 'run.pid could not be read (${e.message}) — killed nothing',
+    );
+  }
+  final pid = int.tryParse(text.trim());
+  if (pid == null) {
+    _deleteQuietly(file);
+    return (killed: null, note: 'forgot run.pid: it named no pid');
+  }
+  switch (await probeRecordedRun(pid, paths, runner, windows: onWindows)) {
+    case 'ours':
+      RunOutcome kill;
+      try {
+        kill = onWindows
+            ? await runner.run(
+                'taskkill',
+                treeKillArgs(pid),
+                timeout: const Duration(seconds: 20),
+              )
+            : await runner.run('/bin/kill', [
+                '-TERM',
+                '$pid',
+              ], timeout: const Duration(seconds: 10));
+      } on QaException catch (e) {
+        kill = RunOutcome(1, '', e.message);
+      }
+      if (kill.ok) {
+        _deleteQuietly(file);
+        return (killed: pid, note: null);
+      }
+      if (await probeRecordedRun(pid, paths, runner, windows: onWindows) ==
+          'gone') {
+        _deleteQuietly(file);
+        return (killed: null, note: 'forgot run.pid: pid $pid ended by itself');
+      }
+      return (
+        killed: null,
+        note:
+            'could not kill run pid $pid (${kill.combined.isEmpty ? 'exit ${kill.exitCode}' : kill.combined}) '
+            '— kept run.pid',
+      );
+    case 'gone':
+      _deleteQuietly(file);
+      return (killed: null, note: 'forgot run.pid: pid $pid is gone');
+    case 'other':
+      _deleteQuietly(file);
+      return (
+        killed: null,
+        note:
+            'forgot run.pid: pid $pid is no longer the harness\'s run '
+            '(left running)',
+      );
+    default:
+      return (
+        killed: null,
+        note:
+            'run.pid names pid $pid, which could not be checked — kept '
+            'the file and killed nothing',
+      );
+  }
+}
+
+void _deleteQuietly(File file) {
+  try {
+    file.deleteSync();
+  } on FileSystemException {
+    return;
+  }
 }
 
 /// PowerShell that kills every `dart development-service` whose parent process

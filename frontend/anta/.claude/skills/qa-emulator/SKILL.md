@@ -5,11 +5,12 @@ description: Drive the ANTA app on the Android emulator fleet, the iOS simulator
 
 # QA device harness
 
-**Four rules that hold even when the rest of this page is forgotten:**
+**Five rules that hold even when the rest of this page is forgotten:**
 1. Never drive `adb`, `emulator`, `avdmanager` or `xcrun simctl` by hand — every device call goes through the wrapper; the few sanctioned read-only queries are named where they apply (`references/alarm-evidence.md`, `references/traps.md`).
 2. A seed goes in with `qa relaunch --fresh --seed …` — which is what `qa pass` does before every flow — never with `qa run`: `run` builds first, so a clock-relative seed (the alerts fixtures) comes out of the build already stale. After a `lib/` change the fleet path is `qa fleet install --build`, then the pass.
 3. Never start a `flutter test` beside a QA `flutter run` or a `qa build`: two Flutter processes race on `build/native_assets` and kill each other. A pass itself runs no Flutter process, so `flutter test` can run beside `qa fleet pass`.
 4. The fleet verbs act only on AVDs named `anta_qa_*`. The owner's windowed `Pixel_9_Pro` (`emulator-5554`) is never booted, stopped, seeded or wiped by a QA agent; no verb deletes an AVD, wipes data, clears or uninstalls the app. `ANTA_Personal` (`emulator-5680`) is the owner's signed-in sync device, hidden on a private adb server (port 5039) so the harness cannot see it — never set `ANDROID_ADB_SERVER_PORT`, never run its launcher, never install a QA build on it (one would cut its sync off).
+5. Leave nothing behind, and never clean up by hand. End a pass by stopping the guest you used (`qa fleet stop anta_qa_N --force` — graceful while adb answers, the guarded kill when it does not); `qa reap` returns the whole host to clean when it is yours alone or something failed (`--dry-run` shows what it would do). A guest nobody stops is stopped by the guard after thirty idle minutes. What to run for each failure: `references/recovery.md`.
 
 One CLI drives whichever device is attached: a headless fleet emulator, the owner's emulator, an iOS simulator or the macOS desktop build. Run it from `frontend/anta`, through the wrapper:
 
@@ -37,7 +38,7 @@ The wrapper's self-rebuild, the exit codes, the pass report and the fleet in det
 ```bash
 q=./tool/qa/qa
 $q fleet status                        # what is up, what carries which build, launches since boot
-$q fleet boot 1                        # ONE guest is the default: anta_qa_1 on emulator-5556 — windowed but minimized, P-core pinned; ≈ 16–20 s once booted before (--priority below makes its qemu yield to the owner's foreground; default normal until M2 is measured)
+$q fleet boot 1                        # optional — a pass boots its own guest. ONE guest is the default: anta_qa_1 on emulator-5556 — windowed but minimized, no console window, P-core pinned; ≈ 16–20 s once booted before (--priority below makes its qemu yield to the owner's foreground; --keep-up for a guest you will drive by hand past the guard's thirty idle minutes)
 $q fleet install --build               # build the QA driver APK once (≈ 10–40 s), install on every booted guest (≈ 3 s each)
 $q pass calendar -d emulator-5556      # every calendar flow, a fresh seed before each: ≈ 6.6 min on a fresh guest when the suite had 26 flows, longer now — run it in the background (a worn guest took over 10 min, past a foreground tool call's cap)
 $q pass browser -d emulator-5556       # the browser suite: ≈ 15 s
@@ -46,7 +47,12 @@ $q pass alerts -d emulator-5556        # clock-relative suites run whole on one 
 $q pass sync -d emulator-5556          # the Sync section on a syncing database: the cloud-define build + a freshly started emulator suite (references/sync-pass.md): ≈ 45 s
 $q pass calendar --only 19_fasting_schedule -d emulator-5556   # one flow: reseed, prelude, the flow (a reseed=suite suite re-runs whole, never --only)
 $q pass --summary build/qa/pass/<dir>/report.json              # reprint any report; --merge joins shard reports
+$q pass --history calendar             # per flow over the newest twenty reports: runs, reds, recoveries, a flaky mark
+$q fleet stop anta_qa_1 --force        # the end of a pass: stop the guest you used
+$q reap                                # the whole host back to clean (--dry-run first to see what it would do)
 ```
+
+**A pass looks after its guest.** On a fleet serial it boots the guest when it is not up, holds it while it runs (`fleet status`: `held by pass pid N`), and heals it once: after a device failure — a step that exited 3, a reseed that did not go in, a flow past its ceiling (360 s; `flow_ceiling=` in `_suite.txt`) — it probes the guest, and when the guest is the problem it keeps the first attempt's evidence, stops and boots the guest (≈ 20 s) and runs that flow again on a fresh seed, once per flow and twice per pass. A recovered flow is green and marked: `ok*` in the table, `pass: N/M green, K recovered`, one `recovery:` line each. When the fleet keeps failing the pass ends `stopped early: …` with exit 3 — a statement about the fleet, never a red about the app. The rules, the report keys and the guard: `references/recovery.md`.
 
 A `pass` on a fleet guest recycles it first when it is worn — over 40 launches since its boot, or over 8 GiB on the GPU counter: a cold `fleet stop` + `fleet boot` of that guest, ≈ 20 s, announced before the first reseed and written into the report (`recycle{reason,ms}`; `--summary` prints `recycled in 24.0 s: …` under the `pass:` line, and the pass's wall time includes it); `--no-recycle` skips the whole check. A guest that does not come back ends the pass before any flow with exit 3 and the recipe (`fleet stop anta_qa_1 --force`, then boot it again). A lone guest wears faster than a sharded one (27 launches per calendar pass against ≈ 10), so the recycle is what keeps the one-guest calendar pass at ≈ 395 s instead of the 633 s a two-hour-old guest took.
 
@@ -59,7 +65,7 @@ $q fleet pass calendar                 # the suite sharded over the fleet: ≈ 2
 $q fleet pass browser
 ```
 
-`pass` reseeds (`relaunch --fresh --seed <fixture>`) before every flow, runs the suite's `_prelude.txt` (the calendar's lands on the calendar page), keeps going after a red, captures a screenshot, the dump and the errors at a red flow's failing step, writes `report.json` after every flow (`"partial": true` until the end), and ends by leaving the device quiet — a seedless `relaunch --fresh` that cancels every alarm the seeds armed (`device left quiet (0 alarms armed)`; `--keep-state` skips it when you want the red flow's screen). Exit 0 all green, 2 any red, 3 the device or the reseed failed before anything ran. The report's keys and the directory layout: `references/harness-notes.md` "The pass and its report". A stale-build warning in the output means the installed APK predates a source change: `fleet install --build`, then run again.
+`pass` reseeds (`relaunch --fresh --seed <fixture>`) before every flow, runs the suite's `_prelude.txt` (the calendar's lands on the calendar page), keeps going after a red, captures a screenshot, the dump and the errors at a red flow's failing step, writes `report.json` after every flow (`"partial": true` until the end), and ends by leaving the device quiet — a seedless `relaunch --fresh` that cancels every alarm the seeds armed (`device left quiet (0 alarms armed)`; `--keep-state` skips it when you want the red flow's screen). Exit 0 all green (a recovered flow counts), 2 any red, 3 the pass could not finish (the device or the reseed failed before anything ran, the report is still partial, or it stopped early for the fleet), 130 after Ctrl+C — which still writes the report and leaves the device quiet. The report's keys and the directory layout: `references/harness-notes.md` "The pass and its report". A stale-build warning in the output means the installed APK predates a source change: `fleet install --build`, then run again.
 
 A suite is a directory under `tool/qa/flows/`: `_suite.txt` (`fixture=`, `reseed=flow|suite|none`, `shard=yes|no`, `prelude=`), `_prelude.txt`, `_labels.txt` (the content labels its flows may still target by text) and the `NN_name.txt` flows. `test/qa/flows_lint_test.dart` rejects a `tap`/`wait`/`scroll-to`/`longpress`/`drag` target that is not an `id:`, `#N`, `x,y`, a `{{placeholder}}` label or an allow-listed content label, so every control a flow touches carries a `SemanticsIds` entry — and, since 2026-11-01, that every `id:` in any step or option (`--absent` included) names a `SemanticsIds` literal or the prefix of a function-built id (`_KnownIds`), so a retired id cannot pass as a vacuous `--absent`.
 
@@ -106,10 +112,11 @@ The wall clock is not the expensive part; **your round trips are**. A whole suit
 
 Flags, an example and the real output of each: `references/verbs.md`. Every acting verb also takes `--wait`, `--wait-gone`, `--wait-timeout`, `--settle`, `--shot` and `--dump`.
 
-- `pass <suite>[/<flow>] [--only F]… [--shard i/n] [--no-reseed] [--stop-on-fail] [--keep-state] [--json P] [--label T]` — a suite in one call with a report; `--summary R`, `--merge A B…`.
+- `pass <suite>[/<flow>] [--only F]… [--shard i/n] [--no-reseed] [--stop-on-fail] [--keep-state] [--flow-ceiling S] [--max-minutes M] [--json P] [--label T]` — a suite in one call with a report; `--summary R`, `--merge A B…`, `--history <suite> [--last N]`.
+- `reap [--dry-run] [--force] [--prune]` — the host back to clean: the recorded run, every fleet guest without a live hold, orphaned emulator crash handlers, stale state files (`references/recovery.md`).
 - `build [--define K=V]… [--no-driver] [--force]` — the QA driver APK once (`build/qa/apk.json`); refused beside a live `qa run`.
 - `install [--apk P] [--grant]` — `adb install` + one launch on the selected device (`installed_<device>.json`); `--grant` adds the notification permission a pass needs.
-- `fleet create|boot|status|stop|install|pass` — the minimized AVDs `anta_qa_N` (`references/harness-notes.md` "The fleet"); `boot --visible`, `pass --keep-state`.
+- `fleet create|boot|status|stop|install|pass` — the minimized AVDs `anta_qa_N` (`references/harness-notes.md` "The fleet"); `boot --visible`, `boot --keep-up`, `stop --force`, `pass --keep-state`. `fleet boot` starts the guard (`fleet guard`, not a verb for people) and `fleet status` ends with its line.
 - `devices`, `state`, `doctor [--fix]`, `boot [--avd N | --sim N] [--cold]` — the owner's emulator or a simulator, never the fleet.
 - `run [--fresh] [--seed F] [--setting K=V] [--define K=V]`, `relaunch [--fresh] [--seed F] [--setting K=V]`, `launch`, `attach`, `stop`, `kill-run`, `dtd`, `agent [info|<op>]`.
 - `shot`, `dump [--all] [--json] [--cached]`, `look`, `expect`, `wait [--gone] [--timeout S]`, `text`.
@@ -153,6 +160,7 @@ The Windows emulator traps that never made it into the notes until 2026-10: `qa 
 | --- | --- | --- |
 | [references/harness-notes.md](references/harness-notes.md) | the wrapper and the exit codes; "The pass and its report" (the JSON contract, the directory layout, the exit codes); "The fleet" (names, ports, boot flags, the pin, capacity); the `auto` driver choice; the two layers side by side; the one `flutter run` slot | you read a report, run or extend the fleet, or choose between the agent and adb |
 | [references/verbs.md](references/verbs.md) | "Verbs": each verb's flags, an example and its real output; "Reading `doctor`", "Targets", "Reading a dump", "Reading a screenshot" | an output, an exit code or a target puzzles you; before writing a step file |
+| [references/recovery.md](references/recovery.md) | symptom → what to run; `qa reap`; what a pass heals by itself (boot, hold, ceilings, one recovery), its lines, report keys and exit codes; the guard and its environment variables; the state files | anything failed, hung or was left behind; you read a report with `recovered`, `infra` or `stopped early`; you want a guest to stay up |
 | [references/traps.md](references/traps.md) | every trap: shared, iOS simulator, macOS, Android, the fleet, the pass, the shade and the keyboard inset | a verb misbehaves on one platform, or the pass touches the shade, a tile or the keyboard |
 | [references/calendar-pass.md](references/calendar-pass.md) | the calendar suite: its seed and placeholders, the prelude, the flows, `qa set`, the calendar's ids, the calendar traps | running, writing or fixing a calendar flow |
 | [references/alerts-pass.md](references/alerts-pass.md) | the alerts suites: the two minute-relative fixtures, their flows, the alarm page's ids, seven device facts | running or fixing the alerts flows |

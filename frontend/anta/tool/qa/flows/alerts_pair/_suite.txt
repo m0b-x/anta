@@ -3,3 +3,6 @@
 fixture=tool/qa/fixtures/alerts_pair.json
 reseed=suite
 shard=no
+# Its flow waits out two real rings and peaks around 260-300 s, which
+# leaves the 360 s default ceiling too little room on a worn guest.
+flow_ceiling=480

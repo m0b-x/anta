@@ -601,4 +601,154 @@ void main() {
       expect(() => mergeReports(const []), throwsA(isA<UsageFailure>()));
     });
   });
+
+  group('recoveries (H9)', () {
+    const entry = InfraRecord(
+      flow: '00_open',
+      cause: 'device',
+      guest: 'not on adb',
+      message: 'adb: device offline',
+      action: 'rerun',
+      ms: 21300,
+      outcome: 'green',
+      shot: 'fail_00_open_attempt1.png',
+      dump: 'fail_00_open_attempt1_dump.txt',
+      errors: null,
+    );
+
+    PassReport recovered({String? infraStop, String device = 'emulator-5556'}) {
+      final plain = _report(device: device);
+      return PassReport(
+        suite: plain.suite,
+        label: plain.label,
+        device: plain.device,
+        host: plain.host,
+        started: plain.started,
+        finished: plain.finished,
+        shard: null,
+        reseed: plain.reseed,
+        fixture: plain.fixture,
+        prelude: plain.prelude,
+        build: plain.build,
+        flows: [
+          FlowRecord(
+            name: '00_open',
+            status: FlowStatus.passed,
+            durationMs: 5200,
+            steps: [_step(1, 'tap id:x', 80)],
+            recovered: true,
+          ),
+          ...plain.flows.skip(1),
+        ],
+        infra: const [entry],
+        infraStop: infraStop,
+        bootMs: 18000,
+        interrupted: infraStop != null,
+      );
+    }
+
+    test('a pass that never stumbled carries none of the new keys', () {
+      final json = jsonDecode(_report().encode()) as Map<String, dynamic>;
+      expect(json.containsKey('infra'), isFalse);
+      expect(json.containsKey('infraStop'), isFalse);
+      final flows = (json['flows'] as List).cast<Map<String, dynamic>>();
+      expect(flows.any((f) => f.containsKey('recovered')), isFalse);
+      expect(
+        summaryLines(
+          _report(),
+          reportPath: 'r.json',
+        ).where((l) => l.contains('recover') || l.startsWith('stopped early')),
+        isEmpty,
+      );
+    });
+
+    test('infra, infraStop and recovered round-trip through report.json', () {
+      final json =
+          jsonDecode(
+                recovered(infraStop: 'the pass ran past its ceiling').encode(),
+              )
+              as Map<String, dynamic>;
+      expect(json['infra'], [
+        {
+          'flow': '00_open',
+          'cause': 'device',
+          'guest': 'not on adb',
+          'message': 'adb: device offline',
+          'action': 'rerun',
+          'ms': 21300,
+          'outcome': 'green',
+          'evidence': {
+            'shot': 'fail_00_open_attempt1.png',
+            'dump': 'fail_00_open_attempt1_dump.txt',
+            'errors': null,
+          },
+        },
+      ]);
+      expect(json['infraStop'], 'the pass ran past its ceiling');
+      expect((json['flows'] as List).first['recovered'], isTrue);
+      final back = PassReport.decode(jsonEncode(json));
+      expect(back.infra.single.toJson(), entry.toJson());
+      expect(back.infraStop, 'the pass ran past its ceiling');
+      expect(back.flows.first.recovered, isTrue);
+      expect(back.flows[1].recovered, isFalse);
+      expect(back.recoveredCount, 1);
+    });
+
+    test('a recovered flow reads apart from ok and FAIL; the count joins '
+        'the pass line only when it is not zero', () {
+      final lines = summaryLines(recovered(), reportPath: 'r.json');
+      expect(lines.first, startsWith('$recoveredMark  00_open'));
+      expect(lines.first, endsWith('recovered: device (guest not on adb)'));
+      expect(recoveredMark.trim(), isNot('ok'));
+      expect(recoveredMark, isNot(contains('FAIL')));
+      expect(
+        lines.firstWhere((l) => l.startsWith('pass: ')),
+        matches(
+          RegExp(
+            r'^pass: 1/3 green, 1 recovered in 12\.5 s on emulator-5556 — report r\.json$',
+          ),
+        ),
+      );
+      expect(
+        lines,
+        contains(
+          'recovery: 00_open — device (guest not on adb): rerun after a '
+          '21.3 s stop and boot → green',
+        ),
+      );
+      expect(lines.where((l) => l.startsWith('stopped early')), isEmpty);
+      expect(
+        summaryLines(
+          _report(),
+          reportPath: 'r.json',
+        ).firstWhere((l) => l.startsWith('pass: ')),
+        'pass: 1/3 green in 12.5 s on emulator-5556 — report r.json',
+        reason: 'the line agents parse keeps its shape',
+      );
+      expect(
+        summaryLines(
+          recovered(infraStop: 'the recovery budget is spent'),
+          reportPath: 'r.json',
+        ),
+        contains('stopped early: the recovery budget is spent'),
+      );
+    });
+
+    test('merge carries infra, infraStop, booted and interrupted', () {
+      final merged = mergeReports([
+        recovered(infraStop: 'budget spent'),
+        _report(device: 'emulator-5558'),
+        recovered(device: 'emulator-5560'),
+      ]);
+      expect(merged.infra, hasLength(2));
+      expect(merged.infraStop, 'budget spent');
+      expect(merged.bootMs, 18000);
+      expect(merged.interrupted, isTrue);
+      final plain = mergeReports([_report(), _report(device: 'emulator-5558')]);
+      expect(plain.infra, isEmpty);
+      expect(plain.infraStop, isNull);
+      expect(plain.bootMs, isNull);
+      expect(plain.interrupted, isFalse);
+    });
+  });
 }

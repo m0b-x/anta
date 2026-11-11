@@ -1,8 +1,11 @@
 import 'dart:async';
 
+import 'cancel.dart';
+
 /// Runs [probe] until it returns a non-null value or [timeout] passes,
 /// pausing [interval] between attempts; the last attempt happens at the
-/// deadline, so a probe that would have succeeded then is not lost.
+/// deadline, so a probe that would have succeeded then is not lost. Work
+/// that was cancelled ([CancelToken]) throws [Cancelled] at its next tick.
 Future<T?> pollUntil<T>({
   required Duration timeout,
   required Duration interval,
@@ -10,9 +13,10 @@ Future<T?> pollUntil<T>({
 }) async {
   final deadline = DateTime.now().add(timeout);
   while (true) {
+    checkCancelled();
     final result = await probe();
     if (result != null) return result;
     if (!DateTime.now().isBefore(deadline)) return null;
-    await Future<void>.delayed(interval);
+    await pause(interval);
   }
 }

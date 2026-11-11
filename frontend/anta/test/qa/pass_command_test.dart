@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -8,6 +9,7 @@ import 'package:image/image.dart' as img;
 import '../../tool/qa/qa.dart'
     show
         ExpectCommand,
+        FleetCommand,
         PassCommand,
         QaCommand,
         QaCommandRunner,
@@ -19,13 +21,18 @@ import '../../tool/qa/qa.dart'
         passExitCode,
         shardIncompleteness;
 import '../../tool/qa/src/adb.dart';
+import '../../tool/qa/src/apk_build.dart';
+import '../../tool/qa/src/cancel.dart';
 import '../../tool/qa/src/device.dart';
 import '../../tool/qa/src/device_select.dart';
 import '../../tool/qa/src/errors.dart';
 import '../../tool/qa/src/fleet.dart';
+import '../../tool/qa/src/guest_state.dart';
 import '../../tool/qa/src/pass_report.dart';
 import '../../tool/qa/src/paths.dart';
 import '../../tool/qa/src/process_runner.dart';
+import '../../tool/qa/src/recovery.dart' show ceilingMessage;
+import '../../tool/qa/src/shell_batch.dart';
 import '../../tool/qa/src/ui_tree.dart';
 import 'fake_process_runner.dart';
 
@@ -91,6 +98,21 @@ class _FakeContext extends QaContext {
         );
   }
 
+  /// The Ctrl+C events a test sends; none unless it sets them.
+  Stream<ProcessSignal> signals = const Stream.empty();
+
+  /// What a Ctrl+C handler exited with; the process never ends under test.
+  final Completer<int> exited = Completer<int>();
+
+  @override
+  Stream<ProcessSignal> interrupts() => signals;
+
+  @override
+  Future<Never> exitInterrupted(int code) {
+    if (!exited.isCompleted) exited.complete(code);
+    return Completer<Never>().future;
+  }
+
   @override
   Future<ChildOutcome> runSelf(
     List<String> arguments, {
@@ -149,6 +171,13 @@ class _Verb extends QaCommand {
 
 const _bootId = '0c3a9d5e-6f1b-4c2a-9e7d-1b2c3d4e5f60';
 
+/// `14:05`, as a stop request's label prints a local time.
+String _hhmm(DateTime at) {
+  String two(int v) => v.toString().padLeft(2, '0');
+  final local = at.toLocal();
+  return '${two(local.hour)}:${two(local.minute)}';
+}
+
 /// adb as fleet guest anta_qa_1 answers it on emulator-5556: up until its
 /// console is told to stop, then gone until the recycle's boot brings it
 /// back ([down]). Every line lands in [events].
@@ -192,6 +221,15 @@ class _GuestRunner extends FakeProcessRunner {
         down = true;
         return const RunOutcome(0, 'OK', '');
     }
+    // `fleet boot`'s wait: sys.boot_completed and device_provisioned, both 1.
+    if (request.line.startsWith('adb -s emulator-5556 shell ') &&
+        request.line.contains(batchSeparator)) {
+      return const RunOutcome(
+        0,
+        '1\n$batchSeparator\n1\n$batchSeparator\n',
+        '',
+      );
+    }
     if (executable == 'powershell.exe' && arguments.last == qemuListScript) {
       return RunOutcome(
         0,
@@ -206,13 +244,17 @@ class _GuestRunner extends FakeProcessRunner {
 }
 
 class _World {
-  _World({String reseed = 'flow', required Map<String, String> flows}) {
+  _World({
+    String reseed = 'flow',
+    String manifest = '',
+    required Map<String, String> flows,
+  }) {
     root = Directory.systemTemp.createTempSync('anta_qa_pass_');
     paths = QaPaths(root.path);
     final suite = Directory(joinPath(paths.flowsDir, ['demo']))
       ..createSync(recursive: true);
     File(joinPath(suite.path, ['_suite.txt'])).writeAsStringSync(
-      'fixture=f.json\nreseed=$reseed\nprelude=_prelude.txt\n',
+      'fixture=f.json\nreseed=$reseed\nprelude=_prelude.txt\n$manifest',
     );
     File(
       joinPath(suite.path, ['_prelude.txt']),
@@ -237,6 +279,9 @@ class _World {
   List<int> armed = const [0];
   final List<String> taps = [];
 
+  /// The guest's hold as a `held` step found it, mid-pass.
+  final List<GuestHold?> holds = [];
+
   /// `report.json` as a `peek` step found it, mid-pass.
   final List<Map<String, dynamic>> peeks = [];
 
@@ -253,6 +298,36 @@ class _World {
   /// The exit of the recycle's `fleet boot` child; non-zero leaves the
   /// guest down.
   int bootExit = 0;
+
+  /// How many `die` steps take the guest down with them before it stays
+  /// up; each removes the guest's state file the way an outside `fleet
+  /// stop` does.
+  int dieTimes = 1;
+  int deaths = 0;
+
+  /// A failing reseed also takes the guest down.
+  bool reseedKillsGuest = false;
+
+  /// How long a `hang` step sleeps before it prints `woke up`, and how
+  /// many times it does before it answers at once.
+  Duration hangFor = const Duration(milliseconds: 600);
+  int hangTimes = 1 << 30;
+  int hangs = 0;
+
+  /// How long each reseed takes before it answers.
+  Duration? reseedDelay;
+
+  /// How long a `stuck` step sleeps, deaf to any cancellation.
+  Duration stuckFor = const Duration(milliseconds: 600);
+
+  /// How long `pass` waits for an attempt it cancelled.
+  Duration abandonGrace = const Duration(seconds: 15);
+
+  /// Ctrl+C as a `sigint` step or the quiet end ([interruptOnQuiet])
+  /// sends it.
+  final StreamController<ProcessSignal> signals =
+      StreamController<ProcessSignal>.broadcast();
+  bool interruptOnQuiet = false;
 
   /// anta_qa_1 up on emulator-5556 with 45 launches on its current boot —
   /// due a recycle — and the same count on file for [others]. On a
@@ -282,6 +357,45 @@ class _World {
     );
   }
 
+  /// anta_qa_1 created on a Windows host but not running: adb lists
+  /// nothing on emulator-5556 until a `fleet boot` child brings it up.
+  void downGuest() {
+    final avds = Directory(joinPath(root.path, ['avd']))..createSync();
+    File(joinPath(avds.path, ['anta_qa_1.ini'])).writeAsStringSync('path=x\n');
+    final avd = Directory(joinPath(avds.path, ['anta_qa_1.avd']))..createSync();
+    File(joinPath(avd.path, ['config.ini'])).writeAsStringSync('x=1\n');
+    final runner = guest = _GuestRunner(events)..down = true;
+    fleet = FleetHost(
+      runner: runner,
+      adb: Adb(executable: 'adb', runner: runner),
+      avdHome: avds.path,
+      sdkRoot: null,
+      windows: true,
+      pollEvery: Duration.zero,
+    );
+  }
+
+  /// anta_qa_1 created and up on emulator-5556, on a Windows host unless
+  /// [windows] is false: the guest a pass may recover.
+  void upGuest({bool windows = true}) {
+    downGuest();
+    guest!.down = false;
+    if (!windows) {
+      fleet = FleetHost(
+        runner: guest!,
+        adb: Adb(executable: 'adb', runner: guest!),
+        avdHome: fleet!.avdHome,
+        sdkRoot: null,
+        windows: false,
+        pollEvery: Duration.zero,
+      );
+    }
+  }
+
+  /// The children `pass` started, as `child: …` events.
+  List<String> get children =>
+      events.where((e) => e.startsWith('child: ')).toList();
+
   /// What the last pass logged.
   String passLog() {
     final report = File(paths.latestPassFor('demo')).readAsStringSync().trim();
@@ -299,13 +413,14 @@ class _World {
         context = _FakeContext(globals, paths: paths, deviceId: deviceId)
           ..armed = armed
           ..fleet = fleet
+          ..signals = signals.stream
           ..onChild = (arguments) {
             events.add('child: ${arguments.join(' ')}');
             if (bootExit == 0) guest?.down = false;
             return bootExit;
           },
     commands: [
-      PassCommand(),
+      PassCommand(abandonGrace: abandonGrace),
       ShotCommand(),
       StepsCommand(),
       _Verb(
@@ -314,12 +429,20 @@ class _World {
           events.add('relaunch');
           if ((verb.argResults!['seed'] as List<String>).isEmpty) {
             quiets++;
+            if (interruptOnQuiet) {
+              signals.add(ProcessSignal.sigint);
+              // Long enough for a handler that would run to have run.
+              await Future<void>.delayed(const Duration(milliseconds: 50));
+            }
             if (quietFails) throw DeviceFailure('the reset was refused');
             verb.out('[qa] reset: ok');
             return 0;
           }
           reseeds++;
+          final delay = reseedDelay;
+          if (delay != null) await Future<void>.delayed(delay);
           if (failingReseeds.contains(reseeds)) {
+            if (reseedKillsGuest) guest?.down = true;
             throw DeviceFailure('the seed was not imported');
           }
           verb.out('[qa] seed: imported');
@@ -354,12 +477,77 @@ class _World {
         return 0;
       }),
       _Verb('errors', (verb, _) async {
+        events.add('errors');
         context!.errorStamps.add(context!.errorsSinceStamp);
         context!.runLogOffsetsSeen.add(context!.runLogOffsets);
         verb.out('agent: boom in this flow');
         return 0;
       }),
       _Verb('crash', (verb, _) async => throw StateError('a bug in a verb')),
+      _Verb('die', (verb, _) async {
+        if (deaths < dieTimes) {
+          deaths++;
+          guest?.down = true;
+          GuestState.forget(paths.guestStateFor('anta_qa_1'));
+          throw DeviceFailure('adb: device \'emulator-5556\' not found');
+        }
+        verb.out('alive');
+        return 0;
+      }),
+      _Verb(
+        'fail3',
+        (verb, _) async =>
+            throw DeviceFailure('the agent did not answer the dump'),
+      ),
+      // Waits the way the real verbs wait between polls, so a cancelled
+      // attempt's hang ends at once.
+      _Verb('hang', (verb, _) async {
+        if (hangs++ >= hangTimes) return 0;
+        try {
+          await pause(hangFor);
+        } on Cancelled {
+          events.add('hang: cancelled');
+          rethrow;
+        }
+        verb.out('woke up');
+        events.add('hang: woke up');
+        return 0;
+      }),
+      // A step that ignores every cancellation.
+      _Verb('stuck', (verb, _) async {
+        await Future<void>.delayed(stuckFor);
+        events.add('stuck: woke up');
+        return 0;
+      }),
+      _Verb('sigint', (verb, _) async {
+        events.add('sigint');
+        signals.add(ProcessSignal.sigint);
+        return 0;
+      }),
+      // Someone stops the guest on purpose under the pass: the request on
+      // file, then the guest gone, as `fleet stop --force` leaves it.
+      _Verb('stopped', (verb, _) async {
+        StopRequest.record(
+          paths.stopRequestFor('anta_qa_1'),
+          StopRequest(
+            by: 'fleet stop --force',
+            pid: 4711,
+            at: DateTime.now(),
+            checkout: r'D:\other\anta',
+          ),
+        );
+        guest?.down = true;
+        GuestState.forget(paths.guestStateFor('anta_qa_1'));
+        throw DeviceFailure('adb: device \'emulator-5556\' not found');
+      }),
+      _Verb('pause', (verb, _) async {
+        await Future<void>.delayed(const Duration(milliseconds: 150));
+        return 0;
+      }),
+      _Verb('held', (verb, _) async {
+        holds.add(GuestState.read(paths.guestStateFor('anta_qa_1'))?.hold);
+        return 0;
+      }),
       _Verb('grow', (verb, _) async {
         File(
           paths.runLog,
@@ -373,6 +561,25 @@ class _World {
     final qa = runner();
     final code =
         await qa.run(['-d', 'emulator-5556', 'pass', 'demo', ...extra]) ?? 0;
+    final latest = File(paths.latestPassFor('demo')).readAsStringSync();
+    return (code, PassReport.decode(File(latest).readAsStringSync()));
+  }
+
+  /// A pass a Ctrl+C ends: the code its handler exited with (the pass's
+  /// own run never returns once the handler owns the ending) and the
+  /// report as the handler left it.
+  Future<(int, PassReport)> interruptedPass([
+    List<String> extra = const [],
+  ]) async {
+    final qa = runner();
+    context = null;
+    unawaited(qa.run(['-d', 'emulator-5556', 'pass', 'demo', ...extra]));
+    while (context == null) {
+      await Future<void>.delayed(Duration.zero);
+    }
+    final code = await context!.exited.future.timeout(
+      const Duration(seconds: 10),
+    );
     final latest = File(paths.latestPassFor('demo')).readAsStringSync();
     return (code, PassReport.decode(File(latest).readAsStringSync()));
   }
@@ -486,6 +693,61 @@ void main() {
         reason: 'each flow starts with an empty buffer',
       );
     });
+
+    test(
+      'a pass on a fleet guest holds it while it runs and leaves it used',
+      () async {
+        final world = _World(flows: {'01_open': 'held\n'});
+        addTearDown(world.dispose);
+        final file = world.paths.guestStateFor('anta_qa_1');
+        final before = DateTime.now();
+        final (code, _) = await world.pass();
+        expect(code, 0);
+        expect(world.holds.single?.pid, pid, reason: 'held by this process');
+        expect(world.holds.single?.verb, 'pass');
+        final after = GuestState.read(file)!;
+        expect(after.hold, isNull, reason: 'released when the pass ended');
+        expect(after.lastUsedAt!.isBefore(before), isFalse);
+      },
+    );
+
+    test('a pass on the owner\'s emulator writes no guest file', () async {
+      final world = _World(flows: {'01_open': 'held\n'})
+        ..deviceId = 'emulator-5554';
+      addTearDown(world.dispose);
+      await world.pass();
+      expect(world.holds.single, isNull);
+      for (final dir in [world.paths.buildQa, world.paths.fleetState]) {
+        expect(
+          Directory(dir).existsSync()
+              ? Directory(
+                  dir,
+                ).listSync().where((e) => e.path.contains('guest_'))
+              : const [],
+          isEmpty,
+          reason: dir,
+        );
+      }
+    });
+
+    test(
+      'a pass beats its hold at every flow and names its checkout',
+      () async {
+        final world = _World(flows: {'01_open': 'held\n', '02_more': 'held\n'});
+        addTearDown(world.dispose);
+        final (code, _) = await world.pass();
+        expect(code, 0);
+        expect(world.holds, hasLength(2));
+        final [first, second] = world.holds.map((h) => h!).toList();
+        expect(
+          first.beatAt,
+          isNotNull,
+          reason: 'a long pass must not go quiet',
+        );
+        expect(second.beatAt!.isBefore(first.beatAt!), isFalse);
+        expect(second.checkout, world.paths.projectRoot);
+      },
+    );
 
     test(
       'a red flow, a malformed step and a later flow: the pass keeps going',
@@ -1065,6 +1327,777 @@ void main() {
         }
       },
     );
+  });
+
+  group('a pass on a fleet guest that is not up', () {
+    test('boots it through the fleet boot child, then runs', () async {
+      final world = _World(flows: {'01_a': 'tap "A"\n'})..downGuest();
+      addTearDown(world.dispose);
+      final (code, report) = await world.pass();
+      expect(code, 0);
+      final boot = world.events.indexOf('child: fleet boot anta_qa_1');
+      expect(boot, isNonNegative);
+      expect(world.events.indexOf('relaunch'), greaterThan(boot));
+      expect(report.bootMs, isNonNegative);
+      expect(report.toJson()['booted'], {'ms': report.bootMs});
+      expect(PassReport.decode(report.encode()).bootMs, report.bootMs);
+      expect(world.passLog(), contains('booted the guest in '));
+      expect(report.recycle, isNull, reason: 'a fresh guest is not worn');
+    });
+
+    test('a guest that is up is not booted again', () async {
+      final world = _World(flows: {'01_a': 'tap "A"\n'})..downGuest();
+      world.guest!.down = false;
+      addTearDown(world.dispose);
+      final (code, report) = await world.pass();
+      expect(code, 0);
+      expect(world.events.where((e) => e.startsWith('child: ')), isEmpty);
+      expect(report.bootMs, isNull);
+      expect(report.toJson().containsKey('booted'), isFalse);
+    });
+
+    test(
+      'a boot that fails ends the pass with exit 3 and the recipe',
+      () async {
+        final world = _World(flows: {'01_a': 'tap "A"\n'})
+          ..downGuest()
+          ..bootExit = exitDevice;
+        addTearDown(world.dispose);
+        final lines = <String>[];
+        final qa = world.runner()
+          ..lineSink = (line, {required prefix, required isError}) =>
+              lines.add(line);
+        final code = await qa.run(['-d', 'emulator-5556', 'pass', 'demo']);
+        expect(code, exitDevice);
+        expect(world.events, isNot(contains('relaunch')));
+        expect(
+          lines,
+          contains(
+            'the guest did not boot (exit 3) — `qa fleet stop anta_qa_1 '
+            '--force`, then `qa fleet boot anta_qa_1`, then run again',
+          ),
+        );
+        expect(Directory(world.paths.passRoot).existsSync(), isFalse);
+      },
+    );
+
+    test(
+      'off Windows, as everywhere off the fleet, nothing is booted',
+      () async {
+        final world = _World(flows: {'01_a': 'tap "A"\n'})..wearGuest();
+        world.guest!.down = true;
+        addTearDown(world.dispose);
+        await world.pass(['--no-recycle']);
+        expect(world.events.where((e) => e.startsWith('child: ')), isEmpty);
+        expect(world.events.where((e) => e.startsWith('adb ')), isEmpty);
+      },
+    );
+  });
+
+  group('ceilings (H7)', () {
+    test(
+      'a flow past its ceiling fails as a device failure; the abandoned '
+      'attempt runs no further step and writes nothing into the report',
+      () async {
+        final world = _World(
+          flows: {'01_hang': 'tap "A"\nhang\ntap "after"\n', '02_b': 'peek\n'},
+        )..deviceId = 'emulator-5554';
+        addTearDown(world.dispose);
+        final (code, report) = await world.pass(['--flow-ceiling', '0.2']);
+        expect(
+          code,
+          exitTarget,
+          reason: 'a red, not a pass that could not finish',
+        );
+        final hung = report.flows.first;
+        expect(hung.status, FlowStatus.failed);
+        expect(hung.failure!.exitCode, exitDevice);
+        expect(hung.failure!.step, 2);
+        expect(hung.failure!.line, 'hang');
+        expect(
+          hung.failure!.message,
+          ceilingMessage(const Duration(milliseconds: 200), 'step 2'),
+        );
+        expect(hung.failure!.message, startsWith('device failure: '));
+        expect(hung.steps.map((s) => (s.line, s.ok)), [
+          ('tap "A"', true),
+          ('hang', false),
+        ]);
+        expect(world.taps, contains('A'));
+        expect(world.taps, isNot(contains('after')));
+        expect(
+          world.passLog(),
+          isNot(contains('woke up')),
+          reason: 'the step in flight was stopped, not left running',
+        );
+        expect(
+          world.events.where((e) => e.startsWith('hang') || e == 'errors'),
+          ['hang: cancelled', 'errors'],
+          reason:
+              'the cancelled attempt has returned before the evidence drives '
+              'the runner',
+        );
+        expect(
+          world.events.indexOf('hang: cancelled'),
+          lessThan(world.events.lastIndexOf('relaunch')),
+          reason: 'and before the next flow\'s reseed',
+        );
+        expect(
+          world.passLog(),
+          allOf(
+            contains('\n=== 01_hang: FAILED (exit 3) in '),
+            contains('\npass: 1/2 green in '),
+          ),
+          reason: 'the step in flight does not keep its indent on the pass',
+        );
+        expect(world.peeks.single['flows'], hasLength(1));
+        expect(report.flows.last.status, FlowStatus.passed);
+        expect(report.infra, isEmpty, reason: 'not a fleet guest');
+        expect(world.events.where((e) => e.startsWith('adb ')), isEmpty);
+      },
+    );
+
+    test('an abandoned attempt that has not returned within the grace stops '
+        'the pass: nothing else drives the runner beside it', () async {
+      final world = _World(flows: {'01_stuck': 'stuck\n', '02_b': 'tap "B"\n'})
+        ..deviceId = 'emulator-5554'
+        ..stuckFor = const Duration(milliseconds: 900)
+        ..abandonGrace = const Duration(milliseconds: 200);
+      addTearDown(world.dispose);
+      final (code, report) = await world.pass(['--flow-ceiling', '0.2']);
+      expect(code, exitDevice);
+      expect(report.flows.map((f) => f.status), [
+        FlowStatus.failed,
+        FlowStatus.skipped,
+      ]);
+      expect(report.infraStop, contains('did not stop within 0.2 s'));
+      expect(
+        world.events,
+        isNot(contains('errors')),
+        reason: 'no evidence capture beside the attempt still out',
+      );
+      expect(world.taps, ['id:prelude'], reason: 'no later flow ran');
+      expect(world.reseeds, 1);
+    });
+
+    test('a ceiling in the reseed is step 0 on the reseed line', () async {
+      final world = _World(flows: {'01_a': 'tap "A"\n'})
+        ..deviceId = 'emulator-5554'
+        ..reseedDelay = const Duration(milliseconds: 500);
+      addTearDown(world.dispose);
+      final (_, report) = await world.pass([
+        '--flow-ceiling',
+        '0.1',
+        '--keep-state',
+      ]);
+      final failure = report.flows.single.failure!;
+      expect(failure.step, 0);
+      expect(failure.line, startsWith('relaunch --fresh --seed f.json'));
+      expect(failure.message, contains('in its reseed'));
+      expect(
+        world.taps,
+        isEmpty,
+        reason: 'neither the prelude nor the flow ran',
+      );
+    });
+
+    test(
+      'flow_ceiling= in the suite sets it; --flow-ceiling overrides it',
+      () async {
+        final world = _World(
+          manifest: 'flow_ceiling=0.2\n',
+          flows: {'01_hang': 'hang\n'},
+        )..deviceId = 'emulator-5554';
+        addTearDown(world.dispose);
+        var (code, report) = await world.pass();
+        expect(
+          report.flows.single.failure?.message,
+          contains('ceiling of 0.2 s'),
+        );
+        (code, report) = await world.pass(['--flow-ceiling', '30']);
+        expect(code, 0);
+        expect(report.flows.single.status, FlowStatus.passed);
+      },
+    );
+
+    test('a bad ceiling is refused before anything runs', () async {
+      final world = _World(flows: {'01_a': 'tap "A"\n'});
+      addTearDown(world.dispose);
+      for (final args in [
+        ['--flow-ceiling', '0'],
+        ['--max-minutes', '-1'],
+        ['--max-minutes', 'soon'],
+      ]) {
+        await expectLater(
+          world.runner().run(['-d', 'emulator-5556', 'pass', 'demo', ...args]),
+          throwsA(isA<UsageFailure>()),
+          reason: args.join(' '),
+        );
+      }
+      expect(world.reseeds, 0);
+    });
+
+    test('past --max-minutes the flow in flight finishes and the rest are '
+        'skipped, exit 3; 0 turns the ceiling off', () async {
+      final world = _World(
+        flows: {'01_slow': 'pause\n', '02_b': 'tap "B"\n', '03_c': 'tap "C"\n'},
+      );
+      addTearDown(world.dispose);
+      var (code, report) = await world.pass(['--max-minutes', '0.001']);
+      expect(code, exitDevice);
+      expect(report.flows.map((f) => f.status), [
+        FlowStatus.passed,
+        FlowStatus.skipped,
+        FlowStatus.skipped,
+      ]);
+      expect(
+        report.infraStop,
+        'the pass ran past its ceiling of 0.001 min (--max-minutes)',
+      );
+      expect(passExitCode(report), exitDevice);
+      expect(world.quiets, 1, reason: 'the quiet end still runs');
+      expect(world.passLog(), contains('stopped early: the pass ran past'));
+
+      (code, report) = await world.pass(['--max-minutes', '0']);
+      expect(code, 0);
+      expect(report.infraStop, isNull);
+    });
+  });
+
+  group('a pass that loses its fleet guest (H8)', () {
+    test('a guest that dies under a flow is stopped, booted and the flow runs '
+        'again: green, recovered, and the hold survives', () async {
+      final world = _World(
+        flows: {
+          '01_a': 'tap "A"\n',
+          '02_dies': 'die\nheld\n',
+          '03_c': 'tap "C"\n',
+        },
+      )..upGuest();
+      addTearDown(world.dispose);
+      final (code, report) = await world.pass();
+      expect(code, 0, reason: 'a recovered flow counts as green');
+      expect(report.flows.map((f) => (f.name, f.status, f.recovered)), [
+        ('01_a', FlowStatus.passed, false),
+        ('02_dies', FlowStatus.passed, true),
+        ('03_c', FlowStatus.passed, false),
+      ]);
+      expect(world.children, ['child: fleet boot anta_qa_1']);
+      expect(world.reseeds, 4, reason: 'the rerun gets a fresh seed');
+      final entry = report.infra.single;
+      expect(
+        (entry.flow, entry.cause, entry.guest, entry.action, entry.outcome),
+        ('02_dies', 'device', 'not on adb', 'rerun', 'green'),
+      );
+      expect(entry.message, contains('not found'));
+      expect(entry.ms, isNonNegative);
+      expect(
+        (entry.shot, entry.dump),
+        (null, null),
+        reason: 'a guest off adb has no screen to take',
+      );
+      expect(entry.errors, endsWith('fail_02_dies_attempt1_errors.txt'));
+      expect(File(entry.errors!).existsSync(), isTrue);
+      expect(
+        world.holds.single?.pid,
+        pid,
+        reason: 'an outside fleet stop took the file; the pass took it again',
+      );
+      expect(
+        GuestState.read(world.paths.guestStateFor('anta_qa_1'))?.hold,
+        isNull,
+      );
+      final log = world.passLog();
+      expect(
+        log,
+        contains('=== 02_dies: device failure (device, guest not on adb) in '),
+      );
+      expect(log, contains('no screen: anta_qa_1 is not on adb'));
+      expect(log, contains('recover: 02_dies failed for the fleet'));
+      expect(
+        log,
+        contains('=== flow 2/3: 02_dies (again, on the recovered guest)'),
+      );
+      expect(log, contains('pass: 3/3 green, 1 recovered in '));
+      expect(log, contains('$recoveredMark  02_dies'));
+    });
+
+    test('an exit 3 on a guest that probes healthy stands as a red', () async {
+      final world = _World(flows: {'01_a': 'fail3\n', '02_b': 'tap "B"\n'})
+        ..upGuest();
+      addTearDown(world.dispose);
+      final (code, report) = await world.pass();
+      expect(code, exitTarget);
+      expect(report.flows.first.status, FlowStatus.failed);
+      expect(report.flows.first.failure!.shot, endsWith('fail_01_a.png'));
+      expect(report.infra, isEmpty);
+      expect(world.children, isEmpty);
+      expect(world.events, contains('adb devices -l'), reason: 'it was probed');
+      expect(world.events, isNot(contains('adb -s emulator-5556 emu kill')));
+      expect(world.passLog(), contains('=== 01_a: FAILED (exit 3) in '));
+    });
+
+    test('a target failure (exit 2) is the app\'s: no probe at all', () async {
+      final world = _World(flows: {'01_a': 'expect "missing"\n'})..upGuest();
+      addTearDown(world.dispose);
+      final (code, _) = await world.pass(['--no-recycle']);
+      expect(code, exitTarget);
+      expect(
+        world.events.where((e) => e.startsWith('adb ')),
+        ['adb devices -l'],
+        reason: 'only the up-check before the pass; no probe after the red',
+      );
+    });
+
+    test('a reseed that does not go in on a dead guest is recovered', () async {
+      final world = _World(flows: {'01_a': 'tap "A"\n', '02_b': 'tap "B"\n'})
+        ..upGuest()
+        ..failingReseeds = {2}
+        ..reseedKillsGuest = true;
+      addTearDown(world.dispose);
+      final (code, report) = await world.pass();
+      expect(code, 0);
+      expect(report.infra.single.cause, 'reseed');
+      expect(report.flows.last.recovered, isTrue);
+    });
+
+    test('a rerun that fails after the pass\'s last recovery is that flow\'s '
+        'red, and the pass goes on (H8)', () async {
+      final world = _World(
+        flows: {'01_hang': 'hang\n', '02_hang': 'hang\n', '03_c': 'tap "C"\n'},
+      )..upGuest();
+      addTearDown(world.dispose);
+      final (code, report) = await world.pass(['--flow-ceiling', '0.2']);
+      expect(code, exitTarget);
+      expect(report.flows.map((f) => f.status), [
+        FlowStatus.failed,
+        FlowStatus.failed,
+        FlowStatus.passed,
+      ]);
+      expect(report.infraStop, isNull);
+      expect(world.children, hasLength(2));
+      expect(world.taps, contains('C'));
+    });
+
+    test(
+      'a ceiling recovers a healthy guest too; the second breach is red, '
+      'and the pass stops when a further flow needs a third recovery',
+      () async {
+        final world = _World(
+          flows: {
+            '01_hang': 'hang\n',
+            '02_hang': 'hang\n',
+            '03_hang': 'hang\n',
+            '04_d': 'tap "D"\n',
+          },
+        )..upGuest();
+        addTearDown(world.dispose);
+        final (code, report) = await world.pass(['--flow-ceiling', '0.2']);
+        expect(code, exitDevice);
+        expect(report.flows.map((f) => f.status), [
+          FlowStatus.failed,
+          FlowStatus.failed,
+          FlowStatus.failed,
+          FlowStatus.skipped,
+        ]);
+        expect(report.flows.map((f) => f.recovered), everyElement(isFalse));
+        expect(world.children, hasLength(2));
+        expect(
+          world.events.where((e) => e == 'adb -s emulator-5556 emu kill'),
+          hasLength(2),
+          reason: 'a guest on adb is stopped gracefully',
+        );
+        expect(report.infra.map((e) => (e.flow, e.cause, e.guest, e.outcome)), [
+          ('01_hang', 'ceiling', 'healthy', 'red'),
+          ('02_hang', 'ceiling', 'healthy', 'red'),
+        ]);
+        expect(report.infraStop, contains('the recovery budget is spent'));
+        expect(report.encode(), isNot(contains('woke up')));
+        expect(world.passLog(), contains('stopped early: the recovery budget'));
+      },
+    );
+
+    test('a ceiling\'s rerun goes green, and the abandoned step is stopped '
+        'before the guest is stopped under it', () async {
+      // Uncancelled, the first attempt would wake at 1.3 s, inside the
+      // rerun's 0.6 s of pauses.
+      final world =
+          _World(flows: {'01_hang': 'hang\npause\npause\npause\npause\n'})
+            ..upGuest()
+            ..hangTimes = 1
+            ..hangFor = const Duration(milliseconds: 1300);
+      addTearDown(world.dispose);
+      final (code, report) = await world.pass(['--flow-ceiling', '1']);
+      expect(code, 0);
+      expect(report.flows.single.recovered, isTrue);
+      expect(
+        (report.infra.single.cause, report.infra.single.guest),
+        ('ceiling', 'healthy'),
+      );
+      expect(
+        report.infra.single.shot,
+        endsWith('fail_01_hang_attempt1.png'),
+        reason: 'a healthy guest still has its screen',
+      );
+      expect(File(report.infra.single.dump!).existsSync(), isTrue);
+      expect(world.passLog(), isNot(contains('woke up')));
+      final cancelled = world.events.indexOf('hang: cancelled');
+      expect(cancelled, isNonNegative);
+      expect(
+        cancelled,
+        lessThan(world.events.indexOf('adb -s emulator-5556 emu kill')),
+      );
+      expect(cancelled, lessThan(world.events.indexOf('errors')));
+      expect(
+        RegExp(
+          r'^\s+=== |^\s+pass: ',
+          multiLine: true,
+        ).hasMatch(world.passLog()),
+        isFalse,
+        reason: 'no pass line keeps the abandoned step\'s indent',
+      );
+    });
+
+    test('a reseed=suite suite restarts from its first flow, once', () async {
+      final world = _World(
+        reseed: 'suite',
+        flows: {'01_a': 'tap "A"\n', '02_dies': 'die\n', '03_c': 'tap "C"\n'},
+      )..upGuest();
+      addTearDown(world.dispose);
+      var (code, report) = await world.pass();
+      expect(code, 0);
+      expect(world.reseeds, 2, reason: 'the seed again, from the first flow');
+      expect(world.taps.where((t) => t == 'A'), hasLength(2));
+      expect(report.flows.map((f) => (f.name, f.status, f.recovered)), [
+        ('01_a', FlowStatus.passed, false),
+        ('02_dies', FlowStatus.passed, true),
+        ('03_c', FlowStatus.passed, false),
+      ]);
+      expect(report.infra.single.action, 'restart suite');
+
+      world
+        ..deaths = 0
+        ..dieTimes = 2;
+      (code, report) = await world.pass();
+      expect(code, exitDevice);
+      expect(report.flows.map((f) => f.status), [
+        FlowStatus.passed,
+        FlowStatus.failed,
+        FlowStatus.skipped,
+      ]);
+      expect(report.infraStop, contains('already restarted once'));
+    });
+
+    test('a reseed=none pass recovers the guest and stops', () async {
+      final world = _World(flows: {'01_dies': 'die\n', '02_b': 'tap "B"\n'})
+        ..upGuest();
+      addTearDown(world.dispose);
+      final (code, report) = await world.pass(['--no-reseed']);
+      expect(code, exitDevice);
+      expect(world.children, ['child: fleet boot anta_qa_1']);
+      expect(report.flows.map((f) => f.status), [
+        FlowStatus.failed,
+        FlowStatus.skipped,
+      ]);
+      expect(
+        (report.infra.single.action, report.infra.single.outcome),
+        ('stop', 'stopped'),
+      );
+      expect(report.infraStop, startsWith('reseed=none'));
+    });
+
+    test(
+      'a guest that does not boot again stops the pass with the recipe',
+      () async {
+        final world = _World(flows: {'01_dies': 'die\n', '02_b': 'tap "B"\n'})
+          ..upGuest()
+          ..bootExit = exitDevice;
+        addTearDown(world.dispose);
+        final (code, report) = await world.pass();
+        expect(code, exitDevice);
+        expect(report.flows.map((f) => f.status), [
+          FlowStatus.failed,
+          FlowStatus.skipped,
+        ]);
+        expect(report.infra.single.outcome, 'boot failed');
+        expect(report.infraStop, contains('did not come back'));
+        expect(
+          world.passLog(),
+          contains(
+            '`qa fleet stop anta_qa_1 --force`, then `qa fleet boot anta_qa_1`',
+          ),
+        );
+      },
+    );
+
+    test('the owner\'s emulator, a phone, a non-Windows host: a device failure '
+        'stays a red, nothing is probed or booted', () async {
+      for (final setup in <(String, void Function(_World))>[
+        ('emulator-5554', (w) => w.deviceId = 'emulator-5554'),
+        ('R5CT30ABCDE', (w) => w.deviceId = 'R5CT30ABCDE'),
+        ('off Windows', (w) => w.upGuest(windows: false)),
+      ]) {
+        final world = _World(flows: {'01_dies': 'die\n', '02_b': 'tap "B"\n'});
+        addTearDown(world.dispose);
+        setup.$2(world);
+        world.events.clear();
+        final (code, report) = await world.pass(['--no-recycle']);
+        expect(code, exitTarget, reason: setup.$1);
+        expect(report.infra, isEmpty, reason: setup.$1);
+        expect(report.flows.last.status, FlowStatus.passed, reason: setup.$1);
+        expect(
+          world.events.where((e) => e != 'relaunch' && e != 'errors'),
+          isEmpty,
+          reason: setup.$1,
+        );
+      }
+    });
+
+    test('a pass that never fails prints and reports as it did', () async {
+      final world = _World(flows: {'01_a': 'tap "A"\n'})..upGuest();
+      addTearDown(world.dispose);
+      final (code, report) = await world.pass();
+      expect(code, 0);
+      final json = jsonDecode(report.encode()) as Map<String, dynamic>;
+      expect(json.containsKey('infra'), isFalse);
+      expect(json.containsKey('infraStop'), isFalse);
+      final log = world.passLog();
+      expect(log, contains('=== 01_a: ok in '));
+      expect(log, isNot(contains('recover')));
+      expect(
+        RegExp(
+          r'pass: 1/1 green in \d+\.\d s on emulator-5556 — report ',
+        ).hasMatch(log),
+        isTrue,
+      );
+    });
+  });
+
+  group('a guest someone stopped on purpose', () {
+    test('ends the pass with who stopped it: no recovery, no boot, exit 3, '
+        'the rest skipped, the report written', () async {
+      final world = _World(
+        flows: {
+          '01_a': 'tap "A"\n',
+          '02_stop': 'stopped\n',
+          '03_c': 'tap "C"\n',
+        },
+      )..upGuest();
+      addTearDown(world.dispose);
+      final (code, report) = await world.pass(['--no-recycle']);
+      expect(code, exitDevice);
+      expect(report.partial, isFalse);
+      expect(report.flows.map((f) => f.status), [
+        FlowStatus.passed,
+        FlowStatus.failed,
+        FlowStatus.skipped,
+      ]);
+      expect(report.infra, isEmpty, reason: 'nothing was recovered');
+      expect(world.children, isEmpty, reason: 'the guest is not booted again');
+      expect(
+        world.events,
+        isNot(contains('adb -s emulator-5556 emu kill')),
+        reason: 'nor stopped by the pass',
+      );
+      final request = StopRequest.read(
+        world.paths.stopRequestFor('anta_qa_1'),
+      )!;
+      expect(
+        request.label,
+        'fleet stop --force (pid 4711) at ${_hhmm(request.at)} from '
+        r'D:\other\anta',
+      );
+      expect(
+        report.infraStop,
+        'anta_qa_1 was stopped by ${request.label} — nothing was recovered',
+      );
+      expect(report.quietSkipped, contains('stopped on request'));
+      expect(world.quiets, 0);
+      final log = world.passLog();
+      expect(
+        log,
+        contains(
+          '=== 02_stop: device failure (device, guest stopped on request)',
+        ),
+      );
+      expect(log, contains('stopped early: anta_qa_1 was stopped by'));
+      expect(log, contains('no screen: anta_qa_1 was stopped on request'));
+    });
+
+    test('a request older than the pass is an earlier pass\'s: the guest is '
+        'recovered as a crash', () async {
+      final world = _World(flows: {'01_dies': 'die\n'})..upGuest();
+      addTearDown(world.dispose);
+      StopRequest.record(
+        world.paths.stopRequestFor('anta_qa_1'),
+        StopRequest(
+          by: 'reap --force',
+          pid: 1,
+          at: DateTime.now().subtract(const Duration(minutes: 5)),
+        ),
+      );
+      final (code, report) = await world.pass(['--no-recycle']);
+      expect(code, 0);
+      expect(report.flows.single.recovered, isTrue);
+      expect(report.infraStop, isNull);
+    });
+  });
+
+  group('Ctrl+C on a pass', () {
+    test('stops the flow loop: the step in flight is cancelled, no flow, '
+        'reseed or prelude starts after it, exit 130', () async {
+      final world = _World(
+        flows: {
+          '01_a': 'tap "A"\n',
+          '02_int': 'sigint\nhang\ntap "after"\n',
+          '03_c': 'tap "C"\n',
+          '04_d': 'tap "D"\n',
+        },
+      );
+      addTearDown(world.dispose);
+      final (code, report) = await world.interruptedPass();
+      expect(code, 130);
+      expect(report.partial, isTrue);
+      expect(report.interrupted, isTrue);
+      expect(report.flows.map((f) => f.name), [
+        '01_a',
+      ], reason: 'only the flows that had finished');
+      final after = world.events.sublist(world.events.indexOf('sigint') + 1);
+      expect(after, [
+        'relaunch',
+      ], reason: 'the quiet end\'s relaunch and nothing else: no reseed');
+      expect(world.quiets, 1);
+      expect(world.reseeds, 2);
+      expect(
+        world.taps.where((t) => t == 'id:prelude'),
+        hasLength(2),
+        reason: 'no prelude after the interrupt',
+      );
+      expect(world.taps, isNot(anyOf(contains('after'), contains('C'))));
+    });
+
+    test('during a step, cancels it at its next wait', () async {
+      final world = _World(flows: {'01_int': 'hang\n', '02_b': 'tap "B"\n'})
+        ..hangFor = const Duration(seconds: 5);
+      addTearDown(world.dispose);
+      final started = DateTime.now();
+      unawaited(
+        Future<void>.delayed(
+          const Duration(milliseconds: 200),
+          () => world.signals.add(ProcessSignal.sigint),
+        ),
+      );
+      final (code, report) = await world.interruptedPass();
+      expect(code, 130);
+      expect(world.events, contains('hang: cancelled'));
+      expect(
+        DateTime.now().difference(started),
+        lessThan(const Duration(seconds: 4)),
+        reason: 'the five-second wait did not run out',
+      );
+      expect(report.flows, isEmpty);
+      expect(world.taps, isNot(contains('B')));
+    });
+
+    test('after the flows returned, the pass\'s own ending stands: no '
+        'second quiet end, no partial report, no 130', () async {
+      final world = _World(flows: {'01_a': 'tap "A"\n'})
+        ..interruptOnQuiet = true;
+      addTearDown(world.dispose);
+      final (code, report) = await world.pass();
+      expect(code, 0);
+      expect(report.partial, isFalse);
+      expect(report.interrupted, isFalse);
+      expect(world.quiets, 1);
+      expect(world.context!.exited.isCompleted, isFalse);
+      expect(
+        world.passLog(),
+        contains('interrupted — the pass is already ending'),
+      );
+    });
+  });
+
+  group('fleet verbs date and hold their guests', () {
+    QaCommandRunner fleetRunner(_World world) => QaCommandRunner(
+      contextFactory: (ArgResults globals) =>
+          world.context = _FakeContext(globals, paths: world.paths)
+            ..fleet = world.fleet
+            ..onChild = (arguments) {
+              world.events.add('child: ${arguments.join(' ')}');
+              world.holds.add(
+                GuestState.read(world.paths.guestStateFor('anta_qa_1'))?.hold,
+              );
+              return 0;
+            },
+      commands: [FleetCommand()],
+    )..lineSink = (line, {required prefix, required isError}) {};
+
+    test('fleet install holds every guest it installs on', () async {
+      final world = _World(flows: const {})..wearGuest();
+      addTearDown(world.dispose);
+      ApkRecord(
+        apk: 'app-debug.apk',
+        gitHash: 'abc1234',
+        dirty: false,
+        builtAt: DateTime.utc(2026, 11, 11),
+        defines: const [],
+        driver: true,
+        qa: true,
+      ).write(world.paths.apkJson);
+      final file = world.paths.guestStateFor('anta_qa_1');
+      final code = await fleetRunner(
+        world,
+      ).run(['fleet', 'install', '--no-recycle']);
+      expect(code, 0);
+      expect(world.events, contains(startsWith('child: ')));
+      expect(world.holds.single?.verb, 'fleet install');
+      expect(world.holds.single?.pid, pid);
+      expect(
+        GuestState.read(file)!.hold,
+        isNull,
+        reason: 'released at the end',
+      );
+    });
+
+    test('fleet boot dates a guest that is up and marks --keep-up', () async {
+      final world = _World(flows: const {})..downGuest();
+      world.guest!.down = false;
+      final emulator = File(
+        joinPath(world.root.path, ['sdk', 'emulator', 'emulator']),
+      )..createSync(recursive: true);
+      world.fleet = FleetHost(
+        runner: world.guest!,
+        adb: Adb(executable: 'adb', runner: world.guest!),
+        avdHome: world.fleet!.avdHome,
+        sdkRoot: emulator.parent.parent.path,
+        windows: false,
+        pollEvery: Duration.zero,
+      );
+      addTearDown(world.dispose);
+      final file = world.paths.guestStateFor('anta_qa_1');
+      final long = DateTime.now().subtract(const Duration(hours: 2));
+      GuestState.booted(file, long);
+
+      expect(
+        await fleetRunner(world).run(['fleet', 'boot', '1', '--keep-up']),
+        0,
+      );
+      final kept = GuestState.read(file)!;
+      expect(kept.keep, isTrue);
+      expect(kept.lastUsedAt!.isAfter(long), isTrue);
+      expect(
+        kept.bootedAt!.isAtSameMomentAs(long),
+        isTrue,
+        reason: 'it was already up, not booted',
+      );
+
+      expect(await fleetRunner(world).run(['fleet', 'boot', '1']), 0);
+      expect(
+        GuestState.read(file)!.keep,
+        isTrue,
+        reason: 'a plain boot of a guest that is up only dates it',
+      );
+    });
   });
 
   group('an app still starting is "not yet", within the timeout', () {

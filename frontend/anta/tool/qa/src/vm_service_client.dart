@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'agent_protocol.dart';
+import 'cancel.dart';
 import 'errors.dart';
 import 'poll.dart';
 
@@ -83,6 +84,9 @@ class VmServiceClient {
     Duration timeout = const Duration(seconds: 30),
   ]) async {
     if (_closed) throw DeviceFailure('the VM service connection is closed');
+    // Every agent request rides on this call: a cancelled attempt sends
+    // nothing more and stops waiting for what it already sent.
+    checkCancelled();
     final id = _nextId++;
     final completer = Completer<Map<String, dynamic>>();
     _pending[id] = completer;
@@ -95,7 +99,10 @@ class VmServiceClient {
       }),
     );
     try {
-      return await completer.future.timeout(timeout);
+      return await cancellable(completer.future.timeout(timeout));
+    } on Cancelled {
+      _pending.remove(id);
+      rethrow;
     } on TimeoutException {
       _pending.remove(id);
       throw DeviceFailure(

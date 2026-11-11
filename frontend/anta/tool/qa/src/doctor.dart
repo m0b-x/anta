@@ -358,6 +358,37 @@ CheckResult checkHostRun({
   );
 }
 
+/// What an earlier session left on the host: fleet guests nobody holds that
+/// have sat unused past the idle limit (`name idle=42m` each), orphaned
+/// emulator crash handlers (by pid), pid files whose process is gone, and
+/// the fleet guests that are up with the idle guard enabled but not running
+/// ([unguardedGuests]) — nothing then stops them when their user is gone.
+CheckResult checkLeftovers({
+  required List<String> idleGuests,
+  required List<int> orphanedCrashHandlers,
+  required List<String> stalePidFiles,
+  List<String> unguardedGuests = const [],
+}) {
+  final problems = [
+    if (idleGuests.isNotEmpty) 'idle fleet guests: ${idleGuests.join(', ')}',
+    if (unguardedGuests.isNotEmpty)
+      'no idle guard runs while ${unguardedGuests.join(', ')} '
+          '${unguardedGuests.length == 1 ? 'is' : 'are'} up (`qa fleet boot` '
+          'of a guest that is up starts one)',
+    if (orphanedCrashHandlers.isNotEmpty)
+      'orphaned emulator crash handlers: ${orphanedCrashHandlers.join(', ')}',
+    if (stalePidFiles.isNotEmpty)
+      'stale pid files: ${stalePidFiles.join(', ')}',
+  ];
+  if (problems.isEmpty) return CheckResult.ok('leftovers', 'none');
+  return CheckResult(
+    name: 'leftovers',
+    status: CheckStatus.warn,
+    detail: problems.join('; '),
+    fix: '`qa reap` (`--dry-run` first to see what it would do)',
+  );
+}
+
 /// Whether the DTD URI on disk still belongs to a live run.
 CheckResult checkDtd({required String dtd, required String runLogTail}) {
   if (dtd.trim().isEmpty) {

@@ -269,8 +269,11 @@ Future<String?> buildRefusal(
   final file = File(paths.runPid);
   if (!file.existsSync()) return null;
   final pid = int.tryParse(file.readAsStringSync().trim());
-  if (pid == null || !await isProcessAlive(pid, runner)) return null;
-  return 'a `flutter run` (pid $pid, run.pid) is up: it writes build/app '
+  if (pid == null) return null;
+  final alive = await processLiveness(pid, runner);
+  if (alive == Liveness.gone) return null;
+  return 'a `flutter run` (pid $pid, run.pid) is '
+      '${alive == Liveness.alive ? 'up' : 'possibly up (its process could not be checked)'}: it writes build/app '
       'too and the two race on build/native_assets — `qa kill-run` first, '
       'or --force';
 }

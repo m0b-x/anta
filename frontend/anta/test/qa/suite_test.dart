@@ -56,9 +56,28 @@ void main() {
             SuiteManifest.parse('fixture=a.json\nreseeds=flow\n', suite: 'cal'),
         usage(
           '_suite.txt of "cal", line 2: unknown key "reseeds" (known: fixture, '
-          'reseed, shard, settings, prelude)',
+          'reseed, shard, settings, prelude, flow_ceiling)',
         ),
       );
+    });
+
+    test('flow_ceiling takes seconds above 0, a fraction included', () {
+      expect(SuiteManifest.parse('', suite: 's').flowCeiling, isNull);
+      expect(
+        SuiteManifest.parse('flow_ceiling=600', suite: 's').flowCeiling,
+        const Duration(minutes: 10),
+      );
+      expect(
+        SuiteManifest.parse('flow_ceiling=2.5', suite: 's').flowCeiling,
+        const Duration(milliseconds: 2500),
+      );
+      for (final bad in ['0', '-5', 'soon', 'NaN', 'Infinity']) {
+        expect(
+          () => SuiteManifest.parse('flow_ceiling=$bad', suite: 's'),
+          usage('flow_ceiling takes a number of seconds above 0 (got "$bad")'),
+          reason: bad,
+        );
+      }
     });
 
     test('bad values are refused', () {

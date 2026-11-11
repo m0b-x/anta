@@ -71,7 +71,7 @@ Checked against the tree on 2026-11-11: about 665 hand-written files under `lib/
 
 - `dart analyze lib` is the gate; while iterating, the Dart MCP's `analyze_files` checks only the files you touched, and its `lsp` tool resolves a symbol's definition and references exactly where a grep over a common name returns noise.
 - A dependency's behaviour is read from its source, not recalled: `read_package_uris` / `rip_grep_packages` (Dart MCP) open the resolved version in the pub cache; `pub_dev_search` before proposing a package — and a new package is an owner decision.
-- `flutter test --reporter failures-only` prints only failures and the final count line; the default compact reporter floods a captured run with progress lines. A single file or `--plain-name` case while iterating, the whole suite once at the gate.
+- `flutter test --reporter failures-only` prints failures, what the tests themselves log, and the final count line (`+N ~S: All other tests passed!` when some are skipped) — read the tail; the default compact reporter floods a captured run with progress lines. A single file or `--plain-name` case while iterating, the whole suite once at the gate.
 - Hot reload, runtime errors and the widget tree come through the Dart MCP against a `qa run` (`qa-emulator/references/dart-mcp.md`).
 - Flutter's official agent plugin (`flutter/agent-plugins`) is not installed, on purpose: its skills are generic set-up recipes (routing with `go_router`, localization, `http`, JSON) for choices this tree has already made differently.
 

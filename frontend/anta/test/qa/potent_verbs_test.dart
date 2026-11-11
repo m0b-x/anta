@@ -23,6 +23,8 @@ import '../../tool/qa/src/agent_client.dart';
 import '../../tool/qa/src/agent_protocol.dart';
 import '../../tool/qa/src/device.dart';
 import '../../tool/qa/src/poll.dart';
+import '../../tool/qa/src/guard.dart' show guardProbeScript, guardStartScript;
+import '../../tool/qa/src/reap.dart' show crashHandlerListScript;
 import '../../tool/qa/src/runner.dart';
 import '../../tool/qa/src/target.dart';
 import '../../tool/qa/src/doctor.dart';
@@ -446,7 +448,36 @@ void main() {
           cpuTopologyScript,
           avdCreateStdin,
         ], 'the PowerShell scripts');
+        expectHarmless([
+          crashHandlerListScript(r'D:\Sdk\emulator'),
+          recordedRunProbeScript(1, r'D:\anta\build\qa\run_cmd.bat'),
+        ], 'the reap surveys');
+        expectHarmless([
+          guardProbeScript(1),
+          guardStartScript(r'D:\anta\build\qa\guard_1.exe', r'D:\anta'),
+          guardStartScript('guard_1.exe', '.', handedOver: true),
+        ], 'the idle guard\'s probe and start');
         expect(avdCreateArgs('anta_qa_1', 'image'), isNot(contains('--force')));
+      },
+    );
+
+    test(
+      'a pass\'s recovery and its history spell no command of their own',
+      () {
+        for (final path in [
+          'tool/qa/src/recovery.dart',
+          'tool/qa/src/pass_history.dart',
+        ]) {
+          expect(
+            scanHarnessSources({path: File(path).readAsStringSync()}),
+            isEmpty,
+            reason: path,
+          );
+        }
+        expectHarmless(
+          fleetBootChildArgs(fleetName(1), priority: 'below'),
+          'the recovery\'s boot child',
+        );
       },
     );
 
@@ -1206,13 +1237,24 @@ void _harnessSourceScan() {
   group('the harness spells no destructive command', () {
     // Where a stop is the job, each guarded, keyed by file and declaration:
     // `kill-run` ends the tool's own recorded `flutter run`
-    // (killRecordedRun); `doctor --fix` reaps only orphaned DDS processes
+    // (killRecordedRun), only while recordedRunProbeScript still finds the
+    // harness's wrapper under that pid; the idle guard stops a guest only
+    // through FleetHost.stop and FleetHost.forceStop, so guard.dart spells
+    // nothing of its own; `doctor --fix` reaps only orphaned DDS processes
     // (_orphanedDdsScript, run by reapOrphanedServices); `fleet stop` asks
     // a fleet console only after it names its AVD (emuKillArgs,
     // FleetHost.stop, the verb's help line);
     // `fleet stop --force` kills a qemu only while its command line names
     // that fleet AVD on its port (forceStopScript, FleetHost.forceStop); hot
-    // reload signals the recorded `flutter run` (HotCodeCommand.run).
+    // reload signals the recorded `flutter run` (HotCodeCommand.run); a
+    // pass that recovers its own fleet guest stops it only through
+    // FleetHost.forceStop and boots it through the fleet boot child
+    // (PassCommand._restartGuest), so it spells nothing of its own; a
+    // call that timed out takes its own child's tree down
+    // (RealProcessRunner._killTree); `reap` ends an emulator crash handler
+    // only while its path is under the SDK's emulator directory and its
+    // parent is gone, read again right before the kill
+    // (crashHandlerKillScript) — its other stops are the ones above.
     const sanctioned = <String, Map<String, Set<String>>>{
       'tool/qa/qa.dart': {
         'FleetStopCommand.description': {'emu kill'},
@@ -1224,8 +1266,14 @@ void _harnessSourceScan() {
         'forceStopScript': {'Stop-Process'},
         'FleetHost.forceStop': {'Process.killPid'},
       },
+      'tool/qa/src/process_runner.dart': {
+        'RealProcessRunner._killTree': {'taskkill'},
+      },
+      'tool/qa/src/reap.dart': {
+        'crashHandlerKillScript': {'Stop-Process'},
+      },
       'tool/qa/src/runner.dart': {
-        'killRecordedRun': {'taskkill', 'Process.killPid'},
+        'killRecordedRun': {'taskkill'},
         '_orphanedDdsScript': {'Stop-Process'},
         'reapOrphanedServices': {'Stop-Process'},
       },

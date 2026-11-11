@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'cancel.dart';
 import 'errors.dart';
 
 /// Outcome of one external process invocation.
@@ -52,6 +54,20 @@ abstract class ProcessRunner {
   });
 }
 
+/// `taskkill`'s arguments for [pid] and every process under it, forced.
+List<String> treeKillArgs(int pid) => ['/PID', '$pid', '/T', '/F'];
+
+/// Whether a timed-out call to [executable] may take its whole process
+/// tree down. Not for `adb`: an `adb` that found no server starts the one
+/// on port 5037 as its own child, and that server is the one the owner's
+/// `Pixel_9_Pro` is driven through — a tree kill would cut it off. adb
+/// keeps the old kill of the direct child; everything else (a `flutter
+/// build` and its Gradle and Dart children) loses its tree.
+bool treeKillsOnTimeout(String executable) {
+  final name = executable.split(RegExp(r'[\\/]')).last.toLowerCase();
+  return name != 'adb' && name != 'adb.exe';
+}
+
 class RealProcessRunner implements ProcessRunner {
   const RealProcessRunner({this.verbose = false});
 
@@ -66,6 +82,11 @@ class RealProcessRunner implements ProcessRunner {
     String? workingDirectory,
     String? stdin,
   }) async {
+    // A cancelled attempt starts no process, and the one it has running is
+    // killed rather than left to wait out its timeout beside the pass's
+    // rerun (cancel.dart).
+    final token = CancelToken.current;
+    token?.check();
     if (verbose) {
       stderr.writeln('+ $executable ${arguments.join(' ')}');
     }
@@ -90,15 +111,22 @@ class RealProcessRunner implements ProcessRunner {
       process.stdin.write(stdin);
       await process.stdin.close();
     }
+    final stopOnCancel = token?.onCancel(
+      () => unawaited(_kill(process, executable)),
+    );
     final int code;
     try {
       code = await process.exitCode.timeout(timeout);
     } on Object {
-      process.kill(ProcessSignal.sigkill);
+      if (token?.isCancelled ?? false) throw Cancelled(token!.reason!);
+      await _kill(process, executable);
       throw DeviceFailure(
         'timed out after ${timeout.inSeconds}s: $executable ${arguments.join(' ')}',
       );
+    } finally {
+      stopOnCancel?.call();
     }
+    token?.check();
     await Future.wait([outDone, errDone]);
     return RunOutcome(
       code,
@@ -106,6 +134,27 @@ class RealProcessRunner implements ProcessRunner {
       _decode(errChunks),
       bytes: binary ? outChunks : null,
     );
+  }
+
+  /// On Windows a kill reaches only the direct child: a timed-out `flutter
+  /// build` left its Gradle and Dart children running. The tree goes
+  /// first, the child after it in case the tree kill missed.
+  static Future<void> _kill(Process process, String executable) async {
+    if (Platform.isWindows && treeKillsOnTimeout(executable)) {
+      await _killTree(process.pid);
+    }
+    process.kill(ProcessSignal.sigkill);
+  }
+
+  static Future<void> _killTree(int pid) async {
+    try {
+      await Process.run(
+        'taskkill',
+        treeKillArgs(pid),
+      ).timeout(const Duration(seconds: 20));
+    } on Object {
+      return;
+    }
   }
 
   static String _decode(List<int> bytes) {

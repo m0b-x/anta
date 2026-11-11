@@ -8,9 +8,11 @@ import 'apk_build.dart';
 import 'app_ids.dart';
 import 'doctor.dart';
 import 'errors.dart';
+import 'guest_state.dart';
 import 'pass_report.dart';
 import 'paths.dart';
 import 'process_runner.dart';
+import 'runner.dart';
 import 'self_build.dart';
 
 /// Every fleet AVD's name starts with this. `qa fleet` boots, stops and
@@ -76,6 +78,15 @@ const Map<String, String> fleetConfigSpec = {
 /// ports advance by two.
 int fleetPort(int index) => ownerConsolePort + 2 * index;
 
+/// The console port of the owner's `ANTA_Personal`, the signed-in sync
+/// device on its private adb server. Fleet index 63 would land on it, so
+/// that index is reserved: no fleet name, serial or state file ever maps
+/// onto the owner's device, whether or not an `anta_qa_63` exists.
+const int personalConsolePort = 5680;
+
+/// Whether [index] is one no fleet AVD may take ([personalConsolePort]).
+bool isReservedFleetIndex(int index) => fleetPort(index) == personalConsolePort;
+
 /// Fleet AVD [index]'s name, the only names a fleet verb acts on.
 String fleetName(int index) => '$fleetPrefix$index';
 
@@ -87,17 +98,19 @@ int? fleetIndexOf(String name) {
   final match = RegExp(r'^anta_qa_([1-9]\d*)$').firstMatch(name);
   if (match == null) return null;
   final index = int.tryParse(match.group(1)!);
-  return index != null && index <= fleetMaxIndex ? index : null;
+  return index != null && index <= fleetMaxIndex && !isReservedFleetIndex(index)
+      ? index
+      : null;
 }
 
 /// N for a fleet serial (`emulator-5556` is 1), or null for any other one,
-/// the owner's `emulator-5554` included.
+/// the owner's `emulator-5554` and `emulator-5680` included.
 int? fleetIndexOfSerial(String serial) {
   final match = RegExp(r'^emulator-(\d+)$').firstMatch(serial);
   final port = match == null ? null : int.tryParse(match.group(1)!);
   if (port == null || port <= ownerConsolePort || port.isOdd) return null;
   final index = (port - ownerConsolePort) ~/ 2;
-  return index <= fleetMaxIndex ? index : null;
+  return index <= fleetMaxIndex && !isReservedFleetIndex(index) ? index : null;
 }
 
 /// N for what a fleet verb was given: `anta_qa_2`, a bare `2`, or (where
@@ -107,7 +120,9 @@ int parseFleetArgument(String argument, {bool serials = false}) {
   final trimmed = argument.trim();
   final bare = int.tryParse(trimmed);
   final index = bare != null
-      ? (bare >= 1 && bare <= fleetMaxIndex ? bare : null)
+      ? (bare >= 1 && bare <= fleetMaxIndex && !isReservedFleetIndex(bare)
+            ? bare
+            : null)
       : (fleetIndexOf(trimmed) ??
             (serials ? fleetIndexOfSerial(trimmed) : null));
   if (index == null) {
@@ -759,6 +774,8 @@ class FleetMember {
     this.launches,
     this.gpuBytes,
     this.bootId,
+    this.guest,
+    this.hold,
   });
 
   final int index;
@@ -783,7 +800,18 @@ class FleetMember {
   /// The guest's current boot id; null unless it is up as itself.
   final String? bootId;
 
-  FleetMember withGpu(int? bytes) => FleetMember(
+  /// Its `guest_<avd>.json`, as read; null when there is none.
+  final GuestState? guest;
+
+  /// The hold on [guest] whose holder still runs; filled only by
+  /// [FleetHost.withHolds], since telling takes a process query.
+  final GuestHold? hold;
+
+  FleetMember withGpu(int? bytes) => _copy(gpuBytes: bytes);
+
+  FleetMember withHold(GuestHold? live) => _copy(hold: live);
+
+  FleetMember _copy({int? gpuBytes, GuestHold? hold}) => FleetMember(
     index: index,
     created: created,
     state: state,
@@ -791,9 +819,16 @@ class FleetMember {
     installed: installed,
     heldBy: heldBy,
     launches: launches,
-    gpuBytes: bytes,
+    gpuBytes: gpuBytes ?? this.gpuBytes,
     bootId: bootId,
+    guest: guest,
+    hold: hold ?? this.hold,
   );
+
+  /// Whether its qemu runs or adb lists its serial: up, or coming up.
+  bool get up =>
+      qemu != null ||
+      (state != FleetState.stopped && state != FleetState.notCreated);
 
   String get name => fleetName(index);
   String get serial => fleetSerial(index);
@@ -820,6 +855,10 @@ class FleetMember {
     'launchesSinceBoot': launches?.sinceBoot,
     'gpuMb': gpuBytes == null ? null : megabytes(gpuBytes!),
     'bootId': bootId,
+    'bootedAt': guest?.bootedAt?.toUtc().toIso8601String(),
+    'lastUsedAt': guest?.lastUsedAt?.toUtc().toIso8601String(),
+    'idleSeconds': up ? guest?.idleAge(DateTime.now())?.inSeconds : null,
+    'hold': hold?.toJson(),
   };
 }
 
@@ -1011,11 +1050,13 @@ String appStatus(ApkRecord? installed, ApkRecord? built) {
   return 'installed $what';
 }
 
-/// One `fleet status` line.
+/// One `fleet status` line; [now] dates the idle age a guest that is up
+/// shows from its state file.
 String fleetStatusLine(
   FleetMember member,
   ApkRecord? built, {
   required bool showAffinity,
+  DateTime? now,
 }) {
   final qemu = member.qemu;
   final affinity = !showAffinity || qemu == null
@@ -1025,9 +1066,12 @@ String fleetStatusLine(
   final window = qemu?.window == null ? '' : ' window=${qemu!.window!.name}';
   final launches = member.launches;
   final gpu = member.gpuBytes;
+  final idle = member.guest?.idleAge(now ?? DateTime.now());
   final health = [
     if (launches != null) 'launches=${launches.label}',
     if (gpu != null) 'gpu=${megabytes(gpu)} MB',
+    if (idle != null) 'idle=${idleLabel(idle)}',
+    if (member.hold != null) 'held by ${member.hold!.label}',
   ].join(' ');
   return [
     member.name.padRight(10),
@@ -1357,6 +1401,8 @@ List<String> fleetPassChildArgs({
   String? label,
   bool stopOnFail = false,
   bool keepState = false,
+  String? flowCeiling,
+  String? maxMinutes,
   String? via,
   bool verbose = false,
 }) => [
@@ -1369,16 +1415,23 @@ List<String> fleetPassChildArgs({
   if (label != null && label.isNotEmpty) '--label=$label',
   if (stopOnFail) '--stop-on-fail',
   if (keepState) '--keep-state',
+  if (flowCeiling != null) '--flow-ceiling=$flowCeiling',
+  if (maxMinutes != null) '--max-minutes=$maxMinutes',
 ];
 
-/// The lines of a child pass worth echoing live: each flow's verdict, the
-/// shard's own verdict line, whether it left its device quiet (or why it
-/// did not try), and that its report is partial.
+/// The lines of a child pass worth echoing live: each flow's verdict (a
+/// device failure the pass recovers from included), the shard's own
+/// verdict line, whether it left its device quiet (or why it did not
+/// try), a recovery of its guest and its summary, why the shard stopped
+/// early, and that its report is partial.
 bool isPassProgressLine(String line) =>
-    RegExp(r'^=== .+: (?:ok|FAILED)').hasMatch(line) ||
+    RegExp(r'^=== .+: (?:ok|FAILED|device failure \()').hasMatch(line) ||
     RegExp(r'^pass: \d+/\d+ green').hasMatch(line) ||
     RegExp(r'^devices? (?:left|not left) ').hasMatch(line) ||
     line.startsWith('quiet relaunch skipped') ||
+    line.startsWith('recover: ') ||
+    line.startsWith('recovery: ') ||
+    line.startsWith('stopped early: ') ||
     line.startsWith(partialLine);
 
 /// How to start this tool again as a child: the compiled exe when this
@@ -1694,6 +1747,7 @@ class FleetHost {
     final count = math.max(upTo, created.isEmpty ? 0 : created.last);
     final members = <FleetMember>[];
     for (var index = 1; index <= count; index++) {
+      if (isReservedFleetIndex(index)) continue;
       final name = fleetName(index);
       final serial = fleetSerial(index);
       final row = attached.where((d) => d.serial == serial).firstOrNull;
@@ -1731,10 +1785,38 @@ class FleetHost {
             paths.launchesJsonFor(serial),
           )?.ofBoot(bootId),
           bootId: bootId,
+          guest: GuestState.read(paths.guestStateFor(name)),
         ),
       );
     }
     return members;
+  }
+
+  /// [members] with each hold on file whose holder still runs filled in;
+  /// a hold whose process is gone was never cleared and holds nothing. A
+  /// holder that could not be checked, and a state file that does not
+  /// read, still hold: a check that could not answer never frees a guest.
+  Future<List<FleetMember>> withHolds(List<FleetMember> members) async {
+    final out = <FleetMember>[];
+    for (final member in members) {
+      final hold = await holdOf(member.guest);
+      out.add(hold == null ? member : member.withHold(hold));
+    }
+    return out;
+  }
+
+  /// The hold [guest] carries as [withHolds] judges it: null when there is
+  /// none or its holder is gone, an unconfirmed one when the holder could
+  /// not be checked, the unreadable-file one when the file does not read.
+  Future<GuestHold?> holdOf(GuestState? guest) async {
+    if (guest != null && guest.unreadable) return GuestHold.unreadableFile();
+    final hold = guest?.hold;
+    if (hold == null) return null;
+    return switch (await processLiveness(hold.pid, runner, windows: windows)) {
+      Liveness.alive => hold,
+      Liveness.gone => null,
+      Liveness.unknown => hold.asUnconfirmed(),
+    };
   }
 
   /// [members] with each running qemu's GPU counter filled in, in one
@@ -1873,9 +1955,11 @@ class FleetHost {
   /// `fleet stop --force`: a hung guest (`detected a hanging thread 'QEMU2
   /// main loop'`) is off adb and never answers its console, and its
   /// crash-report window keeps the next boot from starting, so its qemu is
-  /// killed — only when adb does not list it as usable, and only after the
-  /// process's own command line names this AVD on its fleet port. The one
-  /// process kill the fleet does; a guest adb lists goes the console way.
+  /// killed — only after the process's own command line names this AVD on
+  /// its fleet port. The one process kill the fleet does. A guest adb lists
+  /// goes the console way first; one whose console is dead (on adb, but
+  /// `emu kill` fails or never takes) falls through to the same guarded
+  /// kill, so a stop that cannot be graceful still ends.
   Future<String> forceStop(
     int index, {
     Duration timeout = const Duration(seconds: 60),
@@ -1885,7 +1969,14 @@ class FleetHost {
     final row = (await adb.devices())
         .where((d) => d.serial == serial)
         .firstOrNull;
-    if (row != null && row.usable) return stop(index, timeout: timeout);
+    String? graceful;
+    if (row != null && row.usable) {
+      try {
+        return await stop(index, timeout: timeout);
+      } on DeviceFailure catch (e) {
+        graceful = e.message;
+      }
+    }
     final qemu = (await qemuProcesses())
         .where((q) => q.avd == name)
         .firstOrNull;
@@ -1921,7 +2012,10 @@ class FleetHost {
       if (!(await qemuProcesses()).any((q) => q.avd == name)) {
         final seconds =
             DateTime.now().difference(started).inMilliseconds / 1000;
-        return 'stopped: $name (qemu ${qemu.pid} killed, it was not on adb) '
+        final why = graceful == null
+            ? 'it was not on adb'
+            : 'its console stop failed: $graceful';
+        return 'stopped: $name (qemu ${qemu.pid} killed, $why) '
             'in ${seconds.toStringAsFixed(1)} s';
       }
       await Future<void>.delayed(pollEvery);

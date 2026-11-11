@@ -12,6 +12,7 @@
 6. [Deferred](#6-deferred)
 7. [Change log](#7-change-log)
 8. [The fleet's future — one guest by default (2026-10-24, planned)](#8-the-fleets-future-2026-10-24)
+9. [Failproofing — nothing left behind, and a way back from every failure (2026-11-11)](#9-failproofing-2026-11-11)
 
 ## 1. The problem, measured
 
@@ -392,3 +393,150 @@ Files: `tool/qa/qa.dart`, `tool/qa/src/fleet.dart`, `tool/qa/src/pass_report.dar
 - **Not verified by tests:** the `AndroidDevice` gate in `_launchInstalled` (the fake runner cannot drive `launchInstalled`, which waits on a real VM-service websocket; `recordLaunch` is the tested part); R8's per-guest re-read (a guest would have to drop off adb between boots, which sends `_bootOne` down the real `startWrapperDetached` path); a live failed recycle.
 - **Live-checked by the lead:** `qa pass browser -d emulator-5556` on the worn guest (27 launches, 14,197 MB) printed `recycling anta_qa_1 (emulator-5556): its qemu holds 14197 MB of GPU memory (over 8192 MB)`, stopped it in 3.4 s, booted it with `priority: Normal — --priority normal` (inherited) in 16.2 s, `recycled … in 23.3 s`, ran 3/3 green in 46.9 s with `recycled in 24.0 s: …` under the `pass:` line, reseed p50 3,977 ms (no visible cost from the boot-id read). Then `fleet stop 1` and `fleet boot 1 --priority below`: `priority: BelowNormal — --priority below`, `ready: anta_qa_1 emulator-5556 window=minimized pinned=0xFFFF priority=BelowNormal (booted in 16.2 s)`, `fleet status` `priority=BelowNormal launches=0 gpu=1098 MB`. Guest 1 was left so, ready for M2.
 - **Noticed:** `fleet status` marks guests 2 and 3 `app stale` because the lead rebuilt `apk.json` at 11:47 at the same hash (`dd47ab3`): the stale rule compares build times, not hashes. Cosmetic — a `fleet install` clears it — and in §6.
+
+## 9. Failproofing (2026-11-11)
+
+**Status: IN PROGRESS — H-S1 to H-S3 built and reviewed 2026-11-11, uncommitted; fix passes A and B from the review running.** The as-built blocks in §9.7, not the plan above them, are the truth once a slice lands.
+
+### 9.1 Why
+
+The owner, 2026-11-11: in the last couple of weeks the fleet "sometimes crashes, left terminals open, left emulators with previous sessions open … we need to make them failproof and also have something to do in case they fail". Read from the code the same day (nothing reproduced live; the host had no qemu running — the one `crashpad_handler.exe` seen then turned out to be TeamViewer's, not an emulator's):
+
+- **Terminals.** `startWrapperDetached` (`tool/qa/src/runner.dart`) starts every emulator and every `qa run` through `Start-Process -FilePath 'cmd.exe'` with redirected output and no window style, so each gets a console window that lives as long as its process tree.
+- **Emulators.** Nothing owns a guest's lifetime: the `qa-runner` agent is told to leave the guest up, there is no idle limit, and a `qa pass` started in the background outlives the agent or the session that started it.
+- **Crashes.** A guest that hangs ends the pass with exit 3 and a printed recipe a person must run. A flow and a pass have no ceiling of their own, an interrupted pass skips its quiet end, and `RealProcessRunner` kills only the direct child of a call that timed out.
+- **Leftovers.** There is no one verb that returns the host to clean; `doctor` checks the device and the app, not what an earlier session left.
+
+### 9.2 Decisions
+
+The owner delegated them ("yes, please fix this tech debt", 2026-11-11); each is the lead's default and reversible.
+
+| | Decision | Why |
+| --- | --- | --- |
+| **H1** | Wrapper consoles start hidden on Windows. The emulator's own window must still exist and minimize (`window=minimized` in `fleet status`); if a hidden console hides it, the emulator wrapper keeps a minimized console and only `qa run`'s is hidden. | A `-no-window` qemu spins a host thread (§3); a hidden console is still a console, which `flutter.bat` needs. |
+| **H2** | A call that times out kills its whole process tree on Windows (`taskkill /T /F`), never only the child. | A timed-out `flutter build` otherwise leaves Gradle and Dart children behind. |
+| **H3** | `qa reap [--dry-run] [--force] [--prune]` returns the host to clean: stops the recorded `flutter run`, stops every fleet guest (graceful, then the guarded force for one that is not on adb), ends orphaned emulator crash handlers, removes pid, URI and lock files whose process is gone, removes forwards of serials that are not attached. One line per action; exit 0 clean, 3 when something could not be stopped. A guest with a live pass on it is skipped without `--force`. `--prune` also deletes pass directories past the newest twenty per suite (ten as first written; twenty is what `--history` reads). | The owner needs "something to do in case they fail": one command, safe to run at any time, by a person or an agent. |
+| **H4** | Every fleet guest has a state file (`guest_<avd>.json`, host-wide since fix A — `%LOCALAPPDATA%\anta-qa\fleet`: booted at, last used at, the pid and verb of a pass or install holding it). A **guard** — one detached, windowless `qa fleet guard`, started by `fleet boot`, single-instance by a pid lock, exiting when no fleet guest is left — stops a guest idle past `ANTA_QA_IDLE_MINUTES` (default 30) and force-stops a guest whose qemu is alive, off adb and idle for three minutes. `ANTA_QA_GUARD=0` turns it off. | Agents and sessions die without notice; only something that outlives them can guarantee that nothing stays up. A poll a minute costs nothing measurable. |
+| **H5** | `pass` on a fleet serial that is not up boots it first, through the recycle's boot. | A pass becomes one call from a clean host, and `reap` at the end costs the next pass twenty seconds, not a procedure. |
+| **H6** | Ctrl+C on a `pass` writes the report (`partial`), leaves the device quiet within fifteen seconds, clears the guest's hold and exits 130. A kill that cannot be caught is the guard's and `reap`'s to clean. | The quiet end cancels the alarms a seed armed. |
+| **H7** | Ceilings: a flow that runs past its ceiling (default 360 s; `flow_ceiling=` in `_suite.txt`) fails as a device failure; a pass stops past `--max-minutes` (default 45) with the rest skipped. | Every step has a timeout, but a websocket or a process that never answers has none above it. |
+| **H8** | Self-healing, fleet guests only: after a flow that failed as a *device* failure (exit 3, a reseed that did not go in, a ceiling), `pass` probes the guest; when it is unhealthy it captures the evidence, stops it (force when hung), boots it and runs that flow again on a fresh seed — once per flow, twice per pass, then it stops with the rest skipped. A `reseed=suite` suite restarts whole instead, once. A red on the second run is red. | A hung guest is the fleet's failure, not the app's, and the recipe was already mechanical. |
+| **H9** | The report gains `infra` (each recovery: flow, cause, action, ms, outcome) and a flow gains `recovered`; the summary says `N/M green, K recovered`. Exit codes keep their meaning: 0 green, 2 red, 3 the pass could not finish. | A recovered flow is green, but the owner should see that the fleet stumbled. |
+| **H10** | `qa pass --history <suite>` prints, per flow, the runs, reds and recoveries of the newest twenty reports. | Flakiness is only visible across passes. |
+| **H11** | The `qa-runner` agent ends with `qa reap` unless its brief says to keep the guest up, and its report's last line is the fleet's state. | The default becomes "leave nothing". |
+| **H12** | Session hooks are proposed, not written (the settings file is the owner's to change): `SessionStart` runs `qa reap --dry-run` and prints only when something is left; `SessionEnd` runs `qa reap`. | Promptness; the guard is the guarantee. |
+
+### 9.3 Must not change
+
+No verb deletes an AVD, wipes data, clears or uninstalls the app. Fleet verbs act only on `anta_qa_*`; `Pixel_9_Pro` / `emulator-5554` is counted and never acted on; `ANTA_Personal` (`emulator-5680`, adb port 5039) stays invisible — nothing sets `ANDROID_ADB_SERVER_PORT`, and no process is killed unless its command line names an `anta_qa_` AVD or it is an emulator crash handler whose parent is gone. The capacity rule, the recycle thresholds and `--no-recycle`, the reseed / prelude / evidence / quiet-end order of a pass, every existing `report.json` key (additions only), exit codes 0 / 2 / 3, the flows lint, the one `flutter run` slot, the wrapper's self-rebuild, and the macOS and iOS paths (where the fleet verbs stay Windows-only and `reap` stops the run and clears stale files).
+
+### 9.4 Slices
+
+| Slice | What | Agent |
+| --- | --- | --- |
+| **H-S1** | H1, H2, H3, the guest state file of H4 and its writers, a `doctor` line for leftovers that names `reap`; tests in `test/qa/` | Opus 5.5 `implementer` |
+| **H-S2** | H4's guard, H5, H6; `fleet status` shows the idle age and the guard; tests | Opus 5.5 `implementer` |
+| **H-S3** | H7, H8, H9, H10; tests | Opus 5.5 `implementer` |
+| **H-S4** | H11, H12, the skill, the agent, a recovery reference, the rules, this section's as-built — text by the lead | the lead |
+| **R** | One review of H-S1 to H-S3 against §9.3 | Opus 5.5 `reviewer` |
+| **Live** | On `anta_qa_1` only: boot (no console window, `window=minimized`), `pass browser`, a guest stopped under a running pass (the pass recovers and reruns the flow), `reap` to clean, the guard stopping an idle guest with the limit set to two minutes | the lead |
+
+Slices run in sequence — all three write `tool/qa/qa.dart`. Per slice: `dart analyze lib test tool test_driver` and `flutter test test/qa`; the lead runs the whole suite once after H-S3.
+
+### 9.5 Facts
+
+`tool/qa/src/runner.dart` — `startWrapperDetached`, `writeWrapperScript`, the recorded-run kill. `tool/qa/src/process_runner.dart` — `RealProcessRunner.run`. `tool/qa/src/fleet.dart` — `FleetHost` (`members`, `stop`, `forceStop`, `qemuProcesses`, `minimize`), `forceStopRefusal`, `forceStopScript`, `FleetLaunches`, `isIdleQemu`. `tool/qa/qa.dart` — `BootCommand._startEmulator`, `PassCommand` (`run`, `_runFlows`, `_recycleOwnGuest`, `_leaveQuiet`, `passExitCode`), `FleetChildren`, `FleetCommand` and its sub-verbs, `KillRunCommand`, `DoctorCommand._fleetCheck`. `tool/qa/src/paths.dart` — every state file. `tool/qa/src/pass_report.dart` — the report. Tests: `test/qa/fleet_test.dart`, `pass_command_test.dart`, `doctor_test.dart`, `runner_test.dart`, `potent_verbs_test.dart` (a new verb that acts on the host joins its list), `fake_process_runner.dart`. The first `qa` call after a source change still answers with the old binary (§6): run a changed verb twice, or `qa build-exe` first.
+
+### 9.6 Deferred
+
+Nothing yet.
+
+### 9.7 As built
+
+#### H-S1 — as built (2026-11-11, Opus 5.5 `implementer`; gate: `dart analyze lib test tool test_driver` clean, `flutter test test/qa` `+754`)
+
+Files: `tool/qa/src/runner.dart`, `process_runner.dart`, `fleet.dart`, `paths.dart`, `doctor.dart`, `tool/qa/qa.dart`, new `tool/qa/src/guest_state.dart` and `reap.dart`; tests in new `test/qa/reap_test.dart` (24 cases), `pass_command_test.dart`, `runner_test.dart`, `potent_verbs_test.dart`. Nothing under `lib/`.
+
+- **H1.** `startWrapperDetached` passes `-WindowStyle Hidden` (`consoleWindowStyle`). Live on `anta_qa_1`: the wrapper's console exists and is not visible, the qemu window is there and `fleet status` reads `window=minimized` (booted in 16.2 s) — the minimized-console fallback was not needed. A `qa run` on `emulator-5556` printed its URIs and was alive two minutes later with no visible console.
+- **H2.** A timed-out call runs `taskkill /PID <pid> /T /F` on Windows before the old `process.kill`. A real test (`cmd /c ping`) fails without the tree kill and leaves the ping running.
+- **The guest state file.** `build/qa/guest_<avd>.json` — `bootedAt`, `lastUsedAt`, `hold {pid, verb, since}`. `fleet boot` writes it, every verb that resolves a fleet serial touches `lastUsedAt`, `pass` and `fleet install` take and release the hold, `fleet stop` deletes it; a hold whose pid is gone reads as none. `fleet status` shows `idle=12m` and `held by pass pid N since HH:MM` (`--json`: `bootedAt`, `lastUsedAt`, `idleSeconds`, `hold`).
+- **H3.** `qa reap [--dry-run] [--force] [--prune]`, one line per action (`stopped: …`, `skip: … — held by … ; --force stops it anyway`, `removed <file> (<why>)`, `ended orphaned emulator crash handler N`, `pruned pass/<dir>`), last line `reap: clean`, `reap: left — …` or `reap: dry run — N line(s) above; nothing was changed`. Live: a dry run listed ten actions, the reap stopped the guest in 2.4 s and removed four pid files and eight URI files, a second reap printed only `reap: clean`.
+- **`doctor`** gains `leftovers`: a guest idle past thirty minutes with no live hold, an orphaned emulator crash handler, stale `emulator*.pid` files; its fix is `qa reap`.
+- **Differs from the plan:** a held guest skipped without `--force` exits 0 with `reap: left — …` (exit 3 is for a stop that was tried and failed); the recorded run is killed only while its pid is still the harness's own `cmd` on `run_cmd.bat`, a reused pid only loses its file; off Windows only the run, the pid files and the lock are reaped.
+- **Learned:** an emulator that stops spawns two `emulator -kill <qemu> -sleep 20` watchdogs with a crash handler each; they exit by themselves within twenty seconds and are never orphans.
+
+#### H-S2 — as built (2026-11-11, Opus 5.5 `implementer`; gate: `dart analyze lib test tool test_driver` clean, `flutter test test/qa` `+806`)
+
+Files: new `tool/qa/src/guard.dart` and `interrupt.dart`; `tool/qa/qa.dart`, `guest_state.dart`, `reap.dart`, `runner.dart`, `pass_report.dart`, `doctor.dart`, `paths.dart`; tests in new `test/qa/guard_test.dart` and `interrupt_test.dart`, `pass_command_test.dart`, `reap_test.dart`, `runner_test.dart`, `potent_verbs_test.dart`.
+
+- **H4, the guard.** `qa fleet guard` (not for people), started by `fleet boot` after the first ready guest: `guard: started (pid N, idle limit 30 min, poll 60 s) — log …\build\qa\guard.log`. Every poll (`ANTA_QA_GUARD_POLL_SECONDS`, default 60) it stops a guest that is up, has no live hold, is not the device of a live recorded `flutter run`, is not marked keep and has been idle `ANTA_QA_IDLE_MINUTES` (default 30; 0 turns the idle stop off); it force-stops, through `FleetHost.forceStop`, a qemu that is off adb and idle for three minutes, `--keep-up` or not. It re-reads the state file just before an idle stop and gives way to a use in between. It exits after two polls with no guest up, after ten failed fleet reads in a row, and when `guard.pid` no longer names it. `build/qa/guard.pid` counts only while that pid's command line contains `fleet guard`. `build/qa/guard.log` is truncated at start and restarted past 256 KB. `ANTA_QA_GUARD=0`: `fleet boot` prints that nothing will stop an idle guest. **A guest with a live hold is never touched, even when hung — its holder owns the recovery** (H8).
+- **The guard and the self-rebuild.** Windows lets a rebuild rename a running exe but not delete it, so a guard on `qa.exe` would block the second rebuild. The guard runs from its own copy, `build/qa/guard_<qa.exe mtime>.exe`, hands over to a guard on the new build within one poll of a rebuild (`qa.exe was rebuilt — handing over …`), and skips the self-rebuild itself. Old copies go at the next guard start or with `reap`. Started with `Start-Process -WindowStyle Hidden` and no redirects, so it holds none of the caller's handles.
+- **`fleet boot --keep-up`** writes `"keep": true` into the guest's state file (cleared by the next plain boot of a stopped guest). `fleet boot` writes the state file before the qemu starts, so a stale file cannot make a new guest look idle.
+- **`fleet status`** ends with `guard: running (pid N, idle limit 30 min)` or `guard: not running`; `--json` carries `guard {enabled, running, pid, idleLimitMinutes, pollSeconds}`. `doctor`'s `leftovers` warns when a guest is up and no guard runs. `reap` removes a stale `guard.pid` and old guard copies and says `guard pid N exits by itself within 120 s`; it does not kill the guard.
+- **H5.** `pass` on a fleet serial that is not up: `pass: anta_qa_1 (emulator-5556) is not up — booting it first`, the report gains `booted {ms}`. A boot that fails prints the recipe and exits 3 with no pass directory. Windows, a fleet serial given by `-d` or `ANTA_QA_DEVICE`, a created AVD.
+- **H6.** Ctrl+C writes the report (`partial`, `interrupted`), runs the quiet end within fifteen seconds, releases the hold, exits 130; a second Ctrl+C exits at once; `fleet pass` waits twenty seconds for its shards. Once the handler starts it owns the report — a flow in flight cannot overwrite it.
+- **`kill-run`** checks that `run.pid` still names the harness's own run before `taskkill /T`; a pid that is gone or reused only loses its file.
+- **adb drops a stopped guest's forwards itself** (shown live), so `reap`'s forward path was removed.
+- **Live on `anta_qa_1`:** with a two-minute limit and a twenty-second poll the guard stopped the guest at 2 m 03 s and exited 43 s later, no window; a running pass showed `held by pass pid N`; from `reap: clean`, `qa pass browser -d emulator-5556` booted the guest in 20.8 s and ran `3/3 green`; two rebuilds succeeded under a live guard, which handed over; a Ctrl+C sent to a pass's own console gave exit 130 four seconds later with `partial`, `interrupted` and no hold left.
+- **Not shown live:** the guard's force-stop of a hung guest (needs a hung qemu), `fleet pass` under Ctrl+C.
+
+#### H-S3 — as built (2026-11-11, Opus 5.5 `implementer`; gate: `dart analyze lib test tool test_driver` clean, `flutter test test/qa` `+845`; the whole suite by the lead `+15517 ~17`, no failure)
+
+Files: new `tool/qa/src/recovery.dart` and `pass_history.dart`; `tool/qa/qa.dart` (`_runFlows` rewritten around one attempt per flow under its ceiling, then a probe, then a recovery), `pass_report.dart`, `suite.dart`, `guard.dart`, `reap.dart`, `fleet.dart`; tests in new `test/qa/recovery_test.dart` and `pass_history_test.dart`, `pass_command_test.dart`, `pass_report_test.dart`, `suite_test.dart`, `guard_test.dart`, `reap_test.dart`, `potent_verbs_test.dart`.
+
+- **H7.** `--flow-ceiling <s>` over `flow_ceiling=` in `_suite.txt` over 360 s; a breach is a device failure. The step loop checks a cancellation before every step and the pass's line capture ignores an abandoned attempt, so nothing it does later reaches the device, the records or the report (both shown to fail first without the guard). `--max-minutes <m>` (default 45, 0 for none) finishes the flow in flight and skips the rest; the first flow always runs. **The flow ceiling applies on every device; only the recovery is the fleet's.**
+- **H8.** A device failure is a ceiling, a reseed that did not go in, or a step that exited 3 — exit 2 is never probed. The probe reads the guest (on adb and usable, booted, its qemu alive). Unhealthy, or a ceiling: first-attempt evidence kept as `fail_<flow>_attempt1*` (no screenshot or dump when the guest is off adb — that cost a minute for nothing), `FleetHost.forceStop`, the boot child, the flow again on a fresh seed. Once per flow, twice per pass; a `reseed=suite` suite restarts once; `reseed=none` recovers and stops. The hold is taken again after each boot. Fleet serials on Windows only.
+- **H9.** Additive and absent when empty: `infra[] {flow, cause, guest, message, action, ms, outcome, evidence}`, `infraStop`, `flows[].recovered`. A recovered row starts `ok* `; the closing line reads `pass: N/M green, K recovered in …` only when K > 0, then one `recovery:` line each and `stopped early: <reason>`. Any `infraStop` exits 3, from `pass` and `--summary`; every earlier stop reason keeps its exit. `mergeReports` carries `infra`, `infraStop`, `booted` and `interrupted`.
+- **H10.** `qa pass --history <suite> [--last N]` — runs, reds, recoveries, the last red and a `flaky` mark per flow over the newest twenty reports (shard reports counted, merged ones not); `reap --prune` keeps twenty.
+- **The guard** no longer trusts a hold older than three hours (`holdTrustLimit`).
+- **Live on `anta_qa_1`:** `qa pass settings` on four flows with `qa fleet stop 1` run under flow 2 — `device failure (device, guest offline)`, the guest back in 20.7 s, the flow green on the rerun, `pass: 4/4 green, 1 recovered`, exit 0, the `infra` entry and `recovered: true` in the report, no hold left. `qa pass browser --flow-ceiling 3` — two recoveries, both reruns red, `stopped early: the recovery budget is spent (2 per pass)`, exit 3, nothing from the abandoned attempts in the report. A plain `qa pass browser` printed what it printed before, `3/3 green`, with none of the new keys. `--history browser` listed three flaky flows over twenty reports. The host ended on `reap: clean`.
+- **Found live and fixed in the slice:** an abandoned step kept the runner's output indent, so every later line — the `pass:` line agents parse included — came out indented.
+- **Not shown live:** the `reseed=suite` restart, the `reseed=none` stop, a boot that fails during a recovery, the pass ceiling, a recovery inside a `fleet pass` shard, Ctrl+C during a recovery.
+
+#### R — the review (2026-11-11, Opus 5.5 `reviewer`, read-only; analyze clean, `test/qa` `+845`)
+
+No path acts on `Pixel_9_Pro` or `ANTA_Personal` by name and nothing sets `ANDROID_ADB_SERVER_PORT`; every stop and kill was traced to the name, port or command-line guard it relies on. What it found is that those guards **fail open** — a check that cannot answer reads as "nobody is using this" — and that the pass's new machinery has gaps. Every finding, and where it went:
+
+| # | Finding | Went to |
+| --- | --- | --- |
+| 1 | Off Windows `reap` and `kill-run` SIGTERM whatever holds `run.pid`'s pid | fix A |
+| 2 | `isProcessAlive` reads a failed probe as dead, so a live pass's hold reads as gone and `reap` or the guard stops its guest | fix A — three answers, unknown protects |
+| 3 | One failed probe makes the guard stop the guest under a live `qa run` | fix A |
+| 4 | Guest state, holds and `guard.pid` are per checkout while the fleet is per host — a worktree's guard or `reap` sees no hold | fix A — one host-wide state directory |
+| 5 | The timeout tree kill can take the shared adb server down | fix A — `adb` keeps the direct-child kill |
+| 6 | `emulator-5680` (`ANTA_Personal`) maps to fleet index 63; safe only because that AVD does not exist | fix A — explicit, pinned by a test |
+| 7 | The guard dies on one slow hold probe | fix A |
+| 8 | The guard exits on one failed read of its own pid file | fix A |
+| 9 | `reap` prints `clean` beside a fleet qemu whose port reads as held by something else | fix A — reported in `left`, exit 3 |
+| 10 | `reap --force` or `fleet stop` on a held guest is undone: the pass recovers the guest | fix B — a stop request the pass honours; a plain `fleet stop` refuses a held guest |
+| 11 | An abandoned attempt's step in flight keeps acting on the device beside the rerun; commands are singletons, so re-entry overwrites their arguments | fix B — the attempt is cancelled at its next device call and awaited |
+| 12 | Guest-state writes are not atomic; a torn read drops a hold | fix A — temp file and rename, unreadable reads as protected |
+| 13 | A pass touches `lastUsedAt` once, and a pass may outlive the three-hour hold limit | fix A — a heartbeat per flow; the limit applies to the heartbeat |
+| 14 | `reap` overwrites an earlier failure flag and can exit 0 over a failed stop | fix A |
+| 15 | Ctrl+C does not stop the flow loop: flows keep starting during the quiet end and can re-arm alarms after it | fix B |
+| 16 | A Ctrl+C after the last flow races the normal ending | fix B — one ending |
+| 17 | The pass budget is checked before the flow's, so a failed rerun can stop the pass where H8 says it is red | fix B — the flow's first |
+| 18 | `forceStop` never forces a guest that is on adb with a dead console | fix A — falls through to the guarded kill |
+| 19 | H3 said ten pass directories; twenty are kept | corrected in §9.2 |
+| 20 | The 360 s ceiling leaves 60–100 s over the longest alerts flows | fix B — `flow_ceiling=480` in the two alerts suites |
+| 21 | A recovery's boot clears `--keep-up` | fix A |
+| 22 | `fleet pass` does not forward the ceilings, hides `stopped early` and `recovery:` lines, and shards can boot side by side | fix B — forwarding, the lines, one boot at a time on the host |
+| 23–24 | Untested: a failed probe, the Ctrl+C wiring, `reap`'s lost failure, index 63, a throwing probe in the guard; the guard reads the wall clock | with each fix |
+| 26–28 | The run probe matches any checkout's wrapper; `kill-run` forgets `run.pid` before the kill returns; `doctor` and `reap` can throw on a file that vanished | fix A |
+
+Item 25 (the `potent_verbs_test` additions are honest) needed nothing.
+
+#### Fix A — as built (2026-11-11, Opus 5.5 `implementer`; gate: analyze clean, `flutter test test/qa` `+878`)
+
+The rule it applies everywhere: **a check that could not answer never authorizes a stop, a kill or a delete.** Where an earlier block of this section disagrees with this one, this one is the truth.
+
+- **Three answers.** `isProcessAlive` became `processLiveness`: `alive`, `gone`, `unknown` (an error, a timeout, empty or odd output). A holder that is `unknown` still holds (`fleet status`: "(its process could not be checked)"), a pid file whose owner is `unknown` is kept, a recorded run that is `unknown` is neither killed nor forgotten, and a second guard is not started beside a `guard.pid` that could not be checked. `qa build` refuses on a `run.pid` it cannot check (`--force` overrides).
+- **The fleet's state is host-wide.** `guest_<avd>.json`, `guard.pid`, `guard.log` and the guard's exe copies live in `%LOCALAPPDATA%\anta-qa\fleet` (`~/Library/Application Support/anta-qa/fleet` on macOS; `ANTA_QA_FLEET_STATE` overrides; tests use `<root>/build/qa/fleet`). `run.pid`, the URI files, the pass directories, `apk.json` and the installed-build records stay per checkout. A hold names its checkout — `held by pass pid N since HH:MM from <projectRoot>` — and a `reap --dry-run` from another project root was shown to skip a guest a pass in this one held. `reap` removes the first layout's files under `build/qa`.
+- **State writes are atomic** (a temp file, then a rename). A file that exists and does not parse reads as an unreadable hold and protects the guest until it reads or `reap --force`; a writer retries and then leaves it.
+- **The hold has a heartbeat** (`beatAt`), refreshed at the top of every flow; the guard distrusts a hold whose heartbeat is three hours old, not its start. `--keep-up` survives every boot — only removing the file (`fleet stop`, `reap`, a guard stop) clears it.
+- **The guard** logs and skips a decision that throws instead of dying, re-checks the recorded run before any stop, holds back every stop while a live run's device cannot be read, and leaves only when `guard.pid` readably names another live guard.
+- **Kills.** The recorded run is matched by this checkout's full wrapper path on Windows and by `ps` naming its `run_cmd.sh` elsewhere; `run.pid` is deleted only after the kill succeeded. A timed-out `adb` gets the direct-child kill so the shared adb server is never taken down with it. `forceStop` falls through to the guarded qemu kill when the console stop fails.
+- **`reap`** accumulates failures, reports a fleet qemu whose port answers as something else (`left`, exit 3), tolerates files that vanish under it, and clears stray temp files in the fleet directory.
+- **`emulator-5680` is reserved by name** (`personalConsolePort`): index 63 is never a fleet guest, pinned beside the `emulator-5554` test.
+- **Shown to fail first:** the unknown holder under `reap`, the guard's run re-check, the pid-file misread, the heartbeat wiring, the kept mark, the lost failure flag. The rest were argued from the old code.
+- **Left by this pass, taken up in fix B2:** two concurrent writers of one state file can still lose an update; the guard sees only its own checkout's `run.pid`; `fleet status` read `window=visible` during and after a pass.
