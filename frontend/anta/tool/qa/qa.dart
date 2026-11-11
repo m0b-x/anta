@@ -9,6 +9,7 @@ import 'src/adb.dart';
 import 'src/agent_client.dart';
 import 'src/apk_build.dart';
 import 'src/app_ids.dart';
+import 'src/boot_lock.dart';
 import 'src/cancel.dart';
 import 'src/device.dart';
 import 'src/device_select.dart';
@@ -33,6 +34,7 @@ import 'src/recovery.dart';
 import 'src/seed.dart';
 import 'src/poll.dart';
 import 'src/process_runner.dart';
+import 'src/quiet.dart';
 import 'src/runner.dart';
 import 'src/self_build.dart';
 import 'src/shell_batch.dart';
@@ -326,6 +328,7 @@ class QaContext {
   Future<ChildOutcome> runSelf(
     List<String> arguments, {
     String? logPath,
+    Duration? timeout,
     required void Function(String line, bool isError) onLine,
   }) {
     final self = qaSelfCommand(
@@ -339,7 +342,19 @@ class QaContext {
       arguments: [...self.leading, ...arguments],
       workingDirectory: paths.projectRoot,
       logPath: logPath,
+      timeout: timeout,
       onLine: onLine,
+    );
+  }
+
+  /// Quiets the fleet guest on [serial] ([quietGuest]) through a child
+  /// `relaunch --fresh` of this tool, bounded; a test's context scripts it.
+  Future<GuestQuiet> quietFleetGuest(String serial, {bool always = false}) {
+    return quietGuest(
+      adb: fleetHost().adb.withSerial(serial),
+      always: always,
+      relaunch: (arguments, limit, onLine) =>
+          runSelf(arguments, timeout: limit, onLine: (line, _) => onLine(line)),
     );
   }
 
@@ -659,6 +674,14 @@ class QaContext {
       await dev.adb.shell(['dumpsys', 'alarm']),
       dev.packageId,
     );
+  }
+
+  /// Whether one of the app's alarms is ringing on this device
+  /// ([ringInProgressOn]), or null on a platform without that read.
+  Future<bool?> appRinging() async {
+    final dev = await device();
+    if (dev is! AndroidDevice) return null;
+    return ringInProgressOn(dev.adb);
   }
 
   Future<AgentClient?> agentOrNull() async {
@@ -1899,6 +1922,10 @@ abstract class LaunchingCommand extends QaCommand {
     await ctx.recordUris(vm: result.uris.vmService, dtd: result.uris.dtd);
     File(ctx.paths.deviceTxt).writeAsStringSync(device.id);
     File(ctx.paths.runVmTxt).writeAsStringSync(result.uris.vmService ?? '');
+    if (takeRunHold(ctx.paths, device.id, result.pid)) {
+      out('holding ${device.id} for this run (`qa stop` or `qa kill-run` '
+          'lets it go)');
+    }
     out('pid=${result.pid}  log=${result.logPath}');
     out('dtd=${result.uris.dtd}');
     out('vm=${result.uris.vmService}');
@@ -1916,11 +1943,13 @@ class MarkerReport {
     required this.seedFailed,
     required this.resetFailed,
     required this.source,
+    this.hasQuiet = false,
   });
 
   factory MarkerReport.fromOutcomes(AgentInfo info) => MarkerReport(
     lines: info.qaLog,
     hasReset: info.qaOutcomes.any((o) => o.kind == 'reset'),
+    hasQuiet: info.qaOutcomes.any((o) => o.kind == 'quiet'),
     hasSeed: info.qaOutcomes.any((o) => o.kind == 'seed'),
     seedFailed: info.qaOutcomes.any((o) => o.kind == 'seed' && !o.ok),
     resetFailed: info.qaOutcomes.any((o) => o.kind == 'reset' && !o.ok),
@@ -1932,6 +1961,7 @@ class MarkerReport {
     return MarkerReport(
       lines: parsed.all,
       hasReset: parsed.reset != null,
+      hasQuiet: parsed.quiet != null,
       hasSeed: parsed.seed != null,
       seedFailed: parsed.seedFailed,
       resetFailed: parsed.resetFailed,
@@ -1946,8 +1976,15 @@ class MarkerReport {
   final bool resetFailed;
   final String source;
 
-  bool satisfies({required bool reset, required bool seed}) =>
-      (!reset || hasReset) && (!seed || hasSeed);
+  /// Whether the app printed its `[qa] quiet:` line, which a reset launch
+  /// prints after the reset's own — so the reset alone does not say it ran.
+  final bool hasQuiet;
+
+  bool satisfies({
+    required bool reset,
+    required bool seed,
+    bool quiet = false,
+  }) => (!reset || hasReset) && (!seed || hasSeed) && (!quiet || hasQuiet);
 }
 
 /// Shared by `run` and `relaunch`: the marker flags, their delivery, and the
@@ -1995,6 +2032,12 @@ mixin QaMarkers on QaCommand {
     if (wantsFresh) {
       await device.dropResetMarker();
       out('qa_reset marker dropped');
+      // A fresh launch with no seed asked for must come up empty: a seed an
+      // interrupted reseed already pushed would otherwise be imported, its
+      // alarms armed by the very launch meant to cancel them.
+      if (!wantsSeed && await device.discardPendingSeed()) {
+        out('removed a pending qa_seed.json no launch had consumed');
+      }
     }
     if (wantsSeed) {
       final path = ctx.paths.resolve(argResults!['seed'] as String);
@@ -2010,24 +2053,28 @@ mixin QaMarkers on QaCommand {
   }
 
   /// Waits for the `[qa]` lines, prints them, and fails when one that was
-  /// asked for never arrives or the seed was rejected.
+  /// asked for never arrives or the seed was rejected. With [quiet] (a
+  /// fresh launch only) the app's `[qa] quiet:` line is one of them.
   Future<void> reportQaMarkers({
     required QaContext ctx,
     required String stamp,
     required bool includeRunLog,
+    bool quiet = false,
     Duration timeout = const Duration(seconds: 45),
   }) async {
     if (!wantsFresh && !wantsSeed) return;
+    final wantsQuiet = quiet && wantsFresh;
+    bool done(MarkerReport r) =>
+        r.satisfies(reset: wantsFresh, seed: wantsSeed, quiet: wantsQuiet);
     final device = await ctx.device();
     var report = await _readMarkers(ctx, device, stamp, includeRunLog);
     final deadline = DateTime.now().add(timeout);
-    while (!report.satisfies(reset: wantsFresh, seed: wantsSeed) &&
-        DateTime.now().isBefore(deadline)) {
+    while (!done(report) && DateTime.now().isBefore(deadline)) {
       await pause(const Duration(milliseconds: 400));
       report = await _readMarkers(ctx, device, stamp, includeRunLog);
     }
     if (report.source != 'agent' &&
-        report.satisfies(reset: wantsFresh, seed: wantsSeed) &&
+        done(report) &&
         !report.lines.any((l) => l.startsWith('onboarding'))) {
       await pause(const Duration(milliseconds: 700));
       report = await _readMarkers(ctx, device, stamp, includeRunLog);
@@ -2051,6 +2098,7 @@ mixin QaMarkers on QaCommand {
     }
     final missing = <String>[
       if (wantsFresh && !report.hasReset) 'reset',
+      if (wantsQuiet && !report.hasQuiet) 'quiet',
       if (wantsSeed && !report.hasSeed) 'seed',
     ];
     if (missing.isNotEmpty) {
@@ -2148,6 +2196,8 @@ mixin InstalledLaunch on QaCommand {
       // The client of the app just stopped is closed; left cached as the
       // driver it would fail every later step of this process.
       await ctx.forgetAgent();
+      // A cancelled step tells nothing about the build: no diagnosis.
+      if (e is Cancelled) rethrow;
       if (device.nativeDriver != null) {
         warn(
           'warning: the VM service never answered on port $port (${e.message}) '
@@ -2209,6 +2259,7 @@ mixin InstalledLaunch on QaCommand {
       }
       return agent;
     } on DeviceFailure catch (e) {
+      if (e is Cancelled) rethrow;
       if (device.nativeDriver == null) {
         throw DeviceFailure(
           '${e.message}\nOn ${device.label} every see-and-act verb needs the '
@@ -2282,6 +2333,14 @@ class RelaunchCommand extends QaCommand
   RelaunchCommand() {
     addMarkerOptions(argParser);
     addPostActionOptions(argParser);
+    argParser.addFlag(
+      awaitQuietFlag.substring(2),
+      negatable: false,
+      hide: true,
+      help:
+          'With --fresh: wait for the app\'s `[qa] quiet:` line too, and '
+          'fail without it (the harness\'s quiet before a stop).',
+    );
   }
 
   @override
@@ -2301,7 +2360,12 @@ class RelaunchCommand extends QaCommand
     final stamp = logcatStamp(DateTime.now());
     await device.forceStop();
     await launchInstalled(ctx);
-    await reportQaMarkers(ctx: ctx, stamp: stamp, includeRunLog: false);
+    await reportQaMarkers(
+      ctx: ctx,
+      stamp: stamp,
+      includeRunLog: false,
+      quiet: argResults![awaitQuietFlag.substring(2)] as bool,
+    );
     final runDevice = File(ctx.paths.deviceTxt);
     if (File(ctx.paths.runPid).existsSync() &&
         runDevice.existsSync() &&
@@ -2358,6 +2422,11 @@ class StopCommand extends QaCommand {
     final device = await context.device();
     await device.forceStop();
     out('stopped ${device.packageId} on ${device.label}');
+    // The run on it is over as far as the guest is concerned; a run that
+    // lives on is still seen by the guard's own run probe.
+    if (releaseRunHold(context.paths, device.id)) {
+      out('released the run\'s hold on ${device.id}');
+    }
     return 0;
   }
 }
@@ -2381,6 +2450,12 @@ Future<List<String>> endRecordedRun(QaContext ctx) async {
   final runVmFile = File(ctx.paths.runVmTxt);
   if (deviceFile.existsSync()) {
     final id = deviceFile.readAsStringSync().trim();
+    final killed = ended.killed;
+    if (killed != null &&
+        id.isNotEmpty &&
+        releaseRunHold(ctx.paths, id, wrapperPid: killed)) {
+      lines.add('released the run\'s hold on $id');
+    }
     final runVm = runVmFile.existsSync()
         ? runVmFile.readAsStringSync().trim()
         : '';
@@ -2449,6 +2524,15 @@ HostReaper hostReaperFor(QaContext ctx) {
     windows: host?.windows ?? false,
     isAlive: (pid) => processLiveness(pid, runner),
     stopRun: () => endRecordedRun(ctx),
+    quiet: host == null
+        ? null
+        // Always relaunched, as `fleet stop` does: the count cannot see
+        // what a force-stopped app still stores.
+        : (member) => quietFleetGuestIfUp(
+            host!,
+            member.index,
+            (serial) => ctx.quietFleetGuest(serial, always: true),
+          ),
   );
 }
 
@@ -4806,13 +4890,17 @@ class PassCommand extends QaCommand with StepLoop, FleetChildren {
       );
     }
     int? alarms;
+    bool? ringing;
     try {
+      // A ring in progress is off the armed list, so it is read on its own.
       alarms = await ctx.armedAppAlarms();
+      ringing = await ctx.appRinging();
       while (alarms != null &&
-          alarms > 0 &&
+          (alarms > 0 || (ringing ?? false)) &&
           DateTime.now().difference(at) < _quietWait) {
         await Future<void>.delayed(const Duration(seconds: 1));
         alarms = await ctx.armedAppAlarms();
+        ringing = await ctx.appRinging();
       }
     } on QaException catch (e) {
       warn('quiet: the armed alarms could not be counted: ${e.message}');
@@ -4832,7 +4920,13 @@ class PassCommand extends QaCommand with StepLoop, FleetChildren {
         warn('quiet: the stale adb forwards were not removed: ${e.message}');
       }
     }
-    return (ms: took(), alarms: alarms, failure: null);
+    return (
+      ms: took(),
+      alarms: alarms,
+      failure: (ringing ?? false)
+          ? 'an alarm of the app is still ringing after ${words.join(' ')}'
+          : null,
+    );
   }
 
   /// The fleet guest a pass may recover after a device failure (H8): a
@@ -6089,7 +6183,10 @@ class FleetBootCommand extends FleetSubcommand {
             'Windows: the qemu\'s priority class, set with the pin. '
             '`below` lets a pass yield to the foreground; ignored off '
             'Windows.',
-      );
+      )
+      // A pass's own boot, its recovery's and a recycle's pass --no-quiet:
+      // the reseed that follows each of them cancels the alarms itself.
+      ..addFlag('quiet', defaultsTo: true, hide: true);
   }
 
   @override
@@ -6278,55 +6375,97 @@ class FleetBootCommand extends FleetSubcommand {
         );
         how = 'up after ${took()}';
       } else {
-        ctx.paths.ensureBuildQa();
-        final logPath = ctx.paths.emulatorLogFor(name);
-        final errPath = ctx.paths.emulatorErrFor(name);
-        File(logPath).writeAsStringSync('');
-        File(errPath).writeAsStringSync('');
-        // Dated before the qemu exists, so a state file left by a guest
-        // that died unannounced never makes this one look idle to the
-        // guard in the second between its boot and the write below.
-        GuestState.booted(
-          ctx.paths.guestStateFor(name),
-          DateTime.now(),
-          keep: keep,
+        // One cold boot at a time on the host, whichever session or shard
+        // asks: several starting together is what hung the fleet.
+        final lock = _bootLockOwner(ctx, name);
+        await takeBootLock(
+          path: ctx.paths.bootLock,
+          me: lock,
+          liveness: (owner) =>
+              processLiveness(owner, host.runner, windows: host.windows),
+          say: (line) => line.startsWith('warning: ') ? warn(line) : out(line),
         );
-        // A stop someone asked for ends with this boot: a later pass must
-        // not end on it.
-        StopRequest.clear(ctx.paths.stopRequestFor(name));
-        final wrapper = writeWrapperScript(
-          paths: ctx.paths,
-          baseName: emulatorWrapperName(name),
-          executable: emulator,
-          arguments: fleetEmulatorArgs(index),
-          posixLogPath: logPath,
-        );
-        final pid = await startWrapperDetached(
-          paths: ctx.paths,
-          wrapper: wrapper,
-          logPath: logPath,
-          errPath: errPath,
-          pidPath: ctx.paths.emulatorPidFor(name),
-        );
-        out('[$name] starting on $serial (pid $pid, log $logPath)');
-        final early = _onceUp(
-          host,
-          name,
-          mask: mask,
-          priority: priority,
-          minimize: minimize,
-        );
-        await awaitEmulatorBoot(
-          ctx,
-          host.adb,
-          pid,
-          name,
-          serial: serial,
-          fatalLogLines: false,
-          progress: progress,
-        );
-        await early;
-        how = 'booted in ${took()}';
+        // The boot waited on may have been this very guest's.
+        final List<AdbDevice> nowDevices;
+        final List<QemuProcess> nowQemus;
+        try {
+          nowDevices = await host.adb.devices();
+          nowQemus = await host.qemuProcesses();
+        } on Object {
+          releaseBootLock(ctx.paths.bootLock, lock);
+          rethrow;
+        }
+        if (nowDevices.any((d) => d.serial == serial) ||
+            nowQemus.any((q) => q.avd == name)) {
+          releaseBootLock(ctx.paths.bootLock, lock);
+          return _bootOne(
+            ctx,
+            host,
+            emulator,
+            index,
+            nowDevices,
+            nowQemus,
+            mask,
+            priority,
+            minimize: minimize,
+            keep: keep,
+          );
+        }
+        try {
+          ctx.paths.ensureBuildQa();
+          final logPath = ctx.paths.emulatorLogFor(name);
+          final errPath = ctx.paths.emulatorErrFor(name);
+          File(logPath).writeAsStringSync('');
+          File(errPath).writeAsStringSync('');
+          // Dated before the qemu exists, so a state file left by a guest
+          // that died unannounced never makes this one look idle to the
+          // guard in the second between its boot and the write below.
+          GuestState.booted(
+            ctx.paths.guestStateFor(name),
+            DateTime.now(),
+            keep: keep,
+          );
+          // A stop someone asked for ends with this boot: a later pass must
+          // not end on it.
+          StopRequest.clear(ctx.paths.stopRequestFor(name));
+          final wrapper = writeWrapperScript(
+            paths: ctx.paths,
+            baseName: emulatorWrapperName(name),
+            executable: emulator,
+            arguments: fleetEmulatorArgs(index),
+            posixLogPath: logPath,
+          );
+          final pid = await startWrapperDetached(
+            paths: ctx.paths,
+            wrapper: wrapper,
+            logPath: logPath,
+            errPath: errPath,
+            pidPath: ctx.paths.emulatorPidFor(name),
+          );
+          out('[$name] starting on $serial (pid $pid, log $logPath)');
+          final early = _onceUp(
+            host,
+            name,
+            mask: mask,
+            priority: priority,
+            minimize: minimize,
+          );
+          await awaitEmulatorBoot(
+            ctx,
+            host.adb,
+            pid,
+            name,
+            serial: serial,
+            fatalLogLines: false,
+            progress: progress,
+          );
+          await early;
+          how = 'booted in ${took()}';
+        } finally {
+          // Let go once the guest is up or its boot failed: the boot after
+          // it starts beside a guest that is already booted.
+          releaseBootLock(ctx.paths.bootLock, lock);
+        }
       }
       // The serial is only a port convention: whatever came up on it must
       // name this AVD before its display settings are touched.
@@ -6362,12 +6501,42 @@ class FleetBootCommand extends FleetSubcommand {
       final window = await _window(host, name, minimize: minimize);
       final pinned = await _pin(host, name, mask, priority);
       out('ready: $name $serial window=$window $pinned ($how)');
+      if (how != 'already up' && (argResults!['quiet'] as bool)) {
+        await _quietAfterBoot(ctx, host, index);
+      }
       return true;
     } on QaException catch (e) {
       warn('failed: $name $serial — ${e.message}');
       return false;
     }
   }
+
+  /// This process as the boot lock's owner for [avd]; one `fleet boot
+  /// --all` re-enters its own lock for each guest it boots.
+  BootLockOwner _bootLockOwner(QaContext ctx, String avd) => BootLockOwner(
+    pid: pid,
+    avd: avd,
+    at: DateTime.now(),
+    checkout: ctx.paths.projectRoot,
+  );
+
+  /// A guest force-killed while hung could not be quieted before it went,
+  /// and the alarm plugin's boot receiver re-arms whatever it stored: once
+  /// the receiver had its moment, the alarms it armed are cancelled — on a
+  /// guest no one holds; a holder reseeds it anyway. A guest that was up
+  /// already is never touched: a hand session may have seeded it on
+  /// purpose.
+  Future<void> _quietAfterBoot(
+    QaContext ctx,
+    FleetHost host,
+    int index,
+  ) => quietAfterBoot(
+    host: host,
+    paths: ctx.paths,
+    index: index,
+    quiet: ctx.quietFleetGuest,
+    say: (line) => line.startsWith('warning: ') ? warn(line) : out(line),
+  );
 
   /// Pins a just-started qemu the moment it shows up, so the boot itself
   /// runs on the P-cores too, and minimizes its window as soon as it opens,
@@ -6615,6 +6784,24 @@ class FleetStopCommand extends FleetSubcommand {
           context.paths.stopRequestFor(name),
           stopRequestNow('fleet stop --force', context.paths),
         );
+      }
+      // The alarm plugin re-arms what it stored whenever the guest next
+      // comes up, so a guest no one holds is quieted first. A held one is
+      // its holder's, and `--as-crash` stands in for a crash, which
+      // quiets nothing.
+      if (hold == null && !asCrash) {
+        // Always relaunched: a force-stopped app shows nothing armed with
+        // every alarm still stored, and only the app's own quiet line says
+        // the stores were emptied before the guest goes down.
+        final quiet = await quietFleetGuestIfUp(
+          host,
+          index,
+          (serial) => context.quietFleetGuest(serial, always: true),
+        );
+        if (quietWorthSaying(quiet)) {
+          final line = quiet!.line(name, 'before the stop');
+          quiet.ok ? out(line) : warn(line);
+        }
       }
       try {
         out(force ? await host.forceStop(index) : await host.stop(index));
@@ -7111,6 +7298,27 @@ class FleetGuardCommand extends FleetSubcommand {
         handOver: () async {
           final next = await startGuard(paths, host.runner, handedOver: true);
           log.write('guard: pid $next takes over');
+        },
+        // The child runs from the guard's own copy, never `qa.exe`: that
+        // one may be mid-rebuild, and a child on it would block the next.
+        quiet: (serial, {required always}) {
+          final self = qaSelfCommand(
+            resolvedExecutable: Platform.resolvedExecutable,
+            qaExe: paths.qaExe,
+            qaExeExists: false,
+            script: joinPath(paths.toolQaDir, ['qa.dart']),
+          );
+          return quietGuest(
+            adb: host.adb.withSerial(serial),
+            always: always,
+            relaunch: (arguments, limit, onLine) => runQaChild(
+              executable: self.executable,
+              arguments: [...self.leading, ...arguments],
+              workingDirectory: paths.projectRoot,
+              timeout: limit,
+              onLine: (line, _) => onLine(line),
+            ),
+          );
         },
       ).run();
     } finally {
@@ -7799,9 +8007,31 @@ class DoctorCommand extends QaCommand {
   /// The `leftovers` line, from the survey `reap` acts on.
   Future<CheckResult> _leftoversCheck(QaContext ctx) async {
     try {
-      final survey = await hostReaperFor(ctx).survey(prune: false);
+      final reaper = hostReaperFor(ctx);
+      final survey = await reaper.survey(prune: false);
       final now = DateTime.now();
+      // Read-only: a count that fails says nothing rather than guess.
+      final armed = <String>[];
+      final host = reaper.host;
+      for (final guest in survey.guests) {
+        if (host == null ||
+            guest.hold != null ||
+            guest.state != FleetState.device) {
+          continue;
+        }
+        try {
+          final alarms = await guestAlarmsOn(
+            host.adb.withSerial(guest.serial),
+          );
+          if (alarms.armed > 0 || alarms.ringing) {
+            armed.add('${guest.name} (${guestAlarmsLabel(alarms)})');
+          }
+        } on QaException {
+          continue;
+        }
+      }
       return checkLeftovers(
+        armedGuests: armed,
         idleGuests: [
           for (final guest in survey.guests)
             if (guest.hold == null)

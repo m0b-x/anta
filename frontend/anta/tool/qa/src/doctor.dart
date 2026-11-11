@@ -362,14 +362,22 @@ CheckResult checkHostRun({
 /// have sat unused past the idle limit (`name idle=42m` each), orphaned
 /// emulator crash handlers (by pid), pid files whose process is gone, and
 /// the fleet guests that are up with the idle guard enabled but not running
-/// ([unguardedGuests]) — nothing then stops them when their user is gone.
+/// ([unguardedGuests]) — nothing then stops them when their user is gone —
+/// and the guests no one holds that carry armed app alarms or a ring in
+/// progress ([armedGuests], `name (3)` or `name (0, ringing)` each), which
+/// `reap` quiets before it stops them.
 CheckResult checkLeftovers({
   required List<String> idleGuests,
   required List<int> orphanedCrashHandlers,
   required List<String> stalePidFiles,
   List<String> unguardedGuests = const [],
+  List<String> armedGuests = const [],
 }) {
   final problems = [
+    if (armedGuests.isNotEmpty)
+      'app alarms armed or ringing on fleet guests no one holds: '
+          '${armedGuests.join(', ')} (they ring, and come back at every '
+          'launch and boot)',
     if (idleGuests.isNotEmpty) 'idle fleet guests: ${idleGuests.join(', ')}',
     if (unguardedGuests.isNotEmpty)
       'no idle guard runs while ${unguardedGuests.join(', ')} '

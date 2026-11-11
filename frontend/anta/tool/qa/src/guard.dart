@@ -8,6 +8,7 @@ import 'fleet.dart';
 import 'guest_state.dart';
 import 'paths.dart';
 import 'process_runner.dart';
+import 'quiet.dart';
 import 'runner.dart';
 
 /// `0` keeps `fleet boot` from starting the idle guard.
@@ -473,7 +474,7 @@ class GuardSnapshot {
   final Map<String, bool> idleOffAdb;
 }
 
-enum GuardAction { keep, stop, forceStop }
+enum GuardAction { keep, stop, forceStop, quiet }
 
 /// What the guard does about one guest at one poll, and why.
 class GuardDecision {
@@ -598,6 +599,21 @@ class GuardBrain {
     if (member.state != FleetState.device) {
       return keep('booting', 'on adb, still booting');
     }
+    // A hold on file whose holder is gone — not one that could not be
+    // checked, which [FleetHost.withHolds] keeps — was never released: its
+    // pass was killed with the seed's alarms armed, and they ring within
+    // minutes, long before any idle limit. Only a pass seeds; an install or
+    // a run that died armed nothing of its own.
+    final dead = member.guest?.hold;
+    if (dead != null && dead.verb == 'pass' && member.hold == null) {
+      return GuardDecision(
+        member,
+        GuardAction.quiet,
+        'dead-hold',
+        '${dead.verb} pid ${dead.pid} is gone and never released it — '
+            'quieting it',
+      );
+    }
     if (member.guest?.keep ?? false) return keep('keep', 'kept up (--keep-up)');
     final limit = idleLimit;
     if (limit == null) {
@@ -689,6 +705,7 @@ class FleetGuard {
     Future<void> Function(Duration)? sleep,
     this.exeChanged,
     this.handOver,
+    this.quiet,
   }) : _isAlive =
            isAlive ??
            ((p) => processLiveness(p, host.runner, windows: host.windows)),
@@ -718,6 +735,13 @@ class FleetGuard {
   /// stale build for longer than a poll.
   final bool Function()? exeChanged;
   final Future<void> Function()? handOver;
+
+  /// Cancels the app's alarms on a guest ([quietGuest] through a child of
+  /// the guard's own exe copy), [always] relaunching: before an idle stop,
+  /// and at once on a guest whose pass died holding it. Null quiets
+  /// nothing.
+  final Future<GuestQuiet> Function(String serial, {required bool always})?
+  quiet;
 
   Future<int> run() async {
     log.write(
@@ -885,10 +909,22 @@ class FleetGuard {
   Future<void> act(GuardDecision decision) async {
     final member = decision.member;
     try {
+      if (decision.action == GuardAction.quiet) {
+        await _quietDeadHold(member);
+        return;
+      }
       final why = await _reasonToLeave(decision);
       if (why != null) {
         log.write('${member.name}: $why — left up');
         return;
+      }
+      if (decision.action == GuardAction.stop && quiet != null) {
+        // Always relaunched: the count cannot see what a force-stopped app
+        // still stores for the boot receiver.
+        final quieted = await quiet!(member.serial, always: true);
+        if (quietWorthSaying(quieted)) {
+          log.write(quieted.line(member.name, 'before the stop'));
+        }
       }
       if (member.hold != null) {
         // A hold silent past its trust limit: the pass behind it, should it
@@ -908,6 +944,53 @@ class FleetGuard {
     } on Object catch (e) {
       log.write('${member.name}: failed — $e');
     }
+  }
+
+  /// Quiets a guest whose holder died without releasing it, then clears
+  /// that hold, after reading again that the very hold is still on file,
+  /// its holder still gone and no recorded run on the guest. A quiet that
+  /// fails is logged and the hold cleared all the same: the guest is left
+  /// for the idle stop, never quieted again at every poll.
+  Future<void> _quietDeadHold(FleetMember member) async {
+    final dead = member.guest?.hold;
+    if (dead == null) return;
+    final path = paths.guestStateFor(member.name);
+    final fresh = GuestState.read(path);
+    String? why;
+    if (fresh == null || fresh.unreadable) {
+      why = 'its state file is gone or does not read';
+    } else if (fresh.hold?.pid != dead.pid) {
+      why = 'its hold changed since this poll read it';
+    } else if (await _isAlive(dead.pid) != Liveness.gone) {
+      why = 'pid ${dead.pid} is not shown gone any more';
+    } else {
+      final run = await recordedRunDevice(
+        paths,
+        host.runner,
+        windows: host.windows,
+      );
+      if (run.unknown) why = 'the recorded flutter run could not be placed';
+      if (run.device == member.serial) why = 'the recorded flutter run is on it';
+    }
+    if (why != null) {
+      log.write('${member.name}: $why — not quieted');
+      return;
+    }
+    final quieter = quiet;
+    if (quieter != null) {
+      final quieted = await quieter(member.serial, always: true);
+      log.write(quieted.line(member.name, 'after its holder died'));
+    }
+    final cleared = GuestState.update(
+      path,
+      (s) => s.hold?.pid == dead.pid ? s.copyWith(clearHold: true) : s,
+    );
+    log.write(
+      cleared
+          ? '${member.name}: the stale hold of ${dead.verb} pid ${dead.pid} '
+                'cleared'
+          : '${member.name}: the stale hold could not be cleared',
+    );
   }
 
   /// Why [decision] must not be carried out after all, or null: a verb

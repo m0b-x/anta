@@ -1,4 +1,6 @@
+import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:flutter_test/flutter_test.dart';
 
@@ -12,6 +14,7 @@ import '../../tool/qa/src/guest_state.dart';
 import '../../tool/qa/src/pass_history.dart' show defaultHistoryReports;
 import '../../tool/qa/src/paths.dart';
 import '../../tool/qa/src/process_runner.dart';
+import '../../tool/qa/src/quiet.dart';
 import '../../tool/qa/src/reap.dart';
 import '../../tool/qa/src/runner.dart' show Liveness, recordedRunProbeScript;
 import '../../tool/qa/src/self_build.dart';
@@ -193,11 +196,15 @@ class _World {
 
   bool existsFleet(String name) => File(fleetFile(name)).existsSync();
 
+  /// What `reap` quiets a guest with; null quiets nothing.
+  Future<GuestQuiet?> Function(FleetMember member)? quiet;
+
   HostReaper reaper() => HostReaper(
     paths: paths,
     runner: runner,
     host: host,
     windows: windows,
+    quiet: quiet,
     isAlive: (pid) async {
       onProbe?.call(pid);
       return runner.unknown.contains(pid)
@@ -250,6 +257,85 @@ void main() {
       path = joinPath(temp.path, ['guest_anta_qa_1.json']);
     });
     tearDown(() => temp.deleteSync(recursive: true));
+
+    test('a hold taken during another process\'s update is not lost', () async {
+      GuestState.booted(path, now);
+      // Another process is mid-update: it has the lock and has read the
+      // file, and writes its change a moment later.
+      final lock = lockStateFile(path, wait: Duration.zero)!;
+      final hold = GuestHold(pid: 77, verb: 'pass', since: now);
+      final taking = Isolate.run(() => GuestState.take(path, hold));
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      writeFileAtomically(
+        path,
+        jsonEncode(
+          GuestState(bootedAt: now, lastUsedAt: now, keep: true).toJson(),
+        ),
+      );
+      lock.deleteSync();
+      expect(await taking, isTrue);
+      final state = GuestState.read(path)!;
+      expect(state.keep, isTrue, reason: 'the other process\'s change stands');
+      expect(state.hold?.pid, 77, reason: 'and the hold went on top of it');
+      expect(File('$path.lock').existsSync(), isFalse);
+    });
+
+    test('a qa run holds its fleet guest until it is let go', () {
+      final root = joinPath(temp.path, ['checkout']);
+      final paths = QaPaths(root)..ensureFleetState();
+      final state = paths.guestStateFor('anta_qa_1');
+      expect(takeRunHold(paths, 'emulator-5554', 300), isFalse);
+      expect(takeRunHold(paths, 'emulator-5556', 300), isTrue);
+      final hold = GuestState.read(state)!.hold!;
+      expect((hold.verb, hold.pid, hold.checkout), ('run', 300, root));
+
+      expect(
+        releaseRunHold(paths, 'emulator-5556', wrapperPid: 301),
+        isFalse,
+        reason: 'another run\'s end is not this one\'s',
+      );
+      expect(
+        releaseRunHold(
+          QaPaths(temp.path, fleetState: paths.fleetState),
+          'emulator-5556',
+        ),
+        isFalse,
+        reason: 'a worktree lets go of its own run only',
+      );
+      expect(releaseRunHold(paths, 'emulator-5556'), isTrue);
+      expect(GuestState.read(state)!.hold, isNull);
+
+      GuestState.take(state, GuestHold(pid: 77, verb: 'pass', since: now));
+      expect(
+        releaseRunHold(paths, 'emulator-5556'),
+        isFalse,
+        reason: 'a pass\'s hold is never a run\'s to clear',
+      );
+      expect(GuestState.read(state)!.hold?.pid, 77);
+    });
+
+    test('a heartbeat gives up on a busy lock; a stale one is taken over', () {
+      GuestState.booted(path, now);
+      final lock = lockStateFile(path, wait: Duration.zero)!;
+      final later = now.add(const Duration(minutes: 1));
+      final started = DateTime.now();
+      expect(GuestState.touch(path, later), isFalse);
+      expect(
+        DateTime.now().difference(started),
+        lessThan(const Duration(seconds: 3)),
+      );
+      expect(GuestState.read(path)!.lastUsedAt, now);
+
+      // Left by a process that died inside its update.
+      lock.setLastModifiedSync(
+        DateTime.now().subtract(stateLockStale * 2),
+      );
+      expect(
+        GuestState.take(path, GuestHold(pid: 77, verb: 'pass', since: later)),
+        isTrue,
+      );
+      expect(GuestState.read(path)!.hold?.pid, 77);
+    });
 
     test(
       'a boot, a use, a hold and its release round-trip through the file',
@@ -625,6 +711,96 @@ void main() {
       },
     );
 
+    test(
+      'the hold of the run reap ends goes with it; another checkout\'s stays',
+      () async {
+        world = _World(alive: {8200});
+        world.write('run.pid', '8200');
+        takeRunHold(world.paths, 'emulator-5556', 8200);
+        final (lines, outcome) = await world.reap();
+        expect(lines.first, 'killed run pid 8200');
+        expect(world.runner.lines, contains('adb -s emulator-5556 emu kill'));
+        expect(outcome.left, isEmpty);
+
+        world.dispose();
+        world = _World(alive: {8300});
+        GuestState.take(
+          world.paths.guestStateFor('anta_qa_1'),
+          GuestHold(
+            pid: 8300,
+            verb: 'run',
+            since: now,
+            checkout: r'D:\wt\anta',
+          ),
+        );
+        final (_, other) = await world.reap();
+        expect(other.left, [startsWith('anta_qa_1 held by run pid 8300')]);
+      },
+    );
+
+    group('quiets a guest before it stops it', () {
+      late List<String> quieted;
+      void quietWith(GuestQuiet result) {
+        quieted = [];
+        world.quiet = (member) async {
+          quieted.add(member.name);
+          expect(
+            world.runner.lines,
+            isNot(contains('adb -s emulator-5556 emu kill')),
+            reason: 'the quiet comes before the stop',
+          );
+          return result;
+        };
+      }
+
+      test('says what it cancelled, then stops', () async {
+        world = _World();
+        quietWith(const GuestQuiet(before: 3, after: 0, relaunched: true));
+        final (lines, outcome) = await world.reap();
+        expect(quieted, ['anta_qa_1']);
+        expect(lines.take(2), [
+          'quiet: 3 alarm(s) on anta_qa_1 cancelled before the stop',
+          startsWith('stopped: anta_qa_1 (emulator-5556)'),
+        ]);
+        expect(outcome.failed, isFalse);
+      });
+
+      test('a guest with nothing armed stops with its usual lines', () async {
+        world = _World();
+        quietWith(const GuestQuiet(before: 0));
+        final (lines, _) = await world.reap();
+        expect(lines.first, startsWith('stopped: anta_qa_1 (emulator-5556)'));
+      });
+
+      test('a quiet that fails warns and the stop goes ahead', () async {
+        world = _World();
+        quietWith(const GuestQuiet(failure: 'the relaunch exited 3'));
+        final (lines, outcome) = await world.reap();
+        expect(lines.first, startsWith('warning: quiet: anta_qa_1 was not'));
+        expect(world.runner.lines, contains('adb -s emulator-5556 emu kill'));
+        expect(outcome.failed, isFalse);
+      });
+
+      test('a held guest is never quieted, even with --force', () async {
+        world = _World(alive: {77});
+        quietWith(const GuestQuiet(before: 3, after: 0, relaunched: true));
+        GuestState.take(
+          world.paths.guestStateFor('anta_qa_1'),
+          GuestHold(pid: 77, verb: 'pass', since: now),
+        );
+        await world.reap(force: true);
+        expect(quieted, isEmpty);
+        expect(world.runner.lines, contains('adb -s emulator-5556 emu kill'));
+      });
+
+      test('a dry run quiets nothing', () async {
+        world = _World();
+        quietWith(const GuestQuiet(before: 3, after: 0, relaunched: true));
+        await world.reap(dryRun: true);
+        expect(quieted, isEmpty);
+      });
+    });
+
     test('a hold whose pass died holds nothing', () async {
       world = _World();
       GuestState.take(
@@ -887,6 +1063,30 @@ void main() {
       expect(outcome.failed, isFalse);
     });
 
+    test('a boot lock is removed only when its owner is gone', () async {
+      String lock(int pid) => jsonEncode({
+        'pid': pid,
+        'avd': 'anta_qa_2',
+        'at': DateTime.now().toIso8601String(),
+        'checkout': '/elsewhere',
+      });
+      world = _World(windows: false, alive: {8300});
+      world.writeFleet('boot.lock', lock(8300));
+      await world.reap();
+      expect(world.existsFleet('boot.lock'), isTrue, reason: 'a live boot');
+      world.runner.unknown.add(8301);
+      world.writeFleet('boot.lock', lock(8301));
+      await world.reap();
+      expect(world.existsFleet('boot.lock'), isTrue, reason: 'unchecked');
+      world.writeFleet('boot.lock', lock(8302));
+      final (lines, _) = await world.reap();
+      expect(world.existsFleet('boot.lock'), isFalse);
+      expect(
+        lines,
+        contains('removed boot.lock (pid 8302 booting anta_qa_2 is gone)'),
+      );
+    });
+
     test(
       'off Windows a live pid is the run only while it runs this checkout\'s '
       'wrapper',
@@ -970,6 +1170,24 @@ void main() {
         'guest that is up starts one)',
       );
     });
+
+    test('armed app alarms on a guest no one holds are a leftover', () {
+      final warn = checkLeftovers(
+        idleGuests: [],
+        orphanedCrashHandlers: [],
+        stalePidFiles: [],
+        armedGuests: ['anta_qa_1 (3)', 'anta_qa_2 (0, ringing)'],
+      );
+      expect(warn.status, CheckStatus.warn);
+      expect(
+        warn.detail,
+        startsWith(
+          'app alarms armed or ringing on fleet guests no one holds: '
+          'anta_qa_1 (3), anta_qa_2 (0, ringing)',
+        ),
+      );
+      expect(warn.fix, startsWith('`qa reap`'));
+    });
   });
 
   test(
@@ -1015,6 +1233,76 @@ void main() {
       isFalse,
       reason: 'no hold, so no pass to tell',
     );
+  });
+
+  group('fleet stop quiets a guest no one holds', () {
+    late _World world;
+    late List<String> said;
+    late List<String> quieted;
+    late _FleetContext ctx;
+
+    Future<int?> stop(List<String> args) {
+      ctx = _FleetContext(
+        QaCommandRunner().argParser.parse(const []),
+        paths: world.paths,
+        host: world.host,
+      )..quiet = (serial) async {
+          quieted.add(serial);
+          expect(
+            world.runner.lines,
+            isNot(contains('adb -s emulator-5556 emu kill')),
+            reason: 'the quiet comes before the stop',
+          );
+          return const GuestQuiet(before: 3, after: 0, relaunched: true);
+        };
+      return (QaCommandRunner(
+        contextFactory: (_) => ctx,
+        commands: [FleetCommand()],
+      )..lineSink = (line, {required prefix, required isError}) =>
+          said.add(line)).run(['fleet', 'stop', ...args]);
+    }
+
+    setUp(() {
+      world = _World(windows: false, alive: {300});
+      said = [];
+      quieted = [];
+    });
+    tearDown(() => world.dispose());
+
+    test('says what it cancelled, then stops', () async {
+      expect(await stop(['1']), 0);
+      expect(quieted, ['emulator-5556']);
+      expect(
+        ctx.alwaysAsked,
+        [true],
+        reason: 'the count cannot see what a force-stopped app stores',
+      );
+      expect(said, [
+        'quiet: 3 alarm(s) on anta_qa_1 cancelled before the stop',
+        startsWith('stopped: anta_qa_1 (emulator-5556)'),
+      ]);
+    });
+
+    test('--as-crash stands in for a crash and quiets nothing', () async {
+      expect(await stop(['1', '--force', '--as-crash']), 0);
+      expect(quieted, isEmpty);
+    });
+
+    test('a held guest is its holder\'s: --force stops it unquieted', () async {
+      GuestState.take(
+        world.paths.guestStateFor('anta_qa_1'),
+        GuestHold(pid: 300, verb: 'pass', since: now),
+      );
+      expect(await stop(['1', '--force']), 0);
+      expect(quieted, isEmpty);
+    });
+
+    test('a port another emulator answers on is never quieted', () async {
+      world.dispose();
+      world = _World(windows: false, avdName: 'Pixel_9_Pro\r\nOK');
+      await stop(['1']);
+      expect(quieted, isEmpty);
+    });
   });
 
   group('a stop someone asks for on a held guest', () {
@@ -1125,6 +1413,18 @@ class _FleetContext extends QaContext {
 
   final FleetHost host;
 
+  /// Answers [quietFleetGuest] in place of a child relaunch.
+  Future<GuestQuiet> Function(String serial)? quiet;
+
+  /// The `always` of every [quietFleetGuest] call, in order.
+  final List<bool> alwaysAsked = [];
+
   @override
   FleetHost fleetHost() => host;
+
+  @override
+  Future<GuestQuiet> quietFleetGuest(String serial, {bool always = false}) {
+    alwaysAsked.add(always);
+    return quiet?.call(serial) ?? super.quietFleetGuest(serial, always: always);
+  }
 }

@@ -229,6 +229,10 @@ class MacosDevice implements Device {
       pushSeedTo(await documentsDir(), localPath, mustExist: true);
 
   @override
+  Future<bool> discardPendingSeed() async =>
+      discardSeedAt(await documentsDir());
+
+  @override
   Future<List<int>> screencapPng() => throw UnsupportedOnPlatform(
     'a native screenshot',
     'the macOS desktop app',

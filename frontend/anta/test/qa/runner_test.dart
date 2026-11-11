@@ -635,5 +635,52 @@ void main() {
         throwsA(isA<DeviceFailure>()),
       );
     });
+
+    test('a pending seed is removed inside the sandbox and reported', () async {
+      final fake = FakeProcessRunner();
+      final adb = Adb(executable: 'adb', runner: fake, serial: 'e');
+      expect(await discardSeed(adb), isTrue);
+      expect(
+        fake.lines.single,
+        'adb -s e shell run-as com.alexzamfir.anta rm '
+        '/data/user/0/com.alexzamfir.anta/app_flutter/qa_seed.json',
+      );
+    });
+
+    test('no pending seed reads as none, not as a failure', () async {
+      final fake = FakeProcessRunner(
+        defaultOutcome: const RunOutcome(
+          1,
+          '',
+          'rm: /data/user/0/com.alexzamfir.anta/app_flutter/qa_seed.json: '
+              'No such file or directory',
+        ),
+      );
+      final adb = Adb(executable: 'adb', runner: fake, serial: 'e');
+      expect(await discardSeed(adb), isFalse);
+    });
+
+    test('a run-as refusal while discarding is a device failure', () async {
+      final fake = FakeProcessRunner(
+        defaultOutcome: const RunOutcome(
+          1,
+          '',
+          'run-as: package not debuggable: com.alexzamfir.anta',
+        ),
+      );
+      final adb = Adb(executable: 'adb', runner: fake, serial: 'e');
+      expect(() => discardSeed(adb), throwsA(isA<DeviceFailure>()));
+    });
+
+    test('a seed waiting on the host side is deleted once', () async {
+      final dir = Directory.systemTemp.createTempSync('anta_qa_discard_');
+      addTearDown(() => dir.deleteSync(recursive: true));
+      File(
+        '${dir.path}${Platform.pathSeparator}$seedMarker',
+      ).writeAsStringSync('{}');
+      expect(await discardSeedAt(dir.path), isTrue);
+      expect(pendingMarkersAt(dir.path), isEmpty);
+      expect(await discardSeedAt(dir.path), isFalse);
+    });
   });
 }

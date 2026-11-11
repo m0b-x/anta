@@ -30,7 +30,7 @@ class GuestHold {
 
   final int pid;
 
-  /// `pass` or `fleet install`: what `fleet status` and `reap` name.
+  /// `pass`, `fleet install` or `run`: what `fleet status` and `reap` name.
   final String verb;
   final DateTime since;
 
@@ -208,18 +208,39 @@ class GuestState {
   /// drop a hold for good. The write goes to a temporary file renamed over
   /// [path], so a reader never sees a half-written one. Returns false when
   /// nothing was written, which no caller treats as an error.
-  static bool update(String path, GuestState Function(GuestState) change) {
-    for (var attempt = 0; ; attempt++) {
-      final current = read(path);
-      if (current != null && current.unreadable) {
-        if (attempt >= _unreadableRetries) return false;
-        sleep(_retryPause);
-        continue;
+  ///
+  /// The read and the write happen under [lockStateFile]: two processes —
+  /// a pass's heartbeat and another session's `fleet status`, a hold taken
+  /// as the guard releases one — would otherwise both read the old file and
+  /// the second rename would drop the first one's change. A [bestEffort]
+  /// writer (a touch, a heartbeat) gives up after a moment rather than wait
+  /// on another; every other writer waits until the lock is stale and takes
+  /// it over, so a hold is never lost to a holder that died mid-update.
+  static bool update(
+    String path,
+    GuestState Function(GuestState) change, {
+    bool bestEffort = false,
+  }) {
+    final lock = lockStateFile(
+      path,
+      wait: bestEffort ? bestEffortLockWait : stateLockStale * 2,
+    );
+    if (lock == null) return false;
+    try {
+      for (var attempt = 0; ; attempt++) {
+        final current = read(path);
+        if (current != null && current.unreadable) {
+          if (attempt >= _unreadableRetries) return false;
+          sleep(_retryPause);
+          continue;
+        }
+        return writeFileAtomically(
+          path,
+          jsonEncode(change(current ?? const GuestState()).toJson()),
+        );
       }
-      return writeFileAtomically(
-        path,
-        jsonEncode(change(current ?? const GuestState()).toJson()),
-      );
+    } finally {
+      _deleteQuietly(lock);
     }
   }
 
@@ -241,7 +262,7 @@ class GuestState {
       update(path, (s) => s.copyWith(lastUsedAt: at, keep: true));
 
   static bool touch(String path, DateTime at) =>
-      update(path, (s) => s.copyWith(lastUsedAt: at));
+      update(path, (s) => s.copyWith(lastUsedAt: at), bestEffort: true);
 
   static bool take(String path, GuestHold hold) =>
       update(path, (s) => s.copyWith(hold: hold, lastUsedAt: hold.since));
@@ -253,6 +274,7 @@ class GuestState {
     (s) => s.hold?.pid == pid
         ? s.copyWith(hold: s.hold!.withBeat(at), lastUsedAt: at)
         : s.copyWith(lastUsedAt: at),
+    bestEffort: true,
   );
 
   /// Clears the hold only when [pid] set it, so a holder that ends late
@@ -368,6 +390,46 @@ StopRequest stopRequestNow(String by, QaPaths paths) => StopRequest(
 
 const Duration _retryPause = Duration(milliseconds: 40);
 
+/// How old a state file's lock is before it counts as left behind: an
+/// update holds it for a read and a rename, milliseconds, so one this old
+/// belongs to a process that died inside it.
+const Duration stateLockStale = Duration(seconds: 10);
+
+/// How long a best-effort writer waits for another's lock.
+const Duration bestEffortLockWait = Duration(milliseconds: 500);
+
+/// Takes `<path>.lock` by creating it exclusively — the one file operation
+/// two processes cannot both win — retrying every 40 ms for up to [wait],
+/// and taking over a lock older than [stateLockStale]. Null when it could
+/// not be had in time; the caller's update is then not made.
+File? lockStateFile(String path, {required Duration wait}) {
+  final lock = File('$path.lock');
+  final deadline = DateTime.now().add(wait);
+  while (true) {
+    try {
+      lock.parent.createSync(recursive: true);
+      lock.createSync(exclusive: true);
+      return lock;
+    } on FileSystemException {
+      // Held by another update, or left by one that died. A lock that could
+      // not be dated is waited on like a live one.
+      final DateTime? modified;
+      try {
+        modified = lock.lastModifiedSync();
+      } on FileSystemException {
+        if (DateTime.now().isAfter(deadline)) return null;
+        continue;
+      }
+      if (DateTime.now().difference(modified) > stateLockStale &&
+          _deleteQuietly(lock)) {
+        continue;
+      }
+      if (DateTime.now().isAfter(deadline)) return null;
+      sleep(_retryPause);
+    }
+  }
+}
+
 /// Writes [text] to a temporary file beside [path] and renames it into
 /// place, so a reader sees the old file or the new one, never a part of
 /// either; a rename Windows refuses while a reader has the file open is
@@ -394,12 +456,50 @@ bool writeFileAtomically(String path, String text) {
   return false;
 }
 
-void _deleteQuietly(File file) {
+bool _deleteQuietly(File file) {
   try {
     file.deleteSync();
+    return true;
   } on FileSystemException {
-    return;
+    return false;
   }
+}
+
+/// The verb of the hold a `qa run` (or `qa attach`) takes on a fleet guest.
+const String runHoldVerb = 'run';
+
+/// A `flutter run` this checkout started on fleet guest [serial] holds it
+/// through the wrapper [wrapperPid]: the guard's own probe sees only its
+/// own checkout's `run.pid`, so a run from a worktree was otherwise idle to
+/// it. False when [serial] is no fleet guest or nothing was written.
+bool takeRunHold(QaPaths paths, String serial, int wrapperPid) {
+  final path = guestStatePathFor(paths, serial);
+  if (path == null) return false;
+  return GuestState.take(
+    path,
+    GuestHold(
+      pid: wrapperPid,
+      verb: runHoldVerb,
+      since: DateTime.now(),
+      checkout: paths.projectRoot,
+    ),
+  );
+}
+
+/// Clears the `run` hold this checkout took on fleet guest [serial] — when
+/// [wrapperPid] is given, only that run's — and leaves every other hold, a
+/// pass's above all, as it is. False when there was none to clear.
+bool releaseRunHold(QaPaths paths, String serial, {int? wrapperPid}) {
+  final path = guestStatePathFor(paths, serial);
+  if (path == null) return false;
+  final hold = GuestState.read(path)?.hold;
+  if (hold == null ||
+      hold.verb != runHoldVerb ||
+      hold.checkout != paths.projectRoot ||
+      (wrapperPid != null && hold.pid != wrapperPid)) {
+    return false;
+  }
+  return GuestState.release(path, hold.pid, DateTime.now());
 }
 
 /// The state file of the fleet guest on [serial], or null for a serial

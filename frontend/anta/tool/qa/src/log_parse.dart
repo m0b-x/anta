@@ -92,10 +92,14 @@ List<String> errorLines(String logText, {int limit = 50}) {
 
 /// Lines a QA launch prints on the `[qa]` channel as it consumes its markers.
 class QaMarkerLines {
-  const QaMarkerLines({this.reset, this.seed, this.onboarding});
+  const QaMarkerLines({this.reset, this.quiet, this.seed, this.onboarding});
 
   /// `[qa] reset: cleared preferences and qa.db`
   final String? reset;
+
+  /// `[qa] quiet: stopped 1 ring(s), cancelled 6 alarm(s), …` — or `quiet
+  /// threw …`; a reset launch prints it once its alert tier is quiet.
+  final String? quiet;
 
   /// `[qa] seed: imported 4 folders, 3 notes` — or the failure wording.
   final String? seed;
@@ -104,7 +108,7 @@ class QaMarkerLines {
   final String? onboarding;
 
   List<String> get all =>
-      [reset, seed, onboarding].whereType<String>().toList();
+      [reset, quiet, seed, onboarding].whereType<String>().toList();
 
   /// Whether the seed line reports that the import did not happen.
   ///
@@ -131,6 +135,7 @@ final RegExp _qaLine = RegExp(r'\[qa\]\s*(.*)$');
 /// and the last occurrence of each wins.
 QaMarkerLines parseQaMarkers(String text) {
   String? reset;
+  String? quiet;
   String? seed;
   String? onboarding;
   for (final raw in text.split('\n')) {
@@ -139,13 +144,20 @@ QaMarkerLines parseQaMarkers(String text) {
     final body = match.group(1)!.trim();
     if (body.startsWith('reset')) {
       reset = body;
+    } else if (body.startsWith('quiet')) {
+      quiet = body;
     } else if (body.startsWith('seed')) {
       seed = body;
     } else if (body.startsWith('onboarding')) {
       onboarding = body;
     }
   }
-  return QaMarkerLines(reset: reset, seed: seed, onboarding: onboarding);
+  return QaMarkerLines(
+    reset: reset,
+    quiet: quiet,
+    seed: seed,
+    onboarding: onboarding,
+  );
 }
 
 final RegExp _emulatorFatal = RegExp(

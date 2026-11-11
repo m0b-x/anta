@@ -10,7 +10,7 @@ description: Drive the ANTA app on the Android emulator fleet, the iOS simulator
 2. A seed goes in with `qa relaunch --fresh --seed …` — which is what `qa pass` does before every flow — never with `qa run`: `run` builds first, so a clock-relative seed (the alerts fixtures) comes out of the build already stale. After a `lib/` change the fleet path is `qa fleet install --build`, then the pass.
 3. Never start a `flutter test` beside a QA `flutter run` or a `qa build`: two Flutter processes race on `build/native_assets` and kill each other. A pass itself runs no Flutter process, so `flutter test` can run beside `qa fleet pass`.
 4. The fleet verbs act only on AVDs named `anta_qa_*`. The owner's windowed `Pixel_9_Pro` (`emulator-5554`) is never booted, stopped, seeded or wiped by a QA agent; no verb deletes an AVD, wipes data, clears or uninstalls the app. `ANTA_Personal` (`emulator-5680`) is the owner's signed-in sync device, hidden on a private adb server (port 5039) so the harness cannot see it — never set `ANDROID_ADB_SERVER_PORT`, never run its launcher, never install a QA build on it (one would cut its sync off).
-5. Leave nothing behind, and never clean up by hand. End a pass by stopping the guest you used (`qa fleet stop anta_qa_N --force` — graceful while adb answers, the guarded kill when it does not); `qa reap` returns the whole host to clean when it is yours alone or something failed (`--dry-run` shows what it would do). A guest nobody stops is stopped by the guard after thirty idle minutes. What to run for each failure: `references/recovery.md`.
+5. Leave nothing behind, and never clean up by hand. End a pass by stopping the guest you used (`qa fleet stop anta_qa_N`; `--force` when it is hung or off adb; a `refused` means another pass holds it — leave it); `qa reap` returns the whole host to clean when it is yours alone or something failed (`--dry-run` shows what it would do). A guest nobody stops is stopped by the guard after thirty idle minutes. What to run for each failure: `references/recovery.md`.
 
 One CLI drives whichever device is attached: a headless fleet emulator, the owner's emulator, an iOS simulator or the macOS desktop build. Run it from `frontend/anta`, through the wrapper:
 
@@ -48,7 +48,7 @@ $q pass sync -d emulator-5556          # the Sync section on a syncing database:
 $q pass calendar --only 19_fasting_schedule -d emulator-5556   # one flow: reseed, prelude, the flow (a reseed=suite suite re-runs whole, never --only)
 $q pass --summary build/qa/pass/<dir>/report.json              # reprint any report; --merge joins shard reports
 $q pass --history calendar             # per flow over the newest twenty reports: runs, reds, recoveries, a flaky mark
-$q fleet stop anta_qa_1 --force        # the end of a pass: stop the guest you used
+$q fleet stop anta_qa_1                # the end of a pass: stop the guest you used (--force for a hung one; refused while another pass holds it)
 $q reap                                # the whole host back to clean (--dry-run first to see what it would do)
 ```
 
@@ -116,7 +116,7 @@ Flags, an example and the real output of each: `references/verbs.md`. Every acti
 - `reap [--dry-run] [--force] [--prune]` — the host back to clean: the recorded run, every fleet guest without a live hold, orphaned emulator crash handlers, stale state files (`references/recovery.md`).
 - `build [--define K=V]… [--no-driver] [--force]` — the QA driver APK once (`build/qa/apk.json`); refused beside a live `qa run`.
 - `install [--apk P] [--grant]` — `adb install` + one launch on the selected device (`installed_<device>.json`); `--grant` adds the notification permission a pass needs.
-- `fleet create|boot|status|stop|install|pass` — the minimized AVDs `anta_qa_N` (`references/harness-notes.md` "The fleet"); `boot --visible`, `boot --keep-up`, `stop --force`, `pass --keep-state`. `fleet boot` starts the guard (`fleet guard`, not a verb for people) and `fleet status` ends with its line.
+- `fleet create|boot|status|stop|install|pass` — the minimized AVDs `anta_qa_N` (`references/harness-notes.md` "The fleet"); `boot --visible`, `boot --keep-up`, `stop` (refuses a held guest), `stop --force` (ends the pass on it), `pass --keep-state`, `pass --flow-ceiling S --max-minutes M`. `fleet boot` starts the guard (`fleet guard`, not a verb for people) and `fleet status` ends with its line.
 - `devices`, `state`, `doctor [--fix]`, `boot [--avd N | --sim N] [--cold]` — the owner's emulator or a simulator, never the fleet.
 - `run [--fresh] [--seed F] [--setting K=V] [--define K=V]`, `relaunch [--fresh] [--seed F] [--setting K=V]`, `launch`, `attach`, `stop`, `kill-run`, `dtd`, `agent [info|<op>]`.
 - `shot`, `dump [--all] [--json] [--cached]`, `look`, `expect`, `wait [--gone] [--timeout S]`, `text`.

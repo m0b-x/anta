@@ -112,6 +112,10 @@ class IosDevice implements Device {
       pushSeedTo(await documentsDir(), localPath);
 
   @override
+  Future<bool> discardPendingSeed() async =>
+      discardSeedAt(await documentsDir());
+
+  @override
   Future<List<int>> screencapPng() => simctl.screenshotPng(sim.udid);
 
   @override

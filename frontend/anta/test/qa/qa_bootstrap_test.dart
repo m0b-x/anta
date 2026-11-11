@@ -245,6 +245,69 @@ void main() {
     });
   });
 
+  group('reset quiet', () {
+    late int quiets;
+
+    QaBootstrap quieting({bool throws = false, bool enabled = true}) {
+      quiets = 0;
+      final base = build(enabled: enabled);
+      return QaBootstrap(
+        documentsPath: base.documentsPath,
+        clearPreferences: base.clearPreferences,
+        importSeed: base.importSeed,
+        isOnboardingCompleted: base.isOnboardingCompleted,
+        markOnboardingCompleted: base.markOnboardingCompleted,
+        signOut: base.signOut,
+        signOutOnReset: false,
+        enabled: enabled,
+        quietAlerts: () async {
+          quiets++;
+          if (throws) throw StateError('no binding');
+          return 'stopped 1 ring(s), cancelled 0 alarm(s), took down 0 '
+              'notification(s)';
+        },
+      );
+    }
+
+    test('a reset launch ends what the alert tier kept and says so', () async {
+      await marker('qa_reset').writeAsString('');
+      final bootstrap = quieting();
+      await bootstrap.applyResetMarker();
+
+      expect(await bootstrap.applyResetQuiet(), isTrue);
+      expect(quiets, 1);
+      expect(QaBootstrap.entries.last.kind, 'quiet');
+      expect(QaBootstrap.log.last, startsWith('quiet: stopped 1 ring(s)'));
+    });
+
+    test('a launch without the reset leaves a ring alone', () async {
+      final bootstrap = quieting();
+      await bootstrap.applyResetMarker();
+
+      expect(await bootstrap.applyResetQuiet(), isFalse);
+      expect(quiets, 0);
+    });
+
+    test('a quiet that throws is a logged failure, not a crash', () async {
+      await marker('qa_reset').writeAsString('');
+      final bootstrap = quieting(throws: true);
+      await bootstrap.applyResetMarker();
+
+      expect(await bootstrap.applyResetQuiet(), isFalse);
+      expect(QaBootstrap.entries.last.kind, 'quiet');
+      expect(QaBootstrap.entries.last.ok, isFalse);
+    });
+
+    test('a disabled build quiets nothing', () async {
+      await marker('qa_reset').writeAsString('');
+      final bootstrap = quieting(enabled: false);
+      await bootstrap.applyResetMarker();
+
+      expect(await bootstrap.applyResetQuiet(), isFalse);
+      expect(quiets, 0);
+    });
+  });
+
   group('disabled', () {
     test('every hook is a no-op and every marker survives', () async {
       await seedDatabaseFiles();

@@ -1375,7 +1375,8 @@ List<String> fleetInstallChildArgs(
 /// The `qa fleet boot <name>` a recycle runs after its stop: the boot path
 /// with its pin, its minimized window and its launch-count reset, and the
 /// [priority] word the guest ran with ([priorityOptionOf]) so a recycle
-/// does not undo the owner's choice.
+/// does not undo the owner's choice. `--no-quiet`: the pass's reseed
+/// after it cancels the alarms, so the boot spends no time on them.
 List<String> fleetBootChildArgs(
   String name, {
   bool verbose = false,
@@ -1386,6 +1387,7 @@ List<String> fleetBootChildArgs(
   'boot',
   name,
   if (priority != null) '--priority=$priority',
+  '--no-quiet',
 ];
 
 /// One shard of a fleet pass: `qa -d <serial> pass <suite> --shard i/n`,
@@ -1458,6 +1460,7 @@ class ChildOutcome {
     required this.exitCode,
     required this.took,
     required this.started,
+    this.timedOut = false,
   });
 
   final int exitCode;
@@ -1465,17 +1468,23 @@ class ChildOutcome {
 
   /// False when the process could not be started at all.
   final bool started;
+
+  /// The child ran past its time limit and was killed.
+  final bool timedOut;
 }
 
 /// Runs a child `qa`, teeing its output to [logPath] and handing every
 /// line to [onLine] as it arrives. The child skips its own self-rebuild:
 /// the parent already did it, and three children racing to compile would
-/// only queue on the lock.
+/// only queue on the lock. Past [timeout] the child itself is killed — not
+/// its tree, which may hold the shared adb server — and its output is no
+/// longer waited for.
 Future<ChildOutcome> runQaChild({
   required String executable,
   required List<String> arguments,
   required String workingDirectory,
   String? logPath,
+  Duration? timeout,
   required void Function(String line, bool isError) onLine,
 }) async {
   final started = DateTime.now();
@@ -1503,14 +1512,39 @@ Future<ChildOutcome> runQaChild({
     );
   }
   unawaited(process.stdin.close());
+  var logOpen = true;
   Future<void> pump(Stream<List<int>> stream, bool isError) => stream
       .transform(const Utf8Decoder(allowMalformed: true))
       .transform(const LineSplitter())
       .forEach((line) {
-        log?.writeln(isError ? '! $line' : line);
+        if (logOpen) log?.writeln(isError ? '! $line' : line);
         onLine(line, isError);
       });
-  await Future.wait([pump(process.stdout, false), pump(process.stderr, true)]);
+  final pumped = Future.wait([
+    pump(process.stdout, false),
+    pump(process.stderr, true),
+  ]);
+  if (timeout != null) {
+    final ended = await process.exitCode
+        .then((_) => true)
+        .timeout(timeout, onTimeout: () => false);
+    if (!ended) {
+      process.kill();
+      // A grandchild that inherited the pipes can keep them open; the
+      // child's own end is all this waits for.
+      await pumped.timeout(const Duration(seconds: 2), onTimeout: () => []);
+      logOpen = false;
+      await log?.flush();
+      await log?.close();
+      return ChildOutcome(
+        exitCode: exitDevice,
+        took: DateTime.now().difference(started),
+        started: true,
+        timedOut: true,
+      );
+    }
+  }
+  await pumped;
   final code = await process.exitCode;
   await log?.flush();
   await log?.close();

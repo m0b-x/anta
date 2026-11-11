@@ -4,9 +4,10 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../tool/qa/qa.dart'
-    show InstalledLaunch, QaCommand, QaCommandRunner, QaContext;
+    show InstalledLaunch, QaCommand, QaCommandRunner, QaContext, QaMarkers;
 import '../../tool/qa/src/agent_client.dart';
 import '../../tool/qa/src/agent_protocol.dart';
+import '../../tool/qa/src/cancel.dart';
 import '../../tool/qa/src/device.dart';
 import '../../tool/qa/src/device_select.dart';
 import '../../tool/qa/src/errors.dart';
@@ -367,6 +368,138 @@ void main() {
       );
     });
   });
+
+  group('a seedless fresh launch', () {
+    late Directory root;
+    late _MarkerDevice device;
+    late List<String> said;
+
+    Future<int?> runVerb(List<String> args) {
+      final ctx = _LaunchContext(
+        QaCommandRunner().argParser.parse(['-d', 'emulator-5556']),
+        paths: QaPaths(root.path),
+        dev: device,
+      );
+      final runner = QaCommandRunner(
+        contextFactory: (_) => ctx,
+        commands: [_MarkerVerb(), _CancelledLaunch()],
+      )..lineSink = (line, {required prefix, required isError}) => said.add(line);
+      return runner.run(['-d', 'emulator-5556', ...args]);
+    }
+
+    setUp(() {
+      root = Directory.systemTemp.createTempSync('anta_qa_markers_');
+      device = _MarkerDevice();
+      said = [];
+    });
+
+    tearDown(() => root.deleteSync(recursive: true));
+
+    test('removes a seed an interrupted reseed left pending', () async {
+      device.seedPending = true;
+      await runVerb(['markers-test', '--fresh']);
+      expect(device.events, ['reset', 'discard seed']);
+      expect(said, contains(startsWith('removed a pending qa_seed.json')));
+    });
+
+    test('says nothing more when no seed was pending', () async {
+      await runVerb(['markers-test', '--fresh']);
+      expect(device.events, ['reset', 'discard seed']);
+      expect(said, ['qa_reset marker dropped']);
+    });
+
+    test('a cancelled launch prints no diagnosis', () async {
+      await expectLater(
+        runVerb(['cancelled-launch']),
+        throwsA(isA<Cancelled>()),
+      );
+      expect(said.where((l) => l.startsWith('warning')), isEmpty);
+    });
+  });
+}
+
+/// An Android device that records the markers placed on it and whose app
+/// never brings its VM service up.
+class _MarkerDevice implements Device {
+  final List<String> events = [];
+  bool seedPending = false;
+
+  @override
+  DeviceKind get kind => DeviceKind.android;
+
+  @override
+  String get id => 'emulator-5556';
+
+  @override
+  String get label => 'Android emulator-5556';
+
+  @override
+  String get packageId => 'com.alexzamfir.anta';
+
+  @override
+  UiDriver? get nativeDriver => _NativeDriver();
+
+  @override
+  Future<bool> isInstalled() async => true;
+
+  @override
+  Future<void> dropResetMarker() async => events.add('reset');
+
+  @override
+  Future<bool> discardPendingSeed() async {
+    events.add('discard seed');
+    return seedPending;
+  }
+
+  @override
+  Future<int?> appPid() async => 4242;
+
+  @override
+  Future<AppLaunch> launchApp({
+    required int vmServicePort,
+    int? previousVmServicePort,
+  }) async => const AppLaunch(
+    vmServiceUri: 'http://127.0.0.1:1/',
+    description: 'scripted',
+  );
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _MarkerVerb extends QaCommand with QaMarkers {
+  _MarkerVerb() {
+    addMarkerOptions(argParser);
+  }
+
+  @override
+  String get name => 'markers-test';
+
+  @override
+  String get description => 'places the markers asked for';
+
+  @override
+  Future<int> run() async {
+    await applyMarkers(context, await context.device());
+    return 0;
+  }
+}
+
+/// A launch made under work already cancelled, the way Ctrl+C lands in a
+/// pass's reseed.
+class _CancelledLaunch extends QaCommand with InstalledLaunch {
+  @override
+  String get name => 'cancelled-launch';
+
+  @override
+  String get description => 'launches under a cancelled token';
+
+  @override
+  Future<int> run() async {
+    final token = CancelToken()..cancel('interrupted');
+    await token.run(() => launchInstalled(context));
+    return 0;
+  }
 }
 
 class _NativeDriver implements UiDriver {

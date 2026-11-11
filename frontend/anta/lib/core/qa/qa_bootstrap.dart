@@ -1,15 +1,18 @@
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../constants/alert_constants.dart';
+import '../../services/alert_gateway.dart';
 import '../../services/auth_service.dart';
 import '../../services/backup_service.dart';
 import '../../services/settings_service.dart';
 import '../di/injection.dart';
+import 'qa_alert_quiet.dart';
 import 'qa_mode.dart';
 
 /// Imports a full-backup JSON document and reports whether it succeeded and
@@ -48,6 +51,7 @@ class QaBootstrap {
     required this.isOnboardingCompleted,
     required this.markOnboardingCompleted,
     required this.signOut,
+    this.quietAlerts,
     this.databaseName = QaMode.databaseName,
     this.skipOnboarding = QaMode.skipOnboarding,
     this.signOutOnReset = QaMode.useFirebaseEmulator,
@@ -83,6 +87,13 @@ class QaBootstrap {
   /// a restarted Auth emulator a bare uid that behaves offline. Only that
   /// build: a QA build without the emulator never reaches Firebase.
   final bool signOutOnReset;
+
+  /// Ends what the alert tier still holds from the last run —
+  /// `quietQaAlerts` in the app — and answers the `[qa]` line's wording.
+  /// A ring in progress outlives the database a reset deletes, so without it
+  /// a reset launch could open on the last run's alarm page. Null quiets
+  /// nothing.
+  final Future<String> Function()? quietAlerts;
 
   /// Whether [applyResetMarker] fired in this process, which is what makes a
   /// launch fresh for [applyResetSignOut].
@@ -124,6 +135,8 @@ class QaBootstrap {
     if (!QaMode.enabled) return;
     final bootstrap = await _forApp();
     await bootstrap.applyResetSignOut();
+    // Before the seed, whose reconcile arms the new run's alarms.
+    await bootstrap.applyResetQuiet();
     await bootstrap.applySeedMarker();
     await bootstrap.applyOnboardingSkip();
   }
@@ -173,6 +186,24 @@ class QaBootstrap {
       markOnboardingCompleted: () async =>
           (await SettingsService.getInstance()).setOnboardingCompleted(true),
       signOut: () => getIt<AuthService>().signOut(),
+      quietAlerts: () {
+        final notifications = FlutterLocalNotificationsPlugin();
+        return quietQaAlerts(
+          gateway: getIt<AlertGateway>(),
+          databaseName: QaMode.databaseName,
+          shown: () async {
+            // Only Android posts alert notifications a launch can inherit.
+            if (!Platform.isAndroid) return const [];
+            return [
+              for (final shown in await notifications.getActiveNotifications())
+                if (shown.id != null)
+                  (id: shown.id!, tag: shown.tag, payload: shown.payload),
+            ];
+          },
+          dismiss: (shown) =>
+              notifications.cancel(id: shown.id, tag: shown.tag),
+        );
+      },
     );
   }
 
@@ -222,6 +253,23 @@ class QaBootstrap {
       return true;
     } catch (e) {
       _say('signout', false, 'sign-out threw $e');
+      return false;
+    }
+  }
+
+  /// Runs [quietAlerts] when this launch applied the reset marker, so a reset
+  /// run opens with no ring, no stored alarm and no alert notification left
+  /// from the run before. A quiet that throws is logged, never thrown: the
+  /// harness's own count then reports the guest as not quiet. Returns whether
+  /// it ran to the end.
+  Future<bool> applyResetQuiet() async {
+    final quiet = quietAlerts;
+    if (!enabled || !_resetApplied || quiet == null) return false;
+    try {
+      _say('quiet', true, 'quiet: ${await quiet()}');
+      return true;
+    } catch (e) {
+      _say('quiet', false, 'quiet threw $e');
       return false;
     }
   }

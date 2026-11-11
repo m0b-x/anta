@@ -24,6 +24,8 @@ import '../../tool/qa/src/agent_protocol.dart';
 import '../../tool/qa/src/device.dart';
 import '../../tool/qa/src/poll.dart';
 import '../../tool/qa/src/guard.dart' show guardProbeScript, guardStartScript;
+import '../../tool/qa/src/markers.dart' show discardSeedCommand;
+import '../../tool/qa/src/quiet.dart' show quietRelaunchArgs;
 import '../../tool/qa/src/reap.dart' show crashHandlerListScript;
 import '../../tool/qa/src/runner.dart';
 import '../../tool/qa/src/target.dart';
@@ -420,6 +422,12 @@ void main() {
             fleetInstallChildArgs(fleetSerial(index)),
             'an install child',
           );
+          // The quiet empties the QA database and nothing else: a
+          // relaunch, never a clear or an uninstall.
+          expectHarmless(
+            quietRelaunchArgs(fleetSerial(index)),
+            'the quiet relaunch child',
+          );
           expectHarmless([
             pinScript(1000 + index, mask: 0xFFFF, priority: 'BelowNormal'),
           ], 'the pin script');
@@ -432,6 +440,12 @@ void main() {
           expectHarmless(grant.command, 'the ${grant.what} grant');
         }
         expectHarmless(fleetBuildChildArgs(verbose: true), 'the build child');
+        expectHarmless(discardSeedCommand(), 'the pending seed removal');
+        expect(
+          discardSeedCommand().last,
+          endsWith('/app_flutter/qa_seed.json'),
+          reason: 'it removes the one marker file and nothing beside it',
+        );
         expectHarmless(
           fleetBootChildArgs(fleetName(1), verbose: true),
           'the boot child',
@@ -598,6 +612,36 @@ void _hardeningTests() {
       expect(report.lines, hasLength(2));
       expect(report.satisfies(reset: true, seed: true), isTrue);
       expect(report.seedFailed, isFalse);
+    });
+
+    test('a quiet asked for is not satisfied by the reset alone', () {
+      // The reset is printed before the dependencies, the quiet after them:
+      // a relaunch that stopped at the reset outran the app's own quiet.
+      final early = MarkerReport.fromOutcomes(
+        info(const [
+          QaOutcome(kind: 'reset', ok: true, message: 'reset: cleared'),
+        ]),
+      );
+      expect(early.satisfies(reset: true, seed: false), isTrue);
+      expect(early.satisfies(reset: true, seed: false, quiet: true), isFalse);
+      final quiet = MarkerReport.fromOutcomes(
+        info(const [
+          QaOutcome(kind: 'reset', ok: true, message: 'reset: cleared'),
+          QaOutcome(
+            kind: 'quiet',
+            ok: true,
+            message: 'quiet: stopped 1 ring(s), cancelled 6 alarm(s)',
+          ),
+        ]),
+      );
+      expect(quiet.satisfies(reset: true, seed: false, quiet: true), isTrue);
+      final text = MarkerReport.fromText(
+        'I/flutter: [qa] reset: cleared preferences and qa.db\n'
+            'I/flutter: [qa] quiet: stopped 0 ring(s), cancelled 3 alarm(s)\n',
+        'logcat',
+      );
+      expect(text.satisfies(reset: true, seed: false, quiet: true), isTrue);
+      expect(text.lines, hasLength(2));
     });
   });
 

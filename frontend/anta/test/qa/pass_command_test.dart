@@ -80,6 +80,11 @@ class _FakeContext extends QaContext {
   List<int> armed = const [0];
   int alarmCounts = 0;
 
+  /// What each read of a ring in progress answers, in order; the last
+  /// repeats.
+  List<bool> ringing = const [false];
+  int ringReads = 0;
+
   static final List<int> _png = img.encodePng(img.Image(width: 8, height: 8));
 
   @override
@@ -117,6 +122,7 @@ class _FakeContext extends QaContext {
   Future<ChildOutcome> runSelf(
     List<String> arguments, {
     String? logPath,
+    Duration? timeout,
     required void Function(String line, bool isError) onLine,
   }) async {
     return ChildOutcome(
@@ -138,6 +144,10 @@ class _FakeContext extends QaContext {
   @override
   Future<int?> armedAppAlarms() async =>
       armed[(alarmCounts++).clamp(0, armed.length - 1)];
+
+  @override
+  Future<bool?> appRinging() async =>
+      ringing[(ringReads++).clamp(0, ringing.length - 1)];
 }
 
 /// A verb whose outcome the test scripts: it prints through the same
@@ -277,6 +287,7 @@ class _World {
   int quiets = 0;
   bool quietFails = false;
   List<int> armed = const [0];
+  List<bool> ringing = const [false];
   final List<String> taps = [];
 
   /// The guest's hold as a `held` step found it, mid-pass.
@@ -412,6 +423,7 @@ class _World {
     contextFactory: (ArgResults globals) =>
         context = _FakeContext(globals, paths: paths, deviceId: deviceId)
           ..armed = armed
+          ..ringing = ringing
           ..fleet = fleet
           ..signals = signals.stream
           ..onChild = (arguments) {
@@ -1144,6 +1156,29 @@ void main() {
       },
     );
 
+    test(
+      'a ring the quiet relaunch did not end is no quiet, whatever the count',
+      () async {
+        // The alarm a pass rang has left the armed list: counted alone, the
+        // guest read "0 alarms armed" with the alarm page up.
+        final world = _World(flows: {'01_a': 'tap "A"\n'})
+          ..ringing = const [true];
+        addTearDown(world.dispose);
+        final (_, report) = await world.pass();
+        expect(report.quietAlarms, 0);
+        expect(
+          report.quietFailure,
+          'an alarm of the app is still ringing after relaunch --fresh',
+        );
+        expect(world.passLog(), isNot(contains('device left quiet')));
+        expect(
+          world.passLog(),
+          contains('device not left quiet: an alarm of the app is still '
+              'ringing'),
+        );
+      },
+    );
+
     test('--keep-state leaves the app as the last flow had it', () async {
       final world = _World(flows: {'01_a': 'tap "A"\n'});
       addTearDown(world.dispose);
@@ -1179,7 +1214,7 @@ void main() {
         final (code, _) = await world.pass();
         expect(code, 0);
         final kill = world.events.indexOf('adb -s emulator-5556 emu kill');
-        final boot = world.events.indexOf('child: fleet boot anta_qa_1');
+        final boot = world.events.indexOf('child: fleet boot anta_qa_1 --no-quiet');
         expect(kill, isNonNegative);
         expect(boot, greaterThan(kill));
         expect(world.events.indexOf('relaunch'), greaterThan(boot));
@@ -1228,7 +1263,7 @@ void main() {
         expect(code, 0);
         expect(
           world.events,
-          contains('child: fleet boot anta_qa_1 --priority=below'),
+          contains('child: fleet boot anta_qa_1 --priority=below --no-quiet'),
         );
       },
     );
@@ -1247,7 +1282,7 @@ void main() {
           'demo',
         ]);
         expect(code, exitDevice);
-        expect(world.events, contains('child: fleet boot anta_qa_1'));
+        expect(world.events, contains('child: fleet boot anta_qa_1 --no-quiet'));
         expect(
           world.events,
           isNot(contains('relaunch')),
@@ -1335,7 +1370,7 @@ void main() {
       addTearDown(world.dispose);
       final (code, report) = await world.pass();
       expect(code, 0);
-      final boot = world.events.indexOf('child: fleet boot anta_qa_1');
+      final boot = world.events.indexOf('child: fleet boot anta_qa_1 --no-quiet');
       expect(boot, isNonNegative);
       expect(world.events.indexOf('relaunch'), greaterThan(boot));
       expect(report.bootMs, isNonNegative);
@@ -1582,7 +1617,7 @@ void main() {
         ('02_dies', FlowStatus.passed, true),
         ('03_c', FlowStatus.passed, false),
       ]);
-      expect(world.children, ['child: fleet boot anta_qa_1']);
+      expect(world.children, ['child: fleet boot anta_qa_1 --no-quiet']);
       expect(world.reseeds, 4, reason: 'the rerun gets a fresh seed');
       final entry = report.infra.single;
       expect(
@@ -1794,7 +1829,7 @@ void main() {
       addTearDown(world.dispose);
       final (code, report) = await world.pass(['--no-reseed']);
       expect(code, exitDevice);
-      expect(world.children, ['child: fleet boot anta_qa_1']);
+      expect(world.children, ['child: fleet boot anta_qa_1 --no-quiet']);
       expect(report.flows.map((f) => f.status), [
         FlowStatus.failed,
         FlowStatus.skipped,

@@ -1,12 +1,14 @@
 import 'dart:io';
 
 import 'adb.dart';
+import 'boot_lock.dart';
 import 'errors.dart';
 import 'fleet.dart';
 import 'guard.dart';
 import 'guest_state.dart';
 import 'paths.dart';
 import 'process_runner.dart';
+import 'quiet.dart';
 import 'runner.dart';
 import 'self_build.dart';
 
@@ -167,7 +169,14 @@ class HostReaper {
     required this.isAlive,
     required this.stopRun,
     this.now,
+    this.quiet,
   });
+
+  /// Cancels the app's alarms on a guest no one holds before it is stopped
+  /// ([quietFleetGuestIfUp]): the alarm plugin re-arms what it stored at
+  /// the next launch and at boot, so a guest stopped with them armed rings
+  /// whenever it next comes up. Null quiets nothing.
+  final Future<GuestQuiet?> Function(FleetMember member)? quiet;
 
   final QaPaths paths;
   final ProcessRunner runner;
@@ -279,6 +288,16 @@ class HostReaper {
           _now.difference(stat.modified) >= const Duration(minutes: 1)) {
         staleFiles.add((path: path, why: 'an unfinished write'));
       }
+    }
+
+    // A boot that died holding the host's boot lock; one that could not be
+    // checked, or that does not read, may be a live boot's and stays.
+    final booting = BootLockOwner.read(paths.bootLock);
+    if (booting != null && await isAlive(booting.pid) == Liveness.gone) {
+      staleFiles.add((
+        path: paths.bootLock,
+        why: 'pid ${booting.pid} booting ${booting.avd} is gone',
+      ));
     }
 
     GuardRecord? guard;
@@ -429,11 +448,15 @@ class HostReaper {
     found.notes.forEach(say);
 
     final runPid = found.runPid;
+    // Whether the recorded run is over (or, dry, would be) by the time the
+    // guests are read: its own hold on a fleet guest went with it.
+    var runEnded = false;
     if (runPid != null) {
       switch (found.runState) {
         case 'ours':
           if (dryRun) {
             say(would('stop the recorded flutter run (pid $runPid)'));
+            runEnded = true;
           } else {
             final lines = await stopRun();
             lines.forEach(say);
@@ -445,7 +468,7 @@ class HostReaper {
                 failed = true;
                 left.add('flutter run pid $runPid could not be checked');
               case Liveness.gone:
-                break;
+                runEnded = true;
             }
           }
         case 'gone' || 'other':
@@ -471,7 +494,15 @@ class HostReaper {
     final fleet = host;
     var stopped = false;
     for (final member in found.guests) {
-      final hold = member.hold;
+      final read = member.hold;
+      final hold =
+          runEnded &&
+              read != null &&
+              read.verb == runHoldVerb &&
+              read.pid == runPid &&
+              read.checkout == paths.projectRoot
+          ? null
+          : read;
       if (hold != null && !force) {
         say(
           'skip: ${member.name} (${member.serial}) — held by ${hold.label}; '
@@ -498,6 +529,13 @@ class HostReaper {
           paths.stopRequestFor(member.name),
           stopRequestNow('reap --force', paths),
         );
+      } else if (member.state == FleetState.device) {
+        // A held guest is its holder's to quiet; a quiet that fails is said
+        // and the stop goes ahead.
+        final quieted = await quiet?.call(member);
+        if (quietWorthSaying(quieted)) {
+          say(quieted!.line(member.name, 'before the stop'));
+        }
       }
       try {
         // forceStop goes the console way for a guest adb lists and kills

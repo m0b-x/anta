@@ -35,6 +35,10 @@ the emulator needs a keyguard: `locksettings get-disabled` prints `true` on
 a stock AVD, `locksettings set-disabled false` gives it the swipe lock
 screen for the check, and `set-disabled true` puts it back.
 
+## Is an alarm ringing right now (2026-11-11)
+
+An alarm that has started ringing has already left `dumpsys alarm`, so an armed count of 0 says nothing about it. The read-only signal is the fork's `AlarmService`, which runs only while an alarm rings: `adb -s <serial> shell dumpsys activity services com.alexzamfir.anta` lists it. The harness reads it for you — `qa doctor`'s `leftovers` line (`armed or ringing`), a pass's `device left quiet` / `device not left quiet: an alarm of the app is still ringing`, and every `quiet:` line. A ring in progress survives a force-stop, a relaunch and a reboot (the plugin keeps a ringing alarm stored until it is stopped, and the boot receiver rings one that is under thirty minutes late again), which is why a `--fresh` launch of the QA build stops rings itself: `[qa] quiet: stopped N ring(s), cancelled M alarm(s), took down K notification(s)` (`lib/core/qa/qa_alert_quiet.dart`). The real app never does this: there a ring ends by Stop on the alarm page or the Silence-after limit, also for an event deleted while it rings.
+
 ## A ring on a locked phone (2026-10-04)
 
 `locksettings set-disabled false` only gives the swipe lock screen; the

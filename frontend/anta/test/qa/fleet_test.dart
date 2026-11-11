@@ -1872,7 +1872,7 @@ void main() {
       const high = QemuProcess(pid: 1, avd: 'anta_qa_1', priority: 'High');
       expect(
         fleetBootChildArgs('anta_qa_1', priority: priorityOptionOf(below)),
-        ['fleet', 'boot', 'anta_qa_1', '--priority=below'],
+        ['fleet', 'boot', 'anta_qa_1', '--priority=below', '--no-quiet'],
       );
       expect(
         priorityOptionOf(
@@ -1887,7 +1887,8 @@ void main() {
       );
       expect(
         fleetBootChildArgs('anta_qa_1', priority: priorityOptionOf(null)),
-        ['fleet', 'boot', 'anta_qa_1'],
+        ['fleet', 'boot', 'anta_qa_1', '--no-quiet'],
+        reason: 'a pass reseeds after every boot it runs, so none quiets',
       );
     });
   });

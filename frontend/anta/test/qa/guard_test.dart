@@ -8,8 +8,10 @@ import '../../tool/qa/src/guard.dart';
 import '../../tool/qa/src/guest_state.dart';
 import '../../tool/qa/src/paths.dart';
 import '../../tool/qa/src/process_runner.dart';
+import '../../tool/qa/src/quiet.dart';
 import '../../tool/qa/src/runner.dart' show Liveness;
 import 'fake_process_runner.dart';
+import 'fake_sleep.dart';
 
 final DateTime _now = DateTime.utc(2026, 11, 11, 9);
 
@@ -221,6 +223,50 @@ void main() {
         decision.line,
         'anta_qa_1: idle 31m, limit 30 min, no hold — stopping it',
       );
+    });
+
+    GuestState withHoldOnFile(String verb) => GuestState(
+      bootedAt: _now,
+      lastUsedAt: _now,
+      hold: GuestHold(pid: 77, verb: verb, since: _now),
+    );
+
+    test('a dead pass\'s hold on file quiets the guest', () {
+      final decision = _only(
+        brain,
+        _snap([_guest(1, file: withHoldOnFile('pass'))]),
+      );
+      expect(decision.action, GuardAction.quiet);
+    });
+
+    test('a holder that could not be checked still holds: no quiet', () {
+      final file = withHoldOnFile('pass');
+      final decision = _only(
+        brain,
+        _snap([_guest(1, file: file, hold: file.hold!.asUnconfirmed())]),
+      );
+      expect(decision.action, GuardAction.keep);
+      expect(decision.kind, 'held');
+    });
+
+    test('a dead install or run armed nothing: no quiet', () {
+      for (final verb in ['fleet install', 'run']) {
+        final decision = _only(
+          GuardBrain(idleLimit: const Duration(minutes: 30)),
+          _snap([_guest(1, file: withHoldOnFile(verb))]),
+        );
+        expect(decision.action, GuardAction.keep, reason: verb);
+      }
+    });
+
+    test('a dead pass on a guest off adb is left to the hung check', () {
+      final decision = _only(
+        brain,
+        _snap([
+          _guest(1, state: FleetState.offline, file: withHoldOnFile('pass')),
+        ], attached: const {}),
+      );
+      expect(decision.action, isNot(GuardAction.quiet));
     });
 
     test('a guest used within the limit is left up', () {
@@ -757,7 +803,10 @@ void main() {
       Future<Liveness> Function(int pid)? isAlive,
       Future<String?> Function(int pid)? probeOtherGuard,
       Future<void> Function()? onSleep,
+      Future<GuestQuiet> Function(String serial, {required bool always})?
+      quiet,
     }) => FleetGuard(
+      quiet: quiet,
       host: host,
       paths: paths,
       settings: GuardSettings.from(const {}),
@@ -769,10 +818,10 @@ void main() {
               runner.alive.contains(p) ? Liveness.alive : Liveness.gone,
       probeOtherGuard: probeOtherGuard ?? (_) async => 'ours',
       clock: () => clock,
-      sleep: (_) async {
+      sleep: boundedSleep('the guard loop', (_) async {
         clock = clock.add(const Duration(minutes: 1));
         await onSleep?.call();
-      },
+      }),
       exeChanged: exeChanged,
       handOver: handOver,
     );
@@ -835,6 +884,109 @@ void main() {
       expect(runner.lines, isNot(contains('adb -s emulator-5556 emu kill')));
       expect(logged.last, 'anta_qa_1: used since this poll read it — left up');
       expect(File(state).existsSync(), isTrue);
+    });
+
+    test('an idle stop quiets the guest first and says so', () async {
+      final state = paths.guestStateFor('anta_qa_1');
+      GuestState.booted(state, _now.subtract(const Duration(minutes: 31)));
+      final asked = <String>[];
+      final loop = guard(
+        quiet: (serial, {required always}) async {
+          asked.add('$serial always=$always');
+          expect(stopped(), isFalse, reason: 'the quiet comes first');
+          return const GuestQuiet(before: 2, after: 0, relaunched: true);
+        },
+      );
+      await loop.act(
+        loop.brain.decide(await loop.snapshot(), _now).decisions.single,
+      );
+      // Always: a force-stopped app shows nothing armed with its alarms
+      // still stored, so a count-gated quiet let them outlive the stop.
+      expect(asked, ['emulator-5556 always=true']);
+      expect(stopped(), isTrue);
+      expect(logged, [
+        'quiet: 2 alarm(s) on anta_qa_1 cancelled before the stop',
+        startsWith('anta_qa_1: stopped: '),
+      ]);
+    });
+
+    test('a pass that died holding its guest is quieted at once', () async {
+      // The fake answers the Windows liveness probe, which the snapshot's
+      // hold check runs.
+      host = hostOn(windows: true);
+      final state = paths.guestStateFor('anta_qa_1');
+      GuestState.booted(state, _now.subtract(const Duration(minutes: 2)));
+      GuestState.take(
+        state,
+        GuestHold(
+          pid: 77,
+          verb: 'pass',
+          since: _now.subtract(const Duration(minutes: 3)),
+        ),
+      );
+      final asked = <String>[];
+      final loop = guard(
+        quiet: (serial, {required always}) async {
+          asked.add('$serial always=$always');
+          return const GuestQuiet(before: 3, after: 0, relaunched: true);
+        },
+      );
+      final decision = loop.brain
+          .decide(await loop.snapshot(), _now)
+          .decisions
+          .single;
+      expect(decision.action, GuardAction.quiet);
+      loop.log.decision(decision);
+      await loop.act(decision);
+      expect(asked, ['emulator-5556 always=true']);
+      expect(stopped(), isFalse, reason: 'the guest stays up');
+      expect(GuestState.read(state)!.hold, isNull);
+      expect(logged, [
+        'anta_qa_1: pass pid 77 is gone and never released it — quieting it',
+        'quiet: 3 alarm(s) on anta_qa_1 cancelled after its holder died',
+        'anta_qa_1: the stale hold of pass pid 77 cleared',
+      ]);
+    });
+
+    test('a quiet that fails is logged, the hold cleared all the same', () async {
+      host = hostOn(windows: true);
+      final state = paths.guestStateFor('anta_qa_1');
+      GuestState.booted(state, _now);
+      GuestState.take(state, GuestHold(pid: 77, verb: 'pass', since: _now));
+      final loop = guard(
+        quiet: (_, {required always}) async =>
+            const GuestQuiet(failure: 'the relaunch ran past 20 s'),
+      );
+      await loop.act(
+        loop.brain.decide(await loop.snapshot(), _now).decisions.single,
+      );
+      expect(logged, [
+        'warning: quiet: anta_qa_1 was not quieted after its holder died — '
+            'the relaunch ran past 20 s',
+        'anta_qa_1: the stale hold of pass pid 77 cleared',
+      ]);
+      expect(stopped(), isFalse);
+    });
+
+    test('a holder that is alive again by the act is not quieted', () async {
+      host = hostOn(windows: true);
+      final state = paths.guestStateFor('anta_qa_1');
+      GuestState.booted(state, _now);
+      GuestState.take(state, GuestHold(pid: 77, verb: 'pass', since: _now));
+      var quieted = false;
+      final loop = guard(
+        isAlive: (_) async => Liveness.unknown,
+        quiet: (_, {required always}) async {
+          quieted = true;
+          return const GuestQuiet(before: 0);
+        },
+      );
+      await loop.act(
+        loop.brain.decide(await loop.snapshot(), _now).decisions.single,
+      );
+      expect(quieted, isFalse);
+      expect(GuestState.read(state)!.hold?.pid, 77);
+      expect(logged.single, contains('not shown gone any more — not quieted'));
     });
 
     test('a guest a verb used after the poll read it is left up', () async {

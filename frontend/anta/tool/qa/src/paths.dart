@@ -120,6 +120,10 @@ class QaPaths {
   String stopRequestFor(String avd) =>
       _join(fleetState, ['stop_${safeId(avd)}.json']);
 
+  /// Who is cold-booting a fleet guest on this host right now
+  /// (`boot_lock.dart`): one boot at a time, whichever checkout started it.
+  String get bootLock => _join(fleetState, ['boot.lock']);
+
   /// The idle guard's pid and settings, and its log (`guard.dart`).
   String get guardPid => _join(fleetState, ['guard.pid']);
   String get guardLog => _join(fleetState, ['guard.log']);

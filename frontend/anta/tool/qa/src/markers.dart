@@ -56,6 +56,33 @@ Future<void> applyCommands(Adb adb, List<List<String>> commands) async {
 Future<void> dropResetMarker(Adb adb, {String packageId = antaPackage}) =>
     applyCommands(adb, resetMarkerCommands(packageId: packageId));
 
+/// The `adb` argument vector that removes a pending `qa_seed.json`. No
+/// `-f`: the "No such file" answer is how [discardSeed] tells a seed that
+/// was waiting from none, in the one call.
+List<String> discardSeedCommand({String packageId = antaPackage}) => [
+  'shell',
+  'run-as',
+  packageId,
+  'rm',
+  '$antaDocsDir/$seedMarker',
+];
+
+/// Removes a `qa_seed.json` that no launch consumed yet and says whether
+/// there was one. A seedless `--fresh` launch must come up empty: a reseed
+/// cancelled after its push left one behind, and the quiet launch that
+/// followed imported it and armed its alarms again.
+Future<bool> discardSeed(Adb adb, {String packageId = antaPackage}) async {
+  final args = discardSeedCommand(packageId: packageId);
+  final result = await adb.raw(args, timeout: const Duration(seconds: 60));
+  if (result.combined.contains('No such file')) return false;
+  if (!result.ok || result.combined.contains('run-as: ')) {
+    throw DeviceFailure(
+      'adb ${args.join(' ')} failed: ${result.combined.isEmpty ? 'exit ${result.exitCode}' : result.combined}',
+    );
+  }
+  return true;
+}
+
 Future<void> pushSeed(
   Adb adb,
   String localPath, {
@@ -114,6 +141,18 @@ Future<Directory> _markerDirectory(
     );
   }
   return dir.create();
+}
+
+/// Removes a pending seed from a documents directory on the host, as
+/// [discardSeed] does on Android; false when none was waiting.
+Future<bool> discardSeedAt(String documentsDir) async {
+  final file = File('$documentsDir${Platform.pathSeparator}$seedMarker');
+  try {
+    await file.delete();
+    return true;
+  } on PathNotFoundException {
+    return false;
+  }
 }
 
 /// Which marker files are waiting in a documents directory on the host.

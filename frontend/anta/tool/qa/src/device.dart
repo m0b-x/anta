@@ -344,6 +344,10 @@ abstract class Device {
 
   Future<void> pushSeed(String localPath);
 
+  /// Removes a seed marker no launch consumed yet; true when one was
+  /// waiting.
+  Future<bool> discardPendingSeed();
+
   Future<List<int>> screencapPng();
 
   Future<String> readLog({String? sinceStamp});
@@ -639,6 +643,10 @@ class AndroidDevice implements Device {
   @override
   Future<void> pushSeed(String localPath) =>
       markers.pushSeed(adb, localPath, packageId: packageId);
+
+  @override
+  Future<bool> discardPendingSeed() =>
+      markers.discardSeed(adb, packageId: packageId);
 
   /// `adb logcat`, not `adb shell logcat`: the device shell would split the
   /// space inside a `-T "MM-DD HH:MM:SS.mmm"` timestamp into two arguments.
