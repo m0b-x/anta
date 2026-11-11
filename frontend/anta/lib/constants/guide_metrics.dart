@@ -189,6 +189,11 @@ abstract final class GuideMetrics {
   /// longer lesson scrolls inside it.
   static const int editorStageLines = 6;
 
+  /// What the shortcuts card's own-button field takes
+  /// (`docs/guide-hub-roadmap.md` D34): the New Shortcut page's limit for
+  /// the field it stands for, so a text that fits here fits there.
+  static const int makerMaxChars = 250;
+
   /// A guide hub's search field under its bar: the calendar guide's placing
   /// from before there were several hubs, shared so the top hub and every
   /// book's hub start their lists at one height.

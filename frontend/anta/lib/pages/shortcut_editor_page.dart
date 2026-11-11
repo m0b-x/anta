@@ -570,6 +570,9 @@ class _ShortcutEditorPageState extends State<ShortcutEditorPage> {
       dateOffset: dateOffset,
       repeatConfig: repeatConfig,
       isVisible: widget.shortcut?.isVisible ?? true,
+      // The page has no field for it — the list sets it — so an edit must
+      // hand it back, or the shortcut drops out of its group.
+      category: widget.shortcut?.category,
       counterId: _insertType == 'counter' && _counterBindings.isNotEmpty
           ? _counterBindings.first.counterId
           : null,

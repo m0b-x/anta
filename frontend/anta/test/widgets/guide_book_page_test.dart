@@ -169,7 +169,7 @@ void main() {
       ];
       expect(rows.toSet(), hasLength(rows.length), reason: book.slug);
     }
-    expect(NotesGuideTopic.values, hasLength(11));
+    expect(NotesGuideTopic.values, hasLength(12));
   });
 
   for (final book in [GuideBook.notes, GuideBook.app]) {
@@ -301,7 +301,7 @@ void main() {
     await tester.pumpAndSettle();
 
     // "nests" is in the lists card's nest step and in no row or example.
-    expect(en.notesGuideCoachListsNest, contains('nests'));
+    expect(en.notesGuideCoachListsNest(en.indentLine), contains('nests'));
     await tester.enterText(find.byType(TextField), 'nests');
     await tester.pumpAndSettle();
     expect(_hubRow(GuideBook.notes, NotesGuideTopic.lists), findsOneWidget);
@@ -323,8 +323,14 @@ void main() {
         ),
         findsOneWidget,
       );
-      // No search field: the hubs search every page.
-      expect(find.byType(TextField), findsNothing);
+      // No search field: the hubs search every page. The one field a page
+      // can hold is a card's own (`docs/guide-hub-roadmap.md` D34).
+      expect(
+        find.byType(TextField),
+        topic.editorCards.any((card) => card.maker)
+            ? findsOneWidget
+            : findsNothing,
+      );
       final heading = tester
           .getSemantics(find.text(topic.title(en)))
           .getSemanticsData();
@@ -525,6 +531,57 @@ void main() {
       });
     }
 
+    testWidgets('a shortcut\'s recipe is labelled with the New Shortcut '
+        'page\'s field and what a tap writes, never "You type" (D35)', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        _app(
+          const GuideTopicPage(
+            book: GuideBook.notes,
+            topic: NotesGuideTopic.shortcuts,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      for (final slug in ['recipe-set', 'recipe-label']) {
+        final row = find.bySemanticsIdentifier(
+          SemanticsIds.guideBookExample('notes', slug),
+        );
+        await _scrollTo(tester, row);
+        for (final label in [en.markdownStart, en.notesGuideRecipeShown]) {
+          expect(
+            find.descendant(of: row, matching: find.text(label.toUpperCase())),
+            findsOneWidget,
+            reason: '$slug $label',
+          );
+        }
+        for (final label in [en.guideExampleTyped, en.guideExampleShown]) {
+          expect(
+            find.descendant(of: row, matching: find.text(label.toUpperCase())),
+            findsNothing,
+            reason: '$slug $label',
+          );
+        }
+      }
+      // The recipe's blanks render as the note renders them: the preview
+      // is the app's own.
+      expect(
+        tester
+            .widget<SimpleMarkdownPreview>(
+              find.descendant(
+                of: find.bySemanticsIdentifier(
+                  SemanticsIds.guideBookExample('notes', 'recipe-set'),
+                ),
+                matching: find.byType(SimpleMarkdownPreview),
+              ),
+            )
+            .data,
+        en.notesGuideExRecipeSetSource('{', '}'),
+      );
+      expect(tester.takeException(), isNull);
+    });
+
     testWidgets('a read row and an example row in one card start their text '
         'on one edge', (tester) async {
       final read = CalendarGuideRow(
@@ -656,7 +713,50 @@ void main() {
               GuideBook.notes,
               NotesGuideTopic.bar,
               'bar-shortcuts',
-              l10n.shortcuts,
+              // The list's own header, never the ratio line's "Shortcuts".
+              l10n.markdownShortcuts,
+            ),
+            (
+              GuideBook.notes,
+              NotesGuideTopic.bar,
+              'bar-own',
+              l10n.notesGuidePageShortcuts,
+            ),
+            (
+              GuideBook.notes,
+              NotesGuideTopic.shortcuts,
+              'shortcuts-make',
+              l10n.newShortcut,
+            ),
+            (
+              GuideBook.notes,
+              NotesGuideTopic.shortcuts,
+              'shortcuts-text',
+              l10n.markdownStart,
+            ),
+            (
+              GuideBook.notes,
+              NotesGuideTopic.shortcuts,
+              'shortcuts-kinds',
+              l10n.insertCurrentDate,
+            ),
+            (
+              GuideBook.notes,
+              NotesGuideTopic.shortcuts,
+              'shortcuts-counters',
+              l10n.counterBindingsTitle,
+            ),
+            (
+              GuideBook.notes,
+              NotesGuideTopic.money,
+              'money-back',
+              l10n.shortcutMoneySpan,
+            ),
+            (
+              GuideBook.notes,
+              NotesGuideTopic.markdown,
+              'markdown-code',
+              l10n.codeBlock,
             ),
             (
               GuideBook.notes,

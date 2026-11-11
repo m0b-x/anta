@@ -38,6 +38,8 @@ SettingsEntry guideExampleEntry(
       caption: description!,
       moneyConfig: moneyConfig,
       colorPalette: colorPalette,
+      typedLabel: example.typedLabel,
+      shownLabel: example.shownLabel,
     ),
   );
 }
@@ -55,6 +57,8 @@ class GuideExampleRow extends StatelessWidget {
     required this.caption,
     required this.moneyConfig,
     required this.colorPalette,
+    this.typedLabel,
+    this.shownLabel,
   });
 
   final String source;
@@ -65,6 +69,11 @@ class GuideExampleRow extends StatelessWidget {
 
   final MoneyDisplayConfig moneyConfig;
   final MarkdownColorPalette colorPalette;
+
+  /// The two blocks' labels for an example that is not typed into a note
+  /// (`docs/guide-hub-roadmap.md` D35); "You type" and "You get" when null.
+  final String? typedLabel;
+  final String? shownLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -86,11 +95,11 @@ class GuideExampleRow extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  _Eyebrow(l10n.guideExampleTyped),
+                  _Eyebrow(typedLabel ?? l10n.guideExampleTyped),
                   const SizedBox(height: GuideMetrics.exampleLabelGap),
                   _SourceBlock(source),
                   const SizedBox(height: GuideMetrics.exampleBlockGap),
-                  _Eyebrow(l10n.guideExampleShown),
+                  _Eyebrow(shownLabel ?? l10n.guideExampleShown),
                   const SizedBox(height: GuideMetrics.exampleLabelGap),
                   _Block(
                     color: colorScheme.surfaceContainerLow,

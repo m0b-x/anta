@@ -13,7 +13,9 @@ the calendar guide alone — "How to use Calendar", "Learn Notes" (its own
 markdown, the editor, the bar, settings, common markdown, the money ledger,
 autocomplete) — and said to add whatever a beginner needs. The owner's
 five open calls were answered with the defaults in §2 (D1, D3, D4, D13);
-each is reversible in one line.
+each is reversible in one line. Phase 2 (§9, 2026-11-09) added the "Try
+it" editors; **Phase 3 (§10, 2026-11-11) — the app's bar on every notes
+card and the "Your own shortcuts" page — is BUILT and UNCOMMITTED.**
 
 ## Contents
 
@@ -27,6 +29,7 @@ each is reversible in one line.
 - §7 Deferred
 - §8 Must not change
 - §9 Phase 2 — the "Try it" editors and the four fixes (2026-11-09)
+- §10 Phase 3 — the bar on the stage and "Your own shortcuts" (2026-11-11)
 
 ## 0. How to run this
 
@@ -587,6 +590,31 @@ pass (`qa-runner`, 2026-11-09, `emulator-5556`, APK built from this tree):
   guide suites ends in `ensureVisible` without a pump and can tap stale
   layout (§6.2).
 
+- **Phase 3's leftovers (§10, 2026-11-11).** *The owner's calls:* the bar
+  stands above the note on a card, unlike the app (D29) — the alternative
+  is under it, real to look at and under the keyboard on small phones;
+  the coach names a button by its label only, and an inline glyph before
+  the name (the bar's own icon in the sentence) would make "Money +"'s
+  piggy bank findable without a long press — about fifty lines in the
+  card's line builder; the static "You type / You get" rows stay (D14);
+  the `bar`, `autocomplete` and `counters` pages are still read only — a
+  card for autocomplete can run on the stage's bar
+  (`MarkdownBar.suggestions` over an in-memory list), one for reordering
+  needs the bar's panel, which grows; a row that opens the real Editor
+  and markdown page from the shortcuts page (the settings kit has
+  navigating rows; the guide has none that leave it). *Accepted from the
+  review:* the bar's Undo after a nest, or Bullet List on a nested item,
+  credits `outdent`, and Bullet List on the empty item credits `end` —
+  each does bring the item out or end the list, and §9.2's rules were
+  left as they are (A2); `write` is credited at the first character, so
+  the line moves on to the press while she is still typing (A5); on `own`
+  a colour pressed without moving off the blank lands inside it and
+  stays dim, the line having said to move (A6); the `_gone` return after
+  the press's await has no test (D2). *Device bucket:* the real keyboard
+  over a card with the bar above the note; the star, the dumbbell and the
+  money glyphs on a Pixel; the bar's sideways scroll inside the page's
+  list; TalkBack's order through bar, field and editor.
+
 ## 8. Must not change
 
 The calendar guide's ids, slugs, strings, enum order, flows and tests; the
@@ -1074,3 +1102,286 @@ never raises the soft keyboard): the real IME lift (D22) and the caret
 above a real keyboard — the owner's phone. Noticed: the harness's field echo
 shows a leading zero-width character after typing, likely the fork's input
 sentinel, not new to this change.
+
+## 10. Phase 3 — the bar on the stage and "Your own shortcuts" (2026-11-11)
+
+**Status: BUILT 2026-11-11, UNCOMMITTED pending the owner — planned and
+built by the Fable 5.2 lead (the owner: "use Fable more than normal"; Opus,
+Sonnet and Haiku allowances nearly spent that day, so no implementer was
+briefed); one read-only review (`reviewer` on Fable), its findings fixed or
+recorded (§10.6, §7); gate green on `main` and `qa pass settings` 21 / 21
+(§10.6); left to the owner's phone: the real keyboard over a card.** The
+owner, reading the notes book: there is no page for adding
+your own markdown — the custom shortcuts, "a big feature" — and the
+markdown pages "feel very few interactive"; improve the ones that can be
+better. Phase 1's rows and Phase 2's cards stand; this section adds to
+them. An implementer reads §10.1–§10.4, a reviewer §10.1, §10.4, §9.4, §8.
+
+### 10.1 The review (what was found)
+
+- **The cards were typing drills.** Every step asked for symbols typed on a
+  phone keyboard — `#`, `**`, `- [ ]`, `{{` `}}`, `{red:` — two or three
+  keyboard layers deep, while the app's answer to exactly that, the bar,
+  was missing from the stage (D17 left "the chrome a stage cannot show" in
+  words). The lead line said "Type them, or let the bar do it" over an
+  editor with no bar.
+- **Custom shortcuts had one row** (`bar-own`, two sentences) for the
+  feature that makes the bar the owner's: text before and after, the three
+  kinds, the date format and offset, repeats, counter tokens, categories.
+- **Two sentences were not true.** `bar-shortcuts` said a shortcut's text
+  can be changed in the list — only a custom one can, a built-in one can
+  only be hidden — and it and `bar-own` quoted `shortcuts` ("Shortcuts",
+  the ratio line's word) for a section the page titles `markdownShortcuts`.
+- **The bar ships buttons no page names:** inline code, code block and the
+  rule on the markdown page; `$^` and `$~` on the money page.
+- **An app bug on the way:** `ShortcutEditorPage._save` rebuilt the
+  shortcut without its `category`, so editing a custom shortcut dropped it
+  out of its group.
+- Left as they are: the read-only pages (`basics`, `editor`, `safe`,
+  `settings`), the example rows' static "You type / You get" (D14 — an
+  editor per example cannot shrink-wrap, and the stage is where she acts),
+  the calendar and app books.
+
+### 10.2 Decisions D27–D38
+
+- **D27 — The stage gets the bar.** A notes card's stage is the editor
+  over the app's own `MarkdownBar` — the widget, not a model of it — with
+  the card's buttons: built-ins picked by id from
+  `DefaultMarkdownShortcuts.shortcuts` in the shipped order and shown
+  whatever their stored visibility (the money buttons ship hidden), and
+  the utility buttons a lesson uses (undo and redo everywhere; indent and
+  outdent on `lists`). No split, no settings, no reorder, no paste, no
+  font buttons. A press takes the note editor's path: focus first, then
+  `MarkdownShortcutInserter` for the ghost and colour slots, else
+  `ShortcutApplier.resolve` and one guarded, revocable write
+  (`optimized_note_editor_page.dart` `_handleShortcut` is the model;
+  the two event sheets mirror it the same way). The H button opens its
+  menu of levels on a tap, as in a note, with the caret line's level
+  checked: the stage passes `currentHeadingLevel`.
+- **D28 — The coach leads with the bar.** Where a button writes the mark,
+  the line names the button by the app's own label (a placeholder, D5) and
+  says what it wrote; a mark with no button (a tag, a wiki link) stays
+  typed. D18 is unchanged — a step is read off the document — so a press,
+  a typed mark and a paste still count alike, and every Phase 2 walk-through
+  test still passes by typing. Each line says where the caret goes first
+  ("Tap “Leg day”, then…"), because a press writes at the caret.
+- **D29 — The bar leads the stage.** The stage is flush (`stageFlush`):
+  the bar at its top edge, right under the coach line that names its
+  buttons, then the stage's air, the maker field where a card has one, the
+  six-line editor and the air under it. Above the note, not under it as in
+  the app: there the keyboard holds the bar in view, while a bar under six
+  lines sat under the keyboard on a 360 × 780 phone from 1.3 up (and on
+  the shortcuts card at 1.0), so every step after the first tap began with
+  a scroll (review A4; the first build had it at the bottom). Now the
+  coach line, the bar and her first line share the screen with the
+  keyboard up (pinned in German at 1.3). One row in the card's order
+  (`splitEnabled: false`, `pinUndoRedo: false` — a lesson's buttons lead
+  and the row scrolls sideways past them, as the real bar does). The bar
+  stands on the stage's ground over a hairline, not on its own `surface`:
+  in light that surface is the card's, and a white bar read as the card's
+  edge rather than the note's (seen in the real-font render); in dark the
+  two were already one tone. The card's height grows by the bar's row
+  once, on every notes card; nothing moves afterwards.
+- **D30 — The caret starts at the end of the seed,** so a press before any
+  tap lands where a line would be added, never at the top of the note. The
+  money seed gains a last empty line for that.
+- **D31 — A step is done when its mark is drawn.** The colour step needs
+  coloured text, not the empty slot the button leaves (`{red:{{  }}}`
+  draws a dim blank) — nor that slot wrapped in a second colour by a
+  second press, whose inner markers are chrome, not text (review A1). A
+  bare `$- ` is no money line, so the spend still waits for its amount,
+  and a money row the ledger draws as an error (an amount past the digit
+  limit) is no spend and no income (review A7). The ghost and the total
+  are drawn by the press.
+- **D32 — "Your own shortcuts" is a page** (`shortcuts`, after `bar`,
+  icon `Icons.smart_button_rounded`): what a shortcut is, a card, ten read
+  rows that walk the New Shortcut page by its own labels, two recipes.
+  `bar-own` stays as the pointer to it.
+- **D33 — Its card runs real shortcuts.** The bar holds three
+  `CustomMarkdownShortcut`s the guide builds in the page's language and
+  the real applier runs: **Set** (a checkbox line with the set's number
+  from a `{c1}` counter token and two `{{blanks}}`, ending in a line
+  break), **Today** (the `date` kind: `## `, the date, a line break) and
+  **hers** (a star). The counter is the demo's own, in memory, starting
+  at 1; nothing is read from or written to her counters.
+- **D34 — She makes one in the card.** Between the bar and the editor the
+  stage shows one field with the New Shortcut page's own label,
+  `markdownStart`; her button writes exactly that text at the caret. Above
+  the note: the keyboard's reveal keeps the coach line and the focused
+  field together only when nothing tall stands between them (D22). Two steps: `write` (the
+  field is not empty) and `press` (her button wrote it). The press is the
+  lesson, so `press` reads a count the stage keeps, not the document — the
+  one step that is a tap (D18's exception, as the checkbox tap is D19's).
+  An empty button says so (`notesGuideReportEmptyButton`).
+- **D35 — Recipes are example rows with their own eyebrows.** A
+  `GuideExampleEntry` may name its two labels; a recipe shows
+  `markdownStart` over "One tap writes".
+- **D36 — The missing rows.** `markdown-code` (inline code, code block,
+  rule), `money-back` (`$^`, `$~`), and the two `bar` sentences corrected;
+  the notes book's hub caption names the new page.
+- **D37 — Editing a shortcut keeps its category** (`_save` carries
+  `widget.shortcut?.category`).
+- **D38 — No new primitive.** The stage's field is the shortcut editor's
+  outlined `TextField`; the bar is the bar; the card chrome is unchanged.
+  New numbers join `GuideMetrics`.
+
+### 10.3 The cards and the page — content catalogue
+
+Keys as §9.2. A changed coach line keeps its key and its action; the
+placeholders are the button labels, in order.
+
+| Card | Bar in drawn order (ids without `default_`) · utilities | Steps (action · line key (placeholders) · done when) |
+| --- | --- | --- |
+| `markdown` | checkbox, bullet_list, numbered_list, bold, italic, header, strikethrough, highlight, quote, link · undo, redo | `heading` · MarkdownHeading(headers) — the button opens the level menu, the line says to pick one · as §9.2 · `bold` · MarkdownBold(bold) · as §9.2 · `list` · MarkdownList(bulletList) · as §9.2 · `task` · MarkdownTask(checkbox) · as §9.2 |
+| `lists` | checkbox, bullet_list, numbered_list · indent, outdent, undo, redo | `enter` · unchanged · `nest` · ListsNest(indentLine) · as §9.2 · `outdent` · ListsOutdent(outdentLine) · as §9.2 · `end` · unchanged |
+| `own` | callout, date, ghost, color_text, color_highlight · undo, redo | `tag` · unchanged · `ghost` · OwnGhost(shortcutGhostText) · as §9.2 · `colour` · OwnColour(shortcutColorText) · a colour run or tinted highlight whose inside holds text outside any ghost and outside any colour run nested in it (D31) · `wiki` · OwnWiki, reworded for a line of its own |
+| `money` | money, money_subtract, money_set, money_total, money_delta, money_target · undo, redo | `spend` · MoneySpend(shortcutMoneySubtract) · as §9.2, error rows left out (D31) · `add` · MoneyAdd(shortcutMoneyAdd) · the same · `total` · MoneyTotal(shortcutMoneyTotal) · the same |
+| `shortcuts` (new) | Set, Today, hers (D33) · undo, redo · the `markdownStart` field | seed `notesGuideSeedShortcuts` · `line` · ShortcutsLine(set label), which sends the caret to the empty line first · a task item holding a ghost · `count` · ShortcutsCount(set label) · two task items · `date` · ShortcutsDate(today label) · a heading line · `write` · ShortcutsWrite(markdownStart) · the field is not blank · `press` · ShortcutsPress(her label) · her button wrote its text |
+
+The `shortcuts` page (`NotesGuideTopic.shortcuts`, keys
+`notesGuidePageShortcuts` / `…Caption`, `notesGuideShortcutsLead`): rows
+`shortcuts-make` · `Icons.add_circle_outline_rounded` · ShortcutsMake ·
+body(settingsRowEditor, newShortcut, save) · `shortcuts-text` ·
+`Icons.text_fields_rounded` · ShortcutsText · body(markdownStart,
+markdownEnd) · `shortcuts-kinds` · `Icons.category_rounded` ·
+ShortcutsKinds · body(insertType, wrapSelectedText, insertCurrentDate,
+insertCounter, beforeDate, afterDate) · `shortcuts-preview` · `Icons.visibility_rounded` ·
+ShortcutsPreview · body(preview) · `shortcuts-blanks` ·
+`Icons.data_object_rounded` · ShortcutsBlanks · body(open, close) ·
+`shortcuts-repeat` · `Icons.repeat_rounded` · ShortcutsRepeat ·
+body(advancedOptions, repeatSettings, incrementDateOnRepeat) ·
+`shortcuts-date` · `Icons.event_rounded` · ShortcutsDate ·
+body(dateOffset, advancedOptions) · `shortcuts-counters` ·
+`Icons.pin_rounded` · ShortcutsCounters · body(counterBindingsTitle,
+advancedOptions, open, close) · `shortcuts-tidy` · `Icons.visibility_off_rounded` · ShortcutsTidy
+· body(setCategory) · `shortcuts-bars` · `Icons.view_carousel_rounded` ·
+ShortcutsBars · body(manageBarProfiles); recipes `recipe-set`
+ExRecipeSet (source: open, close) · `recipe-label` ExRecipeLabel (source:
+open, close), eyebrows `markdownStart` / `notesGuideRecipeShown`.
+
+Facts the text rests on (verified 2026-11-11 in
+`shortcut_editor_page.dart`, `markdown_settings_page.dart`,
+`shortcut_applier.dart`): the Editor and markdown page's + is a floating
+button and a new shortcut is appended to the edited bar's list; fields in
+order — icon, label, insert type (wrap / date / counter), the date
+format list, the advanced switch (date offset, repeat with separator,
+wrapper text and a date step per copy, counter bindings with `{c1}` /
+`{c2}`), start, end, preview; for the date kind the two text fields are
+labelled `beforeDate` / `afterDate` and switching to it clears both; a
+wrap writes start + selection + end and leaves the caret after it (a
+plain symmetric pair such as `**` toggles instead); each `{cN}` expansion
+mutates its counter once; the list hides (eye), drags (handle or long
+press), sets a category (⋮) and, for a custom shortcut only, edits and
+deletes (⋮); category chips are toggles that filter the list, several at
+once; shortcuts are stored per bar profile. `$^ N` shows the change across the
+last N balance-changing entries and `$~ N` across the last N `$=`
+checkpoints; neither changes the balance.
+
+### 10.4 Files and must not change
+
+- `lib/models/guide_content.dart` — `GuideEditorCard.bar` /
+  `utilities` / `maker`; `GuideEditorDocument.makerText` / `ownPresses`;
+  `GuideExampleEntry.typedLabel` / `shownLabel`.
+- `lib/models/notes_guide_tries.dart` — the bars, the reworded steps, the
+  `shortcuts` card and its checks, the stricter colour check.
+- `lib/widgets/guide_try_editor.dart` — the bar, the press path, the
+  in-memory counter, the maker field.
+- `lib/models/notes_guide_content.dart`, `lib/widgets/guide_example_row.dart`,
+  `lib/constants/guide_metrics.dart`, `lib/constants/semantics_ids.dart`,
+  `lib/pages/shortcut_editor_page.dart` (D37), the three ARBs.
+- Must not change, beyond §8 and §9.4: `MarkdownBar`, `ShortcutApplier`,
+  `MarkdownShortcutInserter` and the editor page (the stage is one more
+  host, never a reason to change them); the done-when rules of §9.2 except
+  the colour's and the money rows' error state (D31); slugs, actions and
+  ids already frozen; the calendar cards'
+  chrome (`CalendarGuideTryCard` is not edited); the six-line stage and its
+  `guide-notes-try-<slug>-editor` box; `CustomMarkdownShortcut`'s JSON.
+
+### 10.5 Slices and the gate
+
+1. The bar on the four cards (D27–D31) and their lines.
+2. The `shortcuts` page and its card (D32–D35).
+3. The rows and the fix (D36, D37).
+
+Gate per slice: `dart analyze lib test`, the guide suites; at the end the
+whole suite once in the foreground, `flutter gen-l10n` a no-op with
+`untranslated.txt` `{}`, one `reviewer` over the whole diff, `qa pass
+settings`. Land on the owner's word.
+
+### 10.6 As built
+
+**The build (2026-11-11, the Fable 5.2 lead, on `main`).** As §10.2–§10.4;
+no new file under `lib/`. `GuideEditorDemo` gained the bar (`_buildBar`:
+the real `MarkdownBar`, `showBackground: false` on the stage ground, one
+unpinned row, `utilityConfigs` from the card), the press path
+(`_onShortcut`, mirrored on the editor page's `_handleShortcut`), the
+arrows (`_shiftIndent` → `ListIndentAction.apply`), the heading reader, a
+`ValueNotifier<(bool, bool)>` for undo and redo so the bar is rebuilt when
+one of them flips and never per keystroke, the counters map, the maker
+field with its own `GuideCaptionAboveKeyboard`, and `_runChecks` split
+from `_onTextChanged` so the field's changes run the checks too. One trap
+on the way: `ModernEditorWrapper` reports a programmatic write through
+`onTextChanged` synchronously, so the own-button press is counted before
+its write — counted after, the checks had already read the note without
+it. Strings: 43 new keys and 17 edited ones in en/de/ro. The look was
+judged from a real-font render (light, dark, German at 2.0, the whole
+shortcuts page): it is what moved the bar off its own white surface.
+
+**Code review (2026-11-11, `reviewer` on Fable 5.2, read-only).** No data
+loss, crash, leak or must-not-change violation; the press path, the
+history notifier, the dispose order, the labels (every coach placeholder
+is the getter the button's tooltip uses) and the facts of §10.3 held.
+Fixed in the same session: (A1) two presses of a colour button credited
+the colour step, the nested run's markers counting as text — the check now
+leaves a nested colour run to answer for itself; (A3) the shortcuts card's
+first line did not say where the caret goes, and a press with the caret
+in "Leg day" wrote mid-line, credited nothing and used up Set 1 — the line
+now sends her to the empty line; (A4) the bar under the editor could sit
+under the keyboard — D29 was rewritten, the bar leads the stage; (A7) the
+money checks counted error rows; (B1) the category chips "show one group
+at a time" — they are toggles, the text says "filter it by group"; (B2)
+Counter Bindings was not placed under Advanced Options; (B3) the date
+kind's two fields are `beforeDate` / `afterDate`, now named; (B4) the
+colour line's word read as an adverb in German and Romanian, now quoted in
+all three; (B5) a German accusative; (B6) the + is the page's, not the
+list header's; (B7) "lists" had fallen out of the book's caption; (C1–C5)
+this record's status, the heading menu being a tap, two orders in §10.3's
+table, the bar's ground, a doc comment; (D1) the star's glyph is pinned;
+(E1) the own press runs the checks once; (E2) `seed()` resets the history
+notifier; (E3) the two example ids are constants. Recorded, not changed
+(§7): A2, A5, A6, D2.
+
+**Gate on `main` (2026-11-11, the lead, foreground).** Before the review:
+`dart analyze lib test` "No issues found!", `flutter test` `+15687 ~17:
+All other tests passed!`. After the fix pass: `dart analyze lib test` "No
+issues found!"; the eight guide suites `+353`; `flutter test` `+15691 ~17:
+All other tests passed!`; `flutter gen-l10n` a no-op with
+`untranslated.txt` `{}`. 22 tracked paths changed, no new file, every one
+CRLF. New cases: the bar's buttons in the shipped order with undo and none
+of the rest; the caret at the seed's end; the markdown, lists, own and
+money walks on the bar alone; one press is one undo; a language change
+renames the buttons in place; the keyboard up in German at 1.3 on 360 ×
+780 keeps the coach line, the bar and her first line in view; the
+shortcuts card's layout, its walk (Set 1, Set 2, a dated heading, the
+empty-button report, her text, her press), her text typed by hand is no
+press, a mid-line press credits nothing, the keyboard under her field;
+the colour slot and its nested forms, error rows, the two example
+shortcuts in three languages, every bar's ids; the recipes' eyebrows; the
+category kept on save.
+
+**Device pass (2026-11-11, `qa-runner` on Fable 5.2, `emulator-5556`, APK
+built from this tree at `a71e3c69` + dirty).** `qa pass settings` 21 / 21
+green in 291 s, no rerun; `20_guide_books` ran its 43 steps — the
+markdown card's bar, the scroll to the shortcuts row, the shortcuts card,
+its field and its bar — and its `errors` step was clean; report
+`build/qa/pass/settings_20261111_172817_471_emulator-5556/`. One probe
+through the harness: two taps on "Set" (by label, inside
+`guide-notes-try-shortcuts-bar`) wrote "Set 1: weight kg × reps" and
+"Set 2: …" as checkbox lines with dim blanks under "Leg day", the caret on
+the empty line below, the coach on the Today step, Undo enabled and Redo
+not, nothing in the logs. Seen by the lead in the two flow shots and the
+probe's: the bar under the coach line on the stage's ground between two
+hairlines, eight of the markdown card's ten buttons in view on a Pixel 9
+Pro with the fade at the right edge, the `markdownStart` field between
+bar and editor, the dumbbell, calendar and star drawn as glyphs. Not
+verifiable in the driver build, as in Phase 2: the real keyboard's lift.

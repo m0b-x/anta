@@ -9805,7 +9805,7 @@ class AppLocalizationsRo extends AppLocalizations {
 
   @override
   String get guideBookNotesCaption =>
-      'Dosare, scris, markdown, liste, registrul de bani, autocompletare, contoare';
+      'Dosare, scris, markdown, liste, scurtăturile tale, registrul de bani, autocompletare, contoare';
 
   @override
   String get guideBookAppTitle => 'Copii de rezervă, sincronizare și setări';
@@ -10308,15 +10308,15 @@ class AppLocalizationsRo extends AppLocalizations {
 
   @override
   String notesGuideBarShortcutsBody(String shortcuts) {
-    return 'Fiecare buton e o scurtătură: un text pe care îl scrie sau îl pune în jurul selecției tale. În „$shortcuts”, trage-le ca să le reordonezi, ascunde-le pe cele pe care nu le folosești sau schimbă ce scrie una.';
+    return 'Fiecare buton e o scurtătură: un text pe care îl scrie sau îl pune în jurul selecției tale. Sub „$shortcuts”, trage-le ca să le reordonezi și ascunde-le pe cele pe care nu le folosești.';
   }
 
   @override
   String get notesGuideBarOwnTitle => 'Scurtătura ta';
 
   @override
-  String notesGuideBarOwnBody(String shortcuts) {
-    return 'Atinge + în „$shortcuts” ca să faci una. Un rând pe care îl scrii des – un format de set, titlul cu care începi fiecare zi – devine un buton.';
+  String notesGuideBarOwnBody(String shortcuts, String page) {
+    return 'Atinge + pe pagina „$shortcuts” ca să faci una: un rând pe care îl scrii des – un format de set, titlul cu care începi fiecare zi – devine un buton. „$page” din acest ghid arată cum.';
   }
 
   @override
@@ -10866,35 +10866,41 @@ class AppLocalizationsRo extends AppLocalizations {
       'Îndreptări 140 kg\nSăptămâna viitoare: genuflexiuni\nAceeași încălzire ca data trecută';
 
   @override
-  String get notesGuideSeedMoney => '\$= 500 buget\n\$- 40 sală';
+  String get notesGuideSeedMoney => '\$= 500 buget\n\$- 40 sală\n';
 
   @override
-  String get notesGuideCoachMarkdownHeading =>
-      'Pune # și un spațiu înaintea lui „Zi de picioare”: devine un titlu.';
+  String notesGuideCoachMarkdownHeading(String headers) {
+    return 'Atinge „Zi de picioare”, apoi „$headers” din bară și alege un nivel: un # în față îl face titlu.';
+  }
 
   @override
-  String get notesGuideCoachMarkdownBold =>
-      'Pune două steluțe de fiecare parte a unui cuvânt, ca **puternic**: apare îngroșat.';
+  String notesGuideCoachMarkdownBold(String bold) {
+    return 'Atinge „$bold” și scrie un cuvânt: două steluțe de fiecare parte îl îngroașă.';
+  }
 
   @override
-  String get notesGuideCoachMarkdownList =>
-      'Începe un rând cu - și un spațiu: devine un punct de listă.';
+  String notesGuideCoachMarkdownList(String bulletList) {
+    return 'Atinge alt rând, apoi „$bulletList”: o liniuță și un spațiu în față îl fac punct de listă.';
+  }
 
   @override
-  String get notesGuideCoachMarkdownTask =>
-      'Pe un rând nou scrie - [ ] și un cuvânt, apoi atinge căsuța ca să o bifezi.';
+  String notesGuideCoachMarkdownTask(String checkbox) {
+    return 'Atinge încă un rând, apoi „$checkbox” – și atinge căsuța ca să o bifezi.';
+  }
 
   @override
   String get notesGuideCoachListsEnter =>
       'Atinge după „Spate” și apasă Enter: următorul punct e gata.';
 
   @override
-  String get notesGuideCoachListsNest =>
-      'Atinge „Genuflexiuni”, apoi glisează spre dreapta: intră sub Picioare.';
+  String notesGuideCoachListsNest(String indentLine) {
+    return 'Atinge „Genuflexiuni”, apoi glisează spre dreapta sau atinge „$indentLine” din bară: intră sub Picioare.';
+  }
 
   @override
-  String get notesGuideCoachListsOutdent =>
-      'Glisează spre stânga: iese înapoi.';
+  String notesGuideCoachListsOutdent(String outdentLine) {
+    return 'Glisează spre stânga sau atinge „$outdentLine”: iese înapoi.';
+  }
 
   @override
   String get notesGuideCoachListsEnd =>
@@ -10905,30 +10911,33 @@ class AppLocalizationsRo extends AppLocalizations {
       'Adaugă #pr la capătul primului rând: un cuvânt după # e un tag.';
 
   @override
-  String notesGuideCoachOwnGhost(String open, String close) {
-    return 'După „genuflexiuni” scrie $open${open}greutate$close$close: un loc gol de completat mai târziu.';
+  String notesGuideCoachOwnGhost(String shortcutGhostText) {
+    return 'Atinge după „genuflexiuni”, apoi „$shortcutGhostText” din bară: un loc gol de completat mai târziu.';
   }
 
   @override
-  String notesGuideCoachOwnColour(String open, String close) {
-    return 'Scrie oriunde ${open}red:greu$close: cuvântul devine roșu.';
+  String notesGuideCoachOwnColour(String shortcutColorText) {
+    return 'Atinge alt rând, apoi „$shortcutColorText”, și scrie „greu”: cuvântul devine roșu.';
   }
 
   @override
   String get notesGuideCoachOwnWiki =>
-      'Scrie [[Zi de picioare]] între paranteze drepte duble: un link către notița cu acel nume.';
+      'Pe un rând separat scrie [[Zi de picioare]]: parantezele drepte duble leagă notița cu acel nume.';
 
   @override
-  String get notesGuideCoachMoneySpend =>
-      'Adaugă un rând \$- 25 pantofi: încă o cheltuială.';
+  String notesGuideCoachMoneySpend(String shortcutMoneySubtract) {
+    return 'Atinge rândul gol, apoi „$shortcutMoneySubtract”, și scrie 25 pantofi: încă o cheltuială.';
+  }
 
   @override
-  String get notesGuideCoachMoneyAdd =>
-      'Adaugă \$+ 25 rambursare: bani care intră.';
+  String notesGuideCoachMoneyAdd(String shortcutMoneyAdd) {
+    return 'Apasă Enter, apoi „$shortcutMoneyAdd”, și scrie 25 rambursare: bani care intră.';
+  }
 
   @override
-  String get notesGuideCoachMoneyTotal =>
-      'Scrie \$\$ pe un rând separat: cât a rămas, ca un jeton.';
+  String notesGuideCoachMoneyTotal(String shortcutMoneyTotal) {
+    return 'Apasă Enter și atinge „$shortcutMoneyTotal”: cât a rămas, ca un jeton.';
+  }
 
   @override
   String get notesGuideReportTag =>
@@ -10945,6 +10954,211 @@ class AppLocalizationsRo extends AppLocalizations {
   @override
   String get notesGuideReportMoney =>
       'Într-o notiță, atingerea unui total arată fiecare rând care a intrat în el.';
+
+  @override
+  String notesGuideReportEmptyButton(String markdownStart) {
+    return 'Butonul tău nu are încă nimic de scris: completează întâi „$markdownStart”.';
+  }
+
+  @override
+  String get notesGuidePageShortcuts => 'Scurtăturile tale';
+
+  @override
+  String get notesGuidePageShortcutsCaption =>
+      'Butoane care scriu rândurile tale: un set, o dată, un contor';
+
+  @override
+  String get notesGuideShortcutsLead =>
+      'O scurtătură e un buton din bară care scrie în locul tău. ANTA vine cu câteva; cele pe care le faci tu transformă rândurile pe care le repeți într-o singură atingere.';
+
+  @override
+  String get notesGuideSeedShortcuts => 'Zi de picioare\n';
+
+  @override
+  String get notesGuideShortcutSetLabel => 'Set';
+
+  @override
+  String notesGuideShortcutSetText(String count, String open, String close) {
+    return '- [ ] Setul $count: $open${open}greutate$close$close kg × $open${open}repetări$close$close';
+  }
+
+  @override
+  String get notesGuideShortcutTodayLabel => 'Azi';
+
+  @override
+  String get notesGuideShortcutMineLabel => 'Butonul tău';
+
+  @override
+  String notesGuideCoachShortcutsLine(String set) {
+    return 'Atinge rândul gol, apoi „$set” din bară: o atingere scrie un rând întreg, cu tot cu locuri goale.';
+  }
+
+  @override
+  String notesGuideCoachShortcutsCount(String set) {
+    return 'Atinge din nou „$set”: numărul crește singur.';
+  }
+
+  @override
+  String notesGuideCoachShortcutsDate(String today) {
+    return 'Atinge „$today”: data de azi, scrisă ca titlu.';
+  }
+
+  @override
+  String notesGuideCoachShortcutsWrite(String markdownStart) {
+    return 'Acum al tău: în „$markdownStart”, deasupra notiței, scrie un rând pe care îl scrii des.';
+  }
+
+  @override
+  String notesGuideCoachShortcutsPress(String mine) {
+    return 'Atinge steaua din bară, „$mine”: îți scrie rândul, de fiecare dată.';
+  }
+
+  @override
+  String get notesGuideShortcutsMakeTitle => 'Fă una';
+
+  @override
+  String notesGuideShortcutsMakeBody(
+    String settingsRowEditor,
+    String newShortcut,
+    String save,
+  ) {
+    return 'În Setări, deschide „$settingsRowEditor” și atinge + în josul paginii: se deschide „$newShortcut”. Alege o pictogramă, dă-i butonului un nume, spune ce scrie și atinge „$save”. Ajunge la capătul barei.';
+  }
+
+  @override
+  String get notesGuideShortcutsTextTitle => 'Ce scrie';
+
+  @override
+  String notesGuideShortcutsTextBody(String markdownStart, String markdownEnd) {
+    return '„$markdownStart” se scrie înaintea cursorului sau a textului pe care l-ai selectat; „$markdownEnd”, după. Pentru un rând întreg – un set, o masă, un titlu – pune totul în „$markdownStart” și lasă „$markdownEnd” gol.';
+  }
+
+  @override
+  String get notesGuideShortcutsKindsTitle => 'Trei feluri';
+
+  @override
+  String notesGuideShortcutsKindsBody(
+    String insertType,
+    String wrapSelectedText,
+    String insertCurrentDate,
+    String insertCounter,
+    String beforeDate,
+    String afterDate,
+  ) {
+    return '„$insertType” hotărăște ce stă între cele două: „$wrapSelectedText” păstrează acolo selecția ta, „$insertCurrentDate” scrie data în formatul ales – cele două câmpuri se numesc atunci „$beforeDate” și „$afterDate” – iar „$insertCounter”, următoarea valoare a unui contor.';
+  }
+
+  @override
+  String get notesGuideShortcutsPreviewTitle => 'Vezi înainte să salvezi';
+
+  @override
+  String notesGuideShortcutsPreviewBody(String preview) {
+    return '„$preview”, în josul acelei pagini, arată ce va scrie butonul, desenat așa cum îl desenează o notiță.';
+  }
+
+  @override
+  String get notesGuideShortcutsBlanksTitle => 'Lasă locuri goale';
+
+  @override
+  String notesGuideShortcutsBlanksBody(String open, String close) {
+    return 'Acoladele duble lasă un loc gol în rând: Genuflexiuni $open${open}greutate$close$close kg scrie un „greutate” estompat, de atins și de scris peste el. Un singur buton, de fiecare dată alt număr.';
+  }
+
+  @override
+  String get notesGuideShortcutsRepeatTitle => 'Mai multe deodată';
+
+  @override
+  String notesGuideShortcutsRepeatBody(
+    String advancedOptions,
+    String repeatSettings,
+    String incrementDateOnRepeat,
+  ) {
+    return 'Pornește „$advancedOptions”: „$repeatSettings” scrie textul de mai multe ori dintr-o atingere – trei seturi, șapte zile. Cu „$incrementDateOnRepeat”, data avansează cu fiecare copie, așa că o atingere scrie toată săptămâna.';
+  }
+
+  @override
+  String get notesGuideShortcutsDateTitle => 'Mâine, săptămâna viitoare';
+
+  @override
+  String notesGuideShortcutsDateBody(
+    String dateOffset,
+    String advancedOptions,
+  ) {
+    return '„$dateOffset”, sub „$advancedOptions”, mută data pe care o scrie un buton: o zi pentru planul de mâine, șapte pentru cel de săptămâna viitoare.';
+  }
+
+  @override
+  String get notesGuideShortcutsCountersTitle => 'Numără în timp ce scrie';
+
+  @override
+  String notesGuideShortcutsCountersBody(
+    String counterBindingsTitle,
+    String advancedOptions,
+    String open,
+    String close,
+  ) {
+    return '„$counterBindingsTitle”, tot sub „$advancedOptions”, leagă până la două contoare de buton. Unde textul spune ${open}c1$close sau ${open}c2$close, se scrie următoarea valoare a contorului – Setul 1, Setul 2, Setul 3 –, un pas la fiecare atingere.';
+  }
+
+  @override
+  String get notesGuideShortcutsTidyTitle => 'Ține bara scurtă';
+
+  @override
+  String notesGuideShortcutsTidyBody(String setCategory) {
+    return 'În lista de scurtături, ochiul ascunde un buton fără să-l șteargă, iar o apăsare lungă îl trage în alt loc. ⋮ › „$setCategory” grupează butoanele, iar jetoanele de deasupra listei o filtrează apoi după grup. Tot din ⋮ editezi sau ștergi un buton făcut de tine; cele incluse pot fi doar ascunse.';
+  }
+
+  @override
+  String get notesGuideShortcutsBarsTitle => 'Fiecare bară cu ale ei';
+
+  @override
+  String notesGuideShortcutsBarsBody(String manageBarProfiles) {
+    return 'O scurtătură ține de bara în care ai făcut-o. Dacă ai mai multe bare în „$manageBarProfiles”, alege întâi bara, apoi adaugă butonul.';
+  }
+
+  @override
+  String get notesGuideRecipeShown => 'O atingere scrie';
+
+  @override
+  String notesGuideExRecipeSetSource(String open, String close) {
+    return '- [ ] $open${open}greutate$close$close kg × $open${open}repetări$close$close';
+  }
+
+  @override
+  String get notesGuideExRecipeSetCaption =>
+      'Un set de bifat, cu două locuri goale de completat.';
+
+  @override
+  String notesGuideExRecipeLabelSource(String open, String close) {
+    return '**Încălzire:** $open${open}minute$close$close min pe bicicletă';
+  }
+
+  @override
+  String get notesGuideExRecipeLabelCaption =>
+      'Un rând care începe mereu la fel: începutul îngroșat, numărul lăsat gol.';
+
+  @override
+  String get notesGuideMarkdownCodeTitle => 'Cod și linii';
+
+  @override
+  String notesGuideMarkdownCodeBody(
+    String inlineCode,
+    String codeBlock,
+    String shortcutHorizontalRule,
+  ) {
+    return 'Un apostrof invers (`) de fiecare parte păstrează un cuvânt exact cum e scris, într-un font cu lățime fixă; trei apostrofuri inverse pe un rând separat încep un bloc care rămâne cum e scris până când alte trei îl încheie. Trei liniuțe pe un rând separat trag o linie de-a latul notiței. Bara are pentru ele „$inlineCode”, „$codeBlock” și „$shortcutHorizontalRule”.';
+  }
+
+  @override
+  String get notesGuideMoneyBackTitle => 'Privind înapoi';
+
+  @override
+  String notesGuideMoneyBackBody(
+    String shortcutMoneyDiff,
+    String shortcutMoneySpan,
+  ) {
+    return '\$^ 3 arată cu cât au schimbat soldul ultimele trei intrări; \$~ 2, schimbarea de-a lungul ultimelor două rânduri \$=. Amândouă arată doar un număr – soldul rămâne cum e. În bară se numesc „$shortcutMoneyDiff” și „$shortcutMoneySpan”.';
+  }
 
   @override
   String get appGuideSyncStopTitle => 'Oprirea';

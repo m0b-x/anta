@@ -9648,7 +9648,7 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get guideBookNotesCaption =>
-      'Ordner, Schreiben, Markdown, Listen, das Kassenbuch, Autovervollständigung, Zähler';
+      'Ordner, Schreiben, Markdown, Listen, eigene Kurzbefehle, das Kassenbuch, Autovervollständigung, Zähler';
 
   @override
   String get guideBookAppTitle => 'Backup, Sync und Einstellungen';
@@ -10150,15 +10150,15 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String notesGuideBarShortcutsBody(String shortcuts) {
-    return 'Jede Schaltfläche ist ein Kurzbefehl: Text, den sie tippt oder um deine Markierung legt. Unter „$shortcuts“ ziehst du sie in eine neue Reihenfolge, versteckst die, die du nie brauchst, oder änderst, was eine tippt.';
+    return 'Jede Schaltfläche ist ein Kurzbefehl: Text, den sie schreibt oder um deine Markierung legt. Unter „$shortcuts“ ziehst du sie in eine neue Reihenfolge und versteckst die, die du nie brauchst.';
   }
 
   @override
   String get notesGuideBarOwnTitle => 'Dein eigener Kurzbefehl';
 
   @override
-  String notesGuideBarOwnBody(String shortcuts) {
-    return 'Tippe unter „$shortcuts“ auf +, um einen anzulegen. Eine Zeile, die du oft tippst – ein Satzformat, die Überschrift, mit der jeder Tag beginnt – wird zur Schaltfläche.';
+  String notesGuideBarOwnBody(String shortcuts, String page) {
+    return 'Tippe auf der Seite „$shortcuts“ auf +, um einen anzulegen: Eine Zeile, die du oft schreibst – ein Satzformat, die Überschrift, mit der jeder Tag beginnt – wird zur Schaltfläche. „$page“ in dieser Anleitung zeigt, wie.';
   }
 
   @override
@@ -10707,35 +10707,41 @@ class AppLocalizationsDe extends AppLocalizations {
       'Kreuzheben 140 kg\nNächste Woche: Kniebeuge\nGleiches Aufwärmen wie letztes Mal';
 
   @override
-  String get notesGuideSeedMoney => '\$= 500 Budget\n\$- 40 Fitnessstudio';
+  String get notesGuideSeedMoney => '\$= 500 Budget\n\$- 40 Fitnessstudio\n';
 
   @override
-  String get notesGuideCoachMarkdownHeading =>
-      'Setze # und ein Leerzeichen vor „Beintag“: daraus wird eine Überschrift.';
+  String notesGuideCoachMarkdownHeading(String headers) {
+    return 'Tippe auf „Beintag“, dann in der Leiste auf „$headers“ und wähle eine Stufe: ein # davor macht daraus eine Überschrift.';
+  }
 
   @override
-  String get notesGuideCoachMarkdownBold =>
-      'Setze zwei Sternchen auf jede Seite eines Wortes, wie **stark**: es wird fett.';
+  String notesGuideCoachMarkdownBold(String bold) {
+    return 'Tippe auf „$bold“ und schreibe ein Wort: zwei Sternchen auf jeder Seite machen es fett.';
+  }
 
   @override
-  String get notesGuideCoachMarkdownList =>
-      'Beginne eine Zeile mit - und einem Leerzeichen: daraus wird ein Aufzählungspunkt.';
+  String notesGuideCoachMarkdownList(String bulletList) {
+    return 'Tippe auf eine andere Zeile, dann auf „$bulletList“: ein Strich und ein Leerzeichen davor machen sie zum Aufzählungspunkt.';
+  }
 
   @override
-  String get notesGuideCoachMarkdownTask =>
-      'Schreibe in eine neue Zeile - [ ] und ein Wort, dann tippe auf das Kästchen, um es abzuhaken.';
+  String notesGuideCoachMarkdownTask(String checkbox) {
+    return 'Tippe auf noch eine Zeile, dann auf „$checkbox“ – und tippe auf das Kästchen, um es abzuhaken.';
+  }
 
   @override
   String get notesGuideCoachListsEnter =>
       'Tippe hinter „Rücken“ und drücke Enter: der nächste Punkt steht bereit.';
 
   @override
-  String get notesGuideCoachListsNest =>
-      'Tippe auf „Kniebeuge“ und wische nach rechts: der Punkt rückt unter Beine.';
+  String notesGuideCoachListsNest(String indentLine) {
+    return 'Tippe auf „Kniebeuge“, dann wische nach rechts oder tippe in der Leiste auf „$indentLine“: der Punkt rückt unter Beine.';
+  }
 
   @override
-  String get notesGuideCoachListsOutdent =>
-      'Wische nach links: er rückt wieder heraus.';
+  String notesGuideCoachListsOutdent(String outdentLine) {
+    return 'Wische nach links oder tippe auf „$outdentLine“: er rückt wieder heraus.';
+  }
 
   @override
   String get notesGuideCoachListsEnd =>
@@ -10746,30 +10752,33 @@ class AppLocalizationsDe extends AppLocalizations {
       'Hänge #pr an die erste Zeile: ein Wort nach # ist ein Schlagwort.';
 
   @override
-  String notesGuideCoachOwnGhost(String open, String close) {
-    return 'Schreibe hinter „Kniebeuge“ $open${open}Gewicht$close$close: eine Lücke zum späteren Ausfüllen.';
+  String notesGuideCoachOwnGhost(String shortcutGhostText) {
+    return 'Tippe hinter „Kniebeuge“, dann in der Leiste auf „$shortcutGhostText“: eine Lücke zum späteren Ausfüllen.';
   }
 
   @override
-  String notesGuideCoachOwnColour(String open, String close) {
-    return 'Schreibe irgendwo ${open}red:schwer$close: das Wort wird rot.';
+  String notesGuideCoachOwnColour(String shortcutColorText) {
+    return 'Tippe auf eine andere Zeile, dann auf „$shortcutColorText“, und schreibe „schwer“: das Wort wird rot.';
   }
 
   @override
   String get notesGuideCoachOwnWiki =>
-      'Schreibe [[Beintag]] in doppelten eckigen Klammern: ein Link zur Notiz mit diesem Namen.';
+      'Schreibe in eine eigene Zeile [[Beintag]]: doppelte eckige Klammern verlinken die Notiz mit diesem Namen.';
 
   @override
-  String get notesGuideCoachMoneySpend =>
-      'Füge eine Zeile \$- 25 Schuhe hinzu: eine weitere Ausgabe.';
+  String notesGuideCoachMoneySpend(String shortcutMoneySubtract) {
+    return 'Tippe auf die leere Zeile, dann auf „$shortcutMoneySubtract“, und schreibe 25 Schuhe: eine weitere Ausgabe.';
+  }
 
   @override
-  String get notesGuideCoachMoneyAdd =>
-      'Füge \$+ 25 Rückzahlung hinzu: Geld, das hereinkommt.';
+  String notesGuideCoachMoneyAdd(String shortcutMoneyAdd) {
+    return 'Drücke Enter, dann „$shortcutMoneyAdd“, und schreibe 25 Rückzahlung: Geld, das hereinkommt.';
+  }
 
   @override
-  String get notesGuideCoachMoneyTotal =>
-      'Schreibe \$\$ in eine eigene Zeile: was übrig ist, als Chip.';
+  String notesGuideCoachMoneyTotal(String shortcutMoneyTotal) {
+    return 'Drücke Enter und tippe auf „$shortcutMoneyTotal“: was übrig ist, als Chip.';
+  }
 
   @override
   String get notesGuideReportTag =>
@@ -10786,6 +10795,211 @@ class AppLocalizationsDe extends AppLocalizations {
   @override
   String get notesGuideReportMoney =>
       'In einer Notiz zeigt ein Tipp auf eine Summe jede Zeile, die hineingeflossen ist.';
+
+  @override
+  String notesGuideReportEmptyButton(String markdownStart) {
+    return 'Deine Schaltfläche hat noch nichts zu schreiben: fülle zuerst „$markdownStart“ aus.';
+  }
+
+  @override
+  String get notesGuidePageShortcuts => 'Eigene Kurzbefehle';
+
+  @override
+  String get notesGuidePageShortcutsCaption =>
+      'Schaltflächen, die deine Zeilen schreiben: ein Satz, ein Datum, ein Zähler';
+
+  @override
+  String get notesGuideShortcutsLead =>
+      'Ein Kurzbefehl ist eine Schaltfläche der Leiste, die für dich schreibt. ANTA bringt einige mit; deine eigenen machen aus den Zeilen, die du immer wieder schreibst, einen einzigen Tipp.';
+
+  @override
+  String get notesGuideSeedShortcuts => 'Beintag\n';
+
+  @override
+  String get notesGuideShortcutSetLabel => 'Satz';
+
+  @override
+  String notesGuideShortcutSetText(String count, String open, String close) {
+    return '- [ ] Satz $count: $open${open}Gewicht$close$close kg × $open${open}Wdh.$close$close';
+  }
+
+  @override
+  String get notesGuideShortcutTodayLabel => 'Heute';
+
+  @override
+  String get notesGuideShortcutMineLabel => 'Deine Schaltfläche';
+
+  @override
+  String notesGuideCoachShortcutsLine(String set) {
+    return 'Tippe auf die leere Zeile, dann in der Leiste auf „$set“: ein Tipp schreibt eine ganze Zeile, samt Lücken.';
+  }
+
+  @override
+  String notesGuideCoachShortcutsCount(String set) {
+    return 'Tippe noch einmal auf „$set“: die Nummer zählt von selbst weiter.';
+  }
+
+  @override
+  String notesGuideCoachShortcutsDate(String today) {
+    return 'Tippe auf „$today“: das heutige Datum, als Überschrift geschrieben.';
+  }
+
+  @override
+  String notesGuideCoachShortcutsWrite(String markdownStart) {
+    return 'Jetzt deiner: schreibe in „$markdownStart“, über der Notiz, eine Zeile, die du oft schreibst.';
+  }
+
+  @override
+  String notesGuideCoachShortcutsPress(String mine) {
+    return 'Tippe in der Leiste auf den Stern, „$mine“: er schreibt deine Zeile, jedes Mal.';
+  }
+
+  @override
+  String get notesGuideShortcutsMakeTitle => 'Einen anlegen';
+
+  @override
+  String notesGuideShortcutsMakeBody(
+    String settingsRowEditor,
+    String newShortcut,
+    String save,
+  ) {
+    return 'Öffne in den Einstellungen „$settingsRowEditor“ und tippe unten auf der Seite auf +: „$newShortcut“ öffnet sich. Wähle ein Symbol, gib der Schaltfläche einen Namen, lege fest, was sie schreibt, und tippe auf „$save“. Sie kommt ans Ende der Leiste.';
+  }
+
+  @override
+  String get notesGuideShortcutsTextTitle => 'Was er schreibt';
+
+  @override
+  String notesGuideShortcutsTextBody(String markdownStart, String markdownEnd) {
+    return '„$markdownStart“ wird vor den Cursor geschrieben oder vor den Text, den du markiert hast; „$markdownEnd“ dahinter. Für eine ganze Zeile – einen Satz, eine Mahlzeit, eine Überschrift – kommt alles in „$markdownStart“, und „$markdownEnd“ bleibt leer.';
+  }
+
+  @override
+  String get notesGuideShortcutsKindsTitle => 'Drei Arten';
+
+  @override
+  String notesGuideShortcutsKindsBody(
+    String insertType,
+    String wrapSelectedText,
+    String insertCurrentDate,
+    String insertCounter,
+    String beforeDate,
+    String afterDate,
+  ) {
+    return '„$insertType“ bestimmt, was zwischen beiden steht: „$wrapSelectedText“ lässt deine Markierung dort, „$insertCurrentDate“ schreibt das Datum im Format deiner Wahl – die beiden Felder heißen dann „$beforeDate“ und „$afterDate“ – und „$insertCounter“ den nächsten Wert eines Zählers.';
+  }
+
+  @override
+  String get notesGuideShortcutsPreviewTitle => 'Vor dem Speichern ansehen';
+
+  @override
+  String notesGuideShortcutsPreviewBody(String preview) {
+    return '„$preview“, unten auf dieser Seite, zeigt, was die Schaltfläche schreiben wird – so dargestellt, wie eine Notiz es darstellt.';
+  }
+
+  @override
+  String get notesGuideShortcutsBlanksTitle => 'Lücken lassen';
+
+  @override
+  String notesGuideShortcutsBlanksBody(String open, String close) {
+    return 'Doppelte geschweifte Klammern lassen eine Lücke in der Zeile: Kniebeuge $open${open}Gewicht$close$close kg schreibt ein blasses „Gewicht“ zum Antippen und Überschreiben. Eine Schaltfläche, jedes Mal eine neue Zahl.';
+  }
+
+  @override
+  String get notesGuideShortcutsRepeatTitle => 'Mehrere auf einmal';
+
+  @override
+  String notesGuideShortcutsRepeatBody(
+    String advancedOptions,
+    String repeatSettings,
+    String incrementDateOnRepeat,
+  ) {
+    return 'Schalte „$advancedOptions“ ein: „$repeatSettings“ schreibt den Text mit einem Tipp mehrmals – drei Sätze, sieben Tage. Mit „$incrementDateOnRepeat“ rückt ein Datum mit jeder Kopie weiter, sodass ein Tipp die ganze Woche schreibt.';
+  }
+
+  @override
+  String get notesGuideShortcutsDateTitle => 'Morgen, nächste Woche';
+
+  @override
+  String notesGuideShortcutsDateBody(
+    String dateOffset,
+    String advancedOptions,
+  ) {
+    return '„$dateOffset“, unter „$advancedOptions“, verschiebt das Datum, das eine Schaltfläche schreibt: ein Tag für den Plan von morgen, sieben für den der nächsten Woche.';
+  }
+
+  @override
+  String get notesGuideShortcutsCountersTitle => 'Beim Schreiben zählen';
+
+  @override
+  String notesGuideShortcutsCountersBody(
+    String counterBindingsTitle,
+    String advancedOptions,
+    String open,
+    String close,
+  ) {
+    return '„$counterBindingsTitle“, ebenfalls unter „$advancedOptions“, bindet bis zu zwei Zähler an die Schaltfläche. Wo im Text ${open}c1$close oder ${open}c2$close steht, wird der nächste Wert des Zählers geschrieben – Satz 1, Satz 2, Satz 3 –, ein Schritt mit jedem Tipp.';
+  }
+
+  @override
+  String get notesGuideShortcutsTidyTitle => 'Die Leiste kurz halten';
+
+  @override
+  String notesGuideShortcutsTidyBody(String setCategory) {
+    return 'In der Liste der Kurzbefehle versteckt das Auge eine Schaltfläche, ohne sie zu löschen, und langes Drücken zieht sie an einen neuen Platz. ⋮ › „$setCategory“ fasst Schaltflächen zu Gruppen zusammen, und die Chips über der Liste filtern sie dann nach Gruppe. Über ⋮ bearbeitest oder löschst du auch eine eigene Schaltfläche; die mitgelieferten lassen sich nur verstecken.';
+  }
+
+  @override
+  String get notesGuideShortcutsBarsTitle => 'Jede Leiste hat ihre eigenen';
+
+  @override
+  String notesGuideShortcutsBarsBody(String manageBarProfiles) {
+    return 'Ein Kurzbefehl gehört zu der Leiste, in der du ihn angelegt hast. Hast du unter „$manageBarProfiles“ mehrere Leisten, wähle zuerst die Leiste und lege dann die Schaltfläche an.';
+  }
+
+  @override
+  String get notesGuideRecipeShown => 'Ein Tipp schreibt';
+
+  @override
+  String notesGuideExRecipeSetSource(String open, String close) {
+    return '- [ ] $open${open}Gewicht$close$close kg × $open${open}Wdh.$close$close';
+  }
+
+  @override
+  String get notesGuideExRecipeSetCaption =>
+      'Ein Satz zum Abhaken, mit zwei Lücken zum Ausfüllen.';
+
+  @override
+  String notesGuideExRecipeLabelSource(String open, String close) {
+    return '**Aufwärmen:** $open${open}Minuten$close$close min auf dem Rad';
+  }
+
+  @override
+  String get notesGuideExRecipeLabelCaption =>
+      'Eine Zeile, die immer gleich beginnt: der Anfang fett, die Zahl bleibt offen.';
+
+  @override
+  String get notesGuideMarkdownCodeTitle => 'Code und Trennlinien';
+
+  @override
+  String notesGuideMarkdownCodeBody(
+    String inlineCode,
+    String codeBlock,
+    String shortcutHorizontalRule,
+  ) {
+    return 'Ein Backtick (`) auf jeder Seite lässt ein Wort genau so stehen, wie es getippt ist, in einer Schrift mit fester Breite; drei Backticks in einer eigenen Zeile beginnen einen Block, der unverändert bleibt, bis drei weitere ihn beenden. Drei Striche in einer eigenen Zeile ziehen eine Linie quer durch die Notiz. Die Leiste hat dafür „$inlineCode“, „$codeBlock“ und „$shortcutHorizontalRule“.';
+  }
+
+  @override
+  String get notesGuideMoneyBackTitle => 'Zurückblicken';
+
+  @override
+  String notesGuideMoneyBackBody(
+    String shortcutMoneyDiff,
+    String shortcutMoneySpan,
+  ) {
+    return '\$^ 3 zeigt, wie stark die letzten drei Einträge den Stand verändert haben; \$~ 2 die Veränderung über die letzten zwei \$=-Zeilen. Beide zeigen nur eine Zahl – der Stand bleibt, wie er ist. In der Leiste heißen sie „$shortcutMoneyDiff“ und „$shortcutMoneySpan“.';
+  }
 
   @override
   String get appGuideSyncStopTitle => 'Beenden';

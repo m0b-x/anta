@@ -16,6 +16,7 @@ import 'package:anta/models/notes_guide_content.dart';
 import 'package:anta/pages/guide_topic_page.dart';
 import 'package:anta/services/settings_service.dart';
 import 'package:anta/utils/markdown_editor_paint_spans.dart';
+import 'package:anta/widgets/markdown_bar.dart';
 import 'package:anta/widgets/modern_editor_wrapper.dart';
 import 'package:anta/widgets/settings_section_list.dart';
 
@@ -51,12 +52,13 @@ void main() {
     await db.close();
   });
 
-  /// The four pages that hold a card.
+  /// The five pages that hold a card.
   const cardPages = [
     NotesGuideTopic.markdown,
     NotesGuideTopic.lists,
     NotesGuideTopic.own,
     NotesGuideTopic.money,
+    NotesGuideTopic.shortcuts,
   ];
 
   String seedOf(AppLocalizations l10n, NotesGuideTopic topic) =>
@@ -65,15 +67,23 @@ void main() {
         NotesGuideTopic.lists => l10n.notesGuideSeedLists,
         NotesGuideTopic.own => l10n.notesGuideSeedOwn,
         NotesGuideTopic.money => l10n.notesGuideSeedMoney,
+        NotesGuideTopic.shortcuts => l10n.notesGuideSeedShortcuts,
         _ => throw ArgumentError(topic),
       };
 
   String firstLineOf(AppLocalizations l10n, NotesGuideTopic topic) =>
       switch (topic) {
-        NotesGuideTopic.markdown => l10n.notesGuideCoachMarkdownHeading,
+        NotesGuideTopic.markdown => l10n.notesGuideCoachMarkdownHeading(
+          l10n.headers,
+        ),
         NotesGuideTopic.lists => l10n.notesGuideCoachListsEnter,
         NotesGuideTopic.own => l10n.notesGuideCoachOwnTag,
-        NotesGuideTopic.money => l10n.notesGuideCoachMoneySpend,
+        NotesGuideTopic.money => l10n.notesGuideCoachMoneySpend(
+          l10n.shortcutMoneySubtract,
+        ),
+        NotesGuideTopic.shortcuts => l10n.notesGuideCoachShortcutsLine(
+          l10n.notesGuideShortcutSetLabel,
+        ),
         _ => throw ArgumentError(topic),
       };
 
@@ -165,6 +175,35 @@ void main() {
   Future<void> enterAt(WidgetTester tester, int line) =>
       type(tester, '\n', endOf(tester, line));
 
+  /// A press on the bar's button named [label] — its tooltip, the app's own
+  /// label for it (`docs/guide-hub-roadmap.md` D27).
+  Future<void> press(WidgetTester tester, String label) async {
+    final button = find.byTooltip(label);
+    await tester.ensureVisible(button);
+    await tester.pumpAndSettle();
+    await tester.tap(button);
+    await tester.pumpAndSettle();
+  }
+
+  /// What she types at the caret, wherever a press left it.
+  Future<void> typeAtCaret(WidgetTester tester, String text) async {
+    controller(tester).replaceSelection(text);
+    await tester.pumpAndSettle();
+  }
+
+  /// Parks the caret in [line], as her tap on it would.
+  Future<void> caretIn(WidgetTester tester, int line, [int offset = 0]) async {
+    controller(tester).selection = CodeLineSelection.collapsed(
+      index: line,
+      offset: offset,
+    );
+    await tester.pump();
+  }
+
+  List<String> lines(WidgetTester tester) => [
+    for (final line in controller(tester).codeLines.toList()) line.text,
+  ];
+
   /// The English edit that does [topic]'s first step, so the coach has
   /// moved on.
   Future<void> firstStep(WidgetTester tester, NotesGuideTopic topic) async {
@@ -186,6 +225,8 @@ void main() {
           r'$- 25 shoes',
           const CodeLineSelection.collapsed(index: 2, offset: 0),
         );
+      case NotesGuideTopic.shortcuts:
+        await press(tester, en.notesGuideShortcutSetLabel);
       default:
         throw ArgumentError(topic);
     }
@@ -299,7 +340,7 @@ void main() {
       '# ',
       const CodeLineSelection.collapsed(index: 0, offset: 0),
     );
-    expect(robot.line, en.notesGuideCoachMarkdownBold);
+    expect(robot.line, en.notesGuideCoachMarkdownBold(en.bold));
     expect(robot.canBack, isTrue);
 
     // "Felt strong today": the word between offsets 5 and 11.
@@ -313,14 +354,14 @@ void main() {
         extentOffset: 11,
       ),
     );
-    expect(robot.line, en.notesGuideCoachMarkdownList);
+    expect(robot.line, en.notesGuideCoachMarkdownList(en.bulletList));
 
     await type(
       tester,
       '- ',
       const CodeLineSelection.collapsed(index: 1, offset: 0),
     );
-    expect(robot.line, en.notesGuideCoachMarkdownTask);
+    expect(robot.line, en.notesGuideCoachMarkdownTask(en.checkbox));
 
     // An open box is not the step: the box has to be ticked.
     await type(
@@ -328,7 +369,7 @@ void main() {
       '- [ ] Stretch\n',
       const CodeLineSelection.collapsed(index: 1, offset: 0),
     );
-    expect(robot.line, en.notesGuideCoachMarkdownTask);
+    expect(robot.line, en.notesGuideCoachMarkdownTask(en.checkbox));
     expect(tester.getSize(robot.card).height, cardHeight);
 
     // Column 0 of the task line is inside the box's tap zone however the
@@ -360,7 +401,7 @@ void main() {
 
     await enterAt(tester, 3);
     expect(controller(tester).codeLines[4].text, '- ');
-    expect(robot.line, en.notesGuideCoachListsNest);
+    expect(robot.line, en.notesGuideCoachListsNest(en.indentLine));
 
     // The swipe nests only the focused editor's caret line: a tap on
     // "Squat" takes focus and, past the double-tap window, the caret is
@@ -381,7 +422,7 @@ void main() {
     await tester.dragFrom(squat, const Offset(80, 0));
     await tester.pumpAndSettle();
     expect(controller(tester).codeLines[1].text, '  - Squat');
-    expect(robot.line, en.notesGuideCoachListsOutdent);
+    expect(robot.line, en.notesGuideCoachListsOutdent(en.outdentLine));
 
     await tester.dragFrom(squat, const Offset(-80, 0));
     await tester.pumpAndSettle();
@@ -401,10 +442,10 @@ void main() {
     final robot = await open(tester, topic: NotesGuideTopic.own);
 
     await type(tester, ' #pr', endOf(tester, 0));
-    expect(robot.line, en.notesGuideCoachOwnGhost('{', '}'));
+    expect(robot.line, en.notesGuideCoachOwnGhost(en.shortcutGhostText));
 
     await type(tester, ' {{weight}}', endOf(tester, 1));
-    expect(robot.line, en.notesGuideCoachOwnColour('{', '}'));
+    expect(robot.line, en.notesGuideCoachOwnColour(en.shortcutColorText));
 
     await type(tester, ' {red:heavy}', endOf(tester, 2));
     expect(robot.line, en.notesGuideCoachOwnWiki);
@@ -430,7 +471,7 @@ void main() {
       r'$- 25 shoes',
       const CodeLineSelection.collapsed(index: 2, offset: 0),
     );
-    expect(robot.line, en.notesGuideCoachMoneyAdd);
+    expect(robot.line, en.notesGuideCoachMoneyAdd(en.shortcutMoneyAdd));
 
     await enterAt(tester, 2);
     await type(
@@ -438,7 +479,7 @@ void main() {
       r'$+ 25 refund',
       const CodeLineSelection.collapsed(index: 3, offset: 0),
     );
-    expect(robot.line, en.notesGuideCoachMoneyTotal);
+    expect(robot.line, en.notesGuideCoachMoneyTotal(en.shortcutMoneyTotal));
 
     await enterAt(tester, 3);
     await type(
@@ -480,7 +521,7 @@ void main() {
         extentOffset: 7,
       ),
     );
-    expect(robot.line, en.notesGuideCoachMarkdownList);
+    expect(robot.line, en.notesGuideCoachMarkdownList(en.bulletList));
     await finish(tester);
   });
 
@@ -505,7 +546,7 @@ void main() {
       'x',
       const CodeLineSelection.collapsed(index: 2, offset: 0),
     );
-    expect(robot.line, en.notesGuideCoachMarkdownHeading);
+    expect(robot.line, en.notesGuideCoachMarkdownHeading(en.headers));
     expect(tester.takeException(), isNull);
     await finish(tester);
   });
@@ -515,7 +556,7 @@ void main() {
     final handle = tester.ensureSemantics();
     final robot = await open(tester, topic: NotesGuideTopic.own);
     await type(tester, ' #pr', endOf(tester, 0));
-    expect(robot.line, en.notesGuideCoachOwnGhost('{', '}'));
+    expect(robot.line, en.notesGuideCoachOwnGhost(en.shortcutGhostText));
 
     // The tag's own zone, as the editor publishes it: the editor is not
     // focused, so no line is revealed and the zone is live.
@@ -549,12 +590,12 @@ void main() {
     );
     await robot.back();
     expect(robot.reading, isTrue);
-    expect(robot.line, en.notesGuideCoachMarkdownHeading);
+    expect(robot.line, en.notesGuideCoachMarkdownHeading(en.headers));
 
     // No step's mark: the line still goes back to what is next.
     await type(tester, 'x', endOf(tester, 2));
     expect(robot.reading, isFalse);
-    expect(robot.line, en.notesGuideCoachMarkdownBold);
+    expect(robot.line, en.notesGuideCoachMarkdownBold(en.bold));
     expect(tester.takeException(), isNull);
     await finish(tester);
   });
@@ -567,7 +608,7 @@ void main() {
       const CodeLineSelection.collapsed(index: 0, offset: 0),
     );
     expect(controller(tester).codeLines[1].text, '# x');
-    expect(robot.line, en.notesGuideCoachMarkdownHeading);
+    expect(robot.line, en.notesGuideCoachMarkdownHeading(en.headers));
     expect(tester.takeException(), isNull);
     await finish(tester);
   });
@@ -576,10 +617,10 @@ void main() {
     final robot = await open(tester, topic: NotesGuideTopic.lists);
     await robot.skip();
     await robot.skip();
-    expect(robot.line, en.notesGuideCoachListsOutdent);
+    expect(robot.line, en.notesGuideCoachListsOutdent(en.outdentLine));
 
     await type(tester, 'x', endOf(tester, 0));
-    expect(robot.line, en.notesGuideCoachListsOutdent);
+    expect(robot.line, en.notesGuideCoachListsOutdent(en.outdentLine));
     expect(tester.takeException(), isNull);
     await finish(tester);
   });
@@ -629,11 +670,14 @@ void main() {
       containsAll([
         l10nRo.notesGuideReportMoney,
         l10nRo.calendarGuideCoachDone,
-        l10nRo.notesGuideCoachMoneySpend,
+        l10nRo.notesGuideCoachMoneySpend(l10nRo.shortcutMoneySubtract),
       ]),
     );
     expect(robot.lineCandidates, isNot(contains(l10nDe.notesGuideReportMoney)));
-    expect(robot.line, l10nRo.notesGuideCoachMoneySpend);
+    expect(
+      robot.line,
+      l10nRo.notesGuideCoachMoneySpend(l10nRo.shortcutMoneySubtract),
+    );
     expect(tester.takeException(), isNull);
     await finish(tester);
   });
@@ -725,6 +769,488 @@ void main() {
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
     await finish(tester);
+  });
+
+  group('the bar under the editor (D27–D31)', () {
+    testWidgets('holds the card\'s buttons in the shipped bar\'s order, with '
+        'undo, and none of the rest', (tester) async {
+      await open(tester);
+      final bar = find.bySemanticsIdentifier(
+        SemanticsIds.guideBookTryBar('notes', 'markdown'),
+      );
+      expect(bar, findsOneWidget);
+      // Over the editor, under the line that names its buttons (D29).
+      expect(
+        tester.getBottomLeft(bar).dy,
+        lessThanOrEqualTo(tester.getTopLeft(editorNode()).dy),
+      );
+      final shipped = [
+        en.checkbox,
+        en.bulletList,
+        en.numberedList,
+        en.bold,
+        en.italic,
+        en.headers,
+        en.strikethrough,
+        en.shortcutHighlight,
+        en.quote,
+        en.link,
+        en.undo,
+        en.redo,
+      ];
+      double? before;
+      for (final label in shipped) {
+        final button = find.descendant(
+          of: bar,
+          matching: find.byTooltip(label),
+        );
+        expect(button, findsOneWidget, reason: label);
+        final x = tester.getTopLeft(button).dx;
+        if (before != null) expect(x, greaterThan(before), reason: label);
+        before = x;
+      }
+      for (final absent in [
+        en.shortcutCallout,
+        en.shortcutGhostText,
+        en.shortcutMoneyAdd,
+        en.paste,
+        en.settings,
+      ]) {
+        expect(find.byTooltip(absent), findsNothing, reason: absent);
+      }
+      // Nothing to undo in a note she has not touched.
+      expect(
+        tester.widget<MarkdownBar>(find.byType(MarkdownBar)).canUndo,
+        isFalse,
+      );
+      await finish(tester);
+    });
+
+    testWidgets('the caret waits at the end of the seed, so a press before '
+        'any tap adds a line, never writes into the first', (tester) async {
+      await open(tester, topic: NotesGuideTopic.money);
+      final seed = en.notesGuideSeedMoney.split('\n');
+      expect(seed.last, isEmpty);
+      expect(
+        controller(tester).selection,
+        CodeLineSelection.collapsed(index: seed.length - 1, offset: 0),
+      );
+      // The money buttons ship hidden; the card shows them (D27).
+      await press(tester, en.shortcutMoneySubtract);
+      expect(lines(tester), [...seed.take(seed.length - 1), r'$- ']);
+      await finish(tester);
+    });
+
+    testWidgets('the markdown card walks to its closing line on the bar: '
+        'the heading menu, bold around the caret, a bullet, a checkbox', (
+      tester,
+    ) async {
+      final robot = await open(tester);
+      final cardHeight = tester.getSize(robot.card).height;
+
+      await caretIn(tester, 0, 3);
+      await press(tester, en.headers);
+      await tester.tap(find.text(en.header1));
+      await tester.pumpAndSettle();
+      expect(lines(tester).first, '# Leg day');
+      expect(robot.line, en.notesGuideCoachMarkdownBold(en.bold));
+
+      // Bold at a bare caret writes the pair and waits between the stars.
+      await caretIn(tester, 3, 5);
+      await press(tester, en.bold);
+      expect(lines(tester)[3], 'Felt ****strong today');
+      expect(robot.line, en.notesGuideCoachMarkdownBold(en.bold));
+      await typeAtCaret(tester, 'very');
+      expect(lines(tester)[3], 'Felt **very**strong today');
+      expect(robot.line, en.notesGuideCoachMarkdownList(en.bulletList));
+
+      await caretIn(tester, 1);
+      await press(tester, en.bulletList);
+      expect(lines(tester)[1], '- Squat 5×5');
+      expect(robot.line, en.notesGuideCoachMarkdownTask(en.checkbox));
+
+      await caretIn(tester, 2);
+      await press(tester, en.checkbox);
+      expect(lines(tester)[2], '- [ ] Bench 3×8');
+      // An open box is not the step.
+      expect(robot.line, en.notesGuideCoachMarkdownTask(en.checkbox));
+      await type(
+        tester,
+        'x',
+        const CodeLineSelection(
+          baseIndex: 2,
+          baseOffset: 3,
+          extentIndex: 2,
+          extentOffset: 4,
+        ),
+      );
+      expect(robot.line, en.calendarGuideCoachDone);
+      expect(tester.getSize(robot.card).height, cardHeight);
+      expect(tester.takeException(), isNull);
+      await finish(tester);
+    });
+
+    testWidgets('a press is one undo: the bar\'s undo takes the whole line '
+        'back and redo writes it again', (tester) async {
+      await open(tester);
+      await caretIn(tester, 1);
+      await press(tester, en.bulletList);
+      expect(lines(tester)[1], '- Squat 5×5');
+      MarkdownBar bar() => tester.widget<MarkdownBar>(find.byType(MarkdownBar));
+      expect(bar().canUndo, isTrue);
+      expect(bar().canRedo, isFalse);
+
+      await press(tester, en.undo);
+      expect(controller(tester).text, en.notesGuideSeedMarkdown);
+      expect(bar().canUndo, isFalse);
+      expect(bar().canRedo, isTrue);
+
+      await press(tester, en.redo);
+      expect(lines(tester)[1], '- Squat 5×5');
+      expect(tester.takeException(), isNull);
+      await finish(tester);
+    });
+
+    testWidgets('the lists card: the bar\'s arrows nest the item and bring '
+        'it back, as the swipe does', (tester) async {
+      final robot = await open(tester, topic: NotesGuideTopic.lists);
+      await enterAt(tester, 3);
+      expect(robot.line, en.notesGuideCoachListsNest(en.indentLine));
+
+      await caretIn(tester, 1, 4);
+      await press(tester, en.indentLine);
+      expect(lines(tester)[1], '  - Squat');
+      expect(robot.line, en.notesGuideCoachListsOutdent(en.outdentLine));
+
+      await press(tester, en.outdentLine);
+      expect(lines(tester)[1], '- Squat');
+      expect(robot.line, en.notesGuideCoachListsEnd);
+      // The lesson's two arrows lead the utility buttons.
+      expect(
+        tester.getTopLeft(find.byTooltip(en.indentLine)).dx,
+        lessThan(tester.getTopLeft(find.byTooltip(en.undo)).dx),
+      );
+      expect(tester.takeException(), isNull);
+      await finish(tester);
+    });
+
+    testWidgets('the own card: the ghost button draws its blank at once; the '
+        'colour button\'s slot is no colour until a word fills it', (
+      tester,
+    ) async {
+      final robot = await open(tester, topic: NotesGuideTopic.own);
+      await type(tester, ' #pr', endOf(tester, 0));
+      expect(robot.line, en.notesGuideCoachOwnGhost(en.shortcutGhostText));
+
+      await caretIn(tester, 1, lines(tester)[1].length);
+      await press(tester, en.shortcutGhostText);
+      expect(lines(tester)[1], 'Next week: squat{{  }}');
+      expect(robot.line, en.notesGuideCoachOwnColour(en.shortcutColorText));
+
+      await caretIn(tester, 2, lines(tester)[2].length);
+      await press(tester, en.shortcutColorText);
+      expect(lines(tester)[2], 'Same warm-up as last time{red:{{  }}}');
+      // The slot is selected and dim: not red yet (D31).
+      expect(robot.line, en.notesGuideCoachOwnColour(en.shortcutColorText));
+      await typeAtCaret(tester, 'heavy');
+      expect(lines(tester)[2], 'Same warm-up as last time{red:heavy}');
+      expect(robot.line, en.notesGuideCoachOwnWiki);
+      expect(tester.takeException(), isNull);
+      await finish(tester);
+    });
+
+    testWidgets('the money card walks to its closing line on the bar, the '
+        'amounts typed', (tester) async {
+      final robot = await open(tester, topic: NotesGuideTopic.money);
+
+      await press(tester, en.shortcutMoneySubtract);
+      // A marker with no amount is no ledger line yet.
+      expect(
+        robot.line,
+        en.notesGuideCoachMoneySpend(en.shortcutMoneySubtract),
+      );
+      await typeAtCaret(tester, '25 shoes');
+      expect(robot.line, en.notesGuideCoachMoneyAdd(en.shortcutMoneyAdd));
+
+      await enterAt(tester, 2);
+      await caretIn(tester, 3);
+      await press(tester, en.shortcutMoneyAdd);
+      await typeAtCaret(tester, '25 refund');
+      expect(robot.line, en.notesGuideCoachMoneyTotal(en.shortcutMoneyTotal));
+
+      await enterAt(tester, 3);
+      await caretIn(tester, 4);
+      await press(tester, en.shortcutMoneyTotal);
+      expect(lines(tester), [
+        r'$= 500 budget',
+        r'$- 40 gym',
+        r'$- 25 shoes',
+        r'$+ 25 refund',
+        r'$$',
+      ]);
+      expect(robot.line, en.calendarGuideCoachDone);
+      expect(tester.takeException(), isNull);
+      await finish(tester);
+    });
+
+    testWidgets('a change of language renames the bar\'s buttons in '
+        'place', (tester) async {
+      await tester.pumpWidget(app(topic: NotesGuideTopic.shortcuts));
+      await tester.pumpAndSettle();
+      expect(find.byTooltip(en.notesGuideShortcutSetLabel), findsOneWidget);
+      await tester.pumpWidget(
+        app(topic: NotesGuideTopic.shortcuts, locale: const Locale('de')),
+      );
+      await tester.pumpAndSettle();
+      final de = lookupAppLocalizations(const Locale('de'));
+      expect(find.byTooltip(de.notesGuideShortcutSetLabel), findsOneWidget);
+      expect(find.byTooltip(de.notesGuideShortcutMineLabel), findsOneWidget);
+      expect(find.byTooltip(en.notesGuideShortcutMineLabel), findsNothing);
+      await finish(tester);
+    });
+  });
+
+  testWidgets('German at 1.3 on a small phone: the keyboard up keeps the '
+      'coach line, the bar and her first line in view together (D29)', (
+    tester,
+  ) async {
+    const height = 780.0;
+    const inset = 320.0;
+    for (final topic in [NotesGuideTopic.markdown, NotesGuideTopic.lists]) {
+      final robot = await open(
+        tester,
+        topic: topic,
+        locale: const Locale('de'),
+        size: const Size(360, height),
+        textScaler: const TextScaler.linear(1.3),
+      );
+      await tester.ensureVisible(robot.card);
+      await tester.pumpAndSettle();
+      final editor = find.byType(CodeEditor);
+      final render = CodeFieldRenderForTesting.of(tester.renderObject(editor));
+      await tester.tapAt(
+        tester.getTopLeft(editor) +
+            Offset(GuideMetrics.cardInset + 40, render.lineHeightOfLine(0) / 2),
+      );
+      await tester.pump();
+      tester.view.viewInsets = const FakeViewPadding(bottom: inset);
+      await tester.pumpAndSettle();
+
+      final list = tester.getRect(
+        find
+            .descendant(
+              of: find.byType(SettingsSectionList),
+              matching: find.byType(Scrollable),
+            )
+            .first,
+      );
+      final reason = topic.slug;
+      expect(
+        robot.slotRect.top,
+        greaterThanOrEqualTo(list.top - 0.5),
+        reason: reason,
+      );
+      final bar = tester.getRect(
+        find.bySemanticsIdentifier(
+          SemanticsIds.guideBookTryBar('notes', topic.slug),
+        ),
+      );
+      expect(bar.top, greaterThanOrEqualTo(list.top), reason: reason);
+      expect(bar.bottom, lessThanOrEqualTo(height - inset), reason: reason);
+      expect(
+        tester.getRect(editorNode(topic.slug)).top + render.lineHeightOfLine(0),
+        lessThanOrEqualTo(height - inset),
+        reason: reason,
+      );
+      expect(tester.takeException(), isNull, reason: reason);
+
+      tester.view.viewInsets = FakeViewPadding.zero;
+      await tester.pumpAndSettle();
+      await finish(tester);
+    }
+  });
+
+  group('the shortcuts card (D32–D34)', () {
+    Finder maker() => find.bySemanticsIdentifier(
+      SemanticsIds.guideBookTryMaker('notes', 'shortcuts'),
+    );
+
+    Finder makerField(WidgetTester tester) =>
+        find.descendant(of: maker(), matching: find.byType(TextField));
+
+    testWidgets('her field stands between the bar and the editor under the '
+        'New Shortcut page\'s own label, her star at the end of the bar', (
+      tester,
+    ) async {
+      await open(tester, topic: NotesGuideTopic.shortcuts);
+      expect(maker(), findsOneWidget);
+      expect(
+        tester.getBottomLeft(maker()).dy,
+        lessThanOrEqualTo(tester.getTopLeft(editorNode('shortcuts')).dy),
+      );
+      expect(
+        tester
+            .getBottomLeft(
+              find.bySemanticsIdentifier(
+                SemanticsIds.guideBookTryBar('notes', 'shortcuts'),
+              ),
+            )
+            .dy,
+        lessThanOrEqualTo(tester.getTopLeft(maker()).dy),
+      );
+      // The star the coach names is the glyph drawn, never the bar's
+      // fallback for an icon it cannot resolve.
+      expect(
+        find.descendant(
+          of: find.byTooltip(en.notesGuideShortcutMineLabel),
+          matching: find.byIcon(Icons.star),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        tester.widget<TextField>(makerField(tester)).decoration!.labelText,
+        en.markdownStart,
+      );
+      final labels = [
+        en.notesGuideShortcutSetLabel,
+        en.notesGuideShortcutTodayLabel,
+        en.notesGuideShortcutMineLabel,
+        en.undo,
+      ];
+      double? before;
+      for (final label in labels) {
+        final x = tester.getTopLeft(find.byTooltip(label)).dx;
+        if (before != null) expect(x, greaterThan(before), reason: label);
+        before = x;
+      }
+      // The other notes cards have no field.
+      await finish(tester);
+      await open(tester);
+      expect(find.byType(TextField), findsNothing);
+      await finish(tester);
+    });
+
+    testWidgets('Set writes a counted line, then the next number; Today a '
+        'dated heading; her text and her button finish the card', (
+      tester,
+    ) async {
+      final robot = await open(tester, topic: NotesGuideTopic.shortcuts);
+      final cardHeight = tester.getSize(robot.card).height;
+      final set = en.notesGuideShortcutSetLabel;
+      String setLine(int n) => en.notesGuideShortcutSetText('$n', '{', '}');
+
+      await press(tester, set);
+      expect(lines(tester), ['Leg day', setLine(1), '']);
+      expect(robot.line, en.notesGuideCoachShortcutsCount(set));
+
+      await press(tester, set);
+      expect(lines(tester), ['Leg day', setLine(1), setLine(2), '']);
+      expect(
+        robot.line,
+        en.notesGuideCoachShortcutsDate(en.notesGuideShortcutTodayLabel),
+      );
+
+      await press(tester, en.notesGuideShortcutTodayLabel);
+      final dated = lines(tester)[3];
+      expect(dated, startsWith('## '));
+      // The year alone: the day may turn while the suite runs.
+      expect(dated, matches(RegExp(r'^## \d{1,2} \S+ \d{4}$')));
+      expect(robot.line, en.notesGuideCoachShortcutsWrite(en.markdownStart));
+
+      // Her button with nothing to write says so and writes nothing.
+      final before = controller(tester).text;
+      await press(tester, en.notesGuideShortcutMineLabel);
+      expect(controller(tester).text, before);
+      expect(robot.line, en.notesGuideReportEmptyButton(en.markdownStart));
+
+      await tester.enterText(makerField(tester), 'Squat 5×5');
+      await tester.pumpAndSettle();
+      expect(
+        robot.line,
+        en.notesGuideCoachShortcutsPress(en.notesGuideShortcutMineLabel),
+      );
+
+      await press(tester, en.notesGuideShortcutMineLabel);
+      expect(lines(tester), [
+        'Leg day',
+        setLine(1),
+        setLine(2),
+        dated,
+        'Squat 5×5',
+      ]);
+      expect(robot.line, en.calendarGuideCoachDone);
+      expect(robot.canSkip, isFalse);
+      expect(tester.getSize(robot.card).height, cardHeight);
+      expect(tester.takeException(), isNull);
+      await finish(tester);
+    });
+
+    testWidgets('a press with the caret inside a line of text writes there, '
+        'as in a note, and is no line of its own', (tester) async {
+      final robot = await open(tester, topic: NotesGuideTopic.shortcuts);
+      await caretIn(tester, 0, 3);
+      await press(tester, en.notesGuideShortcutSetLabel);
+      expect(lines(tester).first, startsWith('Leg- [ ] '));
+      // The line says to tap the empty line first; this was not it.
+      expect(
+        robot.line,
+        en.notesGuideCoachShortcutsLine(en.notesGuideShortcutSetLabel),
+      );
+      expect(tester.takeException(), isNull);
+      await finish(tester);
+    });
+
+    testWidgets('her text typed into the note by hand is not her button\'s '
+        'press', (tester) async {
+      final robot = await open(tester, topic: NotesGuideTopic.shortcuts);
+      await tester.enterText(makerField(tester), 'Squat 5×5');
+      await tester.pumpAndSettle();
+      await typeAtCaret(tester, 'Squat 5×5');
+      // `write` is done; `line` still leads, and `press` is not credited.
+      expect(
+        robot.line,
+        en.notesGuideCoachShortcutsLine(en.notesGuideShortcutSetLabel),
+      );
+      while (robot.line !=
+          en.notesGuideCoachShortcutsPress(en.notesGuideShortcutMineLabel)) {
+        expect(robot.canSkip, isTrue);
+        await robot.skip();
+      }
+      await press(tester, en.notesGuideShortcutMineLabel);
+      expect(robot.line, en.calendarGuideCoachDone);
+      await finish(tester);
+    });
+
+    testWidgets('the keyboard under her field keeps the coach line and the '
+        'field in view together', (tester) async {
+      const inset = 320.0;
+      final robot = await open(
+        tester,
+        topic: NotesGuideTopic.shortcuts,
+        size: const Size(360, 780),
+      );
+      await tester.tap(makerField(tester));
+      await tester.pump();
+      tester.view.viewInsets = const FakeViewPadding(bottom: inset);
+      await tester.pumpAndSettle();
+
+      final list = tester.getRect(
+        find
+            .descendant(
+              of: find.byType(SettingsSectionList),
+              matching: find.byType(Scrollable),
+            )
+            .first,
+      );
+      expect(robot.slotRect.top, greaterThanOrEqualTo(list.top - 0.5));
+      expect(tester.getRect(maker()).bottom, lessThanOrEqualTo(780 - inset));
+      expect(tester.takeException(), isNull);
+
+      tester.view.viewInsets = FakeViewPadding.zero;
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      await finish(tester);
+    });
   });
 
   group('the tap-target and text-contrast guidelines', () {

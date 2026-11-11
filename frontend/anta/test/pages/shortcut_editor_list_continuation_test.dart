@@ -10,6 +10,7 @@ import 'package:anta/bloc/counter/counter_bloc.dart';
 import 'package:anta/bloc/markdown_bar/markdown_bar_bloc.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/l10n/app_localizations.dart';
+import 'package:anta/models/custom_markdown_shortcut.dart';
 import 'package:anta/pages/shortcut_editor_page.dart';
 import 'package:anta/services/counter_service.dart';
 import 'package:anta/services/markdown_bar_service.dart';
@@ -92,6 +93,61 @@ void main() {
       selection: TextSelection.collapsed(offset: text.length),
     );
   }
+
+  // The page has no field for a shortcut's category — the list's ⋮ sets it
+  // — and `_save` used to rebuild the shortcut without it, so every edit
+  // dropped a shortcut out of its group (`docs/guide-hub-roadmap.md` D37).
+  testWidgets('saving an edited shortcut hands back the category the list '
+      'gave it', (tester) async {
+    CustomMarkdownShortcut? saved;
+    final shortcut = CustomMarkdownShortcut(
+      id: 'own-set',
+      label: 'Set',
+      iconCodePoint: Icons.tag.codePoint,
+      iconFontFamily: 'MaterialIcons',
+      beforeText: '- [ ] ',
+      afterText: '',
+      isVisible: false,
+      category: 'Gym',
+    );
+    await tester.pumpWidget(
+      MultiBlocProvider(
+        providers: [
+          BlocProvider<MarkdownBarBloc>.value(value: barBloc),
+          BlocProvider<CounterBloc>.value(value: counterBloc),
+        ],
+        child: MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          locale: const Locale('en'),
+          // Under a route of its own: saving pops the page.
+          home: Builder(
+            builder: (context) => TextButton(
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => ShortcutEditorPage(
+                    shortcut: shortcut,
+                    onSave: (value) => saved = value,
+                  ),
+                ),
+              ),
+              child: const Text('open'),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byType(FloatingActionButton));
+    await tester.pumpAndSettle();
+
+    expect(saved, isNotNull);
+    expect(saved!.category, 'Gym');
+    expect(saved, shortcut);
+    expect(find.byType(ShortcutEditorPage), findsNothing);
+  });
 
   testWidgets('Enter continues a `*` bullet the old grammar ignored', (
     tester,

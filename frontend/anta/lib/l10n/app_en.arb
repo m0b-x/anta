@@ -12341,7 +12341,7 @@
   "guideHubSectionGuides": "Guides",
   "guideBookCalendarCaption": "The screen, events, alerts, attendance, the overview, a practice calendar",
   "guideBookNotesTitle": "Notes and the editor",
-  "guideBookNotesCaption": "Folders, writing, markdown, lists, the money ledger, autocomplete, counters",
+  "guideBookNotesCaption": "Folders, writing, markdown, lists, your own shortcuts, the money ledger, autocomplete, counters",
   "guideBookAppTitle": "Backup, sync and settings",
   "guideBookAppCaption": "The main menu, keeping a copy of your notes, syncing between phones, the settings",
   "notesGuideIntro": "Tap a page. Each example shows what you type and what you get.",
@@ -12710,8 +12710,9 @@
     }
   },
   "notesGuideBarShortcutsTitle": "Shortcuts",
-  "notesGuideBarShortcutsBody": "Each button is a shortcut: text it types, or wraps around what you selected. In “{shortcuts}”, drag to reorder them, hide the ones you never use, or change what one types.",
+  "notesGuideBarShortcutsBody": "Each button is a shortcut: text it writes, or wraps around what you selected. Under “{shortcuts}”, drag them into a new order and hide the ones you never use.",
   "@notesGuideBarShortcutsBody": {
+    "description": "Read row of the bar page; quotes the shortcut list's own header. A built-in shortcut can be hidden and moved, never edited",
     "placeholders": {
       "shortcuts": {
         "type": "String"
@@ -12719,10 +12720,14 @@
     }
   },
   "notesGuideBarOwnTitle": "Your own shortcut",
-  "notesGuideBarOwnBody": "Tap + in “{shortcuts}” to make one. A line you type often — a set format, the heading you start every day with — becomes a button.",
+  "notesGuideBarOwnBody": "Tap + on the “{shortcuts}” page to make one: a line you write often — a set format, the heading you start every day with — becomes a button. “{page}” in this guide walks through it.",
   "@notesGuideBarOwnBody": {
+    "description": "Read row of the bar page; quotes the shortcut list's header and the title of the guide page about custom shortcuts",
     "placeholders": {
       "shortcuts": {
+        "type": "String"
+      },
+      "page": {
         "type": "String"
       }
     }
@@ -13310,37 +13315,67 @@
   "@notesGuideSeedOwn": {
     "description": "The own-markdown page's Try it editor as seeded: no tag, ghost, colour or wiki link yet"
   },
-  "notesGuideSeedMoney": "$= 500 budget\n$- 40 gym",
+  "notesGuideSeedMoney": "$= 500 budget\n$- 40 gym\n",
   "@notesGuideSeedMoney": {
-    "description": "The money page's Try it editor as seeded: a start amount and one spend"
+    "description": "The money page's Try it editor as seeded: a start amount, one spend and an empty last line where the caret waits, so a bar button writes a new ledger line"
   },
-  "notesGuideCoachMarkdownHeading": "Put # and a space in front of “Leg day”: it becomes a heading.",
+  "notesGuideCoachMarkdownHeading": "Tap “Leg day”, then “{headers}” on the bar, and pick a level: a # in front makes it a heading.",
   "@notesGuideCoachMarkdownHeading": {
-    "description": "Coach line of the markdown card; quotes the seed's first line"
+    "description": "Coach line of the markdown card; quotes the seed's first line and the bar's heading button, which opens a menu of heading levels",
+    "placeholders": {
+      "headers": {
+        "type": "String"
+      }
+    }
   },
-  "notesGuideCoachMarkdownBold": "Put two stars on each side of a word, like **strong**: it comes out bold.",
+  "notesGuideCoachMarkdownBold": "Tap “{bold}” and type a word: two stars on each side make it bold.",
   "@notesGuideCoachMarkdownBold": {
-    "description": "Coach line of the markdown card"
+    "description": "Coach line of the markdown card; quotes the bar's bold button, which writes the pair of stars around the caret",
+    "placeholders": {
+      "bold": {
+        "type": "String"
+      }
+    }
   },
-  "notesGuideCoachMarkdownList": "Start a line with - and a space: it becomes a bullet.",
+  "notesGuideCoachMarkdownList": "Tap another line, then “{bulletList}”: a dash and a space in front make it a bullet.",
   "@notesGuideCoachMarkdownList": {
-    "description": "Coach line of the markdown card"
+    "description": "Coach line of the markdown card; quotes the bar's bullet list button",
+    "placeholders": {
+      "bulletList": {
+        "type": "String"
+      }
+    }
   },
-  "notesGuideCoachMarkdownTask": "On a new line type - [ ] and a word, then tap the box to tick it.",
+  "notesGuideCoachMarkdownTask": "Tap one more line, then “{checkbox}” — and tap the box to tick it.",
   "@notesGuideCoachMarkdownTask": {
-    "description": "Coach line of the markdown card; done when a task line is ticked"
+    "description": "Coach line of the markdown card; quotes the bar's checkbox button; done when a task line is ticked",
+    "placeholders": {
+      "checkbox": {
+        "type": "String"
+      }
+    }
   },
   "notesGuideCoachListsEnter": "Tap after “Back” and press Enter: the next bullet is ready.",
   "@notesGuideCoachListsEnter": {
     "description": "Coach line of the lists card; quotes the seed's last item"
   },
-  "notesGuideCoachListsNest": "Tap “Squat”, then swipe it to the right: it nests under Legs.",
+  "notesGuideCoachListsNest": "Tap “Squat”, then swipe it right or tap “{indentLine}” on the bar: it nests under Legs.",
   "@notesGuideCoachListsNest": {
-    "description": "Coach line of the lists card; quotes two seed items"
+    "description": "Coach line of the lists card; quotes two seed items and the bar's indent button",
+    "placeholders": {
+      "indentLine": {
+        "type": "String"
+      }
+    }
   },
-  "notesGuideCoachListsOutdent": "Swipe it to the left: it comes back out.",
+  "notesGuideCoachListsOutdent": "Swipe it left, or tap “{outdentLine}”: it comes back out.",
   "@notesGuideCoachListsOutdent": {
-    "description": "Coach line of the lists card"
+    "description": "Coach line of the lists card; quotes the bar's outdent button",
+    "placeholders": {
+      "outdentLine": {
+        "type": "String"
+      }
+    }
   },
   "notesGuideCoachListsEnd": "Press Enter on an empty bullet: the list ends in a plain line.",
   "@notesGuideCoachListsEnd": {
@@ -13350,45 +13385,54 @@
   "@notesGuideCoachOwnTag": {
     "description": "Coach line of the own-markdown card"
   },
-  "notesGuideCoachOwnGhost": "After “squat” type {open}{open}weight{close}{close}: a blank to fill in later.",
+  "notesGuideCoachOwnGhost": "Tap after “squat”, then “{shortcutGhostText}” on the bar: a blank to fill in later.",
   "@notesGuideCoachOwnGhost": {
-    "description": "Coach line of the own-markdown card; the braces travel as placeholders because ICU reads a bare brace as an argument",
+    "description": "Coach line of the own-markdown card; quotes a seed word and the bar's ghost text button, which writes the double braces",
     "placeholders": {
-      "open": {
-        "type": "String"
-      },
-      "close": {
+      "shortcutGhostText": {
         "type": "String"
       }
     }
   },
-  "notesGuideCoachOwnColour": "Write {open}red:heavy{close} anywhere: the word turns red.",
+  "notesGuideCoachOwnColour": "Tap another line, then “{shortcutColorText}”, and type “heavy”: the word turns red.",
   "@notesGuideCoachOwnColour": {
-    "description": "Coach line of the own-markdown card; `red` is a preset colour name in every language, as the colour example uses it",
+    "description": "Coach line of the own-markdown card; quotes the bar's colour text button, which writes a red slot the typed word fills",
     "placeholders": {
-      "open": {
-        "type": "String"
-      },
-      "close": {
+      "shortcutColorText": {
         "type": "String"
       }
     }
   },
-  "notesGuideCoachOwnWiki": "Write [[Leg day]] in double brackets: a link to the note of that name.",
+  "notesGuideCoachOwnWiki": "On a line of its own, write [[Leg day]]: double brackets link to the note of that name.",
   "@notesGuideCoachOwnWiki": {
-    "description": "Coach line of the own-markdown card"
+    "description": "Coach line of the own-markdown card; no bar button writes a wiki link, so it is typed"
   },
-  "notesGuideCoachMoneySpend": "Add a line $- 25 shoes: another spend.",
+  "notesGuideCoachMoneySpend": "Tap the empty line, then “{shortcutMoneySubtract}”, and type 25 shoes: another spend.",
   "@notesGuideCoachMoneySpend": {
-    "description": "Coach line of the money card"
+    "description": "Coach line of the money card; quotes the bar's spend button, which writes the $- marker",
+    "placeholders": {
+      "shortcutMoneySubtract": {
+        "type": "String"
+      }
+    }
   },
-  "notesGuideCoachMoneyAdd": "Add $+ 25 refund: money coming in.",
+  "notesGuideCoachMoneyAdd": "Press Enter, then “{shortcutMoneyAdd}”, and type 25 refund: money coming in.",
   "@notesGuideCoachMoneyAdd": {
-    "description": "Coach line of the money card"
+    "description": "Coach line of the money card; quotes the bar's add button, which writes the $+ marker",
+    "placeholders": {
+      "shortcutMoneyAdd": {
+        "type": "String"
+      }
+    }
   },
-  "notesGuideCoachMoneyTotal": "Type $$ on a line of its own: what is left, as a chip.",
+  "notesGuideCoachMoneyTotal": "Press Enter and tap “{shortcutMoneyTotal}”: what is left, as a chip.",
   "@notesGuideCoachMoneyTotal": {
-    "description": "Coach line of the money card"
+    "description": "Coach line of the money card; quotes the bar's total button, which writes $$",
+    "placeholders": {
+      "shortcutMoneyTotal": {
+        "type": "String"
+      }
+    }
   },
   "notesGuideReportTag": "In a note, tapping a tag lists every note that carries it.",
   "@notesGuideReportTag": {
@@ -13405,6 +13449,292 @@
   "notesGuideReportMoney": "In a note, tapping a total shows every line that went into it.",
   "@notesGuideReportMoney": {
     "description": "A Try it editor's report after a tap on a money chip"
+  },
+  "notesGuideReportEmptyButton": "Your button has nothing to write yet: fill in “{markdownStart}” first.",
+  "@notesGuideReportEmptyButton": {
+    "description": "The shortcuts card's report when her own button is pressed while the field above the editor is empty; quotes the field's label",
+    "placeholders": {
+      "markdownStart": {
+        "type": "String"
+      }
+    }
+  },
+  "notesGuidePageShortcuts": "Your own shortcuts",
+  "@notesGuidePageShortcuts": {
+    "description": "Title of the notes guide's page about making custom markdown shortcuts"
+  },
+  "notesGuidePageShortcutsCaption": "Buttons that write your lines: a set, a date, a count",
+  "notesGuideShortcutsLead": "A shortcut is a button on the bar that writes for you. ANTA ships a set of them; the ones you make turn the lines you repeat into one tap.",
+  "notesGuideSeedShortcuts": "Leg day\n",
+  "@notesGuideSeedShortcuts": {
+    "description": "The shortcuts page's Try it editor as seeded: one plain line and an empty one where the caret waits"
+  },
+  "notesGuideShortcutSetLabel": "Set",
+  "@notesGuideShortcutSetLabel": {
+    "description": "Name of the guide's example shortcut that writes one workout set; a noun"
+  },
+  "notesGuideShortcutSetText": "- [ ] Set {count}: {open}{open}weight{close}{close} kg × {open}{open}reps{close}{close}",
+  "@notesGuideShortcutSetText": {
+    "description": "What the guide's example Set shortcut writes: a checkbox line with the set's number and two ghost blanks. count is the counter token, open and close the literal braces",
+    "placeholders": {
+      "count": {
+        "type": "String"
+      },
+      "open": {
+        "type": "String"
+      },
+      "close": {
+        "type": "String"
+      }
+    }
+  },
+  "notesGuideShortcutTodayLabel": "Today",
+  "@notesGuideShortcutTodayLabel": {
+    "description": "Name of the guide's example shortcut that writes today's date as a heading"
+  },
+  "notesGuideShortcutMineLabel": "Your button",
+  "@notesGuideShortcutMineLabel": {
+    "description": "Name of the star button on the shortcuts card's bar, the one that writes what she typed in the field"
+  },
+  "notesGuideCoachShortcutsLine": "Tap the empty line, then “{set}” on the bar: one tap writes a whole line, blanks included.",
+  "@notesGuideCoachShortcutsLine": {
+    "description": "Coach line of the shortcuts card; quotes the example Set button. The seed ends in an empty line: a button writes at the cursor, so the line says where to put it first",
+    "placeholders": {
+      "set": {
+        "type": "String"
+      }
+    }
+  },
+  "notesGuideCoachShortcutsCount": "Tap “{set}” again: the number counts up by itself.",
+  "@notesGuideCoachShortcutsCount": {
+    "description": "Coach line of the shortcuts card; the second press writes Set 2",
+    "placeholders": {
+      "set": {
+        "type": "String"
+      }
+    }
+  },
+  "notesGuideCoachShortcutsDate": "Tap “{today}”: today's date, written as a heading.",
+  "@notesGuideCoachShortcutsDate": {
+    "description": "Coach line of the shortcuts card; quotes the example Today button",
+    "placeholders": {
+      "today": {
+        "type": "String"
+      }
+    }
+  },
+  "notesGuideCoachShortcutsWrite": "Now yours: in “{markdownStart}”, above the note, type a line you write often.",
+  "@notesGuideCoachShortcutsWrite": {
+    "description": "Coach line of the shortcuts card; quotes the label of the field above the stage's editor, the New Shortcut page's own",
+    "placeholders": {
+      "markdownStart": {
+        "type": "String"
+      }
+    }
+  },
+  "notesGuideCoachShortcutsPress": "Tap the star on the bar, “{mine}”: it writes your line, every time.",
+  "@notesGuideCoachShortcutsPress": {
+    "description": "Coach line of the shortcuts card; quotes the name of her own button, drawn as a star",
+    "placeholders": {
+      "mine": {
+        "type": "String"
+      }
+    }
+  },
+  "notesGuideShortcutsMakeTitle": "Make one",
+  "notesGuideShortcutsMakeBody": "In Settings, open “{settingsRowEditor}” and tap + at the bottom of the page: “{newShortcut}” opens. Pick an icon, give the button a name, say what it writes, and tap “{save}”. It joins the end of the bar.",
+  "@notesGuideShortcutsMakeBody": {
+    "placeholders": {
+      "settingsRowEditor": {
+        "type": "String"
+      },
+      "newShortcut": {
+        "type": "String"
+      },
+      "save": {
+        "type": "String"
+      }
+    }
+  },
+  "notesGuideShortcutsTextTitle": "What it writes",
+  "notesGuideShortcutsTextBody": "“{markdownStart}” is written in front of the cursor, or of the text you selected; “{markdownEnd}” behind it. For a whole line — a set, a meal, a heading — put all of it in “{markdownStart}” and leave “{markdownEnd}” empty.",
+  "@notesGuideShortcutsTextBody": {
+    "placeholders": {
+      "markdownStart": {
+        "type": "String"
+      },
+      "markdownEnd": {
+        "type": "String"
+      }
+    }
+  },
+  "notesGuideShortcutsKindsTitle": "Three kinds",
+  "notesGuideShortcutsKindsBody": "“{insertType}” decides what goes between the two: “{wrapSelectedText}” keeps your selection there, “{insertCurrentDate}” writes the date in the format you choose — the two fields are then called “{beforeDate}” and “{afterDate}” — and “{insertCounter}” the next value of a counter.",
+  "@notesGuideShortcutsKindsBody": {
+    "description": "Read row of the shortcuts page; quotes the insert type field, its three choices and the names the two text fields take for a date shortcut",
+    "placeholders": {
+      "insertType": {
+        "type": "String"
+      },
+      "wrapSelectedText": {
+        "type": "String"
+      },
+      "insertCurrentDate": {
+        "type": "String"
+      },
+      "insertCounter": {
+        "type": "String"
+      },
+      "beforeDate": {
+        "type": "String"
+      },
+      "afterDate": {
+        "type": "String"
+      }
+    }
+  },
+  "notesGuideShortcutsPreviewTitle": "See it before you save",
+  "notesGuideShortcutsPreviewBody": "“{preview}”, at the bottom of that page, shows what the button will write, drawn the way a note draws it.",
+  "@notesGuideShortcutsPreviewBody": {
+    "placeholders": {
+      "preview": {
+        "type": "String"
+      }
+    }
+  },
+  "notesGuideShortcutsBlanksTitle": "Leave blanks",
+  "notesGuideShortcutsBlanksBody": "Double braces leave a blank in the line: Squat {open}{open}weight{close}{close} kg writes a dimmed “weight” to tap and type over. One button, a new number every time.",
+  "@notesGuideShortcutsBlanksBody": {
+    "description": "Read row of the shortcuts page; the braces travel as placeholders because ICU reads a bare brace as an argument",
+    "placeholders": {
+      "open": {
+        "type": "String"
+      },
+      "close": {
+        "type": "String"
+      }
+    }
+  },
+  "notesGuideShortcutsRepeatTitle": "Several at once",
+  "notesGuideShortcutsRepeatBody": "Switch on “{advancedOptions}”: “{repeatSettings}” writes the text several times in one tap — three sets, seven days. With “{incrementDateOnRepeat}”, a date moves on with every copy, so one tap writes the week.",
+  "@notesGuideShortcutsRepeatBody": {
+    "placeholders": {
+      "advancedOptions": {
+        "type": "String"
+      },
+      "repeatSettings": {
+        "type": "String"
+      },
+      "incrementDateOnRepeat": {
+        "type": "String"
+      }
+    }
+  },
+  "notesGuideShortcutsDateTitle": "Tomorrow, next week",
+  "notesGuideShortcutsDateBody": "“{dateOffset}”, under “{advancedOptions}”, shifts the date a button writes: one day for tomorrow's plan, seven for next week's.",
+  "@notesGuideShortcutsDateBody": {
+    "placeholders": {
+      "dateOffset": {
+        "type": "String"
+      },
+      "advancedOptions": {
+        "type": "String"
+      }
+    }
+  },
+  "notesGuideShortcutsCountersTitle": "Count as it writes",
+  "notesGuideShortcutsCountersBody": "“{counterBindingsTitle}”, also under “{advancedOptions}”, ties up to two counters to the button. Where the text says {open}c1{close} or {open}c2{close}, the counter's next value is written — Set 1, Set 2, Set 3 — one step for every tap.",
+  "@notesGuideShortcutsCountersBody": {
+    "description": "Read row of the shortcuts page; the braces of the counter tokens travel as placeholders",
+    "placeholders": {
+      "counterBindingsTitle": {
+        "type": "String"
+      },
+      "advancedOptions": {
+        "type": "String"
+      },
+      "open": {
+        "type": "String"
+      },
+      "close": {
+        "type": "String"
+      }
+    }
+  },
+  "notesGuideShortcutsTidyTitle": "Keep the bar short",
+  "notesGuideShortcutsTidyBody": "In the list of shortcuts, the eye hides a button without deleting it, and a long press drags it to a new place. ⋮ › “{setCategory}” groups buttons, and the chips above the list then filter it by group. ⋮ also edits or deletes a button you made; the built-in ones can only be hidden.",
+  "@notesGuideShortcutsTidyBody": {
+    "placeholders": {
+      "setCategory": {
+        "type": "String"
+      }
+    }
+  },
+  "notesGuideShortcutsBarsTitle": "Each bar has its own",
+  "notesGuideShortcutsBarsBody": "A shortcut belongs to the bar you made it in. With several bars under “{manageBarProfiles}”, choose the bar first, then add the button.",
+  "@notesGuideShortcutsBarsBody": {
+    "placeholders": {
+      "manageBarProfiles": {
+        "type": "String"
+      }
+    }
+  },
+  "notesGuideRecipeShown": "One tap writes",
+  "@notesGuideRecipeShown": {
+    "description": "Label over the rendered half of a shortcut recipe on the shortcuts page, in place of You get; the half above it is labelled with the New Shortcut page's own field name"
+  },
+  "notesGuideExRecipeSetSource": "- [ ] {open}{open}weight{close}{close} kg × {open}{open}reps{close}{close}",
+  "@notesGuideExRecipeSetSource": {
+    "description": "A shortcut recipe: the text of a button that writes one workout set with two blanks",
+    "placeholders": {
+      "open": {
+        "type": "String"
+      },
+      "close": {
+        "type": "String"
+      }
+    }
+  },
+  "notesGuideExRecipeSetCaption": "A set to tick off, with two blanks to fill in.",
+  "notesGuideExRecipeLabelSource": "**Warm-up:** {open}{open}minutes{close}{close} min on the bike",
+  "@notesGuideExRecipeLabelSource": {
+    "description": "A shortcut recipe: the text of a button that writes a line with a bold label and one blank",
+    "placeholders": {
+      "open": {
+        "type": "String"
+      },
+      "close": {
+        "type": "String"
+      }
+    }
+  },
+  "notesGuideExRecipeLabelCaption": "A line that always starts the same: the opening in bold, the number left blank.",
+  "notesGuideMarkdownCodeTitle": "Code and rules",
+  "notesGuideMarkdownCodeBody": "A backtick (`) on each side keeps a word exactly as typed, in a fixed-width font; three backticks on a line of their own start a block that stays as typed until three more end it. Three dashes on a line of their own draw a rule across the note. The bar has “{inlineCode}”, “{codeBlock}” and “{shortcutHorizontalRule}” for them.",
+  "@notesGuideMarkdownCodeBody": {
+    "placeholders": {
+      "inlineCode": {
+        "type": "String"
+      },
+      "codeBlock": {
+        "type": "String"
+      },
+      "shortcutHorizontalRule": {
+        "type": "String"
+      }
+    }
+  },
+  "notesGuideMoneyBackTitle": "Looking back",
+  "notesGuideMoneyBackBody": "$^ 3 shows how much the last three entries changed the balance; $~ 2 the change across the last two $= lines. Both only show a number — the balance stays as it is. On the bar they are “{shortcutMoneyDiff}” and “{shortcutMoneySpan}”.",
+  "@notesGuideMoneyBackBody": {
+    "placeholders": {
+      "shortcutMoneyDiff": {
+        "type": "String"
+      },
+      "shortcutMoneySpan": {
+        "type": "String"
+      }
+    }
   },
   "appGuideSyncStopTitle": "Stopping",
   "appGuideSyncStopBody": "“{syncStop}” leaves your notes on this phone and stops sending and receiving; the copy in your account stays. “{signOut}” pauses sync for every database until you sign in again.",

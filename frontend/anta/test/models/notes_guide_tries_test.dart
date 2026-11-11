@@ -1,7 +1,9 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:re_editor/re_editor.dart';
 
+import 'package:anta/config/default_markdown_shortcuts.dart';
 import 'package:anta/controllers/editor_render_controller.dart';
+import 'package:anta/controllers/shortcut_applier.dart';
 import 'package:anta/l10n/app_localizations_de.dart';
 import 'package:anta/l10n/app_localizations_en.dart';
 import 'package:anta/l10n/app_localizations_ro.dart';
@@ -10,11 +12,17 @@ import 'package:anta/models/calendar_guide_content.dart';
 import 'package:anta/models/guide_content.dart';
 import 'package:anta/models/notes_guide_content.dart';
 import 'package:anta/models/notes_guide_tries.dart';
+import 'package:anta/models/utility_button_config.dart';
+import 'package:anta/utils/ghost_text.dart';
+import 'package:anta/utils/icon_utils.dart';
 import 'package:anta/utils/markdown_color_syntax.dart';
+import 'package:anta/utils/markdown_line_shape.dart';
 import 'package:anta/utils/markdown_list_syntax.dart';
+import 'package:anta/utils/markdown_money_syntax.dart';
 
-/// The notes cards' checks (`docs/guide-hub-roadmap.md` §9.2, D18), each
-/// over hand-written documents, and the seeds that satisfy none of them.
+/// The notes cards' checks (`docs/guide-hub-roadmap.md` §9.2, §10.3, D18),
+/// each over hand-written documents, the seeds that satisfy none of them,
+/// and the bars' buttons.
 void main() {
   GuideEditorDocument doc(
     String text, {
@@ -253,6 +261,34 @@ void main() {
       expect(notesGuideHasColour(doc('heavy')), isFalse);
     });
 
+    test('a colour button\'s empty slot is no colour until a word fills '
+        'it (D31)', () {
+      // What "Color Text" and "Color Highlight" leave at an empty selection.
+      expect(notesGuideHasColour(doc('{red:{{  }}}')), isFalse);
+      expect(notesGuideHasColour(doc('==yellow:{{  }}==')), isFalse);
+      // Typed into the ghost, the text is still the ghost's: drawn dim.
+      expect(notesGuideHasColour(doc('{red:{{ heavy }}}')), isFalse);
+      expect(notesGuideHasColour(doc('{red:  }')), isFalse);
+      // A word beside the blank is coloured.
+      expect(notesGuideHasColour(doc('{red:max {{ kg }}}')), isTrue);
+      expect(notesGuideHasColour(doc('==yellow:done==')), isTrue);
+    });
+
+    test('a slot wrapped in a second colour — the button pressed twice — is '
+        'still only a slot', () {
+      for (final slot in [
+        '{red:{red:{{  }}}}',
+        '{red:==yellow:{{  }}==}',
+        '==yellow:{red:{{  }}}==',
+      ]) {
+        expect(notesGuideHasColour(doc(slot)), isFalse, reason: slot);
+      }
+      // A word colours the run it stands in, whatever wraps that run.
+      expect(notesGuideHasColour(doc('{red:{blue:max}}')), isTrue);
+      expect(notesGuideHasColour(doc('{red:max {blue:{{  }}}}')), isTrue);
+      expect(notesGuideHasColour(doc('{red:{blue:{{  }}} max}')), isTrue);
+    });
+
     test('a wiki link: double brackets only', () {
       expect(notesGuideHasWikiLink(doc('Same as [[Leg day]]')), isTrue);
       expect(notesGuideHasWikiLink(doc('[Leg day](https://a.b)')), isFalse);
@@ -321,6 +357,22 @@ void main() {
       expect(notesGuideHasIncome(doc(r'+ 25 refund')), isFalse);
     });
 
+    test('a row the ledger draws as an error is no spend and no income '
+        '(D31)', () {
+      // A well-formed amount past the digit limit: an error row of its
+      // kind, drawn yellow and left out of the balance.
+      const income = r'$+ 99999999999999999999 refund';
+      const spend = r'$- 99999999999999999999 shoes';
+      expect(MarkdownMoneySyntax.parse(income)?.kind, MoneyLineKind.add);
+      expect(MarkdownMoneySyntax.parse(income)?.error, isNotNull);
+      expect(MarkdownMoneySyntax.parse(spend)?.kind, MoneyLineKind.subtract);
+      expect(MarkdownMoneySyntax.parse(spend)?.error, isNotNull);
+      expect(notesGuideHasIncome(doc(income)), isFalse);
+      expect(notesGuideHasSpends(doc('\$- 40 gym\n$spend')), isFalse);
+      // A marker with no amount is no ledger line at all.
+      expect(MarkdownMoneySyntax.parse(r'$- '), isNull);
+    });
+
     test('total: the balance chip', () {
       expect(
         notesGuideHasTotal(
@@ -346,12 +398,145 @@ void main() {
     });
   });
 
+  group('the shortcuts card', () {
+    final en = AppLocalizationsEn();
+
+    test('line: a checkbox item that holds a blank', () {
+      expect(
+        notesGuideHasBlankTask(doc('- [ ] Set 1: {{weight}} kg × {{reps}}')),
+        isTrue,
+      );
+      expect(notesGuideHasBlankTask(doc('- [ ] Set 1: 60 kg × 5')), isFalse);
+      expect(notesGuideHasBlankTask(doc('- Set 1: {{weight}} kg')), isFalse);
+      expect(notesGuideHasBlankTask(doc('Squat {{weight}} kg')), isFalse);
+    });
+
+    test('count: two checkbox items, a filled-in first one included', () {
+      expect(
+        notesGuideHasTwoTasks(
+          doc('- [x] Set 1: 60 kg × 5\n- [ ] Set 2: {{weight}} kg'),
+        ),
+        isTrue,
+      );
+      expect(notesGuideHasTwoTasks(doc('- [ ] Set 1: {{weight}} kg')), isFalse);
+      expect(notesGuideHasTwoTasks(doc('- a\n- b')), isFalse);
+    });
+
+    test('write and press read the stage, not the note', () {
+      GuideEditorDocument stage({String maker = '', int presses = 0}) =>
+          GuideEditorDocument(
+            lines: const ['Squat 5×5'],
+            hasDone: const <String>{}.contains,
+            palette: MarkdownColorPalette.presets,
+            makerText: maker,
+            ownPresses: presses,
+          );
+      expect(notesGuideHasMakerText(stage()), isFalse);
+      expect(notesGuideHasMakerText(stage(maker: '   ')), isFalse);
+      expect(notesGuideHasMakerText(stage(maker: 'Squat 5×5')), isTrue);
+      // Her text typed into the note by hand is not her button's press.
+      expect(notesGuideHasOwnPress(stage(maker: 'Squat 5×5')), isFalse);
+      expect(
+        notesGuideHasOwnPress(stage(maker: 'Squat 5×5', presses: 1)),
+        isTrue,
+      );
+    });
+
+    test('its steps run in the order the coach asks for them, over a field '
+        'and its own buttons', () {
+      expect(notesGuideShortcutsTry.spec.slug, 'shortcuts');
+      expect(notesGuideShortcutsTry.steps.map((step) => step.action), [
+        'line',
+        'count',
+        'date',
+        'write',
+        'press',
+      ]);
+      expect(notesGuideShortcutsTry.maker, isTrue);
+      expect(notesGuideShortcutsTry.bar.builtIns, isEmpty);
+    });
+
+    test('the two ready-made buttons are shortcuts the applier inserts: a '
+        'counted checkbox line with two blanks, and a dated heading', () {
+      for (final l10n in [en, AppLocalizationsDe(), AppLocalizationsRo()]) {
+        final [set, today] = notesGuideShortcutButtons(l10n);
+        final reason = l10n.localeName;
+        expect(ShortcutApplier.rewrites(set), isFalse, reason: reason);
+        expect(ShortcutApplier.rewrites(today), isFalse, reason: reason);
+        expect(set.label, l10n.notesGuideShortcutSetLabel, reason: reason);
+        expect(set.beforeText, endsWith('\n'), reason: reason);
+        expect(set.beforeText, contains('{c1}'), reason: reason);
+        expect(
+          set.effectiveCounters.single.counterId,
+          notesGuideSetCounterId,
+          reason: reason,
+        );
+        // What one press writes, the token counted: a line the `line` step
+        // reads, whatever the language of its words.
+        final written = set.beforeText.replaceAll('{c1}', '1').trimRight();
+        expect(notesGuideHasBlankTask(doc(written)), isTrue, reason: reason);
+        expect(GhostText.findGhosts(written), hasLength(2), reason: reason);
+        expect(today.insertType, 'date', reason: reason);
+        expect(
+          MarkdownLineShape.headingAt('${today.beforeText}11 November 2026'),
+          isNotNull,
+          reason: reason,
+        );
+        // Both draw an icon the bar can resolve, never its fallback.
+        for (final shortcut in [set, today]) {
+          expect(
+            IconUtils.isSupported(shortcut.iconCodePoint),
+            isTrue,
+            reason: '$reason ${shortcut.id}',
+          );
+        }
+      }
+    });
+  });
+
+  test('every bar names built-in shortcuts that exist, and utility buttons '
+      'the bar knows', () {
+    final builtIns = {
+      for (final shortcut in DefaultMarkdownShortcuts.shortcuts) shortcut.id,
+    };
+    for (final topic in NotesGuideTopic.values) {
+      for (final card in topic.editorCards) {
+        expect(
+          builtIns.containsAll(card.bar.builtIns),
+          isTrue,
+          reason: '${card.spec.slug}: ${card.bar.builtIns}',
+        );
+        expect(
+          UtilityButtonId.defaultOrder.toSet().containsAll(card.bar.utilities),
+          isTrue,
+          reason: card.spec.slug,
+        );
+        // Undo is on every bar: a sandbox she can take a step back in.
+        expect(
+          card.bar.utilities,
+          containsAll([UtilityButtonId.undo, UtilityButtonId.redo]),
+          reason: card.spec.slug,
+        );
+      }
+    }
+    // The money card's buttons are the ones the page's row names.
+    expect(notesGuideMoneyTry.bar.builtIns, {
+      'default_money',
+      'default_money_subtract',
+      'default_money_set',
+      'default_money_total',
+      'default_money_delta',
+      'default_money_target',
+    });
+  });
+
   test('every step of every card carries a check', () {
     for (final card in [
       notesGuideMarkdownTry,
       notesGuideListsTry,
       notesGuideOwnTry,
       notesGuideMoneyTry,
+      notesGuideShortcutsTry,
     ]) {
       expect(
         card.steps,
@@ -370,12 +555,14 @@ void main() {
     );
   });
 
-  test('the four pages where a mark is read hold one card each', () {
+  test('the pages where a mark is read or a button is made hold one card '
+      'each', () {
     const cards = {
       NotesGuideTopic.markdown: 'markdown',
       NotesGuideTopic.lists: 'lists',
       NotesGuideTopic.own: 'own',
       NotesGuideTopic.money: 'money',
+      NotesGuideTopic.shortcuts: 'shortcuts',
     };
     for (final topic in NotesGuideTopic.values) {
       final slug = cards[topic];

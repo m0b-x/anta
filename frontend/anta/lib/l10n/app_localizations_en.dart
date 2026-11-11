@@ -9570,7 +9570,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get guideBookNotesCaption =>
-      'Folders, writing, markdown, lists, the money ledger, autocomplete, counters';
+      'Folders, writing, markdown, lists, your own shortcuts, the money ledger, autocomplete, counters';
 
   @override
   String get guideBookAppTitle => 'Backup, sync and settings';
@@ -10068,15 +10068,15 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String notesGuideBarShortcutsBody(String shortcuts) {
-    return 'Each button is a shortcut: text it types, or wraps around what you selected. In “$shortcuts”, drag to reorder them, hide the ones you never use, or change what one types.';
+    return 'Each button is a shortcut: text it writes, or wraps around what you selected. Under “$shortcuts”, drag them into a new order and hide the ones you never use.';
   }
 
   @override
   String get notesGuideBarOwnTitle => 'Your own shortcut';
 
   @override
-  String notesGuideBarOwnBody(String shortcuts) {
-    return 'Tap + in “$shortcuts” to make one. A line you type often — a set format, the heading you start every day with — becomes a button.';
+  String notesGuideBarOwnBody(String shortcuts, String page) {
+    return 'Tap + on the “$shortcuts” page to make one: a line you write often — a set format, the heading you start every day with — becomes a button. “$page” in this guide walks through it.';
   }
 
   @override
@@ -10623,35 +10623,41 @@ class AppLocalizationsEn extends AppLocalizations {
       'Deadlift 140 kg\nNext week: squat\nSame warm-up as last time';
 
   @override
-  String get notesGuideSeedMoney => '\$= 500 budget\n\$- 40 gym';
+  String get notesGuideSeedMoney => '\$= 500 budget\n\$- 40 gym\n';
 
   @override
-  String get notesGuideCoachMarkdownHeading =>
-      'Put # and a space in front of “Leg day”: it becomes a heading.';
+  String notesGuideCoachMarkdownHeading(String headers) {
+    return 'Tap “Leg day”, then “$headers” on the bar, and pick a level: a # in front makes it a heading.';
+  }
 
   @override
-  String get notesGuideCoachMarkdownBold =>
-      'Put two stars on each side of a word, like **strong**: it comes out bold.';
+  String notesGuideCoachMarkdownBold(String bold) {
+    return 'Tap “$bold” and type a word: two stars on each side make it bold.';
+  }
 
   @override
-  String get notesGuideCoachMarkdownList =>
-      'Start a line with - and a space: it becomes a bullet.';
+  String notesGuideCoachMarkdownList(String bulletList) {
+    return 'Tap another line, then “$bulletList”: a dash and a space in front make it a bullet.';
+  }
 
   @override
-  String get notesGuideCoachMarkdownTask =>
-      'On a new line type - [ ] and a word, then tap the box to tick it.';
+  String notesGuideCoachMarkdownTask(String checkbox) {
+    return 'Tap one more line, then “$checkbox” — and tap the box to tick it.';
+  }
 
   @override
   String get notesGuideCoachListsEnter =>
       'Tap after “Back” and press Enter: the next bullet is ready.';
 
   @override
-  String get notesGuideCoachListsNest =>
-      'Tap “Squat”, then swipe it to the right: it nests under Legs.';
+  String notesGuideCoachListsNest(String indentLine) {
+    return 'Tap “Squat”, then swipe it right or tap “$indentLine” on the bar: it nests under Legs.';
+  }
 
   @override
-  String get notesGuideCoachListsOutdent =>
-      'Swipe it to the left: it comes back out.';
+  String notesGuideCoachListsOutdent(String outdentLine) {
+    return 'Swipe it left, or tap “$outdentLine”: it comes back out.';
+  }
 
   @override
   String get notesGuideCoachListsEnd =>
@@ -10662,29 +10668,33 @@ class AppLocalizationsEn extends AppLocalizations {
       'Add #pr at the end of the first line: a word after # is a tag.';
 
   @override
-  String notesGuideCoachOwnGhost(String open, String close) {
-    return 'After “squat” type $open${open}weight$close$close: a blank to fill in later.';
+  String notesGuideCoachOwnGhost(String shortcutGhostText) {
+    return 'Tap after “squat”, then “$shortcutGhostText” on the bar: a blank to fill in later.';
   }
 
   @override
-  String notesGuideCoachOwnColour(String open, String close) {
-    return 'Write ${open}red:heavy$close anywhere: the word turns red.';
+  String notesGuideCoachOwnColour(String shortcutColorText) {
+    return 'Tap another line, then “$shortcutColorText”, and type “heavy”: the word turns red.';
   }
 
   @override
   String get notesGuideCoachOwnWiki =>
-      'Write [[Leg day]] in double brackets: a link to the note of that name.';
+      'On a line of its own, write [[Leg day]]: double brackets link to the note of that name.';
 
   @override
-  String get notesGuideCoachMoneySpend =>
-      'Add a line \$- 25 shoes: another spend.';
+  String notesGuideCoachMoneySpend(String shortcutMoneySubtract) {
+    return 'Tap the empty line, then “$shortcutMoneySubtract”, and type 25 shoes: another spend.';
+  }
 
   @override
-  String get notesGuideCoachMoneyAdd => 'Add \$+ 25 refund: money coming in.';
+  String notesGuideCoachMoneyAdd(String shortcutMoneyAdd) {
+    return 'Press Enter, then “$shortcutMoneyAdd”, and type 25 refund: money coming in.';
+  }
 
   @override
-  String get notesGuideCoachMoneyTotal =>
-      'Type \$\$ on a line of its own: what is left, as a chip.';
+  String notesGuideCoachMoneyTotal(String shortcutMoneyTotal) {
+    return 'Press Enter and tap “$shortcutMoneyTotal”: what is left, as a chip.';
+  }
 
   @override
   String get notesGuideReportTag =>
@@ -10701,6 +10711,211 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get notesGuideReportMoney =>
       'In a note, tapping a total shows every line that went into it.';
+
+  @override
+  String notesGuideReportEmptyButton(String markdownStart) {
+    return 'Your button has nothing to write yet: fill in “$markdownStart” first.';
+  }
+
+  @override
+  String get notesGuidePageShortcuts => 'Your own shortcuts';
+
+  @override
+  String get notesGuidePageShortcutsCaption =>
+      'Buttons that write your lines: a set, a date, a count';
+
+  @override
+  String get notesGuideShortcutsLead =>
+      'A shortcut is a button on the bar that writes for you. ANTA ships a set of them; the ones you make turn the lines you repeat into one tap.';
+
+  @override
+  String get notesGuideSeedShortcuts => 'Leg day\n';
+
+  @override
+  String get notesGuideShortcutSetLabel => 'Set';
+
+  @override
+  String notesGuideShortcutSetText(String count, String open, String close) {
+    return '- [ ] Set $count: $open${open}weight$close$close kg × $open${open}reps$close$close';
+  }
+
+  @override
+  String get notesGuideShortcutTodayLabel => 'Today';
+
+  @override
+  String get notesGuideShortcutMineLabel => 'Your button';
+
+  @override
+  String notesGuideCoachShortcutsLine(String set) {
+    return 'Tap the empty line, then “$set” on the bar: one tap writes a whole line, blanks included.';
+  }
+
+  @override
+  String notesGuideCoachShortcutsCount(String set) {
+    return 'Tap “$set” again: the number counts up by itself.';
+  }
+
+  @override
+  String notesGuideCoachShortcutsDate(String today) {
+    return 'Tap “$today”: today\'s date, written as a heading.';
+  }
+
+  @override
+  String notesGuideCoachShortcutsWrite(String markdownStart) {
+    return 'Now yours: in “$markdownStart”, above the note, type a line you write often.';
+  }
+
+  @override
+  String notesGuideCoachShortcutsPress(String mine) {
+    return 'Tap the star on the bar, “$mine”: it writes your line, every time.';
+  }
+
+  @override
+  String get notesGuideShortcutsMakeTitle => 'Make one';
+
+  @override
+  String notesGuideShortcutsMakeBody(
+    String settingsRowEditor,
+    String newShortcut,
+    String save,
+  ) {
+    return 'In Settings, open “$settingsRowEditor” and tap + at the bottom of the page: “$newShortcut” opens. Pick an icon, give the button a name, say what it writes, and tap “$save”. It joins the end of the bar.';
+  }
+
+  @override
+  String get notesGuideShortcutsTextTitle => 'What it writes';
+
+  @override
+  String notesGuideShortcutsTextBody(String markdownStart, String markdownEnd) {
+    return '“$markdownStart” is written in front of the cursor, or of the text you selected; “$markdownEnd” behind it. For a whole line — a set, a meal, a heading — put all of it in “$markdownStart” and leave “$markdownEnd” empty.';
+  }
+
+  @override
+  String get notesGuideShortcutsKindsTitle => 'Three kinds';
+
+  @override
+  String notesGuideShortcutsKindsBody(
+    String insertType,
+    String wrapSelectedText,
+    String insertCurrentDate,
+    String insertCounter,
+    String beforeDate,
+    String afterDate,
+  ) {
+    return '“$insertType” decides what goes between the two: “$wrapSelectedText” keeps your selection there, “$insertCurrentDate” writes the date in the format you choose — the two fields are then called “$beforeDate” and “$afterDate” — and “$insertCounter” the next value of a counter.';
+  }
+
+  @override
+  String get notesGuideShortcutsPreviewTitle => 'See it before you save';
+
+  @override
+  String notesGuideShortcutsPreviewBody(String preview) {
+    return '“$preview”, at the bottom of that page, shows what the button will write, drawn the way a note draws it.';
+  }
+
+  @override
+  String get notesGuideShortcutsBlanksTitle => 'Leave blanks';
+
+  @override
+  String notesGuideShortcutsBlanksBody(String open, String close) {
+    return 'Double braces leave a blank in the line: Squat $open${open}weight$close$close kg writes a dimmed “weight” to tap and type over. One button, a new number every time.';
+  }
+
+  @override
+  String get notesGuideShortcutsRepeatTitle => 'Several at once';
+
+  @override
+  String notesGuideShortcutsRepeatBody(
+    String advancedOptions,
+    String repeatSettings,
+    String incrementDateOnRepeat,
+  ) {
+    return 'Switch on “$advancedOptions”: “$repeatSettings” writes the text several times in one tap — three sets, seven days. With “$incrementDateOnRepeat”, a date moves on with every copy, so one tap writes the week.';
+  }
+
+  @override
+  String get notesGuideShortcutsDateTitle => 'Tomorrow, next week';
+
+  @override
+  String notesGuideShortcutsDateBody(
+    String dateOffset,
+    String advancedOptions,
+  ) {
+    return '“$dateOffset”, under “$advancedOptions”, shifts the date a button writes: one day for tomorrow\'s plan, seven for next week\'s.';
+  }
+
+  @override
+  String get notesGuideShortcutsCountersTitle => 'Count as it writes';
+
+  @override
+  String notesGuideShortcutsCountersBody(
+    String counterBindingsTitle,
+    String advancedOptions,
+    String open,
+    String close,
+  ) {
+    return '“$counterBindingsTitle”, also under “$advancedOptions”, ties up to two counters to the button. Where the text says ${open}c1$close or ${open}c2$close, the counter\'s next value is written — Set 1, Set 2, Set 3 — one step for every tap.';
+  }
+
+  @override
+  String get notesGuideShortcutsTidyTitle => 'Keep the bar short';
+
+  @override
+  String notesGuideShortcutsTidyBody(String setCategory) {
+    return 'In the list of shortcuts, the eye hides a button without deleting it, and a long press drags it to a new place. ⋮ › “$setCategory” groups buttons, and the chips above the list then filter it by group. ⋮ also edits or deletes a button you made; the built-in ones can only be hidden.';
+  }
+
+  @override
+  String get notesGuideShortcutsBarsTitle => 'Each bar has its own';
+
+  @override
+  String notesGuideShortcutsBarsBody(String manageBarProfiles) {
+    return 'A shortcut belongs to the bar you made it in. With several bars under “$manageBarProfiles”, choose the bar first, then add the button.';
+  }
+
+  @override
+  String get notesGuideRecipeShown => 'One tap writes';
+
+  @override
+  String notesGuideExRecipeSetSource(String open, String close) {
+    return '- [ ] $open${open}weight$close$close kg × $open${open}reps$close$close';
+  }
+
+  @override
+  String get notesGuideExRecipeSetCaption =>
+      'A set to tick off, with two blanks to fill in.';
+
+  @override
+  String notesGuideExRecipeLabelSource(String open, String close) {
+    return '**Warm-up:** $open${open}minutes$close$close min on the bike';
+  }
+
+  @override
+  String get notesGuideExRecipeLabelCaption =>
+      'A line that always starts the same: the opening in bold, the number left blank.';
+
+  @override
+  String get notesGuideMarkdownCodeTitle => 'Code and rules';
+
+  @override
+  String notesGuideMarkdownCodeBody(
+    String inlineCode,
+    String codeBlock,
+    String shortcutHorizontalRule,
+  ) {
+    return 'A backtick (`) on each side keeps a word exactly as typed, in a fixed-width font; three backticks on a line of their own start a block that stays as typed until three more end it. Three dashes on a line of their own draw a rule across the note. The bar has “$inlineCode”, “$codeBlock” and “$shortcutHorizontalRule” for them.';
+  }
+
+  @override
+  String get notesGuideMoneyBackTitle => 'Looking back';
+
+  @override
+  String notesGuideMoneyBackBody(
+    String shortcutMoneyDiff,
+    String shortcutMoneySpan,
+  ) {
+    return '\$^ 3 shows how much the last three entries changed the balance; \$~ 2 the change across the last two \$= lines. Both only show a number — the balance stays as it is. On the bar they are “$shortcutMoneyDiff” and “$shortcutMoneySpan”.';
+  }
 
   @override
   String get appGuideSyncStopTitle => 'Stopping';

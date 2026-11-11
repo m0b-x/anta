@@ -14482,7 +14482,7 @@ abstract class AppLocalizations {
   /// No description provided for @guideBookNotesCaption.
   ///
   /// In en, this message translates to:
-  /// **'Folders, writing, markdown, lists, the money ledger, autocomplete, counters'**
+  /// **'Folders, writing, markdown, lists, your own shortcuts, the money ledger, autocomplete, counters'**
   String get guideBookNotesCaption;
 
   /// No description provided for @guideBookAppTitle.
@@ -15245,10 +15245,10 @@ abstract class AppLocalizations {
   /// **'Shortcuts'**
   String get notesGuideBarShortcutsTitle;
 
-  /// No description provided for @notesGuideBarShortcutsBody.
+  /// Read row of the bar page; quotes the shortcut list's own header. A built-in shortcut can be hidden and moved, never edited
   ///
   /// In en, this message translates to:
-  /// **'Each button is a shortcut: text it types, or wraps around what you selected. In “{shortcuts}”, drag to reorder them, hide the ones you never use, or change what one types.'**
+  /// **'Each button is a shortcut: text it writes, or wraps around what you selected. Under “{shortcuts}”, drag them into a new order and hide the ones you never use.'**
   String notesGuideBarShortcutsBody(String shortcuts);
 
   /// No description provided for @notesGuideBarOwnTitle.
@@ -15257,11 +15257,11 @@ abstract class AppLocalizations {
   /// **'Your own shortcut'**
   String get notesGuideBarOwnTitle;
 
-  /// No description provided for @notesGuideBarOwnBody.
+  /// Read row of the bar page; quotes the shortcut list's header and the title of the guide page about custom shortcuts
   ///
   /// In en, this message translates to:
-  /// **'Tap + in “{shortcuts}” to make one. A line you type often — a set format, the heading you start every day with — becomes a button.'**
-  String notesGuideBarOwnBody(String shortcuts);
+  /// **'Tap + on the “{shortcuts}” page to make one: a line you write often — a set format, the heading you start every day with — becomes a button. “{page}” in this guide walks through it.'**
+  String notesGuideBarOwnBody(String shortcuts, String page);
 
   /// No description provided for @notesGuideBarUtilityTitle.
   ///
@@ -16045,35 +16045,35 @@ abstract class AppLocalizations {
   /// **'Deadlift 140 kg\nNext week: squat\nSame warm-up as last time'**
   String get notesGuideSeedOwn;
 
-  /// The money page's Try it editor as seeded: a start amount and one spend
+  /// The money page's Try it editor as seeded: a start amount, one spend and an empty last line where the caret waits, so a bar button writes a new ledger line
   ///
   /// In en, this message translates to:
-  /// **'\$= 500 budget\n\$- 40 gym'**
+  /// **'\$= 500 budget\n\$- 40 gym\n'**
   String get notesGuideSeedMoney;
 
-  /// Coach line of the markdown card; quotes the seed's first line
+  /// Coach line of the markdown card; quotes the seed's first line and the bar's heading button, which opens a menu of heading levels
   ///
   /// In en, this message translates to:
-  /// **'Put # and a space in front of “Leg day”: it becomes a heading.'**
-  String get notesGuideCoachMarkdownHeading;
+  /// **'Tap “Leg day”, then “{headers}” on the bar, and pick a level: a # in front makes it a heading.'**
+  String notesGuideCoachMarkdownHeading(String headers);
 
-  /// Coach line of the markdown card
+  /// Coach line of the markdown card; quotes the bar's bold button, which writes the pair of stars around the caret
   ///
   /// In en, this message translates to:
-  /// **'Put two stars on each side of a word, like **strong**: it comes out bold.'**
-  String get notesGuideCoachMarkdownBold;
+  /// **'Tap “{bold}” and type a word: two stars on each side make it bold.'**
+  String notesGuideCoachMarkdownBold(String bold);
 
-  /// Coach line of the markdown card
+  /// Coach line of the markdown card; quotes the bar's bullet list button
   ///
   /// In en, this message translates to:
-  /// **'Start a line with - and a space: it becomes a bullet.'**
-  String get notesGuideCoachMarkdownList;
+  /// **'Tap another line, then “{bulletList}”: a dash and a space in front make it a bullet.'**
+  String notesGuideCoachMarkdownList(String bulletList);
 
-  /// Coach line of the markdown card; done when a task line is ticked
+  /// Coach line of the markdown card; quotes the bar's checkbox button; done when a task line is ticked
   ///
   /// In en, this message translates to:
-  /// **'On a new line type - [ ] and a word, then tap the box to tick it.'**
-  String get notesGuideCoachMarkdownTask;
+  /// **'Tap one more line, then “{checkbox}” — and tap the box to tick it.'**
+  String notesGuideCoachMarkdownTask(String checkbox);
 
   /// Coach line of the lists card; quotes the seed's last item
   ///
@@ -16081,17 +16081,17 @@ abstract class AppLocalizations {
   /// **'Tap after “Back” and press Enter: the next bullet is ready.'**
   String get notesGuideCoachListsEnter;
 
-  /// Coach line of the lists card; quotes two seed items
+  /// Coach line of the lists card; quotes two seed items and the bar's indent button
   ///
   /// In en, this message translates to:
-  /// **'Tap “Squat”, then swipe it to the right: it nests under Legs.'**
-  String get notesGuideCoachListsNest;
+  /// **'Tap “Squat”, then swipe it right or tap “{indentLine}” on the bar: it nests under Legs.'**
+  String notesGuideCoachListsNest(String indentLine);
 
-  /// Coach line of the lists card
+  /// Coach line of the lists card; quotes the bar's outdent button
   ///
   /// In en, this message translates to:
-  /// **'Swipe it to the left: it comes back out.'**
-  String get notesGuideCoachListsOutdent;
+  /// **'Swipe it left, or tap “{outdentLine}”: it comes back out.'**
+  String notesGuideCoachListsOutdent(String outdentLine);
 
   /// Coach line of the lists card
   ///
@@ -16105,41 +16105,41 @@ abstract class AppLocalizations {
   /// **'Add #pr at the end of the first line: a word after # is a tag.'**
   String get notesGuideCoachOwnTag;
 
-  /// Coach line of the own-markdown card; the braces travel as placeholders because ICU reads a bare brace as an argument
+  /// Coach line of the own-markdown card; quotes a seed word and the bar's ghost text button, which writes the double braces
   ///
   /// In en, this message translates to:
-  /// **'After “squat” type {open}{open}weight{close}{close}: a blank to fill in later.'**
-  String notesGuideCoachOwnGhost(String open, String close);
+  /// **'Tap after “squat”, then “{shortcutGhostText}” on the bar: a blank to fill in later.'**
+  String notesGuideCoachOwnGhost(String shortcutGhostText);
 
-  /// Coach line of the own-markdown card; `red` is a preset colour name in every language, as the colour example uses it
+  /// Coach line of the own-markdown card; quotes the bar's colour text button, which writes a red slot the typed word fills
   ///
   /// In en, this message translates to:
-  /// **'Write {open}red:heavy{close} anywhere: the word turns red.'**
-  String notesGuideCoachOwnColour(String open, String close);
+  /// **'Tap another line, then “{shortcutColorText}”, and type “heavy”: the word turns red.'**
+  String notesGuideCoachOwnColour(String shortcutColorText);
 
-  /// Coach line of the own-markdown card
+  /// Coach line of the own-markdown card; no bar button writes a wiki link, so it is typed
   ///
   /// In en, this message translates to:
-  /// **'Write [[Leg day]] in double brackets: a link to the note of that name.'**
+  /// **'On a line of its own, write [[Leg day]]: double brackets link to the note of that name.'**
   String get notesGuideCoachOwnWiki;
 
-  /// Coach line of the money card
+  /// Coach line of the money card; quotes the bar's spend button, which writes the $- marker
   ///
   /// In en, this message translates to:
-  /// **'Add a line \$- 25 shoes: another spend.'**
-  String get notesGuideCoachMoneySpend;
+  /// **'Tap the empty line, then “{shortcutMoneySubtract}”, and type 25 shoes: another spend.'**
+  String notesGuideCoachMoneySpend(String shortcutMoneySubtract);
 
-  /// Coach line of the money card
+  /// Coach line of the money card; quotes the bar's add button, which writes the $+ marker
   ///
   /// In en, this message translates to:
-  /// **'Add \$+ 25 refund: money coming in.'**
-  String get notesGuideCoachMoneyAdd;
+  /// **'Press Enter, then “{shortcutMoneyAdd}”, and type 25 refund: money coming in.'**
+  String notesGuideCoachMoneyAdd(String shortcutMoneyAdd);
 
-  /// Coach line of the money card
+  /// Coach line of the money card; quotes the bar's total button, which writes $$
   ///
   /// In en, this message translates to:
-  /// **'Type \$\$ on a line of its own: what is left, as a chip.'**
-  String get notesGuideCoachMoneyTotal;
+  /// **'Press Enter and tap “{shortcutMoneyTotal}”: what is left, as a chip.'**
+  String notesGuideCoachMoneyTotal(String shortcutMoneyTotal);
 
   /// A Try it editor's report after a tap on a tag, which a sandbox cannot act on; never quotes the tag
   ///
@@ -16164,6 +16164,291 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'In a note, tapping a total shows every line that went into it.'**
   String get notesGuideReportMoney;
+
+  /// The shortcuts card's report when her own button is pressed while the field above the editor is empty; quotes the field's label
+  ///
+  /// In en, this message translates to:
+  /// **'Your button has nothing to write yet: fill in “{markdownStart}” first.'**
+  String notesGuideReportEmptyButton(String markdownStart);
+
+  /// Title of the notes guide's page about making custom markdown shortcuts
+  ///
+  /// In en, this message translates to:
+  /// **'Your own shortcuts'**
+  String get notesGuidePageShortcuts;
+
+  /// No description provided for @notesGuidePageShortcutsCaption.
+  ///
+  /// In en, this message translates to:
+  /// **'Buttons that write your lines: a set, a date, a count'**
+  String get notesGuidePageShortcutsCaption;
+
+  /// No description provided for @notesGuideShortcutsLead.
+  ///
+  /// In en, this message translates to:
+  /// **'A shortcut is a button on the bar that writes for you. ANTA ships a set of them; the ones you make turn the lines you repeat into one tap.'**
+  String get notesGuideShortcutsLead;
+
+  /// The shortcuts page's Try it editor as seeded: one plain line and an empty one where the caret waits
+  ///
+  /// In en, this message translates to:
+  /// **'Leg day\n'**
+  String get notesGuideSeedShortcuts;
+
+  /// Name of the guide's example shortcut that writes one workout set; a noun
+  ///
+  /// In en, this message translates to:
+  /// **'Set'**
+  String get notesGuideShortcutSetLabel;
+
+  /// What the guide's example Set shortcut writes: a checkbox line with the set's number and two ghost blanks. count is the counter token, open and close the literal braces
+  ///
+  /// In en, this message translates to:
+  /// **'- [ ] Set {count}: {open}{open}weight{close}{close} kg × {open}{open}reps{close}{close}'**
+  String notesGuideShortcutSetText(String count, String open, String close);
+
+  /// Name of the guide's example shortcut that writes today's date as a heading
+  ///
+  /// In en, this message translates to:
+  /// **'Today'**
+  String get notesGuideShortcutTodayLabel;
+
+  /// Name of the star button on the shortcuts card's bar, the one that writes what she typed in the field
+  ///
+  /// In en, this message translates to:
+  /// **'Your button'**
+  String get notesGuideShortcutMineLabel;
+
+  /// Coach line of the shortcuts card; quotes the example Set button. The seed ends in an empty line: a button writes at the cursor, so the line says where to put it first
+  ///
+  /// In en, this message translates to:
+  /// **'Tap the empty line, then “{set}” on the bar: one tap writes a whole line, blanks included.'**
+  String notesGuideCoachShortcutsLine(String set);
+
+  /// Coach line of the shortcuts card; the second press writes Set 2
+  ///
+  /// In en, this message translates to:
+  /// **'Tap “{set}” again: the number counts up by itself.'**
+  String notesGuideCoachShortcutsCount(String set);
+
+  /// Coach line of the shortcuts card; quotes the example Today button
+  ///
+  /// In en, this message translates to:
+  /// **'Tap “{today}”: today\'s date, written as a heading.'**
+  String notesGuideCoachShortcutsDate(String today);
+
+  /// Coach line of the shortcuts card; quotes the label of the field above the stage's editor, the New Shortcut page's own
+  ///
+  /// In en, this message translates to:
+  /// **'Now yours: in “{markdownStart}”, above the note, type a line you write often.'**
+  String notesGuideCoachShortcutsWrite(String markdownStart);
+
+  /// Coach line of the shortcuts card; quotes the name of her own button, drawn as a star
+  ///
+  /// In en, this message translates to:
+  /// **'Tap the star on the bar, “{mine}”: it writes your line, every time.'**
+  String notesGuideCoachShortcutsPress(String mine);
+
+  /// No description provided for @notesGuideShortcutsMakeTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Make one'**
+  String get notesGuideShortcutsMakeTitle;
+
+  /// No description provided for @notesGuideShortcutsMakeBody.
+  ///
+  /// In en, this message translates to:
+  /// **'In Settings, open “{settingsRowEditor}” and tap + at the bottom of the page: “{newShortcut}” opens. Pick an icon, give the button a name, say what it writes, and tap “{save}”. It joins the end of the bar.'**
+  String notesGuideShortcutsMakeBody(
+    String settingsRowEditor,
+    String newShortcut,
+    String save,
+  );
+
+  /// No description provided for @notesGuideShortcutsTextTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'What it writes'**
+  String get notesGuideShortcutsTextTitle;
+
+  /// No description provided for @notesGuideShortcutsTextBody.
+  ///
+  /// In en, this message translates to:
+  /// **'“{markdownStart}” is written in front of the cursor, or of the text you selected; “{markdownEnd}” behind it. For a whole line — a set, a meal, a heading — put all of it in “{markdownStart}” and leave “{markdownEnd}” empty.'**
+  String notesGuideShortcutsTextBody(String markdownStart, String markdownEnd);
+
+  /// No description provided for @notesGuideShortcutsKindsTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Three kinds'**
+  String get notesGuideShortcutsKindsTitle;
+
+  /// Read row of the shortcuts page; quotes the insert type field, its three choices and the names the two text fields take for a date shortcut
+  ///
+  /// In en, this message translates to:
+  /// **'“{insertType}” decides what goes between the two: “{wrapSelectedText}” keeps your selection there, “{insertCurrentDate}” writes the date in the format you choose — the two fields are then called “{beforeDate}” and “{afterDate}” — and “{insertCounter}” the next value of a counter.'**
+  String notesGuideShortcutsKindsBody(
+    String insertType,
+    String wrapSelectedText,
+    String insertCurrentDate,
+    String insertCounter,
+    String beforeDate,
+    String afterDate,
+  );
+
+  /// No description provided for @notesGuideShortcutsPreviewTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'See it before you save'**
+  String get notesGuideShortcutsPreviewTitle;
+
+  /// No description provided for @notesGuideShortcutsPreviewBody.
+  ///
+  /// In en, this message translates to:
+  /// **'“{preview}”, at the bottom of that page, shows what the button will write, drawn the way a note draws it.'**
+  String notesGuideShortcutsPreviewBody(String preview);
+
+  /// No description provided for @notesGuideShortcutsBlanksTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Leave blanks'**
+  String get notesGuideShortcutsBlanksTitle;
+
+  /// Read row of the shortcuts page; the braces travel as placeholders because ICU reads a bare brace as an argument
+  ///
+  /// In en, this message translates to:
+  /// **'Double braces leave a blank in the line: Squat {open}{open}weight{close}{close} kg writes a dimmed “weight” to tap and type over. One button, a new number every time.'**
+  String notesGuideShortcutsBlanksBody(String open, String close);
+
+  /// No description provided for @notesGuideShortcutsRepeatTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Several at once'**
+  String get notesGuideShortcutsRepeatTitle;
+
+  /// No description provided for @notesGuideShortcutsRepeatBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Switch on “{advancedOptions}”: “{repeatSettings}” writes the text several times in one tap — three sets, seven days. With “{incrementDateOnRepeat}”, a date moves on with every copy, so one tap writes the week.'**
+  String notesGuideShortcutsRepeatBody(
+    String advancedOptions,
+    String repeatSettings,
+    String incrementDateOnRepeat,
+  );
+
+  /// No description provided for @notesGuideShortcutsDateTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Tomorrow, next week'**
+  String get notesGuideShortcutsDateTitle;
+
+  /// No description provided for @notesGuideShortcutsDateBody.
+  ///
+  /// In en, this message translates to:
+  /// **'“{dateOffset}”, under “{advancedOptions}”, shifts the date a button writes: one day for tomorrow\'s plan, seven for next week\'s.'**
+  String notesGuideShortcutsDateBody(String dateOffset, String advancedOptions);
+
+  /// No description provided for @notesGuideShortcutsCountersTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Count as it writes'**
+  String get notesGuideShortcutsCountersTitle;
+
+  /// Read row of the shortcuts page; the braces of the counter tokens travel as placeholders
+  ///
+  /// In en, this message translates to:
+  /// **'“{counterBindingsTitle}”, also under “{advancedOptions}”, ties up to two counters to the button. Where the text says {open}c1{close} or {open}c2{close}, the counter\'s next value is written — Set 1, Set 2, Set 3 — one step for every tap.'**
+  String notesGuideShortcutsCountersBody(
+    String counterBindingsTitle,
+    String advancedOptions,
+    String open,
+    String close,
+  );
+
+  /// No description provided for @notesGuideShortcutsTidyTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Keep the bar short'**
+  String get notesGuideShortcutsTidyTitle;
+
+  /// No description provided for @notesGuideShortcutsTidyBody.
+  ///
+  /// In en, this message translates to:
+  /// **'In the list of shortcuts, the eye hides a button without deleting it, and a long press drags it to a new place. ⋮ › “{setCategory}” groups buttons, and the chips above the list then filter it by group. ⋮ also edits or deletes a button you made; the built-in ones can only be hidden.'**
+  String notesGuideShortcutsTidyBody(String setCategory);
+
+  /// No description provided for @notesGuideShortcutsBarsTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Each bar has its own'**
+  String get notesGuideShortcutsBarsTitle;
+
+  /// No description provided for @notesGuideShortcutsBarsBody.
+  ///
+  /// In en, this message translates to:
+  /// **'A shortcut belongs to the bar you made it in. With several bars under “{manageBarProfiles}”, choose the bar first, then add the button.'**
+  String notesGuideShortcutsBarsBody(String manageBarProfiles);
+
+  /// Label over the rendered half of a shortcut recipe on the shortcuts page, in place of You get; the half above it is labelled with the New Shortcut page's own field name
+  ///
+  /// In en, this message translates to:
+  /// **'One tap writes'**
+  String get notesGuideRecipeShown;
+
+  /// A shortcut recipe: the text of a button that writes one workout set with two blanks
+  ///
+  /// In en, this message translates to:
+  /// **'- [ ] {open}{open}weight{close}{close} kg × {open}{open}reps{close}{close}'**
+  String notesGuideExRecipeSetSource(String open, String close);
+
+  /// No description provided for @notesGuideExRecipeSetCaption.
+  ///
+  /// In en, this message translates to:
+  /// **'A set to tick off, with two blanks to fill in.'**
+  String get notesGuideExRecipeSetCaption;
+
+  /// A shortcut recipe: the text of a button that writes a line with a bold label and one blank
+  ///
+  /// In en, this message translates to:
+  /// **'**Warm-up:** {open}{open}minutes{close}{close} min on the bike'**
+  String notesGuideExRecipeLabelSource(String open, String close);
+
+  /// No description provided for @notesGuideExRecipeLabelCaption.
+  ///
+  /// In en, this message translates to:
+  /// **'A line that always starts the same: the opening in bold, the number left blank.'**
+  String get notesGuideExRecipeLabelCaption;
+
+  /// No description provided for @notesGuideMarkdownCodeTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Code and rules'**
+  String get notesGuideMarkdownCodeTitle;
+
+  /// No description provided for @notesGuideMarkdownCodeBody.
+  ///
+  /// In en, this message translates to:
+  /// **'A backtick (`) on each side keeps a word exactly as typed, in a fixed-width font; three backticks on a line of their own start a block that stays as typed until three more end it. Three dashes on a line of their own draw a rule across the note. The bar has “{inlineCode}”, “{codeBlock}” and “{shortcutHorizontalRule}” for them.'**
+  String notesGuideMarkdownCodeBody(
+    String inlineCode,
+    String codeBlock,
+    String shortcutHorizontalRule,
+  );
+
+  /// No description provided for @notesGuideMoneyBackTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Looking back'**
+  String get notesGuideMoneyBackTitle;
+
+  /// No description provided for @notesGuideMoneyBackBody.
+  ///
+  /// In en, this message translates to:
+  /// **'\$^ 3 shows how much the last three entries changed the balance; \$~ 2 the change across the last two \$= lines. Both only show a number — the balance stays as it is. On the bar they are “{shortcutMoneyDiff}” and “{shortcutMoneySpan}”.'**
+  String notesGuideMoneyBackBody(
+    String shortcutMoneyDiff,
+    String shortcutMoneySpan,
+  );
 
   /// No description provided for @appGuideSyncStopTitle.
   ///

@@ -20,6 +20,7 @@ enum NotesGuideTopic implements GuideTopic {
   own('own', Icons.auto_awesome_rounded),
   money('money', Icons.payments_rounded),
   bar('bar', Icons.dashboard_customize_rounded),
+  shortcuts('shortcuts', Icons.smart_button_rounded),
   autocomplete('autocomplete', Icons.playlist_add_check_rounded),
   counters('counters', Icons.pin_rounded),
   settings('settings', Icons.tune_rounded);
@@ -41,6 +42,7 @@ enum NotesGuideTopic implements GuideTopic {
     own => l10n.notesGuidePageOwn,
     money => l10n.notesGuidePageMoney,
     bar => l10n.notesGuidePageBar,
+    shortcuts => l10n.notesGuidePageShortcuts,
     autocomplete => l10n.notesGuidePageAutocomplete,
     counters => l10n.notesGuidePageCounters,
     settings => l10n.notesGuidePageSettings,
@@ -56,6 +58,7 @@ enum NotesGuideTopic implements GuideTopic {
     own => l10n.notesGuidePageOwnCaption,
     money => l10n.notesGuidePageMoneyCaption,
     bar => l10n.notesGuidePageBarCaption,
+    shortcuts => l10n.notesGuidePageShortcutsCaption,
     autocomplete => l10n.notesGuidePageAutocompleteCaption,
     counters => l10n.notesGuidePageCountersCaption,
     settings => l10n.notesGuidePageSettingsCaption,
@@ -75,19 +78,21 @@ enum NotesGuideTopic implements GuideTopic {
       l10n.moneySection,
     ),
     bar => l10n.notesGuideBarLead(l10n.settingsRowEditor),
+    shortcuts => l10n.notesGuideShortcutsLead,
     autocomplete => l10n.notesGuideAutocompleteLead,
     counters => l10n.notesGuideCountersLead,
     settings => l10n.notesGuideSettingsLead(l10n.settingsHubTitle),
   };
 
-  /// Only a page where a mark is read gets a card (D17): the editor's chrome
-  /// a stage cannot show stays in words.
+  /// Only a page where a mark is read or a button is made gets a card (D17,
+  /// D32): the rest of the editor's chrome stays in words.
   @override
   List<GuideEditorCard> get editorCards => switch (this) {
     markdown => [notesGuideMarkdownTry],
     lists => [notesGuideListsTry],
     own => [notesGuideOwnTry],
     money => [notesGuideMoneyTry],
+    shortcuts => [notesGuideShortcutsTry],
     _ => const [],
   };
 
@@ -367,6 +372,18 @@ enum NotesGuideTopic implements GuideTopic {
           l10n.notesGuideMarkdownTableBody(l10n.shortcutTable),
         ),
       ),
+      GuideReadEntry(
+        CalendarGuideRow(
+          'markdown-code',
+          Icons.code_rounded,
+          l10n.notesGuideMarkdownCodeTitle,
+          l10n.notesGuideMarkdownCodeBody(
+            l10n.inlineCode,
+            l10n.codeBlock,
+            l10n.shortcutHorizontalRule,
+          ),
+        ),
+      ),
     ],
     lists => [
       GuideExampleEntry(
@@ -476,6 +493,17 @@ enum NotesGuideTopic implements GuideTopic {
       ),
       GuideReadEntry(
         CalendarGuideRow(
+          'money-back',
+          Icons.history_rounded,
+          l10n.notesGuideMoneyBackTitle,
+          l10n.notesGuideMoneyBackBody(
+            l10n.shortcutMoneyDiff,
+            l10n.shortcutMoneySpan,
+          ),
+        ),
+      ),
+      GuideReadEntry(
+        CalendarGuideRow(
           'money-settings',
           Icons.settings_rounded,
           l10n.notesGuideMoneySettingsTitle,
@@ -516,7 +544,8 @@ enum NotesGuideTopic implements GuideTopic {
           'bar-shortcuts',
           Icons.flash_on_rounded,
           l10n.notesGuideBarShortcutsTitle,
-          l10n.notesGuideBarShortcutsBody(l10n.shortcuts),
+          // The list's own header on the Editor and markdown page.
+          l10n.notesGuideBarShortcutsBody(l10n.markdownShortcuts),
         ),
       ),
       GuideReadEntry(
@@ -524,7 +553,10 @@ enum NotesGuideTopic implements GuideTopic {
           'bar-own',
           Icons.add_circle_outline_rounded,
           l10n.notesGuideBarOwnTitle,
-          l10n.notesGuideBarOwnBody(l10n.shortcuts),
+          l10n.notesGuideBarOwnBody(
+            l10n.markdownShortcuts,
+            l10n.notesGuidePageShortcuts,
+          ),
         ),
       ),
       GuideReadEntry(
@@ -562,6 +594,130 @@ enum NotesGuideTopic implements GuideTopic {
           l10n.notesGuideBarLayoutTitle,
           l10n.notesGuideBarLayoutBody(l10n.splitToolbar, l10n.pinUndoRedo),
         ),
+      ),
+    ],
+    // The New Shortcut page walked by its own labels
+    // (`docs/guide-hub-roadmap.md` §10.3), then two recipes.
+    shortcuts => [
+      GuideReadEntry(
+        CalendarGuideRow(
+          'shortcuts-make',
+          Icons.add_circle_outline_rounded,
+          l10n.notesGuideShortcutsMakeTitle,
+          l10n.notesGuideShortcutsMakeBody(
+            l10n.settingsRowEditor,
+            l10n.newShortcut,
+            l10n.save,
+          ),
+        ),
+      ),
+      GuideReadEntry(
+        CalendarGuideRow(
+          'shortcuts-text',
+          Icons.text_fields_rounded,
+          l10n.notesGuideShortcutsTextTitle,
+          l10n.notesGuideShortcutsTextBody(
+            l10n.markdownStart,
+            l10n.markdownEnd,
+          ),
+        ),
+      ),
+      GuideReadEntry(
+        CalendarGuideRow(
+          'shortcuts-kinds',
+          Icons.category_rounded,
+          l10n.notesGuideShortcutsKindsTitle,
+          l10n.notesGuideShortcutsKindsBody(
+            l10n.insertType,
+            l10n.wrapSelectedText,
+            l10n.insertCurrentDate,
+            l10n.insertCounter,
+            l10n.beforeDate,
+            l10n.afterDate,
+          ),
+        ),
+      ),
+      GuideReadEntry(
+        CalendarGuideRow(
+          'shortcuts-preview',
+          Icons.visibility_rounded,
+          l10n.notesGuideShortcutsPreviewTitle,
+          l10n.notesGuideShortcutsPreviewBody(l10n.preview),
+        ),
+      ),
+      GuideReadEntry(
+        CalendarGuideRow(
+          'shortcuts-blanks',
+          Icons.data_object_rounded,
+          l10n.notesGuideShortcutsBlanksTitle,
+          l10n.notesGuideShortcutsBlanksBody('{', '}'),
+        ),
+      ),
+      GuideReadEntry(
+        CalendarGuideRow(
+          'shortcuts-repeat',
+          Icons.repeat_rounded,
+          l10n.notesGuideShortcutsRepeatTitle,
+          l10n.notesGuideShortcutsRepeatBody(
+            l10n.advancedOptions,
+            l10n.repeatSettings,
+            l10n.incrementDateOnRepeat,
+          ),
+        ),
+      ),
+      GuideReadEntry(
+        CalendarGuideRow(
+          'shortcuts-date',
+          Icons.event_rounded,
+          l10n.notesGuideShortcutsDateTitle,
+          l10n.notesGuideShortcutsDateBody(
+            l10n.dateOffset,
+            l10n.advancedOptions,
+          ),
+        ),
+      ),
+      GuideReadEntry(
+        CalendarGuideRow(
+          'shortcuts-counters',
+          Icons.pin_rounded,
+          l10n.notesGuideShortcutsCountersTitle,
+          l10n.notesGuideShortcutsCountersBody(
+            l10n.counterBindingsTitle,
+            l10n.advancedOptions,
+            '{',
+            '}',
+          ),
+        ),
+      ),
+      GuideReadEntry(
+        CalendarGuideRow(
+          'shortcuts-tidy',
+          Icons.visibility_off_rounded,
+          l10n.notesGuideShortcutsTidyTitle,
+          l10n.notesGuideShortcutsTidyBody(l10n.setCategory),
+        ),
+      ),
+      GuideReadEntry(
+        CalendarGuideRow(
+          'shortcuts-bars',
+          Icons.view_carousel_rounded,
+          l10n.notesGuideShortcutsBarsTitle,
+          l10n.notesGuideShortcutsBarsBody(l10n.manageBarProfiles),
+        ),
+      ),
+      GuideExampleEntry(
+        slug: 'recipe-set',
+        source: l10n.notesGuideExRecipeSetSource('{', '}'),
+        caption: l10n.notesGuideExRecipeSetCaption,
+        typedLabel: l10n.markdownStart,
+        shownLabel: l10n.notesGuideRecipeShown,
+      ),
+      GuideExampleEntry(
+        slug: 'recipe-label',
+        source: l10n.notesGuideExRecipeLabelSource('{', '}'),
+        caption: l10n.notesGuideExRecipeLabelCaption,
+        typedLabel: l10n.markdownStart,
+        shownLabel: l10n.notesGuideRecipeShown,
       ),
     ],
     autocomplete => [

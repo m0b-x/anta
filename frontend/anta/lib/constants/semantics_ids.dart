@@ -439,6 +439,16 @@ abstract final class SemanticsIds {
   static String guideBookTryEditor(String book, String slug) =>
       'guide-$book-try-$slug-editor';
 
+  /// The bar under the card's editor (`docs/guide-hub-roadmap.md` D27): a
+  /// container, so a flow and the suite reach its buttons inside it.
+  static String guideBookTryBar(String book, String slug) =>
+      'guide-$book-try-$slug-bar';
+
+  /// The field of a card that lets her make a shortcut (D34): what her
+  /// button writes. A flow and the suite find it by this.
+  static String guideBookTryMaker(String book, String slug) =>
+      'guide-$book-try-$slug-maker';
+
   /// The calendar guide's list: a flow waits on the page and scrolls inside
   /// it without depending on the guide's wording or the locale.
   static const String calendarGuide = 'calendar-guide';
