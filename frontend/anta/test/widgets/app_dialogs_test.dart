@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:anta/constants/semantics_ids.dart';
 import 'package:anta/l10n/app_localizations.dart';
+import 'package:anta/utils/data_notice.dart';
 import 'package:anta/widgets/app_dialogs.dart';
 
 import '../goldens/support/golden_fonts.dart';
@@ -440,6 +441,113 @@ void main() {
         find.bySemanticsIdentifier(SemanticsIds.sharingSyncRestart),
       );
       expect(acted, 1);
+    });
+
+    testWidgets('an action dialog taller than the screen — the data notice '
+        '— scrolls at 2.0 in German: nothing overflows, the whole message is '
+        'reachable and its button stays on screen; made a notice, it also '
+        'closes on a tap outside (cloud-multi-user-roadmap §9 R2)', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(360, 780);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final de = lookupAppLocalizations(const Locale('de'));
+      final body = dataNoticeParagraphs(de).join('\n\n');
+      await tester.pumpWidget(
+        MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          locale: const Locale('de'),
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(
+              context,
+            ).copyWith(textScaler: const TextScaler.linear(2.0)),
+            child: child!,
+          ),
+          home: Builder(
+            builder: (context) => Scaffold(
+              body: Center(
+                child: TextButton(
+                  onPressed: () => AppDialogs.action(
+                    context,
+                    title: de.dataNoticeTitle,
+                    content: body,
+                    actionText: de.close,
+                    barrierDismissible: true,
+                    actionIdentifier: SemanticsIds.sharingDataNoticeClose,
+                    onAction: () => Navigator.of(context).pop(),
+                  ),
+                  child: const Text('open'),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+
+      final scrollable = find
+          .descendant(
+            of: find.byType(AlertDialog),
+            matching: find.byType(Scrollable),
+          )
+          .first;
+      final position = tester.state<ScrollableState>(scrollable).position;
+      expect(position.maxScrollExtent, greaterThan(0));
+      position.jumpTo(position.maxScrollExtent);
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+      expect(
+        tester.getRect(find.text(body)).bottom,
+        lessThanOrEqualTo(tester.getRect(scrollable).bottom + 0.5),
+      );
+      final button = tester.getRect(
+        find.bySemanticsIdentifier(SemanticsIds.sharingDataNoticeClose),
+      );
+      expect(button.top, greaterThanOrEqualTo(0));
+      expect(button.bottom, lessThanOrEqualTo(780));
+
+      await tester.tapAt(const Offset(4, 4));
+      await tester.pumpAndSettle();
+      expect(find.byType(AlertDialog), findsNothing);
+    });
+
+    testWidgets('an action dialog that must be answered stays up on a tap '
+        'outside', (tester) async {
+      final de = lookupAppLocalizations(const Locale('de'));
+      await tester.pumpWidget(
+        MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          locale: const Locale('de'),
+          home: Builder(
+            builder: (context) => Scaffold(
+              body: Center(
+                child: TextButton(
+                  onPressed: () => AppDialogs.action(
+                    context,
+                    title: de.restartRequiredTitle,
+                    content: de.restartRequiredNewDatabase,
+                    actionText: de.exitApp,
+                    onAction: () {},
+                  ),
+                  child: const Text('open'),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+
+      await tester.tapAt(const Offset(4, 4));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(AlertDialog), findsOneWidget);
     });
   });
 

@@ -11226,4 +11226,52 @@ class AppLocalizationsRo extends AppLocalizations {
   String appGuideSyncDeleteAccountBody(String deleteAccount) {
     return '„$deleteAccount” de pe aceeași pagină elimină fiecare copie din cloud a contului, încheie partajarea cu partenerul tău și șterge contul însuși, după ce Google îți cere să te conectezi din nou. Totul rămâne pe acest telefon.';
   }
+
+  @override
+  String get dataNoticeSection => 'Confidențialitate';
+
+  @override
+  String get dataNoticeTitle => 'Unde sunt stocate datele tale';
+
+  @override
+  String get dataNoticeDesc =>
+      'Pe acest dispozitiv și, pentru o bază de date sincronizată, în cloudul Google';
+
+  @override
+  String get dataNoticeKeywords =>
+      'confidențialitate, intimitate, date, locație, server, stocare, regiune, țară, criptare, criptat, google, gdpr';
+
+  @override
+  String get dataNoticeLocal =>
+      'Notițele, evenimentele și contoarele tale sunt stocate pe acest dispozitiv. Îl părăsesc doar când pornești sincronizarea pentru o bază de date.';
+
+  @override
+  String get dataNoticeCloudUs =>
+      'O bază de date sincronizată are o copie în cloudul Google, pe servere din Statele Unite.';
+
+  @override
+  String get dataNoticeCloudEu =>
+      'O bază de date sincronizată are o copie în cloudul Google, pe servere din Uniunea Europeană.';
+
+  @override
+  String get dataNoticeReadable =>
+      'Copia este criptată pe drum și acolo unde este stocată, dar nu de la un capăt la altul: cei care administrează serviciul cloud al ANTA o pot citi.';
+
+  @override
+  String get dataNoticeAccount =>
+      'La conectare, numele tău Google, adresa de e-mail și fotografia de profil sunt păstrate împreună cu contul. Serviciul de conectare Google le stochează în Statele Unite.';
+
+  @override
+  String get dataNoticePartner =>
+      'După împerechere, partenerul tău îți vede numele și fotografia de profil — și nimic altceva, dacă nu partajezi cu el.';
+
+  @override
+  String dataNoticeRemove(String deleteCopy, String deleteAccount) {
+    return '„$deleteCopy” elimină din cloud copia unei baze de date; „$deleteAccount” elimină tot ce păstrează contul tău acolo. Niciuna nu șterge nimic de pe acest dispozitiv.';
+  }
+
+  @override
+  String appGuideSyncDataBody(String dataNotice) {
+    return 'O bază de date pe care o sincronizezi are o copie în cloudul Google. Acolo este criptată, dar nu de la un capăt la altul: cei care administrează serviciul cloud al ANTA o pot citi. „$dataNotice” de pe aceeași pagină spune unde este păstrată și cum o elimini.';
+  }
 }

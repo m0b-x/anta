@@ -5,16 +5,18 @@
 part of a deletion runs in the background, resumes by itself and has a
 section of its own; reviewed three times, the saved `sync` device suite
 green. §5.1–5.8 state the design as built, §5.9 the history. D2 — "Delete
-account" (§6.1, design and as-built): built on D1's run, reviewed, the
-gate green (`+15822 ~17`, the rules suite 124 of 124); no device pass yet
-— it rides the two-guest suite (R10). Decided 2026-11-11 on the owner's
-word: the region is the European Union (R1, the owner runs the move); a
-second account on one phone is accepted (R4, not built). Left to the
-owner: the rules deploy (now carrying D2's pair and invite
-rules), the build on every device, the phone checks (§5.8, §6.1), the
-region move (R1). Every other slice is PLAN: one row of §3, with its own
-design section or record when it starts. The target is the owner's
-(§1).** Written from the
+account" (§6.1, design and as-built; commit `978898fc`): built on D1's
+run, reviewed, the gate green (`+15822 ~17`, the rules suite 124 of 124);
+no device pass yet — it rides the two-guest suite (R10). R2 — "Where your
+data is stored" DONE 2026-11-12 (§9): a Privacy section on the Sync page
+and a guide row. Decided 2026-11-11 on the owner's word: the region is
+the European Union (R1, the owner runs the move, whose last step now
+flips the notice's place); a second account on one phone is accepted (R4,
+not built). Left to the owner: the rules deploy (now carrying D2's pair
+and invite rules), the build on every device, the phone checks (§5.8,
+§6.1), the region move (R1). Every other slice is PLAN: one row of §3,
+with its own design section or record when it starts. The target is the
+owner's (§1).** Written from the
 investigation of 2026-11-10 at `14a1dc58`: two code sweeps, the cloud
 records read by section, the live database's metadata, the Firebase and
 store documentation. Master ladder: `cloud-sync-roadmap.md`. This record is
@@ -122,7 +124,7 @@ build.
 | N2 | Stopping a folder share takes it off my partner's phone | M | yes |
 | N3 | My partner may edit the notes I share, when I allow it | L | yes |
 | R1 | The database in the European Union — `eur3`, decided; the owner runs the move | S | yes — before the partner's data |
-| R2 | The app says where synced data lives and who can read it | S | yes |
+| **R2** | The app says where synced data lives and who can read it | S | yes — done (§9) |
 | R3 | The cloud copy stops growing (old note text, old tombstones) | L | later |
 | R4 | A second account on one phone cannot see or feed the first one's data | M | decided: not built |
 | R5 | Two people on two app versions: "update ANTA" instead of silence | S | yes — inside E1 |
@@ -1082,8 +1084,9 @@ out is the way to keep the account, and the sign-out's question says so.
   recorded meanwhile, the deletion given up, or the session changed each
   mean no.
 - **c. A fresh sign-in, asked first, and a window.** Firebase deletes an
-  account only minutes after a sign-in (five), so Google is asked right
-  after the confirmation, before anything is touched; another account
+  account only minutes after a sign-in (about five as observed; its
+  documentation names no figure), so Google is asked right after the
+  confirmation, before anything is touched; another account
   chosen there is refused (`SyncBindFailure.otherAccount`). Each
   `deleteAccount` call hands the run it starts or joins a licence dated at
   the call, and the run may begin the account's end only within four
@@ -1353,12 +1356,42 @@ One design record before N1, the folder half of the old Phase 03.
      a new database", never Merge, as the Phase 02 record's §7 says.
   7. A pair made before the move is gone with the database: pair again
      (E0 is that check anyway).
+  8. Last, and only after step 4's check read `Location eur3`: set
+     `CloudDataRegion.current` to `europeanUnion`
+     (`lib/constants/cloud_data_region.dart`), build, and install that
+     build on every device. The app cannot ask the server where its
+     database is, so the "Where your data is stored" notice (R2) says what
+     this constant says; until this step it says "the United States",
+     which is true until step 3.
   Cheap while one account's space is all there is; after the partner's
   first upload it is two people's upload and a second pairing.
-- **R2 — "Where your data lives."** A few true sentences in the Sync
-  section and the guide: synced data is stored in Google's cloud (the
-  location), it is not end-to-end encrypted so the project's operator can
-  read it, and what a partner sees when something is shared.
+- **R2 — "Where your data lives." DONE 2026-11-12.** A few true sentences
+  on the Sync & sharing page and in the guide. *As built:* a **Privacy**
+  section after Pairing — in every state but the one where sync does not
+  exist — with one row, "Where your data is stored"
+  (`SemanticsIds.sharingDataNotice`), its description the short answer and
+  its tap the whole one, a notice to read and close
+  (`AppDialogs.action`, now scrollable and, here, dismissible). Six
+  paragraphs (`dataNoticeParagraphs`, `lib/utils/data_notice.dart`): notes,
+  events and counters live on the device and leave it only when a
+  database syncs; a synced database keeps a copy in Google's cloud, in the
+  place `CloudDataRegion.current` states (two whole sentences per
+  language, never a spliced place name); the copy is encrypted in transit
+  and at rest but not end-to-end, so whoever runs the cloud project can
+  read it; signing in keeps the Google name, e-mail address and profile
+  picture with the account — in the United States whatever the database's
+  location, because Firebase Authentication runs only there (Firebase's
+  "Privacy and Security" page, read 2026-11-12); a paired partner sees
+  the name and picture and nothing else unless it is shared; "Delete
+  cloud copy" and "Delete account" remove it. The guide's sync page ends
+  with a row of the same name. Decisions: a section of its own rather
+  than a row inside Sync, so no existing row moves and the two sections
+  that come and go stay last; the place is a constant, flipped by R1's
+  step 8, because no client call reads a database's location; the partner
+  sentence is worded to stay true once a share switch exists. Suites:
+  `test/utils/data_notice_test.dart` (three languages, both places),
+  `sync_settings_page_test.dart` (group "where your data is stored"),
+  `app_dialogs_test.dart` (the notice at 2.0 in German), the guide's.
 - **R3 — Storage stops growing.** Replaced note chunks are never removed
   and tombstones are never purged (Phase 02 record §8, readiness §8). A
   chunk collector and a tombstone purge after every device has seen it;

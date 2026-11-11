@@ -10982,4 +10982,52 @@ class AppLocalizationsEn extends AppLocalizations {
   String appGuideSyncDeleteAccountBody(String deleteAccount) {
     return '“$deleteAccount” on the same page removes every cloud copy of the account, ends sharing with your partner and deletes the account itself, once Google has asked you to sign in again. Everything stays on this phone.';
   }
+
+  @override
+  String get dataNoticeSection => 'Privacy';
+
+  @override
+  String get dataNoticeTitle => 'Where your data is stored';
+
+  @override
+  String get dataNoticeDesc =>
+      'On this device, and in Google\'s cloud for a database you sync';
+
+  @override
+  String get dataNoticeKeywords =>
+      'privacy, data, location, server, storage, region, country, encryption, encrypted, google, gdpr';
+
+  @override
+  String get dataNoticeLocal =>
+      'Your notes, events and counters are stored on this device. They leave it only when you turn on sync for a database.';
+
+  @override
+  String get dataNoticeCloudUs =>
+      'A database that syncs keeps a copy in Google\'s cloud, on servers in the United States.';
+
+  @override
+  String get dataNoticeCloudEu =>
+      'A database that syncs keeps a copy in Google\'s cloud, on servers in the European Union.';
+
+  @override
+  String get dataNoticeReadable =>
+      'The copy is encrypted on its way and where it is stored, but not end-to-end: the people who run ANTA\'s cloud service can read it.';
+
+  @override
+  String get dataNoticeAccount =>
+      'Signing in keeps your Google name, e-mail address and profile picture with your account. Google\'s sign-in service stores them in the United States.';
+
+  @override
+  String get dataNoticePartner =>
+      'Once you pair, your partner sees your name and profile picture — and nothing else unless you share it with them.';
+
+  @override
+  String dataNoticeRemove(String deleteCopy, String deleteAccount) {
+    return '“$deleteCopy” removes a database\'s copy from the cloud; “$deleteAccount” removes everything your account keeps there. Neither deletes anything on this device.';
+  }
+
+  @override
+  String appGuideSyncDataBody(String dataNotice) {
+    return 'A database you sync keeps a copy in Google\'s cloud. It is encrypted there, but not end-to-end: the people who run ANTA\'s cloud service can read it. “$dataNotice” on the same page says where it is kept and how to remove it.';
+  }
 }

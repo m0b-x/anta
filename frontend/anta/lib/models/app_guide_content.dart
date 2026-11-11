@@ -254,6 +254,13 @@ enum AppGuideTopic implements GuideTopic {
         l10n.appGuideSyncDeleteAccountTitle,
         l10n.appGuideSyncDeleteAccountBody(l10n.syncDeleteAccount),
       ),
+      // Named as the row it points at, so the two are one thing to find.
+      CalendarGuideRow(
+        'sync-data',
+        Icons.privacy_tip_outlined,
+        l10n.dataNoticeTitle,
+        l10n.appGuideSyncDataBody(l10n.dataNoticeTitle),
+      ),
     ],
   };
 }

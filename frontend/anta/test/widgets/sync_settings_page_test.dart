@@ -18,6 +18,7 @@ import 'package:anta/models/app_user.dart';
 import 'package:anta/services/pairing_service.dart';
 import 'package:anta/services/settings_service.dart';
 import 'package:anta/utils/auth_error.dart';
+import 'package:anta/utils/data_notice.dart';
 import 'package:anta/widgets/settings_section_list.dart';
 
 import '../database/support/db_test_support.dart';
@@ -381,6 +382,121 @@ void main() {
       final stored = await tester.runAsync(settings.getPairingSettings);
       expect(stored!.pairId, gateway.pairs.keys.single);
       expect(pairingBloc!.state, isA<PairingPaired>());
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+  });
+
+  group('where your data is stored (cloud-multi-user-roadmap §9 R2)', () {
+    const row = SemanticsIds.sharingDataNotice;
+
+    Finder byId(String id) => find.bySemanticsIdentifier(id);
+
+    Future<void> reveal(WidgetTester tester, Finder target) async {
+      await tester.scrollUntilVisible(
+        target,
+        200,
+        scrollable: find
+            .descendant(
+              of: byId(SemanticsIds.sharingList),
+              matching: find.byType(Scrollable),
+            )
+            .first,
+      );
+      await tester.pump();
+    }
+
+    testWidgets('signed out, the Privacy section is there under Pairing: one '
+        'row, its title over the short answer', (tester) async {
+      await boot();
+      await pumpPage(tester);
+      await reveal(tester, byId(row));
+
+      for (final text in [l10n.dataNoticeTitle, l10n.dataNoticeDesc]) {
+        expect(
+          find.descendant(of: byId(row), matching: find.text(text)),
+          findsOneWidget,
+        );
+      }
+      expect(
+        tester.getRect(byId(row)).top,
+        greaterThanOrEqualTo(
+          tester.getRect(find.text(l10n.pairingSignInFirst)).bottom,
+        ),
+      );
+      expect(tester.takeException(), isNull);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('signed in and paired, its tap opens the whole notice — '
+        'every paragraph, for the place the build states — and Close closes '
+        'it; neither bloc hears of it', (tester) async {
+      await boot(user: userA, paired: true);
+      await pumpPage(tester);
+      final syncEvents = [...syncBloc!.events];
+      final pairingEvents = [...pairingBloc!.events];
+      await reveal(tester, byId(row));
+      expect(
+        tester.getRect(byId(row)).top,
+        greaterThanOrEqualTo(
+          tester.getRect(byId(SemanticsIds.sharingUnpair)).bottom,
+        ),
+      );
+
+      await tester.tap(byId(row));
+      await settle(tester);
+
+      final dialog = find.byType(AlertDialog);
+      expect(dialog, findsOneWidget);
+      expect(
+        find.descendant(of: dialog, matching: find.text(l10n.dataNoticeTitle)),
+        findsOneWidget,
+      );
+      final paragraphs = dataNoticeParagraphs(l10n);
+      expect(paragraphs, contains(l10n.dataNoticeCloudUs));
+      expect(
+        find.descendant(
+          of: dialog,
+          matching: find.text(paragraphs.join('\n\n')),
+        ),
+        findsOneWidget,
+      );
+
+      await answerDialog(tester, SemanticsIds.sharingDataNoticeClose);
+
+      expect(dialog, findsNothing);
+      expect(syncBloc!.events, syncEvents);
+      expect(pairingBloc!.events, pairingEvents);
+      expect(tester.takeException(), isNull);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('it is found by what a person would type: privacy, gdpr, '
+        'server', (tester) async {
+      await boot(user: userA);
+      await pumpPage(tester);
+
+      for (final word in ['privacy', 'gdpr', 'server']) {
+        await tester.enterText(find.byType(TextField), word);
+        await settle(tester, rounds: 4);
+
+        expect(byId(row), findsOneWidget, reason: word);
+        expect(byId(SemanticsIds.sharingSync), findsNothing, reason: word);
+      }
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('without sync nothing can leave the device, and there is no '
+        'Privacy section', (tester) async {
+      await boot(available: false);
+      await pumpPage(tester);
+
+      expect(syncBloc!.state, const SyncUnavailable());
+      expect(byId(row), findsNothing);
+      expect(find.text(l10n.dataNoticeTitle), findsNothing);
 
       await tester.pumpWidget(const SizedBox.shrink());
     });

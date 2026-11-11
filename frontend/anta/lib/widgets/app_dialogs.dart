@@ -384,6 +384,13 @@ class AppDialogs {
   /// Useful for "restart required" / "data deleted" screens where the user must
   /// take an explicit action. [actionIdentifier] puts a `SemanticsIds` value
   /// on the button, for a flow that must answer this dialog and no other.
+  /// [barrierDismissible] makes it a notice that a tap outside or back also
+  /// closes — something to read, not to answer.
+  ///
+  /// Scrollable, as [confirm] is and for its reason: a message of several
+  /// sentences is taller at 200 % than the dialog may grow, and a fixed one
+  /// would cut it off with nothing to say so. One that fits lays out as
+  /// before.
   static Future<void> action(
     BuildContext context, {
     required String title,
@@ -407,6 +414,7 @@ class AppDialogs {
       builder: (ctx) => PopScope(
         canPop: barrierDismissible,
         child: AlertDialog(
+          scrollable: true,
           icon: icon != null
               ? Icon(
                   icon,

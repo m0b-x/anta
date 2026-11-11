@@ -843,6 +843,12 @@ void main() {
           ),
           findsOneWidget,
         );
+        // The page's last row lies where a snackbar floats: read, then out
+        // of the way of the tap.
+        ScaffoldMessenger.of(
+          tester.element(robot.byId(SemanticsIds.sharingSync)),
+        ).removeCurrentSnackBar();
+        await robot.settle();
         await robot.tap(SemanticsIds.sharingSyncFinishDelete);
         expect(syncBloc!.events.sublist(before), [
           const FinishDeletingRequested(),
@@ -1991,9 +1997,14 @@ void main() {
             await robot.settle();
           }
           final position = robot.listPosition;
-          position.jumpTo(position.maxScrollExtent);
-          await tester.pump();
+          // A lazy list only estimates its extent until its last row is
+          // laid out: jumped to until the end stands.
+          for (var i = 0; i < 3; i++) {
+            position.jumpTo(position.maxScrollExtent);
+            await tester.pump();
+          }
           final end = position.pixels;
+          expect(end, position.maxScrollExtent);
           Rect at(String id) => tester.getRect(robot.byId(id));
           final row = at(SemanticsIds.sharingSyncFinishDelete);
           final pair = at(SemanticsIds.sharingPair);

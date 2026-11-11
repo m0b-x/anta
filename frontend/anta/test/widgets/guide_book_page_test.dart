@@ -276,11 +276,13 @@ void main() {
       for (final entry in AppGuideTopic.sync.entries(en))
         if (entry is GuideReadEntry) entry.row.slug,
     ];
-    // The account's own deletion closes the page, after its copies'.
-    expect(slugs.sublist(slugs.length - 3), [
+    // The account's own deletion after its copies', then where all of it is
+    // kept, which closes the page.
+    expect(slugs.sublist(slugs.length - 4), [
       'sync-stop',
       'sync-delete',
       'sync-delete-account',
+      'sync-data',
     ]);
   });
 
@@ -793,6 +795,12 @@ void main() {
               AppGuideTopic.sync,
               'sync-delete-account',
               l10n.syncDeleteAccount,
+            ),
+            (
+              GuideBook.app,
+              AppGuideTopic.sync,
+              'sync-data',
+              l10n.dataNoticeTitle,
             ),
           ]) {
         testWidgets('${locale.languageCode}: ${book.slug} $slug', (

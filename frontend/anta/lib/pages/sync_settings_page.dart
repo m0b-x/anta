@@ -16,6 +16,7 @@ import '../services/pairing_service.dart';
 import '../services/sync/sync_cadence.dart';
 import '../utils/auth_error.dart';
 import '../utils/custom_snackbar.dart';
+import '../utils/data_notice.dart';
 import '../utils/pairing_error.dart';
 import '../utils/settings_search.dart';
 import '../utils/sync_moment_format.dart';
@@ -322,11 +323,57 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
             ),
           ],
         ),
+      // After the sections that act, and wherever an account can exist: it
+      // only tells, so it never changes and nothing moves for it.
+      if (state is! SyncUnavailable) _privacySection(context, l10n),
       // Last, so nothing above it moves when it comes or goes.
       ?_heldBackSection(context, l10n, state),
       // Last of all, for the same reason (review H2).
       ?_deletionSection(context, l10n, state),
     ];
+  }
+
+  /// "Where your data is stored" (cloud-multi-user-roadmap §9 R2): what has
+  /// to be true, and said, before a second person's data reaches the cloud.
+  /// The row's description is the short answer; its tap opens the whole one
+  /// ([dataNoticeParagraphs]), to read and close — nothing is asked.
+  SettingsSectionData _privacySection(
+    BuildContext context,
+    AppLocalizations l10n,
+  ) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return SettingsSectionData(
+      icon: Icons.privacy_tip_outlined,
+      title: l10n.dataNoticeSection,
+      entries: [
+        SettingsEntry(
+          title: l10n.dataNoticeTitle,
+          description: l10n.dataNoticeDesc,
+          keywords: [
+            ..._keywords(l10n.sharingKeywords),
+            ..._keywords(l10n.dataNoticeKeywords),
+          ],
+          identifier: SemanticsIds.sharingDataNotice,
+          builder: (context, title, description) => ListTile(
+            leading: Icon(
+              Icons.info_outline_rounded,
+              color: colorScheme.primary,
+            ),
+            title: title,
+            subtitle: description,
+            onTap: () => AppDialogs.action(
+              context,
+              title: l10n.dataNoticeTitle,
+              content: dataNoticeParagraphs(l10n).join('\n\n'),
+              actionText: l10n.close,
+              barrierDismissible: true,
+              actionIdentifier: SemanticsIds.sharingDataNoticeClose,
+              onAction: () => Navigator.of(context).pop(),
+            ),
+          ),
+        ),
+      ],
+    );
   }
 
   String _titleFor(AppLocalizations l10n, SyncState state) => switch (state) {

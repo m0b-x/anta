@@ -246,12 +246,14 @@ class SyncSpaceService {
   final DateTime Function() _now;
 
   /// How long after the sign-in a run may still start the account's own
-  /// end. The server deletes an account only within minutes of a sign-in
-  /// (five, by Firebase's documented behaviour), and the pairs and invites
-  /// go first: a run that began them past the window would remove those and
-  /// then be refused the account — sharing ended, the account kept. Under
-  /// the window with a margin, the two go together or not at all; past it
-  /// the account waits for a sign-in, untouched.
+  /// end. The server deletes an account only within minutes of a sign-in —
+  /// about five as observed; Firebase's documentation names no figure — and
+  /// the pairs and invites go first: a run that began them past the window
+  /// would remove those and then be refused the account — sharing ended,
+  /// the account kept. Under the window with a margin, the two go together
+  /// or not at all; past it the account waits for a sign-in, untouched. A
+  /// server stricter than observed is still only a wait
+  /// ([AccountCloseFailure.recentSignInRequired]).
   static const Duration accountCloseWindow = Duration(minutes: 4);
 
   /// The accounts a [deleteAccount] call is still marking the spaces of,

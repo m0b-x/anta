@@ -11067,4 +11067,52 @@ class AppLocalizationsDe extends AppLocalizations {
   String appGuideSyncDeleteAccountBody(String deleteAccount) {
     return '„$deleteAccount“ auf derselben Seite entfernt jede Cloud-Kopie des Kontos, beendet das Teilen mit deinem Partner und löscht das Konto selbst, nachdem Google dich um eine erneute Anmeldung gebeten hat. Auf diesem Telefon bleibt alles.';
   }
+
+  @override
+  String get dataNoticeSection => 'Datenschutz';
+
+  @override
+  String get dataNoticeTitle => 'Wo deine Daten gespeichert sind';
+
+  @override
+  String get dataNoticeDesc =>
+      'Auf diesem Gerät – und in Googles Cloud für eine Datenbank, die du synchronisierst';
+
+  @override
+  String get dataNoticeKeywords =>
+      'datenschutz, privatsphäre, daten, speicherort, standort, server, speicher, region, land, verschlüsselung, verschlüsselt, google, dsgvo';
+
+  @override
+  String get dataNoticeLocal =>
+      'Deine Notizen, Ereignisse und Zähler sind auf diesem Gerät gespeichert. Sie verlassen es nur, wenn du für eine Datenbank die Synchronisierung einschaltest.';
+
+  @override
+  String get dataNoticeCloudUs =>
+      'Eine Datenbank, die synchronisiert wird, hat eine Kopie in Googles Cloud, auf Servern in den USA.';
+
+  @override
+  String get dataNoticeCloudEu =>
+      'Eine Datenbank, die synchronisiert wird, hat eine Kopie in Googles Cloud, auf Servern in der Europäischen Union.';
+
+  @override
+  String get dataNoticeReadable =>
+      'Die Kopie ist unterwegs und am Speicherort verschlüsselt, aber nicht Ende-zu-Ende: Wer ANTAs Cloud-Dienst betreibt, kann sie lesen.';
+
+  @override
+  String get dataNoticeAccount =>
+      'Beim Anmelden werden dein Google-Name, deine E-Mail-Adresse und dein Profilbild bei deinem Konto gespeichert. Googles Anmeldedienst speichert sie in den USA.';
+
+  @override
+  String get dataNoticePartner =>
+      'Nach dem Koppeln sieht dein Partner deinen Namen und dein Profilbild – und sonst nichts, solange du es nicht mit ihm teilst.';
+
+  @override
+  String dataNoticeRemove(String deleteCopy, String deleteAccount) {
+    return '„$deleteCopy“ entfernt die Kopie einer Datenbank aus der Cloud; „$deleteAccount“ entfernt alles, was dein Konto dort hat. Auf diesem Gerät wird dabei nichts gelöscht.';
+  }
+
+  @override
+  String appGuideSyncDataBody(String dataNotice) {
+    return 'Eine Datenbank, die du synchronisierst, hat eine Kopie in Googles Cloud. Sie ist dort verschlüsselt, aber nicht Ende-zu-Ende: Wer ANTAs Cloud-Dienst betreibt, kann sie lesen. „$dataNotice“ auf derselben Seite sagt, wo sie liegt und wie du sie entfernst.';
+  }
 }

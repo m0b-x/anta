@@ -13813,5 +13813,66 @@
         "type": "String"
       }
     }
+  },
+  "dataNoticeSection": "Privacy",
+  "@dataNoticeSection": {
+    "description": "Header of the Sync & sharing page's section that says where data is stored"
+  },
+  "dataNoticeTitle": "Where your data is stored",
+  "@dataNoticeTitle": {
+    "description": "Title of the Privacy section's row, of the notice it opens and of the guide's row about it"
+  },
+  "dataNoticeDesc": "On this device, and in Google's cloud for a database you sync",
+  "@dataNoticeDesc": {
+    "description": "Description of the 'Where your data is stored' row: the short answer, the notice gives the whole one"
+  },
+  "dataNoticeKeywords": "privacy, data, location, server, storage, region, country, encryption, encrypted, google, gdpr",
+  "@dataNoticeKeywords": {
+    "description": "Comma-separated search keywords for the 'Where your data is stored' row, added to the page's own"
+  },
+  "dataNoticeLocal": "Your notes, events and counters are stored on this device. They leave it only when you turn on sync for a database.",
+  "@dataNoticeLocal": {
+    "description": "First paragraph of the data notice: content is local until a database syncs"
+  },
+  "dataNoticeCloudUs": "A database that syncs keeps a copy in Google's cloud, on servers in the United States.",
+  "@dataNoticeCloudUs": {
+    "description": "Second paragraph of the data notice while the cloud database is located in the United States"
+  },
+  "dataNoticeCloudEu": "A database that syncs keeps a copy in Google's cloud, on servers in the European Union.",
+  "@dataNoticeCloudEu": {
+    "description": "Second paragraph of the data notice once the cloud database is located in the European Union"
+  },
+  "dataNoticeReadable": "The copy is encrypted on its way and where it is stored, but not end-to-end: the people who run ANTA's cloud service can read it.",
+  "@dataNoticeReadable": {
+    "description": "Paragraph of the data notice: who can read a synced copy"
+  },
+  "dataNoticeAccount": "Signing in keeps your Google name, e-mail address and profile picture with your account. Google's sign-in service stores them in the United States.",
+  "@dataNoticeAccount": {
+    "description": "Paragraph of the data notice: what signing in stores, and that the sign-in service keeps it in the United States whatever the database's location"
+  },
+  "dataNoticePartner": "Once you pair, your partner sees your name and profile picture — and nothing else unless you share it with them.",
+  "@dataNoticePartner": {
+    "description": "Paragraph of the data notice: what a paired partner can see"
+  },
+  "dataNoticeRemove": "“{deleteCopy}” removes a database's copy from the cloud; “{deleteAccount}” removes everything your account keeps there. Neither deletes anything on this device.",
+  "@dataNoticeRemove": {
+    "description": "Last paragraph of the data notice: the two rows that remove cloud data, named by their labels",
+    "placeholders": {
+      "deleteCopy": {
+        "type": "String"
+      },
+      "deleteAccount": {
+        "type": "String"
+      }
+    }
+  },
+  "appGuideSyncDataBody": "A database you sync keeps a copy in Google's cloud. It is encrypted there, but not end-to-end: the people who run ANTA's cloud service can read it. “{dataNotice}” on the same page says where it is kept and how to remove it.",
+  "@appGuideSyncDataBody": {
+    "description": "Body of the app guide's row about where synced data is stored; its title is dataNoticeTitle",
+    "placeholders": {
+      "dataNotice": {
+        "type": "String"
+      }
+    }
   }
 }

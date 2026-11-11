@@ -4197,5 +4197,17 @@
   "appGuideSyncDeleteTitle": "Die Cloud-Kopie löschen",
   "appGuideSyncDeleteBody": "„{delete}“ entfernt die Datenbank endgültig aus deinem Konto. Sie bleibt auf diesem Telefon, das sie nicht mehr synchronisiert; deine anderen Geräte behalten ihre Kopie und hören ebenfalls auf.",
   "appGuideSyncDeleteAccountTitle": "Dein Konto löschen",
-  "appGuideSyncDeleteAccountBody": "„{deleteAccount}“ auf derselben Seite entfernt jede Cloud-Kopie des Kontos, beendet das Teilen mit deinem Partner und löscht das Konto selbst, nachdem Google dich um eine erneute Anmeldung gebeten hat. Auf diesem Telefon bleibt alles."
+  "appGuideSyncDeleteAccountBody": "„{deleteAccount}“ auf derselben Seite entfernt jede Cloud-Kopie des Kontos, beendet das Teilen mit deinem Partner und löscht das Konto selbst, nachdem Google dich um eine erneute Anmeldung gebeten hat. Auf diesem Telefon bleibt alles.",
+  "dataNoticeSection": "Datenschutz",
+  "dataNoticeTitle": "Wo deine Daten gespeichert sind",
+  "dataNoticeDesc": "Auf diesem Gerät – und in Googles Cloud für eine Datenbank, die du synchronisierst",
+  "dataNoticeKeywords": "datenschutz, privatsphäre, daten, speicherort, standort, server, speicher, region, land, verschlüsselung, verschlüsselt, google, dsgvo",
+  "dataNoticeLocal": "Deine Notizen, Ereignisse und Zähler sind auf diesem Gerät gespeichert. Sie verlassen es nur, wenn du für eine Datenbank die Synchronisierung einschaltest.",
+  "dataNoticeCloudUs": "Eine Datenbank, die synchronisiert wird, hat eine Kopie in Googles Cloud, auf Servern in den USA.",
+  "dataNoticeCloudEu": "Eine Datenbank, die synchronisiert wird, hat eine Kopie in Googles Cloud, auf Servern in der Europäischen Union.",
+  "dataNoticeReadable": "Die Kopie ist unterwegs und am Speicherort verschlüsselt, aber nicht Ende-zu-Ende: Wer ANTAs Cloud-Dienst betreibt, kann sie lesen.",
+  "dataNoticeAccount": "Beim Anmelden werden dein Google-Name, deine E-Mail-Adresse und dein Profilbild bei deinem Konto gespeichert. Googles Anmeldedienst speichert sie in den USA.",
+  "dataNoticePartner": "Nach dem Koppeln sieht dein Partner deinen Namen und dein Profilbild – und sonst nichts, solange du es nicht mit ihm teilst.",
+  "dataNoticeRemove": "„{deleteCopy}“ entfernt die Kopie einer Datenbank aus der Cloud; „{deleteAccount}“ entfernt alles, was dein Konto dort hat. Auf diesem Gerät wird dabei nichts gelöscht.",
+  "appGuideSyncDataBody": "Eine Datenbank, die du synchronisierst, hat eine Kopie in Googles Cloud. Sie ist dort verschlüsselt, aber nicht Ende-zu-Ende: Wer ANTAs Cloud-Dienst betreibt, kann sie lesen. „{dataNotice}“ auf derselben Seite sagt, wo sie liegt und wie du sie entfernst."
 }

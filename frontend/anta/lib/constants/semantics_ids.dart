@@ -265,13 +265,20 @@ abstract final class SemanticsIds {
   static const String sharingSyncDeleteConfirm = 'sharing-sync-delete-confirm';
   static const String sharingSyncFinishDelete = 'sharing-sync-finish-delete';
 
-  /// The Account section's second row while signed in, "Delete account"
-  /// (cloud-multi-user-roadmap §6.1), and its dialog's destructive confirm.
-  /// While an account's deletion runs or waits, [sharingSyncFinishDelete]
-  /// is still the deletion section's one row.
+  /// The Account section's second row, "Delete account"
+  /// (cloud-multi-user-roadmap §6.1) — held while nobody is signed in — and
+  /// its dialog's destructive confirm. While an account's deletion runs or
+  /// waits, [sharingSyncFinishDelete] is still the deletion section's one
+  /// row.
   static const String sharingDeleteAccount = 'sharing-delete-account';
   static const String sharingDeleteAccountConfirm =
       'sharing-delete-account-confirm';
+
+  /// The Privacy section's one row, "Where your data is stored"
+  /// (cloud-multi-user-roadmap §9 R2), and the button that closes what it
+  /// opens.
+  static const String sharingDataNotice = 'sharing-data-notice';
+  static const String sharingDataNoticeClose = 'sharing-data-notice-close';
 
   /// The Sharing page's held-back section, last on the page: one row per
   /// held-back row by its 0-based place in the list shown — a key would put

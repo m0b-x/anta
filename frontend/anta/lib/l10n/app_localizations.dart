@@ -16557,6 +16557,78 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'“{deleteAccount}” on the same page removes every cloud copy of the account, ends sharing with your partner and deletes the account itself, once Google has asked you to sign in again. Everything stays on this phone.'**
   String appGuideSyncDeleteAccountBody(String deleteAccount);
+
+  /// Header of the Sync & sharing page's section that says where data is stored
+  ///
+  /// In en, this message translates to:
+  /// **'Privacy'**
+  String get dataNoticeSection;
+
+  /// Title of the Privacy section's row, of the notice it opens and of the guide's row about it
+  ///
+  /// In en, this message translates to:
+  /// **'Where your data is stored'**
+  String get dataNoticeTitle;
+
+  /// Description of the 'Where your data is stored' row: the short answer, the notice gives the whole one
+  ///
+  /// In en, this message translates to:
+  /// **'On this device, and in Google\'s cloud for a database you sync'**
+  String get dataNoticeDesc;
+
+  /// Comma-separated search keywords for the 'Where your data is stored' row, added to the page's own
+  ///
+  /// In en, this message translates to:
+  /// **'privacy, data, location, server, storage, region, country, encryption, encrypted, google, gdpr'**
+  String get dataNoticeKeywords;
+
+  /// First paragraph of the data notice: content is local until a database syncs
+  ///
+  /// In en, this message translates to:
+  /// **'Your notes, events and counters are stored on this device. They leave it only when you turn on sync for a database.'**
+  String get dataNoticeLocal;
+
+  /// Second paragraph of the data notice while the cloud database is located in the United States
+  ///
+  /// In en, this message translates to:
+  /// **'A database that syncs keeps a copy in Google\'s cloud, on servers in the United States.'**
+  String get dataNoticeCloudUs;
+
+  /// Second paragraph of the data notice once the cloud database is located in the European Union
+  ///
+  /// In en, this message translates to:
+  /// **'A database that syncs keeps a copy in Google\'s cloud, on servers in the European Union.'**
+  String get dataNoticeCloudEu;
+
+  /// Paragraph of the data notice: who can read a synced copy
+  ///
+  /// In en, this message translates to:
+  /// **'The copy is encrypted on its way and where it is stored, but not end-to-end: the people who run ANTA\'s cloud service can read it.'**
+  String get dataNoticeReadable;
+
+  /// Paragraph of the data notice: what signing in stores, and that the sign-in service keeps it in the United States whatever the database's location
+  ///
+  /// In en, this message translates to:
+  /// **'Signing in keeps your Google name, e-mail address and profile picture with your account. Google\'s sign-in service stores them in the United States.'**
+  String get dataNoticeAccount;
+
+  /// Paragraph of the data notice: what a paired partner can see
+  ///
+  /// In en, this message translates to:
+  /// **'Once you pair, your partner sees your name and profile picture — and nothing else unless you share it with them.'**
+  String get dataNoticePartner;
+
+  /// Last paragraph of the data notice: the two rows that remove cloud data, named by their labels
+  ///
+  /// In en, this message translates to:
+  /// **'“{deleteCopy}” removes a database\'s copy from the cloud; “{deleteAccount}” removes everything your account keeps there. Neither deletes anything on this device.'**
+  String dataNoticeRemove(String deleteCopy, String deleteAccount);
+
+  /// Body of the app guide's row about where synced data is stored; its title is dataNoticeTitle
+  ///
+  /// In en, this message translates to:
+  /// **'A database you sync keeps a copy in Google\'s cloud. It is encrypted there, but not end-to-end: the people who run ANTA\'s cloud service can read it. “{dataNotice}” on the same page says where it is kept and how to remove it.'**
+  String appGuideSyncDataBody(String dataNotice);
 }
 
 class _AppLocalizationsDelegate
