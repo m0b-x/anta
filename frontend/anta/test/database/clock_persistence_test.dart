@@ -118,8 +118,13 @@ void main() {
           ),
       ]);
 
+      // The clock's one write — beside the import's one read of whose rows
+      // this database holds as another account's (`SharedRowDao.evict`).
       expect(
-        counter.executions('sync_metadata'),
+        counter.executions('sync_metadata') -
+            counter.selects
+                .where((select) => select.sql.contains('sync_metadata'))
+                .length,
         1,
         reason: counter.statements.join('\n'),
       );

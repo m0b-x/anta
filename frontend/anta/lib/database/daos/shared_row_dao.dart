@@ -128,15 +128,68 @@ class SharedRowDao extends DatabaseAccessor<AppDatabase>
   }
 
   /// Removes the shared rows of [table] under [keys]: a row of this
-  /// account's own arrived under the same id, and the person's own data
-  /// comes first. The shared one is then simply not shown — as when the own
+  /// account's own is about to take the same id — it arrived from the
+  /// account's space, or an import carries it — and the person's own data
+  /// comes first. The shared one is then simply not shown, as when the own
   /// row was here first (`SharedRowRefused`).
+  ///
+  /// What hung under a removed row goes with it — an event's shared day
+  /// rows, the shared notes directly inside a folder: under a row that is
+  /// the person's own now they are what the reader refuses to store, and a
+  /// partner's skipped day would show on the person's own event. A shared
+  /// folder under a removed one is still shared, and stands at the top
+  /// level ([placeFolders]). A key that names no shared row costs nothing.
   Future<void> evict(String table, List<String> keys) async {
     final owner = await this.owner();
     if (owner == null || keys.isEmpty) return;
     await writing(() async {
-      await _remove(_shared(table), owner, keys);
-      if (table == 'folders') await placeFolders(owner);
+      final taken = await sharedAmong(table, keys);
+      if (taken.isEmpty) return;
+      await _remove(_shared(table), owner, taken);
+      switch (table) {
+        case 'calendar_events':
+          for (final days in const [
+            'calendar_event_occurrences',
+            'calendar_event_skips',
+          ]) {
+            await _remove(
+              _shared(days),
+              owner,
+              await _under(days, 'event_id', owner, taken),
+            );
+          }
+        case 'folders':
+          await _remove(
+            _shared('notes'),
+            owner,
+            await _under('notes', 'folder_id', owner, taken),
+          );
+          await placeFolders(owner);
+      }
+    });
+  }
+
+  /// The keys of the rows of [table] that [owner] owns and whose [column]
+  /// names one of [parents].
+  Future<List<String>> _under(
+    String table,
+    String column,
+    String owner,
+    List<String> parents,
+  ) {
+    final synced = _shared(table);
+    return CrdtMerge.loadInChunks(parents, (chunk) async {
+      final rows = await customSelect(
+        'SELECT ${synced.rowKeySql} AS k FROM ${synced.name} '
+        'WHERE owner_id = ? AND $column IN '
+        '(${List.filled(chunk.length, '?').join(', ')})',
+        variables: [
+          Variable<String>(owner),
+          for (final parent in chunk) Variable<String>(parent),
+        ],
+        readsFrom: {_tableOf(table)},
+      ).get();
+      return [for (final row in rows) row.read<String>('k')];
     });
   }
 

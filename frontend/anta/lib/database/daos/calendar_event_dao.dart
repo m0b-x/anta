@@ -578,9 +578,21 @@ class CalendarEventDao extends DatabaseAccessor<AppDatabase>
   /// Rows arrive as `version 1` originals of this device, which is what a
   /// restore is — never a merge — and each is queued in the same batch, as any
   /// new local row is.
+  ///
+  /// One kind of row does survive that wipe: an event another account
+  /// shares with this one, which no write of this device's own removes
+  /// (`SharedRowFences`). An archive that carries an event under such an
+  /// id — two accounts that restored one backup hold the same ids — is the
+  /// person's own data and comes first, so the shared copy is taken out
+  /// before the insert (`SharedRowDao.evict`): the replace below would
+  /// remove it too, but silently and without its day rows, which would
+  /// then hang under the person's own event.
   Future<void> importAll(List<CalendarEventsCompanion> entries) {
     if (entries.isEmpty) return Future.value();
     return transaction(() async {
+      await db.sharedRowDao.evict('calendar_events', [
+        for (final entry in entries) entry.id.value,
+      ]);
       final stamps = [for (final _ in entries) db.newStamp()];
       await batch((b) {
         for (var i = 0; i < entries.length; i++) {

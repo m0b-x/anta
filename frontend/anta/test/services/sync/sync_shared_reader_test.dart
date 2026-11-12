@@ -330,6 +330,16 @@ void main() {
       final here = (await eventOn(partner(), 'e1'))!;
       expect(here.title, 'The partner\'s own');
       expect(here.ownerId, partnerUid);
+      for (final days in [
+        'calendar_event_skips',
+        'calendar_event_occurrences',
+      ]) {
+        expect(
+          await ownedBy(partner(), days, ownerUid, key: 'event_id'),
+          isEmpty,
+          reason: 'the owner\'s $days do not stay under the person\'s own',
+        );
+      }
     });
 
     test('deleted by its owner, does not delete an event of the partner\'s '

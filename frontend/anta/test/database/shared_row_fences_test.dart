@@ -402,6 +402,119 @@ void main() {
       );
       expect(await db.contentChunkDao.loadContent(ownNote), 'My text');
     });
+
+    test(
+      'given way to, takes along what hung under it — an event its '
+      'skipped days and day texts, a folder the shared notes inside it — '
+      'while a shared folder under it stays shared, at the top level',
+      () async {
+        // A shared folder inside the shared one, with a note of its own, as
+        // the reader would have stored them.
+        final inner = (await db.folderDao.createFolder(name: 'Inner')).id;
+        final innerNote = (await db.noteDao.createNote(
+          folderId: inner,
+          title: 'Deep',
+          preview: 'Deep',
+          content: 'Deep',
+        )).id;
+        await db.sharedRowDao.writing(() async {
+          await db.customStatement(
+            'UPDATE folders SET owner_id = ?, parent_id = ? WHERE id = ?',
+            [partner, sharedFolder, inner],
+          );
+          await db.customStatement(
+            'UPDATE notes SET owner_id = ? WHERE id = ?',
+            [partner, innerNote],
+          );
+        });
+        await db.syncOutboxDao.clear();
+
+        await db.sharedRowDao.evict('calendar_events', ['shared', 'own']);
+        await db.sharedRowDao.evict('folders', [sharedFolder, ownFolder]);
+
+        expect(
+          await one<int>(
+            "SELECT COUNT(*) FROM calendar_events WHERE id IN ('shared', 'own')",
+          ),
+          1,
+          reason: 'the person\'s own event stays',
+        );
+        for (final days in [
+          'calendar_event_skips',
+          'calendar_event_occurrences',
+        ]) {
+          expect(
+            await one<int>(
+              "SELECT COUNT(*) FROM $days WHERE event_id = 'shared'",
+            ),
+            0,
+            reason: days,
+          );
+        }
+        expect(
+          await db.folderDao.getByIdsIncludingDeleted([sharedFolder]),
+          isEmpty,
+        );
+        expect(
+          await db.noteDao.getByIdsIncludingDeleted([sharedNote]),
+          isEmpty,
+        );
+        final kept = (await db.folderDao.getByIdsIncludingDeleted([
+          inner,
+        ])).single;
+        expect(kept.ownerId, partner);
+        expect(kept.parentId, isNull);
+        expect(await db.contentChunkDao.loadContent(innerNote), 'Deep');
+        expect(
+          await db.folderDao.getByIdsIncludingDeleted([ownFolder]),
+          hasLength(1),
+        );
+        expect(await db.contentChunkDao.loadContent(ownNote), 'My text');
+        expect(await db.syncOutboxDao.count(), 0, reason: 'nothing is queued');
+      },
+    );
+
+    test(
+      'is taken out by an import that carries an event of the person\'s '
+      'own under its id, day rows and all: the replace would have removed '
+      'it silently and left those hanging under the person\'s event',
+      () async {
+        await db.calendarEventDao.importAll([
+          CalendarEventsCompanion.insert(
+            id: 'shared',
+            title: 'Mine, restored',
+            category: 'general',
+            startDate: day,
+            ruleKind: 'weekly',
+            createdAt: day,
+            updatedAt: day,
+          ),
+        ]);
+
+        final restored = (await db.calendarEventDao.getByIdsIncludingDeleted([
+          'shared',
+        ])).single;
+        expect(restored.title, 'Mine, restored');
+        expect(restored.ownerId, isNull);
+        for (final days in [
+          'calendar_event_skips',
+          'calendar_event_occurrences',
+        ]) {
+          expect(
+            await one<int>(
+              "SELECT COUNT(*) FROM $days WHERE event_id = 'shared'",
+            ),
+            0,
+            reason: days,
+          );
+        }
+        expect(
+          await db.syncOutboxDao.count(),
+          1,
+          reason: 'the own event, queued',
+        );
+      },
+    );
   });
 
   test('every fence is created by name on a fresh database, one statement '

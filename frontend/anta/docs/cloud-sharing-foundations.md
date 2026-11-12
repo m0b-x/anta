@@ -638,7 +638,18 @@ shared row took first removes that cached copy before it is merged
 (`SharedRowDao.sharedAmong` / `evict`, in the own pull's page
 transaction). Without the second, the own document would have merged as
 "unchanged" into the partner's row and been lost here when the share
-ended.
+ended. What hung under the evicted copy goes with it — an event's shared
+day rows, the shared notes directly inside a folder — since under a row
+of the person's own they are exactly what the reader refuses to store; a
+shared folder under it stays shared and stands at the top level.
+
+One writer needed the eviction spelled out: the events import
+(`CalendarEventDao.importAll`) inserts with `INSERT OR REPLACE`, and
+SQLite fires no delete trigger for the row a replace removes — an
+archive's event under a shared event's id would have replaced it past
+the fences, silently and without its day rows. It evicts first. **No
+other writer of the five tables may use a replacing insert** without
+doing the same.
 
 Personal, and so never refused: presence marks and alert definitions on a
 shared event, counter values on a shared note — rows of the person's own,

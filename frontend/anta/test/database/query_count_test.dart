@@ -581,12 +581,15 @@ void main() {
     counter.reset();
     await db.calendarEventDao.importAll(entries);
 
-    // The whole point of 5.1: not one `SELECT` in the restore path. `upsert`
-    // issued one per row, and every one was a guaranteed miss — `deleteAll`
-    // is a documented hard wipe, so the table is empty when this runs.
+    // The whole point of 5.1: not one `SELECT` per row in the restore path.
+    // `upsert` issued one each, and every one was a guaranteed miss —
+    // `deleteAll` is a documented hard wipe, so the table is empty when this
+    // runs. One read stands whatever the row count: whose rows this database
+    // holds as another account's, asked once so an archive's event never
+    // replaces a shared one past the fences (`SharedRowDao.evict`).
     expect(
-      counter.selects,
-      isEmpty,
+      [for (final select in counter.selects) select.sql],
+      [contains('sync_metadata')],
       reason: 'issued:\n${counter.statements.join('\n')}',
     );
     // Statements must not scale at `upsert`'s 2-per-row. The batch collapses
