@@ -1273,7 +1273,10 @@ enforce.
 
 One design record before E1 covers the group: the event half of the old
 Phase 03, rewritten against the engine as built, on the readiness
-decisions D1, D16, D17 and D18.
+decisions D1, D16, D17 and D18. That record is
+`cloud-sharing-foundations.md` for everything under the switch (built),
+and `cloud-share-surfaces-roadmap.md` for the surfaces — E1's switch and
+mark, E6, E7 (PLAN, 2026-11-12, with a mock).
 
 - **E0 — Pairing proven.** The live database was created on 2026-11-05;
   pairing shipped on 2026-08-17 and no record shows it run against the
@@ -1323,7 +1326,10 @@ decisions D1, D16, D17 and D18.
 
 ## 8. Group N — shared notes
 
-One design record before N1, the folder half of the old Phase 03.
+One design record before N1, the folder half of the old Phase 03 — the
+same two as group E's: `cloud-sharing-foundations.md` (built) and
+`cloud-share-surfaces-roadmap.md` (the folder menu, the "From …" section,
+the read-only editor; PLAN, 2026-11-12).
 
 - **N1 — A shared folder, read-only.** "Share with *partner*" on a folder
   shares its subtree; the partner sees folder, notes and text with an
