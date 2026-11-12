@@ -1145,3 +1145,9 @@ test_driver` clean; the whole suite `+16029 ~17`. `sync_shared_reader_test`
 `pass_command_test` and `agent_tree_test` with the harness's new cases,
 `app_sync_apply_hooks_test` and `share_partner_source_test` +1 each. The
 rules were not changed by this part; the rules suite stands at 153.
+
+*Later the same day:* a seventh flow, `06_delete_account` — the partner
+deletes its account after the pair ended; the deletion's row runs to
+"Account deleted", the page is signed out, and the owner's side is
+untouched. 7/7 in 160.6 s. This is the first device pass of the roadmap's
+D2; an account deleted while its pair is still active is not walked yet.

@@ -14,7 +14,7 @@ tool\firebase\emulators.cmd                                   # a host shell of 
 ./tool/qa/qa fleet boot 1 && ./tool/qa/qa fleet boot 2        # anta_qa_1 (emulator-5556) and anta_qa_2 (emulator-5558), one at a time
 ./tool/qa/qa build --define ANTA_QA_CLOUD=true --define ANTA_QA_FIREBASE_EMULATOR=10.0.2.2 --define ANTA_QA_ACCOUNT=qa1:qa1@example.com
 ./tool/qa/qa fleet install                                    # the same APK on both
-./tool/qa/qa pass share -d emulator-5556                      # 6 flows on one seed: ≈ 2 min
+./tool/qa/qa pass share -d emulator-5556                      # 7 flows on one seed: ≈ 2.7 min
 ./tool/qa/qa fleet stop anta_qa_1 && ./tool/qa/qa fleet stop anta_qa_2
 ```
 
@@ -37,10 +37,13 @@ a step that names it.
 | `02_share_folder` | `share folder "Training"`; the partner's browser shows it at the top level, the folder inside it and that folder's two notes, and none of the owner's other folders |
 | `03_follows` | a folder the owner makes inside the shared one afterwards reaches the partner at the next sync, with no second act of sharing |
 | `04_made_private` | both made private (`--off`): after a sync on each side the folder is gone from the partner's browser and the event from its calendar, on the open pages, without a relaunch |
-| `05_pair_ended` | the event shared again and seen; the owner unpairs (`sharing-unpair-confirm`); the partner's Sync & sharing opens on the "Sharing ended" notice (`sharing-ended-close`), and after its next sync the event is gone; the partner's guest is relaunched fresh at the end |
+| `05_pair_ended` | the event shared again and seen; the owner unpairs (`sharing-unpair-confirm`); the partner's Sync & sharing opens on the "Sharing ended" notice (`sharing-ended-close`), and after its next sync the event is gone |
+| `06_delete_account` | the partner deletes its account (`sharing-delete-account`, `sharing-delete-account-confirm`): the deletion's row ends as "Account deleted" (never "Finish deleting account"), the page is signed out; the owner's side is still bound, up to date and ready to pair; the partner's guest is relaunched fresh at the end — the first device pass of the roadmap's D2 |
 
-Green twice on 2026-11-12 on `anta_qa_1` + `anta_qa_2`, each against a
-freshly started suite: 6/6 in 117.6 s and 6/6 in 120.6 s.
+Green on 2026-11-12 on `anta_qa_1` + `anta_qa_2`, each run against a
+freshly started suite: the first six flows 6/6 in 117.6 s and in 120.6 s,
+then with the seventh 7/7 in 160.6 s (the deletion itself ≈ 39 s, most of
+it the run that empties the account's space).
 
 **The seams.** No surface shares anything yet, so two harness verbs stand
 where a switch will:
@@ -90,9 +93,9 @@ no suite had:
 **What it does not cover.** A note's text opened on the partner's guest
 (the editor has no read-only mode yet, and a save there is refused); the
 partner's own presence mark or alert on a shared event; the same id on
-both accounts; a newer wire; a second device of either account; deleting
-an account while paired (D2's device pass is still owed); anything on the
-real project.
+both accounts; a newer wire; a second device of either account; an
+account deleted while its pair is still active (the flow deletes it after
+the pair ended); anything on the real project.
 
 **Traps met.**
 - A step line that starts with `-d` cannot be given to `qa steps` on the

@@ -7,7 +7,8 @@ section of its own; reviewed three times, the saved `sync` device suite
 green. §5.1–5.8 state the design as built, §5.9 the history. D2 — "Delete
 account" (§6.1, design and as-built; commit `978898fc`): built on D1's
 run, reviewed, the gate green (`+15822 ~17`, the rules suite 124 of 124);
-no device pass yet — it rides the two-guest suite (R10). R2 — "Where your
+its device pass is the two-guest suite's last flow (R10, 2026-11-12: an
+account deleted after its pair ended, 7/7 green). R2 — "Where your
 data is stored" DONE 2026-11-12 (§9): a Privacy section on the Sync page
 and a guide row. Sharing FOUNDATIONS BUILT 2026-11-12, without their
 surfaces (the owner's scope of 2026-11-11): everything slices E1–E4,
@@ -16,10 +17,10 @@ the reader of a partner's shared rows, read-only in the database, backups
 — in `cloud-sharing-foundations.md` (F1–F4, three independent reviews and
 their fixes); nothing in the app can set a share yet, and each surface is
 still its own slice. R10 DONE with it: the two-guest saved suite `qa pass
-share`, green twice on two fleet guests against the emulator suite (pair,
-share an event and a folder, a later change, un-share, end the pair) — it
-does not yet delete an account while paired, so D2's device pass is still
-owed. Decided 2026-11-11 on the owner's word: the region is
+share`, green on two fleet guests against the emulator suite (pair, share
+an event and a folder, a later change, un-share, end the pair, delete the
+partner's account) — an account deleted while its pair is still active is
+not walked yet. Decided 2026-11-11 on the owner's word: the region is
 the European Union (R1, the owner runs the move, whose last step now
 flips the notice's place); a second account on one phone is accepted (R4,
 not built). Left to the owner: the rules and indexes deploy (now carrying

@@ -49,7 +49,4 @@ expect --absent id:sharing-unpair
 -d emulator-5558 expect --absent "Lifting session" --timeout 30
 -d emulator-5558 shot event-gone-with-pair
 -d emulator-5558 errors
-# The partner's guest is left as the pass leaves its own: fresh, signed
-# out, nothing armed.
--d emulator-5558 relaunch --fresh
 errors

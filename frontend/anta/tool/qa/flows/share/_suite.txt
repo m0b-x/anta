@@ -31,6 +31,6 @@ fixture=tool/qa/fixtures/basic.json
 reseed=suite
 shard=no
 prelude=_prelude.txt
-# Seven flows of two guests' navigation on one seed; the longest stays
-# well under the default, the ceiling is for a worn guest.
+# Two guests' navigation on one seed; the longest flow stays well under
+# the default, the ceiling is for a worn guest.
 flow_ceiling=480

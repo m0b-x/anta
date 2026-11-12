@@ -1,0 +1,28 @@
+# The partner deletes its account (cloud-multi-user-roadmap §6.1): the
+# confirm, then the deletion's own row runs to "Account deleted" — the
+# account's cloud copy, the ended pair and the spent invite it was part of,
+# and the sign-in account itself — and the page is signed out. Nothing is
+# asked twice: the emulator build signs in again by itself where a phone
+# shows Google's sheet. The owner's side is untouched by it: still bound,
+# still up to date, ready to pair again.
+-d emulator-5558 key back
+-d emulator-5558 wait id:create-folder
+-d emulator-5558 tap id:nav-menu
+-d emulator-5558 wait id:drawer-account
+-d emulator-5558 tap id:drawer-account
+-d emulator-5558 wait id:settings-bar-sharing
+-d emulator-5558 scroll-to id:sharing-delete-account --in id:sharing-list
+-d emulator-5558 tap id:sharing-delete-account
+-d emulator-5558 wait id:sharing-delete-account-confirm
+-d emulator-5558 tap id:sharing-delete-account-confirm
+-d emulator-5558 wait id:sharing-sign-in --timeout 90
+-d emulator-5558 expect "Account deleted" --absent id:sharing-sign-out --absent "Finish deleting account" --timeout 30
+-d emulator-5558 shot account-deleted
+-d emulator-5558 errors
+# The partner's guest is left as the pass leaves its own: fresh, signed
+# out, nothing armed.
+-d emulator-5558 relaunch --fresh
+expect id:sharing-pair --absent id:sharing-unpair --timeout 15
+tap id:sharing-sync-now
+expect id:sharing-sync-status "Up to date" --timeout 60
+errors
