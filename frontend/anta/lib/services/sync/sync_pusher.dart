@@ -300,8 +300,9 @@ class _Pusher {
       for (final queued in part) {
         final key = (queued.entry.syncedTable, queued.entry.rowKey);
         pushed[key] = queued.entry.hlc;
-        // Once more, not for good: a row whose share changes under every
-        // push of it waits for the next drain.
+        // Spent by this push. `_send` grants it again only when the share
+        // changed once more while this one was in flight, so every re-send
+        // answers a change and a share that stands still ends them.
         _regrantedKeys.remove(key);
       }
       if (cutPartAt != null) await _keepSpacing(cutPartAt);
@@ -1016,8 +1017,10 @@ class _Pusher {
 
   /// The keys whose entry [_send] left queued in this drain because their
   /// row's share changed during the push ([_regranted]): each is let
-  /// through once more at the stamp it was just pushed at, which the drain
-  /// otherwise never sends twice.
+  /// through again at the stamp it was just pushed at, which the drain
+  /// otherwise never sends twice — once per such change, since the push
+  /// that re-sends it takes the key out and only another change during
+  /// that push puts it back.
   final Set<(String, String)> _regrantedKeys = {};
 
   /// The entries of [batch] whose row is shared into another pair now than

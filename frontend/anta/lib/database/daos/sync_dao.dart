@@ -187,6 +187,13 @@ class SyncDao extends DatabaseAccessor<AppDatabase> with _$SyncDaoMixin {
       'NOT EXISTS (SELECT 1 FROM sync_metadata '
       "WHERE key = '$keySharedOwner' AND value = owner_id)";
 
+  /// Present only inside a transaction of the reader of shared rows, which
+  /// sets and clears it there (`SharedRowDao.writing`): what lets that one
+  /// writer past the fences that keep another account's rows as their owner
+  /// wrote them (`SharedRowFences`). A rollback takes it with it; no other
+  /// transaction ever sees it.
+  static const String keySharedWriting = 'shared_writing';
+
   /// The pair those rows were read under: another pair, with the same
   /// partner or not, starts with nothing shared.
   static const String keySharedPair = 'shared_pair';
@@ -211,13 +218,18 @@ class SyncDao extends DatabaseAccessor<AppDatabase> with _$SyncDaoMixin {
   /// above it reads every shared table again from the start.
   static const String keySharedNewerWire = 'shared_newer_wire';
 
-  /// The prefix every [keySharedRetry] shares, for [deleteByPrefix].
-  static const String sharedRetryPrefix = 'shared_retry.';
+  /// The prefix every [keySharedWaiting] shares, for [valuesByPrefix] and
+  /// [deleteByPrefix].
+  static const String sharedWaitingPrefix = 'shared_waiting.';
 
-  /// Set while a shared note of [table] waits for text the reader could not
-  /// fetch yet: the next shared read takes the table from its start, where
-  /// the cursor alone would never come back to that note.
-  static String keySharedRetry(String table) => '$sharedRetryPrefix$table';
+  /// Present while the shared note [noteId] waits for text the reader could
+  /// not fetch yet — its space did not name the pair at that moment. The
+  /// value is `<tries>|<owner uid>/<space id>`: how often the note was asked
+  /// for again on its own, and the space its document lies in, which is
+  /// where the next shared read asks — the cursor alone would never come
+  /// back to it.
+  static String keySharedWaiting(String noteId) =>
+      '$sharedWaitingPrefix$noteId';
 
   /// The prefix every [keySharedRoot] shares.
   static const String sharedRootPrefix = 'shared_root.';

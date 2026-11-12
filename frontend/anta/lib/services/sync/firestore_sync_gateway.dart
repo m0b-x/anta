@@ -441,13 +441,27 @@ class FirestoreSyncGateway implements SyncGateway {
     required String pair,
     required String owner,
   }) => _guard(() async {
+    // Ordered as [sharedPage] orders, though a count has no order: the
+    // aggregation is then served by the one index the page needs anyway,
+    // where the bare filter would ask for a merge of single-field indexes
+    // that collection-group queries do not have.
     final snapshot = await _shared(
       table,
       pair,
       owner,
-    ).count().get(source: AggregateSource.server);
+    ).orderBy('pushedAt').count().get(source: AggregateSource.server);
     return snapshot.count ?? 0;
   });
+
+  /// The same reads as [readRows]: the rules, not the request, decide by
+  /// each document's own `sharedPair` whether the caller may have it.
+  @override
+  Future<SyncPullPage> readSharedRows(
+    SyncSpaceRef space,
+    String table,
+    List<String> rowKeys, {
+    required String pair,
+  }) => readRows(space, table, rowKeys);
 
   /// The same reads as [readRows] of `content_chunks`: the rules, not the
   /// request, decide by the space document whether [pair] may have them.

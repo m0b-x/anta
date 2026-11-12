@@ -399,9 +399,7 @@ class FakeSyncGateway implements SyncGateway {
     _throwIfScripted();
     calls.add('share:$pushedBy');
     final record = _spaces[space];
-    if (record == null ||
-        record.deletedAt != null ||
-        schema < record.schema) {
+    if (record == null || record.deletedAt != null || schema < record.schema) {
       throw const SyncGatewayException(
         SyncGatewayFailure.permissionDenied,
         'the space takes no write',
@@ -536,21 +534,20 @@ class FakeSyncGateway implements SyncGateway {
   /// space of that account, in the shared query's order: by arrival time,
   /// then by space and row key.
   List<({_SharedPosition position, SyncSpaceRef space, _Arrival arrival})>
-  _sharedOf(String table, String pair, String owner) =>
-      [
-        for (final MapEntry(key: space, value: tables) in _store.entries)
-          if (space.ownerUid == owner)
-            for (final arrival in (tables[table] ?? const {}).values)
-              if (arrival.envelope.sharedPair == pair)
-                (
-                  position: _SharedPosition(
-                    arrival.at.microsecondsSinceEpoch,
-                    '${space.spaceId}/${arrival.envelope.rowKey}',
-                  ),
-                  space: space,
-                  arrival: arrival,
-                ),
-      ]..sort((a, b) => a.position.compareTo(b.position));
+  _sharedOf(String table, String pair, String owner) => [
+    for (final MapEntry(key: space, value: tables) in _store.entries)
+      if (space.ownerUid == owner)
+        for (final arrival in (tables[table] ?? const {}).values)
+          if (arrival.envelope.sharedPair == pair)
+            (
+              position: _SharedPosition(
+                arrival.at.microsecondsSinceEpoch,
+                '${space.spaceId}/${arrival.envelope.rowKey}',
+              ),
+              space: space,
+              arrival: arrival,
+            ),
+  ]..sort((a, b) => a.position.compareTo(b.position));
 
   @override
   Future<SyncPullPage> sharedPage(
@@ -622,7 +619,46 @@ class FakeSyncGateway implements SyncGateway {
     _ensureMember(pair, owner);
     _throwIfScripted();
     calls.add('count:$table');
+    if (failSharedCounts.contains(table)) {
+      throw const SyncGatewayException(
+        SyncGatewayFailure.unknown,
+        'scripted: the index is building',
+      );
+    }
     return _sharedOf(table, pair, owner).length;
+  }
+
+  /// Tables whose [sharedCount] the server refuses, as it does while the
+  /// index that serves the count is still building.
+  final Set<String> failSharedCounts = {};
+
+  /// Every [readSharedRows] call, as `<table>/<key>` per key asked.
+  final List<String> sharedRowReads = [];
+
+  @override
+  Future<SyncPullPage> readSharedRows(
+    SyncSpaceRef space,
+    String table,
+    List<String> rowKeys, {
+    required String pair,
+  }) async {
+    _throwIfScripted();
+    calls.add('shared-read:$table');
+    sharedRowReads.addAll([for (final key in rowKeys) '$table/$key']);
+    // The row rule: each document's own `sharedPair` names an active pair of
+    // the caller and the owner. A missing document has no grant to read.
+    final stored = _store[space]?[table] ?? const <String, _Arrival>{};
+    for (final key in rowKeys) {
+      final shared = stored[key]?.envelope.sharedPair;
+      if (shared == null) {
+        throw const SyncGatewayException(
+          SyncGatewayFailure.permissionDenied,
+          'not a shared document',
+        );
+      }
+      _ensureMember(shared, space.ownerUid);
+    }
+    return _rowsOf(space, table, rowKeys);
   }
 
   /// Every [readSharedChunks] call's hashes, in the order asked.

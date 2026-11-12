@@ -394,13 +394,14 @@ class CalendarEventDao extends DatabaseAccessor<AppDatabase>
         remote: (pair: remote.sharedPair, stamp: remote.sharedStamp),
         result: outcome.result,
         write: (mark) =>
-            (update(calendarEvents)..where((e) => e.id.equals(remote.id)))
-                .write(
-                  CalendarEventsCompanion(
-                    sharedPair: Value(mark.pair),
-                    sharedStamp: Value(mark.stamp),
-                  ),
-                ),
+            (update(
+              calendarEvents,
+            )..where((e) => e.id.equals(remote.id))).write(
+              CalendarEventsCompanion(
+                sharedPair: Value(mark.pair),
+                sharedStamp: Value(mark.stamp),
+              ),
+            ),
       );
       if (local?.sharedPair != kept.pair) await _requeueDayRows([remote.id]);
       return outcome;
@@ -463,6 +464,8 @@ class CalendarEventDao extends DatabaseAccessor<AppDatabase>
     return transaction(() async {
       final existing = await _byId(id);
       if (existing == null || existing.isDeleted) return false;
+      // Another account's event is theirs to share.
+      if (await db.sharedRowDao.isShared('calendar_events', id)) return false;
       // One stamp for the whole act: the mark and whatever it clears.
       final stamp = db.newStamp();
       if (pairId != null) {

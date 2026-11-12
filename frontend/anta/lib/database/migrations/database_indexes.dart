@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart' show debugPrint;
 
 import '../database.dart';
+import 'shared_row_fences.dart';
 
 class DatabaseIndexes {
   final AppDatabase _db;
@@ -26,6 +27,16 @@ class DatabaseIndexes {
     await createNoteTitleIndex();
     await createPositionIndexes();
     await createShareMarkIndexes();
+    await createSharedRowFences();
+  }
+
+  /// The triggers that keep another account's shared rows read-only here
+  /// (**v54**, [SharedRowFences]) — schema objects like the indexes, so
+  /// created on both paths with them.
+  Future<void> createSharedRowFences() async {
+    for (final statement in SharedRowFences.statements) {
+      await _db.customStatement(statement);
+    }
   }
 
   /// The events and folders that carry a share mark, tombstones included,

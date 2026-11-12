@@ -181,6 +181,12 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
     String? ownerId,
   }) {
     return transaction(() async {
+      // By name, where every other write of a shared row does nothing: the
+      // insert would be skipped, and this would answer with a folder that
+      // does not exist.
+      if (parentId != null) {
+        await db.sharedRowDao.ensureOwn('folders', parentId);
+      }
       final now = DateTime.now();
       final id = db.generateId();
       final stamp = await db.stampLocal(folders, id);
@@ -1108,6 +1114,8 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
     return transaction(() async {
       final existing = await getFolderById(id);
       if (existing == null || existing.isDeleted) return false;
+      // Another account's folder is theirs to share.
+      if (await db.sharedRowDao.isShared('folders', id)) return false;
       // One stamp for the whole act: the mark and whatever it clears.
       final stamp = db.newStamp();
       if (pairId != null) {
@@ -1168,8 +1176,7 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
         variables: [Variable<String>(pairId)],
         requeue: true,
       );
-      return folders +
-          await db.calendarEventDao.clearOtherPairs(pairId, stamp);
+      return folders + await db.calendarEventDao.clearOtherPairs(pairId, stamp);
     });
   }
 

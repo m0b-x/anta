@@ -29,9 +29,10 @@ void main() {
   };
 
   Future<Set<String>> indexNames() async => {
-    for (final row in await db
-        .customSelect("SELECT name FROM sqlite_master WHERE type = 'index'")
-        .get())
+    for (final row
+        in await db
+            .customSelect("SELECT name FROM sqlite_master WHERE type = 'index'")
+            .get())
       row.read<String>('name'),
   };
 
@@ -49,7 +50,7 @@ void main() {
   Future<void> upgrade({int from = DatabaseSchema.v51OutboxRepublish}) {
     return DatabaseMigrations(
       db,
-    ).runMigrations(db.createMigrator(), from, DatabaseSchema.currentVersion);
+    ).runMigrations(db.createMigrator(), from, DatabaseSchema.v53ShareStamp);
   }
 
   Future<int> userVersion() async {

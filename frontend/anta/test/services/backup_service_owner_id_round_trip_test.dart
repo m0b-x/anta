@@ -49,10 +49,13 @@ class _Table {
   final String mine;
 }
 
-/// Guards D16: `owner_id` rides every synced table's backup rows as an
-/// additive `ownerId` key, written only when set, and an import restores it
-/// verbatim — absent means NULL, so an older archive restores everything as
-/// mine and an archive with no foreign row is the one this app always wrote.
+/// Guards what a backup says of ownership, and what an import makes of it
+/// (`docs/cloud-sharing-foundations.md` §8, which replaced readiness D16 A):
+/// `ownerId` rides every synced table's backup rows as an additive key,
+/// written only when set — and an import stores every row as the importer's
+/// own whatever it says. A backup holds what was its exporter's own; a row
+/// that never came through the reader of shared rows must never look like
+/// another person's.
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -309,7 +312,9 @@ void main() {
     return stripped;
   }
 
-  test('ownerId round-trips on every synced table, absent on mine', () async {
+  test('an archive names the owner of every row that had one, on every '
+      'synced table, and an import stores each row as the importer\'s own '
+      'all the same', () async {
     final db = await seed(foreign: true);
     final exported = await exportBackupArchive();
     expect(exported['version'], 8);
@@ -429,7 +434,7 @@ void main() {
     );
 
     expect(result.success, isTrue, reason: result.error);
-    await expectOwnership(db, them: 'them');
+    await expectOwnership(db, them: null);
   });
 
   test('an archive written before D16 restores every row as mine', () async {

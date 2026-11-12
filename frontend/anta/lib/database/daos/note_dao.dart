@@ -185,6 +185,12 @@ class NoteDao extends DatabaseAccessor<AppDatabase> with _$NoteDaoMixin {
   }) async {
     final cut = content == null ? null : await BodyCut.of(content);
     return transaction(() async {
+      // By name, where every other write of a shared row does nothing: the
+      // insert would be skipped, and this would answer with a note that
+      // does not exist.
+      if (folderId.isNotEmpty) {
+        await db.sharedRowDao.ensureOwn('folders', folderId);
+      }
       final now = DateTime.now();
       final id = db.generateId();
       final stamp = await db.stampLocal(notes, id);
@@ -1042,15 +1048,17 @@ class NoteDao extends DatabaseAccessor<AppDatabase> with _$NoteDaoMixin {
           return outcome;
         },
       );
-      if (merge.result == MergeResult.keptLocal) {
-        return _keptOver(local!, remote, body, floor: floor);
-      }
+      // Before anything that weighs this device's copy: a shared note's is
+      // never a side of a conflict, and nothing about it is stamped here.
       if (shared) {
         return body == null ||
                 merge.result == MergeResult.keptLocal ||
                 merge.result == MergeResult.unchanged
             ? merge
             : merge.withMergedContent(body);
+      }
+      if (merge.result == MergeResult.keptLocal) {
+        return _keptOver(local!, remote, body, floor: floor);
       }
       if ((merge.result == MergeResult.applied ||
               (merge.result == MergeResult.inserted && body != null)) &&

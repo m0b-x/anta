@@ -98,6 +98,20 @@ service cloud.firestore {
             && pairId.size() <= 64;
       }
 
+      // The pair and the claim of its invite are one write: the invite, as
+      // it stands once this write commits, names this pair and this caller.
+      // An invite is claimed once (its update rule), so the code a pair is
+      // named after is spent by the very write that creates the pair, and
+      // `authorisedByInvite` never passes for that code again. Without
+      // this the claim was a second write a caller could leave out — and
+      // then end the pair, delete it and create it again under the same id
+      // for as long as the invite lived, while the other member's
+      // documents still named it.
+      function claimsInvite() {
+        let invite = getAfter(/databases/$(database)/documents/invites/$(request.resource.data.inviteCode)).data;
+        return invite.pairId == pairId && invite.redeemedBy == uid();
+      }
+
       function validProfile(entry) {
         return entry.keys().hasOnly(['displayName', 'photoUrl'])
             && (entry.displayName == null
@@ -178,7 +192,8 @@ service cloud.firestore {
         && closedPermissions(
              request.resource.data.permissions, request.resource.data.members)
         && authorisedByInvite()
-        && namedAfterInvite();
+        && namedAfterInvite()
+        && claimsInvite();
 
       // Membership never changes, so `members` stays a stable ACL and an
       // ended pair can never be revived into a live one.
@@ -233,11 +248,20 @@ service cloud.firestore {
         && request.resource.data.expiresAt > request.time
         && request.resource.data.expiresAt < request.time + duration.value(30, 'm');
 
+      // The pair a claim names, as it stands once this write commits: made
+      // from this invite, and holding the caller. So an invite is never
+      // spent on a pair that does not exist, and — a pair being created
+      // only with this claim beside it (`claimsInvite`) — the two are one
+      // write, each rule reading the other half with `getAfter`.
+      function claimsOwnPair() {
+        let pair = getAfter(/databases/$(database)/documents/pairs/$(request.resource.data.pairId)).data;
+        return pair.inviteCode == code && uid() in pair.members;
+      }
+
       // The redemption write and nothing else: a non-creator stamps the pair
-      // it just created onto a live, unclaimed invite. The pair id is not
-      // verified here — a `get()` would not see a pair created in the same
-      // batch anyway. The creator verifies instead, by reading the pair and
-      // checking it really contains both accounts.
+      // it creates in the same write onto a live, unclaimed invite. The
+      // creator still verifies on its side, by reading the pair and checking
+      // it really contains both accounts.
       allow update: if signedIn()
         && resource.data.expiresAt > request.time
         && resource.data.creatorUid != uid()
@@ -246,7 +270,8 @@ service cloud.firestore {
              .affectedKeys().hasOnly(['pairId', 'redeemedBy'])
         && request.resource.data.pairId is string
         && request.resource.data.pairId.size() > 0
-        && request.resource.data.redeemedBy == uid();
+        && request.resource.data.redeemedBy == uid()
+        && claimsOwnPair();
 
       // The creator cancels a pending invite; either side removes a spent
       // one when its account is deleted. One already gone goes through, as

@@ -298,15 +298,18 @@ extension CrdtWrite on AppDatabase {
   /// share mark set on an event or a folder, a folder moved under another
   /// (`docs/cloud-sharing-foundations.md` §3). Call it inside that write's
   /// transaction, so the root and the rows that follow it queue together.
-  /// Nothing is stamped: the rows did not change.
+  /// Nothing is stamped: the rows did not change. [unpushed] for rows the
+  /// space never held (`SyncOutboxDao.requeueRows`).
   Future<int> requeueRows(
     TableInfo table, {
     required String rows,
     List<Variable<Object>> variables = const [],
+    bool unpushed = false,
   }) => syncOutboxDao.requeueRows(
     table.actualTableName,
     rows: rows,
     variables: variables,
+    unpushed: unpushed,
   );
 
   /// Stores the clock's current value as the seed for the next open — after

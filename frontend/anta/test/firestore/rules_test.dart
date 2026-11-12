@@ -163,6 +163,36 @@ Map<String, Object?> _createPair(
   'currentDocument': {'exists': false},
 };
 
+/// The claim of [inviteCode] for the pair [pairId], as its redeemer [by]
+/// stamps it.
+Map<String, Object?> _claimInvite(
+  String pairId, {
+  required String by,
+  String inviteCode = code,
+}) => {
+  'update': {
+    'name': '$_docRoot/invites/$inviteCode',
+    'fields': {'pairId': _s(pairId), 'redeemedBy': _s(by)},
+  },
+  'updateMask': {
+    'fieldPaths': ['pairId', 'redeemedBy'],
+  },
+};
+
+/// A redemption as the app commits one (`PairingGateway.createPair`): the
+/// pair and the claim of its invite by [by], in one write — the rules hold
+/// each to the other.
+List<Map<String, Object?>> _redeem(
+  String nonce,
+  Map<String, Object?> fields, {
+  required String by,
+  String inviteCode = code,
+  String? id,
+}) => [
+  _createPair(nonce, fields, inviteCode: inviteCode, id: id),
+  _claimInvite(id ?? '${inviteCode}_$nonce', by: by, inviteCode: inviteCode),
+];
+
 /// The mask is load-bearing: a REST `update` without one REPLACES the whole
 /// document, which drops `members` and `createdAt` and is correctly refused by
 /// the immutability clauses. Only a masked write is the partial update the app
@@ -601,7 +631,7 @@ void main() {
   group('pairs create — consent proof', () {
     test('a pair citing no existing invite is refused', () async {
       expect(
-        await _commit([_createPair('p1', _pairFields())], uid: uidA),
+        await _commit(_redeem('p1', _pairFields(), by: uidA), uid: uidA),
         403,
         reason:
             'uid is printed on the Sharing page; without an invite check '
@@ -614,7 +644,7 @@ void main() {
       () async {
         await _seedInvite(code, creatorUid: uidA);
         expect(
-          await _commit([_createPair('p1', _pairFields())], uid: uidA),
+          await _commit(_redeem('p1', _pairFields(), by: uidA), uid: uidA),
           403,
         );
       },
@@ -626,7 +656,10 @@ void main() {
         creatorUid: uidB,
         lifetime: const Duration(minutes: -5),
       );
-      expect(await _commit([_createPair('p1', _pairFields())], uid: uidA), 403);
+      expect(
+        await _commit(_redeem('p1', _pairFields(), by: uidA), uid: uidA),
+        403,
+      );
     });
 
     test('a pair citing an already-claimed invite is refused', () async {
@@ -636,43 +669,103 @@ void main() {
         pairId: 'other',
         redeemedBy: uidC,
       );
-      expect(await _commit([_createPair('p1', _pairFields())], uid: uidA), 403);
+      expect(
+        await _commit(_redeem('p1', _pairFields(), by: uidA), uid: uidA),
+        403,
+      );
     });
 
     test('a pair citing the partner live invite is allowed', () async {
       await _seedInvite(code, creatorUid: uidB);
-      expect(await _commit([_createPair('p1', _pairFields())], uid: uidA), 200);
+      expect(
+        await _commit(_redeem('p1', _pairFields(), by: uidA), uid: uidA),
+        200,
+      );
     });
 
     test('a membership that is not exactly two accounts is refused', () async {
       await _seedInvite(code, creatorUid: uidB);
       expect(
-        await _commit([
-          _createPair('p1', _pairFields(members: const [uidA])),
-        ], uid: uidA),
+        await _commit(
+          _redeem('p1', _pairFields(members: const [uidA]), by: uidA),
+          uid: uidA,
+        ),
         403,
       );
       expect(
-        await _commit([
-          _createPair('p2', _pairFields(members: const [uidA, uidB, uidC])),
-        ], uid: uidA),
+        await _commit(
+          _redeem(
+            'p2',
+            _pairFields(members: const [uidA, uidB, uidC]),
+            by: uidA,
+          ),
+          uid: uidA,
+        ),
         403,
       );
     });
 
     test('a caller outside the membership is refused', () async {
       await _seedInvite(code, creatorUid: uidB);
-      expect(await _commit([_createPair('p1', _pairFields())], uid: uidC), 403);
+      expect(
+        await _commit(_redeem('p1', _pairFields(), by: uidC), uid: uidC),
+        403,
+      );
     });
 
     test('a pair born already ended is refused', () async {
       await _seedInvite(code, creatorUid: uidB);
       expect(
+        await _commit(
+          _redeem('p1', _pairFields(status: 'ended'), by: uidA),
+          uid: uidA,
+        ),
+        403,
+      );
+    });
+
+    test('a pair is refused without the claim of its invite in the same '
+        'write, and with a claim that names another pair', () async {
+      await _seedInvite(code, creatorUid: uidB);
+      expect(
+        await _commit([_createPair('p1', _pairFields())], uid: uidA),
+        403,
+        reason: 'an unclaimed invite would let the same id be made again',
+      );
+      expect(
         await _commit([
-          _createPair('p1', _pairFields(status: 'ended')),
+          _createPair('p1', _pairFields()),
+          _claimInvite('${code}_other', by: uidA),
         ], uid: uidA),
         403,
       );
+      expect(await _get('pairs/${code}_p1', uid: uidA), 404);
+    });
+
+    test('a pair\'s id is made once: its invite is spent by the write that '
+        'creates it, so ending and deleting the pair does not free the id — '
+        'not inside the invite\'s life, nor once the spent invite is '
+        'deleted', () async {
+      await _seedInvite(code, creatorUid: uidB);
+      final redemption = _redeem('p1', _pairFields(), by: uidA);
+      expect(await _commit(redemption, uid: uidA), 200);
+      expect(
+        await _commit([
+          _updatePair(
+            '${code}_p1',
+            {'status': _s('ended'), 'endedBy': _s(uidA)},
+            serverTimeFields: const ['endedAt'],
+          ),
+        ], uid: uidA),
+        200,
+      );
+      expect(await _commit([_delete('pairs/${code}_p1')], uid: uidA), 200);
+
+      expect(await _commit(redemption, uid: uidA), 403);
+      expect(await _commit([_createPair('p1', _pairFields())], uid: uidA), 403);
+
+      expect(await _commit([_delete('invites/$code')], uid: uidA), 200);
+      expect(await _commit(redemption, uid: uidA), 403);
     });
 
     test('consent cannot be pre-granted at creation', () async {
@@ -681,25 +774,29 @@ void main() {
       // would let it grant itself permanent write access to the other
       // account's data with no revocation path.
       expect(
-        await _commit([
-          _createPair(
+        await _commit(
+          _redeem(
             'p1',
             _pairFields(
               permissions: {uidA: _consent(false), uidB: _consent(true)},
             ),
+            by: uidA,
           ),
-        ], uid: uidA),
+          uid: uidA,
+        ),
         403,
       );
       expect(
-        await _commit([
-          _createPair(
+        await _commit(
+          _redeem(
             'p2',
             _pairFields(
               permissions: {uidA: _consent(true), uidB: _consent(false)},
             ),
+            by: uidA,
           ),
-        ], uid: uidA),
+          uid: uidA,
+        ),
         403,
       );
     });
@@ -707,14 +804,16 @@ void main() {
     test('permissions keyed to a non-member are refused', () async {
       await _seedInvite(code, creatorUid: uidB);
       expect(
-        await _commit([
-          _createPair(
+        await _commit(
+          _redeem(
             'p1',
             _pairFields(
               permissions: {uidA: _consent(false), uidC: _consent(false)},
             ),
+            by: uidA,
           ),
-        ], uid: uidA),
+          uid: uidA,
+        ),
         403,
       );
     });
@@ -722,9 +821,14 @@ void main() {
     test('an unknown top-level field is refused', () async {
       await _seedInvite(code, creatorUid: uidB);
       expect(
-        await _commit([
-          _createPair('p1', _pairFields(extra: {'payload': _s('x' * 100)})),
-        ], uid: uidA),
+        await _commit(
+          _redeem(
+            'p1',
+            _pairFields(extra: {'payload': _s('x' * 100)}),
+            by: uidA,
+          ),
+          uid: uidA,
+        ),
         403,
       );
     });
@@ -732,8 +836,8 @@ void main() {
     test('a profile carrying an extra field is refused', () async {
       await _seedInvite(code, creatorUid: uidB);
       expect(
-        await _commit([
-          _createPair(
+        await _commit(
+          _redeem(
             'p1',
             _pairFields(
               profiles: {
@@ -741,8 +845,10 @@ void main() {
                 uidB: _profile(),
               },
             ),
+            by: uidA,
           ),
-        ], uid: uidA),
+          uid: uidA,
+        ),
         403,
       );
     });
@@ -750,8 +856,8 @@ void main() {
     test('an oversized display name is refused', () async {
       await _seedInvite(code, creatorUid: uidB);
       expect(
-        await _commit([
-          _createPair(
+        await _commit(
+          _redeem(
             'p1',
             _pairFields(
               profiles: {
@@ -759,15 +865,17 @@ void main() {
                 uidB: _profile(),
               },
             ),
+            by: uidA,
           ),
-        ], uid: uidA),
+          uid: uidA,
+        ),
         403,
       );
     });
 
     test('an unauthenticated caller is refused', () async {
       await _seedInvite(code, creatorUid: uidB);
-      expect(await _commit([_createPair('p1', _pairFields())]), 403);
+      expect(await _commit(_redeem('p1', _pairFields(), by: uidA)), 403);
     });
 
     test('a pair whose id does not start with its invite\'s code is refused: '
@@ -776,12 +884,18 @@ void main() {
       await _seedInvite(code, creatorUid: uidB);
       for (final id in ['p1', 'OTHER_p1', code, '${code}_', '${code}x_p1']) {
         expect(
-          await _commit([_createPair('', _pairFields(), id: id)], uid: uidA),
+          await _commit(
+            _redeem('', _pairFields(), by: uidA, id: id),
+            uid: uidA,
+          ),
           403,
           reason: id,
         );
       }
-      expect(await _commit([_createPair('p1', _pairFields())], uid: uidA), 200);
+      expect(
+        await _commit(_redeem('p1', _pairFields(), by: uidA), uid: uidA),
+        200,
+      );
     });
 
     test('a former partner cannot bring an ended pair\'s id back with the '
@@ -791,19 +905,28 @@ void main() {
       const again = 'NEWCODE2';
       await _seedInvite(again, creatorUid: uidA);
       expect(
-        await _commit([
-          _createPair(
+        await _commit(
+          _redeem(
             '',
             _pairFields(inviteCode: again),
+            by: uidB,
+            inviteCode: again,
             id: '${code}_p1',
           ),
-        ], uid: uidB),
+          uid: uidB,
+        ),
         403,
       );
       expect(
-        await _commit([
-          _createPair('p1', _pairFields(inviteCode: again), inviteCode: again),
-        ], uid: uidB),
+        await _commit(
+          _redeem(
+            'p1',
+            _pairFields(inviteCode: again),
+            by: uidB,
+            inviteCode: again,
+          ),
+          uid: uidB,
+        ),
         200,
       );
     });
@@ -1158,82 +1281,69 @@ void main() {
     test('only a non-creator may claim a live invite', () async {
       await _seedInvite(code, creatorUid: uidB);
       expect(
-        await _commit([
-          {
-            'update': {
-              'name': '$_docRoot/invites/$code',
-              'fields': {'pairId': _s('p1'), 'redeemedBy': _s(uidB)},
-            },
-            'updateMask': {
-              'fieldPaths': ['pairId', 'redeemedBy'],
-            },
-          },
-        ], uid: uidB),
+        await _commit(_redeem('p1', _pairFields(), by: uidB), uid: uidB),
         403,
         reason: 'the creator claiming its own invite is a self-pair',
       );
       expect(
-        await _commit([
-          {
-            'update': {
-              'name': '$_docRoot/invites/$code',
-              'fields': {'pairId': _s('p1'), 'redeemedBy': _s(uidA)},
-            },
-            'updateMask': {
-              'fieldPaths': ['pairId', 'redeemedBy'],
-            },
-          },
-        ], uid: uidA),
+        await _commit(_redeem('p1', _pairFields(), by: uidA), uid: uidA),
         200,
       );
+    });
+
+    test('a claim that names no pair, or a pair that is not the caller\'s '
+        'made from this invite, is refused: an invite is never spent on '
+        'nothing', () async {
+      await _seedInvite(code, creatorUid: uidB);
+      expect(
+        await _commit([_claimInvite('${code}_p1', by: uidA)], uid: uidA),
+        403,
+        reason: 'no such pair',
+      );
+      await _seedPair('${code}_theirs', members: const [uidB, uidC]);
+      expect(
+        await _commit([_claimInvite('${code}_theirs', by: uidA)], uid: uidA),
+        403,
+        reason: 'a pair of two other accounts',
+      );
+      const other = 'OTHER234';
+      await _seedInvite(other, creatorUid: uidB);
+      await _seedPair('${code}_mine');
+      expect(
+        await _commit([
+          _claimInvite('${code}_mine', by: uidA, inviteCode: other),
+        ], uid: uidA),
+        403,
+        reason: 'a pair made from another invite',
+      );
+      expect(await _get('invites/$code', uid: uidA), 200);
     });
 
     test('a claim cannot be forged for someone else or left empty', () async {
       await _seedInvite(code, creatorUid: uidB);
       expect(
-        await _commit([
-          {
-            'update': {
-              'name': '$_docRoot/invites/$code',
-              'fields': {'pairId': _s('p1'), 'redeemedBy': _s(uidC)},
-            },
-            'updateMask': {
-              'fieldPaths': ['pairId', 'redeemedBy'],
-            },
-          },
-        ], uid: uidA),
+        await _commit(_redeem('p1', _pairFields(), by: uidC), uid: uidA),
         403,
       );
       expect(
         await _commit([
-          {
-            'update': {
-              'name': '$_docRoot/invites/$code',
-              'fields': {'pairId': _s(''), 'redeemedBy': _s(uidA)},
-            },
-            'updateMask': {
-              'fieldPaths': ['pairId', 'redeemedBy'],
-            },
-          },
+          _createPair('p1', _pairFields()),
+          _claimInvite('', by: uidA),
         ], uid: uidA),
         403,
       );
     });
 
     test('an already-claimed invite cannot be reclaimed', () async {
-      await _seedInvite(code, creatorUid: uidB, pairId: 'p1', redeemedBy: uidA);
+      await _seedInvite(
+        code,
+        creatorUid: uidB,
+        pairId: '${code}_p1',
+        redeemedBy: uidA,
+      );
+      await _seedPair('${code}_p2', members: const [uidB, uidC]);
       expect(
-        await _commit([
-          {
-            'update': {
-              'name': '$_docRoot/invites/$code',
-              'fields': {'pairId': _s('p2'), 'redeemedBy': _s(uidC)},
-            },
-            'updateMask': {
-              'fieldPaths': ['pairId', 'redeemedBy'],
-            },
-          },
-        ], uid: uidC),
+        await _commit([_claimInvite('${code}_p2', by: uidC)], uid: uidC),
         403,
       );
     });
@@ -2077,15 +2187,18 @@ void main() {
         expect(byOwner.status, 403);
       });
 
-      test('a query for a pair without naming the owner is refused whole: '
-          'whether the pair holds each row\'s owner cannot be decided', () async {
-        await seed();
-        final read = await _runShared(
-          _sharedQuery('folders', pair: 'p1', owner: null),
-          uid: uidB,
-        );
-        expect(read.status, 403);
-      });
+      test(
+        'a query for a pair without naming the owner is refused whole: '
+        'whether the pair holds each row\'s owner cannot be decided',
+        () async {
+          await seed();
+          final read = await _runShared(
+            _sharedQuery('folders', pair: 'p1', owner: null),
+            uid: uidB,
+          );
+          expect(read.status, 403);
+        },
+      );
 
       test('the owner reads its shared rows by the same query', () async {
         await seed();

@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart' show visibleForTesting;
 
 import '../models/pair_record.dart';
 import '../utils/pairing_error.dart';
@@ -29,14 +30,6 @@ abstract class PairingGateway {
   /// device learns its `pairId`.
   Stream<InviteRecord?> watchInvite(String code);
 
-  /// Stamps `pairId`/`redeemedBy` onto a live, unclaimed invite. Throws
-  /// [PairingError.codeInvalid] when someone else claimed it first.
-  Future<void> claimInvite({
-    required String code,
-    required String pairId,
-    required String redeemerUid,
-  });
-
   Future<void> deleteInvite(String code);
 
   /// The id of a pair made from the invite [inviteCode]: the code, then
@@ -52,9 +45,20 @@ abstract class PairingGateway {
   static String pairIdFor(String inviteCode, String nonce) =>
       '${inviteCode}_$nonce';
 
+  /// Redeems [inviteCode] for [self]: creates the pair of [self] and
+  /// [partner] and stamps it onto the invite, as one write — both land or
+  /// neither does.
+  ///
   /// [inviteCode] is the pair's proof of consent, not bookkeeping: security
   /// rules read the invite to confirm the other member really handed one out
-  /// — and the pair's id starts with it ([pairIdFor]).
+  /// — and the pair's id starts with it ([pairIdFor]). They also hold the
+  /// pair and the claim to each other, so a code is spent by the very write
+  /// that creates its pair and the id can never be created a second time:
+  /// not by ending and deleting the pair and making it again while the
+  /// invite still lives, with the other member's documents still naming it.
+  ///
+  /// Throws [PairingError.codeInvalid] when the invite is gone or someone
+  /// else claimed it first.
   Future<PairRecord> createPair({
     required PairProfile self,
     required PairProfile partner,
@@ -64,6 +68,11 @@ abstract class PairingGateway {
   /// Every active pair containing [uid] — the server-truth query
   /// reconciliation is built on. More than one means a race to resolve.
   /// Bounded: an unbounded query here is a free-tier read-quota hazard.
+  ///
+  /// Throws rather than leave out a pair it cannot read: "no pair" ends
+  /// everything a pair carries on this device — what the partner shares is
+  /// removed, what this account shares is made private — and must never be
+  /// the answer for "one I could not make sense of".
   Future<List<PairRecord>> findActivePairs(String uid);
 
   Future<PairRecord?> readPair(String pairId);
@@ -120,13 +129,6 @@ class NoOpPairingGateway implements PairingGateway {
   @override
   Stream<InviteRecord?> watchInvite(String code) =>
       const Stream<InviteRecord?>.empty();
-
-  @override
-  Future<void> claimInvite({
-    required String code,
-    required String pairId,
-    required String redeemerUid,
-  }) async => _unavailable();
 
   @override
   Future<void> deleteInvite(String code) async => _unavailable();
@@ -250,25 +252,6 @@ class FirestorePairingGateway implements PairingGateway {
       .map((snapshot) => _inviteFrom(code, snapshot.data()));
 
   @override
-  Future<void> claimInvite({
-    required String code,
-    required String pairId,
-    required String redeemerUid,
-  }) {
-    return _guard(() async {
-      final ref = _invites.doc(code);
-      await _db.runTransaction((tx) async {
-        final snapshot = await tx.get(ref);
-        final invite = _inviteFrom(code, snapshot.data());
-        if (invite == null || invite.isRedeemed) {
-          throw const PairingException(PairingError.codeInvalid);
-        }
-        tx.update(ref, {'pairId': pairId, 'redeemedBy': redeemerUid});
-      });
-    });
-  }
-
-  @override
   Future<void> deleteInvite(String code) =>
       _guard(() => _invites.doc(code).delete());
 
@@ -282,19 +265,32 @@ class FirestorePairingGateway implements PairingGateway {
       final ref = _pairs.doc(
         PairingGateway.pairIdFor(inviteCode, _pairs.doc().id),
       );
-      await ref.set({
-        'members': [self.uid, partner.uid],
-        'status': 'active',
-        'createdAt': FieldValue.serverTimestamp(),
-        'inviteCode': inviteCode,
-        'profiles': {
-          self.uid: _profileData(self),
-          partner.uid: _profileData(partner),
-        },
-        'permissions': {
-          self.uid: {'allowPartnerEdit': false},
-          partner.uid: {'allowPartnerEdit': false},
-        },
+      final invite = _invites.doc(inviteCode);
+      // A transaction for its read, not for a retry: the invite is looked at
+      // first so a code someone else just claimed answers "not valid", where
+      // the rules' refusal of the write would read as "not allowed". Its two
+      // writes commit together, which is what the rules ask for — each one's
+      // rule reads the other document as it stands after the commit.
+      await _db.runTransaction((tx) async {
+        final claimed = _inviteFrom(inviteCode, (await tx.get(invite)).data());
+        if (claimed == null || claimed.isRedeemed) {
+          throw const PairingException(PairingError.codeInvalid);
+        }
+        tx.set(ref, {
+          'members': [self.uid, partner.uid],
+          'status': 'active',
+          'createdAt': FieldValue.serverTimestamp(),
+          'inviteCode': inviteCode,
+          'profiles': {
+            self.uid: _profileData(self),
+            partner.uid: _profileData(partner),
+          },
+          'permissions': {
+            self.uid: {'allowPartnerEdit': false},
+            partner.uid: {'allowPartnerEdit': false},
+          },
+        });
+        tx.update(invite, {'pairId': ref.id, 'redeemedBy': self.uid});
       });
       // Read back rather than guess: `createdAt` is server-assigned and it is
       // the tie-break both devices sort on when a race produces two pairs.
@@ -313,11 +309,20 @@ class FirestorePairingGateway implements PairingGateway {
         .where('status', isEqualTo: 'active')
         .limit(_maxActivePairs)
         .get(const GetOptions(source: Source.server));
-    return result.docs
-        .map((doc) => _pairFrom(doc.id, doc.data()))
-        .whereType<PairRecord>()
-        .toList();
+    return activePairsFrom({for (final doc in result.docs) doc.id: doc.data()});
   });
+
+  /// The pairs of an active-pairs answer, by document id. One that does not
+  /// read as a pair fails the whole answer ([findActivePairs]): the server
+  /// said the account is in it, and dropping it would report "not paired".
+  @visibleForTesting
+  static List<PairRecord> activePairsFrom(
+    Map<String, Map<String, dynamic>> documents,
+  ) => [
+    for (final MapEntry(key: id, value: data) in documents.entries)
+      _pairFrom(id, data) ??
+          (throw const PairingException(PairingError.unknown)),
+  ];
 
   @override
   Future<PairRecord?> readPair(String pairId) => _guard(() async {
@@ -415,7 +420,7 @@ class FirestorePairingGateway implements PairingGateway {
   /// [lenient] reads a document without a `createdAt` too, at the epoch —
   /// only for [findPairs], whose caller removes what it is given and never
   /// compares the dates.
-  PairRecord? _pairFrom(
+  static PairRecord? _pairFrom(
     String pairId,
     Map<String, dynamic>? data, {
     bool lenient = false,
@@ -441,7 +446,7 @@ class FirestorePairingGateway implements PairingGateway {
     );
   }
 
-  Map<String, PairProfile> _profilesFrom(Object? raw) {
+  static Map<String, PairProfile> _profilesFrom(Object? raw) {
     if (raw is! Map) return const {};
     final profiles = <String, PairProfile>{};
     raw.forEach((key, value) {
@@ -457,7 +462,7 @@ class FirestorePairingGateway implements PairingGateway {
     return profiles;
   }
 
-  DateTime? _dateFrom(Object? raw) {
+  static DateTime? _dateFrom(Object? raw) {
     if (raw is Timestamp) return raw.toDate().toUtc();
     if (raw is DateTime) return raw.toUtc();
     return null;

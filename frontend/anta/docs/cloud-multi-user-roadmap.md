@@ -9,11 +9,19 @@ account" (§6.1, design and as-built; commit `978898fc`): built on D1's
 run, reviewed, the gate green (`+15822 ~17`, the rules suite 124 of 124);
 no device pass yet — it rides the two-guest suite (R10). R2 — "Where your
 data is stored" DONE 2026-11-12 (§9): a Privacy section on the Sync page
-and a guide row. Decided 2026-11-11 on the owner's word: the region is
+and a guide row. Sharing FOUNDATIONS BUILT 2026-11-12, without their
+surfaces (the owner's scope of 2026-11-11): everything slices E1–E4,
+N1–N2, R5 and R9 stand on — the grant, wire 47, the rules and indexes,
+the reader of a partner's shared rows, read-only in the database, backups
+— in `cloud-sharing-foundations.md` (F1–F3, two independent reviews and
+their fixes); nothing in the app can set a share yet, and each surface is
+still its own slice. Its device proof (F4, with R10) is to do. Decided 2026-11-11 on the owner's word: the region is
 the European Union (R1, the owner runs the move, whose last step now
 flips the notice's place); a second account on one phone is accepted (R4,
-not built). Left to the owner: the rules deploy (now carrying D2's pair
-and invite rules), the build on every device, the phone checks (§5.8,
+not built). Left to the owner: the rules and indexes deploy (now carrying
+D2's pair and invite rules, the sharing rules and their five indexes, and
+the one-write redemption — after it only this build can pair), the build
+on every device, the phone checks (§5.8,
 §6.1), the region move (R1). Every other slice is PLAN: one row of §3,
 with its own design section or record when it starts. The target is the
 owner's (§1).** Written from the

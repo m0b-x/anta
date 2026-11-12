@@ -948,6 +948,17 @@ class _Puller {
     final merged = <SyncEnvelope>[];
     await db.transaction(() async {
       await _checkStillBound(bound);
+      // A row of this account's own space under an id a shared row took
+      // first: the person's own data comes first, and the shared one goes
+      // (`docs/cloud-sharing-foundations.md` §5). Otherwise the merge below
+      // would write over another account's row, which the fences turn into
+      // nothing at all — and the row would never land here.
+      if (sharedTables.contains(name)) {
+        final taken = await db.sharedRowDao.sharedAmong(name, [
+          for (final envelope in envelopes) envelope.rowKey,
+        ]);
+        await db.sharedRowDao.evict(name, taken);
+      }
       final conflicts = <SyncNoteConflict>[];
       // The queued stamps by key, read once for the page on its first park
       // under the floor.

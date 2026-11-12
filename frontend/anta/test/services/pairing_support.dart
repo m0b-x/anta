@@ -111,9 +111,9 @@ class FakePairingGateway implements PairingGateway {
   int readPairCalls = 0;
   final List<String> endedPairs = [];
 
-  /// Runs at the start of [claimInvite], so a test can let someone else claim
-  /// the code in the window between the redeemer's read and its own claim.
-  void Function()? beforeClaim;
+  /// Runs at the start of [createPair], so a test can let someone else claim
+  /// the code in the window between the redeemer's read and its own write.
+  void Function()? beforeCreatePair;
 
   /// Forces the next N calls to [createInvite] to report a collision, so a
   /// test can exercise the retry loop without predicting a random code.
@@ -167,18 +167,15 @@ class FakePairingGateway implements PairingGateway {
       .putIfAbsent(code, () => StreamController<InviteRecord?>.broadcast())
       .stream;
 
-  @override
-  Future<void> claimInvite({
-    required String code,
+  /// Stamps a claim onto the invite [code] outright — for a test that needs
+  /// a spent invite without the redemption that spends one. The app's only
+  /// claim is [createPair]'s.
+  void seedClaim(
+    String code, {
     required String pairId,
     required String redeemerUid,
-  }) async {
-    _maybeFail();
-    beforeClaim?.call();
-    final invite = invites[code];
-    if (invite == null || invite.isRedeemed) {
-      throw const PairingException(PairingError.codeInvalid);
-    }
+  }) {
+    final invite = invites[code]!;
     invites[code] = InviteRecord(
       code: invite.code,
       creatorUid: invite.creatorUid,
@@ -203,22 +200,29 @@ class FakePairingGateway implements PairingGateway {
     required String inviteCode,
   }) async {
     _maybeFail();
-    // Mirrors the security rule: a pair is only legitimate when the other
-    // member handed out a live, unclaimed invite. Without this the fake would
-    // happily accept the forced-pair attack the rule exists to stop.
+    beforeCreatePair?.call();
+    // The gateway's own look at the invite, inside its transaction: a code
+    // that is gone or was claimed first is not valid, rather than forbidden.
     final invite = invites[inviteCode];
-    if (invite == null ||
-        invite.isRedeemed ||
-        invite.isExpiredAt(DateTime.now().toUtc()) ||
+    if (invite == null || invite.isRedeemed) {
+      throw const PairingException(PairingError.codeInvalid);
+    }
+    // Mirrors the security rule: a pair is only legitimate when the other
+    // member handed out a live invite. Without this the fake would happily
+    // accept the forced-pair attack the rule exists to stop.
+    if (invite.isExpiredAt(DateTime.now().toUtc()) ||
         invite.creatorUid == self.uid ||
         invite.creatorUid != partner.uid) {
       throw const PairingException(PairingError.permissionDenied);
     }
     createPairCalls++;
-    return seedPair(
+    final pair = seedPair(
       [self.uid, partner.uid],
       {self.uid: self, partner.uid: partner},
     );
+    // One write with the pair, as the rules hold the two to each other.
+    seedClaim(inviteCode, pairId: pair.pairId, redeemerUid: self.uid);
+    return pair;
   }
 
   /// Plants a pair directly, bypassing the invite check — for tests that need

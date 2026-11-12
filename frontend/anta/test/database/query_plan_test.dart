@@ -384,7 +384,10 @@ void main() {
       final plan = await planOf(
         () => db.contentChunkDao.deleteChunksForNotes(['n1', 'n2']),
       );
-      expect(plan, usesIndex('idx_content_chunks_note'));
+      // "COVERING" since v54: the table has a delete trigger (the fence
+      // that keeps a shared note's text), so the rows to delete are found
+      // through the index first, and the index alone answers that.
+      expect(plan, contains(contains('INDEX idx_content_chunks_note')));
       expect(plan, isNot(contains(contains('SCAN content_chunks'))));
     });
 

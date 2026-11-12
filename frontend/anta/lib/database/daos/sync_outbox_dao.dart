@@ -340,10 +340,15 @@ class SyncOutboxDao extends DatabaseAccessor<AppDatabase>
   /// beside the row is sent again — so a newer remote that overwrites the
   /// row before the push loses no text, and files no copy of it. An entry
   /// already standing for an unpushed write keeps saying so.
+  ///
+  /// [unpushed] writes them as entries of a write the space never saw
+  /// instead: for rows that were never uploaded at all, where a newer
+  /// remote under the same key is a conflict like any other.
   Future<int> requeueRows(
     String table, {
     required String rows,
     List<Variable<Object>> variables = const [],
+    bool unpushed = false,
   }) {
     final synced = syncedTables.where((t) => t.name == table).firstOrNull;
     if (synced == null || synced.contentAddressed) {
@@ -353,7 +358,8 @@ class SyncOutboxDao extends DatabaseAccessor<AppDatabase>
       'INSERT INTO sync_outbox '
       '(table_name, row_key, hlc, op, enqueued_at, republish) '
       "SELECT '${synced.name}', ${synced.rowKeySql}, hlc_timestamp, "
-      "CASE is_deleted WHEN 1 THEN 'tombstone' ELSE 'upsert' END, ?1, 1 "
+      "CASE is_deleted WHEN 1 THEN 'tombstone' ELSE 'upsert' END, ?1, "
+      '${unpushed ? 0 : 1} '
       'FROM ${synced.name} WHERE $rows '
       'ON CONFLICT (table_name, row_key) DO UPDATE SET '
       'hlc = excluded.hlc, op = excluded.op, '

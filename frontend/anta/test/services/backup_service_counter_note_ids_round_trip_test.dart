@@ -50,8 +50,9 @@ void main() {
     } catch (_) {}
   });
 
-  test('a per-note counter value, pin, position and owner come back under '
-      "the restored note's new id; the global value is unchanged", () async {
+  test('a per-note counter value, pin and position come back under the '
+      "restored note's new id, as the importer's own whatever owner the "
+      'archive names; the global value is unchanged', () async {
     const archivedNoteId = 'archived-note';
     const title = 'Leg day';
     final createdAt = DateTime(2026, 11, 1);
@@ -108,12 +109,12 @@ void main() {
     expect(perNote.single.value, 7);
     expect(perNote.single.isPinned, isTrue);
     expect(perNote.single.position, 3);
-    expect(perNote.single.ownerId, 'owner-1');
+    expect(perNote.single.ownerId, isNull);
 
     final global = values.singleWhere((v) => v.counterId == 'sets');
     expect(global.noteId, '');
     expect(global.value, 4);
-    expect(global.ownerId, 'owner-1');
+    expect(global.ownerId, isNull);
   });
 
   /// Folders and notes are the two tables an import appends to; wiping them
@@ -193,7 +194,7 @@ void main() {
     expect(kept.value, 9);
     expect(kept.isPinned, isTrue);
     expect(kept.position, 2);
-    expect(kept.ownerId, 'owner-1');
+    expect(kept.ownerId, isNull);
   });
 
   test(
@@ -250,7 +251,7 @@ void main() {
       final global = values.singleWhere((v) => v.counterId == 'sets');
       expect(global.noteId, '');
       expect(global.value, 4);
-      expect(global.ownerId, 'owner-1');
+      expect(global.ownerId, isNull);
     },
   );
 }

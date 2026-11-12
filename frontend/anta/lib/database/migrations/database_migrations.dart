@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:drift/drift.dart';
 import 'package:flutter/foundation.dart' show debugPrint;
 import '../../constants/public_holidays.dart';
+import '../daos/sync_dao.dart';
 import '../database.dart';
 import 'database_indexes.dart';
 import 'database_schema.dart';
@@ -272,13 +273,37 @@ class DatabaseMigrations {
       toVersion: DatabaseSchema.v53ShareStamp,
       migrate: _migrateV52ToV53,
     ),
+    Migration(
+      fromVersion: DatabaseSchema.v53ShareStamp,
+      toVersion: DatabaseSchema.v54SharedRowFences,
+      migrate: _migrateV53ToV54,
+    ),
   ];
 
   Future<void> runMigrations(Migrator m, int from, int to) async {
     for (final migration in _migrations) {
       if (from < migration.toVersion && to >= migration.toVersion) {
         await _db.transaction(() async {
+          // A step after the fences exist may rewrite every row of a table
+          // — a backfill — and the rows another account shares are rows of
+          // that table too: the step gets the reader's way past the fences
+          // for its own transaction, or the backfill would silently leave
+          // them in the old shape (`SharedRowFences`).
+          final fenced =
+              migration.toVersion > DatabaseSchema.v54SharedRowFences;
+          if (fenced) {
+            await _db.customStatement(
+              'INSERT OR REPLACE INTO sync_metadata (key, value, updated_at) '
+              "VALUES ('${SyncDao.keySharedWriting}', '1', 0)",
+            );
+          }
           await migration.migrate(m, _db);
+          if (fenced) {
+            await _db.customStatement(
+              'DELETE FROM sync_metadata '
+              "WHERE key = '${SyncDao.keySharedWriting}'",
+            );
+          }
           await _db.customStatement(
             'PRAGMA user_version = ${migration.toVersion}',
           );
@@ -2317,5 +2342,15 @@ class DatabaseMigrations {
       }
     }
     await DatabaseIndexes(_db).createShareMarkIndexes();
+  }
+
+  /// v53→v54: the triggers that keep another account's shared rows as their
+  /// owner wrote them ([SharedRowFences],
+  /// `docs/cloud-sharing-foundations.md` §7). Schema objects only — no row
+  /// is read or written, and for a database that holds no shared row each
+  /// trigger is one lookup of a key that is not there. Local-only: the wire
+  /// stays 47. Idempotent: every one is `IF NOT EXISTS`.
+  Future<void> _migrateV53ToV54(Migrator m, GeneratedDatabase db) async {
+    await DatabaseIndexes(_db).createSharedRowFences();
   }
 }

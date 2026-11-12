@@ -205,48 +205,44 @@ void main() {
       expect(gateway.invites[code]?.isRedeemed, isTrue);
     });
 
-    test('a failed claim does not leave an orphaned pair behind', () async {
-      final gateway = FakePairingGateway();
-      addTearDown(gateway.dispose);
-      final creator = await _boot(
-        gateway: gateway,
-        auth: FakeAuthService(user: userA),
-      );
-      final code = (await creator.service.generateInvite()).pendingCode!;
-
-      final redeemer = await _boot(
-        gateway: gateway,
-        auth: FakeAuthService(user: userB),
-      );
-      // Someone else claims it in the window between the read and the claim.
-      // The pair is created before the claim by design, so losing this race
-      // is exactly the case that must not leak a live pair.
-      gateway.beforeClaim = () {
-        gateway.beforeClaim = null;
-        final invite = gateway.invites[code]!;
-        gateway.invites[code] = InviteRecord(
-          code: invite.code,
-          creatorUid: invite.creatorUid,
-          expiresAt: invite.expiresAt,
-          pairId: 'pair-other',
-          redeemedBy: 'uid-c',
+    test(
+      'a code someone else claims first makes no pair: the pair and the '
+      'claim are one write, so losing the race leaves nothing to end',
+      () async {
+        final gateway = FakePairingGateway();
+        addTearDown(gateway.dispose);
+        final creator = await _boot(
+          gateway: gateway,
+          auth: FakeAuthService(user: userA),
         );
-      };
+        final code = (await creator.service.generateInvite()).pendingCode!;
 
-      await expectLater(
-        redeemer.service.redeem(code),
-        throwsA(
-          isA<PairingException>().having(
-            (e) => e.error,
-            'error',
-            PairingError.codeInvalid,
+        final redeemer = await _boot(
+          gateway: gateway,
+          auth: FakeAuthService(user: userB),
+        );
+        // Someone else claims it in the window between the read and the write.
+        gateway.beforeCreatePair = () {
+          gateway.beforeCreatePair = null;
+          gateway.seedClaim(code, pairId: 'pair-other', redeemerUid: 'uid-c');
+        };
+
+        await expectLater(
+          redeemer.service.redeem(code),
+          throwsA(
+            isA<PairingException>().having(
+              (e) => e.error,
+              'error',
+              PairingError.codeInvalid,
+            ),
           ),
-        ),
-      );
-      expect(gateway.endedPairs, hasLength(1));
-      expect(gateway.pairs[gateway.endedPairs.single]!.isActive, isFalse);
-      expect(redeemer.service.status.isPaired, isFalse);
-    });
+        );
+        expect(gateway.pairs, isEmpty);
+        expect(gateway.endedPairs, isEmpty);
+        expect(gateway.invites[code]!.pairId, 'pair-other');
+        expect(redeemer.service.status.isPaired, isFalse);
+      },
+    );
 
     test(
       'a permission-denied read from a mistyped code surfaces as invalid, not as permission denied',
@@ -300,26 +296,107 @@ void main() {
       () async {
         final gateway = FakePairingGateway();
         addTearDown(gateway.dispose);
+        Matcher refusedAs(PairingError error) => throwsA(
+          isA<PairingException>().having((e) => e.error, 'error', error),
+        );
 
         // Mirrors the security rule that stops anyone who knows your uid from
         // forcing a pair on you: without a live, unclaimed invite the creator
-        // handed out, the write must be denied.
+        // handed out, the write must be denied. A code that names no invite
+        // is told apart: the gateway looks before it writes.
         await expectLater(
           gateway.createPair(
             self: PairProfile.fromUser(userA),
             partner: PairProfile.fromUser(userB),
             inviteCode: 'no-such-code',
           ),
-          throwsA(
-            isA<PairingException>().having(
-              (e) => e.error,
-              'error',
-              PairingError.permissionDenied,
-            ),
-          ),
+          refusedAs(PairingError.codeInvalid),
         );
+        await gateway.createInvite(
+          code: 'K7M2P4XQ',
+          creatorUid: 'uid-c',
+          lifetime: const Duration(minutes: 10),
+        );
+        await expectLater(
+          gateway.createPair(
+            self: PairProfile.fromUser(userA),
+            partner: PairProfile.fromUser(userB),
+            inviteCode: 'K7M2P4XQ',
+          ),
+          refusedAs(PairingError.permissionDenied),
+        );
+        expect(gateway.pairs, isEmpty);
+        expect(gateway.invites['K7M2P4XQ']!.isRedeemed, isFalse);
       },
     );
+
+    test('createPair spends the invite with the pair it creates, in one '
+        'write: the same code makes no second pair', () async {
+      final gateway = FakePairingGateway();
+      addTearDown(gateway.dispose);
+      await gateway.createInvite(
+        code: 'K7M2P4XQ',
+        creatorUid: userB.uid,
+        lifetime: const Duration(minutes: 10),
+      );
+
+      final pair = await gateway.createPair(
+        self: PairProfile.fromUser(userA),
+        partner: PairProfile(uid: userB.uid),
+        inviteCode: 'K7M2P4XQ',
+      );
+
+      final invite = gateway.invites['K7M2P4XQ']!;
+      expect(invite.pairId, pair.pairId);
+      expect(invite.redeemedBy, userA.uid);
+      await expectLater(
+        gateway.createPair(
+          self: PairProfile.fromUser(userA),
+          partner: PairProfile(uid: userB.uid),
+          inviteCode: 'K7M2P4XQ',
+        ),
+        throwsA(
+          isA<PairingException>().having(
+            (e) => e.error,
+            'error',
+            PairingError.codeInvalid,
+          ),
+        ),
+      );
+      expect(gateway.pairs, hasLength(1));
+    });
+
+    test('an active pair the server names and this build cannot read fails '
+        'the answer — never "no pair", which would end everything the pair '
+        'carries on this device', () {
+      final created = DateTime.utc(2026, 11, 1);
+      Map<String, dynamic> pair({Object? createdAt}) => {
+        'members': [userA.uid, userB.uid],
+        'status': 'active',
+        'createdAt': createdAt,
+      };
+
+      expect(
+        FirestorePairingGateway.activePairsFrom({
+          'p1': pair(createdAt: created),
+        }).single.pairId,
+        'p1',
+      );
+      expect(
+        () => FirestorePairingGateway.activePairsFrom({
+          'p1': pair(createdAt: created),
+          'p2': pair(),
+        }),
+        throwsA(
+          isA<PairingException>().having(
+            (e) => e.error,
+            'error',
+            PairingError.unknown,
+          ),
+        ),
+      );
+      expect(FirestorePairingGateway.activePairsFrom(const {}), isEmpty);
+    });
   });
 
   group('reconciliation', () {
@@ -741,11 +818,6 @@ void main() {
           self: PairProfile.fromUser(userB),
           partner: PairProfile(uid: userA.uid),
           inviteCode: code,
-        );
-        await gateway.claimInvite(
-          code: code,
-          pairId: pair.pairId,
-          redeemerUid: userB.uid,
         );
         await pumpEventQueue();
 

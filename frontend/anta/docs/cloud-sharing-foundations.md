@@ -2,7 +2,9 @@
 
 **Status: F1 BUILT 2026-11-12 (the grant and the wire), REVIEWED and
 FIXED the same day (§12: two privacy holes closed, the mark given its own
-stamp); F2 BUILT (the reader — §5, §6); F3–F4 to build. The owner's scope (2026-11-11): everything under the "Share with
+stamp); F2 BUILT (the reader — §5, §6) and REVIEWED; F3 BUILT with that
+review's fixes (the fences — §7, §8; a pair and the claim of its invite
+made one write — §4); F4 (proof on devices) to build. The owner's scope (2026-11-11): everything under the "Share with
 partner" switch, for events and for notes — schema, wire, rules, the
 engine reading a partner's shared rows, read-only protection, backups,
 two app versions — proven by tests and the rules emulator; no switch, no
@@ -59,7 +61,8 @@ Taken by the lead; each is reversible until the rules deploy.
   2026-11-12): the pair must hold the row's **owner** as well as the
   reader, and a pair's id can never come round again for the same two
   people — it starts with the code of the invite it was made from, minted
-  by one of them, and ends in what the other one's device adds (§4).
+  by one of them, and ends in what the other one's device adds, and that
+  invite is spent by the very write that creates the pair (§4).
 - **b. One mark on the root, the rest derived.** `calendar_events` and
   `folders` gain the column. An event's skipped days and per-day texts,
   and a folder's whole subtree — folders and notes — carry the grant on
@@ -214,7 +217,12 @@ five tables only (decision k):
      `SyncTableBinding.shareStamps`) is later than that push by the
      server's clock, so the pusher could not have known.
   Otherwise it is left to its pusher, which says it again once it merges
-  the root.
+  the root. The sharer has no trigger of its own here: a second device of
+  the owner that read the folders before the mark arrived and the notes
+  after their re-sends says those notes private (the rule above), and if
+  it then stays away they rest private — a new share can be partly
+  private until that device returns or the sharer pushes those rows
+  again. Private is the side this may err on.
 
 A pulled page carries who pushed each document and when
 (`SyncPullPage.pushed`). Nothing is read when no document of a part names
@@ -233,7 +241,8 @@ Two more places keep the grant from being lost on its way out:
   retire them with the old grant on the documents. Before it retires
   anything the push compares each shared-table row's grant with what it
   sent (`_Pusher._regranted`, inside the retiring transaction) and leaves
-  the differing ones queued, once more in the same drain.
+  the differing ones queued; the same drain sends each again, once per
+  such change.
 
 *Known cost.* Every device of the owner that merges a root's change
 queues its copies of the dependants again, and every device reads the
@@ -337,6 +346,15 @@ function namedAfterInvite() {
       && pairId.size() > request.resource.data.inviteCode.size() + 1
       && pairId.size() <= 64;
 }
+// ... and the claim of that invite, in the same write (review of F2):
+function claimsInvite() {          // on the pair's create
+  let invite = getAfter(<the invite the pair cites>).data;
+  return invite.pairId == pairId && invite.redeemedBy == uid();
+}
+function claimsOwnPair() {         // on the invite's update
+  let pair = getAfter(<the pair the claim names>).data;
+  return pair.inviteCode == code && uid() in pair.members;
+}
 ```
 
 - **The pair has to hold the owner.** A document names a pair by its id
@@ -352,8 +370,23 @@ function namedAfterInvite() {
   — which only the other person could have created. A former partner on
   either side of a new pairing cannot steer both halves back to the id
   the other's documents still carry. Pairs made before this keep their
-  ids, which hold no `_`. A build before this cannot create a pair once
-  these rules are deployed: both phones update before pairing again.
+  ids, which hold no `_`.
+- **A code names one pair, once.** The id's shape was not enough: the
+  claim of the invite was a second write the redeemer could leave out,
+  and then end the pair, delete it and create it again under the same id
+  for as long as the invite lived (thirty minutes at most) — the F2
+  review did so on the emulator. The pair and the claim are now one
+  write (`PairingGateway.createPair`, a transaction), and each one's rule
+  reads the other document as it stands after the commit (`getAfter`): no
+  pair without its invite claimed for it, no claim without a pair made
+  from that invite that holds the caller. A claimed invite passes
+  `authorisedByInvite` for nobody, and only its creator could mint the
+  code again. A redemption that loses a race now leaves nothing behind,
+  where it used to leave a pair to end.
+- A build before this cannot create a pair once these rules are
+  deployed (the id's shape, the claim in the same write): both phones
+  update before pairing again. This build pairs against the rules as
+  they were, too.
 - **Stale marks are cleared besides** (decision c), so a new pair starts
   with nothing shared even on the documents: belt and braces with the two
   rules above, since clearing needs the owner's device to run.
@@ -390,11 +423,22 @@ emulator does not need them; production refuses the query without.
 ## 5. The reader
 
 A second, smaller pull beside the bound space's (`_SharedReader`, a part
-of the engine), run after a run's own pull and drain when that pull read
-to the end — never by a drain-only run, never in the background. Nothing
-in it may hurt the account's own sync: a failure of the shared read is
-logged and tried again, never a failure or a pause of the run. The rules
-it depends on may not be deployed yet; a pair may end between two calls.
+of the engine), run after a run's own pull and drain — never by a
+drain-only run, never after a pull a leave cut, never in the background.
+A table of the account's own that failed its pull does not hold it back
+(what a partner shares is read from other documents); only the bind's
+first merge waits for a pull that read everything, so the space has had
+its whole say before another account's rows arrive.
+
+Nothing in it may hurt the account's own sync, and nothing of it is the
+run's: a failure of the shared read is logged and tried again, never a
+failure or a pause of the run; its calls do not count as the run's — a
+read of the pair must not end a back-off or lift a quota pause the
+account's own sync is under — and its rows are not in the run's report.
+The whole of it runs inside one guard, the local reads before the first
+call and the stamp after the last included; only a halt goes through,
+since it ends the run itself. The rules it depends on may not be deployed
+yet; a pair may end between two calls.
 
 1. **Whether.** An account that never paired, shares nothing and holds no
    shared row asks nothing: three local reads (the stored owner, "is
@@ -411,7 +455,10 @@ it depends on may not be deployed yet; a pair may end between two calls.
    (`SharePartnerSource.activePartner` over `findActivePairs`, the
    earliest pair as pairing itself keeps it), not of the per-database
    record. "Could not be asked" is never "nobody": it throws, and the
-   reader then changes nothing. That one answer drives three things:
+   reader then changes nothing — and so does an active pair the server
+   names that this build cannot read (`findActivePairs` fails the whole
+   answer rather than leave one out). That one answer drives three
+   things:
    - the account's **own marks** follow it — every mark of a pair that is
      not the account's is cleared (`FolderDao.clearSharesExcept`, decision
      c), stamped and queued like any edit;
@@ -423,7 +470,9 @@ it depends on may not be deployed yet; a pair may end between two calls.
    a row is another person's exactly when its `owner_id` is that value.
    Before it is first set (`SharedRowDao.begin`), every row that carries
    an owner other than the bound account is made the bound account's and
-   queued: such a row is the person's own, left by a binding from before
+   queued — as a write the space never saw, not a re-send, so a newer
+   document under the same key is a conflict like any other: such a row
+   is the person's own, left by a binding from before
    an unbind released its rows, and if that earlier account is the
    partner now — one person's two accounts — the first read would
    otherwise remove it for not being shared.
@@ -436,7 +485,9 @@ it depends on may not be deployed yet; a pair may end between two calls.
    Firestore orders paths.
 6. **Merge** (`SyncTableBinding.mergeShared`). Through the table's own DAO
    merge, the owner's copy winning whatever the stamps say
-   (`CrdtMerge.everyStamp`, decision d), stored under the partner's
+   (`CrdtMerge.everyStamp`, decision d — a document stamped like a
+   shipped default included, which an own merge would not let win over an
+   edit), stored under the partner's
    `owner_id`, in one transaction per page with its cursor. Apart from an
    own merge: nothing is queued, repaired, re-filed or stamped; the mark
    an event or a folder carries for its owner's devices is not stored —
@@ -457,8 +508,17 @@ it depends on may not be deployed yet; a pair may end between two calls.
 7. **A note's text** is read from the space its document lies in, by the
    hashes its manifest names (`readSharedChunks`), each held to its hash.
    A space that refuses — it does not name the pair, yet or any more —
-   leaves those notes waiting; the table is then read from its start at
-   the next read (`shared_retry.<table>`), not once a day.
+   leaves those notes waiting, each under `shared_waiting.<note id>` with
+   the space its document lies in. The next reads ask for exactly those
+   documents again, one `get` each (`SyncGateway.readSharedRows`), then
+   their text — twelve times at most, an hour of polls, after which a
+   note is left to the daily read from the start. The first build read
+   the whole table from its start for as long as one note waited: a read
+   per shared note every five minutes, on a quota every account shares,
+   and "waiting" is not always brief — the space rests at "no pair" while
+   two of the owner's devices disagree (decision k). A note whose
+   document is gone or refuses the read stopped being shared, and stops
+   waiting.
 8. **Place** (`SharedRowDao.placeFolders`, inside each folders page's
    transaction). A shared folder whose parent was not shared — or is a
    folder this device holds as its own — stands at the top level:
@@ -479,6 +539,15 @@ cleared, a note moved out, a cloud copy deleted: the table is then read
 again from the start, and what the server no longer returns is removed
 here. More on the server means rows are still arriving, and the cursor
 brings them.
+
+The count is ordered as the page query is (`orderBy pushedAt`), though a
+count has no order: only so is it served by the one index both need —
+collection-group scope has no single-field indexes to merge for the bare
+filter, and the emulator, which needs no index, would never have said so.
+A count the server still cannot answer (an index building) skips that
+table's look for rows that left and nothing else: the tables after it are
+read, and the daily read finds what left. Only a walk that reached the
+table's end removes anything — one the app leaving cut removes nothing.
 
 A read from the start is exact for a row that stays shared: its document
 stands at its old place in the order until a push of it commits and at a
@@ -507,6 +576,11 @@ table is read from the start whatever the count says: it brings back a
 shared row this device lost or changed by a path that should not have
 (§7).
 
+*The limit.* The server revokes at once; this device's copy goes when a
+read finds the grant gone. Where no run reaches the reader — signed out
+with the binding kept, the manual cadence without "Sync now", never
+online in the foreground — the rows stay on screen until one does (§11).
+
 ## 7. Read-only, and what stays personal
 
 "Another account's" is one test everywhere: `owner_id` is set and is not
@@ -517,18 +591,54 @@ removes the rest, §6.)
 Three layers keep such a row the owner's, each catching what the one
 before lets through:
 
-1. **The services refuse.** The calls a person's action reaches — save or
-   delete an event, skip a day or write its text; rename, move, label,
-   delete a folder or a note, save a note's text — throw a typed
-   `ForeignRowException` for another account's row, which the surface
-   slice turns into a disabled control.
-2. **The push never sends one** (decision e). Whatever queued it — a bulk
-   write that re-stamps every row of a folder, a path no check covers —
-   its entry is retired unsent, as an entry of a row that is gone is.
+1. **The database refuses** (`SharedRowFences`, v54: twenty-four
+   `BEFORE` triggers, the same on a fresh install and an upgraded one).
+   Planned as a check in each service; built in the database because the
+   writers are many and some are sets — a reorder of a folder's notes,
+   "delete all", a label taken off every row that wears it, whatever a
+   later change adds — and one that forgot the check would stamp another
+   person's row and queue it. Fenced:
+   - an insert, an update or a delete of a row of the five tables that
+     the shared owner owns, and an update that would make an own row
+     look like one;
+   - anything of the person's own hung under a shared row — a note or a
+     folder created in or moved into a shared folder, a skipped day or a
+     day's text put on a shared event: it would show beside the owner's
+     rows and be stranded when they leave;
+   - the chunk rows of a shared note, which carry no owner of their own.
+
+   A fence skips its row and nothing else (`RAISE(IGNORE)`): a statement
+   over many rows goes on with the others. So a write of a shared row
+   does not fail, it does nothing — a surface asks
+   `SharedRowDao.isShared(table, id)` before it offers an edit, and the
+   two calls that would otherwise answer with a row that was never
+   stored, `createNote` and `createFolder` inside a shared folder, throw
+   `SharedRowException`. `setSharedPair` answers false for a shared row:
+   what is shared with me is not mine to share on.
+
+   The fences are armed only while `shared_owner` is present and stand
+   down inside the reader's own transactions
+   (`SharedRowDao.writing`, which sets `shared_writing` and takes it away
+   before it commits, so no other transaction ever sees it and a rollback
+   takes it along). A database that never read a shared row pays one
+   lookup of a key that is not there. A migration step after v54 runs
+   under the same licence, since it may have to rewrite every row.
+2. **The push never sends one** (decision e). Whatever queued it, its
+   entry is retired unsent, as an entry of a row that is gone is
+   (`_Pusher._adopted`).
 3. **The owner's copy comes back.** The reader lets the remote win
    (decision d) and reads every shared table from the start once a day
    (§6), so a local change that slipped through both lasts a day at most
    and never leaves the device.
+
+**The person's own data comes first**, in both orders: a shared row never
+takes the place of a row of theirs under the same id (`SharedRowRefused`,
+§5), and a row of theirs that arrives from their own space under an id a
+shared row took first removes that cached copy before it is merged
+(`SharedRowDao.sharedAmong` / `evict`, in the own pull's page
+transaction). Without the second, the own document would have merged as
+"unchanged" into the partner's row and been lost here when the share
+ended.
 
 Personal, and so never refused: presence marks and alert definitions on a
 shared event, counter values on a shared note — rows of the person's own,
@@ -542,14 +652,26 @@ better; its link to a note the partner was not given is inert.
 
 ## 8. Backups and archives
 
-- **Export** leaves out every row another account owns and writes neither
-  `ownerId` nor the share mark.
+- **Export.** The app writes no JSON backup any more — a backup is a
+  copy of the database file — but the three calendar services' export
+  lists remain (`exportData`, read by the archive helper the suites
+  use), and they leave out every row another account owns and never
+  write the share mark, so a JSON writer built on them later cannot leak
+  a partner's rows.
 - **Import** stores every row as this device's own (`owner_id` NULL)
-  whatever the archive says, and no mark. Every archive written before
-  this build holds only its exporter's rows — nothing could be shared —
-  so reading their `ownerId` as "mine" loses nothing; the format stays 7.
-- A restore already unbinds; the next bind lets the space win what it
-  holds (D15), and the marks come back from there, never from a file.
+  whatever the archive says (`JsonKeys.ownerIdOf`), and no mark. Every
+  archive written before this build holds only its exporter's rows —
+  nothing could be shared — so reading their `ownerId` as "mine" loses
+  nothing; the format stays 7.
+- **A copy of the database file** holds the cached rows together with
+  `shared_owner`, so wherever it is opened they are still known as
+  another account's: fenced, never pushed, and removed when the database
+  stops syncing — a copy opened beside its original is unbound at once
+  (`_healClaim`) — or when its reader next finds the grant gone. It
+  cannot expire them without a run (§6's limit).
+- A restore already unbinds, which removes what was shared (§6); the
+  next bind lets the space win what it holds (D15), and the marks come
+  back from there, never from a file.
 - A folder archive carries no ownership either: an imported copy is the
   importer's.
 
@@ -570,8 +692,10 @@ one sitting per part.
    chunk read; the partner source; the shared pull, its cursors and
    parks, the newer-wire skip and its status; the count and the re-read;
    the removals at pair end and at unbind; the root placement; the caches.
-3. **F3 — the fences.** The push's backstop; the services' refusals; the
-   category fallback; backups and archives.
+3. **F3 — the fences.** The database's refusals (§7), the own row that
+   evicts a shared one, backups and archives — with the F2 review's
+   fixes. The push's backstop came with F2; the category fallback was
+   already there (`CalendarCategories.resolve`).
 4. **F4 — proof on devices.** The QA seam that sets a mark without a
    surface, and the two-guest flows (the roadmap's R10): pair, share an
    event and a folder, see them, change them, clear the mark, end the
@@ -603,9 +727,17 @@ Collected as the build met them; none blocks the foundations.
 - **A partner with several synced databases** shares from each into the
   same pair, and the reader takes them as one set: the same row id in two
   of the partner's spaces reads as whichever was pushed later.
-- **A row of this account's own space under an id a shared row took
-  first** is held back from its own merge while the share lasts (it shows
-  among the held-back rows) — the mirror of the case above.
+- **A shared copy that outlives its grant on a device that never
+  syncs** (§6's limit). The server refuses at once; the device keeps
+  showing the rows until a run reaches the reader. Expiring them locally
+  — hide or remove what `shared_read_at` says was not confirmed for N
+  days — would close it at the price of a partner's rows vanishing on a
+  long flight. Not built; the surface slice should decide.
+- **Imports no longer keep `ownerId`** (§8, replacing readiness D16 A).
+- **A new share can be partly private** until a device of the owner that
+  was behind returns (§3). It errs towards private, so nothing is done
+  about it; a surface could show "sharing…" until the sharer's own
+  device has read its rows back.
 
 ## 12. As built
 
@@ -766,3 +898,90 @@ built.
   no backend in the suite — the query's cursor form, the aggregation and
   the indexes are proven by the rules suite over REST and by F4's device
   pass against the emulator, not by a unit test.
+
+### F3 — the fences (2026-11-12)
+
+Built inline on Fable. §7 and §8 are the design as built.
+
+- *Schema.* v54: `SharedRowFences.statements`
+  (`lib/database/migrations/shared_row_fences.dart`), created by
+  `DatabaseIndexes.createSharedRowFences()` on both paths — the fresh
+  install's `createAllIndexes()` and `_migrateV53ToV54`. No table or
+  column changes. `runMigrations` runs every later step under the
+  reader's licence. **A later step that drops or renames a column a
+  fence names must drop the fences first and create them again**: SQLite
+  refuses `ALTER TABLE … DROP COLUMN` while a trigger mentions the
+  column, which the upgrade-chain suite met when it rebuilt the oldest
+  shape.
+- *Local.* `SharedRowDao.writing` / `isShared` / `ensureOwn` /
+  `sharedAmong` / `evict`, `SharedRowException`;
+  `SyncDao.keySharedWriting`; `removeAbsent`, `removeAll` and
+  `placeFolders` run under `writing`; the reader's page transaction is
+  one (`_SharedReader._apply`); `FolderDao.createFolder` and
+  `NoteDao.createNote` refuse a shared parent; both `setSharedPair`
+  refuse a shared row.
+- *The own pull* evicts a shared row under a key its page is about to
+  merge (`_Puller._applyPart`); nothing is read for a database that
+  holds no shared row.
+- *Backups.* `JsonKeys.ownerIdOf` answers null; the three `exportData`
+  leave shared rows out.
+- *Found while building.* Removing a shared note deleted the chunk rows
+  under its id whoever owned the note — the fences suite caught it on a
+  key that named a note of the person's own; the partner's note ids are
+  now selected first. A query plan pinned by name moved to a covering
+  index once the fences' lookups were in the schema; the pin is on the
+  index, not on the word.
+- *Suites.* `test/database/shared_row_fences_test.dart` 11 (each fence,
+  the set statements that go on with the person's own rows, the reader's
+  licence and its rollback, an unarmed database, the two refusals by
+  name); `upgrade_chain_test` (trigger parity between a fresh install
+  and the whole chain); the reader suite's eviction, exports and
+  tamper cases; the two backup round trips and the category profile
+  suite now expect an import to be the importer's own.
+
+### F2 — the review, fixed with F3 (2026-11-12)
+
+An independent review on Fable in a separate checkout of the F2 commit
+(`6465fe47`): no blocker for what ships — nothing can set a mark yet —
+and sixteen findings, six of them to settle before any share exists, one
+reproduced on the emulator. Three were closed by F3 as designed; the
+rest are fixed in the same commit.
+
+| # | Found | Fixed by |
+| --- | --- | --- |
+| 1 | The count carried no order, so the one declared index would not serve it in production: every read but the day's first would have stopped after the events table | `orderBy('pushedAt')` on the count; a count that fails ends only that table's look for rows that left (§6) |
+| 2 | A row of the account's own space under an id a shared row held merged into the partner's row as "unchanged" and was lost when the share ended | F3: the own pull evicts the cached copy first (§7) |
+| 3 | A note or folder of the person's own inside a shared folder was stranded when it left | F3: the fences keep anything of theirs from being hung under a shared row (§7) |
+| 4 | A backup could carry the partner's rows into the next bind as the person's own | F3: imports are the importer's own, exports leave shared rows out; a database-file copy keeps `shared_owner` (§8) |
+| 5 | One note waiting for its text made every poll re-read every shared note | the waiting notes are asked for one by one, a bounded number of times (§5.7, `shared_waiting.*`, `SyncGateway.readSharedRows`) |
+| 6 | A pair's id could be created again inside its invite's life — end, delete, create — because the claim was a write of its own | the pair and the claim are one write, each rule holding the other (§4); `PairingGateway.claimInvite` is gone |
+| 7 | An active pair this build could not parse read as "no pair", which ends every share on the device | `findActivePairs` fails the answer (`FirestorePairingGateway.activePairsFrom`) |
+| 8 | The local copy outlives the grant while no run reaches the reader | narrowed — an own table's fault no longer skips the read — and written down as the limit it is (§6, §11) |
+| 9 | Rows adopted before the first shared read were queued as re-sends though the space never held them | queued as writes (`requeueRows(unpushed: true)`) |
+| 10 | A shared document stamped like a shipped default lost to the copy here, which was then kept and queued | `everyStamp` overrides the seed exemption; a shared note returns before the kept-local path |
+| 11 | The shared read could touch the run's outcome: its calls ended a back-off or lifted a quota pause, its rows were in the report, and its first and last statements stood outside its guard | the reader counts nothing into the run and is one guard from end to end (§5) |
+| 12 | A new share can stay partly private until a device that was behind returns | by design (decision k); said in §3 and §11 |
+| 13 | A comment promised "once more" where the code re-sends once per change | the comment |
+
+Accepted, not changed: *14* — the push reads the real queue a second
+time per batch when a re-send stands at its head and every real entry is
+held; a held table is rare and the scan is bounded by the queue. *15* —
+a mark set before a database was bound survives the bind's merge and is
+re-queued; the reader's look at the pair clears it if it names no pair of
+the account's.
+
+Each fix has a test that fails without it — checked by taking the fix
+out: the six reader fixes at once against their six tests (two tests
+passed for the wrong reason on the first try and were tightened: the
+day's first read never counts, and the cut had landed before the walk
+began), the two rule clauses against the emulator.
+
+Gate for F3 and the fixes together: `dart analyze lib test tool
+test_driver` clean; the whole suite `+16003 ~17`; the rules suite 153 of
+153 on the emulator (+3: no pair without its claim, an id made once, no
+claim without its pair). `sync_shared_reader_test` 41 (+11: the waiting
+note asked for alone, its bound, its end; the count that fails; a
+tombstone, a day row and a seed-stamped document against the person's
+own; the run's report; an own table's fault; a walk cut by a leave; the
+adopted row queued as a write), `pairing_service_test` 31 (+2, and the
+lost race now leaves no pair).

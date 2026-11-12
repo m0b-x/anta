@@ -243,7 +243,8 @@ void main() {
       },
     );
 
-    test('an orphan is dropped and counted, dates and owner kept', () async {
+    test('an orphan is dropped and counted, dates kept, and the row is the '
+        'importer\'s own whatever owner the archive names', () async {
       final archive = [
         {
           ...const CategoryProfile(
@@ -271,7 +272,7 @@ void main() {
       expect(row.id, 'p-gym');
       expect(row.createdAt.isAtSameMomentAs(created), isTrue);
       expect(row.updatedAt.isAtSameMomentAs(updated), isTrue);
-      expect(row.ownerId, 'uid-1');
+      expect(row.ownerId, isNull);
     });
 
     test('a malformed row is dropped and counted', () async {

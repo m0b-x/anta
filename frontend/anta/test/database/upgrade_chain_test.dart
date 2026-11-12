@@ -74,7 +74,29 @@ Future<Set<String>> _columnNames(AppDatabase db, String table) async {
   return {for (final row in rows) row.read<String>('name')};
 }
 
+/// Every trigger with the statement that made it — the fences v54 adds
+/// (`SharedRowFences`), which a fresh install and an upgraded one must hold
+/// alike.
+Future<Map<String, String>> _triggerSql(AppDatabase db) async {
+  final rows = await db
+      .customSelect(
+        "SELECT name, sql FROM sqlite_master WHERE type = 'trigger'",
+      )
+      .get();
+  return {
+    for (final row in rows)
+      row.read<String>('name'): (row.read<String?>('sql') ?? '')
+          .replaceAll(RegExp(r'\s+'), ' ')
+          .replaceAll('IF NOT EXISTS ', ''),
+  };
+}
+
 Future<void> _reshapeToOldest(AppDatabase db) async {
+  // First: a trigger names columns the oldest shape lacks, and SQLite
+  // refuses to drop a column a trigger names.
+  for (final name in (await _triggerSql(db)).keys) {
+    await db.customStatement('DROP TRIGGER IF EXISTS $name');
+  }
   for (final name in await indexNames(db)) {
     await db.customStatement('DROP INDEX IF EXISTS $name');
   }
@@ -195,6 +217,16 @@ void main() {
         reason:
             'An index a fresh install gets is created by no migration step, so '
             'upgraders never receive it.',
+      );
+
+      final fences = await _triggerSql(fresh);
+      expect(fences, isNotEmpty);
+      expect(
+        await _triggerSql(db),
+        fences,
+        reason:
+            'A trigger exists on one path only: an upgraded database and a '
+            'fresh one would keep shared rows differently.',
       );
     },
   );

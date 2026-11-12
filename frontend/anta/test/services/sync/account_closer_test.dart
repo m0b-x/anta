@@ -109,11 +109,7 @@ void main() {
       lifetime: const Duration(minutes: 10),
     );
     if (redeemedBy != null) {
-      await into.claimInvite(
-        code: code,
-        pairId: 'pair-of-$code',
-        redeemerUid: redeemedBy,
-      );
+      into.seedClaim(code, pairId: 'pair-of-$code', redeemerUid: redeemedBy);
     }
   }
 

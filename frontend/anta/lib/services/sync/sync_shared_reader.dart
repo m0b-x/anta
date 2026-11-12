@@ -9,7 +9,10 @@ part of 'sync_engine.dart';
 /// may hurt that run: a failure of this read is logged and tried again
 /// later, never a failure or a pause of the account's own sync — the rules
 /// this depends on may not be deployed yet, a pair may end between two
-/// calls. Only a halt goes through, since it ends the run itself.
+/// calls. So its calls are not counted as the run's, which would let a
+/// read of the pair end the run's back-off or lift its quota pause, and
+/// its rows are not in the run's report. Only a halt goes through, since it
+/// ends the run itself.
 class _SharedReader {
   _SharedReader(this._e);
 
@@ -19,6 +22,16 @@ class _SharedReader {
   late final List<SyncTableBinding<Object>> _tables = [
     for (final table in sharedTables) ?_e._bindingFor(table),
   ];
+
+  /// How often a note that waits for its text is asked for on its own
+  /// before it is left to the daily read ([_retryWaiting]): an hour of
+  /// polls. A space that does not name the pair mostly does so again within
+  /// minutes; one that never will must not cost a read a poll for good.
+  static const int waitingTries = 12;
+
+  /// The shared notes that wait for their text, by note id, as stored under
+  /// [SyncDao.keySharedWaiting]: loaded by each [read].
+  Map<String, ({int tries, SyncSpaceRef space})> _waiting = const {};
 
   /// Reads what the partner of [bound]'s account shares with it — when
   /// there may be anything to read or to remove, and a read is due.
@@ -39,27 +52,23 @@ class _SharedReader {
   ///
   /// [asked]: the user asked for this run, which reads now whatever the
   /// interval says.
-  Future<void> read(
-    SyncBinding bound, {
-    required bool asked,
-    required _RunTally tally,
-  }) async {
+  Future<void> read(SyncBinding bound, {required bool asked}) async {
     final source = _e._partners;
     if (source == null || !_e._foreground) return;
     final db = _e._db;
-    final uid = bound.accountUid;
-    final holder = await db.sharedRowDao.owner();
-    if (holder == null &&
-        !await db.syncDao.anyShareMark() &&
-        !await source.pairedLocally(uid)) {
-      return;
-    }
-    if (!asked && !await _due(SyncDao.keySharedReadAt, _interval)) return;
     final touched = <SyncInvalidation>{};
-    var stamps = true;
+    var stamps = false;
     try {
+      final uid = bound.accountUid;
+      final holder = await db.sharedRowDao.owner();
+      if (holder == null &&
+          !await db.syncDao.anyShareMark() &&
+          !await source.pairedLocally(uid)) {
+        return;
+      }
+      if (!asked && !await _due(SyncDao.keySharedReadAt, _interval)) return;
+      stamps = true;
       final partner = await source.activePartner(uid);
-      await _e._reached(tally);
       await _e._checkHalt(bound);
       await _keepMarks(partner, touched);
       if (holder != null &&
@@ -77,18 +86,21 @@ class _SharedReader {
           boundUid: uid,
         );
       }
+      _waiting = await _storedWaiting();
       final whole =
           await _readsNewerWireNow() ||
           await _due(SyncDao.keySharedFullAt, SyncEngine.fullPullInterval);
       var complete = true;
       for (final table in _tables) {
+        if (table is NotesBinding && !whole) {
+          await _retryWaiting(bound, partner, table, touched);
+        }
         final read = await _readTable(
           bound,
           partner,
           table,
           whole: whole,
           touched: touched,
-          tally: tally,
         );
         if (!read) {
           complete = false;
@@ -113,10 +125,14 @@ class _SharedReader {
       _warn('reading shared rows failed: $error\n$stack');
     } finally {
       if (stamps) {
-        await db.syncDao.setValue(
-          SyncDao.keySharedReadAt,
-          '${_e._now().millisecondsSinceEpoch}',
-        );
+        try {
+          await db.syncDao.setValue(
+            SyncDao.keySharedReadAt,
+            '${_e._now().millisecondsSinceEpoch}',
+          );
+        } catch (error, stack) {
+          _warn('the shared read was not stamped: $error\n$stack');
+        }
       }
       await _e._puller.notifyRun(touched);
     }
@@ -168,6 +184,7 @@ class _SharedReader {
   /// Removes every shared row this database holds and tells the caches.
   Future<void> _forget(Set<SyncInvalidation> touched) async {
     final removed = await _e._db.sharedRowDao.removeAll();
+    _waiting = const {};
     for (final MapEntry(key: table, value: keys) in removed.entries) {
       await _announceGone(table, keys, touched);
     }
@@ -210,34 +227,31 @@ class _SharedReader {
   /// document is at its old place in the order until a push of it commits
   /// and at a later one from then on, so a walk that had not reached the
   /// old place meets the new one.
+  ///
+  /// A count the server refuses or cannot answer — an index still building,
+  /// most likely — skips this table's look for rows that left and nothing
+  /// else: the tables after it are still read, and the daily read from the
+  /// start finds what left.
   Future<bool> _readTable(
     SyncBinding bound,
     SharePartner partner,
     SyncTableBinding<Object> table, {
     required bool whole,
     required Set<SyncInvalidation> touched,
-    required _RunTally tally,
   }) async {
     final db = _e._db;
     final name = table.table;
-    final retryKey = SyncDao.keySharedRetry(name);
-    var fromStart = whole || await db.syncDao.getValue(retryKey) != null;
+    var fromStart = whole;
     while (true) {
       final seen = fromStart ? <String>{} : null;
-      final walk = await _readPages(
+      final complete = await _readPages(
         bound,
         partner,
         table,
         seen: seen,
         touched: touched,
-        tally: tally,
       );
-      if (!walk.complete) return false;
-      if (walk.waiting) {
-        await db.syncDao.setValue(retryKey, '1');
-      } else if (fromStart) {
-        await db.syncDao.deleteValue(retryKey);
-      }
+      if (!complete) return false;
       if (seen != null) {
         final gone = await db.sharedRowDao.removeAbsent(
           name,
@@ -245,15 +259,22 @@ class _SharedReader {
           seen,
         );
         await _announceGone(name, gone, touched);
+        if (table is NotesBinding) await _stopWaitingExcept(seen);
         return true;
       }
       await _e._checkHalt(bound);
-      final shared = await _e._gateway.sharedCount(
-        name,
-        pair: partner.pairId,
-        owner: partner.partnerUid,
-      );
-      await _e._reached(tally);
+      final int shared;
+      try {
+        shared = await _e._gateway.sharedCount(
+          name,
+          pair: partner.pairId,
+          owner: partner.partnerUid,
+        );
+      } on SyncGatewayException catch (error) {
+        if (error.failure == SyncGatewayFailure.offline) rethrow;
+        debugPrint('[SyncEngine] the shared $name were not counted: $error');
+        return true;
+      }
       if (shared >= await db.sharedRowDao.countOf(name, partner.partnerUid)) {
         return true;
       }
@@ -264,18 +285,14 @@ class _SharedReader {
   /// Walks [table]'s shared rows page after page — from the start when
   /// [seen] is given, which collects the key of every document met, a
   /// skipped one included; else from the stored cursor, re-reading the
-  /// gateway's overlap before it as a resumed pull does.
-  ///
-  /// `complete` is false when the app left the foreground before the end;
-  /// `waiting` says a note's text could not be read yet, so the table is
-  /// read from the start again next time rather than once a day.
-  Future<({bool complete, bool waiting})> _readPages(
+  /// gateway's overlap before it as a resumed pull does. False when the app
+  /// left the foreground before the end.
+  Future<bool> _readPages(
     SyncBinding bound,
     SharePartner partner,
     SyncTableBinding<Object> table, {
     required Set<String>? seen,
     required Set<SyncInvalidation> touched,
-    required _RunTally tally,
   }) async {
     final db = _e._db;
     final name = table.table;
@@ -284,10 +301,9 @@ class _SharedReader {
     var cursor = stored == null ? null : SyncCursor(stored);
     var resumed = cursor != null;
     SyncCursor? scan;
-    var waiting = false;
     while (true) {
       await _e._checkHalt(bound);
-      if (!_e._foreground) return (complete: false, waiting: waiting);
+      if (!_e._foreground) return false;
       final page = await _e._gateway.sharedPage(
         name,
         pair: partner.pairId,
@@ -297,16 +313,16 @@ class _SharedReader {
         resumed: resumed,
         scan: scan,
       );
-      await _e._reached(tally);
-      tally.pages++;
       seen
         ?..addAll(page.envelopes.map((envelope) => envelope.rowKey))
         ..addAll(page.skipped);
       final next = page.next;
       final moved = next != null && next.value != cursor?.value;
       if (page.envelopes.isNotEmpty) {
-        waiting |= await _apply(bound, partner, table, page, touched, tally);
+        await _apply(bound, partner, table, page, touched);
       } else if (moved) {
+        // Nothing but skipped documents: no shared row is written, so this
+        // needs no way past the fences.
         await db.transaction(() async {
           await _stillReading(bound, partner);
           await db.syncDao.setValue(key, next.value);
@@ -318,12 +334,11 @@ class _SharedReader {
       resumed = scan != null;
       if (!page.hasMore || (page.envelopes.isEmpty && rested)) break;
     }
-    return (complete: true, waiting: waiting);
+    return true;
   }
 
   /// Merges one page of [table]'s shared rows in one transaction with its
-  /// cursor, and tells the caches; returns whether a note of it has to wait
-  /// for its text.
+  /// cursor, and tells the caches.
   ///
   /// Three kinds of document are passed over, each on purpose:
   ///
@@ -336,17 +351,24 @@ class _SharedReader {
   /// - one whose merge refuses it — it would take the place of a row of
   ///   this person's own ([SharedRowRefused]), or it is malformed.
   ///
+  /// A note whose text could not be read is kept as waiting, with the space
+  /// its document lies in ([SyncDao.keySharedWaiting]); one that was stored
+  /// stops waiting, in the same transaction. [retrying] counts a try
+  /// against a note that still waits after this page — [_retryWaiting]'s
+  /// own, where a page of the table's read that meets the note again costs
+  /// nothing extra and counts as none.
+  ///
   /// A page of notes is one transaction whatever its bodies weigh: what a
   /// partner shares is a folder, not a library, and the page is fifty notes
   /// at most.
-  Future<bool> _apply(
+  Future<void> _apply(
     SyncBinding bound,
     SharePartner partner,
     SyncTableBinding<Object> table,
     SyncPullPage page,
-    Set<SyncInvalidation> touched,
-    _RunTally tally,
-  ) async {
+    Set<SyncInvalidation> touched, {
+    bool retrying = false,
+  }) async {
     final db = _e._db;
     final name = table.table;
     final envelopes = <SyncEnvelope>[];
@@ -382,7 +404,6 @@ class _SharedReader {
         envelopes,
         page.spaces,
         missing.toSet(),
-        tally,
       );
       asked = missing.toSet();
       prepared = await table.readyBodies(
@@ -400,8 +421,11 @@ class _SharedReader {
     }
     final rows = <SyncAppliedRow>[];
     var changed = false;
-    var waiting = false;
-    await db.transaction(() async {
+    // The notes of this page as they stand after it: stored, or waiting.
+    final stored = <String>[];
+    final waits = <String, ({int tries, SyncSpaceRef space})>{};
+    // The one writer the fences let at shared rows (`SharedRowFences`).
+    await db.sharedRowDao.writing(() async {
       await _stillReading(bound, partner);
       for (final (i, envelope) in envelopes.indexed) {
         final MergeOutcome outcome;
@@ -425,12 +449,20 @@ class _SharedReader {
           rethrow;
         } catch (error) {
           if (_abortsTransaction(error)) rethrow;
-          if (error is ChunksMissing) waiting = true;
+          final space = page.spaces[envelope.rowKey];
+          if (error is ChunksMissing && space != null) {
+            waits[envelope.rowKey] = (
+              tries:
+                  (_waiting[envelope.rowKey]?.tries ?? 0) + (retrying ? 1 : 0),
+              space: space,
+            );
+          }
           debugPrint(
             '[SyncEngine] shared $name/${envelope.rowKey} not stored: $error',
           );
           continue;
         }
+        if (table is NotesBinding) stored.add(envelope.rowKey);
         rows.add(
           SyncAppliedRow(
             rowKey: envelope.rowKey,
@@ -461,12 +493,23 @@ class _SharedReader {
           );
         }
       }
+      final dao = db.syncDao;
+      for (final noteId in stored) {
+        if (_waiting.containsKey(noteId)) {
+          await dao.deleteValue(SyncDao.keySharedWaiting(noteId));
+        }
+      }
+      for (final MapEntry(key: noteId, value: wait) in waits.entries) {
+        await dao.setValue(
+          SyncDao.keySharedWaiting(noteId),
+          '${wait.tries}|${wait.space.ownerUid}/${wait.space.spaceId}',
+        );
+      }
       final next = page.next;
       if (next != null) {
-        await db.syncDao.setValue(SyncDao.keySharedCursor(name), next.value);
+        await dao.setValue(SyncDao.keySharedCursor(name), next.value);
       }
       if (newer != null) {
-        final dao = db.syncDao;
         final known = int.tryParse(
           await dao.getValue(SyncDao.keySharedNewerWire) ?? '',
         );
@@ -475,15 +518,111 @@ class _SharedReader {
         }
       }
     });
+    if (stored.any(_waiting.containsKey) || waits.isNotEmpty) {
+      _waiting = {
+        for (final entry in _waiting.entries)
+          if (!stored.contains(entry.key)) entry.key: entry.value,
+        ...waits,
+      };
+    }
     if (changed) touched.add(table.invalidation);
-    tally.pulled += rows.length;
     try {
       await _e._hooks.afterPage(name, List.unmodifiable(rows));
     } catch (error, stack) {
       _warn('afterPage for the shared $name failed: $error\n$stack');
     }
+  }
+
+  /// The waiting notes as stored: `<tries>|<owner uid>/<space id>` under
+  /// each note's key. A value that does not read so is dropped.
+  Future<Map<String, ({int tries, SyncSpaceRef space})>>
+  _storedWaiting() async {
+    final waiting = <String, ({int tries, SyncSpaceRef space})>{};
+    for (final (key, value) in await _e._db.syncDao.valuesByPrefix(
+      SyncDao.sharedWaitingPrefix,
+    )) {
+      final bar = value.indexOf('|');
+      final slash = value.indexOf('/', bar + 1);
+      final tries = bar < 0 ? null : int.tryParse(value.substring(0, bar));
+      if (tries == null || slash < 0) {
+        await _e._db.syncDao.deleteValue(key);
+        continue;
+      }
+      waiting[key.substring(SyncDao.sharedWaitingPrefix.length)] = (
+        tries: tries,
+        space: SyncSpaceRef(
+          ownerUid: value.substring(bar + 1, slash),
+          spaceId: value.substring(slash + 1),
+        ),
+      );
+    }
     return waiting;
   }
+
+  /// Asks again for each note that waits for its text — its own document,
+  /// by its path, and then its chunks — where reading the whole table from
+  /// its start for one note would cost a read per shared note at every
+  /// poll. At most [waitingTries] times a note; past that it is left to the
+  /// daily read.
+  ///
+  /// A note whose document is gone, refused or no longer the pair's stopped
+  /// being shared while it waited, and stops waiting.
+  Future<void> _retryWaiting(
+    SyncBinding bound,
+    SharePartner partner,
+    NotesBinding table,
+    Set<SyncInvalidation> touched,
+  ) async {
+    for (final MapEntry(key: noteId, value: wait) in Map.of(_waiting).entries) {
+      if (wait.tries >= waitingTries) continue;
+      await _e._checkHalt(bound);
+      SyncEnvelope? envelope;
+      try {
+        final page = await _e._gateway.readSharedRows(wait.space, table.table, [
+          noteId,
+        ], pair: partner.pairId);
+        envelope = page.envelopes.firstOrNull;
+      } on SyncGatewayException catch (error) {
+        if (error.failure != SyncGatewayFailure.permissionDenied) rethrow;
+      }
+      if (envelope == null ||
+          envelope.ownerId != partner.partnerUid ||
+          envelope.sharedPair != partner.pairId) {
+        await _stopWaiting([noteId]);
+        continue;
+      }
+      await _apply(
+        bound,
+        partner,
+        table,
+        SyncPullPage(
+          envelopes: [envelope],
+          next: null,
+          hasMore: false,
+          spaces: {noteId: wait.space},
+        ),
+        touched,
+        retrying: true,
+      );
+    }
+  }
+
+  Future<void> _stopWaiting(List<String> noteIds) async {
+    for (final noteId in noteIds) {
+      await _e._db.syncDao.deleteValue(SyncDao.keySharedWaiting(noteId));
+    }
+    _waiting = {
+      for (final entry in _waiting.entries)
+        if (!noteIds.contains(entry.key)) entry.key: entry.value,
+    };
+  }
+
+  /// After a read of every shared note from the start: a note that waits
+  /// and was not among them is no longer shared.
+  Future<void> _stopWaitingExcept(Set<String> seen) => _stopWaiting([
+    for (final noteId in _waiting.keys)
+      if (!seen.contains(noteId)) noteId,
+  ]);
 
   /// First inside every transaction of this reader: the binding is the one
   /// the run began under, and the database still reads [partner]'s rows —
@@ -512,7 +651,6 @@ class _SharedReader {
     List<SyncEnvelope> envelopes,
     Map<String, SyncSpaceRef> spaces,
     Set<String> missing,
-    _RunTally tally,
   ) async {
     if (missing.isEmpty) return const {};
     final bySpace = <SyncSpaceRef, Set<String>>{};
@@ -547,7 +685,6 @@ class _SharedReader {
           );
           break;
         }
-        await _e._reached(tally);
         for (final envelope in page.envelopes) {
           try {
             fetched[envelope.rowKey] = ContentChunksBinding.textOf(envelope);

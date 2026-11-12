@@ -723,41 +723,47 @@ class CalendarEventService {
   /// Snapshot of every event row for inclusion in a full-app backup.
   /// Each entry mirrors the on-disk row shape so the import path can
   /// round-trip without re-deriving any value.
+  ///
+  /// The person's own events only: one another account shares with this one
+  /// is a copy of that account's, and a backup holds what is mine
+  /// (`docs/cloud-sharing-foundations.md` §8). Never the share mark.
   Future<List<Map<String, dynamic>>> exportData() async {
     final rows = await _dao.getAll();
+    final shared = await _db.sharedRowDao.owner();
     return [
       for (final row in rows)
-        {
-          'id': row.id,
-          'title': row.title,
-          'category': row.category,
-          'startDateMs': row.startDate.millisecondsSinceEpoch,
-          'allDay': row.allDay,
-          'iconKey': row.iconKey,
-          'ruleKind': row.ruleKind,
-          'rulePayload': row.rulePayload,
-          'endDateMs': row.endDate?.millisecondsSinceEpoch,
-          'startMinute': row.startMinute,
-          'durationMinutes': row.durationMinutes,
-          'description': row.description,
-          'noteId': row.noteId,
-          'colorValue': row.colorValue,
-          'tintIcon': row.tintIcon,
-          'priority': row.priority,
-          'retroactive': row.retroactive,
-          'countOccurrences': row.countOccurrences,
-          'countStyle': row.countStyle,
-          'tracksPresence': row.tracksPresence,
-          'assumeAbsent': row.assumeAbsent,
-          'assumeAbsentFromMs': row.assumeAbsentFrom?.millisecondsSinceEpoch,
-          'perOccurrenceDescriptions': row.perOccurrenceDescriptions,
-          'showInDayRail': row.showInDayRail,
-          'removeAfterAlert': row.removeAfterAlert,
-          'categoryAlerts': row.categoryAlerts,
-          'createdAtMs': row.createdAt.millisecondsSinceEpoch,
-          'updatedAtMs': row.updatedAt.millisecondsSinceEpoch,
-          if (row.ownerId != null) 'ownerId': row.ownerId,
-        },
+        if (shared == null || row.ownerId != shared)
+          {
+            'id': row.id,
+            'title': row.title,
+            'category': row.category,
+            'startDateMs': row.startDate.millisecondsSinceEpoch,
+            'allDay': row.allDay,
+            'iconKey': row.iconKey,
+            'ruleKind': row.ruleKind,
+            'rulePayload': row.rulePayload,
+            'endDateMs': row.endDate?.millisecondsSinceEpoch,
+            'startMinute': row.startMinute,
+            'durationMinutes': row.durationMinutes,
+            'description': row.description,
+            'noteId': row.noteId,
+            'colorValue': row.colorValue,
+            'tintIcon': row.tintIcon,
+            'priority': row.priority,
+            'retroactive': row.retroactive,
+            'countOccurrences': row.countOccurrences,
+            'countStyle': row.countStyle,
+            'tracksPresence': row.tracksPresence,
+            'assumeAbsent': row.assumeAbsent,
+            'assumeAbsentFromMs': row.assumeAbsentFrom?.millisecondsSinceEpoch,
+            'perOccurrenceDescriptions': row.perOccurrenceDescriptions,
+            'showInDayRail': row.showInDayRail,
+            'removeAfterAlert': row.removeAfterAlert,
+            'categoryAlerts': row.categoryAlerts,
+            'createdAtMs': row.createdAt.millisecondsSinceEpoch,
+            'updatedAtMs': row.updatedAt.millisecondsSinceEpoch,
+            if (row.ownerId != null) 'ownerId': row.ownerId,
+          },
     ];
   }
 

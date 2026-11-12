@@ -19,18 +19,20 @@ class JsonKeys {
 
   static const String label = 'label';
 
-  /// Written only for a row someone else owns, so a backup of a database
-  /// that holds none stays what it was (D16).
+  /// The account a row is stored under, where an export or the wire's data
+  /// names it; an import ignores it ([ownerIdOf]).
   static const String ownerId = 'ownerId';
 
-  /// The archived [ownerId] of [map], or null when it is anything but a
-  /// string: a hand-edited archive's `42` imports the row unowned instead of
-  /// throwing a cast that would drop the row — or, inside a list literal,
-  /// the whole table.
-  static String? ownerIdOf(Map<String, dynamic> map) {
-    final value = map[ownerId];
-    return value is String ? value : null;
-  }
+  /// The owner an imported row is stored under: none, whatever [map] says
+  /// under [ownerId] (`docs/cloud-sharing-foundations.md` §8, replacing
+  /// readiness D16 A). A backup holds what was its exporter's own, so an
+  /// imported row is the importer's own — `owner_id` NULL — and the next
+  /// bind gives it the account that binds. Before, the archived uid was
+  /// kept, which meant nothing while the database was unbound and, once
+  /// rows of another account can be held, could have read as "another
+  /// person's": a row never stored by the reader of shared rows must never
+  /// look like one.
+  static String? ownerIdOf(Map<String, dynamic> map) => null;
 
   static const String iconCodePoint = 'iconCodePoint';
   static const String iconFontFamily = 'iconFontFamily';

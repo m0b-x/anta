@@ -163,11 +163,18 @@ abstract final class CrdtMerge {
           (remoteHlc.compareTo(localHlc) > 0 ||
               _yieldsToFloor(localHlc, remoteHlc, floor)));
 
+  /// Under [everyStamp] a seed-stamped remote wins too: the exemption keeps
+  /// a real edit of this device's own from yielding to the catalog every
+  /// device ships, and a row another account shares is never this device's
+  /// own — kept, it would be re-queued, the one thing a shared row never is.
   static bool _yieldsToFloor(
     String localHlc,
     String remoteHlc,
     String? floor,
-  ) => floor != null && localHlc.compareTo(floor) <= 0 && remoteHlc != _seed;
+  ) =>
+      floor != null &&
+      localHlc.compareTo(floor) <= 0 &&
+      (remoteHlc != _seed || floor == everyStamp);
 
   /// Settles the share mark of an event or a folder once [mergeRemoteRow]
   /// merged a live [remote] of it with [result], inside the same

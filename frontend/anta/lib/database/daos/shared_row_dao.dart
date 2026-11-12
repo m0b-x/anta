@@ -15,6 +15,19 @@ import 'sync_dao.dart';
 
 part 'shared_row_dao.g.dart';
 
+/// A write named a row another account shares with this one, where doing
+/// nothing — what the fences do for every other write of such a row — would
+/// have answered with a row that was never stored.
+final class SharedRowException implements Exception {
+  final String table;
+  final String id;
+
+  const SharedRowException(this.table, this.id);
+
+  @override
+  String toString() => 'SharedRowException: $table/$id is shared, read-only';
+}
+
 /// The rows another account shares with the one this database syncs for
 /// (`docs/cloud-sharing-foundations.md` §5–§7): a cache of a live grant,
 /// held in the same tables as the person's own and told from them by
@@ -42,6 +55,91 @@ class SharedRowDao extends DatabaseAccessor<AppDatabase>
   /// The account whose shared rows this database holds, or null for none.
   Future<String?> owner() => db.syncDao.getValue(SyncDao.keySharedOwner);
 
+  /// Runs [body] in a transaction that may store, change and remove shared
+  /// rows — the reader's, and nothing else's: everything outside one is
+  /// stopped by the fences (`SharedRowFences`), which stand down while
+  /// [SyncDao.keySharedWriting] is present. The key is set and taken away
+  /// inside the transaction, so no other one ever sees it, and a rollback
+  /// takes it along. Nests: an inner call leaves the key to the outermost.
+  Future<T> writing<T>(Future<T> Function() body) {
+    return transaction(() async {
+      final dao = db.syncDao;
+      if (await dao.getValue(SyncDao.keySharedWriting) != null) return body();
+      await dao.setValue(SyncDao.keySharedWriting, '1');
+      try {
+        return await body();
+      } finally {
+        await dao.deleteValue(SyncDao.keySharedWriting);
+      }
+    });
+  }
+
+  /// Whether the row of [table] under [id] — an event, a folder or a note —
+  /// is one another account shares with this one: what a surface asks
+  /// before it offers an edit, since a write of such a row does nothing
+  /// (`SharedRowFences`).
+  Future<bool> isShared(String table, String id) async {
+    final synced = _shared(table);
+    final row = await customSelect(
+      'SELECT EXISTS(SELECT 1 FROM ${synced.name} WHERE id = ?1 '
+      'AND owner_id = (SELECT value FROM sync_metadata WHERE key = ?2)) '
+      'AS shared',
+      variables: [
+        Variable<String>(id),
+        Variable<String>(SyncDao.keySharedOwner),
+      ],
+      readsFrom: {_tableOf(table), syncMetadata},
+    ).getSingle();
+    return row.read<bool>('shared');
+  }
+
+  /// Throws [SharedRowException] when [id] names a shared row of [table] —
+  /// for the two writes that would otherwise answer with a row the fences
+  /// never let be stored: a note or a folder created inside a shared
+  /// folder.
+  Future<void> ensureOwn(String table, String id) async {
+    if (await isShared(table, id)) throw SharedRowException(table, id);
+  }
+
+  /// The keys among [keys] under which this database holds a shared row of
+  /// [table] — asked by the account's own pull before it merges a page, so
+  /// a row of its own space is never kept out by a shared row that took its
+  /// id first ([evict]). No statement past the first for a database that
+  /// reads no shared rows.
+  Future<List<String>> sharedAmong(String table, List<String> keys) async {
+    if (keys.isEmpty) return const [];
+    final owner = await this.owner();
+    if (owner == null) return const [];
+    final synced = _shared(table);
+    final taken = await CrdtMerge.loadInChunks(keys, (chunk) async {
+      final rows = await customSelect(
+        'SELECT ${synced.rowKeySql} AS k FROM ${synced.name} '
+        'WHERE owner_id = ? AND ${synced.rowKeySql} IN '
+        '(${List.filled(chunk.length, '?').join(', ')})',
+        variables: [
+          Variable<String>(owner),
+          for (final key in chunk) Variable<String>(key),
+        ],
+        readsFrom: {_tableOf(table)},
+      ).get();
+      return [for (final row in rows) row.read<String>('k')];
+    });
+    return taken;
+  }
+
+  /// Removes the shared rows of [table] under [keys]: a row of this
+  /// account's own arrived under the same id, and the person's own data
+  /// comes first. The shared one is then simply not shown — as when the own
+  /// row was here first (`SharedRowRefused`).
+  Future<void> evict(String table, List<String> keys) async {
+    final owner = await this.owner();
+    if (owner == null || keys.isEmpty) return;
+    await writing(() async {
+      await _remove(_shared(table), owner, keys);
+      if (table == 'folders') await placeFolders(owner);
+    });
+  }
+
   /// Makes [owner] the account this database reads shared rows from, under
   /// [pair], in one transaction — before the first of its rows is stored.
   ///
@@ -62,7 +160,9 @@ class SharedRowDao extends DatabaseAccessor<AppDatabase>
       for (final synced in syncedTables) {
         if (synced.contentAddressed) continue;
         final table = _tableOf(synced.name);
-        // Queued first, while the rows can still be told from the rest. How
+        // Queued first, while the rows can still be told from the rest, and
+        // as writes the space never saw — which they are: a re-send would
+        // let a newer document under the same key replace one unseen. How
         // many entries that wrote says nothing about how many rows there
         // are — one already queued at its stamp writes none — so the rows
         // are adopted whatever it answers.
@@ -70,6 +170,7 @@ class SharedRowDao extends DatabaseAccessor<AppDatabase>
           table,
           rows: 'owner_id IS NOT NULL AND owner_id != ?2',
           variables: [Variable<String>(boundUid)],
+          unpushed: true,
         );
         await customUpdate(
           'UPDATE ${synced.name} SET owner_id = ?1 '
@@ -122,7 +223,7 @@ class SharedRowDao extends DatabaseAccessor<AppDatabase>
     String owner,
     Set<String> kept,
   ) {
-    return transaction(() async {
+    return writing(() async {
       final synced = _shared(table);
       final held = await customSelect(
         'SELECT ${synced.rowKeySql} AS k FROM ${synced.name} '
@@ -146,7 +247,7 @@ class SharedRowDao extends DatabaseAccessor<AppDatabase>
   /// the pair did, another partner took its place, or this database stopped
   /// syncing and nothing would keep the rows true.
   Future<Map<String, List<String>>> removeAll() {
-    return transaction(() async {
+    return writing(() async {
       final owner = await this.owner();
       final removed = <String, List<String>>{};
       if (owner != null) {
@@ -162,7 +263,7 @@ class SharedRowDao extends DatabaseAccessor<AppDatabase>
       await dao.deleteValue(SyncDao.keySharedFullAt);
       await dao.deleteValue(SyncDao.keySharedNewerWire);
       await dao.deleteByPrefix(SyncDao.sharedCursorPrefix);
-      await dao.deleteByPrefix(SyncDao.sharedRetryPrefix);
+      await dao.deleteByPrefix(SyncDao.sharedWaitingPrefix);
       await dao.deleteByPrefix(SyncDao.sharedRootPrefix);
       return removed;
     });
@@ -180,7 +281,7 @@ class SharedRowDao extends DatabaseAccessor<AppDatabase>
   /// parent is shared too. Never stamped or queued — the difference from
   /// the owner's document is this device's own.
   Future<List<String>> placeFolders(String owner) {
-    return transaction(() async {
+    return writing(() async {
       final dao = db.syncDao;
       final moved = <String>[];
       for (final (key, parent) in await dao.valuesByPrefix(
@@ -248,12 +349,26 @@ class SharedRowDao extends DatabaseAccessor<AppDatabase>
     final table = _tableOf(synced.name);
     for (var at = 0; at < keys.length; at += CrdtMerge.keysPerStatement) {
       final chunk = keys.skip(at).take(CrdtMerge.keysPerStatement).toList();
+      final places = List.filled(chunk.length, '?').join(', ');
       if (synced.name == 'notes') {
-        await db.contentChunkDao.deleteChunksForNotes(chunk);
+        // A chunk row carries no owner of its own, so the notes are asked
+        // first: a key that names a note of the person's own must not cost
+        // it its text.
+        final theirs = await customSelect(
+          'SELECT id FROM notes WHERE owner_id = ? AND id IN ($places)',
+          variables: [
+            Variable<String>(owner),
+            for (final key in chunk) Variable<String>(key),
+          ],
+          readsFrom: {notes},
+        ).get();
+        await db.contentChunkDao.deleteChunksForNotes([
+          for (final row in theirs) row.read<String>('id'),
+        ]);
       }
       await customUpdate(
         'DELETE FROM ${synced.name} WHERE owner_id = ? AND '
-        '${synced.rowKeySql} IN (${List.filled(chunk.length, '?').join(', ')})',
+        '${synced.rowKeySql} IN ($places)',
         variables: [
           Variable<String>(owner),
           for (final key in chunk) Variable<String>(key),

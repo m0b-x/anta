@@ -1143,6 +1143,18 @@ class SyncEngine {
         // the caches hear of the pages after it (S3d review L7).
         if (pulled.cut) await _puller.notifyRun(pulled.touched);
       }
+      // After the account's own pull and drain, never in a drain-only run
+      // nor after a pull a leave cut. A table of the account's own that
+      // failed does not hold it back — what a partner shares is read from
+      // other documents — except at a bind, whose first merge must have had
+      // the space's whole say before another account's rows arrive. It
+      // reports nothing into this run: its calls must not end a back-off or
+      // lift a pause the account's own sync is under.
+      if (mode != _RunMode.drain &&
+          !pulled.cut &&
+          (!initial || pulled.complete)) {
+        await _shared.read(binding, asked: request.asked);
+      }
       final tableFault = pulled.fault;
       if (tableFault != null) {
         await _failed(tableFault);
@@ -1152,12 +1164,6 @@ class SyncEngine {
       // nothing to push is the one that has to look.
       if (mode != _RunMode.drain && pulled.complete && tally.pushed == 0) {
         await _settleSpaceShare(binding, tally);
-      }
-      // After the account's own pull and drain — a complete pull, so the
-      // bind's first merge has had the space's say — never in a drain-only
-      // run.
-      if (mode != _RunMode.drain && pulled.complete) {
-        await _shared.read(binding, asked: request.asked, tally: tally);
       }
       if (tally.calls > 0) _succeeded();
       return report();

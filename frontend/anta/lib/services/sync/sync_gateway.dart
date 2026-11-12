@@ -534,6 +534,23 @@ abstract interface class SyncGateway {
     required String pair,
   });
 
+  /// The documents of [table] under [rowKeys] in [space] — another
+  /// account's — that are shared into [pair], as [readRows] answers for
+  /// one's own: the reader's way back to a row it knows the place of and
+  /// could not finish storing, where [sharedPage] would cost a read of
+  /// every shared row.
+  ///
+  /// [SyncGatewayFailure.permissionDenied] when one of them is not shared
+  /// into an active pair of the caller's — no longer, most likely — and
+  /// just so when one is gone: the grant is the document's own, so nothing
+  /// says whose a missing one was. Ask for one key at a time to tell which.
+  Future<SyncPullPage> readSharedRows(
+    SyncSpaceRef space,
+    String table,
+    List<String> rowKeys, {
+    required String pair,
+  });
+
   /// How many documents one [readRows] call reads at once, each batch under
   /// its own deadline: a start may retry a hundred parks, and every one of
   /// them inside a single call's deadline would time out on a slow link. A

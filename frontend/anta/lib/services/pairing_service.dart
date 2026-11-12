@@ -268,12 +268,9 @@ class PairingService {
     return status;
   }
 
-  /// Redeems [rawCode]: validate, create the pair, then claim the invite.
-  ///
-  /// Deliberately not atomic. Security rules cannot verify a pair created in
-  /// the same batch, and reconciliation already repairs a half-finished
-  /// redemption — so the pair is created first and the claim stamps it
-  /// afterwards, with the pair tombstoned again if the claim loses a race.
+  /// Redeems [rawCode]: validate, then create the pair and claim the invite
+  /// in one write ([PairingGateway.createPair]) — a claim that loses a race
+  /// leaves no pair behind, and a code names one pair, once.
   Future<PairingStatus> redeem(String rawCode) async {
     final user = _requireUser();
     if (_cached.pairId != null) {
@@ -314,17 +311,6 @@ class PairingService {
       partner: PairProfile(uid: invite.creatorUid),
       inviteCode: code,
     );
-
-    try {
-      await _gateway.claimInvite(
-        code: code,
-        pairId: pair.pairId,
-        redeemerUid: user.uid,
-      );
-    } catch (_) {
-      await _endQuietly(pair.pairId, user.uid);
-      rethrow;
-    }
 
     await _adopt(pair, user);
     return status;

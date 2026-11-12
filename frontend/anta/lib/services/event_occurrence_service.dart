@@ -283,18 +283,23 @@ class EventOccurrenceService {
   /// Live overrides only, without CRDT identity. Backups are not a sync
   /// channel: `BackupService` already excludes tombstones and identity for
   /// notes/folders, and identity is regenerated on restore.
+  ///
+  /// The person's own only — never a day's text of an event another account
+  /// shares with this one (`docs/cloud-sharing-foundations.md` §8).
   Future<List<Map<String, dynamic>>> exportData() async {
     final rows = await _dao.getActive();
+    final shared = await _dao.attachedDatabase.sharedRowDao.owner();
     return [
       for (final row in rows)
-        {
-          'eventId': row.eventId,
-          'dayMs': row.day.millisecondsSinceEpoch,
-          'description': row.description,
-          'createdAtMs': row.createdAt.millisecondsSinceEpoch,
-          'updatedAtMs': row.updatedAt.millisecondsSinceEpoch,
-          if (row.ownerId != null) 'ownerId': row.ownerId,
-        },
+        if (shared == null || row.ownerId != shared)
+          {
+            'eventId': row.eventId,
+            'dayMs': row.day.millisecondsSinceEpoch,
+            'description': row.description,
+            'createdAtMs': row.createdAt.millisecondsSinceEpoch,
+            'updatedAtMs': row.updatedAt.millisecondsSinceEpoch,
+            if (row.ownerId != null) 'ownerId': row.ownerId,
+          },
     ];
   }
 
