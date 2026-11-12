@@ -25,12 +25,29 @@ final class CalendarEventsBinding extends SyncTableBinding<CalendarEventRow> {
   @override
   String rowKeyOf(CalendarEventRow row) => row.id;
 
-  /// An event is shared by its own mark, which the row carries.
+  /// An event is shared by its own mark, else by its live category's.
   @override
   Future<Map<String, String>> sharedPairs(
     AppDatabase db,
     List<CalendarEventRow> rows,
-  ) async => {for (final row in rows) row.id: ?row.sharedPair};
+  ) => db.calendarEventDao.sharedPairsOf([for (final row in rows) row.id]);
+
+  /// The newer of the event's own stamp and its category's mark's: a change
+  /// of either decides what the event is shared into.
+  @override
+  Future<Map<String, String>> shareStamps(
+    AppDatabase db,
+    List<CalendarEventRow> rows,
+  ) => db.calendarEventDao.stampsOf([for (final row in rows) row.id]);
+
+  /// A tombstone [decode] stored with no row before it has no category —
+  /// every event written here has one, and a merged delete keeps it — so
+  /// neither its category's mark nor its own reached this device.
+  @override
+  Set<String> unheldTombstones(List<CalendarEventRow> rows) => {
+    for (final row in rows)
+      if (row.isDeleted && row.category.isEmpty) row.id,
+  };
 
   @override
   Future<SyncEnvelope> encode(

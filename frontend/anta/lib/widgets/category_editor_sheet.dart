@@ -323,7 +323,8 @@ class _CategoryEditorSheetState extends State<CategoryEditorSheet> {
   CalendarCategory? _scanForDuplicate(String typed, AppLocalizations l10n) {
     final selfId = widget.initial?.id ?? _created?.id;
     for (final category in CalendarCategories.all) {
-      if (category.id == selfId) continue;
+      // A partner's category never stands in a picker beside this one.
+      if (category.id == selfId || category.fromPartner) continue;
       final label = normalizeForSearch(
         CalendarCategories.labelOf(category, l10n),
       );
@@ -833,7 +834,8 @@ class _CategoryEditorSheetState extends State<CategoryEditorSheet> {
   /// written, with a fresh id and, for a new one, the position after the
   /// last the catalogue holds — `CategoryService.create`'s
   /// `MAX(sort_order) + 1`, which a reordered catalogue with gaps still
-  /// answers, where its length would not.
+  /// answers, where its length would not — over the person's own, as that
+  /// one counts.
   CalendarCategory _wouldBeSaved() {
     final initial = widget.initial;
     if (initial != null) {
@@ -848,10 +850,12 @@ class _CategoryEditorSheetState extends State<CategoryEditorSheet> {
       name: _nameController.text.trim(),
       colorValue: _colorValue,
       iconKey: _iconKey,
-      sortOrder: CalendarCategories.all.fold<int>(
-        0,
-        (next, category) => math.max(next, category.sortOrder + 1),
-      ),
+      sortOrder: CalendarCategories.all
+          .where((category) => !category.fromPartner)
+          .fold<int>(
+            0,
+            (next, category) => math.max(next, category.sortOrder + 1),
+          ),
       isBuiltIn: false,
     );
   }

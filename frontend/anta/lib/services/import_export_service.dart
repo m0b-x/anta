@@ -516,7 +516,10 @@ class ImportExportService {
   ///
   /// A partner's events are left out whatever the caller hands in, and the
   /// count says so: no door out of this phone carries another account's
-  /// rows (`docs/cloud-share-surfaces-roadmap.md` D19).
+  /// rows (`docs/cloud-share-surfaces-roadmap.md` D19). The question is
+  /// whose the **event** is, never whose its category is: a partner's event
+  /// in a built-in they share carries a category id of the person's own,
+  /// and an event of the person's own can name an id the partner uses too.
   Future<ExportResult> exportCalendar({
     required List<CalendarEvent> events,
   }) async {

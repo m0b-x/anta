@@ -13,6 +13,7 @@ import 'package:anta/services/sync/sync_engine.dart';
 import 'package:anta/services/sync/sync_gateway.dart';
 import 'package:anta/services/sync/sync_status.dart';
 import 'package:anta/services/sync/sync_tables.dart';
+import 'package:anta/services/sync/tables/calendar_categories_binding.dart';
 import 'package:anta/services/sync/tables/folders_binding.dart';
 
 import 'support/sync_pair.dart';
@@ -902,6 +903,103 @@ void main() {
 
       await a().sync();
       expect(await markHere(), 'pair-1');
+    });
+  });
+
+  group('a database that last ran below the wire that carries a '
+      'category\'s mark', () {
+    const category = 'c1';
+
+    /// The space holds the category marked, at the stamp this device stored
+    /// it under — marked by a newer build, merged here by one at wire 47 —
+    /// and this device's cursors have passed it, the folders' too.
+    setUp(() async {
+      await a().db.calendarCategoryDao.insertCategory(
+        CalendarCategoriesCompanion.insert(
+          id: category,
+          name: 'Climb',
+          colorValue: 0xFF336699,
+          iconKey: 'event',
+          createdAt: DateTime.utc(2026, 6, 1),
+          updatedAt: DateTime.utc(2026, 6, 1),
+        ),
+      );
+      await a().sync();
+      const binding = CalendarCategoriesBinding();
+      final stored = (await a().db.calendarCategoryDao
+          .getByIdsIncludingDeleted([category])).single;
+      pair.gateway.plant(
+        pair.space,
+        await binding.encode(
+          a().db,
+          stored.copyWith(
+            sharedPair: const Value('pair-1'),
+            sharedStamp: Value(stored.hlcTimestamp),
+          ),
+          boundUid: syncUid,
+        ),
+        pushedBy: 'B',
+      );
+      for (final table in ['calendar_categories', 'folders']) {
+        await a().db.syncDao.setValue(SyncDao.keyPullCursor(table), '999');
+      }
+    });
+
+    Future<String?> markHere() async => (await a().db.calendarCategoryDao
+        .getByIdsIncludingDeleted([category])).single.sharedPair;
+
+    test('at 47 reads the categories again from the start, once, and only '
+        'them: the mark a row was merged without is taken, nothing is '
+        'queued or pushed', () async {
+      await a().db.syncDao.setValue(
+        SyncDao.keyWireVersion,
+        '${DatabaseSchema.categoryShareWireVersion - 1}',
+      );
+      pair.gateway.pushes.clear();
+
+      final report = await a().sync();
+
+      expect(report.failure, isNull);
+      expect(await markHere(), 'pair-1');
+      expect(pair.gateway.pushes, isEmpty);
+      expect(
+        await a().db.syncDao.getValue(SyncDao.keyWireVersion),
+        '$syncSchema',
+      );
+      expect(
+        await a().db.syncDao.getValue(SyncDao.keyPullCursor('folders')),
+        '999',
+        reason: 'a 47 database read the folders\' marks already',
+      );
+    });
+
+    test('below 47 reads the categories again with the events and the '
+        'folders', () async {
+      await a().db.syncDao.setValue(
+        SyncDao.keyWireVersion,
+        '${DatabaseSchema.shareWireVersion - 1}',
+      );
+
+      expect((await a().sync()).failure, isNull);
+
+      expect(await markHere(), 'pair-1');
+      expect(
+        await a().db.syncDao.getValue(SyncDao.keyPullCursor('folders')),
+        isNot('999'),
+      );
+    });
+
+    test('at 48 does not: the cursor stands, and so does the row as it was '
+        'merged', () async {
+      await a().sync();
+
+      expect(await markHere(), isNull);
+      expect(
+        await a().db.syncDao.getValue(
+          SyncDao.keyPullCursor('calendar_categories'),
+        ),
+        '999',
+      );
     });
   });
 

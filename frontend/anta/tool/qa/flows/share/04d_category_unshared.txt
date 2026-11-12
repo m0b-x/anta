@@ -1,0 +1,28 @@
+# The owner makes the category private again (§12 item 1): at the
+# partner's next sync every event of it leaves — on the open page, the
+# day panel and the Upcoming list alike — while the copy the partner made
+# in 04c stays, now the only "Core circuit" and no longer the partner's.
+share category "Power" --off
+tap id:sharing-sync-now --settle 3000
+expect id:sharing-sync-status "Up to date" --timeout 60
+-d emulator-5558 tap id:sharing-sync-now
+-d emulator-5558 expect id:sharing-sync-status "Up to date" --timeout 60
+-d emulator-5558 key back
+-d emulator-5558 wait id:create-folder
+-d emulator-5558 tap id:nav-menu
+-d emulator-5558 wait id:drawer-calendar
+-d emulator-5558 tap id:drawer-calendar
+-d emulator-5558 wait id:calendar-add-event
+-d emulator-5558 tap id:panel-mode-day --settle 1000
+-d emulator-5558 expect "Core circuit" --absent "From qa1@example.com" --timeout 30
+-d emulator-5558 tap id:panel-mode-upcoming
+-d emulator-5558 expect --absent "Lifting session" --absent "Power" --absent id:agenda-card-days-category-qa-category-strength --timeout 30
+-d emulator-5558 shot category-unshared
+-d emulator-5558 key back
+-d emulator-5558 wait id:create-folder
+-d emulator-5558 tap id:nav-menu
+-d emulator-5558 wait id:drawer-account
+-d emulator-5558 tap id:drawer-account
+-d emulator-5558 wait id:settings-bar-sharing
+-d emulator-5558 errors
+errors

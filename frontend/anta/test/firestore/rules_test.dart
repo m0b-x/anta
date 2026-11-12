@@ -1941,7 +1941,9 @@ void main() {
           'calendar_event_alerts',
           'counters',
           'counter_values',
-          'calendar_categories',
+          'calendar_category_alerts',
+          'calendar_category_profiles',
+          'calendar_event_templates',
           'content_chunks',
         ]) {
           expect(
@@ -2239,6 +2241,13 @@ void main() {
         expect(
           await _pushSharing([
             _row(uidA, 's1', 'folders', 'shared', fields: _share('p1')),
+            _row(
+              uidA,
+              's1',
+              'calendar_categories',
+              'shared',
+              fields: _share('p1', wire: 48),
+            ),
             _row(uidA, 's1', 'content_chunks', 'h1'),
           ], sharedPair: 'p1'),
           200,
@@ -2246,19 +2255,23 @@ void main() {
         );
       }
 
-      Future<void> expectNothingFor(String? uid, {String? reason}) async {
+      Future<void> expectNothingFor(
+        String? uid, {
+        String? reason,
+        String table = 'folders',
+      }) async {
         final listed = await _runShared(
-          _sharedQuery('folders', pair: 'p1', owner: uidA),
+          _sharedQuery(table, pair: 'p1', owner: uidA),
           uid: uid,
         );
         expect(listed.status, 403, reason: reason);
         final counted = await _countShared(
-          _sharedQuery('folders', pair: 'p1', owner: uidA),
+          _sharedQuery(table, pair: 'p1', owner: uidA),
           uid: uid,
         );
         expect(counted.status, 403, reason: reason);
         expect(
-          await _get('${_spaceDoc(uidA, 's1')}/folders/shared', uid: uid),
+          await _get('${_spaceDoc(uidA, 's1')}/$table/shared', uid: uid),
           403,
           reason: reason,
         );
@@ -2273,6 +2286,16 @@ void main() {
         await seedShared();
         await expectNothingFor(uidC, reason: 'not a member of the pair');
         await expectNothingFor(null, reason: 'not signed in');
+        await expectNothingFor(
+          uidC,
+          reason: 'a category, to a stranger',
+          table: 'calendar_categories',
+        );
+        await expectNothingFor(
+          null,
+          reason: 'a category, signed out',
+          table: 'calendar_categories',
+        );
       });
 
       test('the partner, once the pair is ended — at once, with the '
@@ -2285,9 +2308,21 @@ void main() {
           )).status,
           200,
         );
+        expect(
+          (await _runShared(
+            _sharedQuery('calendar_categories', pair: 'p1', owner: uidA),
+            uid: uidB,
+          )).keys,
+          ['shared'],
+        );
         await _seedPair('p1', status: 'ended');
 
         await expectNothingFor(uidB, reason: 'the pair is ended');
+        await expectNothingFor(
+          uidB,
+          reason: 'a category, the pair ended',
+          table: 'calendar_categories',
+        );
       });
 
       test('the partner, once the pair is removed by an account\'s '
@@ -2361,6 +2396,310 @@ void main() {
 
         await expectNothingFor(uidB, reason: 'the owner is not in this pair');
         await expectNothingFor(uidC, reason: 'the owner is not in this pair');
+      });
+    });
+
+    // A category is a root of a grant (docs/cloud-share-surfaces-roadmap.md
+    // §7): its own document carries its mark, and an event without a mark
+    // of its own carries its category's, derived when it is encoded.
+    group('a category', () {
+      const table = 'calendar_categories';
+
+      /// Space `s1` of uidA: the category `shared` and its tombstone `gone`
+      /// shared into `p1`, `private` shared with nobody, and `other` shared
+      /// into `p2` — the pair of B and C, which does not hold the owner.
+      Future<void> seed() async {
+        await _seedPair('p1');
+        await _seedPair('p2', members: const [uidB, uidC]);
+        await _seedSpace(schema: 48);
+        expect(
+          await _pushSharing(
+            [
+              _row(uidA, 's1', table, 'shared', fields: _share('p1', wire: 48)),
+              _row(
+                uidA,
+                's1',
+                table,
+                'gone',
+                fields: {
+                  ..._share('p1', wire: 48),
+                  'op': _s('tombstone'),
+                  'data': _nul,
+                },
+              ),
+              _row(uidA, 's1', table, 'private'),
+              _row(uidA, 's1', table, 'other', fields: _share('p2', wire: 48)),
+            ],
+            sharedPair: 'p1',
+            schema: 48,
+            table: table,
+          ),
+          200,
+          reason: 'seed',
+        );
+      }
+
+      test('the partner\'s query and its count: the shared one and its '
+          'tombstone, never a private one or one of another pair', () async {
+        await seed();
+        final read = await _runShared(
+          _sharedQuery(table, pair: 'p1', owner: uidA),
+          uid: uidB,
+        );
+        expect(read.status, 200);
+        expect(read.keys, unorderedEquals(['shared', 'gone']));
+        final counted = await _countShared(
+          _sharedQuery(table, pair: 'p1', owner: uidA),
+          uid: uidB,
+        );
+        expect(counted.status, 200);
+        expect(counted.count, 2);
+        expect(
+          await _get('${_spaceDoc(uidA, 's1')}/$table/shared', uid: uidB),
+          200,
+        );
+        expect(
+          await _get('${_spaceDoc(uidA, 's1')}/$table/private', uid: uidB),
+          403,
+        );
+      });
+
+      test('a query without the pair filter, or without the owner, is '
+          'refused whole', () async {
+        await seed();
+        expect(
+          (await _runShared(
+            _sharedQuery(table, pair: null, owner: uidA),
+            uid: uidB,
+          )).status,
+          403,
+        );
+        expect(
+          (await _countShared(
+            _sharedQuery(table, pair: null, owner: uidA),
+            uid: uidB,
+          )).status,
+          403,
+        );
+        expect(
+          (await _runShared(
+            _sharedQuery(table, pair: 'p1', owner: null),
+            uid: uidB,
+          )).status,
+          403,
+        );
+      });
+
+      test('a category naming a pair its owner is not in is read by nobody, '
+          'whoever is in that pair', () async {
+        await seed();
+        for (final uid in const [uidB, uidC]) {
+          expect(
+            (await _runShared(
+              _sharedQuery(table, pair: 'p2', owner: uidA),
+              uid: uid,
+            )).status,
+            403,
+            reason: uid,
+          );
+          expect(
+            await _get('${_spaceDoc(uidA, 's1')}/$table/other', uid: uid),
+            403,
+            reason: uid,
+          );
+        }
+      });
+
+      test('the partner writes none: not the owner\'s category, not a '
+          'category of its own in the owner\'s space, not a delete', () async {
+        await seed();
+        expect(
+          await _commit([
+            _row(uidA, 's1', table, 'shared', fields: _share('p1', wire: 48)),
+          ], uid: uidB),
+          403,
+        );
+        expect(
+          await _commit([
+            _row(uidA, 's1', table, 'mine', fields: {'ownerId': _s(uidB)}),
+          ], uid: uidB),
+          403,
+        );
+        expect(
+          await _commit([
+            _delete('${_spaceDoc(uidA, 's1')}/$table/shared'),
+          ], uid: uidB),
+          403,
+        );
+      });
+
+      test('an event shared only through its category is read as long as its '
+          'document names the pair, and not once the owner sends it '
+          'without', () async {
+        await seed();
+        Map<String, Object?> event(
+          String key,
+          String category, {
+          String? pair,
+        }) => _row(
+          uidA,
+          's1',
+          'calendar_events',
+          key,
+          fields: {
+            'data': _map({
+              'id': _s(key),
+              'title': _s('Climb'),
+              'category': _s(category),
+            }),
+            if (pair != null) ..._share(pair, wire: 48),
+          },
+        );
+        expect(
+          await _pushSharing(
+            [
+              event('through', 'shared', pair: 'p1'),
+              event('beside', 'private'),
+            ],
+            sharedPair: 'p1',
+            schema: 48,
+            table: 'calendar_events',
+          ),
+          200,
+        );
+        final eventPath = '${_spaceDoc(uidA, 's1')}/calendar_events';
+        expect(
+          (await _runShared(
+            _sharedQuery('calendar_events', pair: 'p1', owner: uidA),
+            uid: uidB,
+          )).keys,
+          ['through'],
+        );
+        expect(await _get('$eventPath/through', uid: uidB), 200);
+        expect(await _get('$eventPath/beside', uid: uidB), 403);
+
+        // The category's mark cleared: the owner re-sends it and its events
+        // without the pair.
+        expect(
+          await _pushSharing(
+            [_row(uidA, 's1', table, 'shared'), event('through', 'shared')],
+            sharedPair: 'p1',
+            schema: 48,
+            table: 'calendar_events',
+          ),
+          200,
+        );
+        expect(await _get('$eventPath/through', uid: uidB), 403);
+        expect(
+          await _get('${_spaceDoc(uidA, 's1')}/$table/shared', uid: uidB),
+          403,
+        );
+        expect(
+          (await _runShared(
+            _sharedQuery('calendar_events', pair: 'p1', owner: uidA),
+            uid: uidB,
+          )).keys,
+          isEmpty,
+        );
+      });
+
+      test('a plain listing of the owner\'s categories by the partner is '
+          'refused whole', () async {
+        await seed();
+        final listed = await _call(
+          'GET',
+          '$_base/${_spaceDoc(uidA, 's1')}/$table',
+          uid: uidB,
+        );
+        expect(listed.status, 403);
+      });
+
+      test('the pair\'s query on a category\'s alerts, profiles and '
+          'templates is refused: they are never shared', () async {
+        await seed();
+        for (final never in const [
+          'calendar_category_alerts',
+          'calendar_category_profiles',
+          'calendar_event_templates',
+        ]) {
+          expect(
+            await _pushSharing(
+              [_row(uidA, 's1', never, 'k1')],
+              sharedPair: 'p1',
+              schema: 48,
+              table: never,
+            ),
+            200,
+            reason: 'seed $never',
+          );
+          final read = await _runShared(
+            _sharedQuery(never, pair: 'p1', owner: uidA),
+            uid: uidB,
+          );
+          expect(read.status, 403, reason: never);
+          expect(read.keys, isEmpty, reason: never);
+        }
+      });
+
+      test('a push at the schema before the category\'s mark, into a space '
+          'already at it, is refused', () async {
+        await seed();
+        expect(
+          await _pushSharing(
+            [_row(uidA, 's1', table, 'private')],
+            sharedPair: 'p1',
+            schema: 47,
+            table: table,
+          ),
+          403,
+        );
+        expect(
+          await _pushSharing(
+            [_row(uidA, 's1', 'calendar_events', 'ev47')],
+            sharedPair: null,
+            schema: 47,
+            table: 'calendar_events',
+          ),
+          403,
+        );
+      });
+
+      test('the partner cannot add the pair to a private category', () async {
+        await seed();
+        expect(
+          await _commit([
+            {
+              'update': {
+                'name': '$_docRoot/${_spaceDoc(uidA, 's1')}/$table/private',
+                'fields': {'sharedPair': _s('p1')},
+              },
+              'updateMask': {
+                'fieldPaths': ['sharedPair'],
+              },
+            },
+          ], uid: uidB),
+          403,
+        );
+        expect(
+          await _get('${_spaceDoc(uidA, 's1')}/$table/private', uid: uidB),
+          403,
+        );
+      });
+
+      test('once the pair ends, the partner reads and counts none of '
+          'them', () async {
+        await seed();
+        await _seedPair('p1', status: 'ended');
+        expect(
+          await _get('${_spaceDoc(uidA, 's1')}/$table/shared', uid: uidB),
+          403,
+        );
+        final counted = await _countShared(
+          _sharedQuery(table, pair: 'p1', owner: uidA),
+          uid: uidB,
+        );
+        expect(counted.status, 403);
+        expect(counted.count, isNull);
       });
     });
   });

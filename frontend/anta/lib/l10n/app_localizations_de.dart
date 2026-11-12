@@ -4871,7 +4871,8 @@ class AppLocalizationsDe extends AppLocalizations {
   String get syncHeldBackAwaitingText => 'Wartet auf den Text';
 
   @override
-  String get syncHeldBackSharedParent => 'Wartet auf Ordner oder Termin';
+  String get syncHeldBackSharedParent =>
+      'Wartet auf Ordner, Termin oder Kategorie';
 
   @override
   String get syncHeldBackUnreadable => 'Aus der Cloud-Kopie nicht lesbar';

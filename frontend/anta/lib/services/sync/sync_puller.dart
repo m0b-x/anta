@@ -815,13 +815,17 @@ class _Puller {
     }
   }
 
-  /// Where a row of each shareable table names its parent in its document:
-  /// the parent's table and the key in `data`.
+  /// Where a row names, in its document, a parent that can be a shared row:
+  /// the parent's table and the key in `data`. A template is never shared,
+  /// yet names a category, which can be — so it is held back like an event,
+  /// and never evicts anything.
   static const Map<String, ({String table, String key})> _sharedParents = {
     'notes': (table: 'folders', key: JsonKeys.folderId),
     'folders': (table: 'folders', key: JsonKeys.parentId),
+    'calendar_events': (table: 'calendar_categories', key: 'category'),
     'calendar_event_occurrences': (table: 'calendar_events', key: 'eventId'),
     'calendar_event_skips': (table: 'calendar_events', key: 'eventId'),
+    'calendar_event_templates': (table: 'calendar_categories', key: 'category'),
   };
 
   /// Takes out of the way the rows another account shared that a page of
@@ -834,7 +838,8 @@ class _Puller {
   /// turn into nothing — and the own row would never land here.
   ///
   /// Returns the ids the page's rows name as their **parent** — a note's or
-  /// a folder's folder, a day row's event — that are held here as shared.
+  /// a folder's folder, a day row's event, an event's or a template's
+  /// category — that are held here as shared.
   /// Such a row is not stored now ([SharedParentHeld]): under the shared
   /// row the fences would refuse it while the merge counted it as stored
   /// and the cursor passed it for good, and evicting the parent for it does
@@ -859,10 +864,21 @@ class _Puller {
   ) async {
     const none = (held: <String>{}, evicted: <String>[]);
     final name = table.table;
-    if (envelopes.isEmpty || !sharedTables.contains(name)) return none;
+    final above = _sharedParents[name];
+    final shareable = sharedTables.contains(name);
+    if (envelopes.isEmpty || (!shareable && above == null)) return none;
     final db = _e._db;
     if (await db.sharedRowDao.owner() == null) return none;
-    final above = _sharedParents[name];
+    if (!shareable) {
+      // No shared row is ever stored under this table's keys: there is
+      // nothing to make room for, only rows to hold back.
+      return (
+        held: (await db.sharedRowDao.sharedAmong(above!.table, [
+          ...{for (final envelope in envelopes) ?_parentOf(name, envelope)},
+        ])).toSet(),
+        evicted: const <String>[],
+      );
+    }
     final (evicted, held) = await db.transaction(() async {
       await _checkStillBound(bound);
       var held = above == null
@@ -946,11 +962,11 @@ class _Puller {
   /// wrote each document, and when.
   ///
   /// A document says who may read it as of the push that wrote it, and that
-  /// is read off the event or the folder the row hangs under, not off the
-  /// row. So a device that pushed a row before it knew of a change of that
-  /// root wrote the old answer — a share the owner has since ended, in the
-  /// case that matters most — and a merge, which settles the row, retires
-  /// the very entry that would have said the new one.
+  /// is read off the category, the event or the folder the row hangs under,
+  /// not off the row. So a device that pushed a row before it knew of a
+  /// change of that root wrote the old answer — a share the owner has since
+  /// ended, in the case that matters most — and a merge, which settles the
+  /// row, retires the very entry that would have said the new one.
   ///
   /// The two directions are not weighed alike. A document that names a pair
   /// while the row is private here is always said again: a share that
@@ -974,6 +990,11 @@ class _Puller {
   ///   days. Otherwise that pusher says it again itself once it merges the
   ///   root. The two clocks differ by a device's skew, inside which a share
   ///   may wait for the row's next push.
+  ///
+  /// Neither is said for a tombstone this device never held the row of
+  /// ([SyncTableBinding.unheldTombstones]): it cannot know the grant, and
+  /// its data-less document discloses nothing but the delete the partner
+  /// has to hear of.
   ///
   /// Each is queued as a republish: the space holds this version of the
   /// row, so a newer remote landing before the push files no copy of it.
@@ -1001,8 +1022,10 @@ class _Puller {
         if (shared[envelope.rowKey] != envelope.sharedPair) envelope,
     ];
     if (differing.isEmpty) return;
+    final unheld = table.unheldTombstones(rows);
     Map<String, String>? decided;
     for (final envelope in differing) {
+      if (unheld.contains(envelope.rowKey)) continue;
       final push = pushed[envelope.rowKey];
       if (shared[envelope.rowKey] != null && push?.by != _e._deviceId) {
         final at = push?.at;

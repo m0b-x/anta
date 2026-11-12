@@ -150,6 +150,19 @@ class SharedRowDao extends DatabaseAccessor<AppDatabase>
     }
   }
 
+  /// Whether the category under [id] (an SQL expression) is one another
+  /// account shares with this one, as a column of a writer's own read of
+  /// its row: an event or a template of the person's own saved into such a
+  /// category is skipped by the fences while the writer would stamp, queue
+  /// and answer "saved", so the writer asks first and throws
+  /// [SharedRowException] — at no statement of its own. `=` rather than
+  /// `IS`: with no shared account the comparison is NULL, never a match on
+  /// a category of the person's own that names no owner.
+  static String partnersCategorySql(String id) =>
+      'EXISTS(SELECT 1 FROM calendar_categories theirs WHERE theirs.id = $id '
+      'AND theirs.owner_id = (SELECT value FROM sync_metadata '
+      "WHERE key = '${SyncDao.keySharedOwner}'))";
+
   /// The keys among [keys] under which this database holds a shared row of
   /// [table] — asked by the account's own pull before it merges a page, so
   /// a row of its own space is never kept out by a shared row that took its
@@ -337,33 +350,156 @@ class SharedRowDao extends DatabaseAccessor<AppDatabase>
   /// copied a row it was once given — and a shared row must then stand
   /// back: taking the place of that row, or hanging under it, would hand
   /// the person's own data to the next "no longer shared".
+  ///
+  /// A category id is the person's by use as well: an event or a template
+  /// of theirs that names it — a category deleted long ago, or one restored
+  /// from a backup the partner restored too — would draw as the partner's,
+  /// leave the .ics export, and be held back at its next version from the
+  /// person's own space. Tombstones count, here as for the row itself: a
+  /// stored partner's tombstone would fence the id as a live one does. Still
+  /// one statement, and only for a category document.
   Future<bool> holdsOther(String table, String id, String owner) async {
     final synced = _shared(table);
+    final byUse = table == 'calendar_categories'
+        ? ' OR EXISTS(SELECT 1 FROM calendar_events '
+              'WHERE category = ?1 AND owner_id IS NOT ?2) '
+              'OR EXISTS(SELECT 1 FROM calendar_event_templates '
+              'WHERE category = ?1 AND owner_id IS NOT ?2)'
+        : '';
     final row = await customSelect(
       'SELECT EXISTS(SELECT 1 FROM ${synced.name} '
-      'WHERE id = ?1 AND owner_id IS NOT ?2) AS held',
+      'WHERE id = ?1 AND owner_id IS NOT ?2)$byUse AS held',
       variables: [Variable<String>(id), Variable<String>(owner)],
-      readsFrom: {_tableOf(table)},
+      readsFrom: {
+        _tableOf(table),
+        if (byUse.isNotEmpty) ...[calendarEvents, db.eventTemplates],
+      },
     ).getSingle();
     return row.read<bool>('held');
   }
 
   /// How many rows of [table] this database holds of [owner]'s, tombstones
-  /// included: what the server's count of the same share is compared with.
+  /// included, and how many of the partner's documents it knows it does not
+  /// store ([recorded]): what the server's count of the same share is
+  /// compared with. Counting the recorded ones is what lets a refused
+  /// document's leave be found as a stored row's is.
   Future<int> countOf(String table, String owner) async {
     final row = await customSelect(
       'SELECT COUNT(*) AS c FROM ${_shared(table).name} WHERE owner_id = ?',
       variables: [Variable<String>(owner)],
       readsFrom: {_tableOf(table)},
     ).getSingle();
-    return row.read<int>('c');
+    return row.read<int>('c') + (await recorded(table)).length;
   }
+
+  /// The value of a record ([SyncDao.keySharedRefused],
+  /// [SyncDao.keySharedBuiltIn]) of a live document.
+  static const String _liveRecord = '1';
+
+  /// The value of a record of a document that is a tombstone.
+  static const String _tombstoneRecord = '0';
+
+  /// The tables whose rows a person would name — "{n} items could not be
+  /// shown" counts their refused documents alone. An event's day rows are
+  /// refused with their event, and counting them would read fifty-one for
+  /// one event with fifty skipped days.
+  static const Set<String> _namedTables = {
+    'calendar_categories',
+    'calendar_events',
+    'folders',
+    'notes',
+  };
+
+  /// The keys of [table]'s shared documents this database knows of and does
+  /// not store, tombstones included: refused for a row of the person's own
+  /// ([SyncDao.keySharedRefused]), and for `calendar_categories` the
+  /// built-ins the partner shares ([SyncDao.keySharedBuiltIn]). One read.
+  Future<Set<String>> recorded(String table) async {
+    final refused = SyncDao.keySharedRefused(table, '');
+    const builtIn = SyncDao.sharedBuiltInPrefix;
+    return {
+      for (final (key, _) in await db.syncDao.valuesByPrefixes([
+        refused,
+        if (table == 'calendar_categories') builtIn,
+      ]))
+        key.startsWith(refused)
+            ? key.substring(refused.length)
+            : key.substring(builtIn.length),
+    };
+  }
+
+  /// Records what became of the partner's document [rowKey] of [table] that
+  /// was refused — apart, when it is a built-in category ([builtIn]). A live
+  /// one is not shown, and is counted. A tombstone is nothing to show, and
+  /// is still recorded: the server's count of the share holds its document,
+  /// and forgetting it here would let it mask a later leave ([countOf]).
+  Future<void> noteRefused(
+    String table,
+    String rowKey, {
+    required bool live,
+    bool builtIn = false,
+  }) async {
+    await db.syncDao.setValue(
+      builtIn
+          ? SyncDao.keySharedBuiltIn(rowKey)
+          : SyncDao.keySharedRefused(table, rowKey),
+      live ? _liveRecord : _tombstoneRecord,
+    );
+  }
+
+  /// Forgets that the documents [rowKeys] of [table] were refused: they are
+  /// stored now. Nothing for no keys; else one delete per
+  /// [CrdtMerge.keysPerStatement] keys and no read, so the records are read
+  /// once per table in a shared read — by [countOf] — however many pages
+  /// it stored.
+  Future<void> noteStored(String table, Iterable<String> rowKeys) async {
+    final keys = [
+      for (final rowKey in rowKeys) SyncDao.keySharedRefused(table, rowKey),
+    ];
+    for (var at = 0; at < keys.length; at += CrdtMerge.keysPerStatement) {
+      final chunk = keys.skip(at).take(CrdtMerge.keysPerStatement).toList();
+      await (delete(syncMetadata)..where((s) => s.key.isIn(chunk))).go();
+    }
+  }
+
+  /// How many of the partner's live documents are not shown here because a
+  /// row of the person's own holds their id — "{n} items could not be
+  /// shown": categories, events, folders and notes ([_namedTables]). A
+  /// built-in category is never one of them: it is shown, as the person's
+  /// own.
+  Future<int> refusedCount() async {
+    const prefix = SyncDao.sharedRefusedPrefix;
+    var count = 0;
+    for (final (key, value) in await db.syncDao.valuesByPrefix(prefix)) {
+      final table = key.substring(prefix.length, key.indexOf('|'));
+      if (value == _liveRecord && _namedTables.contains(table)) count++;
+    }
+    return count;
+  }
+
+  /// The built-in categories the partner shares, by id: never stored here,
+  /// since the person's own row under each draws the partner's events too.
+  /// A built-in's tombstone is no category received.
+  Future<Set<String>> sharedBuiltIns() async => {
+    for (final (key, value) in await db.syncDao.valuesByPrefix(
+      SyncDao.sharedBuiltInPrefix,
+    ))
+      if (value == _liveRecord)
+        key.substring(SyncDao.sharedBuiltInPrefix.length),
+  };
 
   /// Removes the rows of [table] this database holds of [owner]'s whose key
   /// is not among [kept] — the keys a read of the whole share just returned
   /// — and says what it removed. A removed note's text goes with it; what
   /// the person added of their own to a removed row (presence marks,
   /// alerts, counter values) is theirs and stays.
+  ///
+  /// So does a category alert or a category profile of the person's own on
+  /// a removed partner's category: stored, still synced in their own space,
+  /// and inert while no category draws under that id — exactly as their
+  /// alerts on a shared event that left. Nothing lists it meanwhile (the
+  /// Alerts hub lists armed entries alone), and it applies again if that
+  /// category is shared again.
   Future<SharedRemovals> removeAbsent(
     String table,
     String owner,
@@ -371,6 +507,13 @@ class SharedRowDao extends DatabaseAccessor<AppDatabase>
   ) {
     return writing(() async {
       final synced = _shared(table);
+      for (final key in await recorded(table)) {
+        if (kept.contains(key)) continue;
+        await db.syncDao.deleteValue(SyncDao.keySharedRefused(table, key));
+        if (table == 'calendar_categories') {
+          await db.syncDao.deleteValue(SyncDao.keySharedBuiltIn(key));
+        }
+      }
       final held = await customSelect(
         'SELECT ${synced.rowKeySql} AS k FROM ${synced.name} '
         'WHERE owner_id = ?',
@@ -393,7 +536,8 @@ class SharedRowDao extends DatabaseAccessor<AppDatabase>
   /// rows from, with everything the reader stored about them, and says what
   /// it removed — nothing when it held none. The grant ended: the pair did,
   /// another partner took its place, or this database stopped syncing and
-  /// nothing would keep the rows true.
+  /// nothing would keep the rows true. What the person keeps of their own
+  /// on those rows stays, as [removeAbsent] says.
   Future<SharedRemovals> removeAll() {
     return writing(() async {
       final owner = await this.owner();
@@ -413,6 +557,8 @@ class SharedRowDao extends DatabaseAccessor<AppDatabase>
       await dao.deleteByPrefix(SyncDao.sharedCursorPrefix);
       await dao.deleteByPrefix(SyncDao.sharedWaitingPrefix);
       await dao.deleteByPrefix(SyncDao.sharedRootPrefix);
+      await dao.deleteByPrefix(SyncDao.sharedRefusedPrefix);
+      await dao.deleteByPrefix(SyncDao.sharedBuiltInPrefix);
       // Every shared folder went, so none was left to place.
       return SharedRemovals(removed, const []);
     });

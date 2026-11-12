@@ -108,7 +108,7 @@ void main() {
   test('the space carries the wire version, never above the local one', () {
     expect(
       DatabaseSchema.syncSchemaVersion,
-      47,
+      48,
       reason:
           'raised only with a wire change and this file\'s snapshot; a '
           'local-only migration leaves it, or every older device pauses as '
@@ -1233,6 +1233,59 @@ void main() {
     expect(exported.containsKey('sharedStamp'), isFalse);
   });
 
+  test('a marked category adds its mark and the mark\'s stamp and nothing '
+      'else, decodes with them, keeps the stamp once the mark is taken '
+      'away, and its backup map carries neither (wire 48)', () async {
+    const binding = CalendarCategoriesBinding();
+    addTearDown(CategoryService.reset);
+    await db.calendarCategoryDao.insertCategory(
+      CalendarCategoriesCompanion.insert(
+        id: 'c1',
+        name: 'Climb',
+        colorValue: 0xFF00FF00,
+        iconKey: 'event',
+        createdAt: created,
+        updatedAt: updated,
+      ),
+    );
+    final plain = await encodeStored(binding, 'c1');
+    await db.calendarCategoryDao.setSharedPair('c1', 'p1');
+
+    final envelope = await encodeStored(binding, 'c1');
+
+    expect(envelope.data!.keys.toSet(), {
+      ...plain.data!.keys,
+      'sharedPair',
+      'sharedStamp',
+    }, reason: _wireChanged);
+    expect(envelope.data!['sharedPair'], 'p1');
+    expect(envelope.data!['sharedStamp'], envelope.hlc);
+    expect(binding.decode(envelope).sharedPair, 'p1');
+    expect(binding.decode(envelope).sharedStamp, envelope.hlc);
+    expect(binding.decode(plain).sharedPair, isNull);
+    expect(binding.decode(plain).sharedStamp, isNull);
+    expect(
+      () => binding.decode(
+        carrying(envelope, {...envelope.data!, 'sharedPair': 7}),
+      ),
+      throwsFormatException,
+    );
+
+    await db.calendarCategoryDao.setSharedPair('c1', null);
+    final cleared = await encodeStored(binding, 'c1');
+    expect(cleared.data!.keys.toSet(), {
+      ...plain.data!.keys,
+      'sharedStamp',
+    }, reason: _wireChanged);
+    expect(cleared.data!['sharedStamp'], cleared.hlc);
+
+    final exported = (await (await CategoryService.forTesting(
+      db,
+    )).exportData()).singleWhere((map) => map['id'] == 'c1');
+    expect(exported.containsKey('sharedPair'), isFalse);
+    expect(exported.containsKey('sharedStamp'), isFalse);
+  });
+
   // The EU spring-forward day: the day keys must survive a DST switch.
   final day = DateTime.utc(2026, 3, 29);
   final dayKey = dayRowKey('e1', day);
@@ -1697,10 +1750,12 @@ const String _wireChanged =
 /// the wire, one immutable document per chunk text.
 ///
 /// Wire 47 (`docs/cloud-sharing-foundations.md` §4): an event and a folder
-/// that carry a share mark write it under `sharedPair`, a key absent from
+/// that carry a share mark write it under `sharedPair` — and since wire 48 a
+/// category (`docs/cloud-share-surfaces-roadmap.md` §7.4) — a key absent from
 /// every other row — so it is not in the sets below, which are an unmarked
-/// row's; the folders group and the marked-event case above pin it for a
-/// marked one, and `sync_share_push_test.dart` what the documents say.
+/// row's; the folders group and the marked-event and marked-category cases
+/// above pin it for a marked one, and `sync_share_push_test.dart` what the
+/// documents say.
 const Map<String, Set<String>> _wireKeys = {
   'content_chunks': {'hash', 'gz', 'length'},
   'calendar_categories': {

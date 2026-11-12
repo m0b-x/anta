@@ -1,0 +1,94 @@
+# The owner deletes a shared category (§8.2 C8, §12 item 2): Power is
+# shared again and its two events seen; deleted from the Categories page
+# with its events moved to Cardio, which is private, they leave the
+# partner's calendar at its next sync.
+# - The move goes to Cardio, not the sheet's default Other: the partner's
+#   copy from 04c sits in its own Other, and 05 needs the event it shares
+#   again to stand alone in its category on the partner's Upcoming list.
+share category "Power"
+tap id:sharing-sync-now --settle 3000
+expect id:sharing-sync-status "Up to date" --timeout 60
+-d emulator-5558 tap id:sharing-sync-now
+-d emulator-5558 expect id:sharing-sync-status "Up to date" --timeout 60
+-d emulator-5558 key back
+-d emulator-5558 wait id:create-folder
+-d emulator-5558 tap id:nav-menu
+-d emulator-5558 wait id:drawer-calendar
+-d emulator-5558 tap id:drawer-calendar
+-d emulator-5558 wait id:calendar-add-event
+-d emulator-5558 tap id:panel-mode-day --settle 1000
+-d emulator-5558 tap id:panel-mode-upcoming
+-d emulator-5558 wait id:agenda-card-days-category-qa-category-strength --timeout 30
+-d emulator-5558 expect "Power" --timeout 15
+# The owner deletes Power, moving its events to Cardio.
+key back
+wait id:create-folder
+tap id:nav-menu
+wait id:drawer-calendar
+tap id:drawer-calendar
+wait id:calendar-add-event
+tap id:calendar-more
+wait id:calendar-settings-open
+tap id:calendar-settings-open
+wait id:calendar-add-event --gone
+tap id:calendar-categories-open
+wait id:category-add
+scroll-to id:category-row-qa-category-strength
+tap id:category-menu-qa-category-strength
+wait id:category-menu-delete
+tap id:category-menu-delete
+wait id:category-delete-confirm
+# The sheet glues a count to its noun with a no-break space (U+00A0), and
+# a plain space never matches it: the target below carries one.
+expect "2 events"
+# The picker is still sliding in when its rows first appear: a tap then
+# lands beside Cardio, so the open holds 1 s.
+tap id:category-delete-target --settle 1000
+wait id:category-pick-cardio
+tap id:category-pick-cardio
+wait id:category-delete-confirm
+expect id:category-delete-target "Cardio"
+shot delete-sheet
+tap id:category-delete-confirm
+wait id:category-delete-confirm --gone
+expect --absent id:category-row-qa-category-strength --timeout 10
+key back
+wait id:calendar-categories-open
+key back
+wait id:calendar-add-event
+key back
+wait id:create-folder
+tap id:nav-menu
+wait id:drawer-account
+tap id:drawer-account
+wait id:settings-bar-sharing
+tap id:sharing-sync-now --settle 3000
+expect id:sharing-sync-status "Up to date" --timeout 60
+-d emulator-5558 key back
+-d emulator-5558 wait id:create-folder
+-d emulator-5558 tap id:nav-menu
+-d emulator-5558 wait id:drawer-account
+-d emulator-5558 tap id:drawer-account
+-d emulator-5558 wait id:settings-bar-sharing
+-d emulator-5558 tap id:sharing-sync-now
+-d emulator-5558 expect id:sharing-sync-status "Up to date" --timeout 60
+-d emulator-5558 key back
+-d emulator-5558 wait id:create-folder
+-d emulator-5558 tap id:nav-menu
+-d emulator-5558 wait id:drawer-calendar
+-d emulator-5558 tap id:drawer-calendar
+-d emulator-5558 wait id:calendar-add-event
+-d emulator-5558 tap id:panel-mode-day --settle 1000
+-d emulator-5558 tap id:panel-mode-upcoming
+-d emulator-5558 expect --absent "Lifting session" --absent "Power" --absent id:agenda-card-days-category-qa-category-strength --timeout 30
+-d emulator-5558 tap id:panel-mode-day
+-d emulator-5558 expect "Core circuit" --absent "From qa1@example.com" --timeout 15
+-d emulator-5558 shot deleted-category-gone
+-d emulator-5558 key back
+-d emulator-5558 wait id:create-folder
+-d emulator-5558 tap id:nav-menu
+-d emulator-5558 wait id:drawer-account
+-d emulator-5558 tap id:drawer-account
+-d emulator-5558 wait id:settings-bar-sharing
+-d emulator-5558 errors
+errors

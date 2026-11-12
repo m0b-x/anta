@@ -176,9 +176,9 @@ abstract final class CrdtMerge {
       localHlc.compareTo(floor) <= 0 &&
       (remoteHlc != _seed || floor == everyStamp);
 
-  /// Settles the share mark of an event or a folder once [mergeRemoteRow]
-  /// merged a live [remote] of it with [result], inside the same
-  /// transaction, and returns the mark the row now carries.
+  /// Settles the share mark of an event, a folder or a category once
+  /// [mergeRemoteRow] merged a live [remote] of it with [result], inside the
+  /// same transaction, and returns the mark the row now carries.
   ///
   /// The mark is decided apart from the row: the one with the newer stamp
   /// stands, whichever side's row won. A row is one last-writer-wins

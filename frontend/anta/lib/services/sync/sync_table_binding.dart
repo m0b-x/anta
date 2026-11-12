@@ -70,20 +70,21 @@ abstract class SyncTableBinding<R> {
   /// The pair each of [rows] is shared into, by [rowKeyOf] — a row that is
   /// private has no entry — for the push to stamp on their envelopes
   /// ([SyncEnvelope.sharedPair]). Empty for a table that is never shared,
-  /// which is every table but the five that say otherwise.
+  /// which is every table but the six that say otherwise.
   ///
   /// Asked once per table and part, not per row, and of the rows as they
   /// stand at the push: a grant is derived from where a row hangs — its
-  /// event, its folder — and stored on that root alone
+  /// event, its category, its folder — and stored on that root alone
   /// (`docs/cloud-sharing-foundations.md` §3).
   Future<Map<String, String>> sharedPairs(AppDatabase db, List<R> rows) async =>
       const {};
 
   /// The stamp of the newest write this device holds that decides what each
   /// of [rows] is shared into, by [rowKeyOf]: its event's for a day row,
-  /// the newest among the folders above it for a folder or a note. A row
-  /// has no entry when nothing outside it decides — every table that is
-  /// never shared, and an event, which is shared by its own mark alone.
+  /// the newer of its own and its category's mark for an event, the newest
+  /// among the folders above it for a folder or a note. A row has no entry
+  /// when nothing outside it decides — every table that is never shared,
+  /// and a category, which is shared by its own mark alone.
   ///
   /// What a pull compares a document's push time against: a document says
   /// who may read it as of the push that wrote it, so one pushed before
@@ -92,6 +93,14 @@ abstract class SyncTableBinding<R> {
   /// page that holds such a document, which is rare.
   Future<Map<String, String>> shareStamps(AppDatabase db, List<R> rows) async =>
       const {};
+
+  /// The keys of [rows] that are tombstones this device stored from a
+  /// data-less tombstone alone, never having held the row: it cannot know
+  /// what the row was shared into, so a pull does not say its document
+  /// again as private — a tombstone discloses nothing, and the partner has
+  /// to hear of the delete. Empty for a table whose grant a tombstone's key
+  /// alone decides, and for every table that is never shared.
+  Set<String> unheldTombstones(List<R> rows) => const {};
 
   /// The envelope for [row]: an upsert carrying the backup map, or a
   /// tombstone carrying nothing but identity and stamp. An unowned row is
@@ -118,7 +127,7 @@ abstract class SyncTableBinding<R> {
   /// Merges [envelope], a row another account shares with the bound one —
   /// stored under that account's `owner_id`, which is all that tells it
   /// from the person's own (`docs/cloud-sharing-foundations.md` §5). Only
-  /// the five tables of `sharedTables` have one.
+  /// the six tables of `sharedTables` have one.
   ///
   /// Apart from [mergeRemote] in three ways: the owner's copy wins whatever
   /// the stamps say; nothing is queued, repaired or stamped here, since the
@@ -159,7 +168,12 @@ final class SharedRowRefused implements Exception {
   final String table;
   final String id;
 
-  const SharedRowRefused(this.table, this.id);
+  /// A built-in category the partner shares: refused by design, since it is
+  /// the person's own under the same id on every install (D14) — recorded
+  /// apart and never counted among the rows that could not be shown.
+  final bool builtIn;
+
+  const SharedRowRefused(this.table, this.id, {this.builtIn = false});
 
   /// Throws unless the row of [table] under [id], if this device holds one,
   /// is [owner]'s.

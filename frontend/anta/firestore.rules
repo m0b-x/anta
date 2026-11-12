@@ -339,8 +339,9 @@ service cloud.firestore {
         // in sync_tables.dart, each with its collection-group rule below
         // and its index in firestore.indexes.json.
         function shareable() {
-          return table in ['calendar_events', 'calendar_event_occurrences',
-            'calendar_event_skips', 'folders', 'notes'];
+          return table in ['calendar_categories', 'calendar_events',
+            'calendar_event_occurrences', 'calendar_event_skips', 'folders',
+            'notes'];
         }
         // A share is checked for shape alone: validating the pair here
         // would cost one access call per written row, and a batch is
@@ -400,6 +401,9 @@ service cloud.firestore {
     // (`sharedWithCaller`). Read only — nothing here lets a partner write.
     // One `match` per shareable table: a wildcard over the collection name
     // would open every other table's documents to the same test.
+    match /{path=**}/calendar_categories/{rowKey} {
+      allow get, list: if sharedWithCaller();
+    }
     match /{path=**}/calendar_events/{rowKey} {
       allow get, list: if sharedWithCaller();
     }

@@ -165,6 +165,10 @@ class EventTemplateService {
   /// caller reusing a form model cannot overwrite an existing template by
   /// accident. Returns the stored template, read back through [_load] so the
   /// caller sees exactly what persisted.
+  ///
+  /// Throws `SharedRowException` for a draft in a category another account
+  /// shares with this one ([EventTemplateDao.upsertTemplate]): nothing is
+  /// stored, so there is no template to hand back.
   Future<EventTemplate> create(EventTemplate draft) async {
     final id = _uuid.v4();
     await _dao.upsertTemplate(

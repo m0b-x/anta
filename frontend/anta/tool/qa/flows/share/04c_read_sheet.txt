@@ -1,0 +1,38 @@
+# What arrives explains itself (§8.4 R4, R5, R10): a tap on the partner's
+# event opens the read sheet — "From {name}", the event's category by the
+# owner's new name — and never the editor or the detail sheet's Edit.
+# "Copy to my calendar" closes it and opens the copy in the editor, under
+# the copy's snackbar; the copy is the partner's own event, which 04d proves
+# by un-sharing and finding it stayed.
+# - The partner's row is tapped by title with `--nth 1`: today's grid cell
+#   carries the same title in its marker label and comes first.
+-d emulator-5558 key back
+-d emulator-5558 wait id:create-folder
+-d emulator-5558 tap id:nav-menu
+-d emulator-5558 wait id:drawer-calendar
+-d emulator-5558 tap id:drawer-calendar
+-d emulator-5558 wait id:calendar-add-event
+-d emulator-5558 tap id:panel-mode-day --settle 1000
+-d emulator-5558 expect "Core circuit" --timeout 15
+-d emulator-5558 tap "Core circuit" --nth 1
+-d emulator-5558 wait id:shared-event-sheet
+-d emulator-5558 expect "From qa1@example.com" "Power" id:shared-event-copy id:shared-event-add-alert --absent id:event-detail-edit --absent id:event-title
+-d emulator-5558 shot read-sheet
+-d emulator-5558 tap id:shared-event-copy
+-d emulator-5558 wait id:shared-event-sheet --gone
+# The copy opens in the editor, under the copy's snackbar: closed unchanged,
+# it stays as made and the calendar is back.
+-d emulator-5558 wait id:event-title --timeout 10
+-d emulator-5558 expect id:event-title "Core circuit" "Later changes by qa1@example.com" --timeout 10
+-d emulator-5558 shot copied
+-d emulator-5558 tap id:event-close
+-d emulator-5558 wait id:event-title --gone
+-d emulator-5558 wait id:calendar-add-event
+-d emulator-5558 key back
+-d emulator-5558 wait id:create-folder
+-d emulator-5558 tap id:nav-menu
+-d emulator-5558 wait id:drawer-account
+-d emulator-5558 tap id:drawer-account
+-d emulator-5558 wait id:settings-bar-sharing
+-d emulator-5558 errors
+errors

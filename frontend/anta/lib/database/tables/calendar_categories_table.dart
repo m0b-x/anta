@@ -47,6 +47,17 @@ class CalendarCategories extends Table {
   /// The owning account once sync binds one (**v43**); NULL until then.
   TextColumn get ownerId => text().nullable()();
 
+  /// The pair this category is shared into (**v56**,
+  /// `docs/cloud-share-surfaces-roadmap.md` §7); NULL for a private one. Its
+  /// events carry no mark for it: an event without a mark of its own is
+  /// shared as its live category is, now and whenever it is added later.
+  TextColumn get sharedPair => text().nullable()();
+
+  /// The stamp of the write that last set or cleared [sharedPair] (**v56**),
+  /// the register `calendar_events.shared_stamp` is: a merge keeps the mark
+  /// with the newer stamp whichever side's row wins.
+  TextColumn get sharedStamp => text().nullable()();
+
   @override
   Set<Column> get primaryKey => {id};
 }

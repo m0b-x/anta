@@ -7,6 +7,7 @@ import '../crdt/merge_outcome.dart';
 import '../crdt/synced_tables.dart';
 import '../database.dart';
 import '../tables/calendar_events_table.dart';
+import 'shared_row_dao.dart';
 import 'sync_dao.dart';
 
 part 'calendar_event_dao.g.dart';
@@ -58,13 +59,35 @@ class CalendarEventDao extends DatabaseAccessor<AppDatabase>
   ///
   /// A save of a live event that changes nothing writes nothing.
   ///
+  /// A save that moves an event without a mark of its own to a category
+  /// that grants another pair than the one it left — a shared category to
+  /// a private one, above all — queues its day rows again
+  /// ([_requeueDayRows]): their documents say who may read them from the
+  /// event's grant, and the event is the only row this save writes.
+  ///
   /// [shared] is supplied only by [restoreEventCascade], which writes five
   /// tables under one HLC; the row is queued either way, so it leaves on the
   /// next push whoever minted the stamp.
+  ///
+  /// Throws [SharedRowException] for an event put into a category another
+  /// account shares with this one — new there, or moved there — before
+  /// anything is stamped or queued: the fences would skip the row, and the
+  /// save, a rename beside the move included, would be lost while it
+  /// answered as written. The same read that finds the row asks it.
   Future<void> upsert(CalendarEventsCompanion entry, {CrdtStamp? shared}) {
     return transaction(() async {
       final id = entry.id.value;
-      final existing = await _byId(id);
+      final category = entry.category;
+      final CalendarEventRow? existing;
+      if (category.present) {
+        final bool theirs;
+        (existing, theirs) = await _byIdOnto(id, category.value);
+        if (theirs && existing?.category != category.value) {
+          throw SharedRowException('calendar_categories', category.value);
+        }
+      } else {
+        existing = await _byId(id);
+      }
 
       if (existing == null) {
         final stamp = await _stampFor(id, shared);
@@ -90,6 +113,18 @@ class CalendarEventDao extends DatabaseAccessor<AppDatabase>
           deletedAt: const Value(null),
         ),
       );
+      if (category.present &&
+          category.value != existing.category &&
+          existing.sharedPair == null &&
+          (!entry.sharedPair.present || entry.sharedPair.value == null)) {
+        final grants = await _categoryGrants([
+          existing.category,
+          category.value,
+        ]);
+        if (grants[existing.category] != grants[category.value]) {
+          await _requeueDayRows([id]);
+        }
+      }
     });
   }
 
@@ -319,13 +354,19 @@ class CalendarEventDao extends DatabaseAccessor<AppDatabase>
   /// `RETURNING id` names the moved events, so exactly those are queued with
   /// no read first. [stamp] is the category delete's own, when this is part of
   /// [CalendarCategoryDao.tombstoneCascade].
+  ///
+  /// When the two categories grant different pairs, the day rows of the
+  /// moved events that carry no mark of their own are queued again
+  /// ([_requeueDayRows]): the move changed who may read them, and is no
+  /// write of theirs. One read of the two categories' marks, only when an
+  /// event moved.
   Future<int> reassignCategory(String fromId, String toId, {CrdtStamp? stamp}) {
     return transaction(() async {
       final shared = stamp ?? db.newStamp();
       final moved = await customWriteReturning(
         'UPDATE calendar_events SET category = ?, updated_at = ?, '
         'hlc_timestamp = ?, device_id = ?, version = version + 1 '
-        'WHERE category = ? AND is_deleted = 0 RETURNING id',
+        'WHERE category = ? AND is_deleted = 0 RETURNING id, shared_pair',
         variables: [
           Variable<String>(toId),
           Variable<DateTime>(DateTime.now()),
@@ -339,6 +380,14 @@ class CalendarEventDao extends DatabaseAccessor<AppDatabase>
       await db.enqueueMany(calendarEvents, [
         for (final row in moved) row.read<String>('id'),
       ], shared.hlc);
+      final inheriting = [
+        for (final row in moved)
+          if (row.read<String?>('shared_pair') == null) row.read<String>('id'),
+      ];
+      if (inheriting.isNotEmpty) {
+        final grants = await _categoryGrants([fromId, toId]);
+        if (grants[fromId] != grants[toId]) await _requeueDayRows(inheriting);
+      }
       return moved.length;
     });
   }
@@ -363,10 +412,16 @@ class CalendarEventDao extends DatabaseAccessor<AppDatabase>
   /// made where a share's end had not arrived cannot bring the share back.
   /// A tombstone carries no mark, and the one here stands.
   ///
-  /// A merge that changes the event's mark queues this device's copies of
-  /// its day rows again ([_requeueDayRows]): a device that pushed one before
-  /// it had merged the mark wrote a document that says the old one, and
-  /// only the device holding the row can say it again.
+  /// A merge that changes what the event is shared into — its mark, or the
+  /// category it takes its grant from — queues this device's copies of its
+  /// day rows again ([_requeueDayRows]): a device that pushed one before it
+  /// had merged the change wrote a document that says the old grant, and
+  /// only the device holding the row can say it again. An event that
+  /// arrives new queues them only when it is shared. The categories' marks
+  /// are read only when the merge can change the grant — and for an event
+  /// that arrives new, by the same statement that looks for the local row
+  /// ([_byIdWithGrant]): a first pull brings thousands of them, and a lookup
+  /// of each one's category apart would be a statement more per event.
   ///
   /// [shared] merges an event another account shares with this one
   /// (`docs/cloud-sharing-foundations.md` §5): the owner's copy wins
@@ -378,7 +433,10 @@ class CalendarEventDao extends DatabaseAccessor<AppDatabase>
     bool shared = false,
   }) {
     return transaction(() async {
-      final local = await _byId(remote.id);
+      final (local, remoteGrant) = await _byIdWithGrant(
+        remote.id,
+        remote.category,
+      );
       final outcome = await CrdtMerge.mergeRemoteRow(
         db,
         table: calendarEvents,
@@ -428,49 +486,141 @@ class CalendarEventDao extends DatabaseAccessor<AppDatabase>
               ),
             ),
       );
-      if (local?.sharedPair != kept.pair) await _requeueDayRows([remote.id]);
+      final wrote =
+          outcome.result == MergeResult.inserted ||
+          outcome.result == MergeResult.applied;
+      final category = local == null || wrote
+          ? remote.category
+          : local.category;
+      final bool regranted;
+      if (local == null) {
+        regranted = kept.pair != null || remoteGrant != null;
+      } else if (local.sharedPair != kept.pair || local.category != category) {
+        final grants = await _categoryGrants([local.category, category]);
+        regranted =
+            (local.sharedPair ?? grants[local.category]) !=
+            (kept.pair ?? grants[category]);
+      } else {
+        regranted = false;
+      }
+      if (regranted) await _requeueDayRows([remote.id]);
       return outcome;
     });
   }
 
-  /// The pair each event among [ids] is shared into, by id: an event with no
-  /// mark has no entry, and a tombstone keeps its mark — the partner has to
-  /// hear of the delete (`docs/cloud-sharing-foundations.md` §3).
+  /// The pair each event among [ids] is shared into, by id: its own mark,
+  /// else its category's (`docs/cloud-share-surfaces-roadmap.md` §7.2); an
+  /// event under neither has no entry. A tombstone keeps its grant — the
+  /// partner has to hear of the delete (`docs/cloud-sharing-foundations.md`
+  /// §3) — but a category grants only while it is live, and only to the
+  /// person's own events ([_grantingCategory]).
   Future<Map<String, String>> sharedPairsOf(Iterable<String> ids) async {
     final rows = await CrdtMerge.loadInChunks(
       ids.toSet().toList(growable: false),
       (chunk) => customSelect(
-        'SELECT id, shared_pair FROM calendar_events '
-        'WHERE shared_pair IS NOT NULL AND id IN '
-        '(${List.filled(chunk.length, '?').join(', ')})',
+        'SELECT e.id, COALESCE(e.shared_pair, c.shared_pair) AS pair '
+        'FROM calendar_events e LEFT JOIN calendar_categories c '
+        'ON ${_grantingCategory('e', 'c')} '
+        'WHERE COALESCE(e.shared_pair, c.shared_pair) IS NOT NULL '
+        'AND e.id IN (${List.filled(chunk.length, '?').join(', ')})',
         variables: [for (final id in chunk) Variable<String>(id)],
-        readsFrom: {calendarEvents},
+        readsFrom: {calendarEvents, db.calendarCategories, db.syncMetadata},
       ).get(),
     );
+    return {
+      for (final row in rows) row.read<String>('id'): row.read<String>('pair'),
+    };
+  }
+
+  /// The stamp of the newest write that decides what each event among [ids]
+  /// — and its day rows — is shared into, by id, tombstones included: the
+  /// event's own stamp, since a change of its mark or its category is a
+  /// write of the event, or its category's `shared_stamp` when that is
+  /// newer and the event takes its grant from it
+  /// (`SyncTableBinding.shareStamps`).
+  Future<Map<String, String>> stampsOf(Iterable<String> ids) async {
+    final rows = await CrdtMerge.loadInChunks(
+      ids.toSet().toList(growable: false),
+      (chunk) => customSelect(
+        'SELECT e.id, MAX(e.hlc_timestamp, '
+        'COALESCE(c.shared_stamp, e.hlc_timestamp)) AS stamp '
+        'FROM calendar_events e LEFT JOIN calendar_categories c '
+        'ON ${_grantingCategory('e', 'c')} '
+        'WHERE e.id IN (${List.filled(chunk.length, '?').join(', ')})',
+        variables: [for (final id in chunk) Variable<String>(id)],
+        readsFrom: {calendarEvents, db.calendarCategories, db.syncMetadata},
+      ).get(),
+    );
+    return {
+      for (final row in rows) row.read<String>('id'): row.read<String>('stamp'),
+    };
+  }
+
+  /// The SQL condition joining the event aliased [e] to the category
+  /// aliased [c] it takes its grant from: its category, while that is live
+  /// and marked, for an event of the person's own with no mark of its own.
+  /// A tombstoned or missing category grants nothing, and a category's mark
+  /// never reaches an event another account shares with this one: it says
+  /// what this person shares.
+  static String _grantingCategory(String e, String c) =>
+      '$c.id = $e.category AND $c.is_deleted = 0 '
+      'AND $c.shared_pair IS NOT NULL AND $e.shared_pair IS NULL '
+      'AND ${SyncDao.mineSqlOf(e)}';
+
+  /// The pair each of the live categories [ids] is shared into, by id — a
+  /// private, tombstoned or missing one has no entry: what an event without
+  /// a mark of its own in it is shared into. One statement.
+  Future<Map<String, String>> _categoryGrants(List<String> ids) async {
+    final wanted = ids.toSet().toList(growable: false);
+    final rows = await customSelect(
+      'SELECT id, shared_pair FROM calendar_categories '
+      'WHERE shared_pair IS NOT NULL AND is_deleted = 0 AND id IN '
+      '(${List.filled(wanted.length, '?').join(', ')})',
+      variables: [for (final id in wanted) Variable<String>(id)],
+      readsFrom: {db.calendarCategories},
+    ).get();
     return {
       for (final row in rows)
         row.read<String>('id'): row.read<String>('shared_pair'),
     };
   }
 
-  /// The stamp each event among [ids] carries, by id, tombstones included —
-  /// the newest write that decides what its day rows are shared into, since
-  /// a change of the event's mark is a write of the event
-  /// (`SyncTableBinding.shareStamps`).
-  Future<Map<String, String>> stampsOf(Iterable<String> ids) async {
-    final rows = await CrdtMerge.loadInChunks(
-      ids.toSet().toList(growable: false),
-      (chunk) => customSelect(
-        'SELECT id, hlc_timestamp FROM calendar_events WHERE id IN '
-        '(${List.filled(chunk.length, '?').join(', ')})',
-        variables: [for (final id in chunk) Variable<String>(id)],
-        readsFrom: {calendarEvents},
-      ).get(),
-    );
-    return {
-      for (final row in rows)
-        row.read<String>('id'): row.read<String>('hlc_timestamp'),
-    };
+  /// Queues again, at the stamps they carry, the events in the categories
+  /// [categoryIds] that take their grant from them — the person's own,
+  /// with no mark of their own, tombstones included — and those events' day
+  /// rows: a category's mark set or cleared, or the category deleted or
+  /// brought back, changes who may read every one of their documents, and
+  /// is no write of theirs (`docs/cloud-share-surfaces-roadmap.md` §7.3).
+  /// Never a row another account shares with this one.
+  Future<void> requeueForCategories(List<String> categoryIds) async {
+    const step = CrdtMerge.keysPerStatement;
+    for (var start = 0; start < categoryIds.length; start += step) {
+      final chunk = categoryIds.skip(start).take(step).toList(growable: false);
+      final places = [
+        for (var i = 0; i < chunk.length; i++) '?${i + 2}',
+      ].join(', ');
+      final variables = [for (final id in chunk) Variable<String>(id)];
+      await db.requeueRows(
+        calendarEvents,
+        rows:
+            'category IN ($places) AND shared_pair IS NULL '
+            'AND ${SyncDao.mineSql}',
+        variables: variables,
+      );
+      for (final table in <TableInfo>[
+        db.eventOccurrenceDescriptions,
+        db.eventSkips,
+      ]) {
+        await db.requeueRows(
+          table,
+          rows:
+              'event_id IN (SELECT e.id FROM calendar_events e '
+              'WHERE e.category IN ($places) AND e.shared_pair IS NULL '
+              'AND ${SyncDao.mineSqlOf('e')}) AND ${SyncDao.mineSql}',
+          variables: variables,
+        );
+      }
+    }
   }
 
   /// Shares the live event [id] into [pairId], or makes it private again
@@ -480,7 +630,11 @@ class CalendarEventDao extends DatabaseAccessor<AppDatabase>
   /// `updated_at` is left alone, as a label's write leaves it.
   ///
   /// A database shares into one pair: setting a mark clears every mark of
-  /// another pair, here and on `folders`, in the same transaction.
+  /// another pair, here, on `folders` and on `calendar_categories`, in the
+  /// same transaction.
+  ///
+  /// A mark taken away leaves the event shared as its category is, when
+  /// that one is.
   ///
   /// A missing or tombstoned event writes nothing, and neither does a mark
   /// the event already carries — though the marks of other pairs are
@@ -496,6 +650,7 @@ class CalendarEventDao extends DatabaseAccessor<AppDatabase>
       if (pairId != null) {
         await clearOtherPairs(pairId, stamp);
         await db.folderDao.clearOtherPairs(pairId, stamp);
+        await db.calendarCategoryDao.clearOtherPairs(pairId, stamp);
       }
       if (existing.sharedPair == pairId) return false;
       await db.enqueue(calendarEvents, id, stamp.hlc);
@@ -517,9 +672,10 @@ class CalendarEventDao extends DatabaseAccessor<AppDatabase>
   /// than [pairId] — every mark there is when null — each row queued: its
   /// half of "a database shares into one pair", called inside the
   /// transaction of the write that sets a mark ([setSharedPair],
-  /// [FolderDao.setSharedPair]) and when the account's pair is found
-  /// changed or ended. Tombstones too: their documents would go on naming a
-  /// pair this database no longer shares into. Returns how many it cleared.
+  /// [FolderDao.setSharedPair], [CalendarCategoryDao.setSharedPair]) and
+  /// when the account's pair is found changed or ended. Tombstones too:
+  /// their documents would go on naming a pair this database no longer
+  /// shares into. Returns how many it cleared.
   Future<int> clearOtherPairs(String? pairId, CrdtStamp stamp) async {
     final cleared = await customWriteReturning(
       'UPDATE calendar_events SET shared_pair = NULL, shared_stamp = ?1, '
@@ -612,6 +768,13 @@ class CalendarEventDao extends DatabaseAccessor<AppDatabase>
   /// before the insert (`SharedRowDao.evict`): the replace below would
   /// remove it too, but silently and without its day rows, which would
   /// then hang under the person's own event.
+  ///
+  /// The day rows of every imported event are queued again at the stamps
+  /// they carry ([_requeueDayRows]): the restore may put an event under
+  /// another category than the one its id stood in, and with the row gone
+  /// before this runs, which grant it had is no longer known — so every
+  /// one is said again rather than one left saying "shared". Two set
+  /// statements per [CrdtMerge.keysPerStatement] events, no read.
   Future<void> importAll(List<CalendarEventsCompanion> entries) {
     if (entries.isEmpty) return Future.value();
     return transaction(() async {
@@ -637,7 +800,46 @@ class CalendarEventDao extends DatabaseAccessor<AppDatabase>
           db.enqueueIn(b, calendarEvents, entry.id.value, stamp.hlc);
         }
       });
+      await _requeueDayRows([
+        ...{for (final entry in entries) entry.id.value},
+      ]);
     });
+  }
+
+  /// [_byId] and, in the same statement, the pair the live category
+  /// [category] is shared into ([_categoryGrants] for one id) — null for a
+  /// private, tombstoned or missing one. One statement whether or not the
+  /// event is here: the category's half rides on a one-row source.
+  Future<(CalendarEventRow?, String?)> _byIdWithGrant(
+    String id,
+    String category,
+  ) async {
+    final row = await customSelect(
+      'SELECT (SELECT c.shared_pair FROM calendar_categories c '
+      'WHERE c.id = ?2 AND c.is_deleted = 0) AS category_grant, e.* '
+      'FROM (SELECT 1) LEFT JOIN calendar_events e ON e.id = ?1',
+      variables: [Variable<String>(id), Variable<String>(category)],
+      readsFrom: {calendarEvents, db.calendarCategories},
+    ).getSingle();
+    final local = row.data['id'] == null ? null : calendarEvents.map(row.data);
+    return (local, row.read<String?>('category_grant'));
+  }
+
+  /// [_byId] and, in the same statement, whether [category] is a category
+  /// another account shares with this one
+  /// ([SharedRowDao.partnersCategorySql]).
+  Future<(CalendarEventRow?, bool)> _byIdOnto(
+    String id,
+    String category,
+  ) async {
+    final row = await customSelect(
+      'SELECT ${SharedRowDao.partnersCategorySql('?2')} AS onto_theirs, e.* '
+      'FROM (SELECT 1) LEFT JOIN calendar_events e ON e.id = ?1',
+      variables: [Variable<String>(id), Variable<String>(category)],
+      readsFrom: {calendarEvents, db.calendarCategories, db.syncMetadata},
+    ).getSingle();
+    final local = row.data['id'] == null ? null : calendarEvents.map(row.data);
+    return (local, row.read<bool>('onto_theirs'));
   }
 
   /// Deliberately unfiltered: [upsert] has to see a tombstone to resurrect it,

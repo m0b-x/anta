@@ -1,0 +1,135 @@
+# The owner shares a custom category (docs/cloud-share-surfaces-roadmap.md
+# §8.2 C1–C3, §8.4 R7). Strength holds the seeded "Lifting session" and an
+# event the owner makes in the editor first; shared through the QA seam,
+# both reach the partner's calendar, each read as the partner's, under the
+# category's own name — and the partner's own editor never offers it. Then,
+# with no second act, an event the owner adds to Strength arrives and the
+# one it moves to Cardio (private) leaves.
+# - The owner's events are made on today, all day (the editor's defaults),
+#   so the day panel lists them whatever the date; the seeded event recurs
+#   on Mondays and Thursdays, so it is read off the Upcoming card's day
+#   list, never the day panel.
+# - A made event has no stable id: its day-panel row is tapped by title
+#   with `--nth 1`, because today's grid cell carries every title of the
+#   day in its marker label and comes first in traversal order.
+# - Runs between 04 and 05 (they sort so): the pair holds, nothing else is
+#   shared, and both guests rest on Sync & sharing, one back from the root.
+key back
+wait id:create-folder
+tap id:nav-menu
+wait id:drawer-calendar
+tap id:drawer-calendar
+wait id:calendar-add-event
+tap id:panel-mode-day --settle 1000
+tap id:calendar-add-event
+wait id:event-title
+type "Mobility drills"
+tap id:event-category
+wait id:category-pick-qa-category-strength
+tap id:category-pick-qa-category-strength
+wait id:event-save
+expect id:event-category "Strength"
+tap id:event-save
+wait id:calendar-add-event
+expect "Mobility drills" --timeout 10
+share category "Strength"
+key back
+wait id:create-folder
+tap id:nav-menu
+wait id:drawer-account
+tap id:drawer-account
+wait id:settings-bar-sharing
+tap id:sharing-sync-now --settle 3000
+expect id:sharing-sync-status "Up to date" --timeout 60
+-d emulator-5558 tap id:sharing-sync-now
+-d emulator-5558 expect id:sharing-sync-status "Up to date" --timeout 60
+-d emulator-5558 key back
+-d emulator-5558 wait id:create-folder
+-d emulator-5558 tap id:nav-menu
+-d emulator-5558 wait id:drawer-calendar
+-d emulator-5558 tap id:drawer-calendar
+-d emulator-5558 wait id:calendar-add-event
+-d emulator-5558 tap id:panel-mode-day --settle 1000
+-d emulator-5558 expect "Mobility drills" "From qa1@example.com" --timeout 30
+-d emulator-5558 tap id:panel-mode-upcoming
+-d emulator-5558 wait id:agenda-card-days-category-qa-category-strength --timeout 30
+-d emulator-5558 tap id:agenda-card-days-category-qa-category-strength
+-d emulator-5558 wait id:day-list-close
+-d emulator-5558 expect "Strength" "Lifting session" "Mobility drills" "From qa1@example.com" --timeout 15
+-d emulator-5558 shot category-arrived
+-d emulator-5558 tap id:day-list-close
+-d emulator-5558 wait id:day-list-close --gone
+# The partner's own editor offers its own categories, never the shared one.
+-d emulator-5558 tap id:calendar-add-event
+-d emulator-5558 wait id:event-category
+-d emulator-5558 tap id:event-category
+-d emulator-5558 wait id:category-pick-gym
+-d emulator-5558 expect --absent id:category-pick-qa-category-strength
+-d emulator-5558 tap id:category-pick-close
+-d emulator-5558 wait id:event-close
+-d emulator-5558 tap id:event-close
+-d emulator-5558 wait id:calendar-add-event
+# The owner adds a third event to Strength and moves one out of it.
+key back
+wait id:create-folder
+tap id:nav-menu
+wait id:drawer-calendar
+tap id:drawer-calendar
+wait id:calendar-add-event
+tap id:panel-mode-day --settle 1000
+tap id:calendar-add-event
+wait id:event-title
+type "Core circuit"
+tap id:event-category
+wait id:category-pick-qa-category-strength
+tap id:category-pick-qa-category-strength
+wait id:event-save
+expect id:event-category "Strength"
+tap id:event-save
+wait id:calendar-add-event
+tap "Mobility drills" --nth 1
+wait id:event-detail-edit
+tap id:event-detail-edit
+wait id:event-category
+tap id:event-category
+wait id:category-pick-cardio
+tap id:category-pick-cardio
+wait id:event-save
+expect id:event-category "Cardio"
+tap id:event-save
+wait id:event-detail-close
+tap id:event-detail-close
+wait id:calendar-add-event
+key back
+wait id:create-folder
+tap id:nav-menu
+wait id:drawer-account
+tap id:drawer-account
+wait id:settings-bar-sharing
+tap id:sharing-sync-now --settle 3000
+expect id:sharing-sync-status "Up to date" --timeout 60
+-d emulator-5558 key back
+-d emulator-5558 wait id:create-folder
+-d emulator-5558 tap id:nav-menu
+-d emulator-5558 wait id:drawer-account
+-d emulator-5558 tap id:drawer-account
+-d emulator-5558 wait id:settings-bar-sharing
+-d emulator-5558 tap id:sharing-sync-now
+-d emulator-5558 expect id:sharing-sync-status "Up to date" --timeout 60
+-d emulator-5558 key back
+-d emulator-5558 wait id:create-folder
+-d emulator-5558 tap id:nav-menu
+-d emulator-5558 wait id:drawer-calendar
+-d emulator-5558 tap id:drawer-calendar
+-d emulator-5558 wait id:calendar-add-event
+-d emulator-5558 tap id:panel-mode-day --settle 1000
+-d emulator-5558 expect "Core circuit" "From qa1@example.com" --absent "Mobility drills" --timeout 30
+-d emulator-5558 shot category-follows
+-d emulator-5558 key back
+-d emulator-5558 wait id:create-folder
+-d emulator-5558 tap id:nav-menu
+-d emulator-5558 wait id:drawer-account
+-d emulator-5558 tap id:drawer-account
+-d emulator-5558 wait id:settings-bar-sharing
+-d emulator-5558 errors
+errors

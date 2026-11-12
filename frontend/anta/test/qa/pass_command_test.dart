@@ -2411,6 +2411,11 @@ void main() {
           AgentKeys.name: 'Training',
           AgentKeys.on: false,
         });
+        expect(ShareCommand.parseRequest(['category', 'Gym'], off: false), {
+          AgentKeys.kind: 'category',
+          AgentKeys.name: 'Gym',
+          AgentKeys.on: true,
+        });
         for (final bad in [
           <String>[],
           ['event'],

@@ -1,7 +1,7 @@
 # Share Surfaces — ANTA
 
-**Status: IN PROGRESS — slice A built and committed (2026-11-12), slices
-B–E and G in build; §15 says what is built. Scope on the owner's word of
+**Status: IN PROGRESS — slices A and B built and committed (2026-11-12),
+slices C–E and G in build; §15 says what is built. Scope on the owner's word of
 that day: the calendar side, slices A–E and G; slice F (folders, the
 partner's notes) is not in this build.** The mock is
 published (https://claude.ai/artifact/E5Zm8rPv5hGLk2V5fKphPt). Every
@@ -1389,3 +1389,115 @@ clearance.
 target and hour labels clip at text scale 2.0; today's filled avatar icon
 is under 3:1 on its own fill for about half the palette; sheet titles and
 section labels are not semantic headings app-wide.
+
+### Slice B — a category can be shared (2026-11-12)
+
+Built by Opus 5.5 implementers in parallel worktrees (the owner's side,
+the reader's side, the catalogue), reviewed by two Fable 5.2 reviewers —
+one on what leaves the phone and the rules, one on what the receiving
+phone stores — and fixed in the same commit. Gate: `dart analyze lib test
+tool test_driver` clean; the whole suite `+16482 ~17`; the rules suite
+163/163 against the Firestore emulator; the two-guest device suite
+``qa pass share` 13/13, twice in a row on freshly started emulator suites`.
+
+**Schema v56, wire 48.** `calendar_categories` gains `shared_pair` and
+`shared_stamp` with the partial index `idx_calendar_categories_shared_pair`;
+v56 also drops and re-creates the fences. A 47 build is refused by the
+space; a database that last ran at 47 reads `calendar_categories` again
+from the start, once (46 → 48 reads events and folders too).
+
+**The owner's side.**
+
+- `CalendarCategoryDao.setSharedPair` / `clearOtherPairs`,
+  `CategoryService.setShared`; a mark set through any of the three tables
+  clears another pair's marks in all three.
+- The grant at encode: `CalendarEventDao.sharedPairsOf` =
+  `COALESCE(e.shared_pair, c.shared_pair)` over the event's **live**
+  category, joined on the stored id. Decided here: an event's own mark
+  wins; a tombstoned or missing category grants nothing (an event on a
+  dangling id drawn under Other does not take Other's mark); an archived
+  category still grants; a category's mark reaches only the person's own
+  events; the derived grant's stamp is the newer of the event's
+  `hlc_timestamp` and its category's `shared_stamp`.
+- Re-sends (no new stamp, tombstones included, real writes first) when a
+  category's mark is set or cleared, when an event changes category where
+  the grant differs (`upsert`, `reassignCategory`, `importAll`,
+  `mergeRemoteEvent`), when a marked category is deleted, merged as
+  deleted or wiped by a restore.
+- **A delete ends the grant for good**: a category that comes back from a
+  tombstone — a merge, or `seedMissing` reviving a built-in — comes back
+  private, by a stamped clear of the mark. (The review reproduced a
+  deleted shared category revived by another device's rename, shared
+  again, taking a new event with it.)
+- **The marks' cutover holds the drain**: a database whose marks are still
+  unread after a wire bump pushes none of the tables concerned until their
+  re-read has completed — 46 → 47 as well as 47 → 48. (Reproduced: a device
+  updated from 47 pushed a queued rename before its re-read and ended the
+  share.)
+- A tombstone a device never held the data of is not "corrected" to
+  private: its document carries no content, and the device cannot know
+  the grant. Events only; the older tables keep the foundations' rule.
+
+**The server.** `firestore.rules`: `shareable()` gains
+`calendar_categories`, one read block for the collection group;
+`firestore.indexes.json`: one entry (`sharedPair`, `ownerId`, `pushedAt`).
+Nothing else changed. **Both files must be deployed before this build
+reaches a phone** — until then a category's document is refused and the
+reader's category query fails ("Could not check. Will try again.").
+
+**The receiving phone.**
+
+- `sharedTables` lists `calendar_categories` first. A partner's own
+  category is stored under their `owner_id` with `sort_order` 0, shown, not
+  built-in, no mark; `CalendarCategory.fromPartner` says whose it is;
+  the catalogue lists mine by order, then the partner's by name.
+- A built-in id is always refused and recorded
+  (`SharedRowDao.sharedBuiltIns()`): the partner's `gym` events resolve to
+  my `gym`. `seedMissing` evicts a partner's row under a built-in id before
+  it seeds mine, so a build that learns a new built-in later is safe.
+- An id of mine is refused and counted (`refusedCount`, which counts
+  categories, events, folders and notes — never an event's day rows). **An
+  id my own events or templates name is mine too**, even with no category
+  row under it (two accounts restored from one backup).
+- Refused documents count toward the reader's `countOf` for every shared
+  table, tombstones included, so a leave is noticed by the count instead
+  of waiting for the daily read; an account with no refusal pays nothing
+  for it.
+- Fences: the generated set covers categories; four by hand keep an event
+  or a template of mine from taking a partner's category. The writers
+  refuse first, by name (`SharedRowException`), before anything is stamped
+  or queued — a save that answers "saved" must have stored.
+- A row of mine under a partner's category (colliding ids) is held back
+  from my own pull (`SyncHeldReason.sharedParent`, worded "Waiting for its
+  folder, event or category") and lands when the share ends, at the next
+  start or "Sync now".
+- `CalendarCategories.visible` / `visiblePlus` and `CategoryService
+  .categories` hold mine only; `resolve`, `all`, `byId` hold both;
+  `.partner` the partner's. `updateCategory`, `setHidden`, `reorder`,
+  `deleteCategory` refuse a partner's category; `tombstoneCascade` never
+  reassigns onto one. Exports carry no partner's category and no mark; the
+  .ics export asks whose the **event** is.
+- My category alerts and profile on a partner's category that left stay
+  stored, inert, as my alerts on a shared event do.
+
+**Costs, pinned.** No network call for an account that never paired. Local
+statements the slice added on the unshared path: the grant join per push
+part that holds events; one select on a save or a merge that changes an
+event's category; `reassignCategory`'s fourth statement; one local read
+per templates page of the own pull.
+
+**Kept as built, known.** A day row can be shared for a moment while its
+event's document is still private (another device pushed the event before
+it heard of the mark); it errs private and heals at that device's next
+sync. `clearOtherPairs` re-stamps a tombstoned category, as events and
+folders do. Held-back rows land at the next start or "Sync now", not at
+the read that freed them.
+
+**The device suite.** `qa share category "<name>" [--off]` beside the event
+and folder seams; six flows `04a`–`04f` in `tool/qa/flows/share/` (a
+shared category arrives, grows, shrinks and is renamed; the read sheet and
+the copy; un-share; a shared built-in joins mine; a deleted shared
+category). Cookbook: `.claude/skills/qa-emulator/references/share-pass.md`.
+
+**Not done, by choice.** `CalendarEventDao.upsert` does not itself refuse
+a row that is the partner's (the service's check and the fence cover it).

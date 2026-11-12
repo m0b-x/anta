@@ -1,7 +1,7 @@
 import 'package:drift/drift.dart';
 
 abstract class DatabaseSchema {
-  static const int currentVersion = 55;
+  static const int currentVersion = 56;
 
   /// The version the sync space carries and every engine compares against:
   /// a space written by a higher one pauses this build as outdated. Bumped
@@ -12,8 +12,12 @@ abstract class DatabaseSchema {
   /// chunk documents and a manifest (§5.3 S6). 47: an event and a folder
   /// carry the pair they are shared into — a build before it would push
   /// such a row back without its mark, and the share would end unasked
-  /// (`docs/cloud-sharing-foundations.md` §4).
-  static const int syncSchemaVersion = 47;
+  /// (`docs/cloud-sharing-foundations.md` §4). 48: a category carries its
+  /// mark too, and an event without one of its own is shared as its
+  /// category is — a build at 47 would push a category back without its
+  /// mark and encode its events as private
+  /// (`docs/cloud-share-surfaces-roadmap.md` §7.4).
+  static const int syncSchemaVersion = 48;
 
   /// The wire version that re-cut every note's body into chunks: a database
   /// that last ran below it re-sends every note once, and one at or above
@@ -25,6 +29,12 @@ abstract class DatabaseSchema {
   /// merged without the mark it could not read, so it reads those two
   /// tables again once (`docs/cloud-sharing-foundations.md` §4).
   static const int shareWireVersion = 47;
+
+  /// The wire version that first carried a category's share mark: a
+  /// database that last ran below it reads `calendar_categories` again once,
+  /// as one below [shareWireVersion] reads events and folders
+  /// (`docs/cloud-share-surfaces-roadmap.md` §7.4).
+  static const int categoryShareWireVersion = 48;
 
   static const int v1Initial = 1;
   static const int v2UserSettings = 2;
@@ -81,6 +91,7 @@ abstract class DatabaseSchema {
   static const int v53ShareStamp = 53;
   static const int v54SharedRowFences = 54;
   static const int v55FencesAgain = 55;
+  static const int v56CategorySharedPair = 56;
 }
 
 typedef MigrationStep = Future<void> Function(Migrator m, GeneratedDatabase db);

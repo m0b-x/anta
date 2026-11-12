@@ -9,6 +9,15 @@
       ]
     },
     {
+      "collectionGroup": "calendar_categories",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [
+        { "fieldPath": "sharedPair", "order": "ASCENDING" },
+        { "fieldPath": "ownerId", "order": "ASCENDING" },
+        { "fieldPath": "pushedAt", "order": "ASCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "calendar_events",
       "queryScope": "COLLECTION_GROUP",
       "fields": [

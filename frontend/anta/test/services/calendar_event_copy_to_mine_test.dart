@@ -179,6 +179,36 @@ void main() {
     expect(copy.categoryId, kFallbackCategoryId);
   });
 
+  // The catalogue holds the partner's own categories too, for drawing their
+  // events; an event of mine can never take one.
+  test('the partner\'s own category, held here, is never the copy\'s', () async {
+    CalendarCategories.updateCache(const [
+      CalendarCategory(
+        id: 'other',
+        name: 'Other',
+        colorValue: 0xFF757575,
+        iconKey: 'event',
+        sortOrder: 1,
+        isBuiltIn: true,
+      ),
+      CalendarCategory(
+        id: 'their-own',
+        name: 'Shifts',
+        colorValue: 0xFF00897B,
+        iconKey: 'work',
+        sortOrder: 0,
+        isBuiltIn: false,
+        fromPartner: true,
+      ),
+    ]);
+    final theirs = await storeAsPartners(theirsOf(categoryId: 'their-own'));
+
+    final copy = await service.copyToMine(theirs, day);
+
+    expect(copy.categoryId, kFallbackCategoryId);
+    expect(copy.fromPartner, isFalse);
+  });
+
   test('nothing else comes along: no alert, note, skipped day, presence '
       'or switch of theirs', () async {
     final theirs = await storeAsPartners(theirsOf());

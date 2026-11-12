@@ -63,6 +63,9 @@ class CategoryService {
   late CalendarCategoryDao _dao;
   List<CalendarCategory> _cache = const [];
 
+  /// [_cache] without a partner's categories — what [categories] hands out.
+  List<CalendarCategory> _own = const [];
+
   /// Tail of the serialized write chain, or null when nothing is in flight —
   /// see [_serialize].
   Future<void>? _writes;
@@ -157,8 +160,10 @@ class CategoryService {
     CalendarCategories.updateCache(const []);
   }
 
-  /// Unmodifiable, ordered view over the in-memory cache.
-  List<CalendarCategory> get categories => _cache;
+  /// Unmodifiable, ordered view over the person's own categories — the ones
+  /// the Categories page lists, reorders and edits. A partner's are in the
+  /// facade alone ([CalendarCategories.partner]).
+  List<CalendarCategory> get categories => _own;
 
   /// Re-reads the table, seeding the built-ins first.
   ///
@@ -183,14 +188,33 @@ class CategoryService {
 
   // ── Cache load / built-in seed ───────────────────────────────────────
 
+  /// Reads every live row and publishes it, each marked
+  /// [CalendarCategory.fromPartner] when its owner is the account this
+  /// database reads shared rows from — read here, once per load, so every
+  /// refresh (a sync run's reload after a shared read, a pair that ended
+  /// and took the partner's rows and that account with it) says it anew.
+  ///
+  /// The account is asked only when some row names an owner at all: a
+  /// database that was never bound pays nothing for it, a bound one one
+  /// lookup of `sync_metadata`.
   Future<void> _load() async {
     try {
       final rows = await _dao.getAll();
-      _cache = List.unmodifiable(rows.map(_rowToModel));
+      final partner = rows.any((row) => row.ownerId != null)
+          ? await _db.sharedRowDao.owner()
+          : null;
+      _cache = List.unmodifiable([
+        for (final row in rows)
+          _rowToModel(
+            row,
+            fromPartner: partner != null && row.ownerId == partner,
+          ),
+      ]);
     } catch (e) {
       debugPrint('[CategoryService] Load error: $e');
       _cache = const [];
     }
+    _own = List.unmodifiable(_cache.where((c) => !c.fromPartner));
     CalendarCategories.updateCache(_cache);
   }
 
@@ -378,6 +402,10 @@ class CategoryService {
   /// deliberately leaves a tombstoned row alone rather than resurrecting it,
   /// so the edit is lost, and the caller has to be able to say so instead of
   /// handing a dead category on.
+  ///
+  /// False, too, for a partner's category, refused before anything is
+  /// stamped ([CalendarCategoryDao.updateCategory]): the database would turn
+  /// the write into nothing, and "saved" would be a lie.
   Future<bool> updateCategory(CalendarCategory category) {
     return _serialize(() => _persistUpdate(category));
   }
@@ -407,14 +435,25 @@ class CategoryService {
   /// which reads as the second drag having been ignored. Because callers pass
   /// their *current* full local order rather than a delta, the last one
   /// enqueued is the whole truth regardless.
-  Future<void> reorder(List<String> idsInOrder) {
+  ///
+  /// An order that names a partner's category writes nothing and answers
+  /// false: its row would keep the partner's order while the rest were
+  /// numbered around a slot it never took. True once the order is written.
+  Future<bool> reorder(List<String> idsInOrder) {
     return _serialize(() => _persistReorder(idsInOrder));
   }
 
-  Future<void> _persistReorder(List<String> idsInOrder) async {
+  Future<bool> _persistReorder(List<String> idsInOrder) async {
+    if (idsInOrder.any(_isPartners)) return false;
     await _dao.reorder(idsInOrder);
     await _load();
+    return true;
   }
+
+  /// Whether the catalogue holds [id] as a partner's category — read inside
+  /// the chain's turn, after the previous write's reload.
+  static bool _isPartners(String id) =>
+      CalendarCategories.byId(id)?.fromPartner ?? false;
 
   /// Archives or restores a category. Built-ins can be hidden; they still
   /// cannot be deleted.
@@ -434,12 +473,21 @@ class CategoryService {
   /// visible every picker would open empty and a new event would land in an
   /// archived category. The page disables the item; this is the guard
   /// behind it for a menu built before the second-to-last one was archived.
-  Future<void> setHidden(String id, bool hidden) {
+  ///
+  /// A partner's category is neither archived nor restored here: its row is
+  /// the partner's, and what shows of it is a choice of its own (§6.4 of
+  /// `docs/cloud-share-surfaces-roadmap.md`). Returns whether the flag was
+  /// written — false for every no-op and refusal above.
+  Future<bool> setHidden(String id, bool hidden) {
     return _serialize(() async {
       final category = CalendarCategories.byId(id);
-      if (category == null || category.isHidden == hidden) return;
-      if (hidden && CalendarCategories.visible.length <= 1) return;
-      await _dao.updateCategory(
+      if (category == null ||
+          category.fromPartner ||
+          category.isHidden == hidden) {
+        return false;
+      }
+      if (hidden && CalendarCategories.visible.length <= 1) return false;
+      final written = await _dao.updateCategory(
         CalendarCategoriesCompanion(
           id: Value(id),
           isHidden: Value(hidden),
@@ -447,20 +495,38 @@ class CategoryService {
         ),
       );
       await _load();
+      return written;
     });
   }
+
+  /// Shares the category [id] with the partner of the pair [pairId], or
+  /// makes it private again when null (`docs/cloud-share-surfaces-roadmap.md`
+  /// §7): one stamped write of the category's mark, which the next push
+  /// carries, with every event in it that has no mark of its own — and
+  /// their skipped days and per-day texts — following it, now and whenever
+  /// one is added later. Its alerts and profile stay a person's own.
+  /// Returns whether the mark was written — false for a category that is
+  /// gone or carries it already.
+  ///
+  /// On the chain like every other write, so it cannot interleave with a
+  /// delete of the same category. The mark is no part of the category a
+  /// screen holds, so the catalogue is not read again.
+  Future<bool> setShared(String id, String? pairId) =>
+      _serialize(() => _dao.setSharedPair(id, pairId));
 
   /// Deletes a custom category and reassigns its events and templates to
   /// [reassignTo] in one transaction. Built-ins cannot be deleted — by flag
   /// or by id, since an older archive could restore one as custom — and
   /// neither can the DAO tombstone one. Returns whether the category was
-  /// deleted: false for a built-in, an unknown id, or a row the DAO no longer
-  /// finds live (a pull removed it meanwhile), so a caller reports only a
-  /// delete that happened.
+  /// deleted: false for a built-in, an unknown id, a partner's category, or
+  /// a row the DAO no longer finds live (a pull removed it meanwhile), so a
+  /// caller reports only a delete that happened.
   ///
   /// [reassignTo] is checked inside the chain's turn, against the catalogue
-  /// the previous write left: a target that is the category itself or
-  /// unknown falls back to [kFallbackCategoryId]. That catalogue can trail a
+  /// the previous write left: a target that is the category itself, unknown
+  /// or a partner's falls back to [kFallbackCategoryId] — the database keeps
+  /// an event of this person's out of a partner's category, so the move
+  /// would leave the events on the dead id. That catalogue can trail a
   /// pull's tombstone, so the guard that no event lands on a dead id is the
   /// DAO's: [CalendarCategoryDao.tombstoneCascade] re-checks the target
   /// against the live table inside its transaction.
@@ -496,11 +562,15 @@ class CategoryService {
     var eventsCurrent = false;
     final deleted = await _serialize(() async {
       final category = CalendarCategories.byId(id);
-      if (category == null || category.isBuiltIn || _builtInIds.contains(id)) {
+      if (category == null ||
+          category.fromPartner ||
+          category.isBuiltIn ||
+          _builtInIds.contains(id)) {
         return false;
       }
       final target =
-          reassignTo != id && CalendarCategories.byId(reassignTo) != null
+          reassignTo != id &&
+              CalendarCategories.byId(reassignTo)?.fromPartner == false
           ? reassignTo
           : kFallbackCategoryId;
       if (!await _dao.tombstoneCascade(id, reassignTo: target)) return false;
@@ -537,22 +607,29 @@ class CategoryService {
 
   // ── Backup export / import ───────────────────────────────────────────
 
+  /// Every category of the person's own, for the archive helper and any
+  /// writer built on it: one another account shares with this one is that
+  /// account's, and a backup holds what is mine
+  /// (`docs/cloud-sharing-foundations.md` §8) — the event export's rule.
+  /// Never the share mark.
   Future<List<Map<String, dynamic>>> exportData() async {
     final rows = await _dao.getAll();
+    final shared = await _db.sharedRowDao.owner();
     return [
       for (final row in rows)
-        {
-          'id': row.id,
-          'name': row.name,
-          'colorValue': row.colorValue,
-          'iconKey': row.iconKey,
-          'sortOrder': row.sortOrder,
-          'isBuiltIn': row.isBuiltIn,
-          'isHidden': row.isHidden,
-          'createdAtMs': row.createdAt.millisecondsSinceEpoch,
-          'updatedAtMs': row.updatedAt.millisecondsSinceEpoch,
-          if (row.ownerId != null) 'ownerId': row.ownerId,
-        },
+        if (shared == null || row.ownerId != shared)
+          {
+            'id': row.id,
+            'name': row.name,
+            'colorValue': row.colorValue,
+            'iconKey': row.iconKey,
+            'sortOrder': row.sortOrder,
+            'isBuiltIn': row.isBuiltIn,
+            'isHidden': row.isHidden,
+            'createdAtMs': row.createdAt.millisecondsSinceEpoch,
+            'updatedAtMs': row.updatedAt.millisecondsSinceEpoch,
+            if (row.ownerId != null) 'ownerId': row.ownerId,
+          },
     ];
   }
 
@@ -642,7 +719,13 @@ class CategoryService {
 
   // ── Row ↔ Domain ─────────────────────────────────────────────────────
 
-  CalendarCategory _rowToModel(CalendarCategoryRow row) {
+  /// A partner's archive flag is theirs and is not obeyed here
+  /// (`docs/cloud-share-surfaces-roadmap.md` §7.5): what shows of theirs is
+  /// this person's own choice.
+  CalendarCategory _rowToModel(
+    CalendarCategoryRow row, {
+    required bool fromPartner,
+  }) {
     return CalendarCategory(
       id: row.id,
       name: row.name,
@@ -650,7 +733,8 @@ class CategoryService {
       iconKey: row.iconKey,
       sortOrder: row.sortOrder,
       isBuiltIn: row.isBuiltIn,
-      isHidden: row.isHidden,
+      isHidden: row.isHidden && !fromPartner,
+      fromPartner: fromPartner,
     );
   }
 }

@@ -10,7 +10,8 @@ import 'support/db_test_support.dart';
 /// `folders`, and the two partial indexes over the marked rows
 /// (`docs/cloud-sharing-foundations.md` §3). A v51 database is a fresh one
 /// without the four columns and the two indexes; the steps add them over the
-/// rows that are there and write nothing else.
+/// rows that are there and write nothing else. v55 → v56 does the same for
+/// `calendar_categories` (`docs/cloud-share-surfaces-roadmap.md` §7.1).
 void main() {
   late AppDatabase db;
 
@@ -22,6 +23,7 @@ void main() {
     'idx_folders_shared_pair',
     'idx_calendar_events_shared_pair',
   ];
+  const categoryIndex = 'idx_calendar_categories_shared_pair';
 
   Future<Set<String>> columns(String table) async => {
     for (final row in await db.customSelect('PRAGMA table_info($table)').get())
@@ -136,27 +138,128 @@ void main() {
 
   test('the marked rows are found through the partial indexes: a database '
       'that shares nothing answers "is anything shared" without reading '
-      'either table', () async {
-    final plan = await db
-        .customSelect(
-          'EXPLAIN QUERY PLAN '
-          'SELECT EXISTS(SELECT 1 FROM folders WHERE shared_pair IS NOT NULL) '
-          'OR EXISTS(SELECT 1 FROM calendar_events '
-          'WHERE shared_pair IS NOT NULL) AS marked',
-        )
-        .get();
-    final detail = [for (final row in plan) row.read<String>('detail')];
+      'any of the three tables', () async {
+    final counter = StatementCounter();
+    final counted = await openTestDatabase(interceptor: counter);
+    addTearDown(counted.close);
+    counter.reset();
 
-    expect(
-      detail.where((line) => line.contains('idx_folders_shared_pair')),
-      isNotEmpty,
-      reason: '$detail',
-    );
-    expect(
-      detail.where((line) => line.contains('idx_calendar_events_shared_pair')),
-      isNotEmpty,
-      reason: '$detail',
+    expect(await counted.syncDao.anyShareMark(), isFalse);
+
+    expect(counter.count, 1);
+    final detail = await explainCaptured(counted, counter.captured.single);
+    for (final index in [...indexes, categoryIndex]) {
+      expect(
+        detail.where((line) => line.contains(index)),
+        isNotEmpty,
+        reason: '$index: $detail',
+      );
+    }
+  });
+
+  test('a category\'s mark is a mark like the others', () async {
+    await db.calendarCategoryDao.insertCategory(
+      CalendarCategoriesCompanion.insert(
+        id: 'c1',
+        name: 'Climb',
+        colorValue: 0xFF336699,
+        iconKey: 'event',
+        createdAt: DateTime.utc(2026, 6, 1),
+        updatedAt: DateTime.utc(2026, 6, 1),
+      ),
     );
     expect(await db.syncDao.anyShareMark(), isFalse);
+
+    await db.calendarCategoryDao.setSharedPair('c1', 'pair-1');
+
+    expect(await db.syncDao.anyShareMark(), isTrue);
+  });
+
+  group('v55 → v56', () {
+    Future<void> upgrade() => DatabaseMigrations(db).runMigrations(
+      db.createMigrator(),
+      DatabaseSchema.v55FencesAgain,
+      DatabaseSchema.v56CategorySharedPair,
+    );
+
+    /// Takes the categories back to v55: no index, no stamp, no mark.
+    Future<void> asV55() async {
+      await db.customStatement('DROP INDEX $categoryIndex');
+      await db.customStatement(
+        'ALTER TABLE calendar_categories DROP COLUMN shared_stamp',
+      );
+      await db.customStatement(
+        'ALTER TABLE calendar_categories DROP COLUMN shared_pair',
+      );
+    }
+
+    test('a v55 database gains the category\'s mark, its stamp and its '
+        'index, with every row left as it was: unmarked, at its own stamp, '
+        'and nothing queued', () async {
+      await db.calendarCategoryDao.insertCategory(
+        CalendarCategoriesCompanion.insert(
+          id: 'c1',
+          name: 'Climb',
+          colorValue: 0xFF336699,
+          iconKey: 'event',
+          createdAt: DateTime.utc(2026, 6, 1),
+          updatedAt: DateTime.utc(2026, 6, 1),
+        ),
+      );
+      final before = await db
+          .customSelect(
+            'SELECT hlc_timestamp, version FROM calendar_categories',
+          )
+          .getSingle();
+      await db.syncOutboxDao.clear();
+      await asV55();
+      expect(
+        await columns('calendar_categories'),
+        isNot(contains('shared_pair')),
+      );
+
+      await upgrade();
+
+      expect(
+        await columns('calendar_categories'),
+        containsAll(['shared_pair', 'shared_stamp']),
+      );
+      expect(await indexNames(), contains(categoryIndex));
+      expect(await userVersion(), DatabaseSchema.v56CategorySharedPair);
+      final after = (await db.calendarCategoryDao.getByIdsIncludingDeleted([
+        'c1',
+      ])).single;
+      expect(after.sharedPair, isNull);
+      expect(after.sharedStamp, isNull);
+      expect(after.hlcTimestamp, before.read<String>('hlc_timestamp'));
+      expect(after.version, before.read<int>('version'));
+      expect(await db.syncOutboxDao.count(), 0);
+    });
+
+    test('runs again over a database that has it and changes nothing',
+        () async {
+      await db.calendarCategoryDao.insertCategory(
+        CalendarCategoriesCompanion.insert(
+          id: 'c1',
+          name: 'Climb',
+          colorValue: 0xFF336699,
+          iconKey: 'event',
+          createdAt: DateTime.utc(2026, 6, 1),
+          updatedAt: DateTime.utc(2026, 6, 1),
+        ),
+      );
+      await db.calendarCategoryDao.setSharedPair('c1', 'pair-1');
+      final before = (await db.calendarCategoryDao.getByIdsIncludingDeleted([
+        'c1',
+      ])).single;
+
+      await upgrade();
+      await upgrade();
+
+      expect(
+        (await db.calendarCategoryDao.getByIdsIncludingDeleted(['c1'])).single,
+        before,
+      );
+    });
   });
 }

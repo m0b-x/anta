@@ -5,3 +5,9 @@
 # partner's guest as on the owner's, since a shared row keeps its name.
 Training
 Week 1
+# The events the category flows make in the editor (04a, 04e): a new
+# event's id is minted on the device, so its day-panel row is named by its
+# title.
+Mobility drills
+Core circuit
+Treadmill run

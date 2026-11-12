@@ -102,7 +102,11 @@ abstract final class AgentShareKinds {
   static const String event = 'event';
   static const String folder = 'folder';
 
-  static const List<String> all = [event, folder];
+  /// Named as the calendar shows it: a built-in by its label in the app's
+  /// language, a custom one by its own name.
+  static const String category = 'category';
+
+  static const List<String> all = [event, folder, category];
 }
 
 abstract final class AgentPerfActions {

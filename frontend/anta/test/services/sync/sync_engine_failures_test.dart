@@ -711,6 +711,26 @@ void main() {
       },
     );
 
+    // The category's mark (share surfaces §7.4): a 47 build would push a
+    // shared category back without its mark and encode its events as
+    // private, ending the share unasked.
+    test(
+      'a space this build wrote holds a build at 47 to appOutdated',
+      () async {
+        expect(DatabaseSchema.categoryShareWireVersion, 48);
+        expect(syncSchema, greaterThanOrEqualTo(48));
+        await pair.close();
+        pair = await SyncPair.open(buildSchema: 47);
+        await a().db.folderDao.createFolder(name: 'Training');
+
+        final report = await a().sync();
+
+        expect(report.failure, SyncGatewayFailure.permissionDenied);
+        expect(a().engine.current.pause, SyncPause.appOutdated);
+        expect((await a().sync()).skipped, SyncRunSkip.appOutdated);
+      },
+    );
+
     test('a space at a newer schema does not lift a noAccess pause', () async {
       await a().db.folderDao.createFolder(name: 'Training');
       pair.gateway.failNextWith(SyncGatewayFailure.permissionDenied);

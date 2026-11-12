@@ -7755,8 +7755,8 @@ class SetCommand extends QaCommand {
   }
 }
 
-/// `qa share event|folder "<name>" [--off]`: what a share switch will do,
-/// before any surface has one.
+/// `qa share event|folder|category "<name>" [--off]`: what a share switch
+/// will do, before any surface has one.
 class ShareCommand extends QaCommand {
   ShareCommand() {
     argParser.addFlag(
@@ -7771,13 +7771,14 @@ class ShareCommand extends QaCommand {
 
   @override
   String get description =>
-      'Share an event (by title) or a folder (by name) of the QA database '
-      'with the signed-in account\'s partner, or make it private again '
-      '(--off) — through the service call a share switch will make; no '
-      'surface has one yet. The account must be paired to share.';
+      'Share an event (by title), a folder (by name) or a calendar category '
+      '(by the name the calendar shows) of the QA database with the '
+      'signed-in account\'s partner, or make it private again (--off) — '
+      'through the service call a share switch will make; no surface has '
+      'one yet. The account must be paired to share.';
 
   @override
-  String get invocation => 'qa share <event|folder> "<name>" [--off]';
+  String get invocation => 'qa share <event|folder|category> "<name>" [--off]';
 
   /// The agent request for `share <kind> <name…> [--off]`; the name may be
   /// several words, quoted or not.
@@ -7800,7 +7801,7 @@ class ShareCommand extends QaCommand {
     return {AgentKeys.kind: kind, AgentKeys.name: name, AgentKeys.on: !off};
   }
 
-  static const String _usage = 'share event|folder "<name>" [--off]';
+  static const String _usage = 'share event|folder|category "<name>" [--off]';
 
   @override
   Future<int> run() async {

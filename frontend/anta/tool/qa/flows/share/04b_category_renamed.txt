@@ -1,0 +1,65 @@
+# The owner renames the shared category (§8.2 C6): a custom category's
+# definition travels with it, so the partner's calendar names its events'
+# category anew at the next sync — read off the Upcoming card that groups
+# the two events still in it, and off the day list that card opens.
+# - "Strength" is checked absent only inside the day list: on the page the
+#   card's own id (`agenda-card-days-category-qa-category-strength`) matches
+#   the word, since a label target falls back to ids.
+key back
+wait id:create-folder
+tap id:nav-menu
+wait id:drawer-calendar
+tap id:drawer-calendar
+wait id:calendar-add-event
+tap id:calendar-more
+wait id:calendar-settings-open
+tap id:calendar-settings-open
+wait id:calendar-add-event --gone
+tap id:calendar-categories-open
+wait id:category-add
+scroll-to id:category-row-qa-category-strength
+tap id:category-row-qa-category-strength
+wait id:category-editor-name
+tap id:category-editor-name
+type "Power" --replace
+tap id:category-editor-save
+wait id:category-editor-save --gone
+expect "Power" --timeout 10
+key back
+wait id:calendar-categories-open
+key back
+wait id:calendar-add-event
+key back
+wait id:create-folder
+tap id:nav-menu
+wait id:drawer-account
+tap id:drawer-account
+wait id:settings-bar-sharing
+tap id:sharing-sync-now --settle 3000
+expect id:sharing-sync-status "Up to date" --timeout 60
+-d emulator-5558 tap id:sharing-sync-now
+-d emulator-5558 expect id:sharing-sync-status "Up to date" --timeout 60
+-d emulator-5558 key back
+-d emulator-5558 wait id:create-folder
+-d emulator-5558 tap id:nav-menu
+-d emulator-5558 wait id:drawer-calendar
+-d emulator-5558 tap id:drawer-calendar
+-d emulator-5558 wait id:calendar-add-event
+-d emulator-5558 tap id:panel-mode-day --settle 1000
+-d emulator-5558 tap id:panel-mode-upcoming
+-d emulator-5558 wait id:agenda-card-days-category-qa-category-strength --timeout 30
+-d emulator-5558 expect "Power" --timeout 30
+-d emulator-5558 tap id:agenda-card-days-category-qa-category-strength
+-d emulator-5558 wait id:day-list-close
+-d emulator-5558 expect "Power" "Lifting session" "Core circuit" --absent "Strength" --absent "Mobility drills" --timeout 15
+-d emulator-5558 shot category-renamed
+-d emulator-5558 tap id:day-list-close
+-d emulator-5558 wait id:day-list-close --gone
+-d emulator-5558 key back
+-d emulator-5558 wait id:create-folder
+-d emulator-5558 tap id:nav-menu
+-d emulator-5558 wait id:drawer-account
+-d emulator-5558 tap id:drawer-account
+-d emulator-5558 wait id:settings-bar-sharing
+-d emulator-5558 errors
+errors

@@ -41,6 +41,10 @@ abstract final class SharedRowFences {
       'EXISTS (SELECT 1 FROM calendar_events shared_parent '
       'WHERE shared_parent.id = $id AND shared_parent.owner_id IS $_owner)';
 
+  static String _sharedCategory(String id) =>
+      'EXISTS (SELECT 1 FROM calendar_categories shared_parent '
+      'WHERE shared_parent.id = $id AND shared_parent.owner_id IS $_owner)';
+
   static String _sharedNote(String id) =>
       'EXISTS (SELECT 1 FROM notes shared_parent '
       'WHERE shared_parent.id = $id AND shared_parent.owner_id IS $_owner)';
@@ -87,6 +91,26 @@ abstract final class SharedRowFences {
       'calendar_event_skips',
     ])
       _fence('${table}_onto', 'INSERT ON $table', _sharedEvent('NEW.event_id')),
+    // An event or a template of the person's own does not take a partner's
+    // category: it would draw in the partner's colours, and be left on an
+    // id that is gone when the share ends. A category alert of theirs may
+    // name one — it is a personal row, as an alert on a shared event is.
+    for (final table in const [
+      'calendar_events',
+      'calendar_event_templates',
+    ]) ...[
+      _fence(
+        '${table}_onto_category',
+        'INSERT ON $table',
+        _sharedCategory('NEW.category'),
+      ),
+      _fence(
+        '${table}_moved_onto_category',
+        'UPDATE OF category ON $table',
+        'NEW.category IS NOT OLD.category AND '
+            '${_sharedCategory('NEW.category')}',
+      ),
+    ],
     // A shared note's text is its chunk rows, which carry no owner of
     // their own.
     _fence(

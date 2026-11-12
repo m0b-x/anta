@@ -66,6 +66,7 @@ abstract final class CalendarCategories {
   static Map<String, CalendarCategory> _byId = const {};
   static List<CalendarCategory> _ordered = const [];
   static List<CalendarCategory> _visible = const [];
+  static List<CalendarCategory> _partner = const [];
   static int _revision = 0;
 
   /// Bumped on every [updateCache] call. There is no reset method to mirror
@@ -99,31 +100,57 @@ abstract final class CalendarCategories {
   /// a hidden category from the lookup would make [resolve] fall through to
   /// the stored Other and repaint every one of its events as Other, which is
   /// the exact opposite of what hiding means.
+  ///
+  /// A partner's category ([CalendarCategory.fromPartner]) is kept out of
+  /// [visible] for the same reason it stays in the lookup: its events must
+  /// draw in its name, colour and icon, but no event of this person's may
+  /// take it — the database would turn that write into nothing.
   static void updateCache(List<CalendarCategory> categories) {
     final sorted = [...categories]..sort(_byOrder);
     _ordered = List.unmodifiable(sorted);
     _byId = Map.unmodifiable({for (final c in sorted) c.id: c});
     _visible = List.unmodifiable([
       for (final c in sorted)
-        if (!c.isHidden) c,
+        if (!c.isHidden && !c.fromPartner) c,
+    ]);
+    _partner = List.unmodifiable([
+      for (final c in sorted)
+        if (c.fromPartner) c,
     ]);
     _revision++;
   }
 
+  /// The person's own by their order, then a partner's by name: the reader
+  /// stores a partner's at order 0, which is not a place in this person's
+  /// list, and [all] is the order the report and the overview fold by — a
+  /// partner's category must not move the person's own there.
   static int _byOrder(CalendarCategory a, CalendarCategory b) {
+    if (a.fromPartner != b.fromPartner) return a.fromPartner ? 1 : -1;
+    if (a.fromPartner) {
+      final byName = a.name.toLowerCase().compareTo(b.name.toLowerCase());
+      return byName != 0 ? byName : a.id.compareTo(b.id);
+    }
     final byOrder = a.sortOrder.compareTo(b.sortOrder);
     return byOrder != 0 ? byOrder : a.id.compareTo(b.id);
   }
 
-  /// All categories in display order, hidden ones included. Every resolution
-  /// path reads this; never narrow it.
+  /// All categories in display order, hidden ones and a partner's included.
+  /// Every resolution path reads this; never narrow it.
   static List<CalendarCategory> get all => _ordered;
 
-  /// The unhidden categories, in display order. The list every *choosing*
-  /// surface renders — pickers, the calendar filter sheet, the agenda chips.
+  /// The person's own unhidden categories, in display order. The list every
+  /// *choosing* surface renders — pickers, the calendar filter sheet, the
+  /// agenda chips. Never a partner's ([partner]).
   static List<CalendarCategory> get visible => _visible;
 
-  /// [visible] plus any of [keep] that is hidden, in display order.
+  /// The categories another account shares with this one, by name — for
+  /// the surfaces that list them apart, under the partner's name, and
+  /// read-only. Empty for an account that never paired.
+  static List<CalendarCategory> get partner => _partner;
+
+  /// [visible] plus any of [keep] that is hidden, in display order. A
+  /// partner's category is never added back: it is no selection of this
+  /// person's to undo.
   ///
   /// The one helper behind a rule every selection-holding surface needs: an
   /// event editor must still list the category its event already carries, and
@@ -133,17 +160,17 @@ abstract final class CalendarCategories {
   /// Returns [visible] itself when nothing hidden is kept, so the common case
   /// allocates nothing and stays identity-stable for widget memos.
   static List<CalendarCategory> visiblePlus(Iterable<String> keep) {
-    if (_visible.length == _ordered.length) return _visible;
+    if (_visible.length + _partner.length == _ordered.length) return _visible;
     final kept = keep is Set<String> ? keep : keep.toSet();
     if (kept.isEmpty) return _visible;
     final extra = [
       for (final c in _ordered)
-        if (c.isHidden && kept.contains(c.id)) c,
+        if (c.isHidden && !c.fromPartner && kept.contains(c.id)) c,
     ];
     if (extra.isEmpty) return _visible;
     return List.unmodifiable([
       for (final c in _ordered)
-        if (!c.isHidden || kept.contains(c.id)) c,
+        if (!c.fromPartner && (!c.isHidden || kept.contains(c.id))) c,
     ]);
   }
 

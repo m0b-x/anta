@@ -8,7 +8,10 @@ made one write — §4), REVIEWED and FIXED; F4 DONE — the two-guest device
 suite `qa pass share` green, 7/7 (§12); the fix pass itself reviewed once
 more and its findings fixed (§12, last section). Schema 55, wire 47. Every
 part of the foundations is built; what is left is the owner's (§11, and
-the roadmap's status). The owner's scope (2026-11-11): everything under the "Share with
+the roadmap's status). EXTENDED the same day by the share surfaces' slice
+B — a category as a third root of a grant: schema 56, wire 48, a sixth
+shareable table (§12, last section; `cloud-share-surfaces-roadmap.md` §7
+and §15). The owner's scope (2026-11-11): everything under the "Share with
 partner" switch, for events and for notes — schema, wire, rules, the
 engine reading a partner's shared rows, read-only protection, backups,
 two app versions — proven by tests and the rules emulator; no switch, no
@@ -1185,3 +1188,52 @@ parent it left.
 Gate: `dart analyze lib test tool test_driver` clean; the whole suite
 `+16034 ~17`; `qa pass share` 7/7 in 157.4 s on the build with these
 fixes. Schema 55, wire 47 as before.
+
+### A category as a third root (2026-11-12, the share surfaces' slice B)
+
+Designed in `cloud-share-surfaces-roadmap.md` §7 and recorded as built in
+its §15; this section says only what changed in what the foundations
+themselves state.
+
+- **§3, the grant.** A third root: `calendar_categories.shared_pair` /
+  `shared_stamp` (schema 56). An event's document carries its own mark,
+  else its live category's (`CalendarEventDao.sharedPairsOf`, joined on the
+  stored category id); day rows follow their event as before. Decision c
+  holds across three tables: setting a mark clears another pair's marks in
+  events, folders and categories. Decision l holds: a category's mark
+  leaves `updated_at` alone. New: a category that comes back from a
+  tombstone comes back private — a delete ends the grant for good.
+- **§4, the wire and the rules.** Wire 48; `sharedTables` has six entries,
+  `calendar_categories` first; `shareable()` and one read block more in
+  `firestore.rules`; a sixth collection-group index. A database whose
+  marks are unread after a wire bump holds the tables concerned out of the
+  drain until their re-read completes — this corrects the 46 → 47 cutover
+  too, which pushed before it re-read.
+- **§5–§6, the reader.** Refused documents are recorded
+  (`shared_refused.*`, `shared_builtin.*` in `sync_metadata`) and count
+  toward `countOf` for every shared table, tombstones included, so a leave
+  behind a refusal is noticed by the count rather than by the daily read.
+  "{n} could not be shown" counts categories, events, folders and notes,
+  never day rows. A built-in category id is always refused: the partner's
+  events in it resolve to the reader's own. A category id the reader's own
+  events or templates name is the reader's, with or without a row under it.
+- **§7, read-only.** The fences cover categories; four more by hand keep
+  an event or a template of the person's own from taking a partner's
+  category, and the writers refuse first, by name. A row of the person's
+  own under a partner's category is held back (`SyncHeldReason
+  .sharedParent`), like one under a shared parent. "No other writer may use
+  a replacing insert" now names `CalendarCategoryDao.importAll`, which
+  evicts first.
+- **§10, must not change — one deliberate change.** A tombstone a device
+  never held the data of is no longer "corrected" to private (events
+  only): its document has no content and the device cannot know the grant.
+  A live row that is private where its document says shared is always
+  corrected, as before.
+- **§12, F4.** The two-guest suite has thirteen flows (the six of slice B
+  between `04_made_private` and `05_pair_ended`), green twice in a row on
+  freshly started emulator suites, ≈ 4.5 min; the emulator suite is
+  restarted, never reset, between passes.
+
+Gate: `dart analyze lib test tool test_driver` clean; the whole suite
+`+16482 ~17`; rules 163/163; `qa pass share` 13/13 twice. Schema 56, wire
+48.

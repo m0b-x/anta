@@ -233,6 +233,29 @@ class SyncDao extends DatabaseAccessor<AppDatabase> with _$SyncDaoMixin {
   /// above it reads every shared table again from the start.
   static const String keySharedNewerWire = 'shared_newer_wire';
 
+  /// The prefix every [keySharedRefused] shares.
+  static const String sharedRefusedPrefix = 'shared_refused.';
+
+  /// Present while the partner's document [rowKey] of [table] is not stored
+  /// here because it would take the place of, or hang under, a row of the
+  /// person's own (`SharedRowRefused`): `1` while the document is live — what
+  /// "{n} items could not be shown" counts — and `0` once it is a tombstone,
+  /// which the server's count of the share still holds. Kept true as stored
+  /// rows are — gone when the document is stored after all, when a read from
+  /// the start no longer meets it and when the shared rows go.
+  static String keySharedRefused(String table, String rowKey) =>
+      '$sharedRefusedPrefix$table|$rowKey';
+
+  /// The prefix every [keySharedBuiltIn] shares.
+  static const String sharedBuiltInPrefix = 'shared_builtin.';
+
+  /// Present while the partner shares the built-in category [id], which is
+  /// never stored here — the person's own row under that id draws its events
+  /// (D14) — and so is recorded apart, for the list of what is received;
+  /// valued and kept true as [keySharedRefused] is, and never counted with
+  /// it.
+  static String keySharedBuiltIn(String id) => '$sharedBuiltInPrefix$id';
+
   /// The prefix every [keySharedWaiting] shares, for [valuesByPrefix] and
   /// [deleteByPrefix].
   static const String sharedWaitingPrefix = 'shared_waiting.';
@@ -304,6 +327,17 @@ class SyncDao extends DatabaseAccessor<AppDatabase> with _$SyncDaoMixin {
     return [for (final row in rows) (row.key, row.value)];
   }
 
+  /// [valuesByPrefix] for every one of [prefixes] in one statement.
+  Future<List<(String, String)>> valuesByPrefixes(List<String> prefixes) async {
+    final rows = await (select(syncMetadata)..where(
+          (s) => prefixes
+              .map((prefix) => _startsWith(s, prefix))
+              .reduce((a, b) => a | b),
+        ))
+        .get();
+    return [for (final row in rows) (row.key, row.value)];
+  }
+
   /// The stored values among [keys], by key; a key with none is absent. One
   /// statement per [CrdtMerge.keysPerStatement] keys, where [getValue] would
   /// pay one per key.
@@ -359,14 +393,17 @@ class SyncDao extends DatabaseAccessor<AppDatabase> with _$SyncDaoMixin {
     return s.key.isBiggerOrEqualValue(prefix) & s.key.isSmallerThanValue(above);
   }
 
-  /// Whether any event or folder of this database carries a share mark, a
-  /// deleted one's included (`docs/cloud-sharing-foundations.md` §3): one
-  /// statement that lets a pulled page skip everything about sharing when
-  /// nothing here is shared — which is nearly always.
+  /// Whether any event, folder or category of this database carries a
+  /// share mark, a deleted one's included
+  /// (`docs/cloud-sharing-foundations.md` §3): one statement over three
+  /// partial indexes that lets a pulled page skip everything about sharing
+  /// when nothing here is shared — which is nearly always.
   Future<bool> anyShareMark() async {
     final row = await customSelect(
       'SELECT EXISTS(SELECT 1 FROM folders WHERE shared_pair IS NOT NULL) '
       'OR EXISTS(SELECT 1 FROM calendar_events '
+      'WHERE shared_pair IS NOT NULL) '
+      'OR EXISTS(SELECT 1 FROM calendar_categories '
       'WHERE shared_pair IS NOT NULL) AS marked',
     ).getSingle();
     return row.read<bool>('marked');

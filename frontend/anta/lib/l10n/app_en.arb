@@ -5975,9 +5975,9 @@
   "@syncHeldBackAwaitingText": {
     "description": "Why a note in the Sync page's held-back list was not applied: part of its text has not reached the cloud copy yet"
   },
-  "syncHeldBackSharedParent": "Waiting for its folder or event",
+  "syncHeldBackSharedParent": "Waiting for its folder, event or category",
   "@syncHeldBackSharedParent": {
-    "description": "Why a row in the Sync page's held-back list was not applied yet: the folder or calendar event it belongs to has not arrived from the person's own cloud copy, and a row their partner shares holds that place for now"
+    "description": "Why a row in the Sync page's held-back list was not applied yet: the folder, calendar event or calendar category it belongs to has not arrived from the person's own cloud copy, and a row their partner shares holds that place for now"
   },
   "syncHeldBackUnreadable": "Couldn't be read from the cloud copy",
   "@syncHeldBackUnreadable": {

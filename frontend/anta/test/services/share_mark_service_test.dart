@@ -1,17 +1,20 @@
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:anta/constants/calendar_categories.dart' as catalogue;
 import 'package:anta/database/database.dart';
 import 'package:anta/database/database_lifecycle.dart';
 import 'package:anta/models/calendar_event.dart';
 import 'package:anta/models/item_label.dart';
 import 'package:anta/repositories/folder_repository.dart';
 import 'package:anta/services/calendar_event_service.dart';
+import 'package:anta/services/category_service.dart';
 import 'package:anta/services/folder_storage_service.dart';
 
 import '../database/support/db_test_support.dart';
 
-/// The two calls that set a share (`docs/cloud-sharing-foundations.md` §3)
-/// — the only way in until a surface exists: each is one write of its
+/// The three calls that set a share (`docs/cloud-sharing-foundations.md` §3,
+/// `docs/cloud-share-surfaces-roadmap.md` §7) — the only way in until a
+/// surface exists: each is one write of its
 /// root's mark through the layers a surface will use, and neither disturbs
 /// what a screen holds.
 void main() {
@@ -98,6 +101,76 @@ void main() {
       await events.upsert(event);
       expect(await markOf('e1'), 'pair-1');
       expect(events.events.single.id, 'e1');
+    });
+  });
+
+  group('CategoryService.setShared', () {
+    late CategoryService categories;
+    late String id;
+
+    setUp(() async {
+      categories = await CategoryService.forTesting(db);
+      id = (await categories.create(
+        name: 'Climb',
+        colorValue: 0xFF336699,
+        iconKey: 'event',
+      )).id;
+      await db.syncOutboxDao.clear();
+    });
+
+    tearDown(CategoryService.reset);
+
+    Future<String?> markOf(String id) async =>
+        (await db.calendarCategoryDao.getByIdsIncludingDeleted([
+          id,
+        ])).single.sharedPair;
+
+    test('writes the category\'s mark and queues it; the catalogue a screen '
+        'holds is the same one', () async {
+      final shown = catalogue.CalendarCategories.byId(id);
+
+      expect(await categories.setShared(id, 'pair-1'), isTrue);
+
+      expect(await markOf(id), 'pair-1');
+      expect(await queued(), {'calendar_categories/$id'});
+      expect(catalogue.CalendarCategories.byId(id), shown);
+    });
+
+    test('takes it away again, and says when nothing was written', () async {
+      await categories.setShared(id, 'pair-1');
+      await db.syncOutboxDao.clear();
+
+      expect(await categories.setShared(id, 'pair-1'), isFalse);
+      expect(await queued(), isEmpty);
+      expect(await categories.setShared('missing', 'pair-1'), isFalse);
+
+      expect(await categories.setShared(id, null), isTrue);
+      expect(await markOf(id), isNull);
+    });
+
+    test('an edit, an archive and a reorder afterwards keep its mark',
+        () async {
+      await categories.setShared(id, 'pair-1');
+
+      await categories.updateCategory(
+        catalogue.CalendarCategories.byId(id)!.copyWith(name: 'Climbing'),
+      );
+      await categories.setHidden(id, true);
+      await categories.reorder([
+        id,
+        for (final category in catalogue.CalendarCategories.all)
+          if (category.id != id) category.id,
+      ]);
+
+      expect(await markOf(id), 'pair-1');
+    });
+
+    test('a delete keeps the mark on the tombstone', () async {
+      await categories.setShared(id, 'pair-1');
+
+      expect(await categories.deleteCategory(id), isTrue);
+
+      expect(await markOf(id), 'pair-1');
     });
   });
 

@@ -482,6 +482,17 @@ class _SharedReader {
         } catch (error) {
           if (_abortsTransaction(error)) rethrow;
           final space = page.spaces[envelope.rowKey];
+          if (error is SharedRowRefused) {
+            // Recorded, so the count of what could not be shown — and of
+            // the built-ins received — follows the share as a stored row
+            // would.
+            await db.sharedRowDao.noteRefused(
+              name,
+              envelope.rowKey,
+              live: !isTombstone(envelope),
+              builtIn: error.builtIn,
+            );
+          }
           if (error is ChunksMissing && space != null) {
             waits[envelope.rowKey] = (
               tries:
@@ -525,6 +536,9 @@ class _SharedReader {
           );
         }
       }
+      await db.sharedRowDao.noteStored(name, [
+        for (final row in rows) row.rowKey,
+      ]);
       final dao = db.syncDao;
       for (final noteId in stored) {
         if (_waiting.containsKey(noteId)) {

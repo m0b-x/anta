@@ -5,6 +5,7 @@ import '../crdt/crdt_write.dart';
 import '../crdt/merge_outcome.dart';
 import '../database.dart';
 import '../tables/event_templates_table.dart';
+import 'shared_row_dao.dart';
 
 part 'event_template_dao.g.dart';
 
@@ -38,10 +39,25 @@ class EventTemplateDao extends DatabaseAccessor<AppDatabase>
   /// date it was made. A tombstoned row is resurrected rather than duplicated —
   /// ids are caller-supplied, and a re-imported id must not collide. A save of
   /// a live template that changes nothing writes nothing.
+  ///
+  /// Throws [SharedRowException] for a template put into a category another
+  /// account shares with this one, before anything is stamped or queued —
+  /// [CalendarEventDao.upsert]'s rule and for its reason: the fences would
+  /// skip the row while "Save as template" handed it back as stored.
   Future<void> upsertTemplate(EventTemplatesCompanion entry) {
     return transaction(() async {
       final id = entry.id.value;
-      final existing = await _byId(id);
+      final category = entry.category;
+      final EventTemplateRow? existing;
+      if (category.present) {
+        final bool theirs;
+        (existing, theirs) = await _byIdOnto(id, category.value);
+        if (theirs && existing?.category != category.value) {
+          throw SharedRowException('calendar_categories', category.value);
+        }
+      } else {
+        existing = await _byId(id);
+      }
       final now = DateTime.now();
 
       if (existing == null) {
@@ -261,6 +277,23 @@ class EventTemplateDao extends DatabaseAccessor<AppDatabase>
   /// surface can reach.
   Future<void> deleteAll() {
     return delete(eventTemplates).go();
+  }
+
+  /// [_byId] and, in the same statement, whether [category] is a category
+  /// another account shares with this one
+  /// ([SharedRowDao.partnersCategorySql]).
+  Future<(EventTemplateRow?, bool)> _byIdOnto(
+    String id,
+    String category,
+  ) async {
+    final row = await customSelect(
+      'SELECT ${SharedRowDao.partnersCategorySql('?2')} AS onto_theirs, t.* '
+      'FROM (SELECT 1) LEFT JOIN calendar_event_templates t ON t.id = ?1',
+      variables: [Variable<String>(id), Variable<String>(category)],
+      readsFrom: {eventTemplates, db.calendarCategories, db.syncMetadata},
+    ).getSingle();
+    final local = row.data['id'] == null ? null : eventTemplates.map(row.data);
+    return (local, row.read<bool>('onto_theirs'));
   }
 
   Future<EventTemplateRow?> _byId(String id) {

@@ -283,6 +283,11 @@ class DatabaseMigrations {
       toVersion: DatabaseSchema.v55FencesAgain,
       migrate: _migrateV54ToV55,
     ),
+    Migration(
+      fromVersion: DatabaseSchema.v55FencesAgain,
+      toVersion: DatabaseSchema.v56CategorySharedPair,
+      migrate: _migrateV55ToV56,
+    ),
   ];
 
   Future<void> runMigrations(Migrator m, int from, int to) async {
@@ -2367,7 +2372,13 @@ class DatabaseMigrations {
   /// name and the current set created. **This is the step to copy whenever
   /// a fence's body changes**: bump the version, drop, create. Schema
   /// objects only; no row is read or written.
-  Future<void> _migrateV54ToV55(Migrator m, GeneratedDatabase db) async {
+  Future<void> _migrateV54ToV55(Migrator m, GeneratedDatabase db) =>
+      _recreateSharedRowFences();
+
+  /// Drops every fence a database holds by name and creates the current
+  /// set — what a step that changes the fences takes, since each is created
+  /// only when absent.
+  Future<void> _recreateSharedRowFences() async {
     final held = await _db
         .customSelect(
           "SELECT name FROM sqlite_master WHERE type = 'trigger' "
@@ -2380,5 +2391,33 @@ class DatabaseMigrations {
       );
     }
     await DatabaseIndexes(_db).createSharedRowFences();
+  }
+
+  /// v55→v56: `shared_pair` and `shared_stamp` on `calendar_categories`, the
+  /// pair v52 and v53 gave events and folders, with their partial index — a
+  /// category becomes a third root of a grant, and every event without a
+  /// mark of its own is shared as its live category is
+  /// (`docs/cloud-share-surfaces-roadmap.md` §7.1). NULL everywhere: nothing
+  /// was ever shared by category. The mark crosses the wire, so
+  /// `syncSchemaVersion` moves to 48 with it; no row is rewritten or queued.
+  ///
+  /// The fences again too ([_recreateSharedRowFences]): `calendar_categories`
+  /// joined the shared tables, so a partner's category is fenced like any
+  /// shared row, and an event or a template of the person's own cannot take
+  /// one. A database that kept the v55 set would differ from a fresh one.
+  ///
+  /// Idempotent: each column guarded by the column list, the index by `IF
+  /// NOT EXISTS`, the fences dropped by name first.
+  Future<void> _migrateV55ToV56(Migrator m, GeneratedDatabase db) async {
+    final columns = await _columnsOf('calendar_categories');
+    for (final column in const ['shared_pair', 'shared_stamp']) {
+      if (!columns.contains(column)) {
+        await _db.customStatement(
+          'ALTER TABLE calendar_categories ADD COLUMN $column TEXT',
+        );
+      }
+    }
+    await DatabaseIndexes(_db).createCategoryShareMarkIndex();
+    await _recreateSharedRowFences();
   }
 }

@@ -1069,8 +1069,8 @@ class SyncEngine {
       final cutOver = wire != _WireCutover.none;
       // A bind's first run cuts over too — a database never synced has no
       // wire version — but that is the download the page already words. Only
-      // the bodies' cutover is worded at all: the marks' re-reads two small
-      // tables and sends nothing.
+      // the bodies' cutover is worded at all: the marks' re-reads up to three
+      // small tables and sends nothing.
       if (wire == _WireCutover.bodies && !initial) {
         _downloadedRows = 0;
         _updatingTotal = await _db.noteDao.getNoteCount(null);
@@ -1114,7 +1114,8 @@ class SyncEngine {
       // The cutover is done once a run that cut over read every table to
       // its end, `notes` again from the start; until then the re-queued
       // notes wait, since only that re-read retires the ones the space holds
-      // newer, and a drain would push them over it at their local stamps.
+      // newer, and a drain would push them over it at their local stamps;
+      // so do the tables whose marks it reads again.
       var sending = 0;
       if (cutOver && pulled.complete) {
         await _db.syncDao.setValue(SyncDao.keyWireVersion, '$_schema');
@@ -1127,10 +1128,7 @@ class SyncEngine {
       } else {
         _endUpdating();
       }
-      final held = {
-        ...pulled.failedTables,
-        if (!await _wireCurrent()) const NotesBinding().table,
-      };
+      final held = {...pulled.failedTables, ...await _heldForWire()};
       try {
         if (!initial || pulled.reached) {
           // The drain takes every write queued so far; a write during it
@@ -1457,19 +1455,22 @@ class SyncEngine {
   /// never delivered again on its own — this device would go on saying
   /// "private" for everything under it. The re-read hands the mark to the
   /// merge, which takes it at the row's own stamp
-  /// (`docs/cloud-sharing-foundations.md` §4). Nothing is queued.
+  /// (`docs/cloud-sharing-foundations.md` §4). Nothing is queued. One that
+  /// ran below the wire that first carried a category's mark
+  /// ([DatabaseSchema.categoryShareWireVersion]) reads `calendar_categories`
+  /// again the same way, and only that table when it ran at 47.
   Future<_WireCutover> _cutOverWire(SyncBinding binding) async {
     final ran = await _wireRan();
     final dao = _db.syncDao;
     if (ran != null && ran >= _bodyWire) {
       if (ran >= _schema) return _WireCutover.none;
-      if (ran >= DatabaseSchema.shareWireVersion ||
-          _schema < DatabaseSchema.shareWireVersion) {
+      final unread = _marksUnread(ran);
+      if (unread.isEmpty) {
         await dao.setValue(SyncDao.keyWireVersion, '$_schema');
         return _WireCutover.none;
       }
       await _db.transaction(() async {
-        for (final table in _markedTables) {
+        for (final table in unread) {
           await dao.deleteValue(SyncDao.keyPullCursor(table));
           await dao.deleteValue(SyncDao.keyPullSettled(table));
         }
@@ -1482,8 +1483,8 @@ class SyncEngine {
       );
       // A database that never ran merged nothing a mark could be missing
       // from, and a run of its first pull that was cut would otherwise read
-      // the two tables again each time it resumed.
-      for (final table in ['notes', if (ran != null) ..._markedTables]) {
+      // the marked tables again each time it resumed.
+      for (final table in ['notes', if (ran != null) ..._marksUnread(ran)]) {
         await dao.deleteValue(SyncDao.keyPullCursor(table));
         await dao.deleteValue(SyncDao.keyPullSettled(table));
       }
@@ -1492,14 +1493,34 @@ class SyncEngine {
     return _WireCutover.bodies;
   }
 
-  /// The tables whose rows carry a share mark of their own.
-  static const List<String> _markedTables = ['calendar_events', 'folders'];
+  /// The tables whose rows carry a share mark of their own, by the wire
+  /// that first carried it.
+  static const Map<String, int> _markedTables = {
+    'calendar_events': DatabaseSchema.shareWireVersion,
+    'folders': DatabaseSchema.shareWireVersion,
+    'calendar_categories': DatabaseSchema.categoryShareWireVersion,
+  };
 
-  /// Whether this database's notes are in the shape this build pushes: it
-  /// completed a run at or above the wire that re-cut their bodies.
-  Future<bool> _wireCurrent() async {
+  /// The tables of [_markedTables] whose mark a database that last ran at
+  /// wire [ran] could not read, and this engine's can.
+  List<String> _marksUnread(int ran) => [
+    for (final MapEntry(key: table, value: since) in _markedTables.entries)
+      if (ran < since && _schema >= since) table,
+  ];
+
+  /// The tables the drain holds back until a cutover's pull completes.
+  /// `notes` waits while this database has not completed a run at or above
+  /// the wire that re-cut their bodies. A table whose marks are unread
+  /// waits too: a row queued before the update — a rename made on the older
+  /// build — would otherwise be pushed without the mark the space's
+  /// document carries, ending a share nobody ended, before the re-read could
+  /// hand the mark to the merge.
+  Future<List<String>> _heldForWire() async {
     final ran = await _wireRan();
-    return ran != null && ran >= _bodyWire;
+    return [
+      if (ran == null || ran < _bodyWire) const NotesBinding().table,
+      if (ran != null) ..._marksUnread(ran),
+    ];
   }
 
   /// The wire version this database last completed a run under, if any.
@@ -2056,8 +2077,9 @@ enum _WireCutover {
   /// Every note is queued again and read again: its body crosses as chunks.
   bodies,
 
-  /// The events and the folders are read again from the start, for the
-  /// share marks an older build could not read.
+  /// The tables whose share marks an older build could not read — events
+  /// and folders below 47, categories below 48 — are read again from the
+  /// start.
   marks,
 }
 

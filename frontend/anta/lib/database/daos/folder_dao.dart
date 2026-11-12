@@ -1105,8 +1105,9 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
   ///
   /// Setting a mark clears, in the same transaction and under the same
   /// stamp, every mark inside the folder's own subtree — the outer one now
-  /// covers them — and every mark of another pair, here and on
-  /// `calendar_events`: a database shares into one pair.
+  /// covers them — and every mark of another pair, here, on
+  /// `calendar_events` and on `calendar_categories`: a database shares into
+  /// one pair.
   ///
   /// The folders and notes under it are queued again at the stamps they
   /// carry ([_requeueSubtree]): their documents say who may read them from
@@ -1126,6 +1127,7 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
       if (pairId != null) {
         await clearOtherPairs(pairId, stamp);
         await db.calendarEventDao.clearOtherPairs(pairId, stamp);
+        await db.calendarCategoryDao.clearOtherPairs(pairId, stamp);
       }
       if (existing.sharedPair == pairId) return false;
       if (pairId != null) {
@@ -1155,10 +1157,11 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
   /// pair than [pairId] — every mark there is when null — each row queued
   /// and its subtree queued again: its half of "a database shares into one
   /// pair", called inside the transaction of the write that sets a mark
-  /// ([setSharedPair], [CalendarEventDao.setSharedPair]) and when the
-  /// account's pair is found changed or ended. Tombstones too: their
-  /// documents would go on naming a pair this database no longer shares
-  /// into. Returns how many it cleared.
+  /// ([setSharedPair], [CalendarEventDao.setSharedPair],
+  /// [CalendarCategoryDao.setSharedPair]) and when the account's pair is
+  /// found changed or ended. Tombstones too: their documents would go on
+  /// naming a pair this database no longer shares into. Returns how many
+  /// it cleared.
   Future<int> clearOtherPairs(String? pairId, CrdtStamp stamp) => _clearMarks(
     stamp,
     where: 'shared_pair IS NOT NULL AND shared_pair IS NOT ?3',
@@ -1167,8 +1170,9 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
   );
 
   /// Clears every share mark of a pair other than [pairId] — every mark
-  /// there is when null — on folders and on events alike, under one stamp:
-  /// what the account's pair, as the server shows it, leaves standing
+  /// there is when null — on folders, events and categories alike, under
+  /// one stamp: what the account's pair, as the server shows it, leaves
+  /// standing
   /// (`docs/cloud-sharing-foundations.md` §2 c). A share must not outlive
   /// its pair on the owner's side either, and a merge alone can leave two
   /// pairs' marks side by side. Returns how many marks it cleared.
@@ -1181,7 +1185,10 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
         variables: [Variable<String>(pairId)],
         requeue: true,
       );
-      return folders + await db.calendarEventDao.clearOtherPairs(pairId, stamp);
+      final events = await db.calendarEventDao.clearOtherPairs(pairId, stamp);
+      return folders +
+          events +
+          await db.calendarCategoryDao.clearOtherPairs(pairId, stamp);
     });
   }
 

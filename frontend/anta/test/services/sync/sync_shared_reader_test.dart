@@ -3,20 +3,24 @@ import 'dart:async';
 import 'package:drift/drift.dart' show Value, Variable;
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:anta/constants/calendar_categories.dart';
 import 'package:anta/constants/event_presence.dart';
 import 'package:anta/database/crdt/hlc.dart';
 import 'package:anta/database/daos/sync_dao.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/services/calendar_event_service.dart';
+import 'package:anta/services/category_service.dart';
 import 'package:anta/services/event_occurrence_service.dart';
 import 'package:anta/services/event_skip_service.dart';
 import 'package:anta/services/sync/sync_engine.dart';
 import 'package:anta/services/sync/sync_gateway.dart';
 import 'package:anta/services/sync/sync_status.dart';
 import 'package:anta/services/sync/sync_table_binding.dart';
+import 'package:anta/services/sync/tables/calendar_event_templates_binding.dart';
 import 'package:anta/services/sync/tables/calendar_events_binding.dart';
 import 'package:anta/services/sync/tables/notes_binding.dart';
 
+import '../../database/support/db_test_support.dart';
 import 'support/sync_pair.dart';
 
 /// The reader's side of sharing (`docs/cloud-sharing-foundations.md` §5,
@@ -299,6 +303,19 @@ void main() {
       await owner().db.calendarEventDao.setSharedPair('e1', null);
       await pair.syncBoth();
       expect((await eventOn(partner(), 'e1'))!.title, 'The partner\'s own');
+    });
+
+    test('refused, is one item that could not be shown: its day rows, '
+        'refused with it, are recorded for the count against the server '
+        'and never counted as items of their own', () async {
+      await event(partner(), 'e1', title: 'The partner\'s own');
+      await partner().sync();
+
+      await pair.syncBoth();
+
+      final dao = partner().db.sharedRowDao;
+      expect(await dao.recorded('calendar_event_skips'), isNotEmpty);
+      expect(await dao.refusedCount(), 1);
     });
 
     test('gives way to an event of the partner\'s own that arrives from '
@@ -837,6 +854,436 @@ void main() {
     });
   });
 
+  // A category is a third root of a grant
+  // (docs/cloud-share-surfaces-roadmap.md §7.5): read first, so an event
+  // never arrives before the category that draws it.
+  group('a shared category', () {
+    Future<void> category(
+      SyncDevice device,
+      String id, {
+      String? name,
+      bool builtIn = false,
+    }) => device.db.calendarCategoryDao.insertCategory(
+      CalendarCategoriesCompanion.insert(
+        id: id,
+        name: name ?? 'Category $id',
+        colorValue: 0xFF336699,
+        iconKey: 'event',
+        isBuiltIn: Value(builtIn),
+        sortOrder: const Value(5),
+        isHidden: const Value(true),
+        createdAt: day,
+        updatedAt: day,
+      ),
+    );
+
+    Future<void> eventIn(SyncDevice device, String id, String category) =>
+        device.db.calendarEventDao.upsert(
+          CalendarEventsCompanion.insert(
+            id: id,
+            title: 'Event $id',
+            category: category,
+            startDate: day,
+            ruleKind: 'weekly',
+            createdAt: day,
+            updatedAt: day,
+          ),
+        );
+
+    Future<CalendarCategoryRow?> categoryOn(
+      SyncDevice device,
+      String id,
+    ) async => (await device.db.calendarCategoryDao.getByIdsIncludingDeleted([
+      id,
+    ])).firstOrNull;
+
+    setUp(() async {
+      await category(owner(), 'climb', name: 'Climb');
+      await eventIn(owner(), 'e1', 'climb');
+      await eventIn(owner(), 'private', 'general');
+      await owner().db.eventSkipDao.markSkipped('e1', day);
+      await owner().db.calendarCategoryDao.setSharedPair('climb', sharePairId);
+    });
+
+    test('arrives under the owner\'s account in the same read as its events, '
+        'first — the mark not stored, the owner\'s order and archive flag '
+        'not obeyed, nothing queued — and an event shared only through it '
+        'arrives with its day rows', () async {
+      await owner().sync();
+      expect(
+        pair.gateway
+            .rowsOf(pair.ownerSpace, 'calendar_categories')['climb']!
+            .sharedPair,
+        sharePairId,
+        reason: 'the category\'s own document names the pair',
+      );
+      partner().hooks.clear();
+
+      await partner().sync();
+
+      final shared = (await categoryOn(partner(), 'climb'))!;
+      expect(shared.name, 'Climb');
+      expect(shared.ownerId, ownerUid);
+      expect(shared.sharedPair, isNull);
+      expect(shared.sharedStamp, isNull);
+      expect(shared.sortOrder, 0);
+      expect(shared.isHidden, isFalse);
+      expect(shared.isBuiltIn, isFalse);
+      expect((await eventOn(partner(), 'e1'))!.ownerId, ownerUid);
+      expect(await eventOn(partner(), 'private'), isNull);
+      expect(
+        await ownedBy(
+          partner(),
+          'calendar_event_skips',
+          ownerUid,
+          key: 'event_id',
+        ),
+        {'e1'},
+      );
+      expect(
+        partner().hooks.calls,
+        containsAllInOrder([
+          'before:calendar_categories',
+          'before:calendar_events',
+        ]),
+      );
+      expect(await queuedOn(partner()), 0);
+    });
+
+    test('follows its rename, and the owner\'s copy wins over one changed '
+        'here', () async {
+      await pair.syncBoth();
+      await partner().db.sharedRowDao.writing(
+        () => partner().db.customStatement(
+          "UPDATE calendar_categories SET name = 'Changed here', "
+          "hlc_timestamp = 'ffffffffffff:0000:B' WHERE id = 'climb'",
+        ),
+      );
+
+      await owner().db.calendarCategoryDao.updateCategory(
+        const CalendarCategoriesCompanion(
+          id: Value('climb'),
+          name: Value('Bouldering'),
+        ),
+      );
+      await pair.syncBoth();
+
+      expect((await categoryOn(partner(), 'climb'))!.name, 'Bouldering');
+      expect(await queuedOn(partner()), 0);
+    });
+
+    test('made private again, leaves with the events it alone shared and '
+        'their day rows; a category alert and a category profile of the '
+        'partner\'s own on it stay, inert', () async {
+      await pair.syncBoth();
+      await partner().db.categoryAlertDao.replaceForCategory('climb', [
+        CalendarCategoryAlertsCompanion.insert(
+          id: 'alert',
+          categoryId: 'climb',
+          createdAt: day,
+          updatedAt: day,
+          hlcTimestamp: '000000000001:0000:B',
+          deviceId: 'B',
+        ),
+      ]);
+      await partner().db.categoryProfileDao.upsertForCategory(
+        CalendarCategoryProfilesCompanion.insert(
+          id: 'profile',
+          categoryId: 'climb',
+          kind: const Value('workout'),
+          createdAt: day,
+          updatedAt: day,
+          hlcTimestamp: '000000000001:0000:B',
+          deviceId: 'B',
+        ),
+      );
+
+      await owner().db.calendarCategoryDao.setSharedPair('climb', null);
+      await pair.syncBoth();
+
+      expect(
+        await categoryOn(partner(), 'climb'),
+        isNull,
+        reason: 'no tombstone',
+      );
+      expect(await eventOn(partner(), 'e1'), isNull);
+      expect(
+        await ownedBy(
+          partner(),
+          'calendar_event_skips',
+          ownerUid,
+          key: 'event_id',
+        ),
+        isEmpty,
+      );
+      expect(
+        await partner().db
+            .customSelect(
+              "SELECT 1 FROM calendar_category_alerts WHERE id = 'alert'",
+            )
+            .get(),
+        hasLength(1),
+      );
+      expect(
+        (await partner().db.categoryProfileDao.getActiveForCategory(
+          'climb',
+        ))?.id,
+        'profile',
+      );
+    });
+
+    test('deleted by its owner, arrives as a deletion, and its events, moved '
+        'to a category that is not shared, leave', () async {
+      await pair.syncBoth();
+
+      await owner().db.calendarCategoryDao.tombstoneCascade(
+        'climb',
+        reassignTo: 'general',
+      );
+      await pair.syncBoth();
+
+      final shared = (await categoryOn(partner(), 'climb'))!;
+      expect(shared.isDeleted, isTrue);
+      expect(shared.ownerId, ownerUid);
+      expect(await eventOn(partner(), 'e1'), isNull);
+    });
+
+    group('that this device does not store', () {
+      Future<int> refused() => partner().db.sharedRowDao.refusedCount();
+      Future<Set<String>> builtIns() =>
+          partner().db.sharedRowDao.sharedBuiltIns();
+
+      test('a built-in is never stored, though nothing here holds its id: it '
+          'is recorded as received and never counted as a row that could '
+          'not be shown — and its events arrive, drawn by the person\'s own '
+          'row of it', () async {
+        await category(owner(), 'gym', builtIn: true);
+        await eventIn(owner(), 'e2', 'gym');
+        await owner().db.calendarCategoryDao.setSharedPair('gym', sharePairId);
+
+        await pair.syncBoth();
+
+        expect(await categoryOn(partner(), 'gym'), isNull);
+        expect(await builtIns(), {'gym'});
+        expect(await refused(), 0);
+        expect((await eventOn(partner(), 'e2'))!.ownerId, ownerUid);
+        expect((await categoryOn(partner(), 'climb'))!.ownerId, ownerUid);
+      });
+
+      test('a built-in\'s record goes when the owner stops sharing it — a '
+          'read from the start no longer meets it — and when the pair '
+          'ends', () async {
+        await category(owner(), 'gym', builtIn: true);
+        await owner().db.calendarCategoryDao.setSharedPair('gym', sharePairId);
+        await pair.syncBoth();
+        expect(await builtIns(), {'gym'});
+
+        await owner().db.calendarCategoryDao.setSharedPair('gym', null);
+        await pair.syncBoth();
+        expect(await builtIns(), isEmpty);
+
+        await owner().db.calendarCategoryDao.setSharedPair('gym', sharePairId);
+        await pair.syncBoth();
+        expect(await builtIns(), {'gym'});
+        pair.end();
+        await partner().sync();
+        expect(await builtIns(), isEmpty);
+      });
+
+      test('a custom category under an id of the person\'s own is refused, '
+          'counted, and forgotten once the owner stops sharing it — at the '
+          'next read, not the daily one', () async {
+        await category(partner(), 'climb', name: 'The partner\'s own');
+        await partner().sync();
+
+        await pair.syncBoth();
+
+        final own = (await categoryOn(partner(), 'climb'))!;
+        expect(own.name, 'The partner\'s own');
+        expect(own.ownerId, isNot(ownerUid));
+        expect(await refused(), 1);
+        expect(await builtIns(), isEmpty);
+
+        await owner().db.calendarCategoryDao.setSharedPair('climb', null);
+        await pair.syncBoth();
+
+        expect(await refused(), 0);
+        expect(
+          (await categoryOn(partner(), 'climb'))!.name,
+          'The partner\'s own',
+        );
+      });
+
+      test('costs nothing while it stays — the count holds it — and one read '
+          'of its table from the start once it leaves', () async {
+        await category(partner(), 'climb', name: 'The partner\'s own');
+        await partner().sync();
+        await pair.syncBoth();
+        List<String> categoryCalls() => [
+          for (final call in sharedCalls())
+            if (call.endsWith(':calendar_categories')) call,
+        ];
+
+        pair.gateway.calls.clear();
+        await partner().sync();
+        expect(categoryCalls(), [
+          'shared:calendar_categories',
+          'count:calendar_categories',
+        ]);
+
+        await owner().db.calendarCategoryDao.setSharedPair('climb', null);
+        await owner().sync();
+        pair.gateway.calls.clear();
+        await partner().sync();
+        expect(categoryCalls(), [
+          'shared:calendar_categories',
+          'count:calendar_categories',
+          'shared:calendar_categories',
+        ]);
+      });
+
+      test('a refused category its owner deletes is forgotten: a tombstone '
+          'is nothing to show', () async {
+        await category(partner(), 'climb', name: 'The partner\'s own');
+        await partner().sync();
+        await pair.syncBoth();
+        expect(await refused(), 1);
+
+        await owner().db.calendarCategoryDao.tombstoneCascade(
+          'climb',
+          reassignTo: 'general',
+        );
+        await pair.syncBoth();
+
+        expect(await refused(), 0);
+        expect((await categoryOn(partner(), 'climb'))!.isDeleted, isFalse);
+      });
+
+      test('a refused category its owner deletes keeps its record, which the '
+          'server still counts: a category that leaves later is found at the '
+          'next read, not masked by it', () async {
+        await category(partner(), 'climb', name: 'The partner\'s own');
+        await partner().sync();
+        await category(owner(), 'hike', name: 'Hike');
+        await owner().db.calendarCategoryDao.setSharedPair('hike', sharePairId);
+        await category(owner(), 'gym', builtIn: true);
+        await owner().db.calendarCategoryDao.setSharedPair('gym', sharePairId);
+        await pair.syncBoth();
+        expect(await refused(), 1);
+        expect((await categoryOn(partner(), 'hike'))!.ownerId, ownerUid);
+
+        await owner().db.calendarCategoryDao.tombstoneCascade(
+          'climb',
+          reassignTo: 'general',
+        );
+        await pair.syncBoth();
+        expect(await refused(), 0);
+
+        await owner().db.calendarCategoryDao.setSharedPair('hike', null);
+        await pair.syncBoth();
+
+        expect(await categoryOn(partner(), 'hike'), isNull);
+        expect(await builtIns(), {'gym'});
+      });
+
+      test('a built-in\'s tombstone keeps its record the same way: counted '
+          'against the server, never listed as received', () async {
+        final dao = partner().db.sharedRowDao;
+        await dao.noteRefused(
+          'calendar_categories',
+          'gym',
+          live: true,
+          builtIn: true,
+        );
+        await dao.noteRefused(
+          'calendar_categories',
+          'gym',
+          live: false,
+          builtIn: true,
+        );
+
+        expect(await builtIns(), isEmpty);
+        expect(await dao.recorded('calendar_categories'), {'gym'});
+        expect(await dao.countOf('calendar_categories', ownerUid), 1);
+        expect(await refused(), 0);
+      });
+
+      group('under an id the person\'s own rows name, with no category of '
+          'theirs under it', () {
+        setUp(() async {
+          await eventIn(partner(), 'mine', 'climb');
+          await partner().db.eventTemplateDao.upsertTemplate(
+            EventTemplatesCompanion.insert(
+              id: 'tpl',
+              name: 'Template',
+              category: 'climb',
+              createdAt: day,
+              updatedAt: day,
+              hlcTimestamp: '000000000001:0000:B',
+              deviceId: 'B',
+            ),
+          );
+          await partner().sync();
+        });
+
+        test('is refused like an id of theirs, and counted', () async {
+          await pair.syncBoth();
+
+          expect(await categoryOn(partner(), 'climb'), isNull);
+          expect(await refused(), 1);
+          expect((await eventOn(partner(), 'mine'))!.category, 'climb');
+        });
+
+        test('my event keeps drawing as mine — which is what keeps it in '
+            'the .ics export', () async {
+          await pair.syncBoth();
+          CategoryService.reset();
+          await CategoryService.forTesting(partner().db);
+
+          expect(CalendarCategories.resolve('climb').fromPartner, isFalse);
+          expect(
+            CalendarCategories.all.where((c) => c.fromPartner),
+            isEmpty,
+          );
+          CategoryService.reset();
+        });
+
+        test('its tombstone is refused too, and holds nothing', () async {
+          await owner().db.calendarCategoryDao.tombstoneCascade(
+            'climb',
+            reassignTo: 'general',
+          );
+          await pair.syncBoth();
+
+          expect(await categoryOn(partner(), 'climb'), isNull);
+          await partner().db.calendarEventDao.upsert(
+            CalendarEventsCompanion.insert(
+              id: 'later',
+              title: 'Later',
+              category: 'climb',
+              startDate: day,
+              ruleKind: 'weekly',
+              createdAt: day,
+              updatedAt: day,
+            ),
+          );
+          expect((await eventOn(partner(), 'later'))!.category, 'climb');
+        });
+
+        test('a template alone names it enough', () async {
+          await partner().db.customStatement(
+            "DELETE FROM calendar_events WHERE id = 'mine'",
+          );
+
+          await pair.syncBoth();
+
+          expect(await categoryOn(partner(), 'climb'), isNull);
+          expect(await refused(), 1);
+        });
+      });
+    });
+  });
+
   group('the pair', () {
     setUp(() async {
       await event(owner(), 'e1');
@@ -939,6 +1386,7 @@ void main() {
       expect(pair.partners.asked, [partnerUid]);
       expect(sharedCalls(), [
         for (final table in const [
+          'calendar_categories',
           'calendar_events',
           'calendar_event_occurrences',
           'calendar_event_skips',
@@ -946,6 +1394,111 @@ void main() {
           'notes',
         ]) ...['shared:$table', 'count:$table'],
       ]);
+    });
+
+    group('on an account that never had a refusal', () {
+      bool readsRecords(CapturedStatement statement) =>
+          statement.isSelect &&
+          statement.args.any(
+            (arg) =>
+                arg is String &&
+                (arg.startsWith(SyncDao.sharedRefusedPrefix) ||
+                    arg.startsWith(SyncDao.sharedBuiltInPrefix)),
+          );
+
+      test('a read reads each table\'s records once, by the count — a page '
+          'it stores only forgets, unread', () async {
+        partner().statements.reset();
+
+        // The events' page re-reads the shared event in the overlap before
+        // the cursor, and stores it again.
+        await partner().sync();
+
+        expect(
+          partner().statements.captured.where(readsRecords),
+          hasLength(6),
+          reason: [
+            for (final s in partner().statements.captured.where(readsRecords))
+              '${s.sql} ${s.args}',
+          ].join('\n'),
+        );
+        expect(
+          partner().statements.captured.where(
+            (statement) =>
+                statement.sql.startsWith('DELETE') &&
+                statement.args.contains(
+                  SyncDao.keySharedRefused('calendar_events', 'e1'),
+                ),
+          ),
+          hasLength(1),
+        );
+      });
+
+      test('a page with nothing stored forgets nothing, at no statement', () async {
+        partner().statements.reset();
+
+        await partner().db.sharedRowDao.noteStored('calendar_events', const []);
+
+        expect(partner().statements.count, 0);
+      });
+
+      test('a templates page of the account\'s own costs three lookups: the '
+          'shared account, asked twice, and one read of whether a shared '
+          'category holds a category it names', () async {
+        Future<int> sharedLookups() async {
+          partner().statements.reset();
+          await partner().sync();
+          return partner().statements.captured
+              .where(
+                (statement) =>
+                    statement.args.contains(SyncDao.keySharedOwner) ||
+                    statement.sql.contains(
+                      'FROM calendar_categories WHERE owner_id = ?',
+                    ),
+              )
+              .length;
+        }
+
+        final idle = await sharedLookups();
+        // Written on another device of the partner's own account: built on
+        // the owner's database, which syncs no more here, and planted.
+        await owner().db.eventTemplateDao.upsertTemplate(
+          EventTemplatesCompanion.insert(
+            id: 'tpl',
+            name: 'Template',
+            category: 'gym',
+            createdAt: day,
+            updatedAt: day,
+            hlcTimestamp: '000000000001:0000:C',
+            deviceId: 'C',
+          ),
+        );
+        final row = (await owner().db.eventTemplateDao
+            .getByIdsIncludingDeleted(['tpl'])).single;
+        pair.gateway.plant(
+          pair.partnerSpace,
+          await const CalendarEventTemplatesBinding().encode(
+            owner().db,
+            row,
+            boundUid: partnerUid,
+          ),
+          pushedBy: 'C',
+        );
+
+        final page = await sharedLookups();
+
+        expect(
+          (await partner().db.eventTemplateDao.getByIdsIncludingDeleted([
+            'tpl',
+          ])).single.category,
+          'gym',
+        );
+        expect(
+          page - idle,
+          3,
+          reason: partner().statements.statements.join('\n'),
+        );
+      });
     });
 
     test('a run nobody asked for reads again only once the interval has '
@@ -1302,6 +1855,139 @@ void main() {
       expect((await eventOn(partner(), 'e1'))!.ownerId, partnerUid);
       expect(await skipsOf(partnerUid), {'e1'});
       expect(await skipsOf(ownerUid), isEmpty);
+    });
+
+    group('an event or a template in a category held here as shared', () {
+      Future<List<String>> heldBack() async => [
+        for (final (key, value) in await partner().db.syncDao.valuesByPrefix(
+          SyncDao.pullParkedPrefix,
+        ))
+          '$key $value',
+      ];
+
+      Future<String?> categoryOf(String table, String id) async {
+        final rows = await partner().db
+            .customSelect(
+              'SELECT category FROM $table WHERE id = ?',
+              variables: [Variable<String>(id)],
+            )
+            .get();
+        return rows.isEmpty ? null : rows.single.read<String>('category');
+      }
+
+      /// The owner shares the category `climb`, which the partner's device
+      /// stores as theirs; the partner's own space then carries an event and
+      /// a template of the partner's own under that category id — both
+      /// accounts restored one backup.
+      setUp(() async {
+        await owner().db.calendarCategoryDao.insertCategory(
+          CalendarCategoriesCompanion.insert(
+            id: 'climb',
+            name: 'Climb',
+            colorValue: 0xFF336699,
+            iconKey: 'event',
+            createdAt: day,
+            updatedAt: day,
+          ),
+        );
+        await owner().db.eventTemplateDao.upsertTemplate(
+          EventTemplatesCompanion.insert(
+            id: 't1',
+            name: 'Bouldering',
+            category: 'climb',
+            createdAt: day,
+            updatedAt: day,
+            hlcTimestamp: '000000000001:0000:A',
+            deviceId: 'A',
+          ),
+        );
+        await owner().db.calendarCategoryDao.setSharedPair(
+          'climb',
+          sharePairId,
+        );
+        await pair.syncBoth();
+        expect(
+          (await partner().db.calendarCategoryDao.getByIdsIncludingDeleted([
+            'climb',
+          ])).single.ownerId,
+          ownerUid,
+        );
+        final event = pair.gateway.rowsOf(
+          pair.ownerSpace,
+          'calendar_events',
+        )['e1']!;
+        plantOwn(
+          asOwn(
+            event,
+            rowKey: 'own-e',
+            over: {'id': 'own-e', 'category': 'climb'},
+          ),
+        );
+        final template = pair.gateway.rowsOf(
+          pair.ownerSpace,
+          'calendar_event_templates',
+        )['t1']!;
+        plantOwn(asOwn(template, rowKey: 'own-t', over: {'id': 'own-t'}));
+      });
+
+      test('is held back — not stored, and not dropped by the fence while '
+          'the pull counts it and passes it for good — and lands once the '
+          'share ends', () async {
+        final report = await partner().sync();
+
+        expect(report.failure, isNull);
+        expect(await categoryOf('calendar_events', 'own-e'), isNull);
+        expect(await categoryOf('calendar_event_templates', 'own-t'), isNull);
+        expect(
+          await heldBack(),
+          unorderedMatches([
+            allOf(
+              contains('own-e'),
+              contains(SyncHeldReason.sharedParent.name),
+            ),
+            allOf(
+              contains('own-t'),
+              contains(SyncHeldReason.sharedParent.name),
+            ),
+          ]),
+        );
+
+        await owner().db.calendarCategoryDao.setSharedPair('climb', null);
+        await owner().sync();
+        await partner().sync();
+        await partner().sync();
+
+        expect(await categoryOf('calendar_events', 'own-e'), 'climb');
+        expect(await categoryOf('calendar_event_templates', 'own-t'), 'climb');
+        expect(await ownedBy(partner(), 'calendar_events', partnerUid), {
+          'own-e',
+        });
+        expect(await heldBack(), isEmpty);
+      });
+
+      test('lands once the person\'s own category under that id arrives and '
+          'takes the shared one\'s place', () async {
+        await partner().sync();
+        expect(await heldBack(), hasLength(2));
+
+        final theirs = pair.gateway.rowsOf(
+          pair.ownerSpace,
+          'calendar_categories',
+        )['climb']!;
+        plantOwn(asOwn(theirs));
+        await partner().sync();
+        await partner().sync();
+
+        expect(
+          (await partner().db.calendarCategoryDao.getByIdsIncludingDeleted([
+            'climb',
+          ])).single.ownerId,
+          partnerUid,
+        );
+        expect(await categoryOf('calendar_events', 'own-e'), 'climb');
+        expect(await categoryOf('calendar_event_templates', 'own-t'), 'climb');
+        expect(await heldBack(), isEmpty);
+      });
     });
 
     test('tells the screens what gave way: each removed row as gone, with '

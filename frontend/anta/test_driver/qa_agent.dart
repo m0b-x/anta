@@ -11,7 +11,10 @@ import 'package:anta/core/di/injection.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/services/app_navigator.dart';
 import 'package:anta/services/auth_service.dart';
+import 'package:anta/constants/calendar_categories.dart';
+import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/services/calendar_event_service.dart';
+import 'package:anta/services/category_service.dart';
 import 'package:anta/services/folder_storage_service.dart';
 import 'package:anta/services/pairing_gateway.dart';
 import 'package:anta/services/pairing_service.dart';
@@ -337,11 +340,12 @@ class QaAgent {
     };
   }
 
-  /// Shares the event titled [name], or the folder named so, with this
-  /// account's partner — or makes it private again when [on] is false —
-  /// through the call a share switch will make
+  /// Shares the event titled [name], or the folder or the calendar category
+  /// named so, with this account's partner — or makes it private again when
+  /// [on] is false — through the call a share switch will make
   /// (`CalendarEventService.setShared`, `FolderStorageService
-  /// .setFolderShared`): no surface has that switch yet
+  /// .setFolderShared`, `CategoryService.setShared`): no surface has that
+  /// switch yet
   /// (`docs/cloud-sharing-foundations.md` §9, F4), and a device pass has to
   /// prove what stands under it.
   ///
@@ -393,6 +397,28 @@ class QaAgent {
         id,
         pairId,
       );
+    } else if (kind == AgentShareKinds.category) {
+      final context = AppNavigator.navigatorKey.currentContext;
+      if (context == null || !context.mounted) {
+        throw QaAgentException(
+          'the app has no navigator yet (still starting?)',
+        );
+      }
+      final l10n = AppLocalizations.of(context)!;
+      final categories = await CategoryService.getInstance();
+      // The service's own list never holds a partner's category, and the
+      // label is the one the calendar shows: a built-in's follows the locale.
+      final matches = [
+        for (final category in categories.categories)
+          if (CalendarCategories.labelOf(category, l10n) == name) category.id,
+      ];
+      if (matches.length != 1) {
+        refuse(
+          '${matches.length} categories of this account are named "$name"',
+        );
+      }
+      id = matches.single;
+      written = await categories.setShared(id, pairId);
     } else {
       final matches = [
         for (final folder in await db.folderDao.getAllFolders())

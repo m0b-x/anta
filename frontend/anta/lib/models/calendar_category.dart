@@ -39,6 +39,15 @@ class CalendarCategory extends Equatable {
   /// hiding is the exceptional state.
   final bool isHidden;
 
+  /// Another account's own category, which it shares with this one
+  /// (`docs/cloud-share-surfaces-roadmap.md` §6.1): stored under the
+  /// partner's `owner_id` and read-only here, so it draws the partner's
+  /// events but is never chosen, edited or exported. Transient — set where
+  /// `CategoryService` loads its rows, never stored, never written out. A
+  /// built-in the partner shares is never one: its events resolve to this
+  /// person's own row of the same id.
+  final bool fromPartner;
+
   const CalendarCategory({
     required this.id,
     required this.name,
@@ -47,6 +56,7 @@ class CalendarCategory extends Equatable {
     required this.sortOrder,
     required this.isBuiltIn,
     this.isHidden = false,
+    this.fromPartner = false,
   });
 
   Color get color => Color(colorValue);
@@ -66,6 +76,7 @@ class CalendarCategory extends Equatable {
       sortOrder: sortOrder ?? this.sortOrder,
       isBuiltIn: isBuiltIn,
       isHidden: isHidden ?? this.isHidden,
+      fromPartner: fromPartner,
     );
   }
 
@@ -78,5 +89,6 @@ class CalendarCategory extends Equatable {
     sortOrder,
     isBuiltIn,
     isHidden,
+    fromPartner,
   ];
 }

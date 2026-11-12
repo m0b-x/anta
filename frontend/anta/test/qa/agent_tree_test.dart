@@ -229,7 +229,7 @@ void main() {
     test('v3 shares a row by name and names the sign-in\'s account', () {
       expect(agentProtocolVersion, 3);
       expect(AgentOps.share, 'share');
-      expect(AgentShareKinds.all, ['event', 'folder']);
+      expect(AgentShareKinds.all, ['event', 'folder', 'category']);
       expect({
         AgentKeys.account,
         AgentKeys.kind,

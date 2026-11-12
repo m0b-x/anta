@@ -56,14 +56,18 @@ const String _dayKey = "event_id || '|' || (day * 1000)";
 }
 
 /// The tables whose rows can be shared with a partner, a parent before its
-/// children — the order a reader of shared rows takes them in: an event,
+/// children — the order a reader of shared rows takes them in: a category,
+/// so an event never arrives before the category that draws it; an event,
 /// its per-day texts and skipped days; a folder, its notes
-/// (`docs/cloud-sharing-foundations.md` §3). Everything else is a person's
-/// own and never crosses: presence marks, alerts, counters, categories.
+/// (`docs/cloud-sharing-foundations.md` §3,
+/// `docs/cloud-share-surfaces-roadmap.md` §7). Everything else is a
+/// person's own and never crosses: presence marks, alerts, counters,
+/// category alerts and profiles, templates.
 ///
-/// `firestore.rules` names the same five in `shareable()`, and each has its
+/// `firestore.rules` names the same six in `shareable()`, and each has its
 /// collection-group index in `firestore.indexes.json`.
 const List<String> sharedTables = [
+  'calendar_categories',
   'calendar_events',
   'calendar_event_occurrences',
   'calendar_event_skips',

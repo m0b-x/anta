@@ -446,6 +446,10 @@ class CalendarEventService {
   /// existing row keeps its own, so neither the model's `null`, the date a
   /// `copyWith(id:)` carried over from another event, nor this call's clock
   /// would match what a reload reads.
+  ///
+  /// Throws `SharedRowException` for an event put into a category another
+  /// account shares with this one ([CalendarEventDao.upsert]), with nothing
+  /// written and the cache as it was.
   Future<void> upsert(CalendarEvent event) async {
     _ensureOwn(event.id, fromPartner: event.fromPartner);
     var normalized = _normalized(event);
@@ -646,17 +650,20 @@ class CalendarEventService {
   /// The facts shown and nothing else: title, time, repeat, priority, the
   /// event's own colour and icon, the description of [day] (a per-day text
   /// for a series that keeps one), and the category when this database has
-  /// that id as its own — a shared built-in such as `gym` — else Other. A
-  /// create, never an import: a new id stamped now, no share mark, and none
-  /// of the person's alerts on the shared event, no linked note (it would
-  /// open the partner's), no skipped days and no presence settings come
-  /// along — the copy starts clean.
+  /// that id as a category of the person's own — a shared built-in such as
+  /// `gym` — else Other. A partner's own category is never the copy's: an
+  /// event of the person's own cannot take one, and the save would be
+  /// refused by name. A create, never an import: a new id stamped now, no
+  /// share mark, and none of the person's alerts on the shared event, no
+  /// linked note (it would open the partner's), no skipped days and no
+  /// presence settings come along — the copy starts clean.
   Future<CalendarEvent> copyToMine(CalendarEvent event, DateTime day) async {
     final description = OccurrenceDescriptions.descriptionFor(event, day);
+    final category = CalendarCategories.byId(event.categoryId);
     final copy = CalendarEvent(
       id: const Uuid().v4(),
       title: event.title,
-      categoryId: CalendarCategories.byId(event.categoryId) == null
+      categoryId: category == null || category.fromPartner
           ? kFallbackCategoryId
           : event.categoryId,
       startDate: event.startDate,

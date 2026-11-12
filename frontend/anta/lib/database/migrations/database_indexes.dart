@@ -27,6 +27,7 @@ class DatabaseIndexes {
     await createNoteTitleIndex();
     await createPositionIndexes();
     await createShareMarkIndexes();
+    await createCategoryShareMarkIndex();
     await createSharedRowFences();
   }
 
@@ -54,6 +55,17 @@ class DatabaseIndexes {
     await _db.customStatement(
       'CREATE INDEX IF NOT EXISTS idx_calendar_events_shared_pair '
       'ON calendar_events(shared_pair) WHERE shared_pair IS NOT NULL',
+    );
+  }
+
+  /// The categories that carry a share mark (**v56**), the third partial
+  /// index beside [createShareMarkIndexes]'s two. Apart from them because
+  /// the v53 step calls that helper, and a category has the column only
+  /// from v56 on: a step is frozen at the shape it shipped with.
+  Future<void> createCategoryShareMarkIndex() async {
+    await _db.customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_calendar_categories_shared_pair '
+      'ON calendar_categories(shared_pair) WHERE shared_pair IS NOT NULL',
     );
   }
 

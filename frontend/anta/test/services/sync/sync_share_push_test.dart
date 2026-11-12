@@ -1,14 +1,22 @@
+import 'dart:ui' show AppLifecycleState;
+
+import 'package:drift/drift.dart' show Value;
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:anta/constants/event_presence.dart';
 import 'package:anta/database/chunking/chunk_hasher.dart';
 import 'package:anta/database/crdt/crdt_write.dart';
+import 'package:anta/database/daos/sync_dao.dart';
 import 'package:anta/database/database.dart';
+import 'package:anta/database/migrations/database_schema.dart';
 import 'package:anta/services/sync/sync_cadence.dart';
 import 'package:anta/services/sync/sync_gateway.dart';
 import 'package:anta/services/sync/sync_table_binding.dart';
 import 'package:anta/services/sync/sync_tables.dart';
+import 'package:anta/services/sync/tables/calendar_categories_binding.dart';
 import 'package:anta/services/sync/tables/calendar_event_occurrences_binding.dart';
+import 'package:anta/services/sync/tables/calendar_event_skips_binding.dart';
+import 'package:anta/services/sync/tables/calendar_events_binding.dart';
 import 'package:anta/services/sync/tables/folders_binding.dart';
 
 import 'support/sync_pair.dart';
@@ -83,6 +91,20 @@ void main() {
 
   String dayKey(String table, String eventId) =>
       '$table/${dayRowKey(eventId, day)}';
+
+  /// Starts [device]'s engine in the background, where its first run only
+  /// drains, as an update installed while the phone was locked would.
+  Future<void> startInBackground(SyncDevice device) async {
+    device.lifecycleState = AppLifecycleState.paused;
+    await device.engine.start();
+    await device.settle();
+  }
+
+  Future<void> resume(SyncDevice device) async {
+    device.lifecycleState = AppLifecycleState.resumed;
+    device.engine.onAppResumed();
+    await device.settle();
+  }
 
   test('nothing shared: no document names a pair, and neither does the '
       'space', () async {
@@ -450,6 +472,35 @@ void main() {
       expect(pair.gateway.sharedPairOf(pair.space), isNull);
     });
 
+    test('renamed on a device that last ran below the wire that carries '
+        'share marks waits there for the folders\' re-read: a run that only '
+        'drains does not send it private over the mark', () async {
+      await b().sync();
+      await a().db.folderDao.setSharedPair(shelf.id, pairId);
+      await a().sync();
+      await b().db.syncDao.setValue(
+        SyncDao.keyWireVersion,
+        '${DatabaseSchema.shareWireVersion - 1}',
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+      await b().db.folderDao.updateFolder(id: shelf.id, name: 'Rack');
+
+      await startInBackground(b());
+
+      expect(documents()['folders/${shelf.id}']!.sharedPair, pairId);
+      expect(documents()['folders/${shelf.id}']!.data!['name'], 'Shelf');
+
+      await resume(b());
+
+      expect(documents()['folders/${shelf.id}']!.data!['name'], 'Rack');
+      expect(shared(), {
+        'folders/${shelf.id}': pairId,
+        'folders/${box.id}': pairId,
+        'notes/${top.id}': pairId,
+        'notes/${low.id}': pairId,
+      });
+    });
+
     test('a note written or moved into it is shared from that push, and '
         'one moved out stops being', () async {
       await a().db.folderDao.setSharedPair(shelf.id, pairId);
@@ -589,10 +640,9 @@ void main() {
 
       final sent = pair.gateway.pushes.skip(before).toList();
       expect(sent.length, greaterThan(1));
-      expect(
-        [for (final envelope in sent.first) envelope.rowKey],
-        contains(shelf.id),
-      );
+      expect([
+        for (final envelope in sent.first) envelope.rowKey,
+      ], contains(shelf.id));
       expect(shared(), hasLength(4));
     });
 
@@ -635,26 +685,32 @@ void main() {
       expect(await SyncPair.snapshot(b()), await SyncPair.snapshot(a()));
     });
 
-    test('taken away while a push of the rows under it is in flight, they '
-        'are sent again private in the same run: the entries that push '
-        'would have retired are the very ones the change had to queue', () async {
-      await a().db.folderDao.setSharedPair(shelf.id, pairId);
-      var pushes = 0;
-      pair.gateway.onPushBatch = (batch) async {
-        // The second push carries the rows under the shelf, shared.
-        if (++pushes == 2) {
-          expect(batch.map((envelope) => envelope.sharedPair), contains(pairId));
-          await a().db.folderDao.setSharedPair(shelf.id, null);
-        }
-      };
+    test(
+      'taken away while a push of the rows under it is in flight, they '
+      'are sent again private in the same run: the entries that push '
+      'would have retired are the very ones the change had to queue',
+      () async {
+        await a().db.folderDao.setSharedPair(shelf.id, pairId);
+        var pushes = 0;
+        pair.gateway.onPushBatch = (batch) async {
+          // The second push carries the rows under the shelf, shared.
+          if (++pushes == 2) {
+            expect(
+              batch.map((envelope) => envelope.sharedPair),
+              contains(pairId),
+            );
+            await a().db.folderDao.setSharedPair(shelf.id, null);
+          }
+        };
 
-      await a().sync();
+        await a().sync();
 
-      pair.gateway.onPushBatch = null;
-      expect(pushes, greaterThan(2));
-      expect(shared(), isEmpty);
-      expect(pair.gateway.sharedPairOf(pair.space), isNull);
-    });
+        pair.gateway.onPushBatch = null;
+        expect(pushes, greaterThan(2));
+        expect(shared(), isEmpty);
+        expect(pair.gateway.sharedPairOf(pair.space), isNull);
+      },
+    );
 
     group('the pair the space names for its notes\' text', () {
       setUp(() async {
@@ -748,7 +804,474 @@ void main() {
     });
   });
 
-  test('only the five tables that can be shared ever name a pair', () async {
+  // A category is a third root (docs/cloud-share-surfaces-roadmap.md §7):
+  // its own document carries its mark, and every event in it without a
+  // mark of its own is shared as it is, day rows included.
+  group('a shared category', () {
+    const categories = CalendarCategoriesBinding();
+
+    Future<void> category(SyncDevice device, String id) =>
+        device.db.calendarCategoryDao.insertCategory(
+          CalendarCategoriesCompanion.insert(
+            id: id,
+            name: 'Category $id',
+            colorValue: 0xFF336699,
+            iconKey: 'event',
+            createdAt: day,
+            updatedAt: day,
+          ),
+        );
+
+    Future<void> eventIn(SyncDevice device, String id, String category) =>
+        device.db.calendarEventDao.upsert(
+          CalendarEventsCompanion.insert(
+            id: id,
+            title: 'Event $id',
+            category: category,
+            startDate: day,
+            ruleKind: 'weekly',
+            createdAt: day,
+            updatedAt: day,
+          ),
+        );
+
+    setUp(() async {
+      await category(a(), 'climb');
+      await category(a(), 'run');
+      await eventIn(a(), 'e1', 'climb');
+      await eventIn(a(), 'e2', 'run');
+      await a().db.eventSkipDao.markSkipped('e1', day);
+      await a().db.eventAbsenceDao.setStatus('e1', day, PresenceStatus.missed);
+      await a().db.eventTemplateDao.upsertTemplate(
+        EventTemplatesCompanion.insert(
+          id: 't1',
+          name: 'Bouldering',
+          category: 'climb',
+          createdAt: day,
+          updatedAt: day,
+          hlcTimestamp: '000000000001:0000:A',
+          deviceId: 'A',
+        ),
+      );
+      await a().sync();
+    });
+
+    test('names the pair on its own document, with the mark in its data, '
+        'and on every event in it and their day rows — never on another '
+        'category\'s event, a presence mark or a template', () async {
+      await a().db.calendarCategoryDao.setSharedPair('climb', pairId);
+      await a().sync();
+
+      expect(shared(), {
+        'calendar_categories/climb': pairId,
+        'calendar_events/e1': pairId,
+        dayKey('calendar_event_skips', 'e1'): pairId,
+      });
+      expect(
+        documents()['calendar_categories/climb']!.data!['sharedPair'],
+        pairId,
+      );
+      expect(
+        documents()['calendar_events/e1']!.data!.containsKey('sharedPair'),
+        isFalse,
+        reason: 'the event carries no mark of its own: its document says it',
+      );
+    });
+
+    test('made private again, every one of those documents stops naming '
+        'the pair with its next push', () async {
+      await a().db.calendarCategoryDao.setSharedPair('climb', pairId);
+      await a().sync();
+
+      await a().db.calendarCategoryDao.setSharedPair('climb', null);
+      await a().sync();
+
+      expect(shared(), isEmpty);
+    });
+
+    test('pushed shared by another device, where this one holds it private, '
+        'is said private again: a share must not outlive its end', () async {
+      await b().sync();
+      final row = (await categories.loadByKeys(b().db, ['climb'])).single;
+      pair.gateway.plant(
+        pair.space,
+        (await categories.encode(
+          b().db,
+          row,
+          boundUid: syncUid,
+        )).sharedInto(pairId),
+        pushedBy: 'C',
+      );
+      expect(shared()['calendar_categories/climb'], pairId);
+
+      await b().sync();
+
+      expect(shared(), isEmpty);
+    });
+
+    test('taken away while its push is in flight, it and its events are '
+        'sent again private in the same run', () async {
+      await a().db.calendarCategoryDao.setSharedPair('climb', pairId);
+      var cleared = false;
+      pair.gateway.onPushBatch = (batch) async {
+        if (!cleared &&
+            batch.any(
+              (envelope) =>
+                  envelope.table == 'calendar_categories' &&
+                  envelope.sharedPair == pairId,
+            )) {
+          cleared = true;
+          await a().db.calendarCategoryDao.setSharedPair('climb', null);
+        }
+      };
+
+      await a().sync();
+
+      pair.gateway.onPushBatch = null;
+      expect(cleared, isTrue);
+      expect(shared(), isEmpty);
+    });
+
+    Future<String?> markOn(SyncDevice device) async =>
+        (await device.db.calendarCategoryDao.getByIdsIncludingDeleted([
+          'climb',
+        ])).single.sharedPair;
+
+    Future<void> editOn(SyncDevice device, String id, String category) =>
+        device.db.calendarEventDao.upsert(
+          CalendarEventsCompanion.insert(
+            id: id,
+            title: 'Edited on ${device.id}',
+            category: category,
+            startDate: day,
+            ruleKind: 'weekly',
+            createdAt: day,
+            updatedAt: day,
+          ),
+        );
+
+    test('an event added on a device that had not heard the share end, '
+        'pushed shared with its day row, is said private by the device '
+        'that ended it, and stays so', () async {
+      await b().sync();
+      await a().db.calendarCategoryDao.setSharedPair('climb', pairId);
+      await a().sync();
+      await b().sync();
+      expect(await markOn(b()), pairId);
+      await eventIn(b(), 'e3', 'climb');
+      await b().db.eventSkipDao.markSkipped('e3', day);
+      await a().db.calendarCategoryDao.setSharedPair('climb', null);
+      await a().sync();
+      expect(shared(), isEmpty);
+
+      await pushedAs(
+        b(),
+        const CalendarEventsBinding(),
+        'e3',
+        sharedPair: pairId,
+      );
+      await pushedAs(
+        b(),
+        const CalendarEventSkipsBinding(),
+        dayRowKey('e3', day),
+        sharedPair: pairId,
+      );
+      expect(shared().keys, {
+        'calendar_events/e3',
+        dayKey('calendar_event_skips', 'e3'),
+      });
+
+      expect((await a().sync()).pushedRows, 2);
+      expect(shared(), isEmpty);
+      expect((await b().sync()).pushedRows, 0);
+      expect(await markOn(b()), isNull);
+      expect((await a().sync()).pushedRows, 0);
+      expect((await b().sync()).pushedRows, 0);
+      expect(shared(), isEmpty);
+    });
+
+    test('an event edited on a device that had not heard the share end is '
+        'pushed private once that device merges the end', () async {
+      await b().sync();
+      await a().db.calendarCategoryDao.setSharedPair('climb', pairId);
+      await a().sync();
+      await b().sync();
+      await a().db.calendarCategoryDao.setSharedPair('climb', null);
+      await a().sync();
+      await editOn(b(), 'e1', 'climb');
+
+      expect((await b().sync()).pushedRows, 1);
+
+      expect(shared(), isEmpty);
+      expect(await markOn(b()), isNull);
+      expect((await a().sync()).pushedRows, 0);
+      expect((await b().sync()).pushedRows, 0);
+    });
+
+    test('an event pushed private by a device that had not heard the share '
+        'begin, after the mark was set, is said shared by that device once '
+        'it merges the mark — not by the one that set it, which cannot tell '
+        'the push came after', () async {
+      await b().sync();
+      await editOn(b(), 'e1', 'climb');
+      await a().db.calendarCategoryDao.setSharedPair('climb', pairId);
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+      await b().sync();
+      expect(shared(), isEmpty);
+
+      expect((await a().sync()).pushedRows, 2);
+      expect(shared(), {
+        'calendar_categories/climb': pairId,
+        dayKey('calendar_event_skips', 'e1'): pairId,
+      });
+
+      expect((await b().sync()).pushedRows, 1);
+      final settled = {
+        'calendar_categories/climb': pairId,
+        'calendar_events/e1': pairId,
+        dayKey('calendar_event_skips', 'e1'): pairId,
+      };
+      expect(shared(), settled);
+      expect((await a().sync()).pushedRows, 0);
+      expect((await b().sync()).pushedRows, 0);
+      expect(shared(), settled);
+    });
+
+    test('an event pushed private before the mark was set is said shared '
+        'by the device that set it, in the same run', () async {
+      await b().sync();
+      await editOn(b(), 'e1', 'climb');
+      await b().sync();
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+      await a().db.calendarCategoryDao.setSharedPair('climb', pairId);
+
+      expect((await a().sync()).pushedRows, 3);
+
+      final settled = {
+        'calendar_categories/climb': pairId,
+        'calendar_events/e1': pairId,
+        dayKey('calendar_event_skips', 'e1'): pairId,
+      };
+      expect(shared(), settled);
+      expect((await b().sync()).pushedRows, 0);
+      expect((await a().sync()).pushedRows, 0);
+      expect(shared(), settled);
+    });
+
+    test('set on one device and cleared on the other, every document says '
+        'it once each way and then rests', () async {
+      for (var i = 0; i < 5; i++) {
+        await eventIn(a(), 'x$i', 'climb');
+      }
+      await a().sync();
+      await b().sync();
+      await a().db.calendarCategoryDao.setSharedPair('climb', pairId);
+
+      // The category, its six events and the one skipped day.
+      expect((await a().sync()).pushedRows, 8);
+      expect((await b().sync()).pushedRows, 0);
+      expect(shared(), hasLength(8));
+      expect((await a().sync()).pushedRows, 0);
+      expect((await b().sync()).pushedRows, 0);
+
+      await b().db.calendarCategoryDao.setSharedPair('climb', null);
+      expect((await b().sync()).pushedRows, 8);
+      expect(shared(), isEmpty);
+      expect((await a().sync()).pushedRows, 0);
+      expect((await b().sync()).pushedRows, 0);
+      expect((await a().sync()).pushedRows, 0);
+      expect(shared(), isEmpty);
+    });
+
+    test('a day row the other device pushed shared after this one moved its '
+        'event out of the category is said private by that device\'s next '
+        'run', () async {
+      await b().sync();
+      await a().db.calendarCategoryDao.setSharedPair('climb', pairId);
+      await a().sync();
+      await b().sync();
+      final later = DateTime.utc(2026, 6, 8);
+      await b().db.eventSkipDao.markSkipped('e1', later);
+      await eventIn(a(), 'e1', 'run');
+      await a().sync();
+      expect(shared(), {'calendar_categories/climb': pairId});
+
+      await pushedAs(
+        b(),
+        const CalendarEventSkipsBinding(),
+        dayRowKey('e1', later),
+        sharedPair: pairId,
+      );
+      expect(
+        shared()['calendar_event_skips/${dayRowKey('e1', later)}'],
+        pairId,
+      );
+
+      expect((await b().sync()).pushedRows, 1);
+      expect(shared(), {'calendar_categories/climb': pairId});
+      expect((await a().sync()).pushedRows, 0);
+      expect(shared(), {'calendar_categories/climb': pairId});
+    });
+
+    test('an event of it made and deleted before another device ever held '
+        'it: that device stores the tombstone and leaves its document '
+        'shared — it cannot know the grant, and the partner has to hear of '
+        'the delete', () async {
+      await a().db.calendarCategoryDao.setSharedPair('climb', pairId);
+      await a().sync();
+      await b().sync();
+      await eventIn(a(), 'e9', 'climb');
+      await a().db.calendarEventDao.softDeleteById('e9');
+      await a().sync();
+      expect(shared()['calendar_events/e9'], pairId);
+
+      final report = await b().sync();
+
+      expect(
+        (await b().db.calendarEventDao.getByIdsIncludingDeleted([
+          'e9',
+        ])).single.isDeleted,
+        isTrue,
+      );
+      expect(report.pushedRows, 0);
+      expect(shared()['calendar_events/e9'], pairId);
+    });
+
+    test('a tombstone named shared over an event this device held in a '
+        'private category is still said private again', () async {
+      await b().sync();
+      await a().db.calendarEventDao.softDeleteById('e2');
+      final row = (await const CalendarEventsBinding().loadByKeys(a().db, [
+        'e2',
+      ])).single;
+      pair.gateway.plant(
+        pair.space,
+        (await const CalendarEventsBinding().encode(
+          a().db,
+          row,
+          boundUid: syncUid,
+        )).sharedInto(pairId),
+        pushedBy: 'C',
+      );
+
+      await b().sync();
+
+      expect(
+        (await b().db.calendarEventDao.getByIdsIncludingDeleted([
+          'e2',
+        ])).single.isDeleted,
+        isTrue,
+      );
+      expect(shared()['calendar_events/e2'], isNull);
+    });
+
+    test('deleted, and brought back by a rename from a device that never '
+        'read the mark, comes back private, and so does an event added to '
+        'it there: a delete ends the grant for good', () async {
+      await b().sync();
+      await a().db.calendarCategoryDao.setSharedPair('climb', pairId);
+      await a().sync();
+      await a().db.calendarCategoryDao.tombstoneCascade(
+        'climb',
+        reassignTo: 'run',
+      );
+      await a().sync();
+      expect(shared(), {'calendar_categories/climb': pairId});
+
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+      await b().db.calendarCategoryDao.updateCategory(
+        CalendarCategoriesCompanion(
+          id: const Value('climb'),
+          name: const Value('Bouldering'),
+          updatedAt: Value(DateTime.now()),
+        ),
+      );
+      await eventIn(b(), 'e3', 'climb');
+      await b().sync();
+      await a().sync();
+      await b().sync();
+      await a().sync();
+
+      Future<CalendarCategoryRow> climbOn(SyncDevice device) async =>
+          (await device.db.calendarCategoryDao.getByIdsIncludingDeleted([
+            'climb',
+          ])).single;
+      for (final device in [a(), b()]) {
+        final row = await climbOn(device);
+        expect(row.isDeleted, isFalse);
+        expect(row.sharedPair, isNull);
+      }
+      expect(shared(), isEmpty);
+      expect(documents().keys, contains('calendar_events/e3'));
+      expect((await b().sync()).pushedRows, 0);
+      expect((await a().sync()).pushedRows, 0);
+    });
+
+    test('renamed on a device that last ran below the wire that carries a '
+        'category\'s mark waits there for the categories\' re-read: a run '
+        'that only drains does not send it private over the mark', () async {
+      await b().sync();
+      await a().db.calendarCategoryDao.setSharedPair('climb', pairId);
+      await a().sync();
+      await b().db.syncDao.setValue(
+        SyncDao.keyWireVersion,
+        '${DatabaseSchema.categoryShareWireVersion - 1}',
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+      await b().db.calendarCategoryDao.updateCategory(
+        CalendarCategoriesCompanion(
+          id: const Value('climb'),
+          name: const Value('Bouldering'),
+          updatedAt: Value(DateTime.now()),
+        ),
+      );
+      await b().db.calendarEventDao.upsert(
+        CalendarEventsCompanion.insert(
+          id: 'e1',
+          title: 'Edited on B',
+          category: 'climb',
+          startDate: day,
+          ruleKind: 'weekly',
+          createdAt: day,
+          updatedAt: day,
+        ),
+      );
+
+      await startInBackground(b());
+
+      final held = documents()['calendar_categories/climb']!;
+      expect(held.sharedPair, pairId);
+      expect(held.data!['sharedPair'], pairId);
+      expect(held.data!['name'], 'Category climb');
+
+      await resume(b());
+
+      expect(
+        (await b().db.calendarCategoryDao.getByIdsIncludingDeleted([
+          'climb',
+        ])).single.sharedPair,
+        pairId,
+      );
+      expect(
+        documents()['calendar_categories/climb']!.data!['name'],
+        'Bouldering',
+      );
+      expect(
+        documents()['calendar_events/e1']!.data!['title'],
+        'Edited on B',
+        reason:
+            'the event its drain sent private is sent again once the '
+            'mark is merged',
+      );
+      expect(shared(), {
+        'calendar_categories/climb': pairId,
+        'calendar_events/e1': pairId,
+        dayKey('calendar_event_skips', 'e1'): pairId,
+      });
+    });
+  });
+
+  test('only the six tables that can be shared ever name a pair', () async {
     final shelf = await a().db.folderDao.createFolder(name: 'Shelf');
     await writeNote(a(), folderId: shelf.id, title: 'Top', body: 'One');
     await event(a(), 'e1');
@@ -756,6 +1279,17 @@ void main() {
     await a().db.eventAbsenceDao.setStatus('e1', day, PresenceStatus.present);
     await a().db.folderDao.setSharedPair(shelf.id, pairId);
     await a().db.calendarEventDao.setSharedPair('e1', pairId);
+    await a().db.calendarCategoryDao.insertCategory(
+      CalendarCategoriesCompanion.insert(
+        id: 'climb',
+        name: 'Climb',
+        colorValue: 0xFF336699,
+        iconKey: 'event',
+        createdAt: day,
+        updatedAt: day,
+      ),
+    );
+    await a().db.calendarCategoryDao.setSharedPair('climb', pairId);
 
     final report = await a().sync();
 

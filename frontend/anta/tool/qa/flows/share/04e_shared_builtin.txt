@@ -1,0 +1,78 @@
+# The owner shares a built-in (§8.4 R8, §12 item 3): an event of its Gym
+# reaches the partner drawn under the partner's own Gym — the read sheet
+# names the category by the partner's own label — and leaves when the
+# owner makes Gym private again.
+# - The event is made in the editor on today, all day, in the editor's
+#   default category, Gym; its title shares no word with the category so
+#   the read sheet's "Gym" can only be the category line.
+# - No surface lists a partner's categories yet (slice D), so a device
+#   cannot see that no second Gym arrived; the reader's refusal of a
+#   built-in is pinned by test/services/sync/sync_shared_reader_test.dart.
+key back
+wait id:create-folder
+tap id:nav-menu
+wait id:drawer-calendar
+tap id:drawer-calendar
+wait id:calendar-add-event
+tap id:panel-mode-day --settle 1000
+tap id:calendar-add-event
+wait id:event-title
+type "Treadmill run"
+expect id:event-category "Gym"
+tap id:event-save
+wait id:calendar-add-event
+expect "Treadmill run" --timeout 10
+share category "Gym"
+key back
+wait id:create-folder
+tap id:nav-menu
+wait id:drawer-account
+tap id:drawer-account
+wait id:settings-bar-sharing
+tap id:sharing-sync-now --settle 3000
+expect id:sharing-sync-status "Up to date" --timeout 60
+-d emulator-5558 tap id:sharing-sync-now
+-d emulator-5558 expect id:sharing-sync-status "Up to date" --timeout 60
+-d emulator-5558 key back
+-d emulator-5558 wait id:create-folder
+-d emulator-5558 tap id:nav-menu
+-d emulator-5558 wait id:drawer-calendar
+-d emulator-5558 tap id:drawer-calendar
+-d emulator-5558 wait id:calendar-add-event
+-d emulator-5558 tap id:panel-mode-day --settle 1000
+-d emulator-5558 expect "Treadmill run" "From qa1@example.com" --timeout 30
+-d emulator-5558 tap "Treadmill run" --nth 1
+-d emulator-5558 wait id:shared-event-sheet
+-d emulator-5558 expect "From qa1@example.com" "Gym" --absent id:event-detail-edit
+-d emulator-5558 shot builtin-read-sheet
+-d emulator-5558 key back
+-d emulator-5558 wait id:shared-event-sheet --gone
+# Gym private again: the event leaves the partner's calendar.
+share category "Gym" --off
+tap id:sharing-sync-now --settle 3000
+expect id:sharing-sync-status "Up to date" --timeout 60
+-d emulator-5558 key back
+-d emulator-5558 wait id:create-folder
+-d emulator-5558 tap id:nav-menu
+-d emulator-5558 wait id:drawer-account
+-d emulator-5558 tap id:drawer-account
+-d emulator-5558 wait id:settings-bar-sharing
+-d emulator-5558 tap id:sharing-sync-now
+-d emulator-5558 expect id:sharing-sync-status "Up to date" --timeout 60
+-d emulator-5558 key back
+-d emulator-5558 wait id:create-folder
+-d emulator-5558 tap id:nav-menu
+-d emulator-5558 wait id:drawer-calendar
+-d emulator-5558 tap id:drawer-calendar
+-d emulator-5558 wait id:calendar-add-event
+-d emulator-5558 tap id:panel-mode-day --settle 1000
+-d emulator-5558 expect --absent "Treadmill run" --absent "From qa1@example.com" --timeout 30
+-d emulator-5558 shot builtin-unshared
+-d emulator-5558 key back
+-d emulator-5558 wait id:create-folder
+-d emulator-5558 tap id:nav-menu
+-d emulator-5558 wait id:drawer-account
+-d emulator-5558 tap id:drawer-account
+-d emulator-5558 wait id:settings-bar-sharing
+-d emulator-5558 errors
+errors

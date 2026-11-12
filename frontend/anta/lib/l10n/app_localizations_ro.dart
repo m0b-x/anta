@@ -4914,7 +4914,8 @@ class AppLocalizationsRo extends AppLocalizations {
   String get syncHeldBackAwaitingText => 'Se așteaptă textul';
 
   @override
-  String get syncHeldBackSharedParent => 'Se așteaptă dosarul sau evenimentul';
+  String get syncHeldBackSharedParent =>
+      'Se așteaptă dosarul, evenimentul sau categoria';
 
   @override
   String get syncHeldBackUnreadable => 'Nu s-a putut citi din copia din cloud';
