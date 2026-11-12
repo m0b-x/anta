@@ -33,6 +33,8 @@ import '../models/calendar_selection_source.dart';
 import '../models/day_bar.dart';
 import '../models/day_cell_tint.dart';
 import '../models/day_rail_mark.dart';
+import '../models/partner_look.dart';
+import '../models/share_settings.dart';
 import '../bloc/calendar/alert_skip_action.dart';
 import '../services/alert_keep_notice.dart';
 import '../services/alert_removal_notice.dart';
@@ -46,6 +48,7 @@ import '../services/day_rail_resolver.dart';
 import '../services/note_money_ledger_service.dart';
 import '../services/public_holiday_service.dart';
 import '../services/settings_service.dart';
+import '../services/share_service.dart';
 import '../utils/calendar_days_of_week.dart';
 import '../utils/calendar_week_start.dart';
 import '../utils/custom_snackbar.dart';
@@ -163,6 +166,15 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
 
   CalendarAppearance _appearance = const CalendarAppearance();
 
+  /// How a partner's events are drawn on the grid and in the panel: the
+  /// look re-read with the appearance on every settings return, the partner
+  /// by [_readPartner].
+  PartnerLook _partnerLook = const PartnerLook();
+
+  /// Whether [_readPartner] asked since the last settings trip — once per
+  /// trip, never per rebuild.
+  bool _partnerAsked = false;
+
   /// Resolved markdown palette, so an event's description renders with the
   /// user's custom colours in the detail sheet.
   MarkdownColorPalette _colorPalette = MarkdownColorPalette.presets;
@@ -174,6 +186,7 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
     appearance: () => _appearance,
     palette: () => _colorPalette,
     keepsHeard: () => _keepsHeard,
+    partnerLook: () => _partnerLook,
   );
 
   /// Whether the bottom panel is expanded over the calendar grid. Transient
@@ -223,13 +236,18 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
   bool _routeCovered = false;
 
   /// Memoized day-bar resolver. Its providers are stateless and depend only
-  /// on the localization and the missed-display setting, both of which change
-  /// far less often than the grid rebuilds.
+  /// on the localization, the missed-display setting and the partner look,
+  /// all of which change far less often than the grid rebuilds.
   DayBarsResolver? _barsResolver;
   AppLocalizations? _barsL10n;
   CalendarMissedDisplay? _barsMissedDisplay;
 
   bool? _barsRailActive;
+
+  /// The two parts of the partner look the bars read: a new photo of the
+  /// partner draws no bar differently, so it must not clear the grid's
+  /// output caches with a new resolver.
+  ({ShareEventLook look, String? name})? _barsPartner;
 
   /// The three layer flags the bar/tint/summary resolvers are composed from.
   /// A record so one comparison covers all three in every memo key.
@@ -252,11 +270,13 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
     // reason: they decide which providers exist.
     final railActive = _railStyle != DayRailStyle.none;
     final layers = _layersOf(f);
+    final partner = (look: _partnerLook.look, name: _partnerLook.name);
     if (_barsResolver == null ||
         _barsL10n != l10n ||
         _barsMissedDisplay != missed ||
         _barsRailActive != railActive ||
-        _barsLayers != layers) {
+        _barsLayers != layers ||
+        _barsPartner != partner) {
       _barsResolver = DayBarsResolver.defaults(
         l10n,
         missedDisplay: missed,
@@ -264,11 +284,13 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
         showHolidays: layers.holidays,
         showFasting: layers.fasting,
         showMoney: layers.money,
+        partner: _partnerLook,
       );
       _barsL10n = l10n;
       _barsMissedDisplay = missed;
       _barsRailActive = railActive;
       _barsLayers = layers;
+      _barsPartner = partner;
     }
     return _barsResolver!;
   }
@@ -842,7 +864,15 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
       setState(() {
         _appearance = loaded.appearance;
         _colorPalette = loaded.palette;
+        _partnerLook = PartnerLook(
+          look: loaded.share.eventLook,
+          partner: _partnerLook.partner,
+          name: _partnerLook.name,
+        );
       });
+      // The pairing may have changed on the page this trip returned from.
+      _partnerAsked = false;
+      unawaited(_readPartner());
     } catch (e) {
       // A settings trip that fails leaves the page on its defaults; it must
       // not also take the session's writes with it.
@@ -855,6 +885,33 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
       // it was made on would replace axes the user never chose.
       _filtersRestored = true;
     }
+  }
+
+  /// Reads who a partner's events are from, once per settings trip and only
+  /// while the calendar holds one: an account that never paired opens no
+  /// sharing for its calendar.
+  Future<void> _readPartner() async {
+    if (_partnerAsked) return;
+    final state = context.read<CalendarBloc>().state;
+    if (state is! CalendarPageLoaded || !state.holdsPartnerEvents) return;
+    _partnerAsked = true;
+    final ShareAudience? audience;
+    try {
+      audience = (await ShareService.getInstance()).availability.audience;
+    } catch (e, st) {
+      // The rows keep the localized stand-in for the name and the person
+      // glyph for the face until the next change of events asks again.
+      debugPrint('[CalendarPage] partner not read: $e\n$st');
+      _partnerAsked = false;
+      return;
+    }
+    if (!mounted) return;
+    final next = PartnerLook(
+      look: _partnerLook.look,
+      partner: audience?.members.firstOrNull,
+      name: audience?.displayName,
+    );
+    if (next != _partnerLook) setState(() => _partnerLook = next);
   }
 
   /// The one funnel for a filter change: the bloc renders it, and it is
@@ -1254,6 +1311,7 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
                         return CalendarBottomPanel(
                           loaded: state,
                           appearance: _appearance,
+                          partnerLook: _partnerLook,
                           expanded: _panelExpanded,
                           onToggleExpanded: () => setState(() {
                             _panelExpanded = !_panelExpanded;
@@ -1337,6 +1395,18 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
           listenWhen: (previous, current) =>
               !_initialTargetDone && current is CalendarPageLoaded,
           listener: (context, state) => _applyInitialTarget(state),
+        ),
+        BlocListener<CalendarBloc, CalendarPageState>(
+          // A partner's first event can arrive with a pull long after the
+          // settings trip that found none; a read that failed is asked
+          // again on the next change of events, never in a loop.
+          listenWhen: (previous, current) =>
+              !_partnerAsked &&
+              current is CalendarPageLoaded &&
+              current.holdsPartnerEvents &&
+              (previous is! CalendarPageLoaded ||
+                  !identical(previous.allEvents, current.allEvents)),
+          listener: (context, state) => unawaited(_readPartner()),
         ),
         BlocListener<CalendarBloc, CalendarPageState>(
           // A Skip that arrived before the event list did (OS-3).
@@ -2143,6 +2213,18 @@ class _CalendarTable extends StatelessWidget {
                 style: appearance.markerStyle,
                 opacity: isOutside ? CalendarDayCell.outsideAlpha : 1.0,
                 railLabel: railLabel,
+                // Only a day with a hollow marker needs its ground; the
+                // tint lookup is a cache hit, the cell built it first.
+                ground: bars.any((bar) => bar.hollow)
+                    ? CalendarDayBars.groundOn(
+                        colorScheme.surface,
+                        (tintOutputCache[key] ??= tintResolver.resolve(
+                          day,
+                          events,
+                        )).wash,
+                        cellStyle,
+                      )
+                    : null,
               ),
             ),
           );

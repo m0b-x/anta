@@ -15,7 +15,9 @@ import '../l10n/app_localizations.dart';
 import '../models/calendar_appearance.dart';
 import '../models/calendar_event.dart';
 import '../models/event_alert.dart';
+import '../models/partner_look.dart';
 import '../models/recurrence_rule.dart';
+import '../models/share_settings.dart';
 import '../repositories/note_repository.dart';
 import '../services/app_navigator.dart';
 import '../services/note_storage_service.dart';
@@ -24,6 +26,7 @@ import '../utils/alert_countdown.dart';
 import '../utils/custom_snackbar.dart';
 import '../utils/markdown_color_syntax.dart';
 import '../utils/markdown_link_patterns.dart';
+import '../utils/share_copy.dart';
 import '../utils/sheet_guard.dart';
 import '../utils/wiki_link_title.dart';
 import '../widgets/calendar_date_picker_sheet.dart';
@@ -31,6 +34,7 @@ import '../widgets/event_description_sheet.dart';
 import '../widgets/event_detail_sheet.dart';
 import '../widgets/event_editor_sheet.dart';
 import '../widgets/overlay_snackbar.dart';
+import '../widgets/shared_event_sheet.dart';
 import 'alert_permission_check.dart';
 
 /// An event's trip through its sheets — the detail sheet, and from it the
@@ -51,10 +55,12 @@ class EventSheetsFlow {
     required CalendarAppearance Function() appearance,
     required MarkdownColorPalette Function() palette,
     required int Function() keepsHeard,
+    PartnerLook Function()? partnerLook,
   }) : _guard = guard,
        _appearance = appearance,
        _palette = palette,
-       _keepsHeard = keepsHeard;
+       _keepsHeard = keepsHeard,
+       _partnerLook = partnerLook ?? _noPartner;
 
   /// The page's one sheet slot, shared with the page's other sheets.
   final SheetGuard _guard;
@@ -67,6 +73,13 @@ class EventSheetsFlow {
 
   /// How many Keeps the page has heard of; see [_detailSheetLoop].
   final int Function() _keepsHeard;
+
+  /// The page's look for a partner's event and the partner's name, which
+  /// the read sheet of one draws and says. A page that draws no partner's
+  /// event leaves it out.
+  final PartnerLook Function() _partnerLook;
+
+  static PartnerLook _noPartner() => const PartnerLook();
 
   /// Shows an event read-only first, then routes whatever the user chose
   /// there. Tapping a day-panel row used to drop straight into the edit form;
@@ -85,11 +98,127 @@ class EventSheetsFlow {
   /// longer there or in the way — opening the linked note (a full page), a
   /// delete, and a skip (the occurrence stops existing) — plus dismissing the
   /// sheet itself.
+  ///
+  /// A partner's event opens its read sheet instead, from every list, the
+  /// grid, a search result and an alert tap alike — this door and
+  /// [openEditor] are the only ways into an event's sheets (§6.9).
   Future<void> openDetail(
     BuildContext context,
     CalendarEvent event,
     DateTime day,
-  ) => _guard.run<void>(() => _detailSheetLoop(context, event, day));
+  ) => _guard.run<void>(
+    () => event.fromPartner
+        ? _sharedSheetTrip(context, event, day)
+        : _detailSheetLoop(context, event, day),
+  );
+
+  /// A partner's event, read (§6.9): its sheet, writing my own alerts on it
+  /// as they are made, then — after Copy to my calendar — the copy in the
+  /// editor with one word that it is a copy, or — when the event left under
+  /// the open sheet — one word that it did.
+  Future<void> _sharedSheetTrip(
+    BuildContext context,
+    CalendarEvent event,
+    DateTime day,
+  ) async {
+    final bloc = context.read<CalendarBloc>();
+    final l10n = AppLocalizations.of(context)!;
+    final look = _partnerLook();
+    final name = ShareCopy.partnerName(l10n, look.name);
+    AlertSettings? alertSettings;
+    ShareAlerts? shareAlerts;
+    try {
+      final settings = await SettingsService.getInstance();
+      alertSettings = await settings.getAlertSettings();
+      shareAlerts = await settings.getShareAlerts();
+    } catch (e, st) {
+      // The sheet still opens: a new alert is drafted without the defaults
+      // and the published setting answers what may ring.
+      debugPrint('[EventSheetsFlow] shared sheet settings: $e\n$st');
+    }
+    if (!context.mounted) return;
+    final exit = await SharedEventSheet.show(
+      context,
+      event: event,
+      day: day,
+      partner: look,
+      colorPalette: _palette(),
+      changes: _followed(bloc, event.id),
+      shareAlerts: shareAlerts,
+      alertSettings: alertSettings,
+      onAlertsChanged: (alerts, {required knownIds, required added}) {
+        bloc.add(
+          SetEventAlerts(eventId: event.id, alerts: alerts, knownIds: knownIds),
+        );
+        if (added) unawaited(AlertPermissionCheck.afterSave(context));
+      },
+      onCopy: () => _copyToMine(context, bloc, event, day),
+      onOpenWikiLink: (title) => _openWikiLink(context, title),
+    );
+    if (!context.mounted) return;
+    switch (exit) {
+      case null:
+        return;
+      case SharedEventGone():
+        OverlaySnackbar.show(
+          context,
+          ShareCopy.sentence(l10n.shareGoneEvent(name)),
+          duration: AppConstants.snackbarDuration,
+        );
+      case SharedEventCopied(:final copy):
+        final editor = editorSheet(
+          context,
+          initialEvent: copy,
+          occurrenceDay: day,
+        );
+        // Raised once the editor's route is in, on the overlay above it:
+        // the copy is what the editor shows, and the line says it no longer
+        // follows the partner's event.
+        OverlaySnackbar.show(
+          context,
+          l10n.sharedEventCopied(name),
+          duration: AppConstants.snackbarDuration,
+        );
+        await editor;
+    }
+  }
+
+  /// The event [id] as [bloc] holds it after each change, or null once it
+  /// holds it no more — what the read sheet follows while open.
+  static Stream<CalendarEvent?> _followed(CalendarBloc bloc, String id) =>
+      bloc.stream.where((state) => state is CalendarPageLoaded).map((state) {
+        for (final event in (state as CalendarPageLoaded).allEvents) {
+          if (event.id == id) return event;
+        }
+        return null;
+      }).distinct();
+
+  /// Copy to my calendar, made by the bloc as a create is, which answers
+  /// once it holds the copy — so the editor it opens in finds it there
+  /// (`_blocHolds`). Null when it could not be made — the sheet stays open,
+  /// and says why.
+  Future<CalendarEvent?> _copyToMine(
+    BuildContext context,
+    CalendarBloc bloc,
+    CalendarEvent event,
+    DateTime day,
+  ) async {
+    try {
+      final done = Completer<CalendarEvent?>();
+      bloc.add(CopySharedEvent(event: event, day: day, done: done));
+      return await done.future;
+    } catch (e, st) {
+      debugPrint('[EventSheetsFlow] copy to my calendar failed: $e\n$st');
+      if (context.mounted) {
+        OverlaySnackbar.show(
+          context,
+          AppLocalizations.of(context)!.error('$e'),
+          duration: AppConstants.snackbarDuration,
+        );
+      }
+      return null;
+    }
+  }
 
   /// The loop itself, unguarded so the trip it runs — detail, editor, quick
   /// description edit — can reopen freely inside the one slot [_guard] took
@@ -395,6 +524,10 @@ class EventSheetsFlow {
   /// back so a caller that owns a sheet behind this one can decide what to do
   /// next. Every caller still gets the dispatch for free; only the detail
   /// sheet's loop reads the return value.
+  ///
+  /// A partner's event is never edited here: a pencil or an alert path that
+  /// reaches this door opens the event's read sheet, and the form reports
+  /// nothing (§6.9).
   Future<EventEditorResult?> openEditor(
     BuildContext context, {
     CalendarEvent? initialEvent,
@@ -402,16 +535,24 @@ class EventSheetsFlow {
     DateTime? occurrenceDay,
     String? pendingOccurrenceDescription,
     bool showBack = false,
-  }) => _guard.run<EventEditorResult?>(
-    () => editorSheet(
+  }) => _guard.run<EventEditorResult?>(() async {
+    if (initialEvent != null && initialEvent.fromPartner) {
+      await _sharedSheetTrip(
+        context,
+        initialEvent,
+        occurrenceDay ?? day ?? initialEvent.startDate,
+      );
+      return null;
+    }
+    return editorSheet(
       context,
       initialEvent: initialEvent,
       day: day,
       occurrenceDay: occurrenceDay,
       pendingOccurrenceDescription: pendingOccurrenceDescription,
       showBack: showBack,
-    ),
-  );
+    );
+  });
 
   /// The detail sheet's Add date and All dates: the pinned set in the multi
   /// picker, saved back through [CalendarEvent.withExplicitDates] so this
@@ -470,6 +611,10 @@ class EventSheetsFlow {
       );
       return null;
     }
+    // The belt under [openEditor]'s routing: a partner's event saved or
+    // deleted here would do nothing, and the trip would carry on as if it
+    // had — the form is not for one (§6.9).
+    if (initialEvent != null && initialEvent.fromPartner) return null;
     // The bloc's per-day lookup is already memoized and O(1), so handing it
     // to the picker costs nothing and lets the grid show which days are
     // already busy while the user schedules. The **unfiltered** one: the

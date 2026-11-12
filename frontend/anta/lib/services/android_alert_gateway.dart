@@ -757,7 +757,7 @@ Map<String, Object?> sessionChipArguments({
 
 /// Everything an entry is armed **under** that is the phone's or the app's
 /// rather than the plan's, as the token the registry keeps per row — spelled
-/// `<backend>[@floor]~g4.<language>.<H|h>`.
+/// `<backend>[@floor]~g5.<language>.<H|h>`.
 ///
 /// The backend and the volume bucket are what a ring will sound like. A
 /// volume that follows the phone stays unspelled, as it always was: it is

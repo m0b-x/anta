@@ -1,6 +1,9 @@
 # Share Surfaces — ANTA
 
-**Status: PLAN — decided 2026-11-12. Nothing is built.** The mock is
+**Status: IN PROGRESS — slice A built and committed (2026-11-12), slices
+B–E and G in build; §15 says what is built. Scope on the owner's word of
+that day: the calendar side, slices A–E and G; slice F (folders, the
+partner's notes) is not in this build.** The mock is
 published (https://claude.ai/artifact/E5Zm8rPv5hGLk2V5fKphPt). Every
 decision is taken (§4): four are the owner's own words, the rest the
 lead's on his delegation of the same day ("make sure that the document is
@@ -35,6 +38,7 @@ Written by the session's lead, Fable 5.2; no agent took a decision in it
 12. Definition of done
 13. Deferred
 14. More than two people
+15. As built
 
 ---
 
@@ -1227,3 +1231,161 @@ What this plan keeps open for both, at no cost today:
 
 What it does not do: store more than one pair on a row, or let a third
 account join a pair. Both wait for the owner's word and their own record.
+
+---
+
+## 15. As built
+
+One subsection per slice, appended as each lands. The sections above are
+the plan as decided; where the build differs, this section says so and is
+the truth.
+
+### Slice A — what arrives explains itself (2026-11-12)
+
+Led by Fable 5.2; built by Opus 5.5 implementers in parallel worktrees
+from the lead's briefs; the looks, the read sheet, the timeline and the
+hub from three designer specs (rendered with real fonts first); reviewed
+by two code reviewers and a design reviewer, their findings fixed in the
+same commit. Gate: `dart analyze lib test` clean, the whole suite
+`+16345 ~17, plus the delete-all case that fails only under machine
+load and passes run alone`.
+
+**What a person gets.** A partner's event is told from mine everywhere it
+is drawn, in the look the person chose; a tap opens a read sheet, never
+the editor; nothing of the partner's rings unasked; their events are in no
+figure about my time; no write and no door out touches them.
+
+**The pieces.**
+
+- `ShareService` (`lib/services/share_service.dart`), on the
+  `DatabaseLifecycle` reset contract, opened lazily: `availability`
+  (`ShareNotPaired` · `ShareNotSyncing(audience)` · `ShareReady(audience)`)
+  and `changes`, which replays its last value; the audience is one person
+  (id, a nullable name, members as `AppUser`). A stored pairing counts only
+  for the signed-in account. It hears this device's own pairing writes
+  through a new `PairingService.written` — `changes` would have handed
+  `PairingBloc` a second state mid-action. `setEventShared` /
+  `setFolderShared` refuse unless ready (`ShareRefused`) and then ask
+  `SyncEngine.pushNow()`: a drain-only run under every cadence (under the
+  manual one a stale run would pull every table).
+- `CalendarEvent.fromPartner` — transient, in `props`, set where
+  `CalendarEventService` maps its rows (the shared owner is asked only
+  when a row names an owner, so a never-bound database pays nothing).
+- Settings (`lib/models/share_settings.dart`, `SettingsKeys`):
+  `shareEventLook` (outlined · avatar · plain), `shareMarkMine`,
+  `shareAlerts` (off · own · category), `shareHiddenCategories`. Their
+  keys sit outside the pairing prefix, so a restore carries them.
+  `shareNoteLook` is not built (slice F).
+- Alerts. The defect §5.2 predicted was real: the first test showed a
+  category alert of mine arming on a partner's event. One predicate,
+  `ShareAlerts.inheritsOn(event)`: nothing under `off`; only my own alerts
+  on that event under `own`; my category's too under `category`, whatever
+  the partner's own switch says. A partner's event takes its category by
+  its **raw id** — an id this phone does not hold inherits nothing, never
+  Other's (a review finding: under `category` my Other's alerts armed on
+  every partner event in an unknown category). `EventAlerts.effectiveFor`
+  takes `inherit`; the badges, the hub and the digests (D20: only under
+  `category`, each expanded line "· From {name}") follow the same
+  predicate. A leave cancels what was armed; my alert rows stay, inert.
+- Notices (D21). `AlertPayload` gains `fp` / `pn` (absent = mine, so
+  payloads of the shipped build keep working); the arm grammar token moved
+  to `~g5`, which re-arms standing entries under their own ids; the flag
+  and the name are part of the arm signature for a partner's event only.
+  Title "{title} · From {name}" on every tier and on the ring screen; no
+  Skip; a partner's upcoming notice offers Open alone; `removeAfterAlert`
+  is never honoured on a partner's event; no "Open note" on its session
+  chip.
+- The belt. `CalendarEventService` refuses a write of a partner's event
+  by name (`SharedRowException`); `EventSkipService` and
+  `EventOccurrenceService` ask `SharedRowDao.ensureOwn` before a write;
+  `CalendarBloc` ignores skips and per-day texts on one. Nothing answers
+  "saved".
+- "Copy to my calendar" — `CalendarEventService.copyToMine(event, day)`
+  behind a bloc event handled like a create (alerts reconciled, the ledger
+  refreshed): title, time, repeat, priority, the event's own look, the
+  opened day's text, its category when I hold that id as my own, else
+  Other; stamped now, a new id, no mark, none of my alerts, no note.
+- D15. `fromPartner` is asked where each reader takes its events: the
+  report (`_Scoped.of`, its Markdown), goals, presence
+  (`EventPresence.appliesTo` — the one gate most readers share), the day
+  rail (`eventInDayRail`), the day tint, the overview's Years tiles and
+  totals, the grid's "tracked only" and "missed" filters, "Delete all
+  events". Two counts follow what their own list shows and keep the
+  partner's events: an Upcoming card and its drill-down tiles, and the
+  overview's Month / Week caption.
+- The looks (`slice-a-spec`, decisions a–q). `EventAvatar` gains
+  `outlined`, `badge`, `semanticsLabel` and `EventAvatar.ofRow`; the day
+  panel and the agenda card now draw `EventAvatar` (pixel-identical for
+  mine). One contrast rule, `MarkerContrast.atLeast(color, ground)` — an
+  HSL-lightness walk to 3:1 against the ground a mark actually sits on,
+  measured on the 8-bit pair that is painted. Hollow twins for the grid's
+  bars and dots (`DayBar.hollow`, `CalendarDayBars.groundOn`), in the
+  overview's month grid too; a partner's event never joins the day rail.
+  `PartnerLook` carries the look and the partner to the rows from the
+  page's settings state — never a lookup per row; a change repaints on
+  return from settings.
+- The read sheet `SharedEventSheet` (`lib/widgets/shared_event_sheet.dart`),
+  the sibling of `EventDetailSheet`: both doors of `EventSheetsFlow` route
+  a partner's event to it. The rows the two sheets share live in
+  `event_read_rows.dart`, the alert rows the editor and the sheet share in
+  `event_alert_rows.dart`. My alerts are written through a `SetEventAlerts`
+  bloc event, handled one at a time. The sheet follows the event and
+  closes its own route when it leaves — a review probe showed it popping
+  the alert editor above it and locking the navigator.
+- The day timeline and the Alerts hub (`slice-a2-spec`, ga–gj): outlined
+  blocks and chips, a 20 dp face on a block's title line under Avatar, a
+  ring or the face for the hub's glyph. The ring screen's avatar and the
+  Android notification's icon are unchanged: their title says whose it is.
+
+**Where the build differs from §6.**
+
+- The Avatar look and the sign on what I share are a corner badge on the
+  event's avatar, not a glyph at the row's end (the end slot cost 34 dp of
+  title at every scale). **The owner saw the mock with the end slot; the
+  badge is the designer's default, taken by the lead.**
+- No Linked note row and no note button on a partner's event: nothing in
+  this build may open the ordinary editor on a partner's note (slice F).
+- Under `off` a partner's event has no effective alert, so no badge is
+  drawn (the spec dimmed it).
+- The read sheet mirrors the detail sheet's order (title and description,
+  WHEN, YOURS, DETAILS, copy, caption); its Dates row is a plain read row;
+  measured heights 497 / 627 / 718 dp where the spec said 497 / 621 / 700
+  (real wording wraps).
+- The audience is singular in `ShareAvailability` (§14 spoke of a list
+  with one entry).
+- Copy: `shareStopAllConfirm`, `shareTheirCategoriesCaption`,
+  `shareMarkMineDesc` reworded so `{name}` never starts an inner sentence
+  and folders are not promised; the stand-in for a partner without a name
+  is "your partner" / "Partner" / "partenerul tău", capitalised by
+  `ShareCopy.sentence` where it starts a string.
+
+**What the reviews found** (all fixed unless marked).
+
+- The read sheet popping the wrong route (reproduced); the copy going
+  around the bloc, so its inherited alerts were never armed; a leave during
+  a copy losing the copy's editor; two quick alert removals able to land
+  out of order.
+- Other's alerts on a partner's event in an unknown category (reproduced);
+  `ShareService`'s open not generation-safe to its end; `pushNow` pulling
+  every table under the manual cadence; the partner flag and name missing
+  from the arm signature.
+- Costs for a database that never paired: the shared-owner read per load,
+  a scan of every event per change, a refold on every drill-down open —
+  all removed.
+- Design: the sheet's header was not a heading (now opt-in on
+  `FormSheetHeader`); one hollow marker at 2.99:1; no guideline tests on
+  the new surfaces.
+- Kept as built: a window in which an alarm armed by an older build on a
+  partner's event shows a Keep that does nothing — no shipped build could
+  share, so no such entry exists.
+
+**Owed to a device** (the closing device pass): the partner's real photo
+at 20 dp; the hollow dot at dpr 2.625; TalkBack on the three lists and the
+sheet; task boxes in a partner's description; the nested duplicate ids
+under `tap --id`; the 200 % font scale in German; the sheet's bottom
+clearance.
+
+**Seen, not this slice's**: 15-minute timeline blocks are under the 48 dp
+target and hour labels clip at text scale 2.0; today's filled avatar icon
+is under 3:1 on its own fill for about half the palette; sheet titles and
+section labels are not semantic headings app-wide.

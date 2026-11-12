@@ -296,6 +296,22 @@ class AgendaMonthTally {
         dayColors: bucket.dayColors,
       );
 
+  /// [ofBucket] over my entries alone: a year tile counts and colours my
+  /// days, never a partner's (D15). A bucket with nothing of theirs keeps
+  /// its own numbers, so a tile of someone who never paired is unchanged.
+  factory AgendaMonthTally.ofOwnEntries(AgendaDayListMonth bucket) {
+    final entries = bucket.entries;
+    if (!entries.any((entry) => entry.fromPartner)) {
+      return AgendaMonthTally.ofBucket(bucket);
+    }
+    final tally = _MonthAccumulator(bucket.month);
+    for (final entry in entries) {
+      if (entry.fromPartner) continue;
+      tally.add(entry.day, missed: entry.missed, color: entry.color);
+    }
+    return AgendaMonthTally._of(tally);
+  }
+
   factory AgendaMonthTally._of(_MonthAccumulator tally) => AgendaMonthTally._(
     month: tally.month,
     daysInMonth: tally.daysInMonth,

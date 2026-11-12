@@ -33,6 +33,8 @@ import '../../services/pairing_gateway.dart';
 import '../../services/pairing_service.dart';
 import '../../services/permission_gateway.dart';
 import '../../services/permission_service.dart';
+import '../../services/settings_service.dart';
+import '../../services/share_service.dart';
 import '../../services/sync_availability.dart';
 import '../../services/sync/account_closer.dart';
 import '../../services/sync/app_sync_apply_hooks.dart';
@@ -233,6 +235,7 @@ Future<void> _registerServices() async {
   // on it.
   if (_syncEngineEnabled) unawaited(_startSyncEngine());
   followAccountsForDeletions();
+  _configureSharing(folderStorageService);
 
   // Stateless and global for the same reason the two above are: it holds no
   // database reference, so a database switch has nothing to reset here. The
@@ -380,6 +383,35 @@ void followAccountsForDeletions() {
   );
 }
 
+/// What `ShareService` is built over. Only handed in: the service is per
+/// database and opens on a share surface's first ask, so a launch — and an
+/// account that never paired — pays nothing for it.
+void _configureSharing(FolderStorageService folders) {
+  final auth = getIt<AuthService>();
+  ShareService.configure(
+    ShareServiceWiring(
+      pairing: () => PairingService.getInstance(auth, getIt<PairingGateway>()),
+      sync: BindingShareSyncSource(
+        currentUser: () => auth.currentUser,
+        authChanges: auth.authStateChanges,
+        binding: () async =>
+            (await SettingsService.getInstance()).getSyncBinding(),
+        bindingChanges: () => _syncEngineEnabled
+            ? Stream.fromFuture(SyncEngine.getInstance()).asyncExpand(
+                (engine) =>
+                    engine.status.map((status) => status.binding).distinct(),
+              )
+            : const Stream<Object?>.empty(),
+      ),
+      markFolder: folders.setFolderShared,
+      requestRun: () async {
+        if (!_syncEngineEnabled) return;
+        await (await SyncEngine.getInstance()).pushNow();
+      },
+    ),
+  );
+}
+
 /// `canSync` as the bound identity reports it — the no-op binding is
 /// unavailable — and a gateway bound behind it.
 bool get _syncEngineEnabled =>
@@ -391,14 +423,13 @@ Future<void> _startSyncEngine() async {
   SyncEngine.autoStart = true;
   // The rows a partner shared go with "Stop syncing", and the screens that
   // showed them reload as after a pull that removed them.
-  SyncBindingService.onSharedRowsRemoved = () => AppSyncApplyHooks().afterRun(
-    const {
-      SyncInvalidation.notes,
-      SyncInvalidation.folders,
-      SyncInvalidation.calendar,
-      SyncInvalidation.alerts,
-    },
-  );
+  SyncBindingService.onSharedRowsRemoved = () =>
+      AppSyncApplyHooks().afterRun(const {
+        SyncInvalidation.notes,
+        SyncInvalidation.folders,
+        SyncInvalidation.calendar,
+        SyncInvalidation.alerts,
+      });
   try {
     await SyncEngine.getInstance();
   } catch (e, st) {
@@ -411,6 +442,7 @@ Future<void> resetDependencies() async {
   // identity through them.
   SyncEngine.autoStart = false;
   SyncBindingService.onSharedRowsRemoved = null;
+  ShareService.configure(null);
   SyncEngine.reset();
   await getIt.reset();
 }

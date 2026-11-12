@@ -30,6 +30,10 @@ class AlertHubEntry extends Equatable {
   /// Null for everything else.
   final int? snoozeOsId;
 
+  /// The name the partner published, on a partner's event's row only — what
+  /// its "From {name}" says; null there is the localized stand-in.
+  final String? partnerName;
+
   const AlertHubEntry({
     required this.event,
     required this.alert,
@@ -37,6 +41,7 @@ class AlertHubEntry extends Equatable {
     required this.fireAt,
     this.originalFireAt,
     this.snoozeOsId,
+    this.partnerName,
   });
 
   bool get isSnoozed => snoozeOsId != null;
@@ -49,6 +54,7 @@ class AlertHubEntry extends Equatable {
     fireAt,
     originalFireAt,
     snoozeOsId,
+    partnerName,
   ];
 }
 
@@ -128,6 +134,9 @@ class AlertHistoryEntry extends Equatable {
 
   final AlertOutcome outcome;
 
+  /// [AlertHubEntry.partnerName]'s twin, for a partner's event's row.
+  final String? partnerName;
+
   const AlertHistoryEntry({
     required this.event,
     required this.alert,
@@ -136,6 +145,7 @@ class AlertHistoryEntry extends Equatable {
     required this.fireAt,
     required this.settledAt,
     required this.outcome,
+    this.partnerName,
   });
 
   @override
@@ -147,5 +157,6 @@ class AlertHistoryEntry extends Equatable {
     fireAt,
     settledAt,
     outcome,
+    partnerName,
   ];
 }

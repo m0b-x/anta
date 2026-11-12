@@ -50,6 +50,7 @@ import 'app_dialogs.dart';
 import 'automation_id.dart';
 import 'calendar_date_picker_sheet.dart';
 import 'category_picker_sheet.dart';
+import 'event_alert_rows.dart';
 import 'event_avatar.dart';
 import 'event_description_sheet.dart';
 import 'event_look_sheet.dart';
@@ -2863,58 +2864,27 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
   /// and dim rather than leave: nothing in the group moves under the finger.
   List<Widget> _buildAlertRows(AppLocalizations l10n) {
     final previewEvent = _alertPreviewEvent;
-    String formatMinute(int minute) =>
-        EventTimeFormatter.formatMinute(minute, context);
     final categoryLabel = CalendarCategories.labelOf(
       CalendarCategories.resolve(_categoryId),
       l10n,
     );
     return [
-      for (final (index, alert) in _alerts.indexed)
-        FormPickerRow(
-          glyph: alert.isAlarm
-              ? Icons.alarm_outlined
-              : Icons.notifications_outlined,
-          label: alert.describe(l10n, previewEvent, formatMinute: formatMinute),
-          value: alert.isAlarm
-              ? l10n.eventAlertModeRing
-              : l10n.eventAlertModeNotify,
-          onTap: () => _editAlert(alert),
-          trailingButton: FormTrailingButton(
-            icon: Icons.close_rounded,
-            tooltip: l10n.eventAlertRemove,
-            identifier: SemanticsIds.eventAlertRemove(index),
-            onPressed: () => _removeAlert(alert),
-          ),
-        ),
-      for (final (index, inherited) in _inheritedAlerts.indexed)
-        FormPickerRow(
-          glyph: inherited.isAlarm
-              ? Icons.alarm_outlined
-              : Icons.notifications_outlined,
-          label: inherited
-              .toEventAlert(previewEvent.id)
-              .describe(l10n, previewEvent, formatMinute: formatMinute),
-          caption: [
-            l10n.eventAlertFromCategory(categoryLabel),
-            inherited.isAlarm
-                ? l10n.eventAlertModeRing
-                : l10n.eventAlertModeNotify,
-          ].join(' · '),
-          identifier: SemanticsIds.eventInheritedAlert(index),
-          onTap: null,
-          showChevron: false,
-          enabled: _categoryAlerts,
-        ),
-      if (_alerts.length < kMaxAlertsPerEvent)
-        AutomationId(
-          identifier: SemanticsIds.eventAlertAdd,
-          child: FormActionRow(
-            glyph: Icons.add_rounded,
-            label: l10n.eventAlertAdd,
-            onTap: _addAlert,
-          ),
-        ),
+      ...eventAlertRows(
+        context,
+        l10n: l10n,
+        previewEvent: previewEvent,
+        alerts: _alerts,
+        inherited: [
+          for (final inherited in _inheritedAlerts)
+            inherited.toEventAlert(previewEvent.id),
+        ],
+        categoryLabel: categoryLabel,
+        onEdit: _editAlert,
+        onRemove: _removeAlert,
+        onAdd: _addAlert,
+        addIdentifier: SemanticsIds.eventAlertAdd,
+        inheritedEnabled: _categoryAlerts,
+      ),
       if (_isOneTimeEvent && _hasAlarmAlert)
         AutomationId(
           identifier: SemanticsIds.eventAlertRemoveAfter,

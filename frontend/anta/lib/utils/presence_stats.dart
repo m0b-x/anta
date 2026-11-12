@@ -49,7 +49,8 @@ abstract final class PresenceAdherence {
   ///
   /// One-time is gated here rather than through `EventPresence.appliesTo`,
   /// which admits a tracked one-off since decision B: a single occasion is
-  /// done or missed, and has no adherence or streak to report.
+  /// done or missed, and has no adherence or streak to report. A partner's
+  /// event has none on this phone either (D15).
   ///
   /// Occurrences after [today] are excluded throughout: presence may be
   /// marked ahead of time, and a future day the user pre-marked has not
@@ -69,7 +70,9 @@ abstract final class PresenceAdherence {
     bool? overrideMissed,
     bool Function(CalendarEvent event, DateTime dayUtc)? isMissed,
   }) {
-    if (!event.tracksPresence || event.rule is OneTimeRecurrence) return null;
+    if (!EventPresence.appliesTo(event) || event.rule is OneTimeRecurrence) {
+      return null;
+    }
     final readMissed = isMissed ?? EventPresence.isMissed;
 
     final override = overrideDay == null || overrideMissed == null

@@ -1,6 +1,7 @@
 import '../constants/calendar_colors.dart';
 import '../models/agenda_day_list.dart';
 import '../models/day_bar.dart';
+import '../services/day_bars_resolver.dart';
 import 'agenda_day_list_index.dart';
 import 'event_agenda.dart';
 
@@ -25,6 +26,14 @@ class AgendaMonthStore {
 
   final int maxBars;
 
+  /// Whether a tally counts my entries alone. A year tile summarises my
+  /// days, as the day tint does (D15 of `docs/cloud-share-surfaces-
+  /// roadmap.md`), so the overview's Years mode leaves a partner's out; the
+  /// month grid and the rows folded from the same buckets keep them.
+  final bool ownTallies;
+
+  EventDayBarProvider _barRule;
+
   final Map<int, AgendaDayListMonth> _months = {};
   final Map<int, Map<int, List<DayBar>>> _bars = {};
   final Map<int, AgendaMonthTally> _tallies = {};
@@ -33,8 +42,29 @@ class AgendaMonthStore {
     required AgendaDayListResolver resolve,
     AgendaDayMarkResolver? resolveMarks,
     required this.maxBars,
+    this.ownTallies = false,
+    EventDayBarProvider barRule = const EventDayBarProvider(),
   }) : _resolve = resolve,
-       _resolveMarks = resolveMarks;
+       _resolveMarks = resolveMarks,
+       _barRule = barRule;
+
+  /// How a partner's bar says whose it is — the calendar page's rule, read
+  /// from the surface's partner look.
+  EventDayBarProvider get barRule => _barRule;
+
+  /// Refolds every resolved month's bars under [rule]: a look picked on the
+  /// settings page, or the partner's name read late, repaints the grid
+  /// without a month resolved again.
+  set barRule(EventDayBarProvider rule) {
+    _barRule = rule;
+    _months.forEach((key, bucket) {
+      _bars[key] = buildBars(bucket, maxBars: maxBars, rule: rule);
+    });
+  }
+
+  AgendaMonthTally _tallyOf(AgendaDayListMonth bucket) => ownTallies
+      ? AgendaMonthTally.ofOwnEntries(bucket)
+      : AgendaMonthTally.ofBucket(bucket);
 
   /// `year * 12 + month - 1`, for any day of the month.
   static int keyOf(DateTime day) => day.year * 12 + day.month - 1;
@@ -75,13 +105,13 @@ class AgendaMonthStore {
       final key = keyOf(month);
       if (_tallies.containsKey(key)) continue;
       final bucket = _months[key];
-      if (bucket != null) _tallies[key] = AgendaMonthTally.ofBucket(bucket);
+      if (bucket != null) _tallies[key] = _tallyOf(bucket);
     }
     if (_resolveMarks == null) {
       ensure(months);
       for (final month in months) {
         final key = keyOf(month);
-        _tallies[key] ??= AgendaMonthTally.ofBucket(_months[key]!);
+        _tallies[key] ??= _tallyOf(_months[key]!);
       }
       return;
     }
@@ -164,8 +194,8 @@ class AgendaMonthStore {
         buckets[key] ?? const <AgendaDayListEntry>[],
       );
       _months[key] = bucket;
-      _bars[key] = buildBars(bucket, maxBars: maxBars);
-      _tallies[key] = AgendaMonthTally.ofBucket(bucket);
+      _bars[key] = buildBars(bucket, maxBars: maxBars, rule: _barRule);
+      _tallies[key] = _tallyOf(bucket);
     }
   }
 
@@ -203,11 +233,13 @@ class AgendaMonthStore {
   /// A bucket's day bars, keyed by day of month — what the store folds for
   /// every month it resolves, public for a surface that folds a bucket of its
   /// own (the overview's month narrowed to a search). A missed occurrence's
-  /// bar carries the same fade the grid gives it, so a mini month and the
-  /// calendar page say the same thing about the same day.
+  /// bar carries the same fade the grid gives it, and a partner's says whose
+  /// it is through [rule], so a mini month and the calendar page say the
+  /// same thing about the same day.
   static Map<int, List<DayBar>> buildBars(
     AgendaDayListMonth bucket, {
     required int maxBars,
+    EventDayBarProvider rule = const EventDayBarProvider(),
   }) {
     final barKeys = [for (var i = 0; i < maxBars; i++) 'agendaDayList:$i'];
     final bars = <int, List<DayBar>>{};
@@ -216,7 +248,7 @@ class AgendaMonthStore {
       final count = entries.length < maxBars ? entries.length : maxBars;
       bars[day.day] = [
         for (var i = 0; i < count; i++)
-          DayBar(
+          rule.barOf(
             key: barKeys[i],
             color: entries[i].missed
                 ? entries[i].color.withValues(
@@ -224,7 +256,8 @@ class AgendaMonthStore {
                   )
                 : entries[i].color,
             priority: i,
-            semanticLabel: entries[i].title,
+            title: entries[i].title,
+            fromPartner: entries[i].fromPartner,
           ),
       ];
     }

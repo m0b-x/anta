@@ -7,6 +7,7 @@ import 'package:anta/models/agenda_day_list_mode.dart';
 import 'package:anta/models/calendar_appearance.dart';
 import 'package:anta/models/overview_list_options.dart';
 import 'package:anta/models/overview_period.dart';
+import 'package:anta/models/share_settings.dart';
 import 'package:anta/services/settings_service.dart';
 
 import '../database/support/db_test_support.dart';
@@ -231,6 +232,20 @@ void main() {
     final loaded = await settings.getCalendarOverviewSettings(today: today);
     expect(loaded.mode, AgendaDayListMode.list);
     expect(loaded.categoryIds, {'gym', 'health'});
+  });
+
+  test('the share look rides the same read: the default until one is '
+      'picked, then the one picked', () async {
+    final fresh = await settings.getCalendarOverviewSettings(today: today);
+    expect(fresh.share.eventLook, ShareEventLook.outlined);
+    expect(fresh.share, await settings.getShareLook());
+
+    await settings.setShareEventLook(ShareEventLook.plain);
+    await settings.setShareMarkMine(false);
+
+    final loaded = await settings.getCalendarOverviewSettings(today: today);
+    expect(loaded.share.eventLook, ShareEventLook.plain);
+    expect(loaded.share.markMine, isFalse);
   });
 
   test('the default keys name real values', () {

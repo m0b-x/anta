@@ -16635,6 +16635,492 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'A database you sync keeps a copy in Google\'s cloud. It is encrypted there, but not end-to-end: the people who run ANTA\'s cloud service can read it. “{dataNotice}” on the same page says where it is kept and how to remove it.'**
   String appGuideSyncDataBody(String dataNotice);
+
+  /// Stands in for {name} in every sharing string when the paired partner has no profile name. Lower case: the code capitalises a string that begins with it
+  ///
+  /// In en, this message translates to:
+  /// **'your partner'**
+  String get sharePartnerFallback;
+
+  /// Label of the share switch in the category editor and the event editor, and of the category menu's entry while the category is private. {name} is the paired partner, never declined
+  ///
+  /// In en, this message translates to:
+  /// **'Share with {name}'**
+  String shareWithPartner(String name);
+
+  /// The category menu's entry while the category is shared (ticked)
+  ///
+  /// In en, this message translates to:
+  /// **'Shared with {name}'**
+  String sharedWithPartner(String name);
+
+  /// Marks something the partner shares: the read sheet's header, a section header in the categories page and the filter lists, a digest line
+  ///
+  /// In en, this message translates to:
+  /// **'From {name}'**
+  String shareFromPartner(String name);
+
+  /// Title of the Sharing page
+  ///
+  /// In en, this message translates to:
+  /// **'Sharing with {name}'**
+  String sharingWithTitle(String name);
+
+  /// Section label on the Sharing page over what this person shares with the partner
+  ///
+  /// In en, this message translates to:
+  /// **'You share'**
+  String get shareYouShare;
+
+  /// Section label on the Sharing page over what the partner shares with this person
+  ///
+  /// In en, this message translates to:
+  /// **'{name} shares with you'**
+  String sharePartnerShares(String name);
+
+  /// Sharing page entry: the shared categories
+  ///
+  /// In en, this message translates to:
+  /// **'Categories'**
+  String get shareRowCategories;
+
+  /// Sharing page entry and sheet title: events shared one by one, outside a shared category
+  ///
+  /// In en, this message translates to:
+  /// **'Single events'**
+  String get shareRowEvents;
+
+  /// Description of a Sharing page entry with nothing in it, and the empty line of the partner's single-events list
+  ///
+  /// In en, this message translates to:
+  /// **'None'**
+  String get shareNone;
+
+  /// Intro line under the 'You share' section
+  ///
+  /// In en, this message translates to:
+  /// **'{name} sees these and cannot change them.'**
+  String shareYouShareCaption(String name);
+
+  /// Intro line under the section of what the partner shares
+  ///
+  /// In en, this message translates to:
+  /// **'Read-only. They leave when {name} stops sharing.'**
+  String sharePartnerSharesCaption(String name);
+
+  /// Status beside the 'You share' label while share changes are still leaving this phone
+  ///
+  /// In en, this message translates to:
+  /// **'Sending…'**
+  String get shareSending;
+
+  /// Status beside the 'You share' label while offline with share changes waiting
+  ///
+  /// In en, this message translates to:
+  /// **'Waiting to send'**
+  String get shareWaitingToSend;
+
+  /// Status beside the partner's section label: when what the partner shares was last read. {when} is a relative moment such as '2 min ago'
+  ///
+  /// In en, this message translates to:
+  /// **'Updated {when}'**
+  String shareUpdated(String when);
+
+  /// Reason line of a dimmed share control while this database does not sync
+  ///
+  /// In en, this message translates to:
+  /// **'Turn on sync to share'**
+  String get shareNeedsSync;
+
+  /// Line in the partner's section while this database does not sync
+  ///
+  /// In en, this message translates to:
+  /// **'Turn on sync to receive'**
+  String get shareNeedsSyncReceive;
+
+  /// Status in the partner's section after the last read of what the partner shares failed
+  ///
+  /// In en, this message translates to:
+  /// **'Could not check. Will try again.'**
+  String get shareCheckFailed;
+
+  /// Line in the partner's section when nothing was read for seven days or more
+  ///
+  /// In en, this message translates to:
+  /// **'May be out of date'**
+  String get shareMaybeStale;
+
+  /// Line in the partner's section when the partner's phone runs a newer version whose rows this build cannot read
+  ///
+  /// In en, this message translates to:
+  /// **'Update ANTA to see everything {name} shares'**
+  String shareUpdateApp(String name);
+
+  /// Line in the partner's section: rows of the partner that collide with an id of this person's own and are not shown
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 item could not be shown} other{{count} items could not be shown}}'**
+  String shareNotShown(int count);
+
+  /// Second line of the event editor's share switch while off
+  ///
+  /// In en, this message translates to:
+  /// **'Only you see this event'**
+  String get shareEventOff;
+
+  /// Second line of the event editor's share switch while on
+  ///
+  /// In en, this message translates to:
+  /// **'{name} sees it, read-only'**
+  String shareEventOn(String name);
+
+  /// Second line of the event editor's share switch when the event's category is shared: the switch shows on and locked
+  ///
+  /// In en, this message translates to:
+  /// **'On for everything in {category}'**
+  String shareThroughCategory(String category);
+
+  /// Second line of the category editor's share switch while off
+  ///
+  /// In en, this message translates to:
+  /// **'Only you see these events'**
+  String get shareCategoryOff;
+
+  /// Second line of the category editor's share switch while on, for a category that has events. Zero events uses shareCategoryNewOnly
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{Its 1 event, and new ones} other{All {count} events, and new ones}}'**
+  String shareCategoryOn(int count);
+
+  /// Second line of the category editor's share switch while on, for a category with no events yet
+  ///
+  /// In en, this message translates to:
+  /// **'New events are shared'**
+  String get shareCategoryNewOnly;
+
+  /// Title of the category tick sheet opened from the Sharing page
+  ///
+  /// In en, this message translates to:
+  /// **'Share categories'**
+  String get shareCategoriesTitle;
+
+  /// Caption under the header of the category tick sheet
+  ///
+  /// In en, this message translates to:
+  /// **'{name} sees every event in a ticked category, new ones too. Only you can change them.'**
+  String shareCategoriesCaption(String name);
+
+  /// Title of the sheet listing the categories the partner shares
+  ///
+  /// In en, this message translates to:
+  /// **'Categories from {name}'**
+  String shareTheirCategoriesTitle(String name);
+
+  /// Caption under the header of the sheet listing the partner's categories, each with a show switch
+  ///
+  /// In en, this message translates to:
+  /// **'Ticked ones show on your calendar; {name} never sees what you hide.'**
+  String shareTheirCategoriesCaption(String name);
+
+  /// Label of the switch that shows or hides one of the partner's categories on this phone
+  ///
+  /// In en, this message translates to:
+  /// **'Show on my calendar'**
+  String get shareShowOnCalendar;
+
+  /// Second-line fragment for a built-in category the partner shares, after the event count and a middle dot: its events are drawn in this person's own category of the same kind
+  ///
+  /// In en, this message translates to:
+  /// **'joins your {category}'**
+  String shareJoinsYours(String category);
+
+  /// Snackbar after something was shared, with Undo. {what} is one name or a comma-separated list
+  ///
+  /// In en, this message translates to:
+  /// **'Sharing {what} with {name}'**
+  String shareStarted(String what, String name);
+
+  /// Snackbar after something stopped being shared, with Undo. {what} is one name or a comma-separated list
+  ///
+  /// In en, this message translates to:
+  /// **'No longer shared: {what}'**
+  String shareStopped(String what);
+
+  /// Snackbar after a category stopped being shared while some of its events carry a share of their own
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{No longer shared: {what}. 1 event stays shared on its own.} other{No longer shared: {what}. {count} events stay shared on their own.}}'**
+  String shareStoppedSomeStay(String what, int count);
+
+  /// Consequence line in the category delete sheet when the deleted category is shared and its events move to a private one
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{{name} stops seeing its 1 event} other{{name} stops seeing its {count} events}}'**
+  String shareDeleteImpactStops(String name, int count);
+
+  /// Consequence line in the category delete sheet when the events move to a category that is shared too
+  ///
+  /// In en, this message translates to:
+  /// **'They stay shared through {category}'**
+  String shareDeleteImpactStays(String category);
+
+  /// Sharing page row that clears every share and keeps the pair; also the confirm button of its dialog
+  ///
+  /// In en, this message translates to:
+  /// **'Stop sharing everything'**
+  String get shareStopAll;
+
+  /// Description of the 'Stop sharing everything' row
+  ///
+  /// In en, this message translates to:
+  /// **'You stay paired'**
+  String get shareStopAllDesc;
+
+  /// Body of the confirmation before every share is cleared
+  ///
+  /// In en, this message translates to:
+  /// **'Stop sharing everything with {name}? Your categories and events leave their phone. What {name} shares with you stays.'**
+  String shareStopAllConfirm(String name);
+
+  /// Description of the Unpair row on the Sharing page
+  ///
+  /// In en, this message translates to:
+  /// **'Ends sharing both ways'**
+  String get shareUnpairDesc;
+
+  /// Sentence added to the unpair confirmation
+  ///
+  /// In en, this message translates to:
+  /// **'If you pair again, you choose again what to share.'**
+  String get pairingRepairHint;
+
+  /// Sentence added to the stop-syncing confirmation when this database shares something with the partner
+  ///
+  /// In en, this message translates to:
+  /// **'{name} keeps what you share as it is now, without later changes. To take it back, stop sharing first.'**
+  String syncStopSharingLine(String name);
+
+  /// Description of the Pairing row while paired and nothing is shared
+  ///
+  /// In en, this message translates to:
+  /// **'Nothing is shared yet'**
+  String get shareNothingYet;
+
+  /// Part of the Pairing row's summary of what is shared, joined with a comma to the event count. Keep the no-break space so a number never strands from its noun
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 category} other{{count} categories}}'**
+  String shareSummaryCategories(int count);
+
+  /// Part of the Pairing row's summary and the description of the 'Single events' entry: events shared one by one. Keep the no-break space
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 event} other{{count} events}}'**
+  String shareSummaryEvents(int count);
+
+  /// Section label over the share switch in the category editor
+  ///
+  /// In en, this message translates to:
+  /// **'Sharing'**
+  String get shareSectionLabel;
+
+  /// Caption fragment on a category row that is shared with the partner, beside 'Built in' and 'Alerts on'
+  ///
+  /// In en, this message translates to:
+  /// **'Shared'**
+  String get categoryCaptionShared;
+
+  /// Tooltip of the button that stops sharing one event in the list of singly shared events
+  ///
+  /// In en, this message translates to:
+  /// **'Stop sharing'**
+  String get shareStopSharingTooltip;
+
+  /// The one line of the 'Single events' list when no event is shared one by one
+  ///
+  /// In en, this message translates to:
+  /// **'Share an event from its editor.'**
+  String get shareEventsEmpty;
+
+  /// Section label on the Sharing page over the look settings
+  ///
+  /// In en, this message translates to:
+  /// **'How shared things look'**
+  String get shareLookSection;
+
+  /// Label of the choice of how the partner's events are drawn
+  ///
+  /// In en, this message translates to:
+  /// **'Events shared with you'**
+  String get shareEventLook;
+
+  /// Look choice: the partner's events are drawn hollow, as an outline
+  ///
+  /// In en, this message translates to:
+  /// **'Outlined'**
+  String get shareLookOutlined;
+
+  /// Look choice: the partner's events carry the partner's profile picture
+  ///
+  /// In en, this message translates to:
+  /// **'Avatar'**
+  String get shareLookAvatar;
+
+  /// Look choice: the partner's events are drawn like this person's own
+  ///
+  /// In en, this message translates to:
+  /// **'Like mine'**
+  String get shareLookPlain;
+
+  /// Switch on the Sharing page: show a sign on what this person shares
+  ///
+  /// In en, this message translates to:
+  /// **'Mark what you share'**
+  String get shareMarkMine;
+
+  /// Description of the 'Mark what you share' switch
+  ///
+  /// In en, this message translates to:
+  /// **'A sign on the categories and events you share'**
+  String get shareMarkMineDesc;
+
+  /// Section label on the Sharing page over the alert setting for shared events
+  ///
+  /// In en, this message translates to:
+  /// **'Alerts'**
+  String get shareAlertsSection;
+
+  /// Sharing page entry: whether the partner's events may alert on this phone
+  ///
+  /// In en, this message translates to:
+  /// **'Alerts for shared events'**
+  String get shareAlerts;
+
+  /// Alert setting for shared events: nothing rings
+  ///
+  /// In en, this message translates to:
+  /// **'Off'**
+  String get shareAlertsOff;
+
+  /// Second line of the 'Off' choice
+  ///
+  /// In en, this message translates to:
+  /// **'Nothing shared with you rings'**
+  String get shareAlertsOffDesc;
+
+  /// Alert setting for shared events: only the alerts this person added to one event
+  ///
+  /// In en, this message translates to:
+  /// **'Only alerts I add'**
+  String get shareAlertsOwn;
+
+  /// Second line of the 'Only alerts I add' choice
+  ///
+  /// In en, this message translates to:
+  /// **'On one event, from its sheet'**
+  String get shareAlertsOwnDesc;
+
+  /// Alert setting for shared events: they also follow this person's category alerts
+  ///
+  /// In en, this message translates to:
+  /// **'Category alerts too'**
+  String get shareAlertsCategory;
+
+  /// Second line of the 'Category alerts too' choice
+  ///
+  /// In en, this message translates to:
+  /// **'Shared events follow your category alerts, alarms included'**
+  String get shareAlertsCategoryDesc;
+
+  /// Caption under the dimmed alerts group of the partner's event sheet while the setting is Off
+  ///
+  /// In en, this message translates to:
+  /// **'Alerts for shared events are off'**
+  String get shareAlertsOffCaption;
+
+  /// Caption under the dimmed alerts group of a partner's category sheet unless the setting is 'Category alerts too'
+  ///
+  /// In en, this message translates to:
+  /// **'Category alerts are off for shared events'**
+  String get shareCategoryAlertsOffCaption;
+
+  /// Title of a notification or alarm for one of the partner's events
+  ///
+  /// In en, this message translates to:
+  /// **'{title} · From {name}'**
+  String shareAlertNoticeTitle(String title, String name);
+
+  /// Section label in the partner's event sheet over this person's own alerts on that event
+  ///
+  /// In en, this message translates to:
+  /// **'Yours'**
+  String get sharedEventYours;
+
+  /// Action in the partner's event sheet: makes an event of this person's own from it
+  ///
+  /// In en, this message translates to:
+  /// **'Copy to my calendar'**
+  String get sharedEventCopy;
+
+  /// Snackbar after copying the partner's event
+  ///
+  /// In en, this message translates to:
+  /// **'Copied. Later changes by {name} do not reach your copy.'**
+  String sharedEventCopied(String name);
+
+  /// Caption at the end of the partner's event sheet
+  ///
+  /// In en, this message translates to:
+  /// **'Only {name} can change this event. Your alerts follow what this phone last received.'**
+  String sharedEventCaption(String name);
+
+  /// Snackbar when one new thing from the partner arrived, with a View action
+  ///
+  /// In en, this message translates to:
+  /// **'{name} shares {what} with you'**
+  String shareNewFromPartner(String name, String what);
+
+  /// Snackbar when several categories from the partner arrived in one read
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{{name} shares 1 category with you} other{{name} shares {count} categories with you}}'**
+  String shareNewManyFromPartner(String name, int count);
+
+  /// Snackbar action that opens the Sharing page
+  ///
+  /// In en, this message translates to:
+  /// **'View'**
+  String get shareView;
+
+  /// Snackbar when the partner's event that is open leaves
+  ///
+  /// In en, this message translates to:
+  /// **'{name} no longer shares this event'**
+  String shareGoneEvent(String name);
+
+  /// Snackbar when something of the partner's left and took an armed alert of this person's with it
+  ///
+  /// In en, this message translates to:
+  /// **'{name} no longer shares {what}. Your alert is off.'**
+  String shareGoneWithAlert(String name, String what);
+
+  /// Sentence added to an import's result when imported events landed in shared categories
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 is shared with {name}.} other{{count} are shared with {name}.}}'**
+  String shareImportLine(int count, String name);
+
+  /// Screen-reader words for a row of something this person shares
+  ///
+  /// In en, this message translates to:
+  /// **'Shared with {name}'**
+  String shareMarkMineLabel(String name);
+
+  /// Screen-reader words for a row of something the partner shares, read first in every look
+  ///
+  /// In en, this message translates to:
+  /// **'From {name}'**
+  String shareMarkPartnerLabel(String name);
 }
 
 class _AppLocalizationsDelegate

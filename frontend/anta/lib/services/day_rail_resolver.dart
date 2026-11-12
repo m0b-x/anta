@@ -23,7 +23,13 @@ import 'resolver_chain.dart';
 /// A one-time event ignores a stored `true`, so an untracked one still stays
 /// out: forcing in exists to put an untracked routine's streak on the rail,
 /// and a single untracked day has none. `false` forces any event out.
+///
+/// A partner's event is never in it, whatever its stored choice says: the
+/// rail is the presence channel, and their attendance is not mine to keep
+/// (`docs/cloud-share-surfaces-roadmap.md` D15). It draws as a bar instead,
+/// since the bar provider's exclusion reads this same answer.
 bool eventInDayRail(CalendarEvent event) {
+  if (event.fromPartner) return false;
   final forced = event.showInDayRail;
   if (forced == false) return false;
   if (event.rule is OneTimeRecurrence) return EventPresence.appliesTo(event);

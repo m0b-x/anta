@@ -11033,4 +11033,371 @@ class AppLocalizationsEn extends AppLocalizations {
   String appGuideSyncDataBody(String dataNotice) {
     return 'A database you sync keeps a copy in Google\'s cloud. It is encrypted there, but not end-to-end: the people who run ANTA\'s cloud service can read it. “$dataNotice” on the same page says where it is kept and how to remove it.';
   }
+
+  @override
+  String get sharePartnerFallback => 'your partner';
+
+  @override
+  String shareWithPartner(String name) {
+    return 'Share with $name';
+  }
+
+  @override
+  String sharedWithPartner(String name) {
+    return 'Shared with $name';
+  }
+
+  @override
+  String shareFromPartner(String name) {
+    return 'From $name';
+  }
+
+  @override
+  String sharingWithTitle(String name) {
+    return 'Sharing with $name';
+  }
+
+  @override
+  String get shareYouShare => 'You share';
+
+  @override
+  String sharePartnerShares(String name) {
+    return '$name shares with you';
+  }
+
+  @override
+  String get shareRowCategories => 'Categories';
+
+  @override
+  String get shareRowEvents => 'Single events';
+
+  @override
+  String get shareNone => 'None';
+
+  @override
+  String shareYouShareCaption(String name) {
+    return '$name sees these and cannot change them.';
+  }
+
+  @override
+  String sharePartnerSharesCaption(String name) {
+    return 'Read-only. They leave when $name stops sharing.';
+  }
+
+  @override
+  String get shareSending => 'Sending…';
+
+  @override
+  String get shareWaitingToSend => 'Waiting to send';
+
+  @override
+  String shareUpdated(String when) {
+    return 'Updated $when';
+  }
+
+  @override
+  String get shareNeedsSync => 'Turn on sync to share';
+
+  @override
+  String get shareNeedsSyncReceive => 'Turn on sync to receive';
+
+  @override
+  String get shareCheckFailed => 'Could not check. Will try again.';
+
+  @override
+  String get shareMaybeStale => 'May be out of date';
+
+  @override
+  String shareUpdateApp(String name) {
+    return 'Update ANTA to see everything $name shares';
+  }
+
+  @override
+  String shareNotShown(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count items could not be shown',
+      one: '1 item could not be shown',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get shareEventOff => 'Only you see this event';
+
+  @override
+  String shareEventOn(String name) {
+    return '$name sees it, read-only';
+  }
+
+  @override
+  String shareThroughCategory(String category) {
+    return 'On for everything in $category';
+  }
+
+  @override
+  String get shareCategoryOff => 'Only you see these events';
+
+  @override
+  String shareCategoryOn(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'All $count events, and new ones',
+      one: 'Its 1 event, and new ones',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get shareCategoryNewOnly => 'New events are shared';
+
+  @override
+  String get shareCategoriesTitle => 'Share categories';
+
+  @override
+  String shareCategoriesCaption(String name) {
+    return '$name sees every event in a ticked category, new ones too. Only you can change them.';
+  }
+
+  @override
+  String shareTheirCategoriesTitle(String name) {
+    return 'Categories from $name';
+  }
+
+  @override
+  String shareTheirCategoriesCaption(String name) {
+    return 'Ticked ones show on your calendar; $name never sees what you hide.';
+  }
+
+  @override
+  String get shareShowOnCalendar => 'Show on my calendar';
+
+  @override
+  String shareJoinsYours(String category) {
+    return 'joins your $category';
+  }
+
+  @override
+  String shareStarted(String what, String name) {
+    return 'Sharing $what with $name';
+  }
+
+  @override
+  String shareStopped(String what) {
+    return 'No longer shared: $what';
+  }
+
+  @override
+  String shareStoppedSomeStay(String what, int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'No longer shared: $what. $count events stay shared on their own.',
+      one: 'No longer shared: $what. 1 event stays shared on its own.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String shareDeleteImpactStops(String name, int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$name stops seeing its $count events',
+      one: '$name stops seeing its 1 event',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String shareDeleteImpactStays(String category) {
+    return 'They stay shared through $category';
+  }
+
+  @override
+  String get shareStopAll => 'Stop sharing everything';
+
+  @override
+  String get shareStopAllDesc => 'You stay paired';
+
+  @override
+  String shareStopAllConfirm(String name) {
+    return 'Stop sharing everything with $name? Your categories and events leave their phone. What $name shares with you stays.';
+  }
+
+  @override
+  String get shareUnpairDesc => 'Ends sharing both ways';
+
+  @override
+  String get pairingRepairHint =>
+      'If you pair again, you choose again what to share.';
+
+  @override
+  String syncStopSharingLine(String name) {
+    return '$name keeps what you share as it is now, without later changes. To take it back, stop sharing first.';
+  }
+
+  @override
+  String get shareNothingYet => 'Nothing is shared yet';
+
+  @override
+  String shareSummaryCategories(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count categories',
+      one: '1 category',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String shareSummaryEvents(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count events',
+      one: '1 event',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get shareSectionLabel => 'Sharing';
+
+  @override
+  String get categoryCaptionShared => 'Shared';
+
+  @override
+  String get shareStopSharingTooltip => 'Stop sharing';
+
+  @override
+  String get shareEventsEmpty => 'Share an event from its editor.';
+
+  @override
+  String get shareLookSection => 'How shared things look';
+
+  @override
+  String get shareEventLook => 'Events shared with you';
+
+  @override
+  String get shareLookOutlined => 'Outlined';
+
+  @override
+  String get shareLookAvatar => 'Avatar';
+
+  @override
+  String get shareLookPlain => 'Like mine';
+
+  @override
+  String get shareMarkMine => 'Mark what you share';
+
+  @override
+  String get shareMarkMineDesc =>
+      'A sign on the categories and events you share';
+
+  @override
+  String get shareAlertsSection => 'Alerts';
+
+  @override
+  String get shareAlerts => 'Alerts for shared events';
+
+  @override
+  String get shareAlertsOff => 'Off';
+
+  @override
+  String get shareAlertsOffDesc => 'Nothing shared with you rings';
+
+  @override
+  String get shareAlertsOwn => 'Only alerts I add';
+
+  @override
+  String get shareAlertsOwnDesc => 'On one event, from its sheet';
+
+  @override
+  String get shareAlertsCategory => 'Category alerts too';
+
+  @override
+  String get shareAlertsCategoryDesc =>
+      'Shared events follow your category alerts, alarms included';
+
+  @override
+  String get shareAlertsOffCaption => 'Alerts for shared events are off';
+
+  @override
+  String get shareCategoryAlertsOffCaption =>
+      'Category alerts are off for shared events';
+
+  @override
+  String shareAlertNoticeTitle(String title, String name) {
+    return '$title · From $name';
+  }
+
+  @override
+  String get sharedEventYours => 'Yours';
+
+  @override
+  String get sharedEventCopy => 'Copy to my calendar';
+
+  @override
+  String sharedEventCopied(String name) {
+    return 'Copied. Later changes by $name do not reach your copy.';
+  }
+
+  @override
+  String sharedEventCaption(String name) {
+    return 'Only $name can change this event. Your alerts follow what this phone last received.';
+  }
+
+  @override
+  String shareNewFromPartner(String name, String what) {
+    return '$name shares $what with you';
+  }
+
+  @override
+  String shareNewManyFromPartner(String name, int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$name shares $count categories with you',
+      one: '$name shares 1 category with you',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get shareView => 'View';
+
+  @override
+  String shareGoneEvent(String name) {
+    return '$name no longer shares this event';
+  }
+
+  @override
+  String shareGoneWithAlert(String name, String what) {
+    return '$name no longer shares $what. Your alert is off.';
+  }
+
+  @override
+  String shareImportLine(int count, String name) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count are shared with $name.',
+      one: '1 is shared with $name.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String shareMarkMineLabel(String name) {
+    return 'Shared with $name';
+  }
+
+  @override
+  String shareMarkPartnerLabel(String name) {
+    return 'From $name';
+  }
 }

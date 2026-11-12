@@ -580,6 +580,62 @@ void main() {
       expect(CalendarEvent.debugOccursOnCalls, 30);
     });
   });
+
+  group("a partner's events (share surfaces D20)", () {
+    final mine = eventOf('mine', DateTime.utc(2026, 10, 4));
+    final theirs = CalendarEvent(
+      id: 'theirs',
+      title: 'theirs',
+      categoryId: 'birthday',
+      startDate: DateTime.utc(2026, 10, 12),
+      fromPartner: true,
+    );
+
+    List<String> listed({required bool includePartner}) => [
+      for (final occurrence in DigestPlanner.plan(
+        digests: [digestOf()],
+        events: [mine, theirs],
+        horizon: const DigestHorizon(perDigest: 1, maxDigests: 1),
+        now: now,
+        includePartner: includePartner,
+      ).single.entries)
+        occurrence.event.id,
+    ];
+
+    test('are listed only when asked for', () {
+      expect(listed(includePartner: false), ['mine']);
+      expect(listed(includePartner: true), ['mine', 'theirs']);
+    });
+
+    test('a span of theirs alone lists nothing, so it is not armed', () {
+      final plan = DigestPlanner.plan(
+        digests: [digestOf(includeEmpty: false)],
+        events: [theirs],
+        horizon: const DigestHorizon(perDigest: 1, maxDigests: 1),
+        now: now,
+      );
+
+      expect(plan, isEmpty);
+    });
+
+    test('my own plan is the same whatever the setting', () {
+      List<(String, DateTime)> planned({required bool includePartner}) => [
+        for (final o in DigestPlanner.plan(
+          digests: [digestOf()],
+          events: [mine],
+          horizon: const DigestHorizon(perDigest: 1, maxDigests: 1),
+          now: now,
+          includePartner: includePartner,
+        ).single.entries)
+          (o.event.id, o.day),
+      ];
+
+      expect(planned(includePartner: false), [
+        ('mine', DateTime.utc(2026, 10, 4)),
+      ]);
+      expect(planned(includePartner: true), planned(includePartner: false));
+    });
+  });
 }
 
 /// A monthly digest whose fields no debug constructor would let through —

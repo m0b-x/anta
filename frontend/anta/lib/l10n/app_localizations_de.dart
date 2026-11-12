@@ -11118,4 +11118,373 @@ class AppLocalizationsDe extends AppLocalizations {
   String appGuideSyncDataBody(String dataNotice) {
     return 'Eine Datenbank, die du synchronisierst, hat eine Kopie in Googles Cloud. Sie ist dort verschlüsselt, aber nicht Ende-zu-Ende: Wer ANTAs Cloud-Dienst betreibt, kann sie lesen. „$dataNotice“ auf derselben Seite sagt, wo sie liegt und wie du sie entfernst.';
   }
+
+  @override
+  String get sharePartnerFallback => 'Partner';
+
+  @override
+  String shareWithPartner(String name) {
+    return 'Mit $name teilen';
+  }
+
+  @override
+  String sharedWithPartner(String name) {
+    return 'Mit $name geteilt';
+  }
+
+  @override
+  String shareFromPartner(String name) {
+    return 'Von $name';
+  }
+
+  @override
+  String sharingWithTitle(String name) {
+    return 'Teilen mit $name';
+  }
+
+  @override
+  String get shareYouShare => 'Du teilst';
+
+  @override
+  String sharePartnerShares(String name) {
+    return '$name teilt mit dir';
+  }
+
+  @override
+  String get shareRowCategories => 'Kategorien';
+
+  @override
+  String get shareRowEvents => 'Einzelne Ereignisse';
+
+  @override
+  String get shareNone => 'Keine';
+
+  @override
+  String shareYouShareCaption(String name) {
+    return '$name sieht diese und kann sie nicht ändern.';
+  }
+
+  @override
+  String sharePartnerSharesCaption(String name) {
+    return 'Nur lesbar. Sie verschwinden, wenn $name das Teilen beendet.';
+  }
+
+  @override
+  String get shareSending => 'Wird gesendet …';
+
+  @override
+  String get shareWaitingToSend => 'Wartet auf Senden';
+
+  @override
+  String shareUpdated(String when) {
+    return 'Aktualisiert $when';
+  }
+
+  @override
+  String get shareNeedsSync => 'Zum Teilen Sync einschalten';
+
+  @override
+  String get shareNeedsSyncReceive => 'Zum Empfangen Sync einschalten';
+
+  @override
+  String get shareCheckFailed => 'Prüfen fehlgeschlagen. Neuer Versuch folgt.';
+
+  @override
+  String get shareMaybeStale => 'Möglicherweise nicht aktuell';
+
+  @override
+  String shareUpdateApp(String name) {
+    return 'ANTA aktualisieren, um alles zu sehen, was $name teilt';
+  }
+
+  @override
+  String shareNotShown(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count Elemente konnten nicht angezeigt werden',
+      one: '1 Element konnte nicht angezeigt werden',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get shareEventOff => 'Nur du siehst dieses Ereignis';
+
+  @override
+  String shareEventOn(String name) {
+    return '$name sieht es, nur lesbar';
+  }
+
+  @override
+  String shareThroughCategory(String category) {
+    return 'An für alles in $category';
+  }
+
+  @override
+  String get shareCategoryOff => 'Nur du siehst diese Ereignisse';
+
+  @override
+  String shareCategoryOn(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Alle $count Ereignisse und neue',
+      one: 'Das 1 Ereignis und neue',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get shareCategoryNewOnly => 'Neue Ereignisse werden geteilt';
+
+  @override
+  String get shareCategoriesTitle => 'Kategorien teilen';
+
+  @override
+  String shareCategoriesCaption(String name) {
+    return '$name sieht jedes Ereignis einer markierten Kategorie, auch neue. Nur du kannst sie ändern.';
+  }
+
+  @override
+  String shareTheirCategoriesTitle(String name) {
+    return 'Kategorien von $name';
+  }
+
+  @override
+  String shareTheirCategoriesCaption(String name) {
+    return 'Markierte erscheinen in deinem Kalender; $name sieht nie, was du ausblendest.';
+  }
+
+  @override
+  String get shareShowOnCalendar => 'In meinem Kalender anzeigen';
+
+  @override
+  String shareJoinsYours(String category) {
+    return 'in deiner Kategorie $category';
+  }
+
+  @override
+  String shareStarted(String what, String name) {
+    return 'Mit $name geteilt: $what';
+  }
+
+  @override
+  String shareStopped(String what) {
+    return 'Nicht mehr geteilt: $what';
+  }
+
+  @override
+  String shareStoppedSomeStay(String what, int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other:
+          'Nicht mehr geteilt: $what. $count Ereignisse bleiben einzeln geteilt.',
+      one: 'Nicht mehr geteilt: $what. 1 Ereignis bleibt einzeln geteilt.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String shareDeleteImpactStops(String name, int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$name sieht die $count Ereignisse darin nicht mehr',
+      one: '$name sieht das 1 Ereignis darin nicht mehr',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String shareDeleteImpactStays(String category) {
+    return 'Sie bleiben über $category geteilt';
+  }
+
+  @override
+  String get shareStopAll => 'Nichts mehr teilen';
+
+  @override
+  String get shareStopAllDesc => 'Die Kopplung bleibt';
+
+  @override
+  String shareStopAllConfirm(String name) {
+    return 'Nichts mehr mit $name teilen? Deine Kategorien und Ereignisse verschwinden vom anderen Handy. Was $name mit dir teilt, bleibt.';
+  }
+
+  @override
+  String get shareUnpairDesc => 'Beendet das Teilen in beide Richtungen';
+
+  @override
+  String get pairingRepairHint =>
+      'Wenn ihr euch erneut koppelt, wählst du neu, was du teilst.';
+
+  @override
+  String syncStopSharingLine(String name) {
+    return '$name behält, was du teilst, im jetzigen Stand, ohne spätere Änderungen. Um es zurückzunehmen, beende zuerst das Teilen.';
+  }
+
+  @override
+  String get shareNothingYet => 'Es wird noch nichts geteilt';
+
+  @override
+  String shareSummaryCategories(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count Kategorien',
+      one: '1 Kategorie',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String shareSummaryEvents(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count Ereignisse',
+      one: '1 Ereignis',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get shareSectionLabel => 'Teilen';
+
+  @override
+  String get categoryCaptionShared => 'Geteilt';
+
+  @override
+  String get shareStopSharingTooltip => 'Teilen beenden';
+
+  @override
+  String get shareEventsEmpty => 'Teile ein Ereignis in seinem Editor.';
+
+  @override
+  String get shareLookSection => 'So sieht Geteiltes aus';
+
+  @override
+  String get shareEventLook => 'Mit dir geteilte Ereignisse';
+
+  @override
+  String get shareLookOutlined => 'Umriss';
+
+  @override
+  String get shareLookAvatar => 'Avatar';
+
+  @override
+  String get shareLookPlain => 'Wie meine';
+
+  @override
+  String get shareMarkMine => 'Geteiltes kennzeichnen';
+
+  @override
+  String get shareMarkMineDesc =>
+      'Ein Zeichen an Kategorien und Ereignissen, die du teilst';
+
+  @override
+  String get shareAlertsSection => 'Erinnerungen';
+
+  @override
+  String get shareAlerts => 'Erinnerungen für geteilte Ereignisse';
+
+  @override
+  String get shareAlertsOff => 'Aus';
+
+  @override
+  String get shareAlertsOffDesc => 'Nichts Geteiltes klingelt';
+
+  @override
+  String get shareAlertsOwn => 'Nur Erinnerungen, die ich hinzufüge';
+
+  @override
+  String get shareAlertsOwnDesc => 'An einem Ereignis, in dessen Ansicht';
+
+  @override
+  String get shareAlertsCategory => 'Auch Kategorie-Erinnerungen';
+
+  @override
+  String get shareAlertsCategoryDesc =>
+      'Geteilte Ereignisse folgen deinen Kategorie-Erinnerungen, auch Alarmen';
+
+  @override
+  String get shareAlertsOffCaption =>
+      'Erinnerungen für geteilte Ereignisse sind aus';
+
+  @override
+  String get shareCategoryAlertsOffCaption =>
+      'Kategorie-Erinnerungen sind für geteilte Ereignisse aus';
+
+  @override
+  String shareAlertNoticeTitle(String title, String name) {
+    return '$title · Von $name';
+  }
+
+  @override
+  String get sharedEventYours => 'Deine Erinnerungen';
+
+  @override
+  String get sharedEventCopy => 'In meinen Kalender kopieren';
+
+  @override
+  String sharedEventCopied(String name) {
+    return 'Kopiert. Spätere Änderungen von $name erreichen deine Kopie nicht.';
+  }
+
+  @override
+  String sharedEventCaption(String name) {
+    return 'Nur $name kann dieses Ereignis ändern. Deine Erinnerungen folgen dem Stand, den dieses Handy zuletzt empfangen hat.';
+  }
+
+  @override
+  String shareNewFromPartner(String name, String what) {
+    return '$name teilt $what mit dir';
+  }
+
+  @override
+  String shareNewManyFromPartner(String name, int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$name teilt $count Kategorien mit dir',
+      one: '$name teilt 1 Kategorie mit dir',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get shareView => 'Ansehen';
+
+  @override
+  String shareGoneEvent(String name) {
+    return '$name teilt dieses Ereignis nicht mehr';
+  }
+
+  @override
+  String shareGoneWithAlert(String name, String what) {
+    return '$name teilt $what nicht mehr. Deine Erinnerung ist aus.';
+  }
+
+  @override
+  String shareImportLine(int count, String name) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count werden mit $name geteilt.',
+      one: '1 wird mit $name geteilt.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String shareMarkMineLabel(String name) {
+    return 'Mit $name geteilt';
+  }
+
+  @override
+  String shareMarkPartnerLabel(String name) {
+    return 'Von $name';
+  }
 }

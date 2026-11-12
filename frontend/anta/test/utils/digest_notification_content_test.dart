@@ -328,6 +328,65 @@ void main() {
       // The collapsed row keeps to the date and the title.
       expect(content.text, '1 event this month · Oct 4 · Ana');
     });
+
+    group("a partner's event (share surfaces D20)", () {
+      final day = DateTime.utc(2026, 10, 12);
+      final theirs = CalendarEvent(
+        id: 'theirs',
+        title: 'Mihai',
+        categoryId: 'birthday',
+        startDate: day,
+        fromPartner: true,
+      );
+      PlannedDigest both() => fireOf(
+        spanStart: october,
+        entries: [
+          on(
+            eventOf('Ana', DateTime.utc(2026, 10, 4)),
+            DateTime.utc(2026, 10, 4),
+          ),
+          on(theirs, day),
+        ],
+      );
+
+      test('its line ends with the name, in every language; mine does '
+          'not', () {
+        for (final strings in [en, de, ro]) {
+          final content = digestNotificationContent(
+            both(),
+            strings,
+            labels,
+            categoryLabel: labelOf,
+            weekStart: CalendarWeekStart.monday,
+            partnerName: 'Mara',
+          );
+
+          expect(
+            content.lines.last,
+            endsWith(' · ${strings.shareFromPartner('Mara')}'),
+            reason: strings.localeName,
+          );
+          expect(
+            content.lines.first,
+            isNot(contains('Mara')),
+            reason: strings.localeName,
+          );
+        }
+        // The collapsed row keeps to the date and the title.
+        expect(
+          contentOf(both()).text,
+          '2 events this month · Oct 4 · Ana, Oct 12 · Mihai',
+        );
+      });
+
+      test('with no name stored, the stand-in names them', () {
+        expect(
+          contentOf(both()).lines.last,
+          'Mon, Oct 12 · Mihai · '
+          '${en.shareFromPartner(en.sharePartnerFallback)}',
+        );
+      });
+    });
   });
 
   group('a report digest', () {

@@ -12,6 +12,7 @@ import 'digest_planner.dart';
 import 'event_agenda.dart';
 import 'report_insight_filter.dart';
 import 'report_labels.dart';
+import 'share_copy.dart';
 
 /// The words of one digest notification, written when it is armed.
 class DigestNotificationContent {
@@ -56,6 +57,11 @@ class DigestNotificationContent {
 /// [currencySymbol] and [currencySuffix] are the ledger's global currency,
 /// so a report's amounts read as the Report page writes them ("€1,340");
 /// empty writes the plain figure.
+///
+/// [partnerName] is the stored pairing's name, read by the caller — never
+/// fetched, since a digest is worded with no network. A partner's event the
+/// planner listed (D20) ends its line "From {name}", the stand-in standing
+/// for a missing name.
 DigestNotificationContent digestNotificationContent(
   PlannedDigest fire,
   AppLocalizations strings,
@@ -65,6 +71,7 @@ DigestNotificationContent digestNotificationContent(
   CalendarReport? report,
   String currencySymbol = '',
   bool currencySuffix = false,
+  String? partnerName,
 }) {
   if (fire.digest.cadence.isReport) {
     return _reportContent(
@@ -87,7 +94,8 @@ DigestNotificationContent digestNotificationContent(
   final count = entries.length;
   final shown = entries.take(kDigestMaxLines);
   final lines = [
-    for (final occurrence in shown) _lineOf(occurrence, strings, labels),
+    for (final occurrence in shown)
+      _lineOf(occurrence, strings, labels, partnerName: partnerName),
   ];
   // The collapsed row is one line the platform cuts: the date without its
   // weekday and the title, so more of them fit before it does.
@@ -397,12 +405,13 @@ String digestCategoriesLabel(
 
 /// "Sat 4 Oct · Ana", and its count where the event counts its occurrences
 /// ("· Year 30") — the one count formatter, so the line reads as the
-/// overview's row does.
+/// overview's row does; a partner's ends "· From {name}" after it.
 String _lineOf(
   EventOccurrence occurrence,
   AppLocalizations strings,
-  AlertLabels labels,
-) {
+  AlertLabels labels, {
+  required String? partnerName,
+}) {
   final event = occurrence.event;
   final day = occurrence.day;
   final line = strings.alertsDayThenWhen(
@@ -410,7 +419,12 @@ String _lineOf(
     event.title,
   );
   final countLabel = RecurrenceFormatter.countLabel(event, day, strings);
-  return countLabel == null ? line : '$line · $countLabel';
+  final counted = countLabel == null ? line : '$line · $countLabel';
+  if (!event.fromPartner) return counted;
+  final from = strings.shareFromPartner(
+    ShareCopy.partnerName(strings, partnerName),
+  );
+  return '$counted · $from';
 }
 
 /// The span as a word where one names it exactly — the day, the calendar

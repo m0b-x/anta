@@ -6,6 +6,7 @@ import 'package:anta/constants/event_alerts.dart';
 import 'package:anta/constants/event_presence.dart';
 import 'package:anta/constants/event_skips.dart';
 import 'package:anta/constants/occurrence_descriptions.dart';
+import 'package:anta/database/daos/sync_dao.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/models/alert_payload.dart';
 import 'package:anta/models/calendar_event.dart';
@@ -209,6 +210,23 @@ void main() {
 
       expect(removed, isFalse);
       expect(events.events.single.id, 'e1');
+      expect(notice.hasPending, isFalse);
+    });
+
+    test("a partner's event is never removed, whatever the payload says "
+        '(D21)', () async {
+      // An entry armed before payloads cleared the flag on a partner's event
+      // still carries it; the event they flagged is not this phone's.
+      await db.customStatement(
+        "UPDATE calendar_events SET owner_id = 'partner' WHERE id = 'e1'",
+      );
+      await db.syncDao.setValue(SyncDao.keySharedOwner, 'partner');
+      await events.reload();
+      expect(events.events.single.fromPartner, isTrue);
+
+      expect(await AlertAcknowledgement.apply(payloadOf()), isFalse);
+      expect(events.events.single.id, 'e1');
+      expect(EventAlerts.alertsFor('e1'), alerts);
       expect(notice.hasPending, isFalse);
     });
 

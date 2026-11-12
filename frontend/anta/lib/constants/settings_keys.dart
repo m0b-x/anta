@@ -414,6 +414,27 @@ class SettingsKeys {
   /// moment available to tell them.
   static const String pairingEndedNotice = 'pairing_ended_notice_pending';
 
+  // What a partner shares with this database, as the receiver decides to see
+  // it (`docs/cloud-share-surfaces-roadmap.md` §6.4, §6.7, §6.8). Preferences
+  // of this phone's, not part of the grant: the partner never reads them.
+  // Prefixed apart from the pairing rows, so a restore carries them.
+
+  /// How a partner's event is drawn (a `ShareEventLook` name).
+  static const String shareEventLook = 'share_event_look';
+  static const String defaultShareEventLook = 'outlined';
+
+  /// Whether my own shared rows carry the small "shared" mark.
+  static const String shareMarkMine = 'share_mark_mine';
+  static const bool defaultShareMarkMine = true;
+
+  /// What may ring for a partner's event (a `ShareAlerts` name, D13).
+  static const String shareAlerts = 'share_alerts';
+  static const String defaultShareAlerts = 'own';
+
+  /// The partner's categories this phone does not show, as a JSON list of
+  /// ids; absent is none hidden.
+  static const String shareHiddenCategories = 'share_hidden_categories';
+
   // Cloud sync binding (readiness R6): the space this database syncs with.
   // Per database by construction, like the pairing rows — one database is
   // bound to one space (D3) — and absent from `BackupService._exportSettings`

@@ -265,7 +265,8 @@ class _CategoryEditorSheetState extends State<CategoryEditorSheet> {
   }
 
   /// A category with no events is not repeat-only: its next event may be
-  /// anything. Nothing in scope reads as nothing known.
+  /// anything. Nothing in scope reads as nothing known. A partner's events in
+  /// a shared built-in are theirs and shape none of my profile (D15).
   bool _readRepeatsOnly() {
     final initial = widget.initial;
     if (initial == null) return false;
@@ -273,7 +274,8 @@ class _CategoryEditorSheetState extends State<CategoryEditorSheet> {
     if (state is! CalendarPageLoaded) return false;
     var any = false;
     for (final event in state.allEvents) {
-      if (CalendarCategories.resolve(event.categoryId).id != initial.id) {
+      if (event.fromPartner ||
+          CalendarCategories.resolve(event.categoryId).id != initial.id) {
         continue;
       }
       if (shapeOf(event) != ReportShape.repeat) return false;

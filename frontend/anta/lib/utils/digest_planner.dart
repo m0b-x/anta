@@ -79,12 +79,18 @@ abstract final class DigestPlanner {
   /// unless the digest says [EventDigest.includeEmpty]; the instant after it
   /// is not looked for in its place. [weekStart] is the calendar's, read by
   /// a weekly report's span alone.
+  ///
+  /// [includePartner] lists a partner's events too — only under
+  /// `ShareAlerts.category` (D20 of `docs/cloud-share-surfaces-roadmap.md`):
+  /// a digest is an alert of mine, and their time reaches it only where I
+  /// asked my category alerts to follow it.
   static List<PlannedDigest> plan({
     required List<EventDigest> digests,
     required List<CalendarEvent> events,
     required DigestHorizon horizon,
     required DateTime now,
     CalendarWeekStart weekStart = CalendarWeekStart.monday,
+    bool includePartner = false,
   }) {
     final enabled = [
       for (final digest in digests)
@@ -94,7 +100,7 @@ abstract final class DigestPlanner {
     for (final digest in enabled.take(horizon.maxDigests)) {
       for (final fire in _fires(digest, now).take(horizon.perDigest)) {
         final span = spanFor(digest, fire.day, weekStart: weekStart);
-        final entries = EventAgenda.occurrencesInRange(
+        final scanned = EventAgenda.occurrencesInRange(
           events: events,
           from: span.start,
           to: span.end,
@@ -102,6 +108,15 @@ abstract final class DigestPlanner {
           eventType: AgendaEventType.all,
           collapseRecurring: false,
         );
+        // Dropped after the scan, never by a filtered copy of [events]: the
+        // scan's window index is memoised on the list's identity.
+        final entries =
+            includePartner || !scanned.any((o) => o.event.fromPartner)
+            ? scanned
+            : [
+                for (final occurrence in scanned)
+                  if (!occurrence.event.fromPartner) occurrence,
+              ];
         if (entries.isEmpty && !digest.includeEmpty) continue;
         planned.add(
           PlannedDigest(

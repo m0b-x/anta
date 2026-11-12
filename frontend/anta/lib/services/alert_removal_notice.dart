@@ -131,7 +131,9 @@ abstract final class AlertAcknowledgement {
       // The payload was written when the alarm was scheduled; the event is
       // what is true now. "Keep the event" clears the flag on the event, and
       // a Stop that arrives from the notification afterwards must honour it.
-      if (!target.removeAfterAlert) return false;
+      // A partner's event is never this phone's to remove, whatever an
+      // entry armed by an older build says.
+      if (!target.removeAfterAlert || target.fromPartner) return false;
       // Captured **before** the delete, all four sets: the cascade tombstones
       // the alert, absence, description and skip rows under its own stamp, and
       // every facade is republished from what survives — so by the time Undo

@@ -12,8 +12,10 @@ import 'package:anta/constants/alert_constants.dart';
 import 'package:anta/constants/app_theme.dart';
 import 'package:anta/constants/calendar_categories.dart';
 import 'package:anta/constants/category_kinds.dart';
+import 'package:anta/constants/event_alerts.dart';
 import 'package:anta/constants/event_presence.dart';
 import 'package:anta/constants/public_holidays.dart';
+import 'package:anta/constants/settings_keys.dart';
 import 'package:anta/database/daos/sync_dao.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/l10n/app_localizations.dart';
@@ -27,6 +29,7 @@ import 'package:anta/models/calendar_report.dart';
 import 'package:anta/models/category_profile.dart';
 import 'package:anta/models/event_alert.dart';
 import 'package:anta/models/recurrence_rule.dart';
+import 'package:anta/models/share_settings.dart';
 import 'package:anta/services/alert_gateway.dart';
 import 'package:anta/services/alert_scheduler.dart';
 import 'package:anta/services/calendar_event_service.dart';
@@ -3584,6 +3587,444 @@ void main() {
     });
   });
 
+  group("a partner's event (share surfaces §6.8, D13)", () {
+    /// Stores [event] as the shared reader does — under the partner's
+    /// account, the one `shared_owner` names — and re-reads the store.
+    Future<void> storeAsPartners(CalendarEvent event) async {
+      await events.upsert(event);
+      await db.customStatement(
+        "UPDATE calendar_events SET owner_id = 'partner' WHERE id = ?",
+        [event.id],
+      );
+      await db.syncDao.setValue(SyncDao.keySharedOwner, 'partner');
+      await events.reload();
+    }
+
+    Future<void> gymCategoryAlert() => alerts.replaceForCategory('gym', [
+      const CategoryAlert(
+        id: 'ca1',
+        categoryId: 'gym',
+        mode: AlertMode.notify,
+        offsetMinutes: 30,
+      ),
+    ]);
+
+    test('a category alert of mine never arms on it by default, though its '
+        'category id is one of mine', () async {
+      await storeAsPartners(eventOf(id: 'theirs'));
+      await gymCategoryAlert();
+
+      await schedulerOf().reconcileAll(AlertReconcileReason.launch);
+
+      expect(await registrations(), isEmpty);
+    });
+
+    CalendarEvent theirsEvent() =>
+        events.events.firstWhere((event) => event.id == 'theirs');
+
+    Future<Map<String, Set<String>>> armed() async {
+      await schedulerOf().reconcileAll(AlertReconcileReason.launch);
+      final byEvent = <String, Set<String>>{};
+      for (final row in await registrations()) {
+        if (row.state != AlertRegistrationState.pending.name) continue;
+        (byEvent[row.eventId] ??= {}).add(row.alertId);
+      }
+      return byEvent;
+    }
+
+    /// The partner's event with one alert of mine on it, my own event of
+    /// the same category, and a category alert of mine at another instant.
+    Future<void> seedBoth({bool partnerSwitchOn = true}) async {
+      await storeAsPartners(
+        eventOf(id: 'theirs').copyWith(categoryAlerts: partnerSwitchOn),
+      );
+      await alerts.replaceForEvent('theirs', [
+        alertOf(id: 't1', eventId: 'theirs'),
+      ]);
+      await seed(event: eventOf(id: 'mine'));
+      await gymCategoryAlert();
+    }
+
+    test('the load tells it from my own, once per read', () async {
+      await seedBoth();
+
+      final byId = {for (final event in events.events) event.id: event};
+      expect(byId['theirs']!.fromPartner, isTrue);
+      expect(byId['mine']!.fromPartner, isFalse);
+      expect(byId['theirs']!.copyWith(title: 'Moved').fromPartner, isTrue);
+    });
+
+    test('under "own", only the alerts I added to it arm', () async {
+      await seedBoth();
+      await SettingsService.forTesting(db).setShareAlerts(ShareAlerts.own);
+
+      final byEvent = await armed();
+
+      expect(byEvent['theirs'], {'t1'});
+      expect(byEvent['mine'], {'a1', 'ca1'});
+      expect(EventAlerts.hasReminder(theirsEvent()), false);
+      expect(EventAlerts.hasAlarm(theirsEvent()), isTrue);
+    });
+
+    test('under "category", my category\'s alerts arm on it too, whatever '
+        'the partner\'s own switch says', () async {
+      await seedBoth(partnerSwitchOn: false);
+      await SettingsService.forTesting(db).setShareAlerts(ShareAlerts.category);
+
+      final byEvent = await armed();
+
+      expect(byEvent['theirs'], {'t1', 'ca1'});
+      expect(byEvent['mine'], {'a1', 'ca1'});
+      expect(EventAlerts.hasReminder(theirsEvent()), true);
+    });
+
+    test('under "off", nothing arms on it and my alert on it stays stored; '
+        'no badge promises one', () async {
+      await seedBoth();
+      await SettingsService.forTesting(db).setShareAlerts(ShareAlerts.off);
+
+      final byEvent = await armed();
+
+      expect(byEvent.containsKey('theirs'), isFalse);
+      expect(byEvent['mine'], {'a1', 'ca1'});
+      expect(
+        (await db.eventAlertDao.getActiveForEvent('theirs')).map((a) => a.id),
+        ['t1'],
+      );
+      final theirs = theirsEvent();
+      expect(EventAlerts.hasAlarm(theirs), isFalse);
+      expect(EventAlerts.hasReminder(theirs), isFalse);
+      expect(EventAlerts.effectiveFor(theirs), isEmpty);
+    });
+
+    test('the hub lists on it exactly what each value arms, named by the '
+        'partner; mine are listed as before', () async {
+      await seedBoth(partnerSwitchOn: false);
+      await SettingsService.forTesting(db).setPairingSettings(
+        const PairingSettings(pairId: 'p1', partnerName: 'Ana'),
+      );
+      for (final value in ShareAlerts.values) {
+        await SettingsService.forTesting(db).setShareAlerts(value);
+        final byEvent = await armed();
+        final listed = <String, Set<String>>{};
+        for (final entry in await schedulerOf().hubEntries()) {
+          (listed[entry.event.id] ??= {}).add(entry.alert.id);
+          expect(
+            entry.partnerName,
+            entry.event.fromPartner ? 'Ana' : isNull,
+            reason: value.name,
+          );
+        }
+        expect(listed['theirs'], byEvent['theirs'], reason: value.name);
+        expect(listed['mine'], {'a1', 'ca1'}, reason: value.name);
+      }
+    });
+
+    test('under "category", one in a category this phone does not hold arms '
+        "nothing of my Other's, and no badge promises it", () async {
+      await storeAsPartners(
+        eventOf(id: 'theirs').copyWith(categoryId: 'their-own'),
+      );
+      await alerts.replaceForCategory('other', [
+        const CategoryAlert(
+          id: 'oth1',
+          categoryId: 'other',
+          mode: AlertMode.notify,
+          offsetMinutes: 30,
+        ),
+      ]);
+      await seed(
+        event: eventOf(id: 'mine').copyWith(categoryId: 'gone'),
+      );
+      await SettingsService.forTesting(db).setShareAlerts(ShareAlerts.category);
+
+      final byEvent = await armed();
+
+      expect(byEvent.containsKey('theirs'), isFalse);
+      expect(EventAlerts.hasReminder(theirsEvent()), isFalse);
+      expect(
+        byEvent['mine'],
+        {'a1', 'oth1'},
+        reason: 'my own orphan still inherits Other, as it is drawn',
+      );
+    });
+
+    test('a row armed on it before the setting moved is no row in the hub '
+        'while the pass that cancels it is still to come', () async {
+      await seedBoth();
+      await SettingsService.forTesting(db).setShareAlerts(ShareAlerts.category);
+      expect((await armed())['theirs'], {'t1', 'ca1'});
+
+      await SettingsService.forTesting(db).setShareAlerts(ShareAlerts.own);
+      final underOwn = await schedulerOf().hubEntries();
+      expect(
+        {
+          for (final entry in underOwn)
+            if (entry.event.id == 'theirs') entry.alert.id,
+        },
+        {'t1'},
+      );
+
+      await SettingsService.forTesting(db).setShareAlerts(ShareAlerts.off);
+      final underOff = await schedulerOf().hubEntries();
+      expect(underOff.where((entry) => entry.event.id == 'theirs'), isEmpty);
+    });
+
+    test('my own events arm exactly as before under every value, their own '
+        'opt-out included', () async {
+      await seedBoth();
+      await seed(
+        event: eventOf(id: 'mine-out').copyWith(categoryAlerts: false),
+        eventAlerts: [alertOf(id: 'a2', eventId: 'mine-out')],
+      );
+      for (final value in ShareAlerts.values) {
+        await SettingsService.forTesting(db).setShareAlerts(value);
+        final byEvent = await armed();
+        expect(byEvent['mine'], {'a1', 'ca1'}, reason: value.name);
+        expect(byEvent['mine-out'], {'a2'}, reason: value.name);
+      }
+    });
+
+    test('a change of the setting re-arms by the next pass: switched off, '
+        'what was armed on it is cancelled', () async {
+      await seedBoth();
+      final scheduler = schedulerOf();
+      await scheduler.reconcileAll(AlertReconcileReason.launch);
+      final before = [
+        for (final row in await registrations())
+          if (row.eventId == 'theirs') row.osId,
+      ];
+      expect(before, isNotEmpty);
+      gateway.resetCalls();
+
+      await SettingsService.forTesting(db).setShareAlerts(ShareAlerts.off);
+      await scheduler.reconcileAll(AlertReconcileReason.eventChanged);
+
+      expect(gateway.cancelled, unorderedEquals(before));
+    });
+
+    test(
+      'when it leaves — the pair ended — what was armed on it is '
+      'cancelled by the sync reconcile, and my alert rows on it stay',
+      () async {
+        await seedBoth();
+        final scheduler = schedulerOf();
+        await scheduler.reconcileAll(AlertReconcileReason.launch);
+        final armedOnIt = [
+          for (final row in await registrations())
+            if (row.eventId == 'theirs') row.osId,
+        ];
+        expect(armedOnIt, isNotEmpty);
+        gateway.resetCalls();
+
+        // What the reader does when the grant ends, then what the hooks run
+        // after it: the calendar reload and the pass.
+        await db.sharedRowDao.removeAll();
+        await events.reload();
+        await scheduler.reconcileAll(AlertReconcileReason.sync);
+
+        expect(events.events.map((event) => event.id), ['mine']);
+        expect(gateway.cancelled, unorderedEquals(armedOnIt));
+        expect(
+          (await registrations()).where(
+            (row) =>
+                row.eventId == 'theirs' &&
+                row.state == AlertRegistrationState.pending.name,
+          ),
+          isEmpty,
+        );
+        expect(
+          (await db.eventAlertDao.getActiveForEvent('theirs')).map((a) => a.id),
+          ['t1'],
+        );
+      },
+    );
+
+    group('its entries (D21)', () {
+      /// The partner's event, flagged "remove after it rings" by them, with
+      /// an alarm and a reminder of mine on it; my own event beside it; and
+      /// the partner's name as the pairing stored it.
+      Future<void> seedTheirAlerts() async {
+        await storeAsPartners(eventOf(id: 'theirs', removeAfterAlert: true));
+        await alerts.replaceForEvent('theirs', [
+          alertOf(id: 't1', eventId: 'theirs'),
+          alertOf(
+            id: 't2',
+            eventId: 'theirs',
+            mode: AlertMode.notify,
+            offsetMinutes: 30,
+          ),
+        ]);
+        await seed(event: eventOf(id: 'mine', removeAfterAlert: true));
+        await SettingsService.forTesting(db).setPairingSettings(
+          const PairingSettings(pairId: 'p1', partnerName: 'Ana'),
+        );
+      }
+
+      AlertPayload entryOf(String alertId) => gateway.platform.values
+          .singleWhere((payload) => payload.alertId == alertId);
+
+      test('the ring and the reminder tier name the partner from the stored '
+          'pairing, and never remove their event', () async {
+        await seedTheirAlerts();
+
+        await schedulerOf().reconcileAll(AlertReconcileReason.launch);
+
+        for (final id in ['t1', 't2']) {
+          final payload = entryOf(id);
+          expect(payload.fromPartner, isTrue, reason: id);
+          expect(payload.partnerName, 'Ana', reason: id);
+          expect(payload.removeAfterAlert, isFalse, reason: id);
+        }
+        expect(entryOf('t1').mode, AlertMode.ring);
+        expect(entryOf('t2').mode, AlertMode.notify);
+      });
+
+      test('my own entries are written as before: no partner, their own '
+          '"remove after it rings", no key on the wire', () async {
+        await seedTheirAlerts();
+
+        await schedulerOf().reconcileAll(AlertReconcileReason.launch);
+
+        final mine = entryOf('a1');
+        expect(mine.fromPartner, isFalse);
+        expect(mine.partnerName, isNull);
+        expect(mine.removeAfterAlert, isTrue);
+        expect(mine.toJson().containsKey(AlertPayloadKeys.fromPartner), false);
+        expect(mine.toJson().containsKey(AlertPayloadKeys.partnerName), false);
+      });
+
+      test('a name published later re-arms their entries by the next pass, '
+          'and none of mine', () async {
+        await seedTheirAlerts();
+        final scheduler = schedulerOf();
+        await scheduler.reconcileAll(AlertReconcileReason.launch);
+        final mineBefore = (await registrations())
+            .singleWhere((row) => row.alertId == 'a1')
+            .backend;
+        gateway.resetCalls();
+
+        await SettingsService.forTesting(db).setPairingSettings(
+          const PairingSettings(pairId: 'p1', partnerName: 'Mara'),
+        );
+        await scheduler.reconcileAll(AlertReconcileReason.resumed);
+
+        expect(
+          gateway.scheduled.map((fire) => fire.alert.id),
+          unorderedEquals(['t1', 't2']),
+        );
+        expect(entryOf('t1').partnerName, 'Mara');
+        expect(entryOf('t2').partnerName, 'Mara');
+        expect(
+          (await registrations())
+              .singleWhere((row) => row.alertId == 'a1')
+              .backend,
+          mineBefore,
+        );
+      });
+
+      test('their event become mine under the same id re-arms as mine: '
+          'no partner, its own "remove after it rings"', () async {
+        await seedTheirAlerts();
+        final scheduler = schedulerOf();
+        await scheduler.reconcileAll(AlertReconcileReason.launch);
+        gateway.resetCalls();
+
+        // The shared row evicted, then an own row written under its id.
+        await db.sharedRowDao.removeAll();
+        await events.reload();
+        await events.upsert(eventOf(id: 'theirs', removeAfterAlert: true));
+        expect(theirsEvent().fromPartner, isFalse);
+        await scheduler.reconcileAll(AlertReconcileReason.resumed);
+
+        expect(
+          gateway.scheduled.map((fire) => fire.alert.id),
+          unorderedEquals(['t1', 't2']),
+        );
+        expect(entryOf('t1').fromPartner, isFalse);
+        expect(entryOf('t1').partnerName, isNull);
+        expect(entryOf('t1').removeAfterAlert, isTrue);
+      });
+
+      test(
+        "my own entries' signatures are what they were before sharing",
+        () async {
+          await seedTheirAlerts();
+
+          await schedulerOf().reconcileAll(AlertReconcileReason.launch);
+
+          final rows = {
+            for (final row in await registrations()) row.alertId: row.backend,
+          };
+          final context = gateway.armContext;
+          expect(
+            rows['a1'],
+            '$context#${AlertSound.systemDefaultValue}$kAlertArmClockToken'
+            '~${SettingsKeys.defaultAlertSnoozeMinutes}'
+            '~n${SettingsKeys.defaultAlertNoticeLeadMinutes}'
+            '~s${SettingsKeys.defaultAlertSilenceAfterMinutes}',
+          );
+          expect(rows['t1'], startsWith('${rows['a1']}~p'));
+          expect(rows['t2'], startsWith('$context~p'));
+        },
+      );
+
+      test('a partner with no name is left for the stand-in', () async {
+        await seedTheirAlerts();
+        await SettingsService.forTesting(
+          db,
+        ).setPairingSettings(const PairingSettings(pairId: 'p1'));
+
+        await schedulerOf().reconcileAll(AlertReconcileReason.launch);
+
+        expect(entryOf('t1').fromPartner, isTrue);
+        expect(entryOf('t1').partnerName, isNull);
+      });
+
+      test('a snooze keeps naming the partner', () async {
+        await seedTheirAlerts();
+        final scheduler = schedulerOf();
+        await scheduler.reconcileAll(AlertReconcileReason.launch);
+        final osId = (await registrations())
+            .singleWhere((row) => row.alertId == 't1')
+            .osId;
+
+        now = DateTime(2026, 9, 20, 18);
+        await scheduler.snooze(osId);
+
+        final snoozed = (await registrations()).singleWhere(
+          (row) => row.kind == AlertKind.snooze.name,
+        );
+        final payload = gateway.platform[snoozed.osId]!;
+        expect(payload.snooze, isTrue);
+        expect(payload.fromPartner, isTrue);
+        expect(payload.partnerName, 'Ana');
+        expect(payload.removeAfterAlert, isFalse);
+      });
+
+      test('the missed report names the partner', () async {
+        await seedTheirAlerts();
+        final scheduler = schedulerOf();
+        await scheduler.reconcileAll(AlertReconcileReason.launch);
+        gateway.resetCalls();
+
+        now = DateTime(2026, 9, 20, 18, 31);
+        await scheduler.reconcileAll(AlertReconcileReason.resumed);
+
+        final theirs = gateway.missed.singleWhere(
+          (payload) => payload.eventId == 'theirs',
+        );
+        expect(theirs.fromPartner, isTrue);
+        expect(theirs.partnerName, 'Ana');
+        final mine = gateway.missed.singleWhere(
+          (payload) => payload.eventId == 'mine',
+        );
+        expect(mine.fromPartner, isFalse);
+        expect(mine.partnerName, isNull);
+      });
+    });
+  });
+
   group('digests (v42)', () {
     final october = DateTime.utc(2026, 10, 1);
 
@@ -4350,6 +4791,118 @@ void main() {
         expect(await scheduler.recentEntries(), isEmpty);
       },
     );
+
+    group("a partner's event (share surfaces D20)", () {
+      /// October's two birthdays of mine, and one of the partner's in my
+      /// `gym` id — the shared built-in, stored as the shared reader stores
+      /// it.
+      Future<void> octoberWithTheirs() async {
+        await octoberBirthdays();
+        await events.upsert(
+          eventOf(
+            id: 'theirs',
+            title: 'Ioana',
+            startDate: DateTime.utc(2026, 10, 20),
+            time: null,
+          ),
+        );
+        await db.customStatement(
+          "UPDATE calendar_events SET owner_id = 'partner' WHERE id = ?",
+          ['theirs'],
+        );
+        await db.syncDao.setValue(SyncDao.keySharedOwner, 'partner');
+        await events.reload();
+      }
+
+      Future<AlertPayload> armedPayload() async {
+        await schedulerOf().reconcileAll(AlertReconcileReason.launch);
+        return gateway.platform[(await registrations()).single.osId]!;
+      }
+
+      for (final value in [ShareAlerts.off, ShareAlerts.own]) {
+        test('under "${value.name}" it is in no digest, and mine reads '
+            'exactly as before', () async {
+          await octoberWithTheirs();
+          await digestOf();
+          await SettingsService.forTesting(db).setShareAlerts(value);
+
+          final payload = await armedPayload();
+
+          expect(payload.digestLines, [
+            'Sun, Oct 4 · Ana',
+            'Mon, Oct 12 · Mihai',
+          ]);
+          expect(
+            payload.digestText,
+            '2 events this month · Oct 4 · Ana, Oct 12 · Mihai',
+          );
+          expect(
+            (await schedulerOf().digestEntries()).single.count,
+            2,
+            reason: 'the hub counts what is armed',
+          );
+        });
+      }
+
+      test('under "category" it is listed, its line marked with the stored '
+          'name', () async {
+        await octoberWithTheirs();
+        await digestOf();
+        await SettingsService.forTesting(
+          db,
+        ).setShareAlerts(ShareAlerts.category);
+        await db.userSettingsDao.setValue(
+          SettingsKeys.pairingPartnerName,
+          'Mara',
+        );
+
+        final payload = await armedPayload();
+
+        expect(payload.digestLines, [
+          'Sun, Oct 4 · Ana',
+          'Mon, Oct 12 · Mihai',
+          'Tue, Oct 20 · Ioana · From Mara',
+        ]);
+        expect(payload.digestText, startsWith('3 events this month'));
+        expect((await schedulerOf().digestEntries()).single.count, 3);
+      });
+
+      test('under "category", one in a category this phone does not hold is '
+          'never listed by a digest filtered to Other', () async {
+        await octoberWithTheirs();
+        await db.customStatement(
+          "UPDATE calendar_events SET category = 'their-own' WHERE id = ?",
+          ['theirs'],
+        );
+        await events.reload();
+        await digestOf(categoryIds: const {'other'});
+        await SettingsService.forTesting(
+          db,
+        ).setShareAlerts(ShareAlerts.category);
+
+        await schedulerOf().reconcileAll(AlertReconcileReason.launch);
+
+        expect(await registrations(), isEmpty);
+      });
+
+      test('under "category" with no stored name, the stand-in names '
+          'them', () async {
+        await octoberWithTheirs();
+        await digestOf();
+        await SettingsService.forTesting(
+          db,
+        ).setShareAlerts(ShareAlerts.category);
+
+        final payload = await armedPayload();
+
+        final en = lookupAppLocalizations(const Locale('en'));
+        expect(
+          payload.digestLines.last,
+          'Tue, Oct 20 · Ioana · '
+          '${en.shareFromPartner(en.sharePartnerFallback)}',
+        );
+      });
+    });
   });
 
   // S15: a launch or resume with nothing to arm and nothing armed costs a

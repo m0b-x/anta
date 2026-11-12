@@ -6,6 +6,7 @@ import 'package:anta/constants/event_alerts.dart';
 import 'package:anta/constants/event_presence.dart';
 import 'package:anta/constants/event_skips.dart';
 import 'package:anta/constants/occurrence_descriptions.dart';
+import 'package:anta/database/daos/sync_dao.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/models/calendar_event.dart';
 import 'package:anta/models/event_alert.dart';
@@ -117,6 +118,22 @@ void main() {
       final ids = [for (final e in service.events) e.id];
       expect(ids.indexOf('new'), greaterThan(ids.indexOf('a')));
       expect(ids.indexOf('new'), lessThan(ids.indexOf('d')));
+      await expectMatchesStore();
+    });
+
+    test('a partner\'s event the reader stored is patched in as the '
+        'partner\'s, as a whole read would have it', () async {
+      await writeBehind('theirs', DateTime.utc(2026, 11, 4));
+      await db.customStatement(
+        "UPDATE calendar_events SET owner_id = 'partner' WHERE id = 'theirs'",
+      );
+      await db.syncDao.setValue(SyncDao.keySharedOwner, 'partner');
+
+      await CalendarEventService.applyMerged({'theirs'});
+
+      final byId = {for (final e in service.events) e.id: e};
+      expect(byId['theirs']!.fromPartner, isTrue);
+      expect(byId['a']!.fromPartner, isFalse);
       await expectMatchesStore();
     });
 

@@ -786,6 +786,14 @@ class SyncEngine {
     return _request(_RunMode.full, asked: true);
   }
 
+  /// Sends what the outbox holds now rather than after
+  /// [SyncEngineTiming.pushDebounce] — a share a person just switched on or
+  /// off, which should leave for the partner while they still look at it.
+  /// A drain-only run under every cadence: a switch costs no pull — with no
+  /// signal attached, as under the manual cadence, a stale run would pull
+  /// every table. The person asked, so the manual cadence lets it through.
+  Future<SyncRunReport> pushNow() => _request(_RunMode.drain, asked: true);
+
   /// Set by [syncNow] and taken by the next run as it starts, never during
   /// one: a drain in flight reads the push's parks as it bisects.
   bool _retryEveryPark = false;

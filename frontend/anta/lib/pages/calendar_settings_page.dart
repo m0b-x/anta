@@ -67,7 +67,13 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage>
   bool _hapticFeedback = true;
 
   CalendarEventService? _eventService;
+
+  /// My own events — what "Delete all events" removes. A partner's survive
+  /// the wipe, so with only theirs on the phone the row offers nothing.
   int _eventCount = 0;
+
+  static int _ownEventCount(CalendarEventService? service) =>
+      service?.events.where((event) => !event.fromPartner).length ?? 0;
   int _descriptionLimit = SettingsKeys.defaultEventDescriptionLimit;
 
   /// What a new event's first alert is seeded with, per shape — read here
@@ -133,7 +139,7 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage>
       _holidayService = holidayService;
       _holidayProfile = holidayService.profile;
       _eventService = eventService;
-      _eventCount = eventService.events.length;
+      _eventCount = _ownEventCount(eventService);
       _descriptionLimit = descriptionLimit;
       _timedAlertDefault = alerts.timedDefault;
       _allDayAlertDefault = alerts.allDayDefault;
@@ -685,7 +691,7 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage>
     if (!mounted) return;
     // Another account's events survive the wipe, so the count is re-read —
     // after a failure too, which may come once the transaction committed.
-    setState(() => _eventCount = _eventService?.events.length ?? 0);
+    setState(() => _eventCount = _ownEventCount(_eventService));
     if (failed) {
       CustomSnackbar.showError(context, l10n.deleteAllEventsFailed);
     } else {

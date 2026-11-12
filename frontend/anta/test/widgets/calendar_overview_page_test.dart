@@ -65,6 +65,7 @@ import 'package:anta/widgets/event_editor_sheet.dart';
 import 'package:anta/widgets/form_menu_item.dart';
 import 'package:anta/widgets/form_rows.dart';
 import 'package:anta/widgets/month_year_picker_sheet.dart';
+import 'package:anta/widgets/shared_event_sheet.dart';
 import 'package:anta/widgets/year_month_tile.dart';
 
 import '../database/support/db_test_support.dart';
@@ -554,6 +555,65 @@ void main() {
     );
     expect(sheet.event.id, 'e2');
     expect(sheet.day, DateTime.utc(year, 3, 9));
+  });
+
+  // Share surfaces §6.9: the row of a partner's event opens it read.
+  testWidgets("a partner's row opens the read sheet, never the detail sheet "
+      'or the editor', (tester) async {
+    // ignore: invalid_use_of_visible_for_testing_member
+    bloc.emit(
+      CalendarPageLoaded(
+        allEvents: [
+          gymDaily,
+          CalendarEvent(
+            id: 'e2',
+            title: 'Stretch class',
+            categoryId: 'mobility',
+            startDate: DateTime.utc(year, 3, 9),
+            rule: const OneTimeRecurrence(),
+            fromPartner: true,
+          ),
+          oldCheckup,
+        ],
+        focusedDay: today,
+        selectedDay: today,
+      ),
+    );
+    await pumpPage(tester);
+
+    await tester.tap(find.text(tileLabel(DateTime.utc(year, 3, 1))));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('9'));
+    await tester.pumpAndSettle();
+    final scrollable = find.descendant(
+      of: find.byType(CustomScrollView),
+      matching: find.byType(Scrollable),
+    );
+    final state = tester.state<ScrollableState>(scrollable.first);
+    state.position.jumpTo(state.position.maxScrollExtent);
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Stretch class'));
+    // The read sheet reads the alert settings first, a real async gap.
+    for (
+      var i = 0;
+      i < 50 && find.byType(SharedEventSheet).evaluate().isEmpty;
+      i++
+    ) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 20)),
+      );
+      await tester.pump();
+    }
+    await tester.pumpAndSettle();
+
+    expect(find.byType(SharedEventSheet), findsOneWidget);
+    expect(find.byType(EventDetailSheet), findsNothing);
+    expect(find.byType(EventEditorSheet), findsNothing);
+
+    Navigator.of(tester.element(find.byType(SharedEventSheet))).pop();
+    await tester.pumpAndSettle();
+    expect(find.byType(SharedEventSheet), findsNothing);
   });
 
   group('back on the overview (D34)', () {

@@ -391,6 +391,11 @@ class FormSheetHeader extends StatelessWidget {
   /// title was cut to "Ereigni…".
   final bool stackTitleAtLargeText;
 
+  /// Whether the title is the sheet's level-1 heading, for a sheet whose
+  /// title is all a screen reader is told of whose it is (the read sheet's
+  /// "From {name}"). Opt-in, so every other sheet's tree stays as it was.
+  final bool titleIsHeading;
+
   const FormSheetHeader({
     super.key,
     required this.leadingIcon,
@@ -402,7 +407,14 @@ class FormSheetHeader extends StatelessWidget {
     this.scrolled,
     this.leadingIdentifier,
     this.stackTitleAtLargeText = false,
+    this.titleIsHeading = false,
   });
+
+  /// The one-row title as a heading node of its own when [titleIsHeading]
+  /// asks; untouched otherwise.
+  Widget _headingOf(Widget title) => titleIsHeading
+      ? Semantics(container: true, header: true, headingLevel: 1, child: title)
+      : title;
 
   @override
   Widget build(BuildContext context) {
@@ -434,11 +446,13 @@ class FormSheetHeader extends StatelessWidget {
                 leading,
                 const SizedBox(width: 4),
                 Expanded(
-                  child: Text(
-                    title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: titleStyle,
+                  child: _headingOf(
+                    Text(
+                      title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: titleStyle,
+                    ),
                   ),
                 ),
                 ConstrainedBox(
@@ -466,6 +480,8 @@ class FormSheetHeader extends StatelessWidget {
         title: Semantics(
           container: true,
           sortKey: const OrdinalSortKey(1),
+          header: titleIsHeading ? true : null,
+          headingLevel: titleIsHeading ? 1 : null,
           child: Text(
             title,
             maxLines: FormMetrics.headerTitleMaxLines,

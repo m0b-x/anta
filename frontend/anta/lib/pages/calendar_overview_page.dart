@@ -31,11 +31,15 @@ import '../models/day_bar.dart';
 import '../models/overview_list_options.dart';
 import '../models/overview_period.dart';
 import '../models/overview_view.dart';
+import '../models/partner_look.dart';
+import '../models/share_settings.dart';
 import '../services/agenda_search_text.dart';
 import '../services/alert_keep_notice.dart';
 import '../services/app_navigator.dart';
+import '../services/day_bars_resolver.dart';
 import '../services/overview_view_service.dart';
 import '../services/settings_service.dart';
+import '../services/share_service.dart';
 import '../utils/agenda_day_list_index.dart';
 import '../utils/agenda_month_store.dart';
 import '../utils/date_span_label.dart';
@@ -119,6 +123,17 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
 
   CalendarAppearance _appearance = const CalendarAppearance();
 
+  /// How a partner's rows are drawn: the look re-read on every settings
+  /// trip, the partner by [_readPartner].
+  PartnerLook _partnerLook = const PartnerLook();
+
+  /// Whether [_readPartner] asked since the last settings trip.
+  bool _partnerAsked = false;
+
+  /// The taken state's `holdsPartnerEvents`: whether there is a partner to
+  /// read at all.
+  bool _eventsHoldPartner = false;
+
   /// The markdown palette a row's detail sheet renders the description in.
   MarkdownColorPalette _palette = MarkdownColorPalette.presets;
 
@@ -135,6 +150,7 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
     appearance: () => _appearance,
     palette: () => _palette,
     keepsHeard: () => _keepsHeard,
+    partnerLook: () => _partnerLook,
   );
 
   Set<String> _categoryIds = const {};
@@ -550,6 +566,7 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
     final settings = await SettingsService.getInstance();
     final loaded = await settings.getCalendarOverviewSettings(today: _today);
     if (!mounted) return;
+    _takeShareLook(loaded.share);
     _appearance = loaded.appearance;
     _palette = loaded.palette;
     _categoryIds = loaded.categoryIds;
@@ -596,6 +613,7 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
     final loaded = await settings.getCalendarOverviewSettings(today: _today);
     if (!mounted || _covered) return;
     if (_refreshToday()) _storeStale = true;
+    final lookChanged = _takeShareLook(loaded.share);
     if (_settingsLoaded) {
       _hapticFeedback = loaded.hapticFeedback;
       _palette = loaded.palette;
@@ -621,9 +639,87 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
     if (changed || raw != null) {
       _rebuild();
     } else {
+      // A new look changes how rows draw, never which rows there are.
+      if (lookChanged) setState(() {});
       _scheduleYearRun();
     }
     if (raw != null) _land();
+  }
+
+  /// Takes the share look of a settings trip, and asks afresh who the
+  /// partner is — the pairing may have changed on the page the trip
+  /// returned from. Returns whether the look changed.
+  bool _takeShareLook(ShareLook share) {
+    final changed = share.eventLook != _partnerLook.look;
+    _partnerLook = PartnerLook(
+      look: share.eventLook,
+      partner: _partnerLook.partner,
+      name: _partnerLook.name,
+    );
+    if (changed) _refoldBars();
+    _partnerAsked = false;
+    unawaited(_readPartner());
+    return changed;
+  }
+
+  /// The month grid's bars say whose an entry is by the calendar page's own
+  /// rule, under this page's partner look.
+  EventDayBarProvider _barRuleOf(AppLocalizations l10n) => EventDayBarProvider(
+    partnerLabel: _partnerLook.label(l10n),
+    hollowPartners: _partnerLook.outlined,
+  );
+
+  /// Refolds the month grid's bars under a new partner look — the store's
+  /// and a search's alike — with no month resolved again.
+  void _refoldBars() {
+    final store = _store;
+    final l10n = _l10n;
+    if (store == null || l10n == null) return;
+    final rule = store.barRule = _barRuleOf(l10n);
+    for (final key in _filteredBars.keys.toList()) {
+      final bucket = _filteredMonths[key];
+      if (bucket == null) {
+        _filteredBars.remove(key);
+        continue;
+      }
+      _filteredBars[key] = AgendaMonthStore.buildBars(
+        bucket,
+        maxBars: store.maxBars,
+        rule: rule,
+      );
+    }
+  }
+
+  /// Reads who a partner's events are from, once per settings trip and only
+  /// while the list holds one: an account that never paired opens no
+  /// sharing for the overview.
+  Future<void> _readPartner() async {
+    if (_partnerAsked || !_eventsHoldPartner) return;
+    _partnerAsked = true;
+    final ShareAudience? audience;
+    try {
+      audience = (await ShareService.getInstance()).availability.audience;
+    } catch (e, st) {
+      // The rows keep the localized stand-in for the name and the person
+      // glyph for the face until the next state taken asks again.
+      debugPrint('[CalendarOverviewPage] partner not read: $e\n$st');
+      _partnerAsked = false;
+      return;
+    }
+    if (!mounted) return;
+    final next = PartnerLook(
+      look: _partnerLook.look,
+      partner: audience?.members.firstOrNull,
+      name: audience?.displayName,
+    );
+    if (next == _partnerLook) return;
+    // The bars say the name and nothing of the photo, which only the rows'
+    // avatars draw.
+    final renamed = next.name != _partnerLook.name;
+    setState(() {
+      _partnerLook = next;
+      if (renamed) _refoldBars();
+    });
   }
 
   /// This week — as the home and as the period shown — re-read on the week
@@ -723,6 +819,8 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
   void _take(CalendarPageState state) {
     final loaded = state is CalendarPageLoaded ? state : null;
     _events = loaded?.allEvents;
+    _eventsHoldPartner = loaded?.holdsPartnerEvents ?? false;
+    if (!_partnerAsked) unawaited(_readPartner());
     final inputs = (
       loaded?.allEvents,
       loaded?.membershipRevision ?? 0,
@@ -858,6 +956,8 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
         resolve: _resolve,
         resolveMarks: _resolveMarks,
         maxBars: AgendaMonthGrid.maxBarsFor(_appearance),
+        ownTallies: true,
+        barRule: _barRuleOf(l10n),
       );
       widget._onStore?.call(store);
     } else {
@@ -942,8 +1042,16 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
     );
   }
 
+  /// Marks feed the year tiles alone, which count my days and never a
+  /// partner's (D15): their occurrences leave before anything is folded.
   List<AgendaDayMark> _resolveMarks(DateTime start, DateTime end) {
-    final occurrences = _scan(start, end);
+    var occurrences = _scan(start, end);
+    if (occurrences.any((occurrence) => occurrence.event.fromPartner)) {
+      occurrences = [
+        for (final occurrence in occurrences)
+          if (!occurrence.event.fromPartner) occurrence,
+      ];
+    }
     for (final month in _monthsOf((start: start, end: end))) {
       _markedKept[AgendaMonthStore.keyOf(month)] = {};
     }
@@ -1007,7 +1115,11 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
         final bucket = _bucketOf(_month);
         if (_matcher != null) {
           _filteredBars[AgendaMonthStore.keyOf(_month)] ??=
-              AgendaMonthStore.buildBars(bucket, maxBars: store.maxBars);
+              AgendaMonthStore.buildBars(
+                bucket,
+                maxBars: store.maxBars,
+                rule: store.barRule,
+              );
         }
         _monthBucket = bucket;
         _totals = {};
@@ -1301,11 +1413,15 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
 
   /// Adds [entries] to [totals] per category: the kept ones, or the missed
   /// ones while Missed only narrows this mode — year mode's tiles ignore it,
-  /// as its count does (D16a).
+  /// as its count does (D16a). Each mode's caption counts what that mode
+  /// shows: List and Month show a partner's entries and count them; Year is
+  /// the heat-map of my days, whose tiles count none of theirs.
   void _tally(Map<String, int> totals, Iterable<AgendaDayListEntry> entries) {
-    final missed = _options.missedOnly && _mode != AgendaDayListMode.year;
+    final inYear = _mode == AgendaDayListMode.year;
+    final missed = _options.missedOnly && !inYear;
     for (final entry in entries) {
       if (entry.missed != missed) continue;
+      if (inYear && entry.fromPartner) continue;
       final category = _categoryOf(entry);
       totals[category] = (totals[category] ?? 0) + 1;
     }
@@ -1427,7 +1543,7 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
       _yearTiles.put(year, [
         for (final month in months)
           AgendaYearTile.ofTally(
-            AgendaMonthTally.ofBucket(_bucketOf(month)),
+            AgendaMonthTally.ofOwnEntries(_bucketOf(month)),
             perDayColors: true,
           ),
       ]);
@@ -2433,6 +2549,7 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
         final id? => SemanticsIds.overviewEventRow(id),
         null => null,
       },
+      partnerLook: _partnerLook,
     );
   }
 

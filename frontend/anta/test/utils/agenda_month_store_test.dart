@@ -3,7 +3,17 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:anta/constants/calendar_colors.dart';
 import 'package:anta/models/agenda_day_list.dart';
+import 'package:anta/models/day_bar.dart';
+import 'package:anta/services/day_bars_resolver.dart';
 import 'package:anta/utils/agenda_month_store.dart';
+
+/// One of my bars as the store folded it before a partner's existed.
+DayBar _plainBar(String key, int priority, String title) => DayBar(
+  key: key,
+  color: const Color(0xFF1E88E5),
+  priority: priority,
+  semanticLabel: title,
+);
 
 AgendaDayListEntry _entry(DateTime day, {bool missed = false}) {
   return AgendaDayListEntry(
@@ -268,6 +278,98 @@ void main() {
       expect(s.cachedTally(DateTime.utc(2026, 1, 1))!.count, 2);
       expect(s.isResolved(DateTime.utc(2026, 1, 1)), isTrue);
     });
+  });
+
+  group('a partner\'s entries', () {
+    const partnerLabel = 'From Maria';
+    const outlined = EventDayBarProvider(
+      partnerLabel: partnerLabel,
+      hollowPartners: true,
+    );
+    final theirs = AgendaDayListEntry(
+      day: DateTime.utc(2026, 1, 5),
+      icon: Icons.work,
+      color: const Color(0xFFE53935),
+      title: 'Night shift',
+      fromPartner: true,
+    );
+    final partnerPool = [theirs, _entry(DateTime.utc(2026, 1, 5))];
+
+    List<AgendaDayListEntry> resolveMixed(DateTime start, DateTime end) => [
+      for (final entry in partnerPool)
+        if (!entry.day.isBefore(start) && !entry.day.isAfter(end)) entry,
+    ];
+
+    AgendaMonthStore mixed({
+      EventDayBarProvider barRule = const EventDayBarProvider(),
+      bool ownTallies = false,
+    }) => AgendaMonthStore(
+      resolve: resolveMixed,
+      maxBars: 3,
+      barRule: barRule,
+      ownTallies: ownTallies,
+    );
+
+    test('under the Outlined rule, theirs is hollow and says whose it is; '
+        'mine is as it was', () {
+      final s = mixed(barRule: outlined)..ensure([DateTime.utc(2026, 1, 1)]);
+
+      final bars = s.barsFor(DateTime.utc(2026, 1, 5))![5]!;
+      expect(bars[0].hollow, isTrue);
+      expect(bars[0].semanticLabel, 'Night shift, $partnerLabel');
+      expect(bars[0].color, const Color(0xFFE53935));
+      expect(bars[1], _plainBar('agendaDayList:1', 1, 'Entry 5'));
+    });
+
+    test('a new rule refolds every resolved month without resolving it '
+        'again', () {
+      var resolves = 0;
+      final s = AgendaMonthStore(
+        resolve: (start, end) {
+          resolves++;
+          return resolveMixed(start, end);
+        },
+        maxBars: 3,
+        barRule: outlined,
+      )..ensure([DateTime.utc(2026, 1, 1)]);
+
+      s.barRule = const EventDayBarProvider(partnerLabel: partnerLabel);
+
+      final bars = s.barsFor(DateTime.utc(2026, 1, 5))![5]!;
+      expect(bars[0].hollow, isFalse, reason: 'the Avatar look fills it');
+      expect(bars[0].semanticLabel, 'Night shift, $partnerLabel');
+      expect(bars[1], _plainBar('agendaDayList:1', 1, 'Entry 5'));
+      expect(resolves, 1);
+    });
+
+    test('own tallies leave theirs out; the rows and the bars keep them', () {
+      final s = mixed(barRule: outlined, ownTallies: true)
+        ..ensure([DateTime.utc(2026, 1, 1)]);
+
+      final tally = s.cachedTally(DateTime.utc(2026, 1, 1))!;
+      expect(tally.count, 1);
+      expect(tally.dayColors[4], const Color(0xFF1E88E5));
+      expect(s.cached(DateTime.utc(2026, 1, 1))!.count, 2);
+      expect(s.barsFor(DateTime.utc(2026, 1, 5))![5], hasLength(2));
+    });
+
+    test('a store without own tallies counts every entry, as before', () {
+      final s = mixed()..ensure([DateTime.utc(2026, 1, 1)]);
+
+      final tally = s.cachedTally(DateTime.utc(2026, 1, 1))!;
+      expect(tally.count, 2);
+      expect(tally.dayColors[4], const Color(0xFFE53935));
+    });
+  });
+
+  test('the default rule folds my bars exactly as before', () {
+    final s = AgendaMonthStore(resolve: resolve, maxBars: 3)
+      ..ensure([DateTime.utc(2026, 1, 1)]);
+
+    expect(
+      s.barsFor(DateTime.utc(2026, 1, 1))![5]!.first,
+      _plainBar('agendaDayList:0', 0, 'Entry 5'),
+    );
   });
 
   test('the month keys round-trip across a year boundary', () {

@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import '../constants/json_keys.dart';
 import '../constants/occurrence_descriptions.dart';
 import '../database/daos/event_occurrence_dao.dart';
+import '../database/daos/shared_row_dao.dart';
 import '../database/database.dart';
 import '../database/database_lifecycle.dart';
 
@@ -33,6 +34,7 @@ class EventOccurrenceService {
   static EventOccurrenceService? _instance;
 
   late EventOccurrenceDao _dao;
+  late SharedRowDao _shared;
 
   EventOccurrenceService._();
 
@@ -69,6 +71,7 @@ class EventOccurrenceService {
       try {
         final service = EventOccurrenceService._();
         service._dao = db.eventOccurrenceDao;
+        service._shared = db.sharedRowDao;
         await service._load();
         _instance = service;
         DatabaseLifecycle.registerResetHandler(reset);
@@ -229,6 +232,13 @@ class EventOccurrenceService {
 
   // ── Mutations ────────────────────────────────────────────────────────
 
+  /// Throws `SharedRowException` for a partner's event before anything is
+  /// written: the fences turn its rows into nothing, and a facade that
+  /// published the write anyway would show a text nobody stored. The bloc
+  /// guards first, from its own state; this holds where that state lags.
+  Future<void> _ensureOwn(String eventId) =>
+      _shared.ensureOwn('calendar_events', eventId);
+
   /// Materializes (or rewrites) one day's description. Storing `''` is
   /// meaningful — it blanks that day without falling back to the template.
   /// Use [clearDescription] to go back to the template.
@@ -237,6 +247,7 @@ class EventOccurrenceService {
     DateTime day,
     String description,
   ) async {
+    await _ensureOwn(eventId);
     final now = DateTime.now();
     final key = _dateOnlyUtc(day);
     await _dao.upsert(
@@ -258,6 +269,7 @@ class EventOccurrenceService {
   /// facade immediately. Distinct from writing `''`, which is a deliberately
   /// blank day.
   Future<void> clearDescription(String eventId, DateTime day) async {
+    await _ensureOwn(eventId);
     final key = _dateOnlyUtc(day);
     await _dao.tombstone(eventId, key);
     _writes++;

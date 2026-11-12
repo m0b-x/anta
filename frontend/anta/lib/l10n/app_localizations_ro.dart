@@ -11277,4 +11277,382 @@ class AppLocalizationsRo extends AppLocalizations {
   String appGuideSyncDataBody(String dataNotice) {
     return 'O bază de date pe care o sincronizezi are o copie în cloudul Google. Acolo este criptată, dar nu de la un capăt la altul: cei care administrează serviciul cloud al ANTA o pot citi. „$dataNotice” de pe aceeași pagină spune unde este păstrată și cum o elimini.';
   }
+
+  @override
+  String get sharePartnerFallback => 'partenerul tău';
+
+  @override
+  String shareWithPartner(String name) {
+    return 'Partajează cu $name';
+  }
+
+  @override
+  String sharedWithPartner(String name) {
+    return 'Partajat cu $name';
+  }
+
+  @override
+  String shareFromPartner(String name) {
+    return 'De la $name';
+  }
+
+  @override
+  String sharingWithTitle(String name) {
+    return 'Partajare cu $name';
+  }
+
+  @override
+  String get shareYouShare => 'Tu partajezi';
+
+  @override
+  String sharePartnerShares(String name) {
+    return '$name partajează cu tine';
+  }
+
+  @override
+  String get shareRowCategories => 'Categorii';
+
+  @override
+  String get shareRowEvents => 'Evenimente individuale';
+
+  @override
+  String get shareNone => 'Nimic';
+
+  @override
+  String shareYouShareCaption(String name) {
+    return '$name le vede și nu le poate modifica.';
+  }
+
+  @override
+  String sharePartnerSharesCaption(String name) {
+    return 'Doar pentru citire. Dispar când $name oprește partajarea.';
+  }
+
+  @override
+  String get shareSending => 'Se trimite…';
+
+  @override
+  String get shareWaitingToSend => 'Așteaptă trimiterea';
+
+  @override
+  String shareUpdated(String when) {
+    return 'Actualizat $when';
+  }
+
+  @override
+  String get shareNeedsSync => 'Pornește sincronizarea ca să partajezi';
+
+  @override
+  String get shareNeedsSyncReceive => 'Pornește sincronizarea ca să primești';
+
+  @override
+  String get shareCheckFailed => 'Nu s-a putut verifica. Se încearcă din nou.';
+
+  @override
+  String get shareMaybeStale => 'Poate să nu fie la zi';
+
+  @override
+  String shareUpdateApp(String name) {
+    return 'Actualizează ANTA ca să vezi tot ce partajează $name';
+  }
+
+  @override
+  String shareNotShown(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count de elemente nu au putut fi afișate',
+      few: '$count elemente nu au putut fi afișate',
+      one: 'Un element nu a putut fi afișat',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get shareEventOff => 'Doar tu vezi acest eveniment';
+
+  @override
+  String shareEventOn(String name) {
+    return '$name îl vede, doar pentru citire';
+  }
+
+  @override
+  String shareThroughCategory(String category) {
+    return 'Activ pentru tot ce e în $category';
+  }
+
+  @override
+  String get shareCategoryOff => 'Doar tu vezi aceste evenimente';
+
+  @override
+  String shareCategoryOn(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Toate cele $count de evenimente și cele noi',
+      few: 'Toate cele $count evenimente și cele noi',
+      one: 'Evenimentul din ea și cele noi',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get shareCategoryNewOnly => 'Evenimentele noi sunt partajate';
+
+  @override
+  String get shareCategoriesTitle => 'Partajează categorii';
+
+  @override
+  String shareCategoriesCaption(String name) {
+    return '$name vede fiecare eveniment dintr-o categorie bifată, și pe cele noi. Doar tu le poți modifica.';
+  }
+
+  @override
+  String shareTheirCategoriesTitle(String name) {
+    return 'Categorii de la $name';
+  }
+
+  @override
+  String shareTheirCategoriesCaption(String name) {
+    return 'Cele bifate apar în calendarul tău; $name nu vede niciodată ce ascunzi.';
+  }
+
+  @override
+  String get shareShowOnCalendar => 'Arată în calendarul meu';
+
+  @override
+  String shareJoinsYours(String category) {
+    return 'intră în categoria ta $category';
+  }
+
+  @override
+  String shareStarted(String what, String name) {
+    return 'Partajezi $what cu $name';
+  }
+
+  @override
+  String shareStopped(String what) {
+    return 'Nu se mai partajează: $what';
+  }
+
+  @override
+  String shareStoppedSomeStay(String what, int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other:
+          'Nu se mai partajează: $what. $count de evenimente rămân partajate separat.',
+      few:
+          'Nu se mai partajează: $what. $count evenimente rămân partajate separat.',
+      one: 'Nu se mai partajează: $what. Un eveniment rămâne partajat separat.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String shareDeleteImpactStops(String name, int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$name nu mai vede cele $count de evenimente din ea',
+      few: '$name nu mai vede cele $count evenimente din ea',
+      one: '$name nu mai vede evenimentul din ea',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String shareDeleteImpactStays(String category) {
+    return 'Rămân partajate prin $category';
+  }
+
+  @override
+  String get shareStopAll => 'Oprește toată partajarea';
+
+  @override
+  String get shareStopAllDesc => 'Rămâneți împerecheați';
+
+  @override
+  String shareStopAllConfirm(String name) {
+    return 'Oprești toată partajarea cu $name? Categoriile și evenimentele tale dispar de pe celălalt telefon. Ce partajează $name cu tine rămâne.';
+  }
+
+  @override
+  String get shareUnpairDesc => 'Oprește partajarea în ambele sensuri';
+
+  @override
+  String get pairingRepairHint =>
+      'Dacă vă împerecheați din nou, alegi din nou ce partajezi.';
+
+  @override
+  String syncStopSharingLine(String name) {
+    return '$name păstrează ce partajezi așa cum este acum, fără modificările ulterioare. Ca să retragi, oprește mai întâi partajarea.';
+  }
+
+  @override
+  String get shareNothingYet => 'Încă nu se partajează nimic';
+
+  @override
+  String shareSummaryCategories(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count de categorii',
+      few: '$count categorii',
+      one: 'o categorie',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String shareSummaryEvents(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count de evenimente',
+      few: '$count evenimente',
+      one: 'un eveniment',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get shareSectionLabel => 'Partajare';
+
+  @override
+  String get categoryCaptionShared => 'Partajată';
+
+  @override
+  String get shareStopSharingTooltip => 'Oprește partajarea';
+
+  @override
+  String get shareEventsEmpty => 'Partajează un eveniment din editorul lui.';
+
+  @override
+  String get shareLookSection => 'Cum arată ce e partajat';
+
+  @override
+  String get shareEventLook => 'Evenimente partajate cu tine';
+
+  @override
+  String get shareLookOutlined => 'Contur';
+
+  @override
+  String get shareLookAvatar => 'Avatar';
+
+  @override
+  String get shareLookPlain => 'Ca ale mele';
+
+  @override
+  String get shareMarkMine => 'Marchează ce partajezi';
+
+  @override
+  String get shareMarkMineDesc =>
+      'Un semn pe categoriile și evenimentele pe care le partajezi';
+
+  @override
+  String get shareAlertsSection => 'Alerte';
+
+  @override
+  String get shareAlerts => 'Alerte pentru evenimente partajate';
+
+  @override
+  String get shareAlertsOff => 'Oprite';
+
+  @override
+  String get shareAlertsOffDesc => 'Nimic din ce e partajat cu tine nu sună';
+
+  @override
+  String get shareAlertsOwn => 'Doar alertele pe care le adaug';
+
+  @override
+  String get shareAlertsOwnDesc => 'Pe un eveniment, din fișa lui';
+
+  @override
+  String get shareAlertsCategory => 'Și alertele categoriei';
+
+  @override
+  String get shareAlertsCategoryDesc =>
+      'Evenimentele partajate urmează alertele categoriilor tale, inclusiv alarmele';
+
+  @override
+  String get shareAlertsOffCaption =>
+      'Alertele pentru evenimente partajate sunt oprite';
+
+  @override
+  String get shareCategoryAlertsOffCaption =>
+      'Alertele categoriei sunt oprite pentru evenimentele partajate';
+
+  @override
+  String shareAlertNoticeTitle(String title, String name) {
+    return '$title · De la $name';
+  }
+
+  @override
+  String get sharedEventYours => 'Ale tale';
+
+  @override
+  String get sharedEventCopy => 'Copiază în calendarul meu';
+
+  @override
+  String sharedEventCopied(String name) {
+    return 'Copiat. Modificările ulterioare făcute de $name nu ajung în copia ta.';
+  }
+
+  @override
+  String sharedEventCaption(String name) {
+    return 'Doar $name poate modifica acest eveniment. Alertele tale urmează ce a primit ultima dată acest telefon.';
+  }
+
+  @override
+  String shareNewFromPartner(String name, String what) {
+    return '$name partajează $what cu tine';
+  }
+
+  @override
+  String shareNewManyFromPartner(String name, int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$name partajează $count de categorii cu tine',
+      few: '$name partajează $count categorii cu tine',
+      one: '$name partajează o categorie cu tine',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get shareView => 'Vezi';
+
+  @override
+  String shareGoneEvent(String name) {
+    return '$name nu mai partajează acest eveniment';
+  }
+
+  @override
+  String shareGoneWithAlert(String name, String what) {
+    return '$name nu mai partajează $what. Alerta ta este oprită.';
+  }
+
+  @override
+  String shareImportLine(int count, String name) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count sunt partajate cu $name.',
+      few: '$count sunt partajate cu $name.',
+      one: 'Unul este partajat cu $name.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String shareMarkMineLabel(String name) {
+    return 'Partajat cu $name';
+  }
+
+  @override
+  String shareMarkPartnerLabel(String name) {
+    return 'De la $name';
+  }
 }

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../constants/calendar_colors.dart';
 import '../models/calendar_appearance.dart';
 import '../models/day_bar.dart';
 import '../utils/marker_contrast.dart';
@@ -46,6 +47,11 @@ class CalendarDayBars extends StatelessWidget {
   /// by `CalendarDayRail`; `null` when the rail says nothing.
   final String? railLabel;
 
+  /// What the strip actually sits on — the cell's wash over the surface on a
+  /// tinted day — for the hollow markers' contrast; null is the theme's
+  /// surface. Filled markers keep their hairline rule against the surface.
+  final Color? ground;
+
   const CalendarDayBars({
     super.key,
     required this.bars,
@@ -56,10 +62,34 @@ class CalendarDayBars extends StatelessWidget {
     this.horizontalInset = defaultHorizontalInset,
     this.opacity = 1.0,
     this.railLabel,
+    this.ground,
   });
 
   /// Diameter of a single dot in [CalendarMarkerStyle.dots] mode.
   static const double dotSize = 5;
+
+  /// The stroke of a hollow bar: a 3 dp bar keeps a 1 dp hole, the least
+  /// that still reads as a hole rather than a darker bar.
+  static const double hollowBarStroke = 1.0;
+
+  /// The stroke of a hollow dot, heavier than the bar's: a 1.0 ring around a
+  /// 5 dp dot carried too little ink to tell the colour by.
+  static const double hollowDotStroke = 1.25;
+
+  /// The colour a cell's strip sits on: [wash] as `CalendarDayCell` paints
+  /// it under [cellStyle], over [surface]. `fade` counts at full strength —
+  /// its gradient peaks at the strip — and `outline` at its scaled wash.
+  static Color groundOn(
+    Color surface,
+    Color? wash,
+    CalendarCellStyle cellStyle,
+  ) {
+    if (wash == null) return surface;
+    final painted = cellStyle == CalendarCellStyle.outline
+        ? wash.withValues(alpha: wash.a * CalendarColors.outlineStyleWashScale)
+        : wash;
+    return Color.alphaBlend(painted, surface);
+  }
 
   /// Height of the marker strip for [maxBars] markers in the given [style],
   /// used by the calendar page to compute a collision-free row height. The
@@ -105,6 +135,33 @@ class CalendarDayBars extends StatelessWidget {
       outlineColor: outlineColor,
     );
 
+    // A hollow marker is its ring alone, so the ring takes the graphics floor
+    // against the ground it sits on and needs no hairline of its own.
+    final hollowGround = ground ?? theme.colorScheme.surface;
+    BoxDecoration decorationFor(
+      DayBar bar,
+      double stroke, {
+      BoxShape shape = BoxShape.rectangle,
+      BorderRadius? borderRadius,
+    }) {
+      if (!bar.hollow) {
+        return BoxDecoration(
+          color: _fade(bar.color),
+          shape: shape,
+          borderRadius: borderRadius,
+          border: outlineFor(bar.color),
+        );
+      }
+      return BoxDecoration(
+        shape: shape,
+        borderRadius: borderRadius,
+        border: Border.all(
+          width: stroke,
+          color: _fade(MarkerContrast.atLeast(bar.color, hollowGround)),
+        ),
+      );
+    }
+
     // One semantics node for the whole strip, not one per marker (**5.6**).
     //
     // Primarily an accessibility fix and only incidentally a render-object
@@ -143,10 +200,10 @@ class CalendarDayBars extends StatelessWidget {
               Container(
                 width: dotSize,
                 height: dotSize,
-                decoration: BoxDecoration(
-                  color: _fade(bars[i].color),
+                decoration: decorationFor(
+                  bars[i],
+                  hollowDotStroke,
                   shape: BoxShape.circle,
-                  border: outlineFor(bars[i].color),
                 ),
               ),
             ],
@@ -173,10 +230,10 @@ class CalendarDayBars extends StatelessWidget {
               if (i > 0) SizedBox(height: spacing),
               Container(
                 height: barHeight,
-                decoration: BoxDecoration(
-                  color: _fade(bars[i].color),
+                decoration: decorationFor(
+                  bars[i],
+                  hollowBarStroke,
                   borderRadius: BorderRadius.circular(barHeight),
-                  border: outlineFor(bars[i].color),
                 ),
               ),
             ],

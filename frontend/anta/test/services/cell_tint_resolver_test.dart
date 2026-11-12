@@ -351,6 +351,55 @@ void main() {
       );
     });
   });
+
+  group("a partner's event (share surfaces D15)", () {
+    // The strongest claim a day can make, and in a colour of its own.
+    final theirs = CalendarEvent(
+      id: 'theirs',
+      title: 'theirs',
+      categoryId: 'gym',
+      startDate: DateTime.utc(2026, 8, 1),
+      rule: const DailyRecurrence(),
+      priority: kMinEventPriority,
+      colorValue: 0xFF112233,
+      fromPartner: true,
+    );
+    final mine = event('mine', priority: 4, colorValue: 0xFF445566);
+
+    test('never washes a day, under every conflict and missed display', () {
+      for (final conflict in CalendarTintConflict.values) {
+        for (final missed in CalendarMissedDisplay.values) {
+          final resolver = CellTintResolver.defaults(
+            CalendarAppearance(
+              eventTint: true,
+              tintConflict: conflict,
+              missedDisplay: missed,
+            ),
+          );
+
+          expect(
+            resolver.resolve(day, [theirs]),
+            DayCellTint.empty,
+            reason: '$conflict, $missed',
+          );
+          expect(
+            resolver.resolve(day, [theirs, mine]),
+            resolver.resolve(day, [mine]),
+            reason: '$conflict, $missed',
+          );
+        }
+      }
+    });
+
+    test('my own day washes exactly as before', () {
+      expect(
+        provider.tintFor(day, [theirs, mine])!.wash,
+        const Color(0xFF445566).withValues(
+          alpha: CalendarColors.eventTintAlphaByPriority[4 - kMinEventPriority],
+        ),
+      );
+    });
+  });
 }
 
 class _FixedProvider implements CellTintProvider {

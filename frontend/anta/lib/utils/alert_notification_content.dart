@@ -1,5 +1,6 @@
 import '../l10n/app_localizations.dart';
 import '../models/alert_payload.dart';
+import 'share_copy.dart';
 
 /// The notifications an alert can put on the phone.
 enum AlertNotificationKind {
@@ -111,11 +112,19 @@ AlertNotificationContent alertNotificationContent(
       : strings.eventAlertModeNotify;
   // A title nobody typed still has to name what this is, and a test ring's
   // title is the label of the button that armed it.
-  final title = payload.isTest
+  final own = payload.isTest
       ? strings.alarmTestTitle
       : payload.title.trim().isEmpty
       ? tier
       : payload.title;
+  // A partner's event says whose it is wherever its title stands (D21): the
+  // shade shows a notification with nothing around it to tell.
+  final title = payload.fromPartner
+      ? strings.shareAlertNoticeTitle(
+          own,
+          ShareCopy.partnerName(strings, payload.partnerName),
+        )
+      : own;
   // The alarm's own time, and the event's: the same line wherever the entry
   // left the second out as a repeat of the first, or never knew it.
   final time = payload.timeLabel;
@@ -180,11 +189,15 @@ AlertNotificationContent alertNotificationContent(
         title: title,
         text: text,
         expandedText: expanded(text),
+        // Never Skip on a partner's event (D21): it would write their
+        // skipped day or their event's switch, which the database turns
+        // into nothing. Snooze belongs to the alarm, not to its notice.
         actions: [
-          (
-            action: AlertNotificationAction.skip,
-            label: strings.alertsSkipAction,
-          ),
+          if (!payload.fromPartner)
+            (
+              action: AlertNotificationAction.skip,
+              label: strings.alertsSkipAction,
+            ),
           (
             action: AlertNotificationAction.open,
             label: strings.alertsOpenAction,

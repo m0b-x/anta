@@ -513,15 +513,23 @@ class ImportExportService {
   /// note [ExportFormat]s and must not become one, or it would show up in
   /// every note-format picker. The `.ics` extension is registered with
   /// [sweepStaleExports] so abandoned exports are still cleaned up.
+  ///
+  /// A partner's events are left out whatever the caller hands in, and the
+  /// count says so: no door out of this phone carries another account's
+  /// rows (`docs/cloud-share-surfaces-roadmap.md` D19).
   Future<ExportResult> exportCalendar({
     required List<CalendarEvent> events,
   }) async {
-    final body = IcsSerializer.serialize(events: events);
+    final mine = [
+      for (final event in events)
+        if (!event.fromPartner) event,
+    ];
+    final body = IcsSerializer.serialize(events: mine);
     final tempDir = await getTemporaryDirectory();
     final timestamp = DateTime.now().toIso8601String().replaceAll(':', '-');
     final file = File(p.join(tempDir.path, 'anta_events_$timestamp.ics'));
     await file.writeAsString(body);
-    return ExportResult(filePath: file.path, eventsExported: events.length);
+    return ExportResult(filePath: file.path, eventsExported: mine.length);
   }
 
   /// Write [text] — already composed by its caller, the report's Markdown —

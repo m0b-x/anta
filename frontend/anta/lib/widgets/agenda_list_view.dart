@@ -17,10 +17,12 @@ import '../models/calendar_category.dart';
 import '../models/calendar_event.dart';
 import '../models/day_summary_entry.dart';
 import '../models/fasting_appearance.dart';
+import '../models/partner_look.dart';
 import '../models/upcoming_agenda_filters.dart';
 import '../utils/markdown_color_syntax.dart';
 import 'automation_id.dart';
 import 'event_alert_badge.dart';
+import 'event_avatar.dart';
 import 'markdown_inline_text.dart';
 import '../services/day_summary_resolver.dart';
 import '../utils/event_agenda.dart';
@@ -536,6 +538,9 @@ class AgendaListView extends StatelessWidget {
   /// differs — so this never trades away virtualization for a 366-day window.
   final bool sliver;
 
+  /// How a partner's event rows are drawn, read once by the page.
+  final PartnerLook partnerLook;
+
   const AgendaListView({
     super.key,
     required this.rows,
@@ -551,6 +556,7 @@ class AgendaListView extends StatelessWidget {
     this.missedDisplay = CalendarMissedDisplay.faded,
     this.controller,
     this.sliver = false,
+    this.partnerLook = const PartnerLook(),
   });
 
   /// Qualitative priority word appended to a row subtitle. The neutral
@@ -732,6 +738,7 @@ class AgendaListView extends StatelessWidget {
               eventId: occurrence.event.id,
               presenceTracked: EventPresence.appliesTo(occurrence.event),
               categoryId: occurrence.event.categoryId,
+              fromPartner: occurrence.event.fromPartner,
             ),
     ];
   }
@@ -1030,10 +1037,14 @@ class AgendaListView extends StatelessWidget {
                   : null,
               onTap: () => onDaySelected(day),
               colorPalette: colorPalette,
+              partner: entry.event?.fromPartner ?? false ? partnerLook : null,
               onEdit: entry.event == null
                   ? null
                   : () => onEditEvent(entry.event!.id, day),
-              onOpenNote: entry.event?.noteId == null
+              // A partner's note is not reachable in this build (slice F):
+              // no button, never one that opens my editor on theirs.
+              onOpenNote:
+                  entry.event?.noteId == null || entry.event!.fromPartner
                   ? null
                   : () => onOpenNote(entry.event!),
             ),
@@ -1188,11 +1199,15 @@ class _AgendaCard extends StatelessWidget {
   /// Null for every row that is not a summary card.
   final String? secondaryLine;
 
+  /// The page's look when the card's event is a partner's; null for mine.
+  final PartnerLook? partner;
+
   const _AgendaCard({
     required this.entry,
     required this.priorityBadge,
     required this.onTap,
     required this.colorPalette,
+    this.partner,
     this.collapsedBadge,
     this.onEdit,
     this.onOpenNote,
@@ -1218,20 +1233,24 @@ class _AgendaCard extends StatelessWidget {
     // for the fade.
     final body = Stack(
       children: [
-        Positioned(
-          left: 0,
-          top: 0,
-          bottom: 0,
-          width: 4,
-          child: Container(color: entry.stripeColor),
-        ),
+        // An outlined avatar beside a filled bar would say two things, so
+        // under the Outlined look the lane stays and goes unpainted.
+        if (!(partner?.outlined ?? false))
+          Positioned(
+            left: 0,
+            top: 0,
+            bottom: 0,
+            width: 4,
+            child: Container(color: entry.stripeColor),
+          ),
         Padding(
           padding: const EdgeInsets.only(left: 4),
           child: ListTile(
-            leading: CircleAvatar(
-              backgroundColor: entry.color.withValues(alpha: 0.16),
-              foregroundColor: entry.color,
-              child: Icon(entry.icon),
+            leading: EventAvatar.ofRow(
+              icon: entry.icon,
+              color: entry.color,
+              partner: partner,
+              l10n: l10n,
             ),
             title: Row(
               children: [
@@ -1301,11 +1320,14 @@ class _AgendaCard extends StatelessWidget {
                           icon: const Icon(Icons.sticky_note_2_outlined),
                           onPressed: onOpenNote,
                         ),
+                      // On a partner's event the pencil stays where the
+                      // hand learned it, disabled (decision m): only the
+                      // partner can change it.
                       if (onEdit != null)
                         IconButton(
                           tooltip: l10n.upcomingEditEvent,
                           icon: const Icon(Icons.edit_outlined),
-                          onPressed: onEdit,
+                          onPressed: partner == null ? onEdit : null,
                         ),
                       if (onShowAll != null)
                         // Keyed by the card: every summary card's button

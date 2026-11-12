@@ -286,8 +286,11 @@ const String kAlertArmClockToken = '~clock';
 /// re-armed with it — on the quiet channel. `~g4` puts an event's day before
 /// its time when the occurrence is not on the day the entry is due
 /// (`alertsDayThenWhen`): after the time, the one line a notification shows
-/// cut the day off, and what was left read as today's.
-const String kAlertArmGrammarToken = '~g4';
+/// cut the day off, and what was left read as today's. `~g5` names the
+/// partner on a shared event's title and drops its notice's Skip (D21), and
+/// takes "remove after it rings" off a shared event's entry: an alarm armed
+/// before them would say neither, and its Stop would try the partner's row.
+const String kAlertArmGrammarToken = '~g5';
 
 /// The group a reminder's notification names on Android 16 and above
 /// ([kAlertGroupMinSdk]) — and its snoozed re-post, which has to come back

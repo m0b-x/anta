@@ -92,6 +92,11 @@ final class CalendarPageLoaded extends CalendarPageState {
   /// [selectedDay] change, which both tests already catch.
   final CalendarSelectionSource selectionSource;
 
+  /// Whether [allEvents] holds a partner's event — what the pages ask before
+  /// they read who the partner is. Decided by `CalendarBloc` once per event
+  /// list it builds a state from, so no page scans the list on a change.
+  final bool holdsPartnerEvents;
+
   const CalendarPageLoaded({
     required this.allEvents,
     required this.focusedDay,
@@ -102,6 +107,7 @@ final class CalendarPageLoaded extends CalendarPageState {
     this.membershipRevision = 0,
     this.presenceRevision = 0,
     this.selectionSource = CalendarSelectionSource.navigation,
+    this.holdsPartnerEvents = false,
   });
 
   /// True when nothing the calendar grid renders from has changed.
@@ -151,6 +157,7 @@ final class CalendarPageLoaded extends CalendarPageState {
     int? membershipRevision,
     int? presenceRevision,
     CalendarSelectionSource? selectionSource,
+    bool? holdsPartnerEvents,
   }) {
     return CalendarPageLoaded(
       allEvents: allEvents ?? this.allEvents,
@@ -162,6 +169,7 @@ final class CalendarPageLoaded extends CalendarPageState {
       membershipRevision: membershipRevision ?? this.membershipRevision,
       presenceRevision: presenceRevision ?? this.presenceRevision,
       selectionSource: selectionSource ?? this.selectionSource,
+      holdsPartnerEvents: holdsPartnerEvents ?? this.holdsPartnerEvents,
     );
   }
 
@@ -178,6 +186,7 @@ final class CalendarPageLoaded extends CalendarPageState {
     selectedDay,
     format,
     selectionSource,
+    holdsPartnerEvents,
     filters,
     allEvents,
   ];

@@ -391,13 +391,19 @@ class CalendarReportService {
   );
 
   /// The years a report's steps may reach: those [events] occur in under
-  /// the allowlist [categoryIds], and today's, inside [CalendarBounds].
+  /// the allowlist [categoryIds], and today's, inside [CalendarBounds]. A
+  /// partner's events reach no year: the report never counts them (D15).
   static AgendaYearBounds yearsOf(
     List<CalendarEvent> events, {
     Set<String> categoryIds = const {},
     required DateTime today,
   }) => EventAgenda.yearBoundsOf(
-    events,
+    events.any((e) => e.fromPartner)
+        ? [
+            for (final event in events)
+              if (!event.fromPartner) event,
+          ]
+        : events,
     categoryIds: categoryIds,
     todayYear: today.year,
     earliestYear: CalendarBounds.earliest.year,
@@ -737,6 +743,10 @@ class CalendarReportService {
     final skips = <String, Set<DateTime>>{};
     bool kept(EventOccurrence occurrence) {
       final event = occurrence.event;
+      // The scan walks the request's own list, whose identity keys its window
+      // index; a partner's occurrence is dropped here, as [_Scoped.of] drops
+      // the event.
+      if (event.fromPartner) return false;
       return !EventSkips.appliesTo(event) ||
           !(skips[event.id] ??= scoped.skipsFor(
             event.id,
@@ -1017,6 +1027,9 @@ final class _Scoped {
         request.descriptionsFor ?? OccurrenceDescriptions.overridesFor;
     final profileOf = request.profileOf ?? CategoryProfiles.effectiveFor;
     for (final event in request.events) {
+      // A partner's event is the partner's time (D15): in no figure, even
+      // when it shares my built-in category's id.
+      if (event.fromPartner) continue;
       if (!EventAgenda.passesEventFilters(event, categoryIds: ids)) continue;
       byId[event.id] = event;
       final categoryId = CalendarCategories.resolve(event.categoryId).id;

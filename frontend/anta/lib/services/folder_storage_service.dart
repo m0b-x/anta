@@ -274,8 +274,8 @@ class FolderStorageService {
   /// under it following it. Returns whether the mark was written — false
   /// for a folder that is gone or carries it already.
   ///
-  /// No surface calls this yet: the switch that will is a later slice, and
-  /// until then only tests and the QA seam reach it.
+  /// `ShareService.setFolderShared` is its one caller in the app, so no
+  /// surface ever holds a pair id; tests and the QA seam reach it directly.
   Future<bool> setFolderShared(String folderId, String? pairId) async {
     await initialize();
     return _repository.setSharedPair(folderId: folderId, pairId: pairId);

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:equatable/equatable.dart';
 import 'package:table_calendar/table_calendar.dart';
 
@@ -310,6 +312,47 @@ final class ToggleEventAlert extends CalendarPageEvent {
 
   @override
   List<Object?> get props => [eventId, alertId, enabled];
+}
+
+/// Makes [alerts] my whole set of own alerts on [eventId] without touching
+/// the event — the read sheet of a partner's event writes them at once
+/// (share surfaces §6.9), where the event itself is the partner's and is
+/// never written. [knownIds] bounds the removal as the editor's save does.
+final class SetEventAlerts extends CalendarPageEvent {
+  final String eventId;
+  final List<EventAlert> alerts;
+  final Set<String> knownIds;
+
+  const SetEventAlerts({
+    required this.eventId,
+    required this.alerts,
+    required this.knownIds,
+  });
+
+  @override
+  List<Object?> get props => [eventId, alerts, knownIds];
+}
+
+/// "Copy to my calendar" on the read sheet of a partner's [event] as it
+/// reads on [day] (share surfaces §6.9): a create of my own, handled as one.
+///
+/// [done] answers with the stored copy once the bloc holds it — so the
+/// editor the flow opens on it finds it there — or null when there was no
+/// calendar to copy into; it fails with the error when the copy was not
+/// made.
+final class CopySharedEvent extends CalendarPageEvent {
+  final CalendarEvent event;
+  final DateTime day;
+  final Completer<CalendarEvent?> done;
+
+  const CopySharedEvent({
+    required this.event,
+    required this.day,
+    required this.done,
+  });
+
+  @override
+  List<Object?> get props => [event, day];
 }
 
 /// A category's alerts were saved by the category editor (**v42**), which

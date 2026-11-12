@@ -153,6 +153,29 @@ void main() {
         expect(await linkedSessionNote(null, notes), isNull);
       },
     );
+
+    test("is none for a partner's event, though the note is there", () async {
+      final db = await openTestDatabase();
+      addTearDown(db.close);
+      final notes = NoteRepository(database: db);
+      final note = await notes.createNote(
+        folderId: 'f1',
+        title: 'Shift notes',
+        content: '# Shift notes',
+        preview: '# Shift notes',
+        contentLength: 13,
+        chunkCount: 1,
+        isCompressed: false,
+      );
+
+      expect(
+        await linkedSessionNote(
+          _partners(eventOf().copyWith(noteId: note.id)),
+          notes,
+        ),
+        isNull,
+      );
+    });
   });
 
   test('a stopped alarm posts one chip, with the event\'s end', () async {
@@ -307,6 +330,15 @@ void main() {
       expect(gateway.shown.single.linkedNote, isFalse);
     });
 
+    test("opens a partner's event, never the note it links: that note is "
+        "theirs, and the ordinary editor would open it writable", () async {
+      event = _partners(eventOf().copyWith(noteId: 'n1'));
+
+      await chip.show(payloadOf());
+
+      expect(gateway.shown.single.linkedNote, isFalse);
+    });
+
     test('takes the lookup\'s word over the event\'s: a linked note in the '
         'trash is no note to open', () async {
       event = eventOf().copyWith(noteId: 'n1');
@@ -401,6 +433,18 @@ void main() {
     expect(chip.shownOsId, isNull);
   });
 }
+
+/// [event] as the shared reader holds a partner's row.
+CalendarEvent _partners(CalendarEvent event) => CalendarEvent(
+  id: event.id,
+  title: event.title,
+  categoryId: event.categoryId,
+  startDate: event.startDate,
+  rule: event.rule,
+  time: event.time,
+  noteId: event.noteId,
+  fromPartner: true,
+);
 
 typedef _Shown = ({
   AlertPayload payload,

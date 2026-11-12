@@ -360,6 +360,11 @@ abstract final class FormMetrics {
   /// the fill it crosses (the marker against `primary` is 1.00:1 in dark).
   static const double meterMarkerRing = 1;
 
+  /// The ring of a partner's outlined `EventAvatar`, stroked inside its box:
+  /// 2.0 sat heavier than the icon's own strokes, 1.0 read as a hairline on
+  /// the dark ground.
+  static const double shareOutlineWidth = 1.5;
+
   /// How far the marker reaches past the track above and below: into
   /// [meterGap] and the row's padding, so the row's height never changes.
   static const double meterMarkerOverhang = 3;

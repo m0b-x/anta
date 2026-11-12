@@ -4634,6 +4634,7 @@ void main() {
       String action = 'Save',
       double width = 360,
       bool leadingEnabled = true,
+      bool heading = false,
     }) async {
       addTearDown(tester.view.reset);
       tester.view.devicePixelRatio = 1.0;
@@ -4655,12 +4656,30 @@ void main() {
                 onLeading: leadingEnabled ? () {} : null,
                 title: title,
                 stackTitleAtLargeText: stack,
+                titleIsHeading: heading,
                 trailing: FilledButton(onPressed: () {}, child: Text(action)),
               ),
             ),
           ),
         ),
       );
+    }
+
+    for (final stack in [false, true]) {
+      testWidgets('the title is no heading unless the sheet opts in, and a '
+          'level-1 heading when it does (stack: $stack)', (tester) async {
+        final handle = tester.ensureSemantics();
+        await pumpHeader(tester, 1.0, stack: stack);
+        final plain = tester.getSemantics(find.text('Add event'));
+        expect(plain, isSemantics(isHeader: false));
+        expect(plain.getSemanticsData().headingLevel, 0);
+
+        await pumpHeader(tester, 1.0, stack: stack, heading: true);
+        final heading = tester.getSemantics(find.text('Add event'));
+        expect(heading, isSemantics(isHeader: true, label: 'Add event'));
+        expect(heading.getSemanticsData().headingLevel, 1);
+        handle.dispose();
+      });
     }
 
     for (final stack in [false, true]) {

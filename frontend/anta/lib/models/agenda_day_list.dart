@@ -56,6 +56,11 @@ class AgendaDayListEntry {
   /// unprofiled category says.
   final String? categoryId;
 
+  /// Whether the entry's event is one a partner shares, resolved beside
+  /// [presenceTracked] so a row draws the page's partner look without
+  /// reading the event.
+  final bool fromPartner;
+
   const AgendaDayListEntry({
     required this.day,
     required this.icon,
@@ -67,6 +72,7 @@ class AgendaDayListEntry {
     this.eventId,
     this.presenceTracked = false,
     this.categoryId,
+    this.fromPartner = false,
   });
 }
 

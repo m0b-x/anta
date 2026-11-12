@@ -82,6 +82,8 @@ import 'package:anta/bloc/sync/sync_bloc.dart' show SyncBindPicking;
 import 'package:anta/services/sync/sync_gateway.dart';
 import 'package:anta/widgets/sync_space_picker_sheet.dart';
 import 'package:anta/widgets/time_pad_sheet.dart';
+import 'package:anta/models/partner_look.dart';
+import 'package:anta/widgets/shared_event_sheet.dart';
 
 import '../database/support/db_test_support.dart';
 import '../services/pairing_support.dart';
@@ -269,6 +271,35 @@ void main() {
       reason:
           'the DETAILS group and the description are the last things in the '
           'body, and they rendered under the nav bar',
+    );
+  });
+
+  testWidgets('the read sheet of a partner\'s event clears the navigation bar', (
+    tester,
+  ) async {
+    sizeSurfaceWithNavBar(tester);
+    final day = DateTime.utc(2026, 8, 25);
+    await openFrom(
+      tester,
+      (context) => SharedEventSheet.show(
+        context,
+        event: CalendarEvent(
+          id: 'p1',
+          title: 'Night shift',
+          categoryId: 'work',
+          startDate: day,
+          rule: const DailyRecurrence(),
+          fromPartner: true,
+        ),
+        day: day,
+        partner: const PartnerLook(name: 'Maria'),
+      ),
+    );
+
+    expect(
+      scrollBottomPadding(tester),
+      greaterThanOrEqualTo(navBar),
+      reason: 'the copy row and its caption end the body',
     );
   });
 

@@ -9,7 +9,6 @@ import '../constants/app_colors.dart';
 import '../constants/calendar_categories.dart';
 import '../constants/event_alerts.dart';
 import '../constants/event_presence.dart';
-import '../constants/event_priorities.dart';
 import '../constants/event_skips.dart';
 import '../constants/occurrence_descriptions.dart';
 import '../constants/row_metrics.dart';
@@ -20,23 +19,16 @@ import '../models/category_profile.dart';
 import '../models/event_alert.dart';
 import '../models/recurrence_rule.dart';
 import '../services/alert_scheduler.dart';
-import '../services/day_summary_resolver.dart';
 import '../services/event_time_formatter.dart';
-import '../services/recurrence_formatter.dart';
 import '../utils/custom_snackbar.dart';
-import '../utils/line_based_markdown_builder.dart';
 import '../utils/markdown_callout_syntax.dart';
 import '../utils/markdown_color_syntax.dart';
 import '../utils/mark_verb_labels.dart';
 import '../utils/markdown_list_syntax.dart';
-import '../utils/money_display_config.dart';
 import '../utils/presence_stats.dart';
-import 'automation_id.dart';
-import 'calendar_date_picker_sheet.dart';
-import 'event_avatar.dart';
+import 'event_read_rows.dart';
 import 'form_rows.dart';
 import 'overlay_snackbar.dart';
-import 'simple_markdown_preview.dart';
 
 /// What the user chose to do from the detail sheet.
 ///
@@ -78,14 +70,6 @@ enum EventDetailAction {
 /// setting off, a repeating event still keeps inert boxes — one string shared
 /// by every occurrence would read as ticked on all of them.
 class EventDetailSheet extends StatefulWidget {
-  /// How far ahead the "next occurrence" scan looks, in days. Matches the
-  /// agenda's clamp so the two never disagree about what is upcoming.
-  static const int _scanDays = 366;
-
-  /// How many upcoming dates to resolve: the next one for the row's value and
-  /// the three the caption under it lists.
-  static const int _maxOccurrences = 4;
-
   /// How long a checkbox toggle waits before it is handed to [onEventChanged].
   /// Ticking a short list is a burst, and every write invalidates the bloc's
   /// day cache, so the taps coalesce into one update instead of one each.
@@ -252,23 +236,9 @@ class EventDetailSheet extends StatefulWidget {
 }
 
 class _EventDetailSheetState extends State<EventDetailSheet> {
-  /// Next days the event fires on after the viewed occurrence. Resolved
-  /// **once**: the scan walks up to 366 days and the body rebuilds on every
-  /// scroll-driven frame, so doing it in `build` would re-run it each time.
-  late final List<DateTime> _upcoming = _computeUpcoming();
-
-  /// The pinned set, sorted once, or null for any other rule.
-  late final List<DateTime>? _explicitDates =
-      widget.event.rule is SpecificDatesRecurrence
-      ? (widget.event.explicitDates!.toList()..sort())
-      : null;
-
-  /// Today, read once with [_upcoming]: the Dates row's "ahead" count runs on
-  /// every build, and a sheet does not straddle midnight.
-  late final DateTime _today = () {
-    final now = DateTime.now();
-    return DateTime.utc(now.year, now.month, now.day);
-  }();
+  /// The read rows' facts — the next occurrences, the pinned set, today —
+  /// resolved **once**, shared with the read sheet of a partner's event.
+  late final EventReadFacts _facts = EventReadFacts(widget.event, widget.day);
 
   /// Working copy of this day's description, trimmed on entry so the offsets
   /// the builder reports for a checkbox address exactly this string. Rendering
@@ -593,83 +563,6 @@ class _EventDetailSheetState extends State<EventDetailSheet> {
     handler(title);
   }
 
-  List<DateTime> _computeUpcoming() {
-    final event = widget.event;
-    // A one-time event has nothing to project, and a pinned-dates event
-    // reads its set from the Dates row instead.
-    if (event.explicitDates != null) return const [];
-    // "Next" is measured from the occurrence being viewed, never from the
-    // past: opened on today or a later day, the scan starts the day after it,
-    // so the row never repeats the Date row above; opened on a past day it
-    // starts today — the next one that can still be attended.
-    final start = widget.day.isBefore(_today)
-        ? _today
-        : widget.day.add(const Duration(days: 1));
-    final days = <DateTime>[];
-    for (
-      var i = 0;
-      i < EventDetailSheet._scanDays &&
-          days.length < EventDetailSheet._maxOccurrences;
-      i++
-    ) {
-      final day = start.add(Duration(days: i));
-      if (event.occursOn(day)) days.add(day);
-    }
-    return days;
-  }
-
-  /// "Sat, May 10 · 30 years": a day with the count label appended when the
-  /// event counts its occurrences, so a birthday reads as the coming age and
-  /// a program as its coming week.
-  String _dayLabel(DateTime day, DateFormat format, AppLocalizations l10n) {
-    final date = format.format(day);
-    final count = RecurrenceFormatter.countLabel(widget.event, day, l10n);
-    return count == null ? date : '$date · $count';
-  }
-
-  String _timeValue(BuildContext context, AppLocalizations l10n) {
-    final time = widget.event.time;
-    if (time == null) return l10n.eventAllDay;
-    // The device's 12h/24h preference, as the alert rows below and the
-    // editor's Starts / Ends read it — one clock on the sheet and across
-    // the Edit → Back loop. The panel row behind is service-side text and
-    // cannot follow the preference; that gap is older than this sheet.
-    final range = EventTimeFormatter.formatRangeOfContext(time, context);
-    final duration = time.durationMinutes;
-    if (duration == null) return range;
-    return '$range · ${EventTimeFormatter.formatDuration(duration, l10n)}';
-  }
-
-  /// Exactly the editor's Repeat value, "until" included, so Edit and Back
-  /// show one string for the rule.
-  String _repeatValue(AppLocalizations l10n, String localeName) {
-    final event = widget.event;
-    final label = RecurrenceFormatter.format(
-      event.rule,
-      l10n,
-      localeName,
-      retroactive: event.retroactive,
-    );
-    final end = event.endDate;
-    if (end == null) return label;
-    return l10n.recurrenceUntilSuffix(
-      label,
-      DateFormat.yMMMd(localeName).format(end),
-    );
-  }
-
-  String _nextValue(AppLocalizations l10n, DateFormat format) {
-    if (_upcoming.isEmpty) return l10n.eventDetailsNoOccurrences;
-    return _dayLabel(_upcoming.first, format, l10n);
-  }
-
-  String? _thenCaption(AppLocalizations l10n, DateFormat format) {
-    if (_upcoming.length < 2) return null;
-    return l10n.eventDetailsThen(
-      _upcoming.skip(1).map(format.format).join(' · '),
-    );
-  }
-
   /// "Reminder · Next Mon, Sep 21 06:50": the kind, plus what the registry
   /// says is armed when it says anything at all.
   String _alertValue(
@@ -692,84 +585,6 @@ class _EventDetailSheetState extends State<EventDetailSheet> {
     );
     final when = '${DateFormat.MMMEd(localeName).format(next)} $time';
     return '$kind · ${l10n.eventAlertNext(when)}';
-  }
-
-  List<Widget> _buildWhenRows(
-    BuildContext context,
-    AppLocalizations l10n,
-    String localeName,
-  ) {
-    final event = widget.event;
-    final dayFormat = DateFormat.yMMMEd(localeName);
-    final shortFormat = DateFormat.MMMEd(localeName);
-    final periodic =
-        event.rule is! OneTimeRecurrence &&
-        event.rule is! SpecificDatesRecurrence;
-    return [
-      // The occurrence the sheet was opened for, not the series start — it is
-      // the day the presence chips below mark and the day whose description
-      // renders above. A one-time event's occurrence *is* its date.
-      FormPickerRow(
-        glyph: Icons.calendar_today_outlined,
-        label: l10n.eventDateLabel,
-        value: _dayLabel(widget.day, dayFormat, l10n),
-        onTap: null,
-        showChevron: false,
-      ),
-      // A pinned set never gets per-date rows here: the editor's exist for
-      // their ✕, and a reader has nothing to do per date. One bundled row
-      // reads the set back and opens the list that holds all of it.
-      if (_explicitDates case final dates?)
-        FormPickerRow(
-          glyph: Icons.event_note_outlined,
-          identifier: SemanticsIds.eventDetailDates,
-          label: l10n.eventDatesLabel,
-          value: CalendarDatePickerSheet.datesValue(l10n, dates, _today),
-          onTap: () => _close(EventDetailAction.showDates),
-        ),
-      if (event.explicitDates != null)
-        FormActionRow(
-          glyph: Icons.add_rounded,
-          identifier: SemanticsIds.eventDetailAddDate,
-          label: l10n.eventAddDate,
-          onTap: () => _close(EventDetailAction.addDate),
-        ),
-      FormPickerRow(
-        glyph: Icons.schedule_outlined,
-        label: l10n.eventTime,
-        value: _timeValue(context, l10n),
-        onTap: null,
-        showChevron: false,
-      ),
-      if (periodic) ...[
-        FormPickerRow(
-          glyph: Icons.repeat_rounded,
-          label: l10n.eventRepeat,
-          value: _repeatValue(l10n, localeName),
-          onTap: null,
-          showChevron: false,
-        ),
-        // The anchor the pattern is measured from, only when it is not the
-        // day already at the top of the group. Both dates are date-only UTC,
-        // so plain equality is exact.
-        if (widget.day != event.startDate)
-          FormPickerRow(
-            glyph: Icons.event_repeat_outlined,
-            label: l10n.eventDate,
-            value: dayFormat.format(event.startDate),
-            onTap: null,
-            showChevron: false,
-          ),
-        FormPickerRow(
-          glyph: Icons.next_plan_outlined,
-          label: l10n.eventDetailsNext,
-          value: _nextValue(l10n, shortFormat),
-          caption: _thenCaption(l10n, shortFormat),
-          onTap: null,
-          showChevron: false,
-        ),
-      ],
-    ];
   }
 
   /// The presence pair. As a [template] it carries no ids and no taps: the
@@ -974,17 +789,9 @@ class _EventDetailSheetState extends State<EventDetailSheet> {
     AppLocalizations l10n,
     ColorScheme colorScheme,
   ) {
-    final event = widget.event;
     return [
-      if (event.priority != kDefaultEventPriority)
-        FormPickerRow(
-          glyph: Icons.flag_outlined,
-          label: l10n.eventPriority,
-          value: EventPriorities.labelOf(event.priority, l10n),
-          onTap: null,
-          showChevron: false,
-        ),
-      if (event.noteId != null) _buildNoteRow(l10n, colorScheme),
+      ?_facts.priorityRow(l10n),
+      if (widget.event.noteId != null) _buildNoteRow(l10n, colorScheme),
     ];
   }
 
@@ -1018,11 +825,9 @@ class _EventDetailSheetState extends State<EventDetailSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final event = widget.event;
     final l10n = AppLocalizations.of(context)!;
     final colorScheme = Theme.of(context).colorScheme;
     final localeName = l10n.localeName;
-    final category = CalendarCategories.resolve(event.categoryId);
     // The larger of the keyboard inset and the system's bottom inset pads the
     // scroll view, never the whole body — the clearance rule every calendar
     // sheet follows (`sheet_bottom_clearance_test.dart`).
@@ -1035,7 +840,15 @@ class _EventDetailSheetState extends State<EventDetailSheet> {
     final detailRows = _buildDetailRows(l10n, colorScheme);
     // The read rule: a group exists only while it has a fact to carry.
     final sections = <(String, List<Widget>)>[
-      (l10n.eventSectionWhen, _buildWhenRows(context, l10n, localeName)),
+      (
+        l10n.eventSectionWhen,
+        _facts.whenRows(
+          context,
+          l10n,
+          onShowDates: () => _close(EventDetailAction.showDates),
+          onAddDate: () => _close(EventDetailAction.addDate),
+        ),
+      ),
       if (occurrenceRows.isNotEmpty)
         (l10n.recurrenceScopeLabel, occurrenceRows),
       if (alertRows.isNotEmpty) (l10n.eventAlerts, alertRows),
@@ -1075,20 +888,10 @@ class _EventDetailSheetState extends State<EventDetailSheet> {
               children: [
                 FormRowGroup(
                   children: [
-                    // The day-panel row's twin at the top of the sheet: the
-                    // event's avatar, its title at the editor's size so Edit
-                    // and Back never resize it, and the category as the
-                    // caption a reader wants under a name — the editor needs
-                    // Category as a picker row, a reader does not.
-                    FormReadTitleRow(
-                      leading: EventAvatar(
-                        icon: CalendarCategories.iconFor(event),
-                        color: EventSummaryProvider.colorFor(event, category),
-                      ),
-                      title: event.title,
-                      caption: CalendarCategories.labelOf(category, l10n),
-                    ),
-                    _DescriptionCell(
+                    // The editor needs Category as a picker row, a reader
+                    // does not: it is the title row's caption here.
+                    _facts.titleRow(l10n),
+                    EventDescriptionCell(
                       text: _description,
                       placeholder: l10n.eventDescriptionAdd,
                       editTooltip: l10n.eventDescriptionEdit,
@@ -1120,127 +923,6 @@ class _EventDetailSheetState extends State<EventDetailSheet> {
             ),
           ),
         ),
-      ],
-    );
-  }
-}
-
-/// The editor's description cell read back: the same padding, so one line is
-/// a 48 dp row and the text sits where the editor's caret line sits, the
-/// pencil where the editor's expand button sits. Rendered in full, with no
-/// scrollable of its own — the sheet's body owns every vertical drag.
-///
-/// Empty, the whole cell is the way into the quick edit; the pencil stays in
-/// both states so the target the hand learned does not move.
-class _DescriptionCell extends FormDividedRow {
-  final String text;
-  final String placeholder;
-  final String editTooltip;
-  final String identifier;
-  final MarkdownColorPalette colorPalette;
-  final CheckboxTapCallback? onCheckboxTap;
-  final WikiLinkTapCallback? onTapWikiLink;
-  final VoidCallback onEdit;
-  final String? inertCaption;
-
-  const _DescriptionCell({
-    required this.text,
-    required this.placeholder,
-    required this.editTooltip,
-    required this.identifier,
-    required this.colorPalette,
-    required this.onCheckboxTap,
-    required this.onTapWikiLink,
-    required this.onEdit,
-    required this.inertCaption,
-  });
-
-  @override
-  double get dividerIndent => FormMetrics.dividerIndentPlain;
-
-  @override
-  Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    final empty = text.isEmpty;
-    final content = ConstrainedBox(
-      constraints: const BoxConstraints(minHeight: FormMetrics.rowMinHeight),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(
-          RowMetrics.groupInset,
-          FormMetrics.descriptionCellPadding,
-          FormMetrics.trailingButtonSize,
-          FormMetrics.descriptionCellPadding,
-        ),
-        child: empty
-            ? Text(
-                placeholder,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: FormMetrics.descriptionFontSize,
-                  height:
-                      FormMetrics.descriptionLineHeight /
-                      FormMetrics.descriptionFontSize,
-                  color: colorScheme.onSurfaceVariant,
-                ),
-              )
-            : SimpleMarkdownPreview(
-                data: text,
-                fontSize: FormMetrics.descriptionFontSize,
-                padding: EdgeInsets.zero,
-                scrollable: false,
-                colorPalette: colorPalette,
-                moneyConfig: MoneyDisplayConfig.disabled,
-                onCheckboxTap: onCheckboxTap,
-                onTapWikiLink: onTapWikiLink,
-              ),
-      ),
-    );
-    final caption = inertCaption;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        // Passthrough, not loose: a loose stack would size the ink well to
-        // the placeholder's own width, and a thumb landing right of the
-        // words would hit nothing. The column above is stretched, so this
-        // hands the well the whole cell.
-        Stack(
-          fit: StackFit.passthrough,
-          children: [
-            if (empty)
-              MergeSemantics(
-                child: Semantics(
-                  button: true,
-                  child: InkWell(onTap: onEdit, child: content),
-                ),
-              )
-            else
-              content,
-            Positioned(
-              top: 0,
-              right: 0,
-              child: AutomationId(
-                identifier: identifier,
-                child: FormTrailingButton(
-                  icon: Icons.edit_note_rounded,
-                  tooltip: editTooltip,
-                  onPressed: onEdit,
-                ),
-              ),
-            ),
-          ],
-        ),
-        if (caption != null)
-          FormCaption(
-            text: caption,
-            padding: const EdgeInsets.fromLTRB(
-              RowMetrics.groupInset,
-              0,
-              RowMetrics.groupInset,
-              FormMetrics.descriptionCaptionBottomPadding,
-            ),
-          ),
       ],
     );
   }

@@ -79,7 +79,13 @@ class EventPresence {
   /// Readers that need *many* occasions keep their own shape gate inline —
   /// the report's routine shape and the adherence stats — and so does
   /// [OccurrenceDescriptions.appliesTo]: a per-day text needs many days.
-  static bool appliesTo(CalendarEvent event) => event.tracksPresence;
+  ///
+  /// Never a partner's event (`docs/cloud-share-surfaces-roadmap.md` D15):
+  /// their tracking is their time, so it is never pending or missed here and
+  /// every surface gated on this draws its plain tail. Marks of mine on such
+  /// an event, if any were stored, stay stored and unread.
+  static bool appliesTo(CalendarEvent event) =>
+      event.tracksPresence && !event.fromPartner;
 
   /// **The** entry point for "was this occurrence missed". Every surface goes
   /// through it, or the grid, the day panel, the agenda and the timeline drift
@@ -91,12 +97,14 @@ class EventPresence {
   /// default via [CalendarEvent.assumesAbsentOn] — `false` for the classic
   /// implicit-attendance event, `true` once assume-absent covers [day]. Never
   /// reads the wall clock: an unconfirmed future day of an assume-absent event
-  /// is missed exactly like a past one.
+  /// is missed exactly like a past one. A partner's event is never missed
+  /// here, whatever its default or a stored mark says ([appliesTo]).
   static bool isMissed(CalendarEvent event, DateTime day) {
     assert(
       day == DateTime.utc(day.year, day.month, day.day),
       'isMissed requires a date-only UTC day',
     );
+    if (event.fromPartner) return false;
     final forEvent = _byEvent[event.id];
     final mark = forEvent == null ? null : forEvent[day];
     if (mark != null) return mark == PresenceStatus.missed;

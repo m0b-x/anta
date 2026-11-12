@@ -149,6 +149,22 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
   /// [_visibleEvents].
   _VisibleEvents? _visibleCache;
 
+  /// The last event list [_holdsPartner] scanned, and its answer: the
+  /// service hands out one list per change of its cache, which several
+  /// emits are built from.
+  List<CalendarEvent>? _partnerScanned;
+  bool _partnerHeld = false;
+
+  /// [CalendarPageLoaded.holdsPartnerEvents] for [events], scanned once
+  /// per list.
+  bool _holdsPartner(List<CalendarEvent> events) {
+    if (!identical(events, _partnerScanned)) {
+      _partnerScanned = events;
+      _partnerHeld = events.any((event) => event.fromPartner);
+    }
+    return _partnerHeld;
+  }
+
   /// Generation of [PublicHolidays] the memoized days were expanded against.
   ///
   /// `WorkdaysRecurrence` and `PublicHolidaysOnlyRecurrence` consult
@@ -235,6 +251,10 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
     on<ClearOccurrenceSkipped>(_onClearOccurrenceSkipped);
     on<SetOccurrenceSkips>(_onSetOccurrenceSkips);
     on<ToggleEventAlert>(_onToggleEventAlert);
+    // Each write carries the event's whole set, so two quick ones that
+    // overtook each other would leave the older set stored.
+    on<SetEventAlerts>(_onSetEventAlerts, transformer: _oneAtATime);
+    on<CopySharedEvent>(_onCopySharedEvent);
     on<CategoryAlertsChanged>(_onCategoryAlertsChanged);
     on<SaveEventDigest>(_onSaveEventDigest);
     on<DeleteEventDigest>(_onDeleteEventDigest);
@@ -731,6 +751,7 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
           focusedDay: today,
           selectedDay: today,
           filters: _filters,
+          holdsPartnerEvents: _holdsPartner(events),
         ),
       );
       return;
@@ -744,6 +765,7 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
         allEvents: List.unmodifiable(events),
         filters: _filters,
         membershipRevision: previous.membershipRevision + 1,
+        holdsPartnerEvents: _holdsPartner(events),
       ),
     );
   }
@@ -863,6 +885,7 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
         filters: _filters,
         membershipRevision: latest.membershipRevision + 1,
         occurrenceRevision: latest.occurrenceRevision + 1,
+        holdsPartnerEvents: _holdsPartner(events),
       ),
     );
   }
@@ -1025,6 +1048,7 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
         allEvents: service.events,
         selectedDay: normalized.startDate,
         focusedDay: normalized.startDate,
+        holdsPartnerEvents: _holdsPartner(service.events),
       ),
     );
   }
@@ -1075,6 +1099,7 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
     emit(
       latest.copyWith(
         allEvents: service.events,
+        holdsPartnerEvents: _holdsPartner(service.events),
         selectedDay: restored.startDate,
         focusedDay: restored.startDate,
         membershipRevision: latest.membershipRevision + 1,
@@ -1121,7 +1146,12 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
     _invalidateDayCache();
     final latest = state;
     if (latest is! CalendarPageLoaded) return;
-    emit(latest.copyWith(allEvents: service.events));
+    emit(
+      latest.copyWith(
+        allEvents: service.events,
+        holdsPartnerEvents: _holdsPartner(service.events),
+      ),
+    );
   }
 
   /// Persists an editor's alert set, between the event write and the reconcile.
@@ -1169,7 +1199,12 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
     );
     final latest = state;
     if (latest is! CalendarPageLoaded) return;
-    emit(latest.copyWith(allEvents: service.events));
+    emit(
+      latest.copyWith(
+        allEvents: service.events,
+        holdsPartnerEvents: _holdsPartner(service.events),
+      ),
+    );
   }
 
   /// Writes one occurrence's description override.
@@ -1192,6 +1227,7 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
   ) async {
     final current = state;
     if (current is! CalendarPageLoaded) return;
+    if (_isPartners(current, event.eventId)) return;
     try {
       final service = await EventOccurrenceService.getInstance();
       await service.setDescription(event.eventId, event.day, event.description);
@@ -1215,6 +1251,7 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
   ) async {
     final current = state;
     if (current is! CalendarPageLoaded) return;
+    if (_isPartners(current, event.eventId)) return;
     try {
       final service = await EventOccurrenceService.getInstance();
       await service.clearDescription(event.eventId, event.day);
@@ -1305,6 +1342,7 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
   ) async {
     final current = state;
     if (current is! CalendarPageLoaded) return;
+    if (_isPartners(current, event.eventId)) return;
     try {
       final service = await EventSkipService.getInstance();
       await service.markSkipped(event.eventId, event.day);
@@ -1332,6 +1370,7 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
   ) async {
     final current = state;
     if (current is! CalendarPageLoaded) return;
+    if (_isPartners(current, event.eventId)) return;
     try {
       final service = await EventSkipService.getInstance();
       await service.unskip(event.eventId, event.day);
@@ -1359,6 +1398,7 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
   ) async {
     final current = state;
     if (current is! CalendarPageLoaded) return;
+    if (_isPartners(current, event.eventId)) return;
     final bool changed;
     try {
       final service = await EventSkipService.getInstance();
@@ -1380,6 +1420,16 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
   static DateTime _dateOnly(DateTime date) {
     return DateTime.utc(date.year, date.month, date.day);
   }
+
+  /// Whether [eventId] is an event a partner shares, as [state] holds it —
+  /// the guard of the five handlers that write a skipped day or a day's
+  /// text, whose services keep no events to ask and whose one caller this
+  /// bloc is. The database fences turn such a write into nothing, but the
+  /// service would still publish it to its facade and the handler emit it:
+  /// a cancelled day or an edited text that the next load takes back. An
+  /// event's own writes are refused by `CalendarEventService` itself.
+  static bool _isPartners(CalendarPageLoaded state, String eventId) =>
+      state.allEvents.any((e) => e.id == eventId && e.fromPartner);
 
   /// Flips one alert on or off from the hub.
   ///
@@ -1431,6 +1481,81 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
     final latest = state;
     if (latest is! CalendarPageLoaded) return;
     emit(latest.copyWith(occurrenceRevision: latest.occurrenceRevision + 1));
+  }
+
+  /// Writes my own alerts on one event and nothing of the event — the read
+  /// sheet of a partner's event, whose event row is the partner's. The same
+  /// [AlertWriter], then the reconcile, then the badge revision, in
+  /// [_onToggleEventAlert]'s order and for its reasons.
+  Future<void> _onSetEventAlerts(
+    SetEventAlerts event,
+    Emitter<CalendarPageState> emit,
+  ) async {
+    if (state is! CalendarPageLoaded) return;
+    try {
+      await _writeAlerts(event.eventId, event.alerts, knownIds: event.knownIds);
+    } catch (e, st) {
+      debugPrint('[CalendarBloc] Alert write error: $e\n$st');
+      return;
+    }
+    unawaited(
+      _reconcileAlerts(event.eventId, AlertReconcileReason.eventChanged),
+    );
+    final latest = state;
+    if (latest is! CalendarPageLoaded) return;
+    emit(latest.copyWith(occurrenceRevision: latest.occurrenceRevision + 1));
+  }
+
+  /// Runs one event's handler to its end before the next starts, in the
+  /// order they were added.
+  static Stream<E> _oneAtATime<E>(
+    Stream<E> events,
+    Stream<E> Function(E) mapper,
+  ) => events.asyncExpand(mapper);
+
+  /// Copy to my calendar, handled as [_onCreateEvent] handles a create —
+  /// the ledger refreshed, the copy's alerts reconciled (it inherits its
+  /// category's), the day cache dropped in the emit's turn — then
+  /// [CopySharedEvent.done] answered once the state holds the copy.
+  Future<void> _onCopySharedEvent(
+    CopySharedEvent event,
+    Emitter<CalendarPageState> emit,
+  ) async {
+    if (state is! CalendarPageLoaded) {
+      event.done.complete(null);
+      return;
+    }
+    final CalendarEventService service;
+    final CalendarEvent copy;
+    try {
+      service = await _svc();
+      copy = await service.copyToMine(event.event, event.day);
+    } catch (e, st) {
+      debugPrint('[CalendarBloc] Copy error: $e');
+      event.done.completeError(e, st);
+      return;
+    }
+    try {
+      await (await NoteMoneyLedgerService.getInstance()).refresh(
+        service.events,
+      );
+    } catch (e) {
+      debugPrint('[CalendarBloc] Money ledger refresh error: $e');
+    }
+    unawaited(_reconcileAlerts(copy.id, AlertReconcileReason.eventChanged));
+    _invalidateDayCache();
+    final latest = state;
+    // The reader's day and month stay where they are: the copy is made from
+    // the occurrence on screen, unlike a create, which jumps to its date.
+    if (latest is CalendarPageLoaded) {
+      emit(
+        latest.copyWith(
+          allEvents: service.events,
+          holdsPartnerEvents: _holdsPartner(service.events),
+        ),
+      );
+    }
+    event.done.complete(copy);
   }
 
   /// Re-renders what draws a category's alerts after the category editor

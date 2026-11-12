@@ -13,6 +13,7 @@ import '../models/calendar_appearance.dart';
 import '../models/calendar_event.dart';
 import '../models/calendar_panel_mode.dart';
 import '../models/calendar_selection_source.dart';
+import '../models/partner_look.dart';
 import '../models/upcoming_agenda_filters.dart';
 import '../services/day_summary_resolver.dart';
 import '../services/settings_service.dart';
@@ -94,10 +95,15 @@ class CalendarBottomPanel extends StatefulWidget {
   /// Owned by the page for the same staleness reason as [colorPalette].
   final CalendarAppearance appearance;
 
+  /// How a partner's events are drawn in the day panel and the agenda.
+  /// Owned by the page for the same staleness reason as [colorPalette].
+  final PartnerLook partnerLook;
+
   const CalendarBottomPanel({
     super.key,
     required this.loaded,
     required this.appearance,
+    this.partnerLook = const PartnerLook(),
     required this.expanded,
     required this.onToggleExpanded,
     required this.onEditEvent,
@@ -450,6 +456,7 @@ class _CalendarBottomPanelState extends State<CalendarBottomPanel> {
           onToggleMissed: (event, missed) =>
               widget.onToggleMissed(event, loaded.selectedDay, missed),
           colorPalette: widget.colorPalette,
+          partnerLook: widget.partnerLook,
         );
       case CalendarPanelMode.timeline:
         return DayTimelineView(
@@ -459,6 +466,7 @@ class _CalendarBottomPanelState extends State<CalendarBottomPanel> {
           // there. Both render the same day's events, so they must agree.
           onEventTap: (event) => widget.onShowEvent(event, loaded.selectedDay),
           missedDisplay: widget.missedDisplay,
+          partnerLook: widget.partnerLook,
         );
       case CalendarPanelMode.upcoming:
         return UpcomingAgendaView(
@@ -483,6 +491,7 @@ class _CalendarBottomPanelState extends State<CalendarBottomPanel> {
           colorPalette: widget.colorPalette,
           showRecurrenceLabels: widget.showRecurrenceLabels,
           appearance: widget.appearance,
+          partnerLook: widget.partnerLook,
           dayListMode: _dayListMode,
           onDayListModeChanged: _onDayListModeChanged,
           occurrenceRevision: loaded.occurrenceRevision,

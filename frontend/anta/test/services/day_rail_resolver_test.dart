@@ -7,6 +7,7 @@ import 'package:anta/models/calendar_appearance.dart';
 import 'package:anta/models/calendar_event.dart';
 import 'package:anta/models/day_rail_mark.dart';
 import 'package:anta/models/recurrence_rule.dart';
+import 'package:anta/services/day_bars_resolver.dart';
 import 'package:anta/services/day_rail_resolver.dart';
 import 'package:anta/utils/event_agenda.dart';
 
@@ -35,6 +36,7 @@ void main() {
     bool? showInDayRail,
     RecurrenceRule rule = const DailyRecurrence(),
     int? colorValue,
+    bool fromPartner = false,
   }) {
     return CalendarEvent(
       id: id,
@@ -47,6 +49,7 @@ void main() {
       tracksPresence: tracksPresence,
       showInDayRail: showInDayRail,
       colorValue: colorValue,
+      fromPartner: fromPartner,
     );
   }
 
@@ -166,6 +169,49 @@ void main() {
           ),
         ),
         isTrue,
+      );
+    });
+  });
+
+  group("a partner's event (share surfaces D15)", () {
+    test('is never in the rail, whatever its stored choice', () {
+      for (final forced in [null, true, false]) {
+        for (final rule in const [DailyRecurrence(), OneTimeRecurrence()]) {
+          expect(
+            eventInDayRail(
+              event(
+                'theirs',
+                tracksPresence: true,
+                showInDayRail: forced,
+                rule: rule,
+                fromPartner: true,
+              ),
+            ),
+            isFalse,
+            reason: '$forced, ${rule.runtimeType}',
+          );
+        }
+      }
+    });
+
+    test('draws as a bar beside the rail; my tracked event keeps the '
+        'rail', () {
+      final events = [
+        event('mine', tracksPresence: true),
+        event('theirs', tracksPresence: true, fromPartner: true),
+      ];
+
+      expect(markIds(EventDayRailProvider(l10n).marksFor(day, events)), [
+        'mine',
+      ]);
+      expect(
+        [
+          for (final bar in const EventDayBarProvider(
+            railActive: true,
+          ).barsFor(day, events))
+            bar.key.replaceFirst('event:', ''),
+        ],
+        ['theirs'],
       );
     });
   });

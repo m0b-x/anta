@@ -11,6 +11,7 @@ import '../models/calendar_appearance.dart';
 import '../models/calendar_event.dart';
 import '../models/day_bar.dart';
 import '../models/fasting_appearance.dart';
+import '../models/partner_look.dart';
 import 'day_rail_resolver.dart';
 import 'resolver_chain.dart';
 import 'note_money_ledger_service.dart';
@@ -134,10 +135,19 @@ class EventDayBarProvider implements DayBarProvider {
   /// guide's practice calendar keeps its marks in memory and passes its own.
   final bool Function(CalendarEvent event, DateTime dayUtc)? isMissed;
 
+  /// "From {name}", after a partner's title in the strip's label, so the
+  /// cell says whose a bar is in every look; null leaves the title alone.
+  final String? partnerLabel;
+
+  /// Whether a partner's bars are drawn hollow — the Outlined look.
+  final bool hollowPartners;
+
   const EventDayBarProvider({
     this.missedDisplay = CalendarMissedDisplay.faded,
     this.railActive = false,
     this.isMissed,
+    this.partnerLabel,
+    this.hollowPartners = false,
   });
 
   @override
@@ -163,15 +173,37 @@ class EventDayBarProvider implements DayBarProvider {
         color = color.withValues(alpha: CalendarColors.missedEventAlpha);
       }
       bars.add(
-        DayBar(
+        barOf(
           key: event.barKey,
           color: color,
           priority: event.priority - kMinEventPriority,
-          semanticLabel: event.title,
+          title: event.title,
+          fromPartner: event.fromPartner,
         ),
       );
     }
     return bars;
+  }
+
+  /// One occurrence's bar, a partner's labelled "{title}, From {name}" and
+  /// drawn hollow under the Outlined look. Public because the overview's
+  /// month grid folds pre-resolved entries rather than events, and must say
+  /// whose a bar is by this same rule, not a copy of it.
+  DayBar barOf({
+    required String key,
+    required Color color,
+    required int priority,
+    required String title,
+    required bool fromPartner,
+  }) {
+    final label = partnerLabel;
+    return DayBar(
+      key: key,
+      color: color,
+      priority: priority,
+      semanticLabel: fromPartner && label != null ? '$title, $label' : title,
+      hollow: fromPartner && hollowPartners,
+    );
   }
 }
 
@@ -251,6 +283,8 @@ class DayBarsResolver {
   /// `DaySummaryResolver.defaults` takes the same three, so an annotation
   /// hidden on the grid is hidden in the panel too. [fastingLookup] reaches
   /// the fasting provider; null is the configured `FastingCalendar`.
+  /// [partner] is the page's look for a partner's events; null draws them
+  /// as mine and labels them by title alone.
   factory DayBarsResolver.defaults(
     AppLocalizations l10n, {
     CalendarMissedDisplay missedDisplay = CalendarMissedDisplay.faded,
@@ -260,6 +294,7 @@ class DayBarsResolver {
     bool showMoney = true,
     bool Function(CalendarEvent event, DateTime dayUtc)? isMissed,
     FastingLookup? fastingLookup,
+    PartnerLook? partner,
   }) {
     return DayBarsResolver(
       providers: [
@@ -267,6 +302,8 @@ class DayBarsResolver {
           missedDisplay: missedDisplay,
           railActive: railActive,
           isMissed: isMissed,
+          partnerLabel: partner?.label(l10n),
+          hollowPartners: partner?.outlined ?? false,
         ),
         if (showHolidays) PublicHolidayDayBarProvider(l10n),
         if (showFasting) FastingDayBarProvider(l10n, lookup: fastingLookup),

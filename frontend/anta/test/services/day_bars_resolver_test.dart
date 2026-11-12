@@ -320,6 +320,48 @@ void main() {
     });
   });
 
+  group('barOf, the rule the overview\'s month grid shares', () {
+    const outlined = EventDayBarProvider(
+      partnerLabel: 'From Maria',
+      hollowPartners: true,
+    );
+
+    DayBar barOf(EventDayBarProvider rule, {required bool fromPartner}) =>
+        rule.barOf(
+          key: 'k',
+          color: const Color(0xFF1E88E5),
+          priority: 0,
+          title: 'Night shift',
+          fromPartner: fromPartner,
+        );
+
+    test('a partner\'s bar says whose it is, hollow under Outlined', () {
+      final bar = barOf(outlined, fromPartner: true);
+
+      expect(bar.semanticLabel, 'Night shift, From Maria');
+      expect(bar.hollow, isTrue);
+    });
+
+    test('mine is the plain bar under any rule', () {
+      const plain = DayBar(
+        key: 'k',
+        color: Color(0xFF1E88E5),
+        priority: 0,
+        semanticLabel: 'Night shift',
+      );
+
+      expect(barOf(outlined, fromPartner: false), plain);
+      expect(barOf(const EventDayBarProvider(), fromPartner: false), plain);
+    });
+
+    test('a rule without a partner draws theirs as mine', () {
+      final bar = barOf(const EventDayBarProvider(), fromPartner: true);
+
+      expect(bar.semanticLabel, 'Night shift');
+      expect(bar.hollow, isFalse);
+    });
+  });
+
   group('CalendarEvent.barKey (5.3 precompute)', () {
     test('is `event:<id>`', () {
       expect(event('abc-123').barKey, 'event:abc-123');

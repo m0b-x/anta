@@ -8,10 +8,12 @@ import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
 import '../models/calendar_event.dart';
 import '../models/day_summary_entry.dart';
+import '../models/partner_look.dart';
 import '../utils/mark_verb_labels.dart';
 import '../utils/markdown_color_syntax.dart';
 import 'automation_id.dart';
 import 'event_alert_badge.dart';
+import 'event_avatar.dart';
 import 'markdown_inline_text.dart';
 
 /// Renders the calendar's bottom panel: a header naming the selected day
@@ -50,6 +52,9 @@ class DaySummaryPanel extends StatelessWidget {
   /// a row shows the user's custom colours and not just the presets.
   final MarkdownColorPalette colorPalette;
 
+  /// How a partner's event rows are drawn, read once by the page.
+  final PartnerLook partnerLook;
+
   const DaySummaryPanel({
     super.key,
     required this.day,
@@ -59,6 +64,7 @@ class DaySummaryPanel extends StatelessWidget {
     this.onSuppressHoliday,
     this.onToggleMissed,
     this.colorPalette = MarkdownColorPalette.presets,
+    this.partnerLook = const PartnerLook(),
   });
 
   static final Map<String, DateFormat> _headerFormatCache = {};
@@ -205,7 +211,13 @@ class DaySummaryPanel extends StatelessWidget {
               itemBuilder: (context, index) {
                 final entry = entries[index];
                 final event = entry.event;
-                final hasLinkedNote = event?.noteId != null;
+                // A partner's note is not reachable in this build (slice
+                // F): no button, never one that opens my editor on theirs.
+                final hasLinkedNote =
+                    event?.noteId != null && !event!.fromPartner;
+                final partner = event?.fromPartner ?? false
+                    ? partnerLook
+                    : null;
                 final isHoliday = entry.key == 'holiday';
                 final canToggleMissed =
                     event != null &&
@@ -255,22 +267,25 @@ class DaySummaryPanel extends StatelessWidget {
                       children: [
                         // Accent stripe echoing the day-cell marker color, so
                         // list entries and grid markers read as one system.
-                        Positioned(
-                          left: 0,
-                          top: 0,
-                          bottom: 0,
-                          width: 4,
-                          child: Container(color: entry.stripeColor),
-                        ),
+                        // An outlined avatar beside a filled bar would say
+                        // two things, so under the Outlined look a partner's
+                        // lane stays and goes unpainted.
+                        if (partner == null || !partner.outlined)
+                          Positioned(
+                            left: 0,
+                            top: 0,
+                            bottom: 0,
+                            width: 4,
+                            child: Container(color: entry.stripeColor),
+                          ),
                         Padding(
                           padding: const EdgeInsets.only(left: 4),
                           child: ListTile(
-                            leading: CircleAvatar(
-                              backgroundColor: entry.color.withValues(
-                                alpha: 0.16,
-                              ),
-                              foregroundColor: entry.color,
-                              child: Icon(entry.icon),
+                            leading: EventAvatar.ofRow(
+                              icon: entry.icon,
+                              color: entry.color,
+                              partner: partner,
+                              l10n: l10n,
                             ),
                             title: Row(
                               children: [

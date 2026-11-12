@@ -87,8 +87,12 @@ void main() {
     String excerpt = '',
     int? tintValue,
     String? glyphKey,
+    bool fromPartner = false,
+    String? partnerName,
   }) {
     return AlertPayload(
+      fromPartner: fromPartner,
+      partnerName: partnerName,
       database: database,
       eventId: test ? AlertPayload.testEventId : 'e1',
       alertId: test ? AlertPayload.testEventId : 'a1',
@@ -130,6 +134,21 @@ void main() {
     // by the app the page resumes reaches it all the same: that hazard is the
     // layout group's (the header's "Clearance").
     expect(page.hasTextField, isFalse);
+  });
+
+  testWidgets("a partner's event says whose it is, with the ring's own "
+      'actions (D21)', (tester) async {
+    final page = AlarmPageRobot(tester);
+    await page.pumpPage(payload(fromPartner: true, partnerName: 'Ana'));
+
+    expect(page.title, l10n.shareAlertNoticeTitle('Leg day', 'Ana'));
+    expect(page.labelOf(AlarmAction.openEvent), l10n.alarmOpenEvent);
+
+    await page.pumpPage(payload(fromPartner: true));
+    expect(
+      page.title,
+      l10n.shareAlertNoticeTitle('Leg day', l10n.sharePartnerFallback),
+    );
   });
 
   testWidgets('every action is there, and Snooze names the payload length', (

@@ -27,13 +27,16 @@ import 'calendar_event.dart';
 /// snackbar's Undo would re-enable nothing), or the recurring event's
 /// occurrence is already cancelled — a notice sits on the shade for up to the
 /// lead time, long enough for the user to cancel that day from the day list,
-/// and then Undo would resurrect the occurrence they cancelled.
+/// and then Undo would resurrect the occurrence they cancelled. A partner's
+/// event too (D21): both writes are the partner's data, which the database
+/// turns into nothing, so the snackbar would announce a skip that never was.
 abstract final class AlertSkipAction {
   static ({CalendarPageEvent apply, CalendarPageEvent undo})? resolve({
     required CalendarEvent event,
     required AlertPayload payload,
     required DateTime today,
   }) {
+    if (event.fromPartner) return null;
     if (payload.dayUtc.isBefore(today)) return null;
     final alert = EventAlerts.effectiveFor(
       event,

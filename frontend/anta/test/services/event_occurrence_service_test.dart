@@ -6,6 +6,8 @@ import 'package:drift/drift.dart' hide isNull, isNotNull;
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:anta/constants/occurrence_descriptions.dart';
+import 'package:anta/database/daos/shared_row_dao.dart';
+import 'package:anta/database/daos/sync_dao.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/models/calendar_event.dart';
 import 'package:anta/models/recurrence_rule.dart';
@@ -349,6 +351,72 @@ void main() {
       // would leave dead rows for no one to merge with.
       expect(await allRows(), isEmpty);
       expect(OccurrenceDescriptions.overrideFor('e1', day), isNull);
+    });
+  });
+
+  // Share surfaces, slice A review finding 11: the bloc's guard reads its
+  // own state, so the service refuses on its own account — a write the
+  // fences turn into nothing must never reach the facade.
+  group("a partner's event", () {
+    /// `theirs`, with a text on [day] written while it was still mine, then
+    /// handed to the partner as the shared reader stores it.
+    Future<void> storeAsPartners() async {
+      await db.calendarEventDao.upsert(
+        CalendarEventsCompanion.insert(
+          id: 'theirs',
+          title: 'Night shift',
+          category: 'gym',
+          startDate: DateTime.utc(2026, 8, 1),
+          ruleKind: 'daily',
+          createdAt: DateTime.now(),
+          updatedAt: DateTime.now(),
+        ),
+      );
+      await service.setDescription('theirs', day, 'bring the keys');
+      await db.customStatement(
+        "UPDATE calendar_events SET owner_id = 'partner' WHERE id = 'theirs'",
+      );
+      await db.syncDao.setValue(SyncDao.keySharedOwner, 'partner');
+    }
+
+    test('writing a day is refused and publishes nothing', () async {
+      await storeAsPartners();
+
+      await expectLater(
+        service.setDescription('theirs', otherDay, 'mine'),
+        throwsA(isA<SharedRowException>()),
+      );
+
+      expect(OccurrenceDescriptions.overrideFor('theirs', otherDay), isNull);
+      expect(
+        OccurrenceDescriptions.overrideFor('theirs', day),
+        'bring the keys',
+      );
+    });
+
+    test('resetting a day is refused and publishes nothing', () async {
+      await storeAsPartners();
+
+      await expectLater(
+        service.clearDescription('theirs', day),
+        throwsA(isA<SharedRowException>()),
+      );
+
+      expect(
+        OccurrenceDescriptions.overrideFor('theirs', day),
+        'bring the keys',
+      );
+    });
+
+    test('my own event beside it writes as before', () async {
+      await storeAsPartners();
+
+      await service.setDescription('e1', day, 'squats felt heavy');
+
+      expect(
+        OccurrenceDescriptions.overrideFor('e1', day),
+        'squats felt heavy',
+      );
     });
   });
 }

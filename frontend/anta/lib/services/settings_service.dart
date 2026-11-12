@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:equatable/equatable.dart';
 import 'package:flutter/foundation.dart';
@@ -20,6 +21,7 @@ import '../models/overview_list_options.dart';
 import '../models/overview_period.dart';
 import '../models/report_cards.dart';
 import '../models/restore_location_mode.dart';
+import '../models/share_settings.dart';
 import 'sync/sync_cadence.dart';
 import '../models/sync_binding.dart';
 import '../database/database.dart';
@@ -141,6 +143,7 @@ class SettingsService {
     _opening = null;
     FastingCalendar.resetConfiguration();
     EventAlerts.configureDefaultDayMinute(null);
+    EventAlerts.configureShareAlerts(null);
   }
 
   /// Decoders take the raw stored string so a value can be resolved either
@@ -1321,13 +1324,16 @@ class SettingsService {
     SettingsKeys.calendarOverviewRows,
     SettingsKeys.hapticFeedback,
     SettingsKeys.markdownCustomColors,
+    SettingsKeys.shareEventLook,
+    SettingsKeys.shareMarkMine,
   ];
 
   /// Everything the calendar overview page needs before it can paint, in one
   /// statement — the appearance through the same decoder the calendar page
-  /// uses, the page's own settings, the haptic switch its jumps obey, and the
-  /// palette its detail sheets render descriptions in. [today] (date-only,
-  /// defaulting to the wall clock's) is what a stored `thisYear` means.
+  /// uses, the page's own settings, the haptic switch its jumps obey, the
+  /// palette its detail sheets render descriptions in, and how a partner's
+  /// events are drawn. [today] (date-only, defaulting to the wall clock's)
+  /// is what a stored `thisYear` means.
   Future<
     ({
       CalendarAppearance appearance,
@@ -1337,6 +1343,7 @@ class SettingsService {
       OverviewPeriod period,
       OverviewListOptions listOptions,
       bool hapticFeedback,
+      ShareLook share,
     })
   >
   getCalendarOverviewSettings({DateTime? today}) async {
@@ -1375,6 +1382,7 @@ class SettingsService {
         values[SettingsKeys.hapticFeedback],
         SettingsKeys.defaultHapticFeedback,
       ),
+      share: _decodeShareLook(values),
     );
   }
 
@@ -1821,6 +1829,9 @@ class SettingsService {
     SettingsKeys.calendarFastingOrthodoxGreatFasts,
     SettingsKeys.calendarFastingSchedule,
     SettingsKeys.calendarFastingWeekdays,
+    SettingsKeys.shareEventLook,
+    SettingsKeys.shareMarkMine,
+    SettingsKeys.shareAlerts,
   ];
 
   /// Decodes the alert bundle out of an already-read key/value map.
@@ -2132,10 +2143,15 @@ class SettingsService {
       bool fastingGreatFasts,
       FastingSchedule fastingSchedule,
       AlertSettings alerts,
+      ShareLook share,
     })
   >
   getCalendarPageSettings() async {
     final values = await _db.userSettingsDao.getValuesFor(_calendarPageKeys);
+    // The badges the page draws answer by it, as by the alert defaults.
+    EventAlerts.configureShareAlerts(
+      _decodeShareAlerts(values[SettingsKeys.shareAlerts]),
+    );
     return (
       appearance: _decodeCalendarAppearance(values),
       filters: CalendarGridFilters.decode(
@@ -2158,6 +2174,7 @@ class SettingsService {
         values[SettingsKeys.calendarFastingWeekdays],
       ),
       alerts: _publishAlertDefaults(_decodeAlertSettings(values)),
+      share: _decodeShareLook(values),
     );
   }
 
@@ -2395,6 +2412,85 @@ class SettingsService {
 
   Future<void> setOnboardingCompleted(bool value) async {
     await _setBool(SettingsKeys.onboardingCompleted, value);
+  }
+
+  // ── What a partner shares, as this phone shows it ─────────────────────
+  // `docs/cloud-share-surfaces-roadmap.md` §6.4, §6.7, §6.8. Read through
+  // `ShareService`; the looks also ride [getCalendarPageSettings] and
+  // [getCalendarOverviewSettings].
+
+  static ShareLook _decodeShareLook(Map<String, String> values) => ShareLook(
+    eventLook: ShareEventLook.fromName(
+      values[SettingsKeys.shareEventLook] ?? SettingsKeys.defaultShareEventLook,
+    ),
+    markMine: _decodeBool(
+      values[SettingsKeys.shareMarkMine],
+      SettingsKeys.defaultShareMarkMine,
+    ),
+  );
+
+  static ShareAlerts _decodeShareAlerts(String? raw) =>
+      ShareAlerts.fromName(raw ?? SettingsKeys.defaultShareAlerts);
+
+  /// How shared rows are drawn, in one statement.
+  Future<ShareLook> getShareLook() async => _decodeShareLook(
+    await _db.userSettingsDao.getValuesFor(const [
+      SettingsKeys.shareEventLook,
+      SettingsKeys.shareMarkMine,
+    ]),
+  );
+
+  Future<void> setShareEventLook(ShareEventLook look) =>
+      _db.userSettingsDao.setValue(SettingsKeys.shareEventLook, look.name);
+
+  Future<void> setShareMarkMine(bool value) =>
+      _setBool(SettingsKeys.shareMarkMine, value);
+
+  /// What may ring for a partner's event, published to [EventAlerts] as the
+  /// alert defaults are, so a badge answers by the value the scheduler armed
+  /// by.
+  Future<ShareAlerts> getShareAlerts() async {
+    final value = _decodeShareAlerts(
+      await _db.userSettingsDao.getValue(SettingsKeys.shareAlerts),
+    );
+    EventAlerts.configureShareAlerts(value);
+    return value;
+  }
+
+  /// Stores [value]; the caller asks the scheduler for the pass that arms
+  /// or cancels by it, as the Alert settings page does for its own options.
+  Future<void> setShareAlerts(ShareAlerts value) async {
+    await _db.userSettingsDao.setValue(SettingsKeys.shareAlerts, value.name);
+    EventAlerts.configureShareAlerts(value);
+  }
+
+  /// The partner's categories this phone does not show; empty when none is
+  /// hidden or the stored value cannot be read.
+  Future<Set<String>> getShareHiddenCategories() async {
+    final raw = await _db.userSettingsDao.getValue(
+      SettingsKeys.shareHiddenCategories,
+    );
+    if (raw == null || raw.isEmpty) return const {};
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! List) return const {};
+      return Set.unmodifiable(decoded.whereType<String>());
+    } on FormatException {
+      return const {};
+    }
+  }
+
+  /// Stores [ids], deleting the row when none is hidden so "never hidden"
+  /// and "hidden then shown again" leave the same absence.
+  Future<void> setShareHiddenCategories(Set<String> ids) async {
+    if (ids.isEmpty) {
+      await _db.userSettingsDao.deleteValue(SettingsKeys.shareHiddenCategories);
+      return;
+    }
+    await _db.userSettingsDao.setValue(
+      SettingsKeys.shareHiddenCategories,
+      jsonEncode(ids.toList()..sort()),
+    );
   }
 
   /// The cached pairing state for this database. A cache, not the truth: the

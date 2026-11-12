@@ -8,6 +8,7 @@ import 'package:intl/intl.dart' show DateFormat, toBeginningOfSentenceCase;
 import '../constants/alert_constants.dart';
 import '../constants/app_constants.dart';
 import '../constants/calendar_categories.dart';
+import '../constants/event_alerts.dart';
 import '../constants/event_digests.dart';
 import '../constants/row_metrics.dart';
 import '../constants/semantics_ids.dart';
@@ -15,6 +16,7 @@ import '../l10n/app_localizations.dart';
 import '../models/calendar_appearance.dart';
 import '../models/calendar_event.dart';
 import '../models/event_digest.dart';
+import '../models/share_settings.dart';
 import '../services/event_time_formatter.dart';
 import '../utils/alert_labels.dart';
 import '../utils/calendar_week_start.dart';
@@ -281,7 +283,8 @@ class _DigestEditorSheetState extends State<DigestEditorSheet> {
   /// The draft planned as the scheduler plans a digest — the allowlist and
   /// Also when empty applied by the planner itself, so the caption and the
   /// hub's rows agree — switched on, since an edit of a paused digest still
-  /// asks what it would send.
+  /// asks what it would send. A partner's events count under the setting the
+  /// last pass published, as the hub's rows count them (D20).
   PlannedDigest? _plan() {
     final plan = DigestPlanner.plan(
       digests: [_buildDraft().copyWith(enabled: true)],
@@ -289,6 +292,7 @@ class _DigestEditorSheetState extends State<DigestEditorSheet> {
       horizon: const DigestHorizon(perDigest: _captionLookahead, maxDigests: 1),
       now: _now,
       weekStart: widget.weekStart,
+      includePartner: EventAlerts.shareAlerts == ShareAlerts.category,
     );
     return plan.isEmpty ? null : plan.first;
   }

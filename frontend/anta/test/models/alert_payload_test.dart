@@ -389,6 +389,45 @@ void main() {
     });
   });
 
+  group("a partner's event (D21)", () {
+    const theirs = AlertPayload(
+      database: 'gym_notes',
+      eventId: 'e1',
+      alertId: 'a1',
+      dayUtcMs: 1789862400000,
+      osId: 1234,
+      mode: AlertMode.ring,
+      title: 'Leg day',
+      timeLabel: '18:00',
+      categoryId: 'gym',
+      fromPartner: true,
+      partnerName: 'Ana',
+    );
+
+    test('is written only when set, under its own short keys', () {
+      expect(payloadOf().toJson().containsKey('fp'), isFalse);
+      expect(payloadOf().toJson().containsKey('pn'), isFalse);
+      expect(theirs.toJson()['fp'], isTrue);
+      expect(theirs.toJson()['pn'], 'Ana');
+    });
+
+    test('survives the wire and a copy, and reads as mine when absent', () {
+      expect(AlertPayload.decode(theirs.encode()), theirs);
+      final moved = theirs.copyWith(osId: 9, snooze: true, fireAtMs: 1);
+      expect(moved.fromPartner, isTrue);
+      expect(moved.partnerName, 'Ana');
+      final older = AlertPayload.decode(payloadOf().encode())!;
+      expect(older.fromPartner, isFalse);
+      expect(older.partnerName, isNull);
+    });
+
+    test('a name of another type reads as none', () {
+      final map = theirs.toJson()..['pn'] = 7;
+      expect(AlertPayload.fromJson(map)!.partnerName, isNull);
+      expect(AlertPayload.fromJson(map)!.fromPartner, isTrue);
+    });
+  });
+
   // A digest (v42) is one more set of optional facts: an alert's payload
   // never carries them, and one written before them reads as no digest.
   group('a digest', () {

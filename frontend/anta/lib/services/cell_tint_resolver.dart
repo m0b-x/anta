@@ -46,6 +46,10 @@ class EventCellTintProvider implements CellTintProvider {
     CalendarEvent? top;
     var topMissed = false;
     for (final event in events) {
+      // The wash is the look of my day (D15): a partner's event claims none,
+      // so a day of theirs alone stays unwashed and a shared day washes as
+      // if theirs were absent, under every cell style.
+      if (event.fromPartner) continue;
       final missed =
           EventPresence.appliesTo(event) && EventPresence.isMissed(event, day);
       // A hidden missed occurrence is drawn nowhere else, so it must not be

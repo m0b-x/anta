@@ -7,6 +7,8 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:anta/constants/event_presence.dart';
 import 'package:anta/constants/event_skips.dart';
+import 'package:anta/database/daos/shared_row_dao.dart';
+import 'package:anta/database/daos/sync_dao.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/models/calendar_event.dart';
 import 'package:anta/models/recurrence_rule.dart';
@@ -318,6 +320,73 @@ void main() {
 
       expect(EventSkips.daysFor('e1'), isEmpty);
       expect(EventSkips.daysFor('e2'), {day});
+    });
+  });
+
+  // Share surfaces, slice A review finding 11: the bloc's guard reads its
+  // own state, so the service refuses on its own account — a write the
+  // fences turn into nothing must never reach the facade.
+  group("a partner's event", () {
+    /// `theirs`, cancelled on [day] while it was still mine, then handed to
+    /// the partner as the shared reader stores it.
+    Future<void> storeAsPartners() async {
+      await db.calendarEventDao.upsert(
+        CalendarEventsCompanion.insert(
+          id: 'theirs',
+          title: 'Night shift',
+          category: 'gym',
+          startDate: DateTime.utc(2026, 8, 1),
+          ruleKind: 'daily',
+          createdAt: DateTime.now(),
+          updatedAt: DateTime.now(),
+        ),
+      );
+      await service.markSkipped('theirs', day);
+      await db.customStatement(
+        "UPDATE calendar_events SET owner_id = 'partner' WHERE id = 'theirs'",
+      );
+      await db.syncDao.setValue(SyncDao.keySharedOwner, 'partner');
+    }
+
+    test('marking a day is refused and publishes nothing', () async {
+      await storeAsPartners();
+
+      await expectLater(
+        service.markSkipped('theirs', otherDay),
+        throwsA(isA<SharedRowException>()),
+      );
+
+      expect(EventSkips.daysFor('theirs'), {day});
+    });
+
+    test('a whole set is refused and publishes nothing', () async {
+      await storeAsPartners();
+
+      await expectLater(
+        service.setSkips('theirs', {otherDay}),
+        throwsA(isA<SharedRowException>()),
+      );
+
+      expect(EventSkips.daysFor('theirs'), {day});
+    });
+
+    test('restoring a day is refused and publishes nothing', () async {
+      await storeAsPartners();
+
+      await expectLater(
+        service.unskip('theirs', day),
+        throwsA(isA<SharedRowException>()),
+      );
+
+      expect(EventSkips.daysFor('theirs'), {day});
+    });
+
+    test('my own event beside it writes as before', () async {
+      await storeAsPartners();
+
+      await service.markSkipped('e1', otherDay);
+
+      expect(EventSkips.daysFor('e1'), {otherDay});
     });
   });
 }

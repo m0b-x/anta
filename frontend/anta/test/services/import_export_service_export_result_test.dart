@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 
 import 'package:anta/database/database.dart';
+import 'package:anta/models/calendar_event.dart';
 import 'package:anta/services/database_manager.dart';
 import 'package:anta/repositories/folder_repository.dart';
 import 'package:anta/repositories/note_repository.dart';
@@ -64,6 +65,27 @@ void main() {
 
   File write(String name) =>
       File(p.join(dir.path, name))..writeAsStringSync('payload');
+
+  test('a calendar export leaves a partner\'s events out, and counts only '
+      'mine (D19)', () async {
+    CalendarEvent eventOf(String id, {bool fromPartner = false}) =>
+        CalendarEvent(
+          id: id,
+          title: 'Title $id',
+          categoryId: 'general',
+          startDate: DateTime.utc(2026, 6, 1),
+          fromPartner: fromPartner,
+        );
+
+    final result = await service.exportCalendar(
+      events: [eventOf('mine'), eventOf('theirs', fromPartner: true)],
+    );
+
+    expect(result.eventsExported, 1);
+    final body = await File(result.filePath).readAsString();
+    expect(body, contains('Title mine'));
+    expect(body, isNot(contains('Title theirs')));
+  });
 
   test('every export is temporary, a kept file is not', () {
     expect(const ExportResult(filePath: 'a').isTemporary, isTrue);

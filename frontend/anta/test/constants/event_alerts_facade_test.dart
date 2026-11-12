@@ -7,6 +7,7 @@ import 'package:anta/models/calendar_event.dart';
 import 'package:anta/models/category_alert.dart';
 import 'package:anta/models/event_alert.dart';
 import 'package:anta/models/recurrence_rule.dart';
+import 'package:anta/models/share_settings.dart';
 
 /// `EventAlerts.effectiveFor` is what every reader of "what will this event
 /// do" moves to — the badges now, the planner, the hub and the editor later —
@@ -35,6 +36,7 @@ void main() {
   });
   tearDown(() {
     EventAlerts.resetCache();
+    EventAlerts.configureShareAlerts(null);
     CalendarCategories.updateCache(const []);
   });
 
@@ -43,6 +45,7 @@ void main() {
     String categoryId = 'birthday',
     bool categoryAlerts = true,
     EventTime? time,
+    bool fromPartner = false,
   }) => CalendarEvent(
     id: id,
     title: 'Ana',
@@ -51,6 +54,7 @@ void main() {
     rule: const OneTimeRecurrence(),
     categoryAlerts: categoryAlerts,
     time: time,
+    fromPartner: fromPartner,
   );
 
   void publish({
@@ -224,6 +228,84 @@ void main() {
       expect(effective.map((a) => a.id), ['o1']);
       expect(effective.single.categoryId, 'other');
       expect(EventAlerts.hasReminder(eventOf(categoryId: 'gone')), isTrue);
+    });
+
+    group("a partner's event under \"Category alerts too\" (§6.8)", () {
+      const otherAlert = CategoryAlert(
+        id: 'o1',
+        categoryId: 'other',
+        daysBefore: 1,
+      );
+
+      setUp(() => EventAlerts.configureShareAlerts(ShareAlerts.category));
+
+      test('in a category this phone does not hold inherits nothing, never '
+          "my Other's alerts; no badge promises one", () {
+        publish(
+          byCategory: {
+            'other': const [otherAlert],
+          },
+        );
+        final theirs = eventOf(categoryId: 'their-own', fromPartner: true);
+
+        expect(EventAlerts.effectiveFor(theirs), isEmpty);
+        expect(EventAlerts.effectiveFor(theirs, inherit: true), isEmpty);
+        expect(EventAlerts.inheritedFor(theirs), isEmpty);
+        expect(EventAlerts.inheritedFor(theirs, ignoreOptOut: true), isEmpty);
+        expect(EventAlerts.hasReminder(theirs), isFalse);
+      });
+
+      test('in a shared built-in inherits my alerts of that id', () {
+        publish(
+          byCategory: {
+            'birthday': const [dayBefore],
+            'other': const [otherAlert],
+          },
+        );
+        final theirs = eventOf(fromPartner: true);
+
+        expect(EventAlerts.effectiveFor(theirs).map((a) => a.id), ['c1']);
+        expect(EventAlerts.hasReminder(theirs), isTrue);
+      });
+
+      test("in the partner's category I hold inherits the alerts I keyed by "
+          'its id', () {
+        CalendarCategories.updateCache([
+          category('birthday', 0),
+          category('other', 1),
+          category('their-own', 2),
+        ]);
+        publish(
+          byCategory: {
+            'their-own': const [
+              CategoryAlert(id: 't1', categoryId: 'their-own', daysBefore: 2),
+            ],
+            'other': const [otherAlert],
+          },
+        );
+
+        expect(
+          EventAlerts.effectiveFor(
+            eventOf(categoryId: 'their-own', fromPartner: true),
+          ).map((a) => a.id),
+          ['t1'],
+        );
+      });
+
+      test('my own event with a dangling id still inherits Other\'s', () {
+        publish(
+          byCategory: {
+            'other': const [otherAlert],
+          },
+        );
+
+        expect(
+          EventAlerts.effectiveFor(
+            eventOf(categoryId: 'gone'),
+          ).map((a) => a.id),
+          ['o1'],
+        );
+      });
     });
 
     test('a timed event compares only its minutes before the start', () {

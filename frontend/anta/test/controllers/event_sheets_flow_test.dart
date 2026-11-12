@@ -28,8 +28,12 @@ import 'package:anta/services/sync/sync_binding_service.dart';
 import 'package:anta/utils/markdown_color_syntax.dart';
 import 'package:anta/utils/sheet_guard.dart';
 import 'package:anta/widgets/calendar_day_cell.dart';
+import 'package:anta/database/daos/sync_dao.dart';
+import 'package:anta/models/partner_look.dart';
 import 'package:anta/widgets/event_detail_sheet.dart';
+import 'package:anta/widgets/event_editor_sheet.dart';
 import 'package:anta/widgets/form_rows.dart';
+import 'package:anta/widgets/shared_event_sheet.dart';
 
 import '../database/support/db_test_support.dart';
 
@@ -418,6 +422,229 @@ void main() {
       expect(EventSkips.daysFor('dentist'), isEmpty);
       expect(EventPresence.marksFor('dentist'), isEmpty);
       expect(restores(), isEmpty, reason: 'no mark is invented');
+    });
+  });
+
+  // Share surfaces §6.9: both doors open a partner's event read, never the
+  // detail sheet or the form, and the read sheet follows the event.
+  group("a partner's event", () {
+    final day = DateTime.utc(2026, 9, 24);
+    final theirs = CalendarEvent(
+      id: 'theirs',
+      title: 'Night shift',
+      categoryId: 'gym',
+      startDate: day,
+      time: const EventTime(startMinute: 21 * 60),
+    );
+
+    late AppDatabase db;
+    late CalendarEventService service;
+
+    /// Runs [statement] on the shared row and lets the bloc re-read it, as
+    /// a pull would.
+    Future<void> pull(WidgetTester tester, String statement) async {
+      await tester.runAsync(() async {
+        // The reader's way past the fences, as the shared pull takes it.
+        await db.sharedRowDao.writing(() => db.customStatement(statement));
+        await service.reload();
+        await dispatch(const RefreshCalendarView());
+      });
+      await tester.pumpAndSettle();
+    }
+
+    CalendarEvent held() => (bloc.state as CalendarPageLoaded).allEvents
+        .firstWhere((event) => event.id == 'theirs');
+
+    Future<void> open(
+      WidgetTester tester,
+      Future<void> Function(EventSheetsFlow flow, BuildContext context) door,
+    ) async {
+      addTearDown(tester.view.reset);
+      tester.view.devicePixelRatio = 1.0;
+      tester.view.physicalSize = const Size(412, 915);
+      await tester.runAsync(() async {
+        db = await AppDatabase.getInstance();
+        service = await CalendarEventService.getInstance();
+        await service.upsert(theirs);
+        await db.customStatement(
+          "UPDATE calendar_events SET owner_id = 'partner' WHERE id = 'theirs'",
+        );
+        await db.syncDao.setValue(SyncDao.keySharedOwner, 'partner');
+        await service.reload();
+        await bloc.close();
+        bloc = CalendarBloc(service: service);
+        await dispatch(const LoadCalendarEvents());
+      });
+      addTearDown(() async {
+        await db.sharedRowDao.writing(
+          () => db.customStatement(
+            "UPDATE calendar_events SET owner_id = NULL, is_deleted = 1 "
+            "WHERE id = 'theirs'",
+          ),
+        );
+        await db.syncDao.deleteValue(SyncDao.keySharedOwner);
+        await service.reload();
+      });
+      expect(held().fromPartner, isTrue);
+      final flow = EventSheetsFlow(
+        guard: SheetGuard(),
+        appearance: () => const CalendarAppearance(),
+        palette: () => MarkdownColorPalette.presets,
+        keepsHeard: () => 0,
+        partnerLook: () => const PartnerLook(name: 'Maria'),
+      );
+      await tester.pumpWidget(
+        MultiBlocProvider(
+          providers: [
+            BlocProvider<CalendarBloc>.value(value: bloc),
+            BlocProvider<MarkdownBarBloc>.value(value: barBloc),
+          ],
+          child: MaterialApp(
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            locale: const Locale('en'),
+            home: Scaffold(
+              body: Builder(
+                builder: (context) => TextButton(
+                  onPressed: () => door(flow, context),
+                  child: const Text('open'),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('open'));
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 50)),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    void expectReadSheetOnly() {
+      expect(find.byType(SharedEventSheet), findsOneWidget);
+      expect(find.byType(EventDetailSheet), findsNothing);
+      expect(find.byType(EventEditorSheet), findsNothing);
+    }
+
+    /// Pops every sheet the door opened, so no route — and nothing it
+    /// listens to — outlives the test.
+    Future<void> closeSheets(WidgetTester tester) async {
+      tester
+          .state<NavigatorState>(find.byType(Navigator).first)
+          .popUntil((route) => route.isFirst);
+      await tester.pumpAndSettle();
+      expect(find.byType(SharedEventSheet), findsNothing);
+      expect(find.byType(EventDetailSheet), findsNothing);
+      expect(find.byType(EventEditorSheet), findsNothing);
+    }
+
+    testWidgets('the detail door opens the read sheet', (tester) async {
+      await open(
+        tester,
+        (flow, context) => flow.openDetail(context, held(), day),
+      );
+
+      expectReadSheetOnly();
+      expect(find.text('From Maria'), findsOneWidget);
+      await closeSheets(tester);
+    });
+
+    testWidgets('the editor door — a pencil, an alert path — opens the read '
+        'sheet too', (tester) async {
+      await open(
+        tester,
+        (flow, context) =>
+            flow.openEditor(context, initialEvent: held(), occurrenceDay: day),
+      );
+
+      expectReadSheetOnly();
+      await closeSheets(tester);
+    });
+
+    testWidgets('my own event still opens the detail sheet', (tester) async {
+      await open(
+        tester,
+        (flow, context) => flow.openDetail(context, edited, visibleDay),
+      );
+
+      expect(find.byType(EventDetailSheet), findsOneWidget);
+      expect(find.byType(SharedEventSheet), findsNothing);
+      await closeSheets(tester);
+    });
+
+    testWidgets('a change by the partner redraws the open sheet', (
+      tester,
+    ) async {
+      await open(
+        tester,
+        (flow, context) => flow.openDetail(context, held(), day),
+      );
+
+      await pull(
+        tester,
+        "UPDATE calendar_events SET title = 'Late shift' WHERE id = 'theirs'",
+      );
+
+      expect(find.text('Late shift'), findsOneWidget);
+      expectReadSheetOnly();
+      await closeSheets(tester);
+    });
+
+    testWidgets('when the event leaves, the sheet closes and says so once', (
+      tester,
+    ) async {
+      await open(
+        tester,
+        (flow, context) => flow.openDetail(context, held(), day),
+      );
+
+      await pull(
+        tester,
+        "UPDATE calendar_events SET is_deleted = 1 WHERE id = 'theirs'",
+      );
+
+      expect(find.byType(SharedEventSheet), findsNothing);
+      expect(find.text('Maria no longer shares this event'), findsOneWidget);
+    });
+
+    testWidgets('Copy to my calendar opens my copy in the editor and says '
+        'it is a copy', (tester) async {
+      await open(
+        tester,
+        (flow, context) => flow.openDetail(context, held(), day),
+      );
+
+      await tester.tap(
+        find.bySemanticsIdentifier(SemanticsIds.sharedEventCopy),
+      );
+      Iterable<CalendarEvent> copies() => service.events.where(
+        (event) => event.title == 'Night shift' && event.id != 'theirs',
+      );
+      // The copy is written on drift's isolate, then adopted by the bloc.
+      for (
+        var i = 0;
+        i < 100 && find.byType(EventEditorSheet).evaluate().isEmpty;
+        i++
+      ) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 20)),
+        );
+        await tester.pump();
+      }
+      await tester.pumpAndSettle();
+
+      expect(copies(), hasLength(1));
+      final copy = copies().single;
+      expect(copy.fromPartner, isFalse);
+      expect(find.byType(SharedEventSheet), findsNothing);
+      expect(find.byType(EventEditorSheet), findsOneWidget);
+      expect(
+        find.text('Copied. Later changes by Maria do not reach your copy.'),
+        findsOneWidget,
+      );
+      expect(held().title, 'Night shift', reason: "the partner's is untouched");
+      await closeSheets(tester);
     });
   });
 }

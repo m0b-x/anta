@@ -7,6 +7,7 @@ import '../constants/category_profiles.dart';
 import '../l10n/app_localizations.dart';
 import '../models/agenda_day_list.dart';
 import '../models/category_profile.dart';
+import '../models/partner_look.dart';
 import '../utils/mark_verb_labels.dart';
 import 'agenda_list_view.dart';
 import 'event_avatar.dart';
@@ -391,6 +392,9 @@ class AgendaDayListRowBuilder {
   /// missed, so a fade separates nothing and measured 2.17:1.
   final bool fadeMissed;
 
+  /// How a partner's entry and event rows are drawn, read once by the page.
+  final PartnerLook partnerLook;
+
   const AgendaDayListRowBuilder({
     required this.rows,
     required this.today,
@@ -408,6 +412,7 @@ class AgendaDayListRowBuilder {
     this.eventRowIdentifier,
     this.avatars = true,
     this.fadeMissed = true,
+    this.partnerLook = const PartnerLook(),
   });
 
   static bool _isItem(AgendaDayListRow row) =>
@@ -555,10 +560,17 @@ class AgendaDayListRowBuilder {
     final onTap = onEntryTap;
     final FormTrailingButton? trailing;
     if (onEdit != null && entry.editable) {
+      // On a partner's event the pencil stays, disabled (decision m), and
+      // dims through `disabledColor`, which its own colour would beat.
       trailing = FormTrailingButton(
         icon: Icons.edit_outlined,
         tooltip: l10n.upcomingEditEvent,
-        onPressed: () => onEdit(entry),
+        onPressed: entry.fromPartner ? null : () => onEdit(entry),
+        disabledColor: entry.fromPartner
+            ? Theme.of(context).colorScheme.outline.withValues(
+                alpha: FormMetrics.disabledOpacity,
+              )
+            : null,
       );
     } else if (onPresence != null && entry.presenceTracked) {
       trailing = FormTrailingButton(
@@ -577,9 +589,7 @@ class AgendaDayListRowBuilder {
     return _faded(
       fadeMissed && entry.missed,
       FormPickerRow(
-        leading: avatars
-            ? EventAvatar(icon: entry.icon, color: entry.color)
-            : const SizedBox.shrink(),
+        leading: avatars ? _avatar(l10n, entry) : const SizedBox.shrink(),
         label: entry.title,
         caption: entry.subtitle,
         captionMaxLines: captionMaxLines,
@@ -601,7 +611,7 @@ class AgendaDayListRowBuilder {
     final span = _eventSpan(l10n, row.first, row.last);
     final tap = onEventTap;
     return FormPickerRow(
-      leading: EventAvatar(icon: entry.icon, color: entry.color),
+      leading: _avatar(l10n, entry),
       label: entry.title,
       value: '${row.count}',
       caption: row.missed > 0
@@ -614,6 +624,16 @@ class AgendaDayListRowBuilder {
       showChevron: false,
     );
   }
+
+  /// The entry's look — a partner's in [partnerLook]'s, saying whose it is
+  /// first in the row's one node.
+  EventAvatar _avatar(AppLocalizations l10n, AgendaDayListEntry entry) =>
+      EventAvatar.ofRow(
+        icon: entry.icon,
+        color: entry.color,
+        partner: entry.fromPartner ? partnerLook : null,
+        l10n: l10n,
+      );
 
   /// The profile whose verb a missed row's button offers; a row without a
   /// category id says "present", as every row did before kinds.

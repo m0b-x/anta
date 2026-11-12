@@ -11,6 +11,7 @@ import 'package:anta/constants/calendar_categories.dart';
 import 'package:anta/constants/event_alerts.dart';
 import 'package:anta/constants/event_digests.dart';
 import 'package:anta/constants/form_metrics.dart';
+import 'package:anta/constants/row_metrics.dart';
 import 'package:anta/constants/semantics_ids.dart';
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/models/alert_hub_entry.dart';
@@ -22,14 +23,19 @@ import 'package:anta/models/category_alert.dart';
 import 'package:anta/models/event_alert.dart';
 import 'package:anta/models/event_digest.dart';
 import 'package:anta/models/nav_destination.dart';
+import 'package:anta/models/partner_look.dart';
 import 'package:anta/models/recurrence_rule.dart';
+import 'package:anta/models/share_settings.dart';
 import 'package:anta/pages/alerts_page.dart';
 import 'package:anta/services/alert_scheduler.dart';
 import 'package:anta/services/calendar_event_service.dart';
+import 'package:anta/services/day_summary_resolver.dart';
 import 'package:anta/services/event_digest_service.dart';
 import 'package:anta/services/permission_gateway.dart';
 import 'package:anta/services/permission_service.dart';
+import 'package:anta/utils/marker_contrast.dart';
 import 'package:anta/widgets/digest_editor_sheet.dart';
+import 'package:anta/widgets/user_avatar.dart';
 import 'package:intl/intl.dart';
 
 import '../services/permission_support.dart';
@@ -175,6 +181,7 @@ void main() {
     List<AlertHubEntry> Function() entries, {
     AlertHistoryLoader? loadRecent,
     DigestHubLoader? loadDigests,
+    PartnerLookLoader? loadPartnerLook,
     PermissionService? permissions,
     bool? use24HourFormat,
     TextScaler? textScaler,
@@ -209,6 +216,7 @@ void main() {
             loadEntries: () async => entries(),
             loadRecent: loadRecent,
             loadDigests: loadDigests,
+            loadPartnerLook: loadPartnerLook,
             permissions: permissions,
             weekStart: weekStart,
             afterDigestSaved:
@@ -563,6 +571,143 @@ void main() {
       );
     });
 
+    // §6.8: under "Category alerts too" a partner's event follows my
+    // category; the flag it carries is the partner's and is never read.
+    group('on a partner\'s event', () {
+      final theirs = CalendarEvent(
+        id: 'p1',
+        title: 'Night shift',
+        categoryId: 'gym',
+        startDate: fireDay,
+        rule: const OneTimeRecurrence(),
+        time: const EventTime(startMinute: 18 * 60),
+        categoryAlerts: false,
+        fromPartner: true,
+      );
+      final theirInherited = const CategoryAlert(
+        id: 'c1',
+        categoryId: 'gym',
+        offsetMinutes: 30,
+      ).toEventAlert('p1');
+
+      testWidgets('reads on and read-only whatever the partner\'s flag says', (
+        tester,
+      ) async {
+        holding([theirs]);
+        await pumpHub(
+          tester,
+          () => [entryOf(event: theirs, alert: theirInherited)],
+        );
+
+        final toggle = tester.widget<Switch>(find.byType(Switch));
+        expect(toggle.value, isTrue);
+        expect(toggle.onChanged, isNull);
+
+        await tester.tap(find.byType(Switch));
+        await tester.pump();
+
+        expect(tester.widget<Switch>(find.byType(Switch)).value, isTrue);
+        expect(observer.events.whereType<UpdateCalendarEvent>(), isEmpty);
+        expect(observer.events.whereType<ToggleEventAlert>(), isEmpty);
+      });
+
+      testWidgets('my own alert on it keeps its working switch', (
+        tester,
+      ) async {
+        const mine = EventAlert(
+          id: 'a2',
+          eventId: 'p1',
+          mode: AlertMode.ring,
+          offsetMinutes: 10,
+        );
+        await pumpHub(tester, () => [entryOf(event: theirs, alert: mine)]);
+
+        final toggle = tester.widget<Switch>(find.byType(Switch));
+        expect(toggle.value, isTrue);
+        expect(toggle.onChanged, isNotNull);
+
+        await tester.tap(find.byType(Switch));
+        await tester.pump();
+
+        expect(observer.events.whereType<ToggleEventAlert>(), hasLength(1));
+      });
+
+      testWidgets('its row says whose it is first; mine says its title', (
+        tester,
+      ) async {
+        final semantics = tester.ensureSemantics();
+        await pumpHub(
+          tester,
+          () => [
+            AlertHubEntry(
+              event: theirs,
+              alert: theirInherited,
+              day: fireDay,
+              fireAt: DateTime(fireDay.year, fireDay.month, fireDay.day, 17),
+              partnerName: 'Maria',
+            ),
+            entryOf(alert: inherited, hour: 17, minute: 30),
+          ],
+          loadRecent: () async {
+            final yesterday = DateTime.now().subtract(const Duration(days: 1));
+            AlertHistoryEntry recentOf(CalendarEvent event, int hour) =>
+                AlertHistoryEntry(
+                  event: event,
+                  alert: alarm,
+                  day: DateTime.utc(
+                    yesterday.year,
+                    yesterday.month,
+                    yesterday.day,
+                  ),
+                  fireAt: DateTime(
+                    yesterday.year,
+                    yesterday.month,
+                    yesterday.day,
+                    hour,
+                  ),
+                  settledAt: DateTime(
+                    yesterday.year,
+                    yesterday.month,
+                    yesterday.day,
+                    hour,
+                    1,
+                  ),
+                  outcome: AlertOutcome.rang,
+                  partnerName: event.fromPartner ? 'Maria' : null,
+                );
+            return [
+              recentOf(
+                CalendarEvent(
+                  id: 'p2',
+                  title: 'Late shift',
+                  categoryId: 'gym',
+                  startDate: fireDay,
+                  rule: const OneTimeRecurrence(),
+                  fromPartner: true,
+                ),
+                8,
+              ),
+              recentOf(eventOf(title: 'Swim'), 9),
+            ];
+          },
+        );
+
+        // Each row is one node, the card's: its title line is what changes.
+        Finder line(String text) => find.bySemanticsLabel(
+          RegExp('^${RegExp.escape(text)}\$', multiLine: true),
+        );
+        expect(line('From Maria, Night shift'), findsOneWidget);
+        expect(line('From Maria, Late shift'), findsOneWidget);
+        expect(line('Leg day'), findsOneWidget);
+        expect(line('Swim'), findsOneWidget);
+        expect(
+          find.bySemanticsLabel(RegExp('From Maria, (Leg day|Swim)')),
+          findsNothing,
+        );
+        semantics.dispose();
+      });
+    });
+
     testWidgets('its switch tells a screen reader what it means', (
       tester,
     ) async {
@@ -654,6 +799,35 @@ void main() {
       observer.events.whereType<DeleteCalendarEvent>().single.eventId,
       'e1',
     );
+  });
+
+  testWidgets("a partner's remove-after event has no long-press: the flag is "
+      "theirs, and their event not this phone's to cancel", (tester) async {
+    final removable = eventOf(removeAfterAlert: true);
+    await pumpHub(
+      tester,
+      () => [
+        entryOf(
+          event: CalendarEvent(
+            id: removable.id,
+            title: removable.title,
+            categoryId: removable.categoryId,
+            startDate: removable.startDate,
+            rule: removable.rule,
+            time: removable.time,
+            removeAfterAlert: true,
+            fromPartner: true,
+          ),
+        ),
+      ],
+      loadPartnerLook: () async => const PartnerLook(),
+    );
+
+    final row = find.ancestor(
+      of: find.text('Leg day'),
+      matching: find.byType(InkWell),
+    );
+    expect(tester.widget<InkWell>(row).onLongPress, isNull);
   });
 
   testWidgets('an ordinary event has no long-press at all', (tester) async {
@@ -1421,6 +1595,242 @@ void main() {
         find.byIcon(Icons.notifications_none_rounded),
       );
       expect(icon.dy, greaterThan(1800 / 3));
+    });
+  });
+
+  // Slice A2: a partner's row wears the look in its 20 dp glyph slot — the
+  // one thing on the row that keeps its size at every text scale — and the
+  // row's words and geometry stay mine.
+  group('a partner\'s glyph', () {
+    final theirs = CalendarEvent(
+      id: 'p1',
+      title: 'Night shift',
+      categoryId: 'gym',
+      startDate: fireDay,
+      rule: const OneTimeRecurrence(),
+      time: const EventTime(startMinute: 18 * 60),
+      fromPartner: true,
+    );
+    const myAlertOnTheirs = EventAlert(
+      id: 'a2',
+      eventId: 'p1',
+      mode: AlertMode.ring,
+      offsetMinutes: 10,
+    );
+    final yesterday = DateTime.now().subtract(const Duration(days: 1));
+
+    AlertHistoryEntry recentOf(CalendarEvent event, int hour) =>
+        AlertHistoryEntry(
+          event: event,
+          alert: alarm,
+          day: DateTime.utc(yesterday.year, yesterday.month, yesterday.day),
+          fireAt: DateTime(
+            yesterday.year,
+            yesterday.month,
+            yesterday.day,
+            hour,
+          ),
+          settledAt: DateTime(
+            yesterday.year,
+            yesterday.month,
+            yesterday.day,
+            hour,
+            1,
+          ),
+          outcome: AlertOutcome.rang,
+          partnerName: event.fromPartner ? 'Maria' : null,
+        );
+
+    AlertHubEntry theirEntry({bool enabled = true}) => AlertHubEntry(
+      event: theirs,
+      alert: myAlertOnTheirs.copyWith(enabled: enabled),
+      day: fireDay,
+      fireAt: DateTime(fireDay.year, fireDay.month, fireDay.day, 17, 50),
+      partnerName: 'Maria',
+    );
+
+    final lateShift = CalendarEvent(
+      id: 'p2',
+      title: 'Late shift',
+      categoryId: 'gym',
+      startDate: fireDay,
+      rule: const OneTimeRecurrence(),
+      time: const EventTime(startMinute: 20 * 60),
+      fromPartner: true,
+    );
+
+    Finder cardOf(String title) =>
+        find.ancestor(of: find.text(title), matching: find.byType(Card));
+
+    Finder inCard(String title, Type type) =>
+        find.descendant(of: cardOf(title), matching: find.byType(type));
+
+    /// The category glyphs a row draws, the ring's included.
+    List<Icon> glyphsOf(WidgetTester tester, String title) => tester
+        .widgetList<Icon>(inCard(title, Icon))
+        .where((icon) => icon.icon == CalendarCategories.iconFor(theirs))
+        .toList();
+
+    Color tintOf(CalendarEvent event) => EventSummaryProvider.colorFor(
+      event,
+      CalendarCategories.resolve(event.categoryId),
+    );
+
+    void phone(WidgetTester tester) {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(360, 2400);
+      addTearDown(tester.view.reset);
+    }
+
+    for (final scale in const [1.0, 2.0]) {
+      for (final look in ShareEventLook.values) {
+        testWidgets('${look.name} at $scale: the glyph slot takes the look on '
+            'the upcoming and the Recent row; heights and title places are '
+            'mine', (tester) async {
+          phone(tester);
+          final semantics = tester.ensureSemantics();
+          await pumpHub(
+            tester,
+            () => [entryOf(hour: 17, minute: 30), theirEntry()],
+            loadRecent: () async => [
+              recentOf(eventOf(title: 'Swim'), 8),
+              recentOf(lateShift, 9),
+            ],
+            loadPartnerLook: () async => PartnerLook(look: look, name: 'Maria'),
+            textScaler: TextScaler.linear(scale),
+            use24HourFormat: true,
+          );
+          final card = Theme.of(
+            tester.element(find.byType(AlertsPage)),
+          ).colorScheme.surfaceContainerLow;
+
+          for (final title in ['Night shift', 'Late shift']) {
+            final glyphs = glyphsOf(tester, title);
+            switch (look) {
+              case ShareEventLook.outlined:
+                final ink = MarkerContrast.atLeast(tintOf(theirs), card);
+                expect(glyphs.single.size, RowMetrics.shareRingIconSize);
+                expect(glyphs.single.color, ink);
+                expect(
+                  MarkerContrast.contrastRatio(
+                    ink.computeLuminance(),
+                    card.computeLuminance(),
+                  ),
+                  greaterThanOrEqualTo(MarkerContrast.hollowMinContrastRatio),
+                );
+                final ring = tester
+                    .widgetList<DecoratedBox>(inCard(title, DecoratedBox))
+                    .map((box) => box.decoration)
+                    .whereType<BoxDecoration>()
+                    .singleWhere((d) => d.shape == BoxShape.circle);
+                expect(
+                  (ring.border! as Border).top.width,
+                  FormMetrics.shareOutlineWidth,
+                );
+                expect(inCard(title, UserAvatar), findsNothing);
+              case ShareEventLook.avatar:
+                expect(glyphs, isEmpty);
+                expect(
+                  tester.getSize(inCard(title, UserAvatar)),
+                  const Size.square(20),
+                );
+              case ShareEventLook.plain:
+                expect(glyphs.single.size, 20);
+                expect(glyphs.single.color, tintOf(theirs));
+                expect(inCard(title, UserAvatar), findsNothing);
+            }
+          }
+          for (final title in ['Leg day', 'Swim']) {
+            expect(glyphsOf(tester, title).single.size, 20);
+            expect(glyphsOf(tester, title).single.color, tintOf(eventOf()));
+            expect(inCard(title, UserAvatar), findsNothing);
+          }
+          for (final (mine, their) in const [
+            ('Leg day', 'Night shift'),
+            ('Swim', 'Late shift'),
+          ]) {
+            expect(
+              tester.getSize(cardOf(their)).height,
+              tester.getSize(cardOf(mine)).height,
+            );
+            expect(
+              tester.getTopLeft(find.text(their)).dx,
+              tester.getTopLeft(find.text(mine)).dx,
+            );
+          }
+          // The glyph is decoration: the row's one node still says whose it
+          // is in its title line.
+          expect(
+            find.bySemanticsLabel(
+              RegExp(r'^From Maria, Night shift$', multiLine: true),
+            ),
+            findsOneWidget,
+          );
+          semantics.dispose();
+        });
+      }
+    }
+
+    testWidgets('a switched-off row dims its ring as it dims its words', (
+      tester,
+    ) async {
+      await pumpHub(
+        tester,
+        () => [theirEntry(enabled: false)],
+        loadPartnerLook: () async => const PartnerLook(),
+      );
+      final ring = glyphsOf(tester, 'Night shift').single;
+      expect(ring.size, RowMetrics.shareRingIconSize);
+      expect(ring.color!.a, moreOrLessEquals(0.5));
+    });
+
+    testWidgets('a hub with none of the partner\'s rows reads no look', (
+      tester,
+    ) async {
+      var reads = 0;
+      await pumpHub(
+        tester,
+        () => [entryOf()],
+        loadRecent: () async => [recentOf(eventOf(title: 'Swim'), 8)],
+        loadPartnerLook: () async {
+          reads++;
+          return const PartnerLook(look: ShareEventLook.avatar);
+        },
+      );
+      expect(reads, 0);
+      expect(find.byType(UserAvatar), findsNothing);
+      expect(glyphsOf(tester, 'Leg day').single.size, 20);
+    });
+
+    testWidgets('a partner\'s row under Recent alone reads the look once', (
+      tester,
+    ) async {
+      var reads = 0;
+      await pumpHub(
+        tester,
+        () => [entryOf()],
+        loadRecent: () async => [recentOf(lateShift, 9)],
+        loadPartnerLook: () async {
+          reads++;
+          return const PartnerLook(look: ShareEventLook.avatar);
+        },
+      );
+      expect(reads, 1);
+      expect(inCard('Late shift', UserAvatar), findsOneWidget);
+    });
+
+    testWidgets('a failed read draws the default Outlined look', (
+      tester,
+    ) async {
+      await pumpHub(
+        tester,
+        () => [theirEntry()],
+        loadPartnerLook: () async => throw StateError('no settings'),
+      );
+      expect(
+        glyphsOf(tester, 'Night shift').single.size,
+        RowMetrics.shareRingIconSize,
+      );
     });
   });
 }

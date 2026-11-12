@@ -127,6 +127,23 @@ class RowMetrics {
   /// the group's, where the group's own clip rounds it on an end row.
   static const double labelStripeRadius = 3.0;
 
+  /// The partner's face in the share badge an event avatar wears: a 20 dp
+  /// disc, large enough for a photo to read, small enough to sit on the
+  /// avatar's rim without reaching the title.
+  static const double partnerAvatarRadius = 10.0;
+
+  /// The share sign — the "mine" badge's glyph, and the bare glyph a row
+  /// without an event avatar carries.
+  static const double shareMarkSize = 14.0;
+
+  /// The category glyph inside a partner's 20 dp outlined ring on the Alerts
+  /// hub's rows: at [shareMarkSize] the glyph touched the 1.5 dp ring.
+  static const double shareRingIconSize = 12.0;
+
+  /// The `rowGroup` ring that parts the share badge from the avatar under
+  /// it; the badge's outer disc is `2 × (partnerAvatarRadius + this)`.
+  static const double shareBadgeHalo = 2.0;
+
   /// The bare descendant count on a folder or smart row.
   static const double countFontSize = 14.0;
 

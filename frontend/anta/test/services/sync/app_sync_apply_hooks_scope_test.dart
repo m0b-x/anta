@@ -207,8 +207,10 @@ void main() {
 
     expect(selectsOn('calendar_events'), hasLength(1));
     expect(selectsOn('calendar_event_absences'), hasLength(1));
-    // Every live service's whole table, once — eleven reads; the templates,
-    // presets and views are not live here, so none is built to be read.
+    // Every live service's whole table, once — eleven reads: no row names an
+    // owner, so the events never ask whose rows are a partner's; the
+    // templates, presets and views are not live here, so none is built to
+    // be read.
     expect(
       counter.selects,
       hasLength(11),

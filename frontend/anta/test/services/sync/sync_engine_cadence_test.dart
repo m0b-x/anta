@@ -116,6 +116,20 @@ void main() {
     expect(callsAfterPushOfB(), isEmpty);
   });
 
+  test('a share sent now pulls nothing: the marked row leaves, and only '
+      'it', () async {
+    await startManual();
+    await a().db.folderDao.createFolder(name: 'Shared');
+    await a().settle();
+    expect(await a().db.syncOutboxDao.count(), 1);
+
+    final report = await a().engine.pushNow();
+
+    expect(report.pushedRows, 1);
+    expect(await a().db.syncOutboxDao.count(), 0);
+    expect(pulls(), isEmpty);
+  });
+
   test('a local write shows in the status as a change waiting, with no run '
       'and no timer', () async {
     await startManual();

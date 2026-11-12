@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import '../constants/event_skips.dart';
 import '../constants/json_keys.dart';
 import '../database/daos/event_skip_dao.dart';
+import '../database/daos/shared_row_dao.dart';
 import '../database/database.dart';
 import '../database/database_lifecycle.dart';
 import 'event_presence_service.dart';
@@ -42,6 +43,7 @@ class EventSkipService {
   static int _generation = 0;
 
   late EventSkipDao _dao;
+  late SharedRowDao _shared;
 
   EventSkipService._();
 
@@ -94,6 +96,7 @@ class EventSkipService {
         if (overtaken()) return await restart();
         final service = EventSkipService._();
         service._dao = db.eventSkipDao;
+        service._shared = db.sharedRowDao;
         await service._load();
         if (overtaken()) return await restart();
         _instance = service;
@@ -251,6 +254,13 @@ class EventSkipService {
 
   // ── Mutations ────────────────────────────────────────────────────────
 
+  /// Throws `SharedRowException` for a partner's event before anything is
+  /// written: the fences turn its rows into nothing, and a facade that
+  /// published the write anyway would show a day nobody stored. The bloc
+  /// guards first, from its own state; this holds where that state lags.
+  Future<void> _ensureOwn(String eventId) =>
+      _shared.ensureOwn('calendar_events', eventId);
+
   /// Cancels this occurrence. Idempotent: the DAO no-ops on an already-live
   /// skip rather than churning the version.
   ///
@@ -260,6 +270,7 @@ class EventSkipService {
   /// would resurface it the moment the skip is undone. This is the one caller
   /// of the tombstoning path.
   Future<void> markSkipped(String eventId, DateTime day) async {
+    await _ensureOwn(eventId);
     final key = _dateOnlyUtc(day);
     await _dao.markSkipped(eventId, key);
     _writes++;
@@ -286,6 +297,7 @@ class EventSkipService {
   /// mark, and narrowing them on a published facade would miss a mark a pull
   /// has merged but not yet republished.
   Future<bool> setSkips(String eventId, Set<DateTime> next) async {
+    await _ensureOwn(eventId);
     final wanted = {for (final day in next) _dateOnlyUtc(day)};
     final current = _byEvent[eventId] ?? const <DateTime>{};
     final add = wanted.difference(current);
@@ -314,6 +326,7 @@ class EventSkipService {
   /// ordered record of the toggle — but drops out of the cache and the facade
   /// immediately.
   Future<void> unskip(String eventId, DateTime day) async {
+    await _ensureOwn(eventId);
     final key = _dateOnlyUtc(day);
     await _dao.unskip(eventId, key);
     _writes++;

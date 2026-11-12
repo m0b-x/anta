@@ -27,13 +27,20 @@ class DayBar extends Equatable implements ChainItem {
   /// Used as a tooltip / semantics label.
   final String semanticLabel;
 
+  /// Drawn by its outline alone, in the same box as a filled marker: a
+  /// partner's event under the Outlined look
+  /// (`docs/cloud-share-surfaces-roadmap.md` §6.7). Nothing moves, so a
+  /// cell's strip keeps its height whichever look is picked.
+  final bool hollow;
+
   const DayBar({
     required this.key,
     required this.color,
     required this.priority,
     required this.semanticLabel,
+    this.hollow = false,
   });
 
   @override
-  List<Object?> get props => [key, color, priority, semanticLabel];
+  List<Object?> get props => [key, color, priority, semanticLabel, hollow];
 }

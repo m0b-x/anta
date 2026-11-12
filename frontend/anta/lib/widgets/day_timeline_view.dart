@@ -1,16 +1,25 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
+import '../constants/app_colors.dart';
 import '../constants/app_spacing.dart';
 import '../constants/calendar_categories.dart';
 import '../constants/calendar_colors.dart';
 import '../constants/event_presence.dart';
+import '../constants/form_metrics.dart';
+import '../constants/row_metrics.dart';
 import '../l10n/app_localizations.dart';
+import '../models/app_user.dart';
 import '../models/calendar_appearance.dart';
 import '../models/calendar_event.dart';
+import '../models/partner_look.dart';
 import '../services/day_summary_resolver.dart';
 import '../services/event_time_formatter.dart';
 import '../utils/day_timeline_layout.dart';
+import '../utils/marker_contrast.dart';
 import 'agenda_list_view.dart';
+import 'user_avatar.dart';
 
 /// "Timeline" mode of the calendar's bottom panel: the selected day drawn as
 /// an hour grid, with each timed event occupying a block proportional to its
@@ -41,6 +50,10 @@ class DayTimelineView extends StatefulWidget {
   /// which no revision tracks — so with a reader the layout is never memoized.
   final bool Function(CalendarEvent event, DateTime dayUtc)? isMissed;
 
+  /// Who a partner's events are from and the look they are drawn in; their
+  /// words carry "From {name}" first in every look, the plain one included.
+  final PartnerLook partnerLook;
+
   const DayTimelineView({
     super.key,
     required this.day,
@@ -48,6 +61,7 @@ class DayTimelineView extends StatefulWidget {
     this.onEventTap,
     this.missedDisplay = CalendarMissedDisplay.faded,
     this.isMissed,
+    this.partnerLook = const PartnerLook(),
   });
 
   /// Vertical scale of the grid: logical pixels per hour.
@@ -58,6 +72,15 @@ class DayTimelineView extends StatefulWidget {
 
   /// Horizontal gap between two side-by-side overlapping blocks.
   static const double columnGap = 4;
+
+  /// Between a block's title and the partner's face at the title line's end
+  /// under the Avatar look.
+  static const double partnerFaceGap = 4;
+
+  /// The title width a block keeps before its partner's face is dropped: a
+  /// four-column overlap on a 360 dp phone would leave the title a few
+  /// letters beside the face.
+  static const double partnerFaceMinTitleWidth = 40;
 
   /// Smallest drawn block height, for a lower [hourHeight]: at this one the
   /// layout's floor of [DayTimelineLayout.minBlockMinutes] already draws
@@ -168,6 +191,7 @@ class _DayTimelineViewState extends State<DayTimelineView> {
         (layout.endHour - layout.startHour) * DayTimelineView.hourHeight;
     final nowMinute = _nowMinute();
     final blockText = _BlockText.of(context);
+    final partnerLabel = widget.partnerLook.label(l10n);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -186,7 +210,11 @@ class _DayTimelineViewState extends State<DayTimelineView> {
                         opacity: _isMissed(event)
                             ? CalendarColors.missedEventAlpha
                             : 1.0,
-                        child: _allDayChip(event),
+                        child: _allDayChip(
+                          event,
+                          event.fromPartner ? partnerLabel : null,
+                          event.fromPartner ? widget.partnerLook : null,
+                        ),
                       ),
                     ),
                 ],
@@ -248,6 +276,12 @@ class _DayTimelineViewState extends State<DayTimelineView> {
                                 block: block,
                                 color: _colorFor(block.event),
                                 text: blockText,
+                                fromPartner: block.event.fromPartner
+                                    ? partnerLabel
+                                    : null,
+                                look: block.event.fromPartner
+                                    ? widget.partnerLook
+                                    : null,
                                 onTap: switch (widget.onEventTap) {
                                   final onTap? => () => onTap(block.event),
                                   null => null,
@@ -283,18 +317,50 @@ class _DayTimelineViewState extends State<DayTimelineView> {
 
   /// An all-day event's chip. Without [DayTimelineView.onEventTap] it is a
   /// plain [Chip] in the same colours: a disabled `ActionChip` would grey
-  /// it out, and an inert stage is not a disabled one.
-  Widget _allDayChip(CalendarEvent event) {
-    final avatar = Icon(
-      CalendarCategories.iconFor(event),
-      size: 18,
-      color: EventSummaryProvider.colorFor(
-        event,
-        CalendarCategories.resolve(event.categoryId),
-      ),
+  /// it out, and an inert stage is not a disabled one. [fromPartner] is a
+  /// partner's event's "From {name}", read before its title, and [look] the
+  /// look it is drawn in; both null for mine.
+  ///
+  /// The Outlined chip keeps the chip's own 1.0 side, in the colour walked
+  /// against the panel's ground: a [FormMetrics.shareOutlineWidth] side grew
+  /// the chip a pixel and pushed the whole grid down at large text.
+  Widget _allDayChip(
+    CalendarEvent event,
+    String? fromPartner,
+    PartnerLook? look,
+  ) {
+    final ground = Theme.of(context).colorScheme.pageGround;
+    final outlined = look?.outlined ?? false;
+    final iconColor = EventSummaryProvider.colorFor(
+      event,
+      CalendarCategories.resolve(event.categoryId),
     );
-    final label = Text(event.title);
-    final background = _colorFor(event).withValues(alpha: 0.12);
+    final Widget avatar = look != null && look.avatar
+        // No room for a badge below the 40 dp avatar: the face takes the
+        // glyph's slot.
+        ? UserAvatar(
+            user: look.partner ?? const AppUser(uid: ''),
+            radius: RowMetrics.partnerAvatarRadius,
+          )
+        : Icon(
+            CalendarCategories.iconFor(event),
+            size: 18,
+            color: outlined
+                ? MarkerContrast.atLeast(iconColor, ground)
+                : iconColor,
+          );
+    final label = Text(
+      event.title,
+      semanticsLabel: fromPartner == null
+          ? null
+          : '$fromPartner, ${event.title}',
+    );
+    final background = outlined
+        ? Colors.transparent
+        : _colorFor(event).withValues(alpha: 0.12);
+    final side = outlined
+        ? BorderSide(color: MarkerContrast.atLeast(_colorFor(event), ground))
+        : null;
     final onTap = widget.onEventTap;
     if (onTap == null) {
       return Chip(
@@ -302,6 +368,7 @@ class _DayTimelineViewState extends State<DayTimelineView> {
         label: label,
         visualDensity: VisualDensity.compact,
         backgroundColor: background,
+        side: side,
       );
     }
     return ActionChip(
@@ -309,6 +376,7 @@ class _DayTimelineViewState extends State<DayTimelineView> {
       label: label,
       visualDensity: VisualDensity.compact,
       backgroundColor: background,
+      side: side,
       onPressed: () => onTap(event),
     );
   }
@@ -441,12 +509,31 @@ class _TimelineBlockCard extends StatelessWidget {
   /// Null leaves the block inert.
   final VoidCallback? onTap;
 
+  /// A partner's event's "From {name}", read first; null for mine.
+  final String? fromPartner;
+
+  /// The look a partner's event is drawn in; null for mine.
+  final PartnerLook? look;
+
   const _TimelineBlockCard({
     required this.block,
     required this.color,
     required this.text,
     required this.onTap,
+    this.fromPartner,
+    this.look,
   });
+
+  static const double _radius = 6;
+
+  /// The content width under which the partner's face is dropped.
+  static const double _faceMinContentWidth =
+      _faceSize + DayTimelineView.partnerFaceMinTitleWidth;
+
+  static const double _faceSize = 2 * RowMetrics.partnerAvatarRadius;
+
+  /// The title's end padding that keeps it clear of the face.
+  static const double _faceRoom = _faceSize + DayTimelineView.partnerFaceGap;
 
   @override
   Widget build(BuildContext context) {
@@ -454,30 +541,104 @@ class _TimelineBlockCard extends StatelessWidget {
       block.event.time!,
       context,
     );
+    final outlined = look?.outlined ?? false;
+    // The ring is the block's only coloured mark, so it takes the graphics
+    // floor against the panel's ground the block shows through.
+    final ring = outlined
+        ? BorderSide(
+            color: MarkerContrast.atLeast(
+              color,
+              Theme.of(context).colorScheme.pageGround,
+            ),
+            width: FormMetrics.shareOutlineWidth,
+          )
+        : null;
 
     // One node whichever lines are drawn: a block too short for its time row
     // still says when the event is.
     return Semantics(
-      label: '${block.event.title}, $time',
+      label: [?fromPartner, block.event.title, time].join(', '),
       button: onTap != null,
+      // The ring is painted on the Material's foreground, so the text inside
+      // keeps the place it has on my blocks.
       child: Material(
-        color: color.withValues(alpha: 0.16),
-        borderRadius: BorderRadius.circular(6),
+        color: outlined ? Colors.transparent : color.withValues(alpha: 0.16),
+        borderRadius: ring == null ? BorderRadius.circular(_radius) : null,
+        shape: ring == null
+            ? null
+            : RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(_radius),
+                side: ring,
+              ),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: onTap,
           child: Container(
             decoration: BoxDecoration(
-              border: Border(left: BorderSide(color: color, width: 3)),
+              // The stripe's lane stays under the Outlined look, unpainted,
+              // so the text does not move: a filled mark on a hollow block
+              // would read as mine.
+              border: Border(
+                left: BorderSide(
+                  color: outlined ? Colors.transparent : color,
+                  width: 3,
+                ),
+              ),
             ),
             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
             child: LayoutBuilder(
               builder: (context, constraints) => ExcludeSemantics(
-                child: _content(time, constraints.maxHeight),
+                child: _content(
+                  time,
+                  constraints.maxHeight,
+                  _faceFor(constraints.maxWidth),
+                ),
               ),
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  /// The partner's face under the Avatar look, where the block is wide
+  /// enough to keep a readable title beside it; never dropped for height,
+  /// since the shortest block still has a 20 dp line of room.
+  Widget? _faceFor(double width) {
+    final look = this.look;
+    if (look == null || !look.avatar || width < _faceMinContentWidth) {
+      return null;
+    }
+    return UserAvatar(
+      user: look.partner ?? const AppUser(uid: ''),
+      radius: RowMetrics.partnerAvatarRadius,
+    );
+  }
+
+  /// [title] with [face] centred on its first line at the line's end. The
+  /// title keeps its own top, so it sits where my block draws it, and the
+  /// face may overhang the block's vertical padding on a line shorter than
+  /// the face.
+  Widget _withFace(Widget title, Widget? face, double room) {
+    if (face == null) return title;
+    final line = math.min(text.scaledTitleLine, room);
+    return SizedBox(
+      width: double.infinity,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          Padding(
+            padding: const EdgeInsetsDirectional.only(end: _faceRoom),
+            child: title,
+          ),
+          PositionedDirectional(
+            end: 0,
+            top: (line - _faceSize) / 2,
+            width: _faceSize,
+            height: _faceSize,
+            child: face,
+          ),
+        ],
       ),
     );
   }
@@ -487,12 +648,16 @@ class _TimelineBlockCard extends StatelessWidget {
   /// clamped to the largest at which a title line fits [room], since a
   /// taller line in a shorter box shears its letters off at the bottom —
   /// and the time row only where both lines fit.
-  Widget _content(String time, double room) {
-    final title = Text(
-      block.event.title,
-      maxLines: 1,
-      overflow: TextOverflow.ellipsis,
-      style: text.titleStyle,
+  Widget _content(String time, double room, Widget? face) {
+    final title = _withFace(
+      Text(
+        block.event.title,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: text.titleStyle,
+      ),
+      face,
+      room,
     );
     if (text.scaledTitleLine > room) {
       return MediaQuery.withClampedTextScaling(

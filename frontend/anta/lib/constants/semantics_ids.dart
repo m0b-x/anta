@@ -878,6 +878,13 @@ abstract final class SemanticsIds {
   static const String eventDetailDates = 'event-detail-dates';
   static const String eventDetailNote = 'event-detail-note';
 
+  /// The read sheet of a partner's event (share surfaces §6.15): its root,
+  /// so a flow can tell it from the detail sheet whose rows it reuses, and
+  /// its two actions, whose labels change with the locale.
+  static const String sharedEventSheet = 'shared-event-sheet';
+  static const String sharedEventAddAlert = 'shared-event-add-alert';
+  static const String sharedEventCopy = 'shared-event-copy';
+
   /// A day-panel or agenda row standing for one event, keyed by the event's
   /// id — a title is ambiguous because every marked day cell's marker label
   /// carries it too, and a seeded event's id is stable (`qa-cal-lift`).

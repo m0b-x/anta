@@ -1,7 +1,9 @@
 import '../models/calendar_event.dart';
 import '../models/category_alert.dart';
 import '../models/event_alert.dart';
+import '../models/share_settings.dart';
 import 'calendar_categories.dart';
+import 'settings_keys.dart';
 
 /// Minute of day an all-day alert fires at when it carries no [dayMinute] of
 /// its own — 09:00, which is what Apple and Google both default to.
@@ -72,6 +74,11 @@ abstract final class EventAlerts {
   static Map<String, List<CategoryAlert>> _byCategory = const {};
   static int _revision = 0;
   static int _defaultDayMinute = kDefaultAlertDayMinute;
+  static ShareAlerts _shareAlerts = _shippedShareAlerts;
+
+  static final ShareAlerts _shippedShareAlerts = ShareAlerts.fromName(
+    SettingsKeys.defaultShareAlerts,
+  );
 
   /// Minute of day an all-day alert with no `dayMinute` of its own fires at —
   /// the Calendar-settings default, published by `SettingsService` whenever it
@@ -88,6 +95,19 @@ abstract final class EventAlerts {
     final next = minute ?? kDefaultAlertDayMinute;
     if (next == _defaultDayMinute) return;
     _defaultDayMinute = next;
+    _revision++;
+  }
+
+  /// What may ring for a partner's event (D13) — published by
+  /// `SettingsService` whenever it reads or writes the setting, so the
+  /// badges answer by the value the scheduler's last pass read.
+  static ShareAlerts get shareAlerts => _shareAlerts;
+
+  /// `null` is the shipped value.
+  static void configureShareAlerts(ShareAlerts? value) {
+    final next = value ?? _shippedShareAlerts;
+    if (next == _shareAlerts) return;
+    _shareAlerts = next;
     _revision++;
   }
 
@@ -144,7 +164,8 @@ abstract final class EventAlerts {
   /// `CalendarCategories.resolve` — an id that no longer resolves is `other`,
   /// whether it went stale through a `deleteCategory` reassignment the event
   /// cache has not re-read yet or through a restore that lacked the category,
-  /// so an event drawn as Other inherits Other's alerts.
+  /// so an event drawn as Other inherits Other's alerts. A partner's event is
+  /// the exception: its raw id, never Other (see [_categoryAlertsOf]).
   ///
   /// An inherited alert that would fire at the same instant as one of the
   /// event's own is dropped (D4): the own one wins, with its id and its sound,
@@ -154,9 +175,19 @@ abstract final class EventAlerts {
   ///
   /// The own list is handed back as is when nothing is inherited, so the
   /// common event costs two map probes and no allocation.
-  static List<EventAlert> effectiveFor(CalendarEvent event) {
+  ///
+  /// [inherit] says whether the category's alerts reach the event at all —
+  /// the scheduler's answer from [ShareAlerts.inheritsOn], under the setting
+  /// it read for its pass. Omitted, the published [shareAlerts] answers the
+  /// same predicate, so a badge and the pass agree; under it a partner's
+  /// event may arm nothing at all, and has nothing here.
+  static List<EventAlert> effectiveFor(CalendarEvent event, {bool? inherit}) {
+    final reach = inherit ?? _shareAlerts.inheritsOn(event);
+    if (reach == null) return const <EventAlert>[];
     final own = alertsFor(event.id);
-    final inherited = _inheritedBy(event);
+    final inherited = reach
+        ? _categoryAlertsOf(event)
+        : const <CategoryAlert>[];
     if (inherited.isEmpty) return own;
     return List.unmodifiable([
       ...own,
@@ -178,7 +209,7 @@ abstract final class EventAlerts {
     bool ignoreOptOut = false,
   }) {
     final inherited = ignoreOptOut
-        ? categoryAlertsFor(CalendarCategories.resolve(event.categoryId).id)
+        ? _categoryAlertsOf(event)
         : _inheritedBy(event);
     if (inherited.isEmpty) return const <EventAlert>[];
     final ownAlerts = own ?? alertsFor(event.id);
@@ -202,11 +233,14 @@ abstract final class EventAlerts {
   /// [effectiveFor]'s answer without building its list: a badge asks this for
   /// every row it draws.
   static bool _anyEnabled(CalendarEvent event, AlertMode mode) {
+    final reach = _shareAlerts.inheritsOn(event);
+    if (reach == null) return false;
     final own = alertsFor(event.id);
     for (final alert in own) {
       if (alert.enabled && alert.mode == mode) return true;
     }
-    for (final alert in _inheritedBy(event)) {
+    if (!reach) return false;
+    for (final alert in _categoryAlertsOf(event)) {
       if (alert.enabled &&
           alert.mode == mode &&
           !_shadowed(alert, own, event)) {
@@ -216,11 +250,29 @@ abstract final class EventAlerts {
     return false;
   }
 
-  /// The alerts [event] inherits: its resolved category's, or none when it
-  /// opted out.
+  /// The alerts [event] inherits: its resolved category's, or none when the
+  /// published [shareAlerts] says they do not reach it — my own event opted
+  /// out, or a partner's under anything but [ShareAlerts.category].
   static List<CategoryAlert> _inheritedBy(CalendarEvent event) {
-    if (!event.categoryAlerts) return const <CategoryAlert>[];
-    return categoryAlertsFor(CalendarCategories.resolve(event.categoryId).id);
+    if (_shareAlerts.inheritsOn(event) != true) return const <CategoryAlert>[];
+    return _categoryAlertsOf(event);
+  }
+
+  /// [event]'s category's alerts, whatever reaches the event.
+  ///
+  /// My own event resolves as it is drawn. A partner's is taken by its raw
+  /// id (§6.8): an id this phone holds — mine, a shared built-in, or the
+  /// partner's stored category — gives the alerts I keyed by it; an id it
+  /// does not hold gives nothing, because resolving it would ring my Other's
+  /// alerts on an event I never filed there.
+  static List<CategoryAlert> _categoryAlertsOf(CalendarEvent event) {
+    if (!event.fromPartner) {
+      return categoryAlertsFor(CalendarCategories.resolve(event.categoryId).id);
+    }
+    if (CalendarCategories.byId(event.categoryId) == null) {
+      return const <CategoryAlert>[];
+    }
+    return categoryAlertsFor(event.categoryId);
   }
 
   /// Whether one of [own] fires at the instant [inherited] would on [event]

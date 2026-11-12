@@ -22,6 +22,7 @@ import '../models/calendar_event.dart';
 import '../models/calendar_report.dart';
 import '../models/event_alert.dart';
 import '../models/recurrence_rule.dart';
+import '../models/share_settings.dart';
 import '../utils/alert_excerpt.dart';
 import '../utils/alert_os_id.dart';
 import '../utils/alert_planner.dart';
@@ -104,17 +105,32 @@ typedef AllAlertsReconciler =
 /// later pass repaired it — the fast path skipped an entry whose signature had
 /// not moved. All three are the scheduler's once-per-pass settings values,
 /// never a read of the gateway's own.
+///
+/// A partner's event appends `~p` and a hash of [partnerName], in both
+/// tiers (D21): its entry names the partner and drops Skip and "remove after
+/// it rings", so a name published later, or the row becoming one of mine
+/// under the same id, has to re-arm it. My own events append nothing — their
+/// tokens stay exactly what earlier builds recorded, so nothing re-arms for it.
 String alertArmSignature({
   required String context,
   required PlannedFire fire,
   required int snoozeMinutes,
   required int noticeLeadMinutes,
   required int silenceAfterMinutes,
+  String? partnerName,
 }) {
-  if (fire.alert.mode != AlertMode.ring) return context;
-  final sound = fire.sound.stored ?? AlertSound.systemDefaultValue;
-  return '$context#$sound$kAlertArmClockToken~$snoozeMinutes'
-      '~n$noticeLeadMinutes~s$silenceAfterMinutes';
+  final String armed;
+  if (fire.alert.mode != AlertMode.ring) {
+    armed = context;
+  } else {
+    final sound = fire.sound.stored ?? AlertSound.systemDefaultValue;
+    armed =
+        '$context#$sound$kAlertArmClockToken~$snoozeMinutes'
+        '~n$noticeLeadMinutes~s$silenceAfterMinutes';
+  }
+  if (!fire.event.fromPartner) return armed;
+  if (partnerName == null) return '$armed~p';
+  return '$armed~p#${fnv1a32(partnerName).toRadixString(16)}';
 }
 
 /// What a digest entry is armed **under**: the pass's [context] and a hash of
@@ -208,6 +224,12 @@ class AlertScheduler {
   /// through — a seam so a test can prove a fold that throws costs one
   /// digest its numbers, never the pass.
   late final CalendarReportService Function() _reportService;
+
+  /// The partner's name as the pairing last stored it, read by the turn of
+  /// the chain that is about to write a partner's event's entry (D21) — from
+  /// settings, never fetched: a pass runs with no network and no UI. Null
+  /// while no partner's event is held, or when they never published a name.
+  String? _partnerName;
 
   /// Tail of the serialized write chain, or null when nothing is in flight.
   ///
@@ -688,9 +710,12 @@ class AlertScheduler {
 
     final CalendarEventService eventService;
     final AlertSettings settings;
+    final ShareAlerts shareAlerts;
     try {
       eventService = await CalendarEventService.getInstance();
-      settings = await (await SettingsService.getInstance()).getAlertSettings();
+      final settingsService = await SettingsService.getInstance();
+      settings = await settingsService.getAlertSettings();
+      shareAlerts = await settingsService.getShareAlerts();
     } catch (e) {
       debugPrint('[AlertScheduler] hub setup failed: $e');
       return const [];
@@ -700,6 +725,7 @@ class AlertScheduler {
     final events = eventService.events;
     final eventsById = {for (final event in events) event.id: event};
     final entries = <AlertHubEntry>[];
+    final partnerName = await _hubPartnerName(events);
 
     for (final row in await _dao.pending()) {
       // Listed through [digestEntries] instead: a digest has no event.
@@ -710,6 +736,15 @@ class AlertScheduler {
       if (event == null) continue;
       final alert = _alertOf(row.eventId, row.alertId, event: event);
       if (alert == null) continue;
+      // The pass's predicate on a partner's event: a row armed before the
+      // setting moved is cancelled by the next reconcile and is no row here
+      // meanwhile, so the hub never lists what will not ring.
+      if (event.fromPartner) {
+        final inherit = shareAlerts.inheritsOn(event);
+        if (inherit == null || (alert.categoryId != null && !inherit)) {
+          continue;
+        }
+      }
       final day = DateTime.fromMillisecondsSinceEpoch(row.day, isUtc: true);
       final snoozed = AlertKind.fromName(row.kind) == AlertKind.snooze;
       // Switched off a moment ago, and the reconcile that cancels this row has
@@ -730,6 +765,7 @@ class AlertScheduler {
                 )
               : null,
           snoozeOsId: snoozed ? row.osId : null,
+          partnerName: event.fromPartner ? partnerName : null,
         ),
       );
     }
@@ -739,7 +775,10 @@ class AlertScheduler {
     final disabled = <String, EventAlert>{};
     final imagined = <String, List<EventAlert>>{};
     for (final event in events) {
-      for (final alert in EventAlerts.effectiveFor(event)) {
+      // The pass's predicate: what cannot arm is no row to switch on here.
+      final inherit = shareAlerts.inheritsOn(event);
+      if (inherit == null) continue;
+      for (final alert in EventAlerts.effectiveFor(event, inherit: inherit)) {
         if (alert.enabled) continue;
         // A category alert paused in the category editor (D5) has no switch
         // here: the row's switch is the event's opt-out, and it would read
@@ -752,8 +791,9 @@ class AlertScheduler {
       }
       // An event opted out of its category's alerts keeps their rows with
       // the switch off — the event's flag — or switching one off in the hub
-      // would be a one-way door.
-      if (event.categoryAlerts) continue;
+      // would be a one-way door. A partner's event has no such switch here:
+      // the one it carries is the partner's.
+      if (event.fromPartner || event.categoryAlerts) continue;
       for (final alert in EventAlerts.inheritedFor(event, ignoreOptOut: true)) {
         if (!alert.enabled) continue;
         disabled['${event.id}|${alert.id}'] = alert;
@@ -779,6 +819,7 @@ class AlertScheduler {
             alert: disabled['${fire.event.id}|${fire.alert.id}']!,
             day: fire.day,
             fireAt: fire.fireAt,
+            partnerName: fire.event.fromPartner ? partnerName : null,
           ),
         );
       }
@@ -792,6 +833,21 @@ class AlertScheduler {
       return a.alert.id.compareTo(b.alert.id);
     });
     return entries;
+  }
+
+  /// The name a partner's rows in the hub say "From {name}" by, read only
+  /// when one of [events] is a partner's; a failed read leaves the stand-in.
+  /// Never the pass's [_partnerName]: the hub reads outside the chain that
+  /// writes it.
+  static Future<String?> _hubPartnerName(Iterable<CalendarEvent> events) async {
+    if (!events.any((event) => event.fromPartner)) return null;
+    try {
+      final settings = await SettingsService.getInstance();
+      return (await settings.getPairingSettings()).partnerName;
+    } catch (e, st) {
+      debugPrint('[AlertScheduler] hub partner name failed: $e\n$st');
+      return null;
+    }
   }
 
   /// [hubEntries] for a page that holds no scheduler, swallowing every failure
@@ -835,6 +891,16 @@ class AlertScheduler {
     } catch (e) {
       debugPrint('[AlertScheduler] digest entries week start failed: $e');
     }
+    // The pass's reach over a partner's events (D20), so a row counts what
+    // is armed; unreadable, the shipped value, which lists none of them.
+    var includePartner = false;
+    try {
+      includePartner =
+          await (await SettingsService.getInstance()).getShareAlerts() ==
+          ShareAlerts.category;
+    } catch (e) {
+      debugPrint('[AlertScheduler] digest entries share alerts failed: $e');
+    }
     final digests = EventDigests.all;
     final events = eventService.events;
     final now = _clock();
@@ -844,6 +910,7 @@ class AlertScheduler {
       horizon: kDigestHorizon,
       now: now,
       weekStart: weekStart,
+      includePartner: includePartner,
     );
     final disabled = [
       for (final digest in digests)
@@ -862,6 +929,7 @@ class AlertScheduler {
             ),
             now: now,
             weekStart: weekStart,
+            includePartner: includePartner,
           );
     final disabledById = {for (final digest in disabled) digest.id: digest};
     final entries = [
@@ -920,6 +988,7 @@ class AlertScheduler {
     final eventsById = {
       for (final event in eventService.events) event.id: event,
     };
+    final partnerName = await _hubPartnerName(eventService.events);
     final rows = await _dao.recent(
       since: now.subtract(kAlertRegistrationRetention),
     );
@@ -967,6 +1036,7 @@ class AlertScheduler {
           fireAt: DateTime.fromMillisecondsSinceEpoch(row.fireAt),
           settledAt: row.updatedAt,
           outcome: _outcomeOf(row, alert),
+          partnerName: event != null && event.fromPartner ? partnerName : null,
         ),
       );
     }
@@ -1088,6 +1158,7 @@ class AlertScheduler {
               snoozeMinutes: settings.snoozeMinutes,
               noticeLeadMinutes: settings.noticeLeadMinutes,
               silenceAfterMinutes: settings.silenceAfterMinutes,
+              partnerName: payload.partnerName,
             ),
           ),
           createdAt: Value(now),
@@ -1170,12 +1241,14 @@ class AlertScheduler {
 
     final CalendarEventService eventService;
     final AlertSettings settings;
+    final ShareAlerts shareAlerts;
     final CalendarWeekStart weekStart;
     final SettingsService settingsService;
     try {
       eventService = await CalendarEventService.getInstance();
       settingsService = await SettingsService.getInstance();
       settings = await settingsService.getAlertSettings();
+      shareAlerts = await settingsService.getShareAlerts();
       weekStart = await settingsService.getCalendarWeekStart();
     } catch (e) {
       debugPrint('[AlertScheduler] reconcile(${reason.name}) setup failed: $e');
@@ -1229,11 +1302,16 @@ class AlertScheduler {
 
     final events = eventService.events;
     final eventsById = {for (final event in events) event.id: event};
+    await _readPartnerName(settingsService, events);
     // Inherited alerts included (D2): the planner plans a category's alert on
-    // each of its events as it plans the event's own.
+    // each of its events as it plans the event's own. A partner's event arms
+    // what [ShareAlerts.inheritsOn] lets through and nothing else (D13); an
+    // entry armed before it left that reach is cancelled by the diff below.
     final alertsByEvent = <String, List<EventAlert>>{};
     for (final event in events) {
-      final alerts = EventAlerts.effectiveFor(event);
+      final inherit = shareAlerts.inheritsOn(event);
+      if (inherit == null) continue;
+      final alerts = EventAlerts.effectiveFor(event, inherit: inherit);
       if (alerts.isNotEmpty) alertsByEvent[event.id] = alerts;
     }
 
@@ -1278,7 +1356,9 @@ class AlertScheduler {
       horizon: kDigestHorizon,
       now: now,
       weekStart: weekStart,
+      includePartner: shareAlerts == ShareAlerts.category,
     );
+    final partnerName = await _partnerNameFor(digestPlan, settingsService);
     // One per pass (D30): the report digests' folds share its memo, and it
     // dies with the pass, so no fold outlives the data it was read from.
     CalendarReportService? reports;
@@ -1327,6 +1407,7 @@ class AlertScheduler {
             snoozeMinutes: settings.snoozeMinutes,
             noticeLeadMinutes: settings.noticeLeadMinutes,
             silenceAfterMinutes: settings.silenceAfterMinutes,
+            partnerName: _partnerName,
           );
           arm = () => _gateway.schedule(
             planned,
@@ -1343,6 +1424,7 @@ class AlertScheduler {
             osId,
             weekStart,
             currency: currency,
+            partnerName: partnerName,
             report: planned.digest.cadence.isReport
                 ? _closedReport(
                     planned,
@@ -1876,8 +1958,8 @@ class AlertScheduler {
         );
         await _resolveQuietly(CategoryService.getInstance(), 'categories');
         final eventService = await CalendarEventService.getInstance();
-        final alertSettings = await (await SettingsService.getInstance())
-            .getAlertSettings();
+        final settingsService = await SettingsService.getInstance();
+        final alertSettings = await settingsService.getAlertSettings();
         snoozeMinutes = alertSettings.snoozeMinutes;
         noticeLeadMinutes = alertSettings.noticeLeadMinutes;
         silenceAfterMinutes = alertSettings.silenceAfterMinutes;
@@ -1888,6 +1970,7 @@ class AlertScheduler {
           break;
         }
         alert = _alertOf(eventId, alertId, event: event);
+        await _readPartnerName(settingsService, [?event]);
       } catch (e) {
         debugPrint('[AlertScheduler] snooze($osId) setup failed: $e');
         if (payload == null) return;
@@ -2009,6 +2092,7 @@ class AlertScheduler {
             snoozeMinutes: snoozeMinutes,
             noticeLeadMinutes: noticeLeadMinutes,
             silenceAfterMinutes: silenceAfterMinutes,
+            partnerName: snoozed.partnerName,
           ),
         ),
         createdAt: Value(now),
@@ -2019,6 +2103,23 @@ class AlertScheduler {
   }
 
   // ── Payloads ─────────────────────────────────────────────────────────
+
+  /// Refreshes [_partnerName] for a turn that may write the entries of
+  /// [events]. Asked only when one of them is a partner's, so a database
+  /// that never read a shared row pays no read for it; a failed read names
+  /// the partner with the stand-in rather than costing the turn its entries.
+  Future<void> _readPartnerName(
+    SettingsService settings,
+    Iterable<CalendarEvent> events,
+  ) async {
+    if (!events.any((event) => event.fromPartner)) return;
+    try {
+      _partnerName = (await settings.getPairingSettings()).partnerName;
+    } catch (e, st) {
+      debugPrint('[AlertScheduler] partner name read failed: $e\n$st');
+      _partnerName = null;
+    }
+  }
 
   AlertPayload _payloadFor(
     PlannedFire fire,
@@ -2104,10 +2205,14 @@ class AlertScheduler {
       tintIcon: event.tintIcon,
       iconKey: event.iconKey,
       categoryId: event.categoryId,
-      removeAfterAlert: event.removeAfterAlert,
+      // The switch is the partner's, and their event is not this phone's to
+      // remove: a Stop that tried would offer an Undo for nothing.
+      removeAfterAlert: event.removeAfterAlert && !event.fromPartner,
       snooze: snooze,
       snoozeMinutes: snoozeMinutes,
       inherited: inherited,
+      fromPartner: event.fromPartner,
+      partnerName: event.fromPartner ? _partnerName : null,
       excerpt: alertExcerptFor(
         OccurrenceDescriptions.descriptionFor(event, day),
       ),
@@ -2137,6 +2242,26 @@ class AlertScheduler {
     );
   }
 
+  /// The stored partner name a planned digest line names, read only when one
+  /// of [plan]'s lines is a partner's (D20) — a pass for someone who never
+  /// paired reads no pairing key. Null on a failed read: the line then says
+  /// the localized stand-in, never an unarmed digest.
+  static Future<String?> _partnerNameFor(
+    List<PlannedDigest> plan,
+    SettingsService settings,
+  ) async {
+    final anyPartner = plan.any(
+      (fire) => fire.entries.any((o) => o.event.fromPartner),
+    );
+    if (!anyPartner) return null;
+    try {
+      return (await settings.getPairingSettings()).partnerName;
+    } catch (e) {
+      debugPrint('[AlertScheduler] partner name failed: $e');
+      return null;
+    }
+  }
+
   /// One digest entry's payload: every word its notification shows, written
   /// here on the UI isolate in the binding's language and on its clock —
   /// the background never formats a day — and the avatar of the one category
@@ -2147,12 +2272,14 @@ class AlertScheduler {
   /// has reached its last day. Wording it shares the fold's fallback: words
   /// that throw degrade to the ready line, never to a pass aborted with the
   /// entries after this one unarmed. [currency] is the pass's read of the
-  /// ledger's, in which the report's amounts are written.
+  /// ledger's, in which the report's amounts are written; [partnerName] the
+  /// stored pairing's, which a partner's line names.
   AlertPayload _payloadForDigest(
     PlannedDigest fire,
     int osId,
     CalendarWeekStart weekStart, {
     required ({String symbol, bool suffix}) currency,
+    String? partnerName,
     CalendarReport? report,
   }) {
     final labels = _gateway.labels;
@@ -2170,6 +2297,7 @@ class AlertScheduler {
           report: report,
           currencySymbol: currency.symbol,
           currencySuffix: currency.suffix,
+          partnerName: partnerName,
         );
     DigestNotificationContent content;
     try {

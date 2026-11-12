@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:table_calendar/table_calendar.dart';
 
+import '../constants/app_colors.dart';
 import '../constants/calendar_weekend.dart';
 import '../constants/form_metrics.dart';
 import '../l10n/app_localizations.dart';
@@ -109,7 +110,8 @@ class AgendaMonthGrid extends StatelessWidget {
           todayBuilder: (context, day, _) => _cell(day, accent),
           selectedBuilder: (context, day, _) => _cell(day, accent),
           disabledBuilder: (context, day, _) => _cell(day, accent),
-          markerBuilder: (context, day, _) => _marker(day),
+          markerBuilder: (context, day, _) =>
+              _marker(day, theme.colorScheme.pageGround),
         ),
         onDaySelected: (selected, _) => onDaySelected(
           DateTime.utc(selected.year, selected.month, selected.day),
@@ -137,7 +139,10 @@ class AgendaMonthGrid extends StatelessWidget {
     );
   }
 
-  Widget _marker(DateTime day) {
+  /// [pageGround] is what a hollow marker sits on: every host lays the mini
+  /// grid on the page ground, and its cells paint no wash, so
+  /// `CalendarDayBars.groundOn` would answer the ground unchanged.
+  Widget _marker(DateTime day, Color pageGround) {
     final bars = barsFor(day);
     if (bars == null || bars.isEmpty) return const SizedBox.shrink();
     return Align(
@@ -148,6 +153,7 @@ class AgendaMonthGrid extends StatelessWidget {
           bars: bars,
           maxBars: maxBarsFor(appearance),
           style: appearance.markerStyle,
+          ground: bars.any((bar) => bar.hollow) ? pageGround : null,
         ),
       ),
     );

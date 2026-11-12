@@ -13,6 +13,7 @@ import '../models/alert_payload.dart';
 import '../services/app_navigator.dart';
 import '../services/event_time_formatter.dart';
 import '../services/lock_screen_state.dart';
+import '../utils/share_copy.dart';
 import '../widgets/alarm_ground.dart';
 import '../widgets/app_dialogs.dart';
 import '../widgets/automation_id.dart';
@@ -397,11 +398,19 @@ class _AlarmPageState extends State<AlarmPage> with RouteAware {
         ? '${l10n.alarmPageTitle}, ${l10n.alertsOutcomeSnoozed}'
         : l10n.alarmPageTitle;
     // A title nobody typed still has to name what is ringing.
-    final title = payload.isTest
+    final own = payload.isTest
         ? l10n.alarmTestTitle
         : payload.title.trim().isEmpty
         ? l10n.eventAlertModeRing
         : payload.title;
+    // The words its notification uses (D21): a ring over the lock screen has
+    // nothing else on it to say the event is the partner's.
+    final title = payload.fromPartner
+        ? l10n.shareAlertNoticeTitle(
+            own,
+            ShareCopy.partnerName(l10n, payload.partnerName),
+          )
+        : own;
     // The avatar as it was resolved when the entry was armed; the category
     // facade only for an entry armed before the payload carried it — the
     // facade is empty where no database is open, and another database's.

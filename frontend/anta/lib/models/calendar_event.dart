@@ -290,6 +290,14 @@ class CalendarEvent extends Equatable {
   /// stored copy still compare equal — the derived fields' choice below.
   final DateTime? createdAt;
 
+  /// Whether the row is one a partner shares with this database — its owner
+  /// is `shared_owner` — decided once, where `CalendarEventService` loads its
+  /// rows (`docs/cloud-share-surfaces-roadmap.md` §6.1). Transient: never
+  /// stored, never exported. A [props] member, unlike [createdAt]: a row that
+  /// changed hands must not compare equal, or a surface drawing it as the
+  /// partner's would keep the old look.
+  final bool fromPartner;
+
   CalendarEvent({
     required this.id,
     required this.title,
@@ -315,6 +323,7 @@ class CalendarEvent extends Equatable {
     this.tintIcon = true,
     this.priority = kDefaultEventPriority,
     this.createdAt,
+    this.fromPartner = false,
   });
 
   /// Derived: `true` iff this event has no [time] annotation. This is the
@@ -433,6 +442,7 @@ class CalendarEvent extends Equatable {
       tintIcon: tintIcon ?? this.tintIcon,
       priority: priority ?? this.priority,
       createdAt: createdAt ?? this.createdAt,
+      fromPartner: fromPartner,
     );
   }
 
@@ -591,5 +601,6 @@ class CalendarEvent extends Equatable {
     colorValue,
     tintIcon,
     priority,
+    fromPartner,
   ];
 }

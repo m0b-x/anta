@@ -11,6 +11,8 @@ import '../l10n/app_localizations.dart';
 import '../models/agenda_day_list.dart';
 import '../models/agenda_day_list_mode.dart';
 import '../models/calendar_appearance.dart';
+import '../models/partner_look.dart';
+import '../services/day_bars_resolver.dart';
 import '../utils/agenda_day_list_index.dart';
 import '../utils/agenda_month_store.dart';
 import 'agenda_day_list_rows.dart';
@@ -89,6 +91,9 @@ class AgendaDayListSheet extends StatefulWidget {
   /// The app's haptic setting, for the year and month jumps.
   final bool hapticFeedback;
 
+  /// How a partner's rows are drawn, passed down like [appearance].
+  final PartnerLook partnerLook;
+
   const AgendaDayListSheet({
     super.key,
     required this.list,
@@ -102,6 +107,7 @@ class AgendaDayListSheet extends StatefulWidget {
     this.initialMode = AgendaDayListMode.list,
     this.onModeChanged,
     this.hapticFeedback = false,
+    this.partnerLook = const PartnerLook(),
   });
 
   /// Resolves to what the viewer picked, or null when dismissed.
@@ -118,6 +124,7 @@ class AgendaDayListSheet extends StatefulWidget {
     AgendaDayListMode initialMode = AgendaDayListMode.list,
     ValueChanged<AgendaDayListMode>? onModeChanged,
     bool hapticFeedback = false,
+    PartnerLook partnerLook = const PartnerLook(),
   }) {
     final colorScheme = Theme.of(context).colorScheme;
     return showModalBottomSheet<AgendaDayListResult>(
@@ -148,6 +155,7 @@ class AgendaDayListSheet extends StatefulWidget {
           initialMode: initialMode,
           onModeChanged: onModeChanged,
           hapticFeedback: hapticFeedback,
+          partnerLook: partnerLook,
         ),
       ),
     );
@@ -159,6 +167,9 @@ class AgendaDayListSheet extends StatefulWidget {
 
 class _AgendaDayListSheetState extends State<AgendaDayListSheet> {
   late final AgendaDayListIndex _index;
+
+  /// The card's entries, a partner's included: its tiles count what its
+  /// list shows (the overview's Years mode alone counts only mine).
   late final AgendaMonthStore _store;
   late final AgendaYearBounds _years;
 
@@ -178,6 +189,12 @@ class _AgendaDayListSheetState extends State<AgendaDayListSheet> {
   DateTime? _highlightMonth;
   int _highlightToken = 0;
   Timer? _prewarm;
+
+  /// The "From {name}" a partner's bar says, last folded into the store.
+  String? _partnerBarLabel;
+
+  /// Whether the first months were resolved ([didChangeDependencies]).
+  bool _opened = false;
 
   static const Duration _pageDuration = Duration(milliseconds: 260);
   static const Duration _prewarmDelay = Duration(milliseconds: 250);
@@ -219,6 +236,24 @@ class _AgendaDayListSheetState extends State<AgendaDayListSheet> {
     );
     _month = _initialMonth();
     _monthBucket = AgendaDayListMonth.build(_month, const []);
+  }
+
+  /// The month grid's partner rule needs the locale, which `initState`
+  /// cannot read; refolded only when its words change. The first months
+  /// are resolved here, once the rule is in, so opening folds them once.
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final label = widget.partnerLook.label(AppLocalizations.of(context)!);
+    if (label != _partnerBarLabel) {
+      _partnerBarLabel = label;
+      _store.barRule = EventDayBarProvider(
+        partnerLabel: label,
+        hollowPartners: widget.partnerLook.outlined,
+      );
+    }
+    if (_opened) return;
+    _opened = true;
     if (_mode == AgendaDayListMode.month) _store.ensure([_month]);
     _recompute();
   }
@@ -616,6 +651,7 @@ class _AgendaDayListSheetState extends State<AgendaDayListSheet> {
       today: widget.today,
       onEntryTap: (entry) => _popDay(entry.day),
       onEntryEdit: _popEdit,
+      partnerLook: widget.partnerLook,
     );
     switch (_mode) {
       case AgendaDayListMode.list:

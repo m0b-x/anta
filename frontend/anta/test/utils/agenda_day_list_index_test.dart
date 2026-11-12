@@ -516,6 +516,52 @@ void main() {
       }
     });
 
+    AgendaDayListEntry entryOf(
+      int day,
+      Color color, {
+      bool missed = false,
+      bool fromPartner = false,
+    }) => AgendaDayListEntry(
+      day: DateTime.utc(2026, 9, day),
+      icon: Icons.event,
+      color: color,
+      title: 'x',
+      missed: missed,
+      fromPartner: fromPartner,
+    );
+
+    test('own entries leave a partner\'s out of every number and colour', () {
+      final bucket = AgendaDayListMonth.build(month, [
+        entryOf(5, red, fromPartner: true),
+        entryOf(5, blue),
+        entryOf(9, red, missed: true),
+        entryOf(12, red, fromPartner: true),
+      ]);
+
+      final own = AgendaMonthTally.ofOwnEntries(bucket);
+
+      expect(own.count, 2);
+      expect(own.keptCount, 1);
+      expect(own.markedMask, (1 << 4) | (1 << 8));
+      expect(own.missedMask, 1 << 8);
+      expect(own.dayColors[4], blue, reason: 'my entry is the day\'s top');
+      expect(own.dayColors[11], isNull, reason: 'their day is not mine');
+    });
+
+    test('a bucket with nothing of a partner\'s keeps its own numbers', () {
+      final bucket = AgendaDayListMonth.build(month, [
+        entryOf(5, blue),
+        entryOf(9, red, missed: true),
+      ]);
+
+      final own = AgendaMonthTally.ofOwnEntries(bucket);
+
+      expect(own.dayColors, same(bucket.dayColors));
+      expect(own.count, bucket.count);
+      expect(own.markedMask, bucket.markedMask);
+      expect(own.missedMask, bucket.missedMask);
+    });
+
     test('an empty month tallies to nothing', () {
       final tally = AgendaMonthTally.build(month, const []);
       expect(tally.count, 0);

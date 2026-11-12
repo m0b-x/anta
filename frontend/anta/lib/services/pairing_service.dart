@@ -90,6 +90,8 @@ class PairingService {
       StreamController<PairingStatus>.broadcast();
   final StreamController<PairingError> _errorController =
       StreamController<PairingError>.broadcast();
+  final StreamController<PairingStatus> _writtenController =
+      StreamController<PairingStatus>.broadcast();
 
   StreamSubscription<InviteRecord?>? _inviteSub;
   StreamSubscription<PairRecord?>? _pairSub;
@@ -167,9 +169,25 @@ class PairingService {
   /// updating is the worst outcome for a trust feature.
   Stream<PairingError> get errors => _errorController.stream;
 
+  /// The status after every write of the stored pairing, this device's own
+  /// included — a redeem, an unpair — which [changes] leaves to the caller
+  /// that made it. Apart from [changes] so `PairingBloc`, which answers its
+  /// own actions from their result, never sees one twice; `ShareService`
+  /// follows it so a share row appears and leaves with the pair.
+  Stream<PairingStatus> get written => _writtenController.stream;
+
   bool get isAvailable => _auth.isAvailable && _gateway.isAvailable;
 
   PairingStatus get status => _statusFrom(_cached);
+
+  /// Whether the stored pair is the signed-in account's — the rule
+  /// `PairingSharePartnerSource.pairedLocally` reads by. Another account's
+  /// pair left on this database, or one with nobody signed in, shares
+  /// nothing for whoever holds the phone now.
+  bool get pairedForSignedInAccount {
+    final uid = _auth.currentUser?.uid;
+    return uid != null && _cached.pairId != null && _cached.accountUid == uid;
+  }
 
   /// Reconciles the cached state against the server. A failed reconcile is
   /// reported but never clears the cache: opening the Sharing page on a train
@@ -422,6 +440,7 @@ class PairingService {
     _detachListeners();
     await _statusController.close();
     await _errorController.close();
+    await _writtenController.close();
   }
 
   AppUser _requireUser() {
@@ -668,6 +687,7 @@ class PairingService {
   Future<void> _write(PairingSettings next) async {
     await _settings.setPairingSettings(next);
     _cached = next;
+    if (!_writtenController.isClosed) _writtenController.add(status);
   }
 
   PairingStatus _statusFrom(PairingSettings settings) => PairingStatus(

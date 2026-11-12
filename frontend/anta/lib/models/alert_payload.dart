@@ -48,6 +48,8 @@ abstract final class AlertPayloadKeys {
   static const String digestSummary = 'dsm';
   static const String inherited = 'inh';
   static const String page = 'pg';
+  static const String fromPartner = 'fp';
+  static const String partnerName = 'pn';
 }
 
 /// Everything a ring needs to draw itself, carried by the platform entry.
@@ -243,6 +245,18 @@ class AlertPayload extends Equatable {
   /// it keeps landing where it always did.
   final String? page;
 
+  /// Whether the event this entry was armed for is one a partner shares
+  /// (D21): its notification names them and offers no Skip, since a Skip
+  /// would write the partner's skipped day or their event's switch. Absent
+  /// on every entry armed before sharing, which is the person's own for good.
+  final bool fromPartner;
+
+  /// The partner's name as the pairing stored it when the entry was armed,
+  /// or null for none — then the localized stand-in names them. Carried for
+  /// the [snoozeMinutes] reason: a reminder's Snooze re-posts it from an
+  /// isolate with no settings to ask.
+  final String? partnerName;
+
   /// [page] for a report digest: the tap opens the report on its span.
   static const String reportPage = 'report';
 
@@ -282,6 +296,8 @@ class AlertPayload extends Equatable {
     this.digestSummary,
     this.inherited = false,
     this.page,
+    this.fromPartner = false,
+    this.partnerName,
   });
 
   /// The event id a **test alarm** carries (§5.7's `Test alarm in 10 s`).
@@ -368,6 +384,8 @@ class AlertPayload extends Equatable {
       digestSummary: digestSummary,
       inherited: inherited ?? this.inherited,
       page: page,
+      fromPartner: fromPartner,
+      partnerName: partnerName,
     );
   }
 
@@ -407,6 +425,8 @@ class AlertPayload extends Equatable {
     if (digestSummary != null) AlertPayloadKeys.digestSummary: digestSummary,
     if (inherited) AlertPayloadKeys.inherited: true,
     if (page != null) AlertPayloadKeys.page: page,
+    if (fromPartner) AlertPayloadKeys.fromPartner: true,
+    if (partnerName != null) AlertPayloadKeys.partnerName: partnerName,
   };
 
   /// Decodes one payload, or `null` when the map carries no usable identity.
@@ -514,6 +534,10 @@ class AlertPayload extends Equatable {
       page: map[AlertPayloadKeys.page] is String
           ? map[AlertPayloadKeys.page] as String
           : null,
+      fromPartner: map[AlertPayloadKeys.fromPartner] == true,
+      partnerName: map[AlertPayloadKeys.partnerName] is String
+          ? map[AlertPayloadKeys.partnerName] as String
+          : null,
     );
   }
 
@@ -571,5 +595,7 @@ class AlertPayload extends Equatable {
     digestSummary,
     inherited,
     page,
+    fromPartner,
+    partnerName,
   ];
 }

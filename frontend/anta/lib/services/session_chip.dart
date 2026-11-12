@@ -54,11 +54,15 @@ typedef LinkedSessionNote = ({
 /// Resolves [event]'s linked note through `getNotesByIds`, the one lookup
 /// that leaves tombstones out — the calendar's own rule for a linked note —
 /// and carries the metadata the editor seeds its title from.
+///
+/// None for a partner's event: its note is theirs, and the editor this
+/// opens would take it as writable.
 Future<LinkedSessionNote?> linkedSessionNote(
   CalendarEvent? event,
   NoteRepository notes,
 ) async {
-  final noteId = event?.noteId;
+  if (event == null || event.fromPartner) return null;
+  final noteId = event.noteId;
   if (noteId == null) return null;
   final found = await notes.getNotesByIds([noteId]);
   if (found.isEmpty) return null;
@@ -144,7 +148,9 @@ class SessionChip {
         _shownOsId = previous;
         return;
       }
-      final linkedNote = event != null && await _noteLinked(event);
+      // A partner's event opens as itself: `linkedSessionNote`'s rule.
+      final linkedNote =
+          event != null && !event.fromPartner && await _noteLinked(event);
       _cancelTimers();
       _payload = payload;
       _startedAt = startedAt;

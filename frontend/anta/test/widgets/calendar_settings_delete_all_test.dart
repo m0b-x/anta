@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:anta/database/daos/sync_dao.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/database/database_lifecycle.dart';
 import 'package:anta/l10n/app_localizations.dart';
@@ -181,6 +182,32 @@ void main() {
 
     // The page's own count went to zero: the row says so and stops offering
     // a second wipe.
+    expect(find.text('No events to delete'), findsOneWidget);
+    final row = tester.widget<ListTile>(
+      find.ancestor(
+        of: find.text('Delete all events'),
+        matching: find.byType(ListTile),
+      ),
+    );
+    expect(row.enabled, isFalse);
+  });
+
+  testWidgets("with only a partner's events there is nothing to delete", (
+    tester,
+  ) async {
+    await tester.runAsync(() async {
+      await db.customStatement(
+        "UPDATE calendar_events SET owner_id = 'partner'",
+      );
+      await db.syncDao.setValue(SyncDao.keySharedOwner, 'partner');
+      final events = await CalendarEventService.getInstance();
+      await events.reload();
+      expect(events.events.every((event) => event.fromPartner), isTrue);
+    });
+
+    await pumpPage(tester);
+    await scrollTo(tester, 'Delete all events');
+
     expect(find.text('No events to delete'), findsOneWidget);
     final row = tester.widget<ListTile>(
       find.ancestor(

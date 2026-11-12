@@ -12,7 +12,7 @@ class FakeSyncEngine implements SyncEngine {
       StreamController<SyncStatus>.broadcast();
 
   /// Every call by name, in order: `start`, `stop`, `dispose`, `syncNow`,
-  /// `resumed`, `backgrounded`.
+  /// `pushNow`, `resumed`, `backgrounded`.
   final List<String> calls = [];
 
   SyncRunReport report = const SyncRunReport();
@@ -59,6 +59,12 @@ class FakeSyncEngine implements SyncEngine {
   @override
   Future<SyncRunReport> syncNow() async {
     calls.add('syncNow');
+    return report;
+  }
+
+  @override
+  Future<SyncRunReport> pushNow() async {
+    calls.add('pushNow');
     return report;
   }
 

@@ -16,6 +16,7 @@ import '../models/agenda_day_list_mode.dart';
 import '../models/calendar_appearance.dart';
 import '../models/calendar_event.dart';
 import '../models/fasting_appearance.dart';
+import '../models/partner_look.dart';
 import '../models/upcoming_agenda_filters.dart';
 import '../services/agenda_search_text.dart';
 import '../utils/event_agenda.dart';
@@ -88,6 +89,9 @@ class UpcomingAgendaView extends StatefulWidget {
   /// rather than re-read here, which would go stale after a settings edit.
   final CalendarAppearance appearance;
 
+  /// How a partner's event rows are drawn, passed down like [appearance].
+  final PartnerLook partnerLook;
+
   /// Which presentation the drill-down sheet opens in, and where a change to
   /// it goes. Owned and persisted by the panel, like the agenda filters.
   final AgendaDayListMode dayListMode;
@@ -125,6 +129,7 @@ class UpcomingAgendaView extends StatefulWidget {
     required this.onEditEvent,
     required this.onOpenNote,
     required this.appearance,
+    this.partnerLook = const PartnerLook(),
     this.onResetAnchor,
     this.colorPalette = MarkdownColorPalette.presets,
     this.showRecurrenceLabels = true,
@@ -1030,6 +1035,7 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
         initialMode: widget.dayListMode,
         onModeChanged: widget.onDayListModeChanged,
         hapticFeedback: widget.hapticFeedback,
+        partnerLook: widget.partnerLook,
       );
       if (result == null || !mounted) return;
       final day = result.focusDay;
@@ -1372,6 +1378,7 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
                 colorPalette: widget.colorPalette,
                 showRecurrenceLabels: widget.showRecurrenceLabels,
                 missedDisplay: widget.missedDisplay,
+                partnerLook: widget.partnerLook,
               ),
               // The keyboard's clearance sits in its own sliver so an inset
               // frame rebuilds this spacer and nothing above it — the list's

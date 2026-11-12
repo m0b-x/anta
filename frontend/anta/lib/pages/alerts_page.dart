@@ -22,20 +22,26 @@ import '../controllers/alert_permission_check.dart';
 import '../l10n/app_localizations.dart';
 import '../models/alert_hub_entry.dart';
 import '../models/app_permission.dart';
+import '../models/app_user.dart';
 import '../models/calendar_appearance.dart';
 import '../models/calendar_event.dart';
 import '../models/event_alert.dart';
 import '../models/event_digest.dart';
+import '../models/partner_look.dart';
+import '../models/share_settings.dart';
 import '../services/alert_scheduler.dart';
 import '../services/app_navigator.dart';
 import '../services/day_summary_resolver.dart';
 import '../services/event_time_formatter.dart';
 import '../services/permission_service.dart';
 import '../services/settings_service.dart';
+import '../services/share_service.dart';
 import '../utils/alert_labels.dart';
 import '../utils/custom_snackbar.dart';
 import '../utils/digest_labels.dart';
 import '../utils/digest_planner.dart';
+import '../utils/marker_contrast.dart';
+import '../utils/share_copy.dart';
 import '../widgets/agenda_list_view.dart';
 import '../widgets/app_dialogs.dart';
 import '../widgets/automation_id.dart';
@@ -43,6 +49,7 @@ import '../widgets/digest_editor_sheet.dart';
 import '../widgets/form_rows.dart';
 import '../widgets/permission_tile.dart';
 import '../widgets/unified_app_bars.dart';
+import '../widgets/user_avatar.dart';
 
 /// Reads what the hub lists. A seam so a widget test can hand rows over
 /// without a database, a scheduler or a gateway.
@@ -53,6 +60,10 @@ typedef AlertHistoryLoader = Future<List<AlertHistoryEntry>> Function();
 
 /// Reads the digests' next fires (**v42**), the same seam.
 typedef DigestHubLoader = Future<List<DigestHubEntry>> Function();
+
+/// Reads the look a partner's rows are drawn in and who the partner is, the
+/// same seam.
+typedef PartnerLookLoader = Future<PartnerLook> Function();
 
 /// The Alerts hub (§5.6): every alert the phone is about to act on, by day.
 ///
@@ -80,6 +91,7 @@ class AlertsPage extends StatefulWidget {
   final AlertHubLoader? _loadEntries;
   final AlertHistoryLoader? _loadRecent;
   final DigestHubLoader? _loadDigests;
+  final PartnerLookLoader? _loadPartnerLook;
   final PermissionService? _permissions;
 
   /// The week start a test hands over in place of the settings read.
@@ -93,6 +105,7 @@ class AlertsPage extends StatefulWidget {
     : _loadEntries = null,
       _loadRecent = null,
       _loadDigests = null,
+      _loadPartnerLook = null,
       _permissions = null,
       _testWeekStart = CalendarWeekStart.monday,
       _afterDigestSaved = AlertPermissionCheck.afterSave;
@@ -103,6 +116,7 @@ class AlertsPage extends StatefulWidget {
     required AlertHubLoader loadEntries,
     AlertHistoryLoader? loadRecent,
     DigestHubLoader? loadDigests,
+    PartnerLookLoader? loadPartnerLook,
     PermissionService? permissions,
     CalendarWeekStart weekStart = CalendarWeekStart.monday,
     Future<bool> Function(BuildContext context) afterDigestSaved =
@@ -110,6 +124,7 @@ class AlertsPage extends StatefulWidget {
   }) : _loadEntries = loadEntries,
        _loadRecent = loadRecent,
        _loadDigests = loadDigests,
+       _loadPartnerLook = loadPartnerLook,
        _permissions = permissions,
        _testWeekStart = weekStart,
        _afterDigestSaved = afterDigestSaved;
@@ -132,6 +147,10 @@ class _AlertsPageState extends State<AlertsPage> {
   /// The app's week start, which decides whether a weekly span is "this
   /// week" and orders the digest sheet's weekdays.
   CalendarWeekStart _weekStart = CalendarWeekStart.monday;
+
+  /// How a partner's rows draw their glyph, read by the load that first
+  /// lists one; the default until then, and after a failed read.
+  PartnerLook _partnerLook = const PartnerLook();
   bool _isLoading = true;
   int _loadGeneration = 0;
 
@@ -190,11 +209,22 @@ class _AlertsPageState extends State<AlertsPage> {
       _readWeekStart(),
     ]);
     if (!mounted || generation != _loadGeneration) return;
+    final entries = results[0] as List<AlertHubEntry>;
+    final recent = results[1] as List<AlertHistoryEntry>;
+    // An account that never paired lists no partner's row, and opens
+    // neither the share settings nor sharing for its hub.
+    final partnerLook =
+        entries.any((entry) => entry.event.fromPartner) ||
+            recent.any((entry) => entry.event?.fromPartner ?? false)
+        ? await _readPartnerLook()
+        : _partnerLook;
+    if (!mounted || generation != _loadGeneration) return;
     setState(() {
-      _entries = results[0] as List<AlertHubEntry>;
-      _recent = results[1] as List<AlertHistoryEntry>;
+      _entries = entries;
+      _recent = recent;
       _digestFires = results[2] as List<DigestHubEntry>;
       _weekStart = results[3] as CalendarWeekStart;
+      _partnerLook = partnerLook;
       _isLoading = false;
       _pendingEnabled.clear();
       _pendingDigestEnabled.clear();
@@ -225,6 +255,43 @@ class _AlertsPageState extends State<AlertsPage> {
     }
   }
 
+  /// The calendar page's reading of the look and the partner. A test
+  /// handing over rows without a loader gets the default look; a failed
+  /// read gets the default too, or the look alone when only the partner
+  /// could not be read.
+  Future<PartnerLook> _readPartnerLook() async {
+    final injected = widget._loadPartnerLook;
+    if (injected != null) {
+      try {
+        return await injected();
+      } catch (e, st) {
+        debugPrint('[AlertsPage] partner look not read: $e\n$st');
+        return const PartnerLook();
+      }
+    }
+    if (widget._loadEntries != null) return const PartnerLook();
+    final ShareEventLook look;
+    try {
+      look = (await (await SettingsService.getInstance()).getShareLook())
+          .eventLook;
+    } catch (e, st) {
+      debugPrint('[AlertsPage] share look not read: $e\n$st');
+      return const PartnerLook();
+    }
+    try {
+      final audience = (await ShareService.getInstance()).availability.audience;
+      return PartnerLook(
+        look: look,
+        partner: audience?.members.firstOrNull,
+        name: audience?.displayName,
+      );
+    } catch (e, st) {
+      // The glyph keeps the look with the person glyph for the face.
+      debugPrint('[AlertsPage] partner not read: $e\n$st');
+      return PartnerLook(look: look);
+    }
+  }
+
   /// The key [_pendingEnabled] holds a row's switch under: the alert for an
   /// own alert, the event for an inherited one — whose switch is the
   /// event's flag, shared by every inherited row of that event, while the
@@ -241,6 +308,9 @@ class _AlertsPageState extends State<AlertsPage> {
   void _toggle(AlertHubEntry entry, bool enabled) {
     final bloc = context.read<CalendarBloc>();
     if (entry.alert.categoryId != null) {
+      // The switch is the partner's flag on their event, which nothing here
+      // may write: a pending value would show a change that never lands.
+      if (entry.event.fromPartner) return;
       // The whole event is written back, so it is read at the press from the
       // bloc rather than taken from the row, which holds it as the last load
       // did: an edit since then would be overwritten, a deleted event
@@ -277,6 +347,8 @@ class _AlertsPageState extends State<AlertsPage> {
   /// carries back the alerts the cascade took with it — captured before the
   /// delete, while the facade still has them.
   Future<void> _cancelRemovable(AlertHubEntry entry) async {
+    // Not this phone's to delete, and its Undo would restore nothing.
+    if (entry.event.fromPartner) return;
     final l10n = AppLocalizations.of(context)!;
     final bloc = context.read<CalendarBloc>();
     final confirmed = await AppDialogs.confirm(
@@ -551,6 +623,12 @@ class _AlertsPageState extends State<AlertsPage> {
         continue;
       }
       final entry = _entries[nextAlert++];
+      // A partner's event lists an inherited alert only under "Category
+      // alerts too", where it always rings: the switch on that event is the
+      // partner's, never read here, and one shared event cannot opt out
+      // alone (`docs/cloud-share-surfaces-roadmap.md` §6.8, §13).
+      final inheritedByPartner =
+          entry.event.fromPartner && entry.alert.categoryId != null;
       children.add(
         _AlertHubRow(
           // The event as well as the alert: an inherited alert's one id is
@@ -560,16 +638,22 @@ class _AlertsPageState extends State<AlertsPage> {
             '${entry.day.millisecondsSinceEpoch}|${entry.snoozeOsId ?? ''}',
           ),
           entry: entry,
-          enabled:
-              _pendingEnabled[_pendingKey(entry)] ??
-              (entry.alert.categoryId == null
-                  ? entry.alert.enabled
-                  : entry.event.categoryAlerts),
+          partnerLook: _partnerLook,
+          enabled: inheritedByPartner
+              ? true
+              : _pendingEnabled[_pendingKey(entry)] ??
+                    (entry.alert.categoryId == null
+                        ? entry.alert.enabled
+                        : entry.event.categoryAlerts),
           onTap: () => _open(entry),
-          onLongPress: entry.event.removeAfterAlert
+          // A partner's flag removes nothing here, so a long-press that
+          // could only do nothing is not offered.
+          onLongPress: entry.event.removeAfterAlert && !entry.event.fromPartner
               ? () => _cancelRemovable(entry)
               : null,
-          onToggle: (value) => _toggle(entry, value),
+          onToggle: inheritedByPartner
+              ? null
+              : (value) => _toggle(entry, value),
           onCancelSnooze: () => _cancelSnooze(entry),
         ),
       );
@@ -621,6 +705,7 @@ class _AlertsPageState extends State<AlertsPage> {
             ),
             entry: entry,
             today: today,
+            partnerLook: _partnerLook,
             onTap: entry.event == null
                 ? null
                 : () => unawaited(
@@ -789,10 +874,15 @@ class _AlertsPageState extends State<AlertsPage> {
 
 class _AlertHubRow extends StatelessWidget {
   final AlertHubEntry entry;
+
+  /// Drawn in the glyph slot when [entry]'s event is a partner's.
+  final PartnerLook partnerLook;
   final bool enabled;
   final VoidCallback onTap;
   final VoidCallback? onLongPress;
-  final ValueChanged<bool> onToggle;
+
+  /// Null draws the switch read-only at [enabled].
+  final ValueChanged<bool>? onToggle;
   final VoidCallback onCancelSnooze;
 
   static const double _timeWidth = 64;
@@ -802,6 +892,7 @@ class _AlertHubRow extends StatelessWidget {
   const _AlertHubRow({
     super.key,
     required this.entry,
+    required this.partnerLook,
     required this.enabled,
     required this.onTap,
     required this.onLongPress,
@@ -849,6 +940,13 @@ class _AlertHubRow extends StatelessWidget {
         ),
       ].join(' · '),
     };
+    // The words say whose the event is first, as on every list's row; the
+    // glyph draws the look.
+    final fromPartner = entry.event.fromPartner
+        ? l10n.shareMarkPartnerLabel(
+            ShareCopy.partnerName(l10n, entry.partnerName),
+          )
+        : null;
 
     return Card(
       margin: const EdgeInsets.symmetric(
@@ -898,11 +996,19 @@ class _AlertHubRow extends StatelessWidget {
                   ],
                 ),
               ),
-              Icon(
-                CalendarCategories.iconFor(entry.event),
-                size: 20,
-                color: tint.withValues(alpha: dim),
-              ),
+              if (_PartnerGlyph.draws(entry.event, partnerLook))
+                _PartnerGlyph(
+                  icon: CalendarCategories.iconFor(entry.event),
+                  tint: tint,
+                  dim: dim,
+                  look: partnerLook,
+                )
+              else
+                Icon(
+                  CalendarCategories.iconFor(entry.event),
+                  size: 20,
+                  color: tint.withValues(alpha: dim),
+                ),
               const SizedBox(width: AppSpacing.md),
               Expanded(
                 child: Column(
@@ -910,6 +1016,9 @@ class _AlertHubRow extends StatelessWidget {
                   children: [
                     Text(
                       entry.event.title,
+                      semanticsLabel: fromPartner == null
+                          ? null
+                          : '$fromPartner, ${entry.event.title}',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: theme.textTheme.bodyLarge?.copyWith(
@@ -958,7 +1067,15 @@ class _AlertHubRow extends StatelessWidget {
                 Semantics(
                   label: l10n.alertsToggleLabel(entry.event.title),
                   hint: categoryId == null ? null : l10n.eventCategoryAlerts,
-                  child: Switch(value: enabled, onChanged: onToggle),
+                  child: onToggle == null
+                      // A read-only switch takes its own tap: one aimed at it
+                      // must not fall through to the row and open the event.
+                      ? GestureDetector(
+                          onTap: () {},
+                          excludeFromSemantics: true,
+                          child: Switch(value: enabled, onChanged: null),
+                        )
+                      : Switch(value: enabled, onChanged: onToggle),
                 ),
             ],
           ),
@@ -1123,6 +1240,9 @@ class _AlertHistoryRow extends StatelessWidget {
   final String? digestTitle;
   final String? digestDescribe;
 
+  /// [_AlertHubRow.partnerLook]'s twin.
+  final PartnerLook partnerLook;
+
   static const double _timeWidth = 64;
   static const double _glyphSize = 14;
 
@@ -1133,6 +1253,7 @@ class _AlertHistoryRow extends StatelessWidget {
     required this.onTap,
     this.digestTitle,
     this.digestDescribe,
+    this.partnerLook = const PartnerLook(),
   });
 
   static IconData iconFor(AlertOutcome outcome) => switch (outcome) {
@@ -1186,6 +1307,13 @@ class _AlertHistoryRow extends StatelessWidget {
     final subtitle = describe == null
         ? labelFor(l10n, entry.outcome)
         : '${labelFor(l10n, entry.outcome)} · $describe';
+    final title = digestTitle ?? event?.title ?? l10n.alertsHistoryRemoved;
+    // [_AlertHubRow]'s words for a partner's event.
+    final fromPartner = event != null && event.fromPartner
+        ? l10n.shareMarkPartnerLabel(
+            ShareCopy.partnerName(l10n, entry.partnerName),
+          )
+        : null;
 
     return Card(
       margin: const EdgeInsets.symmetric(
@@ -1235,21 +1363,32 @@ class _AlertHistoryRow extends StatelessWidget {
                   ],
                 ),
               ),
-              Icon(
-                digestLook?.icon ??
-                    (event == null
-                        ? Icons.event_busy_rounded
-                        : CalendarCategories.iconFor(event)),
-                size: 20,
-                color: tint,
-              ),
+              if (event != null && _PartnerGlyph.draws(event, partnerLook))
+                _PartnerGlyph(
+                  icon: CalendarCategories.iconFor(event),
+                  tint: tint,
+                  dim: 1.0,
+                  look: partnerLook,
+                )
+              else
+                Icon(
+                  digestLook?.icon ??
+                      (event == null
+                          ? Icons.event_busy_rounded
+                          : CalendarCategories.iconFor(event)),
+                  size: 20,
+                  color: tint,
+                ),
               const SizedBox(width: AppSpacing.md),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      digestTitle ?? event?.title ?? l10n.alertsHistoryRemoved,
+                      title,
+                      semanticsLabel: fromPartner == null
+                          ? null
+                          : '$fromPartner, $title',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: theme.textTheme.bodyLarge?.copyWith(
@@ -1285,6 +1424,71 @@ class _AlertHistoryRow extends StatelessWidget {
                 ),
               ),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// A partner's event's look in a hub row's 20 dp glyph slot — the one thing
+/// on the row that keeps its size at every text scale, where "From {name}"
+/// in the title was cut at 1.0 and gone at 2.0. Decoration: the title's
+/// semantics already say whose the event is.
+class _PartnerGlyph extends StatelessWidget {
+  final IconData icon;
+  final Color tint;
+
+  /// The row's switch-off alpha; a dimmed ring falls below the graphics
+  /// floor, as a disabled control may.
+  final double dim;
+  final PartnerLook look;
+
+  static const double _size = 2 * RowMetrics.partnerAvatarRadius;
+
+  const _PartnerGlyph({
+    required this.icon,
+    required this.tint,
+    required this.dim,
+    required this.look,
+  });
+
+  /// Whether [event]'s row draws this glyph rather than my plain one: the
+  /// Like-mine look draws a partner's event as mine.
+  static bool draws(CalendarEvent event, PartnerLook look) =>
+      event.fromPartner && (look.outlined || look.avatar);
+
+  @override
+  Widget build(BuildContext context) {
+    if (look.avatar) {
+      return ExcludeSemantics(
+        child: Opacity(
+          opacity: dim,
+          child: UserAvatar(
+            user: look.partner ?? const AppUser(uid: ''),
+            radius: RowMetrics.partnerAvatarRadius,
+          ),
+        ),
+      );
+    }
+    // Walked against the card the row sits on, M3's default card colour.
+    final ink = MarkerContrast.atLeast(
+      tint,
+      Theme.of(context).colorScheme.surfaceContainerLow,
+    ).withValues(alpha: dim);
+    return ExcludeSemantics(
+      child: SizedBox.square(
+        dimension: _size,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            border: Border.all(
+              color: ink,
+              width: FormMetrics.shareOutlineWidth,
+            ),
+          ),
+          child: Center(
+            child: Icon(icon, size: RowMetrics.shareRingIconSize, color: ink),
           ),
         ),
       ),

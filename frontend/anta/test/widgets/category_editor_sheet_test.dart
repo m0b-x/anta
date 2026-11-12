@@ -1757,6 +1757,30 @@ void main() {
       await robot.show(initial: category, bloc: bloc);
       expect(robot.enabledOf(countsAs), isTrue);
       expect(robot.captionOf(countsAs), 'Suggested: 30 min');
+      await robot.close();
+
+      // A partner's dated event in the category shapes none of my profile
+      // (share surfaces D15): mine are still all repeats.
+      // ignore: invalid_use_of_visible_for_testing_member
+      bloc.emit(
+        CalendarPageLoaded(
+          allEvents: [
+            event('a', const DailyRecurrence()),
+            CalendarEvent(
+              id: 'theirs',
+              title: 'theirs',
+              categoryId: category.id,
+              startDate: DateTime.utc(2026, 9, 1),
+              fromPartner: true,
+            ),
+          ],
+          focusedDay: DateTime(2026, 9, 3),
+          selectedDay: DateTime(2026, 9, 3),
+        ),
+      );
+      await robot.show(initial: category, bloc: bloc);
+      expect(robot.enabledOf(countsAs), isFalse);
+      expect(robot.captionOf(countsAs), 'Repeats earn no counted hours');
     });
 
     testWidgets('the Goal row is disabled with its reason when the primary '

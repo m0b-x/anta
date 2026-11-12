@@ -40,7 +40,11 @@ void main() {
     String whenLabel = '18:00 – 19:30',
     String excerpt = '',
     int snoozeMinutes = 10,
+    bool fromPartner = false,
+    String? partnerName,
   }) => AlertPayload(
+    fromPartner: fromPartner,
+    partnerName: partnerName,
     database: 'gym_notes',
     eventId: eventId,
     alertId: 'a1',
@@ -634,6 +638,116 @@ void main() {
           dayLabel: 'Mon, Sep 21',
         ).text,
         'Alarm',
+      );
+    });
+  });
+
+  group("a partner's event (D21)", () {
+    final theirs = payloadOf(fromPartner: true, partnerName: 'Ana');
+    final theirReminder = payloadOf(
+      mode: AlertMode.notify,
+      fromPartner: true,
+      partnerName: 'Ana',
+    );
+
+    AlertNotificationContent of(
+      AlertNotificationKind kind,
+      AlertPayload payload, [
+      AppLocalizations? strings,
+    ]) => alertNotificationContent(kind, payload, strings ?? en);
+
+    test('every notification of it is titled with the partner, in each '
+        'language', () {
+      for (final kind in [
+        AlertNotificationKind.ring,
+        AlertNotificationKind.fallbackAlarm,
+        AlertNotificationKind.notice,
+        AlertNotificationKind.missed,
+        AlertNotificationKind.sessionChip,
+      ]) {
+        expect(of(kind, theirs).title, 'Leg day · From Ana', reason: kind.name);
+      }
+      for (final kind in [
+        AlertNotificationKind.reminder,
+        AlertNotificationKind.snoozed,
+      ]) {
+        expect(
+          of(kind, theirReminder).title,
+          'Leg day · From Ana',
+          reason: kind.name,
+        );
+      }
+      expect(
+        of(AlertNotificationKind.ring, theirs, de).title,
+        'Leg day · Von Ana',
+      );
+      expect(
+        of(AlertNotificationKind.ring, theirs, ro).title,
+        'Leg day · De la Ana',
+      );
+    });
+
+    test('a partner with no name is named by the stand-in', () {
+      final nameless = payloadOf(fromPartner: true);
+      expect(
+        of(AlertNotificationKind.ring, nameless).title,
+        'Leg day · From your partner',
+      );
+      expect(
+        of(AlertNotificationKind.ring, nameless, de).title,
+        'Leg day · Von Partner',
+      );
+    });
+
+    test('the text and the buttons are the ones mine get, Skip apart', () {
+      for (final kind in [
+        AlertNotificationKind.ring,
+        AlertNotificationKind.fallbackAlarm,
+        AlertNotificationKind.missed,
+      ]) {
+        final mine = of(kind, payloadOf());
+        expect(of(kind, theirs).text, mine.text, reason: kind.name);
+        expect(actions(of(kind, theirs)), actions(mine), reason: kind.name);
+      }
+      expect(actions(of(AlertNotificationKind.ring, theirs)), [
+        AlertNotificationAction.stop,
+        AlertNotificationAction.snooze,
+      ]);
+      for (final kind in [
+        AlertNotificationKind.reminder,
+        AlertNotificationKind.snoozed,
+      ]) {
+        expect(actions(of(kind, theirReminder)), [
+          AlertNotificationAction.done,
+          AlertNotificationAction.snooze,
+        ], reason: kind.name);
+      }
+    });
+
+    test('its upcoming notice never offers Skip — only Open', () {
+      final notice = of(AlertNotificationKind.notice, theirs);
+      expect(actions(notice), [AlertNotificationAction.open]);
+      expect(notice.labelOf(AlertNotificationAction.skip), isNull);
+      expect(notice.text, 'Alarm at 17:50');
+    });
+
+    test('my own notices keep their title and their Skip', () {
+      final mine = of(AlertNotificationKind.notice, payloadOf());
+      expect(mine.title, 'Leg day');
+      expect(actions(mine), [
+        AlertNotificationAction.skip,
+        AlertNotificationAction.open,
+      ]);
+      expect(of(AlertNotificationKind.ring, olderOf()).title, 'Leg day');
+    });
+
+    test('the wire form keeps all of it, as a background re-post reads it', () {
+      final decoded = AlertPayload.decode(theirReminder.encode())!;
+      expect(decoded.fromPartner, isTrue);
+      expect(decoded.partnerName, 'Ana');
+      expect(
+        of(AlertNotificationKind.snoozed, decoded, de).title,
+        'Leg day · Von Ana',
       );
     });
   });

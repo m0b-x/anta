@@ -4,10 +4,13 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/intl.dart' show DateFormat;
 import 'package:table_calendar/table_calendar.dart';
 
+import 'package:anta/constants/app_colors.dart';
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/models/calendar_appearance.dart';
+import 'package:anta/models/day_bar.dart';
 import 'package:anta/utils/calendar_days_of_week.dart';
 import 'package:anta/widgets/agenda_month_grid.dart';
+import 'package:anta/widgets/calendar_day_bars.dart';
 import 'package:anta/widgets/calendar_day_cell.dart';
 
 import 'support/layout_errors.dart';
@@ -25,6 +28,7 @@ void main() {
     Size? size,
     bool Function(DateTime day)? hasEntry,
     ValueChanged<DateTime>? onDaySelected,
+    List<DayBar>? Function(DateTime day)? barsFor,
   }) async {
     if (size != null) {
       addTearDown(tester.view.reset);
@@ -54,7 +58,7 @@ void main() {
                   selectedDay: null,
                   appearance: appearance,
                   hasEntry: hasEntry ?? (_) => true,
-                  barsFor: (_) => null,
+                  barsFor: barsFor ?? (_) => null,
                   onDaySelected: onDaySelected ?? (_) {},
                   onPageChanged: (_) {},
                 ),
@@ -73,6 +77,46 @@ void main() {
   Finder cellOf(int day) => find.byWidgetPredicate(
     (widget) => widget is CalendarDayCell && widget.day.day == day,
   );
+
+  testWidgets('a hollow marker takes the page ground as its ground; a day of '
+      'filled markers alone keeps the strip as it was', (tester) async {
+    const mine = DayBar(
+      key: 'agendaDayList:0',
+      color: Color(0xFF1E88E5),
+      priority: 0,
+      semanticLabel: 'Leg day',
+    );
+    const theirs = DayBar(
+      key: 'agendaDayList:1',
+      color: Color(0xFFE53935),
+      priority: 1,
+      semanticLabel: 'Night shift, From Maria',
+      hollow: true,
+    );
+    await pumpGrid(
+      tester,
+      barsFor: (day) => switch (day.day) {
+        5 => const [mine, theirs],
+        6 => const [mine],
+        _ => null,
+      },
+    );
+
+    CalendarDayBars stripOf(String label) => tester.widget(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is CalendarDayBars &&
+            widget.bars.first.semanticLabel == 'Leg day' &&
+            widget.bars.last.semanticLabel == label,
+      ),
+    );
+    final pageGround = Theme.of(
+      tester.element(find.byType(AgendaMonthGrid)),
+    ).colorScheme.pageGround;
+
+    expect(stripOf('Night shift, From Maria').ground, pageGround);
+    expect(stripOf('Leg day').ground, isNull);
+  });
 
   testWidgets('at 200 % German on a narrow phone a two-digit day number '
       'stays on one line inside its chip, and nothing overflows', (

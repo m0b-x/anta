@@ -2071,4 +2071,102 @@ void main() {
       expect(tilesOf(friends.compared!), tilesOf(friends));
     });
   });
+
+  group("a partner's event (share surfaces D15)", () {
+    final today = day(2026, 10, 15);
+    final mine = ev(
+      'mine',
+      'gym',
+      day(2026, 1, 1),
+      rule: const DailyRecurrence(),
+      tracked: true,
+    );
+
+    /// In my built-in `gym` id, tracked and assumed absent — a miss on every
+    /// day it was counted — beside a timed one-off in another category of
+    /// mine, and one in a year of its own.
+    final theirs = [
+      CalendarEvent(
+        id: 'theirs-gym',
+        title: 'theirs-gym',
+        categoryId: 'gym',
+        startDate: day(2026, 1, 1),
+        rule: const WeeklyRecurrence(weekdays: {DateTime.tuesday}),
+        tracksPresence: true,
+        assumeAbsent: true,
+        fromPartner: true,
+      ),
+      CalendarEvent(
+        id: 'theirs-run',
+        title: 'theirs-run',
+        categoryId: 'cardio',
+        startDate: day(2026, 10, 14),
+        time: const EventTime(startMinute: 8 * 60, durationMinutes: 60),
+        fromPartner: true,
+      ),
+      CalendarEvent(
+        id: 'theirs-later',
+        title: 'theirs-later',
+        categoryId: 'gym',
+        startDate: day(2030, 6, 1),
+        fromPartner: true,
+      ),
+    ];
+
+    setUp(() {
+      CategoryProfiles.updateCache({
+        'gym': const CategoryProfile(
+          id: 'p-gym',
+          categoryId: 'gym',
+          kind: CategoryKind.workout,
+          target: ReportTarget(
+            kind: TargetKind.atLeast,
+            value: 3,
+            period: TargetPeriod.week,
+          ),
+        ),
+      });
+      // A mark of mine left on their event stays stored and unread.
+      EventPresence.updateCache(
+        byEvent: {
+          'mine': {day(2026, 10, 5): PresenceStatus.missed},
+          'theirs-gym': {day(2026, 10, 6): PresenceStatus.present},
+        },
+      );
+    });
+
+    tearDown(CategoryProfiles.resetCache);
+
+    CalendarReport fold(List<CalendarEvent> events, DateRange asked) =>
+        CalendarReportService().report(
+          request(span: asked, events: events, today: today),
+        );
+
+    test('is in no figure of a month: mine fold exactly as alone', () {
+      final october = span(day(2026, 10, 1), day(2026, 10, 31));
+      final alone = fold([mine], october);
+      final shared = fold([mine, ...theirs], october);
+
+      expect(shared, alone);
+      expect(shared.events.keys, ['mine']);
+      expect(tile(shared, ReportTile.missed).value, 1);
+      expect(shared.goals.single.categoryId, 'gym');
+    });
+
+    test('is in no card of the year either', () {
+      final year = span(day(2026, 1, 1), day(2026, 12, 31));
+      final alone = fold([mine], year);
+      final shared = fold([mine, ...theirs], year);
+
+      expect(alone.year, isNotNull);
+      expect(shared, alone);
+    });
+
+    test('reaches no step of the report\'s years', () {
+      expect(
+        CalendarReportService.yearsOf([mine, ...theirs], today: today),
+        CalendarReportService.yearsOf([mine], today: today),
+      );
+    });
+  });
 }

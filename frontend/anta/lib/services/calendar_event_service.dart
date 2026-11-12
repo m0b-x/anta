@@ -2,13 +2,17 @@ import 'dart:async';
 
 import 'package:drift/drift.dart';
 import 'package:flutter/foundation.dart';
+import 'package:uuid/uuid.dart';
 
 import '../constants/calendar_cache_limits.dart';
+import '../constants/calendar_categories.dart';
 import '../constants/event_presence.dart';
 import '../constants/json_keys.dart';
+import '../constants/occurrence_descriptions.dart';
 import '../database/database.dart';
 import '../database/database_lifecycle.dart';
 import '../database/daos/calendar_event_dao.dart';
+import '../database/daos/shared_row_dao.dart';
 import '../models/calendar_event.dart';
 import '../models/event_alert.dart';
 import '../models/recurrence_rule.dart';
@@ -322,7 +326,10 @@ class CalendarEventService {
         final writes = _writes;
         try {
           final rows = await _dao.getAll();
-          _cache = List.unmodifiable(rows.map(_rowToEvent));
+          final partner = await _partnerOf(rows);
+          _cache = List.unmodifiable(
+            rows.map((row) => _rowToEvent(row, partner)),
+          );
           _lastLoadFailed = false;
         } catch (e, st) {
           debugPrint('[CalendarEventService] Load error: $e\n$st');
@@ -337,6 +344,14 @@ class CalendarEventService {
     }
   }
 
+  /// The partner's account when one of [rows] names an owner, else null
+  /// without a statement: a database that was never bound holds no owned
+  /// row, and must pay nothing for sharing on every load and patch.
+  Future<String?> _partnerOf(List<CalendarEventRow> rows) async {
+    if (!rows.any((row) => row.ownerId != null)) return null;
+    return _db.sharedRowDao.owner();
+  }
+
   Future<bool> _applyMerged(Set<String> ids) async {
     if (ids.isEmpty) return !_lastLoadFailed;
     if (ids.length > CalendarCacheLimits.maxKeyedPatchIds ||
@@ -349,8 +364,10 @@ class CalendarEventService {
     final Map<String, CalendarEvent?> merged;
     try {
       final rows = await _dao.getByIdsIncludingDeleted(ids.toList());
+      final partner = await _partnerOf(rows);
       merged = {
-        for (final row in rows) row.id: row.isDeleted ? null : _rowToEvent(row),
+        for (final row in rows)
+          row.id: row.isDeleted ? null : _rowToEvent(row, partner),
       };
     } catch (e, st) {
       debugPrint('[CalendarEventService] Merged rows error: $e\n$st');
@@ -430,6 +447,7 @@ class CalendarEventService {
   /// `copyWith(id:)` carried over from another event, nor this call's clock
   /// would match what a reload reads.
   Future<void> upsert(CalendarEvent event) async {
+    _ensureOwn(event.id, fromPartner: event.fromPartner);
     var normalized = _normalized(event);
     final cached = _cache.any((e) => e.id == normalized.id);
     final now = DateTime.now();
@@ -440,6 +458,22 @@ class CalendarEventService {
     }
     _writes++;
     _cacheWritten(normalized);
+  }
+
+  /// Throws [SharedRowException] for an event a partner shares — [id] as
+  /// the cache holds it, or a model that says so — before anything is
+  /// written or cached.
+  ///
+  /// The database fences already turn such a write into nothing, but this
+  /// layer would still cache the edit, drop a deleted event, forget its
+  /// children and hard-delete its registrations — a calendar showing a
+  /// change that the next load takes back, and a caller with no way to tell
+  /// it from a save. Read from the cache, so a database that never read a
+  /// shared row pays no statement for it.
+  void _ensureOwn(String id, {bool fromPartner = false}) {
+    if (fromPartner || _cache.any((e) => e.id == id && e.fromPartner)) {
+      throw SharedRowException('calendar_events', id);
+    }
   }
 
   /// Both date bounds as date-only UTC, so equality and ordering are
@@ -529,6 +563,7 @@ class CalendarEventService {
       alerts.every((alert) => alert.categoryId == null),
       'restoreCascade was handed an inherited alert',
     );
+    _ensureOwn(event.id, fromPartner: event.fromPartner);
     final normalized = _normalized(event);
     await _dao.restoreEventCascade(
       _eventToCompanion(normalized, updatedAt: DateTime.now()),
@@ -586,6 +621,7 @@ class CalendarEventService {
   /// The tombstones are one DAO call (**v43**) so the whole delete shares one
   /// merge order, which only the DAO can give it.
   Future<void> deleteById(String id) async {
+    _ensureOwn(id);
     await _db.transaction(() async {
       await _dao.tombstoneEventCascade(id);
       await _db.alertRegistrationDao.deleteForEvent(id);
@@ -602,6 +638,44 @@ class CalendarEventService {
     ]);
   }
 
+  /// "Copy to my calendar" (§6.9, D19): a new event of the person's own from
+  /// a partner's [event] as its read sheet shows it on [day] — the one act
+  /// that makes a shared event the person's own. Returns the stored copy,
+  /// for the editor to open.
+  ///
+  /// The facts shown and nothing else: title, time, repeat, priority, the
+  /// event's own colour and icon, the description of [day] (a per-day text
+  /// for a series that keeps one), and the category when this database has
+  /// that id as its own — a shared built-in such as `gym` — else Other. A
+  /// create, never an import: a new id stamped now, no share mark, and none
+  /// of the person's alerts on the shared event, no linked note (it would
+  /// open the partner's), no skipped days and no presence settings come
+  /// along — the copy starts clean.
+  Future<CalendarEvent> copyToMine(CalendarEvent event, DateTime day) async {
+    final description = OccurrenceDescriptions.descriptionFor(event, day);
+    final copy = CalendarEvent(
+      id: const Uuid().v4(),
+      title: event.title,
+      categoryId: CalendarCategories.byId(event.categoryId) == null
+          ? kFallbackCategoryId
+          : event.categoryId,
+      startDate: event.startDate,
+      rule: event.rule,
+      endDate: event.endDate,
+      retroactive: event.retroactive,
+      time: event.time,
+      description: description == null || description.isEmpty
+          ? null
+          : description,
+      priority: event.priority,
+      colorValue: event.colorValue,
+      iconKey: event.iconKey,
+      tintIcon: event.tintIcon,
+    );
+    await upsert(copy);
+    return _cache.firstWhere((cached) => cached.id == copy.id);
+  }
+
   /// Shares the event [id] with the partner of the pair [pairId], or makes
   /// it private again when null (`docs/cloud-sharing-foundations.md` §3):
   /// one stamped write of the event's mark, which the next push carries,
@@ -611,8 +685,9 @@ class CalendarEventService {
   /// already.
   ///
   /// The mark is no part of the event a screen holds, so the cache stays as
-  /// it is. No surface calls this yet: the switch that will is a later
-  /// slice, and until then only tests and the QA seam reach it.
+  /// it is. `ShareService.setEventShared` is its one caller in the app, so
+  /// no surface ever holds a pair id; tests and the QA seam reach it
+  /// directly.
   Future<bool> setShared(String id, String? pairId) =>
       _dao.setSharedPair(id, pairId);
 
@@ -923,7 +998,9 @@ class CalendarEventService {
 
   // ── Row ↔ Domain mapping ──────────────────────────────────────────────
 
-  CalendarEvent _rowToEvent(CalendarEventRow row) {
+  /// [partner] is `shared_owner` as the caller read it, once for all its
+  /// rows: null on a database that reads no shared rows.
+  CalendarEvent _rowToEvent(CalendarEventRow row, String? partner) {
     return CalendarEvent(
       id: row.id,
       title: row.title,
@@ -951,6 +1028,7 @@ class CalendarEventService {
       categoryAlerts: row.categoryAlerts,
       rule: _decodeRule(row.ruleKind, row.rulePayload),
       createdAt: row.createdAt,
+      fromPartner: partner != null && row.ownerId == partner,
     );
   }
 
