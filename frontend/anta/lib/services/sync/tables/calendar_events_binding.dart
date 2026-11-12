@@ -75,6 +75,7 @@ final class CalendarEventsBinding extends SyncTableBinding<CalendarEventRow> {
         'updatedAtMs': row.updatedAt.millisecondsSinceEpoch,
         if (row.ownerId != null) 'ownerId': row.ownerId,
         if (row.sharedPair != null) sharedPairKey: row.sharedPair,
+        if (row.sharedStamp != null) sharedStampKey: row.sharedStamp,
       },
     );
   }
@@ -123,6 +124,7 @@ final class CalendarEventsBinding extends SyncTableBinding<CalendarEventRow> {
       deletedAt: deletedAtOf(envelope),
       ownerId: envelope.ownerId,
       sharedPair: f.nullable<String>(sharedPairKey),
+      sharedStamp: f.nullable<String>(sharedStampKey),
     );
   }
 

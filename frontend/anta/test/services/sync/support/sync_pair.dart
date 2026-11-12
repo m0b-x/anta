@@ -191,7 +191,9 @@ class SyncPair {
   /// clock that far ahead of the shared one, for a case about a device whose
   /// system clock is wrong. [buildSchema] is the schema both engines run at,
   /// for a case about an older build meeting this build's space, which is
-  /// created at [syncSchema] whatever it is.
+  /// created at [syncSchema] whatever it is. [serverOnDeviceClock] puts the
+  /// gateway's server time on the devices' shared clock, for a case that
+  /// compares a stamp with the time a push landed.
   static Future<SyncPair> open({
     bool bind = true,
     bool background = false,
@@ -200,9 +202,11 @@ class SyncPair {
     List<SyncTableBinding<Object>>? tables,
     Map<String, Duration> wallAhead = const {},
     int buildSchema = syncSchema,
+    bool serverOnDeviceClock = false,
   }) async {
     final gateway = FakeSyncGateway();
     final clock = _SharedClock();
+    if (serverOnDeviceClock) gateway.wallClock = clock.call;
     final files = background
         ? await Directory.systemTemp.createTemp('anta_sync_pair_')
         : null;

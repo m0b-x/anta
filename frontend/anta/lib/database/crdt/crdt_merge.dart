@@ -26,6 +26,12 @@ enum MergeJoin {
   stored,
 }
 
+/// An event's or a folder's share mark as a register of its own: the pair
+/// it shares into — null for none — and the stamp of the write that set or
+/// cleared it, null while it was never touched
+/// (`docs/cloud-sharing-foundations.md` §3).
+typedef ShareMark = ({String? pair, String? stamp});
+
 /// The one decision every synced table's remote merge makes, so the DAO
 /// merges cannot drift apart on it (record §3.4).
 abstract final class CrdtMerge {
@@ -155,6 +161,64 @@ abstract final class CrdtMerge {
     String remoteHlc,
     String? floor,
   ) => floor != null && localHlc.compareTo(floor) <= 0 && remoteHlc != _seed;
+
+  /// Settles the share mark of an event or a folder once [mergeRemoteRow]
+  /// merged a live [remote] of it with [result], inside the same
+  /// transaction, and returns the mark the row now carries.
+  ///
+  /// The mark is decided apart from the row: the one with the newer stamp
+  /// stands, whichever side's row won. A row is one last-writer-wins
+  /// register, so without this a rename made on a device that had not yet
+  /// heard of a share being ended would carry the old mark back over it, and
+  /// every device would converge on "shared" against the owner's last word.
+  /// A mark never stamped yields to any stamped one. Two marks of one age
+  /// that differ — only marks written before they carried a stamp can —
+  /// settle the same way on every device, private first, so two devices
+  /// never push their own answer at each other for good.
+  ///
+  /// [local] is the mark the row carried before the merge, null when there
+  /// was no row. [write] stores a mark on the row and nothing else — no
+  /// stamp of the row's own, since the row did not change. When the mark
+  /// that stands is not the one the remote's document says, the row is
+  /// queued again so a push says it.
+  static Future<ShareMark> mergeMark(
+    AppDatabase db, {
+    required TableInfo table,
+    required String rowKey,
+    required ShareMark? local,
+    required ShareMark remote,
+    required MergeResult result,
+    required Future<void> Function(ShareMark kept) write,
+  }) async {
+    if (local == null) return remote;
+    final kept = newerMark(local, remote);
+    final stored =
+        result == MergeResult.inserted || result == MergeResult.applied
+        ? remote
+        : local;
+    if (kept != stored) await write(kept);
+    // A local row that won is queued by its own merge already. A plain
+    // entry, not a re-send: the push sends those last, and this row's mark
+    // has to reach the space before the rows under it say it.
+    if (kept != remote && result != MergeResult.keptLocal) {
+      await db.syncOutboxDao.requeueRow(table.actualTableName, rowKey);
+    }
+    return kept;
+  }
+
+  /// The mark of [a] and [b] that stands: the one stamped later; at one
+  /// stamp, the cleared one before a set one, then the greater pair id —
+  /// any rule every device applies alike.
+  static ShareMark newerMark(ShareMark a, ShareMark b) {
+    final byStamp = (a.stamp ?? '').compareTo(b.stamp ?? '');
+    if (byStamp != 0) return byStamp > 0 ? a : b;
+    final aPair = a.pair;
+    final bPair = b.pair;
+    if (aPair == bPair) return a;
+    if (aPair == null) return a;
+    if (bPair == null) return b;
+    return aPair.compareTo(bPair) >= 0 ? a : b;
+  }
 
   /// Raises the clock past [remoteHlc], the highest stamp a pulled page
   /// merged, so the next local write orders after everything that page

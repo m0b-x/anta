@@ -24,6 +24,13 @@ class SyncSpaceRef extends Equatable {
 /// ([SyncEnvelope.sharedPair], [SyncGateway.pushBatch]).
 const String sharedPairKey = 'sharedPair';
 
+/// The key an event and a folder carry, in `data`, the stamp of the write
+/// that last set or cleared their mark under — written whenever the row has
+/// one, a cleared mark's included, since the stamp is what lets a merge
+/// tell a mark taken away from a mark never heard of
+/// (`docs/cloud-sharing-foundations.md` §3).
+const String sharedStampKey = 'sharedStamp';
+
 /// One row on the wire, keyed as the outbox keys it.
 class SyncEnvelope extends Equatable {
   /// The SQL table name.
@@ -254,6 +261,11 @@ class SyncSpaceInfo extends Equatable {
   /// only finished ([SyncGateway.deleteRows], then [SyncGateway.deleteSpace]).
   final bool markedForDeletion;
 
+  /// The pair the space's document says its database's notes are shared
+  /// into, as the last write of it left it ([SyncGateway.pushBatch]); null
+  /// for none.
+  final String? sharedPair;
+
   const SyncSpaceInfo({
     required this.ref,
     required this.name,
@@ -263,6 +275,7 @@ class SyncSpaceInfo extends Equatable {
     this.lastWriteAt,
     this.lastWriter,
     this.markedForDeletion = false,
+    this.sharedPair,
   });
 
   @override
@@ -275,6 +288,7 @@ class SyncSpaceInfo extends Equatable {
     lastWriteAt,
     lastWriter,
     markedForDeletion,
+    sharedPair,
   ];
 }
 
@@ -301,12 +315,19 @@ class SyncSpaceSignal extends Equatable {
   /// stop before a push is denied. Always false while `exists` is false.
   final bool markedForDeletion;
 
+  /// The pair the space's document says its database's notes are shared
+  /// into; null for none. Written by whichever device pushed last, from
+  /// what it knew then — so a device that knows otherwise once it has
+  /// pulled says it again ([SyncGateway.writeSpaceShare]).
+  final String? sharedPair;
+
   const SyncSpaceSignal({
     required this.exists,
     required this.touched,
     required this.lastWriter,
     required this.schema,
     this.markedForDeletion = false,
+    this.sharedPair,
   });
 
   @override
@@ -316,6 +337,7 @@ class SyncSpaceSignal extends Equatable {
     lastWriter,
     schema,
     markedForDeletion,
+    sharedPair,
   ];
 }
 
@@ -388,6 +410,20 @@ abstract interface class SyncGateway {
     required String pushedBy,
     required int schema,
     String? sharedPair,
+  });
+
+  /// Writes [sharedPair] on the space's document and nothing else — no row,
+  /// no table touched — as [pushBatch] writes it with rows: for a device
+  /// that has nothing to push and finds the document naming another pair
+  /// than its database shares its notes into, which the last pusher wrote
+  /// from what it knew (`docs/cloud-sharing-foundations.md` §4). Null takes
+  /// the field out. Refused as a push is: a missing or marked space, a
+  /// [schema] below the space's.
+  Future<void> writeSpaceShare(
+    SyncSpaceRef space, {
+    required String? sharedPair,
+    required String pushedBy,
+    required int schema,
   });
 
   /// The envelopes of [table] in arrival order strictly after [after] — all

@@ -168,6 +168,24 @@ class SyncDao extends DatabaseAccessor<AppDatabase> with _$SyncDaoMixin {
   /// recorded under, written at a bind.
   static const String keyNoteSeenSpace = 'note_seen_space';
 
+  /// The account whose shared rows this database holds — the partner the
+  /// reader of shared rows reads from (`docs/cloud-sharing-foundations.md`
+  /// §5, §7). A row is another account's exactly when its `owner_id` is
+  /// this value; while it is absent the database holds none, which is every
+  /// database until that reader exists.
+  static const String keySharedOwner = 'shared_owner';
+
+  /// The SQL condition, over a synced table's `owner_id`, for a row this
+  /// device may push: one of its own, however the column spells that — NULL
+  /// for a row written here after the bind, the bound account's uid for one
+  /// that was here at the bind or arrived from its space — which is every
+  /// row but those another account shares with this one
+  /// ([keySharedOwner]). Never "the same owner as some other row": two rows
+  /// of one person differ in that spelling on every bound device.
+  static const String mineSql =
+      'NOT EXISTS (SELECT 1 FROM sync_metadata '
+      "WHERE key = '$keySharedOwner' AND value = owner_id)";
+
   Future<String?> getValue(String key) async {
     final result = await (select(
       syncMetadata,

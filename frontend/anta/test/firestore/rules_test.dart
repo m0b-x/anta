@@ -141,12 +141,21 @@ Map<String, Object?> _pairFields({
   ...extra,
 };
 
+/// A pair created as the app creates one: its id is [inviteCode], then `_`
+/// and [nonce] (`PairingGateway.pairIdFor`), which the rules hold a new pair
+/// to. [id] names the document outright, for a pair the rules must refuse
+/// by its name.
 Map<String, Object?> _createPair(
-  String id,
+  String nonce,
   Map<String, Object?> fields, {
   List<String> serverTimeFields = const ['createdAt'],
+  String inviteCode = code,
+  String? id,
 }) => {
-  'update': {'name': '$_docRoot/pairs/$id', 'fields': fields},
+  'update': {
+    'name': '$_docRoot/pairs/${id ?? '${inviteCode}_$nonce'}',
+    'fields': fields,
+  },
   'updateTransforms': [
     for (final f in serverTimeFields)
       {'fieldPath': f, 'setToServerValue': 'REQUEST_TIME'},
@@ -759,6 +768,44 @@ void main() {
     test('an unauthenticated caller is refused', () async {
       await _seedInvite(code, creatorUid: uidB);
       expect(await _commit([_createPair('p1', _pairFields())]), 403);
+    });
+
+    test('a pair whose id does not start with its invite\'s code is refused: '
+        'an id cannot be chosen freely, so it cannot be one that was used '
+        'before', () async {
+      await _seedInvite(code, creatorUid: uidB);
+      for (final id in ['p1', 'OTHER_p1', code, '${code}_', '${code}x_p1']) {
+        expect(
+          await _commit([_createPair('', _pairFields(), id: id)], uid: uidA),
+          403,
+          reason: id,
+        );
+      }
+      expect(await _commit([_createPair('p1', _pairFields())], uid: uidA), 200);
+    });
+
+    test('a former partner cannot bring an ended pair\'s id back with the '
+        'same person: the id follows the other one\'s new invite', () async {
+      // The pair that ended was made from `code`; uidA invites again, and
+      // the code of that invite is new.
+      const again = 'NEWCODE2';
+      await _seedInvite(again, creatorUid: uidA);
+      expect(
+        await _commit([
+          _createPair(
+            '',
+            _pairFields(inviteCode: again),
+            id: '${code}_p1',
+          ),
+        ], uid: uidB),
+        403,
+      );
+      expect(
+        await _commit([
+          _createPair('p1', _pairFields(inviteCode: again), inviteCode: again),
+        ], uid: uidB),
+        200,
+      );
     });
   });
 
@@ -2030,16 +2077,14 @@ void main() {
         expect(byOwner.status, 403);
       });
 
-      test('a query for a pair without naming the owner is allowed and '
-          'returns the pair\'s rows — which is why the reader pins the owner '
-          'itself', () async {
+      test('a query for a pair without naming the owner is refused whole: '
+          'whether the pair holds each row\'s owner cannot be decided', () async {
         await seed();
         final read = await _runShared(
           _sharedQuery('folders', pair: 'p1', owner: null),
           uid: uidB,
         );
-        expect(read.status, 200);
-        expect(read.keys, unorderedEquals(['shared', 'gone']));
+        expect(read.status, 403);
       });
 
       test('the owner reads its shared rows by the same query', () async {
@@ -2152,9 +2197,8 @@ void main() {
         await expectNothingFor(uidC, reason: 'a member of p2, not of p1');
       });
 
-      test('a row that names a pair its owner is not in is read by that '
-          'pair\'s members and nobody is the wiser for the owner\'s other '
-          'rows — which is why the reader pins the owner it expects', () async {
+      test('a row that names a pair its owner is not in is read by nobody: '
+          'the pair has to hold the owner', () async {
         // uidC shares into p1, the pair of A and B, without being in it.
         await _seedPair('p1');
         await _seedSpace(owner: uidC, schema: 47);
@@ -2162,7 +2206,7 @@ void main() {
           await _pushSharing(
             [
               _row(uidC, 's1', 'folders', 'planted', fields: _share('p1')),
-              _row(uidC, 's1', 'folders', 'own'),
+              _row(uidC, 's1', 'content_chunks', 'h1'),
             ],
             sharedPair: 'p1',
             owner: uidC,
@@ -2170,17 +2214,40 @@ void main() {
           200,
         );
 
-        final all = await _runShared(
-          _sharedQuery('folders', pair: 'p1', owner: null),
+        final asked = await _runShared(
+          _sharedQuery('folders', pair: 'p1', owner: uidC),
           uid: uidB,
         );
-        expect(all.keys, ['planted']);
+        expect(asked.status, 403);
+        expect(
+          await _get('${_spaceDoc(uidC, 's1')}/folders/planted', uid: uidB),
+          403,
+        );
+        expect(
+          await _get('${_spaceDoc(uidC, 's1')}/content_chunks/h1', uid: uidB),
+          403,
+        );
         final pinned = await _runShared(
           _sharedQuery('folders', pair: 'p1', owner: uidA),
           uid: uidB,
         );
         expect(pinned.status, 200);
         expect(pinned.keys, isEmpty);
+      });
+
+      test('the former partner who removes the ended pair and makes it '
+          'again under the same id with another account — the owner\'s '
+          'documents still name that id, and the new pair does not hold the '
+          'owner', () async {
+        await seedShared();
+        await _seedPair('p1', status: 'ended');
+        expect(await _commit([_delete('pairs/p1')], uid: uidB), 200);
+        // Whatever let the id be taken again: the admin stands in for it, so
+        // the read rule is judged on its own.
+        await _seedPair('p1', members: const [uidB, uidC]);
+
+        await expectNothingFor(uidB, reason: 'the owner is not in this pair');
+        await expectNothingFor(uidC, reason: 'the owner is not in this pair');
       });
     });
   });

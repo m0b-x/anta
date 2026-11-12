@@ -267,6 +267,11 @@ class DatabaseMigrations {
       toVersion: DatabaseSchema.v52SharedPair,
       migrate: _migrateV51ToV52,
     ),
+    Migration(
+      fromVersion: DatabaseSchema.v52SharedPair,
+      toVersion: DatabaseSchema.v53ShareStamp,
+      migrate: _migrateV52ToV53,
+    ),
   ];
 
   Future<void> runMigrations(Migrator m, int from, int to) async {
@@ -2282,9 +2287,8 @@ class DatabaseMigrations {
   /// shared, and nothing in the app sets it yet
   /// (`docs/cloud-sharing-foundations.md` §3). The mark crosses the wire, so
   /// `syncSchemaVersion` moves to 47 with it; no row is rewritten or queued
-  /// by the step, and no index is added — the rows that carry a mark are
-  /// found by reading the few that do. Idempotent: each column guarded by
-  /// its table's column list.
+  /// by the step. Idempotent: each column guarded by its table's column
+  /// list.
   Future<void> _migrateV51ToV52(Migrator m, GeneratedDatabase db) async {
     for (final table in const ['calendar_events', 'folders']) {
       if (!(await _columnsOf(table)).contains('shared_pair')) {
@@ -2293,5 +2297,25 @@ class DatabaseMigrations {
         );
       }
     }
+  }
+
+  /// v52→v53: `shared_stamp` beside `shared_pair` on `calendar_events` and
+  /// `folders` — the stamp of the write that last set or cleared the mark,
+  /// so a merge decides the mark apart from the row
+  /// (`docs/cloud-sharing-foundations.md` §3) — and the two partial indexes
+  /// over the marked rows. NULL everywhere: a mark set by a v52 build, which
+  /// only a test could have, reads as never stamped and yields to any
+  /// stamped one. The wire stays 47, which no build shipped without it.
+  /// Idempotent: each column guarded by its table's column list, the
+  /// indexes by `IF NOT EXISTS`.
+  Future<void> _migrateV52ToV53(Migrator m, GeneratedDatabase db) async {
+    for (final table in const ['calendar_events', 'folders']) {
+      if (!(await _columnsOf(table)).contains('shared_stamp')) {
+        await _db.customStatement(
+          'ALTER TABLE $table ADD COLUMN shared_stamp TEXT',
+        );
+      }
+    }
+    await DatabaseIndexes(_db).createShareMarkIndexes();
   }
 }

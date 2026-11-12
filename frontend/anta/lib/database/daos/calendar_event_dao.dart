@@ -7,6 +7,7 @@ import '../crdt/merge_outcome.dart';
 import '../crdt/synced_tables.dart';
 import '../database.dart';
 import '../tables/calendar_events_table.dart';
+import 'sync_dao.dart';
 
 part 'calendar_event_dao.g.dart';
 
@@ -332,10 +333,15 @@ class CalendarEventDao extends DatabaseAccessor<AppDatabase>
   /// own envelopes, and the device-local `alert_registrations` follow from
   /// the engine's reconcile.
   ///
-  /// A live remote that changes the event's share mark queues this device's
-  /// copies of its day rows again ([_requeueDayRows]): a device that pushed
-  /// one before it had merged the mark wrote a document that says the old
-  /// one, and only the device holding the row can say it again.
+  /// The share mark is settled apart from the row ([CrdtMerge.mergeMark]):
+  /// the mark stamped later stands whichever side's row won, so an edit
+  /// made where a share's end had not arrived cannot bring the share back.
+  /// A tombstone carries no mark, and the one here stands.
+  ///
+  /// A merge that changes the event's mark queues this device's copies of
+  /// its day rows again ([_requeueDayRows]): a device that pushed one before
+  /// it had merged the mark wrote a document that says the old one, and
+  /// only the device holding the row can say it again.
   Future<MergeOutcome> mergeRemoteEvent(
     CalendarEventRow remote, {
     String? floor,
@@ -371,14 +377,26 @@ class CalendarEventDao extends DatabaseAccessor<AppDatabase>
           return applied;
         },
       );
-      final wrote =
-          outcome.result == MergeResult.inserted ||
-          outcome.result == MergeResult.applied;
-      if (wrote &&
-          !remote.isDeleted &&
-          local?.sharedPair != remote.sharedPair) {
-        await _requeueDayRows([remote.id]);
-      }
+      if (remote.isDeleted) return outcome;
+      final kept = await CrdtMerge.mergeMark(
+        db,
+        table: calendarEvents,
+        rowKey: remote.id,
+        local: local == null
+            ? null
+            : (pair: local.sharedPair, stamp: local.sharedStamp),
+        remote: (pair: remote.sharedPair, stamp: remote.sharedStamp),
+        result: outcome.result,
+        write: (mark) =>
+            (update(calendarEvents)..where((e) => e.id.equals(remote.id)))
+                .write(
+                  CalendarEventsCompanion(
+                    sharedPair: Value(mark.pair),
+                    sharedStamp: Value(mark.stamp),
+                  ),
+                ),
+      );
+      if (local?.sharedPair != kept.pair) await _requeueDayRows([remote.id]);
       return outcome;
     });
   }
@@ -432,23 +450,25 @@ class CalendarEventDao extends DatabaseAccessor<AppDatabase>
   /// A database shares into one pair: setting a mark clears every mark of
   /// another pair, here and on `folders`, in the same transaction.
   ///
-  /// A missing or tombstoned event, and a mark the event already carries,
-  /// write nothing. Returns whether the event's mark was written.
+  /// A missing or tombstoned event writes nothing, and neither does a mark
+  /// the event already carries — though the marks of other pairs are
+  /// cleared even then. Returns whether the event's mark was written.
   Future<bool> setSharedPair(String id, String? pairId) {
     return transaction(() async {
       final existing = await _byId(id);
       if (existing == null || existing.isDeleted) return false;
-      if (existing.sharedPair == pairId) return false;
       // One stamp for the whole act: the mark and whatever it clears.
       final stamp = db.newStamp();
       if (pairId != null) {
         await clearOtherPairs(pairId, stamp);
         await db.folderDao.clearOtherPairs(pairId, stamp);
       }
+      if (existing.sharedPair == pairId) return false;
       await db.enqueue(calendarEvents, id, stamp.hlc);
       await (update(calendarEvents)..where((e) => e.id.equals(id))).write(
         CalendarEventsCompanion(
           sharedPair: Value(pairId),
+          sharedStamp: Value(stamp.hlc),
           hlcTimestamp: Value(stamp.hlc),
           deviceId: Value(stamp.deviceId),
           version: Value(existing.version + 1),
@@ -460,16 +480,17 @@ class CalendarEventDao extends DatabaseAccessor<AppDatabase>
   }
 
   /// Clears, under [stamp], the mark of every event shared into another pair
-  /// than [pairId], each row queued — its half of "a database shares into
-  /// one pair", called inside the transaction of the write that sets a mark
-  /// ([setSharedPair], [FolderDao.setSharedPair]). Tombstones too: their
-  /// documents would go on naming a pair this database no longer shares
-  /// into.
-  Future<void> clearOtherPairs(String pairId, CrdtStamp stamp) async {
+  /// than [pairId] — every mark there is when null — each row queued: its
+  /// half of "a database shares into one pair", called inside the
+  /// transaction of the write that sets a mark ([setSharedPair],
+  /// [FolderDao.setSharedPair]) and when the account's pair is found
+  /// changed or ended. Tombstones too: their documents would go on naming a
+  /// pair this database no longer shares into. Returns how many it cleared.
+  Future<int> clearOtherPairs(String? pairId, CrdtStamp stamp) async {
     final cleared = await customWriteReturning(
-      'UPDATE calendar_events SET shared_pair = NULL, hlc_timestamp = ?, '
-      'device_id = ?, version = version + 1 '
-      'WHERE shared_pair IS NOT NULL AND shared_pair <> ? '
+      'UPDATE calendar_events SET shared_pair = NULL, shared_stamp = ?1, '
+      'hlc_timestamp = ?1, device_id = ?2, version = version + 1 '
+      'WHERE shared_pair IS NOT NULL AND shared_pair IS NOT ?3 '
       'RETURNING id, is_deleted',
       variables: [
         Variable<String>(stamp.hlc),
@@ -479,7 +500,7 @@ class CalendarEventDao extends DatabaseAccessor<AppDatabase>
       updates: {calendarEvents},
       updateKind: UpdateKind.update,
     );
-    if (cleared.isEmpty) return;
+    if (cleared.isEmpty) return 0;
     for (final deleted in const [false, true]) {
       await db.enqueueMany(
         calendarEvents,
@@ -492,13 +513,15 @@ class CalendarEventDao extends DatabaseAccessor<AppDatabase>
       );
     }
     await _requeueDayRows([for (final row in cleared) row.read<String>('id')]);
+    return cleared.length;
   }
 
   /// Queues again, at the stamps they carry, the skipped days and per-day
   /// texts of the events [ids]: their documents say who may read them from
   /// their event's mark, and only a push writes that
-  /// ([CrdtWrite.requeueRows]). Only the rows of the event's own account —
-  /// another's are never this device's to push.
+  /// ([CrdtWrite.requeueRows]). Every one this device may push — its own,
+  /// whatever `owner_id` spells that as ([SyncDao.mineSql]) — and never a
+  /// row another account shares with it.
   Future<void> _requeueDayRows(List<String> ids) async {
     const step = CrdtMerge.keysPerStatement;
     for (var start = 0; start < ids.length; start += step) {
@@ -512,13 +535,9 @@ class CalendarEventDao extends DatabaseAccessor<AppDatabase>
         db.eventOccurrenceDescriptions,
         db.eventSkips,
       ]) {
-        final name = table.actualTableName;
         await db.requeueRows(
           table,
-          rows:
-              'event_id IN ($places) AND owner_id IS '
-              '(SELECT owner_id FROM calendar_events '
-              'WHERE id = $name.event_id)',
+          rows: 'event_id IN ($places) AND ${SyncDao.mineSql}',
           variables: [for (final id in chunk) Variable<String>(id)],
         );
       }

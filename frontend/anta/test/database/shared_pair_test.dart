@@ -2,8 +2,12 @@ import 'package:drift/drift.dart' show Value;
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:anta/constants/event_presence.dart';
+import 'package:anta/database/crdt/crdt_merge.dart';
 import 'package:anta/database/crdt/crdt_write.dart';
+import 'package:anta/database/crdt/hlc.dart';
+import 'package:anta/database/crdt/merge_outcome.dart';
 import 'package:anta/database/daos/folder_dao.dart';
+import 'package:anta/database/daos/sync_dao.dart';
 import 'package:anta/database/database.dart';
 
 import 'support/db_test_support.dart';
@@ -71,6 +75,7 @@ void main() {
 
       final after = await eventRow('e1');
       expect(after.sharedPair, 'pair-1');
+      expect(after.sharedStamp, after.hlcTimestamp);
       expect(after.version, before.version + 1);
       expect(after.hlcTimestamp.compareTo(before.hlcTimestamp), greaterThan(0));
       expect(after.updatedAt, before.updatedAt);
@@ -88,6 +93,12 @@ void main() {
 
       final after = await eventRow('e1');
       expect(after.sharedPair, isNull);
+      expect(
+        after.sharedStamp,
+        after.hlcTimestamp,
+        reason: 'a mark taken away is stamped too: that is what tells it '
+            'from a mark never heard of',
+      );
       expect(after.version, marked.version + 1);
       expect(await queued(), {'calendar_events/e1'});
     });
@@ -478,27 +489,37 @@ void main() {
   });
 
   group('a merge', () {
-    /// [local] as another device wrote it later: a higher stamp, the next
-    /// version.
-    Folder later(Folder local, {String? sharedPair, String? parentId}) =>
-        Folder(
-          id: local.id,
-          name: local.name,
-          parentId: parentId ?? local.parentId,
-          position: local.position,
-          label: local.label,
-          createdAt: local.createdAt,
-          updatedAt: local.updatedAt,
-          noteSortOrder: local.noteSortOrder,
-          subfolderSortOrder: local.subfolderSortOrder,
-          hlcTimestamp: 'ffffffffff00:0000:other',
-          deviceId: 'other',
-          version: local.version + 1,
-          isDeleted: false,
-          deletedAt: null,
-          ownerId: local.ownerId,
-          sharedPair: sharedPair,
-        );
+    /// A stamp above every one this device mints, in the order of [n].
+    String high(int n) => 'ffffffffff0$n:0000:other';
+
+    /// [local] as another device wrote it later — a higher stamp, the next
+    /// version — carrying [mark] as that device held it: the local one
+    /// unless given.
+    Folder later(
+      Folder local, {
+      int n = 0,
+      ShareMark? mark,
+      String? parentId,
+      String? name,
+    }) => Folder(
+      id: local.id,
+      name: name ?? local.name,
+      parentId: parentId ?? local.parentId,
+      position: local.position,
+      label: local.label,
+      createdAt: local.createdAt,
+      updatedAt: local.updatedAt,
+      noteSortOrder: local.noteSortOrder,
+      subfolderSortOrder: local.subfolderSortOrder,
+      hlcTimestamp: high(n),
+      deviceId: 'other',
+      version: local.version + 1,
+      isDeleted: false,
+      deletedAt: null,
+      ownerId: local.ownerId,
+      sharedPair: mark == null ? local.sharedPair : mark.pair,
+      sharedStamp: mark == null ? local.sharedStamp : mark.stamp,
+    );
 
     test('that brings a folder\'s mark queues this device\'s copies of '
         'what lies under it again; one that takes it away, too', () async {
@@ -507,29 +528,22 @@ void main() {
       await settle();
 
       await db.folderDao.mergeFolder(
-        later(await folderRow(shelf), sharedPair: 'pair-1'),
+        later(await folderRow(shelf), mark: (pair: 'pair-1', stamp: high(0))),
       );
       expect((await folderRow(shelf)).sharedPair, 'pair-1');
+      expect((await folderRow(shelf)).sharedStamp, high(0));
       expect(await queued(), {'notes/$inside'});
       await settle();
 
-      final marked = await folderRow(shelf);
       await db.folderDao.mergeFolder(
-        Folder(
-          id: marked.id,
-          name: marked.name,
-          parentId: marked.parentId,
-          position: marked.position,
-          label: marked.label,
-          createdAt: marked.createdAt,
-          updatedAt: marked.updatedAt,
-          hlcTimestamp: 'ffffffffff01:0000:other',
-          deviceId: 'other',
-          version: marked.version + 1,
-          isDeleted: false,
+        later(
+          await folderRow(shelf),
+          n: 1,
+          mark: (pair: null, stamp: high(1)),
         ),
       );
       expect((await folderRow(shelf)).sharedPair, isNull);
+      expect((await folderRow(shelf)).sharedStamp, high(1));
       expect(await queued(), {'notes/$inside'});
     });
 
@@ -555,9 +569,11 @@ void main() {
       await settle();
 
       await db.folderDao.mergeFolder(
-        later(await folderRow(shelf), sharedPair: 'pair-1'),
+        later(await folderRow(shelf), name: 'Renamed elsewhere'),
       );
 
+      expect((await folderRow(shelf)).name, 'Renamed elsewhere');
+      expect((await folderRow(shelf)).sharedPair, 'pair-1');
       expect(await queued(), isEmpty);
     });
 
@@ -574,7 +590,7 @@ void main() {
           label: 0,
           createdAt: DateTime.fromMillisecondsSinceEpoch(0),
           updatedAt: DateTime.fromMillisecondsSinceEpoch(0),
-          hlcTimestamp: 'ffffffffff02:0000:other',
+          hlcTimestamp: high(2),
           deviceId: 'other',
           version: marked.version + 1,
           isDeleted: true,
@@ -585,6 +601,155 @@ void main() {
       final tombstone = await folderRow(shelf);
       expect(tombstone.isDeleted, isTrue);
       expect(tombstone.sharedPair, 'pair-1');
+      expect(tombstone.sharedStamp, marked.sharedStamp);
+    });
+
+    group('settles the mark apart from the row', () {
+      test('a rename made where the end of a share had not arrived wins the '
+          'row and does not bring the share back: the mark taken away later '
+          'stands, and the folder is queued so its document says so', () async {
+        final shelf = await folder('Shelf');
+        final inside = await note('Inside', shelf);
+        await db.folderDao.setSharedPair(shelf, 'pair-1');
+        final shared = await folderRow(shelf);
+        await db.folderDao.setSharedPair(shelf, null);
+        final ended = await folderRow(shelf);
+        await settle();
+
+        // The other device still held the share when it renamed the folder,
+        // after the share's end by the clock.
+        await db.folderDao.mergeFolder(
+          later(
+            ended,
+            name: 'Renamed where the share still stood',
+            mark: (pair: 'pair-1', stamp: shared.sharedStamp),
+          ),
+        );
+
+        final merged = await folderRow(shelf);
+        expect(merged.name, 'Renamed where the share still stood');
+        expect(merged.hlcTimestamp, high(0));
+        expect(merged.sharedPair, isNull);
+        expect(merged.sharedStamp, ended.sharedStamp);
+        expect(await queued(), {'folders/$shelf'});
+        expect(
+          (await db.syncOutboxDao.pending()).single.republish,
+          isFalse,
+          reason: 'sent with the real writes, ahead of any row under it',
+        );
+        expect(await queued(), isNot(contains('notes/$inside')));
+      });
+
+      test('nor does such a rename end a share made since', () async {
+        final shelf = await folder('Shelf');
+        final before = await folderRow(shelf);
+        await db.folderDao.setSharedPair(shelf, 'pair-1');
+        final shared = await folderRow(shelf);
+        await settle();
+
+        await db.folderDao.mergeFolder(
+          later(
+            shared,
+            name: 'Renamed before the share arrived',
+            mark: (pair: before.sharedPair, stamp: before.sharedStamp),
+          ),
+        );
+
+        final merged = await folderRow(shelf);
+        expect(merged.name, 'Renamed before the share arrived');
+        expect(merged.sharedPair, 'pair-1');
+        expect(merged.sharedStamp, shared.sharedStamp);
+        expect(await queued(), {'folders/$shelf'});
+      });
+
+      test('a newer mark is taken from a remote whose row loses: this '
+          'device\'s later rename stands, shared as the other one says', () async {
+        final shelf = await folder('Shelf');
+        final inside = await note('Inside', shelf);
+        final local = await folderRow(shelf);
+        final lower = HlcTimestamp.parse(local.hlcTimestamp);
+        // Stamped between this device's two writes: the share, made
+        // elsewhere, then this device's rename.
+        final stamp = HlcTimestamp(
+          wallTime: lower.wallTime,
+          logicalCounter: lower.logicalCounter + 1,
+          nodeId: 'other',
+        ).toString();
+        // Past the millisecond the folder was made in, so the rename's stamp
+        // is above the share's by its wall time, not by a node id.
+        await Future<void>.delayed(const Duration(milliseconds: 3));
+        await db.folderDao.updateFolder(id: shelf, name: 'Renamed here');
+        final renamed = await folderRow(shelf);
+        expect(renamed.hlcTimestamp.compareTo(stamp), greaterThan(0));
+        await settle();
+
+        final outcome = await db.folderDao.mergeFolder(
+          Folder(
+            id: local.id,
+            name: local.name,
+            parentId: local.parentId,
+            position: local.position,
+            label: local.label,
+            createdAt: local.createdAt,
+            updatedAt: local.updatedAt,
+            hlcTimestamp: stamp,
+            deviceId: 'other',
+            version: local.version + 1,
+            isDeleted: false,
+            sharedPair: 'pair-1',
+            sharedStamp: stamp,
+          ),
+        );
+
+        expect(outcome.result, MergeResult.keptLocal);
+        final merged = await folderRow(shelf);
+        expect(merged.name, 'Renamed here');
+        expect(merged.hlcTimestamp, renamed.hlcTimestamp);
+        expect(merged.sharedPair, 'pair-1');
+        expect(merged.sharedStamp, stamp);
+        expect(await queued(), {'folders/$shelf', 'notes/$inside'});
+      });
+
+      test('a mark that arrives at the row\'s own stamp is taken: a build '
+          'that could not read marks stored the row without it', () async {
+        final shelf = await folder('Shelf');
+        final inside = await note('Inside', shelf);
+        final local = await folderRow(shelf);
+        await settle();
+
+        final outcome = await db.folderDao.mergeFolder(
+          local.copyWith(
+            sharedPair: const Value('pair-1'),
+            sharedStamp: Value(local.hlcTimestamp),
+          ),
+        );
+
+        expect(outcome.result, MergeResult.unchanged);
+        expect((await folderRow(shelf)).sharedPair, 'pair-1');
+        expect((await folderRow(shelf)).sharedStamp, local.hlcTimestamp);
+        expect(await queued(), {'notes/$inside'});
+      });
+
+      test('two marks never stamped that differ settle private on every '
+          'device, whichever side it stands on', () async {
+        final shelf = await folder('Shelf');
+        final other = await folder('Other');
+        await db.customStatement(
+          "UPDATE folders SET shared_pair = 'pair-1' WHERE id = ?",
+          [other],
+        );
+        await settle();
+
+        await db.folderDao.mergeFolder(
+          later(await folderRow(shelf), mark: (pair: 'pair-1', stamp: null)),
+        );
+        await db.folderDao.mergeFolder(
+          later(await folderRow(other), mark: (pair: null, stamp: null)),
+        );
+
+        expect((await folderRow(shelf)).sharedPair, isNull);
+        expect((await folderRow(other)).sharedPair, isNull);
+      });
     });
 
     test('that brings an event\'s mark queues its day rows again; one that '
@@ -596,10 +761,11 @@ void main() {
 
       await db.calendarEventDao.mergeRemoteEvent(
         local.copyWith(
-          hlcTimestamp: 'ffffffffff00:0000:other',
+          hlcTimestamp: high(0),
           deviceId: 'other',
           version: local.version + 1,
           sharedPair: const Value('pair-1'),
+          sharedStamp: Value(high(0)),
         ),
       );
       expect((await eventRow('e1')).sharedPair, 'pair-1');
@@ -610,7 +776,7 @@ void main() {
       await db.calendarEventDao.mergeRemoteEvent(
         marked.copyWith(
           title: 'Renamed',
-          hlcTimestamp: 'ffffffffff01:0000:other',
+          hlcTimestamp: high(1),
           deviceId: 'other',
           version: marked.version + 1,
         ),
@@ -618,23 +784,201 @@ void main() {
       expect((await eventRow('e1')).title, 'Renamed');
       expect(await queued(), isEmpty);
     });
+
+    test('an edit of an event made where the end of its share had not '
+        'arrived wins the row and does not bring the share back', () async {
+      await event('e1');
+      await db.eventSkipDao.markSkipped('e1', day);
+      await db.calendarEventDao.setSharedPair('e1', 'pair-1');
+      final shared = await eventRow('e1');
+      await db.calendarEventDao.setSharedPair('e1', null);
+      final ended = await eventRow('e1');
+      await settle();
+
+      await db.calendarEventDao.mergeRemoteEvent(
+        ended.copyWith(
+          title: 'Edited where the share still stood',
+          hlcTimestamp: high(0),
+          deviceId: 'other',
+          version: ended.version + 1,
+          sharedPair: const Value('pair-1'),
+          sharedStamp: Value(shared.sharedStamp),
+        ),
+      );
+
+      final merged = await eventRow('e1');
+      expect(merged.title, 'Edited where the share still stood');
+      expect(merged.sharedPair, isNull);
+      expect(merged.sharedStamp, ended.sharedStamp);
+      expect(await queued(), {'calendar_events/e1'});
+    });
   });
 
-  group('rows of another account', () {
-    test('are never queued by a mark above them: only the rows of the '
-        'root\'s own account follow it', () async {
+  group('the rows a mark queues again', () {
+    Future<void> own(String table, String id, String? owner) =>
+        db.customStatement('UPDATE $table SET owner_id = ? WHERE id = ?', [
+          owner,
+          id,
+        ]);
+
+    test('are every one of this device\'s own, whatever the owner column '
+        'spells that as: a row from before the bind carries the account, '
+        'one written since carries none', () async {
+      final shelf = await folder('Shelf');
+      final box = await folder('Box', under: shelf);
+      final atBind = await note('Here at the bind', shelf);
+      final since = await note('Written since', shelf);
+      final deep = await note('In the box', box);
+      await own('folders', shelf, 'me');
+      await own('notes', atBind, 'me');
+      await own('notes', deep, 'an-account-that-bound-before');
+      await settle();
+      final all = {
+        'folders/$shelf',
+        'folders/$box',
+        'notes/$atBind',
+        'notes/$since',
+        'notes/$deep',
+      };
+
+      await db.folderDao.setSharedPair(shelf, 'pair-1');
+      expect(await queued(), all);
+      await settle();
+
+      await db.folderDao.setSharedPair(shelf, null);
+      expect(await queued(), all);
+    });
+
+    test('and of an event: a day row written after the bind follows an '
+        'event from before it', () async {
+      await event('e1');
+      await db.eventSkipDao.markSkipped('e1', day);
+      await db.eventOccurrenceDao.upsert(
+        EventOccurrenceDescriptionsCompanion.insert(
+          eventId: 'e1',
+          day: day,
+          description: 'Bring the keys',
+          createdAt: day,
+          updatedAt: day,
+        ),
+      );
+      await own('calendar_events', 'e1', 'me');
+      await settle();
+
+      await db.calendarEventDao.setSharedPair('e1', 'pair-1');
+
+      expect(await queued(), {
+        'calendar_events/e1',
+        skipKey('e1', day),
+        textKey('e1', day),
+      });
+    });
+
+    test('never a row another account shares with this one', () async {
       final shelf = await folder('Shelf');
       final mine = await note('Mine', shelf);
       final theirs = await note('Theirs', shelf);
-      await db.customStatement('UPDATE notes SET owner_id = ? WHERE id = ?', [
-        'someone-else',
-        theirs,
-      ]);
+      await own('notes', theirs, 'partner');
+      await db.syncDao.setValue(SyncDao.keySharedOwner, 'partner');
       await settle();
 
       await db.folderDao.setSharedPair(shelf, 'pair-1');
 
       expect(await queued(), {'folders/$shelf', 'notes/$mine'});
+    });
+
+    test('as re-sends of versions the space holds — the mark\'s own write '
+        'is the one real write among them', () async {
+      final shelf = await folder('Shelf');
+      final inside = await note('Inside', shelf);
+      await settle();
+
+      await db.folderDao.setSharedPair(shelf, 'pair-1');
+
+      expect(
+        {
+          for (final entry in await db.syncOutboxDao.pending())
+            '${entry.syncedTable}/${entry.rowKey}': entry.republish,
+        },
+        {'folders/$shelf': false, 'notes/$inside': true},
+      );
+      expect(
+        [
+          for (final entry in await db.syncOutboxDao.pending(
+            unpushedOnly: true,
+          ))
+            '${entry.syncedTable}/${entry.rowKey}',
+        ],
+        ['folders/$shelf'],
+      );
+    });
+
+    test('a note edited and not yet pushed stays an unpushed write when a '
+        'mark queues it again', () async {
+      final shelf = await folder('Shelf');
+      final inside = await note('Inside', shelf);
+      await settle();
+      await db.noteDao.updateNote(id: inside, preview: 'New', content: 'New');
+
+      await db.folderDao.setSharedPair(shelf, 'pair-1');
+
+      final entry = (await db.syncOutboxDao.pending()).singleWhere(
+        (entry) => entry.rowKey == inside,
+      );
+      expect(entry.republish, isFalse);
+    });
+  });
+
+  group('the marks of a pair that is no longer the account\'s', () {
+    test('are cleared together, on events and folders, each under the one '
+        'stamp and queued with what hangs under it', () async {
+      final shelf = await folder('Shelf');
+      final inside = await note('Inside', shelf);
+      final kept = await folder('Kept');
+      await event('e1');
+      await event('e2');
+      await db.eventSkipDao.markSkipped('e1', day);
+      await db.folderDao.setSharedPair(shelf, 'pair-1');
+      await db.calendarEventDao.setSharedPair('e1', 'pair-1');
+      await settle();
+      final stamp = db.newStamp();
+
+      expect(await db.folderDao.clearOtherPairs('pair-2', stamp), 1);
+      expect(await db.calendarEventDao.clearOtherPairs('pair-2', stamp), 1);
+
+      expect((await folderRow(shelf)).sharedPair, isNull);
+      expect((await folderRow(shelf)).sharedStamp, stamp.hlc);
+      expect((await eventRow('e1')).sharedPair, isNull);
+      expect((await eventRow('e1')).sharedStamp, stamp.hlc);
+      expect(await queued(), {
+        'folders/$shelf',
+        'notes/$inside',
+        'calendar_events/e1',
+        skipKey('e1', day),
+      });
+      expect((await folderRow(kept)).hlcTimestamp, isNot(stamp.hlc));
+      expect((await eventRow('e2')).sharedStamp, isNull);
+    });
+
+    test('with no pair at all, every mark goes; the marks of the pair that '
+        'stands are left alone', () async {
+      final shelf = await folder('Shelf');
+      await event('e1');
+      await db.folderDao.setSharedPair(shelf, 'pair-1');
+      await db.calendarEventDao.setSharedPair('e1', 'pair-1');
+      await settle();
+
+      expect(await db.folderDao.clearOtherPairs('pair-1', db.newStamp()), 0);
+      expect(
+        await db.calendarEventDao.clearOtherPairs('pair-1', db.newStamp()),
+        0,
+      );
+      expect(await queued(), isEmpty);
+
+      expect(await db.folderDao.clearOtherPairs(null, db.newStamp()), 1);
+      expect(await db.calendarEventDao.clearOtherPairs(null, db.newStamp()), 1);
+      expect((await folderRow(shelf)).sharedPair, isNull);
+      expect((await eventRow('e1')).sharedPair, isNull);
     });
   });
 }

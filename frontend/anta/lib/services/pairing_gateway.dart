@@ -39,8 +39,22 @@ abstract class PairingGateway {
 
   Future<void> deleteInvite(String code);
 
+  /// The id of a pair made from the invite [inviteCode]: the code, then
+  /// [nonce] — random, minted by the device that creates the pair. The
+  /// rules hold a new pair to the first half (`namedAfterInvite`).
+  ///
+  /// What an account shares names the pair by this id
+  /// (`docs/cloud-sharing-foundations.md` §4), so an id must never come
+  /// round again for the same two people: the code is minted at random by
+  /// the one who invites, the nonce by the one who redeems, and neither can
+  /// steer both back to the id of a pair that ended while the other's
+  /// documents still carry it.
+  static String pairIdFor(String inviteCode, String nonce) =>
+      '${inviteCode}_$nonce';
+
   /// [inviteCode] is the pair's proof of consent, not bookkeeping: security
-  /// rules read the invite to confirm the other member really handed one out.
+  /// rules read the invite to confirm the other member really handed one out
+  /// — and the pair's id starts with it ([pairIdFor]).
   Future<PairRecord> createPair({
     required PairProfile self,
     required PairProfile partner,
@@ -265,7 +279,9 @@ class FirestorePairingGateway implements PairingGateway {
     required String inviteCode,
   }) {
     return _guard(() async {
-      final ref = _pairs.doc();
+      final ref = _pairs.doc(
+        PairingGateway.pairIdFor(inviteCode, _pairs.doc().id),
+      );
       await ref.set({
         'members': [self.uid, partner.uid],
         'status': 'active',

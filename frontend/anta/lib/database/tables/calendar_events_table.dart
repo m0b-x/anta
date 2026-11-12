@@ -144,6 +144,13 @@ class CalendarEvents extends Table {
   /// they are shared as their event is.
   TextColumn get sharedPair => text().nullable()();
 
+  /// The stamp of the write that last set or cleared [sharedPair] (**v53**);
+  /// NULL while the mark was never touched. The mark is a register of its
+  /// own beside the row: a merge keeps the mark with the newer stamp here
+  /// whichever side's row wins, so an edit made on a device that had not
+  /// yet heard of a share being ended cannot bring the share back.
+  TextColumn get sharedStamp => text().nullable()();
+
   @override
   Set<Column> get primaryKey => {id};
 }

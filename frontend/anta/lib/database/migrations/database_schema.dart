@@ -1,7 +1,7 @@
 import 'package:drift/drift.dart';
 
 abstract class DatabaseSchema {
-  static const int currentVersion = 52;
+  static const int currentVersion = 53;
 
   /// The version the sync space carries and every engine compares against:
   /// a space written by a higher one pauses this build as outdated. Bumped
@@ -19,6 +19,12 @@ abstract class DatabaseSchema {
   /// that last ran below it re-sends every note once, and one at or above
   /// it never does for a later bump, which changed no body.
   static const int bodyWireVersion = 46;
+
+  /// The wire version that first carried a share mark: a database that last
+  /// ran below it may hold an event or a folder a newer build had marked,
+  /// merged without the mark it could not read, so it reads those two
+  /// tables again once (`docs/cloud-sharing-foundations.md` §4).
+  static const int shareWireVersion = 47;
 
   static const int v1Initial = 1;
   static const int v2UserSettings = 2;
@@ -72,6 +78,7 @@ abstract class DatabaseSchema {
   static const int v50QuickSearchIndex = 50;
   static const int v51OutboxRepublish = 51;
   static const int v52SharedPair = 52;
+  static const int v53ShareStamp = 53;
 }
 
 typedef MigrationStep = Future<void> Function(Migrator m, GeneratedDatabase db);

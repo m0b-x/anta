@@ -125,6 +125,28 @@ class FirestoreSyncGateway implements SyncGateway {
     );
   }
 
+  @override
+  Future<void> writeSpaceShare(
+    SyncSpaceRef space, {
+    required String? sharedPair,
+    required String pushedBy,
+    required int schema,
+  }) => _guard(
+    () => _writeOnly((transaction) {
+      transaction.set(
+        _space(space),
+        FirestoreSyncWire.spaceShareOf(
+          pushedBy: pushedBy,
+          schema: schema,
+          serverTime: FieldValue.serverTimestamp(),
+          sharedPair: sharedPair,
+          removed: FieldValue.delete(),
+        ),
+        SetOptions(merge: true),
+      );
+    }),
+  );
+
   /// Commits [write]'s sets as one write-only transaction, never a
   /// `WriteBatch`: the SDK queues a batch in memory while offline even with
   /// persistence off, so it would time out as `offline`, land on reconnect
@@ -525,12 +547,14 @@ class FirestoreSyncGateway implements SyncGateway {
     }
     final lastWriter = data['lastWriter'];
     final schema = data['schema'];
+    final sharedPair = data[sharedPairKey];
     return SyncSpaceSignal(
       exists: true,
       touched: Map.unmodifiable(touched),
       lastWriter: lastWriter is String ? lastWriter : null,
       schema: schema is num ? schema.toInt() : 0,
       markedForDeletion: FirestoreSyncWire.isMarked(data),
+      sharedPair: sharedPair is String ? sharedPair : null,
     );
   }
 
@@ -540,6 +564,7 @@ class FirestoreSyncGateway implements SyncGateway {
     final createdBy = data['createdBy'];
     final schema = data['schema'];
     final lastWriter = data['lastWriter'];
+    final sharedPair = data[sharedPairKey];
     return SyncSpaceInfo(
       ref: ref,
       name: name is String ? name : '',
@@ -549,6 +574,7 @@ class FirestoreSyncGateway implements SyncGateway {
       lastWriteAt: _dateOf(data['lastWriteAt']),
       lastWriter: lastWriter is String ? lastWriter : null,
       markedForDeletion: FirestoreSyncWire.isMarked(data),
+      sharedPair: sharedPair is String ? sharedPair : null,
     );
   }
 
@@ -821,6 +847,25 @@ abstract final class FirestoreSyncWire {
     required Object removed,
   }) => {
     'touched': {for (final table in tables) table: serverTime},
+    ...spaceShareOf(
+      pushedBy: pushedBy,
+      schema: schema,
+      serverTime: serverTime,
+      sharedPair: sharedPair,
+      removed: removed,
+    ),
+  };
+
+  /// What [SyncGateway.writeSpaceShare] merges into the space document:
+  /// [spaceMergeOf] without `touched` — no table moved, and an empty map
+  /// there would not merge but replace every table's time.
+  static Map<String, Object?> spaceShareOf({
+    required String pushedBy,
+    required int schema,
+    required Object serverTime,
+    required String? sharedPair,
+    required Object removed,
+  }) => {
     'lastWriter': pushedBy,
     'lastWriteAt': serverTime,
     'schema': schema,

@@ -7,6 +7,7 @@ import 'package:anta/database/database.dart';
 import 'package:anta/database/database_lifecycle.dart';
 import 'package:anta/models/app_user.dart';
 import 'package:anta/models/pair_record.dart';
+import 'package:anta/services/pairing_gateway.dart';
 import 'package:anta/services/pairing_service.dart';
 import 'package:anta/services/settings_service.dart';
 import 'package:anta/utils/pairing_error.dart';
@@ -108,6 +109,18 @@ void main() {
 
     test('formats as two groups for reading aloud', () {
       expect(PairingService.formatCode('K7M2P4XQ'), 'K7M2-P4XQ');
+    });
+
+    test('a pair is named after its invite: the code, then what the device '
+        'that makes it adds — the shape the rules hold a new pair to, and '
+        'short enough for a shared document to carry', () {
+      final id = PairingGateway.pairIdFor('K7M2P4XQ', 'a' * 20);
+
+      expect(id, 'K7M2P4XQ_${'a' * 20}');
+      expect(id.split('_').first, 'K7M2P4XQ');
+      expect(id.length, lessThanOrEqualTo(64));
+      // No code holds the separator, so the first half is always the code.
+      expect(PairingService.codeAlphabet.contains('_'), isFalse);
     });
   });
 

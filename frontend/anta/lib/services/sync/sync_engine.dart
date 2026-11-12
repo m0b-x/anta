@@ -335,6 +335,12 @@ class SyncEngine {
   /// is the run's look at the space, never a second one ([_confirmSpace]).
   bool _spaceReadByGate = false;
 
+  /// The pair the space's document named, and the device that last wrote
+  /// it, when the run in flight read the space itself — the gate's read or
+  /// the manual cadence's — and null when it read none: what
+  /// [_settleSpaceShare] goes by where no snapshot is held.
+  ({String? pair, String? writer})? _spaceShareRead;
+
   /// Whether the quota pause still blocks runs: its retry, a resume and
   /// "Sync now" lift it, while [_pause] stays until a call succeeds.
   bool _quotaHeld = false;
@@ -979,6 +985,7 @@ class SyncEngine {
 
     try {
       _spaceReadByGate = false;
+      _spaceShareRead = null;
       final (binding, skip) = await _gate();
       if (binding == null) {
         if (skip != SyncRunSkip.suspended) _detachSignal();
@@ -1018,10 +1025,15 @@ class SyncEngine {
       }
       // Never in a drain-only run, which would push the re-queued notes
       // before the re-read could retire the ones the space holds newer.
-      final cutOver = mode != _RunMode.drain && await _cutOverWire(binding);
+      final wire = mode == _RunMode.drain
+          ? _WireCutover.none
+          : await _cutOverWire(binding);
+      final cutOver = wire != _WireCutover.none;
       // A bind's first run cuts over too — a database never synced has no
-      // wire version — but that is the download the page already words.
-      if (cutOver && !initial) {
+      // wire version — but that is the download the page already words. Only
+      // the bodies' cutover is worded at all: the marks' re-reads two small
+      // tables and sends nothing.
+      if (wire == _WireCutover.bodies && !initial) {
         _downloadedRows = 0;
         _updatingTotal = await _db.noteDao.getNoteCount(null);
         _updating = true;
@@ -1108,6 +1120,11 @@ class SyncEngine {
         await _failed(tableFault);
         return report(failure: tableFault.failure);
       }
+      // A push writes it with its rows; a run that read to the end and had
+      // nothing to push is the one that has to look.
+      if (mode != _RunMode.drain && pulled.complete && tally.pushed == 0) {
+        await _settleSpaceShare(binding, tally);
+      }
       if (tally.calls > 0) _succeeded();
       return report();
     } on _Halted catch (halted) {
@@ -1140,6 +1157,53 @@ class SyncEngine {
       _endUpdating();
       _activity = SyncActivity.idle;
       _emit();
+    }
+  }
+
+  /// Says again, on the space's document, which pair this database's notes
+  /// are shared into when the document names another — or one where there
+  /// is none (`docs/cloud-sharing-foundations.md` §4). Every push writes
+  /// what its device knew then, so a device that had not yet merged the end
+  /// of a share puts the pair back with its next push of anything, and the
+  /// pair could again fetch the text of notes by hash until some device
+  /// pushed. Called by a run that pulled to the end, whose folders are as
+  /// current as this device can make them.
+  ///
+  /// The two directions are not weighed alike, as for a row's document
+  /// ([_Puller._resayShares]): a pair the document names where this device
+  /// knows of none is always taken out; a pair it lacks is put back only
+  /// over this device's own write — the one it made before it had merged
+  /// the share. Two devices that go on disagreeing would otherwise write
+  /// the document at each other for as long as they did, each write waking
+  /// the other; this way the document rests at "none", and the next push of
+  /// a device that shares says the pair again.
+  ///
+  /// What the document says is the live snapshot's, or under the manual
+  /// cadence what the run's own read of the space showed; with neither,
+  /// nothing is known and nothing is written. Best effort: a failure is
+  /// logged and the next run looks again, since a correction must never
+  /// pause the sync it rides on.
+  Future<void> _settleSpaceShare(SyncBinding binding, _RunTally tally) async {
+    final space = _spaceOf(binding);
+    final signal = _signalOf(space);
+    final seen = signal != null
+        ? (pair: signal.sharedPair, writer: signal.lastWriter)
+        : _spaceShareRead;
+    if (seen == null) return;
+    final mine = await _db.folderDao.sharedPairOfNotes();
+    if (mine == seen.pair) return;
+    if (mine != null && seen.writer != _deviceId) return;
+    await _checkHalt(binding);
+    try {
+      await _gateway.writeSpaceShare(
+        space,
+        sharedPair: mine,
+        pushedBy: _deviceId,
+        schema: _schema,
+      );
+      await _reached(tally);
+    } on SyncGatewayException catch (error) {
+      debugPrint('[SyncEngine] the space\'s share was not written: $error');
     }
   }
 
@@ -1218,6 +1282,7 @@ class SyncEngine {
     }
     _pause = SyncPause.none;
     _spaceReadByGate = true;
+    _spaceShareRead = (pair: info.sharedPair, writer: info.lastWriter);
     return true;
   }
 
@@ -1244,6 +1309,7 @@ class SyncEngine {
       _loseAccess(SyncPause.appOutdated);
       return SyncRunSkip.appOutdated;
     }
+    _spaceShareRead = (pair: info.sharedPair, writer: info.lastWriter);
     return null;
   }
 
@@ -1326,27 +1392,53 @@ class SyncEngine {
   ///
   /// Only the wire that re-cut the bodies does this
   /// ([DatabaseSchema.bodyWireVersion]). A database that already ran at or
-  /// above it meets a later wire — 47, the share mark — with nothing to
-  /// send again: the new version is stored at once and no row is queued.
-  Future<bool> _cutOverWire(SyncBinding binding) async {
+  /// above it meets a later wire with nothing to send again.
+  ///
+  /// One that ran below the wire that first carried a share mark
+  /// ([DatabaseSchema.shareWireVersion]) reads `calendar_events` and
+  /// `folders` again from the start instead ([_WireCutover.marks]): an older
+  /// build may have merged an event or a folder a newer one had already
+  /// marked, without the mark it could not read, and an unchanged row is
+  /// never delivered again on its own — this device would go on saying
+  /// "private" for everything under it. The re-read hands the mark to the
+  /// merge, which takes it at the row's own stamp
+  /// (`docs/cloud-sharing-foundations.md` §4). Nothing is queued.
+  Future<_WireCutover> _cutOverWire(SyncBinding binding) async {
     final ran = await _wireRan();
-    if (ran != null && ran >= _bodyWire) {
-      if (ran < _schema) {
-        await _db.syncDao.setValue(SyncDao.keyWireVersion, '$_schema');
-      }
-      return false;
-    }
     final dao = _db.syncDao;
+    if (ran != null && ran >= _bodyWire) {
+      if (ran >= _schema) return _WireCutover.none;
+      if (ran >= DatabaseSchema.shareWireVersion ||
+          _schema < DatabaseSchema.shareWireVersion) {
+        await dao.setValue(SyncDao.keyWireVersion, '$_schema');
+        return _WireCutover.none;
+      }
+      await _db.transaction(() async {
+        for (final table in _markedTables) {
+          await dao.deleteValue(SyncDao.keyPullCursor(table));
+          await dao.deleteValue(SyncDao.keyPullSettled(table));
+        }
+      });
+      return _WireCutover.marks;
+    }
     await _db.transaction(() async {
       final queued = await _db.syncOutboxDao.requeueBodies(
         boundUid: binding.accountUid,
       );
-      await dao.deleteValue(SyncDao.keyPullCursor('notes'));
-      await dao.deleteValue(SyncDao.keyPullSettled('notes'));
+      // A database that never ran merged nothing a mark could be missing
+      // from, and a run of its first pull that was cut would otherwise read
+      // the two tables again each time it resumed.
+      for (final table in ['notes', if (ran != null) ..._markedTables]) {
+        await dao.deleteValue(SyncDao.keyPullCursor(table));
+        await dao.deleteValue(SyncDao.keyPullSettled(table));
+      }
       debugPrint('[SyncEngine] wire → $_schema: $queued rows re-queued');
     });
-    return true;
+    return _WireCutover.bodies;
   }
+
+  /// The tables whose rows carry a share mark of their own.
+  static const List<String> _markedTables = ['calendar_events', 'folders'];
 
   /// Whether this database's notes are in the shape this build pushes: it
   /// completed a run at or above the wire that re-cut their bodies.
@@ -1896,6 +1988,22 @@ class SyncEngine {
       _statusController.add(next);
     });
   }
+}
+
+/// What a run does on first meeting a wire above the one its database last
+/// ran under ([SyncEngine._cutOverWire]); either one pulls every table, and
+/// the version is stored once that pull reached every table's end.
+enum _WireCutover {
+  /// The database ran at this wire already, or the wires between changed
+  /// nothing it has to act on.
+  none,
+
+  /// Every note is queued again and read again: its body crosses as chunks.
+  bodies,
+
+  /// The events and the folders are read again from the start, for the
+  /// share marks an older build could not read.
+  marks,
 }
 
 /// What a run pulls before it drains, weakest first: requests made during a

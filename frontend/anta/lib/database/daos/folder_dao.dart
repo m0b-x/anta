@@ -1101,18 +1101,21 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
   /// carry ([_requeueSubtree]): their documents say who may read them from
   /// this mark, and only a push writes that.
   ///
-  /// A missing or tombstoned folder, and a mark the folder already carries,
-  /// write nothing. Returns whether the folder's mark was written.
+  /// A missing or tombstoned folder writes nothing, and neither does a mark
+  /// the folder already carries — though the marks of other pairs are
+  /// cleared even then. Returns whether the folder's mark was written.
   Future<bool> setSharedPair(String id, String? pairId) {
     return transaction(() async {
       final existing = await getFolderById(id);
       if (existing == null || existing.isDeleted) return false;
-      if (existing.sharedPair == pairId) return false;
       // One stamp for the whole act: the mark and whatever it clears.
       final stamp = db.newStamp();
       if (pairId != null) {
         await clearOtherPairs(pairId, stamp);
         await db.calendarEventDao.clearOtherPairs(pairId, stamp);
+      }
+      if (existing.sharedPair == pairId) return false;
+      if (pairId != null) {
         await _clearMarks(
           stamp,
           where: 'shared_pair IS NOT NULL AND id IN (${_descendantsOf('?3')})',
@@ -1124,6 +1127,7 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
       await (update(folders)..where((f) => f.id.equals(id))).write(
         FoldersCompanion(
           sharedPair: Value(pairId),
+          sharedStamp: Value(stamp.hlc),
           hlcTimestamp: Value(stamp.hlc),
           deviceId: Value(stamp.deviceId),
           version: Value(existing.version + 1),
@@ -1135,14 +1139,16 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
   }
 
   /// Clears, under [stamp], the mark of every folder shared into another
-  /// pair than [pairId], each row queued and its subtree queued again — its
-  /// half of "a database shares into one pair", called inside the
-  /// transaction of the write that sets a mark ([setSharedPair],
-  /// [CalendarEventDao.setSharedPair]). Tombstones too: their documents
-  /// would go on naming a pair this database no longer shares into.
-  Future<void> clearOtherPairs(String pairId, CrdtStamp stamp) => _clearMarks(
+  /// pair than [pairId] — every mark there is when null — each row queued
+  /// and its subtree queued again: its half of "a database shares into one
+  /// pair", called inside the transaction of the write that sets a mark
+  /// ([setSharedPair], [CalendarEventDao.setSharedPair]) and when the
+  /// account's pair is found changed or ended. Tombstones too: their
+  /// documents would go on naming a pair this database no longer shares
+  /// into. Returns how many it cleared.
+  Future<int> clearOtherPairs(String? pairId, CrdtStamp stamp) => _clearMarks(
     stamp,
-    where: 'shared_pair IS NOT NULL AND shared_pair <> ?3',
+    where: 'shared_pair IS NOT NULL AND shared_pair IS NOT ?3',
     variables: [Variable<String>(pairId)],
     requeue: true,
   );
@@ -1150,16 +1156,17 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
   /// Sets `shared_pair` to NULL under [stamp] on the folders [where]
   /// selects — its numbered parameters start at `?3`, bound from
   /// [variables] — and queues each; [requeue] queues their subtrees again
-  /// too, for a mark no outer write's own re-queue covers.
-  Future<void> _clearMarks(
+  /// too, for a mark no outer write's own re-queue covers. Returns how many
+  /// it cleared.
+  Future<int> _clearMarks(
     CrdtStamp stamp, {
     required String where,
     required List<Variable<Object>> variables,
     required bool requeue,
   }) async {
     final cleared = await customWriteReturning(
-      'UPDATE folders SET shared_pair = NULL, hlc_timestamp = ?1, '
-      'device_id = ?2, version = version + 1 '
+      'UPDATE folders SET shared_pair = NULL, shared_stamp = ?1, '
+      'hlc_timestamp = ?1, device_id = ?2, version = version + 1 '
       'WHERE $where RETURNING id, is_deleted',
       variables: [
         Variable<String>(stamp.hlc),
@@ -1169,7 +1176,7 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
       updates: {folders},
       updateKind: UpdateKind.update,
     );
-    if (cleared.isEmpty) return;
+    if (cleared.isEmpty) return 0;
     for (final deleted in const [false, true]) {
       await db.enqueueMany(
         folders,
@@ -1181,10 +1188,12 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
         op: OutboxOp.forRow(isDeleted: deleted),
       );
     }
-    if (!requeue) return;
-    for (final row in cleared) {
-      await _requeueSubtree(row.read<String>('id'));
+    if (requeue) {
+      for (final row in cleared) {
+        await _requeueSubtree(row.read<String>('id'));
+      }
     }
+    return cleared.length;
   }
 
   /// A query for the ids of every folder under the folder bound at
@@ -1202,12 +1211,13 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
   /// Queues again, at the stamps they carry, every folder and note under
   /// the folder [id], tombstones included: their documents say who may read
   /// them from the nearest mark above, and only a push writes that
-  /// ([CrdtWrite.requeueRows]). Only the rows of the folder's own account
-  /// — another's are never this device's to push. The folder itself is its
-  /// caller's write.
+  /// ([CrdtWrite.requeueRows]). Every one this device may push — its own,
+  /// whatever `owner_id` spells that as ([SyncDao.mineSql]) — and never a
+  /// row another account shares with it. The folder itself is its caller's
+  /// write.
   Future<void> _requeueSubtree(String id) async {
     final under = _descendantsOf('?2');
-    const own = 'owner_id IS (SELECT owner_id FROM folders WHERE id = ?2)';
+    const own = SyncDao.mineSql;
     final folder = [Variable<String>(id)];
     await db.requeueRows(
       folders,
@@ -1253,32 +1263,65 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
   /// stamp, so the space converges on it rather than on the parent that hid
   /// the subtree.
   ///
-  /// A live remote that changes what the folder shares its subtree into —
-  /// its own mark, or the place it hangs in, the repair's included — queues
-  /// this device's copies of the rows under it again ([_requeueSubtree]):
-  /// a device that pushed one before it had merged the change wrote a
+  /// The share mark is settled apart from the row ([CrdtMerge.mergeMark]):
+  /// the mark stamped later stands whichever side's row won, so a rename or
+  /// a move made where a share's end had not arrived cannot bring the share
+  /// back. A tombstone carries no mark, and the one here stands.
+  ///
+  /// A merge that changes what the folder shares its subtree into — its
+  /// mark, or the place it hangs in, the repair's included — queues this
+  /// device's copies of the rows under it again ([_requeueSubtree]): a
+  /// device that pushed one before it had merged the change wrote a
   /// document that says the old grant, and only the device holding the row
   /// can say it again. A folder that arrives new brings nothing to queue
-  /// unless it carries a mark itself.
+  /// unless it carries a mark itself. What it shared into before is read
+  /// only when the merge can change it: the row is written, or the two
+  /// marks differ.
   Future<MergeOutcome> mergeFolder(Folder remote, {String? floor}) {
     return transaction(() async {
       final local = await getFolderById(remote.id);
+      final live = !remote.isDeleted;
       final writes =
-          !remote.isDeleted &&
+          live &&
           CrdtMerge.remoteWrites(
             remoteHlc: remote.hlcTimestamp,
             localHlc: local?.hlcTimestamp,
             floor: floor,
           );
-      final shared = writes && local != null
+      final marksDiffer =
+          live &&
+          local != null &&
+          (local.sharedPair != remote.sharedPair ||
+              local.sharedStamp != remote.sharedStamp);
+      final sharedBefore = local != null && (writes || marksDiffer)
           ? await _sharedPairOf(remote.id)
           : null;
       final (:outcome, :repaired) = await _mergeFolder(remote, local, floor);
-      if (writes &&
-          (outcome.result == MergeResult.inserted ||
-              outcome.result == MergeResult.applied) &&
-          (local != null || remote.sharedPair != null || repaired)) {
-        await _requeueSubtreeIfShareChanged(remote.id, shared);
+      if (!live) return outcome;
+      final kept = await CrdtMerge.mergeMark(
+        db,
+        table: folders,
+        rowKey: remote.id,
+        local: local == null
+            ? null
+            : (pair: local.sharedPair, stamp: local.sharedStamp),
+        remote: (pair: remote.sharedPair, stamp: remote.sharedStamp),
+        result: outcome.result,
+        write: (mark) =>
+            (update(folders)..where((f) => f.id.equals(remote.id))).write(
+              FoldersCompanion(
+                sharedPair: Value(mark.pair),
+                sharedStamp: Value(mark.stamp),
+              ),
+            ),
+      );
+      final wrote =
+          outcome.result == MergeResult.inserted ||
+          outcome.result == MergeResult.applied;
+      if (local == null
+          ? kept.pair != null || repaired
+          : wrote || marksDiffer) {
+        await _requeueSubtreeIfShareChanged(remote.id, sharedBefore);
       }
       return outcome;
     });

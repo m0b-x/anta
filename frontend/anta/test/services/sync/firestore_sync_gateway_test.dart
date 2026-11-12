@@ -260,6 +260,36 @@ void main() {
     );
   });
 
+  test('a write of the space\'s share alone touches no table: no `touched` '
+      'key at all, since an empty map merged in would replace every '
+      'table\'s time', () {
+    expect(
+      FirestoreSyncWire.spaceShareOf(
+        pushedBy: 'A',
+        schema: 47,
+        serverTime: serverTime,
+        sharedPair: 'pair-1',
+        removed: #removed,
+      ),
+      {
+        'lastWriter': 'A',
+        'lastWriteAt': serverTime,
+        'schema': 47,
+        'sharedPair': 'pair-1',
+      },
+    );
+    expect(
+      FirestoreSyncWire.spaceShareOf(
+        pushedBy: 'A',
+        schema: 47,
+        serverTime: serverTime,
+        sharedPair: null,
+        removed: #removed,
+      )['sharedPair'],
+      #removed,
+    );
+  });
+
   test('a new space carries its name, creator and schema, createdAt the '
       'server time', () {
     expect(

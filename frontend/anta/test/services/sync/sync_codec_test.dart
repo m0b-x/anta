@@ -267,20 +267,28 @@ void main() {
       await expectStrict(binding, 'f1', requiredKey: 'name', idKey: 'id');
     });
 
-    test('a marked row adds its mark and nothing else, and decodes with '
-        'it (wire 47)', () async {
+    test('a marked row adds its mark and the mark\'s stamp and nothing '
+        'else, and decodes with them (wire 47)', () async {
       await db
           .into(db.folders)
-          .insert(row(ownerId: uid).copyWith(sharedPair: const Value('p1')));
+          .insert(
+            row(ownerId: uid).copyWith(
+              sharedPair: const Value('p1'),
+              sharedStamp: const Value('0000000001:0000:a'),
+            ),
+          );
 
       final envelope = await encodeStored(binding, 'f1');
 
       expect(envelope.data!.keys.toSet(), {
         ..._wireKeys['folders']!,
         'sharedPair',
+        'sharedStamp',
       }, reason: _wireChanged);
       expect(envelope.data!['sharedPair'], 'p1');
+      expect(envelope.data!['sharedStamp'], '0000000001:0000:a');
       expect(binding.decode(envelope).sharedPair, 'p1');
+      expect(binding.decode(envelope).sharedStamp, '0000000001:0000:a');
       expect(
         () => binding.decode(
           carrying(envelope, {...envelope.data!, 'sharedPair': 7}),
@@ -1174,8 +1182,9 @@ void main() {
     reset: CalendarEventService.reset,
   );
 
-  test('a marked event adds its mark and nothing else, decodes with it, '
-      'and its backup map carries none (wire 47)', () async {
+  test('a marked event adds its mark and the mark\'s stamp and nothing else, '
+      'decodes with them, keeps the stamp once the mark is taken away, and '
+      'its backup map carries neither (wire 47)', () async {
     const binding = CalendarEventsBinding();
     addTearDown(CalendarEventService.reset);
     await db.calendarEventDao.upsert(
@@ -1197,15 +1206,31 @@ void main() {
     expect(envelope.data!.keys.toSet(), {
       ...plain.data!.keys,
       'sharedPair',
+      'sharedStamp',
     }, reason: _wireChanged);
     expect(envelope.data!['sharedPair'], 'p1');
+    expect(envelope.data!['sharedStamp'], envelope.hlc);
     expect(binding.decode(envelope).sharedPair, 'p1');
+    expect(binding.decode(envelope).sharedStamp, envelope.hlc);
     expect(binding.decode(plain).sharedPair, isNull);
+    expect(binding.decode(plain).sharedStamp, isNull);
+
+    // A mark taken away still says when: that is what another device tells
+    // it from a mark it never heard of.
+    await db.calendarEventDao.setSharedPair('e1', null);
+    final cleared = await encodeStored(binding, 'e1');
+    expect(cleared.data!.keys.toSet(), {
+      ...plain.data!.keys,
+      'sharedStamp',
+    }, reason: _wireChanged);
+    expect(cleared.data!['sharedStamp'], cleared.hlc);
+
     // The backup is a person's own copy: it says nothing of a share.
     final exported = (await (await CalendarEventService.forTesting(
       db,
     )).exportData()).single;
     expect(exported.containsKey('sharedPair'), isFalse);
+    expect(exported.containsKey('sharedStamp'), isFalse);
   });
 
   // The EU spring-forward day: the day keys must survive a DST switch.

@@ -807,8 +807,20 @@ class _Puller {
   /// row. So a device that pushed a row before it knew of a change of that
   /// root wrote the old answer — a share the owner has since ended, in the
   /// case that matters most — and a merge, which settles the row, retires
-  /// the very entry that would have said the new one. The rows this device
-  /// re-says:
+  /// the very entry that would have said the new one.
+  ///
+  /// The two directions are not weighed alike. A document that names a pair
+  /// while the row is private here is always said again: a share that
+  /// outlives its end is the one outcome that must not last, and the device
+  /// that pushed it may never come back. If it is this device that is
+  /// behind — the other one shared the row a moment ago — the document is
+  /// private for the one run it takes this device to merge that mark, whose
+  /// merge then queues the row again as shared.
+  ///
+  /// A document that is private, or names another pair, while the row is
+  /// shared here is said again only when this device can tell it knows
+  /// better, since saying "shared" wrongly is what the rule above exists to
+  /// undo:
   ///
   /// - its own pushes, read back: it alone knows it said so too early, and
   ///   the read-back arrives at the row's own stamp, where the merge takes
@@ -816,14 +828,16 @@ class _Puller {
   /// - another device's, when what decides the share here is newer than
   ///   that push ([SyncTableBinding.shareStamps] against the server's
   ///   time): the pusher could not have known it, and may be offline for
-  ///   days. Never otherwise — a device that is itself behind must not
-  ///   unsay what a device ahead of it wrote; that pusher says it again
-  ///   itself once it merges the root. The two clocks differ by a device's
-  ///   skew, inside which either answer is repaired by the next one.
+  ///   days. Otherwise that pusher says it again itself once it merges the
+  ///   root. The two clocks differ by a device's skew, inside which a share
+  ///   may wait for the row's next push.
+  ///
+  /// Each is queued as a republish: the space holds this version of the
+  /// row, so a newer remote landing before the push files no copy of it.
   ///
   /// Nothing is read when no document of the part names a pair and no row
   /// here carries a mark, and only a part that holds a differing document
-  /// asks for the stamps.
+  /// of the second kind asks for the stamps.
   Future<void> _resayShares(
     SyncTableBinding<Object> table,
     List<SyncEnvelope> merged,
@@ -847,7 +861,7 @@ class _Puller {
     Map<String, String>? decided;
     for (final envelope in differing) {
       final push = pushed[envelope.rowKey];
-      if (push?.by != _e._deviceId) {
+      if (shared[envelope.rowKey] != null && push?.by != _e._deviceId) {
         final at = push?.at;
         if (at == null) continue;
         decided ??= await table.shareStamps(db, rows);
@@ -857,7 +871,11 @@ class _Puller {
           continue;
         }
       }
-      await db.syncOutboxDao.requeueRow(table.table, envelope.rowKey);
+      await db.syncOutboxDao.requeueRow(
+        table.table,
+        envelope.rowKey,
+        republish: true,
+      );
     }
   }
 

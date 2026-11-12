@@ -271,7 +271,15 @@ class FakeSyncGateway implements SyncGateway {
   }
 
   DateTime _now() =>
+      wallClock?.call().add(_elapsed) ??
       DateTime.utc(2026, 1, 1).add(_elapsed + Duration(seconds: _clock));
+
+  /// The server's clock, when a test wants it on the same timeline as its
+  /// devices' — one that moves on every read, so a push lands after every
+  /// stamp minted before it and before every one minted after. Without it
+  /// the server counts from a date of its own, and "pushed before this was
+  /// decided" would be true or false whatever order a test did things in.
+  DateTime Function()? wallClock;
 
   SyncSpaceSignal _signalNow(SyncSpaceRef space) =>
       _spaces[space]?.signal ??
@@ -378,6 +386,33 @@ class FakeSyncGateway implements SyncGateway {
     pushes.add(List.unmodifiable(batch));
     _signalOf(space).add(record.signal);
     await onPushBatch?.call(batch);
+  }
+
+  @override
+  Future<void> writeSpaceShare(
+    SyncSpaceRef space, {
+    required String? sharedPair,
+    required String pushedBy,
+    required int schema,
+  }) async {
+    _ensureOwner(space.ownerUid);
+    _throwIfScripted();
+    calls.add('share:$pushedBy');
+    final record = _spaces[space];
+    if (record == null ||
+        record.deletedAt != null ||
+        schema < record.schema) {
+      throw const SyncGatewayException(
+        SyncGatewayFailure.permissionDenied,
+        'the space takes no write',
+      );
+    }
+    record
+      ..lastWriter = pushedBy
+      ..lastWriteAt = _tick()
+      ..schema = schema
+      ..sharedPair = sharedPair;
+    _signalOf(space).add(record.signal);
   }
 
   @override
@@ -707,6 +742,7 @@ class _Space {
     lastWriter: lastWriter,
     schema: schema,
     markedForDeletion: deletedAt != null,
+    sharedPair: sharedPair,
   );
 
   SyncSpaceInfo get info => SyncSpaceInfo(
@@ -718,5 +754,6 @@ class _Space {
     lastWriteAt: lastWriteAt,
     lastWriter: lastWriter,
     markedForDeletion: deletedAt != null,
+    sharedPair: sharedPair,
   );
 }

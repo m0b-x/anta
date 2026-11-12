@@ -258,6 +258,7 @@ class _Pusher {
     // until an edit raises it.
     final pushed = <(String, String), String>{};
     final drain = _DrainState();
+    _regrantedKeys.clear();
     // A key whose pull envelope parked is held back too: this device lacks
     // the space's version of that row, which may be the newer one (S3d
     // review H2, `_Puller.holdsBack`).
@@ -265,7 +266,7 @@ class _Pusher {
       final key = (entry.syncedTable, entry.rowKey);
       return !skipTables.contains(entry.syncedTable) &&
           !_holds(key, entry.hlc) &&
-          pushed[key] != entry.hlc &&
+          (pushed[key] != entry.hlc || _regrantedKeys.contains(key)) &&
           !_e._puller.holdsBack(key, entry.hlc);
     }
 
@@ -297,8 +298,11 @@ class _Pusher {
       _e._emit();
       if (part.isEmpty) continue;
       for (final queued in part) {
-        pushed[(queued.entry.syncedTable, queued.entry.rowKey)] =
-            queued.entry.hlc;
+        final key = (queued.entry.syncedTable, queued.entry.rowKey);
+        pushed[key] = queued.entry.hlc;
+        // Once more, not for good: a row whose share changes under every
+        // push of it waits for the next drain.
+        _regrantedKeys.remove(key);
       }
       if (cutPartAt != null) await _keepSpacing(cutPartAt);
       cutPartAt = cut ? _e._now() : null;
@@ -338,15 +342,45 @@ class _Pusher {
   /// Keyset, not a growing limit: the initial merge queues every row of
   /// every table, and one table held back made each page re-read the queue
   /// from the top — the drain was O(n²) in the queue (A2 review R51).
+  ///
+  /// Real writes go before entries that only re-send a version the space
+  /// holds ([SyncOutbox.republish]), whatever their stamps: a re-send
+  /// carries no history, so the push still sends a prefix of it, and the
+  /// write that queued the re-sends — a share mark set on a folder — is
+  /// then in the space before the rows under it say the new grant. Another
+  /// device of the account reads the mark first and finds those rows as it
+  /// expects them, where the other order had it take each for a share that
+  /// outlived its end and say it private again
+  /// (`docs/cloud-sharing-foundations.md` §3). The queue is read a second
+  /// time only when a re-send stands at its head.
   Future<List<SyncOutboxRow>> _nextEntries(
     bool Function(SyncOutboxRow entry) eligible,
     int maxBatch,
   ) async {
+    final entries = await _eligibleEntries(eligible, maxBatch);
+    if (entries.every((entry) => !entry.republish)) return entries;
+    final written = await _eligibleEntries(
+      eligible,
+      maxBatch,
+      unpushedOnly: true,
+    );
+    return written.isEmpty ? entries : written;
+  }
+
+  Future<List<SyncOutboxRow>> _eligibleEntries(
+    bool Function(SyncOutboxRow entry) eligible,
+    int maxBatch, {
+    bool unpushedOnly = false,
+  }) async {
     final outbox = _e._db.syncOutboxDao;
     final entries = <SyncOutboxRow>[];
     SyncOutboxKey? after;
     while (entries.length < maxBatch) {
-      final queued = await outbox.pending(limit: maxBatch, after: after);
+      final queued = await outbox.pending(
+        limit: maxBatch,
+        after: after,
+        unpushedOnly: unpushedOnly,
+      );
       if (queued.isEmpty) break;
       for (final entry in queued) {
         if (eligible(entry)) entries.add(entry);
@@ -902,7 +936,12 @@ class _Pusher {
     await _e._checkHalt(bound);
     await _e._reached(tally);
     await db.transaction(() async {
+      final regranted = await _regranted(batch);
       for (final queued in batch) {
+        if (regranted.contains(queued)) {
+          _regrantedKeys.add((queued.entry.syncedTable, queued.entry.rowKey));
+          continue;
+        }
         await db.syncOutboxDao.ackThrough(
           queued.entry.syncedTable,
           queued.entry.rowKey,
@@ -926,6 +965,54 @@ class _Pusher {
       '${DateTime.now().millisecondsSinceEpoch}',
     );
     _e._emit();
+  }
+
+  /// The keys whose entry [_send] left queued in this drain because their
+  /// row's share changed during the push ([_regranted]): each is let
+  /// through once more at the stamp it was just pushed at, which the drain
+  /// otherwise never sends twice.
+  final Set<(String, String)> _regrantedKeys = {};
+
+  /// The entries of [batch] whose row is shared into another pair now than
+  /// its envelope said — a mark set or cleared while the push was in
+  /// flight. Their entries stay queued: the write that changed the mark
+  /// queued the row again at the stamp it carries, which an entry already
+  /// standing at that stamp absorbs, and retiring it would leave the
+  /// document saying the old answer until something else pushed the row
+  /// (`docs/cloud-sharing-foundations.md` §3). Read inside the transaction
+  /// that retires the rest, so no mark can change between the two.
+  ///
+  /// Nothing is read for a batch that names no pair in a database that
+  /// carries no mark.
+  Future<Set<_Queued>> _regranted(List<_Queued> batch) async {
+    final db = _e._db;
+    final byTable = <String, List<_Queued>>{};
+    for (final queued in batch) {
+      final table = queued.entry.syncedTable;
+      if (sharedTables.contains(table)) {
+        byTable.putIfAbsent(table, () => []).add(queued);
+      }
+    }
+    if (byTable.isEmpty) return const {};
+    if (batch.every((queued) => queued.envelope.sharedPair == null) &&
+        !await db.syncDao.anyShareMark()) {
+      return const {};
+    }
+    final regranted = <_Queued>{};
+    for (final MapEntry(key: table, value: group) in byTable.entries) {
+      final binding = _e._bindingFor(table);
+      if (binding == null) continue;
+      final rows = await binding.loadByKeys(db, [
+        for (final queued in group) queued.entry.rowKey,
+      ]);
+      final shared = await binding.sharedPairs(db, rows);
+      for (final queued in group) {
+        if (shared[queued.entry.rowKey] != queued.envelope.sharedPair) {
+          regranted.add(queued);
+        }
+      }
+    }
+    return regranted;
   }
 
   /// Logs by kind, as the pull's does (S3b review L16, A2 review R54): an

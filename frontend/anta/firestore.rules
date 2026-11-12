@@ -26,25 +26,37 @@ service cloud.firestore {
       return request.auth.uid;
     }
 
-    // Whether the caller is a member of the pair `pairId` while that pair
-    // is active — what every read of another account's shared row rests on
+    // Whether the pair `pairId` is active and holds both the caller and
+    // `ownerUid`, the account whose data is asked for — what every read of
+    // another account's shared row rests on
     // (docs/cloud-sharing-foundations.md §4). One `get()`: an ended pair,
     // and a pair removed by a member's account deletion, answer no at
     // once, whether or not the owner's device ever runs again. A pair that
     // does not exist errors on `.data`, which denies.
-    function activeMember(pairId) {
+    //
+    // The owner has to be in the pair, not only the caller: a document
+    // names a pair by its id alone, and an ended pair may be deleted and
+    // its id taken again — by the former partner with any second account.
+    // Such a pair names the id the owner's documents still carry and does
+    // not hold the owner, so it reads nothing of theirs.
+    function activeMember(pairId, ownerUid) {
       let pair = get(/databases/$(database)/documents/pairs/$(pairId)).data;
-      return pair.status == 'active' && uid() in pair.members;
+      return pair.status == 'active'
+          && uid() in pair.members
+          && ownerUid in pair.members;
     }
 
     // A shared row's document names the pair it is shared into at its top
-    // level, written by its owner with every push. A query has to pin that
-    // field (`sharedPair == <pairId>`) or this cannot be decided and the
-    // whole query is refused, so nothing is ever listed across pairs.
+    // level, written by its owner with every push, beside the `ownerId`
+    // the write rule holds to the space's account. A query has to pin both
+    // (`sharedPair == <pairId>`, `ownerId == <partner>`) or this cannot be
+    // decided and the whole query is refused, so nothing is ever listed
+    // across pairs.
     function sharedWithCaller() {
       return signedIn()
           && resource.data.sharedPair is string
-          && activeMember(resource.data.sharedPair);
+          && resource.data.ownerId is string
+          && activeMember(resource.data.sharedPair, resource.data.ownerId);
     }
 
     match /pairs/{pairId} {
@@ -69,6 +81,21 @@ service cloud.firestore {
             && !('pairId' in invite)
             && invite.creatorUid != uid()
             && invite.creatorUid in request.resource.data.members;
+      }
+
+      // A pair's id starts with the code of the invite it was made from,
+      // then `_` and whatever its creator adds. Shared documents name a
+      // pair by its id, so an id must never come round again for the same
+      // two people: whoever is not creating the pair minted the code, at
+      // random, and whoever is creating it adds the rest — a former
+      // partner on either side of a new pairing cannot steer both halves
+      // back to an id the other's documents still carry. Pairs made before
+      // this rule keep their ids, which hold no `_` and so match no new
+      // one.
+      function namedAfterInvite() {
+        return pairId.split('_')[0] == request.resource.data.inviteCode
+            && pairId.size() > request.resource.data.inviteCode.size() + 1
+            && pairId.size() <= 64;
       }
 
       function validProfile(entry) {
@@ -150,7 +177,8 @@ service cloud.firestore {
              request.resource.data.profiles, request.resource.data.members)
         && closedPermissions(
              request.resource.data.permissions, request.resource.data.members)
-        && authorisedByInvite();
+        && authorisedByInvite()
+        && namedAfterInvite();
 
       // Membership never changes, so `members` stays a stable ACL and an
       // ended pair can never be revived into a live one.
@@ -292,8 +320,8 @@ service cloud.firestore {
         // A share is checked for shape alone: validating the pair here
         // would cost one access call per written row, and a batch is
         // documented to allow twenty. Naming a pair one is not in gains
-        // nothing — its members could read the row, nothing more — and the
-        // reader pins the owner it expects besides. `wire` is the wire
+        // nothing — the read rule opens a row only to a pair that holds
+        // its owner. `wire` is the wire
         // version of the build that wrote a shared row, for a reader that
         // cannot see this space's schema; a private row carries neither.
         function validShare() {
@@ -332,13 +360,13 @@ service cloud.firestore {
         allow create, update: if isOwner() && syncedTable() && validEnvelope();
         allow delete: if isOwner() && syncedTable() && spaceMarked();
         // The text of a note shared with a partner: one chunk by its hash,
-        // for an active member of the pair the space says its notes are
-        // shared into. `get` alone — the hashes come from a shared note's
-        // manifest, and a space's text can never be listed. Two access
-        // calls, the space and the pair. A space that names no pair errors
-        // on the field, which denies.
+        // for a member of the active pair of the space's owner that the
+        // space says its notes are shared into. `get` alone — the hashes
+        // come from a shared note's manifest, and a space's text can never
+        // be listed. Two access calls, the space and the pair. A space that
+        // names no pair errors on the field, which denies.
         allow get: if table == 'content_chunks' && signedIn()
-          && activeMember(get(/databases/$(database)/documents/users/$(owner)/spaces/$(spaceId)).data.sharedPair);
+          && activeMember(get(/databases/$(database)/documents/users/$(owner)/spaces/$(spaceId)).data.sharedPair, owner);
       }
     }
 

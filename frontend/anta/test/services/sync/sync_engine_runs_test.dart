@@ -1,3 +1,4 @@
+import 'package:drift/drift.dart' show Value;
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -5,12 +6,14 @@ import 'package:anta/constants/json_keys.dart';
 import 'package:anta/database/chunking/chunk_hasher.dart';
 import 'package:anta/database/crdt/hlc.dart';
 import 'package:anta/database/daos/sync_dao.dart';
+import 'package:anta/database/database.dart';
 import 'package:anta/database/migrations/database_schema.dart';
 import 'package:anta/models/app_user.dart';
 import 'package:anta/services/sync/sync_engine.dart';
 import 'package:anta/services/sync/sync_gateway.dart';
 import 'package:anta/services/sync/sync_status.dart';
 import 'package:anta/services/sync/sync_tables.dart';
+import 'package:anta/services/sync/tables/folders_binding.dart';
 
 import 'support/sync_pair.dart';
 
@@ -816,6 +819,90 @@ void main() {
       cursor,
       reason: 'the notes are not read again from the start',
     );
+  });
+
+  group('a database that last ran below the wire that carries share marks', () {
+    late Folder folder;
+
+    /// The space holds the folder marked, at the stamp this device stored it
+    /// under — marked by a newer build, merged here by one that could not
+    /// read the mark — and this device's cursor has passed that document.
+    setUp(() async {
+      folder = await a().db.folderDao.createFolder(name: 'Training');
+      await a().sync();
+      const binding = FoldersBinding();
+      final stored = (await a().db.folderDao.getByIdsIncludingDeleted([
+        folder.id,
+      ])).single;
+      pair.gateway.plant(
+        pair.space,
+        (await binding.encode(
+          a().db,
+          stored.copyWith(
+            sharedPair: const Value('pair-1'),
+            sharedStamp: Value(stored.hlcTimestamp),
+          ),
+          boundUid: syncUid,
+        )).sharedInto('pair-1'),
+        pushedBy: 'B',
+      );
+      await a().db.syncDao.setValue(SyncDao.keyPullCursor('folders'), '999');
+    });
+
+    Future<String?> markHere() async =>
+        (await a().db.folderDao.getByIdsIncludingDeleted([
+          folder.id,
+        ])).single.sharedPair;
+
+    test('reads its events and folders again from the start, once, and '
+        'takes the mark a row was merged without — nothing is queued or '
+        'pushed for it', () async {
+      await a().db.syncDao.setValue(
+        SyncDao.keyWireVersion,
+        '${DatabaseSchema.shareWireVersion - 1}',
+      );
+      pair.gateway.pushes.clear();
+
+      final report = await a().sync();
+
+      expect(report.failure, isNull);
+      expect(await markHere(), 'pair-1');
+      expect(pair.gateway.pushes, isEmpty);
+      expect(
+        await a().db.syncDao.getValue(SyncDao.keyWireVersion),
+        '$syncSchema',
+      );
+      expect(a().statuses.any((status) => status.updating), isFalse);
+    });
+
+    test('a database already at that wire does not: the cursor stands, and '
+        'so does the row as it was merged', () async {
+      await a().sync();
+
+      expect(await markHere(), isNull);
+      expect(
+        await a().db.syncDao.getValue(SyncDao.keyPullCursor('folders')),
+        '999',
+      );
+    });
+
+    test('a run cut before its pull ended cuts over again the next '
+        'time', () async {
+      await a().db.syncDao.setValue(
+        SyncDao.keyWireVersion,
+        '${DatabaseSchema.shareWireVersion - 1}',
+      );
+      pair.gateway.failNextWith(SyncGatewayFailure.offline);
+
+      expect((await a().sync()).failure, SyncGatewayFailure.offline);
+      expect(
+        await a().db.syncDao.getValue(SyncDao.keyWireVersion),
+        '${DatabaseSchema.shareWireVersion - 1}',
+      );
+
+      await a().sync();
+      expect(await markHere(), 'pair-1');
+    });
   });
 
   test('a drain-only run of such a database holds no note back while the '

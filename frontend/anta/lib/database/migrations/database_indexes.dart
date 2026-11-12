@@ -25,6 +25,25 @@ class DatabaseIndexes {
     await createUniqueNameIndexes();
     await createNoteTitleIndex();
     await createPositionIndexes();
+    await createShareMarkIndexes();
+  }
+
+  /// The events and folders that carry a share mark, tombstones included,
+  /// as two partial indexes (**v53**): every sync page and push of a
+  /// shareable table first asks whether anything is marked at all, and for
+  /// nearly every database the answer is an empty index rather than a scan
+  /// of two tables (`docs/cloud-sharing-foundations.md` §3). The queries
+  /// repeat `shared_pair IS NOT NULL` literally, which is what lets SQLite
+  /// prove the partial index applies.
+  Future<void> createShareMarkIndexes() async {
+    await _db.customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_folders_shared_pair '
+      'ON folders(shared_pair) WHERE shared_pair IS NOT NULL',
+    );
+    await _db.customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_calendar_events_shared_pair '
+      'ON calendar_events(shared_pair) WHERE shared_pair IS NOT NULL',
+    );
   }
 
   /// The body search index's two tables on a fresh install and in the v50

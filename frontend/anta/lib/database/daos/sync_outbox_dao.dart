@@ -29,10 +29,24 @@ class SyncOutboxDao extends DatabaseAccessor<AppDatabase>
   /// `idx_sync_outbox_order` (v47), so every page is a range seek on that
   /// index, where the expanded `>` / `=` disjunction it replaced gives SQLite
   /// no range to seek to.
-  Future<List<SyncOutboxRow>> pending({int? limit, SyncOutboxKey? after}) {
+  ///
+  /// [unpushedOnly] leaves out the entries that only re-send a version the
+  /// space holds ([SyncOutbox.republish]), in the same order: what a push
+  /// sends first, so a write that changes what other rows' documents say —
+  /// a share mark on a folder — reaches the space before those rows are
+  /// sent again under it (`docs/cloud-sharing-foundations.md` §3).
+  Future<List<SyncOutboxRow>> pending({
+    int? limit,
+    SyncOutboxKey? after,
+    bool unpushedOnly = false,
+  }) {
+    final conditions = [
+      if (after != null) '(hlc, table_name, row_key) > (?, ?, ?)',
+      if (unpushedOnly) 'republish = 0',
+    ];
     return customSelect(
       'SELECT * FROM sync_outbox'
-      '${after == null ? '' : ' WHERE (hlc, table_name, row_key) > (?, ?, ?)'}'
+      '${conditions.isEmpty ? '' : ' WHERE ${conditions.join(' AND ')}'}'
       ' ORDER BY hlc, table_name, row_key'
       '${limit == null ? '' : ' LIMIT ?'}',
       variables: [
@@ -317,8 +331,15 @@ class SyncOutboxDao extends DatabaseAccessor<AppDatabase>
   /// or a note from the folder above it
   /// (`docs/cloud-sharing-foundations.md` §3): a change of that root is no
   /// write of theirs, so nothing else would push them again. Mints nothing
-  /// and never lowers an entry pending at a newer stamp. The caller names
-  /// rows of its own account only; never a content-addressed table.
+  /// and never lowers an entry pending at a newer stamp. Never a
+  /// content-addressed table; [rows] has to leave out what another account
+  /// shares with this one (`SyncDao.mineSql`).
+  ///
+  /// Each entry written is a republish ([SyncOutbox.republish]): the space
+  /// holds this very version of the row, and only what its document says
+  /// beside the row is sent again — so a newer remote that overwrites the
+  /// row before the push loses no text, and files no copy of it. An entry
+  /// already standing for an unpushed write keeps saying so.
   Future<int> requeueRows(
     String table, {
     required String rows,
@@ -332,7 +353,7 @@ class SyncOutboxDao extends DatabaseAccessor<AppDatabase>
       'INSERT INTO sync_outbox '
       '(table_name, row_key, hlc, op, enqueued_at, republish) '
       "SELECT '${synced.name}', ${synced.rowKeySql}, hlc_timestamp, "
-      "CASE is_deleted WHEN 1 THEN 'tombstone' ELSE 'upsert' END, ?1, 0 "
+      "CASE is_deleted WHEN 1 THEN 'tombstone' ELSE 'upsert' END, ?1, 1 "
       'FROM ${synced.name} WHERE $rows '
       'ON CONFLICT (table_name, row_key) DO UPDATE SET '
       'hlc = excluded.hlc, op = excluded.op, '
