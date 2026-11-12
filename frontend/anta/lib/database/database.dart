@@ -56,6 +56,7 @@ import 'daos/category_alert_dao.dart';
 import 'daos/category_profile_dao.dart';
 import 'daos/event_digest_dao.dart';
 import 'daos/vocabulary_dao.dart';
+import 'daos/shared_row_dao.dart';
 import 'daos/sync_outbox_dao.dart';
 import 'crdt/crdt_write.dart';
 import 'crdt/hlc.dart';
@@ -115,6 +116,7 @@ part 'database.g.dart';
     CategoryProfileDao,
     EventDigestDao,
     SyncOutboxDao,
+    SharedRowDao,
   ],
 )
 class AppDatabase extends _$AppDatabase {

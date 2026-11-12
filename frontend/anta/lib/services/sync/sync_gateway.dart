@@ -203,6 +203,12 @@ class SyncPullPage extends Equatable {
   /// key without an entry is a document that names neither.
   final Map<String, SyncPush> pushed;
 
+  /// The space each of [envelopes]' documents lies in, by row key — only on
+  /// a page read across spaces ([SyncGateway.sharedPage]), whose reader has
+  /// to know where a note's text is stored. Empty on every page of one
+  /// space.
+  final Map<String, SyncSpaceRef> spaces;
+
   const SyncPullPage({
     required this.envelopes,
     required this.next,
@@ -210,10 +216,19 @@ class SyncPullPage extends Equatable {
     this.scan,
     this.skipped = const [],
     this.pushed = const {},
+    this.spaces = const {},
   });
 
   @override
-  List<Object?> get props => [envelopes, next, hasMore, scan, skipped, pushed];
+  List<Object?> get props => [
+    envelopes,
+    next,
+    hasMore,
+    scan,
+    skipped,
+    pushed,
+    spaces,
+  ];
 }
 
 /// The push that wrote a document: the `pushedBy` of
@@ -469,6 +484,55 @@ abstract interface class SyncGateway {
     String table,
     List<String> rowKeys,
   );
+
+  /// One page of the rows of [table] that the account [owner] shares into
+  /// [pair], from every space of that account — the reader's side of a
+  /// share (`docs/cloud-sharing-foundations.md` §5). The documents whose
+  /// [SyncEnvelope.sharedPair] is [pair], tombstones included, in arrival
+  /// order strictly after [after]; [limit], [resumed] and [scan] are
+  /// [pullPage]'s, and so is the at-least-once delivery. Each envelope's
+  /// space is in [SyncPullPage.spaces].
+  ///
+  /// The cursor is this query's own: it orders rows of several spaces, so
+  /// one from [pullPage] does not resume it, nor the reverse.
+  ///
+  /// A row that stopped being shared is simply no longer returned — a query
+  /// cannot report what left it — which is what [sharedCount] is for.
+  ///
+  /// [SyncGatewayFailure.permissionDenied] when [pair] is not an active
+  /// pair holding both the caller and [owner]: a pair that ended, or was
+  /// removed with an account, revokes every share at once.
+  Future<SyncPullPage> sharedPage(
+    String table, {
+    required String pair,
+    required String owner,
+    SyncCursor? after,
+    int? limit,
+    bool resumed = false,
+    SyncCursor? scan,
+  });
+
+  /// How many documents [sharedPage] returns for [table] in all, counted by
+  /// the server without reading them. Fewer than the reader holds means
+  /// rows left the share since it read them. Refused as [sharedPage] is.
+  Future<int> sharedCount(
+    String table, {
+    required String pair,
+    required String owner,
+  });
+
+  /// The chunk documents of [space] — another account's — under [hashes],
+  /// as [readRows] answers for one's own: a shared note's text is stored
+  /// once per space under its hash, with no grant of its own, and is
+  /// readable while the space's document names [pair] and the pair is
+  /// active ([pushBatch]'s `sharedPair`). A hash the space does not hold is
+  /// left out; [SyncGatewayFailure.permissionDenied] when the space names
+  /// another pair or none.
+  Future<SyncPullPage> readSharedChunks(
+    SyncSpaceRef space,
+    List<String> hashes, {
+    required String pair,
+  });
 
   /// How many documents one [readRows] call reads at once, each batch under
   /// its own deadline: a start may retry a hundred parks, and every one of

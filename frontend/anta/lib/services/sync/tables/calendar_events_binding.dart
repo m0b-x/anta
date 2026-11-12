@@ -1,3 +1,5 @@
+import 'package:drift/drift.dart' show Value;
+
 import '../../../database/database.dart';
 import '../sync_gateway.dart';
 import '../sync_table_binding.dart';
@@ -135,5 +137,17 @@ final class CalendarEventsBinding extends SyncTableBinding<CalendarEventRow> {
     String? floor,
   }) {
     return db.calendarEventDao.mergeRemoteEvent(decode(envelope), floor: floor);
+  }
+
+  @override
+  Future<MergeOutcome> mergeShared(AppDatabase db, SyncEnvelope envelope) {
+    final remote = decode(envelope).copyWith(
+      sharedPair: const Value(null),
+      sharedStamp: const Value(null),
+    );
+    return db.transaction(() async {
+      await SharedRowRefused.unlessFree(db, table, remote.id, remote.ownerId!);
+      return db.calendarEventDao.mergeRemoteEvent(remote, shared: true);
+    });
   }
 }

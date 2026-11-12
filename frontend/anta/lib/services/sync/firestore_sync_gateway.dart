@@ -324,6 +324,140 @@ class FirestoreSyncGateway implements SyncGateway {
     );
   }
 
+  /// The documents of [table] that [owner] shares into [pair], in every
+  /// space: a collection-group query, which the rules admit only pinned to
+  /// the pair, and which the `sharedPair, ownerId, pushedAt` index serves.
+  /// [owner] is pinned too, so the query never asks for the caller's own
+  /// rows, and a document says its owner as its path does (the rules hold
+  /// `ownerId` to the path's account).
+  Query<Map<String, dynamic>> _shared(String table, String pair, String owner) {
+    return _db
+        .collectionGroup(table)
+        .where(sharedPairKey, isEqualTo: pair)
+        .where('ownerId', isEqualTo: owner);
+  }
+
+  @override
+  Future<SyncPullPage> sharedPage(
+    String table, {
+    required String pair,
+    required String owner,
+    SyncCursor? after,
+    int? limit,
+    bool resumed = false,
+    SyncCursor? scan,
+  }) {
+    final take = limit ?? maxBatch;
+    // As [pullPage]: a cursor no gateway of this kind wrote reads the set
+    // from the start rather than failing the same way for good.
+    var from = after;
+    if (from != null && FirestoreSyncWire.tryDecodeCursor(from) == null) {
+      debugPrint(
+        '[FirestoreSyncGateway] unreadable shared $table cursor '
+        '"${from.value}", reading the set from the start',
+      );
+      from = null;
+    }
+    final begin = FirestoreSyncWire.queryStart(
+      from,
+      resumed: resumed,
+      scan: scan,
+    );
+    return _guard(() async {
+      var query = _shared(
+        table,
+        pair,
+        owner,
+      ).orderBy('pushedAt').orderBy(FieldPath.documentId);
+      if (begin != null) {
+        final at = Timestamp.fromMicrosecondsSinceEpoch(begin.micros);
+        // Across spaces a document's id in the order is its whole path, so
+        // that is what the cursor carries in the key's place.
+        query = begin.overlap
+            ? query.where('pushedAt', isGreaterThanOrEqualTo: at)
+            : query.startAfter([at, begin.rowKey]);
+      }
+      final snapshot = await query
+          .limit(take)
+          .get(const GetOptions(source: Source.server));
+      final envelopes = <SyncEnvelope>[];
+      final skipped = <String>[];
+      final pushed = <String, SyncPush>{};
+      final spaces = <String, SyncSpaceRef>{};
+      var next = from;
+      SyncCursor? latest = from;
+      SyncCursor? read;
+      for (final doc in snapshot.docs) {
+        final data = doc.data();
+        final pushedAt = data['pushedAt'];
+        if (pushedAt is! Timestamp) continue;
+        final position = FirestoreSyncWire.encodeCursor(
+          pushedAt.microsecondsSinceEpoch,
+          doc.reference.path,
+        );
+        read = position;
+        if (latest == null ||
+            FirestoreSyncWire.compareSharedCursors(position, latest) > 0) {
+          latest = next = position;
+        }
+        final space = FirestoreSyncWire.spaceOfPath(doc.reference.path);
+        final envelope = space == null
+            ? null
+            : FirestoreSyncWire.envelopeOf(table, doc.id, data);
+        if (envelope == null || space == null) {
+          debugPrint(
+            '[FirestoreSyncGateway] skipped malformed shared '
+            '${doc.reference.path}',
+          );
+          skipped.add(doc.id);
+          continue;
+        }
+        envelopes.add(envelope);
+        pushed[doc.id] = FirestoreSyncWire.pushOf(data, pushedAt.toDate());
+        spaces[doc.id] = space;
+      }
+      final hasMore = snapshot.docs.length == take;
+      return SyncPullPage(
+        envelopes: envelopes,
+        next: next,
+        hasMore: hasMore,
+        scan: FirestoreSyncWire.scanAfter(
+          from: from,
+          resumed: resumed,
+          full: hasMore,
+          read: read,
+          compare: FirestoreSyncWire.compareSharedCursors,
+        ),
+        skipped: skipped,
+        pushed: pushed,
+        spaces: spaces,
+      );
+    });
+  }
+
+  @override
+  Future<int> sharedCount(
+    String table, {
+    required String pair,
+    required String owner,
+  }) => _guard(() async {
+    final snapshot = await _shared(
+      table,
+      pair,
+      owner,
+    ).count().get(source: AggregateSource.server);
+    return snapshot.count ?? 0;
+  });
+
+  /// The same reads as [readRows] of `content_chunks`: the rules, not the
+  /// request, decide by the space document whether [pair] may have them.
+  @override
+  Future<SyncPullPage> readSharedChunks(
+    SyncSpaceRef space,
+    List<String> hashes, {
+    required String pair,
+  }) => readRows(space, 'content_chunks', hashes);
+
   @override
   Future<SyncSpaceInfo> createSpace({
     required String ownerUid,
@@ -666,9 +800,43 @@ abstract final class FirestoreSyncWire {
     required bool resumed,
     required bool full,
     required SyncCursor? read,
+    int Function(SyncCursor a, SyncCursor b) compare = compareCursors,
   }) {
     if (!resumed || !full || from == null || read == null) return null;
-    return compareCursors(read, from) < 0 ? read : null;
+    return compare(read, from) < 0 ? read : null;
+  }
+
+  /// [compareCursors] for a query across spaces ([SyncGateway.sharedPage]),
+  /// whose cursor carries a document's whole path in the key's place:
+  /// Firestore orders paths segment by segment, so `a/b` sorts before `a-/b`
+  /// although the strings compare the other way.
+  static int compareSharedCursors(SyncCursor a, SyncCursor b) {
+    final (aMicros, aPath) = decodeCursor(a);
+    final (bMicros, bPath) = decodeCursor(b);
+    final byTime = aMicros.compareTo(bMicros);
+    if (byTime != 0) return byTime;
+    final aSegments = aPath.split('/');
+    final bSegments = bPath.split('/');
+    for (var i = 0; i < aSegments.length && i < bSegments.length; i++) {
+      final bySegment = aSegments[i].compareTo(bSegments[i]);
+      if (bySegment != 0) return bySegment;
+    }
+    return aSegments.length.compareTo(bSegments.length);
+  }
+
+  /// The space a row document at [path] lies in —
+  /// `users/{uid}/spaces/{spaceId}/{table}/{rowKey}` — or null for any other
+  /// shape, which no document this app writes has.
+  static SyncSpaceRef? spaceOfPath(String path) {
+    final segments = path.split('/');
+    if (segments.length != 6 ||
+        segments[0] != 'users' ||
+        segments[2] != 'spaces' ||
+        segments[1].isEmpty ||
+        segments[3].isEmpty) {
+      return null;
+    }
+    return SyncSpaceRef(ownerUid: segments[1], spaceId: segments[3]);
   }
 
   /// `<pushedAt micros>|<rowKey>`. A row key may itself hold `|`

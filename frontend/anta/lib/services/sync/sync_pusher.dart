@@ -509,13 +509,27 @@ class _Pusher {
         add(chunk);
         continue;
       }
-      final SyncEnvelope envelope;
+      SyncEnvelope envelope;
       try {
         envelope = (await bindings[table]!.encode(
           db,
           row,
           boundUid: boundUid,
         )).sharedInto(shared[table]![entry.rowKey]);
+        if (envelope.ownerId != boundUid) {
+          final own = await _adopted(bindings[table]!, entry, boundUid);
+          if (own == null) {
+            // Another account's row, shared with this one: never sent,
+            // whatever queued it (decision e).
+            await db.syncOutboxDao.ackThrough(table, entry.rowKey, entry.hlc);
+            continue;
+          }
+          envelope = (await bindings[table]!.encode(
+            db,
+            own,
+            boundUid: boundUid,
+          )).sharedInto(shared[table]![entry.rowKey]);
+        }
       } on Object catch (error) {
         await _park(entry, error);
         continue;
@@ -575,6 +589,39 @@ class _Pusher {
       add(_Queued(entry, envelope, bytes, _ackOf(entry, envelope)));
     }
     return (part: part, cut: false);
+  }
+
+  /// [entry]'s row, made the bound account's — for a row whose `owner_id`
+  /// names another account than the one this database syncs for. Null when
+  /// that account is the one whose shared rows this database holds
+  /// (`SyncDao.keySharedOwner`): the row is another person's, and the
+  /// caller retires its entry unsent (`docs/cloud-sharing-foundations.md`
+  /// §7).
+  ///
+  /// Any other owner is an account that bound this database before a build
+  /// released its rows at an unbind (cloud-multi-user-roadmap §6.1 f): the
+  /// row is this device's own and was never uploaded. Before this, its
+  /// envelope reached the gateway under that owner, which the gateway
+  /// refuses as a programming error — and the run failed on it for as long
+  /// as the entry stood. One statement decides which of the two it is.
+  Future<Object?> _adopted(
+    SyncTableBinding<Object> binding,
+    SyncOutboxRow entry,
+    String boundUid,
+  ) async {
+    final db = _e._db;
+    final synced = syncedTables.singleWhere((t) => t.name == binding.table);
+    final adopted = await db.customUpdate(
+      'UPDATE ${synced.name} SET owner_id = ?1 '
+      'WHERE ${synced.rowKeySql} = ?2 AND ${SyncDao.mineSql}',
+      variables: [Variable<String>(boundUid), Variable<String>(entry.rowKey)],
+      updates: {
+        db.allTables.firstWhere((t) => t.actualTableName == synced.name),
+      },
+      updateKind: UpdateKind.update,
+    );
+    if (adopted == 0) return null;
+    return (await binding.loadByKeys(db, [entry.rowKey])).firstOrNull;
   }
 
   /// The chunk document for [entry]'s [row], the one [_DrainState.chunkAhead]

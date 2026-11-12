@@ -169,10 +169,11 @@ class SyncDao extends DatabaseAccessor<AppDatabase> with _$SyncDaoMixin {
   static const String keyNoteSeenSpace = 'note_seen_space';
 
   /// The account whose shared rows this database holds — the partner the
-  /// reader of shared rows reads from (`docs/cloud-sharing-foundations.md`
-  /// §5, §7). A row is another account's exactly when its `owner_id` is
-  /// this value; while it is absent the database holds none, which is every
-  /// database until that reader exists.
+  /// reader of shared rows last read from
+  /// (`docs/cloud-sharing-foundations.md` §5, §7). A row is another
+  /// account's exactly when its `owner_id` is this value; absent, the
+  /// database holds none. Written with the first shared read, deleted with
+  /// the rows (`SharedRowDao`).
   static const String keySharedOwner = 'shared_owner';
 
   /// The SQL condition, over a synced table's `owner_id`, for a row this
@@ -185,6 +186,46 @@ class SyncDao extends DatabaseAccessor<AppDatabase> with _$SyncDaoMixin {
   static const String mineSql =
       'NOT EXISTS (SELECT 1 FROM sync_metadata '
       "WHERE key = '$keySharedOwner' AND value = owner_id)";
+
+  /// The pair those rows were read under: another pair, with the same
+  /// partner or not, starts with nothing shared.
+  static const String keySharedPair = 'shared_pair';
+
+  /// The prefix every [keySharedCursor] shares, for [deleteByPrefix].
+  static const String sharedCursorPrefix = 'shared_cursor.';
+
+  /// Where the shared read of [table] resumes — the cursor of the query
+  /// across the partner's spaces, never one of a space's own pull.
+  static String keySharedCursor(String table) => '$sharedCursorPrefix$table';
+
+  /// When the last shared read finished, in epoch milliseconds: the next
+  /// one waits out `SyncEngine.sharedReadInterval` unless it was asked for.
+  static const String keySharedReadAt = 'shared_read_at';
+
+  /// When every shared table was last read from its start, in epoch
+  /// milliseconds — the daily read that needs no count to trigger it.
+  static const String keySharedFullAt = 'shared_full_at';
+
+  /// The highest wire version of a shared document this build skipped as
+  /// newer than its own: the person is told to update, and a build at or
+  /// above it reads every shared table again from the start.
+  static const String keySharedNewerWire = 'shared_newer_wire';
+
+  /// The prefix every [keySharedRetry] shares, for [deleteByPrefix].
+  static const String sharedRetryPrefix = 'shared_retry.';
+
+  /// Set while a shared note of [table] waits for text the reader could not
+  /// fetch yet: the next shared read takes the table from its start, where
+  /// the cursor alone would never come back to that note.
+  static String keySharedRetry(String table) => '$sharedRetryPrefix$table';
+
+  /// The prefix every [keySharedRoot] shares.
+  static const String sharedRootPrefix = 'shared_root.';
+
+  /// The parent a shared folder names on the wire while it stands at the
+  /// top level here, because that parent was not shared: kept so the folder
+  /// goes back under it once the parent arrives (`SharedRowDao.placeFolders`).
+  static String keySharedRoot(String folderId) => '$sharedRootPrefix$folderId';
 
   Future<String?> getValue(String key) async {
     final result = await (select(

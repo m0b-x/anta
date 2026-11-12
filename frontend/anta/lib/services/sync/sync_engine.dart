@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import 'package:drift/drift.dart'
-    show CouldNotRollBackException, InvalidDataException;
+    show CouldNotRollBackException, InvalidDataException, UpdateKind, Variable;
 import 'package:drift/isolate.dart' show DriftRemoteException;
 import 'package:equatable/equatable.dart';
 import 'package:flutter/foundation.dart'
@@ -15,6 +15,7 @@ import '../../database/chunking/content_chunker.dart';
 import '../../database/crdt/crdt_merge.dart';
 import '../../database/crdt/crdt_write.dart';
 import '../../database/crdt/hlc.dart';
+import '../../database/crdt/synced_tables.dart';
 import '../../database/daos/sync_dao.dart';
 import '../../database/daos/sync_outbox_dao.dart';
 import '../../database/database.dart';
@@ -24,7 +25,10 @@ import '../../models/app_user.dart';
 import '../../models/sync_binding.dart';
 import '../auth_service.dart';
 import '../permission_service.dart';
+import '../pairing_gateway.dart';
+import '../settings_service.dart';
 import 'app_sync_apply_hooks.dart';
+import 'share_partner_source.dart';
 import 'sync_apply_hooks.dart';
 import 'sync_binding_service.dart';
 import 'sync_cadence.dart';
@@ -37,10 +41,12 @@ import 'sync_suspension.dart';
 import 'sync_table_binding.dart';
 import 'sync_tables.dart';
 import 'tables/content_chunks_binding.dart';
+import 'tables/folders_binding.dart';
 import 'tables/notes_binding.dart';
 
 part 'sync_puller.dart';
 part 'sync_pusher.dart';
+part 'sync_shared_reader.dart';
 
 /// Why a run ended without reaching the space, or stopped short of it.
 enum SyncRunSkip {
@@ -210,6 +216,15 @@ class SyncEngine {
   /// bound on anything a missed or misread snapshot left behind.
   static const Duration fullPullInterval = Duration(hours: 24);
 
+  /// How long the rows a partner shares are not read again unasked
+  /// ([_SharedReader]). Nothing signals a partner's change — this account
+  /// cannot read the other's space document — so the read is a poll, and
+  /// each one costs the pair, a page and a count per shareable table: about
+  /// a dozen document reads, more with the rules' own lookups. Five minutes
+  /// keeps a day of opening the app well inside a free tier's reads; "Sync
+  /// now" reads at once.
+  static const Duration sharedReadInterval = Duration(minutes: 5);
+
   /// How many of the gateway's [SyncGateway.resumeOverlap]s the server clock
   /// must stand past a table's cursor, as a pull begins, for the pull to mark
   /// the table settled. The overlap is the receive-to-commit bound the record
@@ -302,6 +317,11 @@ class SyncEngine {
   final String Function() _runningBuild;
   late final _Puller _puller = _Puller(this);
   late final _Pusher _pusher = _Pusher(this);
+  late final _SharedReader _shared = _SharedReader(this);
+
+  /// Who the bound account is paired with; null for an engine that reads
+  /// nothing another account shares.
+  final SharePartnerSource? _partners;
 
   final StreamController<SyncStatus> _statusController =
       StreamController<SyncStatus>.broadcast();
@@ -477,7 +497,9 @@ class SyncEngine {
     AppLifecycleState? Function()? lifecycleState,
     DateTime Function() now = DateTime.now,
     String Function()? build,
+    SharePartnerSource? partners,
   }) : _now = now,
+       _partners = partners,
        _runningBuild = build ?? (() => SyncEngine.build),
        _db = db,
        _gateway = gateway,
@@ -544,6 +566,12 @@ class SyncEngine {
       currentUser: () => auth.currentUser,
       authChanges: auth.authStateChanges,
       lifecycleState: () => WidgetsBinding.instance.lifecycleState,
+      partners: GetIt.I.isRegistered<PairingGateway>()
+          ? PairingSharePartnerSource(
+              gateway: GetIt.I<PairingGateway>(),
+              settings: SettingsService.getInstance,
+            )
+          : null,
     );
     _bridge = SyncLifecycleBridge(
       engine,
@@ -1124,6 +1152,12 @@ class SyncEngine {
       // nothing to push is the one that has to look.
       if (mode != _RunMode.drain && pulled.complete && tally.pushed == 0) {
         await _settleSpaceShare(binding, tally);
+      }
+      // After the account's own pull and drain — a complete pull, so the
+      // bind's first merge has had the space's say — never in a drain-only
+      // run.
+      if (mode != _RunMode.drain && pulled.complete) {
+        await _shared.read(binding, asked: request.asked, tally: tally);
       }
       if (tally.calls > 0) _succeeded();
       return report();

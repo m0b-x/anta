@@ -500,6 +500,158 @@ class FakeSyncGateway implements SyncGateway {
     }
     rowReads.add('$table:${rowKeys.length}');
     rowReadKeys.add(List.of(rowKeys));
+    return _rowsOf(space, table, rowKeys);
+  }
+
+  /// The active pairs the fake's rules know, by id: the two accounts of
+  /// each. Nothing is shared with anyone outside them.
+  final Map<String, Set<String>> _pairs = {};
+
+  /// Makes [pairId] an active pair of [a] and [b], as a redeemed invite
+  /// leaves one.
+  void pair(String pairId, String a, String b) => _pairs[pairId] = {a, b};
+
+  /// Ends [pairId], or removes it with an account: every read through it is
+  /// refused from now on.
+  void endPair(String pairId) => _pairs.remove(pairId);
+
+  /// Throws what the rules answer a read of what [owner] shares into
+  /// [pair]: the pair must be active and hold [owner] and, when a test set
+  /// one, [actingAccount].
+  void _ensureMember(String pair, String owner) {
+    final members = _pairs[pair];
+    final acting = actingAccount;
+    if (signedOut ||
+        members == null ||
+        !members.contains(owner) ||
+        (acting != null && !members.contains(acting))) {
+      throw const SyncGatewayException(
+        SyncGatewayFailure.permissionDenied,
+        'not an active pair of both accounts',
+      );
+    }
+  }
+
+  /// The documents of [table] that [owner] shares into [pair], from every
+  /// space of that account, in the shared query's order: by arrival time,
+  /// then by space and row key.
+  List<({_SharedPosition position, SyncSpaceRef space, _Arrival arrival})>
+  _sharedOf(String table, String pair, String owner) =>
+      [
+        for (final MapEntry(key: space, value: tables) in _store.entries)
+          if (space.ownerUid == owner)
+            for (final arrival in (tables[table] ?? const {}).values)
+              if (arrival.envelope.sharedPair == pair)
+                (
+                  position: _SharedPosition(
+                    arrival.at.microsecondsSinceEpoch,
+                    '${space.spaceId}/${arrival.envelope.rowKey}',
+                  ),
+                  space: space,
+                  arrival: arrival,
+                ),
+      ]..sort((a, b) => a.position.compareTo(b.position));
+
+  @override
+  Future<SyncPullPage> sharedPage(
+    String table, {
+    required String pair,
+    required String owner,
+    SyncCursor? after,
+    int? limit,
+    bool resumed = false,
+    SyncCursor? scan,
+  }) async {
+    _ensureMember(pair, owner);
+    _throwIfScripted();
+    calls.add('shared:$table');
+    final cursor = after == null ? null : _SharedPosition.of(after);
+    final rereads = resumed && cursor != null;
+    // As Firestore's: a resumed page starts the overlap before its cursor —
+    // by time, since that is what the overlap covers — unless a re-read's
+    // scan says how far it already got.
+    final from = !rereads
+        ? cursor
+        : scan != null
+        ? _SharedPosition.of(scan)
+        : _SharedPosition(cursor.micros - resumeOverlap.inMicroseconds, '');
+    final pending = [
+      for (final doc in _sharedOf(table, pair, owner))
+        if (from == null || doc.position.compareTo(from) > 0) doc,
+    ];
+    final take = limit ?? maxBatch;
+    final page = pending.take(take).toList();
+    final hasMore = looseHasMore
+        ? page.length == take
+        : pending.length > page.length;
+    final last = page.isEmpty ? null : page.last.position;
+    final behind = rereads && last != null && last.compareTo(cursor) <= 0;
+    bool readable(_Arrival arrival) =>
+        !unreadable.contains((table, arrival.envelope.rowKey));
+    return SyncPullPage(
+      envelopes: [
+        for (final doc in page)
+          if (readable(doc.arrival)) doc.arrival.envelope,
+      ],
+      next: last == null || behind ? after : last.cursor,
+      hasMore: hasMore,
+      scan: behind && hasMore && last.compareTo(cursor) < 0
+          ? last.cursor
+          : null,
+      skipped: [
+        for (final doc in page)
+          if (!readable(doc.arrival)) doc.arrival.envelope.rowKey,
+      ],
+      pushed: _pushesOf([
+        for (final doc in page)
+          if (readable(doc.arrival)) doc.arrival,
+      ]),
+      spaces: {
+        for (final doc in page)
+          if (readable(doc.arrival)) doc.arrival.envelope.rowKey: doc.space,
+      },
+    );
+  }
+
+  @override
+  Future<int> sharedCount(
+    String table, {
+    required String pair,
+    required String owner,
+  }) async {
+    _ensureMember(pair, owner);
+    _throwIfScripted();
+    calls.add('count:$table');
+    return _sharedOf(table, pair, owner).length;
+  }
+
+  /// Every [readSharedChunks] call's hashes, in the order asked.
+  final List<List<String>> sharedChunkReads = [];
+
+  @override
+  Future<SyncPullPage> readSharedChunks(
+    SyncSpaceRef space,
+    List<String> hashes, {
+    required String pair,
+  }) async {
+    // The chunk rule: the space's document names the pair, and the pair is
+    // an active one of the caller's.
+    if (_spaces[space]?.sharedPair != pair) {
+      throw const SyncGatewayException(
+        SyncGatewayFailure.permissionDenied,
+        'the space does not share its notes into this pair',
+      );
+    }
+    _ensureMember(pair, space.ownerUid);
+    _throwIfScripted();
+    calls.add('chunks');
+    sharedChunkReads.add(List.of(hashes));
+    return _rowsOf(space, 'content_chunks', hashes);
+  }
+
+  /// The documents of [table] in [space] under [rowKeys], as [readRows]
+  /// answers them.
+  SyncPullPage _rowsOf(SyncSpaceRef space, String table, List<String> rowKeys) {
     final stored = _store[space]?[table] ?? const <String, _Arrival>{};
     return SyncPullPage(
       envelopes: [
@@ -707,6 +859,32 @@ class _Arrival {
   final String? pushedBy;
 
   const _Arrival(this.envelope, this.seq, this.at, [this.pushedBy]);
+}
+
+/// Where a document stands in the shared query's order, and the cursor that
+/// names it: `<arrival micros>|<space id>/<row key>` — a row key may hold a
+/// `|` of its own, so the first one ends the time.
+class _SharedPosition implements Comparable<_SharedPosition> {
+  final int micros;
+  final String path;
+
+  const _SharedPosition(this.micros, this.path);
+
+  factory _SharedPosition.of(SyncCursor cursor) {
+    final bar = cursor.value.indexOf('|');
+    return _SharedPosition(
+      int.parse(cursor.value.substring(0, bar)),
+      cursor.value.substring(bar + 1),
+    );
+  }
+
+  SyncCursor get cursor => SyncCursor('$micros|$path');
+
+  @override
+  int compareTo(_SharedPosition other) {
+    final byTime = micros.compareTo(other.micros);
+    return byTime != 0 ? byTime : path.compareTo(other.path);
+  }
 }
 
 /// The push that wrote each readable document of [page], by row key — the

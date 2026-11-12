@@ -1,3 +1,5 @@
+import 'package:drift/drift.dart' show Value;
+
 import '../../../constants/json_keys.dart';
 import '../../../database/database.dart';
 import '../../../models/item_label.dart';
@@ -100,5 +102,20 @@ final class FoldersBinding extends SyncTableBinding<Folder> {
     String? floor,
   }) {
     return db.folderDao.mergeFolder(decode(envelope), floor: floor);
+  }
+
+  /// The parent is stored as the wire names it; a parent that was not
+  /// shared, or that this device holds as its own, is settled after the
+  /// page by `SharedRowDao.placeFolders`.
+  @override
+  Future<MergeOutcome> mergeShared(AppDatabase db, SyncEnvelope envelope) {
+    final remote = decode(envelope).copyWith(
+      sharedPair: const Value(null),
+      sharedStamp: const Value(null),
+    );
+    return db.transaction(() async {
+      await SharedRowRefused.unlessFree(db, table, remote.id, remote.ownerId!);
+      return db.folderDao.mergeFolder(remote, shared: true);
+    });
   }
 }

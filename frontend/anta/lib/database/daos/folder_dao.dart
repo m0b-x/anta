@@ -1153,6 +1153,26 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
     requeue: true,
   );
 
+  /// Clears every share mark of a pair other than [pairId] — every mark
+  /// there is when null — on folders and on events alike, under one stamp:
+  /// what the account's pair, as the server shows it, leaves standing
+  /// (`docs/cloud-sharing-foundations.md` §2 c). A share must not outlive
+  /// its pair on the owner's side either, and a merge alone can leave two
+  /// pairs' marks side by side. Returns how many marks it cleared.
+  Future<int> clearSharesExcept(String? pairId) {
+    return transaction(() async {
+      final stamp = db.newStamp();
+      final folders = await _clearMarks(
+        stamp,
+        where: 'shared_pair IS NOT NULL AND shared_pair IS NOT ?3',
+        variables: [Variable<String>(pairId)],
+        requeue: true,
+      );
+      return folders +
+          await db.calendarEventDao.clearOtherPairs(pairId, stamp);
+    });
+  }
+
   /// Sets `shared_pair` to NULL under [stamp] on the folders [where]
   /// selects — its numbered parameters start at `?3`, bound from
   /// [variables] — and queues each; [requeue] queues their subtrees again
@@ -1277,9 +1297,29 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
   /// unless it carries a mark itself. What it shared into before is read
   /// only when the merge can change it: the row is written, or the two
   /// marks differ.
-  Future<MergeOutcome> mergeFolder(Folder remote, {String? floor}) {
+  ///
+  /// [shared] merges a folder another account shares with this one
+  /// (`docs/cloud-sharing-foundations.md` §5): the owner's copy wins
+  /// whatever the stamps say, it carries no mark here — its caller took the
+  /// owner's off — and nothing is repaired or queued: a write of this
+  /// device's own on that account's row would never be sent, and would only
+  /// hide the owner's next change of it.
+  Future<MergeOutcome> mergeFolder(
+    Folder remote, {
+    String? floor,
+    bool shared = false,
+  }) {
     return transaction(() async {
       final local = await getFolderById(remote.id);
+      if (shared) {
+        final merged = await _mergeFolder(
+          remote,
+          local,
+          CrdtMerge.everyStamp,
+          repairs: false,
+        );
+        return merged.outcome;
+      }
       final live = !remote.isDeleted;
       final writes =
           live &&
@@ -1328,12 +1368,13 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
   }
 
   /// [mergeFolder]'s merge and repair, inside its transaction, with whether
-  /// the repair re-parented the row.
+  /// the repair re-parented the row; none is attempted unless [repairs].
   Future<({MergeOutcome outcome, bool repaired})> _mergeFolder(
     Folder remote,
     Folder? local,
-    String? floor,
-  ) async {
+    String? floor, {
+    bool repairs = true,
+  }) async {
     final outcome = await CrdtMerge.mergeRemoteRow(
       db,
       table: folders,
@@ -1365,7 +1406,8 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
       },
     );
     final parentId = remote.parentId;
-    if (remote.isDeleted ||
+    if (!repairs ||
+        remote.isDeleted ||
         parentId == null ||
         (outcome.result != MergeResult.inserted &&
             outcome.result != MergeResult.applied)) {

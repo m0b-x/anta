@@ -2,7 +2,7 @@
 
 **Status: F1 BUILT 2026-11-12 (the grant and the wire), REVIEWED and
 FIXED the same day (§12: two privacy holes closed, the mark given its own
-stamp); F2–F4 to build. The owner's scope (2026-11-11): everything under the "Share with
+stamp); F2 BUILT (the reader — §5, §6); F3–F4 to build. The owner's scope (2026-11-11): everything under the "Share with
 partner" switch, for events and for notes — schema, wire, rules, the
 engine reading a partner's shared rows, read-only protection, backups,
 two app versions — proven by tests and the rules emulator; no switch, no
@@ -389,29 +389,85 @@ emulator does not need them; production refuses the query without.
 
 ## 5. The reader
 
-A second, smaller pull beside the bound space's, run by the engine after
-its own pull and drain, never by a drain-only run:
+A second, smaller pull beside the bound space's (`_SharedReader`, a part
+of the engine), run after a run's own pull and drain when that pull read
+to the end — never by a drain-only run, never in the background. Nothing
+in it may hurt the account's own sync: a failure of the shared read is
+logged and tried again, never a failure or a pause of the run. The rules
+it depends on may not be deployed yet; a pair may end between two calls.
 
-1. **Who.** The active pair, asked of the server (`findActivePairs`), not
-   of the per-database cache. No answer (offline) → no shared pull, and
-   nothing is removed. No active pair → everything another account owns is
-   removed (§6).
-2. **What.** For each shareable table in parent-first order — events, day
-   texts, skipped days, folders, notes — the collection-group query
-   `sharedPair == pair, ownerId == partner`, in arrival order from the
-   table's own cursor (`shared_cursor.<table>`, cleared with
-   `shared_pair` when the pair changes), with the same ten-second overlap
-   on a resumed cursor.
-3. **Merge.** Each envelope through the table's own binding and DAO merge,
-   with the remote winning whatever the stamps say (decision d), stored
-   under the partner's `owner_id`. A document of a newer wire is skipped
-   and remembered (decision h). A shared note's text is fetched from the
-   partner's space by the hashes its manifest names.
-4. **Place.** A shared folder whose parent was not shared lands at the
-   root of the browser: its `parent_id` is set to NULL here, after the
-   table was read to its end. The row is never pushed, so the difference
-   from its document stays local.
-5. **Caches** hear of the pages through the hooks the own pull uses.
+1. **Whether.** An account that never paired, shares nothing and holds no
+   shared row asks nothing: three local reads (the stored owner, "is
+   anything marked", the database's own pairing), no call. That is every
+   account until someone pairs, and it keeps an idle launch at what it
+   cost.
+2. **When.** A poll: nothing signals a partner's change, since this
+   account cannot read the other's space document. Unasked, not more than
+   once per `SyncEngine.sharedReadInterval` (five minutes); "Sync now"
+   reads at once. A read with nothing new costs the pair, a page and a
+   count per shareable table — eleven calls, about a dozen document reads
+   plus the rules' own lookups of the pair.
+3. **Who.** The active pair, asked of the server
+   (`SharePartnerSource.activePartner` over `findActivePairs`, the
+   earliest pair as pairing itself keeps it), not of the per-database
+   record. "Could not be asked" is never "nobody": it throws, and the
+   reader then changes nothing. That one answer drives three things:
+   - the account's **own marks** follow it — every mark of a pair that is
+     not the account's is cleared (`FolderDao.clearSharesExcept`, decision
+     c), stamped and queued like any edit;
+   - the **shared rows held** are removed, all of them, when there is no
+     pair any more or it is another one (§6);
+   - the tables are read.
+4. **Whose row is whose.** `sync_metadata['shared_owner']` names the
+   account whose rows this database reads, with `shared_pair` beside it:
+   a row is another person's exactly when its `owner_id` is that value.
+   Before it is first set (`SharedRowDao.begin`), every row that carries
+   an owner other than the bound account is made the bound account's and
+   queued: such a row is the person's own, left by a binding from before
+   an unbind released its rows, and if that earlier account is the
+   partner now — one person's two accounts — the first read would
+   otherwise remove it for not being shared.
+5. **What.** For each shareable table in parent-first order — events, day
+   texts, skipped days, folders, notes — `SyncGateway.sharedPage`: the
+   collection-group query `sharedPair == pair, ownerId == partner`, in
+   arrival order from the table's own cursor (`shared_cursor.<table>`),
+   with the same ten-second overlap on a resumed cursor. Across spaces the
+   cursor carries a document's whole path, compared segment by segment as
+   Firestore orders paths.
+6. **Merge** (`SyncTableBinding.mergeShared`). Through the table's own DAO
+   merge, the owner's copy winning whatever the stamps say
+   (`CrdtMerge.everyStamp`, decision d), stored under the partner's
+   `owner_id`, in one transaction per page with its cursor. Apart from an
+   own merge: nothing is queued, repaired, re-filed or stamped; the mark
+   an event or a folder carries for its owner's devices is not stored —
+   here a mark means "I share this"; the clock is not moved by another
+   account's stamps. Three kinds of document are passed over:
+   - one that is not the partner's or names another pair — the query pins
+     both, so a gateway answered wrongly;
+   - one a newer wire wrote (decision h): the highest such wire is kept
+     under `shared_newer_wire`, and a build that reads it reads every
+     table again from the start;
+   - one that would take the place of, or hang under, a row of this
+     person's own (`SharedRowRefused`): two accounts can hold one id —
+     both restored one backup, or one kept the id of a row it was once
+     given — and a shared row over it would hand the person's own data to
+     the next "no longer shared". Checked per row: an event, a folder or a
+     note under that id; a day row's event; a note's folder, which must
+     also be a folder at all.
+7. **A note's text** is read from the space its document lies in, by the
+   hashes its manifest names (`readSharedChunks`), each held to its hash.
+   A space that refuses — it does not name the pair, yet or any more —
+   leaves those notes waiting; the table is then read from its start at
+   the next read (`shared_retry.<table>`), not once a day.
+8. **Place** (`SharedRowDao.placeFolders`, inside each folders page's
+   transaction). A shared folder whose parent was not shared — or is a
+   folder this device holds as its own — stands at the top level:
+   `parent_id` NULL here, the parent its document names kept under
+   `shared_root.<id>`, so it goes back under that parent once it arrives.
+   Never stamped: the difference from the owner's document is this
+   device's own.
+9. **Caches** hear of the pages through the hooks the own pull uses, and
+   of removals as a merged page's deletions.
 
 ## 6. Rows that leave
 
@@ -424,19 +480,32 @@ again from the start, and what the server no longer returns is removed
 here. More on the server means rows are still arriving, and the cursor
 brings them.
 
-Removed means hard-deleted, with the rows that hang on them (a shared
-event's day rows; a shared folder's notes, their text, their search
-index). What the person added of their own — presence marks, alert
-definitions — is theirs, stays in their space, and is simply inert while
-its event is not there.
+A read from the start is exact for a row that stays shared: its document
+stands at its old place in the order until a push of it commits and at a
+later one from then on, so a walk that had not reached the old place
+meets the new one. The comparison is one-sided on purpose: a document
+this build passed over leaves the device holding fewer than the server
+counts, which reads as "still arriving" — a leave can hide behind it
+until the daily read, never the other way round.
+
+Removed means hard-deleted, no tombstone, each table on its own evidence:
+an event's day rows and a folder's notes leave when their own table says
+so, a removed note's chunk rows with it (the search index drops what has
+no note), and a folder left without its parent is placed at the top level
+again. What the person added of their own — presence marks, alert
+definitions, counter values — is theirs, stays in their space, and is
+simply inert while its row is not there.
 
 Everything another account owns is removed at once when the pair is found
-ended, when another partner is found, and when the database is unbound —
-there is then no reader to keep it true.
+ended, when another pair is found — with the same partner or not — and
+when the database is unbound (inside the unbind's transaction, before its
+own rows are released): there is then no reader to keep it true, and the
+next bind takes every row it finds for its account's.
 
-Once a day, with the engine's full pull, every shared table is read from
-the start whatever the count says: it brings back a shared row this
-device changed locally by a path that should not have (§7).
+Once a day (`SyncEngine.fullPullInterval`, on its own stamp) every shared
+table is read from the start whatever the count says: it brings back a
+shared row this device lost or changed by a path that should not have
+(§7).
 
 ## 7. Read-only, and what stays personal
 
@@ -516,7 +585,27 @@ pairing flow; backups staying importable; `owner_id` NULL meaning "mine".
 
 ## 11. Open for the owner
 
-*(collected as the build meets them)*
+Collected as the build met them; none blocks the foundations.
+
+- **How fresh a partner's rows are.** A poll every five minutes while the
+  app is in use, at once on "Sync now". A live listener on the shared
+  query would be instant and cost a re-read of the whole shared set
+  whenever it re-attaches; the surface slice should decide with the
+  switch in hand.
+- **"Update ANTA to see everything shared with you".** The reader keeps
+  the wire of what it could not read (`shared_newer_wire`) and reads
+  again after the update; nothing shows it yet, since no surface speaks
+  of sharing at all.
+- **One id on both accounts.** A shared row whose id this person already
+  uses for a row of their own is not shown (§5.6) — it happens to two
+  accounts that restored one backup. Silent today; the surface could say
+  "1 item could not be shown".
+- **A partner with several synced databases** shares from each into the
+  same pair, and the reader takes them as one set: the same row id in two
+  of the partner's spaces reads as whichever was pushed later.
+- **A row of this account's own space under an id a shared row took
+  first** is held back from its own merge while the share lasts (it shows
+  among the held-back rows) — the mirror of the case above.
 
 ## 12. As built
 
@@ -620,3 +709,60 @@ plan), `sync_engine_runs_test` +3 (the marks re-read), the rules suite +3
 (the owner in the pair, the id's shape, the id not steerable). Each new
 behaviour was checked the other way too: with the fix taken out, its test
 fails.
+
+### F2 — the reader (2026-11-12)
+
+Built inline on Fable, after the fix pass. §5 and §6 are the design as
+built.
+
+- *Gateway.* `SyncGateway.sharedPage` / `sharedCount` /
+  `readSharedChunks`; `SyncPullPage.spaces`. Firestore: the
+  collection-group query pinned to the pair and the owner, its cursor
+  carrying the document path (`compareSharedCursors`, `spaceOfPath`), the
+  count as an aggregation, a chunk as a single document read. The fake
+  keeps the pairs the rules would know (`pair`, `endPair`) and refuses a
+  read through a pair that is not active or does not hold the owner, and
+  a chunk of a space that does not name the pair.
+- *Local.* `SharedRowDao` (`owner`, `begin`, `holdsOther`, `countOf`,
+  `removeAbsent`, `removeAll`, `placeFolders`); the keys under
+  `sync_metadata` (`shared_owner`, `shared_pair`, `shared_cursor.*`,
+  `shared_read_at`, `shared_full_at`, `shared_newer_wire`,
+  `shared_retry.*`, `shared_root.*`); `CrdtMerge.everyStamp`; the `shared`
+  path of `FolderDao.mergeFolder`, `CalendarEventDao.mergeRemoteEvent`,
+  `NoteDao.mergeNoteDocument`; `SyncTableBinding.mergeShared` on the five
+  bindings, `SharedRowRefused`; `FolderDao.clearSharesExcept`.
+- *Engine.* `_SharedReader` (`sync_shared_reader.dart`), called from the
+  run after the drain; `SharePartnerSource` /
+  `PairingSharePartnerSource` (`share_partner_source.dart`), wired in
+  `SyncEngine._build`; `SyncEngine.sharedReadInterval`.
+- *Stops syncing.* `SyncBindingService._unbind` removes the shared rows
+  in its transaction; `SyncBindingService.onSharedRowsRemoved`, set by
+  DI, reloads the screens.
+- *The push* (pulled forward from F3, because a test met it): a queued
+  row whose owner is not the bound account no longer reaches the gateway
+  as a programming error that fails the run for as long as it stands.
+  One statement decides (`_Pusher._adopted`): a row the partner shared is
+  never sent and its entry is retired; any other owner is an earlier
+  binding's, and the row is made the bound account's and sent.
+- *Found while building.* The adoption in `begin` first ran only for rows
+  with nothing queued — the count it went by was of queue entries
+  written, not of rows — and a row left under an old account failed every
+  run before any shared read could adopt it (the push, above). A note's
+  text is refused per space, not per page, so one space that does not
+  name the pair does not stop the notes of another.
+- *Simpler than the own pull, on purpose.* A page of shared notes is one
+  transaction whatever its bodies weigh, and a document that could not be
+  merged is not parked: it is met again by the next read from the start
+  (once a day, or at once when the server counts fewer rows than held,
+  or while a note waits for its text).
+- *Gate.* `dart analyze lib test` clean; the whole suite `+15979 ~17`.
+  New: `sync_shared_reader_test` 30 (two accounts over the fake gateway:
+  arrive, follow, leave, the pair ended or made again, no call for an
+  unpaired account, the cost of an idle read, the interval, the daily
+  read, the unbind, both adoptions, the refusals, a newer wire and the
+  re-read after the update), `share_partner_source_test` 6,
+  `firestore_sync_gateway_test` +3.
+- *Not proven here.* The Firestore gateway's three new calls run against
+  no backend in the suite — the query's cursor form, the aggregation and
+  the indexes are proven by the rules suite over REST and by F4's device
+  pass against the emulator, not by a unit test.

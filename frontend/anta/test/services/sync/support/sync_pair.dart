@@ -15,6 +15,7 @@ import 'package:anta/models/app_user.dart';
 import 'package:anta/models/item_label.dart';
 import 'package:anta/models/note_metadata.dart';
 import 'package:anta/services/settings_service.dart';
+import 'package:anta/services/sync/share_partner_source.dart';
 import 'package:anta/services/sync/sync_binding_service.dart';
 import 'package:anta/services/sync/sync_engine.dart';
 import 'package:anta/services/sync/sync_gateway.dart';
@@ -64,7 +65,7 @@ class SyncDevice {
   final StreamController<AppUser?> auth = StreamController.broadcast();
 
   /// Who `currentUser` answers with; a test signs out by setting null.
-  AppUser? user = const AppUser(uid: syncUid);
+  AppUser? user;
 
   /// What the app's lifecycle reads as when the engine starts; null, as with
   /// no binding, leaves the foreground to the lifecycle calls.
@@ -83,8 +84,11 @@ class SyncDevice {
     FakeSyncGateway gateway,
     SyncEngineTiming timing,
     List<SyncTableBinding<Object>>? tables,
-    int schema,
-  ) : binding = SyncBindingService.detached(db, settings) {
+    int schema, {
+    String uid = syncUid,
+    SharePartnerSource? partners,
+  }) : binding = SyncBindingService.detached(db, settings),
+       user = AppUser(uid: uid) {
     engine = SyncEngine.detached(
       db: db,
       gateway: gateway,
@@ -112,6 +116,7 @@ class SyncDevice {
       lifecycleState: () => lifecycleState,
       now: () => now(),
       build: () => build,
+      partners: partners,
     );
     _statusSubscription = engine.status.listen(statuses.add);
   }
@@ -349,6 +354,153 @@ class SyncPair {
       for (final entry in columns.entries)
         if (!apart.contains(entry.key)) entry.key: entry.value,
     };
+  }
+}
+
+/// The account the owner of a [SharePair] is signed in as.
+const String ownerUid = 'u1';
+
+/// The account its partner is signed in as.
+const String partnerUid = 'u2';
+
+/// The pair the two are in.
+const String sharePairId = 'pair-1';
+
+/// A [SharePartnerSource] a test answers for: which pair each account is in
+/// on the server, and whether its database says it is paired at all.
+class FakePartners implements SharePartnerSource {
+  /// What the server says, by account; an account with no entry has no
+  /// active pair.
+  final Map<String, SharePartner> pairs = {};
+
+  /// The accounts whose own database says they are paired.
+  final Set<String> local = {};
+
+  /// When set, the server cannot be asked: every [activePartner] throws it.
+  SyncGatewayException? failure;
+
+  /// Every [activePartner] call's account, in order.
+  final List<String> asked = [];
+
+  @override
+  Future<bool> pairedLocally(String uid) async => local.contains(uid);
+
+  @override
+  Future<SharePartner?> activePartner(String uid) async {
+    asked.add(uid);
+    final failed = failure;
+    if (failed != null) throw failed;
+    return pairs[uid];
+  }
+}
+
+/// Two accounts, paired, each with one device bound to a space of its own,
+/// over one fake gateway whose server clock is the devices' — the reader's
+/// side of sharing (`docs/cloud-sharing-foundations.md` §5–§7). [owner]
+/// shares; [partner] reads.
+class SharePair {
+  final FakeSyncGateway gateway;
+  final FakePartners partners;
+  final SyncDevice owner;
+  final SyncDevice partner;
+  final SyncSpaceRef ownerSpace;
+  final SyncSpaceRef partnerSpace;
+
+  SharePair._(
+    this.gateway,
+    this.partners,
+    this.owner,
+    this.partner,
+    this.ownerSpace,
+    this.partnerSpace,
+  );
+
+  static Future<SharePair> open() async {
+    final gateway = FakeSyncGateway();
+    final clock = _SharedClock();
+    gateway.wallClock = clock.call;
+    final partners = FakePartners();
+    Future<SyncDevice> device(String id, String uid) async {
+      final statements = StatementCounter();
+      final db = AppDatabase.forTesting(
+        NativeDatabase.memory().interceptWith(statements),
+        deviceId: id,
+        wallClock: clock.call,
+      );
+      await db.customSelect('SELECT 1').get();
+      SettingsService.reset();
+      return SyncDevice._(
+        id,
+        db,
+        statements,
+        SettingsService.forTesting(db),
+        gateway,
+        const SyncEngineTiming(),
+        null,
+        syncSchema,
+        uid: uid,
+        partners: partners,
+      );
+    }
+
+    final owner = await device('A', ownerUid);
+    final partner = await device('B', partnerUid);
+    Future<SyncSpaceRef> spaceOf(SyncDevice device, String uid) async {
+      final space = (await gateway.createSpace(
+        ownerUid: uid,
+        name: 'Main',
+        deviceId: device.id,
+        schema: syncSchema,
+      )).ref;
+      await device.binding.bind(space: space, accountUid: uid);
+      return space;
+    }
+
+    final pair = SharePair._(
+      gateway,
+      partners,
+      owner,
+      partner,
+      await spaceOf(owner, ownerUid),
+      await spaceOf(partner, partnerUid),
+    );
+    pair.join();
+    return pair;
+  }
+
+  /// Makes the two accounts a pair, on the server and in what each database
+  /// says of itself; [pairId] names it.
+  void join({String pairId = sharePairId}) {
+    gateway.pair(pairId, ownerUid, partnerUid);
+    partners.pairs[ownerUid] = SharePartner(
+      pairId: pairId,
+      partnerUid: partnerUid,
+    );
+    partners.pairs[partnerUid] = SharePartner(
+      pairId: pairId,
+      partnerUid: ownerUid,
+    );
+    partners.local.addAll([ownerUid, partnerUid]);
+  }
+
+  /// Ends the pair [pairId] on the server; each device learns of it at its
+  /// next shared read.
+  void end({String pairId = sharePairId}) {
+    gateway.endPair(pairId);
+    partners.pairs.clear();
+  }
+
+  /// Runs the owner's sync, then the partner's: what the owner shared is in
+  /// its space, and the partner has read it.
+  Future<void> syncBoth() async {
+    await owner.sync();
+    await partner.sync();
+  }
+
+  Future<void> close() async {
+    await owner._close();
+    await partner._close();
+    SettingsService.reset();
   }
 }
 

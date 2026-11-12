@@ -69,6 +69,82 @@ void main() {
       );
     });
 
+    test('across spaces a cursor carries the document\'s whole path, ordered '
+        'as Firestore orders paths — segment by segment, where the strings '
+        'themselves would order a longer space id the other way', () {
+      String path(String space, String row) =>
+          'users/u/spaces/$space/notes/$row';
+      final inShort = FirestoreSyncWire.encodeCursor(10, path('abc', 'z'));
+      final inLong = FirestoreSyncWire.encodeCursor(10, path('abc-', 'a'));
+      final later = FirestoreSyncWire.encodeCursor(11, path('aaa', 'a'));
+
+      // '-' sorts below '/', so as plain strings the longer id comes first.
+      expect(
+        FirestoreSyncWire.compareCursors(inShort, inLong),
+        greaterThan(0),
+      );
+      expect(
+        FirestoreSyncWire.compareSharedCursors(inShort, inLong),
+        lessThan(0),
+      );
+      expect(
+        FirestoreSyncWire.compareSharedCursors(inLong, later),
+        lessThan(0),
+        reason: 'the push time comes first',
+      );
+      expect(FirestoreSyncWire.compareSharedCursors(inShort, inShort), 0);
+      // A day row's key holds a `|` of its own: the first one ends the time.
+      final dayRow = FirestoreSyncWire.encodeCursor(10, path('abc', 'e1|86400'));
+      expect(FirestoreSyncWire.decodeCursor(dayRow), (
+        10,
+        'users/u/spaces/abc/notes/e1|86400',
+      ));
+    });
+
+    test('a shared document\'s space is read off its path, and any other '
+        'shape names none', () {
+      expect(
+        FirestoreSyncWire.spaceOfPath('users/u1/spaces/s1/notes/n1'),
+        const SyncSpaceRef(ownerUid: 'u1', spaceId: 's1'),
+      );
+      for (final path in [
+        'users/u1/spaces/s1',
+        'users/u1/spaces/s1/notes',
+        'pairs/p1/notes/n1/x/y',
+        'users//spaces/s1/notes/n1',
+        'users/u1/other/s1/notes/n1',
+        'users/u1/spaces/s1/notes/n1/deeper/x',
+      ]) {
+        expect(FirestoreSyncWire.spaceOfPath(path), isNull, reason: path);
+      }
+    });
+
+    test('a re-read that a full page stopped short of the cursor goes on '
+        'from where it got, by the order its query reads in', () {
+      final from = FirestoreSyncWire.encodeCursor(20, 'users/u/spaces/s/t/z');
+      final read = FirestoreSyncWire.encodeCursor(15, 'users/u/spaces/s/t/a');
+      expect(
+        FirestoreSyncWire.scanAfter(
+          from: from,
+          resumed: true,
+          full: true,
+          read: read,
+          compare: FirestoreSyncWire.compareSharedCursors,
+        ),
+        read,
+      );
+      expect(
+        FirestoreSyncWire.scanAfter(
+          from: read,
+          resumed: true,
+          full: true,
+          read: from,
+          compare: FirestoreSyncWire.compareSharedCursors,
+        ),
+        isNull,
+      );
+    });
+
     test('refuses a value it did not write', () {
       for (final value in ['', '42', 'abc|row', '|row']) {
         expect(

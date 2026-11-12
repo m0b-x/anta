@@ -948,6 +948,13 @@ class NoteDao extends DatabaseAccessor<AppDatabase> with _$NoteDaoMixin {
   /// transaction. Taken only while the row still carries that stamp: every
   /// write that changes the text moves it, so another stamp means a save
   /// landed in between, and the text is read again here.
+  ///
+  /// [shared] merges a note another account shares with this one
+  /// (`docs/cloud-sharing-foundations.md` §5): the owner's copy wins
+  /// whatever the stamps say ([floor] is then [CrdtMerge.everyStamp], under
+  /// which no local text is ever the loser), the note is never re-filed —
+  /// a re-file is a stamped write of this device's own — and no `note_seen`
+  /// is kept for a note this device never writes.
   Future<MergeOutcome> mergeNoteDocument(
     Note remote,
     String? content, {
@@ -955,7 +962,9 @@ class NoteDao extends DatabaseAccessor<AppDatabase> with _$NoteDaoMixin {
     Set<String> inSpace = const {},
     EncodedBody? ready,
     ({String hlc, String text})? localBody,
+    bool shared = false,
   }) {
+    assert(!shared || floor == CrdtMerge.everyStamp);
     final body = remote.isDeleted ? null : content ?? '';
     final encoded = ready != null && identical(ready.source, body)
         ? ready
@@ -1035,6 +1044,13 @@ class NoteDao extends DatabaseAccessor<AppDatabase> with _$NoteDaoMixin {
       );
       if (merge.result == MergeResult.keptLocal) {
         return _keptOver(local!, remote, body, floor: floor);
+      }
+      if (shared) {
+        return body == null ||
+                merge.result == MergeResult.keptLocal ||
+                merge.result == MergeResult.unchanged
+            ? merge
+            : merge.withMergedContent(body);
       }
       if ((merge.result == MergeResult.applied ||
               (merge.result == MergeResult.inserted && body != null)) &&

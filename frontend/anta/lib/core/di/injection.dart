@@ -35,9 +35,12 @@ import '../../services/permission_gateway.dart';
 import '../../services/permission_service.dart';
 import '../../services/sync_availability.dart';
 import '../../services/sync/account_closer.dart';
+import '../../services/sync/app_sync_apply_hooks.dart';
 import '../../services/sync/firestore_sync_gateway.dart';
+import '../../services/sync/sync_binding_service.dart';
 import '../../services/sync/sync_engine.dart';
 import '../../services/sync/sync_gateway.dart';
+import '../../services/sync/sync_table_binding.dart';
 import '../../services/sync/sync_space_service.dart';
 import '../../services/sync/sync_status_service.dart';
 import '../../bloc/optimized_folder/optimized_folder_bloc.dart';
@@ -386,6 +389,16 @@ bool get _syncEngineEnabled =>
 /// with `autoStart` set every engine it builds starts itself.
 Future<void> _startSyncEngine() async {
   SyncEngine.autoStart = true;
+  // The rows a partner shared go with "Stop syncing", and the screens that
+  // showed them reload as after a pull that removed them.
+  SyncBindingService.onSharedRowsRemoved = () => AppSyncApplyHooks().afterRun(
+    const {
+      SyncInvalidation.notes,
+      SyncInvalidation.folders,
+      SyncInvalidation.calendar,
+      SyncInvalidation.alerts,
+    },
+  );
   try {
     await SyncEngine.getInstance();
   } catch (e, st) {
@@ -397,6 +410,7 @@ Future<void> resetDependencies() async {
   // Before the registrations go: the engine resolves the gateway and the
   // identity through them.
   SyncEngine.autoStart = false;
+  SyncBindingService.onSharedRowsRemoved = null;
   SyncEngine.reset();
   await getIt.reset();
 }

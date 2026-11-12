@@ -1,3 +1,4 @@
+import '../../../database/crdt/crdt_merge.dart';
 import '../../../database/crdt/crdt_write.dart';
 import '../../../database/database.dart';
 import '../sync_gateway.dart';
@@ -109,5 +110,31 @@ final class CalendarEventOccurrencesBinding
       decode(envelope),
       floor: floor,
     );
+  }
+
+  /// A day's text of a shared event. Refused under an event this device
+  /// holds as its own, and over a text of its own for that day.
+  @override
+  Future<MergeOutcome> mergeShared(AppDatabase db, SyncEnvelope envelope) {
+    final remote = decode(envelope);
+    final owner = remote.ownerId!;
+    return db.transaction(() async {
+      await SharedRowRefused.unlessFree(
+        db,
+        'calendar_events',
+        remote.eventId,
+        owner,
+      );
+      final held = await db.eventOccurrenceDao.getByDayKeysIncludingDeleted([
+        (eventId: remote.eventId, day: remote.day),
+      ]);
+      if (held.any((row) => row.ownerId != owner)) {
+        throw SharedRowRefused(table, envelope.rowKey);
+      }
+      return db.eventOccurrenceDao.mergeRemoteOccurrence(
+        remote,
+        floor: CrdtMerge.everyStamp,
+      );
+    });
   }
 }

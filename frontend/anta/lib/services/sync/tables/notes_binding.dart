@@ -519,6 +519,13 @@ final class NotesBinding extends SyncTableBinding<Note> {
   /// preparation skipped — assembled here then, against the page's
   /// [fetched] and [asked], so a chunk that save replaced fails the part
   /// ([ChunkRowsMoved]) rather than parking the note.
+  ///
+  /// [shared] merges a note another account shares with this one
+  /// ([mergeShared]), under [CrdtMerge.everyStamp] as its floor: refused
+  /// over a note this device holds as its own and inside a folder it holds
+  /// as its own — or no folder at all, where a shared note never lies — and
+  /// nothing of it is queued or retired, since none of it is this device's
+  /// to push.
   @override
   Future<MergeOutcome> mergeRemote(
     AppDatabase db,
@@ -527,14 +534,35 @@ final class NotesBinding extends SyncTableBinding<Note> {
     Map<String, String> fetched = const {},
     Set<String>? asked,
     PreparedNoteBody? prepared,
+    bool shared = false,
   }) async {
     final remote = decode(envelope);
+    if (shared) {
+      final owner = remote.ownerId!;
+      await SharedRowRefused.unlessFree(db, table, remote.id, owner);
+      if (!remote.isDeleted) {
+        if (remote.folderId.isEmpty) {
+          throw SharedRowRefused('folders', remote.folderId);
+        }
+        await SharedRowRefused.unlessFree(
+          db,
+          'folders',
+          remote.folderId,
+          owner,
+        );
+      }
+    }
     final local = await db.noteDao.getNoteById(remote.id);
     final manifest =
         !remote.isDeleted && !dataOf(envelope).containsKey(JsonKeys.content);
     final MergeOutcome outcome;
     if (_readsNoBody(db, envelope, local, floor)) {
-      outcome = await db.noteDao.mergeNoteDocument(remote, null, floor: floor);
+      outcome = await db.noteDao.mergeNoteDocument(
+        remote,
+        null,
+        floor: floor,
+        shared: shared,
+      );
     } else {
       final failure = prepared?._error;
       if (failure != null) {
@@ -550,8 +578,10 @@ final class NotesBinding extends SyncTableBinding<Note> {
         inSpace: manifest ? _hashesOf(WireFields(envelope)).toSet() : const {},
         ready: prepared?.ready,
         localBody: prepared?.localBody,
+        shared: shared,
       );
     }
+    if (shared) return outcome;
     if (manifest && outcome.result != MergeResult.keptLocal) {
       final named = dataOf(envelope)[chunksKey];
       if (named is List) {
@@ -573,6 +603,14 @@ final class NotesBinding extends SyncTableBinding<Note> {
     }
     return outcome;
   }
+
+  /// A shared note merged outside a page that prepared its body: the text
+  /// is assembled from the chunks this device holds, as [mergeRemote] does.
+  /// The reader of shared rows calls [mergeRemote] itself, with the chunks
+  /// it fetched from the owner's space.
+  @override
+  Future<MergeOutcome> mergeShared(AppDatabase db, SyncEnvelope envelope) =>
+      mergeRemote(db, envelope, floor: CrdtMerge.everyStamp, shared: true);
 }
 
 /// One envelope's body as [NotesBinding.prepareBodies] left it before the

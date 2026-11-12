@@ -342,9 +342,15 @@ class CalendarEventDao extends DatabaseAccessor<AppDatabase>
   /// its day rows again ([_requeueDayRows]): a device that pushed one before
   /// it had merged the mark wrote a document that says the old one, and
   /// only the device holding the row can say it again.
+  ///
+  /// [shared] merges an event another account shares with this one
+  /// (`docs/cloud-sharing-foundations.md` §5): the owner's copy wins
+  /// whatever the stamps say, it carries no mark here — its caller took the
+  /// owner's off — and nothing is queued.
   Future<MergeOutcome> mergeRemoteEvent(
     CalendarEventRow remote, {
     String? floor,
+    bool shared = false,
   }) {
     return transaction(() async {
       final local = await _byId(remote.id);
@@ -354,7 +360,7 @@ class CalendarEventDao extends DatabaseAccessor<AppDatabase>
         rowKey: remote.id,
         remoteHlc: remote.hlcTimestamp,
         localHlc: local?.hlcTimestamp,
-        floor: floor,
+        floor: shared ? CrdtMerge.everyStamp : floor,
         insert: () => into(calendarEvents).insert(remote),
         overwrite: (applied) async {
           if (remote.isDeleted) {
@@ -377,7 +383,7 @@ class CalendarEventDao extends DatabaseAccessor<AppDatabase>
           return applied;
         },
       );
-      if (remote.isDeleted) return outcome;
+      if (remote.isDeleted || shared) return outcome;
       final kept = await CrdtMerge.mergeMark(
         db,
         table: calendarEvents,

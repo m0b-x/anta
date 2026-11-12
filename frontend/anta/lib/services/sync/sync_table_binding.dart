@@ -114,6 +114,50 @@ abstract class SyncTableBinding<R> {
     SyncEnvelope envelope, {
     String? floor,
   });
+
+  /// Merges [envelope], a row another account shares with the bound one —
+  /// stored under that account's `owner_id`, which is all that tells it
+  /// from the person's own (`docs/cloud-sharing-foundations.md` §5). Only
+  /// the five tables of `sharedTables` have one.
+  ///
+  /// Apart from [mergeRemote] in three ways: the owner's copy wins whatever
+  /// the stamps say; nothing is queued, repaired or stamped here, since the
+  /// row is never this device's to write; and the mark an event or a folder
+  /// carries for its owner's devices is not stored — on this device a mark
+  /// means "I share this".
+  ///
+  /// Throws [SharedRowRefused], writing nothing, when the row would take
+  /// the place of, or hang under, a row this device holds that the sharing
+  /// account does not own.
+  Future<MergeOutcome> mergeShared(AppDatabase db, SyncEnvelope envelope) async =>
+      throw UnsupportedError('$table is never shared');
+}
+
+/// A shared row was not stored: this device holds a row under [id] in
+/// [table] that the sharing account does not own — the person's own, most
+/// often — which the shared one would replace or attach to.
+final class SharedRowRefused implements Exception {
+  final String table;
+  final String id;
+
+  const SharedRowRefused(this.table, this.id);
+
+  /// Throws unless the row of [table] under [id], if this device holds one,
+  /// is [owner]'s.
+  static Future<void> unlessFree(
+    AppDatabase db,
+    String table,
+    String id,
+    String owner,
+  ) async {
+    if (await db.sharedRowDao.holdsOther(table, id, owner)) {
+      throw SharedRowRefused(table, id);
+    }
+  }
+
+  @override
+  String toString() =>
+      'SharedRowRefused: $table/$id is held here under another owner';
 }
 
 /// The CRDT fields every binding stamps on its envelope.

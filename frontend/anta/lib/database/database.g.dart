@@ -19312,6 +19312,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     this as AppDatabase,
   );
   late final SyncOutboxDao syncOutboxDao = SyncOutboxDao(this as AppDatabase);
+  late final SharedRowDao sharedRowDao = SharedRowDao(this as AppDatabase);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();

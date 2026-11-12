@@ -372,9 +372,15 @@ class SyncBindingService {
   /// is the latest reason the database does not sync, and the note would
   /// otherwise outlive it until the next bind (review RA1-7).
   Future<void> _unbind({required bool raiseFloor, String? healedFrom}) async {
+    var removed = false;
     await _db.transaction(() async {
       final bound = await read();
       await _settings.setSyncBinding(null);
+      // Before the release: an unbound database holds only this device's
+      // own rows, and the next bind takes every row it finds for its
+      // account's (`bind`). What another account shared is a cache of a
+      // grant nothing reads any more.
+      removed = (await _db.sharedRowDao.removeAll()).isNotEmpty;
       if (bound != null) await _releaseRows(bound);
       await _db.syncOutboxDao.clear();
       await _deletePullState();
@@ -391,6 +397,25 @@ class SyncBindingService {
       }
     });
     await _updateRegistry((registry, name) => registry.release(name));
+    if (removed) await _tellSharedRowsRemoved();
+  }
+
+  /// Set by DI to refresh what the screens hold once an unbind removed the
+  /// rows another account shared (`docs/cloud-sharing-foundations.md` §6):
+  /// the engine that tells the caches of every other removal is stopped, or
+  /// about to be, when a database stops syncing. Null in a test, and before
+  /// DI ran.
+  static Future<void> Function()? onSharedRowsRemoved;
+
+  /// After the unbind committed, and never able to fail it: the rows are
+  /// gone either way, and a screen that could not be told shows them until
+  /// it next reloads.
+  Future<void> _tellSharedRowsRemoved() async {
+    try {
+      await onSharedRowsRemoved?.call();
+    } catch (e, st) {
+      debugPrint('[SyncBindingService] caches not refreshed: $e\n$st');
+    }
   }
 
   /// The reverse of the bind's backfill: every row [bound]'s account owns

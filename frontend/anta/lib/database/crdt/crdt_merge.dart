@@ -37,6 +37,13 @@ typedef ShareMark = ({String? pair, String? stamp});
 abstract final class CrdtMerge {
   static final String _seed = HlcTimestamp.seed.toString();
 
+  /// A floor above every stamp, for the merge of a row another account
+  /// shares with this one (`docs/cloud-sharing-foundations.md` §5): the
+  /// owner's copy is the truth, so the remote wins whatever this device's
+  /// copy is stamped, and no local text is ever weighed against it. A stamp
+  /// is hex fields joined by `:`, all of which sort below `~`.
+  static const String everyStamp = '~';
+
   /// Decides one remote row against the local one and runs the matching side
   /// effects, while the caller supplies the writes, inside its own
   /// `transaction`.

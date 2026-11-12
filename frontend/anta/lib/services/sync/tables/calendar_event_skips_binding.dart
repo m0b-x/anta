@@ -1,3 +1,4 @@
+import '../../../database/crdt/crdt_merge.dart';
 import '../../../database/crdt/crdt_write.dart';
 import '../../../database/database.dart';
 import '../sync_gateway.dart';
@@ -103,5 +104,31 @@ final class CalendarEventSkipsBinding extends SyncTableBinding<EventSkipRow> {
     String? floor,
   }) {
     return db.eventSkipDao.mergeRemoteSkip(decode(envelope), floor: floor);
+  }
+
+  /// A skipped day of a shared event. Refused under an event this device
+  /// holds as its own, and over a skip of its own for that day.
+  @override
+  Future<MergeOutcome> mergeShared(AppDatabase db, SyncEnvelope envelope) {
+    final remote = decode(envelope);
+    final owner = remote.ownerId!;
+    return db.transaction(() async {
+      await SharedRowRefused.unlessFree(
+        db,
+        'calendar_events',
+        remote.eventId,
+        owner,
+      );
+      final held = await db.eventSkipDao.getByDayKeysIncludingDeleted([
+        (eventId: remote.eventId, day: remote.day),
+      ]);
+      if (held.any((row) => row.ownerId != owner)) {
+        throw SharedRowRefused(table, envelope.rowKey);
+      }
+      return db.eventSkipDao.mergeRemoteSkip(
+        remote,
+        floor: CrdtMerge.everyStamp,
+      );
+    });
   }
 }
