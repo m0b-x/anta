@@ -67,6 +67,32 @@ abstract class SyncTableBinding<R> {
   /// queued key and a pushed document's id are byte for byte the same.
   String rowKeyOf(R row);
 
+  /// The pair each of [rows] is shared into, by [rowKeyOf] — a row that is
+  /// private has no entry — for the push to stamp on their envelopes
+  /// ([SyncEnvelope.sharedPair]). Empty for a table that is never shared,
+  /// which is every table but the five that say otherwise.
+  ///
+  /// Asked once per table and part, not per row, and of the rows as they
+  /// stand at the push: a grant is derived from where a row hangs — its
+  /// event, its folder — and stored on that root alone
+  /// (`docs/cloud-sharing-foundations.md` §3).
+  Future<Map<String, String>> sharedPairs(AppDatabase db, List<R> rows) async =>
+      const {};
+
+  /// The stamp of the newest write this device holds that decides what each
+  /// of [rows] is shared into, by [rowKeyOf]: its event's for a day row,
+  /// the newest among the folders above it for a folder or a note. A row
+  /// has no entry when nothing outside it decides — every table that is
+  /// never shared, and an event, which is shared by its own mark alone.
+  ///
+  /// What a pull compares a document's push time against: a document says
+  /// who may read it as of the push that wrote it, so one pushed before
+  /// this stamp was written by a device that could not yet know what this
+  /// one does (`docs/cloud-sharing-foundations.md` §3). Asked only for a
+  /// page that holds such a document, which is rare.
+  Future<Map<String, String>> shareStamps(AppDatabase db, List<R> rows) async =>
+      const {};
+
   /// The envelope for [row]: an upsert carrying the backup map, or a
   /// tombstone carrying nothing but identity and stamp. An unowned row is
   /// pushed under [boundUid], the account the rules require.

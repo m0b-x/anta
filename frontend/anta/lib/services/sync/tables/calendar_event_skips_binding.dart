@@ -25,6 +25,29 @@ final class CalendarEventSkipsBinding extends SyncTableBinding<EventSkipRow> {
   @override
   String rowKeyOf(EventSkipRow row) => dayRowKey(row.eventId, row.day);
 
+  /// A skipped day is shared as its event is.
+  @override
+  Future<Map<String, String>> sharedPairs(
+    AppDatabase db,
+    List<EventSkipRow> rows,
+  ) async {
+    final events = await db.calendarEventDao.sharedPairsOf({
+      for (final row in rows) row.eventId,
+    });
+    return {for (final row in rows) rowKeyOf(row): ?events[row.eventId]};
+  }
+
+  @override
+  Future<Map<String, String>> shareStamps(
+    AppDatabase db,
+    List<EventSkipRow> rows,
+  ) async {
+    final events = await db.calendarEventDao.stampsOf({
+      for (final row in rows) row.eventId,
+    });
+    return {for (final row in rows) rowKeyOf(row): ?events[row.eventId]};
+  }
+
   @override
   Future<SyncEnvelope> encode(
     AppDatabase db,

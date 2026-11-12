@@ -7,6 +7,7 @@ import 'package:anta/constants/json_keys.dart';
 import 'package:anta/database/crdt/hlc.dart';
 import 'package:anta/database/daos/sync_dao.dart';
 import 'package:anta/database/database.dart';
+import 'package:anta/database/migrations/database_schema.dart';
 import 'package:anta/services/sync/sync_engine.dart';
 import 'package:anta/services/sync/sync_gateway.dart';
 import 'package:anta/services/sync/sync_status.dart';
@@ -696,7 +697,8 @@ void main() {
     test(
       'a space this build wrote holds a build at 45 to appOutdated',
       () async {
-        expect(syncSchema, 46);
+        expect(DatabaseSchema.bodyWireVersion, 46);
+        expect(syncSchema, greaterThanOrEqualTo(46));
         await pair.close();
         pair = await SyncPair.open(buildSchema: 45);
         await a().db.folderDao.createFolder(name: 'Training');

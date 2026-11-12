@@ -42,15 +42,37 @@ void main() {
   });
 
   test('the pairs composite index is untouched', () {
-    expect(config()['indexes'], [
-      {
-        'collectionGroup': 'pairs',
-        'queryScope': 'COLLECTION',
-        'fields': [
-          {'fieldPath': 'members', 'arrayConfig': 'CONTAINS'},
-          {'fieldPath': 'status', 'order': 'ASCENDING'},
-        ],
-      },
-    ]);
+    expect((config()['indexes'] as List<dynamic>).first, {
+      'collectionGroup': 'pairs',
+      'queryScope': 'COLLECTION',
+      'fields': [
+        {'fieldPath': 'members', 'arrayConfig': 'CONTAINS'},
+        {'fieldPath': 'status', 'order': 'ASCENDING'},
+      ],
+    });
+  });
+
+  // A partner reads another account's shared rows by a collection-group
+  // query pinned to the pair and the owner, in arrival order
+  // (`docs/cloud-sharing-foundations.md` §4). The emulator answers it
+  // without an index and production refuses it, so the file is the check.
+  // A document enters the index only when it carries all three fields:
+  // an unshared row costs nothing.
+  test('every shareable table, and no other, has its collection-group '
+      'index for the partner\'s read', () {
+    final indexes = (config()['indexes'] as List<dynamic>)
+        .cast<Map<String, dynamic>>()
+        .skip(1)
+        .toList();
+
+    expect(indexes.map((index) => index['collectionGroup']), sharedTables);
+    for (final index in indexes) {
+      expect(index['queryScope'], 'COLLECTION_GROUP');
+      expect(index['fields'], [
+        {'fieldPath': 'sharedPair', 'order': 'ASCENDING'},
+        {'fieldPath': 'ownerId', 'order': 'ASCENDING'},
+        {'fieldPath': 'pushedAt', 'order': 'ASCENDING'},
+      ]);
+    }
   });
 }

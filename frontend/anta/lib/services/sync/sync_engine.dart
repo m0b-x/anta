@@ -1323,8 +1323,19 @@ class SyncEngine {
   ///
   /// The version is stored by the run once its pull completed, so a run cut
   /// short re-queues and re-reads again next time, which undoes nothing.
+  ///
+  /// Only the wire that re-cut the bodies does this
+  /// ([DatabaseSchema.bodyWireVersion]). A database that already ran at or
+  /// above it meets a later wire — 47, the share mark — with nothing to
+  /// send again: the new version is stored at once and no row is queued.
   Future<bool> _cutOverWire(SyncBinding binding) async {
-    if (await _wireCurrent()) return false;
+    final ran = await _wireRan();
+    if (ran != null && ran >= _bodyWire) {
+      if (ran < _schema) {
+        await _db.syncDao.setValue(SyncDao.keyWireVersion, '$_schema');
+      }
+      return false;
+    }
     final dao = _db.syncDao;
     await _db.transaction(() async {
       final queued = await _db.syncOutboxDao.requeueBodies(
@@ -1337,13 +1348,22 @@ class SyncEngine {
     return true;
   }
 
-  /// Whether this database completed a run under this build's wire version.
+  /// Whether this database's notes are in the shape this build pushes: it
+  /// completed a run at or above the wire that re-cut their bodies.
   Future<bool> _wireCurrent() async {
-    final ran = int.tryParse(
-      await _db.syncDao.getValue(SyncDao.keyWireVersion) ?? '',
-    );
-    return ran != null && ran >= _schema;
+    final ran = await _wireRan();
+    return ran != null && ran >= _bodyWire;
   }
+
+  /// The wire version this database last completed a run under, if any.
+  Future<int?> _wireRan() async =>
+      int.tryParse(await _db.syncDao.getValue(SyncDao.keyWireVersion) ?? '');
+
+  /// [DatabaseSchema.bodyWireVersion], never above this engine's own wire:
+  /// an engine built for an older one is current at its own.
+  int get _bodyWire => _schema < DatabaseSchema.bodyWireVersion
+      ? _schema
+      : DatabaseSchema.bodyWireVersion;
 
   SyncTableBinding<Object>? _bindingFor(String table) {
     for (final binding in _tables) {

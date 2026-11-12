@@ -291,6 +291,24 @@ extension CrdtWrite on AppDatabase {
     );
   }
 
+  /// Queues again, at the stamps they carry, the rows of [table] that the
+  /// SQL condition [rows] selects, its numbered parameters from `?2` bound
+  /// from [variables] (`SyncOutboxDao.requeueRows`) — for a write that
+  /// changes what other rows' documents say without writing those rows: a
+  /// share mark set on an event or a folder, a folder moved under another
+  /// (`docs/cloud-sharing-foundations.md` §3). Call it inside that write's
+  /// transaction, so the root and the rows that follow it queue together.
+  /// Nothing is stamped: the rows did not change.
+  Future<int> requeueRows(
+    TableInfo table, {
+    required String rows,
+    List<Variable<Object>> variables = const [],
+  }) => syncOutboxDao.requeueRows(
+    table.actualTableName,
+    rows: rows,
+    variables: variables,
+  );
+
   /// Stores the clock's current value as the seed for the next open — after
   /// a migration's backfill, and wherever a caller raised the clock outside
   /// a write. Local writes need not call it: queueing a row persists the

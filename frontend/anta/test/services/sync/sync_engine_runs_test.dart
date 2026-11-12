@@ -5,6 +5,7 @@ import 'package:anta/constants/json_keys.dart';
 import 'package:anta/database/chunking/chunk_hasher.dart';
 import 'package:anta/database/crdt/hlc.dart';
 import 'package:anta/database/daos/sync_dao.dart';
+import 'package:anta/database/migrations/database_schema.dart';
 import 'package:anta/models/app_user.dart';
 import 'package:anta/services/sync/sync_engine.dart';
 import 'package:anta/services/sync/sync_gateway.dart';
@@ -745,7 +746,7 @@ void main() {
     };
 
     // A database last run by a build on the whole-body wire.
-    await a().db.syncDao.setValue(SyncDao.keyWireVersion, '${syncSchema - 1}');
+    await a().db.syncDao.setValue(SyncDao.keyWireVersion, '$beforeBodyWire');
     final cut = await a().sync();
 
     expect(cut.failure, isNull);
@@ -773,5 +774,76 @@ void main() {
 
     expect(queuedAtPull, isEmpty);
     expect(pair.gateway.pushes, isEmpty);
+  });
+
+  test('a database that already ran on the wire that re-cut the bodies meets '
+      'a later one with nothing to send again: the new version is stored '
+      'and no note is queued, read again or pushed', () async {
+    expect(
+      DatabaseSchema.bodyWireVersion,
+      lessThan(syncSchema),
+      reason: 'this build\'s wire is past the one that changed the bodies',
+    );
+    final folder = await a().db.folderDao.createFolder(name: 'Training');
+    await writeNote(a(), folderId: folder.id, title: 'Log', body: 'base');
+    await a().sync();
+    // Once more, so the pull has read the note this device pushed and
+    // holds a cursor a re-read from the start would drop.
+    await a().sync();
+    final cursor = await a().db.syncDao.getValue(
+      SyncDao.keyPullCursor('notes'),
+    );
+    expect(cursor, isNotNull);
+
+    // As the build before this one left it: current at the body wire.
+    await a().db.syncDao.setValue(
+      SyncDao.keyWireVersion,
+      '${DatabaseSchema.bodyWireVersion}',
+    );
+    pair.gateway.pushes.clear();
+    pair.gateway.calls.clear();
+    final report = await a().sync();
+
+    expect(report.failure, isNull);
+    expect(
+      await a().db.syncDao.getValue(SyncDao.keyWireVersion),
+      '$syncSchema',
+    );
+    expect(pair.gateway.pushes, isEmpty);
+    expect(await a().db.syncOutboxDao.count(), 0);
+    expect(
+      await a().db.syncDao.getValue(SyncDao.keyPullCursor('notes')),
+      cursor,
+      reason: 'the notes are not read again from the start',
+    );
+  });
+
+  test('a drain-only run of such a database holds no note back while the '
+      'new version is still to be stored', () async {
+    final folder = await a().db.folderDao.createFolder(name: 'Training');
+    await a().engine.start();
+    await a().settle();
+    await a().db.syncDao.setValue(
+      SyncDao.keyWireVersion,
+      '${DatabaseSchema.bodyWireVersion}',
+    );
+    final note = await writeNote(
+      a(),
+      folderId: folder.id,
+      title: 'Log',
+      body: 'written after the update',
+    );
+    pair.gateway.pushes.clear();
+
+    await a().engine.onAppBackgrounded();
+
+    expect(
+      [
+        for (final batch in pair.gateway.pushes)
+          for (final envelope in batch)
+            if (envelope.table == 'notes') envelope.rowKey,
+      ],
+      [note.id],
+    );
   });
 }

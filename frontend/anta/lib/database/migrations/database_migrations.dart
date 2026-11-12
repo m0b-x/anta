@@ -262,6 +262,11 @@ class DatabaseMigrations {
       toVersion: DatabaseSchema.v51OutboxRepublish,
       migrate: _migrateV50ToV51,
     ),
+    Migration(
+      fromVersion: DatabaseSchema.v51OutboxRepublish,
+      toVersion: DatabaseSchema.v52SharedPair,
+      migrate: _migrateV51ToV52,
+    ),
   ];
 
   Future<void> runMigrations(Migrator m, int from, int to) async {
@@ -2269,6 +2274,24 @@ class DatabaseMigrations {
       await _db.customStatement(
         'ALTER TABLE sync_outbox ADD COLUMN republish INTEGER NOT NULL DEFAULT 0',
       );
+    }
+  }
+
+  /// v51→v52: `shared_pair` on `calendar_events` and `folders` — the pair a
+  /// row is shared into, NULL for every row there is: nothing was ever
+  /// shared, and nothing in the app sets it yet
+  /// (`docs/cloud-sharing-foundations.md` §3). The mark crosses the wire, so
+  /// `syncSchemaVersion` moves to 47 with it; no row is rewritten or queued
+  /// by the step, and no index is added — the rows that carry a mark are
+  /// found by reading the few that do. Idempotent: each column guarded by
+  /// its table's column list.
+  Future<void> _migrateV51ToV52(Migrator m, GeneratedDatabase db) async {
+    for (final table in const ['calendar_events', 'folders']) {
+      if (!(await _columnsOf(table)).contains('shared_pair')) {
+        await _db.customStatement(
+          'ALTER TABLE $table ADD COLUMN shared_pair TEXT',
+        );
+      }
     }
   }
 }

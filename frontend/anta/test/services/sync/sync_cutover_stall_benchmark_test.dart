@@ -85,7 +85,7 @@ void main() {
       );
       await pair.b.db.syncDao.setValue(
         SyncDao.keyWireVersion,
-        '${syncSchema - 1}',
+        '$beforeBodyWire',
       );
 
       final run = await _probed(

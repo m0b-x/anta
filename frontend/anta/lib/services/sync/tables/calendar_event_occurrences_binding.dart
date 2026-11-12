@@ -26,6 +26,29 @@ final class CalendarEventOccurrencesBinding
   @override
   String rowKeyOf(EventOccurrenceRow row) => dayRowKey(row.eventId, row.day);
 
+  /// A per-day text is shared as its event is.
+  @override
+  Future<Map<String, String>> sharedPairs(
+    AppDatabase db,
+    List<EventOccurrenceRow> rows,
+  ) async {
+    final events = await db.calendarEventDao.sharedPairsOf({
+      for (final row in rows) row.eventId,
+    });
+    return {for (final row in rows) rowKeyOf(row): ?events[row.eventId]};
+  }
+
+  @override
+  Future<Map<String, String>> shareStamps(
+    AppDatabase db,
+    List<EventOccurrenceRow> rows,
+  ) async {
+    final events = await db.calendarEventDao.stampsOf({
+      for (final row in rows) row.eventId,
+    });
+    return {for (final row in rows) rowKeyOf(row): ?events[row.eventId]};
+  }
+
   @override
   Future<SyncEnvelope> encode(
     AppDatabase db,

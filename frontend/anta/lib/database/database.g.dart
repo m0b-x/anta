@@ -178,6 +178,17 @@ class $FoldersTable extends Folders with TableInfo<$FoldersTable, Folder> {
     type: DriftSqlType.string,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _sharedPairMeta = const VerificationMeta(
+    'sharedPair',
+  );
+  @override
+  late final GeneratedColumn<String> sharedPair = GeneratedColumn<String>(
+    'shared_pair',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   @override
   List<GeneratedColumn> get $columns => [
     id,
@@ -195,6 +206,7 @@ class $FoldersTable extends Folders with TableInfo<$FoldersTable, Folder> {
     isDeleted,
     deletedAt,
     ownerId,
+    sharedPair,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -316,6 +328,12 @@ class $FoldersTable extends Folders with TableInfo<$FoldersTable, Folder> {
         ownerId.isAcceptableOrUnknown(data['owner_id']!, _ownerIdMeta),
       );
     }
+    if (data.containsKey('shared_pair')) {
+      context.handle(
+        _sharedPairMeta,
+        sharedPair.isAcceptableOrUnknown(data['shared_pair']!, _sharedPairMeta),
+      );
+    }
     return context;
   }
 
@@ -385,6 +403,10 @@ class $FoldersTable extends Folders with TableInfo<$FoldersTable, Folder> {
         DriftSqlType.string,
         data['${effectivePrefix}owner_id'],
       ),
+      sharedPair: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}shared_pair'],
+      ),
     );
   }
 
@@ -412,6 +434,13 @@ class Folder extends DataClass implements Insertable<Folder> {
 
   /// The owning account once sync binds one (**v43**); NULL until then.
   final String? ownerId;
+
+  /// The pair this folder is shared into (**v52**,
+  /// `docs/cloud-sharing-foundations.md` §3); NULL for a folder that carries
+  /// no mark of its own. A marked folder shares its whole subtree — the
+  /// folders and notes under it carry nothing and are shared as the nearest
+  /// marked folder above them is.
+  final String? sharedPair;
   const Folder({
     required this.id,
     required this.name,
@@ -428,6 +457,7 @@ class Folder extends DataClass implements Insertable<Folder> {
     required this.isDeleted,
     this.deletedAt,
     this.ownerId,
+    this.sharedPair,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -456,6 +486,9 @@ class Folder extends DataClass implements Insertable<Folder> {
     }
     if (!nullToAbsent || ownerId != null) {
       map['owner_id'] = Variable<String>(ownerId);
+    }
+    if (!nullToAbsent || sharedPair != null) {
+      map['shared_pair'] = Variable<String>(sharedPair);
     }
     return map;
   }
@@ -487,6 +520,9 @@ class Folder extends DataClass implements Insertable<Folder> {
       ownerId: ownerId == null && nullToAbsent
           ? const Value.absent()
           : Value(ownerId),
+      sharedPair: sharedPair == null && nullToAbsent
+          ? const Value.absent()
+          : Value(sharedPair),
     );
   }
 
@@ -513,6 +549,7 @@ class Folder extends DataClass implements Insertable<Folder> {
       isDeleted: serializer.fromJson<bool>(json['isDeleted']),
       deletedAt: serializer.fromJson<DateTime?>(json['deletedAt']),
       ownerId: serializer.fromJson<String?>(json['ownerId']),
+      sharedPair: serializer.fromJson<String?>(json['sharedPair']),
     );
   }
   @override
@@ -534,6 +571,7 @@ class Folder extends DataClass implements Insertable<Folder> {
       'isDeleted': serializer.toJson<bool>(isDeleted),
       'deletedAt': serializer.toJson<DateTime?>(deletedAt),
       'ownerId': serializer.toJson<String?>(ownerId),
+      'sharedPair': serializer.toJson<String?>(sharedPair),
     };
   }
 
@@ -553,6 +591,7 @@ class Folder extends DataClass implements Insertable<Folder> {
     bool? isDeleted,
     Value<DateTime?> deletedAt = const Value.absent(),
     Value<String?> ownerId = const Value.absent(),
+    Value<String?> sharedPair = const Value.absent(),
   }) => Folder(
     id: id ?? this.id,
     name: name ?? this.name,
@@ -573,6 +612,7 @@ class Folder extends DataClass implements Insertable<Folder> {
     isDeleted: isDeleted ?? this.isDeleted,
     deletedAt: deletedAt.present ? deletedAt.value : this.deletedAt,
     ownerId: ownerId.present ? ownerId.value : this.ownerId,
+    sharedPair: sharedPair.present ? sharedPair.value : this.sharedPair,
   );
   Folder copyWithCompanion(FoldersCompanion data) {
     return Folder(
@@ -597,6 +637,9 @@ class Folder extends DataClass implements Insertable<Folder> {
       isDeleted: data.isDeleted.present ? data.isDeleted.value : this.isDeleted,
       deletedAt: data.deletedAt.present ? data.deletedAt.value : this.deletedAt,
       ownerId: data.ownerId.present ? data.ownerId.value : this.ownerId,
+      sharedPair: data.sharedPair.present
+          ? data.sharedPair.value
+          : this.sharedPair,
     );
   }
 
@@ -617,7 +660,8 @@ class Folder extends DataClass implements Insertable<Folder> {
           ..write('version: $version, ')
           ..write('isDeleted: $isDeleted, ')
           ..write('deletedAt: $deletedAt, ')
-          ..write('ownerId: $ownerId')
+          ..write('ownerId: $ownerId, ')
+          ..write('sharedPair: $sharedPair')
           ..write(')'))
         .toString();
   }
@@ -639,6 +683,7 @@ class Folder extends DataClass implements Insertable<Folder> {
     isDeleted,
     deletedAt,
     ownerId,
+    sharedPair,
   );
   @override
   bool operator ==(Object other) =>
@@ -658,7 +703,8 @@ class Folder extends DataClass implements Insertable<Folder> {
           other.version == this.version &&
           other.isDeleted == this.isDeleted &&
           other.deletedAt == this.deletedAt &&
-          other.ownerId == this.ownerId);
+          other.ownerId == this.ownerId &&
+          other.sharedPair == this.sharedPair);
 }
 
 class FoldersCompanion extends UpdateCompanion<Folder> {
@@ -677,6 +723,7 @@ class FoldersCompanion extends UpdateCompanion<Folder> {
   final Value<bool> isDeleted;
   final Value<DateTime?> deletedAt;
   final Value<String?> ownerId;
+  final Value<String?> sharedPair;
   final Value<int> rowid;
   const FoldersCompanion({
     this.id = const Value.absent(),
@@ -694,6 +741,7 @@ class FoldersCompanion extends UpdateCompanion<Folder> {
     this.isDeleted = const Value.absent(),
     this.deletedAt = const Value.absent(),
     this.ownerId = const Value.absent(),
+    this.sharedPair = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   FoldersCompanion.insert({
@@ -712,6 +760,7 @@ class FoldersCompanion extends UpdateCompanion<Folder> {
     this.isDeleted = const Value.absent(),
     this.deletedAt = const Value.absent(),
     this.ownerId = const Value.absent(),
+    this.sharedPair = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : id = Value(id),
        name = Value(name),
@@ -735,6 +784,7 @@ class FoldersCompanion extends UpdateCompanion<Folder> {
     Expression<bool>? isDeleted,
     Expression<DateTime>? deletedAt,
     Expression<String>? ownerId,
+    Expression<String>? sharedPair,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -754,6 +804,7 @@ class FoldersCompanion extends UpdateCompanion<Folder> {
       if (isDeleted != null) 'is_deleted': isDeleted,
       if (deletedAt != null) 'deleted_at': deletedAt,
       if (ownerId != null) 'owner_id': ownerId,
+      if (sharedPair != null) 'shared_pair': sharedPair,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -774,6 +825,7 @@ class FoldersCompanion extends UpdateCompanion<Folder> {
     Value<bool>? isDeleted,
     Value<DateTime?>? deletedAt,
     Value<String?>? ownerId,
+    Value<String?>? sharedPair,
     Value<int>? rowid,
   }) {
     return FoldersCompanion(
@@ -792,6 +844,7 @@ class FoldersCompanion extends UpdateCompanion<Folder> {
       isDeleted: isDeleted ?? this.isDeleted,
       deletedAt: deletedAt ?? this.deletedAt,
       ownerId: ownerId ?? this.ownerId,
+      sharedPair: sharedPair ?? this.sharedPair,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -844,6 +897,9 @@ class FoldersCompanion extends UpdateCompanion<Folder> {
     if (ownerId.present) {
       map['owner_id'] = Variable<String>(ownerId.value);
     }
+    if (sharedPair.present) {
+      map['shared_pair'] = Variable<String>(sharedPair.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -868,6 +924,7 @@ class FoldersCompanion extends UpdateCompanion<Folder> {
           ..write('isDeleted: $isDeleted, ')
           ..write('deletedAt: $deletedAt, ')
           ..write('ownerId: $ownerId, ')
+          ..write('sharedPair: $sharedPair, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -5060,6 +5117,17 @@ class $CalendarEventsTable extends CalendarEvents
     type: DriftSqlType.string,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _sharedPairMeta = const VerificationMeta(
+    'sharedPair',
+  );
+  @override
+  late final GeneratedColumn<String> sharedPair = GeneratedColumn<String>(
+    'shared_pair',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   @override
   List<GeneratedColumn> get $columns => [
     id,
@@ -5096,6 +5164,7 @@ class $CalendarEventsTable extends CalendarEvents
     isDeleted,
     deletedAt,
     ownerId,
+    sharedPair,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -5366,6 +5435,12 @@ class $CalendarEventsTable extends CalendarEvents
         ownerId.isAcceptableOrUnknown(data['owner_id']!, _ownerIdMeta),
       );
     }
+    if (data.containsKey('shared_pair')) {
+      context.handle(
+        _sharedPairMeta,
+        sharedPair.isAcceptableOrUnknown(data['shared_pair']!, _sharedPairMeta),
+      );
+    }
     return context;
   }
 
@@ -5511,6 +5586,10 @@ class $CalendarEventsTable extends CalendarEvents
         DriftSqlType.string,
         data['${effectivePrefix}owner_id'],
       ),
+      sharedPair: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}shared_pair'],
+      ),
     );
   }
 
@@ -5571,6 +5650,12 @@ class CalendarEventRow extends DataClass
 
   /// The owning account once sync binds one (**v43**); NULL until then.
   final String? ownerId;
+
+  /// The pair this event is shared into (**v52**,
+  /// `docs/cloud-sharing-foundations.md` §3); NULL for a private event. The
+  /// event's skipped days and per-day texts carry no mark of their own:
+  /// they are shared as their event is.
+  final String? sharedPair;
   const CalendarEventRow({
     required this.id,
     required this.title,
@@ -5606,6 +5691,7 @@ class CalendarEventRow extends DataClass
     required this.isDeleted,
     this.deletedAt,
     this.ownerId,
+    this.sharedPair,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -5670,6 +5756,9 @@ class CalendarEventRow extends DataClass
     if (!nullToAbsent || ownerId != null) {
       map['owner_id'] = Variable<String>(ownerId);
     }
+    if (!nullToAbsent || sharedPair != null) {
+      map['shared_pair'] = Variable<String>(sharedPair);
+    }
     return map;
   }
 
@@ -5733,6 +5822,9 @@ class CalendarEventRow extends DataClass
       ownerId: ownerId == null && nullToAbsent
           ? const Value.absent()
           : Value(ownerId),
+      sharedPair: sharedPair == null && nullToAbsent
+          ? const Value.absent()
+          : Value(sharedPair),
     );
   }
 
@@ -5780,6 +5872,7 @@ class CalendarEventRow extends DataClass
       isDeleted: serializer.fromJson<bool>(json['isDeleted']),
       deletedAt: serializer.fromJson<DateTime?>(json['deletedAt']),
       ownerId: serializer.fromJson<String?>(json['ownerId']),
+      sharedPair: serializer.fromJson<String?>(json['sharedPair']),
     );
   }
   @override
@@ -5822,6 +5915,7 @@ class CalendarEventRow extends DataClass
       'isDeleted': serializer.toJson<bool>(isDeleted),
       'deletedAt': serializer.toJson<DateTime?>(deletedAt),
       'ownerId': serializer.toJson<String?>(ownerId),
+      'sharedPair': serializer.toJson<String?>(sharedPair),
     };
   }
 
@@ -5860,6 +5954,7 @@ class CalendarEventRow extends DataClass
     bool? isDeleted,
     Value<DateTime?> deletedAt = const Value.absent(),
     Value<String?> ownerId = const Value.absent(),
+    Value<String?> sharedPair = const Value.absent(),
   }) => CalendarEventRow(
     id: id ?? this.id,
     title: title ?? this.title,
@@ -5902,6 +5997,7 @@ class CalendarEventRow extends DataClass
     isDeleted: isDeleted ?? this.isDeleted,
     deletedAt: deletedAt.present ? deletedAt.value : this.deletedAt,
     ownerId: ownerId.present ? ownerId.value : this.ownerId,
+    sharedPair: sharedPair.present ? sharedPair.value : this.sharedPair,
   );
   CalendarEventRow copyWithCompanion(CalendarEventsCompanion data) {
     return CalendarEventRow(
@@ -5971,6 +6067,9 @@ class CalendarEventRow extends DataClass
       isDeleted: data.isDeleted.present ? data.isDeleted.value : this.isDeleted,
       deletedAt: data.deletedAt.present ? data.deletedAt.value : this.deletedAt,
       ownerId: data.ownerId.present ? data.ownerId.value : this.ownerId,
+      sharedPair: data.sharedPair.present
+          ? data.sharedPair.value
+          : this.sharedPair,
     );
   }
 
@@ -6010,7 +6109,8 @@ class CalendarEventRow extends DataClass
           ..write('version: $version, ')
           ..write('isDeleted: $isDeleted, ')
           ..write('deletedAt: $deletedAt, ')
-          ..write('ownerId: $ownerId')
+          ..write('ownerId: $ownerId, ')
+          ..write('sharedPair: $sharedPair')
           ..write(')'))
         .toString();
   }
@@ -6051,6 +6151,7 @@ class CalendarEventRow extends DataClass
     isDeleted,
     deletedAt,
     ownerId,
+    sharedPair,
   ]);
   @override
   bool operator ==(Object other) =>
@@ -6089,7 +6190,8 @@ class CalendarEventRow extends DataClass
           other.version == this.version &&
           other.isDeleted == this.isDeleted &&
           other.deletedAt == this.deletedAt &&
-          other.ownerId == this.ownerId);
+          other.ownerId == this.ownerId &&
+          other.sharedPair == this.sharedPair);
 }
 
 class CalendarEventsCompanion extends UpdateCompanion<CalendarEventRow> {
@@ -6127,6 +6229,7 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEventRow> {
   final Value<bool> isDeleted;
   final Value<DateTime?> deletedAt;
   final Value<String?> ownerId;
+  final Value<String?> sharedPair;
   final Value<int> rowid;
   const CalendarEventsCompanion({
     this.id = const Value.absent(),
@@ -6163,6 +6266,7 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEventRow> {
     this.isDeleted = const Value.absent(),
     this.deletedAt = const Value.absent(),
     this.ownerId = const Value.absent(),
+    this.sharedPair = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   CalendarEventsCompanion.insert({
@@ -6200,6 +6304,7 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEventRow> {
     this.isDeleted = const Value.absent(),
     this.deletedAt = const Value.absent(),
     this.ownerId = const Value.absent(),
+    this.sharedPair = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : id = Value(id),
        title = Value(title),
@@ -6243,6 +6348,7 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEventRow> {
     Expression<bool>? isDeleted,
     Expression<DateTime>? deletedAt,
     Expression<String>? ownerId,
+    Expression<String>? sharedPair,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -6281,6 +6387,7 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEventRow> {
       if (isDeleted != null) 'is_deleted': isDeleted,
       if (deletedAt != null) 'deleted_at': deletedAt,
       if (ownerId != null) 'owner_id': ownerId,
+      if (sharedPair != null) 'shared_pair': sharedPair,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -6320,6 +6427,7 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEventRow> {
     Value<bool>? isDeleted,
     Value<DateTime?>? deletedAt,
     Value<String?>? ownerId,
+    Value<String?>? sharedPair,
     Value<int>? rowid,
   }) {
     return CalendarEventsCompanion(
@@ -6358,6 +6466,7 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEventRow> {
       isDeleted: isDeleted ?? this.isDeleted,
       deletedAt: deletedAt ?? this.deletedAt,
       ownerId: ownerId ?? this.ownerId,
+      sharedPair: sharedPair ?? this.sharedPair,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -6469,6 +6578,9 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEventRow> {
     if (ownerId.present) {
       map['owner_id'] = Variable<String>(ownerId.value);
     }
+    if (sharedPair.present) {
+      map['shared_pair'] = Variable<String>(sharedPair.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -6512,6 +6624,7 @@ class CalendarEventsCompanion extends UpdateCompanion<CalendarEventRow> {
           ..write('isDeleted: $isDeleted, ')
           ..write('deletedAt: $deletedAt, ')
           ..write('ownerId: $ownerId, ')
+          ..write('sharedPair: $sharedPair, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -19128,6 +19241,7 @@ typedef $$FoldersTableCreateCompanionBuilder =
       Value<bool> isDeleted,
       Value<DateTime?> deletedAt,
       Value<String?> ownerId,
+      Value<String?> sharedPair,
       Value<int> rowid,
     });
 typedef $$FoldersTableUpdateCompanionBuilder =
@@ -19147,6 +19261,7 @@ typedef $$FoldersTableUpdateCompanionBuilder =
       Value<bool> isDeleted,
       Value<DateTime?> deletedAt,
       Value<String?> ownerId,
+      Value<String?> sharedPair,
       Value<int> rowid,
     });
 
@@ -19231,6 +19346,11 @@ class $$FoldersTableFilterComposer
 
   ColumnFilters<String> get ownerId => $composableBuilder(
     column: $table.ownerId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get sharedPair => $composableBuilder(
+    column: $table.sharedPair,
     builder: (column) => ColumnFilters(column),
   );
 }
@@ -19318,6 +19438,11 @@ class $$FoldersTableOrderingComposer
     column: $table.ownerId,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<String> get sharedPair => $composableBuilder(
+    column: $table.sharedPair,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$FoldersTableAnnotationComposer
@@ -19379,6 +19504,11 @@ class $$FoldersTableAnnotationComposer
 
   GeneratedColumn<String> get ownerId =>
       $composableBuilder(column: $table.ownerId, builder: (column) => column);
+
+  GeneratedColumn<String> get sharedPair => $composableBuilder(
+    column: $table.sharedPair,
+    builder: (column) => column,
+  );
 }
 
 class $$FoldersTableTableManager
@@ -19424,6 +19554,7 @@ class $$FoldersTableTableManager
                 Value<bool> isDeleted = const Value.absent(),
                 Value<DateTime?> deletedAt = const Value.absent(),
                 Value<String?> ownerId = const Value.absent(),
+                Value<String?> sharedPair = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => FoldersCompanion(
                 id: id,
@@ -19441,6 +19572,7 @@ class $$FoldersTableTableManager
                 isDeleted: isDeleted,
                 deletedAt: deletedAt,
                 ownerId: ownerId,
+                sharedPair: sharedPair,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -19460,6 +19592,7 @@ class $$FoldersTableTableManager
                 Value<bool> isDeleted = const Value.absent(),
                 Value<DateTime?> deletedAt = const Value.absent(),
                 Value<String?> ownerId = const Value.absent(),
+                Value<String?> sharedPair = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => FoldersCompanion.insert(
                 id: id,
@@ -19477,6 +19610,7 @@ class $$FoldersTableTableManager
                 isDeleted: isDeleted,
                 deletedAt: deletedAt,
                 ownerId: ownerId,
+                sharedPair: sharedPair,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0
@@ -21359,6 +21493,7 @@ typedef $$CalendarEventsTableCreateCompanionBuilder =
       Value<bool> isDeleted,
       Value<DateTime?> deletedAt,
       Value<String?> ownerId,
+      Value<String?> sharedPair,
       Value<int> rowid,
     });
 typedef $$CalendarEventsTableUpdateCompanionBuilder =
@@ -21397,6 +21532,7 @@ typedef $$CalendarEventsTableUpdateCompanionBuilder =
       Value<bool> isDeleted,
       Value<DateTime?> deletedAt,
       Value<String?> ownerId,
+      Value<String?> sharedPair,
       Value<int> rowid,
     });
 
@@ -21576,6 +21712,11 @@ class $$CalendarEventsTableFilterComposer
 
   ColumnFilters<String> get ownerId => $composableBuilder(
     column: $table.ownerId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get sharedPair => $composableBuilder(
+    column: $table.sharedPair,
     builder: (column) => ColumnFilters(column),
   );
 }
@@ -21758,6 +21899,11 @@ class $$CalendarEventsTableOrderingComposer
     column: $table.ownerId,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<String> get sharedPair => $composableBuilder(
+    column: $table.sharedPair,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$CalendarEventsTableAnnotationComposer
@@ -21902,6 +22048,11 @@ class $$CalendarEventsTableAnnotationComposer
 
   GeneratedColumn<String> get ownerId =>
       $composableBuilder(column: $table.ownerId, builder: (column) => column);
+
+  GeneratedColumn<String> get sharedPair => $composableBuilder(
+    column: $table.sharedPair,
+    builder: (column) => column,
+  );
 }
 
 class $$CalendarEventsTableTableManager
@@ -21975,6 +22126,7 @@ class $$CalendarEventsTableTableManager
                 Value<bool> isDeleted = const Value.absent(),
                 Value<DateTime?> deletedAt = const Value.absent(),
                 Value<String?> ownerId = const Value.absent(),
+                Value<String?> sharedPair = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => CalendarEventsCompanion(
                 id: id,
@@ -22011,6 +22163,7 @@ class $$CalendarEventsTableTableManager
                 isDeleted: isDeleted,
                 deletedAt: deletedAt,
                 ownerId: ownerId,
+                sharedPair: sharedPair,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -22049,6 +22202,7 @@ class $$CalendarEventsTableTableManager
                 Value<bool> isDeleted = const Value.absent(),
                 Value<DateTime?> deletedAt = const Value.absent(),
                 Value<String?> ownerId = const Value.absent(),
+                Value<String?> sharedPair = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => CalendarEventsCompanion.insert(
                 id: id,
@@ -22085,6 +22239,7 @@ class $$CalendarEventsTableTableManager
                 isDeleted: isDeleted,
                 deletedAt: deletedAt,
                 ownerId: ownerId,
+                sharedPair: sharedPair,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0

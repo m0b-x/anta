@@ -7,6 +7,51 @@
         { "fieldPath": "members", "arrayConfig": "CONTAINS" },
         { "fieldPath": "status", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "calendar_events",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [
+        { "fieldPath": "sharedPair", "order": "ASCENDING" },
+        { "fieldPath": "ownerId", "order": "ASCENDING" },
+        { "fieldPath": "pushedAt", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "calendar_event_occurrences",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [
+        { "fieldPath": "sharedPair", "order": "ASCENDING" },
+        { "fieldPath": "ownerId", "order": "ASCENDING" },
+        { "fieldPath": "pushedAt", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "calendar_event_skips",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [
+        { "fieldPath": "sharedPair", "order": "ASCENDING" },
+        { "fieldPath": "ownerId", "order": "ASCENDING" },
+        { "fieldPath": "pushedAt", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "folders",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [
+        { "fieldPath": "sharedPair", "order": "ASCENDING" },
+        { "fieldPath": "ownerId", "order": "ASCENDING" },
+        { "fieldPath": "pushedAt", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "notes",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [
+        { "fieldPath": "sharedPair", "order": "ASCENDING" },
+        { "fieldPath": "ownerId", "order": "ASCENDING" },
+        { "fieldPath": "pushedAt", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": [

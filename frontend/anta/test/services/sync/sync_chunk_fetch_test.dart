@@ -600,7 +600,7 @@ void main() {
         ]);
         await b().db.syncDao.setValue(
           SyncDao.keyWireVersion,
-          '${syncSchema - 1}',
+          '$beforeBodyWire',
         );
 
         final report = await b().sync();
@@ -620,10 +620,7 @@ void main() {
       await writeNote(a(), folderId: folder.id, title: 'Log', body: 'Row');
       await a().engine.start();
       await a().settle();
-      await a().db.syncDao.setValue(
-        SyncDao.keyWireVersion,
-        '${syncSchema - 1}',
-      );
+      await a().db.syncDao.setValue(SyncDao.keyWireVersion, '$beforeBodyWire');
       pair.gateway.onPullPage = (table) async {
         if (table != 'notes') return;
         pair.gateway.onPullPage = null;
@@ -635,7 +632,7 @@ void main() {
       expect(failed.failure, isNotNull);
       expect(
         await a().db.syncDao.getValue(SyncDao.keyWireVersion),
-        '${syncSchema - 1}',
+        '$beforeBodyWire',
       );
       pair.gateway.pushes.clear();
 
@@ -691,7 +688,7 @@ void main() {
       for (final device in [a(), b()]) {
         await device.db.syncDao.setValue(
           SyncDao.keyWireVersion,
-          '${syncSchema - 1}',
+          '$beforeBodyWire',
         );
       }
 

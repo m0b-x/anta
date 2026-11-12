@@ -17,6 +17,13 @@ class SyncSpaceRef extends Equatable {
   List<Object?> get props => [ownerUid, spaceId];
 }
 
+/// The name the wire gives a share: the key an event and a folder carry
+/// their own mark under in `data`, written only when the row has one — so
+/// the owner's other devices merge it with the row — and the field a shared
+/// row's document, and the space's, carry the pair under
+/// ([SyncEnvelope.sharedPair], [SyncGateway.pushBatch]).
+const String sharedPairKey = 'sharedPair';
+
 /// One row on the wire, keyed as the outbox keys it.
 class SyncEnvelope extends Equatable {
   /// The SQL table name.
@@ -37,6 +44,25 @@ class SyncEnvelope extends Equatable {
   /// bytes field, which a gateway stores as its own binary type.
   final Map<String, Object?>? data;
 
+  /// The pair this row is shared into, beside [data] and on a tombstone
+  /// too — the partner has to hear of a delete — and null for a private
+  /// row, which is every row of a table that cannot be shared
+  /// (`docs/cloud-sharing-foundations.md` §3, §4). What the rules let a
+  /// member of that pair read the document by.
+  ///
+  /// The grant in effect, worked out when the row is encoded — its own mark
+  /// for an event, its event's for a day row, the nearest marked folder's
+  /// for a folder or a note — and so apart from the mark an event or a
+  /// folder stores and carries in [data] for the owner's other devices.
+  final String? sharedPair;
+
+  /// The wire version of the build that wrote a shared document, as a
+  /// gateway reads it back; null on an envelope still to be pushed — the
+  /// gateway stamps the pushing build's — and on a private row's, whose
+  /// space says it. A reader of another account's row cannot read that
+  /// account's space, so the document says it itself.
+  final int? wire;
+
   const SyncEnvelope({
     required this.table,
     required this.rowKey,
@@ -46,7 +72,25 @@ class SyncEnvelope extends Equatable {
     required this.op,
     required this.ownerId,
     this.data,
+    this.sharedPair,
+    this.wire,
   });
+
+  /// This envelope shared into [pair], or private when null.
+  SyncEnvelope sharedInto(String? pair) => pair == sharedPair
+      ? this
+      : SyncEnvelope(
+          table: table,
+          rowKey: rowKey,
+          hlc: hlc,
+          deviceId: deviceId,
+          version: version,
+          op: op,
+          ownerId: ownerId,
+          data: data,
+          sharedPair: pair,
+          wire: wire,
+        );
 
   @override
   List<Object?> get props => [
@@ -58,6 +102,8 @@ class SyncEnvelope extends Equatable {
     op,
     ownerId,
     data,
+    sharedPair,
+    wire,
   ];
 
   /// The bytes [data] puts on the wire, as the push's byte budget counts
@@ -142,16 +188,40 @@ class SyncPullPage extends Equatable {
   /// build retries them (scalability record S8).
   final List<String> skipped;
 
+  /// The push that wrote each of [envelopes]' documents, by row key: which
+  /// device, and when by the server's clock ([SyncPush]). The last push of
+  /// the document, which is not the last write of the row. A document says
+  /// who may read it as of that push, so a puller needs both to tell
+  /// whether it knows better (`docs/cloud-sharing-foundations.md` §3). A
+  /// key without an entry is a document that names neither.
+  final Map<String, SyncPush> pushed;
+
   const SyncPullPage({
     required this.envelopes,
     required this.next,
     required this.hasMore,
     this.scan,
     this.skipped = const [],
+    this.pushed = const {},
   });
 
   @override
-  List<Object?> get props => [envelopes, next, hasMore, scan, skipped];
+  List<Object?> get props => [envelopes, next, hasMore, scan, skipped, pushed];
+}
+
+/// The push that wrote a document: the `pushedBy` of
+/// [SyncGateway.pushBatch] and the server time it landed at.
+class SyncPush extends Equatable {
+  /// The pushing device's id; null when the document names none.
+  final String? by;
+
+  /// When the push landed, on the server's clock; null when unknown.
+  final DateTime? at;
+
+  const SyncPush({this.by, this.at});
+
+  @override
+  List<Object?> get props => [by, at];
 }
 
 /// A space as binding sees it — what the picker lists and what a device
@@ -303,11 +373,21 @@ abstract interface class SyncGateway {
   /// is lower than the space's — Firestore has no max transform, so the rule
   /// `schema >= stored` keeps an outdated app from writing rows that lack
   /// columns. An equal or higher [schema] is stored.
+  ///
+  /// An envelope's [SyncEnvelope.sharedPair] is written on its document,
+  /// with [schema] as the wire that wrote it, and a document pushed without
+  /// one carries neither — a row made private again stops being readable by
+  /// the pair with this very write. [sharedPair] is the pair this
+  /// database's notes are shared into, kept on the space document and
+  /// removed from it when null: a note's text is stored once per space
+  /// under its hash, with no grant of its own, so the space says who else
+  /// may fetch it (`docs/cloud-sharing-foundations.md` §4).
   Future<void> pushBatch(
     SyncSpaceRef space,
     List<SyncEnvelope> batch, {
     required String pushedBy,
     required int schema,
+    String? sharedPair,
   });
 
   /// The envelopes of [table] in arrival order strictly after [after] — all

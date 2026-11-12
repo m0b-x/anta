@@ -34,6 +34,13 @@ const String syncUid = 'u1';
 /// This build's schema, as the engines report it to the space.
 const int syncSchema = DatabaseSchema.syncSchemaVersion;
 
+/// A wire version from before a note's body crossed as chunks — what a
+/// test stores as the version a database last ran under when its next run
+/// has to send every note again. Never "one below this build's": a later
+/// wire changed no body, and a database at the body wire or above re-sends
+/// nothing (`DatabaseSchema.bodyWireVersion`).
+const int beforeBodyWire = DatabaseSchema.bodyWireVersion - 1;
+
 /// One wall clock for both databases that moves a millisecond on every
 /// read, so every stamp either device mints sorts after every stamp minted
 /// before it — the tests decide who wrote last by the order they write in.

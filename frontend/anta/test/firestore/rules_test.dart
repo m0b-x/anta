@@ -438,6 +438,140 @@ Future<void> _seedMarked() async {
   );
 }
 
+// Sharing — a partner reading the rows an owner shared into their pair
+// (docs/cloud-sharing-foundations.md §4).
+
+/// The top-level fields a shared row's document carries beside its
+/// envelope: the pair, and the wire version of the build that wrote it.
+Map<String, Object?> _share(String pair, {int wire = 47}) => {
+  'sharedPair': _s(pair),
+  'wire': _int(wire),
+};
+
+/// A push whose space merge also says which pair the space's notes are
+/// shared into, as the gateway sends it — [sharedPair] null takes the field
+/// out, which is what every push of a database that shares nothing does.
+Future<int> _pushSharing(
+  List<Map<String, Object?>> rows, {
+  required String? sharedPair,
+  String owner = uidA,
+  String spaceId = 's1',
+  int schema = 47,
+  String table = 'folders',
+}) => _commit([
+  ...rows,
+  {
+    'update': {
+      'name': '$_docRoot/${_spaceDoc(owner, spaceId)}',
+      'fields': {
+        'lastWriter': _s('A'),
+        'schema': _int(schema),
+        if (sharedPair != null) 'sharedPair': _s(sharedPair),
+      },
+    },
+    'updateMask': {
+      'fieldPaths': ['lastWriter', 'schema', 'sharedPair'],
+    },
+    'updateTransforms': [
+      _serverTime('touched.$table'),
+      _serverTime('lastWriteAt'),
+    ],
+  },
+], uid: owner);
+
+/// The partner's query as the reader sends it: [table] across every space,
+/// pinned to [pair] and — unless null — to [owner], in arrival order.
+Map<String, Object?> _sharedQuery(
+  String table, {
+  required String? pair,
+  required String? owner,
+}) => {
+  'from': [
+    {'collectionId': table, 'allDescendants': true},
+  ],
+  'where': {
+    'compositeFilter': {
+      'op': 'AND',
+      'filters': [
+        if (pair != null)
+          {
+            'fieldFilter': {
+              'field': {'fieldPath': 'sharedPair'},
+              'op': 'EQUAL',
+              'value': _s(pair),
+            },
+          },
+        if (owner != null)
+          {
+            'fieldFilter': {
+              'field': {'fieldPath': 'ownerId'},
+              'op': 'EQUAL',
+              'value': _s(owner),
+            },
+          },
+      ],
+    },
+  },
+  'orderBy': [
+    {
+      'field': {'fieldPath': 'pushedAt'},
+    },
+    {
+      'field': {'fieldPath': '__name__'},
+    },
+  ],
+};
+
+/// Runs [query] as [uid]: the status, and the row keys it returned.
+Future<({int status, List<String> keys})> _runShared(
+  Map<String, Object?> query, {
+  required String? uid,
+}) async {
+  final answer = await _call(
+    'POST',
+    '$_base:runQuery',
+    uid: uid,
+    body: {'structuredQuery': query},
+  );
+  return (
+    status: answer.status,
+    keys: [
+      for (final match in RegExp(
+        r'"name":\s*"[^"]*/([^/"]+)"',
+      ).allMatches(answer.body))
+        match.group(1)!,
+    ],
+  );
+}
+
+/// The count of [query] as [uid] — the aggregation the reader compares
+/// with what it holds — or null when the answer carries none.
+Future<({int status, int? count})> _countShared(
+  Map<String, Object?> query, {
+  required String? uid,
+}) async {
+  final answer = await _call(
+    'POST',
+    '$_base:runAggregationQuery',
+    uid: uid,
+    body: {
+      'structuredAggregationQuery': {
+        'structuredQuery': query,
+        'aggregations': [
+          {'alias': 'n', 'count': <String, Object?>{}},
+        ],
+      },
+    },
+  );
+  final count = RegExp(
+    r'"integerValue":\s*"(\d+)"',
+  ).firstMatch(answer.body)?.group(1);
+  return (
+    status: answer.status,
+    count: count == null ? null : int.parse(count),
+  );
+}
+
 void main() {
   setUpAll(() async {
     try {
@@ -1612,6 +1746,442 @@ void main() {
       await _seedMarked();
       expect(await _commit([_delete(space)], uid: uidA), 200);
       expect(await _commit([_delete(space)], uid: uidA), 403);
+    });
+  });
+
+  /// Sharing (docs/cloud-sharing-foundations.md §4): what an owner may
+  /// write about a share, and what a member of the pair may read. uidA
+  /// owns, uidB is the partner, uidC a stranger.
+  group('sharing', () {
+    String rowPath(String table, String key, {String owner = uidA}) =>
+        '${_spaceDoc(owner, 's1')}/$table/$key';
+
+    group('the owner writes', () {
+      test('a shared row of each shareable table, a tombstone too', () async {
+        await _seedSpace();
+        for (final table in sharedTables) {
+          expect(
+            await _push([
+              _row(uidA, 's1', table, 'k1', fields: _share('p1')),
+              _row(
+                uidA,
+                's1',
+                table,
+                'k2',
+                fields: {..._share('p1'), 'op': _s('tombstone'), 'data': _nul},
+              ),
+            ], table: table),
+            200,
+            reason: table,
+          );
+        }
+      });
+
+      test('a shared row of a table that cannot be shared', () async {
+        await _seedSpace();
+        for (final table in [
+          'calendar_event_absences',
+          'calendar_event_alerts',
+          'counters',
+          'counter_values',
+          'calendar_categories',
+          'content_chunks',
+        ]) {
+          expect(
+            await _push([
+              _row(uidA, 's1', table, 'k1', fields: _share('p1')),
+            ], table: table),
+            403,
+            reason: '$table is a person\'s own, or carries no grant',
+          );
+        }
+      });
+
+      test('a share without the wire that wrote it, or a wire without a '
+          'share', () async {
+        await _seedSpace();
+        expect(
+          await _push([
+            _row(uidA, 's1', 'folders', 'f1', fields: {'sharedPair': _s('p1')}),
+          ]),
+          403,
+        );
+        expect(
+          await _push([
+            _row(uidA, 's1', 'folders', 'f1', fields: {'wire': _int(47)}),
+          ]),
+          403,
+        );
+      });
+
+      test('a share that is not a short, non-empty string', () async {
+        await _seedSpace();
+        for (final bad in [_s(''), _s('p' * 65), _int(1), _nul]) {
+          expect(
+            await _push([
+              _row(
+                uidA,
+                's1',
+                'folders',
+                'f1',
+                fields: {'sharedPair': bad, 'wire': _int(47)},
+              ),
+            ]),
+            403,
+            reason: '$bad',
+          );
+        }
+        expect(
+          await _push([
+            _row(
+              uidA,
+              's1',
+              'folders',
+              'f1',
+              fields: {'sharedPair': _s('p1'), 'wire': _s('47')},
+            ),
+          ]),
+          403,
+        );
+      });
+
+      test('a row made private again: the same document, without a '
+          'share', () async {
+        await _seedSpace();
+        expect(
+          await _push([
+            _row(uidA, 's1', 'folders', 'f1', fields: _share('p1')),
+          ]),
+          200,
+        );
+        expect(await _push([_row(uidA, 's1', 'folders', 'f1')]), 200);
+      });
+
+      test('the pair its notes are shared into on the space, and takes it '
+          'out again', () async {
+        await _seedSpace();
+        expect(
+          await _pushSharing([
+            _row(uidA, 's1', 'folders', 'f1', fields: _share('p1')),
+          ], sharedPair: 'p1'),
+          200,
+        );
+        expect(
+          await _pushSharing([
+            _row(uidA, 's1', 'folders', 'f1'),
+          ], sharedPair: null),
+          200,
+        );
+      });
+
+      test('a push that names no pair, to a space that never had one — '
+          'every push of a database that shares nothing', () async {
+        await _seedSpace();
+        expect(
+          await _pushSharing([
+            _row(uidA, 's1', 'folders', 'f1'),
+          ], sharedPair: null),
+          200,
+        );
+      });
+
+      test('a pair on the space that is not a short, non-empty '
+          'string', () async {
+        await _seedSpace();
+        for (final bad in ['', 'p' * 65]) {
+          expect(
+            await _pushSharing([
+              _row(uidA, 's1', 'folders', 'f1'),
+            ], sharedPair: bad),
+            403,
+            reason: 'length ${bad.length}',
+          );
+        }
+      });
+    });
+
+    group('the partner reads', () {
+      /// Space `s1` of uidA: `shared` and its tombstone `gone` shared into
+      /// `p1`, `private` shared with nobody — in each shareable table — the
+      /// text chunk `h1`, and the space naming `p1`. `p1` pairs A and B.
+      Future<void> seed({String pairStatus = 'active'}) async {
+        await _seedPair('p1', status: pairStatus);
+        await _seedSpace(schema: 47);
+        for (final table in sharedTables) {
+          expect(
+            await _pushSharing(
+              [
+                _row(uidA, 's1', table, 'shared', fields: _share('p1')),
+                _row(
+                  uidA,
+                  's1',
+                  table,
+                  'gone',
+                  fields: {
+                    ..._share('p1'),
+                    'op': _s('tombstone'),
+                    'data': _nul,
+                  },
+                ),
+                _row(uidA, 's1', table, 'private'),
+              ],
+              sharedPair: 'p1',
+              table: table,
+            ),
+            200,
+            reason: 'seed of $table',
+          );
+        }
+        expect(
+          await _pushSharing(
+            [_row(uidA, 's1', 'content_chunks', 'h1')],
+            sharedPair: 'p1',
+            table: 'content_chunks',
+          ),
+          200,
+          reason: 'seed of the chunk',
+        );
+      }
+
+      test('the rows shared into the pair, of each shareable table — the '
+          'tombstone with them, a private row never', () async {
+        await seed();
+        for (final table in sharedTables) {
+          final read = await _runShared(
+            _sharedQuery(table, pair: 'p1', owner: uidA),
+            uid: uidB,
+          );
+          expect(read.status, 200, reason: table);
+          expect(read.keys, unorderedEquals(['shared', 'gone']), reason: table);
+        }
+      });
+
+      test('how many there are, by the same query', () async {
+        await seed();
+        final counted = await _countShared(
+          _sharedQuery('folders', pair: 'p1', owner: uidA),
+          uid: uidB,
+        );
+        expect(counted.status, 200);
+        expect(counted.count, 2);
+      });
+
+      test('one shared row by its path; a private one is refused', () async {
+        await seed();
+        expect(await _get(rowPath('notes', 'shared'), uid: uidB), 200);
+        expect(await _get(rowPath('notes', 'gone'), uid: uidB), 200);
+        expect(await _get(rowPath('notes', 'private'), uid: uidB), 403);
+      });
+
+      test('the text of the space that shares into the pair, one chunk by '
+          'its hash — never a listing of it', () async {
+        await seed();
+        expect(await _get(rowPath('content_chunks', 'h1'), uid: uidB), 200);
+        final listed = await _call(
+          'GET',
+          '$_base/${_spaceDoc(uidA, 's1')}/content_chunks',
+          uid: uidB,
+        );
+        expect(listed.status, 403);
+      });
+
+      test('nothing of a space that shares into no pair: its text is the '
+          'owner\'s alone', () async {
+        await seed();
+        expect(
+          await _pushSharing(
+            [_row(uidA, 's1', 'content_chunks', 'h2')],
+            sharedPair: null,
+            table: 'content_chunks',
+          ),
+          200,
+        );
+        expect(await _get(rowPath('content_chunks', 'h1'), uid: uidB), 403);
+        expect(await _get(rowPath('content_chunks', 'h2'), uid: uidB), 403);
+      });
+
+      test('never the space document itself, nor a row of a table that is '
+          'not shared', () async {
+        await seed();
+        expect(await _get(_spaceDoc(uidA, 's1'), uid: uidB), 403);
+        expect(
+          await _push(
+            [_row(uidA, 's1', 'counters', 'c1')],
+            schema: 47,
+            table: 'counters',
+          ),
+          200,
+        );
+        expect(await _get(rowPath('counters', 'c1'), uid: uidB), 403);
+        final listed = await _runShared(
+          _sharedQuery('counters', pair: 'p1', owner: uidA),
+          uid: uidB,
+        );
+        expect(listed.status, 403);
+      });
+
+      test('a query that does not pin the pair is refused whole: nothing '
+          'is ever listed across pairs', () async {
+        await seed();
+        final byOwner = await _runShared(
+          _sharedQuery('folders', pair: null, owner: uidA),
+          uid: uidB,
+        );
+        expect(byOwner.status, 403);
+      });
+
+      test('a query for a pair without naming the owner is allowed and '
+          'returns the pair\'s rows — which is why the reader pins the owner '
+          'itself', () async {
+        await seed();
+        final read = await _runShared(
+          _sharedQuery('folders', pair: 'p1', owner: null),
+          uid: uidB,
+        );
+        expect(read.status, 200);
+        expect(read.keys, unorderedEquals(['shared', 'gone']));
+      });
+
+      test('the owner reads its shared rows by the same query', () async {
+        await seed();
+        final read = await _runShared(
+          _sharedQuery('folders', pair: 'p1', owner: uidA),
+          uid: uidA,
+        );
+        expect(read.status, 200);
+        expect(read.keys, unorderedEquals(['shared', 'gone']));
+      });
+
+      test('a partner writes nothing: not a shared row, not its own under '
+          'the owner\'s space', () async {
+        await seed();
+        expect(
+          await _commit([
+            _row(uidA, 's1', 'folders', 'shared', fields: _share('p1')),
+          ], uid: uidB),
+          403,
+        );
+        expect(
+          await _commit([
+            _row(uidA, 's1', 'folders', 'mine', fields: {'ownerId': _s(uidB)}),
+          ], uid: uidB),
+          403,
+        );
+        expect(
+          await _commit([_delete(rowPath('folders', 'shared'))], uid: uidB),
+          403,
+        );
+      });
+    });
+
+    group('everyone else is refused', () {
+      Future<void> seedShared({String status = 'active'}) async {
+        await _seedPair('p1', status: status);
+        await _seedSpace(schema: 47);
+        expect(
+          await _pushSharing([
+            _row(uidA, 's1', 'folders', 'shared', fields: _share('p1')),
+            _row(uidA, 's1', 'content_chunks', 'h1'),
+          ], sharedPair: 'p1'),
+          200,
+          reason: 'seed',
+        );
+      }
+
+      Future<void> expectNothingFor(String? uid, {String? reason}) async {
+        final listed = await _runShared(
+          _sharedQuery('folders', pair: 'p1', owner: uidA),
+          uid: uid,
+        );
+        expect(listed.status, 403, reason: reason);
+        final counted = await _countShared(
+          _sharedQuery('folders', pair: 'p1', owner: uidA),
+          uid: uid,
+        );
+        expect(counted.status, 403, reason: reason);
+        expect(
+          await _get('${_spaceDoc(uidA, 's1')}/folders/shared', uid: uid),
+          403,
+          reason: reason,
+        );
+        expect(
+          await _get('${_spaceDoc(uidA, 's1')}/content_chunks/h1', uid: uid),
+          403,
+          reason: reason,
+        );
+      }
+
+      test('a stranger, and nobody signed in', () async {
+        await seedShared();
+        await expectNothingFor(uidC, reason: 'not a member of the pair');
+        await expectNothingFor(null, reason: 'not signed in');
+      });
+
+      test('the partner, once the pair is ended — at once, with the '
+          'owner\'s documents still naming it', () async {
+        await seedShared();
+        expect(
+          (await _runShared(
+            _sharedQuery('folders', pair: 'p1', owner: uidA),
+            uid: uidB,
+          )).status,
+          200,
+        );
+        await _seedPair('p1', status: 'ended');
+
+        await expectNothingFor(uidB, reason: 'the pair is ended');
+      });
+
+      test('the partner, once the pair is removed by an account\'s '
+          'deletion', () async {
+        await seedShared();
+        expect(
+          await _commit([_delete('pairs/p1')], admin: true),
+          200,
+          reason: 'admin removal of the pair',
+        );
+
+        await expectNothingFor(uidB, reason: 'the pair is gone');
+      });
+
+      test('a member of another pair that happens to be named on the row: '
+          'only that pair\'s members read it', () async {
+        await seedShared();
+        await _seedPair('p2', members: const [uidB, uidC]);
+
+        await expectNothingFor(uidC, reason: 'a member of p2, not of p1');
+      });
+
+      test('a row that names a pair its owner is not in is read by that '
+          'pair\'s members and nobody is the wiser for the owner\'s other '
+          'rows — which is why the reader pins the owner it expects', () async {
+        // uidC shares into p1, the pair of A and B, without being in it.
+        await _seedPair('p1');
+        await _seedSpace(owner: uidC, schema: 47);
+        expect(
+          await _pushSharing(
+            [
+              _row(uidC, 's1', 'folders', 'planted', fields: _share('p1')),
+              _row(uidC, 's1', 'folders', 'own'),
+            ],
+            sharedPair: 'p1',
+            owner: uidC,
+          ),
+          200,
+        );
+
+        final all = await _runShared(
+          _sharedQuery('folders', pair: 'p1', owner: null),
+          uid: uidB,
+        );
+        expect(all.keys, ['planted']);
+        final pinned = await _runShared(
+          _sharedQuery('folders', pair: 'p1', owner: uidA),
+          uid: uidB,
+        );
+        expect(pinned.status, 200);
+        expect(pinned.keys, isEmpty);
+      });
     });
   });
 }

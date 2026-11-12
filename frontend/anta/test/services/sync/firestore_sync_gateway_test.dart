@@ -18,6 +18,8 @@ void main() {
   SyncEnvelope envelope({
     OutboxOp op = OutboxOp.upsert,
     Map<String, Object?>? data = const {'id': 'f1', 'name': 'Training'},
+    String? sharedPair,
+    int? wire,
   }) => SyncEnvelope(
     table: 'folders',
     rowKey: 'f1',
@@ -27,6 +29,8 @@ void main() {
     op: op,
     ownerId: 'u1',
     data: op == OutboxOp.tombstone ? null : data,
+    sharedPair: sharedPair,
+    wire: wire,
   );
 
   group('the cursor', () {
@@ -106,8 +110,10 @@ void main() {
         envelope(),
         pushedBy: 'A',
         serverTime: serverTime,
+        wire: 47,
       );
 
+      // A private row's document is what it always was: no share, no wire.
       expect(document, {
         'hlc': '000000000001:0000:A',
         'deviceId': 'A',
@@ -125,12 +131,33 @@ void main() {
         envelope(op: OutboxOp.tombstone),
         pushedBy: 'B',
         serverTime: serverTime,
+        wire: 47,
       );
 
       expect(document.containsKey('data'), isTrue);
       expect(document['data'], isNull);
       expect(document['op'], 'tombstone');
       expect(document['ownerId'], 'u1');
+    });
+
+    test('a shared row names its pair beside data and the wire that wrote '
+        'it, a tombstone too', () {
+      for (final op in OutboxOp.values) {
+        final document = FirestoreSyncWire.documentOf(
+          envelope(op: op, sharedPair: 'pair-1'),
+          pushedBy: 'A',
+          serverTime: serverTime,
+          wire: 47,
+        );
+
+        expect(document['sharedPair'], 'pair-1', reason: op.name);
+        expect(document['wire'], 47, reason: op.name);
+        expect(
+          (document['data'] as Map?)?.containsKey('sharedPair') ?? false,
+          isFalse,
+          reason: 'the grant is the document\'s, not the row\'s',
+        );
+      }
     });
 
     test('reads back as the envelope it was written from, both ops', () {
@@ -141,6 +168,7 @@ void main() {
             written,
             pushedBy: 'A',
             serverTime: serverTime,
+            wire: 47,
           ),
         };
 
@@ -152,12 +180,28 @@ void main() {
       }
     });
 
+    test('a shared row reads back with its pair and the wire its document '
+        'names', () {
+      final document = FirestoreSyncWire.documentOf(
+        envelope(sharedPair: 'pair-1'),
+        pushedBy: 'A',
+        serverTime: serverTime,
+        wire: 48,
+      );
+
+      expect(
+        FirestoreSyncWire.envelopeOf('folders', 'f1', document),
+        envelope(sharedPair: 'pair-1', wire: 48),
+      );
+    });
+
     test('a document without the data key, with an unknown op or a mistyped '
         'field reads as nothing', () {
       final good = FirestoreSyncWire.documentOf(
         envelope(),
         pushedBy: 'A',
         serverTime: serverTime,
+        wire: 47,
       );
       final broken = [
         {...good}..remove('data'),
@@ -165,6 +209,8 @@ void main() {
         {...good, 'hlc': 7},
         {...good, 'ownerId': null},
         {...good, 'data': 'text'},
+        {...good, 'sharedPair': 7},
+        {...good, 'wire': 'new'},
       ];
       for (final document in broken) {
         expect(
@@ -177,20 +223,40 @@ void main() {
   });
 
   test('the space merge names each pushed table under touched, the writer '
-      'and this build\'s schema', () {
+      'and this build\'s schema, and takes out a pair it no longer shares '
+      'into', () {
+    const removed = #removed;
     expect(
       FirestoreSyncWire.spaceMergeOf(
         {'folders', 'notes'},
         pushedBy: 'A',
         schema: 43,
         serverTime: serverTime,
+        sharedPair: null,
+        removed: removed,
       ),
       {
         'touched': {'folders': serverTime, 'notes': serverTime},
         'lastWriter': 'A',
         'lastWriteAt': serverTime,
         'schema': 43,
+        'sharedPair': removed,
       },
+    );
+  });
+
+  test('the space merge names the pair the database\'s notes are shared '
+      'into', () {
+    expect(
+      FirestoreSyncWire.spaceMergeOf(
+        {'notes'},
+        pushedBy: 'A',
+        schema: 47,
+        serverTime: serverTime,
+        sharedPair: 'pair-1',
+        removed: #removed,
+      )['sharedPair'],
+      'pair-1',
     );
   });
 

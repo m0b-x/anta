@@ -273,6 +273,19 @@ class SyncDao extends DatabaseAccessor<AppDatabase> with _$SyncDaoMixin {
     return s.key.isBiggerOrEqualValue(prefix) & s.key.isSmallerThanValue(above);
   }
 
+  /// Whether any event or folder of this database carries a share mark, a
+  /// deleted one's included (`docs/cloud-sharing-foundations.md` §3): one
+  /// statement that lets a pulled page skip everything about sharing when
+  /// nothing here is shared — which is nearly always.
+  Future<bool> anyShareMark() async {
+    final row = await customSelect(
+      'SELECT EXISTS(SELECT 1 FROM folders WHERE shared_pair IS NOT NULL) '
+      'OR EXISTS(SELECT 1 FROM calendar_events '
+      'WHERE shared_pair IS NOT NULL) AS marked',
+    ).getSingle();
+    return row.read<bool>('marked');
+  }
+
   Future<String?> getLastSyncTimestamp() => getValue(keyLastSyncTimestamp);
 
   Future<void> setLastSyncTimestamp(String timestamp) =>

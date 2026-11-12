@@ -602,6 +602,20 @@ class CalendarEventService {
     ]);
   }
 
+  /// Shares the event [id] with the partner of the pair [pairId], or makes
+  /// it private again when null (`docs/cloud-sharing-foundations.md` §3):
+  /// one stamped write of the event's mark, which the next push carries,
+  /// with the event's skipped days and per-day texts following it. Its
+  /// presence marks and alerts stay a person's own. Returns whether the
+  /// mark was written — false for an event that is gone or carries it
+  /// already.
+  ///
+  /// The mark is no part of the event a screen holds, so the cache stays as
+  /// it is. No surface calls this yet: the switch that will is a later
+  /// slice, and until then only tests and the QA seam reach it.
+  Future<bool> setShared(String id, String? pairId) =>
+      _dao.setSharedPair(id, pairId);
+
   /// Runs the four child patches of one event's delete or restore, each on
   /// its own guard: the rows are written either way, and a facade that fails
   /// to take its patch is read whole by its next load. The children patch

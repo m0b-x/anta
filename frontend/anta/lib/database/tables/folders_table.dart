@@ -22,6 +22,13 @@ class Folders extends Table {
   /// The owning account once sync binds one (**v43**); NULL until then.
   TextColumn get ownerId => text().nullable()();
 
+  /// The pair this folder is shared into (**v52**,
+  /// `docs/cloud-sharing-foundations.md` §3); NULL for a folder that carries
+  /// no mark of its own. A marked folder shares its whole subtree — the
+  /// folders and notes under it carry nothing and are shared as the nearest
+  /// marked folder above them is.
+  TextColumn get sharedPair => text().nullable()();
+
   @override
   Set<Column> get primaryKey => {id};
 }

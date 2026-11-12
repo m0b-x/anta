@@ -267,6 +267,20 @@ class FolderStorageService {
     return folder == null ? null : _folderToModel(folder);
   }
 
+  /// Shares the folder [folderId] and everything under it with the partner
+  /// of the pair [pairId], or stops sharing it when null
+  /// (`docs/cloud-sharing-foundations.md` §3): one stamped write of the
+  /// folder's mark, which the next push carries, with the folders and notes
+  /// under it following it. Returns whether the mark was written — false
+  /// for a folder that is gone or carries it already.
+  ///
+  /// No surface calls this yet: the switch that will is a later slice, and
+  /// until then only tests and the QA seam reach it.
+  Future<bool> setFolderShared(String folderId, String? pairId) async {
+    await initialize();
+    return _repository.setSharedPair(folderId: folderId, pairId: pairId);
+  }
+
   /// Labels a whole selection as one unit — one statement, one reload —
   /// rather than one write per picked row. Returns how many rows changed.
   Future<int> setLabelForFolders(

@@ -306,6 +306,45 @@ class SyncOutboxDao extends DatabaseAccessor<AppDatabase>
     return written > 0;
   }
 
+  /// Queues again, at the stamps they carry, the rows of [table] that the SQL
+  /// condition [rows] selects — [requeueRow] for a set, tombstones included
+  /// — and returns how many entries were written or raised. Its numbered
+  /// parameters start at `?2`, bound from [variables] in order: `?1` is the
+  /// statement's own.
+  ///
+  /// For the rows whose documents say something their own columns do not —
+  /// who may read them, which a day row takes from its event and a folder
+  /// or a note from the folder above it
+  /// (`docs/cloud-sharing-foundations.md` §3): a change of that root is no
+  /// write of theirs, so nothing else would push them again. Mints nothing
+  /// and never lowers an entry pending at a newer stamp. The caller names
+  /// rows of its own account only; never a content-addressed table.
+  Future<int> requeueRows(
+    String table, {
+    required String rows,
+    List<Variable<Object>> variables = const [],
+  }) {
+    final synced = syncedTables.where((t) => t.name == table).firstOrNull;
+    if (synced == null || synced.contentAddressed) {
+      throw ArgumentError.value(table, 'table', 'not re-queued as a set');
+    }
+    return customUpdate(
+      'INSERT INTO sync_outbox '
+      '(table_name, row_key, hlc, op, enqueued_at, republish) '
+      "SELECT '${synced.name}', ${synced.rowKeySql}, hlc_timestamp, "
+      "CASE is_deleted WHEN 1 THEN 'tombstone' ELSE 'upsert' END, ?1, 0 "
+      'FROM ${synced.name} WHERE $rows '
+      'ON CONFLICT (table_name, row_key) DO UPDATE SET '
+      'hlc = excluded.hlc, op = excluded.op, '
+      'republish = MIN(sync_outbox.republish, excluded.republish) '
+      'WHERE excluded.hlc > sync_outbox.hlc OR (excluded.hlc = '
+      'sync_outbox.hlc AND excluded.republish < sync_outbox.republish)',
+      variables: [Variable<DateTime>(DateTime.now()), ...variables],
+      updates: {syncOutbox},
+      updateKind: UpdateKind.insert,
+    );
+  }
+
   /// The highest stamp any synced row carries, `content_chunks` included,
   /// or null when no row carries one.
   Future<String?> maxHlc() async {

@@ -138,6 +138,12 @@ class CalendarEvents extends Table {
   /// The owning account once sync binds one (**v43**); NULL until then.
   TextColumn get ownerId => text().nullable()();
 
+  /// The pair this event is shared into (**v52**,
+  /// `docs/cloud-sharing-foundations.md` §3); NULL for a private event. The
+  /// event's skipped days and per-day texts carry no mark of their own:
+  /// they are shared as their event is.
+  TextColumn get sharedPair => text().nullable()();
+
   @override
   Set<Column> get primaryKey => {id};
 }

@@ -25,6 +25,15 @@ final class FoldersBinding extends SyncTableBinding<Folder> {
   @override
   String rowKeyOf(Folder row) => row.id;
 
+  /// A folder is shared by its own mark or the nearest one above it.
+  @override
+  Future<Map<String, String>> sharedPairs(AppDatabase db, List<Folder> rows) =>
+      db.folderDao.sharedPairsOf([for (final row in rows) row.id]);
+
+  @override
+  Future<Map<String, String>> shareStamps(AppDatabase db, List<Folder> rows) =>
+      db.folderDao.shareStampsOf([for (final row in rows) row.id]);
+
   @override
   Future<SyncEnvelope> encode(
     AppDatabase db,
@@ -50,6 +59,7 @@ final class FoldersBinding extends SyncTableBinding<Folder> {
         JsonKeys.subfolderSortOrder: row.subfolderSortOrder,
         JsonKeys.label: ItemLabel.fromStorage(row.label).storageName,
         if (row.ownerId != null) JsonKeys.ownerId: row.ownerId,
+        if (row.sharedPair != null) sharedPairKey: row.sharedPair,
       },
     );
   }
@@ -77,6 +87,7 @@ final class FoldersBinding extends SyncTableBinding<Folder> {
       isDeleted: isTombstone(envelope),
       deletedAt: deletedAtOf(envelope),
       ownerId: envelope.ownerId,
+      sharedPair: f.nullable<String>(sharedPairKey),
     );
   }
 

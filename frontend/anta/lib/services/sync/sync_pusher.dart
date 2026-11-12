@@ -392,6 +392,10 @@ class _Pusher {
     final bindings = <String, SyncTableBinding<Object>>{};
     final loaded = <String, Map<String, Object>>{};
     final faulted = <String, Set<String>>{};
+    // The pair each loaded row is shared into, by table and row key: asked
+    // once per table of the rows as they stand now, since a row's share is
+    // read off the event or the folder it hangs under.
+    final shared = <String, Map<String, String>>{};
     for (final MapEntry(key: table, value: group) in byTable.entries) {
       final binding = _e._bindingFor(table);
       // An entry naming a table no binding covers is this build's bug, not a
@@ -418,6 +422,7 @@ class _Pusher {
         for (final row in rows) binding.rowKeyOf(row): row,
       };
       if (table == _chunksTable) await _keepOwnChunks(byKey, boundUid);
+      shared[table] = await binding.sharedPairs(db, rows);
     }
     // In the queue's `(hlc, table, rowKey)` order: the rows are read one
     // table at a time, but a push that stops part-way must have sent a prefix
@@ -472,7 +477,11 @@ class _Pusher {
       }
       final SyncEnvelope envelope;
       try {
-        envelope = await bindings[table]!.encode(db, row, boundUid: boundUid);
+        envelope = (await bindings[table]!.encode(
+          db,
+          row,
+          boundUid: boundUid,
+        )).sharedInto(shared[table]![entry.rowKey]);
       } on Object catch (error) {
         await _park(entry, error);
         continue;
@@ -882,6 +891,9 @@ class _Pusher {
       [for (final queued in batch) queued.envelope],
       pushedBy: _e._deviceId,
       schema: _e._schema,
+      // Read at every push, not once a drain: a mark set or cleared while
+      // the drain runs queued the rows this very drain goes on to send.
+      sharedPair: await db.folderDao.sharedPairOfNotes(),
     );
     // Again after the call, not only before it: a restore that began while
     // the push was in flight is rewriting the very rows it acknowledges, and

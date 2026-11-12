@@ -31,6 +31,22 @@ import 'tables/vocabulary_items_binding.dart';
 /// calendar block comes before `notes` — the calendar is the heavier read
 /// and the link is followed only on a tap. Inside one run a merged event can
 /// name a note that has not arrived; `afterRun` refreshes once it has (R82).
+/// The tables whose rows can be shared with a partner, a parent before its
+/// children — the order a reader of shared rows takes them in: an event,
+/// its per-day texts and skipped days; a folder, its notes
+/// (`docs/cloud-sharing-foundations.md` §3). Everything else is a person's
+/// own and never crosses: presence marks, alerts, counters, categories.
+///
+/// `firestore.rules` names the same five in `shareable()`, and each has its
+/// collection-group index in `firestore.indexes.json`.
+const List<String> sharedTables = [
+  'calendar_events',
+  'calendar_event_occurrences',
+  'calendar_event_skips',
+  'folders',
+  'notes',
+];
+
 const List<SyncTableBinding<Object>> syncTableBindings = [
   CalendarCategoriesBinding(),
   CalendarEventTemplatesBinding(),

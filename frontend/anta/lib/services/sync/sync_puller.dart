@@ -784,6 +784,7 @@ class _Puller {
         fetched: fetched,
         asked: asked,
         announced: start == 0 && prepared != null,
+        pushed: page.pushed,
       );
       // A stored part's bodies are let go before the next part is encoded.
       prepared?.fillRange(start, end, null);
@@ -792,6 +793,71 @@ class _Puller {
         if (!last) _e._emit();
       }
       start = end;
+    }
+  }
+
+  /// Queues again the rows among [merged] — a part's envelopes that landed
+  /// — whose document names another pair than the row is shared into as
+  /// this device now holds it, inside the part's transaction
+  /// (`docs/cloud-sharing-foundations.md` §3). [pushed] says which device
+  /// wrote each document, and when.
+  ///
+  /// A document says who may read it as of the push that wrote it, and that
+  /// is read off the event or the folder the row hangs under, not off the
+  /// row. So a device that pushed a row before it knew of a change of that
+  /// root wrote the old answer — a share the owner has since ended, in the
+  /// case that matters most — and a merge, which settles the row, retires
+  /// the very entry that would have said the new one. The rows this device
+  /// re-says:
+  ///
+  /// - its own pushes, read back: it alone knows it said so too early, and
+  ///   the read-back arrives at the row's own stamp, where the merge takes
+  ///   the entry the root's merge had queued;
+  /// - another device's, when what decides the share here is newer than
+  ///   that push ([SyncTableBinding.shareStamps] against the server's
+  ///   time): the pusher could not have known it, and may be offline for
+  ///   days. Never otherwise — a device that is itself behind must not
+  ///   unsay what a device ahead of it wrote; that pusher says it again
+  ///   itself once it merges the root. The two clocks differ by a device's
+  ///   skew, inside which either answer is repaired by the next one.
+  ///
+  /// Nothing is read when no document of the part names a pair and no row
+  /// here carries a mark, and only a part that holds a differing document
+  /// asks for the stamps.
+  Future<void> _resayShares(
+    SyncTableBinding<Object> table,
+    List<SyncEnvelope> merged,
+    Map<String, SyncPush> pushed,
+  ) async {
+    if (merged.isEmpty || !sharedTables.contains(table.table)) return;
+    final db = _e._db;
+    if (merged.every((envelope) => envelope.sharedPair == null) &&
+        !await db.syncDao.anyShareMark()) {
+      return;
+    }
+    final rows = await table.loadByKeys(db, [
+      for (final envelope in merged) envelope.rowKey,
+    ]);
+    final shared = await table.sharedPairs(db, rows);
+    final differing = [
+      for (final envelope in merged)
+        if (shared[envelope.rowKey] != envelope.sharedPair) envelope,
+    ];
+    if (differing.isEmpty) return;
+    Map<String, String>? decided;
+    for (final envelope in differing) {
+      final push = pushed[envelope.rowKey];
+      if (push?.by != _e._deviceId) {
+        final at = push?.at;
+        if (at == null) continue;
+        decided ??= await table.shareStamps(db, rows);
+        final stamp = decided[envelope.rowKey];
+        if (stamp == null ||
+            HlcTimestamp.parse(stamp).wallTime <= at.millisecondsSinceEpoch) {
+          continue;
+        }
+      }
+      await db.syncOutboxDao.requeueRow(table.table, envelope.rowKey);
     }
   }
 
@@ -835,6 +901,7 @@ class _Puller {
     Map<String, String> fetched = const {},
     Set<String>? asked,
     bool announced = false,
+    Map<String, SyncPush> pushed = const {},
   }) async {
     final db = _e._db;
     final name = table.table;
@@ -858,6 +925,9 @@ class _Puller {
     // once the page committed; a parked envelope wrote nothing and moves it
     // no more than a document this device never received.
     String? advance;
+    // The envelopes that merged, whose documents may say who reads them as
+    // of a push this device now knows better than ([_resayShares]).
+    final merged = <SyncEnvelope>[];
     await db.transaction(() async {
       await _checkStillBound(bound);
       final conflicts = <SyncNoteConflict>[];
@@ -901,6 +971,7 @@ class _Puller {
         if (advance == null || envelope.hlc.compareTo(advance!) > 0) {
           advance = envelope.hlc;
         }
+        merged.add(envelope);
         rows.add(
           SyncAppliedRow(
             rowKey: envelope.rowKey,
@@ -932,6 +1003,9 @@ class _Puller {
       for (final key in gone) {
         await _unpark(name, key, unparked);
       }
+      // After every merge of the part: a merge retires the very entry this
+      // may have to put back.
+      await _resayShares(table, merged, pushed);
       for (final conflict in conflicts) {
         final copy = await _e._hooks.fileConflictCopy(conflict);
         if (copy != null) {

@@ -1,8 +1,10 @@
 rules_version = '2';
 
-// Cloud sync Phase 01 — pairing (`pairs`, `invites`) — and Phase 02 — one
+// Cloud sync Phase 01 — pairing (`pairs`, `invites`) — Phase 02 — one
 // account's own spaces (`users/{owner}/spaces`, record
-// docs/cloud-sync-phase-02-own-space.md §3.7).
+// docs/cloud-sync-phase-02-own-space.md §3.7) — and the read side of
+// sharing: a partner reading the rows an owner shared into their pair
+// (record docs/cloud-sharing-foundations.md §4).
 //
 // Deploy from frontend/anta with:
 //   firebase deploy --only firestore:rules,firestore:indexes --project alexs-note-tracking-app
@@ -22,6 +24,27 @@ service cloud.firestore {
 
     function uid() {
       return request.auth.uid;
+    }
+
+    // Whether the caller is a member of the pair `pairId` while that pair
+    // is active — what every read of another account's shared row rests on
+    // (docs/cloud-sharing-foundations.md §4). One `get()`: an ended pair,
+    // and a pair removed by a member's account deletion, answer no at
+    // once, whether or not the owner's device ever runs again. A pair that
+    // does not exist errors on `.data`, which denies.
+    function activeMember(pairId) {
+      let pair = get(/databases/$(database)/documents/pairs/$(pairId)).data;
+      return pair.status == 'active' && uid() in pair.members;
+    }
+
+    // A shared row's document names the pair it is shared into at its top
+    // level, written by its owner with every push. A query has to pin that
+    // field (`sharedPair == <pairId>`) or this cannot be decided and the
+    // whole query is refused, so nothing is ever listed across pairs.
+    function sharedWithCaller() {
+      return signedIn()
+          && resource.data.sharedPair is string
+          && activeMember(resource.data.sharedPair);
     }
 
     match /pairs/{pairId} {
@@ -209,14 +232,21 @@ service cloud.firestore {
 
     match /users/{owner}/spaces/{spaceId} {
       function isOwner() { return signedIn() && uid() == owner; }
+      // `sharedPair` (wire 47): the pair this space's notes are shared
+      // into, kept by every push and taken out when none — what the chunk
+      // rule below goes by, since a note's text is stored once per space
+      // under its hash and carries no grant of its own.
       function validSpace() {
         let d = request.resource.data;
         return d.keys().hasOnly(['name', 'createdAt', 'createdBy', 'schema',
                                  'touched', 'lastWriter', 'lastWriteAt',
-                                 'deletedAt'])
+                                 'deletedAt', 'sharedPair'])
             && d.name is string && d.name.size() > 0 && d.name.size() <= 100
             && d.schema is int && d.schema > 0
-            && d.createdBy is string && d.createdBy.size() <= 64;
+            && d.createdBy is string && d.createdBy.size() <= 64
+            && (!('sharedPair' in d)
+                || (d.sharedPair is string && d.sharedPair.size() > 0
+                    && d.sharedPair.size() <= 64));
       }
       // Marked for deletion (record cloud-multi-user-roadmap §5.3): once
       // marked, the document takes no update — every push writes it in the
@@ -252,10 +282,34 @@ service cloud.firestore {
           return d.op == 'upsert'
               && d.data.gz is bytes && d.data.gz.size() <= 65536;
         }
+        // The tables whose rows can be shared with a partner — `sharedTables`
+        // in sync_tables.dart, each with its collection-group rule below
+        // and its index in firestore.indexes.json.
+        function shareable() {
+          return table in ['calendar_events', 'calendar_event_occurrences',
+            'calendar_event_skips', 'folders', 'notes'];
+        }
+        // A share is checked for shape alone: validating the pair here
+        // would cost one access call per written row, and a batch is
+        // documented to allow twenty. Naming a pair one is not in gains
+        // nothing — its members could read the row, nothing more — and the
+        // reader pins the owner it expects besides. `wire` is the wire
+        // version of the build that wrote a shared row, for a reader that
+        // cannot see this space's schema; a private row carries neither.
+        function validShare() {
+          let d = request.resource.data;
+          return ('sharedPair' in d)
+              ? (shareable()
+                 && d.sharedPair is string && d.sharedPair.size() > 0
+                 && d.sharedPair.size() <= 64
+                 && d.wire is int && d.wire > 0)
+              : !('wire' in d);
+        }
         function validEnvelope() {
           let d = request.resource.data;
           return d.keys().hasOnly(['hlc', 'deviceId', 'version', 'op', 'ownerId',
-                                   'data', 'pushedAt', 'pushedBy'])
+                                   'data', 'pushedAt', 'pushedBy',
+                                   'sharedPair', 'wire'])
               && d.hlc is string && d.hlc.size() > 0 && d.hlc.size() <= 80
               && d.deviceId is string && d.deviceId.size() <= 64
               && d.version is int
@@ -264,7 +318,8 @@ service cloud.firestore {
               && (d.op == 'tombstone' ? d.data == null : d.data is map)
               && d.pushedAt == request.time
               && d.pushedBy is string
-              && (table != 'content_chunks' || validChunk());
+              && (table != 'content_chunks' || validChunk())
+              && validShare();
         }
         // A row of a live space leaves only as a tombstone, never as a
         // missing document: a device that missed the delete would keep the
@@ -276,7 +331,36 @@ service cloud.firestore {
         allow get, list: if isOwner() && syncedTable();
         allow create, update: if isOwner() && syncedTable() && validEnvelope();
         allow delete: if isOwner() && syncedTable() && spaceMarked();
+        // The text of a note shared with a partner: one chunk by its hash,
+        // for an active member of the pair the space says its notes are
+        // shared into. `get` alone — the hashes come from a shared note's
+        // manifest, and a space's text can never be listed. Two access
+        // calls, the space and the pair. A space that names no pair errors
+        // on the field, which denies.
+        allow get: if table == 'content_chunks' && signedIn()
+          && activeMember(get(/databases/$(database)/documents/users/$(owner)/spaces/$(spaceId)).data.sharedPair);
       }
+    }
+
+    // The partner's read of a shared row, wherever its space is: a
+    // collection-group query per table, pinned to the pair
+    // (`sharedWithCaller`). Read only — nothing here lets a partner write.
+    // One `match` per shareable table: a wildcard over the collection name
+    // would open every other table's documents to the same test.
+    match /{path=**}/calendar_events/{rowKey} {
+      allow get, list: if sharedWithCaller();
+    }
+    match /{path=**}/calendar_event_occurrences/{rowKey} {
+      allow get, list: if sharedWithCaller();
+    }
+    match /{path=**}/calendar_event_skips/{rowKey} {
+      allow get, list: if sharedWithCaller();
+    }
+    match /{path=**}/folders/{rowKey} {
+      allow get, list: if sharedWithCaller();
+    }
+    match /{path=**}/notes/{rowKey} {
+      allow get, list: if sharedWithCaller();
     }
   }
 }

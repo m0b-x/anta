@@ -23,6 +23,13 @@ final class CalendarEventsBinding extends SyncTableBinding<CalendarEventRow> {
   @override
   String rowKeyOf(CalendarEventRow row) => row.id;
 
+  /// An event is shared by its own mark, which the row carries.
+  @override
+  Future<Map<String, String>> sharedPairs(
+    AppDatabase db,
+    List<CalendarEventRow> rows,
+  ) async => {for (final row in rows) row.id: ?row.sharedPair};
+
   @override
   Future<SyncEnvelope> encode(
     AppDatabase db,
@@ -67,6 +74,7 @@ final class CalendarEventsBinding extends SyncTableBinding<CalendarEventRow> {
         'createdAtMs': row.createdAt.millisecondsSinceEpoch,
         'updatedAtMs': row.updatedAt.millisecondsSinceEpoch,
         if (row.ownerId != null) 'ownerId': row.ownerId,
+        if (row.sharedPair != null) sharedPairKey: row.sharedPair,
       },
     );
   }
@@ -114,6 +122,7 @@ final class CalendarEventsBinding extends SyncTableBinding<CalendarEventRow> {
       isDeleted: isTombstone(envelope),
       deletedAt: deletedAtOf(envelope),
       ownerId: envelope.ownerId,
+      sharedPair: f.nullable<String>(sharedPairKey),
     );
   }
 

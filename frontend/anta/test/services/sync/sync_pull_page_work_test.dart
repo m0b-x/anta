@@ -398,7 +398,7 @@ void main() {
     await a().sync();
     await b().sync();
     expect(b().statuses.where((s) => s.updating), isEmpty);
-    await b().db.syncDao.setValue(SyncDao.keyWireVersion, '${syncSchema - 1}');
+    await b().db.syncDao.setValue(SyncDao.keyWireVersion, '$beforeBodyWire');
     b().statuses.clear();
 
     final report = await b().sync();
@@ -432,7 +432,7 @@ void main() {
     }
     await a().sync();
     await b().sync();
-    await b().db.syncDao.setValue(SyncDao.keyWireVersion, '${syncSchema - 1}');
+    await b().db.syncDao.setValue(SyncDao.keyWireVersion, '$beforeBodyWire');
     b().statuses.clear();
 
     final report = await b().sync();
@@ -480,7 +480,7 @@ void main() {
     await b().db.customStatement(
       'UPDATE content_chunks SET content_hash = NULL',
     );
-    await b().db.syncDao.setValue(SyncDao.keyWireVersion, '${syncSchema - 1}');
+    await b().db.syncDao.setValue(SyncDao.keyWireVersion, '$beforeBodyWire');
   }
 
   test('re-cutting a legacy note for its first push encodes no chunk inside '
@@ -652,7 +652,7 @@ void main() {
         ),
     ];
     await a().syncFiringSpacing();
-    await b().db.syncDao.setValue(SyncDao.keyWireVersion, '${syncSchema - 1}');
+    await b().db.syncDao.setValue(SyncDao.keyWireVersion, '$beforeBodyWire');
 
     final errors = <Object>[];
     final flutterOnError = FlutterError.onError;
@@ -694,7 +694,7 @@ void main() {
     expect(await b().binding.read(), isNull);
     expect(
       await b().db.syncDao.getValue(SyncDao.keyWireVersion),
-      '${syncSchema - 1}',
+      '$beforeBodyWire',
       reason: 'the cutover did not complete',
     );
 
@@ -794,7 +794,7 @@ void main() {
         await a().sync();
         await b().db.syncDao.setValue(
           SyncDao.keyWireVersion,
-          '${syncSchema - 1}',
+          '$beforeBodyWire',
         );
         b().hooks.clear();
         final reads = bodyReadsInside(b(), {note.id});

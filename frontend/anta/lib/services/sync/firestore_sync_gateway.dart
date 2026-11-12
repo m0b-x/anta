@@ -77,6 +77,7 @@ class FirestoreSyncGateway implements SyncGateway {
     List<SyncEnvelope> batch, {
     required String pushedBy,
     required int schema,
+    String? sharedPair,
   }) async {
     if (batch.isEmpty) {
       throw ArgumentError.value(batch.length, 'batch', 'no rows');
@@ -104,6 +105,7 @@ class FirestoreSyncGateway implements SyncGateway {
               envelope,
               pushedBy: pushedBy,
               serverTime: now,
+              wire: schema,
             ),
           );
         }
@@ -114,6 +116,8 @@ class FirestoreSyncGateway implements SyncGateway {
             pushedBy: pushedBy,
             schema: schema,
             serverTime: now,
+            sharedPair: sharedPair,
+            removed: FieldValue.delete(),
           ),
           SetOptions(merge: true),
         );
@@ -197,6 +201,7 @@ class FirestoreSyncGateway implements SyncGateway {
           .get(const GetOptions(source: Source.server));
       final envelopes = <SyncEnvelope>[];
       final skipped = <String>[];
+      final pushed = <String, SyncPush>{};
       var next = from;
       // The page's latest position in the cursor's own order — the query's
       // order, so the cursor cannot step back inside a page. Seeded with
@@ -234,6 +239,7 @@ class FirestoreSyncGateway implements SyncGateway {
           continue;
         }
         envelopes.add(envelope);
+        pushed[doc.id] = FirestoreSyncWire.pushOf(data, pushedAt.toDate());
       }
       final hasMore = snapshot.docs.length == take;
       return SyncPullPage(
@@ -247,6 +253,7 @@ class FirestoreSyncGateway implements SyncGateway {
           read: read,
         ),
         skipped: skipped,
+        pushed: pushed,
       );
     });
   }
@@ -260,6 +267,7 @@ class FirestoreSyncGateway implements SyncGateway {
     final collection = _space(space).collection(table);
     final envelopes = <SyncEnvelope>[];
     final skipped = <String>[];
+    final pushed = <String, SyncPush>{};
     const step = SyncGateway.rowReadBatch;
     for (var start = 0; start < rowKeys.length; start += step) {
       final batch = rowKeys.skip(start).take(step);
@@ -277,6 +285,11 @@ class FirestoreSyncGateway implements SyncGateway {
           skipped.add(doc.id);
         } else {
           envelopes.add(envelope);
+          final at = data['pushedAt'];
+          pushed[doc.id] = FirestoreSyncWire.pushOf(
+            data,
+            at is Timestamp ? at.toDate() : null,
+          );
         }
       }
     }
@@ -285,6 +298,7 @@ class FirestoreSyncGateway implements SyncGateway {
       next: null,
       hasMore: false,
       skipped: skipped,
+      pushed: pushed,
     );
   }
 
@@ -689,10 +703,18 @@ abstract final class FirestoreSyncWire {
   /// which the rules require to be the request's time. A bytes field of
   /// `data` (a chunk's `gz`) is written as a [Blob], Firestore's own binary
   /// type, a quarter smaller than base64 text and what the rules check.
+  ///
+  /// A shared row's document says so beside `data` — [sharedPairKey], what
+  /// the rules let the pair read it by — and names [wire], the wire version
+  /// of this build, under [wireKey]: its reader is another account's
+  /// device, which cannot read this space's schema. A private row's
+  /// document carries neither, and the whole document is replaced on every
+  /// push, so a row made private loses both with the write.
   static Map<String, Object?> documentOf(
     SyncEnvelope envelope, {
     required String pushedBy,
     required Object serverTime,
+    required int wire,
   }) => {
     'hlc': envelope.hlc,
     'deviceId': envelope.deviceId,
@@ -702,7 +724,26 @@ abstract final class FirestoreSyncWire {
     'data': _mapValues(envelope.data, (v) => v is Uint8List ? Blob(v) : v),
     'pushedAt': serverTime,
     'pushedBy': pushedBy,
+    if (envelope.sharedPair != null) ...{
+      sharedPairKey: envelope.sharedPair,
+      wireKey: wire,
+    },
   };
+
+  /// The field a shared row's document names its writer's wire version
+  /// under.
+  static const String wireKey = 'wire';
+
+  /// The push that wrote [document] ([SyncPullPage.pushed]): its `pushedBy`
+  /// — null for one that names none — and [at], its `pushedAt` as the
+  /// caller read it.
+  static SyncPush pushOf(Map<String, Object?> document, DateTime? at) {
+    final pushedBy = document['pushedBy'];
+    return SyncPush(
+      by: pushedBy is String && pushedBy.isNotEmpty ? pushedBy : null,
+      at: at,
+    );
+  }
 
   /// [data] with each top-level value passed through [map].
   static Map<String, Object?>? _mapValues(
@@ -728,13 +769,17 @@ abstract final class FirestoreSyncWire {
     final op = OutboxOp.values.asNameMap()[document['op']];
     final ownerId = document['ownerId'];
     final data = document['data'];
+    final sharedPair = document[sharedPairKey];
+    final wire = document[wireKey];
     if (hlc is! String ||
         deviceId is! String ||
         version is! num ||
         op == null ||
         ownerId is! String ||
         !document.containsKey('data') ||
-        (data != null && data is! Map)) {
+        (data != null && data is! Map) ||
+        (sharedPair != null && sharedPair is! String) ||
+        (wire != null && wire is! num)) {
       return null;
     }
     return SyncEnvelope(
@@ -746,6 +791,8 @@ abstract final class FirestoreSyncWire {
       op: op,
       ownerId: ownerId,
       data: _mapValues(data as Map?, (v) => v is Blob ? v.bytes : v),
+      sharedPair: sharedPair as String?,
+      wire: (wire as num?)?.toInt(),
     );
   }
 
@@ -759,16 +806,25 @@ abstract final class FirestoreSyncWire {
   /// `touched` as the server clock (`server_seen`) and skips a table's
   /// overlap re-read on it (scalability record S9), so a client time ahead
   /// of the server would mark a table settled while writes can still land.
+  ///
+  /// [sharedPair], the pair the database's notes are shared into, is kept
+  /// under [sharedPairKey] and taken out again when null — [removed] is
+  /// Firestore's field-delete sentinel, a no-op on a document that never
+  /// had the field — so the space never names a pair its database stopped
+  /// sharing into.
   static Map<String, Object?> spaceMergeOf(
     Set<String> tables, {
     required String pushedBy,
     required int schema,
     required Object serverTime,
+    required String? sharedPair,
+    required Object removed,
   }) => {
     'touched': {for (final table in tables) table: serverTime},
     'lastWriter': pushedBy,
     'lastWriteAt': serverTime,
     'schema': schema,
+    sharedPairKey: sharedPair ?? removed,
   };
 
   /// A new space document; the rules require `createdAt` to be the request's

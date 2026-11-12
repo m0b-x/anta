@@ -395,6 +395,7 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
       final moves = updateParent && parentId != existing.parentId;
       if (!renames && !moves) return existing;
 
+      final shared = moves ? await _sharedPairOf(id) : null;
       final now = DateTime.now();
       final stamp = await db.stampLocal(folders, id);
 
@@ -408,6 +409,7 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
       );
 
       await (update(folders)..where((f) => f.id.equals(id))).write(companion);
+      if (moves) await _requeueSubtreeIfShareChanged(id, shared);
       return getFolderById(id);
     });
   }
@@ -430,6 +432,7 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
 
       if (existing.parentId == targetParentId) return existing;
 
+      final shared = await _sharedPairOf(id);
       final now = DateTime.now();
       final stamp = await db.stampLocal(folders, id);
 
@@ -454,6 +457,7 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
           version: Value(existing.version + 1),
         ),
       );
+      await _requeueSubtreeIfShareChanged(id, shared);
       return getFolderById(id);
     });
   }
@@ -546,6 +550,7 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
       final moved = plan.moved;
       if (moved.isEmpty) return plan;
 
+      final shared = await sharedPairsOf(moved.keys);
       var last = await _maxLivePosition(targetParentId);
       final stamp = db.newStamp();
       await batch((b) {
@@ -565,6 +570,12 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
         }
       });
       await db.enqueueMany(folders, moved.keys, stamp.hlc);
+      // What each moved folder shares its subtree into follows the place it
+      // landed in: the rows under it say so only once they are pushed again.
+      final landed = await sharedPairsOf(moved.keys);
+      for (final id in moved.keys) {
+        if (landed[id] != shared[id]) await _requeueSubtree(id);
+      }
       return plan;
     });
   }
@@ -983,6 +994,244 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
     )..where((f) => f.hlcTimestamp.isBiggerThanValue(hlcTimestamp))).get();
   }
 
+  /// The pair each folder among [ids] is shared into, by id: its own mark,
+  /// else the mark of the nearest folder above it; a folder under no mark
+  /// has no entry (`docs/cloud-sharing-foundations.md` §3). Tombstones are
+  /// walked like any row, and keep their place in what is shared — the
+  /// partner has to hear of a delete.
+  ///
+  /// One statement when nothing is shared, which is nearly always; else the
+  /// table's ids and parents once, however many folders are asked for. The
+  /// walk is bounded by [maxFolderDepth], as every folder walk here is.
+  Future<Map<String, String>> sharedPairsOf(Iterable<String> ids) async {
+    final wanted = ids.toSet();
+    if (wanted.isEmpty) return const {};
+    final marked = await customSelect(
+      'SELECT id, shared_pair FROM folders WHERE shared_pair IS NOT NULL',
+      readsFrom: {folders},
+    ).get();
+    if (marked.isEmpty) return const {};
+    final marks = {
+      for (final row in marked)
+        row.read<String>('id'): row.read<String>('shared_pair'),
+    };
+    final parents = {
+      for (final row in await customSelect(
+        'SELECT id, parent_id FROM folders',
+        readsFrom: {folders},
+      ).get())
+        row.read<String>('id'): row.read<String?>('parent_id'),
+    };
+    final pairs = <String, String>{};
+    for (final id in wanted) {
+      String? at = id;
+      for (var depth = 0; at != null && depth <= maxFolderDepth; depth++) {
+        final pair = marks[at];
+        if (pair != null) {
+          pairs[id] = pair;
+          break;
+        }
+        at = parents[at];
+      }
+    }
+    return pairs;
+  }
+
+  /// The newest stamp among each folder of [ids] and the folders above it,
+  /// by id — the newest write this device holds that decides what the
+  /// folder, and a note in it, is shared into: a mark set or cleared and a
+  /// move are each a write of a folder on that chain
+  /// (`SyncTableBinding.shareStamps`). An unknown id has no entry; the walk
+  /// is bounded by [maxFolderDepth].
+  Future<Map<String, String>> shareStampsOf(Iterable<String> ids) async {
+    final wanted = ids.toSet();
+    if (wanted.isEmpty) return const {};
+    final rows = {
+      for (final row in await customSelect(
+        'SELECT id, parent_id, hlc_timestamp FROM folders',
+        readsFrom: {folders},
+      ).get())
+        row.read<String>('id'): (
+          parent: row.read<String?>('parent_id'),
+          hlc: row.read<String>('hlc_timestamp'),
+        ),
+    };
+    final stamps = <String, String>{};
+    for (final id in wanted) {
+      String? newest;
+      String? at = id;
+      for (var depth = 0; at != null && depth <= maxFolderDepth; depth++) {
+        final row = rows[at];
+        if (row == null) break;
+        if (newest == null || row.hlc.compareTo(newest) > 0) newest = row.hlc;
+        at = row.parent;
+      }
+      if (newest != null) stamps[id] = newest;
+    }
+    return stamps;
+  }
+
+  /// The pair this database's shared notes are shared into — what a push
+  /// writes on the space document, by which a partner may fetch the text
+  /// of a note shared with them (`docs/cloud-sharing-foundations.md` §4) —
+  /// or null when no live folder carries a mark. A database shares into one
+  /// pair ([setSharedPair]); two devices marking at once can leave two for
+  /// a moment, and then every device names the same one.
+  Future<String?> sharedPairOfNotes() async {
+    final row = await customSelect(
+      'SELECT MAX(shared_pair) AS pair FROM folders '
+      'WHERE shared_pair IS NOT NULL AND is_deleted = 0',
+      readsFrom: {folders},
+    ).getSingle();
+    return row.read<String?>('pair');
+  }
+
+  /// Shares the live folder [id] and everything under it into [pairId], or
+  /// takes its mark away when null — the one writer of `shared_pair` on
+  /// this table (`docs/cloud-sharing-foundations.md` §3). A stamped write
+  /// of the one column, so the owner's other devices merge the mark like
+  /// any edit; `updated_at` is left alone, as a label's write leaves it.
+  ///
+  /// Setting a mark clears, in the same transaction and under the same
+  /// stamp, every mark inside the folder's own subtree — the outer one now
+  /// covers them — and every mark of another pair, here and on
+  /// `calendar_events`: a database shares into one pair.
+  ///
+  /// The folders and notes under it are queued again at the stamps they
+  /// carry ([_requeueSubtree]): their documents say who may read them from
+  /// this mark, and only a push writes that.
+  ///
+  /// A missing or tombstoned folder, and a mark the folder already carries,
+  /// write nothing. Returns whether the folder's mark was written.
+  Future<bool> setSharedPair(String id, String? pairId) {
+    return transaction(() async {
+      final existing = await getFolderById(id);
+      if (existing == null || existing.isDeleted) return false;
+      if (existing.sharedPair == pairId) return false;
+      // One stamp for the whole act: the mark and whatever it clears.
+      final stamp = db.newStamp();
+      if (pairId != null) {
+        await clearOtherPairs(pairId, stamp);
+        await db.calendarEventDao.clearOtherPairs(pairId, stamp);
+        await _clearMarks(
+          stamp,
+          where: 'shared_pair IS NOT NULL AND id IN (${_descendantsOf('?3')})',
+          variables: [Variable<String>(id)],
+          requeue: false,
+        );
+      }
+      await db.enqueue(folders, id, stamp.hlc);
+      await (update(folders)..where((f) => f.id.equals(id))).write(
+        FoldersCompanion(
+          sharedPair: Value(pairId),
+          hlcTimestamp: Value(stamp.hlc),
+          deviceId: Value(stamp.deviceId),
+          version: Value(existing.version + 1),
+        ),
+      );
+      await _requeueSubtree(id);
+      return true;
+    });
+  }
+
+  /// Clears, under [stamp], the mark of every folder shared into another
+  /// pair than [pairId], each row queued and its subtree queued again — its
+  /// half of "a database shares into one pair", called inside the
+  /// transaction of the write that sets a mark ([setSharedPair],
+  /// [CalendarEventDao.setSharedPair]). Tombstones too: their documents
+  /// would go on naming a pair this database no longer shares into.
+  Future<void> clearOtherPairs(String pairId, CrdtStamp stamp) => _clearMarks(
+    stamp,
+    where: 'shared_pair IS NOT NULL AND shared_pair <> ?3',
+    variables: [Variable<String>(pairId)],
+    requeue: true,
+  );
+
+  /// Sets `shared_pair` to NULL under [stamp] on the folders [where]
+  /// selects — its numbered parameters start at `?3`, bound from
+  /// [variables] — and queues each; [requeue] queues their subtrees again
+  /// too, for a mark no outer write's own re-queue covers.
+  Future<void> _clearMarks(
+    CrdtStamp stamp, {
+    required String where,
+    required List<Variable<Object>> variables,
+    required bool requeue,
+  }) async {
+    final cleared = await customWriteReturning(
+      'UPDATE folders SET shared_pair = NULL, hlc_timestamp = ?1, '
+      'device_id = ?2, version = version + 1 '
+      'WHERE $where RETURNING id, is_deleted',
+      variables: [
+        Variable<String>(stamp.hlc),
+        Variable<String>(stamp.deviceId),
+        ...variables,
+      ],
+      updates: {folders},
+      updateKind: UpdateKind.update,
+    );
+    if (cleared.isEmpty) return;
+    for (final deleted in const [false, true]) {
+      await db.enqueueMany(
+        folders,
+        [
+          for (final row in cleared)
+            if (row.read<bool>('is_deleted') == deleted) row.read<String>('id'),
+        ],
+        stamp.hlc,
+        op: OutboxOp.forRow(isDeleted: deleted),
+      );
+    }
+    if (!requeue) return;
+    for (final row in cleared) {
+      await _requeueSubtree(row.read<String>('id'));
+    }
+  }
+
+  /// A query for the ids of every folder under the folder bound at
+  /// [folder] (a numbered parameter), tombstones included — unlike
+  /// [getAllDescendantIds], whose walk a tombstone ends: a deleted folder's
+  /// document says who may read it too.
+  static String _descendantsOf(String folder) =>
+      'WITH RECURSIVE d(id, depth) AS ('
+      '  SELECT id, 0 FROM folders WHERE parent_id = $folder '
+      '  UNION ALL '
+      '  SELECT f.id, d.depth + 1 FROM folders f '
+      '  JOIN d ON f.parent_id = d.id WHERE d.depth < $maxFolderDepth'
+      ') SELECT id FROM d';
+
+  /// Queues again, at the stamps they carry, every folder and note under
+  /// the folder [id], tombstones included: their documents say who may read
+  /// them from the nearest mark above, and only a push writes that
+  /// ([CrdtWrite.requeueRows]). Only the rows of the folder's own account
+  /// — another's are never this device's to push. The folder itself is its
+  /// caller's write.
+  Future<void> _requeueSubtree(String id) async {
+    final under = _descendantsOf('?2');
+    const own = 'owner_id IS (SELECT owner_id FROM folders WHERE id = ?2)';
+    final folder = [Variable<String>(id)];
+    await db.requeueRows(
+      folders,
+      rows: 'id IN ($under) AND $own',
+      variables: folder,
+    );
+    await db.requeueRows(
+      db.notes,
+      rows: '(folder_id = ?2 OR folder_id IN ($under)) AND $own',
+      variables: folder,
+    );
+  }
+
+  /// The pair the folder [id] is shared into as it stands — its own mark or
+  /// the nearest above it — for a write that may move it under another.
+  Future<String?> _sharedPairOf(String id) async =>
+      (await sharedPairsOf([id]))[id];
+
+  /// Queues the subtree of [id] again when the pair it is shared into is no
+  /// longer [before], the one it had ahead of a move or a merge.
+  Future<void> _requeueSubtreeIfShareChanged(String id, String? before) async {
+    if (await _sharedPairOf(id) != before) await _requeueSubtree(id);
+  }
+
   /// The rows under [ids], tombstones included: the sync push sends the
   /// tombstone a delete queued, so it reads past the live-row filter.
   Future<List<Folder>> getByIdsIncludingDeleted(List<String> ids) {
@@ -1003,50 +1252,89 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
   /// see [_repairMergedParent]; the repair is a local write with its own
   /// stamp, so the space converges on it rather than on the parent that hid
   /// the subtree.
+  ///
+  /// A live remote that changes what the folder shares its subtree into —
+  /// its own mark, or the place it hangs in, the repair's included — queues
+  /// this device's copies of the rows under it again ([_requeueSubtree]):
+  /// a device that pushed one before it had merged the change wrote a
+  /// document that says the old grant, and only the device holding the row
+  /// can say it again. A folder that arrives new brings nothing to queue
+  /// unless it carries a mark itself.
   Future<MergeOutcome> mergeFolder(Folder remote, {String? floor}) {
     return transaction(() async {
       final local = await getFolderById(remote.id);
-      final outcome = await CrdtMerge.mergeRemoteRow(
-        db,
-        table: folders,
-        rowKey: remote.id,
-        remoteHlc: remote.hlcTimestamp,
-        localHlc: local?.hlcTimestamp,
-        floor: floor,
-        insert: () => into(folders).insert(remote),
-        overwrite: (applied) async {
-          if (remote.isDeleted) {
-            await (update(folders)..where((f) => f.id.equals(remote.id))).write(
-              FoldersCompanion(
-                hlcTimestamp: Value(remote.hlcTimestamp),
-                deviceId: Value(remote.deviceId),
-                version: Value(remote.version),
-                isDeleted: const Value(true),
-                deletedAt: Value(remote.deletedAt),
-                updatedAt: CrdtMerge.tombstoneUpdatedAt(remote.deletedAt),
-                ownerId: Value(remote.ownerId),
-              ),
-            );
-          } else {
-            await update(folders).replace(remote);
-            if (local!.parentId != remote.parentId) {
-              return applied.movedFrom(local.parentId);
-            }
-          }
-          return applied;
-        },
-      );
-      final parentId = remote.parentId;
-      if (remote.isDeleted ||
-          parentId == null ||
-          (outcome.result != MergeResult.inserted &&
-              outcome.result != MergeResult.applied)) {
-        return outcome;
+      final writes =
+          !remote.isDeleted &&
+          CrdtMerge.remoteWrites(
+            remoteHlc: remote.hlcTimestamp,
+            localHlc: local?.hlcTimestamp,
+            floor: floor,
+          );
+      final shared = writes && local != null
+          ? await _sharedPairOf(remote.id)
+          : null;
+      final (:outcome, :repaired) = await _mergeFolder(remote, local, floor);
+      if (writes &&
+          (outcome.result == MergeResult.inserted ||
+              outcome.result == MergeResult.applied) &&
+          (local != null || remote.sharedPair != null || repaired)) {
+        await _requeueSubtreeIfShareChanged(remote.id, shared);
       }
-      if (!await _repairMergedParent(remote, parentId)) return outcome;
-      if (outcome.moved || local == null) return outcome;
-      return outcome.movedFrom(local.parentId);
+      return outcome;
     });
+  }
+
+  /// [mergeFolder]'s merge and repair, inside its transaction, with whether
+  /// the repair re-parented the row.
+  Future<({MergeOutcome outcome, bool repaired})> _mergeFolder(
+    Folder remote,
+    Folder? local,
+    String? floor,
+  ) async {
+    final outcome = await CrdtMerge.mergeRemoteRow(
+      db,
+      table: folders,
+      rowKey: remote.id,
+      remoteHlc: remote.hlcTimestamp,
+      localHlc: local?.hlcTimestamp,
+      floor: floor,
+      insert: () => into(folders).insert(remote),
+      overwrite: (applied) async {
+        if (remote.isDeleted) {
+          await (update(folders)..where((f) => f.id.equals(remote.id))).write(
+            FoldersCompanion(
+              hlcTimestamp: Value(remote.hlcTimestamp),
+              deviceId: Value(remote.deviceId),
+              version: Value(remote.version),
+              isDeleted: const Value(true),
+              deletedAt: Value(remote.deletedAt),
+              updatedAt: CrdtMerge.tombstoneUpdatedAt(remote.deletedAt),
+              ownerId: Value(remote.ownerId),
+            ),
+          );
+        } else {
+          await update(folders).replace(remote);
+          if (local!.parentId != remote.parentId) {
+            return applied.movedFrom(local.parentId);
+          }
+        }
+        return applied;
+      },
+    );
+    final parentId = remote.parentId;
+    if (remote.isDeleted ||
+        parentId == null ||
+        (outcome.result != MergeResult.inserted &&
+            outcome.result != MergeResult.applied)) {
+      return (outcome: outcome, repaired: false);
+    }
+    if (!await _repairMergedParent(remote, parentId)) {
+      return (outcome: outcome, repaired: false);
+    }
+    if (outcome.moved || local == null) {
+      return (outcome: outcome, repaired: true);
+    }
+    return (outcome: outcome.movedFrom(local.parentId), repaired: true);
   }
 
   /// Re-parents the just-merged [remote] when the parent it arrived under

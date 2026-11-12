@@ -331,13 +331,18 @@ class CalendarEventDao extends DatabaseAccessor<AppDatabase>
   /// queued every day row and alert it tombstoned, so they arrive as their
   /// own envelopes, and the device-local `alert_registrations` follow from
   /// the engine's reconcile.
+  ///
+  /// A live remote that changes the event's share mark queues this device's
+  /// copies of its day rows again ([_requeueDayRows]): a device that pushed
+  /// one before it had merged the mark wrote a document that says the old
+  /// one, and only the device holding the row can say it again.
   Future<MergeOutcome> mergeRemoteEvent(
     CalendarEventRow remote, {
     String? floor,
   }) {
     return transaction(() async {
       final local = await _byId(remote.id);
-      return CrdtMerge.mergeRemoteRow(
+      final outcome = await CrdtMerge.mergeRemoteRow(
         db,
         table: calendarEvents,
         rowKey: remote.id,
@@ -366,7 +371,158 @@ class CalendarEventDao extends DatabaseAccessor<AppDatabase>
           return applied;
         },
       );
+      final wrote =
+          outcome.result == MergeResult.inserted ||
+          outcome.result == MergeResult.applied;
+      if (wrote &&
+          !remote.isDeleted &&
+          local?.sharedPair != remote.sharedPair) {
+        await _requeueDayRows([remote.id]);
+      }
+      return outcome;
     });
+  }
+
+  /// The pair each event among [ids] is shared into, by id: an event with no
+  /// mark has no entry, and a tombstone keeps its mark — the partner has to
+  /// hear of the delete (`docs/cloud-sharing-foundations.md` §3).
+  Future<Map<String, String>> sharedPairsOf(Iterable<String> ids) async {
+    final rows = await CrdtMerge.loadInChunks(
+      ids.toSet().toList(growable: false),
+      (chunk) => customSelect(
+        'SELECT id, shared_pair FROM calendar_events '
+        'WHERE shared_pair IS NOT NULL AND id IN '
+        '(${List.filled(chunk.length, '?').join(', ')})',
+        variables: [for (final id in chunk) Variable<String>(id)],
+        readsFrom: {calendarEvents},
+      ).get(),
+    );
+    return {
+      for (final row in rows)
+        row.read<String>('id'): row.read<String>('shared_pair'),
+    };
+  }
+
+  /// The stamp each event among [ids] carries, by id, tombstones included —
+  /// the newest write that decides what its day rows are shared into, since
+  /// a change of the event's mark is a write of the event
+  /// (`SyncTableBinding.shareStamps`).
+  Future<Map<String, String>> stampsOf(Iterable<String> ids) async {
+    final rows = await CrdtMerge.loadInChunks(
+      ids.toSet().toList(growable: false),
+      (chunk) => customSelect(
+        'SELECT id, hlc_timestamp FROM calendar_events WHERE id IN '
+        '(${List.filled(chunk.length, '?').join(', ')})',
+        variables: [for (final id in chunk) Variable<String>(id)],
+        readsFrom: {calendarEvents},
+      ).get(),
+    );
+    return {
+      for (final row in rows)
+        row.read<String>('id'): row.read<String>('hlc_timestamp'),
+    };
+  }
+
+  /// Shares the live event [id] into [pairId], or makes it private again
+  /// when null — the one writer of `shared_pair` on this table
+  /// (`docs/cloud-sharing-foundations.md` §3). A stamped write of the one
+  /// column, so the owner's other devices merge the mark like any edit;
+  /// `updated_at` is left alone, as a label's write leaves it.
+  ///
+  /// A database shares into one pair: setting a mark clears every mark of
+  /// another pair, here and on `folders`, in the same transaction.
+  ///
+  /// A missing or tombstoned event, and a mark the event already carries,
+  /// write nothing. Returns whether the event's mark was written.
+  Future<bool> setSharedPair(String id, String? pairId) {
+    return transaction(() async {
+      final existing = await _byId(id);
+      if (existing == null || existing.isDeleted) return false;
+      if (existing.sharedPair == pairId) return false;
+      // One stamp for the whole act: the mark and whatever it clears.
+      final stamp = db.newStamp();
+      if (pairId != null) {
+        await clearOtherPairs(pairId, stamp);
+        await db.folderDao.clearOtherPairs(pairId, stamp);
+      }
+      await db.enqueue(calendarEvents, id, stamp.hlc);
+      await (update(calendarEvents)..where((e) => e.id.equals(id))).write(
+        CalendarEventsCompanion(
+          sharedPair: Value(pairId),
+          hlcTimestamp: Value(stamp.hlc),
+          deviceId: Value(stamp.deviceId),
+          version: Value(existing.version + 1),
+        ),
+      );
+      await _requeueDayRows([id]);
+      return true;
+    });
+  }
+
+  /// Clears, under [stamp], the mark of every event shared into another pair
+  /// than [pairId], each row queued — its half of "a database shares into
+  /// one pair", called inside the transaction of the write that sets a mark
+  /// ([setSharedPair], [FolderDao.setSharedPair]). Tombstones too: their
+  /// documents would go on naming a pair this database no longer shares
+  /// into.
+  Future<void> clearOtherPairs(String pairId, CrdtStamp stamp) async {
+    final cleared = await customWriteReturning(
+      'UPDATE calendar_events SET shared_pair = NULL, hlc_timestamp = ?, '
+      'device_id = ?, version = version + 1 '
+      'WHERE shared_pair IS NOT NULL AND shared_pair <> ? '
+      'RETURNING id, is_deleted',
+      variables: [
+        Variable<String>(stamp.hlc),
+        Variable<String>(stamp.deviceId),
+        Variable<String>(pairId),
+      ],
+      updates: {calendarEvents},
+      updateKind: UpdateKind.update,
+    );
+    if (cleared.isEmpty) return;
+    for (final deleted in const [false, true]) {
+      await db.enqueueMany(
+        calendarEvents,
+        [
+          for (final row in cleared)
+            if (row.read<bool>('is_deleted') == deleted) row.read<String>('id'),
+        ],
+        stamp.hlc,
+        op: OutboxOp.forRow(isDeleted: deleted),
+      );
+    }
+    await _requeueDayRows([for (final row in cleared) row.read<String>('id')]);
+  }
+
+  /// Queues again, at the stamps they carry, the skipped days and per-day
+  /// texts of the events [ids]: their documents say who may read them from
+  /// their event's mark, and only a push writes that
+  /// ([CrdtWrite.requeueRows]). Only the rows of the event's own account —
+  /// another's are never this device's to push.
+  Future<void> _requeueDayRows(List<String> ids) async {
+    const step = CrdtMerge.keysPerStatement;
+    for (var start = 0; start < ids.length; start += step) {
+      final chunk = ids.skip(start).take(step).toList(growable: false);
+      final places = [
+        for (var i = 0; i < chunk.length; i++) '?${i + 2}',
+      ].join(', ');
+      // The day tables shared as their event is: the per-day texts and the
+      // skipped days. Presence marks are a person's own and never shared.
+      for (final table in <TableInfo>[
+        db.eventOccurrenceDescriptions,
+        db.eventSkips,
+      ]) {
+        final name = table.actualTableName;
+        await db.requeueRows(
+          table,
+          rows:
+              'event_id IN ($places) AND owner_id IS '
+              '(SELECT owner_id FROM calendar_events '
+              'WHERE id = $name.event_id)',
+          variables: [for (final id in chunk) Variable<String>(id)],
+        );
+      }
+    }
   }
 
   /// Hard wipe, tombstones included — the backup import's replace-everything

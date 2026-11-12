@@ -349,7 +349,7 @@ void main() {
     /// Lowers [device]'s wire version, so its next run queues every live
     /// note at its own stamp and reads every one again.
     Future<void> lowerWire(SyncDevice device) =>
-        device.db.syncDao.setValue(SyncDao.keyWireVersion, '${syncSchema - 1}');
+        device.db.syncDao.setValue(SyncDao.keyWireVersion, '$beforeBodyWire');
 
     test('files no copy of a version accepted from the space that another '
         'device has edited since, and reads no body of it', () async {

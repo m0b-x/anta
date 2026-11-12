@@ -108,7 +108,7 @@ void main() {
   test('the space carries the wire version, never above the local one', () {
     expect(
       DatabaseSchema.syncSchemaVersion,
-      46,
+      47,
       reason:
           'raised only with a wire change and this file\'s snapshot; a '
           'local-only migration leaves it, or every older device pauses as '
@@ -265,6 +265,45 @@ void main() {
       await db.into(db.folders).insert(row(ownerId: uid));
 
       await expectStrict(binding, 'f1', requiredKey: 'name', idKey: 'id');
+    });
+
+    test('a marked row adds its mark and nothing else, and decodes with '
+        'it (wire 47)', () async {
+      await db
+          .into(db.folders)
+          .insert(row(ownerId: uid).copyWith(sharedPair: const Value('p1')));
+
+      final envelope = await encodeStored(binding, 'f1');
+
+      expect(envelope.data!.keys.toSet(), {
+        ..._wireKeys['folders']!,
+        'sharedPair',
+      }, reason: _wireChanged);
+      expect(envelope.data!['sharedPair'], 'p1');
+      expect(binding.decode(envelope).sharedPair, 'p1');
+      expect(
+        () => binding.decode(
+          carrying(envelope, {...envelope.data!, 'sharedPair': 7}),
+        ),
+        throwsFormatException,
+      );
+    });
+
+    test('a tombstone names no mark: a merge keeps the one the row '
+        'had', () async {
+      await db
+          .into(db.folders)
+          .insert(
+            row(
+              deleted: true,
+              ownerId: uid,
+            ).copyWith(sharedPair: const Value('p1')),
+          );
+
+      final envelope = await encodeStored(binding, 'f1');
+
+      expectTombstone(envelope);
+      expect(binding.decode(envelope).sharedPair, isNull);
     });
   });
 
@@ -1135,6 +1174,40 @@ void main() {
     reset: CalendarEventService.reset,
   );
 
+  test('a marked event adds its mark and nothing else, decodes with it, '
+      'and its backup map carries none (wire 47)', () async {
+    const binding = CalendarEventsBinding();
+    addTearDown(CalendarEventService.reset);
+    await db.calendarEventDao.upsert(
+      CalendarEventsCompanion.insert(
+        id: 'e1',
+        title: 'Leg day',
+        category: 'gym',
+        startDate: created,
+        ruleKind: 'weekly',
+        createdAt: created,
+        updatedAt: updated,
+      ),
+    );
+    final plain = await encodeStored(binding, 'e1');
+    await db.calendarEventDao.setSharedPair('e1', 'p1');
+
+    final envelope = await encodeStored(binding, 'e1');
+
+    expect(envelope.data!.keys.toSet(), {
+      ...plain.data!.keys,
+      'sharedPair',
+    }, reason: _wireChanged);
+    expect(envelope.data!['sharedPair'], 'p1');
+    expect(binding.decode(envelope).sharedPair, 'p1');
+    expect(binding.decode(plain).sharedPair, isNull);
+    // The backup is a person's own copy: it says nothing of a share.
+    final exported = (await (await CalendarEventService.forTesting(
+      db,
+    )).exportData()).single;
+    expect(exported.containsKey('sharedPair'), isFalse);
+  });
+
   // The EU spring-forward day: the day keys must survive a DST switch.
   final day = DateTime.utc(2026, 3, 29);
   final dayKey = dayRowKey('e1', day);
@@ -1597,6 +1670,12 @@ const String _wireChanged =
 /// Wire 46 (§5.3 S6): a note's body left its document — `content` gave way
 /// to the manifest's `chunks` and `bodyHash` — and `content_chunks` joined
 /// the wire, one immutable document per chunk text.
+///
+/// Wire 47 (`docs/cloud-sharing-foundations.md` §4): an event and a folder
+/// that carry a share mark write it under `sharedPair`, a key absent from
+/// every other row — so it is not in the sets below, which are an unmarked
+/// row's; the folders group and the marked-event case above pin it for a
+/// marked one, and `sync_share_push_test.dart` what the documents say.
 const Map<String, Set<String>> _wireKeys = {
   'content_chunks': {'hash', 'gz', 'length'},
   'calendar_categories': {

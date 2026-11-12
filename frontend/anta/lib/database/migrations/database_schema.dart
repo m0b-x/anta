@@ -1,7 +1,7 @@
 import 'package:drift/drift.dart';
 
 abstract class DatabaseSchema {
-  static const int currentVersion = 51;
+  static const int currentVersion = 52;
 
   /// The version the sync space carries and every engine compares against:
   /// a space written by a higher one pauses this build as outdated. Bumped
@@ -9,8 +9,16 @@ abstract class DatabaseSchema {
   /// never for a local-only migration, so a device on a newer local schema
   /// does not pause every other device; it never exceeds [currentVersion]
   /// (`docs/scalability-roadmap.md` §5.1 S1). 46: a note's body crosses as
-  /// chunk documents and a manifest (§5.3 S6).
-  static const int syncSchemaVersion = 46;
+  /// chunk documents and a manifest (§5.3 S6). 47: an event and a folder
+  /// carry the pair they are shared into — a build before it would push
+  /// such a row back without its mark, and the share would end unasked
+  /// (`docs/cloud-sharing-foundations.md` §4).
+  static const int syncSchemaVersion = 47;
+
+  /// The wire version that re-cut every note's body into chunks: a database
+  /// that last ran below it re-sends every note once, and one at or above
+  /// it never does for a later bump, which changed no body.
+  static const int bodyWireVersion = 46;
 
   static const int v1Initial = 1;
   static const int v2UserSettings = 2;
@@ -63,6 +71,7 @@ abstract class DatabaseSchema {
   static const int v49Counters = 49;
   static const int v50QuickSearchIndex = 50;
   static const int v51OutboxRepublish = 51;
+  static const int v52SharedPair = 52;
 }
 
 typedef MigrationStep = Future<void> Function(Migrator m, GeneratedDatabase db);

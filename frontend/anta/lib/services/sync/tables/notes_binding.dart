@@ -56,6 +56,30 @@ final class NotesBinding extends SyncTableBinding<Note> {
   @override
   String rowKeyOf(Note row) => row.id;
 
+  /// A note is shared as the folder it lies in is: by that folder's mark or
+  /// the nearest one above it.
+  @override
+  Future<Map<String, String>> sharedPairs(
+    AppDatabase db,
+    List<Note> rows,
+  ) async {
+    final folders = await db.folderDao.sharedPairsOf({
+      for (final row in rows) row.folderId,
+    });
+    return {for (final row in rows) row.id: ?folders[row.folderId]};
+  }
+
+  @override
+  Future<Map<String, String>> shareStamps(
+    AppDatabase db,
+    List<Note> rows,
+  ) async {
+    final folders = await db.folderDao.shareStampsOf({
+      for (final row in rows) row.folderId,
+    });
+    return {for (final row in rows) row.id: ?folders[row.folderId]};
+  }
+
   /// The manifest key: the chunk hashes in body order.
   static const String chunksKey = 'chunks';
 

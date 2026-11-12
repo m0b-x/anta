@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:anta/database/crdt/crdt_write.dart';
 import 'package:anta/services/sync/sync_gateway.dart';
+import 'package:anta/services/sync/sync_tables.dart';
 import 'package:anta/services/sync/tables/content_chunks_binding.dart';
 
 /// An in-memory [SyncGateway] for the engine's tests: one map per space and
@@ -26,6 +27,10 @@ class FakeSyncGateway implements SyncGateway {
 
   /// Every batch accepted, in order.
   final List<List<SyncEnvelope>> pushes = [];
+
+  /// The pair [space]'s document says its database's notes are shared into,
+  /// as the last push left it; null for none, and for a space that is gone.
+  String? sharedPairOf(SyncSpaceRef space) => _spaces[space]?.sharedPair;
 
   /// Every pull and push attempted past a scripted failure, in order, as
   /// `pull:<table>` and `push:<pushedBy>` — so a test can read the order a
@@ -192,8 +197,9 @@ class FakeSyncGateway implements SyncGateway {
 
   /// Writes [envelope] into the space as if another client pushed it, past
   /// every check — a malformed document the rules would never have let in,
-  /// so the engine's per-envelope parking can meet one.
-  void plant(SyncSpaceRef space, SyncEnvelope envelope) {
+  /// so the engine's per-envelope parking can meet one. [pushedBy] names
+  /// the device the document says pushed it; none by default.
+  void plant(SyncSpaceRef space, SyncEnvelope envelope, {String? pushedBy}) {
     final sequences = _sequences.putIfAbsent(space, () => {});
     final seq = sequences[envelope.table] =
         (sequences[envelope.table] ?? 0) + 1;
@@ -203,6 +209,7 @@ class FakeSyncGateway implements SyncGateway {
       envelope,
       seq,
       _now(),
+      pushedBy,
     );
   }
 
@@ -289,6 +296,7 @@ class FakeSyncGateway implements SyncGateway {
     List<SyncEnvelope> batch, {
     required String pushedBy,
     required int schema,
+    String? sharedPair,
   }) async {
     _ensureOwner(space.ownerUid);
     _throwIfScripted();
@@ -329,6 +337,14 @@ class FakeSyncGateway implements SyncGateway {
       if (refused != null) {
         throw SyncGatewayException(refused, 'refused ${envelope.rowKey}');
       }
+      // The rules take a share only on a table that can be shared.
+      if (envelope.sharedPair != null &&
+          !sharedTables.contains(envelope.table)) {
+        throw SyncGatewayException(
+          SyncGatewayFailure.permissionDenied,
+          'not a shareable table: ${envelope.table}',
+        );
+      }
       if (!_chunkAdmitted(envelope)) {
         throw SyncGatewayException(
           SyncGatewayFailure.permissionDenied,
@@ -347,16 +363,18 @@ class FakeSyncGateway implements SyncGateway {
       final seq = sequences[envelope.table] =
           (sequences[envelope.table] ?? 0) + 1;
       tables.putIfAbsent(envelope.table, () => {})[envelope.rowKey] = _Arrival(
-        envelope,
+        _stored(envelope, schema),
         seq,
         now,
+        pushedBy,
       );
       record.touched[envelope.table] = now;
     }
     record
       ..lastWriter = pushedBy
       ..lastWriteAt = now
-      ..schema = schema;
+      ..schema = schema
+      ..sharedPair = sharedPair;
     pushes.add(List.unmodifiable(batch));
     _signalOf(space).add(record.signal);
     await onPushBatch?.call(batch);
@@ -417,6 +435,9 @@ class FakeSyncGateway implements SyncGateway {
           if (unreadable.contains((table, arrival.envelope.rowKey)))
             arrival.envelope.rowKey,
       ],
+      pushed: _pushesOf(
+        page.where((a) => !unreadable.contains((table, a.envelope.rowKey))),
+      ),
     );
   }
 
@@ -457,6 +478,11 @@ class FakeSyncGateway implements SyncGateway {
         for (final key in rowKeys)
           if (stored.containsKey(key) && unreadable.contains((table, key))) key,
       ],
+      pushed: _pushesOf([
+        for (final key in rowKeys)
+          if (stored[key] case final arrival?)
+            if (!unreadable.contains((table, key))) arrival,
+      ]),
     );
   }
 
@@ -616,6 +642,25 @@ class FakeSyncGateway implements SyncGateway {
   }
 }
 
+/// [envelope] as its document holds it: a shared row's names the wire that
+/// wrote it ([schema]), a private row's none — as the Firestore gateway
+/// writes them.
+SyncEnvelope _stored(SyncEnvelope envelope, int schema) =>
+    envelope.sharedPair == null
+    ? envelope
+    : SyncEnvelope(
+        table: envelope.table,
+        rowKey: envelope.rowKey,
+        hlc: envelope.hlc,
+        deviceId: envelope.deviceId,
+        version: envelope.version,
+        op: envelope.op,
+        ownerId: envelope.ownerId,
+        data: envelope.data,
+        sharedPair: envelope.sharedPair,
+        wire: schema,
+      );
+
 class _Arrival {
   final SyncEnvelope envelope;
   final int seq;
@@ -623,8 +668,19 @@ class _Arrival {
   /// The server time it landed at — its `pushedAt`.
   final DateTime at;
 
-  const _Arrival(this.envelope, this.seq, this.at);
+  /// The device that pushed it — its `pushedBy`.
+  final String? pushedBy;
+
+  const _Arrival(this.envelope, this.seq, this.at, [this.pushedBy]);
 }
+
+/// The push that wrote each readable document of [page], by row key — the
+/// `SyncPullPage.pushed` the Firestore gateway reads off `pushedBy` and
+/// `pushedAt`.
+Map<String, SyncPush> _pushesOf(Iterable<_Arrival> page) => {
+  for (final arrival in page)
+    arrival.envelope.rowKey: SyncPush(by: arrival.pushedBy, at: arrival.at),
+};
 
 /// The space document of a created space.
 class _Space {
@@ -639,6 +695,9 @@ class _Space {
 
   /// Set by [FakeSyncGateway.markSpaceDeleted], never cleared.
   DateTime? deletedAt;
+
+  /// The pair the last push said the database's notes are shared into.
+  String? sharedPair;
 
   _Space(this.ref);
 

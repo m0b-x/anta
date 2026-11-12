@@ -316,6 +316,20 @@ class FolderRepository {
     return folder;
   }
 
+  /// Shares one folder, and everything under it, into the pair [pairId], or
+  /// takes its mark away when null (`FolderDao.setSharedPair`). Every cached
+  /// row is dropped when it wrote: the same act clears the marks it covers
+  /// and those of another pair, on folders this cache may hold under any
+  /// parent. Returns whether the folder's mark was written.
+  Future<bool> setSharedPair({
+    required String folderId,
+    required String? pairId,
+  }) async {
+    final wrote = await _folderDao.setSharedPair(folderId, pairId);
+    if (wrote) invalidateAll();
+    return wrote;
+  }
+
   /// Labels a whole selection in one statement, then invalidates every parent
   /// the picked folders sit under.
   Future<int> setLabelForMany({
