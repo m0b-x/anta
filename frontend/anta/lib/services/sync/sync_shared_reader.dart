@@ -185,32 +185,64 @@ class _SharedReader {
   Future<void> _forget(Set<SyncInvalidation> touched) async {
     final removed = await _e._db.sharedRowDao.removeAll();
     _waiting = const {};
-    for (final MapEntry(key: table, value: keys) in removed.entries) {
-      await _announceGone(table, keys, touched);
-    }
+    await announce(removed, touched);
   }
 
-  /// Tells the caches of the rows of [table] under [keys] that were removed
-  /// here, as a merged page's deletions are told.
-  Future<void> _announceGone(
-    String table,
-    List<String> keys,
-    Set<SyncInvalidation> touched,
-  ) async {
-    if (keys.isEmpty) return;
-    final binding = _e._bindingFor(table);
-    if (binding != null) touched.add(binding.invalidation);
+  /// Tells the screens of shared rows that were removed here — by this
+  /// reader, or by the own pull making room for a row of the person's own
+  /// (`SharedRowDao.evict`) — and of the shared folders that moved to the
+  /// top level for it. Each removed row is announced as gone, with where it
+  /// stood: nothing is left to read it back from, and an open list would
+  /// otherwise go on showing it until the app is started again.
+  ///
+  /// [mergedKeys] of [mergedTable] are left out: the page that evicted them
+  /// stored a row of the person's own under the same key and announces that
+  /// itself, and "gone" after it would take the new row off the screen.
+  ///
+  /// Each table is announced as a page of its own, so a calendar table
+  /// reaches the scope the run's reload reads.
+  Future<void> announce(
+    SharedRemovals removals,
+    Set<SyncInvalidation> touched, {
+    String? mergedTable,
+    Set<String> mergedKeys = const {},
+  }) async {
+    for (final MapEntry(key: table, value: gone) in removals.gone.entries) {
+      final rows = [
+        for (final row in gone)
+          if (table != mergedTable || !mergedKeys.contains(row.key))
+            SyncAppliedRow(
+              rowKey: row.key,
+              result: MergeResult.applied,
+              tombstone: true,
+              gone: true,
+              previousParent: row.parent,
+            ),
+      ];
+      if (rows.isEmpty) continue;
+      final binding = _e._bindingFor(table);
+      if (binding != null) touched.add(binding.invalidation);
+      try {
+        await _e._hooks.beforePage(table);
+        await _e._hooks.afterPage(table, rows);
+      } catch (error, stack) {
+        _warn('announcing the removed shared $table failed: $error\n$stack');
+      }
+    }
+    if (removals.placed.isEmpty) return;
+    touched.add(SyncInvalidation.folders);
     try {
-      await _e._hooks.afterPage(table, [
-        for (final key in keys)
+      await _e._hooks.afterPage('folders', [
+        for (final id in removals.placed)
           SyncAppliedRow(
-            rowKey: key,
+            rowKey: id,
             result: MergeResult.applied,
-            tombstone: true,
+            tombstone: false,
+            moved: true,
           ),
       ]);
     } catch (error, stack) {
-      _warn('afterPage for the removed shared $table failed: $error\n$stack');
+      _warn('announcing the placed shared folders failed: $error\n$stack');
     }
   }
 
@@ -253,12 +285,10 @@ class _SharedReader {
       );
       if (!complete) return false;
       if (seen != null) {
-        final gone = await db.sharedRowDao.removeAbsent(
-          name,
-          partner.partnerUid,
-          seen,
+        await announce(
+          await db.sharedRowDao.removeAbsent(name, partner.partnerUid, seen),
+          touched,
         );
-        await _announceGone(name, gone, touched);
         if (table is NotesBinding) await _stopWaitingExcept(seen);
         return true;
       }
@@ -332,9 +362,12 @@ class _SharedReader {
       cursor = next ?? cursor;
       scan = page.scan;
       resumed = scan != null;
-      if (!page.hasMore || (page.envelopes.isEmpty && rested)) break;
+      if (!page.hasMore) return true;
+      // More was promised, nothing came and nothing moved: there is no way
+      // on. A read from the cursor is over for now; a walk from the start
+      // has not seen every shared row, and must not say which ones left.
+      if (page.envelopes.isEmpty && rested) return seen == null;
     }
-    return true;
   }
 
   /// Merges one page of [table]'s shared rows in one transaction with its
@@ -604,6 +637,12 @@ class _SharedReader {
         touched,
         retrying: true,
       );
+      // Stored, and it waits no more; still without its text, and the try
+      // was counted. Anything else — a newer wire wrote it, the merge
+      // refuses it — is not a wait for text and would be asked for at every
+      // poll with no try ever counted: it stops here, and the reads from
+      // the start meet it like any other document.
+      if (_waiting[noteId]?.tries == wait.tries) await _stopWaiting([noteId]);
     }
   }
 

@@ -92,3 +92,18 @@ abstract final class QaMode {
   /// dependency graph is up.
   static const String seedMarker = 'qa_seed.json';
 }
+
+/// Who the emulator build signs in as. The build names one account
+/// ([QaMode.qaAccount]); a pass that drives two guests as two people gives
+/// the second one its own at run time (`qa set account=qa2:qa2@example.com`
+/// before the sign-in tap), so one APK serves both. Here rather than with
+/// the other run-time knobs because the auth service reads it and must not
+/// import a widget for it.
+abstract final class QaIdentity {
+  /// `<sub>:<email>` in place of the build's account, or null for the
+  /// build's. In memory only: a relaunch is the build's account again.
+  static String? override;
+
+  /// The account the next emulator sign-in takes.
+  static String get account => override ?? QaMode.qaAccount;
+}

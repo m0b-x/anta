@@ -245,6 +245,11 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
     String? ownerId,
   }) {
     return transaction(() async {
+      // As [createFolder]: nothing of the person's own is stored under a
+      // shared folder, and the import has to hear why.
+      if (parentId != null) {
+        await db.sharedRowDao.ensureOwn('folders', parentId);
+      }
       final now = DateTime.now();
       final id = db.generateId();
       final stamp = await db.stampLocal(folders, id);

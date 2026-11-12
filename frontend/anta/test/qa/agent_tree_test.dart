@@ -226,8 +226,21 @@ void main() {
   });
 
   group('protocol', () {
+    test('v3 shares a row by name and names the sign-in\'s account', () {
+      expect(agentProtocolVersion, 3);
+      expect(AgentOps.share, 'share');
+      expect(AgentShareKinds.all, ['event', 'folder']);
+      expect({
+        AgentKeys.account,
+        AgentKeys.kind,
+        AgentKeys.on,
+        AgentKeys.pair,
+        AgentKeys.rowId,
+        AgentKeys.name,
+      }, hasLength(6));
+    });
+
     test('v2 names nodes by n and reveals them', () {
-      expect(agentProtocolVersion, 2);
       expect(AgentNodeKeys.semanticsId, 'n');
       expect(AgentOps.reveal, 'reveal');
       final keys = [
@@ -249,7 +262,7 @@ void main() {
     test('an older agent is told to rebuild, a current one is not', () {
       expect(
         agentVersionMismatch(1),
-        'installed agent is v1, this tool needs v2 — `qa build` then `qa install`',
+        'installed agent is v1, this tool needs v3 — `qa build` then `qa install`',
       );
       expect(agentVersionMismatch(agentProtocolVersion), isNull);
       expect(agentVersionMismatch(0), contains('v0'));

@@ -116,9 +116,11 @@ void main() {
     setUp(seed);
 
     test('is not changed by a save, a rename, a move, a label or a delete '
-        'through the app\'s own writers — each simply does nothing', () async {
+        'through the app\'s own writers — each does nothing, and the two an '
+        'editor would take for a save that was kept say so', () async {
       await event('shared', title: 'Changed here');
       await db.calendarEventDao.tombstoneEventCascade('shared');
+      await db.calendarEventDao.softDeleteById('shared');
       await db.folderDao.updateFolder(id: sharedFolder, name: 'Renamed here');
       await db.folderDao.updateFolderLabel(
         id: sharedFolder,
@@ -129,13 +131,25 @@ void main() {
         targetParentId: ownFolder,
       );
       await db.folderDao.softDeleteFolderWithDescendants(sharedFolder);
-      await db.noteDao.updateNote(
-        id: sharedNote,
-        title: 'Renamed here',
-        preview: 'Changed here',
-        content: 'Changed here',
+      await db.syncOutboxDao.clear();
+      await expectLater(
+        db.noteDao.updateNote(
+          id: sharedNote,
+          title: 'Renamed here',
+          preview: 'Changed here',
+          content: 'Changed here',
+        ),
+        throwsA(isA<SharedRowException>()),
       );
-      await db.noteDao.moveNote(id: sharedNote, targetFolderId: ownFolder);
+      await expectLater(
+        db.noteDao.moveNote(id: sharedNote, targetFolderId: ownFolder),
+        throwsA(isA<SharedRowException>()),
+      );
+      expect(
+        await db.syncOutboxDao.count(),
+        0,
+        reason: 'a refused save queues nothing — not a chunk never stored',
+      );
       await db.noteDao.softDeleteNote(sharedNote);
 
       final sharedEvent = (await db.calendarEventDao.getByIdsIncludingDeleted([
@@ -194,6 +208,75 @@ void main() {
           "WHERE event_id = 'shared'",
         ),
         1,
+      );
+    });
+
+    test('keeps what the person marked on it when they delete it, or delete '
+        'every event of theirs: the event stays, so its presence marks stay '
+        'live and nothing of it is queued', () async {
+      await db.eventAbsenceDao.setStatus('shared', day, PresenceStatus.present);
+      await db.eventAbsenceDao.setStatus('own', day, PresenceStatus.present);
+      await db.syncOutboxDao.clear();
+      Future<Map<String, int>> marks() async => {
+        for (final row
+            in await db
+                .customSelect(
+                  'SELECT event_id, is_deleted FROM calendar_event_absences',
+                )
+                .get())
+          row.read<String>('event_id'): row.read<int>('is_deleted'),
+      };
+
+      await db.calendarEventDao.tombstoneEventCascade('shared');
+
+      expect(await marks(), {'shared': 0, 'own': 0});
+      expect(await db.syncOutboxDao.count(), 0);
+
+      final wiped = await db.calendarEventDao.tombstoneAll(ownerUid: null);
+
+      expect(wiped, ['own']);
+      expect(await marks(), {'shared': 0, 'own': 1});
+      expect(
+        await one<int>(
+          "SELECT is_deleted FROM calendar_events WHERE id = 'shared'",
+        ),
+        0,
+      );
+    });
+
+    test('deleted by its owner, does not take the counts the person kept on '
+        'it: the sweep that follows a deleted note is for notes of their '
+        'own', () async {
+      final now = DateTime.now();
+      await db.counterDao.insertCounter(
+        CountersCompanion.insert(
+          id: 'laps',
+          name: 'Laps',
+          createdAt: now,
+          scope: const Value('perNote'),
+        ),
+      );
+      await db.counterDao.upsertValue('laps', sharedNote, 3);
+      await db.counterDao.upsertValue('laps', ownNote, 5);
+      // Both notes deleted after the counts: the shared one by its owner,
+      // as the reader stores a tombstone; the own one by a pulled delete.
+      await db.sharedRowDao.writing(
+        () => db.customStatement(
+          "UPDATE notes SET is_deleted = 1, deleted_at = ?, "
+          "hlc_timestamp = 'ffffffffffff:0000:Z'",
+          [now.millisecondsSinceEpoch ~/ 1000],
+        ),
+      );
+
+      final swept = await db.counterDao.sweepOrphanValues();
+
+      expect(swept, ['laps|$ownNote']);
+      expect(
+        await one<int>(
+          'SELECT is_deleted FROM counter_values WHERE note_id = ?',
+          [sharedNote],
+        ),
+        0,
       );
     });
 
@@ -286,11 +369,42 @@ void main() {
         ),
         throwsA(isA<SharedRowException>()),
       );
-      await db.noteDao.moveNote(id: ownNote, targetFolderId: sharedFolder);
+      // An import into one says why, where its read-back of a row that was
+      // never stored used to fail with no word of it.
+      await expectLater(
+        db.noteDao.importNote(
+          folderId: sharedFolder,
+          title: 'Imported',
+          createdAt: day,
+          updatedAt: day,
+          content: 'Imported text',
+        ),
+        throwsA(isA<SharedRowException>()),
+      );
+      await expectLater(
+        db.folderDao.importFolder(
+          name: 'Imported',
+          parentId: sharedFolder,
+          createdAt: day,
+        ),
+        throwsA(isA<SharedRowException>()),
+      );
+      await db.syncOutboxDao.clear();
+      await expectLater(
+        db.noteDao.moveNote(id: ownNote, targetFolderId: sharedFolder),
+        throwsA(isA<SharedRowException>()),
+      );
+      expect(await db.syncOutboxDao.count(), 0);
       await db.folderDao.moveFolder(
         id: ownFolder,
         targetParentId: sharedFolder,
       );
+      // Nor is a chunk of the person's own moved under a shared note.
+      await db.customStatement(
+        'UPDATE content_chunks SET note_id = ? WHERE note_id = ?',
+        [sharedNote, ownNote],
+      );
+      expect(await db.contentChunkDao.loadContent(ownNote), 'My text');
 
       expect(
         await one<int>('SELECT COUNT(*) FROM notes WHERE folder_id = ?', [

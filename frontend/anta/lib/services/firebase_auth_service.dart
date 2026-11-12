@@ -97,12 +97,12 @@ class FirebaseAuthService implements AuthService {
     return GoogleAuthProvider.credential(idToken: idToken);
   }
 
-  /// [QaMode.qaAccount] as a credential for the Auth emulator, without
+  /// [QaIdentity.account] as a credential for the Auth emulator, without
   /// Google: the emulator takes an unsigned JSON "ID token" as a Google
   /// credential, its `sub` the account's key (Firebase docs, "Connect your
   /// app to the Authentication Emulator").
   AuthCredential _qaCredential() {
-    final account = QaMode.qaAccount;
+    final account = QaIdentity.account;
     final colon = account.indexOf(':');
     if (colon <= 0) {
       throw const QaAccountFormatException();

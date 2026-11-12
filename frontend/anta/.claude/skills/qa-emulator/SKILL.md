@@ -45,6 +45,7 @@ $q pass browser -d emulator-5556       # the browser suite: ≈ 15 s
 $q pass settings -d emulator-5556      # the settings suite: a fresh basic.json seed before each flow, no prelude (each starts on the folder root)
 $q pass alerts -d emulator-5556        # clock-relative suites run whole on one device (reseed=suite, shard=no): ≈ 4.5 min
 $q pass sync -d emulator-5556          # the Sync section on a syncing database: the cloud-define build + a freshly started emulator suite (references/sync-pass.md): ≈ 45 s
+$q pass share -d emulator-5556         # two accounts on two guests (anta_qa_1 + anta_qa_2 booted, the same cloud-define build on both, a freshly started emulator suite): pair, share, follow, un-share, end the pair (references/share-pass.md): ≈ 2 min
 $q pass calendar --only 19_fasting_schedule -d emulator-5556   # one flow: reseed, prelude, the flow (a reseed=suite suite re-runs whole, never --only)
 $q pass --summary build/qa/pass/<dir>/report.json              # reprint any report; --merge joins shard reports
 $q pass --history calendar             # per flow over the newest twenty reports: runs, reds, recoveries, a flaky mark
@@ -122,7 +123,8 @@ Flags, an example and the real output of each: `references/verbs.md`. Every acti
 - `shot`, `dump [--all] [--json] [--cached]`, `look`, `expect`, `wait [--gone] [--timeout S]`, `text`.
 - `tap`, `longpress`, `scroll-to [--in T] [--up] [--max N]`, `type [--enter] [--replace]`, `key`, `swipe`, `drag [--hold ms]`, `clear`.
 - `flows <dir>[/<flow>] [--keep-going] [--prelude]` — the old runner without reseed or report (the prelude runs for a directory and for the first flow).
-- `steps`, `reload`, `restart`, `perf`, `set k=v…`, `log`, `errors [--clear]`, `build-exe`, `wake`, `unphone`.
+- `steps`, `reload`, `restart`, `perf`, `set k=v…` (text-scale, locale, theme, and `account=<sub>:<email>` — who the next emulator sign-in is), `log`, `errors [--clear]`, `build-exe`, `wake`, `unphone`.
+- `share event|folder "<name>" [--off]` — shares a row of the QA database with the signed-in account's partner through the call a share switch will make (no surface has one yet); `text <target> --match <regex> --capture <name>` keeps a node's text for later steps, which write it as `{{var:<name>}}`; in a flow file a step may lead with `-d <serial>` and runs on that guest (`references/share-pass.md`).
 
 ## Never
 
@@ -165,6 +167,7 @@ The Windows emulator traps that never made it into the notes until 2026-10: `qa 
 | [references/calendar-pass.md](references/calendar-pass.md) | the calendar suite: its seed and placeholders, the prelude, the flows, `qa set`, the calendar's ids, the calendar traps | running, writing or fixing a calendar flow |
 | [references/alerts-pass.md](references/alerts-pass.md) | the alerts suites: the two minute-relative fixtures, their flows, the alarm page's ids, seven device facts | running or fixing the alerts flows |
 | [references/sync-pass.md](references/sync-pass.md) | the sync suite: the emulator suite and the cloud-define build in order, its flows, how a flow tells "Up to date", the reset sign-out seam, what it does not cover, its traps | running or fixing the sync flows, or any device check of a database that syncs |
+| [references/share-pass.md](references/share-pass.md) | the two-guest share suite: two accounts on two fleet guests, its flows, the `share` and `set account=` seams, a step on another guest (`-d`), `text --capture` and `{{var:…}}`, what it found and does not cover | running or fixing the share flows, any pass that drives two guests, or a device check of pairing or sharing |
 | [references/alarm-evidence.md](references/alarm-evidence.md) | the sanctioned read-only queries, a passing `dumpsys alarm` entry, the PIN-lock recipe | proving an alarm is armed, or a ring behind a keyguard |
 | [references/dart-mcp.md](references/dart-mcp.md) | `dtd connect`, runtime errors, hot reload, the widget tree, driver finders | driving the Dart MCP against a `qa run` |
 | [references/isolation.md](references/isolation.md) | the QA database, the Firebase cut-off, log redaction, the `[qa]` lines, the marker files and the per-device files under `build/qa/` | a `--fresh` or `--seed` did not land, or you doubt the owner's data is safe |

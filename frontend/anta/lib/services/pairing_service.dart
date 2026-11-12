@@ -304,13 +304,36 @@ class PairingService {
       throw const PairingException(PairingError.codeInvalid);
     }
 
-    final pair = await _gateway.createPair(
-      self: PairProfile.fromUser(user),
-      // The creator's name is unknown here — only they can write their own
-      // profile entry, which they do when their invite listener adopts.
-      partner: PairProfile(uid: invite.creatorUid),
-      inviteCode: code,
-    );
+    final PairRecord pair;
+    try {
+      pair = await _gateway.createPair(
+        self: PairProfile.fromUser(user),
+        // The creator's name is unknown here — only they can write their own
+        // profile entry, which they do when their invite listener adopts.
+        partner: PairProfile(uid: invite.creatorUid),
+        inviteCode: code,
+      );
+    } on PairingException catch (e) {
+      if (e.error == PairingError.codeInvalid) rethrow;
+      // An invite that ran out between the read above and the write is
+      // refused by the rules as its read is: the same wrong code, not a
+      // matter of permission.
+      if (e.error == PairingError.permissionDenied) {
+        throw const PairingException(PairingError.codeInvalid);
+      }
+      // The write may have landed although its answer did not — the reply
+      // lost, the read-back failed: the pair then exists and the invite is
+      // spent, and another try would be told the code is not valid. The
+      // server is asked once before the failure is believed.
+      try {
+        await reconcile();
+      } on PairingException {
+        throw e;
+      }
+      if (_cached.pairId == null) rethrow;
+      _attachListeners();
+      return status;
+    }
 
     await _adopt(pair, user);
     return status;

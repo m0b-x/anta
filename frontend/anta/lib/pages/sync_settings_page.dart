@@ -2073,6 +2073,7 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
       confirmText: l10n.unpair,
       isDestructive: true,
       icon: Icons.link_off_rounded,
+      confirmIdentifier: SemanticsIds.sharingUnpairConfirm,
     );
     if (confirmed) bloc.add(const UnpairRequested());
   }
@@ -2123,6 +2124,7 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
           : l10n.pairingEndedBy(state.partnerName!),
       actionText: l10n.close,
       icon: Icons.link_off_rounded,
+      actionIdentifier: SemanticsIds.sharingEndedNoticeClose,
       onAction: () {
         Navigator.of(context).pop();
         bloc.add(const EndedNoticeDismissed());

@@ -133,6 +133,25 @@ abstract class SyncTableBinding<R> {
       throw UnsupportedError('$table is never shared');
 }
 
+/// A row of the account's own space was not stored yet: the [parent] it
+/// names — a note's or a folder's folder, a day row's event — is held here
+/// as a row another account shares, and nothing of the person's own is
+/// stored under one (`SharedRowFences`). The pull holds the row back like
+/// any it could not merge and tries it again at the next start and at
+/// "Sync now": it lands once its own parent arrived, which takes the shared
+/// row's place, or once the share ended.
+final class SharedParentHeld implements Exception {
+  final String table;
+  final String id;
+  final String parent;
+
+  const SharedParentHeld(this.table, this.id, this.parent);
+
+  @override
+  String toString() =>
+      'SharedParentHeld: $table/$id names $parent, held here as shared';
+}
+
 /// A shared row was not stored: this device holds a row under [id] in
 /// [table] that the sharing account does not own — the person's own, most
 /// often — which the shared one would replace or attach to.

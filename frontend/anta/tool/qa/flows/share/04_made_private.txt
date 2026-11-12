@@ -1,0 +1,29 @@
+# The owner makes both private again. After a sync on each side nothing of
+# them is left on the partner's guest: the folder is gone from the browser
+# and the event from the calendar — removed, not marked deleted.
+share folder "Training" --off
+share event "Lifting session" --off
+tap id:sharing-sync-now
+expect id:sharing-sync-status "Up to date" --timeout 60
+-d emulator-5558 tap id:sharing-sync-now
+-d emulator-5558 expect id:sharing-sync-status "Up to date" --timeout 60
+-d emulator-5558 key back
+-d emulator-5558 wait id:create-folder
+-d emulator-5558 expect --absent "Training" --absent "Week 1" --timeout 30
+-d emulator-5558 shot folder-gone
+-d emulator-5558 tap id:nav-menu
+-d emulator-5558 wait id:drawer-calendar
+-d emulator-5558 tap id:drawer-calendar
+-d emulator-5558 wait id:calendar-add-event
+-d emulator-5558 tap id:panel-mode-day --settle 1000
+-d emulator-5558 tap id:panel-mode-upcoming
+-d emulator-5558 expect --absent "Lifting session" --timeout 30
+-d emulator-5558 shot event-gone
+-d emulator-5558 key back
+-d emulator-5558 wait id:create-folder
+-d emulator-5558 tap id:nav-menu
+-d emulator-5558 wait id:drawer-account
+-d emulator-5558 tap id:drawer-account
+-d emulator-5558 wait id:settings-bar-sharing
+-d emulator-5558 errors
+errors

@@ -222,8 +222,18 @@ class FakePairingGateway implements PairingGateway {
     );
     // One write with the pair, as the rules hold the two to each other.
     seedClaim(inviteCode, pairId: pair.pairId, redeemerUid: self.uid);
+    final lost = loseCreatePairAnswer;
+    if (lost != null) {
+      loseCreatePairAnswer = null;
+      throw PairingException(lost);
+    }
     return pair;
   }
+
+  /// Makes the next [createPair] fail with this after its write landed — the
+  /// reply lost, or the read-back failing: the pair exists and the invite is
+  /// spent, and the caller is told neither.
+  PairingError? loseCreatePairAnswer;
 
   /// Plants a pair directly, bypassing the invite check — for tests that need
   /// a pre-existing pair rather than a full round-trip.

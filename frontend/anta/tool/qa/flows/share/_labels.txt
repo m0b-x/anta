@@ -1,0 +1,7 @@
+# The labels the share flows may still target, one per line: seeded content
+# only, never a control's own words (test/qa/flows_lint_test.dart).
+# basic.json's shared folder and the folder inside it: an import gives
+# every folder a fresh id, so a row is named by its title — on the
+# partner's guest as on the owner's, since a shared row keeps its name.
+Training
+Week 1

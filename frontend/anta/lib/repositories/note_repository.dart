@@ -733,6 +733,27 @@ class NoteRepository {
     }
   }
 
+  /// Tells [noteChanges] about notes that no longer exist here at all — ones
+  /// another account shared, removed with their grant — each with the folder
+  /// it lay in: [announceMerged] re-reads its rows, and of these nothing is
+  /// left to read. Announced as a remote deletion, so a list showing one
+  /// drops it and an editor holding one learns it is gone.
+  void announceRemoved(Map<String, String> folders) {
+    for (final MapEntry(key: id, value: folder) in folders.entries) {
+      _noteCache.remove(id);
+      _contentCache.remove(id);
+      _invalidateFolderCache(folder);
+      _noteChangesController.add(
+        NoteChange(
+          type: NoteChangeType.deleted,
+          noteId: id,
+          folderId: folder,
+          remote: true,
+        ),
+      );
+    }
+  }
+
   /// Writes a sync conflict copy inside a pulled page's transaction: stamped
   /// and queued by the DAO like any new note, so it syncs, but nothing cached
   /// and nothing announced — a page that rolls back would leave a listener

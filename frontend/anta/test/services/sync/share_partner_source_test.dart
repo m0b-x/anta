@@ -126,4 +126,25 @@ void main() {
       const SharePartner(pairId: 'p', partnerUid: 'y'),
     );
   });
+
+  test('an active pair of the account that names no second account is not '
+      '"no pair": the reader would end every share on that word', () {
+    final alone = PairRecord(
+      pairId: 'p',
+      members: const ['me'],
+      isActive: true,
+      createdAt: DateTime.utc(2026),
+    );
+
+    expect(
+      () => PairingSharePartnerSource.partnerOf([alone], 'me'),
+      throwsA(
+        isA<SyncGatewayException>().having(
+          (error) => error.failure,
+          'failure',
+          SyncGatewayFailure.unknown,
+        ),
+      ),
+    );
+  });
 }

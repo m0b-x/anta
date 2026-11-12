@@ -13,9 +13,13 @@ and a guide row. Sharing FOUNDATIONS BUILT 2026-11-12, without their
 surfaces (the owner's scope of 2026-11-11): everything slices E1–E4,
 N1–N2, R5 and R9 stand on — the grant, wire 47, the rules and indexes,
 the reader of a partner's shared rows, read-only in the database, backups
-— in `cloud-sharing-foundations.md` (F1–F3, two independent reviews and
+— in `cloud-sharing-foundations.md` (F1–F4, three independent reviews and
 their fixes); nothing in the app can set a share yet, and each surface is
-still its own slice. Its device proof (F4, with R10) is to do. Decided 2026-11-11 on the owner's word: the region is
+still its own slice. R10 DONE with it: the two-guest saved suite `qa pass
+share`, green twice on two fleet guests against the emulator suite (pair,
+share an event and a folder, a later change, un-share, end the pair) — it
+does not yet delete an account while paired, so D2's device pass is still
+owed. Decided 2026-11-11 on the owner's word: the region is
 the European Union (R1, the owner runs the move, whose last step now
 flips the notice's place); a second account on one phone is accepted (R4,
 not built). Left to the owner: the rules and indexes deploy (now carrying

@@ -1,0 +1,24 @@
+# The owner makes a code, the partner types it on the other guest, and both
+# read as paired: the redemption is one write of the pair and the claim of
+# its invite, and the owner's guest adopts the pair through its invite
+# listener — its sheet closes by itself, with no reload.
+scroll-to id:sharing-pair --in id:sharing-list
+tap id:sharing-pair
+wait id:pairing-generate
+tap id:pairing-generate
+wait id:pairing-code --timeout 20
+text id:pairing-code --match "[2-9A-Z]{4}-[2-9A-Z]{4}" --capture invite
+shot invite
+-d emulator-5558 scroll-to id:sharing-pair --in id:sharing-list
+-d emulator-5558 tap id:sharing-pair
+-d emulator-5558 wait id:pairing-code-field
+-d emulator-5558 tap id:pairing-code-field
+-d emulator-5558 type "{{var:invite}}"
+-d emulator-5558 tap id:pairing-connect
+-d emulator-5558 wait id:sharing-unpair --timeout 30
+-d emulator-5558 expect --absent id:pairing-connect --absent id:sharing-pair
+wait id:sharing-unpair --timeout 30
+expect --absent id:pairing-code --absent id:sharing-pair
+shot paired
+-d emulator-5558 errors
+errors

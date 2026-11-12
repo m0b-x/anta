@@ -326,6 +326,57 @@ void main() {
       );
     });
 
+    test('a row that is gone outright — a shared one that left, of which '
+        'nothing is left to read — is announced as a remote deletion in the '
+        'list it stood in, beside the rows that changed', () async {
+      final kept = await db.folderDao.createFolder(name: 'Kept');
+      final folderChanges = <FolderChange>[];
+      final noteChanges = <NoteChange>[];
+      final subscriptions = [
+        folders.folderChanges.listen(folderChanges.add),
+        notes.noteChanges.listen(noteChanges.add),
+      ];
+      addTearDown(() async {
+        for (final subscription in subscriptions) {
+          await subscription.cancel();
+        }
+      });
+      SyncAppliedRow gone(String key, String? parent) => SyncAppliedRow(
+        rowKey: key,
+        result: MergeResult.applied,
+        tombstone: true,
+        gone: true,
+        previousParent: parent,
+      );
+
+      await hooks.afterPage('folders', [
+        gone('left-top', null),
+        gone('left-inner', 'left-top'),
+        row(kept.id, MergeResult.inserted),
+      ]);
+      await hooks.afterPage('notes', [gone('left-note', 'left-inner')]);
+      await pumpEventQueue();
+
+      expect(
+        [
+          for (final change in folderChanges)
+            (change.folderId, change.type, change.parentId, change.remote),
+        ],
+        [
+          ('left-top', FolderChangeType.deleted, null, true),
+          ('left-inner', FolderChangeType.deleted, 'left-top', true),
+          (kept.id, FolderChangeType.created, null, true),
+        ],
+      );
+      expect(
+        [
+          for (final change in noteChanges)
+            (change.noteId, change.type, change.folderId, change.remote),
+        ],
+        [('left-note', NoteChangeType.deleted, 'left-inner', true)],
+      );
+    });
+
     test('a counter page reloads the counters right after it, keeping a '
         'pending tap, and fires the changes signal', () async {
       final id = await counters.addCounter(name: 'Sets', startValue: 3);

@@ -244,6 +244,101 @@ void main() {
       },
     );
 
+    test('a redemption whose write landed and whose answer was lost is '
+        'paired all the same: the server is asked once before the failure '
+        'is believed, where a second try would have been told the code is '
+        'not valid', () async {
+      final gateway = FakePairingGateway();
+      addTearDown(gateway.dispose);
+      final creator = await _boot(
+        gateway: gateway,
+        auth: FakeAuthService(user: userA),
+      );
+      final code = (await creator.service.generateInvite()).pendingCode!;
+      final redeemer = await _boot(
+        gateway: gateway,
+        auth: FakeAuthService(user: userB),
+      );
+      gateway.loseCreatePairAnswer = PairingError.offline;
+
+      final status = await redeemer.service.redeem(code);
+
+      expect(status.isPaired, isTrue);
+      expect(status.partner?.uid, userA.uid);
+      expect(gateway.pairs, hasLength(1));
+    });
+
+    test('a redemption that failed before anything was written still '
+        'fails as it did: nothing to adopt', () async {
+      final gateway = FakePairingGateway();
+      addTearDown(gateway.dispose);
+      final creator = await _boot(
+        gateway: gateway,
+        auth: FakeAuthService(user: userA),
+      );
+      final code = (await creator.service.generateInvite()).pendingCode!;
+      final redeemer = await _boot(
+        gateway: gateway,
+        auth: FakeAuthService(user: userB),
+      );
+      // The invite's read succeeds, the write is never made.
+      gateway.beforeCreatePair = () {
+        gateway.beforeCreatePair = null;
+        throw const PairingException(PairingError.offline);
+      };
+
+      await expectLater(
+        redeemer.service.redeem(code),
+        throwsA(
+          isA<PairingException>().having(
+            (e) => e.error,
+            'error',
+            PairingError.offline,
+          ),
+        ),
+      );
+      expect(gateway.pairs, isEmpty);
+      expect(redeemer.service.status.isPaired, isFalse);
+    });
+
+    test('an invite that runs out between its read and the write is the '
+        'same wrong code, not a matter of permission', () async {
+      final gateway = FakePairingGateway();
+      addTearDown(gateway.dispose);
+      final creator = await _boot(
+        gateway: gateway,
+        auth: FakeAuthService(user: userA),
+      );
+      final code = (await creator.service.generateInvite()).pendingCode!;
+      final redeemer = await _boot(
+        gateway: gateway,
+        auth: FakeAuthService(user: userB),
+      );
+      gateway.beforeCreatePair = () {
+        gateway.beforeCreatePair = null;
+        final invite = gateway.invites[code]!;
+        gateway.invites[code] = InviteRecord(
+          code: invite.code,
+          creatorUid: invite.creatorUid,
+          expiresAt: DateTime.now().toUtc().subtract(
+            const Duration(seconds: 1),
+          ),
+        );
+      };
+
+      await expectLater(
+        redeemer.service.redeem(code),
+        throwsA(
+          isA<PairingException>().having(
+            (e) => e.error,
+            'error',
+            PairingError.codeInvalid,
+          ),
+        ),
+      );
+      expect(gateway.pairs, isEmpty);
+    });
+
     test(
       'a permission-denied read from a mistyped code surfaces as invalid, not as permission denied',
       () async {

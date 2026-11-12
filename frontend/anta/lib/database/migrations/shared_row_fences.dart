@@ -94,10 +94,12 @@ abstract final class SharedRowFences {
       'INSERT ON content_chunks',
       _sharedNote('NEW.note_id'),
     ),
+    // Both ends: a chunk of the person's own must not be moved under a
+    // shared note either.
     _fence(
       'chunks_update',
       'UPDATE ON content_chunks',
-      _sharedNote('OLD.note_id'),
+      '${_sharedNote('OLD.note_id')} OR ${_sharedNote('NEW.note_id')}',
     ),
     _fence(
       'chunks_delete',

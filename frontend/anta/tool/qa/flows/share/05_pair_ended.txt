@@ -1,0 +1,55 @@
+# The event is shared again and seen on the partner's guest; then the owner
+# ends the pair. The server refuses the partner at once; the partner's
+# guest says so once — the "Sharing ended" notice Sync & sharing opens with
+# — and its next sync removes what was shared with it. Both rows are ready
+# to pair again.
+share event "Lifting session"
+tap id:sharing-sync-now
+expect id:sharing-sync-status "Up to date" --timeout 60
+-d emulator-5558 tap id:sharing-sync-now
+-d emulator-5558 expect id:sharing-sync-status "Up to date" --timeout 60
+-d emulator-5558 key back
+-d emulator-5558 wait id:create-folder
+-d emulator-5558 tap id:nav-menu
+-d emulator-5558 wait id:drawer-calendar
+-d emulator-5558 tap id:drawer-calendar
+-d emulator-5558 wait id:calendar-add-event
+-d emulator-5558 tap id:panel-mode-day --settle 1000
+-d emulator-5558 tap id:panel-mode-upcoming
+-d emulator-5558 expect "Lifting session" --timeout 30
+# The owner unpairs.
+scroll-to id:sharing-unpair --in id:sharing-list
+tap id:sharing-unpair
+wait id:sharing-unpair-confirm
+tap id:sharing-unpair-confirm
+wait id:sharing-pair --timeout 30
+expect --absent id:sharing-unpair
+# The partner opens Sync & sharing: the notice, answered; then a sync, and
+# the event is gone.
+-d emulator-5558 key back
+-d emulator-5558 wait id:create-folder
+-d emulator-5558 tap id:nav-menu
+-d emulator-5558 wait id:drawer-account
+-d emulator-5558 tap id:drawer-account
+-d emulator-5558 wait id:sharing-ended-close --timeout 30
+-d emulator-5558 shot pair-ended
+-d emulator-5558 tap id:sharing-ended-close
+-d emulator-5558 wait id:settings-bar-sharing
+-d emulator-5558 expect id:sharing-pair --absent id:sharing-unpair --absent id:sharing-ended-close --timeout 15
+-d emulator-5558 tap id:sharing-sync-now
+-d emulator-5558 expect id:sharing-sync-status "Up to date" --timeout 60
+-d emulator-5558 key back
+-d emulator-5558 wait id:create-folder
+-d emulator-5558 tap id:nav-menu
+-d emulator-5558 wait id:drawer-calendar
+-d emulator-5558 tap id:drawer-calendar
+-d emulator-5558 wait id:calendar-add-event
+-d emulator-5558 tap id:panel-mode-day --settle 1000
+-d emulator-5558 tap id:panel-mode-upcoming
+-d emulator-5558 expect --absent "Lifting session" --timeout 30
+-d emulator-5558 shot event-gone-with-pair
+-d emulator-5558 errors
+# The partner's guest is left as the pass leaves its own: fresh, signed
+# out, nothing armed.
+-d emulator-5558 relaunch --fresh
+errors

@@ -268,6 +268,11 @@ class EventSkipDao extends DatabaseAccessor<AppDatabase>
   Future<void> importAll(List<EventSkipsCompanion> entries) {
     if (entries.isEmpty) return Future.value();
     return transaction(() async {
+      // The replacing insert below cannot take a shared skipped day's place
+      // past the fences, as the events' could a shared event's
+      // (`CalendarEventDao.importAll`): a row of the person's own is not
+      // stored on a shared event at all, and under an event of their own no
+      // shared day row is kept — an eviction takes them with the event.
       final stamps = [for (final _ in entries) db.newStamp()];
       await batch((b) {
         for (var i = 0; i < entries.length; i++) {

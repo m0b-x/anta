@@ -75,14 +75,21 @@ class PairingSharePartnerSource implements SharePartnerSource {
   /// the id breaking a tie — the one `PairingService.reconcile` keeps when a
   /// race left two, so both sides read the same pair while the other is
   /// still being ended.
+  ///
+  /// Throws when one of them names no second account: "nobody" would end
+  /// every share on this device, and a pair that cannot be read is not that
+  /// answer.
   static SharePartner? partnerOf(List<PairRecord> pairs, String uid) {
     final live = [
       for (final pair in pairs)
-        if (pair.isActive &&
-            pair.contains(uid) &&
-            pair.partnerUidOf(uid) != null)
-          pair,
+        if (pair.isActive && pair.contains(uid)) pair,
     ];
+    if (live.any((pair) => pair.partnerUidOf(uid) == null)) {
+      throw const SyncGatewayException(
+        SyncGatewayFailure.unknown,
+        'an active pair names no partner',
+      );
+    }
     if (live.isEmpty) return null;
     live.sort((a, b) {
       final byTime = a.createdAt.compareTo(b.createdAt);

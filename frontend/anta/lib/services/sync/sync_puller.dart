@@ -232,6 +232,7 @@ class _Puller {
           floor: floor,
           touched: touched,
           tally: tally,
+          held: await _makeRoom(bound, table, page.envelopes, touched),
           gone: [
             for (final key in keys)
               if (!answered.contains(key)) key,
@@ -542,6 +543,7 @@ class _Puller {
       _timeoutsInARow.remove(name);
       await _e._reached(tally);
       tally.pages++;
+      final held = await _makeRoom(bound, table, page.envelopes, touched);
       final missing = table is NotesBinding
           ? await NotesBinding.missingChunks(db, page.envelopes, floor: floor)
           : null;
@@ -602,6 +604,7 @@ class _Puller {
         touched: touched,
         tally: tally,
         missing: missing,
+        held: held,
         // The bind's download counts every row; the wire cutover's re-read
         // the notes it says it re-syncs.
         counts: initial || (_e._updating && table is NotesBinding),
@@ -741,6 +744,7 @@ class _Puller {
     List<String> gone = const [],
     List<String>? missing,
     bool counts = false,
+    Set<String> held = const {},
   }) async {
     final db = _e._db;
     final envelopes = page.envelopes;
@@ -785,6 +789,7 @@ class _Puller {
         asked: asked,
         announced: start == 0 && prepared != null,
         pushed: page.pushed,
+        held: held,
       );
       // A stored part's bodies are let go before the next part is encoded.
       prepared?.fillRange(start, end, null);
@@ -794,6 +799,105 @@ class _Puller {
       }
       start = end;
     }
+  }
+
+  /// Where a row of each shareable table names its parent in its document:
+  /// the parent's table and the key in `data`.
+  static const Map<String, ({String table, String key})> _sharedParents = {
+    'notes': (table: 'folders', key: JsonKeys.folderId),
+    'folders': (table: 'folders', key: JsonKeys.parentId),
+    'calendar_event_occurrences': (table: 'calendar_events', key: 'eventId'),
+    'calendar_event_skips': (table: 'calendar_events', key: 'eventId'),
+  };
+
+  /// Takes out of the way the rows another account shared that a page of
+  /// this account's own space is about to meet
+  /// (`docs/cloud-sharing-foundations.md` §7): the person's own data comes
+  /// first, in whichever order the two arrived.
+  ///
+  /// A shared row **under a key the page carries** is taken out: the merge
+  /// would otherwise write over another account's row, which the fences
+  /// turn into nothing — and the own row would never land here.
+  ///
+  /// Returns the ids the page's rows name as their **parent** — a note's or
+  /// a folder's folder, a day row's event — that are held here as shared.
+  /// Such a row is not stored now ([SharedParentHeld]): under the shared
+  /// row the fences would refuse it while the merge counted it as stored
+  /// and the cursor passed it for good, and evicting the parent for it does
+  /// not hold — the reader's next look brings the shared row back, with the
+  /// person's row inside it. Held back like any row that could not be
+  /// merged, it is retried at the next start and at "Sync now", and lands
+  /// once its own parent arrived (which evicts the shared one by its key)
+  /// or the share ended.
+  ///
+  /// A transaction of its own, committed before anything of the page is
+  /// prepared: a notes page plans its bodies against the chunk rows it
+  /// finds, and an eviction inside the page's transaction removed rows the
+  /// plan had counted on — the merge failed, the eviction rolled back with
+  /// it, and every later run met the same page.
+  ///
+  /// One statement for a database that holds no shared row.
+  Future<Set<String>> _makeRoom(
+    SyncBinding bound,
+    SyncTableBinding<Object> table,
+    List<SyncEnvelope> envelopes,
+    Set<SyncInvalidation> touched,
+  ) async {
+    final name = table.table;
+    if (envelopes.isEmpty || !sharedTables.contains(name)) return const {};
+    final db = _e._db;
+    if (await db.sharedRowDao.owner() == null) return const {};
+    final above = _sharedParents[name];
+    final (evicted, merging, held) = await db.transaction(() async {
+      await _checkStillBound(bound);
+      var held = above == null
+          ? <String>{}
+          : (await db.sharedRowDao.sharedAmong(above.table, [
+              ...{for (final envelope in envelopes) ?_parentOf(name, envelope)},
+            ])).toSet();
+      final evicted = <SharedRemovals>[];
+      final merging = <String>{};
+      final waiting = [...envelopes];
+      // A row that is held back keeps the shared row under its key: it is
+      // not stored now, so nothing has to give way for it. In rounds, since
+      // a page of folders can carry a folder and the folders inside it: the
+      // outer one's eviction frees the inner ones.
+      while (true) {
+        final free = [
+          for (final envelope in waiting)
+            if (!held.contains(_parentOf(name, envelope))) envelope.rowKey,
+        ];
+        if (free.isEmpty) break;
+        waiting.removeWhere((envelope) => free.contains(envelope.rowKey));
+        merging.addAll(free);
+        final removed = await db.sharedRowDao.evict(name, free);
+        evicted.add(removed);
+        final freed = name == above?.table
+            ? held.intersection(removed.keysOf(name).toSet())
+            : const <String>{};
+        if (freed.isEmpty) break;
+        held = held.difference(freed);
+      }
+      return (evicted, merging, held);
+    });
+    for (final removed in evicted) {
+      await _e._shared.announce(
+        removed,
+        touched,
+        mergedTable: name,
+        mergedKeys: merging,
+      );
+    }
+    return held;
+  }
+
+  /// The id [envelope]'s row names as its parent, null for none — a
+  /// tombstone, a table without one, a note or a folder at the top level.
+  static String? _parentOf(String table, SyncEnvelope envelope) {
+    final above = _sharedParents[table];
+    if (above == null || isTombstone(envelope)) return null;
+    final id = dataOf(envelope)[above.key];
+    return id is String && id.isNotEmpty ? id : null;
   }
 
   /// Queues again the rows among [merged] — a part's envelopes that landed
@@ -920,6 +1024,7 @@ class _Puller {
     Set<String>? asked,
     bool announced = false,
     Map<String, SyncPush> pushed = const {},
+    Set<String> held = const {},
   }) async {
     final db = _e._db;
     final name = table.table;
@@ -948,17 +1053,6 @@ class _Puller {
     final merged = <SyncEnvelope>[];
     await db.transaction(() async {
       await _checkStillBound(bound);
-      // A row of this account's own space under an id a shared row took
-      // first: the person's own data comes first, and the shared one goes
-      // (`docs/cloud-sharing-foundations.md` §5). Otherwise the merge below
-      // would write over another account's row, which the fences turn into
-      // nothing at all — and the row would never land here.
-      if (sharedTables.contains(name)) {
-        final taken = await db.sharedRowDao.sharedAmong(name, [
-          for (final envelope in envelopes) envelope.rowKey,
-        ]);
-        await db.sharedRowDao.evict(name, taken);
-      }
       final conflicts = <SyncNoteConflict>[];
       // The queued stamps by key, read once for the page on its first park
       // under the floor.
@@ -966,6 +1060,10 @@ class _Puller {
       for (final (i, envelope) in envelopes.indexed) {
         final MergeOutcome outcome;
         try {
+          final parent = held.isEmpty ? null : _parentOf(name, envelope);
+          if (parent != null && held.contains(parent)) {
+            throw SharedParentHeld(name, envelope.rowKey, parent);
+          }
           outcome = await db.transaction(
             () => table is NotesBinding
                 ? table.mergeRemote(

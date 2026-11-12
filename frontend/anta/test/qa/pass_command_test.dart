@@ -15,12 +15,16 @@ import '../../tool/qa/qa.dart'
         QaCommandRunner,
         QaContext,
         ScrollToCommand,
+        SetCommand,
+        ShareCommand,
         ShotCommand,
         StepsCommand,
         WaitCommand,
         passExitCode,
+        resolveCaptures,
         shardIncompleteness;
 import '../../tool/qa/src/adb.dart';
+import '../../tool/qa/src/agent_protocol.dart';
 import '../../tool/qa/src/apk_build.dart';
 import '../../tool/qa/src/cancel.dart';
 import '../../tool/qa/src/device.dart';
@@ -1173,8 +1177,10 @@ void main() {
         expect(world.passLog(), isNot(contains('device left quiet')));
         expect(
           world.passLog(),
-          contains('device not left quiet: an alarm of the app is still '
-              'ringing'),
+          contains(
+            'device not left quiet: an alarm of the app is still '
+            'ringing',
+          ),
         );
       },
     );
@@ -1214,7 +1220,9 @@ void main() {
         final (code, _) = await world.pass();
         expect(code, 0);
         final kill = world.events.indexOf('adb -s emulator-5556 emu kill');
-        final boot = world.events.indexOf('child: fleet boot anta_qa_1 --no-quiet');
+        final boot = world.events.indexOf(
+          'child: fleet boot anta_qa_1 --no-quiet',
+        );
         expect(kill, isNonNegative);
         expect(boot, greaterThan(kill));
         expect(world.events.indexOf('relaunch'), greaterThan(boot));
@@ -1282,7 +1290,10 @@ void main() {
           'demo',
         ]);
         expect(code, exitDevice);
-        expect(world.events, contains('child: fleet boot anta_qa_1 --no-quiet'));
+        expect(
+          world.events,
+          contains('child: fleet boot anta_qa_1 --no-quiet'),
+        );
         expect(
           world.events,
           isNot(contains('relaunch')),
@@ -1370,7 +1381,9 @@ void main() {
       addTearDown(world.dispose);
       final (code, report) = await world.pass();
       expect(code, 0);
-      final boot = world.events.indexOf('child: fleet boot anta_qa_1 --no-quiet');
+      final boot = world.events.indexOf(
+        'child: fleet boot anta_qa_1 --no-quiet',
+      );
       expect(boot, isNonNegative);
       expect(world.events.indexOf('relaunch'), greaterThan(boot));
       expect(report.bootMs, isNonNegative);
@@ -2202,6 +2215,13 @@ void main() {
   });
 
   group('qa steps', () {
+    /// [lines] as a step file under [world]'s project, and its path.
+    String stepFile(_World world, List<String> lines) {
+      final file = File(joinPath(world.paths.projectRoot, ['steps.txt']))
+        ..writeAsStringSync('${lines.join('\n')}\n');
+      return file.path;
+    }
+
     test(
       'a malformed line fails its own step; --keep-going runs the next',
       () async {
@@ -2228,6 +2248,181 @@ void main() {
         expect(expects, [
           'id:x',
         ], reason: 'without --keep-going it stops at step 1');
+      },
+    );
+
+    test('a step that names another device runs on a context of its own, '
+        'which later steps naming that device share; a step naming none, or '
+        'the process\'s own, stays on the first', () async {
+      final world = _World(flows: const {});
+      addTearDown(world.dispose);
+      final made = <String?>[];
+      final ran = <(String, QaContext)>[];
+      final qa = QaCommandRunner(
+        contextFactory: (globals) {
+          made.add(globals['device'] as String?);
+          return _FakeContext(globals, paths: world.paths);
+        },
+        commands: [
+          StepsCommand(),
+          _Verb('tap', (verb, rest) async {
+            ran.add((rest.join(' '), verb.context));
+            return 0;
+          }),
+        ],
+      );
+
+      expect(
+        // From a file, as a flow is: on the command line a step that leads
+        // with `-d` would be read as an option of `steps` itself.
+        await qa.run([
+          '-d',
+          'emulator-5556',
+          'steps',
+          '--file',
+          stepFile(world, [
+            'tap id:own',
+            '-d emulator-5558 tap id:other',
+            '-d emulator-5556 tap id:own-named',
+            '-d emulator-5558 tap id:other-again',
+            'tap id:own-last',
+          ]),
+        ]),
+        0,
+      );
+
+      expect(made, ['emulator-5556', 'emulator-5558']);
+      final own = ran.first.$2;
+      final other = ran[1].$2;
+      expect(identical(own, other), isFalse);
+      expect(
+        [
+          for (final (target, context) in ran)
+            (target, identical(context, own)),
+        ],
+        [
+          ('id:own', true),
+          ('id:other', false),
+          ('id:own-named', true),
+          ('id:other-again', false),
+          ('id:own-last', true),
+        ],
+      );
+      expect(identical(ran[3].$2, other), isTrue);
+    });
+
+    test('{{var:name}} is what an earlier step captured, on any device; a '
+        'name nothing captured fails its step before it types the '
+        'placeholder', () async {
+      final world = _World(flows: const {});
+      addTearDown(world.dispose);
+      final typed = <String>[];
+      late final QaCommandRunner qa;
+      qa = QaCommandRunner(
+        contextFactory: (globals) => _FakeContext(globals, paths: world.paths),
+        commands: [
+          StepsCommand(),
+          // Stands for `text <target> --capture invite` reading a code.
+          _Verb('read', (verb, rest) async {
+            qa.captures[rest.single] = 'K7M2-P4XQ';
+            return 0;
+          }),
+          _Verb('type', (verb, rest) async {
+            typed.add(rest.join(' '));
+            return 0;
+          }),
+        ],
+      );
+
+      expect(
+        await qa.run([
+          'steps',
+          '--file',
+          stepFile(world, [
+            'read invite',
+            '-d emulator-5558 type "{{var:invite}}"',
+            'type "code {{ var:invite }}!"',
+          ]),
+        ]),
+        0,
+      );
+      expect(typed, ['K7M2-P4XQ', 'code K7M2-P4XQ!']);
+
+      expect(await qa.run(['steps', 'type "{{var:missing}}"']), exitUsage);
+      expect(typed, hasLength(2));
+    });
+  });
+
+  group('captures and the share seam', () {
+    test('resolveCaptures replaces every captured name and leaves the other '
+        'placeholders to their own resolver', () {
+      expect(
+        resolveCaptures('type "{{var:a}}-{{var:b}} {{day+1}}"', const {
+          'a': 'X',
+          'b': 'Y',
+        }),
+        'type "X-Y {{day+1}}"',
+      );
+      expect(resolveCaptures('tap id:x', const {}), 'tap id:x');
+      expect(
+        () => resolveCaptures('type {{var:nope}}', const {}),
+        throwsA(isA<UsageFailure>()),
+      );
+    });
+
+    test('set account= names the next sign-in\'s emulator identity, and '
+        'build puts the build\'s own back', () {
+      expect(SetCommand.parseAssignments(['account=qa2:qa2@example.com']), {
+        AgentKeys.account: 'qa2:qa2@example.com',
+      });
+      expect(SetCommand.parseAssignments(['account=build']), {
+        AgentKeys.account: null,
+      });
+      for (final bad in [
+        'account=qa2',
+        'account=:x@example.com',
+        'account=a:',
+      ]) {
+        expect(
+          () => SetCommand.parseAssignments([bad]),
+          throwsA(isA<UsageFailure>()),
+          reason: bad,
+        );
+      }
+    });
+
+    test(
+      'share takes a kind and a name of any length, shared unless --off',
+      () {
+        expect(
+          ShareCommand.parseRequest([
+            'event',
+            'Lifting',
+            'session',
+          ], off: false),
+          {
+            AgentKeys.kind: 'event',
+            AgentKeys.name: 'Lifting session',
+            AgentKeys.on: true,
+          },
+        );
+        expect(ShareCommand.parseRequest(['Folder', 'Training'], off: true), {
+          AgentKeys.kind: 'folder',
+          AgentKeys.name: 'Training',
+          AgentKeys.on: false,
+        });
+        for (final bad in [
+          <String>[],
+          ['event'],
+          ['note', 'Session 1'],
+          ['folder', ' '],
+        ]) {
+          expect(
+            () => ShareCommand.parseRequest(bad, off: false),
+            throwsA(isA<UsageFailure>()),
+            reason: '$bad',
+          );
+        }
       },
     );
   });

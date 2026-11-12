@@ -7,7 +7,14 @@ import 'package:anta/core/qa/qa_bootstrap.dart';
 import 'package:anta/core/qa/qa_mode.dart';
 import 'package:anta/core/qa/qa_overrides.dart';
 import 'package:anta/bloc/app_settings/app_settings_bloc.dart';
+import 'package:anta/core/di/injection.dart';
+import 'package:anta/database/database.dart';
 import 'package:anta/services/app_navigator.dart';
+import 'package:anta/services/auth_service.dart';
+import 'package:anta/services/calendar_event_service.dart';
+import 'package:anta/services/folder_storage_service.dart';
+import 'package:anta/services/pairing_gateway.dart';
+import 'package:anta/services/pairing_service.dart';
 import 'package:anta/services/sync_availability.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/rendering.dart';
@@ -167,6 +174,12 @@ class QaAgent {
         return _perf(_string(request, AgentKeys.action));
       case AgentOps.set:
         return _set(request);
+      case AgentOps.share:
+        return _share(
+          kind: _string(request, AgentKeys.kind),
+          name: _string(request, AgentKeys.name),
+          on: request[AgentKeys.on] != false,
+        );
       case AgentOps.reveal:
         return _reveal(_int(request, AgentNodeKeys.semanticsId, -1));
     }
@@ -260,8 +273,20 @@ class QaAgent {
   /// platform's), `locale` (`de`, or `system`/null for the device's), and
   /// `themeMode` (`light` / `dark` / `system`). Locale and theme go through
   /// the app's own settings bloc, so they persist like a tap in Settings
-  /// would; the text scale is QA-only and lives in [QaOverrides].
+  /// would; the text scale is QA-only and lives in [QaOverrides]. `account`
+  /// (`<sub>:<email>`, or null for the build's) is who the next emulator
+  /// sign-in is ([QaIdentity]).
   Future<Map<String, Object?>> _set(Map<String, dynamic> request) async {
+    if (request.containsKey(AgentKeys.account)) {
+      final raw = request[AgentKeys.account];
+      if (raw != null && (raw is! String || raw.indexOf(':') <= 0)) {
+        throw QaAgentException(
+          'account must be <sub>:<email> or null',
+          kind: AgentErrorKinds.usage,
+        );
+      }
+      QaIdentity.override = raw as String?;
+    }
     if (request.containsKey(AgentKeys.textScale)) {
       final raw = request[AgentKeys.textScale];
       if (raw != null && raw is! num) {
@@ -308,7 +333,85 @@ class QaAgent {
       AgentKeys.textScale: QaOverrides.textScale.value,
       AgentKeys.locale: state?.localeCode ?? 'system',
       AgentKeys.themeMode: state?.themeMode.name,
+      AgentKeys.account: QaIdentity.account,
     };
+  }
+
+  /// Shares the event titled [name], or the folder named so, with this
+  /// account's partner — or makes it private again when [on] is false —
+  /// through the call a share switch will make
+  /// (`CalendarEventService.setShared`, `FolderStorageService
+  /// .setFolderShared`): no surface has that switch yet
+  /// (`docs/cloud-sharing-foundations.md` §9, F4), and a device pass has to
+  /// prove what stands under it.
+  ///
+  /// The row is one of the person's own, live, and the only one of its
+  /// name; sharing needs the account to be in a pair. Anything else is a
+  /// target failure that says which, so a flow never goes on over a share
+  /// that was not set.
+  Future<Map<String, Object?>> _share({
+    required String kind,
+    required String name,
+    required bool on,
+  }) async {
+    Never refuse(String message) =>
+        throw QaAgentException(message, kind: AgentErrorKinds.target);
+    if (!AgentShareKinds.all.contains(kind)) {
+      throw QaAgentException(
+        'share takes ${AgentShareKinds.all.join(' or ')} (got "$kind")',
+        kind: AgentErrorKinds.usage,
+      );
+    }
+    String? pairId;
+    if (on) {
+      final pairing = await PairingService.getInstance(
+        getIt<AuthService>(),
+        getIt<PairingGateway>(),
+      );
+      pairId = pairing.status.pairId;
+      if (pairId == null) {
+        refuse('this account is in no pair: pair the two guests first');
+      }
+    }
+    final db = await AppDatabase.getInstance();
+    final shared = await db.sharedRowDao.owner();
+    final String id;
+    final bool written;
+    if (kind == AgentShareKinds.event) {
+      final matches = [
+        for (final event in await db.calendarEventDao.getAll())
+          if (event.title == name &&
+              !event.isDeleted &&
+              (shared == null || event.ownerId != shared))
+            event.id,
+      ];
+      if (matches.length != 1) {
+        refuse('${matches.length} events of this account are titled "$name"');
+      }
+      id = matches.single;
+      written = await (await CalendarEventService.getInstance()).setShared(
+        id,
+        pairId,
+      );
+    } else {
+      final matches = [
+        for (final folder in await db.folderDao.getAllFolders())
+          if (folder.name == name &&
+              (shared == null || folder.ownerId != shared))
+            folder.id,
+      ];
+      if (matches.length != 1) {
+        refuse('${matches.length} folders of this account are named "$name"');
+      }
+      id = matches.single;
+      written = await getIt<FolderStorageService>().setFolderShared(id, pairId);
+    }
+    if (!written) {
+      // Not an error to make private what already is, or to share again
+      // what is shared: the flow asked for a state, and it holds.
+      debugPrint('[qa] share: "$name" already ${on ? 'shared' : 'private'}');
+    }
+    return {AgentKeys.rowId: id, AgentKeys.pair: pairId};
   }
 
   Future<void> _awaitView() async {

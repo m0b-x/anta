@@ -4,7 +4,9 @@
 FIXED the same day (§12: two privacy holes closed, the mark given its own
 stamp); F2 BUILT (the reader — §5, §6) and REVIEWED; F3 BUILT with that
 review's fixes (the fences — §7, §8; a pair and the claim of its invite
-made one write — §4); F4 (proof on devices) to build. The owner's scope (2026-11-11): everything under the "Share with
+made one write — §4), REVIEWED and FIXED; F4 DONE — the two-guest device
+suite `qa pass share` green twice (§12). Every part of the foundations is
+built; what is left is the owner's (§11, and the roadmap's status). The owner's scope (2026-11-11): everything under the "Share with
 partner" switch, for events and for notes — schema, wire, rules, the
 engine reading a partner's shared rows, read-only protection, backups,
 two app versions — proven by tests and the rules emulator; no switch, no
@@ -437,8 +439,11 @@ read of the pair must not end a back-off or lift a quota pause the
 account's own sync is under — and its rows are not in the run's report.
 The whole of it runs inside one guard, the local reads before the first
 call and the stamp after the last included; only a halt goes through,
-since it ends the run itself. The rules it depends on may not be deployed
-yet; a pair may end between two calls.
+since it ends the run itself. It comes last, after the run's own books
+are closed — its failure recorded, its success counted, the space's share
+settled — so neither its deadlines nor a halt raised inside it can leave
+those undone. The rules it depends on may not be deployed yet; a pair may
+end between two calls.
 
 1. **Whether.** An account that never paired, shares nothing and holds no
    shared row asks nothing: three local reads (the stored owner, "is
@@ -518,7 +523,10 @@ yet; a pair may end between two calls.
    and "waiting" is not always brief — the space rests at "no pair" while
    two of the owner's devices disagree (decision k). A note whose
    document is gone or refuses the read stopped being shared, and stops
-   waiting.
+   waiting; so does one whose retry ends any other way than still lacking
+   its text — a newer wire wrote it, the merge refuses it — which is no
+   wait for text and would otherwise be asked for at every poll with no
+   try ever counted.
 8. **Place** (`SharedRowDao.placeFolders`, inside each folders page's
    transaction). A shared folder whose parent was not shared — or is a
    folder this device holds as its own — stands at the top level:
@@ -526,8 +534,14 @@ yet; a pair may end between two calls.
    `shared_root.<id>`, so it goes back under that parent once it arrives.
    Never stamped: the difference from the owner's document is this
    device's own.
-9. **Caches** hear of the pages through the hooks the own pull uses, and
-   of removals as a merged page's deletions.
+9. **Screens** hear of the pages through the hooks the own pull uses. A
+   row that was removed is announced as *gone*, with where it stood — the
+   folder a note lay in, a folder's parent (`SyncAppliedRow.gone`,
+   `SharedRowDao`'s `SharedRemovals`, `FolderRepository.announceRemoved`,
+   `NoteRepository.announceRemoved`): the announcements of a merged page
+   re-read their rows to place them, and of a removed shared row nothing
+   is left to read. Without it the device pass found a folder that had
+   left still on the open page until the app was started again.
 
 ## 6. Rows that leave
 
@@ -547,7 +561,9 @@ filter, and the emulator, which needs no index, would never have said so.
 A count the server still cannot answer (an index building) skips that
 table's look for rows that left and nothing else: the tables after it are
 read, and the daily read finds what left. Only a walk that reached the
-table's end removes anything — one the app leaving cut removes nothing.
+table's end removes anything — one the app leaving cut removes nothing,
+and neither does one a gateway ended by promising more and sending
+nothing.
 
 A read from the start is exact for a row that stays shared: its document
 stands at its old place in the order until a push of it commits and at a
@@ -611,10 +627,22 @@ before lets through:
    over many rows goes on with the others. So a write of a shared row
    does not fail, it does nothing — a surface asks
    `SharedRowDao.isShared(table, id)` before it offers an edit, and the
-   two calls that would otherwise answer with a row that was never
-   stored, `createNote` and `createFolder` inside a shared folder, throw
-   `SharedRowException`. `setSharedPair` answers false for a shared row:
-   what is shared with me is not mine to share on.
+   calls whose answer would otherwise be a lie throw `SharedRowException`:
+   `createNote`, `createFolder`, `importNote` and `importFolder` inside a
+   shared folder, which would hand back a row that was never stored, and
+   `updateNote` and `moveNote` of a shared note or into a shared folder,
+   which stamped, queued and answered as if they had written — an editor's
+   auto-save would have taken its text for kept. `setSharedPair` answers
+   false for a shared row: what is shared with me is not mine to share
+   on.
+
+   A delete does not pass through to what the person keeps on a shared
+   event: `tombstoneEventCascade` does nothing at all for one, and "delete
+   all my events" leaves the presence marks and alerts set on one
+   (`SyncDao.onSharedEventSql`) — the event stays, so they do. The sweep
+   that tombstones the counter values of a deleted note is for notes of
+   the person's own; a shared note its owner deleted keeps what the
+   person counted on it.
 
    The fences are armed only while `shared_owner` is present and stand
    down inside the reader's own transactions
@@ -635,21 +663,40 @@ before lets through:
 takes the place of a row of theirs under the same id (`SharedRowRefused`,
 §5), and a row of theirs that arrives from their own space under an id a
 shared row took first removes that cached copy before it is merged
-(`SharedRowDao.sharedAmong` / `evict`, in the own pull's page
-transaction). Without the second, the own document would have merged as
-"unchanged" into the partner's row and been lost here when the share
-ended. What hung under the evicted copy goes with it — an event's shared
-day rows, the shared notes directly inside a folder — since under a row
-of the person's own they are exactly what the reader refuses to store; a
-shared folder under it stays shared and stands at the top level.
+(`_Puller._makeRoom` over `SharedRowDao.evict`). Without the second, the
+own document would have merged as "unchanged" into the partner's row and
+been lost here when the share ended. What hung under the evicted copy
+goes with it — an event's shared day rows, the shared notes directly
+inside a folder — since under a row of the person's own they are exactly
+what the reader refuses to store; a shared folder under it stays shared
+and stands at the top level.
+
+The eviction is a transaction of its own, committed before the page is
+prepared. Inside the page's transaction it removed chunk rows a notes
+page had already planned its bodies against: the merge failed, the
+eviction rolled back with it, and the same page failed at every run from
+then on — the notes pull of that account was wedged (review of F3).
+
+**A row of theirs that names a shared row as its parent is held back** —
+a note or a folder whose folder, a day row whose event, is held here as
+shared (`SharedParentHeld`). Stored, the fences would turn the insert
+into nothing while the merge counted it and the cursor passed it for
+good; and evicting the parent for it does not hold, since the reader's
+next look brings the shared row back with the person's row inside it.
+Held back like any row that could not be merged, it shows among the
+held-back rows, is tried again at the next start and at "Sync now", and
+lands once its own parent arrived — which takes the shared one's place
+by its key — or the share ended.
 
 One writer needed the eviction spelled out: the events import
 (`CalendarEventDao.importAll`) inserts with `INSERT OR REPLACE`, and
 SQLite fires no delete trigger for the row a replace removes — an
 archive's event under a shared event's id would have replaced it past
-the fences, silently and without its day rows. It evicts first. **No
-other writer of the five tables may use a replacing insert** without
-doing the same.
+the fences, silently and without its day rows. It evicts first. The two
+day-row imports replace too and need no eviction: a row of the person's
+own is not stored on a shared event at all, and under an event of their
+own no shared day row is kept. **No other writer of the five tables may
+use a replacing insert** without settling the same question.
 
 Personal, and so never refused: presence marks and alert definitions on a
 shared event, counter values on a shared note — rows of the person's own,
@@ -749,6 +796,24 @@ Collected as the build met them; none blocks the foundations.
   was behind returns (§3). It errs towards private, so nothing is done
   about it; a surface could show "sharing…" until the sharer's own
   device has read its rows back.
+- **The partner's screens are not read-only yet** — the scope left the
+  surfaces out. A shared note opens in the ordinary editor, and a save
+  there is refused with `SharedRowException`, which the editor shows as a
+  save that failed; "New folder" and "New note" inside a shared folder
+  fail the same way; a rename, a move, a label or a delete of a shared
+  row does nothing. Nothing is lost or sent, but nothing explains itself
+  either: the surface slice (E1's badge, N1's read-only editor) asks
+  `SharedRowDao.isShared` and disables instead.
+- **The same note id in two of the partner's databases** (a copied
+  database file, bound twice): one of the two documents is asked for its
+  text in the other's space and waits, within the bound of §5.7.
+- **An active pair this build cannot read** stops reconciliation on a
+  device with nothing cached, which then shows "not paired" and could
+  make a second pair; the rules cannot produce such a document, and an
+  update is what reads it.
+- **A person's own marks and alerts on a shared event** are in the
+  calendar export lists while the event is not (§8): inert orphans in a
+  JSON archive, should one ever be written from them.
 
 ## 12. As built
 
@@ -996,3 +1061,87 @@ tombstone, a day row and a seed-stamped document against the person's
 own; the run's report; an own table's fault; a walk cut by a leave; the
 adopted row queued as a write), `pairing_service_test` 31 (+2, and the
 lost race now leaves no pair).
+
+### F3 — the review, fixed with F4 (2026-11-12)
+
+An independent review on Fable in a separate checkout of `d0130151`:
+eighteen findings, eight of them reproduced through probe tests against
+the real DAOs, the engine and the fake gateway. Two mattered before any
+share could exist — the first wedged an account's own notes pull, the
+second dropped a row of the person's own without a trace. No hole in the
+rules, by reading.
+
+| # | Found | Fixed by |
+| --- | --- | --- |
+| 1 | An own note arriving over a shared note's id with the same text failed its page at every run: the eviction, inside the page's transaction, removed chunk rows the page had planned against, and rolled back with the failure | the eviction is a transaction of its own, before the page is prepared (`_Puller._makeRoom`, §7) |
+| 2 | An own row arriving under a shared parent was skipped by the fences, counted as pulled and passed by the cursor for good | it is held back (`SharedParentHeld`) and retried until its own parent arrives or the share ends (§7) |
+| 3 | Deleting a shared event, or "delete all events", tombstoned the person's own presence marks and alerts on it while the event stayed | the cascade does nothing for a shared event; the wipe leaves what hangs on one (§7) |
+| 4 | The waiting-note retry was unbounded whenever the retry ended any other way than still lacking its text | such a note stops waiting (§5.7) |
+| 5 | `importNote` / `importFolder` into a shared folder failed with a bare "no element" | they refuse by name, as the two creations do |
+| 6 | A save or a move the fences skipped still stamped, queued and answered as if it had written | `updateNote` and `moveNote` throw `SharedRowException` (§7) |
+| 7 | The two day-row imports replace as the events' did | looked at again: no shared day row can stand under their keys, so nothing is evicted — said where they insert (§7) |
+| 8 | The chunk update fence looked at the old note only | both ends |
+| 9 | Rows evicted by the own pull reached no screen | removals are announced as gone, with where the row stood (§5.9) — the device pass had met the same on the reader's side |
+| 10 | A pair without a second account read as "no pair" | `partnerOf` throws |
+| 11 | The shared read stood in front of the run's own bookkeeping, and a halt inside it skipped that | the books are closed first (§5) |
+| 12 | A walk a gateway ended by promising more and sending nothing counted as complete | a walk from the start then removes nothing (§6) |
+| 13 | A redemption whose write landed and whose answer was lost threw, and a second try said "code not valid" | `redeem` asks the server once before it believes the failure; an invite that ran out in between is "not valid", not "not allowed" |
+| 15 | An owner's delete of a shared note swept the partner's own counter values under the owner's stamp | the sweep is for notes of the person's own (§7) |
+| 18 | `evict` read the owner before looking at its keys; `writing`'s cleanup could mask the body's error | both |
+
+Accepted, in §11: 14 (an unreadable active pair on a device with nothing
+cached), 16 (one note id in two of the partner's spaces), 17 (marks of a
+shared event in the export lists). Of 10, the other half — more than ten
+active pairs with no order — is left: the rules hold a pair to two
+accounts and reconciliation ends the extra ones.
+
+Found while fixing: finding 2's first answer, evicting the shared parent
+for the own row, did not hold — the reader's next look brought the
+shared folder back with the person's note inside it, which its own test
+showed; hence "held back". And the day-row imports of finding 7, given
+an eviction, would have removed an owner's skipped day for a row the
+fences then refuse — taken out again.
+
+### F4 — proof on devices (2026-11-12)
+
+The two-guest saved suite `qa pass share -d emulator-5556`
+(`tool/qa/flows/share/`, cookbook
+`.claude/skills/qa-emulator/references/share-pass.md`): two fleet guests,
+two accounts on the local Firebase emulator suite, the app's own UI for
+everything but the share itself — sign-in, bind, the pairing sheet, the
+calendar and the browser on the partner's guest, the unpair dialog. Six
+flows: pair; a shared event arrives; a shared folder arrives with what is
+under it and its notes' text; a folder added under it later follows; made
+private, both are gone from the open pages; the pair ended, the partner
+is told once and the event is gone. Green twice, each against a freshly
+started suite: 6/6 in 117.6 s and in 120.6 s.
+
+This is the first run of the Firestore gateway's shared page, its cursor
+and its count, of the chunk read from another account's space, and of
+the one-write redemption, against a backend and the deployed-to-be rules.
+
+- *The seams.* `qa share event|folder "<name>" [--off]` (agent op
+  `share`, protocol v3) calls the two service calls a switch will make;
+  `qa set account=<sub>:<email>` (`QaIdentity`) gives the second guest
+  its own emulator account from the one APK. Harness: a step may lead
+  with `-d <serial>` and runs on that guest's own connection; `text
+  --match --capture` and `{{var:name}}` carry the invite code across.
+- *Ids.* `pairing-generate`, `pairing-code`, `pairing-code-field`,
+  `pairing-connect`, `sharing-unpair-confirm`, `sharing-ended-close`.
+- *What it found.* The pairing sheet closed itself on every "paired"
+  state, and the second — the partner's name arriving — popped the page
+  under it: the redeemer landed on Settings. It closes once
+  (`test/widgets/pairing_sheet_test.dart`, which fails on the old code).
+  And a shared row that left stayed on the open page until a relaunch
+  (§5.9).
+- *Not covered.* §11's surfaces; the partner's own presence or alert on
+  a shared event; one id on both accounts; a newer wire; a second device
+  of either account; D2 while paired, whose device pass is still owed;
+  the real project, which is the owner's phone check.
+
+Gate for the review's fixes and F4 together: `dart analyze lib test tool
+test_driver` clean; the whole suite `+16029 ~17`. `sync_shared_reader_test`
+47, `shared_row_fences_test` 15, `pairing_service_test` 34,
+`pass_command_test` and `agent_tree_test` with the harness's new cases,
+`app_sync_apply_hooks_test` and `share_partner_source_test` +1 each. The
+rules were not changed by this part; the rules suite stands at 153.

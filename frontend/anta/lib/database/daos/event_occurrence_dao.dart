@@ -278,6 +278,8 @@ class EventOccurrenceDao extends DatabaseAccessor<AppDatabase>
   Future<void> importAll(List<EventOccurrenceDescriptionsCompanion> entries) {
     if (entries.isEmpty) return Future.value();
     return transaction(() async {
+      // The replacing insert below cannot take a shared day text's place
+      // past the fences (`EventSkipDao.importAll` says why).
       final stamps = [for (final _ in entries) db.newStamp()];
       await batch((b) {
         for (var i = 0; i < entries.length; i++) {

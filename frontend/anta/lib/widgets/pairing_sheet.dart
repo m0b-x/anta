@@ -7,10 +7,12 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../bloc/pairing/pairing_bloc.dart';
+import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
 import '../services/pairing_service.dart';
 import '../utils/custom_snackbar.dart';
 import '../utils/pairing_error.dart';
+import 'automation_id.dart';
 
 /// Opens the pairing flow over an existing [PairingBloc]. The sheet exists so
 /// the Sharing page keeps one scannable row: a countdown, copy/share/cancel and
@@ -41,6 +43,12 @@ class _PairingSheetState extends State<_PairingSheet> {
   /// disabled one that explains itself by being disabled.
   String _typedCode = '';
 
+  /// Whether the sheet already closed itself. "Paired" arrives more than
+  /// once — first with the partner's uid alone, then with the name they
+  /// publish — and the second arrival, while the sheet was still sliding
+  /// away, popped the page under it: the redeemer landed on Settings.
+  bool _closed = false;
+
   @override
   void dispose() {
     _codeController.dispose();
@@ -55,7 +63,11 @@ class _PairingSheetState extends State<_PairingSheet> {
     return BlocConsumer<PairingBloc, PairingState>(
       listenWhen: (previous, current) =>
           current is PairingPaired || current is PairingUnavailable,
-      listener: (context, state) => Navigator.of(context).maybePop(),
+      listener: (context, state) {
+        if (_closed) return;
+        _closed = true;
+        Navigator.of(context).maybePop();
+      },
       builder: (context, state) {
         return Padding(
           padding: EdgeInsets.fromLTRB(
@@ -133,20 +145,23 @@ class _PairingSheetState extends State<_PairingSheet> {
     if (state is! PairingInviting) {
       final busy = _busy(state);
       return [
-        FilledButton.icon(
-          onPressed: busy
-              ? null
-              : () => context.read<PairingBloc>().add(
-                  const GenerateInviteRequested(),
-                ),
-          icon: busy
-              ? const SizedBox(
-                  width: 18,
-                  height: 18,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : const Icon(Icons.add_link_rounded),
-          label: Text(l10n.pairingGenerateCode),
+        AutomationId(
+          identifier: SemanticsIds.pairingGenerate,
+          child: FilledButton.icon(
+            onPressed: busy
+                ? null
+                : () => context.read<PairingBloc>().add(
+                    const GenerateInviteRequested(),
+                  ),
+            icon: busy
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.add_link_rounded),
+            label: Text(l10n.pairingGenerateCode),
+          ),
         ),
         ?inviteError,
       ];
@@ -159,13 +174,16 @@ class _PairingSheetState extends State<_PairingSheet> {
         textAlign: TextAlign.center,
       ),
       const SizedBox(height: 12),
-      SelectableText(
-        PairingService.formatCode(state.code),
-        textAlign: TextAlign.center,
-        style: theme.textTheme.headlineSmall?.copyWith(
-          fontFamily: 'monospace',
-          letterSpacing: 4,
-          fontWeight: FontWeight.w600,
+      AutomationId(
+        identifier: SemanticsIds.pairingCode,
+        child: SelectableText(
+          PairingService.formatCode(state.code),
+          textAlign: TextAlign.center,
+          style: theme.textTheme.headlineSmall?.copyWith(
+            fontFamily: 'monospace',
+            letterSpacing: 4,
+            fontWeight: FontWeight.w600,
+          ),
         ),
       ),
       const SizedBox(height: 4),
@@ -217,43 +235,49 @@ class _PairingSheetState extends State<_PairingSheet> {
         PairingService.codeLength;
 
     return [
-      TextField(
-        controller: _codeController,
-        autocorrect: false,
-        enableSuggestions: false,
-        textCapitalization: TextCapitalization.characters,
-        maxLength: PairingService.codeLength + 1,
-        style: const TextStyle(fontFamily: 'monospace', letterSpacing: 3),
-        decoration: InputDecoration(
-          labelText: l10n.pairingEnterCode,
-          hintText: l10n.pairingCodeHint,
-          border: const OutlineInputBorder(),
-          counterText: '',
-          // Inline, not a snackbar: the user is mid-correction and needs the
-          // message to stay next to the field they are fixing. Only a
-          // redemption failure belongs here — a failed "create a code" must
-          // not put a red border on a field they never touched.
-          errorText: failure == null || !failure.belongsToCodeField
+      AutomationId(
+        identifier: SemanticsIds.pairingCodeField,
+        child: TextField(
+          controller: _codeController,
+          autocorrect: false,
+          enableSuggestions: false,
+          textCapitalization: TextCapitalization.characters,
+          maxLength: PairingService.codeLength + 1,
+          style: const TextStyle(fontFamily: 'monospace', letterSpacing: 3),
+          decoration: InputDecoration(
+            labelText: l10n.pairingEnterCode,
+            hintText: l10n.pairingCodeHint,
+            border: const OutlineInputBorder(),
+            counterText: '',
+            // Inline, not a snackbar: the user is mid-correction and needs
+            // the message to stay next to the field they are fixing. Only a
+            // redemption failure belongs here — a failed "create a code"
+            // must not put a red border on a field they never touched.
+            errorText: failure == null || !failure.belongsToCodeField
+                ? null
+                : PairingErrorMessages.of(l10n).resolve(failure.error),
+          ),
+          onChanged: (value) => setState(() => _typedCode = value),
+          onSubmitted: busy || !complete
               ? null
-              : PairingErrorMessages.of(l10n).resolve(failure.error),
+              : (value) => _redeem(context, value),
         ),
-        onChanged: (value) => setState(() => _typedCode = value),
-        onSubmitted: busy || !complete
-            ? null
-            : (value) => _redeem(context, value),
       ),
       const SizedBox(height: 12),
-      FilledButton(
-        onPressed: busy || !complete
-            ? null
-            : () => _redeem(context, _codeController.text),
-        child: busy
-            ? const SizedBox(
-                width: 20,
-                height: 20,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              )
-            : Text(l10n.pairingConnect),
+      AutomationId(
+        identifier: SemanticsIds.pairingConnect,
+        child: FilledButton(
+          onPressed: busy || !complete
+              ? null
+              : () => _redeem(context, _codeController.text),
+          child: busy
+              ? const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : Text(l10n.pairingConnect),
+        ),
       ),
     ];
   }

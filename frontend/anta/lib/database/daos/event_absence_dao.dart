@@ -7,6 +7,7 @@ import '../crdt/merge_outcome.dart';
 import '../crdt/synced_tables.dart';
 import '../database.dart';
 import '../tables/event_absences_table.dart';
+import 'sync_dao.dart';
 
 part 'event_absence_dao.g.dart';
 
@@ -324,7 +325,12 @@ class EventAbsenceDao extends DatabaseAccessor<AppDatabase>
       'UPDATE calendar_event_absences SET is_deleted = 1, deleted_at = ?, '
       'updated_at = ?, hlc_timestamp = ?, device_id = ?, '
       'version = version + 1 '
-      'WHERE is_deleted = 0 AND ${owned.sql} RETURNING event_id, day',
+      // Not the marks on an event another account shares with this one:
+      // that event is not deleted by "delete all", so what the person kept
+      // on it stays.
+      'WHERE is_deleted = 0 AND ${owned.sql} '
+      'AND NOT ${SyncDao.onSharedEventSql('calendar_event_absences.event_id')} '
+      'RETURNING event_id, day',
       variables: [
         Variable<DateTime>(now),
         Variable<DateTime>(now),

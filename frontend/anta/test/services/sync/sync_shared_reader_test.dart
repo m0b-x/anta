@@ -724,6 +724,66 @@ void main() {
       expect(pair.gateway.sharedRowReads, isEmpty);
     });
 
+    test('a waiting note that ends any other way than still lacking its '
+        'text — here a newer build rewrote it — stops waiting: it was asked '
+        'for at every poll, with no try ever counted', () async {
+      await owner().sync();
+      await spaceForgetsThePair();
+      await partner().sync();
+      expect((await waitingOn(partner())).keys, contains(top.id));
+      // The owner updated, and their build wrote the note again.
+      final note = pair.gateway.rowsOf(pair.ownerSpace, 'notes')[top.id]!;
+      pair.gateway.plant(
+        pair.ownerSpace,
+        SyncEnvelope(
+          table: note.table,
+          rowKey: note.rowKey,
+          hlc: note.hlc,
+          deviceId: note.deviceId,
+          version: note.version,
+          op: note.op,
+          ownerId: note.ownerId,
+          data: note.data,
+          sharedPair: sharePairId,
+          wire: syncSchema + 1,
+        ),
+        pushedBy: 'A',
+      );
+      pair.gateway.sharedRowReads.clear();
+
+      await partner().sync();
+      await partner().sync();
+      await partner().sync();
+
+      expect(
+        pair.gateway.sharedRowReads.where((read) => read.endsWith(top.id)),
+        hasLength(1),
+      );
+      expect((await waitingOn(partner())).keys, isNot(contains(top.id)));
+    });
+
+    test('no longer shared, is taken off the screens as it is taken out of '
+        'the database: each folder and note announced as gone, with the '
+        'list it stood in', () async {
+      await pair.syncBoth();
+      partner().hooks.clear();
+
+      await owner().db.folderDao.setSharedPair(shelf.id, null);
+      await pair.syncBoth();
+
+      final gone = {
+        for (final (table, rows) in partner().hooks.pages)
+          for (final row in rows)
+            if (row.gone) '$table/${row.rowKey}': row.previousParent,
+      };
+      expect(gone, {
+        'folders/${shelf.id}': null,
+        'folders/${box.id}': shelf.id,
+        'notes/${top.id}': shelf.id,
+        'notes/${low.id}': box.id,
+      });
+    });
+
     test('a count the server cannot answer — its index still building — '
         'skips that table\'s look for rows that left and nothing else: the '
         'tables after it are read', () async {
@@ -1044,6 +1104,172 @@ void main() {
         'e2',
         'e3',
       });
+    });
+  });
+
+  group('the person\'s own row, arriving from their own space', () {
+    late Folder shelf;
+    late Note top;
+
+    /// [envelope] as a document of the partner's own, pushed by another
+    /// device of theirs — both accounts restored one backup, so the ids
+    /// are the same on both sides.
+    SyncEnvelope asOwn(
+      SyncEnvelope envelope, {
+      String? rowKey,
+      Map<String, Object?> over = const {},
+    }) {
+      final data = envelope.data == null
+          ? null
+          : (Map<String, Object?>.of(envelope.data!)
+              ..remove('ownerId')
+              ..remove('sharedPair')
+              ..remove('sharedStamp')
+              ..addAll(over));
+      return SyncEnvelope(
+        table: envelope.table,
+        rowKey: rowKey ?? envelope.rowKey,
+        hlc: envelope.hlc,
+        deviceId: 'B2',
+        version: envelope.version,
+        op: envelope.op,
+        ownerId: partnerUid,
+        data: data,
+      );
+    }
+
+    void plantOwn(SyncEnvelope envelope) =>
+        pair.gateway.plant(pair.partnerSpace, envelope, pushedBy: 'B2');
+
+    /// The owner's chunk documents, as the partner's own space would hold
+    /// the same text.
+    void plantOwnChunks() {
+      for (final chunk
+          in pair.gateway.rowsOf(pair.ownerSpace, 'content_chunks').values) {
+        plantOwn(asOwn(chunk));
+      }
+    }
+
+    setUp(() async {
+      shelf = await owner().db.folderDao.createFolder(name: 'Shelf');
+      top = await writeNote(
+        owner(),
+        folderId: shelf.id,
+        title: 'Top',
+        body: 'Text on the shelf',
+      );
+      await event(owner(), 'e1');
+      await owner().db.folderDao.setSharedPair(shelf.id, sharePairId);
+      await owner().db.calendarEventDao.setSharedPair('e1', sharePairId);
+      await pair.syncBoth();
+    });
+
+    test('a note over a shared note\'s id, with the very same text: the '
+        'pull stores it as the person\'s own and goes on — it used to fail '
+        'on that page at every run', () async {
+      final mine = await partner().db.folderDao.createFolder(name: 'Mine');
+      final note = pair.gateway.rowsOf(pair.ownerSpace, 'notes')[top.id]!;
+      plantOwn(asOwn(note, over: {'folderId': mine.id}));
+      plantOwnChunks();
+
+      final report = await partner().sync();
+      await partner().sync();
+
+      expect(report.failure, isNull);
+      final here = (await noteOn(partner(), top.id))!;
+      expect(here.ownerId, partnerUid);
+      expect(here.folderId, mine.id);
+      expect(
+        await partner().db.contentChunkDao.loadContent(top.id),
+        'Text on the shelf',
+      );
+    });
+
+    test('a note that names a folder held here as shared is held back — not '
+        'stored under it, and not counted and passed over as it used to be: '
+        'it lands once the folder of the person\'s own arrives and takes the '
+        'shared one\'s place', () async {
+      final note = pair.gateway.rowsOf(pair.ownerSpace, 'notes')[top.id]!;
+      plantOwn(asOwn(note, rowKey: 'own-note', over: {'id': 'own-note'}));
+      plantOwnChunks();
+      Future<List<String>> heldBack() async => [
+        for (final (key, _) in await partner().db.syncDao.valuesByPrefix(
+          SyncDao.pullParkedPrefix,
+        ))
+          key,
+      ];
+
+      final report = await partner().sync();
+
+      expect(report.failure, isNull);
+      expect(await noteOn(partner(), 'own-note'), isNull);
+      expect((await folderOn(partner(), shelf.id))!.ownerId, ownerUid);
+      expect((await noteOn(partner(), top.id))!.ownerId, ownerUid);
+      expect(await heldBack(), [contains('own-note')]);
+
+      final folder = pair.gateway.rowsOf(pair.ownerSpace, 'folders')[shelf.id]!;
+      plantOwn(asOwn(folder));
+      await partner().sync();
+      await partner().sync();
+
+      expect((await folderOn(partner(), shelf.id))!.ownerId, partnerUid);
+      final here = (await noteOn(partner(), 'own-note'))!;
+      expect(here.ownerId, partnerUid);
+      expect(
+        await partner().db.contentChunkDao.loadContent('own-note'),
+        'Text on the shelf',
+      );
+      expect(await heldBack(), isEmpty);
+    });
+
+    test('a skipped day on an event held here as shared is held back the '
+        'same way, and the owner\'s day under that key stays until it '
+        'lands', () async {
+      await owner().db.eventSkipDao.markSkipped('e1', day);
+      await pair.syncBoth();
+      final skip = pair.gateway
+          .rowsOf(pair.ownerSpace, 'calendar_event_skips')
+          .values
+          .single;
+      plantOwn(asOwn(skip));
+      Future<Set<String>> skipsOf(String uid) =>
+          ownedBy(partner(), 'calendar_event_skips', uid, key: 'event_id');
+
+      final report = await partner().sync();
+
+      expect(report.failure, isNull);
+      expect((await eventOn(partner(), 'e1'))!.ownerId, ownerUid);
+      expect(await skipsOf(ownerUid), {'e1'});
+      expect(await skipsOf(partnerUid), isEmpty);
+
+      final theirs = pair.gateway.rowsOf(
+        pair.ownerSpace,
+        'calendar_events',
+      )['e1']!;
+      plantOwn(asOwn(theirs));
+      await partner().sync();
+      await partner().sync();
+
+      expect((await eventOn(partner(), 'e1'))!.ownerId, partnerUid);
+      expect(await skipsOf(partnerUid), {'e1'});
+      expect(await skipsOf(ownerUid), isEmpty);
+    });
+
+    test('tells the screens what gave way: each removed row as gone, with '
+        'where it stood', () async {
+      final folder = pair.gateway.rowsOf(pair.ownerSpace, 'folders')[shelf.id]!;
+      plantOwn(asOwn(folder));
+      partner().hooks.clear();
+
+      await partner().sync();
+
+      final gone = {
+        for (final (table, rows) in partner().hooks.pages)
+          for (final row in rows)
+            if (row.gone) '$table/${row.rowKey}': row.previousParent,
+      };
+      expect(gone, {'notes/${top.id}': shelf.id});
+      expect((await folderOn(partner(), shelf.id))!.ownerId, partnerUid);
     });
   });
 

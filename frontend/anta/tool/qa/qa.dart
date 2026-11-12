@@ -186,6 +186,7 @@ class QaCommandRunner extends CommandRunner<int> {
     addCommand(ErrorsCommand());
     addCommand(AgentCommand());
     addCommand(SetCommand());
+    addCommand(ShareCommand());
     addCommand(BuildExeCommand());
   }
 
@@ -202,15 +203,55 @@ class QaCommandRunner extends CommandRunner<int> {
   void Function(String line, {required String prefix, required bool isError})?
   lineSink;
 
-  /// The single context every verb in this process shares.
+  /// The context every verb in this process shares, by the device it names.
   ///
   /// One device resolution, one `Device`, one agent connection, one
   /// screen-size cache, one dump cache — which is the whole point of running
-  /// several verbs per process.
-  QaContext contextFor(ArgResults globals) =>
-      _context ??= _contextFactory(globals);
+  /// several verbs per process. A step of `steps` or `pass` that names a
+  /// device other than the process's own (`-d emulator-5558 tap …`, in a
+  /// flow that drives two guests) gets a context of its own, shared by every
+  /// later step that names that device; a step naming none, or the
+  /// process's, runs on the first. The process's own is whatever its first
+  /// verb named — a two-guest pass names it (`-d emulator-5556 pass …`), or
+  /// a step naming that same guest would be given a second connection to it.
+  QaContext contextFor(ArgResults globals) {
+    final own = _context ??= _contextFactory(globals);
+    final named = globals['device'] as String?;
+    if (named == null || named == own.globalResults['device']) return own;
+    return _others[named] ??= _contextFactory(globals);
+  }
 
-  Future<void> dispose() async => _context?.dispose();
+  /// The contexts of the other devices steps named, by `-d` value.
+  final Map<String, QaContext> _others = {};
+
+  /// What `text --capture <name>` remembered in this process, for the later
+  /// steps that write `{{var:<name>}}` — on any device: how a flow carries
+  /// what one guest shows (an invite code) to the other.
+  final Map<String, String> captures = {};
+
+  Future<void> dispose() async {
+    await _context?.dispose();
+    for (final other in _others.values) {
+      await other.dispose();
+    }
+  }
+}
+
+final RegExp _capturedValue = RegExp(r'\{\{\s*var:([A-Za-z0-9_-]+)\s*\}\}');
+
+/// [line] with every `{{var:name}}` replaced by what `text --capture name`
+/// remembered; a name nothing captured is a [UsageFailure], so a step never
+/// types or taps the placeholder itself.
+String resolveCaptures(String line, Map<String, String> captures) {
+  if (!line.contains('{{')) return line;
+  return line.replaceAllMapped(_capturedValue, (match) {
+    final name = match.group(1)!;
+    return captures[name] ??
+        (throw UsageFailure(
+          'nothing was captured as "$name" — a step before this one runs '
+          '`text <target> --capture $name`',
+        ));
+  });
 }
 
 /// A resolved target plus the tree it came from and where that tree came from.
@@ -1923,8 +1964,10 @@ abstract class LaunchingCommand extends QaCommand {
     File(ctx.paths.deviceTxt).writeAsStringSync(device.id);
     File(ctx.paths.runVmTxt).writeAsStringSync(result.uris.vmService ?? '');
     if (takeRunHold(ctx.paths, device.id, result.pid)) {
-      out('holding ${device.id} for this run (`qa stop` or `qa kill-run` '
-          'lets it go)');
+      out(
+        'holding ${device.id} for this run (`qa stop` or `qa kill-run` '
+        'lets it go)',
+      );
     }
     out('pid=${result.pid}  log=${result.logPath}');
     out('dtd=${result.uris.dtd}');
@@ -2901,13 +2944,32 @@ class LongPressCommand extends TargetCommand with PostActions {
 }
 
 class TextCommand extends TargetCommand {
+  TextCommand() {
+    argParser
+      ..addOption(
+        'match',
+        help:
+            'A regular expression; the text becomes its first match in the '
+            'node\'s text — a code inside a row\'s label — and the verb '
+            'fails when there is none.',
+      )
+      ..addOption(
+        'capture',
+        help:
+            'Remember the text under this name for the later steps of this '
+            '`steps` or `pass`, which write it as {{var:<name>}} — on any '
+            'device.',
+      );
+  }
+
   @override
   String get name => 'text';
 
   @override
   String get description =>
       'Print the text of a target node, scrolled out of view or not; it '
-      'never scrolls the app.';
+      'never scrolls the app. --match takes a part of it, --capture keeps '
+      'it for later steps.';
 
   @override
   Future<int> run() async {
@@ -2915,7 +2977,33 @@ class TextCommand extends TargetCommand {
     warnIfForeign(lookup.tree);
     final node = lookup.resolved.node;
     if (node == null) throw TargetFailure('a coordinate target has no text');
-    out(node.text.isNotEmpty ? node.text : node.contentDesc);
+    var text = node.text.isNotEmpty ? node.text : node.contentDesc;
+    final pattern = argResults!['match'] as String?;
+    if (pattern != null) {
+      final RegExp expression;
+      try {
+        expression = RegExp(pattern);
+      } on FormatException catch (e) {
+        throw UsageFailure('--match is not a regular expression: ${e.message}');
+      }
+      text =
+          expression.firstMatch(text)?.group(0) ??
+          (throw TargetFailure(
+            'nothing in ${node.describe()} matches /$pattern/ '
+            '(its text: "$text")',
+          ));
+    }
+    final name = argResults!['capture'] as String?;
+    if (name != null) {
+      if (!RegExp(r'^[A-Za-z0-9_-]+$').hasMatch(name)) {
+        throw UsageFailure(
+          '--capture takes a name of letters, digits, "_" and "-" '
+          '(got "$name")',
+        );
+      }
+      (runner! as QaCommandRunner).captures[name] = text;
+    }
+    out(text);
     return 0;
   }
 }
@@ -3764,7 +3852,7 @@ mixin StepLoop on QaCommand {
       List<String> words;
       QaException? malformed;
       try {
-        line = resolvePlaceholders(line);
+        line = resolveCaptures(resolvePlaceholders(line), qaRunner.captures);
         words = splitShellWords(line);
         if (words.isNotEmpty && words.first == 'steps') {
           throw UsageFailure('a step cannot itself be `steps`');
@@ -6526,17 +6614,14 @@ class FleetBootCommand extends FleetSubcommand {
   /// guest no one holds; a holder reseeds it anyway. A guest that was up
   /// already is never touched: a hand session may have seeded it on
   /// purpose.
-  Future<void> _quietAfterBoot(
-    QaContext ctx,
-    FleetHost host,
-    int index,
-  ) => quietAfterBoot(
-    host: host,
-    paths: ctx.paths,
-    index: index,
-    quiet: ctx.quietFleetGuest,
-    say: (line) => line.startsWith('warning: ') ? warn(line) : out(line),
-  );
+  Future<void> _quietAfterBoot(QaContext ctx, FleetHost host, int index) =>
+      quietAfterBoot(
+        host: host,
+        paths: ctx.paths,
+        index: index,
+        quiet: ctx.quietFleetGuest,
+        say: (line) => line.startsWith('warning: ') ? warn(line) : out(line),
+      );
 
   /// Pins a just-started qemu the moment it shows up, so the boot itself
   /// runs on the P-cores too, and minimizes its window as soon as it opens,
@@ -7582,15 +7667,19 @@ class SetCommand extends QaCommand {
   @override
   String get description =>
       'Override the running QA build: text-scale=<factor|off>, '
-      'locale=<code|system>, theme=<light|dark|system>. Several at once.';
+      'locale=<code|system>, theme=<light|dark|system>, '
+      'account=<sub>:<email>|build (who the next emulator sign-in is). '
+      'Several at once.';
 
   @override
-  String get invocation => 'qa set text-scale=2.0 [locale=de] [theme=dark]';
+  String get invocation =>
+      'qa set text-scale=2.0 [locale=de] [theme=dark] '
+      '[account=qa2:qa2@example.com]';
 
   static Map<String, Object?> parseAssignments(List<String> rest) {
     if (rest.isEmpty) {
       throw UsageFailure(
-        'set needs at least one of text-scale=, locale=, theme=',
+        'set needs at least one of text-scale=, locale=, theme=, account=',
       );
     }
     final args = <String, Object?>{};
@@ -7627,9 +7716,21 @@ class SetCommand extends QaCommand {
             );
           }
           args[AgentKeys.themeMode] = value;
+        case 'account':
+          // The emulator's fake identity, never a real one: `<sub>:<email>`
+          // as the build's ANTA_QA_ACCOUNT spells it.
+          if (value == 'build' || value.isEmpty) {
+            args[AgentKeys.account] = null;
+          } else if (value.indexOf(':') <= 0 || value.endsWith(':')) {
+            throw UsageFailure(
+              'account must be <sub>:<email>, or build (got "$value")',
+            );
+          } else {
+            args[AgentKeys.account] = value;
+          }
         default:
           throw UsageFailure(
-            'set does not know "$key" (text-scale, locale, theme)',
+            'set does not know "$key" (text-scale, locale, theme, account)',
           );
       }
     }
@@ -7643,10 +7744,77 @@ class SetCommand extends QaCommand {
     final agent = await ctx.agent();
     final result = await agent.op(AgentOps.set, args);
     final scale = result[AgentKeys.textScale];
+    final account = result[AgentKeys.account];
     out(
       'set  text-scale=${scale ?? 'platform'}  '
       'locale=${result[AgentKeys.locale] ?? 'system'}  '
-      'theme=${result[AgentKeys.themeMode] ?? '?'}',
+      'theme=${result[AgentKeys.themeMode] ?? '?'}'
+      '${account is String && account.isNotEmpty ? '  account=$account' : ''}',
+    );
+    return 0;
+  }
+}
+
+/// `qa share event|folder "<name>" [--off]`: what a share switch will do,
+/// before any surface has one.
+class ShareCommand extends QaCommand {
+  ShareCommand() {
+    argParser.addFlag(
+      'off',
+      negatable: false,
+      help: 'Make it private again instead of sharing it.',
+    );
+  }
+
+  @override
+  String get name => 'share';
+
+  @override
+  String get description =>
+      'Share an event (by title) or a folder (by name) of the QA database '
+      'with the signed-in account\'s partner, or make it private again '
+      '(--off) — through the service call a share switch will make; no '
+      'surface has one yet. The account must be paired to share.';
+
+  @override
+  String get invocation => 'qa share <event|folder> "<name>" [--off]';
+
+  /// The agent request for `share <kind> <name…> [--off]`; the name may be
+  /// several words, quoted or not.
+  static Map<String, Object?> parseRequest(
+    List<String> rest, {
+    required bool off,
+  }) {
+    if (rest.length < 2) {
+      throw UsageFailure('share takes a kind and a name: $_usage');
+    }
+    final kind = rest.first.toLowerCase();
+    if (!AgentShareKinds.all.contains(kind)) {
+      throw UsageFailure(
+        'share takes ${AgentShareKinds.all.join(' or ')} (got "$kind"): '
+        '$_usage',
+      );
+    }
+    final name = rest.skip(1).join(' ').trim();
+    if (name.isEmpty) throw UsageFailure('share needs a name: $_usage');
+    return {AgentKeys.kind: kind, AgentKeys.name: name, AgentKeys.on: !off};
+  }
+
+  static const String _usage = 'share event|folder "<name>" [--off]';
+
+  @override
+  Future<int> run() async {
+    final request = parseRequest(
+      argResults!.rest,
+      off: argResults!['off'] as bool,
+    );
+    final agent = await context.agent();
+    final result = await agent.op(AgentOps.share, request);
+    final pair = result[AgentKeys.pair];
+    out(
+      'share  ${request[AgentKeys.kind]} "${request[AgentKeys.name]}"  '
+      '${pair == null ? 'private' : 'shared into $pair'}  '
+      'id=${result[AgentKeys.rowId]}',
     );
     return 0;
   }
@@ -8020,9 +8188,7 @@ class DoctorCommand extends QaCommand {
           continue;
         }
         try {
-          final alarms = await guestAlarmsOn(
-            host.adb.withSerial(guest.serial),
-          );
+          final alarms = await guestAlarmsOn(host.adb.withSerial(guest.serial));
           if (alarms.armed > 0 || alarms.ringing) {
             armed.add('${guest.name} (${guestAlarmsLabel(alarms)})');
           }

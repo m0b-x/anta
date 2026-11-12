@@ -1,0 +1,38 @@
+# What the owner adds under a shared folder afterwards is shared as the
+# folder is: a folder made inside it reaches the partner at the next sync,
+# with no second act of sharing.
+key back
+wait id:settings-bar-hub
+key back
+wait id:create-folder
+tap "Training"
+expect "Week 1" --timeout 10
+tap id:create-folder
+wait id:sheet-confirm
+type "Added later"
+tap id:sheet-confirm
+wait id:sheet-confirm --gone
+expect "Added later" --timeout 10
+key back
+wait id:create-folder
+tap id:nav-menu
+wait id:drawer-account
+tap id:drawer-account
+wait id:settings-bar-sharing
+tap id:sharing-sync-now
+expect id:sharing-sync-status "Up to date" --timeout 60
+-d emulator-5558 tap id:sharing-sync-now
+-d emulator-5558 expect id:sharing-sync-status "Up to date" --timeout 60
+-d emulator-5558 key back
+-d emulator-5558 wait id:create-folder
+-d emulator-5558 tap "Training"
+-d emulator-5558 expect "Week 1" "Added later" --timeout 30
+-d emulator-5558 shot follows
+-d emulator-5558 key back
+-d emulator-5558 wait id:create-folder
+-d emulator-5558 tap id:nav-menu
+-d emulator-5558 wait id:drawer-account
+-d emulator-5558 tap id:drawer-account
+-d emulator-5558 wait id:settings-bar-sharing
+-d emulator-5558 errors
+errors

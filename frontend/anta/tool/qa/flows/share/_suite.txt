@@ -1,0 +1,36 @@
+# The two-guest suite for `qa pass share -d emulator-5556`: two accounts on
+# two fleet guests, paired, and what one shares reaching the other — the
+# device proof of the sharing foundations (docs/cloud-sharing-foundations.md
+# F4, the multi-user roadmap's R10). No surface shares anything yet, so the
+# owner's side sets and clears a share through the QA seam (`qa share`),
+# and everything else is the app's own UI: sign-in, bind, the pairing sheet,
+# the calendar and the browser on the partner's guest, the unpair dialog.
+# - Two guests: the pass's own, `anta_qa_1` on emulator-5556, is the owner
+#   of what is shared (account qa1, the fixture's rows); `anta_qa_2` on
+#   emulator-5558 is the partner (account qa2, an empty database), driven
+#   by the steps that lead with `-d emulator-5558`. Always name the pass's
+#   device (`-d emulator-5556`), or a step naming it would open a second
+#   connection to it.
+# - It needs the cloud-define QA build on both guests (`qa build --define
+#   ANTA_QA_CLOUD=true --define ANTA_QA_FIREBASE_EMULATOR=10.0.2.2 --define
+#   ANTA_QA_ACCOUNT=qa1:qa1@example.com`, then `qa fleet install`) and a
+#   freshly started emulator suite (`tool\firebase\emulators.cmd`): the
+#   pass leaves both accounts' spaces in it.
+# - The partner's guest signs in as its own account through `qa set
+#   account=…`, held in memory: the prelude sets it after that guest's
+#   fresh relaunch, and nothing relaunches it until the last flow's end.
+# - The flows run in order on one seed, each starting where the last one
+#   left both guests — on Sync & sharing — so the suite is never sharded
+#   and a red flow reddens the ones after it.
+# - The partner reads what is shared with it when its engine runs, and
+#   nothing tells that engine of the owner's change (it cannot watch
+#   another account's space): every check on the partner's guest follows a
+#   "Sync now" there. The cookbook:
+#   .claude/skills/qa-emulator/references/share-pass.md.
+fixture=tool/qa/fixtures/basic.json
+reseed=suite
+shard=no
+prelude=_prelude.txt
+# Seven flows of two guests' navigation on one seed; the longest stays
+# well under the default, the ceiling is for a worn guest.
+flow_ceiling=480

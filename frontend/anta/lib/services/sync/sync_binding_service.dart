@@ -380,7 +380,7 @@ class SyncBindingService {
       // own rows, and the next bind takes every row it finds for its
       // account's (`bind`). What another account shared is a cache of a
       // grant nothing reads any more.
-      removed = (await _db.sharedRowDao.removeAll()).isNotEmpty;
+      removed = !(await _db.sharedRowDao.removeAll()).isEmpty;
       if (bound != null) await _releaseRows(bound);
       await _db.syncOutboxDao.clear();
       await _deletePullState();

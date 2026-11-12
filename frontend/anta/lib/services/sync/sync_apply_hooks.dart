@@ -62,6 +62,12 @@ class SyncAppliedRow extends Equatable {
   /// tombstone and for a row the merge left alone.
   final String? content;
 
+  /// The row no longer exists here at all: one another account shared, which
+  /// left with its grant and leaves no tombstone. A hook cannot read it
+  /// back, so for a note and a folder [previousParent] is where it stood —
+  /// the list that has to drop it.
+  final bool gone;
+
   const SyncAppliedRow({
     required this.rowKey,
     required this.result,
@@ -69,6 +75,7 @@ class SyncAppliedRow extends Equatable {
     this.moved = false,
     this.previousParent,
     this.content,
+    this.gone = false,
   });
 
   @override
@@ -79,6 +86,7 @@ class SyncAppliedRow extends Equatable {
     moved,
     previousParent,
     content,
+    gone,
   ];
 }
 

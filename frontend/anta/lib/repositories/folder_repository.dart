@@ -639,6 +639,27 @@ class FolderRepository {
     }
   }
 
+  /// Tells [folderChanges] about folders that no longer exist here at all —
+  /// ones another account shared, removed with their grant — each with the
+  /// parent it stood under (null for the top level): [announceMerged]
+  /// re-reads its rows, and of these nothing is left to read. Announced as a
+  /// remote deletion, which is what a list showing one has to do with it.
+  void announceRemoved(Map<String, String?> parents) {
+    for (final MapEntry(key: id, value: parent) in parents.entries) {
+      _folderCache.remove(id);
+      _invalidateParentCache(parent);
+      _invalidateParentCache(id);
+      _folderChangesController.add(
+        FolderChange(
+          type: FolderChangeType.deleted,
+          folderId: id,
+          parentId: parent,
+          remote: true,
+        ),
+      );
+    }
+  }
+
   void _trimFolderCache() {
     if (_folderCache.length > _maxFolderCacheSize) {
       final keysToRemove = _folderCache.keys

@@ -6,6 +6,7 @@ import '../crdt/merge_outcome.dart';
 import '../crdt/synced_tables.dart';
 import '../database.dart';
 import '../tables/event_alerts_table.dart';
+import 'sync_dao.dart';
 
 part 'event_alert_dao.g.dart';
 
@@ -274,7 +275,11 @@ class EventAlertDao extends DatabaseAccessor<AppDatabase>
       'UPDATE calendar_event_alerts SET is_deleted = 1, deleted_at = ?, '
       'updated_at = ?, hlc_timestamp = ?, device_id = ?, '
       'version = version + 1 '
-      'WHERE is_deleted = 0 AND ${owned.sql} RETURNING id',
+      // Not the alerts on an event another account shares with this one:
+      // the wipe leaves that event, and with it what the person set on it.
+      'WHERE is_deleted = 0 AND ${owned.sql} '
+      'AND NOT ${SyncDao.onSharedEventSql('calendar_event_alerts.event_id')} '
+      'RETURNING id',
       variables: [
         Variable<DateTime>(now),
         Variable<DateTime>(now),

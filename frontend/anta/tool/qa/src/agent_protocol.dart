@@ -13,8 +13,15 @@ abstract final class AgentOps {
   static const String drag = 'drag';
   static const String perf = 'perf';
 
-  /// Run-time overrides on a driver build: text scale, locale, theme.
+  /// Run-time overrides on a driver build: text scale, locale, theme, and
+  /// the emulator account the next sign-in takes.
   static const String set = 'set';
+
+  /// Shares an event or a folder of this database with the account's
+  /// partner, or makes it private again — through the service call a share
+  /// switch will make, since no surface has one yet. The row is named by
+  /// its title ([AgentKeys.name]) and kind ([AgentKeys.kind]).
+  static const String share = 'share';
 
   /// Scrolls the semantics node [AgentNodeKeys.semanticsId] names into view
   /// with `SemanticsAction.showOnScreen`, the action TalkBack uses, so a row
@@ -35,6 +42,18 @@ abstract final class AgentKeys {
   static const String textScale = 'textScale';
   static const String locale = 'locale';
   static const String themeMode = 'themeMode';
+
+  /// `set`: the emulator identity of the next sign-in, `<sub>:<email>`, or
+  /// null for the build's own.
+  static const String account = 'account';
+
+  /// `share`: what is shared ([AgentShareKinds]), whether it is shared or
+  /// made private (a bool, shared when absent), and in the answer the pair
+  /// it was shared into (null when made private) and the row's id.
+  static const String kind = 'kind';
+  static const String on = 'on';
+  static const String pair = 'pair';
+  static const String rowId = 'rowId';
   static const String x2 = 'x2';
   static const String y2 = 'y2';
   static const String ms = 'ms';
@@ -77,6 +96,13 @@ abstract final class AgentKeys {
   static const String jank = 'jank';
   static const String recording = 'recording';
   static const String elapsedMs = 'elapsedMs';
+}
+
+abstract final class AgentShareKinds {
+  static const String event = 'event';
+  static const String folder = 'folder';
+
+  static const List<String> all = [event, folder];
 }
 
 abstract final class AgentPerfActions {
@@ -151,8 +177,8 @@ abstract final class AgentErrorKinds {
 }
 
 /// The agent's protocol, compiled into the APK: v2 added node ids to the
-/// dump and the `reveal` op.
-const int agentProtocolVersion = 2;
+/// dump and the `reveal` op; v3 the `share` op and `set`'s account.
+const int agentProtocolVersion = 3;
 
 /// What to say when the installed agent is older than this tool, or null
 /// when it is current. The agent ships inside the driver build, so a tool

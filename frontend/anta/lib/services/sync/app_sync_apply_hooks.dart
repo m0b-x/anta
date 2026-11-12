@@ -141,11 +141,39 @@ class AppSyncApplyHooks implements SyncApplyHooks {
           row,
     ];
     if (changed.isEmpty) return;
-    final ids = [for (final row in changed) row.rowKey];
     if (paired) {
       _runTables.add(table);
-      if (table == _eventsTable) _runEventIds.addAll(ids);
+      if (table == _eventsTable) {
+        _runEventIds.addAll([for (final row in changed) row.rowKey]);
+      }
     }
+    // Rows that are gone outright cannot be re-read for where they stood,
+    // which is how the announcements below place a change: they are told
+    // apart, with the parent their removal recorded.
+    final gone = {
+      for (final row in changed)
+        if (row.gone) row.rowKey: row.previousParent,
+    };
+    if (gone.isNotEmpty) {
+      switch (table) {
+        case 'notes':
+          await _guard(
+            'note removals',
+            () async => _notes().announceRemoved({
+              for (final MapEntry(key: id, value: folder) in gone.entries)
+                id: ?folder,
+            }),
+          );
+        case 'folders':
+          await _guard(
+            'folder removals',
+            () async => _folders().announceRemoved(gone),
+          );
+      }
+      changed.removeWhere((row) => row.gone);
+      if (changed.isEmpty) return;
+    }
+    final ids = [for (final row in changed) row.rowKey];
     final inserted = {
       for (final row in changed)
         if (row.result == MergeResult.inserted) row.rowKey,

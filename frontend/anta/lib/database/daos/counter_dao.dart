@@ -6,6 +6,7 @@ import '../crdt/pn_counter.dart';
 import '../database.dart';
 import '../tables/counters_table.dart';
 import '../tables/counter_values_table.dart';
+import 'sync_dao.dart';
 
 part 'counter_dao.g.dart';
 
@@ -348,6 +349,12 @@ class CounterDao extends DatabaseAccessor<AppDatabase> with _$CounterDaoMixin {
   /// rather than tombstoned is left alone: on a bound database its row may
   /// simply not have been pulled yet. Never a hard delete: the tombstone is
   /// what tells the other devices.
+  ///
+  /// Only under a note of this person's own. A note another account shares
+  /// with this one is deleted by its owner, on its owner's clock: the values
+  /// the person counted on it are theirs, in their own space, and a sweep
+  /// would tombstone them there under another account's stamp and device.
+  /// They go when the person says so, like the marks on a shared event.
   Future<List<String>> sweepOrphanValues() {
     return transaction(() async {
       final rows = await customWriteReturning(
@@ -358,7 +365,8 @@ class CounterDao extends DatabaseAccessor<AppDatabase> with _$CounterDaoMixin {
         "WHERE is_deleted = 0 AND note_id != '' AND EXISTS "
         '(SELECT 1 FROM notes n WHERE n.id = counter_values.note_id '
         'AND n.is_deleted = 1 '
-        'AND n.hlc_timestamp > counter_values.hlc_timestamp) '
+        'AND n.hlc_timestamp > counter_values.hlc_timestamp '
+        'AND ${SyncDao.mineSqlOf('n')}) '
         'RETURNING counter_id, note_id, hlc_timestamp',
         updates: {counterValues},
         updateKind: UpdateKind.update,

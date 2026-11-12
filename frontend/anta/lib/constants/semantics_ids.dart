@@ -241,6 +241,22 @@ abstract final class SemanticsIds {
   static const String sharingUnpair = 'sharing-unpair';
   static const String sharingClose = 'sharing-close';
 
+  /// The unpair dialog's confirming button, named so a flow cannot answer
+  /// another dialog by mistake.
+  static const String sharingUnpairConfirm = 'sharing-unpair-confirm';
+
+  /// The button of the notice the page shows, once, to the one whose
+  /// partner ended the pair ("Sharing ended").
+  static const String sharingEndedNoticeClose = 'sharing-ended-close';
+
+  /// The pairing sheet (`pairing_sheet.dart`): the button that makes a code,
+  /// the code it shows — whose text a two-guest flow reads on one guest and
+  /// types on the other — the field a code is entered in, and Connect.
+  static const String pairingGenerate = 'pairing-generate';
+  static const String pairingCode = 'pairing-code';
+  static const String pairingCodeField = 'pairing-code-field';
+  static const String pairingConnect = 'pairing-connect';
+
   /// The Sharing page's Sync section: unbound it is the one [sharingSync]
   /// row, bound the status row, Sync now and the stop row — so a flow tells
   /// the two apart by which ids it finds. [sharingSyncStopConfirm] is the

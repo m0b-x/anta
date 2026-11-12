@@ -102,7 +102,22 @@ class CalendarEventDao extends DatabaseAccessor<AppDatabase>
   /// Deleting an event from the app goes through [tombstoneEventCascade]; this
   /// is the event row alone.
   Future<void> softDeleteById(String id) {
-    return transaction(() => _tombstone(id, db.newStamp()));
+    return transaction(() async {
+      final existing = await _byId(id);
+      if (await _isShared(existing)) return;
+      await _tombstone(id, db.newStamp(), existing);
+    });
+  }
+
+  /// Whether [row] is an event another account shares with this one, which
+  /// no delete here reaches (`SharedRowFences`) — asked before a cascade,
+  /// whose other statements would go on to the person's own marks and
+  /// alerts on it and delete those for an event that stays. No statement
+  /// for a row that names no owner, which is every row written since the
+  /// bind.
+  Future<bool> _isShared(CalendarEventRow? row) async {
+    final owner = row?.ownerId;
+    return owner != null && owner == await db.sharedRowDao.owner();
   }
 
   /// Deletes an event as the one act it is to the user: the event and every
@@ -113,10 +128,16 @@ class CalendarEventDao extends DatabaseAccessor<AppDatabase>
   /// The children are tombstoned whether or not the event row was still live,
   /// as the service's cascade always did, so a child that outlived its parent
   /// is still cleaned up.
+  ///
+  /// Nothing at all for an event another account shares with this one: it
+  /// is not this person's to delete, and what they marked or set on it is
+  /// kept with it.
   Future<void> tombstoneEventCascade(String id) {
     return transaction(() async {
+      final existing = await _byId(id);
+      if (await _isShared(existing)) return;
       final stamp = db.newStamp();
-      await _tombstone(id, stamp);
+      await _tombstone(id, stamp, existing);
       await db.eventAbsenceDao.tombstoneForEvent(id, stamp: stamp);
       await db.eventOccurrenceDao.tombstoneForEvent(id, stamp: stamp);
       await db.eventSkipDao.tombstoneForEvent(id, stamp: stamp);
@@ -224,8 +245,12 @@ class CalendarEventDao extends DatabaseAccessor<AppDatabase>
   Future<CrdtStamp> _stampFor(String id, CrdtStamp? shared) =>
       shared == null ? db.stampLocal(calendarEvents, id) : Future.value(shared);
 
-  Future<void> _tombstone(String id, CrdtStamp stamp) async {
-    final existing = await _byId(id);
+  /// [existing] is the row as its caller just read it, null for none.
+  Future<void> _tombstone(
+    String id,
+    CrdtStamp stamp,
+    CalendarEventRow? existing,
+  ) async {
     if (existing == null || existing.isDeleted) return;
 
     final now = DateTime.now();

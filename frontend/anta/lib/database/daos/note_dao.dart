@@ -258,6 +258,11 @@ class NoteDao extends DatabaseAccessor<AppDatabase> with _$NoteDaoMixin {
   }) async {
     final cut = content == null ? null : await BodyCut.of(content);
     return transaction(() async {
+      // As [createNote]: the insert would be turned into nothing and the
+      // read-back below would fail with no word of why.
+      if (folderId.isNotEmpty) {
+        await db.sharedRowDao.ensureOwn('folders', folderId);
+      }
       final id = db.generateId();
       final stamp = await db.stampLocal(notes, id);
 
@@ -337,6 +342,10 @@ class NoteDao extends DatabaseAccessor<AppDatabase> with _$NoteDaoMixin {
       // would stamp the tombstone with a fresh HLC and version and resurrect
       // it on the next merge.
       if (existing.isDeleted) return null;
+      // A note another account shares with this one is not saved here, and
+      // must say so: an auto-save answered with the old note would read as
+      // text that was kept.
+      await db.sharedRowDao.ensureOwnRow('notes', id, existing.ownerId);
 
       final write = prepared == null
           ? null
@@ -1426,6 +1435,14 @@ class NoteDao extends DatabaseAccessor<AppDatabase> with _$NoteDaoMixin {
       if (targetFolder == null || targetFolder.isDeleted) return null;
 
       if (existing.folderId == targetFolderId) return existing;
+      // Neither a shared note nor into a shared folder: the write would be
+      // turned into nothing, and the note answered as if it had moved.
+      await db.sharedRowDao.ensureOwnRow('notes', id, existing.ownerId);
+      await db.sharedRowDao.ensureOwnRow(
+        'folders',
+        targetFolderId,
+        targetFolder.ownerId,
+      );
 
       final now = DateTime.now();
       final stamp = await db.stampLocal(notes, id);

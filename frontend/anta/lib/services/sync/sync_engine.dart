@@ -11,11 +11,13 @@ import 'package:get_it/get_it.dart';
 import 'package:sqlite3/common.dart' show SqliteException;
 
 import '../../constants/app_version.dart';
+import '../../constants/json_keys.dart';
 import '../../database/chunking/content_chunker.dart';
 import '../../database/crdt/crdt_merge.dart';
 import '../../database/crdt/crdt_write.dart';
 import '../../database/crdt/hlc.dart';
 import '../../database/crdt/synced_tables.dart';
+import '../../database/daos/shared_row_dao.dart';
 import '../../database/daos/sync_dao.dart';
 import '../../database/daos/sync_outbox_dao.dart';
 import '../../database/database.dart';
@@ -1150,23 +1152,28 @@ class SyncEngine {
       // the space's whole say before another account's rows arrive. It
       // reports nothing into this run: its calls must not end a back-off or
       // lift a pause the account's own sync is under.
+      // It comes last, with the run's own books closed: its calls each have
+      // a deadline of their own, and a halt raised inside it must not leave
+      // the account's own failure unrecorded or its success uncounted.
+      final tableFault = pulled.fault;
+      if (tableFault != null) {
+        await _failed(tableFault);
+      } else {
+        // A push writes it with its rows; a run that read to the end and
+        // had nothing to push is the one that has to look.
+        if (mode != _RunMode.drain && pulled.complete && tally.pushed == 0) {
+          await _settleSpaceShare(binding, tally);
+        }
+        if (tally.calls > 0) _succeeded();
+      }
       if (mode != _RunMode.drain &&
           !pulled.cut &&
           (!initial || pulled.complete)) {
         await _shared.read(binding, asked: request.asked);
       }
-      final tableFault = pulled.fault;
-      if (tableFault != null) {
-        await _failed(tableFault);
-        return report(failure: tableFault.failure);
-      }
-      // A push writes it with its rows; a run that read to the end and had
-      // nothing to push is the one that has to look.
-      if (mode != _RunMode.drain && pulled.complete && tally.pushed == 0) {
-        await _settleSpaceShare(binding, tally);
-      }
-      if (tally.calls > 0) _succeeded();
-      return report();
+      return tableFault == null
+          ? report()
+          : report(failure: tableFault.failure);
     } on _Halted catch (halted) {
       if (halted.skip != SyncRunSkip.suspended) _detachSignal();
       return report(skipped: halted.skip);

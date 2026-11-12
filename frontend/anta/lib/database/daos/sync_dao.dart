@@ -187,6 +187,21 @@ class SyncDao extends DatabaseAccessor<AppDatabase> with _$SyncDaoMixin {
       'NOT EXISTS (SELECT 1 FROM sync_metadata '
       "WHERE key = '$keySharedOwner' AND value = owner_id)";
 
+  /// The SQL condition "the event [eventId] names is one another account
+  /// shares with this one" — [eventId] a column reference — for a set
+  /// statement over rows of the person's own that hang on events (presence
+  /// marks, alerts): "delete all my events" is not a word about what was
+  /// added to someone else's.
+  static String onSharedEventSql(String eventId) =>
+      'EXISTS (SELECT 1 FROM calendar_events shared_event '
+      'WHERE shared_event.id = $eventId AND shared_event.owner_id = '
+      "(SELECT value FROM sync_metadata WHERE key = '$keySharedOwner'))";
+
+  /// [mineSql] for the rows of the table aliased [alias].
+  static String mineSqlOf(String alias) =>
+      'NOT EXISTS (SELECT 1 FROM sync_metadata '
+      "WHERE key = '$keySharedOwner' AND value = $alias.owner_id)";
+
   /// Present only inside a transaction of the reader of shared rows, which
   /// sets and clears it there (`SharedRowDao.writing`): what lets that one
   /// writer past the fences that keep another account's rows as their owner

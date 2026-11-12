@@ -28,6 +28,31 @@ final class SharedRowException implements Exception {
   String toString() => 'SharedRowException: $table/$id is shared, read-only';
 }
 
+/// A shared row that was removed here, and where it stood — the folder a
+/// note lay in, a folder's parent (null at the top level), null for every
+/// other table: what a screen needs to drop a row it can no longer read.
+typedef SharedRemoval = ({String key, String? parent});
+
+/// What a removal of shared rows did, for the screens to follow: the rows
+/// that went, by table, and the shared folders left without their parent,
+/// which now stand at the top level.
+class SharedRemovals {
+  const SharedRemovals(this.gone, this.placed);
+
+  static const SharedRemovals none = SharedRemovals({}, []);
+
+  final Map<String, List<SharedRemoval>> gone;
+  final List<String> placed;
+
+  bool get isEmpty =>
+      placed.isEmpty && gone.values.every((rows) => rows.isEmpty);
+
+  /// The keys removed from [table].
+  List<String> keysOf(String table) => [
+    for (final row in gone[table] ?? const <SharedRemoval>[]) row.key,
+  ];
+}
+
 /// The rows another account shares with the one this database syncs for
 /// (`docs/cloud-sharing-foundations.md` §5–§7): a cache of a live grant,
 /// held in the same tables as the person's own and told from them by
@@ -66,11 +91,23 @@ class SharedRowDao extends DatabaseAccessor<AppDatabase>
       final dao = db.syncDao;
       if (await dao.getValue(SyncDao.keySharedWriting) != null) return body();
       await dao.setValue(SyncDao.keySharedWriting, '1');
+      final T result;
       try {
-        return await body();
-      } finally {
-        await dao.deleteValue(SyncDao.keySharedWriting);
+        result = await body();
+      } catch (_) {
+        // The rollback takes the key along; taking it out here as well is
+        // for a caller that catches inside an outer transaction, and must
+        // not put its own failure — the transaction may be past writing —
+        // in the place of the body's.
+        try {
+          await dao.deleteValue(SyncDao.keySharedWriting);
+        } catch (_) {}
+        rethrow;
       }
+      // Not swallowed: a commit with the key still present would leave the
+      // fences down for good.
+      await dao.deleteValue(SyncDao.keySharedWriting);
+      return result;
     });
   }
 
@@ -101,6 +138,18 @@ class SharedRowDao extends DatabaseAccessor<AppDatabase>
     if (await isShared(table, id)) throw SharedRowException(table, id);
   }
 
+  /// [ensureOwn] for a row its caller has already read, [ownerId] being that
+  /// row's — for the writers whose answer would otherwise be a lie: a save
+  /// or a move the fences turned into nothing would still stamp, queue and
+  /// hand back a note as if it were stored, and an editor would believe its
+  /// text was saved. No statement for a row that names no owner, which is
+  /// every row written since the bind.
+  Future<void> ensureOwnRow(String table, String id, String? ownerId) async {
+    if (ownerId != null && ownerId == await owner()) {
+      throw SharedRowException(table, id);
+    }
+  }
+
   /// The keys among [keys] under which this database holds a shared row of
   /// [table] — asked by the account's own pull before it merges a page, so
   /// a row of its own space is never kept out by a shared row that took its
@@ -110,6 +159,14 @@ class SharedRowDao extends DatabaseAccessor<AppDatabase>
     if (keys.isEmpty) return const [];
     final owner = await this.owner();
     if (owner == null) return const [];
+    return _sharedOf(table, owner, keys);
+  }
+
+  Future<List<String>> _sharedOf(
+    String table,
+    String owner,
+    List<String> keys,
+  ) async {
     final synced = _shared(table);
     final taken = await CrdtMerge.loadInChunks(keys, (chunk) async {
       final rows = await customSelect(
@@ -138,34 +195,48 @@ class SharedRowDao extends DatabaseAccessor<AppDatabase>
   /// the person's own now they are what the reader refuses to store, and a
   /// partner's skipped day would show on the person's own event. A shared
   /// folder under a removed one is still shared, and stands at the top
-  /// level ([placeFolders]). A key that names no shared row costs nothing.
-  Future<void> evict(String table, List<String> keys) async {
+  /// level ([placeFolders]).
+  ///
+  /// The same call makes room under a parent: a note, a folder or a day row
+  /// of the person's own that names a folder or an event held here as
+  /// shared says that id is theirs, and nothing of theirs is stored under a
+  /// shared row (`SharedRowFences`) — so the caller evicts the parent's key
+  /// from the parent's table first.
+  ///
+  /// One statement, the read of whose rows are shared, for a database that
+  /// holds none; nothing at all for no keys.
+  Future<SharedRemovals> evict(String table, List<String> keys) async {
+    if (keys.isEmpty) return SharedRemovals.none;
     final owner = await this.owner();
-    if (owner == null || keys.isEmpty) return;
-    await writing(() async {
-      final taken = await sharedAmong(table, keys);
-      if (taken.isEmpty) return;
-      await _remove(_shared(table), owner, taken);
+    if (owner == null) return SharedRemovals.none;
+    final taken = await _sharedOf(table, owner, keys);
+    if (taken.isEmpty) return SharedRemovals.none;
+    return writing(() async {
+      final gone = <String, List<SharedRemoval>>{
+        table: await _remove(_shared(table), owner, taken),
+      };
+      var placed = const <String>[];
       switch (table) {
         case 'calendar_events':
           for (final days in const [
             'calendar_event_occurrences',
             'calendar_event_skips',
           ]) {
-            await _remove(
+            gone[days] = await _remove(
               _shared(days),
               owner,
               await _under(days, 'event_id', owner, taken),
             );
           }
         case 'folders':
-          await _remove(
+          gone['notes'] = await _remove(
             _shared('notes'),
             owner,
             await _under('notes', 'folder_id', owner, taken),
           );
-          await placeFolders(owner);
+          placed = await placeFolders(owner);
       }
+      return SharedRemovals(gone, placed);
     });
   }
 
@@ -268,10 +339,10 @@ class SharedRowDao extends DatabaseAccessor<AppDatabase>
 
   /// Removes the rows of [table] this database holds of [owner]'s whose key
   /// is not among [kept] — the keys a read of the whole share just returned
-  /// — and returns the keys removed. A removed note's text goes with it;
-  /// what the person added of their own to a removed row (presence marks,
+  /// — and says what it removed. A removed note's text goes with it; what
+  /// the person added of their own to a removed row (presence marks,
   /// alerts, counter values) is theirs and stays.
-  Future<List<String>> removeAbsent(
+  Future<SharedRemovals> removeAbsent(
     String table,
     String owner,
     Set<String> kept,
@@ -288,25 +359,27 @@ class SharedRowDao extends DatabaseAccessor<AppDatabase>
         for (final row in held)
           if (!kept.contains(row.read<String>('k'))) row.read<String>('k'),
       ];
-      await _remove(synced, owner, absent);
-      if (table == 'folders' && absent.isNotEmpty) await placeFolders(owner);
-      return absent;
+      if (absent.isEmpty) return SharedRemovals.none;
+      final gone = await _remove(synced, owner, absent);
+      return SharedRemovals({
+        table: gone,
+      }, table == 'folders' ? await placeFolders(owner) : const []);
     });
   }
 
   /// Removes every row this database holds of the account it reads shared
-  /// rows from, with everything the reader stored about them, and returns
-  /// the keys removed by table — empty when it held none. The grant ended:
-  /// the pair did, another partner took its place, or this database stopped
-  /// syncing and nothing would keep the rows true.
-  Future<Map<String, List<String>>> removeAll() {
+  /// rows from, with everything the reader stored about them, and says what
+  /// it removed — nothing when it held none. The grant ended: the pair did,
+  /// another partner took its place, or this database stopped syncing and
+  /// nothing would keep the rows true.
+  Future<SharedRemovals> removeAll() {
     return writing(() async {
       final owner = await this.owner();
-      final removed = <String, List<String>>{};
+      final removed = <String, List<SharedRemoval>>{};
       if (owner != null) {
         for (final table in sharedTables.reversed) {
-          final gone = await removeAbsent(table, owner, const {});
-          if (gone.isNotEmpty) removed[table] = gone;
+          final gone = (await removeAbsent(table, owner, const {})).gone[table];
+          if (gone != null && gone.isNotEmpty) removed[table] = gone;
         }
       }
       final dao = db.syncDao;
@@ -318,7 +391,8 @@ class SharedRowDao extends DatabaseAccessor<AppDatabase>
       await dao.deleteByPrefix(SyncDao.sharedCursorPrefix);
       await dao.deleteByPrefix(SyncDao.sharedWaitingPrefix);
       await dao.deleteByPrefix(SyncDao.sharedRootPrefix);
-      return removed;
+      // Every shared folder went, so none was left to place.
+      return SharedRemovals(removed, const []);
     });
   }
 
@@ -391,33 +465,50 @@ class SharedRowDao extends DatabaseAccessor<AppDatabase>
   }
 
   /// Hard-deletes the rows of [synced] under [keys] that [owner] owns, a
-  /// note's chunk rows with it. The owner is part of every statement: a key
-  /// alone must never reach a row of the person's own.
-  Future<void> _remove(
+  /// note's chunk rows with it, and says what went. The owner is part of
+  /// every statement: a key alone must never reach a row of the person's
+  /// own. A folder and a note are read first for where they stood, which
+  /// nothing can ask once they are gone.
+  Future<List<SharedRemoval>> _remove(
     SyncedTable synced,
     String owner,
     List<String> keys,
   ) async {
-    if (keys.isEmpty) return;
+    if (keys.isEmpty) return const [];
     final table = _tableOf(synced.name);
+    final parent = switch (synced.name) {
+      'notes' => 'folder_id',
+      'folders' => 'parent_id',
+      _ => null,
+    };
+    final gone = <SharedRemoval>[];
     for (var at = 0; at < keys.length; at += CrdtMerge.keysPerStatement) {
       final chunk = keys.skip(at).take(CrdtMerge.keysPerStatement).toList();
       final places = List.filled(chunk.length, '?').join(', ');
-      if (synced.name == 'notes') {
-        // A chunk row carries no owner of its own, so the notes are asked
-        // first: a key that names a note of the person's own must not cost
-        // it its text.
+      if (parent == null) {
+        gone.addAll([for (final key in chunk) (key: key, parent: null)]);
+      } else {
         final theirs = await customSelect(
-          'SELECT id FROM notes WHERE owner_id = ? AND id IN ($places)',
+          'SELECT id, $parent AS parent FROM ${synced.name} '
+          'WHERE owner_id = ? AND id IN ($places)',
           variables: [
             Variable<String>(owner),
             for (final key in chunk) Variable<String>(key),
           ],
-          readsFrom: {notes},
+          readsFrom: {table},
         ).get();
-        await db.contentChunkDao.deleteChunksForNotes([
-          for (final row in theirs) row.read<String>('id'),
+        gone.addAll([
+          for (final row in theirs)
+            (key: row.read<String>('id'), parent: row.read<String?>('parent')),
         ]);
+        if (synced.name == 'notes') {
+          // A chunk row carries no owner of its own, so only the notes just
+          // read as the owner's lose theirs: a key that names a note of the
+          // person's own must not cost it its text.
+          await db.contentChunkDao.deleteChunksForNotes([
+            for (final row in theirs) row.read<String>('id'),
+          ]);
+        }
       }
       await customUpdate(
         'DELETE FROM ${synced.name} WHERE owner_id = ? AND '
@@ -430,6 +521,7 @@ class SharedRowDao extends DatabaseAccessor<AppDatabase>
         updateKind: UpdateKind.delete,
       );
     }
+    return gone;
   }
 
   /// [table] as a table that can be shared; anything else is a programming

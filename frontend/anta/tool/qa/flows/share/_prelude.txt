@@ -1,0 +1,34 @@
+# Both guests signed in, each as its own account, each bound to a space of
+# its own and up to date, both resting on Sync & sharing.
+# The partner's guest first: a fresh, empty database, signed out (the reset
+# sign-out), with nothing left of the last pass.
+-d emulator-5558 relaunch --fresh
+# The owner (this pass's guest, reseeded with basic.json a moment ago).
+tap id:nav-menu
+wait id:drawer-calendar
+scroll-to id:drawer-settings --in id:drawer-list
+tap id:drawer-settings
+wait id:settings-bar-hub
+tap id:settings-hub-row-syncSettings
+wait id:settings-bar-sharing
+expect id:sharing-sign-in "Sign in to sync this database" --timeout 10
+tap id:sharing-sign-in
+wait id:sharing-sign-out --timeout 30
+tap id:sharing-sync
+wait id:sharing-sync-status --timeout 30
+expect id:sharing-sync-status "Up to date" --timeout 60
+# The partner, as the second account: named before its sign-in tap.
+-d emulator-5558 set account=qa2:qa2@example.com
+-d emulator-5558 tap id:nav-menu
+-d emulator-5558 wait id:drawer-calendar
+-d emulator-5558 scroll-to id:drawer-settings --in id:drawer-list
+-d emulator-5558 tap id:drawer-settings
+-d emulator-5558 wait id:settings-bar-hub
+-d emulator-5558 tap id:settings-hub-row-syncSettings
+-d emulator-5558 wait id:settings-bar-sharing
+-d emulator-5558 expect id:sharing-sign-in "Sign in to sync this database" --timeout 10
+-d emulator-5558 tap id:sharing-sign-in
+-d emulator-5558 wait id:sharing-sign-out --timeout 30
+-d emulator-5558 tap id:sharing-sync
+-d emulator-5558 wait id:sharing-sync-status --timeout 30
+-d emulator-5558 expect id:sharing-sync-status "Up to date" --timeout 60
