@@ -8,4 +8,10 @@ abstract final class SyncLimits {
   /// goes on, and the puller's per-page binding check keeps a run that is
   /// still finishing from writing into the new binding.
   static const Duration engineStop = Duration(seconds: 15);
+
+  /// How long a Stop syncing tap waits for the first read of what this
+  /// database shares, so its confirmation can say what the partner keeps
+  /// (D25): past it the dialog opens without that sentence rather than
+  /// leave the tap unanswered.
+  static const Duration stopConfirmShareRead = Duration(milliseconds: 1500);
 }

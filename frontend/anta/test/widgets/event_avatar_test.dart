@@ -214,7 +214,11 @@ void main() {
   });
 
   group('ofRow', () {
-    Future<EventAvatar> built(WidgetTester tester, PartnerLook? look) async {
+    Future<EventAvatar> built(
+      WidgetTester tester,
+      PartnerLook? look, {
+      PartnerLook? mine,
+    }) async {
       late EventAvatar avatar;
       await pump(
         tester,
@@ -223,12 +227,37 @@ void main() {
             icon: Icons.event,
             color: yellow,
             partner: look,
+            mine: mine,
             l10n: AppLocalizations.of(context)!,
           ),
         ),
       );
       return avatar;
     }
+
+    testWidgets('one of mine I share is filled, wears the share sign only '
+        'while the setting says so, and always says with whom', (tester) async {
+      for (final markMine in [true, false]) {
+        final avatar = await built(
+          tester,
+          null,
+          mine: PartnerLook(name: 'Maria', markMine: markMine),
+        );
+        expect(avatar.outlined, isFalse);
+        expect(avatar.badge, markMine ? EventAvatarBadge.mine : null);
+        expect(avatar.semanticsLabel, 'Shared with Maria');
+      }
+    });
+
+    testWidgets('a partner\'s event ignores the mine look', (tester) async {
+      final avatar = await built(
+        tester,
+        const PartnerLook(look: ShareEventLook.plain, name: 'Maria'),
+        mine: const PartnerLook(name: 'Maria'),
+      );
+      expect(avatar.badge, isNull);
+      expect(avatar.semanticsLabel, 'From Maria');
+    });
 
     testWidgets('my own event is today\'s avatar', (tester) async {
       final avatar = await built(tester, null);

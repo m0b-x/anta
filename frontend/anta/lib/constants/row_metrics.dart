@@ -100,6 +100,11 @@ class RowMetrics {
   /// [gap].
   static const double reorderGlyphTextInset = 88.0;
 
+  /// Where a row's text and hairline start beside a 40 dp avatar when the
+  /// row has no reorder handle — a partner's category on the categories
+  /// page: [groupInset] + 40 + [gap].
+  static const double avatarTextInset = 70.0;
+
   /// The text-scale factor from which a reorderable row's leading drops the
   /// 40 dp avatar for a [glyphSize] glyph: the 18 dp it frees keeps every
   /// built-in category's name on one line at 2.0 in all three languages
@@ -184,6 +189,12 @@ class RowMetrics {
   /// as a share of the header: past it the count wraps, so a long German
   /// title at 2.0 is never squeezed to a letter a line.
   static const double settingsCountMaxShare = 1 / 3;
+
+  /// The widest a section's status words ("Updated 2 min ago") may reserve
+  /// beside its title, as a share of the header: a status is a sentence
+  /// where the count is a number, and past half the title would wrap a word
+  /// a line.
+  static const double settingsStatusMaxShare = 1 / 2;
 
   /// The least of a settings row's text column a value beside the title may
   /// leave to the title and its description: under it the value goes under

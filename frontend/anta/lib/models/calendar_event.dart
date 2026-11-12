@@ -298,6 +298,15 @@ class CalendarEvent extends Equatable {
   /// partner's would keep the old look.
   final bool fromPartner;
 
+  /// The event carries a share mark of its own — shared singly, whatever
+  /// its category (`docs/cloud-share-surfaces-roadmap.md` §6.2). Never a
+  /// partner's event. Transient like [fromPartner]: loaded with the row and
+  /// written only through `CalendarEventService.setShared` — a save of this
+  /// model never writes it, and the cache takes it from the store after one
+  /// — never exported. Whether the event is shared at all, its category's
+  /// mark included, is `CalendarCategories.shareOf`.
+  final bool markedShared;
+
   CalendarEvent({
     required this.id,
     required this.title,
@@ -324,6 +333,7 @@ class CalendarEvent extends Equatable {
     this.priority = kDefaultEventPriority,
     this.createdAt,
     this.fromPartner = false,
+    this.markedShared = false,
   });
 
   /// Derived: `true` iff this event has no [time] annotation. This is the
@@ -403,6 +413,7 @@ class CalendarEvent extends Equatable {
     bool? tintIcon,
     int? priority,
     DateTime? createdAt,
+    bool? markedShared,
     bool clearEndDate = false,
     bool clearTime = false,
     bool clearDescription = false,
@@ -443,6 +454,7 @@ class CalendarEvent extends Equatable {
       priority: priority ?? this.priority,
       createdAt: createdAt ?? this.createdAt,
       fromPartner: fromPartner,
+      markedShared: markedShared ?? this.markedShared,
     );
   }
 
@@ -602,5 +614,6 @@ class CalendarEvent extends Equatable {
     tintIcon,
     priority,
     fromPartner,
+    markedShared,
   ];
 }

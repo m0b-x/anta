@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:anta/bloc/calendar/alert_skip_action.dart';
 import 'package:anta/bloc/calendar/calendar_bloc.dart';
+import 'package:anta/constants/calendar_categories.dart';
 import 'package:anta/constants/event_alerts.dart';
 import 'package:anta/constants/event_skips.dart';
 import 'package:anta/constants/occurrence_descriptions.dart';
@@ -14,6 +15,7 @@ import 'package:anta/database/daos/shared_row_dao.dart';
 import 'package:anta/database/daos/sync_dao.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/models/alert_payload.dart';
+import 'package:anta/models/calendar_category.dart';
 import 'package:anta/models/calendar_event.dart';
 import 'package:anta/models/category_alert.dart';
 import 'package:anta/models/event_alert.dart';
@@ -169,6 +171,52 @@ void main() {
     await landed(const RefreshCalendarView());
 
     expect((bloc.state as CalendarPageLoaded).holdsPartnerEvents, isFalse);
+  });
+
+  group('the state says whether it holds an event of mine I share', () {
+    tearDown(() => CalendarCategories.updateCache(const []));
+
+    test('by its category\'s mark, which moves the catalogue and not the '
+        'list', () async {
+      expect((bloc.state as CalendarPageLoaded).holdsSharedByMe, isFalse);
+
+      CalendarCategories.updateCache(const [
+        CalendarCategory(
+          id: 'work',
+          name: 'Work',
+          colorValue: 0xFF1E88E5,
+          iconKey: 'event',
+          sortOrder: 0,
+          isBuiltIn: false,
+          sharedByMe: true,
+        ),
+      ]);
+      // The share service's announcement of a mark it wrote.
+      final next = bloc.stream.first.timeout(const Duration(seconds: 30));
+      CalendarEventService.notifyExternalChange(cacheCurrent: true);
+      await next;
+
+      expect(CalendarCategories.anySharedByMe, isTrue);
+      expect((bloc.state as CalendarPageLoaded).holdsSharedByMe, isTrue);
+    });
+
+    test('by its own mark', () async {
+      await service.setShared('mine', 'pair-1');
+      await landed(const RefreshCalendarView());
+
+      expect((bloc.state as CalendarPageLoaded).holdsSharedByMe, isTrue);
+    });
+
+    test('a mark taken off again leaves nothing shared, though the list once '
+        'held one', () async {
+      await service.setShared('mine', 'pair-1');
+      await landed(const RefreshCalendarView());
+      await service.setShared('mine', null);
+      await landed(const RefreshCalendarView());
+
+      expect(CalendarCategories.anySharedByMe, isFalse);
+      expect((bloc.state as CalendarPageLoaded).holdsSharedByMe, isFalse);
+    });
   });
 
   group("on a partner's event every write does nothing and says nothing", () {

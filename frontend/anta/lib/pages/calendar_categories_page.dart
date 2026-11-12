@@ -18,12 +18,17 @@ import '../constants/row_metrics.dart';
 import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
 import '../models/calendar_category.dart';
+import '../models/share_overview.dart';
+import '../services/app_navigator.dart';
 import '../services/calendar_event_service.dart';
 import '../services/category_service.dart';
 import '../services/folder_search_service.dart' show normalizeForSearch;
+import '../services/pairing_service.dart';
+import '../services/share_service.dart';
 import '../utils/category_search.dart';
 import '../utils/custom_snackbar.dart';
 import '../utils/settings_search.dart';
+import '../utils/share_copy.dart';
 import '../widgets/app_dialogs.dart';
 import '../widgets/automation_id.dart';
 import '../widgets/category_delete_sheet.dart';
@@ -38,7 +43,7 @@ import '../widgets/unified_app_bars.dart';
 import '../widgets/value_change_highlight.dart';
 
 /// One entry of the per-row "category options" menu.
-enum _CategoryAction { moveToTop, edit, archive, delete }
+enum _CategoryAction { moveToTop, edit, share, archive, delete }
 
 /// The page's one list: a section's header or a category's row. The headers
 /// are entries of the same reorderable sliver as the rows, as the browser's
@@ -80,7 +85,19 @@ class _RowEntry extends _Entry {
 /// one positional surface is the reorder callback, which maps its render index
 /// to the id list before it leaves the widget.
 class CalendarCategoriesPage extends StatefulWidget {
-  const CalendarCategoriesPage({super.key});
+  /// Resolves the share service; [ShareService.getInstance] unless a test
+  /// hands in its own.
+  final Future<ShareService> Function() shareService;
+
+  /// The editor's way to Sync & sharing while the database does not sync;
+  /// a seam for tests, the app's page otherwise.
+  final Future<void> Function(BuildContext context) openSyncSettings;
+
+  const CalendarCategoriesPage({
+    super.key,
+    this.shareService = ShareService.getInstance,
+    this.openSyncSettings = AppNavigator.toSyncSettings,
+  });
 
   @override
   State<CalendarCategoriesPage> createState() => _CalendarCategoriesPageState();
@@ -92,6 +109,7 @@ class _CalendarCategoriesPageState extends State<CalendarCategoriesPage> {
 
   CategoryService? _service;
   CalendarEventService? _eventService;
+  ShareService? _shareService;
 
   /// The local display order. While a drag is being persisted this leads the
   /// service's own list, which is the whole point of the optimistic update —
@@ -130,6 +148,15 @@ class _CalendarCategoriesPageState extends State<CalendarCategoriesPage> {
 
   StreamSubscription<void>? _externalChanges;
 
+  /// Whether this phone can share, followed while the page is open: not
+  /// paired leaves every share word and control off the page (D7).
+  ShareAvailability _share = const ShareNotPaired();
+  StreamSubscription<ShareAvailability>? _shareChanges;
+
+  /// Whether a shared category's avatar wears the share sign
+  /// (`shareMarkMine`); its caption says "Shared" either way.
+  bool _markMine = true;
+
   bool get _isFiltering => _query.isNotEmpty;
 
   @override
@@ -153,6 +180,7 @@ class _CalendarCategoriesPageState extends State<CalendarCategoriesPage> {
   @override
   void dispose() {
     _externalChanges?.cancel();
+    _shareChanges?.cancel();
     _searchController.dispose();
     _scrollController.dispose();
     super.dispose();
@@ -173,10 +201,18 @@ class _CalendarCategoriesPageState extends State<CalendarCategoriesPage> {
     // service is a warm singleton and its `getInstance()` costs nothing.
     final categoryFuture = CategoryService.getInstance();
     final eventFuture = CalendarEventService.getInstance();
+    // Read before the first frame of rows, so a shared row's caption never
+    // grows "Shared" under the finger — unless the pairing service already
+    // knows there is no pair: someone who never paired opens nothing for
+    // sharing and waits on nothing new (§9).
+    final shareFuture = PairingService.pairedInMemory == false
+        ? null
+        : _openShare();
     try {
       final service = await categoryFuture;
       final eventService = await eventFuture;
       final counts = await eventService.countByCategory();
+      final share = shareFuture == null ? null : await shareFuture;
       if (!mounted) return;
       setState(() {
         _service = service;
@@ -184,7 +220,15 @@ class _CalendarCategoriesPageState extends State<CalendarCategoriesPage> {
         _categories = service.categories;
         _categoryRevision = CalendarCategories.revision;
         _counts = counts;
+        if (share != null) {
+          _shareService = share.service;
+          _share = share.service.availability;
+          _markMine = share.markMine;
+        }
         _isLoading = false;
+      });
+      _shareChanges = _shareService?.changes.listen((next) {
+        if (mounted && next != _share) setState(() => _share = next);
       });
     } catch (e) {
       // Either `getInstance()` can throw — a database that failed to open
@@ -194,6 +238,46 @@ class _CalendarCategoriesPageState extends State<CalendarCategoriesPage> {
       debugPrint('[CalendarCategoriesPage] Load failed: $e');
       if (!mounted) return;
       setState(() => _isLoading = false);
+    }
+  }
+
+  /// The share service and the sign setting, or null when sharing cannot be
+  /// read — a database with none set up reads as never paired.
+  Future<({ShareService service, bool markMine})?> _openShare() async {
+    try {
+      final service = await widget.shareService();
+      return (service: service, markMine: await service.markMine());
+    } catch (e) {
+      debugPrint('[CalendarCategoriesPage] Sharing not read: $e');
+      return null;
+    }
+  }
+
+  /// The editor's second ask, once Sync & sharing returns over it: the
+  /// share service's answer now, or not paired straight from memory, as
+  /// [_load] reads it.
+  Future<ShareAvailability> _rereadShare() async {
+    if (PairingService.pairedInMemory == false) return const ShareNotPaired();
+    try {
+      return (_shareService ?? await widget.shareService()).availability;
+    } catch (e) {
+      debugPrint('[CalendarCategoriesPage] Sharing not read again: $e');
+      return _share;
+    }
+  }
+
+  /// Re-reads the sign setting, which the Sharing page — one tap away
+  /// through Sync & sharing from the editor — can change.
+  Future<void> _refreshMarkMine() async {
+    final service = _shareService;
+    if (service == null) return;
+    try {
+      final markMine = await service.markMine();
+      if (mounted && markMine != _markMine) {
+        setState(() => _markMine = markMine);
+      }
+    } catch (e) {
+      debugPrint('[CalendarCategoriesPage] Share sign not read: $e');
     }
   }
 
@@ -259,15 +343,27 @@ class _CalendarCategoriesPageState extends State<CalendarCategoriesPage> {
   /// answers `null` with the category already written, and the row would then
   /// be listed only after the page was reopened. One `setState` is cheaper
   /// than trusting the answer.
+  ///
+  /// A category created shared is shared as soon as the editor returns,
+  /// before the reveal and whether or not the page is left during it: the
+  /// person chose it with the rest of the category.
   Future<void> _create() async {
-    final created = await CategoryEditorSheet.show(context);
-    if (!mounted) return;
+    final result = await CategoryEditorSheet.open(
+      context,
+      share: _share,
+      openSyncSettings: widget.openSyncSettings,
+      rereadShare: _rereadShare,
+    );
+    final shared = _afterEditor(result);
+    if (!mounted) return shared;
+    final created = result?.category;
     if (created != null) {
       _revealId = created.id;
       _revealKey = GlobalKey();
     }
     _refresh();
     if (created != null) await _reveal(created.id);
+    await shared;
   }
 
   /// Scrolls the row of [id] into view, then flashes it.
@@ -327,9 +423,71 @@ class _CalendarCategoriesPageState extends State<CalendarCategoriesPage> {
   }
 
   Future<void> _edit(CalendarCategory category) async {
-    await CategoryEditorSheet.show(context, initial: category);
+    final result = await CategoryEditorSheet.open(
+      context,
+      initial: category,
+      share: _share,
+      shareEventCount: _counts[category.id] ?? 0,
+      openSyncSettings: widget.openSyncSettings,
+      rereadShare: _rereadShare,
+    );
     if (!mounted) return;
     _refresh();
+    await _afterEditor(result);
+  }
+
+  /// Writes the share the editor's draft asked for, now that the category
+  /// is stored — with or without the page — and re-reads the sign setting
+  /// the editor's way to Sync & sharing may have changed.
+  Future<void> _afterEditor(CategoryEditorResult? result) async {
+    final share = result?.share;
+    if (result != null && share != null) {
+      await _setShared(result.category, share);
+    }
+    if (mounted) await _refreshMarkMine();
+  }
+
+  /// Shares [category] or stops sharing it at once, then offers Undo
+  /// (decision ad of the share surfaces): reversible, so never a dialog
+  /// (D6). The write never waits on the page; the offer needs it.
+  Future<void> _setShared(CalendarCategory category, bool on) async {
+    var change = ShareChange.none;
+    final wrote = await _guarded(() async {
+      final service = _shareService ?? await widget.shareService();
+      change = await service.setCategoryShared(category.id, on);
+    });
+    if (!wrote || change.isEmpty || !mounted) return;
+    final l10n = AppLocalizations.of(context)!;
+    CustomSnackbar.showWithAction(
+      context,
+      message: _shareMessage(l10n, change),
+      actionLabel: l10n.undo,
+      onAction: () => unawaited(
+        _guarded(() async {
+          final service = _shareService ?? await widget.shareService();
+          await service.undo(change);
+        }),
+      ),
+    );
+  }
+
+  /// "Sharing Work with Maria", "No longer shared: Gym", or, when some of
+  /// its events carry a share of their own, how many stay (C10).
+  String _shareMessage(AppLocalizations l10n, ShareChange change) {
+    String names(List<CalendarCategory> categories) => [
+      for (final category in categories)
+        CalendarCategories.labelOf(category, l10n),
+    ].join(', ');
+    if (change.sharedCategories.isNotEmpty) {
+      return l10n.shareStarted(
+        names(change.sharedCategories),
+        ShareCopy.partnerName(l10n, _share.audience?.displayName),
+      );
+    }
+    final what = names(change.unsharedCategories);
+    return change.keptOnTheirOwn > 0
+        ? l10n.shareStoppedSomeStay(what, change.keptOnTheirOwn)
+        : l10n.shareStopped(what);
   }
 
   Future<void> _setHidden(CalendarCategory category, bool hidden) {
@@ -343,7 +501,11 @@ class _CalendarCategoriesPageState extends State<CalendarCategoriesPage> {
   Future<void> _delete(CalendarCategory category) async {
     final l10n = AppLocalizations.of(context)!;
     FocusManager.instance.primaryFocus?.unfocus();
-    final deleted = await CategoryDeleteSheet.show(context, category: category);
+    final deleted = await CategoryDeleteSheet.show(
+      context,
+      category: category,
+      share: _share,
+    );
     if (deleted != true || !mounted) return;
     _refresh();
     // The cascade tombstoned the category's alerts and moved its events onto
@@ -537,6 +699,11 @@ class _CalendarCategoriesPageState extends State<CalendarCategoriesPage> {
     final l10n = AppLocalizations.of(context)!;
     final colorScheme = Theme.of(context).colorScheme;
     final inUse = _categories.where((c) => !c.isHidden).length;
+    final audience = _share.audience;
+    final partner = audience == null
+        ? null
+        : ShareCopy.partnerName(l10n, audience.displayName);
+    final canShare = _share is ShareReady;
     FocusManager.instance.primaryFocus?.unfocus();
     final action = await showFormMenu<_CategoryAction>(
       anchor,
@@ -557,6 +724,19 @@ class _CalendarCategoriesPageState extends State<CalendarCategoriesPage> {
           icon: Icons.edit_rounded,
           identifier: SemanticsIds.categoryMenuEdit,
         ),
+        // Absent while not paired (D7); dimmed with its reason while the
+        // database does not sync (D8). The ✓ says it is shared.
+        if (partner != null)
+          FormMenuItem(
+            value: _CategoryAction.share,
+            label: category.sharedByMe
+                ? l10n.sharedWithPartner(partner)
+                : l10n.shareWithPartner(partner),
+            icon: Icons.group_rounded,
+            identifier: SemanticsIds.categoryMenuShare,
+            enabled: canShare,
+            caption: canShare ? null : l10n.shareNeedsSync,
+          ),
         // The last visible category stays: with nothing in use every picker
         // would open empty. The service refuses it too.
         FormMenuItem(
@@ -580,7 +760,9 @@ class _CalendarCategoriesPageState extends State<CalendarCategoriesPage> {
           color: colorScheme.error,
         ),
       ],
-      selected: null,
+      selected: partner != null && category.sharedByMe
+          ? _CategoryAction.share
+          : null,
       menuWidth: FormMetrics.menuWidth,
     );
     if (action == null || !mounted) return;
@@ -589,6 +771,8 @@ class _CalendarCategoriesPageState extends State<CalendarCategoriesPage> {
         unawaited(_moveToTop(category));
       case _CategoryAction.edit:
         unawaited(_edit(category));
+      case _CategoryAction.share:
+        unawaited(_setShared(category, !category.sharedByMe));
       case _CategoryAction.archive:
         unawaited(_setHidden(category, !category.isHidden));
       case _CategoryAction.delete:
@@ -785,6 +969,8 @@ class _CalendarCategoriesPageState extends State<CalendarCategoriesPage> {
       key: !lifted && category.id == _revealId ? _revealKey : null,
       category: category,
       caption: _captionFor(category),
+      spokenCaption: _captionFor(category, spoken: true),
+      shareSign: _markMine && _sharedShown(category),
       position: entry.position,
       dragIndex: dragIndex,
       reorderLocked: _isFiltering,
@@ -810,7 +996,11 @@ class _CalendarCategoriesPageState extends State<CalendarCategoriesPage> {
   /// own words are held together by the no-break space the strings carry,
   /// and the space before each dot is one too, so a wrapped line never
   /// starts with the dot.
-  String _captionFor(CalendarCategory category) {
+  ///
+  /// [spoken] names the partner where the line says only "Shared": the
+  /// avatar's sign is excluded from the row's node, so nothing else tells
+  /// a screen reader who it is shared with.
+  String _captionFor(CalendarCategory category, {bool spoken = false}) {
     final l10n = AppLocalizations.of(context)!;
     // Read per build from the facade, which the editor republishes before it
     // pops — and [_refresh] rebuilds the rows when it does.
@@ -821,8 +1011,19 @@ class _CalendarCategoriesPageState extends State<CalendarCategoriesPage> {
       l10n.categoryEventCount(_counts[category.id] ?? 0),
       if (category.isBuiltIn) l10n.categoryCaptionBuiltIn,
       if (hasAlerts) l10n.categoryCaptionAlertsOn,
+      // Last, so a caption that has no share reads and wraps as it did.
+      if (_sharedShown(category))
+        spoken
+            ? l10n.sharedWithPartner(
+                ShareCopy.partnerName(l10n, _share.audience?.displayName),
+              )
+            : l10n.categoryCaptionShared,
     ].join(' · ');
   }
+
+  /// Whether [category] shows as shared: its own mark, while paired.
+  bool _sharedShown(CalendarCategory category) =>
+      category.sharedByMe && _share.audience != null;
 
   /// The lifted row: one card of its own, whatever its place in its group,
   /// under the shared proxy (a hair of scale, a shadow). Inset and
@@ -863,7 +1064,14 @@ class _CalendarCategoriesPageState extends State<CalendarCategoriesPage> {
 class _CategoryRow extends StatelessWidget {
   final CalendarCategory category;
   final String caption;
+
+  /// [caption] as the row's node says it.
+  final String spokenCaption;
   final RowGroupPosition position;
+
+  /// Whether the avatar wears the sign of a category I share. The compact
+  /// row's bare glyph carries none: its caption's "Shared" says it.
+  final bool shareSign;
 
   /// Index in the enclosing reorderable list, or `null` while a query is
   /// active and reorder is therefore off.
@@ -891,6 +1099,8 @@ class _CategoryRow extends StatelessWidget {
     super.key,
     required this.category,
     required this.caption,
+    required this.spokenCaption,
+    required this.shareSign,
     required this.position,
     required this.dragIndex,
     required this.reorderLocked,
@@ -939,7 +1149,11 @@ class _CategoryRow extends StatelessWidget {
               color: category.color,
             ),
           )
-        : EventAvatar(icon: icon, color: category.color);
+        : EventAvatar(
+            icon: icon,
+            color: category.color,
+            badge: shareSign ? EventAvatarBadge.mine : null,
+          );
     // Only the leading dims on an archived row: the section header already
     // says Archived, and dimmed text on an operable row would fail contrast.
     if (archived) {
@@ -1016,7 +1230,7 @@ class _CategoryRow extends StatelessWidget {
             excludeSemantics: true,
             label: [
               name,
-              caption,
+              spokenCaption,
               if (archived) l10n.categoryRowArchived,
               if (!reorderLocked) l10n.categoryReorderLabel(name),
             ].join('\n'),

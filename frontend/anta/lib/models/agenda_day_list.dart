@@ -61,6 +61,11 @@ class AgendaDayListEntry {
   /// reading the event.
   final bool fromPartner;
 
+  /// Whether the entry's event is one of mine that I share — by its own
+  /// mark or through its category — resolved beside [fromPartner] for the
+  /// same reason.
+  final bool sharedByMe;
+
   const AgendaDayListEntry({
     required this.day,
     required this.icon,
@@ -73,6 +78,7 @@ class AgendaDayListEntry {
     this.presenceTracked = false,
     this.categoryId,
     this.fromPartner = false,
+    this.sharedByMe = false,
   });
 }
 

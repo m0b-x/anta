@@ -34,10 +34,13 @@ import 'package:anta/services/category_service.dart';
 import 'package:anta/services/event_alert_service.dart';
 import 'package:anta/services/permission_service.dart';
 import 'package:anta/services/settings_service.dart';
+import 'package:anta/services/share_service.dart';
+import 'package:anta/widgets/form_rows.dart' show FormSwitchRow;
 import 'package:anta/widgets/form_sheet_frame.dart'
     show FormSheetSemanticsRefresh;
 
 import '../database/support/db_test_support.dart';
+import '../goldens/support/golden_fonts.dart';
 import '../services/permission_support.dart';
 import 'support/alert_sheet_robot.dart';
 import 'support/category_editor_robot.dart';
@@ -2313,6 +2316,293 @@ void main() {
       await tester.pumpAndSettle();
       expect(robot.isOpen, isFalse);
     });
+  });
+
+  group('sharing', () {
+    const maria = ShareAudience(
+      id: 'pair-1',
+      displayName: 'Maria',
+      members: [],
+    );
+    const ready = ShareReady(maria);
+    const notSyncing = ShareNotSyncing(maria);
+
+    // Roboto, so the row is measured as a phone draws it. The group runs
+    // last, so no case above measures in anything but the test font.
+    setUpAll(loadGoldenFonts);
+
+    /// A custom category the service holds, shared when [shared] says so.
+    Future<CalendarCategory> category(
+      String name, {
+      bool shared = false,
+    }) async {
+      final created = await custom(name);
+      if (shared) await service.setShared(created.id, maria.id);
+      return CalendarCategories.byId(created.id)!;
+    }
+
+    testWidgets('not paired: no SHARING section — the sheet as the one opened '
+        'without sharing', (tester) async {
+      final robot = CategoryEditorRobot(tester);
+      final work = await category('Work');
+      await robot.show(initial: work, surface: const Size(360, 780));
+      final labels = robot.sectionLabels;
+      final height = robot.sheetRect.height;
+      await robot.close();
+
+      await robot.show(
+        initial: work,
+        surface: const Size(360, 780),
+        share: const ShareNotPaired(),
+      );
+      expect(robot.shareShown, isFalse);
+      expect(robot.sectionLabels, labels);
+      expect(robot.sheetRect.height, height);
+    });
+
+    testWidgets('paired: SHARING sits between the look and ALERTS', (
+      tester,
+    ) async {
+      final robot = CategoryEditorRobot(tester);
+      await robot.show(initial: await category('Work'), share: ready);
+      final labels = robot.sectionLabels;
+      expect(labels.take(2), ['Sharing', 'Alerts']);
+      expect(
+        robot.sectionLabelRect('Sharing').top,
+        greaterThan(robot.nameRowRect.bottom),
+      );
+    });
+
+    for (final scale in [1.0, 1.3, 2.0]) {
+      testWidgets('at $scale: off, on and waiting for sync are one row height '
+          'for a category with events and for an empty one', (tester) async {
+        final robot = CategoryEditorRobot(tester);
+        final work = await category('Work');
+        final shared = await category('Travel', shared: true);
+        // The count is the category's at the open; what may change while the
+        // sheet is up is the state, so the height is pinned per count.
+        for (final (count, on) in [
+          (42, 'All 42 events, and new ones'),
+          (0, 'New events are shared'),
+        ]) {
+          final heights = <double>[];
+          for (final (initial, share, subtitle, enabled) in [
+            (work, ready, 'Only you see these events', true),
+            (shared, ready, on, true),
+            (shared, notSyncing, 'Turn on sync to share', false),
+          ]) {
+            await robot.show(
+              initial: initial,
+              share: share,
+              shareEventCount: count,
+              textScale: scale,
+              surface: const Size(360, 780),
+            );
+            expect(robot.shareLabel, 'Share with Maria');
+            expect(robot.shareSubtitle, subtitle);
+            expect(robot.shareEnabled, enabled);
+            heights.add(robot.shareRowHeight);
+            await robot.close();
+          }
+          expect(heights.toSet(), hasLength(1), reason: '$count: $heights');
+          if (scale == 1.0) {
+            expect(heights.first, FormMetrics.twoLineRowMinHeight);
+          }
+        }
+      });
+    }
+
+    testWidgets('waiting for sync: off and dimmed with the reason whole, and '
+        'a tap opens Sync & sharing over the sheet', (tester) async {
+      final robot = CategoryEditorRobot(tester);
+      var opened = 0;
+      await robot.show(
+        initial: await category('Travel', shared: true),
+        share: notSyncing,
+        openSyncSettings: (_) async => opened++,
+      );
+      expect(robot.shareOn, isFalse);
+      // The glyph and the label; the switch keeps its own disabled colours.
+      expect(
+        robot
+            .opacitiesOf(SemanticsIds.categoryEditorShare)
+            .where((opacity) => opacity == FormMetrics.disabledOpacity),
+        hasLength(2),
+      );
+      // The slot's last child is the line it shows; the rest are templates.
+      final reason = find.ancestor(
+        of: find.text('Turn on sync to share').last,
+        matching: find.byType(Opacity),
+      );
+      for (final element in reason.evaluate()) {
+        expect((element.widget as Opacity).opacity, 1.0);
+      }
+      // Dimmed, yet it acts: it says where its tap goes.
+      expect(
+        tester
+            .widget<FormSwitchRow>(
+              find.ancestor(
+                of: find.text('Turn on sync to share').last,
+                matching: find.byType(FormSwitchRow),
+              ),
+            )
+            .onDisabledTapHint,
+        'Opens Sync & sharing',
+      );
+
+      await robot.tapShare();
+      expect(opened, 1);
+      expect(robot.isOpen, isTrue);
+      expect(robot.discardAsked, isFalse);
+    });
+
+    testWidgets('sync turned on over the sheet: the opener is asked again '
+        'on the return, and the switch follows, clean', (tester) async {
+      final robot = CategoryEditorRobot(tester);
+      var asked = 0;
+      final outcome = await robot.show(
+        initial: await category('Travel', shared: true),
+        share: notSyncing,
+        openSyncSettings: (_) async {},
+        rereadShare: () async {
+          asked++;
+          return ready;
+        },
+      );
+      expect(robot.shareEnabled, isFalse);
+
+      await robot.tapShare();
+
+      expect(asked, 1);
+      expect(robot.shareEnabled, isTrue);
+      expect(robot.shareOn, isTrue, reason: 'the category is shared');
+      expect(robot.shareSubtitle, 'New events are shared');
+      await robot.close();
+      expect(robot.discardAsked, isFalse);
+      expect(outcome.share, isNull);
+    });
+
+    testWidgets('the switch is part of the draft: a flip is dirty, the leave '
+        'guard asks, and Save hands it back unwritten', (tester) async {
+      final robot = CategoryEditorRobot(tester);
+      final work = await category('Work');
+      final outcome = await robot.show(initial: work, share: ready);
+
+      await robot.tapShare();
+      expect(robot.shareOn, isTrue);
+      expect(robot.shareSubtitle, 'New events are shared');
+      await robot.close();
+      expect(robot.discardAsked, isTrue);
+      await robot.keepEditing();
+
+      await robot.save();
+      expect(outcome.returned, isTrue);
+      expect(outcome.result?.id, work.id);
+      expect(outcome.share, isTrue);
+      // The opener writes it: the sheet never calls the share service.
+      expect(CalendarCategories.byId(work.id)!.sharedByMe, isFalse);
+    });
+
+    testWidgets('a flip turned back is clean, and Save then asks for no '
+        'change', (tester) async {
+      final robot = CategoryEditorRobot(tester);
+      final travel = await category('Travel', shared: true);
+      final outcome = await robot.show(initial: travel, share: ready);
+      expect(robot.shareOn, isTrue);
+      await robot.tapShare();
+      await robot.tapShare();
+      await robot.close();
+      expect(robot.discardAsked, isFalse);
+      expect(outcome.returned, isTrue);
+      expect(outcome.share, isNull);
+
+      final again = await robot.show(initial: travel, share: ready);
+      await robot.save();
+      expect(again.share, isNull);
+      final off = await robot.show(initial: travel, share: ready);
+      await robot.tapShare();
+      await robot.save();
+      expect(off.share, isFalse);
+    });
+
+    testWidgets('a new category can be created already shared', (tester) async {
+      final robot = CategoryEditorRobot(tester);
+      final outcome = await robot.show(share: ready);
+      expect(robot.shareSubtitle, 'Only you see these events');
+      await robot.typeName('Trips');
+      await robot.tapShare();
+      expect(robot.shareSubtitle, 'New events are shared');
+
+      await robot.save();
+      expect(outcome.result?.name, 'Trips');
+      expect(CalendarCategories.byId(outcome.result!.id), isNotNull);
+      expect(outcome.share, isTrue);
+    });
+
+    group('German at 2.0 with a long name', () {
+      testWidgets('"Mit Maximilian-Alexander teilen" wraps whole inside the '
+          'sheet, one height in every state', (tester) async {
+        const long = ShareAudience(
+          id: 'pair-1',
+          displayName: 'Maximilian-Alexander',
+          members: [],
+        );
+        final robot = CategoryEditorRobot(tester);
+        final work = await category('Work');
+        final shared = await category('Travel', shared: true);
+        final heights = <double>[];
+        final errors = await layoutErrorsDuring(() async {
+          for (final (initial, share) in [
+            (work, const ShareReady(long)),
+            (shared, const ShareReady(long)),
+            (shared, const ShareNotSyncing(long)),
+          ]) {
+            await robot.show(
+              initial: initial,
+              share: share,
+              shareEventCount: 42,
+              locale: const Locale('de'),
+              textScale: 2.0,
+              surface: const Size(360, 780),
+            );
+            await tester.ensureVisible(
+              find.bySemanticsIdentifier(SemanticsIds.categoryEditorShare),
+            );
+            await tester.pumpAndSettle();
+            expect(robot.shareLabel, 'Mit Maximilian-Alexander teilen');
+            expect(robot.shareRowWhole, isTrue);
+            heights.add(robot.shareRowHeight);
+            await robot.close();
+          }
+        });
+        expect(errors, isEmpty);
+        expect(heights.toSet(), hasLength(1), reason: '$heights');
+      });
+    });
+
+    for (final (locale, scale) in [('en', 1.0), ('de', 2.0)]) {
+      testWidgets('$locale at $scale: the switch meets the tap-target and '
+          'label guidelines', (tester) async {
+        final handle = tester.ensureSemantics();
+        final robot = CategoryEditorRobot(tester);
+        await robot.show(
+          initial: await category('Work'),
+          share: ready,
+          locale: Locale(locale),
+          textScale: scale,
+          surface: const Size(360, 780),
+        );
+        await tester.ensureVisible(
+          find.bySemanticsIdentifier(SemanticsIds.categoryEditorShare),
+        );
+        await tester.pumpAndSettle();
+        expect(robot.shareNode.label, contains('Maria'));
+
+        await expectLater(tester, meetsGuideline(androidTapTargetGuideline));
+        await expectLater(tester, meetsGuideline(labeledTapTargetGuideline));
+        handle.dispose();
+      });
+    }
   });
 }
 

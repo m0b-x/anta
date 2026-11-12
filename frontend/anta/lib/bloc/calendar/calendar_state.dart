@@ -97,6 +97,11 @@ final class CalendarPageLoaded extends CalendarPageState {
   /// list it builds a state from, so no page scans the list on a change.
   final bool holdsPartnerEvents;
 
+  /// Whether [allEvents] holds an event of mine the partner sees, through
+  /// its own mark or its category's — the other reason a page reads who the
+  /// partner is. Decided in the same pass as [holdsPartnerEvents].
+  final bool holdsSharedByMe;
+
   const CalendarPageLoaded({
     required this.allEvents,
     required this.focusedDay,
@@ -108,6 +113,7 @@ final class CalendarPageLoaded extends CalendarPageState {
     this.presenceRevision = 0,
     this.selectionSource = CalendarSelectionSource.navigation,
     this.holdsPartnerEvents = false,
+    this.holdsSharedByMe = false,
   });
 
   /// True when nothing the calendar grid renders from has changed.
@@ -158,6 +164,7 @@ final class CalendarPageLoaded extends CalendarPageState {
     int? presenceRevision,
     CalendarSelectionSource? selectionSource,
     bool? holdsPartnerEvents,
+    bool? holdsSharedByMe,
   }) {
     return CalendarPageLoaded(
       allEvents: allEvents ?? this.allEvents,
@@ -170,6 +177,7 @@ final class CalendarPageLoaded extends CalendarPageState {
       presenceRevision: presenceRevision ?? this.presenceRevision,
       selectionSource: selectionSource ?? this.selectionSource,
       holdsPartnerEvents: holdsPartnerEvents ?? this.holdsPartnerEvents,
+      holdsSharedByMe: holdsSharedByMe ?? this.holdsSharedByMe,
     );
   }
 
@@ -187,6 +195,7 @@ final class CalendarPageLoaded extends CalendarPageState {
     format,
     selectionSource,
     holdsPartnerEvents,
+    holdsSharedByMe,
     filters,
     allEvents,
   ];

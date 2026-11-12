@@ -44,6 +44,21 @@ class CalendarEventService {
   late CalendarEventDao _dao;
   List<CalendarEvent> _cache = const [];
 
+  /// Whether [events] may hold a partner's event, or one of mine with its
+  /// own share mark: noted as rows are mapped and events cached, cleared
+  /// only by a whole read. Never false while such an event is held, so the
+  /// calendar walks its events for sharing only when one may be there — an
+  /// account that never paired pays no pass.
+  bool get mayHoldPartnerEvents => _mayHoldPartner;
+  bool get mayHoldOwnMarks => _mayHoldMarked;
+  bool _mayHoldPartner = false;
+  bool _mayHoldMarked = false;
+
+  void _noteShares(CalendarEvent event) {
+    if (event.fromPartner) _mayHoldPartner = true;
+    if (event.markedShared) _mayHoldMarked = true;
+  }
+
   CalendarEventService._();
 
   static Future<CalendarEventService> getInstance() async {
@@ -268,8 +283,10 @@ class CalendarEventService {
 
   List<CalendarEvent> get events => _cache;
 
-  /// How many live events sit in each category, keyed by category id.
-  /// Categories with none are absent rather than zero.
+  /// How many of the person's own live events sit in each category, keyed
+  /// by category id — a partner's are counted apart
+  /// ([CalendarEventDao.countPartnerByCategory]). Categories with none are
+  /// absent rather than zero.
   ///
   /// **One statement for the whole page**, never a count per row — the
   /// category management page renders forty of them, and
@@ -327,6 +344,10 @@ class CalendarEventService {
         try {
           final rows = await _dao.getAll();
           final partner = await _partnerOf(rows);
+          // A whole read is the one place the notes can start over: the
+          // mapping below takes them up again for what it holds.
+          _mayHoldPartner = false;
+          _mayHoldMarked = false;
           _cache = List.unmodifiable(
             rows.map((row) => _rowToEvent(row, partner)),
           );
@@ -447,18 +468,28 @@ class CalendarEventService {
   /// `copyWith(id:)` carried over from another event, nor this call's clock
   /// would match what a reload reads.
   ///
+  /// [CalendarEvent.markedShared] is never written here, and the cache keeps
+  /// what the store holds: the cached event's, or the row's when that is
+  /// read — so a copy made with `copyWith(id:)` of a singly shared event is
+  /// private, as stored (case E2).
+  ///
   /// Throws `SharedRowException` for an event put into a category another
   /// account shares with this one ([CalendarEventDao.upsert]), with nothing
   /// written and the cache as it was.
   Future<void> upsert(CalendarEvent event) async {
     _ensureOwn(event.id, fromPartner: event.fromPartner);
     var normalized = _normalized(event);
-    final cached = _cache.any((e) => e.id == normalized.id);
+    final cached = _cache.where((e) => e.id == normalized.id).firstOrNull;
     final now = DateTime.now();
     await _dao.upsert(_eventToCompanion(normalized, updatedAt: now));
-    if (normalized.createdAt == null || !cached) {
-      final rows = await _dao.getByIdsIncludingDeleted([normalized.id]);
-      normalized = normalized.copyWith(createdAt: rows.single.createdAt);
+    if (normalized.createdAt == null || cached == null) {
+      final row = (await _dao.getByIdsIncludingDeleted([normalized.id])).single;
+      normalized = normalized.copyWith(
+        createdAt: row.createdAt,
+        markedShared: row.sharedPair != null,
+      );
+    } else if (normalized.markedShared != cached.markedShared) {
+      normalized = normalized.copyWith(markedShared: cached.markedShared);
     }
     _writes++;
     _cacheWritten(normalized);
@@ -495,6 +526,7 @@ class CalendarEventService {
   }
 
   void _cacheWritten(CalendarEvent normalized) {
+    _noteShares(normalized);
     final next = [
       for (final e in _cache)
         if (e.id != normalized.id) e,
@@ -691,12 +723,65 @@ class CalendarEventService {
   /// mark was written — false for an event that is gone or carries it
   /// already.
   ///
-  /// The mark is no part of the event a screen holds, so the cache stays as
-  /// it is. `ShareService.setEventShared` is its one caller in the app, so
-  /// no surface ever holds a pair id; tests and the QA seam reach it
-  /// directly.
-  Future<bool> setShared(String id, String? pairId) =>
-      _dao.setSharedPair(id, pairId);
+  /// The cached events take [CalendarEvent.markedShared] from the table
+  /// afterwards whenever it may have changed — the mark written, or a mark
+  /// set, which clears every other pair's on other events even when this
+  /// one stood — and whenever the cache says otherwise than what was asked,
+  /// written or not: a switch-off on a flag left stale by a mark cleared
+  /// under the cache writes nothing and must still correct it.
+  ///
+  /// The QA seam's and the tests' entry. The app's share acts
+  /// (`ShareService`) write the DAO's mark inside their own transaction, so
+  /// an act of several rows is whole, and call [refreshShareMarks] after it;
+  /// either way no surface ever holds a pair id.
+  Future<bool> setShared(String id, String? pairId) async {
+    final wrote = await _dao.setSharedPair(id, pairId);
+    final stale = _cache.any(
+      (e) => e.id == id && e.markedShared != (pairId != null),
+    );
+    if (wrote || pairId != null || stale) {
+      _writes++;
+      await _refreshMarks();
+    }
+    return wrote;
+  }
+
+  /// [setShared]'s refresh on the live instance, after a mark written
+  /// elsewhere cleared marks of another pair here
+  /// (`CalendarCategoryDao.setSharedPair`, `FolderDao.setSharedPair` and
+  /// `FolderDao.clearSharesExcept` clear all three tables). Never constructs
+  /// one, on [refreshAfterCategoryRemoval]'s terms.
+  static Future<void> refreshShareMarks() async {
+    final service = await _liveOrCreating();
+    if (service == null) return;
+    service._writes++;
+    await service._refreshMarks();
+  }
+
+  /// Patches [CalendarEvent.markedShared] into the cached events from one
+  /// keyed read of the marked ids, replacing only the events whose flag
+  /// moved. A failed read leaves the cache to the next load. [_writes] is
+  /// bumped by the caller first, so a whole load in flight reads again past
+  /// the write.
+  Future<void> _refreshMarks() async {
+    final Set<String> marked;
+    try {
+      marked = await _dao.ownMarkedIds();
+    } catch (e, st) {
+      debugPrint('[CalendarEventService] Share marks error: $e\n$st');
+      return;
+    }
+    final cache = _cache;
+    List<CalendarEvent>? next;
+    for (var i = 0; i < cache.length; i++) {
+      final event = cache[i];
+      final mark = !event.fromPartner && marked.contains(event.id);
+      if (event.markedShared == mark) continue;
+      if (mark) _mayHoldMarked = true;
+      (next ??= [...cache])[i] = event.copyWith(markedShared: mark);
+    }
+    if (next != null) _cache = List.unmodifiable(next);
+  }
 
   /// Runs the four child patches of one event's delete or restore, each on
   /// its own guard: the rows are written either way, and a facade that fails
@@ -1008,6 +1093,12 @@ class CalendarEventService {
   /// [partner] is `shared_owner` as the caller read it, once for all its
   /// rows: null on a database that reads no shared rows.
   CalendarEvent _rowToEvent(CalendarEventRow row, String? partner) {
+    final fromPartner = partner != null && row.ownerId == partner;
+    if (fromPartner) {
+      _mayHoldPartner = true;
+    } else if (row.sharedPair != null) {
+      _mayHoldMarked = true;
+    }
     return CalendarEvent(
       id: row.id,
       title: row.title,
@@ -1035,7 +1126,8 @@ class CalendarEventService {
       categoryAlerts: row.categoryAlerts,
       rule: _decodeRule(row.ruleKind, row.rulePayload),
       createdAt: row.createdAt,
-      fromPartner: partner != null && row.ownerId == partner,
+      fromPartner: fromPartner,
+      markedShared: row.sharedPair != null && !fromPartner,
     );
   }
 

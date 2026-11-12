@@ -557,4 +557,231 @@ void main() {
       expect(find.text('Description limit'), findsOneWidget);
     });
   });
+
+  // The share surfaces' opt-in extensions of the kit (slice C §0): a status
+  // in a header that cannot fold, and a description cut at a line count.
+  group('a header\'s status slot', () {
+    const sending = 'Sending…';
+    const waiting = 'Waiting to send';
+
+    Future<void> pumpStatus(
+      WidgetTester tester, {
+      String? trailing,
+      List<String> templates = const [sending, waiting],
+      String title = 'You share',
+      double scale = 1.0,
+    }) async {
+      tester.view.physicalSize = const Size(360, 780);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          locale: const Locale('en'),
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(
+              context,
+            ).copyWith(textScaler: TextScaler.linear(scale)),
+            child: child!,
+          ),
+          home: Scaffold(
+            body: SettingsSectionList(
+              sections: [
+                SettingsSectionData(
+                  icon: Icons.group_rounded,
+                  title: title,
+                  trailing: trailing,
+                  trailingTemplates: templates,
+                  entries: [entry('Categories')],
+                ),
+              ],
+              query: SettingsQuery.empty,
+            ),
+          ),
+        ),
+      );
+    }
+
+    Finder header(String title) => find
+        .ancestor(
+          of: find.text(title.toUpperCase()),
+          matching: find.byType(Container),
+        )
+        .first;
+
+    /// The status as drawn, never its unseen twin among the templates: the
+    /// slot lays the templates out first.
+    Finder shown(String status) => find.text(status).last;
+
+    for (final scale in const [1.0, 1.3, 2.0]) {
+      testWidgets('reserved: the title, the header and the rows sit where '
+          'they do with and without a status at $scale', (tester) async {
+        const title = 'Maria shares with you';
+        Future<(Rect, Rect, Rect)> measure(String? trailing) async {
+          await pumpStatus(
+            tester,
+            trailing: trailing,
+            title: title,
+            scale: scale,
+          );
+          expect(tester.takeException(), isNull);
+          return (
+            tester.getRect(find.text(title.toUpperCase())),
+            tester.getRect(header(title)),
+            tester.getRect(find.text('Categories')),
+          );
+        }
+
+        final none = await measure(null);
+        expect(await measure(sending), none);
+        expect(await measure(waiting), none);
+      });
+    }
+
+    testWidgets('beside the title below 1.6: end-aligned, in the folded '
+        'count\'s style, as wide as the widest template, the header still '
+        '48 dp', (tester) async {
+      await pumpStatus(tester, trailing: sending);
+      final box = tester.getRect(header('You share'));
+      final title = tester.getRect(find.text('YOU SHARE'));
+      final status = tester.getRect(shown(sending));
+      final widest = tester.getRect(find.text(waiting));
+      expect(box.height, RowMetrics.singleLineMinHeight);
+      expect(status.right, widest.right);
+      expect(status.left, greaterThan(title.right));
+      expect(status.center.dy, moreOrLessEquals(title.center.dy));
+      final colorScheme = Theme.of(
+        tester.element(find.byType(SettingsSectionList)),
+      ).colorScheme;
+      final style = tester.widget<Text>(shown(sending)).style!;
+      expect(style.fontSize, RowMetrics.sectionLabelFontSize);
+      expect(style.color, colorScheme.onSurfaceVariant);
+      expect(style.fontFeatures, const [FontFeature.tabularFigures()]);
+      final text = tester.widget<Text>(shown(sending));
+      expect((text.maxLines, text.overflow), (1, TextOverflow.ellipsis));
+    });
+
+    testWidgets('a template wider than half the header is capped there and '
+        'the status ellipsized inside it', (tester) async {
+      const long = 'Could not check. Will try again.';
+      await pumpStatus(tester, trailing: long, templates: const [long]);
+      expect(tester.takeException(), isNull);
+      final box = tester.getRect(header('You share'));
+      final status = tester.getRect(shown(long));
+      expect(
+        status.width,
+        lessThanOrEqualTo(
+          (box.width - RowMetrics.sectionLabelInset) *
+              RowMetrics.settingsStatusMaxShare,
+        ),
+      );
+      expect(status.right, lessThanOrEqualTo(box.right));
+    });
+
+    testWidgets('from 1.6 up the status takes a line of its own under the '
+        'title, reserved with or without text', (tester) async {
+      await pumpStatus(tester, trailing: sending, scale: 2.0);
+      final title = tester.getRect(find.text('YOU SHARE'));
+      final status = tester.getRect(shown(sending));
+      expect(status.top, greaterThanOrEqualTo(title.bottom));
+      expect(status.left, title.left);
+      final withStatus = tester.getRect(header('You share')).height;
+
+      await pumpStatus(tester, scale: 2.0);
+      expect(tester.getRect(header('You share')).height, withStatus);
+      expect(withStatus, greaterThan(RowMetrics.singleLineMinHeight));
+    });
+
+    testWidgets('the heading is still named by its title; the status is a '
+        'node of its own and the templates are never read', (tester) async {
+      final handle = tester.ensureSemantics();
+      await pumpStatus(tester, trailing: sending);
+      final heading = tester
+          .getSemantics(find.text('YOU SHARE'))
+          .getSemanticsData();
+      expect(heading.label, 'You share');
+      expect(heading.headingLevel, 2);
+      expect(find.bySemanticsLabel(sending), findsOneWidget);
+      expect(find.bySemanticsLabel(waiting), findsNothing);
+      handle.dispose();
+    });
+
+    testWidgets('a section that passes neither draws no slot', (tester) async {
+      await pumpStatus(tester, templates: const []);
+      expect(
+        find.descendant(of: header('You share'), matching: find.byType(Stack)),
+        findsNothing,
+      );
+      expect(
+        tester.getRect(header('You share')).height,
+        RowMetrics.singleLineMinHeight,
+      );
+    });
+
+    test('a section that can fold cannot carry a status', () {
+      expect(
+        () => SettingsSectionData(
+          id: 'you-share',
+          icon: Icons.group_rounded,
+          title: 'You share',
+          trailing: sending,
+          entries: const [],
+        ),
+        throwsAssertionError,
+      );
+    });
+  });
+
+  group('a description\'s line limit', () {
+    testWidgets('descriptionMaxLines cuts the description with an ellipsis '
+        'and keeps the two-line row; without it the text wraps', (
+      tester,
+    ) async {
+      const names = 'Work, Travel, Birthdays, Gym, Night shift, Family, School';
+      tester.view.physicalSize = const Size(360, 780);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          locale: const Locale('en'),
+          home: Scaffold(
+            body: SettingsSectionList(
+              sections: [
+                SettingsSectionData(
+                  icon: Icons.group_rounded,
+                  title: 'You share',
+                  entries: [
+                    for (final maxLines in [1, null])
+                      SettingsEntry(
+                        title: 'Row $maxLines',
+                        description: names,
+                        descriptionMaxLines: maxLines,
+                        builder: (context, title, description) =>
+                            ListTile(title: title, subtitle: description),
+                      ),
+                  ],
+                ),
+              ],
+              query: SettingsQuery.empty,
+            ),
+          ),
+        ),
+      );
+
+      final cut = tester.widget<Text>(find.text(names).first);
+      expect((cut.maxLines, cut.overflow), (1, TextOverflow.ellipsis));
+      final free = tester.widget<Text>(find.text(names).last);
+      expect((free.maxLines, free.overflow), (null, null));
+      Finder tile(String title) =>
+          find.ancestor(of: find.text(title), matching: find.byType(ListTile));
+      expect(tester.getSize(tile('Row 1')).height, RowMetrics.twoLineMinHeight);
+      expect(
+        tester.getSize(tile('Row null')).height,
+        greaterThan(RowMetrics.twoLineMinHeight),
+      );
+    });
+  });
 }

@@ -1170,6 +1170,13 @@ class FormPickerRow extends FormDividedRow {
   /// sizes its rows by kind asks for it.
   final int? captionMaxLines;
 
+  /// Lets the stacked shape's caption under a [leading] widget wrap as far
+  /// as it needs rather than clamp at [captionMaxLines] or its own two
+  /// lines: a caption every word of which counts — the Single events
+  /// sheet's time and the category it stays shared through — loses the
+  /// time or the name to an ellipsis at German 2.0.
+  final bool captionWraps;
+
   /// Gives a glyph row with a [caption] and no value [FormCheckRow]'s
   /// two-line shape — the label and the caption in one column on the check
   /// row's air, clamped at two lines while enabled and whole while disabled —
@@ -1223,6 +1230,7 @@ class FormPickerRow extends FormDividedRow {
     this.subRow = false,
     this.caption,
     this.captionMaxLines,
+    this.captionWraps = false,
     this.checkRowShape = false,
     this.singleLine = false,
     this.enabled = true,
@@ -1231,6 +1239,10 @@ class FormPickerRow extends FormDividedRow {
   }) : assert(
          !checkRowShape || (leading == null && value == null),
          'the check row shape is for a glyph row without a value',
+       ),
+       assert(
+         !captionWraps || leading != null,
+         'only the stacked shape under a leading widget clamps by default',
        ),
        _dividerIndent = dividerIndent;
 
@@ -1292,7 +1304,7 @@ class FormPickerRow extends FormDividedRow {
               dim(pair),
               FormCaption(
                 text: captionText,
-                maxLines: captionMaxLines ?? 2,
+                maxLines: captionWraps ? null : captionMaxLines ?? 2,
                 padding: const EdgeInsets.only(
                   bottom: FormMetrics.pairVerticalPadding,
                 ),
@@ -1417,21 +1429,47 @@ class FormPickerRow extends FormDividedRow {
 /// While [value] is off and [dimOff] is set, the text and glyph dim to
 /// [FormMetrics.switchedOffOpacity] — off, not disabled, so the switch stays
 /// full; a null [onChanged] disables the switch alone, in place.
+///
+/// With a null [onTap] there is nothing to open: the row's tap flips the
+/// switch and the row is one node, read as a [FormSwitchRow] is (a shared
+/// built-in category in the received list). [enabled] false dims the whole
+/// text part, caption included — the reason a row is off is its group's
+/// caption, never the row's.
 class FormPickerSwitchRow extends FormDividedRow {
-  final IconData glyph;
+  /// The field's glyph, or [leading] in its place; exactly one of the two.
+  final IconData? glyph;
+
+  /// A 40 dp widget — an `EventAvatar` — standing where the glyph would,
+  /// which gives the row the stacked two-line shape and the title row's
+  /// divider indent.
+  final Widget? leading;
   final String label;
   final String caption;
   final int? captionMaxLines;
   final bool value;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
   final ValueChanged<bool>? onChanged;
   final bool dimOff;
+
+  /// The row's id; with a null [onTap] the one node takes [switchIdentifier]
+  /// and this only when that is null.
   final String? identifier;
   final String? switchIdentifier;
 
+  /// The switch node's name in the two-node shape, where [label] alone
+  /// would not say what it switches ("Show Night shift on my calendar").
+  /// Null names it [label].
+  final String? switchSemanticsLabel;
+
+  /// False makes the row and its switch inert in place, drawn at
+  /// [FormMetrics.disabledOpacity] — the text part only, the switch in
+  /// Material's own disabled colours.
+  final bool enabled;
+
   const FormPickerSwitchRow({
     super.key,
-    required this.glyph,
+    this.glyph,
+    this.leading,
     required this.label,
     required this.caption,
     this.captionMaxLines,
@@ -1441,41 +1479,79 @@ class FormPickerSwitchRow extends FormDividedRow {
     this.dimOff = false,
     this.identifier,
     this.switchIdentifier,
-  });
+    this.switchSemanticsLabel,
+    this.enabled = true,
+  }) : assert(
+         (glyph == null) != (leading == null),
+         'a picker switch row leads with a glyph or a widget, never both',
+       );
 
   @override
-  double get dividerIndent => FormMetrics.dividerIndentGlyph;
+  double get dividerIndent => leading != null
+      ? FormMetrics.dividerIndentTitle
+      : FormMetrics.dividerIndentGlyph;
 
   @override
   Widget build(BuildContext context) {
+    final changed = enabled ? onChanged : null;
+    final oneNode = onTap == null;
+    final VoidCallback? tap = !enabled
+        ? null
+        : oneNode
+        ? (changed == null ? null : () => changed(!value))
+        : onTap;
     Widget row = FormPickerRow(
       glyph: glyph,
+      leading: leading,
       label: label,
       caption: caption,
       captionMaxLines: captionMaxLines,
-      identifier: identifier,
+      identifier: oneNode ? null : identifier,
       showChevron: false,
-      onTap: onTap,
+      onTap: tap,
     );
-    if (dimOff && !value) {
+    if (!enabled) {
+      // Outside the row's own merge, so the flag lands on its node; the
+      // opacity covers the caption, which the row's own `enabled` keeps whole.
+      row = MergeSemantics(
+        child: Semantics(
+          enabled: false,
+          child: Opacity(opacity: FormMetrics.disabledOpacity, child: row),
+        ),
+      );
+    } else if (dimOff && !value) {
       row = Opacity(opacity: FormMetrics.switchedOffOpacity, child: row);
     }
-    Widget toggle = Semantics(
-      label: label,
-      child: Switch(
-        value: value,
-        onChanged: onChanged,
-        // A target of its own beside the row's, so the full 48 dp.
-        materialTapTargetSize: MaterialTapTargetSize.padded,
-      ),
+    final Widget toggle = Switch(
+      value: value,
+      onChanged: changed,
+      // A target of its own beside the row's, so the full 48 dp.
+      materialTapTargetSize: MaterialTapTargetSize.padded,
+    );
+    if (oneNode) {
+      final content = Row(
+        children: [
+          Expanded(child: row),
+          toggle,
+          const SizedBox(width: FormMetrics.rowEndPadding),
+        ],
+      );
+      if (switchIdentifier ?? identifier case final id?) {
+        return AutomationId(identifier: id, child: content);
+      }
+      return MergeSemantics(child: content);
+    }
+    Widget named = Semantics(
+      label: switchSemanticsLabel ?? label,
+      child: toggle,
     );
     if (switchIdentifier case final id?) {
-      toggle = AutomationId(identifier: id, child: toggle);
+      named = AutomationId(identifier: id, child: named);
     }
     return Row(
       children: [
         Expanded(child: row),
-        toggle,
+        named,
         const SizedBox(width: FormMetrics.rowEndPadding),
       ],
     );
@@ -1990,6 +2066,36 @@ class FormSwitchRow extends FormDividedRow {
   final ValueChanged<bool>? onChanged;
   final String? identifier;
 
+  /// Every [subtitle] the row may show — each state's reading and the reason
+  /// it is off. The subtitle sits in a slot as tall as the tallest, so the
+  /// row is one height in every state and nothing under it moves when the
+  /// state changes. Opting in (this or [onDisabledTap]) also keeps a
+  /// disabled row's subtitle whole, as below.
+  final List<String>? subtitleTemplates;
+
+  /// Cuts [subtitle] with an ellipsis to the lines of the tallest of
+  /// [subtitleTemplates], measured at the slot's width: the templates are
+  /// then the fixed readings alone, and a reading that carries user text —
+  /// a category's name — never makes the row taller than they do.
+  final bool subtitleFitsTemplates;
+
+  /// Run by a tap on the row while [onChanged] is null — the way to what
+  /// would enable it (Sync & sharing, from a share switch that needs sync).
+  /// Opting in (this or [subtitleTemplates]) dims only the glyph and the
+  /// label of a disabled row: the subtitle says why the row is off and stays
+  /// readable, the rule `FormPickerRow` and `FormCheckRow` follow, and the
+  /// switch keeps Material's own disabled colours with nothing over them —
+  /// at 38 % on top of those, an "on" read as off.
+  ///
+  /// While it runs, the disabled row is announced as what it is — an
+  /// enabled button saying its label and its subtitle, with
+  /// [onDisabledTapHint] — never as a disabled switch that acts on a tap.
+  final VoidCallback? onDisabledTap;
+
+  /// Where [onDisabledTap] goes ("Opens Sync & sharing"), the hint of the
+  /// disabled row's node.
+  final String? onDisabledTapHint;
+
   @override
   final double dividerIndent;
 
@@ -2002,40 +2108,110 @@ class FormSwitchRow extends FormDividedRow {
     required this.onChanged,
     this.identifier,
     this.dividerIndent = FormMetrics.dividerIndentGlyph,
+    this.subtitleTemplates,
+    this.subtitleFitsTemplates = false,
+    this.onDisabledTap,
+    this.onDisabledTapHint,
   });
+
+  /// The most lines any of [templates] wraps to at [width], as a [Text] in
+  /// [style] would draw it here — at least one.
+  static int _templateLines(
+    BuildContext context,
+    List<String> templates,
+    TextStyle style,
+    double width,
+  ) {
+    var effective = DefaultTextStyle.of(context).style.merge(style);
+    if (MediaQuery.boldTextOf(context)) {
+      effective = effective.merge(const TextStyle(fontWeight: FontWeight.bold));
+    }
+    var most = 1;
+    for (final template in templates) {
+      final painter = TextPainter(
+        text: TextSpan(text: template, style: effective),
+        textDirection: Directionality.of(context),
+        textScaler: MediaQuery.textScalerOf(context),
+        locale: Localizations.maybeLocaleOf(context),
+      )..layout(maxWidth: width);
+      most = math.max(most, painter.computeLineMetrics().length);
+      painter.dispose();
+    }
+    return most;
+  }
 
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     final enabled = onChanged != null;
-    final twoLine = subtitle != null;
+    final disabledTap = enabled ? null : onDisabledTap;
+    final templates = subtitleTemplates;
+    final twoLine = subtitle != null || templates != null;
+    // The opted-in shape dims part by part; today's rows dim as a whole.
+    final reasonStaysWhole = templates != null || onDisabledTap != null;
+    Widget dim(Widget child) => enabled || !reasonStaysWhole
+        ? child
+        : Opacity(opacity: FormMetrics.disabledOpacity, child: child);
+    final subtitleStyle = TextStyle(
+      fontSize: FormMetrics.captionSize,
+      height: FormMetrics.captionLineHeight / FormMetrics.captionSize,
+      color: colorScheme.onSurfaceVariant,
+    );
+    final Widget? subtitleLine = subtitle == null
+        ? null
+        : Text(subtitle!, style: subtitleStyle);
     final text = twoLine
         ? Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(
-                label,
-                style: TextStyle(
-                  fontSize: FormMetrics.labelSize,
-                  height: 20 / FormMetrics.labelSize,
-                  fontWeight: FontWeight.w500,
-                  color: colorScheme.onSurface,
+              dim(
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: FormMetrics.labelSize,
+                    height: 20 / FormMetrics.labelSize,
+                    fontWeight: FontWeight.w500,
+                    color: colorScheme.onSurface,
+                  ),
                 ),
               ),
               const SizedBox(height: RowMetrics.lineGap),
-              Text(
-                subtitle!,
-                style: TextStyle(
-                  fontSize: FormMetrics.captionSize,
-                  height:
-                      FormMetrics.captionLineHeight / FormMetrics.captionSize,
-                  color: colorScheme.onSurfaceVariant,
+              if (templates == null)
+                subtitleLine!
+              else if (subtitleFitsTemplates)
+                LayoutBuilder(
+                  builder: (context, constraints) => FormCaptionSlot(
+                    candidates: [
+                      for (final template in templates)
+                        Text(template, style: subtitleStyle),
+                    ],
+                    child: subtitle == null
+                        ? const SizedBox.shrink()
+                        : Text(
+                            subtitle!,
+                            style: subtitleStyle,
+                            maxLines: _templateLines(
+                              context,
+                              templates,
+                              subtitleStyle,
+                              constraints.maxWidth,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                  ),
+                )
+              else
+                FormCaptionSlot(
+                  candidates: [
+                    for (final template in templates)
+                      Text(template, style: subtitleStyle),
+                  ],
+                  child: subtitleLine ?? const SizedBox.shrink(),
                 ),
-              ),
             ],
           )
-        : FormLabelValue(label: label);
+        : dim(FormLabelValue(label: label));
     final row = ConstrainedBox(
       constraints: BoxConstraints(
         minHeight: twoLine
@@ -2052,7 +2228,7 @@ class FormSwitchRow extends FormDividedRow {
         child: Row(
           children: [
             if (glyph case final icon?) ...[
-              FormGlyph(icon: icon),
+              dim(FormGlyph(icon: icon)),
               const SizedBox(width: FormMetrics.gap),
             ],
             Expanded(child: text),
@@ -2066,13 +2242,23 @@ class FormSwitchRow extends FormDividedRow {
         ),
       ),
     );
-    final well = Opacity(
-      opacity: enabled ? 1 : FormMetrics.disabledOpacity,
+    Widget well = Opacity(
+      opacity: enabled || reasonStaysWhole ? 1 : FormMetrics.disabledOpacity,
       child: InkWell(
-        onTap: enabled ? () => onChanged!(!value) : null,
+        onTap: enabled ? () => onChanged!(!value) : onDisabledTap,
         child: row,
       ),
     );
+    if (disabledTap != null) {
+      well = Semantics(
+        button: true,
+        enabled: true,
+        label: subtitle == null ? label : '$label\n$subtitle',
+        hint: onDisabledTapHint,
+        onTap: disabledTap,
+        child: ExcludeSemantics(child: well),
+      );
+    }
     return MergeSemantics(
       child: identifier == null
           ? well

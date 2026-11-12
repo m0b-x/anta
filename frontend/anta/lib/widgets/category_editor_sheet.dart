@@ -25,13 +25,16 @@ import '../models/category_alert.dart';
 import '../models/category_profile.dart';
 import '../models/recurrence_rule.dart';
 import '../services/alert_scheduler.dart';
+import '../services/app_navigator.dart';
 import '../services/category_profile_service.dart';
 import '../services/category_service.dart';
 import '../services/event_alert_service.dart';
 import '../services/event_time_formatter.dart';
 import '../services/folder_search_service.dart' show normalizeForSearch;
+import '../services/share_service.dart';
 import '../utils/category_profile_labels.dart';
 import '../utils/mark_verb_labels.dart' show markVerbLabel;
+import '../utils/share_copy.dart';
 import 'alert_editor_sheet.dart';
 import 'app_dialogs.dart';
 import 'automation_id.dart';
@@ -64,6 +67,24 @@ final class _Choice<T> {
   int get hashCode => value.hashCode;
 }
 
+/// What the category editor answers through [CategoryEditorSheet.open]: the
+/// category it stored, and the share its draft asks for.
+///
+/// The share is written by the opener after the pop, never by the sheet
+/// (`docs/cloud-share-surfaces-roadmap.md` §6.1): it needs the category's id,
+/// which a new one has only once stored, and its Undo belongs to the page
+/// the sheet returns to.
+@immutable
+class CategoryEditorResult {
+  final CalendarCategory category;
+
+  /// Whether the category is to be shared, or null when the draft leaves
+  /// the share as it was stored.
+  final bool? share;
+
+  const CategoryEditorResult(this.category, {this.share});
+}
+
 /// The form for creating or editing a [CalendarCategory]: a sub-sheet of the
 /// UI language (Tier 3, D12) in the quick alarm's shape — ✕ · title · Save
 /// over one group of the name, an Icon row and the colour strip, then the
@@ -79,7 +100,9 @@ final class _Choice<T> {
 /// before the pop because the callers rely on it: the categories page
 /// refreshes from the service, the picker ticks the returned id. A built-in
 /// keeps its stored name — its localized label is a read row — while its
-/// colour, icon and alerts stay editable.
+/// colour, icon and alerts stay editable. The share switch is the one part
+/// of the draft the sheet does not write: [open] hands it back for the
+/// opener to write once the category is stored.
 ///
 /// Guarded (K11 of the categories record): a typed name and drafted alerts
 /// are more than a tap to redo, so ✕, back, the system back gesture and the
@@ -103,20 +126,66 @@ class CategoryEditorSheet extends StatefulWidget {
   /// carries the category alone.
   final bool sandbox;
 
+  /// Whether this phone can share the category, handed over by the opener
+  /// as the event editor is handed its day load: not paired leaves the
+  /// SHARING section out, so the sheet is the one it was before sharing.
+  final ShareAvailability share;
+
+  /// The category's own live events, for the share switch's "All 42 events,
+  /// and new ones" — the opener's `countByCategory`, never a read here.
+  final int shareEventCount;
+
+  /// Opens Sync & sharing from the share switch while the database does not
+  /// sync. A seam for tests; the app's page otherwise.
+  final Future<void> Function(BuildContext context) openSyncSettings;
+
+  /// Asks the opener for [share] again once Sync & sharing returns: sync
+  /// turned on there enables the switch the person went there for. Null
+  /// keeps the first answer.
+  final Future<ShareAvailability> Function()? rereadShare;
+
   const CategoryEditorSheet({
     super.key,
     this.initial,
     this.initialName,
     this.sandbox = false,
+    this.share = const ShareNotPaired(),
+    this.shareEventCount = 0,
+    this.openSyncSettings = AppNavigator.toSyncSettings,
+    this.rereadShare,
   });
 
+  /// The editor for a caller that does not share: it answers the stored
+  /// category alone.
   static Future<CalendarCategory?> show(
     BuildContext context, {
     CalendarCategory? initial,
     String? initialName,
     bool sandbox = false,
+  }) async {
+    final result = await open(
+      context,
+      initial: initial,
+      initialName: initialName,
+      sandbox: sandbox,
+    );
+    return result?.category;
+  }
+
+  /// The editor with its share switch while [share] says the phone is
+  /// paired; the answer carries the share for the caller to write.
+  static Future<CategoryEditorResult?> open(
+    BuildContext context, {
+    CalendarCategory? initial,
+    String? initialName,
+    bool sandbox = false,
+    ShareAvailability share = const ShareNotPaired(),
+    int shareEventCount = 0,
+    Future<void> Function(BuildContext context) openSyncSettings =
+        AppNavigator.toSyncSettings,
+    Future<ShareAvailability> Function()? rereadShare,
   }) {
-    return showModalBottomSheet<CalendarCategory>(
+    return showModalBottomSheet<CategoryEditorResult>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
@@ -140,6 +209,10 @@ class CategoryEditorSheet extends StatefulWidget {
             initial: initial,
             initialName: initialName,
             sandbox: sandbox,
+            share: share,
+            shareEventCount: shareEventCount,
+            openSyncSettings: openSyncSettings,
+            rereadShare: rereadShare,
           ),
         ),
       ),
@@ -217,6 +290,17 @@ class _CategoryEditorSheetState extends State<CategoryEditorSheet> {
   late final String _openedIconKey;
   late final List<CategoryAlert> _openedAlerts;
 
+  /// The share switch as the draft holds it, and as the sheet opened. Off
+  /// unless the phone can share now: the switch reads off while the
+  /// database does not sync (decision pb of the share surfaces), and a draft
+  /// that cannot change is never dirty.
+  late bool _shared;
+  late bool _openedShared;
+
+  /// [CategoryEditorSheet.share], then the opener's answer again after each
+  /// trip to Sync & sharing from the share switch.
+  late ShareAvailability _share = widget.share;
+
   /// Held while the discard question is up, so a second back or barrier tap
   /// cannot stack a second dialog.
   bool _leaving = false;
@@ -262,7 +346,12 @@ class _CategoryEditorSheetState extends State<CategoryEditorSheet> {
     _openedColor = _colorValue;
     _openedIconKey = _iconKey;
     _openedAlerts = _alerts;
+    _openedShared = _sharedAsOpened();
+    _shared = _openedShared;
   }
+
+  bool _sharedAsOpened() =>
+      _share is ShareReady && (widget.initial?.sharedByMe ?? false);
 
   /// A category with no events is not repeat-only: its next event may be
   /// anything. Nothing in scope reads as nothing known. A partner's events in
@@ -362,7 +451,8 @@ class _CategoryEditorSheetState extends State<CategoryEditorSheet> {
       _colorValue != _openedColor ||
       _iconKey != _openedIconKey ||
       !listEquals(_alerts, _openedAlerts) ||
-      !_sameProfile(_profile, _openedProfile);
+      !_sameProfile(_profile, _openedProfile) ||
+      _shared != _openedShared;
 
   /// What a profile says, its identity and stamps left out; a Custom
   /// profile with nothing overridden says what no profile does, so picking
@@ -402,7 +492,7 @@ class _CategoryEditorSheetState extends State<CategoryEditorSheet> {
       final dirty = written == null ? _isDirty : _differsFrom(written);
       final leave = !dirty || await AppDialogs.confirmDiscard(context);
       if (!leave || !mounted) return;
-      Navigator.of(context).pop(written);
+      Navigator.of(context).pop(_answerOf(written));
     } finally {
       _leaving = false;
     }
@@ -410,13 +500,21 @@ class _CategoryEditorSheetState extends State<CategoryEditorSheet> {
 
   /// Whether the draft differs from what the partial save at [written]
   /// stored: the row against the row, the alerts and the profile against
-  /// what the facades hold for it, which a failed write left as it was.
+  /// what the facades hold for it, which a failed write left as it was. The
+  /// share is the opener's to write after a Save that completes, so a
+  /// partial save never stored it.
   bool _differsFrom(CalendarCategory written) =>
       (!_isBuiltIn && _nameController.text.trim() != written.name) ||
       _colorValue != written.colorValue ||
       _iconKey != written.iconKey ||
       !listEquals(_alerts, EventAlerts.categoryAlertsFor(written.id)) ||
-      !_sameProfile(_profile, CategoryProfiles.profileFor(written.id));
+      !_sameProfile(_profile, CategoryProfiles.profileFor(written.id)) ||
+      _shared != _openedShared;
+
+  /// What leaving without a completed Save answers: the row a partial save
+  /// wrote, if any, and never a share.
+  static CategoryEditorResult? _answerOf(CalendarCategory? written) =>
+      written == null ? null : CategoryEditorResult(written);
 
   Future<void> _pickIcon() async {
     if (_saving) return;
@@ -740,7 +838,7 @@ class _CategoryEditorSheetState extends State<CategoryEditorSheet> {
   Future<void> _onSave() async {
     if (!_canSave) return;
     if (widget.sandbox) {
-      Navigator.of(context).pop(_wouldBeSaved());
+      Navigator.of(context).pop(CategoryEditorResult(_wouldBeSaved()));
       return;
     }
     setState(() => _saving = true);
@@ -799,7 +897,12 @@ class _CategoryEditorSheetState extends State<CategoryEditorSheet> {
         }
       }
       if (!mounted) return;
-      Navigator.of(context).pop(saved);
+      Navigator.of(context).pop(
+        CategoryEditorResult(
+          saved,
+          share: _shared == _openedShared ? null : _shared,
+        ),
+      );
     } catch (e) {
       debugPrint('[CategoryEditorSheet] Save failed: $e');
       if (!mounted) return;
@@ -890,7 +993,7 @@ class _CategoryEditorSheetState extends State<CategoryEditorSheet> {
       mainAxisSize: MainAxisSize.min,
       onLeave: _leave,
       isClean: () => !_saving && !_isDirty && _written == null,
-      onDismiss: () => Navigator.of(context).pop(_written),
+      onDismiss: () => Navigator.of(context).pop(_answerOf(_written)),
       chrome: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -938,6 +1041,10 @@ class _CategoryEditorSheetState extends State<CategoryEditorSheet> {
                         _buildColorRow(),
                       ],
                     ),
+                    if (_buildShareRow(l10n) case final shareRow?) ...[
+                      FormSectionLabel(text: l10n.shareSectionLabel),
+                      FormRowGroup(children: [shareRow]),
+                    ],
                     FormSectionLabel(text: l10n.eventAlerts),
                     FormRowGroup(
                       trailingGap: false,
@@ -980,6 +1087,62 @@ class _CategoryEditorSheetState extends State<CategoryEditorSheet> {
   /// The live preview of the draft: its icon in its colour, where the event
   /// editor's title row previews the event.
   Widget _buildAvatar() => EventAvatar(icon: _icon, color: Color(_colorValue));
+
+  /// The SHARING section's one switch, or null while the phone is not
+  /// paired (D7). Its subtitle slot is sized for every state's words, so
+  /// the row keeps one height whether it is off, on or waiting for sync.
+  /// While the database does not sync the switch is off and dimmed with the
+  /// reason whole, and a tap opens Sync & sharing over the sheet (D8).
+  Widget? _buildShareRow(AppLocalizations l10n) {
+    final share = _share;
+    final audience = share.audience;
+    if (audience == null) return null;
+    final ready = share is ShareReady;
+    final count = widget.shareEventCount;
+    final on = count == 0
+        ? l10n.shareCategoryNewOnly
+        : l10n.shareCategoryOn(count);
+    return FormSwitchRow(
+      glyph: Icons.group_rounded,
+      label: l10n.shareWithPartner(
+        ShareCopy.partnerName(l10n, audience.displayName),
+      ),
+      subtitle: !ready
+          ? l10n.shareNeedsSync
+          : _shared
+          ? on
+          : l10n.shareCategoryOff,
+      subtitleTemplates: [
+        l10n.shareCategoryOff,
+        on,
+        l10n.shareCategoryNewOnly,
+        l10n.shareNeedsSync,
+      ],
+      value: _shared,
+      onChanged: ready ? (value) => setState(() => _shared = value) : null,
+      onDisabledTap: ready ? null : _openSyncSettings,
+      onDisabledTapHint: l10n.shareOpensSyncHint,
+      identifier: SemanticsIds.categoryEditorShare,
+    );
+  }
+
+  /// Pushes Sync & sharing over the sheet, and on its return takes the
+  /// opener's answer again. The switch could not move while it was dimmed,
+  /// so the draft is re-seeded from the category as a share it can now
+  /// show, and stays clean.
+  Future<void> _openSyncSettings() async {
+    _blur();
+    await widget.openSyncSettings(context);
+    final reread = widget.rereadShare;
+    if (reread == null || !mounted) return;
+    final next = await reread();
+    if (!mounted || next == _share) return;
+    setState(() {
+      _share = next;
+      _openedShared = _sharedAsOpened();
+      _shared = _openedShared;
+    });
+  }
 
   /// A custom category's name as the title field; a built-in's localized
   /// label as a read row (D14), since its stored name is never the field's

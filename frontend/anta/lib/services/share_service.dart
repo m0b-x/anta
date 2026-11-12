@@ -4,13 +4,20 @@ import 'package:equatable/equatable.dart';
 import 'package:flutter/foundation.dart' show debugPrint, visibleForTesting;
 import 'package:stream_transform/stream_transform.dart';
 
+import '../constants/calendar_categories.dart';
+import '../database/crdt/synced_tables.dart';
+import '../database/daos/sync_dao.dart';
 import '../database/database.dart';
 import '../database/database_lifecycle.dart';
 import '../models/app_user.dart';
+import '../models/calendar_category.dart';
+import '../models/calendar_event.dart';
+import '../models/share_overview.dart';
 import '../models/share_settings.dart';
 import '../models/sync_binding.dart';
 import 'alert_scheduler.dart';
 import 'calendar_event_service.dart';
+import 'category_service.dart';
 import 'pairing_service.dart';
 import 'settings_service.dart';
 import 'sync/sync_status.dart';
@@ -102,6 +109,15 @@ abstract interface class ShareSyncSource {
   /// Fires whenever [syncing] may have changed: a sign-in or out, a bind or
   /// an unbind.
   Stream<void> get changes;
+
+  /// Whether the engine's last call found no network — a share then waits
+  /// to send. Local: the engine's own record, never a probe.
+  Future<bool> offline();
+
+  /// Fires as each sync run of the open database ends — after its drain
+  /// has sent a share, or its read has brought the partner's rows — so an
+  /// open Sharing page reads its overview again.
+  Stream<void> get runsEnded;
 }
 
 /// [ShareSyncSource] over the stored binding and the identity: bound to the
@@ -115,16 +131,41 @@ class BindingShareSyncSource implements ShareSyncSource {
   /// A fresh stream per listen: each database's service follows the engine
   /// of its own database.
   final Stream<Object?> Function() _bindingChanges;
+  final Future<bool> Function() _offline;
+
+  /// The engine's activity as it publishes it, a fresh stream per listen
+  /// like [_bindingChanges].
+  final Stream<SyncActivity> Function() _activity;
 
   BindingShareSyncSource({
     required AppUser? Function() currentUser,
     required Stream<AppUser?> authChanges,
     required Future<SyncBinding?> Function() binding,
     required Stream<Object?> Function() bindingChanges,
+    required Future<bool> Function() offline,
+    required Stream<SyncActivity> Function() activity,
   }) : _currentUser = currentUser,
        _authChanges = authChanges,
        _binding = binding,
-       _bindingChanges = bindingChanges;
+       _bindingChanges = bindingChanges,
+       _offline = offline,
+       _activity = activity;
+
+  @override
+  Future<bool> offline() => _offline();
+
+  /// A run ends where the activity goes back to idle: the engine publishes
+  /// idle at the end of every run, and an idle status emitted between runs
+  /// — an outbox count, a pause — ends none.
+  @override
+  Stream<void> get runsEnded {
+    var running = false;
+    return _activity().where((activity) {
+      final ended = running && activity == SyncActivity.idle;
+      running = activity != SyncActivity.idle;
+      return ended;
+    });
+  }
 
   @override
   Future<bool> syncing() async {
@@ -150,15 +191,26 @@ class ShareServiceWiring {
   /// `FolderStorageService.setFolderShared`, which lives in GetIt.
   final Future<bool> Function(String folderId, String? pairId) markFolder;
 
+  /// `FolderStorageService.invalidateCache`: a mark set on a category or an
+  /// event clears another pair's on folders, behind the folder cache.
+  final void Function() foldersChanged;
+
   /// Asks the engine for the run that sends a share now; nothing where
   /// sync does not run.
   final Future<void> Function() requestRun;
+
+  /// Asks the engine for the read of what the partner shares alone — no
+  /// pull, no push; nothing where sync does not run. Completes when that
+  /// run has ended, which is when the Sharing page reads again.
+  final Future<void> Function() requestSharedRead;
 
   const ShareServiceWiring({
     required this.pairing,
     required this.sync,
     required this.markFolder,
+    required this.foldersChanged,
     required this.requestRun,
+    required this.requestSharedRead,
   });
 }
 
@@ -176,13 +228,21 @@ class ShareService {
   static Future<ShareService>? _opening;
   static ShareServiceWiring? _wiring;
 
+  /// How old the last completed shared read must be before the Sharing
+  /// page's open asks for another: each read costs a dozen server reads,
+  /// and a page opened, left and opened again learns nothing new sooner.
+  static const Duration sharedReadMinAge = Duration(minutes: 1);
+
   final PairingService _pairing;
   final ShareSyncSource _sync;
   final AppDatabase _db;
   final SettingsService _settings;
   final Future<bool> Function(String eventId, String? pairId) _markEvent;
+  final Future<bool> Function(String categoryId, String? pairId) _markCategory;
   final Future<bool> Function(String folderId, String? pairId) _markFolder;
+  final void Function() _foldersChanged;
   final Future<void> Function() _requestRun;
+  final Future<void> Function() _requestSharedRead;
   final Future<void> Function() _reconcileAlerts;
 
   final StreamController<ShareAvailability> _controller =
@@ -202,17 +262,33 @@ class ShareService {
     required AppDatabase db,
     required SettingsService settings,
     required Future<bool> Function(String eventId, String? pairId) markEvent,
+    required Future<bool> Function(String categoryId, String? pairId)
+    markCategory,
     required Future<bool> Function(String folderId, String? pairId) markFolder,
+    required void Function() foldersChanged,
     required Future<void> Function() requestRun,
+    required Future<void> Function() requestSharedRead,
     required Future<void> Function() reconcileAlerts,
   }) : _pairing = pairing,
        _sync = sync,
        _db = db,
        _settings = settings,
        _markEvent = markEvent,
+       _markCategory = markCategory,
        _markFolder = markFolder,
+       _foldersChanged = foldersChanged,
        _requestRun = requestRun,
+       _requestSharedRead = requestSharedRead,
        _reconcileAlerts = reconcileAlerts;
+
+  /// The category writer in the app: the DAO's, so the marks of one act
+  /// share its transaction ([_act]). The catalogue's own chain could not
+  /// hold that transaction — a link queued ahead of it waiting on the
+  /// database would wait on the transaction itself — so the catalogue reads
+  /// the marks again on its chain once the act has ended ([_afterMarks]).
+  static Future<bool> Function(String, String?) _markCategoryIn(
+    AppDatabase db,
+  ) => db.calendarCategoryDao.setSharedPair;
 
   /// Hands the service what it is built over; `configureDependencies` calls
   /// it once, `resetDependencies` with null.
@@ -252,10 +328,14 @@ class ShareService {
         sync: wiring.sync,
         db: db,
         settings: settings,
-        markEvent: (id, pairId) async =>
-            (await CalendarEventService.getInstance()).setShared(id, pairId),
+        // The DAO's, as the category's ([_markCategoryIn]); the cached
+        // events read the marks again after the act.
+        markEvent: db.calendarEventDao.setSharedPair,
+        markCategory: _markCategoryIn(db),
         markFolder: wiring.markFolder,
+        foldersChanged: wiring.foldersChanged,
         requestRun: wiring.requestRun,
+        requestSharedRead: wiring.requestSharedRead,
         reconcileAlerts: () => AlertScheduler.reconcileAllQuietly(
           AlertReconcileReason.eventChanged,
         ),
@@ -281,7 +361,10 @@ class ShareService {
   }
 
   /// A service over [db] and the given sources, registered as the singleton
-  /// so the code under test reaches it through [getInstance].
+  /// so the code under test reaches it through [getInstance]. The catalogue
+  /// and the events are the services' own (`CategoryService.forTesting`,
+  /// `CalendarEventService.forTesting` over the same [db]); [markCategory]
+  /// defaults to the app's writer.
   @visibleForTesting
   static Future<ShareService> forTesting({
     required AppDatabase db,
@@ -290,7 +373,10 @@ class ShareService {
     required ShareSyncSource sync,
     required Future<bool> Function(String eventId, String? pairId) markEvent,
     required Future<bool> Function(String folderId, String? pairId) markFolder,
+    Future<bool> Function(String categoryId, String? pairId)? markCategory,
+    void Function()? foldersChanged,
     Future<void> Function()? requestRun,
+    Future<void> Function()? requestSharedRead,
     Future<void> Function()? reconcileAlerts,
   }) async {
     final existing = _instance;
@@ -301,8 +387,11 @@ class ShareService {
       db: db,
       settings: settings,
       markEvent: markEvent,
+      markCategory: markCategory ?? _markCategoryIn(db),
       markFolder: markFolder,
+      foldersChanged: foldersChanged ?? () {},
       requestRun: requestRun ?? () async {},
+      requestSharedRead: requestSharedRead ?? () async {},
       reconcileAlerts: reconcileAlerts ?? () async {},
     );
     await service._start();
@@ -411,31 +500,284 @@ class ShareService {
     return next;
   }
 
-  /// Shares the event [id] with the audience, or stops sharing it.
-  /// Returns whether its mark changed.
+  /// Shares the event [id] singly with the audience, or takes its own mark
+  /// away — it stays shared through its category when that one is. Returns
+  /// what changed: [ShareChange.none] when its mark already said so.
   ///
   /// Throws [ShareRefused] unless this database is [ShareReady] now —
   /// evaluated afresh, since the pairing's own writes publish no change.
-  Future<bool> setEventShared(String id, bool on) =>
-      _setShared(id, on, _markEvent);
+  Future<ShareChange> setEventShared(String id, bool on) async =>
+      _act(await _readyPair(), events: {id: on});
 
-  /// [setEventShared] for the folder [id] and everything under it.
-  Future<bool> setFolderShared(String id, bool on) =>
-      _setShared(id, on, _markFolder);
+  /// Shares the category [id] — every event of this person's in it, new
+  /// ones too — or stops sharing it; [setEventShared]'s terms. Un-sharing
+  /// says how many of its events stay shared on their own (case C10).
+  Future<ShareChange> setCategoryShared(String id, bool on) async =>
+      _act(await _readyPair(), categories: {id: on});
 
-  Future<bool> _setShared(
-    String id,
-    bool on,
-    Future<bool> Function(String id, String? pairId) mark,
-  ) async {
+  /// The tick sheet's Done (§6.3): exactly [ids] of this person's
+  /// categories shared afterwards, an empty set included. Diffed against
+  /// the marks, one write per category that changes; one change returned
+  /// for the one snackbar.
+  Future<ShareChange> setCategoriesShared(Set<String> ids) async {
+    final pairId = await _readyPair();
+    await CategoryService.getInstance();
+    return _act(
+      pairId,
+      categories: {
+        for (final category in CalendarCategories.all)
+          if (!category.fromPartner &&
+              category.sharedByMe != ids.contains(category.id))
+            category.id: ids.contains(category.id),
+      },
+    );
+  }
+
+  /// Writes back every mark [change] wrote — its snackbar's Undo — and
+  /// returns that change in turn. The events a category's un-share left
+  /// shared on their own were never written, and stay as they are.
+  Future<ShareChange> undo(ShareChange change) async => _act(
+    await _readyPair(),
+    categories: {
+      for (final category in change.sharedCategories) category.id: false,
+      for (final category in change.unsharedCategories) category.id: true,
+    },
+    events: {
+      for (final event in change.sharedEvents) event.id: false,
+      for (final event in change.unsharedEvents) event.id: true,
+    },
+  );
+
+  /// [setEventShared] for the folder [id] and everything under it. Returns
+  /// whether its mark changed.
+  Future<bool> setFolderShared(String id, bool on) async {
+    final pairId = await _readyPair();
+    var changed = false;
+    try {
+      changed = await _markFolder(id, on ? pairId : null);
+      if (changed) await _markSending();
+    } finally {
+      await _afterMarks(wrote: changed);
+    }
+    return changed;
+  }
+
+  /// "Stop sharing everything" (§6.2): every mark of this database cleared
+  /// — categories, events and folders, tombstones too — under one stamp and
+  /// queued like any edit, as one act (`FolderDao.clearSharesExcept`), then
+  /// the run that sends it. What the partner shares stays. Asks nothing of
+  /// the pairing, so it also ends what an old pair left behind; a database
+  /// without a mark pays one statement. Returns how many marks it cleared.
+  Future<int> stopAll() async {
+    if (!await _db.syncDao.anyShareMark()) return 0;
+    final cleared = await _db.transaction(() async {
+      final cleared = await _db.folderDao.clearSharesExcept(null);
+      if (cleared > 0) await _markSending();
+      return cleared;
+    });
+    if (cleared > 0) await _afterMarks(wrote: true);
+    return cleared;
+  }
+
+  /// What the Sharing page lists and says, read now (§6.1, §6.2): local
+  /// reads only. [ShareOverview.empty] at once, reading nothing, while not
+  /// paired — an account that never paired pays nothing for the page's
+  /// summary.
+  Future<ShareOverview> overview() async {
+    if (_pairing.status.pairId == null) return ShareOverview.empty;
+    await CategoryService.getInstance();
+    final events = (await CalendarEventService.getInstance()).events;
+    final hidden = await _settings.getShareHiddenCategories();
+    final builtIns = await _db.sharedRowDao.sharedBuiltIns();
+    final theirs = CalendarCategories.partner;
+    final counts = theirs.isEmpty && builtIns.isEmpty
+        ? const <String, int>{}
+        : await _db.calendarEventDao.countPartnerByCategory();
+    PartnerSharedCategory partnerOf(CalendarCategory category) =>
+        PartnerSharedCategory(
+          category: category,
+          joinsMine: !category.fromPartner,
+          shown: !hidden.contains(category.id),
+          eventCount: counts[category.id] ?? 0,
+        );
+    final partnerCategories = [
+      for (final category in theirs) partnerOf(category),
+      for (final category in CalendarCategories.all)
+        if (!category.fromPartner && builtIns.contains(category.id))
+          partnerOf(category),
+    ];
+    final partnerIds = {
+      for (final shared in partnerCategories) shared.category.id,
+    };
+    final sync = _db.syncDao;
+    final okMs = int.tryParse(
+      await sync.getValue(SyncDao.keySharedReadOkAt) ?? '',
+    );
+    // Only a failure recorded as one says "Could not check": a read a leave
+    // cut records nothing, and an install from before the stamp has none.
+    final failedMs = int.tryParse(
+      await sync.getValue(SyncDao.keySharedReadFailedAt) ?? '',
+    );
+    return ShareOverview(
+      categories: [
+        for (final category in CalendarCategories.all)
+          if (category.sharedByMe && !category.fromPartner) category,
+      ],
+      events: [
+        for (final event in events)
+          if (event.markedShared && !event.fromPartner)
+            MySharedEvent(
+              event: event,
+              categoryShared:
+                  CalendarCategories.byId(event.categoryId)?.sharedByMe ??
+                  false,
+            ),
+      ],
+      partnerCategories: partnerCategories,
+      partnerEvents: [
+        for (final event in events)
+          if (event.fromPartner && !partnerIds.contains(event.categoryId))
+            event,
+      ],
+      readAt: okMs == null ? null : DateTime.fromMillisecondsSinceEpoch(okMs),
+      readFailed: failedMs != null && (okMs == null || failedMs > okMs),
+      sending: await _shareSending(),
+      offline: await _sync.offline(),
+      partnerNewerWire: await sync.getValue(SyncDao.keySharedNewerWire) != null,
+      refusedCount: await _db.sharedRowDao.refusedCount(),
+      anyMark: await sync.anyShareMark(),
+      eventCounts: await _db.calendarEventDao.countByCategory(),
+    );
+  }
+
+  /// Asks for the run that reads what the partner shares now — the Sharing
+  /// page's open (D22): that read alone, never a pull or a push — and
+  /// completes when it has ended, so the page reads its overview again
+  /// then. Nothing while this database is not [ShareReady], nor within
+  /// [sharedReadMinAge] of the last read that completed; a failed one does
+  /// not count, so "Could not check" is tried again at the next open.
+  Future<void> refreshShared() async {
+    if (await _reevaluate() is! ShareReady) return;
+    final okMs = int.tryParse(
+      await _db.syncDao.getValue(SyncDao.keySharedReadOkAt) ?? '',
+    );
+    if (okMs != null) {
+      final age = DateTime.now().millisecondsSinceEpoch - okMs;
+      // A clock set back since says nothing about the read's age.
+      if (age >= 0 && age < sharedReadMinAge.inMilliseconds) return;
+    }
+    try {
+      await _requestSharedRead();
+    } catch (e, st) {
+      // The engine shows its own failure; the page reads what there is.
+      debugPrint('[ShareService] shared read not run: $e\n$st');
+    }
+  }
+
+  /// Every end of a sync run of this database ([ShareSyncSource.runsEnded]).
+  Stream<void> get runsEnded => _sync.runsEnded;
+
+  /// The pair to write a mark under, read afresh: [ShareRefused] unless
+  /// this database is [ShareReady].
+  Future<String> _readyPair() async {
     final availability = await _reevaluate();
     final pairId = _pairing.status.pairId;
     if (availability is! ShareReady || pairId == null) {
       throw ShareRefused(availability);
     }
-    final changed = await mark(id, on ? pairId : null);
-    if (changed) _askForRun();
-    return changed;
+    return pairId;
+  }
+
+  /// Writes each mark of [categories] and [events] (id → shared) under
+  /// [pairId], one write each, and says which were written, by the models
+  /// as they stood before. An id the catalogue or the cache does not hold
+  /// is still handed to its writer, which refuses what is gone or a
+  /// partner's, and is left unnamed.
+  ///
+  /// One transaction: a write that throws takes the act's earlier ones with
+  /// it, so a failure said is a failure true — nothing shared, nothing to
+  /// undo. Whatever the end, the caches read their marks again.
+  Future<ShareChange> _act(
+    String pairId, {
+    Map<String, bool> categories = const {},
+    Map<String, bool> events = const {},
+  }) async {
+    if (categories.isNotEmpty) await CategoryService.getInstance();
+    final cached = events.isEmpty
+        ? const <String, CalendarEvent>{}
+        : {
+            for (final event
+                in (await CalendarEventService.getInstance()).events)
+              event.id: event,
+          };
+    final sharedCategories = <CalendarCategory>[];
+    final unsharedCategories = <CalendarCategory>[];
+    final sharedEvents = <CalendarEvent>[];
+    final unsharedEvents = <CalendarEvent>[];
+    var wrote = false;
+    var stored = false;
+    try {
+      await _db.transaction(() async {
+        for (final MapEntry(key: id, value: on) in categories.entries) {
+          final category = CalendarCategories.byId(id);
+          if (!await _markCategory(id, on ? pairId : null)) continue;
+          wrote = true;
+          if (category == null || category.fromPartner) continue;
+          (on ? sharedCategories : unsharedCategories).add(category);
+        }
+        for (final MapEntry(key: id, value: on) in events.entries) {
+          if (!await _markEvent(id, on ? pairId : null)) continue;
+          wrote = true;
+          final event = cached[id];
+          if (event == null) continue;
+          (on ? sharedEvents : unsharedEvents).add(event);
+        }
+        if (wrote) await _markSending();
+      });
+      stored = wrote;
+    } finally {
+      await _afterMarks(wrote: stored);
+    }
+    var kept = 0;
+    if (unsharedCategories.isNotEmpty) {
+      final left = {for (final category in unsharedCategories) category.id};
+      kept = (await CalendarEventService.getInstance()).events
+          .where(
+            (event) =>
+                event.markedShared &&
+                !event.fromPartner &&
+                left.contains(event.categoryId),
+          )
+          .length;
+    }
+    return ShareChange(
+      sharedCategories: sharedCategories,
+      unsharedCategories: unsharedCategories,
+      sharedEvents: sharedEvents,
+      unsharedEvents: unsharedEvents,
+      keptOnTheirOwn: kept,
+    );
+  }
+
+  /// After a share act, whatever its end: the writers are the DAOs', which
+  /// hold no cache, and a mark set clears every other pair's on all three
+  /// tables even when the mark itself stood — so each cache reads its marks
+  /// again, once, which also mends a flag a cache held stale. A stored
+  /// write asks for the run that sends it and tells a calendar already
+  /// showing the events, whose marks changed in its cache.
+  Future<void> _afterMarks({required bool wrote}) async {
+    try {
+      await CategoryService.refreshShareMarks();
+      await CalendarEventService.refreshShareMarks();
+      _foldersChanged();
+    } catch (e, st) {
+      // The marks are written; a cache that missed them reads them at its
+      // next load.
+      debugPrint('[ShareService] caches not refreshed: $e\n$st');
+    }
+    if (!wrote) return;
+    if (_availability is ShareReady) _askForRun();
+    CalendarEventService.notifyExternalChange(cacheCurrent: true);
   }
 
   /// Not awaited: the run reaches the network, and the switch that asked
@@ -446,6 +788,28 @@ class ShareService {
         debugPrint('[ShareService] run not requested: $e\n$st');
       }),
     );
+  }
+
+  /// "Sending…" from here until the outbox holds no entry of the shareable
+  /// tables ([_shareSending]); inside the act's own transaction wherever it
+  /// has one.
+  Future<void> _markSending() =>
+      _db.syncDao.setValue(SyncDao.keyShareSending, '1');
+
+  /// Whether a share act still waits to be sent: the marker stands and the
+  /// outbox holds an entry of the shareable tables. With no marker — every
+  /// read but the ones after an act — this is one keyed read. The marker is
+  /// cleared in the transaction that finds the outbox drained, so an act
+  /// that commits beside this read keeps its own; the outbox is asked
+  /// through its own DAO, the only door to its table.
+  Future<bool> _shareSending() async {
+    final sync = _db.syncDao;
+    if (await sync.getValue(SyncDao.keyShareSending) == null) return false;
+    return _db.transaction(() async {
+      if (await _db.syncOutboxDao.holdsAnyOf(sharedTables)) return true;
+      await sync.deleteValue(SyncDao.keyShareSending);
+      return false;
+    });
   }
 
   /// Whether the row of [table] under [id] is one the partner shares.

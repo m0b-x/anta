@@ -29,6 +29,12 @@ class _GatedSyncSource implements ShareSyncSource {
   }
 
   @override
+  Future<bool> offline() async => false;
+
+  @override
+  Stream<void> get runsEnded => const Stream<void>.empty();
+
+  @override
   Stream<void> get changes => Stream<void>.multi((controller) {
     listening++;
     final subscription = _changes.stream.listen(controller.add);
@@ -80,7 +86,9 @@ void main() {
         ),
         sync: sync,
         markFolder: (_, _) async => false,
+        foldersChanged: () {},
         requestRun: () async {},
+        requestSharedRead: () async {},
       ),
     );
   });

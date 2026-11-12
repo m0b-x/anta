@@ -12,6 +12,7 @@ import 'package:anta/services/calendar_event_service.dart';
 import 'package:anta/services/category_service.dart';
 import 'package:anta/services/event_occurrence_service.dart';
 import 'package:anta/services/event_skip_service.dart';
+import 'package:anta/services/sync/sync_cadence.dart';
 import 'package:anta/services/sync/sync_engine.dart';
 import 'package:anta/services/sync/sync_gateway.dart';
 import 'package:anta/services/sync/sync_status.dart';
@@ -113,6 +114,21 @@ void main() {
     expect(sharedCalls(), isEmpty);
   });
 
+  test('the Sharing page\'s read on an account that never paired asks '
+      'nothing at all', () async {
+    pair.partners.local.clear();
+    pair.partners.pairs.clear();
+    await partner().sync();
+    pair.gateway.calls.clear();
+    pair.gateway.readSpaceCalls = 0;
+
+    await partner().engine.readSharedNow();
+
+    expect(pair.partners.asked, isEmpty);
+    expect(pair.gateway.calls, isEmpty);
+    expect(pair.gateway.readSpaceCalls, 0);
+  });
+
   group('a shared event', () {
     setUp(() async {
       await event(owner(), 'e1');
@@ -171,6 +187,97 @@ void main() {
         isEmpty,
       );
       expect(await pair.partner.db.sharedRowDao.owner(), ownerUid);
+    });
+
+    test('a read that reaches the end of every table dates the Sharing '
+        'page\'s "Updated": the stamp it finished at, both ways', () async {
+      await pair.syncBoth();
+
+      final dao = partner().db.syncDao;
+      final finished = await dao.getValue(SyncDao.keySharedReadAt);
+      expect(finished, isNotNull);
+      expect(await dao.getValue(SyncDao.keySharedReadOkAt), finished);
+    });
+
+    group('a read that fails is recorded as one (review C-5, C-9)', () {
+      late DateTime clock;
+      SyncDao dao() => partner().db.syncDao;
+      Future<int?> stamp(String key) async =>
+          int.tryParse(await dao().getValue(key) ?? '');
+
+      setUp(() async {
+        clock = DateTime.now();
+        partner().now = () => clock;
+        await pair.syncBoth();
+        clock = clock.add(const Duration(minutes: 1));
+      });
+
+      test('the server cannot be asked: the failure is stamped, and the '
+          '"Updated" stays where it was', () async {
+        final ok = await stamp(SyncDao.keySharedReadOkAt);
+        expect(await stamp(SyncDao.keySharedReadFailedAt), isNull);
+        pair.partners.failure = const SyncGatewayException(
+          SyncGatewayFailure.unknown,
+        );
+
+        await partner().sync();
+
+        expect(
+          await stamp(SyncDao.keySharedReadFailedAt),
+          clock.millisecondsSinceEpoch,
+        );
+        expect(await stamp(SyncDao.keySharedReadOkAt), ok);
+      });
+
+      test('a read that completes after it leaves the "Updated" newer than '
+          'the failure', () async {
+        pair.partners.failure = const SyncGatewayException(
+          SyncGatewayFailure.offline,
+        );
+        await partner().sync();
+        final failed = await stamp(SyncDao.keySharedReadFailedAt);
+        expect(failed, clock.millisecondsSinceEpoch);
+        clock = clock.add(const Duration(minutes: 1));
+        pair.partners.failure = null;
+
+        await partner().sync();
+
+        expect(await stamp(SyncDao.keySharedReadFailedAt), failed);
+        expect(await stamp(SyncDao.keySharedReadOkAt), greaterThan(failed!));
+      });
+
+      test('a read the app leaving cut failed at nothing and completed '
+          'nothing: neither stamp moves', () async {
+        final ok = await stamp(SyncDao.keySharedReadOkAt);
+        await event(owner(), 'e1', title: 'Renamed by its owner');
+        await owner().sync();
+        pair.gateway.calls.clear();
+        var cut = false;
+        partner().hooks.onBeforePage = (table) async {
+          if (table == 'calendar_events' && sharedCalls().isNotEmpty) {
+            cut = true;
+            unawaited(partner().engine.onAppBackgrounded());
+          }
+        };
+
+        await partner().sync();
+
+        expect(cut, isTrue);
+        expect(await stamp(SyncDao.keySharedReadFailedAt), isNull);
+        expect(await stamp(SyncDao.keySharedReadOkAt), ok);
+      });
+
+      test('goes with the shared rows', () async {
+        pair.partners.failure = const SyncGatewayException(
+          SyncGatewayFailure.unknown,
+        );
+        await partner().sync();
+        expect(await stamp(SyncDao.keySharedReadFailedAt), isNotNull);
+
+        await partner().db.sharedRowDao.removeAll();
+
+        expect(await stamp(SyncDao.keySharedReadFailedAt), isNull);
+      });
     });
 
     test('is never queued on the partner\'s device, and nothing of it '
@@ -1321,6 +1428,24 @@ void main() {
       );
     });
 
+    test('ended: the owner\'s caches are told its marks were cleared, which '
+        'no page names; a read that clears none tells nothing (review '
+        'C-1)', () async {
+      expect(
+        owner().hooks.runs.expand((touched) => touched),
+        isNot(contains(SyncInvalidation.shareMarks)),
+      );
+      owner().hooks.clear();
+      pair.end();
+
+      await owner().sync();
+
+      expect(
+        owner().hooks.runs.expand((touched) => touched),
+        contains(SyncInvalidation.shareMarks),
+      );
+    });
+
     test(
       'that cannot be asked about — no connection — removes nothing',
       () async {
@@ -1499,6 +1624,90 @@ void main() {
           reason: partner().statements.statements.join('\n'),
         );
       });
+    });
+
+    test('the Sharing page\'s read under the manual cadence costs the shared '
+        'read alone: no pull, no push, no read of the space', () async {
+      await partner().engine.stop();
+      await partner().binding.setCadence(SyncCadence.manual);
+      await partner().engine.start();
+      await partner().settle();
+      await event(partner(), 'own');
+      await partner().settle();
+      pair.gateway.calls.clear();
+      pair.gateway.readSpaceCalls = 0;
+      pair.partners.asked.clear();
+
+      final report = await partner().engine.readSharedNow();
+
+      expect(report.skipped, isNull);
+      expect(pair.partners.asked, [partnerUid]);
+      expect(pair.gateway.calls, [
+        for (final table in const [
+          'calendar_categories',
+          'calendar_events',
+          'calendar_event_occurrences',
+          'calendar_event_skips',
+          'folders',
+          'notes',
+        ]) ...['shared:$table', 'count:$table'],
+      ]);
+      expect(pair.gateway.readSpaceCalls, 0);
+      expect(await queuedOn(partner()), 1, reason: 'nothing was pushed');
+    });
+
+    test('the Sharing page\'s read merged into a run nobody asked for — '
+        'queued as the cadence turned manual — reads the share and pulls '
+        'nothing (review C-7)', () async {
+      await partner().engine.start();
+      await partner().settle();
+      final asked = pair.partners.asked.length;
+      Future<SyncRunReport>? read;
+      pair.gateway.onPullPage = (table) async {
+        if (table != 'calendar_categories') return;
+        pair.gateway.onPullPage = null;
+        // The partner's own space moves: a stale run nobody asked for
+        // queues behind the one in flight. Then the switch goes off, and
+        // the Sharing page opens.
+        await pair.gateway.writeSpaceShare(
+          pair.partnerSpace,
+          sharedPair: null,
+          pushedBy: 'B2',
+          schema: syncSchema,
+        );
+        await Future<void>.delayed(Duration.zero);
+        await partner().engine.setCadence(SyncCadence.manual);
+        read = partner().engine.readSharedNow();
+      };
+
+      await partner().sync();
+      final report = await read!;
+
+      expect(report.skipped, isNull);
+      expect(report.pages, 0, reason: 'no table of the account\'s own');
+      expect(
+        pair.partners.asked,
+        hasLength(asked + 2),
+        reason: 'the run in flight read the share, and so did this one',
+      );
+    });
+
+    test('a shared-only run under a noAccess pause is skipped and leaves the '
+        'recheck to the account\'s own run (review C-8)', () async {
+      pair.gateway.failNextWith(SyncGatewayFailure.permissionDenied);
+      await partner().sync();
+      expect(partner().engine.current.pause, SyncPause.noAccess);
+      pair.gateway.readSpaceCalls = 0;
+
+      // The share's read is in its gate when "Sync now" asks for the
+      // recheck.
+      final read = partner().engine.readSharedNow();
+      final now = partner().engine.syncNow();
+
+      expect((await read).skipped, SyncRunSkip.noAccess);
+      expect((await now).skipped, isNull);
+      expect(pair.gateway.readSpaceCalls, 1, reason: '"Sync now"\'s recheck');
+      expect(partner().engine.current.pause, SyncPause.none);
     });
 
     test('a run nobody asked for reads again only once the interval has '

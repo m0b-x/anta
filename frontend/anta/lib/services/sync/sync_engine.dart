@@ -794,6 +794,15 @@ class SyncEngine {
   /// every table. The person asked, so the manual cadence lets it through.
   Future<SyncRunReport> pushNow() => _request(_RunMode.drain, asked: true);
 
+  /// Reads what the partner shares now and nothing else — the Sharing
+  /// page's open (share surfaces record D22), which [pushNow] cannot serve:
+  /// a drain never reaches the shared reader, and a full run would pull
+  /// every table of the account's own. Through the same queue and gate as
+  /// every run, never beside another; the person asked, so the manual
+  /// cadence lets it through. An account that never paired asks nothing of
+  /// the server ([_SharedReader.read]).
+  Future<SyncRunReport> readSharedNow() => _request(_RunMode.shared);
+
   /// Set by [syncNow] and taken by the next run as it starts, never during
   /// one: a drain in flight reads the push's parks as it bisects.
   bool _retryEveryPark = false;
@@ -923,10 +932,17 @@ class SyncEngine {
   /// merge, a cut "Sync now" finished on the return — which the manual
   /// cadence lets through; requests merged into one run keep the mark if
   /// any of them had it.
+  ///
+  /// A shared read is asked for on its own mark, [_RunRequest.readsShared]:
+  /// merged into a request nobody asked for, it must not lift the pull and
+  /// the drain past the manual cadence (review C-7) — the run then reads the
+  /// share alone.
   Future<SyncRunReport> _request(_RunMode mode, {bool asked = false}) {
     final request = _queued ??= _RunRequest();
     if (mode.index > request.mode.index) request.mode = mode;
     if (asked) request.asked = true;
+    // A drain it merges into still owes the read.
+    if (mode == _RunMode.shared) request.readsShared = true;
     _pump();
     return request.done.future;
   }
@@ -981,7 +997,7 @@ class SyncEngine {
   /// each pulled in full under the floor, so one table that keeps faulting
   /// does not hold every push (record §3.5, S3d review M3).
   Future<SyncRunReport> _run(_RunRequest request) async {
-    final mode = request.mode;
+    var mode = request.mode;
     final tally = _RunTally();
     final clock = Stopwatch()..start();
     // Consumed by this run whatever it does: a later run that found no table
@@ -1024,17 +1040,26 @@ class SyncEngine {
     try {
       _spaceReadByGate = false;
       _spaceShareRead = null;
-      final (binding, skip) = await _gate();
+      // A run that reads the share alone leaves the recheck a resume or
+      // "Sync now" set to the account's own run (review C-8).
+      final (binding, skip) = await _gate(
+        recheck:
+            mode != _RunMode.shared &&
+            (_autoRuns || request.asked || !request.readsShared),
+      );
       if (binding == null) {
         if (skip != SyncRunSkip.suspended) _detachSignal();
         return SyncRunReport(skipped: skip, resumeFallbacks: fallbacks);
       }
       // A run nobody asked for — a snapshot's or a timer's, queued behind
-      // the run in flight when the cadence turned manual — reaches nothing.
+      // the run in flight when the cadence turned manual — reaches nothing
+      // but the shared read merged into it.
       if (!_autoRuns && !request.asked) {
-        return report(skipped: SyncRunSkip.manual);
+        if (!request.readsShared) return report(skipped: SyncRunSkip.manual);
+        mode = _RunMode.shared;
       }
-      if (!_autoRuns && !_spaceReadByGate) {
+      // A shared read touches nothing of the space's: it is not read first.
+      if (!_autoRuns && !_spaceReadByGate && mode != _RunMode.shared) {
         final confirmed = await _confirmSpace(binding);
         if (confirmed != null) {
           return SyncRunReport(skipped: confirmed, resumeFallbacks: fallbacks);
@@ -1043,6 +1068,15 @@ class SyncEngine {
       reached = true;
       if (_started && _foreground && _autoRuns) {
         _attachSignal(_spaceOf(binding));
+      }
+      if (mode == _RunMode.shared) {
+        // The bind's first merge must have had the space's whole say before
+        // another account's rows arrive, as below.
+        if (await _db.syncDao.getValue(SyncDao.keyBindMergePending) != null) {
+          return report(skipped: SyncRunSkip.initialMergePending);
+        }
+        await _shared.read(binding, asked: true);
+        return report();
       }
       if (_retryEveryPark && mode == _RunMode.full) {
         _retryEveryPark = false;
@@ -1172,10 +1206,13 @@ class SyncEngine {
         }
         if (tally.calls > 0) _succeeded();
       }
-      if (mode != _RunMode.drain &&
+      if ((mode != _RunMode.drain || request.readsShared) &&
           !pulled.cut &&
           (!initial || pulled.complete)) {
-        await _shared.read(binding, asked: request.asked);
+        await _shared.read(
+          binding,
+          asked: request.asked || request.readsShared,
+        );
       }
       return tableFault == null
           ? report()
@@ -1273,7 +1310,9 @@ class SyncEngine {
   }
 
   /// The binding to sync when the engine may run now, else why not.
-  Future<(SyncBinding?, SyncRunSkip?)> _gate() async {
+  /// [recheck] false holds a `noAccess` or `spaceDeleted` pause as it
+  /// stands, and leaves the recheck owed for a gate that may spend it.
+  Future<(SyncBinding?, SyncRunSkip?)> _gate({bool recheck = true}) async {
     if (_stopped) return (null, SyncRunSkip.stopped);
     final binding = await _binding.read();
     if (binding == null) return (null, SyncRunSkip.unbound);
@@ -1285,7 +1324,7 @@ class SyncEngine {
     if (SyncSuspension.isSuspended) return (null, SyncRunSkip.suspended);
     // The skip names the pause the re-read left, which may have turned a
     // `noAccess` into `appOutdated` (review F13).
-    if (_accessLost && !await _regainsAccess(binding)) {
+    if (_accessLost && (!recheck || !await _regainsAccess(binding))) {
       return (
         null,
         switch (_pause) {
@@ -2086,6 +2125,10 @@ enum _WireCutover {
 /// What a run pulls before it drains, weakest first: requests made during a
 /// run merge into the strongest of them.
 enum _RunMode {
+  /// No table and no drain: only what the partner shares
+  /// ([SyncEngine.readSharedNow]).
+  shared,
+
   /// Nothing — the background drain.
   drain,
 
@@ -2097,10 +2140,16 @@ enum _RunMode {
 }
 
 class _RunRequest {
-  _RunMode mode = _RunMode.drain;
+  /// The weakest, so every request's own mode wins the merge.
+  _RunMode mode = _RunMode.shared;
 
   /// Whether the user or the bind asked for it ([SyncEngine._request]).
   bool asked = false;
+
+  /// Whether a [SyncEngine.readSharedNow] was merged into it: the shared
+  /// read is asked for, while the pull and the drain keep [asked] as the
+  /// other requests left it.
+  bool readsShared = false;
   final Completer<SyncRunReport> done = Completer<SyncRunReport>();
 }
 

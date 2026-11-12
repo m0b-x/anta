@@ -11325,6 +11325,16 @@ class AppLocalizationsRo extends AppLocalizations {
   }
 
   @override
+  String get shareChangeFailed =>
+      'Partajarea nu a putut fi modificată — încearcă din nou';
+
+  @override
+  String get shareLoadFailed => 'Partajarea nu a putut fi încărcată';
+
+  @override
+  String get shareOpensSyncHint => 'Deschide Sincronizare și partajare';
+
+  @override
   String sharePartnerSharesCaption(String name) {
     return 'Doar pentru citire. Dispar când $name oprește partajarea.';
   }
@@ -11383,6 +11393,11 @@ class AppLocalizationsRo extends AppLocalizations {
   }
 
   @override
+  String shareStaysThroughCategory(String title, String category) {
+    return '$title rămâne partajat prin $category';
+  }
+
+  @override
   String get shareCategoryOff => 'Doar tu vezi aceste evenimente';
 
   @override
@@ -11415,11 +11430,20 @@ class AppLocalizationsRo extends AppLocalizations {
 
   @override
   String shareTheirCategoriesCaption(String name) {
-    return 'Cele bifate apar în calendarul tău; $name nu vede niciodată ce ascunzi.';
+    return 'Cele oprite nu apar în calendarul tău; $name nu vede niciodată ce ascunzi.';
   }
 
   @override
   String get shareShowOnCalendar => 'Arată în calendarul meu';
+
+  @override
+  String shareShowCategoryOnCalendar(String category) {
+    return 'Arată $category în calendarul meu';
+  }
+
+  @override
+  String get shareHiddenCategoryAlertsCaption =>
+      'Ascunsă din calendarul tău, deci acestea nu sună niciodată';
 
   @override
   String shareJoinsYours(String category) {
@@ -11468,14 +11492,31 @@ class AppLocalizationsRo extends AppLocalizations {
   }
 
   @override
+  String shareDeleteImpactStarts(String name, int count, String category) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$name va vedea cele $count de evenimente din ea prin $category',
+      few: '$name va vedea cele $count evenimente din ea prin $category',
+      one: '$name va vedea evenimentul din ea prin $category',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get shareStopAll => 'Oprește toată partajarea';
 
   @override
   String get shareStopAllDesc => 'Rămâneți împerecheați';
 
   @override
+  String shareStopAllConfirmTitle(String name) {
+    return 'Oprești toată partajarea cu $name?';
+  }
+
+  @override
   String shareStopAllConfirm(String name) {
-    return 'Oprești toată partajarea cu $name? Categoriile și evenimentele tale dispar de pe celălalt telefon. Ce partajează $name cu tine rămâne.';
+    return 'Categoriile și evenimentele tale dispar de pe celălalt telefon. Ce partajează $name cu tine rămâne.';
   }
 
   @override

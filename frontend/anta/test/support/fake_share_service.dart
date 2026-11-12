@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:anta/models/share_overview.dart';
 import 'package:anta/models/share_settings.dart';
 import 'package:anta/services/share_service.dart';
 
@@ -30,10 +31,32 @@ class FakeShareService implements ShareService {
   ShareAlerts shareAlerts = ShareAlerts.own;
   Set<String> hidden = const {};
 
+  final StreamController<void> _runs = StreamController<void>.broadcast();
+
   /// Sets [availability] and tells every listener.
   void emit(ShareAvailability next) {
     _availability = next;
     _controller.add(next);
+  }
+
+  /// A sync run of the open database ended.
+  void endRun() => _runs.add(null);
+
+  /// Whether anything still listens to [changes] or [runsEnded].
+  bool get heard => _controller.hasListener || _runs.hasListener;
+
+  /// When set, the next share write waits on it before it answers — what
+  /// it answers is the [nextChange] of when it started.
+  Completer<void>? hold;
+
+  /// When set, every [refreshShared] lasts until it completes, as the
+  /// engine's read does.
+  Completer<void>? sharedRead;
+
+  Future<void> _held() async {
+    final parked = hold;
+    hold = null;
+    if (parked != null) await parked.future;
   }
 
   @override
@@ -53,19 +76,89 @@ class FakeShareService implements ShareService {
     return replay.stream;
   }
 
-  @override
-  Future<bool> setEventShared(String id, bool on) async {
+  /// What [overview] answers; the test sets it.
+  ShareOverview shareOverview = ShareOverview.empty;
+
+  /// What every share write answers; the test sets it.
+  ShareChange nextChange = ShareChange.none;
+
+  /// Every category write: a set from [setCategoriesShared], or the one
+  /// category of [setCategoryShared] as `{id}` / `{}`.
+  final List<Set<String>> categorySets = [];
+  final List<ShareChange> undone = [];
+  int overviews = 0;
+  int stops = 0;
+  int sharedReads = 0;
+
+  void _ready() {
     if (_availability is! ShareReady) throw ShareRefused(_availability);
+  }
+
+  Future<ShareChange> _answer() async {
+    final answer = nextChange;
+    await _held();
+    return answer;
+  }
+
+  @override
+  Future<ShareChange> setEventShared(String id, bool on) async {
+    _ready();
     eventShares.add((id, on));
-    return true;
+    return _answer();
+  }
+
+  @override
+  Future<ShareChange> setCategoryShared(String id, bool on) async {
+    _ready();
+    categorySets.add({if (on) id});
+    return _answer();
+  }
+
+  @override
+  Future<ShareChange> setCategoriesShared(Set<String> ids) async {
+    _ready();
+    categorySets.add(ids);
+    return _answer();
+  }
+
+  @override
+  Future<ShareChange> undo(ShareChange change) async {
+    _ready();
+    undone.add(change);
+    return _answer();
   }
 
   @override
   Future<bool> setFolderShared(String id, bool on) async {
-    if (_availability is! ShareReady) throw ShareRefused(_availability);
+    _ready();
     folderShares.add((id, on));
     return true;
   }
+
+  @override
+  Future<int> stopAll() async {
+    stops++;
+    await _held();
+    return 1;
+  }
+
+  @override
+  Future<ShareOverview> overview() async {
+    overviews++;
+    return _availability is ShareNotPaired
+        ? ShareOverview.empty
+        : shareOverview;
+  }
+
+  @override
+  Future<void> refreshShared() async {
+    if (_availability is! ShareReady) return;
+    sharedReads++;
+    await sharedRead?.future;
+  }
+
+  @override
+  Stream<void> get runsEnded => _runs.stream;
 
   @override
   Future<bool> isFromPartner(String table, String id) async =>

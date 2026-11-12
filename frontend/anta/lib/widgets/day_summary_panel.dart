@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 
 import '../constants/app_colors.dart';
 import '../constants/app_spacing.dart';
+import '../constants/calendar_categories.dart';
 import '../constants/calendar_colors.dart';
 import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
@@ -218,6 +219,10 @@ class DaySummaryPanel extends StatelessWidget {
                 final partner = event?.fromPartner ?? false
                     ? partnerLook
                     : null;
+                final mine =
+                    event != null && CalendarCategories.shareOf(event) != null
+                    ? partnerLook
+                    : null;
                 final isHoliday = entry.key == 'holiday';
                 final canToggleMissed =
                     event != null &&
@@ -285,6 +290,7 @@ class DaySummaryPanel extends StatelessWidget {
                               icon: entry.icon,
                               color: entry.color,
                               partner: partner,
+                              mine: mine,
                               l10n: l10n,
                             ),
                             title: Row(

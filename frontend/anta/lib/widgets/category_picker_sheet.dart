@@ -56,12 +56,34 @@ class CategoryPickerSheet extends StatefulWidget {
   /// category, which cannot be where its events move.
   final Set<String> exclude;
 
+  /// A title in place of the mode's own, for a use whose tick means more
+  /// than a filter's — the Sharing page's "Share categories". A titled sheet
+  /// stacks its title under the ✕ and Done rather than cut it.
+  final String? title;
+
+  /// A line under the header, outside the scroll: what a tick does, said
+  /// once rather than per row.
+  final String? caption;
+
+  /// Each category's event count by id, read back as its row's second line.
+  /// Null keeps the rows as the picker's other uses draw them.
+  final Map<String, int>? counts;
+
+  /// Whether a category made through Create category joins the selection.
+  /// False for a set whose tick acts on Done — the Sharing page's, where a
+  /// tick shares — so Done never hands over a category nobody ticked.
+  final bool tickCreated;
+
   const CategoryPickerSheet({
     super.key,
     required this.mode,
     required this.initialSelection,
     this.sandbox = false,
     this.exclude = const {},
+    this.title,
+    this.caption,
+    this.counts,
+    this.tickCreated = true,
   });
 
   /// Picks one category. Returns its id, or `null` when dismissed.
@@ -92,16 +114,30 @@ class CategoryPickerSheet extends StatefulWidget {
   /// collapsed to `null`**: empty is a real, meaningful state on both sides
   /// here (no allowlist, nothing hidden), and swallowing it would make
   /// clearing the last category look like a dismissal.
+  ///
+  /// [title], [caption] and [counts] are the Sharing page's tick sheet's
+  /// (share surfaces §6.3), and so is [tickCreated] false (case C9);
+  /// [identifier] names the sheet's root for a flow.
   static Future<Set<String>?> pickMulti(
     BuildContext context, {
     required Set<String> selected,
     bool sandbox = false,
+    String? title,
+    String? caption,
+    Map<String, int>? counts,
+    String? identifier,
+    bool tickCreated = true,
   }) {
     return _show(
       context,
       mode: CategoryPickerMode.multi,
       initialSelection: selected,
       sandbox: sandbox,
+      title: title,
+      caption: caption,
+      counts: counts,
+      identifier: identifier,
+      tickCreated: tickCreated,
     );
   }
 
@@ -111,6 +147,11 @@ class CategoryPickerSheet extends StatefulWidget {
     required Set<String> initialSelection,
     required bool sandbox,
     Set<String> exclude = const {},
+    String? title,
+    String? caption,
+    Map<String, int>? counts,
+    String? identifier,
+    bool tickCreated = true,
   }) {
     final colorScheme = Theme.of(context).colorScheme;
     return showModalBottomSheet<Set<String>>(
@@ -124,18 +165,28 @@ class CategoryPickerSheet extends StatefulWidget {
           top: Radius.circular(FormMetrics.sheetRadius),
         ),
       ),
-      builder: (context) => ConstrainedBox(
-        constraints: BoxConstraints(
-          maxHeight:
-              MediaQuery.sizeOf(context).height * FormMetrics.sheetHeightFactor,
-        ),
-        child: CategoryPickerSheet(
-          mode: mode,
-          initialSelection: initialSelection,
-          sandbox: sandbox,
-          exclude: exclude,
-        ),
-      ),
+      builder: (context) {
+        final sheet = ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight:
+                MediaQuery.sizeOf(context).height *
+                FormMetrics.sheetHeightFactor,
+          ),
+          child: CategoryPickerSheet(
+            mode: mode,
+            initialSelection: initialSelection,
+            sandbox: sandbox,
+            exclude: exclude,
+            title: title,
+            caption: caption,
+            counts: counts,
+            tickCreated: tickCreated,
+          ),
+        );
+        return identifier == null
+            ? sheet
+            : Semantics(container: true, identifier: identifier, child: sheet);
+      },
     );
   }
 
@@ -215,8 +266,9 @@ class _CategoryPickerSheetState extends State<CategoryPickerSheet> {
   }
 
   /// Creates a category without leaving the sheet. In single mode the new
-  /// category is the answer, so the sheet returns it; in multi mode it joins
-  /// the selection and the list stays open.
+  /// category is the answer, so the sheet returns it; in multi mode the list
+  /// stays open and the new row joins the selection unless
+  /// [CategoryPickerSheet.tickCreated] says otherwise.
   Future<void> _createCategory({String? initialName}) async {
     final created = await CategoryEditorSheet.show(
       context,
@@ -229,9 +281,23 @@ class _CategoryPickerSheetState extends State<CategoryPickerSheet> {
     }
     _searchController.clear();
     setState(() {
-      _selected.add(created.id);
+      if (widget.tickCreated) _selected.add(created.id);
       _query = SettingsQuery.empty;
     });
+  }
+
+  /// The row's second line: its event count when the sheet was given counts
+  /// — what a tick hands over — then "Hidden", joined as the Categories
+  /// page joins its captions.
+  String? _captionFor(CalendarCategory category, AppLocalizations l10n) {
+    final counts = widget.counts;
+    if (counts == null) {
+      return category.isHidden ? l10n.categoryHidden : null;
+    }
+    return [
+      l10n.categoryEventCount(counts[category.id] ?? 0),
+      if (category.isHidden) l10n.categoryHidden,
+    ].join(' · ');
   }
 
   @override
@@ -293,9 +359,12 @@ class _CategoryPickerSheetState extends State<CategoryPickerSheet> {
           leadingTooltip: l10n.cancel,
           leadingIdentifier: SemanticsIds.categoryPickClose,
           onLeading: () => Navigator.of(context).pop(),
-          title: _isMulti ? l10n.calendarCategories : l10n.eventCategory,
+          title:
+              widget.title ??
+              (_isMulti ? l10n.calendarCategories : l10n.eventCategory),
           scrolled: _headerScrolled,
           trailingInset: FormMetrics.headerActionInset,
+          stackTitleAtLargeText: widget.title != null,
           // Single mode picks on tap and has nothing to confirm.
           trailing: _isMulti
               ? FormHeaderTextButton(
@@ -306,6 +375,16 @@ class _CategoryPickerSheetState extends State<CategoryPickerSheet> {
                 )
               : const SizedBox.shrink(),
         ),
+        if (widget.caption case final caption?)
+          FormCaption(
+            text: caption,
+            padding: const EdgeInsets.fromLTRB(
+              RowMetrics.groupInset,
+              0,
+              RowMetrics.groupInset,
+              FormMetrics.headerCaptionBottomPadding,
+            ),
+          ),
         Flexible(
           child: SingleChildScrollView(
             controller: _bodyScroll,
@@ -363,7 +442,7 @@ class _CategoryPickerSheetState extends State<CategoryPickerSheet> {
                         // A hidden category only reaches this list by already
                         // being selected; say so, or it reads as an ordinary
                         // row the user forgot about.
-                        caption: category.isHidden ? l10n.categoryHidden : null,
+                        caption: _captionFor(category, l10n),
                         checked: _selected.contains(category.id),
                         exclusive: !_isMulti,
                         identifier: SemanticsIds.categoryPickRow(category.id),

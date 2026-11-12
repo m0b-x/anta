@@ -330,17 +330,22 @@ class CalendarCategoryDao extends DatabaseAccessor<AppDatabase>
   /// events and templates in [id], and its live alerts — rather than three
   /// caches that may each lag the table.
   ///
-  /// Three plain reads, not a transaction: the sheet shows a picture of the
+  /// Plain reads, not a transaction: the sheet shows a picture of the
   /// moment and the cascade recounts nothing, so a write landing between two
   /// of them costs a stale number on screen and never a wrong delete.
   Future<CategoryDeleteImpact> deleteImpact(String id) async {
     final events = await db.calendarEventDao.countByCategory();
     final templates = await db.eventTemplateDao.countByCategory();
     final alerts = await db.categoryAlertDao.getAllActive();
+    final eventCount = events[id] ?? 0;
     return CategoryDeleteImpact(
-      events: events[id] ?? 0,
+      events: eventCount,
       alerts: alerts.where((alert) => alert.categoryId == id).length,
       templates: templates[id] ?? 0,
+      // Only a category with events can hold a marked one.
+      markedEvents: eventCount == 0
+          ? 0
+          : await db.calendarEventDao.countOwnMarkedIn(id),
     );
   }
 

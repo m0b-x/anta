@@ -552,6 +552,8 @@ class SharedRowDao extends DatabaseAccessor<AppDatabase>
       await dao.deleteValue(SyncDao.keySharedOwner);
       await dao.deleteValue(SyncDao.keySharedPair);
       await dao.deleteValue(SyncDao.keySharedReadAt);
+      await dao.deleteValue(SyncDao.keySharedReadOkAt);
+      await dao.deleteValue(SyncDao.keySharedReadFailedAt);
       await dao.deleteValue(SyncDao.keySharedFullAt);
       await dao.deleteValue(SyncDao.keySharedNewerWire);
       await dao.deleteByPrefix(SyncDao.sharedCursorPrefix);
@@ -559,6 +561,7 @@ class SharedRowDao extends DatabaseAccessor<AppDatabase>
       await dao.deleteByPrefix(SyncDao.sharedRootPrefix);
       await dao.deleteByPrefix(SyncDao.sharedRefusedPrefix);
       await dao.deleteByPrefix(SyncDao.sharedBuiltInPrefix);
+      await dao.deleteValue(SyncDao.keyShareSending);
       // Every shared folder went, so none was left to place.
       return SharedRemovals(removed, const []);
     });

@@ -26,6 +26,11 @@ class FormMenuItem<T> {
   /// item draws without it: it reads as off, not as dangerous.
   final Color? color;
 
+  /// A line under the label saying what the choice does, where the label
+  /// alone cannot ("Only alerts I add" / "On one event, from its sheet").
+  /// Null keeps the one-line row.
+  final String? caption;
+
   const FormMenuItem({
     required this.value,
     required this.label,
@@ -33,6 +38,7 @@ class FormMenuItem<T> {
     this.identifier,
     this.enabled = true,
     this.color,
+    this.caption,
   });
 }
 
@@ -230,7 +236,7 @@ Future<T?> showFormMenu<T>(
     positionBuilder: (_, constraints) => formMenuPosition(
       anchor,
       constraints,
-      menuHeight: formMenuHeight(items.length),
+      menuHeight: _formMenuHeightOf(items),
       alignment: alignment,
       menuWidth: menuWidth,
       side: side,
@@ -254,6 +260,7 @@ Future<T?> showFormMenu<T>(
             identifier: item.identifier,
             icon: item.icon,
             label: item.label,
+            caption: item.caption,
             checked: item.value == selected,
             enabled: item.enabled,
             color: item.enabled ? item.color : null,
@@ -262,6 +269,18 @@ Future<T?> showFormMenu<T>(
     ],
   );
 }
+
+/// [formMenuHeight] counting a captioned item at its two-line estimate, so a
+/// menu of choices with captions flips above its anchor when it would not
+/// fit below; the same number as [formMenuHeight] when none has one.
+double _formMenuHeightOf<T>(List<FormMenuItem<T>> items) => items.fold<double>(
+  FormMetrics.menuPadding.vertical,
+  (height, item) =>
+      height +
+      (item.caption == null
+          ? FormMetrics.menuRowHeight
+          : FormMetrics.menuCaptionRowHeight),
+);
 
 /// Opens the language's menu of [items] standing on [anchor] — its bottom
 /// edge [gap] above the anchor's top, centred on the anchor — and completes
@@ -635,6 +654,7 @@ class FormMenuItemRow extends StatelessWidget {
     this.identifier,
     this.icon,
     required this.label,
+    this.caption,
     this.checked = false,
     this.enabled = true,
     this.color,
@@ -643,6 +663,16 @@ class FormMenuItemRow extends StatelessWidget {
   final String? identifier;
   final IconData? icon;
   final String label;
+
+  /// A second line under [label] in the caption role, wrapping as far as it
+  /// needs; inside the item's merged node, so the label and the caption are
+  /// one announcement. The item grows past the one-line row's height and
+  /// takes [FormMetrics.menuCaptionRowVerticalPadding] above and below.
+  ///
+  /// A disabled item dims its label and keeps its caption at full strength:
+  /// the caption is what says why the item is off, and dimmed with the label
+  /// it read at under 2:1 — the rule the switch rows follow.
+  final String? caption;
   final bool checked;
   final bool enabled;
 
@@ -658,6 +688,35 @@ class FormMenuItemRow extends StatelessWidget {
     final labelColor = enabled
         ? color
         : colorScheme.onSurface.withValues(alpha: FormMetrics.disabledOpacity);
+    final labelText = Text(
+      label,
+      style: labelColor == null ? null : TextStyle(color: labelColor),
+    );
+    final Widget text;
+    if (caption case final line?) {
+      text = Padding(
+        padding: const EdgeInsets.symmetric(
+          vertical: FormMetrics.menuCaptionRowVerticalPadding,
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            labelText,
+            Text(
+              line,
+              style: TextStyle(
+                fontSize: FormMetrics.captionSize,
+                height: FormMetrics.captionLineHeight / FormMetrics.captionSize,
+                color: colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ),
+      );
+    } else {
+      text = labelText;
+    }
     final row = Row(
       children: [
         if (icon case final glyph?) ...[
@@ -668,12 +727,7 @@ class FormMenuItemRow extends StatelessWidget {
           ),
           const SizedBox(width: _gap),
         ],
-        Expanded(
-          child: Text(
-            label,
-            style: labelColor == null ? null : TextStyle(color: labelColor),
-          ),
-        ),
+        Expanded(child: text),
         if (checked) ...[
           const SizedBox(width: _gap),
           Icon(

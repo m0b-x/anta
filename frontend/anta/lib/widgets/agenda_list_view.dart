@@ -739,6 +739,7 @@ class AgendaListView extends StatelessWidget {
               presenceTracked: EventPresence.appliesTo(occurrence.event),
               categoryId: occurrence.event.categoryId,
               fromPartner: occurrence.event.fromPartner,
+              sharedByMe: CalendarCategories.shareOf(occurrence.event) != null,
             ),
     ];
   }
@@ -1038,6 +1039,11 @@ class AgendaListView extends StatelessWidget {
               onTap: () => onDaySelected(day),
               colorPalette: colorPalette,
               partner: entry.event?.fromPartner ?? false ? partnerLook : null,
+              mine:
+                  entry.event != null &&
+                      CalendarCategories.shareOf(entry.event!) != null
+                  ? partnerLook
+                  : null,
               onEdit: entry.event == null
                   ? null
                   : () => onEditEvent(entry.event!.id, day),
@@ -1202,12 +1208,16 @@ class _AgendaCard extends StatelessWidget {
   /// The page's look when the card's event is a partner's; null for mine.
   final PartnerLook? partner;
 
+  /// The page's look when the card's event is one of mine that I share.
+  final PartnerLook? mine;
+
   const _AgendaCard({
     required this.entry,
     required this.priorityBadge,
     required this.onTap,
     required this.colorPalette,
     this.partner,
+    this.mine,
     this.collapsedBadge,
     this.onEdit,
     this.onOpenNote,
@@ -1250,6 +1260,7 @@ class _AgendaCard extends StatelessWidget {
               icon: entry.icon,
               color: entry.color,
               partner: partner,
+              mine: mine,
               l10n: l10n,
             ),
             title: Row(

@@ -15,6 +15,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:anta/bloc/app_settings/app_settings_bloc.dart';
 import 'package:anta/bloc/markdown_bar/markdown_bar_bloc.dart';
 import 'package:anta/bloc/pairing/pairing_bloc.dart';
+import 'package:anta/bloc/share/share_bloc.dart';
 import 'package:anta/bloc/sync/sync_bloc.dart';
 import 'package:anta/config/default_markdown_shortcuts.dart';
 import 'package:anta/constants/form_metrics.dart';
@@ -55,6 +56,7 @@ import 'package:anta/services/pairing_service.dart';
 import 'package:anta/services/permission_service.dart';
 import 'package:anta/services/public_holiday_service.dart';
 import 'package:anta/services/settings_service.dart';
+import 'package:anta/services/share_service.dart';
 import 'package:anta/services/sync/sync_gateway.dart' show SyncSpaceRef;
 import 'package:anta/utils/auth_error.dart';
 import 'package:anta/utils/settings_search.dart';
@@ -70,6 +72,7 @@ import '../goldens/support/golden_fonts.dart';
 import '../goldens/support/golden_matrix.dart';
 import '../services/pairing_support.dart';
 import '../services/permission_support.dart';
+import '../support/fake_share_service.dart';
 
 /// The settings kit against Android's tap-target, labelled-tap and text
 /// contrast guidelines (`docs/settings-rework-roadmap.md` §4.4), on the
@@ -570,6 +573,23 @@ void main() {
           GetIt.I.registerFactory<PairingBloc>(
             () => PairingBloc(authService: auth, gateway: gateway),
           );
+          // Paired, the Pairing row reads what is shared and opens the
+          // Sharing page, both served by a share bloc.
+          final share = FakeShareService(
+            availability: ShareReady(
+              ShareAudience(
+                id: 'pair-1',
+                displayName: userB.displayName,
+                members: const [],
+              ),
+            ),
+          );
+          GetIt.I.registerFactory<ShareBloc>(
+            () => ShareBloc(
+              service: () async => share,
+              calendarChanges: const Stream.empty(),
+            ),
+          );
           final handle = tester.ensureSemantics();
           setGoldenSurface(tester, cell);
           await tester.pumpWidget(
@@ -596,11 +616,11 @@ void main() {
             );
             expect(tester.takeException(), isNull);
             await meetsAll(tester);
-            final unpair = find.bySemanticsIdentifier(
-              SemanticsIds.sharingUnpair,
+            final paired = find.bySemanticsIdentifier(
+              SemanticsIds.sharingPaired,
             );
             await tester.scrollUntilVisible(
-              unpair,
+              paired,
               200,
               scrollable: find
                   .descendant(
@@ -610,7 +630,17 @@ void main() {
                   .first,
             );
             await settle(tester);
-            expect(unpair, findsOneWidget);
+            expect(paired, findsOneWidget);
+            expect(tester.takeException(), isNull);
+            await meetsAll(tester);
+
+            // The Sharing page it opens, where Unpair moved.
+            await tester.tap(paired);
+            await settle(tester);
+            expect(
+              find.bySemanticsIdentifier(SemanticsIds.sharingPage),
+              findsOneWidget,
+            );
           }
 
           expect(tester.takeException(), isNull);

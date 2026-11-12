@@ -238,8 +238,26 @@ abstract final class SemanticsIds {
   static const String sharingSignOut = 'sharing-sign-out';
   static const String sharingRetry = 'sharing-retry';
   static const String sharingPair = 'sharing-pair';
-  static const String sharingUnpair = 'sharing-unpair';
   static const String sharingClose = 'sharing-close';
+
+  /// The pairing row while paired, which opens the page of what is shared
+  /// (share surfaces decision x): Unpair moved onto that page, so the row
+  /// took an id of its own rather than keep the one of an act it no longer
+  /// does.
+  static const String sharingPaired = 'sharing-paired';
+
+  /// The page of what is shared with the partner (`sharing_page.dart`): its
+  /// bar title, the two entries of what this person shares, and the last
+  /// group's two acts. [sharingUnpair] is the Unpair row, moved here from
+  /// the pairing row. [sharingPageList] is its list, for a flow that
+  /// scrolls to a row the sections above pushed below the fold — apart from
+  /// [sharingList], which stays in the tree under this page.
+  static const String sharingPage = 'sharing-page';
+  static const String sharingPageList = 'sharing-page-list';
+  static const String sharingMineCategories = 'sharing-mine-categories';
+  static const String sharingMineEvents = 'sharing-mine-events';
+  static const String sharingStopAll = 'sharing-stop-all';
+  static const String sharingUnpair = 'sharing-unpair';
 
   /// The unpair dialog's confirming button, named so a flow cannot answer
   /// another dialog by mistake.
@@ -699,6 +717,10 @@ abstract final class SemanticsIds {
   static const String categoryPickCreate = 'category-pick-create';
   static String categoryPickRow(String id) => 'category-pick-$id';
 
+  /// The picker's root when it is the Sharing page's tick sheet, so a flow
+  /// can tell it from the picker's other uses, whose rows it shares.
+  static const String shareCategoriesSheet = 'share-categories-sheet';
+
   /// The saved-filters sheet: its rows, each row's drag handle and ⋮, keyed
   /// by preset id, and the four items of that menu.
   static const String filterPresetClose = 'filter-preset-close';
@@ -884,6 +906,18 @@ abstract final class SemanticsIds {
   static const String sharedEventSheet = 'shared-event-sheet';
   static const String sharedEventAddAlert = 'shared-event-add-alert';
   static const String sharedEventCopy = 'shared-event-copy';
+
+  /// The event editor's share switch (share surfaces §6.6), present only
+  /// while the database is paired.
+  static const String eventShare = 'event-share';
+
+  /// The two Single events lists of the Sharing page (the slice C spec §4):
+  /// mine, with each row's ✕ keyed by the event's id, and the partner's,
+  /// read-only.
+  static const String shareEventsSheet = 'share-events-sheet';
+  static String shareEventUnshare(String eventId) =>
+      'share-event-unshare-$eventId';
+  static const String sharedEventsSheet = 'shared-events-sheet';
 
   /// A day-panel or agenda row standing for one event, keyed by the event's
   /// id — a title is ambiguous because every marked day cell's marker label
@@ -1177,6 +1211,9 @@ abstract final class SemanticsIds {
   static const String categoryEditorCountsAs = 'category-editor-counts-as';
   static const String categoryEditorGoal = 'category-editor-goal';
 
+  /// The category editor's share switch, present only while paired.
+  static const String categoryEditorShare = 'category-editor-share';
+
   /// The Mark menu's items — the kind's verb, the owner's word (or "Own
   /// word…"), Off — and its word dialog's field and Save.
   static const String categoryMarkKind = 'category-mark-kind';
@@ -1242,6 +1279,10 @@ abstract final class SemanticsIds {
 
   /// A category row's ⋮ item that opens the category editor.
   static const String categoryMenuEdit = 'category-menu-edit';
+
+  /// A category row's ⋮ item that shares the category or stops sharing it,
+  /// present only while paired.
+  static const String categoryMenuShare = 'category-menu-share';
 
   /// A category row's ⋮ item that archives or restores the category. Named
   /// for Archive, the action's name once the page is reworked, so a flow

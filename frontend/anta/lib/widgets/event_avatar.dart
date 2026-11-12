@@ -50,14 +50,19 @@ class EventAvatar extends StatelessWidget {
   });
 
   /// The avatar of an event's row: [partner] is the surface's look when the
-  /// event is a partner's, null for my own — today's avatar, unchanged.
+  /// event is a partner's, [mine] the same look when it is one of mine that
+  /// I share; both null for my own unshared event — today's avatar,
+  /// unchanged. A [mine] look that found no partner draws that avatar too:
+  /// a mark shared with nobody says nothing.
   factory EventAvatar.ofRow({
     Key? key,
     required IconData icon,
     required Color color,
     required PartnerLook? partner,
     required AppLocalizations l10n,
+    PartnerLook? mine,
   }) {
+    if (mine != null && mine.unpaired) mine = null;
     return EventAvatar(
       key: key,
       icon: icon,
@@ -65,8 +70,10 @@ class EventAvatar extends StatelessWidget {
       outlined: partner?.outlined ?? false,
       badge: partner != null && partner.avatar
           ? EventAvatarBadge.partner(partner.partner)
+          : partner == null && (mine?.markMine ?? false)
+          ? EventAvatarBadge.mine
           : null,
-      semanticsLabel: partner?.label(l10n),
+      semanticsLabel: partner?.label(l10n) ?? mine?.mineLabel(l10n),
     );
   }
 

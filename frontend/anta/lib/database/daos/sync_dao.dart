@@ -224,6 +224,18 @@ class SyncDao extends DatabaseAccessor<AppDatabase> with _$SyncDaoMixin {
   /// one waits out `SyncEngine.sharedReadInterval` unless it was asked for.
   static const String keySharedReadAt = 'shared_read_at';
 
+  /// When the last shared read that read every table to its end finished —
+  /// the value that run wrote under [keySharedReadAt]. The Sharing page's
+  /// "Updated {when}". Deleted with the shared rows.
+  static const String keySharedReadOkAt = 'shared_read_ok_at';
+
+  /// When a shared read last failed — the server or this device could not
+  /// answer — in epoch milliseconds; never written for a read the app's
+  /// leaving cut short, which failed at nothing. Newer than
+  /// [keySharedReadOkAt], the Sharing page says "Could not check".
+  /// Deleted with the shared rows.
+  static const String keySharedReadFailedAt = 'shared_read_failed_at';
+
   /// When every shared table was last read from its start, in epoch
   /// milliseconds — the daily read that needs no count to trigger it.
   static const String keySharedFullAt = 'shared_full_at';
@@ -276,6 +288,14 @@ class SyncDao extends DatabaseAccessor<AppDatabase> with _$SyncDaoMixin {
   /// top level here, because that parent was not shared: kept so the folder
   /// goes back under it once the parent arrives (`SharedRowDao.placeFolders`).
   static String keySharedRoot(String folderId) => '$sharedRootPrefix$folderId';
+
+  /// Set by every share act that wrote, in its own transaction, and by
+  /// "Stop sharing everything"; cleared by `ShareService.overview` once the
+  /// outbox holds no entry of the shareable tables — there and not here,
+  /// since the outbox is named by its owners alone. What keeps "Sending…" about
+  /// shares: an ordinary edit queued in those tables says nothing without
+  /// it. Device-local, never synced; deleted with the shared rows.
+  static const String keyShareSending = 'share_sending';
 
   Future<String?> getValue(String key) async {
     final result = await (select(

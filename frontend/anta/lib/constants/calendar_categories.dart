@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../l10n/app_localizations.dart';
 import '../models/calendar_category.dart';
 import '../models/calendar_event.dart';
+import '../models/share_overview.dart';
 import 'calendar_icons.dart';
 
 /// Definition of a seeded built-in category.
@@ -117,8 +118,16 @@ abstract final class CalendarCategories {
       for (final c in sorted)
         if (c.fromPartner) c,
     ]);
+    _anySharedByMe = sorted.any((c) => c.sharedByMe && !c.fromPartner);
     _revision++;
   }
+
+  static bool _anySharedByMe = false;
+
+  /// Whether one of the person's own categories is shared — taken where the
+  /// catalogue is published, so a reader asking "is anything shared through
+  /// a category?" walks no event list when nothing is.
+  static bool get anySharedByMe => _anySharedByMe;
 
   /// The person's own by their order, then a partner's by name: the reader
   /// stores a partner's at order 0, which is not a place in this person's
@@ -176,6 +185,20 @@ abstract final class CalendarCategories {
 
   /// O(1) lookup; null when unknown.
   static CalendarCategory? byId(String id) => _byId[id];
+
+  /// Whether [event] is one of this person's that the partner sees, and
+  /// through what — the grant as the database decides it
+  /// (`CalendarEventDao.sharedPairsOf`): its own mark, else its category's.
+  /// The stored id, never [resolve]: an event on an id no category holds
+  /// draws under Other but takes no grant from it. Null for a private event
+  /// and for a partner's.
+  static EventShareVia? shareOf(CalendarEvent event) {
+    if (event.fromPartner) return null;
+    if (event.markedShared) return EventShareVia.own;
+    return (_byId[event.categoryId]?.sharedByMe ?? false)
+        ? EventShareVia.category
+        : null;
+  }
 
   /// O(1) lookup that always yields a usable category.
   ///

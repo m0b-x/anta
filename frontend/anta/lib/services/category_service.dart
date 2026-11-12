@@ -509,10 +509,33 @@ class CategoryService {
   /// gone or carries it already.
   ///
   /// On the chain like every other write, so it cannot interleave with a
-  /// delete of the same category. The mark is no part of the category a
-  /// screen holds, so the catalogue is not read again.
-  Future<bool> setShared(String id, String? pairId) =>
-      _serialize(() => _dao.setSharedPair(id, pairId));
+  /// delete of the same category. The catalogue is read again whenever the
+  /// table may have changed — the mark written, or a mark set, which clears
+  /// every other pair's on other categories even when this one stood — so
+  /// [CalendarCategory.sharedByMe] says what the table holds.
+  ///
+  /// The QA seam's and the tests' entry. The app's share acts
+  /// (`ShareService`) cannot run on this chain — one transaction over
+  /// several rows would wait on a link queued ahead of it that waits on the
+  /// database — so they write the DAO's mark in their own transaction, where
+  /// SQLite keeps a delete of the same category out, and call
+  /// [refreshShareMarks] after it.
+  Future<bool> setShared(String id, String? pairId) => _serialize(() async {
+    final wrote = await _dao.setSharedPair(id, pairId);
+    if (wrote || pairId != null) await _load();
+    return wrote;
+  });
+
+  /// Reads the catalogue again on the live instance, on the write chain,
+  /// after a mark written elsewhere cleared marks of another pair here
+  /// (`CalendarEventDao.setSharedPair`, `FolderDao.setSharedPair`, which
+  /// clear all three tables). Never constructs one: with none, the next
+  /// [getInstance] reads the table as it is.
+  static Future<void> refreshShareMarks() async {
+    final service = _instance;
+    if (service == null) return;
+    await service._serialize(service._load);
+  }
 
   /// Deletes a custom category and reassigns its events and templates to
   /// [reassignTo] in one transaction. Built-ins cannot be deleted — by flag
@@ -735,6 +758,7 @@ class CategoryService {
       isBuiltIn: row.isBuiltIn,
       isHidden: row.isHidden && !fromPartner,
       fromPartner: fromPartner,
+      sharedByMe: row.sharedPair != null && !fromPartner,
     );
   }
 }

@@ -53,6 +53,7 @@ import '../../bloc/counter/counter_bloc.dart';
 import '../../bloc/calendar/calendar_bloc.dart';
 import '../../bloc/pairing/pairing_bloc.dart';
 import '../../bloc/permissions/permissions_bloc.dart';
+import '../../bloc/share/share_bloc.dart';
 import '../../bloc/sync/sync_bloc.dart';
 
 final getIt = GetIt.instance;
@@ -336,6 +337,8 @@ void _registerBlocs() {
     ),
   );
 
+  getIt.registerFactory<ShareBloc>(ShareBloc.new);
+
   getIt.registerFactory<PermissionsBloc>(
     () => PermissionsBloc(service: getIt<PermissionService>()),
   );
@@ -402,11 +405,25 @@ void _configureSharing(FolderStorageService folders) {
                     engine.status.map((status) => status.binding).distinct(),
               )
             : const Stream<Object?>.empty(),
+        offline: () async =>
+            _syncEngineEnabled &&
+            (await SyncEngine.getInstance()).current.lastFailure?.failure ==
+                SyncGatewayFailure.offline,
+        activity: () => _syncEngineEnabled
+            ? Stream.fromFuture(SyncEngine.getInstance()).asyncExpand(
+                (engine) => engine.status.map((status) => status.activity),
+              )
+            : const Stream<SyncActivity>.empty(),
       ),
       markFolder: folders.setFolderShared,
+      foldersChanged: folders.invalidateCache,
       requestRun: () async {
         if (!_syncEngineEnabled) return;
         await (await SyncEngine.getInstance()).pushNow();
+      },
+      requestSharedRead: () async {
+        if (!_syncEngineEnabled) return;
+        await (await SyncEngine.getInstance()).readSharedNow();
       },
     ),
   );

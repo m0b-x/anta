@@ -52,6 +52,9 @@ void main() {
     // The notes merge re-queues a note whose space document is its own
     // write in an older build's shape (scalability record S6).
     'lib/services/sync/tables/notes_binding.dart': {_May.outboxRetire},
+    // The Sharing page's "Sending…": whether the shareable tables still
+    // wait in the queue (`holdsAnyOf`), a read only.
+    'lib/services/share_service.dart': {_May.outboxRetire},
   };
 
   /// The only places a local device may advance the clock from a remote
@@ -190,7 +193,8 @@ void main() {
     final retires = RegExp(
       r'\bsyncOutboxDao ?\. ?(ackThrough|ackUnpushedThrough|requeueRow'
       r'|requeueAll|requeueBodies'
-      r'|clear|count|maxHlc|pending|pendingForTable|pendingKeys|tombstonedKeys'
+      r'|clear|count|holdsAnyOf|maxHlc|pending|pendingForTable|pendingKeys'
+      r'|tombstonedKeys'
       r'|watchQueued)'
       r' ?\('
       r'|\bfinal outbox = _e\._db\.syncOutboxDao;',

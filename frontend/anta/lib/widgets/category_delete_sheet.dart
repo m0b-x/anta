@@ -13,7 +13,9 @@ import '../models/calendar_category.dart';
 import '../models/calendar_event.dart' show kFallbackCategoryId;
 import '../models/category_delete_impact.dart';
 import '../services/category_service.dart';
+import '../services/share_service.dart';
 import '../utils/custom_snackbar.dart';
+import '../utils/share_copy.dart';
 import 'category_picker_sheet.dart';
 import 'event_avatar.dart';
 import 'form_rows.dart';
@@ -39,10 +41,16 @@ class CategoryDeleteSheet extends StatefulWidget {
   /// What the delete would touch, read by [show] before the route opens.
   final CategoryDeleteImpact impact;
 
+  /// Whether this phone shares, and with whom: while paired, the
+  /// consequences say first what the partner gains or loses through the
+  /// move (`docs/cloud-share-surfaces-roadmap.md` §6.5).
+  final ShareAvailability share;
+
   const CategoryDeleteSheet({
     super.key,
     required this.category,
     required this.impact,
+    this.share = const ShareNotPaired(),
   });
 
   /// Reads the counts first — milliseconds — and only then opens, so the
@@ -54,6 +62,7 @@ class CategoryDeleteSheet extends StatefulWidget {
   static Future<bool?> show(
     BuildContext context, {
     required CalendarCategory category,
+    ShareAvailability share = const ShareNotPaired(),
   }) async {
     final l10n = AppLocalizations.of(context)!;
     final CategoryDeleteImpact impact;
@@ -89,7 +98,11 @@ class CategoryDeleteSheet extends StatefulWidget {
                 MediaQuery.sizeOf(context).height *
                 FormMetrics.sheetHeightFactor,
           ),
-          child: CategoryDeleteSheet(category: category, impact: impact),
+          child: CategoryDeleteSheet(
+            category: category,
+            impact: impact,
+            share: share,
+          ),
         ),
       ),
     );
@@ -251,8 +264,10 @@ class _CategoryDeleteSheetState extends State<CategoryDeleteSheet> {
                         ),
                       ],
                     ),
-                    // Sized for all three sentences, so the caption keeps its
-                    // height whatever the counts say.
+                    // Sized for all three sentences, and for the share
+                    // sentence of every target that could be picked, so the
+                    // caption keeps its height whatever the counts and the
+                    // pick say.
                     FormCaptionSlot(
                       candidates: [
                         _consequences(
@@ -261,12 +276,24 @@ class _CategoryDeleteSheetState extends State<CategoryDeleteSheet> {
                           templates: true,
                           alerts: true,
                         ),
+                        for (final share in _shareSentences(l10n))
+                          _consequences(
+                            l10n,
+                            name,
+                            templates: true,
+                            alerts: true,
+                            share: share,
+                          ),
                       ],
                       child: _consequences(
                         l10n,
                         name,
                         templates: impact.templates > 0,
                         alerts: impact.alerts > 0,
+                        share: _shareSentence(
+                          l10n,
+                          CalendarCategories.resolve(_target),
+                        ),
                       ),
                     ),
                   ],
@@ -296,16 +323,73 @@ class _CategoryDeleteSheetState extends State<CategoryDeleteSheet> {
     ].join(' · ');
   }
 
-  /// Templates, then alerts, then the views: the first two only when the
-  /// category has some, the last always.
+  /// The events whose share the move decides: an event marked on its own
+  /// stays shared whatever category it lands in, so it neither stops nor
+  /// starts being seen.
+  int get _changing => widget.impact.events - widget.impact.markedEvents;
+
+  /// What the partner gains or loses when the events move to [target], or
+  /// null when no share changes hands: not paired, nothing to move, neither
+  /// category shared, or every event shared on its own.
+  String? _shareSentence(AppLocalizations l10n, CalendarCategory target) {
+    final partner = _partner(l10n);
+    if (partner == null) return null;
+    final into = CalendarCategories.labelOf(target, l10n);
+    if (widget.category.sharedByMe && target.sharedByMe) {
+      return l10n.shareDeleteImpactStays(into);
+    }
+    if (_changing == 0) return null;
+    if (widget.category.sharedByMe) {
+      return ShareCopy.sentence(
+        l10n.shareDeleteImpactStops(partner, _changing),
+      );
+    }
+    return target.sharedByMe
+        ? ShareCopy.sentence(
+            l10n.shareDeleteImpactStarts(partner, _changing, into),
+          )
+        : null;
+  }
+
+  /// The partner's name while a move could change what they see; null when
+  /// not paired or when there is nothing to move.
+  String? _partner(AppLocalizations l10n) {
+    final audience = widget.share.audience;
+    if (audience == null || widget.impact.events == 0) return null;
+    return ShareCopy.partnerName(l10n, audience.displayName);
+  }
+
+  /// Every share sentence a pick could raise, for the caption slot: a
+  /// private target's and each shared target's. None while no share could
+  /// change hands, so a sheet with no sharing involved is today's.
+  List<String> _shareSentences(AppLocalizations l10n) {
+    final partner = _partner(l10n);
+    if (partner == null) return const [];
+    return [
+      if (widget.category.sharedByMe && _changing > 0)
+        ShareCopy.sentence(l10n.shareDeleteImpactStops(partner, _changing)),
+      for (final target in CalendarCategories.all)
+        if (!target.fromPartner &&
+            target.id != widget.category.id &&
+            target.sharedByMe)
+          ?_shareSentence(l10n, target),
+    ];
+  }
+
+  /// The share sentence first, then templates, then alerts, then the views:
+  /// the middle two only when the category has some, the last always. The
+  /// share strings carry no full stop of their own; each runs on into the
+  /// next sentence here, so it takes one.
   static Widget _consequences(
     AppLocalizations l10n,
     String name, {
     required bool templates,
     required bool alerts,
+    String? share,
   }) {
     return FormCaption(
       text: [
+        if (share != null) '$share.',
         if (templates) l10n.categoryDeleteTemplatesMove,
         if (alerts) l10n.categoryDeleteAlertsRemoved,
         l10n.categoryDeleteConsequences(name),

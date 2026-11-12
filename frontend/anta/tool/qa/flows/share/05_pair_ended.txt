@@ -17,13 +17,17 @@ expect id:sharing-sync-status "Up to date" --timeout 60
 -d emulator-5558 tap id:panel-mode-day --settle 1000
 -d emulator-5558 tap id:panel-mode-upcoming
 -d emulator-5558 expect "Lifting session" --timeout 30
-# The owner unpairs.
-scroll-to id:sharing-unpair --in id:sharing-list
+# The owner unpairs, from the Sharing page the paired row opens; the page
+# closes on the confirm, back to Sync & sharing.
+scroll-to id:sharing-paired --in id:sharing-list
+tap id:sharing-paired
+wait id:sharing-page
+scroll-to id:sharing-unpair --in id:sharing-page-list
 tap id:sharing-unpair
 wait id:sharing-unpair-confirm
 tap id:sharing-unpair-confirm
 wait id:sharing-pair --timeout 30
-expect --absent id:sharing-unpair
+expect --absent id:sharing-paired --absent id:sharing-page
 # The partner opens Sync & sharing: the notice, answered; then a sync, and
 # the event is gone.
 -d emulator-5558 key back
@@ -35,7 +39,7 @@ expect --absent id:sharing-unpair
 -d emulator-5558 shot pair-ended
 -d emulator-5558 tap id:sharing-ended-close
 -d emulator-5558 wait id:settings-bar-sharing
--d emulator-5558 expect id:sharing-pair --absent id:sharing-unpair --absent id:sharing-ended-close --timeout 15
+-d emulator-5558 expect id:sharing-pair --absent id:sharing-paired --absent id:sharing-ended-close --timeout 15
 -d emulator-5558 tap id:sharing-sync-now
 -d emulator-5558 expect id:sharing-sync-status "Up to date" --timeout 60
 -d emulator-5558 key back

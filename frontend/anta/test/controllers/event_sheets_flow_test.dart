@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -10,6 +11,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:anta/bloc/calendar/calendar_bloc.dart';
 import 'package:anta/bloc/markdown_bar/markdown_bar_bloc.dart';
+import 'package:anta/constants/calendar_categories.dart';
 import 'package:anta/constants/event_presence.dart';
 import 'package:anta/constants/event_skips.dart';
 import 'package:anta/constants/semantics_ids.dart';
@@ -17,13 +19,19 @@ import 'package:anta/controllers/event_sheets_flow.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/models/calendar_appearance.dart';
+import 'package:anta/models/calendar_category.dart';
 import 'package:anta/models/calendar_event.dart';
+import 'package:anta/models/app_user.dart';
 import 'package:anta/models/calendar_grid_filters.dart';
 import 'package:anta/models/recurrence_rule.dart';
+import 'package:anta/models/share_overview.dart';
 import 'package:anta/repositories/note_repository.dart';
 import 'package:anta/services/calendar_event_service.dart';
+import 'package:anta/services/event_alert_service.dart';
 import 'package:anta/services/markdown_bar_service.dart';
+import 'package:anta/services/pairing_service.dart';
 import 'package:anta/services/settings_service.dart';
+import 'package:anta/services/share_service.dart';
 import 'package:anta/services/sync/sync_binding_service.dart';
 import 'package:anta/utils/markdown_color_syntax.dart';
 import 'package:anta/utils/sheet_guard.dart';
@@ -36,6 +44,8 @@ import 'package:anta/widgets/form_rows.dart';
 import 'package:anta/widgets/shared_event_sheet.dart';
 
 import '../database/support/db_test_support.dart';
+import '../services/pairing_support.dart';
+import '../support/fake_share_service.dart';
 
 /// The picker a scheduling surface opens must never inherit the grid's lens.
 ///
@@ -647,6 +657,447 @@ void main() {
       await closeSheets(tester);
     });
   });
+
+  // Share surfaces §9: someone who never paired awaits nothing new before
+  // the editor opens. The answer comes from the pairing service's cache;
+  // only a pair goes on to the share service.
+  group('the share row\'s availability, read as the editor opens', () {
+    var opens = 0;
+
+    Future<PairingService> pairing({required bool paired}) async {
+      final settings = await SettingsService.getInstance();
+      if (paired) {
+        await settings.setPairingSettings(
+          const PairingSettings(
+            pairId: 'pair-1',
+            accountUid: 'me',
+            partnerUid: 'maria-uid',
+            partnerName: 'Maria',
+          ),
+        );
+      }
+      return PairingService.forTesting(
+        auth: FakeAuthService(user: const AppUser(uid: 'me')),
+        gateway: FakePairingGateway(),
+        settings: settings,
+      );
+    }
+
+    setUp(() {
+      opens = 0;
+      // What the app opens sharing through; counted, so a case can say
+      // the share service was never asked for.
+      ShareService.configure(
+        ShareServiceWiring(
+          pairing: () async {
+            opens++;
+            return pairing(paired: false);
+          },
+          sync: _SyncingSource(),
+          markFolder: (_, _) async => false,
+          foldersChanged: () {},
+          requestRun: () async {},
+          requestSharedRead: () async {},
+        ),
+      );
+    });
+
+    tearDown(() {
+      ShareService.reset();
+      ShareService.configure(null);
+      PairingService.reset();
+    });
+
+    Future<void> pumpHost(WidgetTester tester, EventSheetsFlow flow) async {
+      addTearDown(tester.view.reset);
+      tester.view.devicePixelRatio = 1.0;
+      tester.view.physicalSize = const Size(412, 915);
+      await tester.pumpWidget(
+        MultiBlocProvider(
+          providers: [
+            BlocProvider<CalendarBloc>.value(value: bloc),
+            BlocProvider<MarkdownBarBloc>.value(value: barBloc),
+          ],
+          child: MaterialApp(
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            locale: const Locale('en'),
+            home: Scaffold(
+              body: Builder(
+                builder: (context) => TextButton(
+                  onPressed: () => flow.openEditor(context, initialEvent: edited),
+                  child: const Text('open'),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    EventSheetsFlow flowOf() => EventSheetsFlow(
+      guard: SheetGuard(),
+      appearance: () => const CalendarAppearance(),
+      palette: () => MarkdownColorPalette.presets,
+      keepsHeard: () => 0,
+    );
+
+    final shareRow = find.byWidgetPredicate(
+      (w) => w is FormSwitchRow && w.identifier == SemanticsIds.eventShare,
+    );
+
+    Future<void> closeSheets(WidgetTester tester) async {
+      tester
+          .state<NavigatorState>(find.byType(Navigator).first)
+          .popUntil((route) => route.isFirst);
+      await tester.pumpAndSettle();
+      expect(find.byType(EventEditorSheet), findsNothing);
+    }
+
+    testWidgets('never paired: the editor is up on the tap\'s own frame, the '
+        'share service never opened, and no share row', (tester) async {
+      await tester.runAsync(() => pairing(paired: false));
+      await pumpHost(tester, flowOf());
+
+      await tester.tap(find.text('open'));
+      await tester.pump();
+
+      expect(find.byType(EventEditorSheet), findsOneWidget);
+      expect(opens, 0, reason: 'nothing opened for sharing');
+      await tester.pumpAndSettle();
+      expect(shareRow, findsNothing);
+      await closeSheets(tester);
+    });
+
+    testWidgets('paired: the share service answers, and the row is there', (
+      tester,
+    ) async {
+      await tester.runAsync(() async {
+        final paired = await pairing(paired: true);
+        await ShareService.forTesting(
+          db: settingsDb,
+          settings: await SettingsService.getInstance(),
+          pairing: paired,
+          sync: _SyncingSource(),
+          markEvent: (_, _) async => false,
+          markFolder: (_, _) async => false,
+        );
+      });
+      await pumpHost(tester, flowOf());
+
+      await tester.tap(find.text('open'));
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 50)),
+      );
+      await tester.pumpAndSettle();
+
+      expect(shareRow, findsOneWidget);
+      expect(find.text('Share with Maria'), findsOneWidget);
+      await closeSheets(tester);
+    });
+  });
+
+  // Share surfaces §6.6: the editor's switch rides its result, and the flow
+  // writes it through the bloc once the event is stored, then says so.
+  group('the share switch', () {
+    const audience = ShareAudience(
+      id: 'pair-1',
+      displayName: 'Maria',
+      members: [],
+    );
+
+    late _OrderedShareService share;
+    late List<CalendarCategory> catalogue;
+
+    setUp(() => catalogue = CalendarCategories.all);
+    tearDown(() => CalendarCategories.updateCache(catalogue));
+
+    Future<void> open(
+      WidgetTester tester,
+      Future<void> Function(EventSheetsFlow flow, BuildContext context) door, {
+      AlertWriter? alertWriter,
+    }) async {
+      addTearDown(tester.view.reset);
+      tester.view.devicePixelRatio = 1.0;
+      tester.view.physicalSize = const Size(412, 915);
+      await tester.runAsync(() async {
+        await bloc.close();
+        share = _OrderedShareService();
+        bloc = CalendarBloc(
+          service: await CalendarEventService.getInstance(),
+          shareService: () async => share,
+          alertWriter: alertWriter,
+        );
+        share.bloc = bloc;
+        await dispatch(const LoadCalendarEvents());
+      });
+      final flow = EventSheetsFlow(
+        guard: SheetGuard(),
+        appearance: () => const CalendarAppearance(),
+        palette: () => MarkdownColorPalette.presets,
+        keepsHeard: () => 0,
+        shareAvailability: () async => const ShareReady(audience),
+      );
+      await tester.pumpWidget(
+        MultiBlocProvider(
+          providers: [
+            BlocProvider<CalendarBloc>.value(value: bloc),
+            BlocProvider<MarkdownBarBloc>.value(value: barBloc),
+          ],
+          child: MaterialApp(
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            locale: const Locale('en'),
+            home: Scaffold(
+              body: Builder(
+                builder: (context) => TextButton(
+                  onPressed: () => door(flow, context),
+                  child: const Text('open'),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+    }
+
+    Future<void> tapAndSettle(WidgetTester tester, Finder target) async {
+      await tester.ensureVisible(target);
+      await tester.pumpAndSettle();
+      await tester.tap(target);
+      await tester.pumpAndSettle();
+    }
+
+    final shareRow = find.byWidgetPredicate(
+      (w) => w is FormSwitchRow && w.identifier == SemanticsIds.eventShare,
+    );
+
+    /// Waits until [done] holds: the writes run on drift's isolate, and the
+    /// flow's steps after them on the test's clock, so both get turns.
+    Future<void> until(WidgetTester tester, bool Function() done) async {
+      for (var i = 0; i < 100 && !done(); i++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 20)),
+        );
+        await tester.pump();
+      }
+      await tester.pumpAndSettle();
+    }
+
+    Future<void> saveAnd(WidgetTester tester, bool Function() done) async {
+      await tapAndSettle(tester, find.byType(FilledButton).first);
+      await until(tester, done);
+    }
+
+    testWidgets('a new event created shared is marked after it is stored, '
+        'and the snackbar\'s Undo takes the mark back', (tester) async {
+      await open(
+        tester,
+        (flow, context) => flow.openEditor(context, day: visibleDay),
+      );
+      share.nextChange = ShareChange(sharedEvents: [edited]);
+      await tester.enterText(find.byType(TextField).first, 'Dinner');
+      await tester.pumpAndSettle();
+      await tapAndSettle(tester, shareRow);
+
+      await saveAnd(tester, () => share.eventShares.isNotEmpty);
+
+      final id = share.eventShares.single.$1;
+      expect(share.eventShares.single.$2, isTrue);
+      expect(share.heldAtWrite, [true], reason: 'the write follows the store');
+      expect(find.text('Sharing Dinner with Maria'), findsOneWidget);
+
+      await tester.tap(find.text('Undo'));
+      await until(tester, () => share.eventShares.length > 1);
+      expect(share.eventShares.last, (id, false));
+    });
+
+    testWidgets('a create that lands past the old two-second bound still '
+        'ends shared, its mark set after the row', (tester) async {
+      final alertsHeld = Completer<void>();
+      await open(
+        tester,
+        (flow, context) => flow.openEditor(context, day: visibleDay),
+        alertWriter: (_, _, {knownIds}) => alertsHeld.future,
+      );
+      share.nextChange = ShareChange(sharedEvents: [edited]);
+      await tester.enterText(find.byType(TextField).first, 'Dinner');
+      await tester.pumpAndSettle();
+      await tapAndSettle(tester, shareRow);
+      await tapAndSettle(tester, find.byType(FilledButton).first);
+
+      // The create is held on its alerts while the clock passes the wait
+      // the flow used to give up after.
+      await tester.pump(const Duration(seconds: 3));
+      expect(share.eventShares, isEmpty, reason: 'nothing before the row');
+      alertsHeld.complete();
+      await until(tester, () => share.eventShares.isNotEmpty);
+
+      expect(share.eventShares.single.$2, isTrue);
+      expect(share.heldAtWrite, [true], reason: 'the write follows the store');
+      expect(find.text('Sharing Dinner with Maria'), findsOneWidget);
+    });
+
+    testWidgets('an edit whose save is refused leaves the mark unwritten', (
+      tester,
+    ) async {
+      await open(
+        tester,
+        (flow, context) => flow.openEditor(context, initialEvent: edited),
+      );
+      await tapAndSettle(tester, shareRow);
+      // A pull tombstones the event under the open form: the bloc refuses
+      // the update, which must take the share with it.
+      await tester.runAsync(() async {
+        final gone = bloc.stream.firstWhere(
+          (state) =>
+              state is CalendarPageLoaded &&
+              !state.allEvents.any((event) => event.id == edited.id),
+        );
+        bloc.add(DeleteCalendarEvent(eventId: edited.id));
+        await gone;
+      });
+
+      await saveAnd(tester, () => false);
+      await tester.pump(const Duration(seconds: 3));
+      await until(tester, () => false);
+
+      expect(share.eventShares, isEmpty);
+      expect(find.textContaining('Sharing'), findsNothing);
+    });
+
+    testWidgets('a mark that could not be set is said as such, never as the '
+        'exception\'s text', (tester) async {
+      await open(
+        tester,
+        (flow, context) => flow.openEditor(context, initialEvent: edited),
+      );
+      share.failWith = StateError('the store is locked');
+      await tapAndSettle(tester, shareRow);
+
+      await saveAnd(tester, () => share.attempts > 0);
+
+      expect(find.text("Sharing couldn't be changed — try again"), findsOne);
+      expect(find.textContaining('locked'), findsNothing);
+    });
+
+    testWidgets('an edit that leaves the switch where it was writes nothing', (
+      tester,
+    ) async {
+      await open(
+        tester,
+        (flow, context) => flow.openEditor(context, initialEvent: edited),
+      );
+      expect(shareRow, findsOneWidget);
+      await tester.enterText(find.byType(TextField).first, 'Leg day, heavy');
+      await tester.pumpAndSettle();
+
+      await saveAnd(
+        tester,
+        () => (bloc.state as CalendarPageLoaded).allEvents.any(
+          (event) => event.title == 'Leg day, heavy',
+        ),
+      );
+      await until(tester, () => false);
+
+      expect(share.eventShares, isEmpty);
+      expect(find.textContaining('Sharing'), findsNothing);
+    });
+
+    testWidgets('the own mark taken off an event its category shares says it '
+        'stays shared, never "No longer shared"', (tester) async {
+      CalendarCategories.updateCache([
+        for (final category in catalogue)
+          category.id == 'mobility'
+              ? CalendarCategory(
+                  id: category.id,
+                  name: category.name,
+                  colorValue: category.colorValue,
+                  iconKey: category.iconKey,
+                  sortOrder: category.sortOrder,
+                  isBuiltIn: category.isBuiltIn,
+                  isHidden: category.isHidden,
+                  sharedByMe: true,
+                )
+              : category,
+      ]);
+      await open(
+        tester,
+        (flow, context) => flow.openEditor(
+          context,
+          initialEvent: edited.copyWith(markedShared: true),
+        ),
+      );
+      share.nextChange = ShareChange(unsharedEvents: [edited]);
+      // The mark is the event's own while the category is not shared.
+      await tapAndSettle(tester, shareRow);
+      await tapAndSettle(
+        tester,
+        find.bySemanticsIdentifier(SemanticsIds.eventCategory),
+      );
+      await tapAndSettle(
+        tester,
+        find.bySemanticsIdentifier(SemanticsIds.categoryPickRow('mobility')),
+      );
+
+      await saveAnd(tester, () => share.eventShares.isNotEmpty);
+
+      expect(share.eventShares.single, ('visible', false));
+      expect(find.textContaining('No longer shared'), findsNothing);
+      expect(
+        find.textContaining('Leg day stays shared through'),
+        findsOneWidget,
+      );
+    });
+  });
+}
+
+/// A database that syncs, for the share service a paired case builds.
+class _SyncingSource implements ShareSyncSource {
+  @override
+  Future<bool> syncing() async => true;
+
+  @override
+  Future<bool> offline() async => false;
+
+  @override
+  Stream<void> get changes => const Stream<void>.empty();
+
+  @override
+  Stream<void> get runsEnded => const Stream<void>.empty();
+}
+
+/// The fake share service, which also records whether the calendar held the
+/// event when its mark was written — the store first, the mark after.
+class _OrderedShareService extends FakeShareService {
+  _OrderedShareService()
+    : super(
+        availability: const ShareReady(
+          ShareAudience(id: 'pair-1', displayName: 'Maria', members: []),
+        ),
+      );
+
+  CalendarBloc? bloc;
+  final heldAtWrite = <bool>[];
+
+  /// Thrown by every share write instead of writing, when set.
+  Object? failWith;
+  int attempts = 0;
+
+  @override
+  Future<ShareChange> setEventShared(String id, bool on) async {
+    attempts++;
+    final failure = failWith;
+    if (failure != null) throw failure;
+    final state = bloc?.state;
+    heldAtWrite.add(
+      state is CalendarPageLoaded &&
+          state.allEvents.any((event) => event.id == id),
+    );
+    return super.setEventShared(id, on);
+  }
 }
 
 class _EventRecorder extends BlocObserver {

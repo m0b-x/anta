@@ -84,9 +84,14 @@ import 'package:anta/widgets/sync_space_picker_sheet.dart';
 import 'package:anta/widgets/time_pad_sheet.dart';
 import 'package:anta/models/partner_look.dart';
 import 'package:anta/widgets/shared_event_sheet.dart';
+import 'package:anta/bloc/share/share_bloc.dart';
+import 'package:anta/models/share_overview.dart';
+import 'package:anta/services/share_service.dart';
+import 'package:anta/widgets/share_events_sheets.dart';
 
 import '../database/support/db_test_support.dart';
 import '../services/pairing_support.dart';
+import '../support/fake_share_service.dart';
 
 /// `showModalBottomSheet(useSafeArea: true)` guards the **status bar** only —
 /// its route wraps the sheet in `SafeArea(bottom: false)`. A sheet sitting on
@@ -300,6 +305,95 @@ void main() {
       scrollBottomPadding(tester),
       greaterThanOrEqualTo(navBar),
       reason: 'the copy row and its caption end the body',
+    );
+  });
+
+  /// The Sharing page's bloc over a fake, listing one event of each side.
+  Future<ShareBloc> shareBlocWithEvents(WidgetTester tester) async {
+    final day = DateTime.utc(2026, 8, 25);
+    final service =
+        FakeShareService(
+            availability: const ShareReady(
+              ShareAudience(id: 'pair-1', displayName: 'Maria', members: []),
+            ),
+          )
+          ..shareOverview = ShareOverview(
+            events: [
+              MySharedEvent(
+                event: CalendarEvent(
+                  id: 'e1',
+                  title: 'Dinner',
+                  categoryId: 'gym',
+                  startDate: day,
+                  markedShared: true,
+                ),
+                categoryShared: false,
+              ),
+            ],
+            partnerEvents: [
+              CalendarEvent(
+                id: 'p1',
+                title: 'Night shift',
+                categoryId: 'work',
+                startDate: day,
+                fromPartner: true,
+              ),
+            ],
+          );
+    final bloc = ShareBloc(
+      service: () async => service,
+      calendarChanges: const Stream.empty(),
+    );
+    addTearDown(bloc.close);
+    bloc.add(const ShareOpened());
+    await tester.runAsync(
+      () => bloc.stream.firstWhere((state) => state is ShareLoaded),
+    );
+    return bloc;
+  }
+
+  testWidgets('my Single events sheet clears the navigation bar', (
+    tester,
+  ) async {
+    sizeSurfaceWithNavBar(tester);
+    final bloc = await shareBlocWithEvents(tester);
+    await openFrom(
+      tester,
+      (context) => MySharedEventsSheet.show(
+        context,
+        bloc: bloc,
+        onOpen: (_, _, _) async {},
+      ),
+    );
+
+    expect(find.text('Dinner'), findsOneWidget);
+    expect(
+      scrollBottomPadding(tester),
+      greaterThanOrEqualTo(navBar),
+      reason: 'the last shared event and its ✕ end the list',
+    );
+  });
+
+  testWidgets('the partner\'s Single events sheet clears the navigation bar', (
+    tester,
+  ) async {
+    sizeSurfaceWithNavBar(tester);
+    final bloc = await shareBlocWithEvents(tester);
+    await openFrom(
+      tester,
+      (context) => PartnerSharedEventsSheet.show(
+        context,
+        bloc: bloc,
+        partner: const PartnerLook(name: 'Maria'),
+        onOpen: (_, _, _) async {},
+      ),
+    );
+
+    expect(find.text('Night shift'), findsOneWidget);
+    expect(
+      scrollBottomPadding(tester),
+      greaterThanOrEqualTo(navBar),
+      reason: 'the last of the partner\'s events ends the list',
     );
   });
 

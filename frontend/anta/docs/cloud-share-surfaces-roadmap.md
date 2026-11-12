@@ -1,7 +1,7 @@
 # Share Surfaces — ANTA
 
-**Status: IN PROGRESS — slices A and B built and committed (2026-11-12),
-slices C–E and G in build; §15 says what is built. Scope on the owner's word of
+**Status: IN PROGRESS — slices A, B, C and E built and committed (2026-11-12),
+slices D and G in build; §15 says what is built. Scope on the owner's word of
 that day: the calendar side, slices A–E and G; slice F (folders, the
 partner's notes) is not in this build.** The mock is
 published (https://claude.ai/artifact/E5Zm8rPv5hGLk2V5fKphPt). Every
@@ -1501,3 +1501,171 @@ category). Cookbook: `.claude/skills/qa-emulator/references/share-pass.md`.
 
 **Not done, by choice.** `CalendarEventDao.upsert` does not itself refuse
 a row that is the partner's (the service's check and the fence cover it).
+
+### Slices C and E — give (2026-11-12)
+
+Built together, because the Sharing page lists what slice E's switch
+writes. Opus 5.5 implementers in parallel worktrees — the primitives, the
+service layer, the Sharing page, the category editor with the Categories
+page, the event editor with the Single events sheets — from one designer
+spec rendered with real fonts first; reviewed by two code reviewers and a
+design reviewer, whose findings seven fix runs closed in the same commit,
+each fix pinned by a test of its own. Gate: `dart analyze lib test
+tool test_driver` clean; the whole suite `+16739 ~17`; `untranslated.txt`
+empty. The device flows of the surfaces come with slice G.
+
+**What a person gets.** While paired and syncing: "Share with {name}" is a
+switch in a category's editor and in an event's editor, and an entry in
+the Categories page's ⋮ menu. Sync & sharing's Pairing row reads "Paired
+with {name}", says what is shared and opens the Sharing page: what I share
+— categories through a tick sheet, single events through a list with a ✕
+each — "Stop sharing everything", and Unpair, which moved there. Every
+change says what it did, with Undo. A shared category and a shared event
+wear a small sign where they are listed, and say "Shared with {name}" to a
+screen reader. An account that never paired sees none of this.
+
+**The pieces.**
+
+- Primitives, each opt-in with every existing caller unchanged:
+  `SettingsSectionData.trailing` / `trailingTemplates`,
+  `SettingsEntry.descriptionMaxLines`, `FormMenuItem.caption` (a disabled
+  item's reason stays at full strength), `FormSwitchRow.subtitleTemplates`
+  / `subtitleFitsTemplates` / `onDisabledTap` / `onDisabledTapHint`,
+  `FormPickerRow.captionWraps`, `FormPickerSwitchRow.leading` / nullable
+  `onTap` / `switchSemanticsLabel` / `enabled`;
+  `FormMetrics.receivedCaptionMaxLines`, `RowMetrics.avatarTextInset`.
+  `CustomSnackbar.showWithAction` holds its messenger from the moment it
+  shows, so its action still dismisses the bar after its page has left.
+- The models say what is shared with no lookup per row:
+  `CalendarCategory.sharedByMe`, `CalendarEvent.markedShared` (the event's
+  own mark), `CalendarCategories.shareOf(event)` → `EventShareVia?` (its
+  own mark, or its category's), `CalendarCategories.anySharedByMe`.
+- `ShareService`: `setEventShared`, `setCategoryShared`,
+  `setCategoriesShared(Set<String>)` (the tick sheet's Done, as one act),
+  `undo(ShareChange)`, `stopAll()`, `overview()`, `refreshShared()`.
+  `ShareChange` names what an act wrote — and how many events of an
+  un-shared category stay shared by their own mark — for the snackbar and
+  its Undo. `ShareOverview` is what the page lists, the tick sheet's
+  counts included.
+- **An act is whole.** Its marks are written in one transaction through
+  the DAOs' writers; a write that throws takes the act's earlier ones with
+  it, so a failure said is a failure true. The category catalogue and the
+  event cache read their marks again once, after the act, whatever its
+  end. This is where the build leaves §9's "the service's one mutation
+  chain": the catalogue's chain could not hold that transaction — a link
+  queued ahead of it waiting on the database would wait on the transaction
+  itself — so `CategoryService.setShared` and
+  `CalendarEventService.setShared` remain for the QA seam and the tests,
+  and SQLite keeps a delete of the same category out of the act.
+- `ShareBloc` (`lib/bloc/share/`): `ShareOpened` (load, follow, and ask
+  for one shared read — D22), `ShareLoadRequested` (the Pairing row's
+  summary: no read), the four acts as one ordered queue (`ShareActEvent`),
+  an outcome per act with a sequence number so two equal ones both reach
+  the snackbar, `ShareLoadFailed` for a first load that threw. It reads
+  the overview again when the read it asked for ends and as each sync run
+  ends.
+- `SyncEngine.readSharedNow()`: the shared read alone, under every
+  cadence, never beside a pull or a drain; merged into a run nobody asked
+  for it does not lift that run past the manual cadence, and it never
+  spends the access recheck a resume owes. `ShareService.refreshShared()`
+  asks for it at most once a minute (`sharedReadMinAge`) and completes
+  when it has ended.
+- What the page's status says, exactly: "Sending…" from a share act until
+  the outbox holds no entry of the shareable tables (`SyncDao
+  .keyShareSending`, cleared in the transaction that finds it drained —
+  an ordinary save while paired says nothing); "Could not check" only
+  after a read that failed as one (`keySharedReadFailedAt` newer than
+  `keySharedReadOkAt`; a read the app's leaving cut records nothing);
+  "shares anything" is the database's answer (`SyncDao.anyShareMark()`),
+  folders included.
+- A mark the reader cleared — a pair that ended, or was made again —
+  reaches the caches (`SyncInvalidation.shareMarks`), so no row keeps a
+  sign for a share that is gone; and the sign needs a partner
+  (`PartnerLook.unpaired`): marks left behind by an unpair draw nothing.
+- Counts: `countByCategory()` counts my events only;
+  `countPartnerByCategory()` the partner's.
+
+**The surfaces.**
+
+- `lib/pages/sharing_page.dart` — the settings kit. Built here: YOU SHARE
+  (Categories, Single events) and the last group; slice D adds the three
+  sections between them. The intro and the reason "Turn on sync to share"
+  share one slot sized by the taller, so the entries never move, at open
+  or mid-visit. A load that fails says so in one line and still offers
+  Unpair.
+- The Pairing row (`sync_settings_page.dart`): id `sharing-paired`, the
+  summary in a fixed-lines slot; `sharing-unpair` and its confirm moved to
+  the page. Stopping sync while this database shares something says what
+  the partner keeps (D25), asked at the tap: a tap before the first read
+  waits for it, for at most `SyncLimits.stopConfirmShareRead`.
+- The tick sheet is `CategoryPickerSheet.pickMulti` with a title, a
+  caption and counts; a category created inside it arrives un-ticked
+  (`tickCreated: false`, case C9).
+- `lib/widgets/share_events_sheets.dart`: `MySharedEventsSheet` (each row
+  a ✕, snackbar with Undo; a row returns only when its Undo was written;
+  a past event's date carries its year; nothing is cut at German 2.0) and
+  `PartnerSharedEventsSheet` (read-only; slice D opens it).
+- The category editor's SHARING section (`CategoryEditorSheet.open` →
+  `CategoryEditorResult{category, share}`), the delete sheet's sentence
+  about what the partner stops or starts seeing, the Categories page's ⋮
+  entry, caption and sign. A share chosen for a new category is written
+  as the editor returns, before the row's reveal.
+- The event editor's `event-share` row: one height in every state (62 dp
+  at 1.0, whatever the category names), on and locked while its category
+  is shared, following a category pick. **The share choice rides the
+  save**: the create and the update events carry it, and the handler sets
+  the mark only after the row is stored — a save that failed shares
+  nothing, and a mark that could not be set is said as such.
+- Both editors follow sync turned on: back from Sync & sharing they ask
+  their opener again and the row is live, the draft still clean.
+
+**Decided in the build** (each differs from, or adds to, the plan above).
+
+- No Folders entry anywhere: slice F is not built.
+- The Sharing page leaves only when the pairing itself says the pair is
+  gone. A pair another account made on this database (the share service
+  says "not paired", the pairing still stands) keeps the page open on its
+  last group, so that pair can still be ended. Leaving closes what the
+  page opened above itself first; Sync & sharing's "pairing ended" notice
+  stays on top.
+- A dimmed entry or switch that leads to Sync & sharing is announced as
+  an enabled button with the hint "Opens Sync & sharing", never as a
+  disabled control that acts; from the Sharing page that tap goes back,
+  not forward. A disabled switch that is on keeps Material's own disabled
+  colours with no second dimming, so "on" still reads on.
+- An Undo outlives the surface that offered it: through the bloc while it
+  is open, through `ShareService.undo` once it is closed — the one place
+  a surface writes past its bloc — with a failure said on the app's
+  messenger.
+- An archived category that is not shared yet is not in the tick sheet
+  (the picker lists what it lists everywhere); it is shared from the
+  Categories page's menu.
+- "Stop sharing everything" is offered while not syncing — clearing marks
+  needs no sync — and says nothing on success: its confirmation was the
+  conversation.
+- My Single events rows have no tap: the list is for stopping, the
+  calendar for opening.
+
+**Costs, pinned.** Someone who never paired: the Sharing surfaces read
+nothing and add no await before an editor or the Categories page shows —
+"not paired" is answered from memory (`PairingService.pairedInMemory`).
+The one exception is the first editor of a session opened before any
+pairing service was built: it opens the share service once (local reads,
+no network), since nothing in memory can yet tell a never-paired database
+from a paired one that shares nothing. No pass over the events for an
+account that shares nothing (`mayHoldPartnerEvents`, `mayHoldOwnMarks`).
+A paired account: the overview's reads on each load of the Sharing page
+or the Pairing row's summary, one keyed read for "Sending…" while no act
+is in flight, and one shared read per page open at most once a minute.
+
+**Kept as built, known.** If the pair ends while one of the Sharing
+page's own confirmations is on top and Sync & sharing has not raised its
+notice yet, that confirmation is taken for the notice and outlives the
+page; its answer is ignored. An Undo from the Categories page that fails
+after that page has left is logged, not said. In the mode no share row
+uses, a disabled `FormSwitchRow` still dims its switch twice (its callers
+stay pixel-identical).
+
+**The device suite.** Flows `00`, `05` and `06` follow the Unpair entry
+to its new page; the cookbook's two sentences about it are corrected. The
+surfaces' own flows, and the run of all of them, come with slice G.

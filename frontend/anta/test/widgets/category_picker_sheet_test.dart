@@ -3,11 +3,16 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:anta/constants/calendar_categories.dart';
 import 'package:anta/constants/semantics_ids.dart';
+import 'package:anta/database/database.dart';
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/models/calendar_category.dart';
+import 'package:anta/services/calendar_palette_service.dart';
+import 'package:anta/services/category_service.dart';
+import 'package:anta/services/settings_service.dart';
 import 'package:anta/widgets/category_picker_sheet.dart';
 import 'package:anta/widgets/form_rows.dart';
 
+import '../database/support/db_test_support.dart';
 import 'support/category_editor_robot.dart';
 
 /// The picker serves two arities off one sheet, and the properties worth
@@ -518,6 +523,170 @@ void main() {
       expect(
         find.bySemanticsIdentifier(SemanticsIds.categoryPickRow(id)),
         findsOneWidget,
+      );
+    }
+  });
+
+  group('the Sharing page\'s tick sheet (share surfaces §6.3)', () {
+    final l10n = lookupAppLocalizations(const Locale('en'));
+
+    testWidgets('it takes a title, a caption under the header and each row\'s '
+        'event count, " · Hidden" after an archived one; an empty pick stays '
+        'an empty pick', (tester) async {
+      seed(3, hidden: {'c2'});
+      Set<String>? applied;
+      await openSheet<Set<String>>(tester, (context) async {
+        applied = await CategoryPickerSheet.pickMulti(
+          context,
+          selected: const {'c2'},
+          title: l10n.shareCategoriesTitle,
+          caption: l10n.shareCategoriesCaption('Maria'),
+          counts: const {'c0': 42, 'c2': 3},
+          identifier: SemanticsIds.shareCategoriesSheet,
+        );
+        return applied;
+      });
+
+      expect(
+        find.bySemanticsIdentifier(SemanticsIds.shareCategoriesSheet),
+        findsOneWidget,
+      );
+      expect(find.text(l10n.shareCategoriesTitle), findsOneWidget);
+      expect(find.text(l10n.calendarCategories), findsNothing);
+      expect(
+        tester
+            .widget<FormSheetHeader>(find.byType(FormSheetHeader))
+            .stackTitleAtLargeText,
+        isTrue,
+      );
+      final caption = find.widgetWithText(
+        FormCaption,
+        l10n.shareCategoriesCaption('Maria'),
+      );
+      expect(caption, findsOneWidget);
+      expect(
+        find.ancestor(of: caption, matching: find.byType(Scrollable)),
+        findsNothing,
+        reason: 'the caption stays under the header, outside the scroll',
+      );
+      expect(rowNamed(tester, 'Cat0').caption, l10n.categoryEventCount(42));
+      expect(rowNamed(tester, 'Cat1').caption, l10n.categoryEventCount(0));
+      expect(
+        rowNamed(tester, 'Cat2').caption,
+        '${l10n.categoryEventCount(3)} · ${l10n.categoryHidden}',
+      );
+
+      await tester.tap(find.text('Cat2'));
+      await tester.pumpAndSettle();
+      await tester.tap(pickerApply());
+      await tester.pumpAndSettle();
+
+      expect(applied, isNotNull);
+      expect(applied, isEmpty);
+    });
+
+    testWidgets('without them the picker is the one every other caller '
+        'opens', (tester) async {
+      seed(2, hidden: {'c1'});
+      await openSheet<Set<String>>(
+        tester,
+        (context) =>
+            CategoryPickerSheet.pickMulti(context, selected: const {'c1'}),
+      );
+
+      expect(find.text(l10n.calendarCategories), findsOneWidget);
+      // The one caption is the archived row's own "Hidden".
+      expect(
+        find.byType(FormCaption).evaluate().length,
+        find
+            .descendant(
+              of: find.byType(FormCheckRow),
+              matching: find.byType(FormCaption),
+            )
+            .evaluate()
+            .length,
+      );
+      expect(
+        tester
+            .widget<FormSheetHeader>(find.byType(FormSheetHeader))
+            .stackTitleAtLargeText,
+        isFalse,
+      );
+      expect(rowNamed(tester, 'Cat0').caption, isNull);
+      expect(rowNamed(tester, 'Cat1').caption, l10n.categoryHidden);
+      expect(
+        find.bySemanticsIdentifier(SemanticsIds.shareCategoriesSheet),
+        findsNothing,
+      );
+    });
+  });
+
+  // Create category writes through the real service, so these run it
+  // against `NativeDatabase.memory()` as the editor's own suite does.
+  group('a category created inline', () {
+    late AppDatabase db;
+
+    setUp(() async {
+      CategoryService.reset();
+      CalendarPaletteService.reset();
+      SettingsService.reset();
+      db = await openTestDatabase();
+      SettingsService.forTesting(db);
+      await CategoryService.forTesting(db);
+    });
+
+    tearDown(() async {
+      CategoryService.reset();
+      CalendarPaletteService.reset();
+      SettingsService.reset();
+      await db.close();
+    });
+
+    for (final tickCreated in const [true, false]) {
+      testWidgets(
+        tickCreated
+            ? 'arrives ticked for every caller that keeps the default'
+            : 'arrives un-ticked in the share tick sheet, so Done hands over '
+                  'only what was ticked (case C9)',
+        (tester) async {
+          Set<String>? applied;
+          await openSheet<Set<String>>(tester, (context) async {
+            applied = tickCreated
+                ? await CategoryPickerSheet.pickMulti(
+                    context,
+                    selected: const {},
+                  )
+                : await CategoryPickerSheet.pickMulti(
+                    context,
+                    selected: const {},
+                    identifier: SemanticsIds.shareCategoriesSheet,
+                    tickCreated: false,
+                  );
+            return applied;
+          });
+
+          // Below the built-ins the service seeds.
+          final create = find.bySemanticsIdentifier(
+            SemanticsIds.categoryPickCreate,
+          );
+          await tester.ensureVisible(create);
+          await tester.pumpAndSettle();
+          await tester.tap(create);
+          await tester.pumpAndSettle();
+          final editor = CategoryEditorRobot(tester);
+          await editor.typeName('Dentist');
+          await editor.save();
+          expect(editor.isOpen, isFalse);
+
+          final created = CalendarCategories.all.singleWhere(
+            (category) => category.name == 'Dentist',
+          );
+          expect(rowNamed(tester, 'Dentist').checked, tickCreated);
+
+          await tester.tap(pickerApply());
+          await tester.pumpAndSettle();
+          expect(applied, tickCreated ? {created.id} : isEmpty);
+        },
       );
     }
   });

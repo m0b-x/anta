@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/scheduler.dart';
@@ -37,14 +39,18 @@ import '../models/custom_markdown_shortcut.dart';
 import '../models/recurrence_rule.dart';
 import '../models/utility_button_config.dart';
 import '../repositories/note_repository.dart';
+import '../services/app_navigator.dart';
 import '../services/event_time_formatter.dart';
 import '../services/recurrence_formatter.dart';
 import '../services/settings_service.dart';
+import '../services/share_service.dart'
+    show ShareAvailability, ShareNotPaired, ShareReady;
 import '../utils/editor_render_context.dart';
 import '../utils/list_aware_paste.dart';
 import '../utils/markdown_color_syntax.dart';
 import '../utils/markdown_editor_span_builder.dart';
 import '../utils/re_editor_search_controller.dart';
+import '../utils/share_copy.dart';
 import 'alert_editor_sheet.dart';
 import 'app_dialogs.dart';
 import 'automation_id.dart';
@@ -113,6 +119,14 @@ class EventEditorSaved extends EventEditorResult {
   /// [alerts] is.
   final Set<String>? knownAlertIds;
 
+  /// The event's own share mark as the form left it, or `null` when the
+  /// form showed no share row (not paired, the guide's sandbox).
+  ///
+  /// Beside [event] rather than on it: `CalendarEvent.markedShared` is
+  /// never written by a save (a new event has no row to mark yet), so the
+  /// flow sets the mark through the share service once the event is stored.
+  final bool? shared;
+
   const EventEditorSaved(
     this.event, {
     this.occurrenceDay,
@@ -120,6 +134,7 @@ class EventEditorSaved extends EventEditorResult {
     this.skippedDays,
     this.alerts,
     this.knownAlertIds,
+    this.shared,
   });
 }
 
@@ -225,6 +240,16 @@ class EventEditorSheet extends StatefulWidget {
   final Set<DateTime>? initialSkippedDays;
   final List<EventAlert>? initialAlerts;
 
+  /// Whether this database can share and with whom, read by the opener as
+  /// [dayLoad] is: the share row is absent while [ShareNotPaired], so a
+  /// person who never paired sees the form as it always was.
+  final ShareAvailability shareAvailability;
+
+  /// Asks the opener for [shareAvailability] again, once Sync & sharing —
+  /// pushed from the dimmed share row — returns: sync turned on there
+  /// enables the row the person left it for. Null keeps the first answer.
+  final Future<ShareAvailability> Function()? rereadShareAvailability;
+
   const EventEditorSheet({
     super.key,
     required this.defaultDate,
@@ -237,6 +262,8 @@ class EventEditorSheet extends StatefulWidget {
     this.sandbox = false,
     this.initialSkippedDays,
     this.initialAlerts,
+    this.shareAvailability = const ShareNotPaired(),
+    this.rereadShareAvailability,
   });
 
   static Future<EventEditorResult?> show(
@@ -251,6 +278,8 @@ class EventEditorSheet extends StatefulWidget {
     bool sandbox = false,
     Set<DateTime>? initialSkippedDays,
     List<EventAlert>? initialAlerts,
+    ShareAvailability shareAvailability = const ShareNotPaired(),
+    Future<ShareAvailability> Function()? rereadShareAvailability,
   }) {
     return showModalBottomSheet<EventEditorResult>(
       context: context,
@@ -272,6 +301,8 @@ class EventEditorSheet extends StatefulWidget {
           sandbox: sandbox,
           initialSkippedDays: initialSkippedDays,
           initialAlerts: initialAlerts,
+          shareAvailability: shareAvailability,
+          rereadShareAvailability: rereadShareAvailability,
         ),
       ),
     );
@@ -671,6 +702,15 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
   /// this event inherits its category's alerts.
   bool _categoryAlerts = true;
 
+  /// Draft state for the event's own share mark (share surfaces §6.6). Kept
+  /// as the person left it while the category shares the event anyway, so
+  /// moving it to an unshared category again shows the choice they made.
+  bool _markedShared = false;
+
+  /// [EventEditorSheet.shareAvailability], then the opener's answer again
+  /// after each trip to Sync & sharing from the share row.
+  late ShareAvailability _shareAvailability = widget.shareAvailability;
+
   /// The alerts the category the form currently has would hand down, read
   /// synchronously from the facade. Shown read-only beside the own ones; never
   /// part of [_alerts], so the cap, the remove-after gate and the saved set
@@ -813,6 +853,7 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
     _seededAlertIds = {for (final alert in _alerts) alert.id};
     _removeAfterAlert = initial?.removeAfterAlert ?? false;
     _categoryAlerts = initial?.categoryAlerts ?? true;
+    _markedShared = initial?.markedShared ?? false;
     _initRecurrenceFrom(initial?.rule ?? const OneTimeRecurrence());
     // Only a saved event that was actually counting carries a style the user
     // can be said to have chosen; otherwise the persisted value is just the
@@ -1926,6 +1967,7 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
             : null,
         alerts: List<EventAlert>.unmodifiable(_alerts),
         knownAlertIds: Set<String>.unmodifiable(_seededAlertIds),
+        shared: _shareRowShown ? _markedShared : null,
       ),
     );
   }
@@ -2169,6 +2211,7 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
       skipped,
       _noteId,
       _priority,
+      _markedShared,
     ].join('\u0000');
   }
 
@@ -2949,6 +2992,71 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
     );
   }
 
+  /// Whether the form offers the share switch: only while paired (D7), and
+  /// never in the guide's sandbox, whose demo event must not leave the phone.
+  bool get _shareRowShown =>
+      !widget.sandbox && _shareAvailability is! ShareNotPaired;
+
+  /// The share switch (share surfaces §6.6): two lines in every state, the
+  /// subtitle in a slot as tall as the tallest fixed reading, and a
+  /// category's reading cut to it, so a category pick that shares the event,
+  /// or a flip, moves nothing below it.
+  ///
+  /// The category reading follows the picked category at once and uses its
+  /// stored id, as `CalendarCategories.shareOf` does: an event on a missing
+  /// id drawn under Other is not shared through Other.
+  Widget _buildShareRow(AppLocalizations l10n) {
+    final availability = _shareAvailability;
+    final name = ShareCopy.partnerName(
+      l10n,
+      availability.audience?.displayName,
+    );
+    final ready = availability is ShareReady;
+    final category = CalendarCategories.byId(_categoryId);
+    final throughCategory = ready && category != null && category.sharedByMe;
+    final onLine = ShareCopy.sentence(l10n.shareEventOn(name));
+    final String subtitle;
+    if (!ready) {
+      subtitle = l10n.shareNeedsSync;
+    } else if (throughCategory) {
+      subtitle = l10n.shareThroughCategory(
+        CalendarCategories.labelOf(category, l10n),
+      );
+    } else {
+      subtitle = _markedShared ? onLine : l10n.shareEventOff;
+    }
+    return FormSwitchRow(
+      glyph: Icons.group_rounded,
+      identifier: SemanticsIds.eventShare,
+      label: l10n.shareWithPartner(name),
+      subtitle: subtitle,
+      // The fixed readings size the slot; "On for everything in {category}"
+      // is cut to it, so one long shared category name never gives every
+      // event's row a blank second line.
+      subtitleTemplates: [l10n.shareEventOff, onLine, l10n.shareNeedsSync],
+      subtitleFitsTemplates: true,
+      value: ready && (throughCategory || _markedShared),
+      onChanged: ready && !throughCategory
+          ? (value) => setState(() => _markedShared = value)
+          : null,
+      onDisabledTap: ready ? null : _openSyncSettings,
+      onDisabledTapHint: l10n.shareOpensSyncHint,
+    );
+  }
+
+  /// D8: the one step missing is on Sync & sharing, pushed over the form so
+  /// the draft is still there when the person comes back — and the row
+  /// follows what they did there.
+  Future<void> _openSyncSettings() async {
+    _blur();
+    await AppNavigator.toSyncSettings(context);
+    final reread = widget.rereadShareAvailability;
+    if (reread == null || !mounted) return;
+    final next = await reread();
+    if (!mounted || next == _shareAvailability) return;
+    setState(() => _shareAvailability = next);
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
@@ -3092,6 +3200,7 @@ class _EventEditorSheetState extends State<EventEditorSheet> {
                           onSelected: (p) => setState(() => _priority = p),
                         ),
                         if (!widget.sandbox) _buildLinkedNoteRow(l10n, theme),
+                        if (_shareRowShown) _buildShareRow(l10n),
                       ],
                     ),
                     // A sandboxed new event has no action left to offer, and

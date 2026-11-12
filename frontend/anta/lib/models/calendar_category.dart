@@ -48,6 +48,14 @@ class CalendarCategory extends Equatable {
   /// person's own row of the same id.
   final bool fromPartner;
 
+  /// This person shares the category: its own mark is set
+  /// (`docs/cloud-share-surfaces-roadmap.md` §6.3), so every event of theirs
+  /// in it with no mark of its own goes too. Never a partner's category.
+  /// Transient like [fromPartner] — loaded with the row, and written only
+  /// through `CategoryService.setShared`, never by a save of this model,
+  /// never exported.
+  final bool sharedByMe;
+
   const CalendarCategory({
     required this.id,
     required this.name,
@@ -57,6 +65,7 @@ class CalendarCategory extends Equatable {
     required this.isBuiltIn,
     this.isHidden = false,
     this.fromPartner = false,
+    this.sharedByMe = false,
   });
 
   Color get color => Color(colorValue);
@@ -77,6 +86,7 @@ class CalendarCategory extends Equatable {
       isBuiltIn: isBuiltIn,
       isHidden: isHidden ?? this.isHidden,
       fromPartner: fromPartner,
+      sharedByMe: sharedByMe,
     );
   }
 
@@ -90,5 +100,6 @@ class CalendarCategory extends Equatable {
     isBuiltIn,
     isHidden,
     fromPartner,
+    sharedByMe,
   ];
 }

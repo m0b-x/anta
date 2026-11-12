@@ -21,10 +21,21 @@ class PartnerLook extends Equatable {
   /// localized stand-in.
   final String? name;
 
+  /// Whether my own shared events wear the share sign (`shareMarkMine`).
+  /// Their rows say "Shared with {name}" whatever it says.
+  final bool markMine;
+
+  /// The page's partner read found no one: a pair that ended, whose marks
+  /// the shared reader clears at its next look. Until then my rows wear no
+  /// share sign and say nothing of sharing — there is nobody to share with.
+  final bool unpaired;
+
   const PartnerLook({
     this.look = ShareEventLook.outlined,
     this.partner,
     this.name,
+    this.markMine = true,
+    this.unpaired = false,
   });
 
   /// Whether a partner's event is drawn by its outline.
@@ -38,6 +49,11 @@ class PartnerLook extends Equatable {
   String label(AppLocalizations l10n) =>
       l10n.shareMarkPartnerLabel(ShareCopy.partnerName(l10n, name));
 
+  /// "Shared with {name}": read first on a row of mine that I share, with
+  /// or without the sign.
+  String mineLabel(AppLocalizations l10n) =>
+      l10n.shareMarkMineLabel(ShareCopy.partnerName(l10n, name));
+
   @override
-  List<Object?> get props => [look, partner, name];
+  List<Object?> get props => [look, partner, name, markMine, unpaired];
 }

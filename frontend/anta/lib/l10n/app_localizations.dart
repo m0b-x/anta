@@ -16702,6 +16702,24 @@ abstract class AppLocalizations {
   /// **'{name} sees these and cannot change them.'**
   String shareYouShareCaption(String name);
 
+  /// Snackbar when a share, an un-share, an undo or 'Stop sharing everything' could not be written; nothing changed
+  ///
+  /// In en, this message translates to:
+  /// **'Sharing couldn\'t be changed — try again'**
+  String get shareChangeFailed;
+
+  /// The one line the Sharing page shows instead of its sections when what is shared could not be read
+  ///
+  /// In en, this message translates to:
+  /// **'Sharing couldn\'t be loaded'**
+  String get shareLoadFailed;
+
+  /// Screen-reader hint on a share row or entry that cannot be used until sync is on: says where its tap leads
+  ///
+  /// In en, this message translates to:
+  /// **'Opens Sync & sharing'**
+  String get shareOpensSyncHint;
+
   /// Intro line under the section of what the partner shares
   ///
   /// In en, this message translates to:
@@ -16780,6 +16798,12 @@ abstract class AppLocalizations {
   /// **'On for everything in {category}'**
   String shareThroughCategory(String category);
 
+  /// Snackbar after an event's own share mark was taken away while its category is shared, so the partner still sees it
+  ///
+  /// In en, this message translates to:
+  /// **'{title} stays shared through {category}'**
+  String shareStaysThroughCategory(String title, String category);
+
   /// Second line of the category editor's share switch while off
   ///
   /// In en, this message translates to:
@@ -16819,7 +16843,7 @@ abstract class AppLocalizations {
   /// Caption under the header of the sheet listing the partner's categories, each with a show switch
   ///
   /// In en, this message translates to:
-  /// **'Ticked ones show on your calendar; {name} never sees what you hide.'**
+  /// **'Switched-off ones stay off your calendar; {name} never sees what you hide.'**
   String shareTheirCategoriesCaption(String name);
 
   /// Label of the switch that shows or hides one of the partner's categories on this phone
@@ -16827,6 +16851,18 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Show on my calendar'**
   String get shareShowOnCalendar;
+
+  /// Screen-reader label of the show switch on one of the partner's categories in the list of what they share
+  ///
+  /// In en, this message translates to:
+  /// **'Show {category} on my calendar'**
+  String shareShowCategoryOnCalendar(String category);
+
+  /// Caption under the dimmed alerts group of a partner's category that is hidden on this phone
+  ///
+  /// In en, this message translates to:
+  /// **'Hidden from your calendar, so these never ring'**
+  String get shareHiddenCategoryAlertsCaption;
 
   /// Second-line fragment for a built-in category the partner shares, after the event count and a middle dot: its events are drawn in this person's own category of the same kind
   ///
@@ -16864,6 +16900,12 @@ abstract class AppLocalizations {
   /// **'They stay shared through {category}'**
   String shareDeleteImpactStays(String category);
 
+  /// Consequence line in the category delete sheet when the deleted category is private and its events move to a category that is shared: they become shared
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{{name} will see its 1 event through {category}} other{{name} will see its {count} events through {category}}}'**
+  String shareDeleteImpactStarts(String name, int count, String category);
+
   /// Sharing page row that clears every share and keeps the pair; also the confirm button of its dialog
   ///
   /// In en, this message translates to:
@@ -16876,10 +16918,16 @@ abstract class AppLocalizations {
   /// **'You stay paired'**
   String get shareStopAllDesc;
 
-  /// Body of the confirmation before every share is cleared
+  /// Title of the confirmation before every share is cleared
   ///
   /// In en, this message translates to:
-  /// **'Stop sharing everything with {name}? Your categories and events leave their phone. What {name} shares with you stays.'**
+  /// **'Stop sharing everything with {name}?'**
+  String shareStopAllConfirmTitle(String name);
+
+  /// Body of the confirmation before every share is cleared, under shareStopAllConfirmTitle
+  ///
+  /// In en, this message translates to:
+  /// **'Your categories and events leave their phone. What {name} shares with you stays.'**
   String shareStopAllConfirm(String name);
 
   /// Description of the Unpair row on the Sharing page

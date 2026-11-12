@@ -1,0 +1,184 @@
+import 'package:equatable/equatable.dart';
+
+import 'calendar_category.dart';
+import 'calendar_event.dart';
+
+/// Through what one of this person's events is shared: its own mark wins,
+/// as the grant itself does (`CalendarEventDao.sharedPairsOf`), else its
+/// category's.
+enum EventShareVia { own, category }
+
+/// One of this person's events shared singly — its own mark is set.
+class MySharedEvent extends Equatable {
+  final CalendarEvent event;
+
+  /// Its category is shared too, so taking the event's own mark away leaves
+  /// it shared all the same.
+  final bool categoryShared;
+
+  const MySharedEvent({required this.event, required this.categoryShared});
+
+  @override
+  List<Object?> get props => [event, categoryShared];
+}
+
+/// A category the partner shares with this person (§6.4): one of the
+/// partner's own, or a built-in both have, which draws under this person's
+/// own row of the same id.
+class PartnerSharedCategory extends Equatable {
+  /// The partner's own row, or this person's built-in for [joinsMine].
+  final CalendarCategory category;
+
+  /// A built-in the partner shares: its events join this person's own
+  /// category of that id (D14).
+  final bool joinsMine;
+
+  /// Not in `shareHiddenCategories`: its events show here.
+  final bool shown;
+
+  /// The partner's live events in it, hidden or shown.
+  final int eventCount;
+
+  const PartnerSharedCategory({
+    required this.category,
+    required this.joinsMine,
+    required this.shown,
+    required this.eventCount,
+  });
+
+  @override
+  List<Object?> get props => [category, joinsMine, shown, eventCount];
+}
+
+/// What the Sharing page lists and says (`docs/cloud-share-surfaces-roadmap.md`
+/// §6.1, §6.2), read at one moment by `ShareService.overview`. The calendar
+/// side only: folders join when their surfaces do.
+class ShareOverview extends Equatable {
+  /// This person's shared categories, in the catalogue's order, archived
+  /// ones included.
+  final List<CalendarCategory> categories;
+
+  /// This person's events shared singly, in the store's start order.
+  final List<MySharedEvent> events;
+
+  /// What the partner shares: their own categories by name, then the
+  /// built-ins in this person's order.
+  final List<PartnerSharedCategory> partnerCategories;
+
+  /// The partner's events that came without a category of theirs — shared
+  /// singly from a category they keep private.
+  final List<CalendarEvent> partnerEvents;
+
+  /// When the last shared read that read every table to its end finished;
+  /// null before the first.
+  final DateTime? readAt;
+
+  /// A shared read failed after the last one that completed ("Could not
+  /// check"); a read cut by leaving the app is no failure.
+  final bool readFailed;
+
+  /// A share act's writes still wait in the outbox ("Sending…"); an
+  /// ordinary edit queued alone says nothing.
+  final bool sending;
+
+  /// The engine's last call found no network ("Waiting to send").
+  final bool offline;
+
+  /// The partner writes documents this build cannot read yet ("Update
+  /// ANTA").
+  final bool partnerNewerWire;
+
+  /// The partner's rows not shown because a row of this person's holds
+  /// their id ("{n} items could not be shown").
+  final int refusedCount;
+
+  /// Any category, event or folder of this database carries a share mark,
+  /// as the database says (`SyncDao.anyShareMark`) — folders included,
+  /// which [categories] and [events] do not list.
+  final bool anyMark;
+
+  /// This person's live events per category id, the tick sheet's counts —
+  /// read with the rest so the page asks its bloc, never the calendar.
+  final Map<String, int> eventCounts;
+
+  const ShareOverview({
+    this.categories = const [],
+    this.events = const [],
+    this.partnerCategories = const [],
+    this.partnerEvents = const [],
+    this.readAt,
+    this.readFailed = false,
+    this.sending = false,
+    this.offline = false,
+    this.partnerNewerWire = false,
+    this.refusedCount = 0,
+    this.anyMark = false,
+    this.eventCounts = const {},
+  });
+
+  /// What an account that is not paired is shown: nothing, read from
+  /// nowhere.
+  static const empty = ShareOverview();
+
+  /// Whether this person shares anything — what enables "Stop sharing
+  /// everything", which clears folders too.
+  bool get sharesAnything =>
+      anyMark || categories.isNotEmpty || events.isNotEmpty;
+
+  @override
+  List<Object?> get props => [
+    categories,
+    events,
+    partnerCategories,
+    partnerEvents,
+    readAt,
+    readFailed,
+    sending,
+    offline,
+    partnerNewerWire,
+    refusedCount,
+    anyMark,
+    eventCounts,
+  ];
+}
+
+/// What one share act changed, for its snackbar and its Undo
+/// (`docs/cloud-share-surfaces-roadmap.md` §6.3, §6.14): the rows whose mark
+/// was written, as they stood before the write — a surface words them, and
+/// `ShareService.undo` writes each back.
+class ShareChange extends Equatable {
+  final List<CalendarCategory> sharedCategories;
+  final List<CalendarCategory> unsharedCategories;
+  final List<CalendarEvent> sharedEvents;
+  final List<CalendarEvent> unsharedEvents;
+
+  /// Events in [unsharedCategories] that stay shared on their own mark
+  /// (case C10): "2 events stay shared on their own".
+  final int keptOnTheirOwn;
+
+  const ShareChange({
+    this.sharedCategories = const [],
+    this.unsharedCategories = const [],
+    this.sharedEvents = const [],
+    this.unsharedEvents = const [],
+    this.keptOnTheirOwn = 0,
+  });
+
+  /// Nothing was written: no snackbar, no Undo.
+  static const none = ShareChange();
+
+  bool get isEmpty =>
+      sharedCategories.isEmpty &&
+      unsharedCategories.isEmpty &&
+      sharedEvents.isEmpty &&
+      unsharedEvents.isEmpty;
+
+  @override
+  List<Object?> get props => [
+    sharedCategories,
+    unsharedCategories,
+    sharedEvents,
+    unsharedEvents,
+    keptOnTheirOwn,
+  ];
+}

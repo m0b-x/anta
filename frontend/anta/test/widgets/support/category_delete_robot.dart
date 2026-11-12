@@ -8,6 +8,7 @@ import 'package:anta/constants/app_theme.dart';
 import 'package:anta/constants/semantics_ids.dart';
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/models/calendar_category.dart';
+import 'package:anta/services/share_service.dart';
 import 'package:anta/widgets/category_delete_sheet.dart';
 import 'package:anta/widgets/category_picker_sheet.dart';
 import 'package:anta/widgets/event_avatar.dart';
@@ -58,7 +59,8 @@ class CategoryDeleteRobot {
 
   /// Opens the sheet the way the page does — through `show`, from a button —
   /// and captures its result. [settle] false stops at the sheet's first
-  /// frame, for a case that measures it before anything has moved.
+  /// frame, for a case that measures it before anything has moved. [share]
+  /// is the phone's share availability, as the page hands it over.
   Future<CategoryDeleteOutcome> show({
     required CalendarCategory category,
     Locale locale = const Locale('en'),
@@ -66,6 +68,7 @@ class CategoryDeleteRobot {
     Size? surface,
     bool dark = false,
     bool settle = true,
+    ShareAvailability share = const ShareNotPaired(),
   }) async {
     if (surface != null) {
       addTearDown(tester.view.reset);
@@ -94,6 +97,7 @@ class CategoryDeleteRobot {
                 outcome.result = await CategoryDeleteSheet.show(
                   context,
                   category: category,
+                  share: share,
                 );
                 outcome.returned = true;
               },

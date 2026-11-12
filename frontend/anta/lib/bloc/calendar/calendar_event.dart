@@ -9,6 +9,7 @@ import '../../models/calendar_grid_filters.dart';
 import '../../models/calendar_selection_source.dart';
 import '../../models/event_alert.dart';
 import '../../models/event_digest.dart';
+import '../../models/share_overview.dart';
 import '../../services/alert_removal_notice.dart';
 
 sealed class CalendarPageEvent extends Equatable {
@@ -131,14 +132,28 @@ final class CreateCalendarEvent extends CalendarPageEvent {
   /// stands", which is what a create means: there is nothing there yet.
   final Set<String>? knownAlertIds;
 
+  /// The editor's share switch where the person flipped it (share surfaces
+  /// §6.6), or `null` to leave the mark alone. It rides the save rather than
+  /// following it as a [SetEventShared] of its own: a separate dispatch could
+  /// run before the create had stored a row to mark, and then marked nothing
+  /// without a word.
+  final bool? shared;
+
+  /// Completes once [shared] was dealt with: with what the share service
+  /// wrote, with [ShareChange.none] when the save failed and so shared
+  /// nothing, or with the error the share write threw.
+  final Completer<ShareChange>? shareOutcome;
+
   const CreateCalendarEvent({
     required this.event,
     this.alerts,
     this.knownAlertIds,
+    this.shared,
+    this.shareOutcome,
   });
 
   @override
-  List<Object?> get props => [event, alerts, knownAlertIds];
+  List<Object?> get props => [event, alerts, knownAlertIds, shared];
 }
 
 final class UpdateCalendarEvent extends CalendarPageEvent {
@@ -153,14 +168,23 @@ final class UpdateCalendarEvent extends CalendarPageEvent {
   /// survives a Save that never showed it.
   final Set<String>? knownAlertIds;
 
+  /// See [CreateCalendarEvent.shared]: an update that is refused or fails
+  /// leaves the mark as it was.
+  final bool? shared;
+
+  /// See [CreateCalendarEvent.shareOutcome].
+  final Completer<ShareChange>? shareOutcome;
+
   const UpdateCalendarEvent({
     required this.event,
     this.alerts,
     this.knownAlertIds,
+    this.shared,
+    this.shareOutcome,
   });
 
   @override
-  List<Object?> get props => [event, alerts, knownAlertIds];
+  List<Object?> get props => [event, alerts, knownAlertIds, shared];
 }
 
 /// A3's Undo: the event an acknowledged alarm deleted, put back with the four
@@ -353,6 +377,30 @@ final class CopySharedEvent extends CalendarPageEvent {
 
   @override
   List<Object?> get props => [event, day];
+}
+
+/// Sets or takes away [eventId]'s own share mark (share surfaces §6.6) —
+/// the editor's snackbar's Undo and the events sheet; the editor's switch
+/// itself rides its save ([CreateCalendarEvent.shared]). Emits nothing
+/// itself: the share service tells the calendar that
+/// the marks changed, which reloads it in place.
+///
+/// [outcome] completes with what was written, or with the error — a
+/// `ShareRefused` when the database stopped being able to share while the
+/// form was open — for the dispatch site to word.
+final class SetEventShared extends CalendarPageEvent {
+  final String eventId;
+  final bool shared;
+  final Completer<ShareChange>? outcome;
+
+  const SetEventShared({
+    required this.eventId,
+    required this.shared,
+    this.outcome,
+  });
+
+  @override
+  List<Object?> get props => [eventId, shared];
 }
 
 /// A category's alerts were saved by the category editor (**v42**), which

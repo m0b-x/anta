@@ -5638,6 +5638,658 @@ void main() {
       expect(icon.color, scheme.onSurfaceVariant);
     });
   });
+
+  // The share surfaces' opt-in extensions (slice C §0, slice D §1). The
+  // heights the specs measured with Roboto hold here wherever a text keeps
+  // to one line: every line height is set, so the test font's lines are the
+  // real ones; a label that wraps in the test font's wide glyphs is kept
+  // short for that reason.
+  group('share extensions', () {
+    /// A 360 × 780 phone at [scale], the group inset from the edges as a
+    /// sheet's body holds it — a 328 dp row.
+    Future<void> pumpRows(
+      WidgetTester tester,
+      List<Widget> rows, {
+      double scale = 1.0,
+      ThemeData? theme,
+    }) async {
+      tester.view.physicalSize = const Size(360, 780);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: theme,
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(
+              context,
+            ).copyWith(textScaler: TextScaler.linear(scale)),
+            child: child!,
+          ),
+          home: Scaffold(
+            body: SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(
+                horizontal: RowMetrics.groupInset,
+              ),
+              child: FormRowGroup(children: rows),
+            ),
+          ),
+        ),
+      );
+    }
+
+    Finder dimmedBy(double opacity) => find.byWidgetPredicate(
+      (widget) => widget is Opacity && widget.opacity == opacity,
+    );
+
+    bool dimmed(Finder finder, double opacity) => find
+        .ancestor(of: finder, matching: dimmedBy(opacity))
+        .evaluate()
+        .isNotEmpty;
+
+    group('switch row subtitle templates and onDisabledTap', () {
+      const off = 'Only you see these events';
+      const on = 'All 12 events, and new ones';
+      const newOnly = 'New events are shared';
+      const needsSync = 'Turn on sync to share';
+      const templates = [off, on, newOnly, needsSync];
+
+      Widget share({
+        required String subtitle,
+        bool value = false,
+        ValueChanged<bool>? onChanged,
+        VoidCallback? onDisabledTap,
+        String label = 'Share with Maria',
+        List<String> subtitleTemplates = templates,
+      }) => FormSwitchRow(
+        glyph: Icons.group_rounded,
+        label: label,
+        subtitle: subtitle,
+        subtitleTemplates: subtitleTemplates,
+        value: value,
+        identifier: 'category-editor-share',
+        onChanged: onChanged,
+        onDisabledTap: onDisabledTap,
+      );
+
+      for (final scale in const [1.0, 1.3, 2.0]) {
+        testWidgets('one height in all four states at $scale', (tester) async {
+          final heights = <double>[];
+          for (final row in [
+            share(subtitle: off, onChanged: (_) {}),
+            share(subtitle: on, value: true, onChanged: (_) {}),
+            share(subtitle: newOnly, value: true, onChanged: (_) {}),
+            share(subtitle: needsSync, onDisabledTap: () {}),
+          ]) {
+            await pumpRows(tester, [row], scale: scale);
+            expect(tester.takeException(), isNull);
+            heights.add(tester.getSize(find.byType(FormSwitchRow)).height);
+          }
+          expect(heights.toSet(), hasLength(1), reason: '$heights');
+        });
+      }
+
+      testWidgets('62 dp at 1.0 while the label and every template keep to '
+          'one line, as the spec measured in all four states', (tester) async {
+        for (final subtitle in const ['Off', 'On', 'Sync']) {
+          await pumpRows(tester, [
+            share(
+              label: 'Share',
+              subtitle: subtitle,
+              subtitleTemplates: const ['Off', 'On', 'Sync'],
+              onChanged: subtitle == 'Sync' ? null : (_) {},
+              onDisabledTap: () {},
+            ),
+          ]);
+          expect(
+            tester.getSize(find.byType(FormSwitchRow)).height,
+            FormMetrics.twoLineRowMinHeight,
+          );
+        }
+      });
+
+      testWidgets('disabled, the glyph and the label dim to 38 %, the switch '
+          'keeps its own disabled colours undimmed and the subtitle stays '
+          'whole; a tap runs onDisabledTap', (tester) async {
+        var opened = 0;
+        await pumpRows(tester, [
+          share(subtitle: needsSync, onDisabledTap: () => opened++),
+        ]);
+        const dim = FormMetrics.disabledOpacity;
+        expect(dimmed(find.byIcon(Icons.group_rounded), dim), isTrue);
+        expect(dimmed(find.text('Share with Maria'), dim), isTrue);
+        expect(dimmed(find.byType(Switch), dim), isFalse);
+        // The shown subtitle, not its invisible twin among the templates.
+        final shown = find.text(needsSync).last;
+        expect(dimmed(shown, dim), isFalse);
+        expect(tester.widget<Switch>(find.byType(Switch)).onChanged, isNull);
+
+        await tester.tap(find.bySemanticsIdentifier('category-editor-share'));
+        expect(opened, 1);
+      });
+
+      testWidgets('enabled, nothing dims and a tap toggles, never '
+          'onDisabledTap', (tester) async {
+        bool? received;
+        var opened = 0;
+        await pumpRows(tester, [
+          share(
+            subtitle: off,
+            onChanged: (value) => received = value,
+            onDisabledTap: () => opened++,
+          ),
+        ]);
+        expect(dimmedBy(FormMetrics.disabledOpacity), findsNothing);
+        await tester.tap(find.bySemanticsIdentifier('category-editor-share'));
+        expect((received, opened), (true, 0));
+      });
+
+      testWidgets('one node: the id, the label, the shown subtitle alone and '
+          'the toggled state', (tester) async {
+        final handle = tester.ensureSemantics();
+        await pumpRows(tester, [
+          share(subtitle: on, value: true, onChanged: (_) {}),
+        ]);
+        final data = tester
+            .getSemantics(find.bySemanticsIdentifier('category-editor-share'))
+            .getSemanticsData();
+        expect(data.label, contains('Share with Maria'));
+        expect(data.label, contains(on));
+        for (final other in const [off, newOnly, needsSync]) {
+          expect(data.label, isNot(contains(other)));
+        }
+        expect(data.flagsCollection.isToggled, Tristate.isTrue);
+        expect(data.hasAction(SemanticsAction.tap), isTrue);
+        handle.dispose();
+      });
+
+      /// Every opacity under 1 between [finder] and the app.
+      List<double> opacitiesOver(WidgetTester tester, Finder finder) => [
+        for (final element
+            in find
+                .ancestor(of: finder, matching: find.byType(Opacity))
+                .evaluate())
+          if ((element.widget as Opacity).opacity < 1)
+            (element.widget as Opacity).opacity,
+      ];
+
+      for (final (name, theme) in [
+        ('light', AppTheme.light()),
+        ('dark', AppTheme.dark()),
+      ]) {
+        testWidgets('a disabled "on" still reads on in $name: the switch '
+            'paints Material\'s disabled-selected track and thumb with no '
+            'opacity over them', (tester) async {
+          await pumpRows(tester, [
+            share(subtitle: on, value: true, onDisabledTap: () {}),
+          ], theme: theme);
+          final scheme = theme.colorScheme;
+          expect(opacitiesOver(tester, find.byType(Switch)), isEmpty);
+          // Material 3's own disabled-selected colours: the track at 12 %
+          // of onSurface, its outline, the thumb in surface at full
+          // strength.
+          expect(
+            find.byType(Switch),
+            paints
+              ..rrect(color: scheme.onSurface.withValues(alpha: 0.12))
+              ..rrect()
+              ..rrect(color: scheme.surface),
+          );
+        });
+      }
+
+      testWidgets('a disabled row that passes neither still draws its switch '
+          'under the row\'s one 38 % opacity, as before', (tester) async {
+        await pumpRows(tester, [
+          const FormSwitchRow(
+            label: 'All day',
+            subtitle: 'Hours hidden',
+            value: true,
+            onChanged: null,
+          ),
+        ]);
+        expect(opacitiesOver(tester, find.byType(Switch)), [
+          FormMetrics.disabledOpacity,
+        ]);
+      });
+
+      testWidgets('disabled with onDisabledTap, the row is one enabled '
+          'button saying its label and its reason, with the hint, and no '
+          'switch state; its tap runs onDisabledTap', (tester) async {
+        final handle = tester.ensureSemantics();
+        var opened = 0;
+        await pumpRows(tester, [
+          FormSwitchRow(
+            glyph: Icons.group_rounded,
+            label: 'Share with Maria',
+            subtitle: needsSync,
+            subtitleTemplates: templates,
+            value: false,
+            identifier: 'category-editor-share',
+            onChanged: null,
+            onDisabledTap: () => opened++,
+            onDisabledTapHint: 'Opens Sync & sharing',
+          ),
+        ]);
+        final node = tester.getSemantics(
+          find.bySemanticsIdentifier('category-editor-share'),
+        );
+        final data = node.getSemanticsData();
+        expect(data.label, 'Share with Maria\n$needsSync');
+        expect(data.hint, 'Opens Sync & sharing');
+        expect(data.flagsCollection.isButton, isTrue);
+        expect(data.flagsCollection.isEnabled, Tristate.isTrue);
+        expect(data.flagsCollection.isToggled, Tristate.none);
+        expect(data.hasAction(SemanticsAction.tap), isTrue);
+
+        node.owner!.performAction(node.id, SemanticsAction.tap);
+        expect(opened, 1);
+        handle.dispose();
+      });
+
+      testWidgets('disabled without onDisabledTap, the row is still a '
+          'disabled switch', (tester) async {
+        final handle = tester.ensureSemantics();
+        await pumpRows(tester, [share(subtitle: on, value: true)]);
+        final data = tester
+            .getSemantics(find.bySemanticsIdentifier('category-editor-share'))
+            .getSemanticsData();
+        expect(data.flagsCollection.isToggled, Tristate.isTrue);
+        expect(data.flagsCollection.isEnabled, Tristate.isFalse);
+        expect(data.flagsCollection.isButton, isFalse);
+        handle.dispose();
+      });
+
+      testWidgets('a row that passes neither keeps today\'s shape: no slot, '
+          'and disabled it dims whole, subtitle included', (tester) async {
+        await pumpRows(tester, [
+          const FormSwitchRow(
+            glyph: Icons.schedule_outlined,
+            label: 'All day',
+            subtitle: 'Hours hidden',
+            value: false,
+            onChanged: null,
+          ),
+          FormSwitchRow(label: 'Plain', value: true, onChanged: (_) {}),
+        ]);
+        expect(find.byType(FormCaptionSlot), findsNothing);
+        expect(
+          dimmed(find.text('Hours hidden'), FormMetrics.disabledOpacity),
+          isTrue,
+        );
+        expect(
+          tester.getSize(find.byType(FormSwitchRow).first).height,
+          FormMetrics.twoLineRowMinHeight,
+        );
+        expect(
+          tester.getSize(find.byType(FormSwitchRow).last).height,
+          FormMetrics.rowMinHeight,
+        );
+      });
+    });
+
+    group('picker switch row leading, onTap null, enabled', () {
+      Widget avatar() => const SizedBox.square(
+        dimension: FormMetrics.rowLeadingSize,
+        child: ColoredBox(color: Color(0xFF6750A4)),
+      );
+
+      FormPickerSwitchRow received({
+        VoidCallback? onTap,
+        ValueChanged<bool>? onChanged,
+        bool value = true,
+        bool enabled = true,
+        String? switchSemanticsLabel,
+        String caption = 'Nine',
+      }) => FormPickerSwitchRow(
+        leading: avatar(),
+        label: 'Gym',
+        caption: caption,
+        captionMaxLines: FormMetrics.receivedCaptionMaxLines,
+        value: value,
+        onTap: onTap,
+        onChanged: onChanged ?? (_) {},
+        enabled: enabled,
+        switchSemanticsLabel: switchSemanticsLabel,
+        identifier: 'shared-category-row-c1',
+        switchIdentifier: 'shared-category-show-c1',
+      );
+
+      for (final (scale, height) in const [
+        (1.0, 62.0),
+        (1.3, 67.0),
+        (2.0, 94.0),
+      ]) {
+        testWidgets('a leading avatar and a one-line caption make a $height dp '
+            'row at $scale; disabled keeps it', (tester) async {
+          await pumpRows(tester, [received(onTap: () {})], scale: scale);
+          expect(tester.takeException(), isNull);
+          final row = find.byType(FormPickerSwitchRow);
+          expect(tester.getSize(row).height, moreOrLessEquals(height));
+
+          await pumpRows(tester, [
+            received(onTap: () {}, enabled: false),
+          ], scale: scale);
+          expect(tester.getSize(row).height, moreOrLessEquals(height));
+        });
+      }
+
+      testWidgets('two 48 dp targets side by side: the row\'s and the '
+          'switch\'s, the switch 60 × 48 before the end padding', (
+        tester,
+      ) async {
+        await pumpRows(tester, [received(onTap: () {})]);
+        final rowRect = tester.getRect(find.byType(FormPickerSwitchRow));
+        final well = tester.getRect(
+          find.descendant(
+            of: find.byType(FormPickerRow),
+            matching: find.byType(InkWell),
+          ),
+        );
+        final toggle = tester.getRect(find.byType(Switch));
+        expect(rowRect.width, 328);
+        expect(toggle.size, const Size(60, 48));
+        expect(toggle.right, rowRect.right - FormMetrics.rowEndPadding);
+        expect(well.left, rowRect.left);
+        expect(well.right, toggle.left);
+        expect(well.height, greaterThanOrEqualTo(48));
+        expect(well.width, 256);
+      });
+
+      testWidgets('with onTap, two nodes; the switch takes '
+          'switchSemanticsLabel', (tester) async {
+        final handle = tester.ensureSemantics();
+        var taps = 0;
+        bool? switched;
+        await pumpRows(tester, [
+          received(
+            onTap: () => taps++,
+            onChanged: (value) => switched = value,
+            switchSemanticsLabel: 'Show Gym on my calendar',
+          ),
+        ]);
+        final row = dataOf(tester, 'shared-category-row-c1');
+        final toggle = dataOf(tester, 'shared-category-show-c1');
+        expect(row.label, contains('Gym'));
+        expect(row.label, contains('Nine'));
+        expect(toggle.label, 'Show Gym on my calendar');
+        expect(toggle.flagsCollection.isToggled, Tristate.isTrue);
+
+        await tester.tap(find.bySemanticsIdentifier('shared-category-row-c1'));
+        expect((taps, switched), (1, null));
+        await tester.tap(find.bySemanticsIdentifier('shared-category-show-c1'));
+        expect((taps, switched), (1, false));
+        handle.dispose();
+      });
+
+      testWidgets('with a null onTap the row toggles and is one node under '
+          'the switch id: label, caption, toggled state', (tester) async {
+        final handle = tester.ensureSemantics();
+        final received0 = <bool>[];
+        await pumpRows(tester, [
+          received(value: false, onChanged: received0.add),
+        ]);
+        expect(
+          find.bySemanticsIdentifier('shared-category-row-c1'),
+          findsNothing,
+        );
+        final node = dataOf(tester, 'shared-category-show-c1');
+        expect(node.label, contains('Gym'));
+        expect(node.label, contains('Nine'));
+        expect(node.flagsCollection.isToggled, Tristate.isFalse);
+        expect(node.hasAction(SemanticsAction.tap), isTrue);
+
+        await tester.tap(find.text('Gym'));
+        await tester.tap(find.byType(Switch));
+        expect(received0, [true, true]);
+        handle.dispose();
+      });
+
+      testWidgets('enabled false dims the text part, caption included, never '
+          'the switch, which is disabled; the row is inert and says so', (
+        tester,
+      ) async {
+        final handle = tester.ensureSemantics();
+        var taps = 0;
+        await pumpRows(tester, [received(onTap: () => taps++, enabled: false)]);
+        const dim = FormMetrics.disabledOpacity;
+        expect(dimmed(find.text('Gym'), dim), isTrue);
+        expect(dimmed(find.text('Nine'), dim), isTrue);
+        expect(dimmed(find.byType(Switch), dim), isFalse);
+        expect(tester.widget<Switch>(find.byType(Switch)).onChanged, isNull);
+        final row = dataOf(tester, 'shared-category-row-c1');
+        expect(row.flagsCollection.isEnabled, Tristate.isFalse);
+        expect(row.hasAction(SemanticsAction.tap), isFalse);
+        await tester.tap(find.text('Gym'));
+        expect(taps, 0);
+        handle.dispose();
+      });
+
+      testWidgets('the hairline takes the title indent under a leading '
+          'widget and the glyph indent otherwise', (tester) async {
+        expect(
+          received(onTap: () {}).dividerIndent,
+          FormMetrics.dividerIndentTitle,
+        );
+        expect(
+          FormPickerSwitchRow(
+            glyph: Icons.summarize_rounded,
+            label: 'Birthdays',
+            caption: 'Monthly',
+            value: true,
+            onTap: () {},
+            onChanged: (_) {},
+          ).dividerIndent,
+          FormMetrics.dividerIndentGlyph,
+        );
+        expect(RowMetrics.avatarTextInset, FormMetrics.dividerIndentTitle);
+      });
+
+      testWidgets('a glyph row with a tap — every caller today — is the '
+          'picker row it was built from beside the switch', (tester) async {
+        await pumpRows(tester, [
+          FormPickerSwitchRow(
+            glyph: Icons.summarize_rounded,
+            label: 'Birthdays',
+            caption: 'Monthly',
+            value: true,
+            onTap: () {},
+            onChanged: (_) {},
+          ),
+          FormPickerRow(
+            glyph: Icons.summarize_rounded,
+            label: 'Birthdays',
+            caption: 'Monthly',
+            showChevron: false,
+            onTap: () {},
+          ),
+        ]);
+        final rows = find.byType(FormPickerRow);
+        expect(
+          tester.getSize(rows.first).height,
+          tester.getSize(rows.last).height,
+        );
+        expect(dimmedBy(FormMetrics.disabledOpacity), findsNothing);
+      });
+    });
+
+    testWidgets('a picker row under a leading widget clamps its caption at '
+        'two lines, and with captionWraps wraps it whole', (tester) async {
+      const long =
+          'Tomorrow · 7:00 PM – 8:00 PM\nOn for everything in a category '
+          'whose name runs on and on past two lines of a phone';
+      Widget row({required bool wraps}) => FormPickerRow(
+        leading: const SizedBox.square(dimension: FormMetrics.rowLeadingSize),
+        label: 'Dinner',
+        caption: long,
+        captionWraps: wraps,
+        showChevron: false,
+        onTap: null,
+      );
+      await pumpRows(tester, [row(wraps: false)]);
+      final clamped = tester.renderObject<RenderParagraph>(find.text(long));
+      expect(clamped.maxLines, 2);
+      expect(clamped.didExceedMaxLines, isTrue);
+
+      await pumpRows(tester, [row(wraps: true)]);
+      final whole = tester.renderObject<RenderParagraph>(find.text(long));
+      expect(whole.maxLines, isNull);
+      expect(
+        tester.getRect(find.text(long)).bottom,
+        lessThanOrEqualTo(tester.getRect(find.byType(FormPickerRow)).bottom),
+      );
+    });
+
+    group('menu item caption', () {
+      Future<void> openAlerts(
+        WidgetTester tester, {
+        double anchorTop = 0,
+        double scale = 1.0,
+        ThemeData? theme,
+      }) async {
+        tester.view.physicalSize = const Size(360, 780);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.reset);
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: theme,
+            builder: (context, child) => MediaQuery(
+              data: MediaQuery.of(
+                context,
+              ).copyWith(textScaler: TextScaler.linear(scale)),
+              child: child!,
+            ),
+            home: Scaffold(
+              body: Padding(
+                padding: EdgeInsets.only(top: anchorTop),
+                child: Align(
+                  alignment: Alignment.topRight,
+                  child: Builder(
+                    builder: (context) => TextButton(
+                      onPressed: () => showFormMenu<int>(
+                        context,
+                        selected: 1,
+                        menuWidth: FormMetrics.menuMaxWidth,
+                        items: const [
+                          FormMenuItem(
+                            value: 0,
+                            label: 'Off',
+                            caption: 'Rings for none',
+                            identifier: 'sharing-alerts-off',
+                          ),
+                          FormMenuItem(
+                            value: 1,
+                            label: 'Mine',
+                            caption: 'From its sheet',
+                            identifier: 'sharing-alerts-own',
+                          ),
+                          FormMenuItem(
+                            value: 2,
+                            label: 'Too',
+                            caption:
+                                'Shared events follow your category '
+                                'alerts, alarms included',
+                            identifier: 'sharing-alerts-category',
+                            enabled: false,
+                          ),
+                        ],
+                      ),
+                      child: const Text('Open'),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.tap(find.text('Open'));
+        await tester.pumpAndSettle();
+      }
+
+      testWidgets('the label and the caption are one node, the item the '
+          'two lines with 10 dp above and below, 280 wide', (tester) async {
+        final handle = tester.ensureSemantics();
+        await openAlerts(tester);
+        final off = dataOf(tester, 'sharing-alerts-off');
+        expect(off.label, contains('Off'));
+        expect(off.label, contains('Rings for none'));
+        expect(off.role, SemanticsRole.menuItemRadio);
+        final own = dataOf(tester, 'sharing-alerts-own');
+        expect(own.flagsCollection.isChecked, CheckedState.isTrue);
+
+        final item = tester.getRect(find.byType(FormMenuChoiceItem<int>).first);
+        final label = tester.getRect(find.text('Off'));
+        final caption = tester.getRect(find.text('Rings for none'));
+        expect(item.width, FormMetrics.menuMaxWidth);
+        expect(caption.top, label.bottom);
+        expect(caption.left, label.left);
+        expect(caption.height, FormMetrics.captionLineHeight);
+        expect(
+          item.height,
+          label.height +
+              caption.height +
+              2 * FormMetrics.menuCaptionRowVerticalPadding,
+        );
+        expect(item.height, greaterThanOrEqualTo(FormMetrics.menuRowHeight));
+        handle.dispose();
+      });
+
+      for (final (name, theme) in [
+        ('light', AppTheme.light()),
+        ('dark', AppTheme.dark()),
+      ]) {
+        testWidgets('in $name the caption wraps freely and a disabled item '
+            'keeps it at full strength while its label dims', (tester) async {
+          await openAlerts(tester, theme: theme);
+          final long = find.textContaining('alarms included');
+          expect(
+            tester.getSize(long).height,
+            greaterThan(FormMetrics.captionLineHeight),
+          );
+          final style = tester.widget<Text>(long).style!;
+          final scheme = theme.colorScheme;
+          expect(style.fontSize, FormMetrics.captionSize);
+          expect(style.color, scheme.onSurfaceVariant);
+          expect(
+            find.ancestor(
+              of: long,
+              matching: find.byWidgetPredicate(
+                (widget) => widget is Opacity && widget.opacity < 1,
+              ),
+            ),
+            findsNothing,
+          );
+          expect(
+            tester.widget<Text>(find.text('Too')).style!.color,
+            scheme.onSurface.withValues(alpha: FormMetrics.disabledOpacity),
+          );
+          expect(
+            tester.widget<Text>(find.text('From its sheet')).style!.color,
+            scheme.onSurfaceVariant,
+          );
+        });
+      }
+
+      testWidgets('the menu decides its side from the two-line estimate: '
+          'opened 180 dp above the bottom, where three one-line rows would '
+          'fit, it opens above', (tester) async {
+        await openAlerts(tester, anchorTop: 780 - 180 - 48);
+        final anchor = tester.getRect(find.text('Open'));
+        final first = tester.getRect(
+          find.byType(FormMenuChoiceItem<int>).first,
+        );
+        expect(formMenuHeight(3), lessThan(180));
+        expect(first.top, lessThan(anchor.top));
+      });
+
+      testWidgets('at 2.0 the items grow with their words and nothing '
+          'overflows', (tester) async {
+        await openAlerts(tester, scale: 2.0);
+        expect(tester.takeException(), isNull);
+        final item = tester.getRect(find.byType(FormMenuChoiceItem<int>).last);
+        expect(item.height, greaterThan(FormMetrics.menuCaptionRowHeight));
+      });
+    });
+  });
 }
 
 /// A sub-sheet's shape around a [FormHeaderHairline]: the header over a

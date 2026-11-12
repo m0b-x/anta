@@ -39,7 +39,7 @@ a step that names it.
 | Flow | Proves |
 | --- | --- |
 | `_prelude` | the partner's guest relaunched fresh; each guest signed in as its own account (the partner through `set account=qa2:qa2@example.com` before its sign-in tap), bound to a space of its own, "Up to date" |
-| `00_pair` | the owner makes a code (`pairing-generate`, read off `pairing-code`), the partner types it and taps Connect; both pairing rows read paired (`sharing-unpair`) — the redemption is one write, the owner adopts through its invite listener, and neither sheet takes the page under it along |
+| `00_pair` | the owner makes a code (`pairing-generate`, read off `pairing-code`), the partner types it and taps Connect; both Pairing rows read paired (`sharing-paired`) — the redemption is one write, the owner adopts through its invite listener, and neither sheet takes the page under it along |
 | `01_share_event` | `share event "Lifting session"` on the owner; after a sync on each side the partner's calendar lists it under Upcoming and not the event that was not shared; its category is one the partner does not have |
 | `02_share_folder` | `share folder "Training"`; the partner's browser shows it at the top level, the folder inside it and that folder's two notes, and none of the owner's other folders |
 | `03_follows` | a folder the owner makes inside the shared one afterwards reaches the partner at the next sync, with no second act of sharing |
@@ -50,7 +50,7 @@ a step that names it.
 | `04d_category_unshared` | `share category "Power" --off`: every partner row leaves the day panel and the Upcoming list; the copy stays, no longer the partner's |
 | `04e_shared_builtin` | the owner makes "Treadmill run" in its default Gym and shares Gym: the partner's read sheet names the partner's own Gym; Gym private again and the event leaves |
 | `04f_category_deleted` | Power shared again and seen; the owner deletes it from the Categories page, moving its two events to Cardio (`category-delete-target`, `category-pick-cardio`): they leave the partner's calendar |
-| `05_pair_ended` | the event shared again and seen; the owner unpairs (`sharing-unpair-confirm`); the partner's Sync & sharing opens on the "Sharing ended" notice (`sharing-ended-close`), and after its next sync the event is gone |
+| `05_pair_ended` | the event shared again and seen; the owner unpairs on the Sharing page its Pairing row opens (`sharing-paired`, then `sharing-unpair` and `sharing-unpair-confirm`); the partner's Sync & sharing opens on the "Sharing ended" notice (`sharing-ended-close`), and after its next sync the event is gone |
 | `06_delete_account` | the partner deletes its account (`sharing-delete-account`, `sharing-delete-account-confirm`): the deletion's row ends as "Account deleted" (never "Finish deleting account"), the page is signed out; the owner's side is still bound, up to date and ready to pair; the partner's guest is relaunched fresh at the end — the first device pass of the roadmap's D2 |
 
 Green on 2026-11-12 on `anta_qa_1` + `anta_qa_2`, each run against a

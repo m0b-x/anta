@@ -625,13 +625,14 @@ class AgendaDayListRowBuilder {
     );
   }
 
-  /// The entry's look — a partner's in [partnerLook]'s, saying whose it is
-  /// first in the row's one node.
+  /// The entry's look — a partner's in [partnerLook]'s, or one of mine that
+  /// I share with its sign — saying whose it is first in the row's one node.
   EventAvatar _avatar(AppLocalizations l10n, AgendaDayListEntry entry) =>
       EventAvatar.ofRow(
         icon: entry.icon,
         color: entry.color,
         partner: entry.fromPartner ? partnerLook : null,
+        mine: entry.sharedByMe ? partnerLook : null,
         l10n: l10n,
       );
 

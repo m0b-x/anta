@@ -11166,6 +11166,16 @@ class AppLocalizationsDe extends AppLocalizations {
   }
 
   @override
+  String get shareChangeFailed =>
+      'Teilen konnte nicht geändert werden – versuch es erneut';
+
+  @override
+  String get shareLoadFailed => 'Teilen konnte nicht geladen werden';
+
+  @override
+  String get shareOpensSyncHint => 'Öffnet Sync & Teilen';
+
+  @override
   String sharePartnerSharesCaption(String name) {
     return 'Nur lesbar. Sie verschwinden, wenn $name das Teilen beendet.';
   }
@@ -11223,6 +11233,11 @@ class AppLocalizationsDe extends AppLocalizations {
   }
 
   @override
+  String shareStaysThroughCategory(String title, String category) {
+    return '$title bleibt über $category geteilt';
+  }
+
+  @override
   String get shareCategoryOff => 'Nur du siehst diese Ereignisse';
 
   @override
@@ -11254,11 +11269,20 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String shareTheirCategoriesCaption(String name) {
-    return 'Markierte erscheinen in deinem Kalender; $name sieht nie, was du ausblendest.';
+    return 'Ausgeschaltete erscheinen nicht in deinem Kalender; $name sieht nie, was du ausblendest.';
   }
 
   @override
   String get shareShowOnCalendar => 'In meinem Kalender anzeigen';
+
+  @override
+  String shareShowCategoryOnCalendar(String category) {
+    return '$category in meinem Kalender anzeigen';
+  }
+
+  @override
+  String get shareHiddenCategoryAlertsCaption =>
+      'In deinem Kalender ausgeblendet, daher klingeln diese Erinnerungen nie';
 
   @override
   String shareJoinsYours(String category) {
@@ -11304,14 +11328,30 @@ class AppLocalizationsDe extends AppLocalizations {
   }
 
   @override
+  String shareDeleteImpactStarts(String name, int count, String category) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$name sieht die $count Ereignisse darin dann über $category',
+      one: '$name sieht das 1 Ereignis darin dann über $category',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get shareStopAll => 'Nichts mehr teilen';
 
   @override
   String get shareStopAllDesc => 'Die Kopplung bleibt';
 
   @override
+  String shareStopAllConfirmTitle(String name) {
+    return 'Nichts mehr mit $name teilen?';
+  }
+
+  @override
   String shareStopAllConfirm(String name) {
-    return 'Nichts mehr mit $name teilen? Deine Kategorien und Ereignisse verschwinden vom anderen Handy. Was $name mit dir teilt, bleibt.';
+    return 'Deine Kategorien und Ereignisse verschwinden vom anderen Handy. Was $name mit dir teilt, bleibt.';
   }
 
   @override

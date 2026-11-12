@@ -4,6 +4,7 @@ import 'package:anta/constants/calendar_categories.dart' as catalogue;
 import 'package:anta/database/database.dart';
 import 'package:anta/database/database_lifecycle.dart';
 import 'package:anta/models/calendar_event.dart';
+import 'package:anta/models/event_template.dart';
 import 'package:anta/models/item_label.dart';
 import 'package:anta/repositories/folder_repository.dart';
 import 'package:anta/services/calendar_event_service.dart';
@@ -15,8 +16,8 @@ import '../database/support/db_test_support.dart';
 /// The three calls that set a share (`docs/cloud-sharing-foundations.md` §3,
 /// `docs/cloud-share-surfaces-roadmap.md` §7) — the only way in until a
 /// surface exists: each is one write of its
-/// root's mark through the layers a surface will use, and neither disturbs
-/// what a screen holds.
+/// root's mark through the layers a surface will use, and what a screen
+/// holds learns the mark and nothing else.
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -58,14 +59,14 @@ void main() {
         ])).single.sharedPair;
 
     test('writes the event\'s mark and queues it; the event a screen holds '
-        'is the same one', () async {
+        'says so and nothing else of it moves', () async {
       final shown = events.events.single;
 
       expect(await events.setShared('e1', 'pair-1'), isTrue);
 
       expect(await markOf('e1'), 'pair-1');
       expect(await queued(), {'calendar_events/e1'});
-      expect(events.events.single, shown);
+      expect(events.events.single, shown.copyWith(markedShared: true));
     });
 
     test('takes it away again, and says when nothing was written', () async {
@@ -78,6 +79,19 @@ void main() {
 
       expect(await events.setShared('e1', null), isTrue);
       expect(await markOf('e1'), isNull);
+    });
+
+    test('a switch-off on a flag the cache holds stale — the mark cleared '
+        'under it — writes nothing and corrects the cache (review C-1)', () async {
+      await events.setShared('e1', 'pair-1');
+      await db.customStatement(
+        'UPDATE calendar_events SET shared_pair = NULL, shared_stamp = NULL',
+      );
+      expect(events.events.single.markedShared, isTrue);
+
+      expect(await events.setShared('e1', null), isFalse);
+
+      expect(events.events.single.markedShared, isFalse);
     });
 
     test('an edit of the event afterwards keeps its mark', () async {
@@ -101,6 +115,37 @@ void main() {
       await events.upsert(event);
       expect(await markOf('e1'), 'pair-1');
       expect(events.events.single.id, 'e1');
+    });
+
+    // Share surfaces §6.6, case E2: a copy is private unless its category
+    // is shared — the save never writes a mark the model carries.
+    test('a duplicate of a singly shared event is private', () async {
+      await events.setShared('e1', 'pair-1');
+      final shared = events.events.single;
+      expect(shared.markedShared, isTrue);
+
+      await events.upsert(shared.copyWith(id: 'e2', title: 'Dinner again'));
+
+      expect(await markOf('e2'), isNull);
+      expect(
+        events.events.singleWhere((event) => event.id == 'e2').markedShared,
+        isFalse,
+      );
+      expect(await markOf('e1'), 'pair-1');
+    });
+
+    test('an event made from a template is never stored shared', () async {
+      const template = EventTemplate(
+        id: 't1',
+        name: 'Dinner',
+        categoryId: 'general',
+      );
+      final made = template.buildEvent(id: 'e3', startDate: day);
+      expect(made.markedShared, isFalse);
+
+      await events.upsert(made);
+
+      expect(await markOf('e3'), isNull);
     });
   });
 
@@ -126,14 +171,19 @@ void main() {
         ])).single.sharedPair;
 
     test('writes the category\'s mark and queues it; the catalogue a screen '
-        'holds is the same one', () async {
-      final shown = catalogue.CalendarCategories.byId(id);
+        'holds says so and nothing else of it moves', () async {
+      final shown = catalogue.CalendarCategories.byId(id)!;
 
       expect(await categories.setShared(id, 'pair-1'), isTrue);
 
       expect(await markOf(id), 'pair-1');
       expect(await queued(), {'calendar_categories/$id'});
-      expect(catalogue.CalendarCategories.byId(id), shown);
+      final marked = catalogue.CalendarCategories.byId(id)!;
+      expect(marked.sharedByMe, isTrue);
+      expect(
+        [marked.name, marked.colorValue, marked.sortOrder, marked.isHidden],
+        [shown.name, shown.colorValue, shown.sortOrder, shown.isHidden],
+      );
     });
 
     test('takes it away again, and says when nothing was written', () async {

@@ -265,6 +265,12 @@ abstract final class FormMetrics {
   /// value still reads as a value and its row never turns into a paragraph.
   static const int valueMaxLines = 2;
 
+  /// The lines a received category's caption may take — its event count and,
+  /// on a shared built-in, "joins your …": the longest, German and Romanian
+  /// at 2.0, run four on a 360 dp phone, and the stacked row's own two cut
+  /// the name of the category it joins (slice D §0).
+  static const int receivedCaptionMaxLines = 4;
+
   /// A caption line that belongs to the row above it (the next occurrences
   /// after "Next occurrence", the adherence lines under the presence chips):
   /// the pair's own 6 dp already separates it from the value, so only the
@@ -388,6 +394,17 @@ abstract final class FormMetrics {
   static const double menuRowHeight = 44;
   static const double menuIconSize = 20;
   static const double menuRadius = 12;
+
+  /// Above and below a menu item that carries a caption under its label —
+  /// the Sharing page's Alerts menu — so the two lines read as one choice
+  /// with air between choices, where the one-line row's 44 dp has none.
+  static const double menuCaptionRowVerticalPadding = 10;
+
+  /// What a captioned menu item is taken to be at text scale 1 when the menu
+  /// decides above or below its anchor: the label over a caption of one or
+  /// two lines, measured 58–76 dp at 280 wide (slice C §1). An estimate, like
+  /// [menuRowHeight]'s; the route shifts a taller menu to stay on screen.
+  static const double menuCaptionRowHeight = 66;
 
   /// The text scale a confirm dialog's title and its action labels stop
   /// growing at: past them a German or Romanian title, or a one-word label

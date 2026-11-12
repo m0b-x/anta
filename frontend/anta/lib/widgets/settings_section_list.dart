@@ -40,6 +40,11 @@ class SettingsEntry {
   /// swatch strip) keeps each control as its own node.
   final String? identifier;
 
+  /// Cuts [description] with an ellipsis past this many lines — a list of
+  /// names read back as a row's second line, which would otherwise grow the
+  /// row a line per name. Null wraps freely.
+  final int? descriptionMaxLines;
+
   const SettingsEntry({
     required this.title,
     required this.builder,
@@ -48,6 +53,7 @@ class SettingsEntry {
     this.titleStyle,
     this.descriptionStyle,
     this.identifier,
+    this.descriptionMaxLines,
   });
 }
 
@@ -70,13 +76,29 @@ class SettingsSectionData {
   /// section without one simply cannot fold.
   final String? id;
 
+  /// A status read beside the header's title ("Sending…"), null while there
+  /// is none. It sits where a folded section's count does, so only a section
+  /// that cannot fold — one without an [id] — may carry it.
+  final String? trailing;
+
+  /// Every status [trailing] may show. The slot is as wide as the widest,
+  /// capped at `RowMetrics.settingsStatusMaxShare` of the header, and is
+  /// reserved whether or not there is a status, so the title wraps the same
+  /// with and without one and nothing under the header moves when it changes.
+  final List<String> trailingTemplates;
+
   const SettingsSectionData({
     required this.icon,
     required this.title,
     required this.entries,
     this.intro,
     this.id,
-  });
+    this.trailing,
+    this.trailingTemplates = const [],
+  }) : assert(
+         id == null || trailing == null,
+         'a section that can fold shows its count where the status would go',
+       );
 }
 
 /// How densely the kit sets its rows. Both draw the same groups on the same
@@ -433,20 +455,65 @@ class SettingsSectionCard extends StatelessWidget {
 
     final toggle = onToggle;
     if (toggle == null) {
+      // The chevron's height without its width, so a label that cannot fold
+      // sits on the line a folding one does.
+      const chevronLine = SizedBox(height: RowMetrics.glyphSize);
+      final hasStatus =
+          section.id == null &&
+          (section.trailing != null || section.trailingTemplates.isNotEmpty);
+      final Widget content;
+      if (!hasStatus) {
+        content = Row(
+          children: [
+            Expanded(child: title),
+            chevronLine,
+          ],
+        );
+      } else if (_statusOnOwnLine(context)) {
+        // Beside a title that already wraps a word a line, half the header
+        // would leave neither readable: the status takes the line under it.
+        // Stretched: on a line of its own the status may use all of it.
+        content = Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              children: [
+                Expanded(child: title),
+                chevronLine,
+              ],
+            ),
+            _buildStatus(labelStyle, ownLine: true),
+          ],
+        );
+      } else {
+        content = LayoutBuilder(
+          builder: (context, constraints) => Row(
+            children: [
+              Expanded(child: title),
+              Padding(
+                padding: const EdgeInsetsDirectional.only(
+                  start: RowMetrics.gap,
+                ),
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxWidth:
+                        constraints.maxWidth *
+                        RowMetrics.settingsStatusMaxShare,
+                  ),
+                  child: _buildStatus(labelStyle, ownLine: false),
+                ),
+              ),
+              chevronLine,
+            ],
+          ),
+        );
+      }
       return Semantics(
         container: true,
         header: true,
         headingLevel: 2,
-        child: box(
-          Row(
-            children: [
-              Expanded(child: title),
-              // The chevron's height without its width, so a label that
-              // cannot fold sits on the line a folding one does.
-              const SizedBox(height: RowMetrics.glyphSize),
-            ],
-          ),
-        ),
+        child: box(content),
       );
     }
 
@@ -514,6 +581,53 @@ class SettingsSectionCard extends StatelessWidget {
     );
   }
 
+  /// Decided by the scale, never by measuring the title, so a header never
+  /// changes shape with the status it shows.
+  static bool _statusOnOwnLine(BuildContext context) {
+    final scaler = MediaQuery.textScalerOf(context);
+    return scaler.scale(RowMetrics.titleFontSize) / RowMetrics.titleFontSize >=
+        RowMetrics.compactLeadingTextScale;
+  }
+
+  /// The status slot: every template laid out unseen to size it, the status
+  /// drawn over them in the folded count's style. Its own node, so the
+  /// heading is still named by its title alone.
+  Widget _buildStatus(TextStyle? labelStyle, {required bool ownLine}) {
+    final style = labelStyle?.copyWith(
+      fontFeatures: const [FontFeature.tabularFigures()],
+    );
+    Text line(String text) => Text(
+      text,
+      textAlign: ownLine ? TextAlign.start : TextAlign.end,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: style,
+    );
+    final alignment = ownLine
+        ? AlignmentDirectional.centerStart
+        : AlignmentDirectional.centerEnd;
+    final templates = section.trailingTemplates;
+    final shown = section.trailing;
+    final status = shown == null
+        ? null
+        : Semantics(container: true, child: line(shown));
+    return Stack(
+      alignment: alignment,
+      children: [
+        for (final template in templates)
+          ExcludeSemantics(child: Opacity(opacity: 0, child: line(template))),
+        if (status != null)
+          // Over the templates, never beside them: a status wider than the
+          // widest template is cut, not given more room.
+          templates.isEmpty
+              ? status
+              : Positioned.fill(
+                  child: Align(alignment: alignment, child: status),
+                ),
+      ],
+    );
+  }
+
   Widget _buildRow(
     BuildContext context,
     _VisibleEntry visible,
@@ -535,6 +649,10 @@ class SettingsSectionCard extends StatelessWidget {
             text: entry.description!,
             spans: visible.match.descriptionSpans,
             style: baseDescriptionStyle.merge(entry.descriptionStyle),
+            maxLines: entry.descriptionMaxLines,
+            overflow: entry.descriptionMaxLines == null
+                ? null
+                : TextOverflow.ellipsis,
             followsDisabledTile: true,
           );
     final row = entry.builder(context, title, description);

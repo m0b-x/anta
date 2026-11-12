@@ -868,6 +868,8 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
           look: loaded.share.eventLook,
           partner: _partnerLook.partner,
           name: _partnerLook.name,
+          markMine: loaded.share.markMine,
+          unpaired: _partnerLook.unpaired,
         );
       });
       // The pairing may have changed on the page this trip returned from.
@@ -887,13 +889,16 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
     }
   }
 
-  /// Reads who a partner's events are from, once per settings trip and only
-  /// while the calendar holds one: an account that never paired opens no
-  /// sharing for its calendar.
+  /// Reads who the partner is, once per settings trip and only while the
+  /// calendar holds an event of theirs or one I share with them: an account
+  /// that never paired opens no sharing for its calendar.
   Future<void> _readPartner() async {
     if (_partnerAsked) return;
     final state = context.read<CalendarBloc>().state;
-    if (state is! CalendarPageLoaded || !state.holdsPartnerEvents) return;
+    if (state is! CalendarPageLoaded ||
+        !(state.holdsPartnerEvents || state.holdsSharedByMe)) {
+      return;
+    }
     _partnerAsked = true;
     final ShareAudience? audience;
     try {
@@ -910,6 +915,8 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
       look: _partnerLook.look,
       partner: audience?.members.firstOrNull,
       name: audience?.displayName,
+      markMine: _partnerLook.markMine,
+      unpaired: audience == null,
     );
     if (next != _partnerLook) setState(() => _partnerLook = next);
   }

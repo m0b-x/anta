@@ -887,4 +887,57 @@ void main() {
       expect(await queued(), {skipKey('arrives'), textKey('arrives')});
     });
   });
+
+  group('counts per category', () {
+    /// Two of the person's own in the built-in `gym`, one deleted, and two
+    /// of the partner's — one in `gym` too, one in the partner's own `p1`.
+    Future<void> seed() async {
+      for (final (id, category) in [
+        ('mine1', 'gym'),
+        ('mine2', 'gym'),
+        ('gone', 'gym'),
+        ('theirs1', 'gym'),
+        ('theirs2', 'p1'),
+      ]) {
+        await event(id, category);
+      }
+      await db.calendarEventDao.softDeleteById('gone');
+      await db.customStatement(
+        "UPDATE calendar_events SET owner_id = 'partner' "
+        "WHERE id IN ('theirs1', 'theirs2')",
+      );
+      await db.syncDao.setValue(SyncDao.keySharedOwner, 'partner');
+    }
+
+    test('countByCategory counts the person\'s own live events alone — a '
+        'partner\'s in a built-in both share is not theirs to share or '
+        'delete', () async {
+      await seed();
+
+      expect(await db.calendarEventDao.countByCategory(), {'gym': 2});
+    });
+
+    test(
+      'countPartnerByCategory counts the partner\'s by the stored id',
+      () async {
+        await seed();
+
+        expect(await db.calendarEventDao.countPartnerByCategory(), {
+          'gym': 1,
+          'p1': 1,
+        });
+      },
+    );
+
+    test('a database that reads no shared rows counts every row its own and '
+        'none the partner\'s', () async {
+      await event('e1', 'gym');
+      await db.customStatement(
+        "UPDATE calendar_events SET owner_id = 'me-uid' WHERE id = 'e1'",
+      );
+
+      expect(await db.calendarEventDao.countByCategory(), {'gym': 1});
+      expect(await db.calendarEventDao.countPartnerByCategory(), isEmpty);
+    });
+  });
 }

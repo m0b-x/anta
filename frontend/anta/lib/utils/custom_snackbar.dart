@@ -71,6 +71,10 @@ class CustomSnackbar {
     final capped = requested > AppConstants.snackbarActionMaxDuration
         ? AppConstants.snackbarActionMaxDuration
         : requested;
+    // The page that raised the bar may have left by the time its action is
+    // tapped — its context is then dead — while the messenger above every
+    // route still holds the bar.
+    final messenger = ScaffoldMessenger.maybeOf(context);
 
     // IMPORTANT: do NOT pass a [SnackBarAction] here. When Flutter sees a
     // non-null `SnackBar.action` AND `MediaQueryData.accessibleNavigation`
@@ -90,7 +94,12 @@ class CustomSnackbar {
         onAction: onAction,
         // A sheet's context may be gone by the time the action is tapped,
         // and the overlay's bar needs none to come down.
-        dismiss: overSheet ? OverlaySnackbar.hide : () => hide(context),
+        dismiss: overSheet
+            ? OverlaySnackbar.hide
+            : () {
+                OverlaySnackbar.hide();
+                messenger?.hideCurrentSnackBar();
+              },
       ),
       duration: capped,
       withToolbarOffset: withToolbarOffset,

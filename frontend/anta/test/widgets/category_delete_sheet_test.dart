@@ -12,6 +12,7 @@ import 'package:anta/models/calendar_event.dart' show kFallbackCategoryId;
 import 'package:anta/models/category_alert.dart';
 import 'package:anta/services/category_service.dart';
 import 'package:anta/services/event_alert_service.dart';
+import 'package:anta/services/share_service.dart';
 import 'package:anta/widgets/form_rows.dart';
 
 import '../database/support/db_test_support.dart';
@@ -729,6 +730,145 @@ void main() {
         await expectLater(tester, meetsGuideline(textContrastGuideline));
       });
     }
+  });
+
+  group('the share sentence', () {
+    const maria = ShareAudience(id: 'pair-1', displayName: 'Maria', members: []);
+    const ready = ShareReady(maria);
+    const views =
+        'Saved views, digests and reports that pick only Work show nothing '
+        'until you pick again.';
+
+    /// A custom category holding [events] events, shared when [shared] says
+    /// so, as the catalogue hands it to the page.
+    Future<CalendarCategory> category(
+      String name, {
+      int events = 0,
+      bool shared = false,
+    }) async {
+      final created = await custom(name);
+      await addEvents(created.id, events);
+      if (shared) await service.setShared(created.id, maria.id);
+      return CalendarCategories.byId(created.id)!;
+    }
+
+    testWidgets('a shared category: the partner stops seeing its events, or '
+        'they stay shared through a shared target — first, at one height', (
+      tester,
+    ) async {
+      final work = await category('Work', events: 42, shared: true);
+      await category('Travel', shared: true);
+      final robot = CategoryDeleteRobot(tester);
+      await robot.show(category: work, share: ready, surface: phone);
+      final height = robot.consequencesHeight;
+      expect(robot.consequences, 'Maria stops seeing its 42 events. $views');
+
+      await robot.openPicker();
+      await robot.pick('Travel');
+      expect(robot.consequences, 'They stay shared through Travel. $views');
+      expect(robot.consequencesHeight, height);
+
+      await robot.openPicker();
+      await robot.pick('Other');
+      expect(robot.consequences, 'Maria stops seeing its 42 events. $views');
+      expect(robot.consequencesHeight, height);
+      await robot.tapClose();
+    });
+
+    testWidgets('a private category moving to a shared one: the partner will '
+        'see its events through it', (tester) async {
+      final work = await category('Work', events: 12);
+      await category('Travel', shared: true);
+      final robot = CategoryDeleteRobot(tester);
+      await robot.show(category: work, share: ready, surface: phone);
+      final height = robot.consequencesHeight;
+      expect(robot.consequences, views);
+
+      await robot.openPicker();
+      await robot.pick('Travel');
+      expect(
+        robot.consequences,
+        'Maria will see its 12 events through Travel. $views',
+      );
+      expect(robot.consequencesHeight, height);
+      await robot.tapClose();
+    });
+
+    testWidgets('an event shared on its own is left out of the count: it '
+        'neither stops nor starts being seen', (tester) async {
+      final work = await category('Work', events: 3, shared: true);
+      final gym = await category('Gym', events: 3);
+      await category('Travel', shared: true);
+      await db.calendarEventDao.setSharedPair('${work.id}-e0', maria.id);
+      await db.calendarEventDao.setSharedPair('${gym.id}-e0', maria.id);
+      final robot = CategoryDeleteRobot(tester);
+
+      await robot.show(category: work, share: ready, surface: phone);
+      expect(robot.consequences, 'Maria stops seeing its 2 events. $views');
+      await robot.tapClose();
+
+      await robot.show(category: gym, share: ready, surface: phone);
+      await robot.openPicker();
+      await robot.pick('Travel');
+      expect(
+        robot.consequences,
+        'Maria will see its 2 events through Travel. '
+        '${views.replaceFirst('Work', 'Gym')}',
+      );
+      await robot.tapClose();
+    });
+
+    testWidgets('nothing is said with nothing to move, with no sharing '
+        'involved, or while not paired', (tester) async {
+      final robot = CategoryDeleteRobot(tester);
+      // No category shared: the paired sheet is the unpaired one.
+      final gym = await category('Gym', events: 3);
+      await robot.show(category: gym, share: ready, surface: phone);
+      final height = robot.consequencesHeight;
+      expect(robot.consequences, startsWith('Saved views'));
+      await robot.tapClose();
+      await robot.show(category: gym, surface: phone);
+      expect(robot.consequencesHeight, height);
+      await robot.tapClose();
+
+      final empty = await category('Work', shared: true);
+      await robot.show(category: empty, share: ready, surface: phone);
+      expect(robot.consequences, views);
+      await robot.tapClose();
+
+      final shared = await category('Trips', events: 3, shared: true);
+      await robot.show(category: shared, surface: phone);
+      expect(robot.consequences, startsWith('Saved views'));
+      await robot.tapClose();
+    });
+
+    testWidgets('German at 2.0: the sentence follows the pick at one height', (
+      tester,
+    ) async {
+      final work = await category('Work', events: 42, shared: true);
+      await category('Travel', shared: true);
+      final robot = CategoryDeleteRobot(tester);
+      await robot.show(
+        category: work,
+        share: const ShareReady(
+          ShareAudience(
+            id: 'pair-1',
+            displayName: 'Maximilian-Alexander',
+            members: [],
+          ),
+        ),
+        locale: const Locale('de'),
+        textScale: 2.0,
+        surface: phone,
+      );
+      final height = robot.consequencesHeight;
+      expect(robot.consequences, startsWith('Maximilian-Alexander sieht'));
+      await robot.openPicker();
+      await robot.pick('Travel');
+      expect(robot.consequences, startsWith('Sie bleiben über Travel geteilt.'));
+      expect(robot.consequencesHeight, height);
+      await robot.tapClose();
+    });
   });
 }
 

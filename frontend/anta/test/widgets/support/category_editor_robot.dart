@@ -8,6 +8,7 @@ import 'package:anta/constants/category_kinds.dart';
 import 'package:anta/constants/semantics_ids.dart';
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/models/calendar_category.dart';
+import 'package:anta/services/share_service.dart';
 import 'package:anta/widgets/category_editor_sheet.dart';
 import 'package:anta/widgets/color_swatch_picker.dart';
 import 'package:anta/widgets/event_avatar.dart';
@@ -24,6 +25,9 @@ import 'swatch_robot.dart';
 class CategoryEditorOutcome {
   CalendarCategory? result;
   bool returned = false;
+
+  /// The share the answer asks the opener to write, when opened with one.
+  bool? share;
 }
 
 /// Drives the category editor — [CategoryEditorSheet] — for the suites: they
@@ -130,7 +134,10 @@ class CategoryEditorRobot {
   /// on a page — and captures its result.
   ///
   /// [bloc] puts the app's calendar bloc in scope, as the app has it, for a
-  /// case that watches what the sheet tells the calendar.
+  /// case that watches what the sheet tells the calendar. [share] opens it
+  /// the way the Categories page does — through `open`, with the phone's
+  /// share availability — [openSyncSettings] stands in for the push to
+  /// Sync & sharing, and [rereadShare] for the opener asked again after it.
   Future<CategoryEditorOutcome> show({
     CalendarCategory? initial,
     String? initialName,
@@ -140,6 +147,10 @@ class CategoryEditorRobot {
     CalendarBloc? bloc,
     bool sandbox = false,
     ThemeData? theme,
+    ShareAvailability? share,
+    int shareEventCount = 0,
+    Future<void> Function(BuildContext context)? openSyncSettings,
+    Future<ShareAvailability> Function()? rereadShare,
   }) async {
     if (surface != null) {
       addTearDown(tester.view.reset);
@@ -167,12 +178,27 @@ class CategoryEditorRobot {
             body: Builder(
               builder: (context) => TextButton(
                 onPressed: () async {
-                  outcome.result = await CategoryEditorSheet.show(
-                    context,
-                    initial: initial,
-                    initialName: initialName,
-                    sandbox: sandbox,
-                  );
+                  if (share == null) {
+                    outcome.result = await CategoryEditorSheet.show(
+                      context,
+                      initial: initial,
+                      initialName: initialName,
+                      sandbox: sandbox,
+                    );
+                  } else {
+                    final answer = await CategoryEditorSheet.open(
+                      context,
+                      initial: initial,
+                      initialName: initialName,
+                      share: share,
+                      shareEventCount: shareEventCount,
+                      openSyncSettings:
+                          openSyncSettings ?? (_) async => fail('no sync'),
+                      rereadShare: rereadShare,
+                    );
+                    outcome.result = answer?.category;
+                    outcome.share = answer?.share;
+                  }
                   outcome.returned = true;
                 },
                 child: const Text(_openLabel),
@@ -510,6 +536,55 @@ class CategoryEditorRobot {
       find.bySemanticsIdentifier(SemanticsIds.categoryMarkWordSave),
     );
     await tester.pumpAndSettle();
+  }
+
+  // --- Sharing ----------------------------------------------------------------
+
+  Finder get _shareRow => _byId(SemanticsIds.categoryEditorShare);
+
+  FormSwitchRow get _shareSwitchRow => tester.widget<FormSwitchRow>(
+    find.ancestor(of: _shareRow, matching: find.byType(FormSwitchRow)),
+  );
+
+  /// Whether the SHARING section's switch is drawn — never while not
+  /// paired.
+  bool get shareShown => _shown(_shareRow);
+
+  String get shareLabel => _shareSwitchRow.label;
+
+  String? get shareSubtitle => _shareSwitchRow.subtitle;
+
+  bool get shareOn => _shareSwitchRow.value;
+
+  /// Whether the switch takes a flip; a disabled one is drawn in place.
+  bool get shareEnabled => _shareSwitchRow.onChanged != null;
+
+  double get shareRowHeight => tester.getSize(_shareRow).height;
+
+  /// A tap on the row: a flip, or Sync & sharing while it is disabled.
+  Future<void> tapShare() => _tap(_shareRow);
+
+  /// The share row's one semantics node.
+  SemanticsData get shareNode => _dataOf(_shareRow);
+
+  /// Whether every line the share row draws — the label, the subtitle and
+  /// the slot's templates — is whole and inside the sheet.
+  bool get shareRowWhole {
+    final sheet = sheetRect;
+    for (final element in find
+        .descendant(of: _shareRow, matching: find.byType(Text))
+        .evaluate()) {
+      final text = element.widget as Text;
+      final paragraph = element.findRenderObject()! as RenderParagraph;
+      final rect = tester.getRect(find.byWidget(text));
+      if (text.maxLines != null ||
+          paragraph.didExceedMaxLines ||
+          rect.left < sheet.left ||
+          rect.right > sheet.right) {
+        return false;
+      }
+    }
+    return true;
   }
 
   // --- Geometry ---------------------------------------------------------------

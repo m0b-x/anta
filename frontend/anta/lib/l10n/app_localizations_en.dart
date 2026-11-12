@@ -11081,6 +11081,15 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String get shareChangeFailed => 'Sharing couldn\'t be changed — try again';
+
+  @override
+  String get shareLoadFailed => 'Sharing couldn\'t be loaded';
+
+  @override
+  String get shareOpensSyncHint => 'Opens Sync & sharing';
+
+  @override
   String sharePartnerSharesCaption(String name) {
     return 'Read-only. They leave when $name stops sharing.';
   }
@@ -11138,6 +11147,11 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String shareStaysThroughCategory(String title, String category) {
+    return '$title stays shared through $category';
+  }
+
+  @override
   String get shareCategoryOff => 'Only you see these events';
 
   @override
@@ -11169,11 +11183,20 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String shareTheirCategoriesCaption(String name) {
-    return 'Ticked ones show on your calendar; $name never sees what you hide.';
+    return 'Switched-off ones stay off your calendar; $name never sees what you hide.';
   }
 
   @override
   String get shareShowOnCalendar => 'Show on my calendar';
+
+  @override
+  String shareShowCategoryOnCalendar(String category) {
+    return 'Show $category on my calendar';
+  }
+
+  @override
+  String get shareHiddenCategoryAlertsCaption =>
+      'Hidden from your calendar, so these never ring';
 
   @override
   String shareJoinsYours(String category) {
@@ -11218,14 +11241,30 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String shareDeleteImpactStarts(String name, int count, String category) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$name will see its $count events through $category',
+      one: '$name will see its 1 event through $category',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get shareStopAll => 'Stop sharing everything';
 
   @override
   String get shareStopAllDesc => 'You stay paired';
 
   @override
+  String shareStopAllConfirmTitle(String name) {
+    return 'Stop sharing everything with $name?';
+  }
+
+  @override
   String shareStopAllConfirm(String name) {
-    return 'Stop sharing everything with $name? Your categories and events leave their phone. What $name shares with you stays.';
+    return 'Your categories and events leave their phone. What $name shares with you stays.';
   }
 
   @override

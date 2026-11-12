@@ -58,6 +58,12 @@ class _SharedReader {
     final db = _e._db;
     final touched = <SyncInvalidation>{};
     var stamps = false;
+    // Every table read to its end, or nothing left to read: what the
+    // Sharing page dates its "Updated" by.
+    var completed = false;
+    // The server or this device could not answer: the page's "Could not
+    // check". A read the leave cut is neither this nor completed.
+    var failed = false;
     try {
       final uid = bound.accountUid;
       final holder = await db.sharedRowDao.owner();
@@ -78,7 +84,10 @@ class _SharedReader {
                   partner.pairId)) {
         await _forget(touched);
       }
-      if (partner == null) return;
+      if (partner == null) {
+        completed = true;
+        return;
+      }
       if (await db.sharedRowDao.owner() == null) {
         await db.sharedRowDao.begin(
           owner: partner.partnerUid,
@@ -113,6 +122,7 @@ class _SharedReader {
           '${_e._now().millisecondsSinceEpoch}',
         );
       }
+      completed = complete;
     } on _Halted {
       stamps = false;
       rethrow;
@@ -120,16 +130,22 @@ class _SharedReader {
       // Offline, the next run asks again; anything else waits the interval
       // out — rules not deployed yet answer the same every time.
       stamps = error.failure != SyncGatewayFailure.offline;
+      failed = true;
       debugPrint('[SyncEngine] shared rows not read: $error');
     } catch (error, stack) {
+      failed = true;
       _warn('reading shared rows failed: $error\n$stack');
     } finally {
-      if (stamps) {
+      if (stamps || failed) {
         try {
-          await db.syncDao.setValue(
-            SyncDao.keySharedReadAt,
-            '${_e._now().millisecondsSinceEpoch}',
-          );
+          final at = '${_e._now().millisecondsSinceEpoch}';
+          if (stamps) await db.syncDao.setValue(SyncDao.keySharedReadAt, at);
+          if (completed) {
+            await db.syncDao.setValue(SyncDao.keySharedReadOkAt, at);
+          }
+          if (failed) {
+            await db.syncDao.setValue(SyncDao.keySharedReadFailedAt, at);
+          }
         } catch (error, stack) {
           _warn('the shared read was not stamped: $error\n$stack');
         }
@@ -167,7 +183,9 @@ class _SharedReader {
 
   /// Clears this account's own marks of every pair but [partner]'s — all of
   /// them when it has none. Stamped writes, queued like any edit: the
-  /// documents under them are sent again private by the next drain.
+  /// documents under them are sent again private by the next drain. The
+  /// caches are told apart ([SyncInvalidation.shareMarks]): no page names
+  /// the rows whose marks went.
   Future<void> _keepMarks(
     SharePartner? partner,
     Set<SyncInvalidation> touched,
@@ -178,7 +196,8 @@ class _SharedReader {
     if (cleared == 0) return;
     touched
       ..add(SyncInvalidation.folders)
-      ..add(SyncInvalidation.calendar);
+      ..add(SyncInvalidation.calendar)
+      ..add(SyncInvalidation.shareMarks);
   }
 
   /// Removes every shared row this database holds and tells the caches.

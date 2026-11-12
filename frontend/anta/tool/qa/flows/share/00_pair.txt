@@ -15,9 +15,9 @@ shot invite
 -d emulator-5558 tap id:pairing-code-field
 -d emulator-5558 type "{{var:invite}}"
 -d emulator-5558 tap id:pairing-connect
--d emulator-5558 wait id:sharing-unpair --timeout 30
+-d emulator-5558 wait id:sharing-paired --timeout 30
 -d emulator-5558 expect --absent id:pairing-connect --absent id:sharing-pair
-wait id:sharing-unpair --timeout 30
+wait id:sharing-paired --timeout 30
 expect --absent id:pairing-code --absent id:sharing-pair
 shot paired
 -d emulator-5558 errors

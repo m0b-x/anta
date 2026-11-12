@@ -23,18 +23,23 @@ import 'package:anta/constants/row_metrics.dart';
 import 'package:anta/constants/semantics_ids.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/l10n/app_localizations.dart';
+import 'package:anta/models/app_user.dart';
 import 'package:anta/models/calendar_category.dart';
 import 'package:anta/models/calendar_event.dart';
 import 'package:anta/models/category_alert.dart';
+import 'package:anta/models/share_overview.dart';
 import 'package:anta/pages/calendar_categories_page.dart';
 import 'package:anta/services/calendar_event_service.dart';
 import 'package:anta/services/calendar_palette_service.dart';
 import 'package:anta/services/category_service.dart';
+import 'package:anta/services/pairing_service.dart';
 import 'package:anta/services/settings_service.dart';
+import 'package:anta/services/share_service.dart';
 import 'package:anta/widgets/category_delete_sheet.dart';
 import 'package:anta/widgets/category_picker_sheet.dart';
 import 'package:anta/widgets/content_rows.dart';
 import 'package:anta/widgets/event_avatar.dart';
+import 'package:anta/widgets/form_menu_item.dart' show FormMenuItemRow;
 import 'package:anta/widgets/form_rows.dart' show FormTrailingButton;
 import 'package:anta/widgets/settings_reorder.dart';
 import 'package:anta/widgets/settings_search_field.dart';
@@ -42,6 +47,8 @@ import 'package:anta/widgets/value_change_highlight.dart';
 
 import '../database/support/db_test_support.dart';
 import '../goldens/support/golden_fonts.dart';
+import '../services/pairing_support.dart';
+import '../support/fake_share_service.dart';
 import 'support/category_editor_robot.dart';
 import 'support/settings_page_whole.dart' show expectBreaksBetweenWords;
 
@@ -127,7 +134,9 @@ void main() {
   /// scrolling to them.
   ///
   /// [bloc] puts the app's calendar bloc above the app, where the app has it;
-  /// [textScale] scales the text as the phone's setting would.
+  /// [textScale] scales the text as the phone's setting would. [share] is
+  /// the phone's sharing; never paired unless a case says otherwise.
+  /// [openSyncSettings] stands in for the editor's push to Sync & sharing.
   Future<void> pumpPage(
     WidgetTester tester, {
     double width = 900,
@@ -136,7 +145,10 @@ void main() {
     double? textScale,
     Locale locale = const Locale('en'),
     bool dark = false,
+    FakeShareService? share,
+    Future<void> Function(BuildContext context)? openSyncSettings,
   }) async {
+    final sharing = share ?? FakeShareService();
     tester.view.physicalSize = Size(width, height);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
@@ -153,7 +165,11 @@ void main() {
               ).copyWith(textScaler: TextScaler.linear(textScale)),
               child: child!,
             ),
-      home: CalendarCategoriesPage(key: ValueKey(pumps++)),
+      home: CalendarCategoriesPage(
+        key: ValueKey(pumps++),
+        shareService: () async => sharing,
+        openSyncSettings: openSyncSettings ?? (_) async {},
+      ),
     );
     await tester.pumpWidget(
       bloc == null
@@ -2035,6 +2051,362 @@ void main() {
         handle.dispose();
       });
     }
+  });
+
+  group('sharing', () {
+    const maria = ShareAudience(id: 'pair-1', displayName: 'Maria', members: []);
+
+    setUp(() {
+      // The editor reads the palette through the settings.
+      CalendarPaletteService.reset();
+      SettingsService.reset();
+      SettingsService.forTesting(db);
+    });
+
+    tearDown(() {
+      CalendarPaletteService.reset();
+      SettingsService.reset();
+    });
+
+    FakeShareService paired({bool syncing = true, bool markMine = true}) =>
+        FakeShareService(
+            availability: syncing
+                ? const ShareReady(maria)
+                : const ShareNotSyncing(maria),
+          )
+          ..mine = markMine;
+
+    String captionOf(WidgetTester tester, String id) =>
+        dataOf(tester, SemanticsIds.categoryRow(id)).label.split('\n')[1];
+
+    EventAvatar avatarOf(WidgetTester tester, String label) =>
+        tester.widget<EventAvatar>(inRow(label, find.byType(EventAvatar)));
+
+    /// The open menu's rows, top to bottom.
+    List<FormMenuItemRow> menuRows(WidgetTester tester) => [
+      for (final element in find.byType(FormMenuItemRow).evaluate())
+        element.widget as FormMenuItemRow,
+    ];
+
+    Future<void> letSnackbarGo(WidgetTester tester) async {
+      await tester.pump(const Duration(seconds: 10));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('a shared category says "Shared" last and wears the sign; '
+        'an archived one still does', (tester) async {
+      EventAlerts.updateCategoryCache(
+        byCategory: {
+          'gym': const [CategoryAlert(id: 'c1', categoryId: 'gym')],
+        },
+      );
+      await addEvents('gym', 2);
+      await service.setShared('gym', maria.id);
+      await service.setShared('rest', maria.id);
+      await service.setHidden('rest', true);
+      await pumpPage(tester, share: paired());
+      final l10n = l10nOf(tester);
+
+      expect(
+        inRow(
+          'Gym',
+          find.text(
+            caption(l10n, [
+              l10n.categoryEventCount(2),
+              l10n.categoryCaptionBuiltIn,
+              l10n.categoryCaptionAlertsOn,
+              l10n.categoryCaptionShared,
+            ]),
+          ),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        captionOf(tester, 'gym'),
+        caption(l10n, [
+          l10n.categoryEventCount(2),
+          l10n.categoryCaptionBuiltIn,
+          l10n.categoryCaptionAlertsOn,
+          l10n.sharedWithPartner('Maria'),
+        ]),
+      );
+      expect(avatarOf(tester, 'Gym').badge, EventAvatarBadge.mine);
+      expect(
+        captionOf(tester, 'rest'),
+        caption(l10n, [
+          l10n.categoryEventCount(0),
+          l10n.categoryCaptionBuiltIn,
+          l10n.sharedWithPartner('Maria'),
+        ]),
+      );
+      expect(avatarOf(tester, 'Rest').badge, EventAvatarBadge.mine);
+      expect(
+        captionOf(tester, 'cardio'),
+        isNot(contains(l10n.categoryCaptionShared)),
+      );
+      expect(avatarOf(tester, 'Cardio').badge, isNull);
+    });
+
+    testWidgets('with the sign turned off, and at large text where the '
+        'avatar is a bare glyph, the caption alone says it', (tester) async {
+      await service.setShared('gym', maria.id);
+      await pumpPage(tester, share: paired(markMine: false));
+      expect(captionOf(tester, 'gym'), endsWith('Shared with Maria'));
+      expect(avatarOf(tester, 'Gym').badge, isNull);
+
+      await pumpPage(
+        tester,
+        width: 360,
+        height: 780,
+        textScale: 2.0,
+        share: paired(),
+      );
+      expect(captionOf(tester, 'gym'), endsWith('Shared with Maria'));
+      expect(inRow('Gym', find.byType(EventAvatar)), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('never paired: no "Shared", no sign, no menu item — even '
+        'for a mark left in the store', (tester) async {
+      await service.setShared('gym', maria.id);
+      await pumpPage(tester);
+      expect(captionOf(tester, 'gym'), isNot(contains('Shared')));
+      expect(avatarOf(tester, 'Gym').badge, isNull);
+
+      await openRowMenu(tester, 'gym');
+      expect(byId(SemanticsIds.categoryMenuShare), findsNothing);
+      expect(menuRows(tester), hasLength(4));
+      await dismissMenu(tester);
+    });
+
+    testWidgets('the menu item sits between Edit and Archive and shares at '
+        'once, with Undo', (tester) async {
+      final share = paired();
+      await pumpPage(tester, share: share);
+      final l10n = l10nOf(tester);
+      final gym = CalendarCategories.byId('gym')!;
+      share.nextChange = ShareChange(sharedCategories: [gym]);
+
+      await openRowMenu(tester, 'gym');
+      expect([for (final row in menuRows(tester)) row.identifier], [
+        SemanticsIds.categoryMenuMoveToTop,
+        SemanticsIds.categoryMenuEdit,
+        SemanticsIds.categoryMenuShare,
+        SemanticsIds.categoryMenuArchive,
+        SemanticsIds.categoryMenuDelete,
+      ]);
+      final item = menuRows(tester)[2];
+      expect(item.label, 'Share with Maria');
+      expect(item.checked, isFalse);
+      await tester.tap(byId(SemanticsIds.categoryMenuShare));
+      await tester.pumpAndSettle();
+
+      expect(share.categorySets, [
+        {'gym'},
+      ]);
+      expect(find.text(l10n.shareStarted('Gym', 'Maria')), findsOneWidget);
+      await tester.tap(find.text(l10n.undo));
+      await tester.pumpAndSettle();
+      expect(share.undone, [share.nextChange]);
+      await letSnackbarGo(tester);
+    });
+
+    testWidgets('a shared category\'s item reads "Shared with" with the ✓, '
+        'and stops sharing with how many stay', (tester) async {
+      final share = paired();
+      await service.setShared('gym', maria.id);
+      await pumpPage(tester, share: share);
+      final l10n = l10nOf(tester);
+      share.nextChange = ShareChange(
+        unsharedCategories: [CalendarCategories.byId('gym')!],
+        keptOnTheirOwn: 2,
+      );
+
+      await openRowMenu(tester, 'gym');
+      final item = menuRows(tester)[2];
+      expect(item.label, 'Shared with Maria');
+      expect(item.checked, isTrue);
+      await tester.tap(byId(SemanticsIds.categoryMenuShare));
+      await tester.pumpAndSettle();
+
+      expect(share.categorySets, [<String>{}]);
+      expect(find.text(l10n.shareStoppedSomeStay('Gym', 2)), findsOneWidget);
+      await letSnackbarGo(tester);
+    });
+
+    testWidgets('while the database does not sync the item is dimmed in '
+        'place with its reason', (tester) async {
+      final share = paired(syncing: false);
+      await pumpPage(tester, share: share);
+
+      await openRowMenu(tester, 'gym');
+      final item = menuRows(tester)[2];
+      expect(item.label, 'Share with Maria');
+      expect(item.caption, 'Turn on sync to share');
+      expect(
+        enabledOf(tester, SemanticsIds.categoryMenuShare),
+        Tristate.isFalse,
+      );
+      await dismissMenu(tester);
+      expect(share.categorySets, isEmpty);
+    });
+
+    testWidgets('the editor\'s switch is written once the category is '
+        'stored', (tester) async {
+      final share = paired();
+      final pilates = await custom('Pilates');
+      await pumpPage(tester, share: share);
+      share.nextChange = ShareChange(sharedCategories: [pilates]);
+
+      await tester.tap(byId(SemanticsIds.categoryRow(pilates.id)));
+      await tester.pumpAndSettle();
+      final robot = CategoryEditorRobot(tester);
+      expect(robot.shareLabel, 'Share with Maria');
+      await robot.tapShare();
+      await robot.save();
+      await settleWrites(tester);
+
+      expect(share.categorySets, [
+        {pilates.id},
+      ]);
+      await letSnackbarGo(tester);
+    });
+
+    // Design review 11: the sign is excluded with the avatar, so the node
+    // alone can say who the category is shared with.
+    testWidgets('a shared row\'s one node says who it is shared with; its '
+        'line still says "Shared"', (tester) async {
+      final handle = tester.ensureSemantics();
+      await service.setShared('gym', maria.id);
+      await pumpPage(tester, share: paired());
+      final l10n = l10nOf(tester);
+
+      final label = dataOf(tester, SemanticsIds.categoryRow('gym')).label;
+      expect(label, contains(l10n.sharedWithPartner('Maria')));
+      expect(
+        label.split('\n')[1].split(' · '),
+        isNot(contains(l10n.categoryCaptionShared)),
+      );
+      expect(
+        inRow('Gym', find.textContaining(l10n.sharedWithPartner('Maria'))),
+        findsNothing,
+      );
+      expect(
+        inRow('Gym', find.textContaining(l10n.categoryCaptionShared)),
+        findsOneWidget,
+      );
+      expect(byId(SemanticsIds.categoryRow('gym')), findsOneWidget);
+      handle.dispose();
+    });
+
+    // Review 6: the share rides the create, not the page's staying.
+    testWidgets('a category created shared is shared even when the page is '
+        'left during its reveal', (tester) async {
+      await tester.runAsync(() => addCustoms(31));
+      final share = paired();
+      await pumpPage(tester, width: 360, height: 780, share: share);
+      await tester.tap(byId(SemanticsIds.categoryAdd));
+      await tester.pumpAndSettle();
+      final editor = CategoryEditorRobot(tester);
+      await editor.typeName('Pilates');
+      await editor.tapShare();
+      expect(editor.shareOn, isTrue);
+
+      final position = tester
+          .widget<CustomScrollView>(find.byType(CustomScrollView))
+          .controller!
+          .position;
+      await tester.tap(byId(SemanticsIds.categoryEditorSave));
+      for (var i = 0; i < 100 && position.pixels == 0; i++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 10)),
+        );
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      expect(position.pixels, greaterThan(0), reason: 'the reveal is running');
+
+      await tester.pumpWidget(const SizedBox.shrink());
+      await settleWrites(tester);
+
+      final created = service.categories.singleWhere(
+        (c) => c.name == 'Pilates',
+      );
+      expect(share.categorySets, [
+        {created.id},
+      ]);
+    });
+
+    // Review 7: the in-memory "not paired" opens nothing for sharing.
+    testWidgets('never paired, as the pairing service holds it: no share '
+        'service is opened and the rows are up on the first pump', (
+      tester,
+    ) async {
+      await tester.runAsync(
+        () async => PairingService.forTesting(
+          auth: FakeAuthService(user: const AppUser(uid: 'me')),
+          gateway: FakePairingGateway(),
+          settings: await SettingsService.getInstance(),
+        ),
+      );
+      addTearDown(PairingService.reset);
+      expect(PairingService.pairedInMemory, isFalse);
+      var opens = 0;
+      await tester.pumpWidget(
+        MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: CalendarCategoriesPage(
+            shareService: () async {
+              opens++;
+              return paired();
+            },
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(byId(SemanticsIds.categoryRow('gym')), findsOneWidget);
+      expect(opens, 0);
+    });
+
+    // Review 9: the editor asks the page again when Sync & sharing returns.
+    for (final created in [false, true]) {
+      testWidgets('sync turned on from the ${created ? 'new' : 'edited'} '
+          'category\'s editor: back from Sync & sharing, the switch is '
+          'live', (tester) async {
+        final share = paired(syncing: false);
+        final pilates = await custom('Pilates');
+        await pumpPage(
+          tester,
+          share: share,
+          openSyncSettings: (_) async => share.emit(const ShareReady(maria)),
+        );
+        await tester.tap(
+          created
+              ? byId(SemanticsIds.categoryAdd)
+              : byId(SemanticsIds.categoryRow(pilates.id)),
+        );
+        await tester.pumpAndSettle();
+        final robot = CategoryEditorRobot(tester);
+        expect(robot.shareEnabled, isFalse);
+
+        await robot.tapShare();
+
+        expect(robot.shareEnabled, isTrue);
+        expect(robot.shareSubtitle, isNot('Turn on sync to share'));
+        await robot.close();
+      });
+    }
+
+    testWidgets('a paired page with a shared row meets the tap-target and '
+        'label guidelines', (tester) async {
+      final handle = tester.ensureSemantics();
+      await service.setShared('gym', maria.id);
+      await pumpPage(tester, width: 360, height: 780, share: paired());
+      await expectLater(tester, meetsGuideline(androidTapTargetGuideline));
+      await expectLater(tester, meetsGuideline(labeledTapTargetGuideline));
+      handle.dispose();
+    });
   });
 }
 

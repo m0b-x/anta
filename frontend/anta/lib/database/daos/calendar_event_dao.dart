@@ -318,18 +318,61 @@ class CalendarEventDao extends DatabaseAccessor<AppDatabase>
   /// same reason: a bound parameter is not reliably proven to imply the
   /// partial index's own `WHERE is_deleted = 0` on the SQLite version shipping
   /// to Android.
-  Future<Map<String, int>> countByCategory() async {
-    final total = calendarEvents.id.count();
-    final rows =
-        await (selectOnly(calendarEvents)
-              ..addColumns([calendarEvents.category, total])
-              ..where(const CustomExpression<bool>('is_deleted = 0'))
-              ..groupBy([calendarEvents.category]))
-            .get();
+  ///
+  /// The person's own events only, by the stored id: a partner's events in a
+  /// built-in both share are not this person's to delete or to share, and
+  /// counting them made the Categories page, the delete sheet and the share
+  /// switch overstate what a category holds. [countPartnerByCategory] counts
+  /// those.
+  Future<Map<String, int>> countByCategory() =>
+      _countByCategory(SyncDao.mineSql);
+
+  /// [countByCategory] for the events another account shares with this one
+  /// — "18 events" beside a category the partner shares. Empty, for one
+  /// lookup of `sync_metadata`, on a database that reads no shared rows.
+  Future<Map<String, int>> countPartnerByCategory() => _countByCategory(
+    "owner_id = (SELECT value FROM sync_metadata WHERE key = "
+    "'${SyncDao.keySharedOwner}')",
+  );
+
+  Future<Map<String, int>> _countByCategory(String owner) async {
+    final rows = await customSelect(
+      'SELECT category, COUNT(id) AS total FROM calendar_events '
+      'WHERE is_deleted = 0 AND $owner GROUP BY category',
+      readsFrom: {calendarEvents, db.syncMetadata},
+    ).get();
     return {
       for (final row in rows)
-        row.read(calendarEvents.category)!: row.read(total) ?? 0,
+        row.read<String>('category'): row.read<int>('total'),
     };
+  }
+
+  /// The ids of the person's own live events that carry a share mark of
+  /// their own — what `CalendarEventService` refreshes its cached events'
+  /// `CalendarEvent.markedShared` from after a mark write. Few rows, read
+  /// over the partial index on `shared_pair`.
+  Future<Set<String>> ownMarkedIds() async {
+    final rows = await customSelect(
+      'SELECT id FROM calendar_events WHERE shared_pair IS NOT NULL '
+      'AND is_deleted = 0 AND ${SyncDao.mineSql}',
+      readsFrom: {calendarEvents, db.syncMetadata},
+    ).get();
+    return {for (final row in rows) row.read<String>('id')};
+  }
+
+  /// How many of the person's own live events in [categoryId] carry a share
+  /// mark of their own: the ones whose share no move of that category
+  /// changes — what the delete sheet leaves out of "stops seeing" and "will
+  /// see". Over the same partial index as [ownMarkedIds].
+  Future<int> countOwnMarkedIn(String categoryId) async {
+    final row = await customSelect(
+      'SELECT COUNT(id) AS total FROM calendar_events '
+      'WHERE shared_pair IS NOT NULL AND is_deleted = 0 AND category = ? '
+      'AND ${SyncDao.mineSql}',
+      variables: [Variable<String>(categoryId)],
+      readsFrom: {calendarEvents, db.syncMetadata},
+    ).getSingle();
+    return row.read<int>('total');
   }
 
   /// The hard counterpart to [softDeleteById], the [NoteDao.hardDeleteNote]

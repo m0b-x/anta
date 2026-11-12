@@ -74,6 +74,20 @@ class SyncOutboxDao extends DatabaseAccessor<AppDatabase>
         .get();
   }
 
+  /// Whether any entry of [tables] is queued — the Sharing page's
+  /// "Sending…" over the shareable tables. One statement, a seek on the
+  /// primary key's leading `table_name` per table.
+  Future<bool> holdsAnyOf(List<String> tables) async {
+    if (tables.isEmpty) return false;
+    final row = await customSelect(
+      'SELECT EXISTS(SELECT 1 FROM sync_outbox WHERE table_name IN '
+      '(${List.filled(tables.length, '?').join(', ')})) AS held',
+      variables: [for (final table in tables) Variable<String>(table)],
+      readsFrom: {syncOutbox},
+    ).getSingle();
+    return row.read<bool>('held');
+  }
+
   /// The queued entries of [table] among [rowKeys], by key — the chunk
   /// entries a manifest's push has to send first, wherever they sit in the
   /// queue.

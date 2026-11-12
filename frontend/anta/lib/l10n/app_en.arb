@@ -13941,6 +13941,18 @@
       "name": { "type": "String", "example": "Maria" }
     }
   },
+  "shareChangeFailed": "Sharing couldn't be changed — try again",
+  "@shareChangeFailed": {
+    "description": "Snackbar when a share, an un-share, an undo or 'Stop sharing everything' could not be written; nothing changed"
+  },
+  "shareLoadFailed": "Sharing couldn't be loaded",
+  "@shareLoadFailed": {
+    "description": "The one line the Sharing page shows instead of its sections when what is shared could not be read"
+  },
+  "shareOpensSyncHint": "Opens Sync & sharing",
+  "@shareOpensSyncHint": {
+    "description": "Screen-reader hint on a share row or entry that cannot be used until sync is on: says where its tap leads"
+  },
   "sharePartnerSharesCaption": "Read-only. They leave when {name} stops sharing.",
   "@sharePartnerSharesCaption": {
     "description": "Intro line under the section of what the partner shares",
@@ -14011,6 +14023,14 @@
       "category": { "type": "String", "example": "Work" }
     }
   },
+  "shareStaysThroughCategory": "{title} stays shared through {category}",
+  "@shareStaysThroughCategory": {
+    "description": "Snackbar after an event's own share mark was taken away while its category is shared, so the partner still sees it",
+    "placeholders": {
+      "title": { "type": "String", "example": "Dinner" },
+      "category": { "type": "String", "example": "Work" }
+    }
+  },
   "shareCategoryOff": "Only you see these events",
   "@shareCategoryOff": {
     "description": "Second line of the category editor's share switch while off"
@@ -14044,7 +14064,7 @@
       "name": { "type": "String", "example": "Maria" }
     }
   },
-  "shareTheirCategoriesCaption": "Ticked ones show on your calendar; {name} never sees what you hide.",
+  "shareTheirCategoriesCaption": "Switched-off ones stay off your calendar; {name} never sees what you hide.",
   "@shareTheirCategoriesCaption": {
     "description": "Caption under the header of the sheet listing the partner's categories, each with a show switch",
     "placeholders": {
@@ -14054,6 +14074,17 @@
   "shareShowOnCalendar": "Show on my calendar",
   "@shareShowOnCalendar": {
     "description": "Label of the switch that shows or hides one of the partner's categories on this phone"
+  },
+  "shareShowCategoryOnCalendar": "Show {category} on my calendar",
+  "@shareShowCategoryOnCalendar": {
+    "description": "Screen-reader label of the show switch on one of the partner's categories in the list of what they share",
+    "placeholders": {
+      "category": { "type": "String", "example": "Shifts" }
+    }
+  },
+  "shareHiddenCategoryAlertsCaption": "Hidden from your calendar, so these never ring",
+  "@shareHiddenCategoryAlertsCaption": {
+    "description": "Caption under the dimmed alerts group of a partner's category that is hidden on this phone"
   },
   "shareJoinsYours": "joins your {category}",
   "@shareJoinsYours": {
@@ -14100,6 +14131,15 @@
       "category": { "type": "String", "example": "Travel" }
     }
   },
+  "shareDeleteImpactStarts": "{count, plural, =1{{name} will see its 1 event through {category}} other{{name} will see its {count} events through {category}}}",
+  "@shareDeleteImpactStarts": {
+    "description": "Consequence line in the category delete sheet when the deleted category is private and its events move to a category that is shared: they become shared",
+    "placeholders": {
+      "name": { "type": "String", "example": "Maria" },
+      "count": { "type": "int", "example": "12" },
+      "category": { "type": "String", "example": "Travel" }
+    }
+  },
   "shareStopAll": "Stop sharing everything",
   "@shareStopAll": {
     "description": "Sharing page row that clears every share and keeps the pair; also the confirm button of its dialog"
@@ -14108,9 +14148,16 @@
   "@shareStopAllDesc": {
     "description": "Description of the 'Stop sharing everything' row"
   },
-  "shareStopAllConfirm": "Stop sharing everything with {name}? Your categories and events leave their phone. What {name} shares with you stays.",
+  "shareStopAllConfirmTitle": "Stop sharing everything with {name}?",
+  "@shareStopAllConfirmTitle": {
+    "description": "Title of the confirmation before every share is cleared",
+    "placeholders": {
+      "name": { "type": "String", "example": "Maria" }
+    }
+  },
+  "shareStopAllConfirm": "Your categories and events leave their phone. What {name} shares with you stays.",
   "@shareStopAllConfirm": {
-    "description": "Body of the confirmation before every share is cleared",
+    "description": "Body of the confirmation before every share is cleared, under shareStopAllConfirmTitle",
     "placeholders": {
       "name": { "type": "String", "example": "Maria" }
     }

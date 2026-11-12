@@ -180,6 +180,14 @@ class PairingService {
 
   PairingStatus get status => _statusFrom(_cached);
 
+  /// Whether this database holds a pair, from the built service's cache
+  /// alone; null while none is built. A surface on the capture path reads
+  /// it to tell "never paired" without building anything for it.
+  static bool? get pairedInMemory {
+    final service = _instance;
+    return service == null ? null : service._cached.pairId != null;
+  }
+
   /// Whether the stored pair is the signed-in account's — the rule
   /// `PairingSharePartnerSource.pairedLocally` reads by. Another account's
   /// pair left on this database, or one with nobody signed in, shares

@@ -130,9 +130,9 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
   /// Whether [_readPartner] asked since the last settings trip.
   bool _partnerAsked = false;
 
-  /// The taken state's `holdsPartnerEvents`: whether there is a partner to
-  /// read at all.
-  bool _eventsHoldPartner = false;
+  /// The taken state's `holdsPartnerEvents` or `holdsSharedByMe`: whether
+  /// there is a partner to read at all.
+  bool _eventsHoldShares = false;
 
   /// The markdown palette a row's detail sheet renders the description in.
   MarkdownColorPalette _palette = MarkdownColorPalette.presets;
@@ -650,13 +650,17 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
   /// partner is — the pairing may have changed on the page the trip
   /// returned from. Returns whether the look changed.
   bool _takeShareLook(ShareLook share) {
-    final changed = share.eventLook != _partnerLook.look;
+    final lookChanged = share.eventLook != _partnerLook.look;
+    final changed = lookChanged || share.markMine != _partnerLook.markMine;
     _partnerLook = PartnerLook(
       look: share.eventLook,
       partner: _partnerLook.partner,
       name: _partnerLook.name,
+      markMine: share.markMine,
+      unpaired: _partnerLook.unpaired,
     );
-    if (changed) _refoldBars();
+    // The bars draw a partner's events only; my share sign is the rows'.
+    if (lookChanged) _refoldBars();
     _partnerAsked = false;
     unawaited(_readPartner());
     return changed;
@@ -690,11 +694,11 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
     }
   }
 
-  /// Reads who a partner's events are from, once per settings trip and only
-  /// while the list holds one: an account that never paired opens no
-  /// sharing for the overview.
+  /// Reads who the partner is, once per settings trip and only while the
+  /// list holds an event of theirs or one I share with them: an account
+  /// that never paired opens no sharing for the overview.
   Future<void> _readPartner() async {
-    if (_partnerAsked || !_eventsHoldPartner) return;
+    if (_partnerAsked || !_eventsHoldShares) return;
     _partnerAsked = true;
     final ShareAudience? audience;
     try {
@@ -711,6 +715,8 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
       look: _partnerLook.look,
       partner: audience?.members.firstOrNull,
       name: audience?.displayName,
+      markMine: _partnerLook.markMine,
+      unpaired: audience == null,
     );
     if (next == _partnerLook) return;
     // The bars say the name and nothing of the photo, which only the rows'
@@ -819,7 +825,8 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
   void _take(CalendarPageState state) {
     final loaded = state is CalendarPageLoaded ? state : null;
     _events = loaded?.allEvents;
-    _eventsHoldPartner = loaded?.holdsPartnerEvents ?? false;
+    _eventsHoldShares =
+        loaded != null && (loaded.holdsPartnerEvents || loaded.holdsSharedByMe);
     if (!_partnerAsked) unawaited(_readPartner());
     final inputs = (
       loaded?.allEvents,

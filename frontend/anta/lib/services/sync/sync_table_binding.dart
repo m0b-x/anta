@@ -29,6 +29,12 @@ enum SyncInvalidation {
   /// The alert services — event alerts, category alerts, digests — after
   /// which the device-local `alert_registrations` are reconciled.
   alerts,
+
+  /// The share marks of this database's own rows, which the shared reader
+  /// cleared: the category catalogue and the event cache re-read theirs. No
+  /// page names those rows, so a reload of what the pages carried would
+  /// leave "shared" on every one of them.
+  shareMarks,
 }
 
 /// How one synced table crosses the wire: the codec between its row and a

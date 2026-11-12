@@ -8,20 +8,25 @@ import 'package:get_it/get_it.dart';
 import '../bloc/calendar/calendar_bloc.dart';
 import '../constants/app_constants.dart';
 import '../constants/calendar_bounds.dart';
+import '../constants/calendar_categories.dart';
 import '../constants/event_alerts.dart';
 import '../constants/event_presence.dart';
 import '../constants/occurrence_descriptions.dart';
+import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
 import '../models/calendar_appearance.dart';
 import '../models/calendar_event.dart';
 import '../models/event_alert.dart';
 import '../models/partner_look.dart';
 import '../models/recurrence_rule.dart';
+import '../models/share_overview.dart';
 import '../models/share_settings.dart';
 import '../repositories/note_repository.dart';
 import '../services/app_navigator.dart';
 import '../services/note_storage_service.dart';
+import '../services/pairing_service.dart';
 import '../services/settings_service.dart';
+import '../services/share_service.dart';
 import '../utils/alert_countdown.dart';
 import '../utils/custom_snackbar.dart';
 import '../utils/markdown_color_syntax.dart';
@@ -56,11 +61,13 @@ class EventSheetsFlow {
     required MarkdownColorPalette Function() palette,
     required int Function() keepsHeard,
     PartnerLook Function()? partnerLook,
+    FutureOr<ShareAvailability> Function()? shareAvailability,
   }) : _guard = guard,
        _appearance = appearance,
        _palette = palette,
        _keepsHeard = keepsHeard,
-       _partnerLook = partnerLook ?? _noPartner;
+       _partnerLook = partnerLook ?? _noPartner,
+       _shareAvailability = shareAvailability ?? _readShareAvailability;
 
   /// The page's one sheet slot, shared with the page's other sheets.
   final SheetGuard _guard;
@@ -80,6 +87,35 @@ class EventSheetsFlow {
   final PartnerLook Function() _partnerLook;
 
   static PartnerLook _noPartner() => const PartnerLook();
+
+  /// Whether the database can share now, read as the editor opens and handed
+  /// to it the way the busy-day lookup is (§6.1): the form itself never asks
+  /// a service. A value when it is known at once, so the editor opens on
+  /// the tap's own frame. Injected so a suite decides the answer.
+  final FutureOr<ShareAvailability> Function() _shareAvailability;
+
+  /// Not paired straight from the pairing service's cache when that is
+  /// built and holds no pair — someone who never paired waits on nothing
+  /// new and opens nothing for sharing (§9) — else the share service's
+  /// answer. Nothing in memory tells a never-paired database from a paired
+  /// one before either service is built, so that first ask still opens the
+  /// share service, which builds the pairing one.
+  static FutureOr<ShareAvailability> _readShareAvailability() {
+    if (PairingService.pairedInMemory == false) return const ShareNotPaired();
+    return _openShareAvailability();
+  }
+
+  /// The share service's answer, or not paired when sharing cannot be
+  /// opened: the form then looks as it did before sharing existed, which is
+  /// the honest reading of "no share is possible here".
+  static Future<ShareAvailability> _openShareAvailability() async {
+    try {
+      return (await ShareService.getInstance()).availability;
+    } catch (e) {
+      debugPrint('[EventSheetsFlow] share availability not read: $e');
+      return const ShareNotPaired();
+    }
+  }
 
   /// Shows an event read-only first, then routes whatever the user chose
   /// there. Tapping a day-panel row used to drop straight into the edit form;
@@ -615,6 +651,14 @@ class EventSheetsFlow {
     // deleted here would do nothing, and the trip would carry on as if it
     // had — the form is not for one (§6.9).
     if (initialEvent != null && initialEvent.fromPartner) return null;
+    final asked = _shareAvailability();
+    final ShareAvailability shareAvailability;
+    if (asked is ShareAvailability) {
+      shareAvailability = asked;
+    } else {
+      shareAvailability = await asked;
+      if (!context.mounted) return null;
+    }
     // The bloc's per-day lookup is already memoized and O(1), so handing it
     // to the picker costs nothing and lets the grid show which days are
     // already busy while the user schedules. The **unfiltered** one: the
@@ -630,6 +674,8 @@ class EventSheetsFlow {
       dayLoad: (day) => eventsForDay(day).length,
       appearance: _appearance(),
       showBack: showBack,
+      shareAvailability: shareAvailability,
+      rereadShareAvailability: () async => _shareAvailability(),
     );
     if (result == null || !context.mounted) return result;
     final bloc = context.read<CalendarBloc>();
@@ -641,12 +687,22 @@ class EventSheetsFlow {
         final previousAlerts = initialEvent == null
             ? const <EventAlert>[]
             : EventAlerts.effectiveFor(initialEvent);
+        // Only a flip writes: an edit that left the switch where it was
+        // asks nothing of sharing, so it cannot fail on a database that
+        // stopped syncing while the form was open.
+        final flipped =
+            result.shared != null &&
+            result.shared != (initialEvent?.markedShared ?? false);
+        final shared = flipped ? result.shared : null;
+        final shareOutcome = flipped ? Completer<ShareChange>() : null;
         if (initialEvent == null) {
           bloc.add(
             CreateCalendarEvent(
               event: event,
               alerts: alerts,
               knownAlertIds: knownAlertIds,
+              shared: shared,
+              shareOutcome: shareOutcome,
             ),
           );
         } else {
@@ -655,6 +711,8 @@ class EventSheetsFlow {
               event: event,
               alerts: alerts,
               knownAlertIds: knownAlertIds,
+              shared: shared,
+              shareOutcome: shareOutcome,
             ),
           );
         }
@@ -669,6 +727,18 @@ class EventSheetsFlow {
             previousAlerts: previousAlerts,
           ),
         );
+        if (shared != null && shareOutcome != null) {
+          unawaited(
+            _sayShare(
+              context,
+              bloc,
+              event,
+              shareOutcome.future,
+              shared: shared,
+              audience: shareAvailability.audience,
+            ),
+          );
+        }
       case EventEditorDeleted(:final id):
         bloc.add(DeleteCalendarEvent(eventId: id));
       // Nothing was decided, so there is nothing to write.
@@ -739,6 +809,71 @@ class EventSheetsFlow {
     } catch (e) {
       debugPrint('[EventSheetsFlow] alert countdown skipped: $e');
     }
+  }
+
+  /// The editor's share switch as the save wrote it — the bloc marks the
+  /// event only once its row is stored, and a save that failed shares
+  /// nothing — said with Undo (§6.14's first row), on the road
+  /// [_afterAlertsSaved] takes.
+  ///
+  /// Taking the own mark away from an event whose category is shared leaves
+  /// the partner seeing it, so the line says that rather than "No longer
+  /// shared". A write that changed nothing says nothing; one that failed
+  /// says so in the app's words, never the exception's.
+  Future<void> _sayShare(
+    BuildContext context,
+    CalendarBloc bloc,
+    CalendarEvent event,
+    Future<ShareChange> outcome, {
+    required bool shared,
+    required ShareAudience? audience,
+  }) async {
+    final ShareChange change;
+    try {
+      change = await outcome;
+    } catch (e) {
+      if (!context.mounted) return;
+      final l10n = AppLocalizations.of(context)!;
+      final message = e is ShareRefused && e.availability is ShareNotSyncing
+          ? l10n.shareNeedsSync
+          : l10n.shareChangeFailed;
+      if (_guard.isOpen) {
+        OverlaySnackbar.show(
+          context,
+          message,
+          duration: AppConstants.snackbarErrorDuration,
+        );
+      } else {
+        CustomSnackbar.showError(context, message);
+      }
+      return;
+    }
+    if (change.isEmpty || !context.mounted) return;
+    final l10n = AppLocalizations.of(context)!;
+    final category = CalendarCategories.byId(event.categoryId);
+    final String message;
+    if (shared) {
+      message = l10n.shareStarted(
+        event.title,
+        ShareCopy.partnerName(l10n, audience?.displayName),
+      );
+    } else if (category != null && category.sharedByMe) {
+      message = l10n.shareStaysThroughCategory(
+        event.title,
+        CalendarCategories.labelOf(category, l10n),
+      );
+    } else {
+      message = l10n.shareStopped(event.title);
+    }
+    CustomSnackbar.showWithAction(
+      context,
+      message: message,
+      actionLabel: l10n.undo,
+      actionIdentifier: SemanticsIds.snackbarUndo,
+      onAction: () =>
+          bloc.add(SetEventShared(eventId: event.id, shared: !shared)),
+      overSheet: _guard.isOpen,
+    );
   }
 
   /// Single funnel for presence marks, whichever surface produced them — the

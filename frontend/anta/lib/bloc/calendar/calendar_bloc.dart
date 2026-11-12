@@ -4,12 +4,14 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../constants/calendar_cache_limits.dart';
+import '../../constants/calendar_categories.dart';
 import '../../constants/event_alerts.dart';
 import '../../constants/event_digests.dart';
 import '../../constants/public_holidays.dart';
 import '../../models/calendar_event.dart';
 import '../../models/calendar_grid_filters.dart';
 import '../../models/event_alert.dart';
+import '../../models/share_overview.dart';
 import '../../services/alert_scheduler.dart';
 import '../../services/calendar_event_service.dart';
 import '../../services/category_profile_service.dart';
@@ -23,6 +25,7 @@ import '../../services/event_template_service.dart';
 import '../../services/event_window_index.dart';
 import '../../services/note_money_ledger_service.dart';
 import '../../services/public_holiday_service.dart';
+import '../../services/share_service.dart';
 import '../../utils/event_agenda.dart';
 import 'calendar_event.dart';
 import 'calendar_state.dart';
@@ -149,20 +152,63 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
   /// [_visibleEvents].
   _VisibleEvents? _visibleCache;
 
-  /// The last event list [_holdsPartner] scanned, and its answer: the
-  /// service hands out one list per change of its cache, which several
-  /// emits are built from.
-  List<CalendarEvent>? _partnerScanned;
+  /// The last event list [_scanShares] scanned, under which catalogue, and
+  /// its answers: the service hands out one list per change of its cache,
+  /// which several emits are built from. The catalogue's revision is part
+  /// of the key because a category's share mark changes what
+  /// [_holdsShared] answers with no event changing — that write is
+  /// announced `cacheCurrent`, and the same list comes back.
+  List<CalendarEvent>? _sharesScanned;
+  int _sharesScannedRevision = -1;
   bool _partnerHeld = false;
+  bool _sharedHeld = false;
+
+  /// The service notes, as it maps its rows, whether the list may hold a
+  /// partner's event or one with its own mark, and the catalogue whether a
+  /// category of mine is shared: the events are walked only for a question
+  /// one of those leaves open, so an account that shares nothing either way
+  /// pays no pass at all.
+  void _scanShares(List<CalendarEvent> events) {
+    final revision = CalendarCategories.revision;
+    if (identical(events, _sharesScanned) &&
+        revision == _sharesScannedRevision) {
+      return;
+    }
+    _sharesScanned = events;
+    _sharesScannedRevision = revision;
+    final service = _service;
+    final askPartner = service?.mayHoldPartnerEvents ?? true;
+    final askShared =
+        CalendarCategories.anySharedByMe || (service?.mayHoldOwnMarks ?? true);
+    var partner = false;
+    var shared = false;
+    if (askPartner || askShared) {
+      for (final event in events) {
+        if (event.fromPartner) {
+          partner = true;
+        } else if (askShared &&
+            !shared &&
+            CalendarCategories.shareOf(event) != null) {
+          shared = true;
+        }
+        if ((partner || !askPartner) && (shared || !askShared)) break;
+      }
+    }
+    _partnerHeld = partner;
+    _sharedHeld = shared;
+  }
 
   /// [CalendarPageLoaded.holdsPartnerEvents] for [events], scanned once
   /// per list.
   bool _holdsPartner(List<CalendarEvent> events) {
-    if (!identical(events, _partnerScanned)) {
-      _partnerScanned = events;
-      _partnerHeld = events.any((event) => event.fromPartner);
-    }
+    _scanShares(events);
     return _partnerHeld;
+  }
+
+  /// [CalendarPageLoaded.holdsSharedByMe] for [events], from the same pass.
+  bool _holdsShared(List<CalendarEvent> events) {
+    _scanShares(events);
+    return _sharedHeld;
   }
 
   /// Generation of [PublicHolidays] the memoized days were expanded against.
@@ -222,18 +268,24 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
   /// opening a database.
   final Future<DigestWriter> Function() _digestWriter;
 
+  /// What [SetEventShared] writes through, resolved per write: a database
+  /// switch replaces the service. Injected for [_writeAlerts]'s reason.
+  final Future<ShareService> Function() _shareService;
+
   CalendarBloc({
     required FutureOr<CalendarEventService> service,
     AlertReconciler? alertReconciler,
     AlertWriter? alertWriter,
     AllAlertsReconciler? allAlertsReconciler,
     Future<DigestWriter> Function()? digestWriter,
+    Future<ShareService> Function()? shareService,
   }) : _seed = service,
        _reconcileAlerts = alertReconciler ?? AlertScheduler.reconcileEventById,
        _writeAlerts = alertWriter ?? EventAlertService.replaceForEventById,
        _reconcileAllAlerts =
            allAlertsReconciler ?? AlertScheduler.reconcileAllQuietly,
        _digestWriter = digestWriter ?? EventDigestService.getInstance,
+       _shareService = shareService ?? ShareService.getInstance,
        super(const CalendarPageInitial()) {
     on<LoadCalendarEvents>(_onLoad);
     on<SelectCalendarDay>(_onSelectDay);
@@ -255,6 +307,7 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
     // overtook each other would leave the older set stored.
     on<SetEventAlerts>(_onSetEventAlerts, transformer: _oneAtATime);
     on<CopySharedEvent>(_onCopySharedEvent);
+    on<SetEventShared>(_onSetEventShared);
     on<CategoryAlertsChanged>(_onCategoryAlertsChanged);
     on<SaveEventDigest>(_onSaveEventDigest);
     on<DeleteEventDigest>(_onDeleteEventDigest);
@@ -752,6 +805,7 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
           selectedDay: today,
           filters: _filters,
           holdsPartnerEvents: _holdsPartner(events),
+          holdsSharedByMe: _holdsShared(events),
         ),
       );
       return;
@@ -766,6 +820,7 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
         filters: _filters,
         membershipRevision: previous.membershipRevision + 1,
         holdsPartnerEvents: _holdsPartner(events),
+        holdsSharedByMe: _holdsShared(events),
       ),
     );
   }
@@ -886,6 +941,7 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
         membershipRevision: latest.membershipRevision + 1,
         occurrenceRevision: latest.occurrenceRevision + 1,
         holdsPartnerEvents: _holdsPartner(events),
+        holdsSharedByMe: _holdsShared(events),
       ),
     );
   }
@@ -1008,7 +1064,10 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
     Emitter<CalendarPageState> emit,
   ) async {
     final current = state;
-    if (current is! CalendarPageLoaded) return;
+    if (current is! CalendarPageLoaded) {
+      event.shareOutcome?.complete(ShareChange.none);
+      return;
+    }
     final normalized = event.event.copyWith(
       startDate: _dateOnly(event.event.startDate),
     );
@@ -1018,6 +1077,7 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
       await service.upsert(normalized);
     } catch (e) {
       debugPrint('[CalendarBloc] Create error: $e');
+      event.shareOutcome?.complete(ShareChange.none);
       return;
     }
     await _persistAlerts(normalized.id, event.alerts, event.knownAlertIds);
@@ -1042,15 +1102,18 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
     // tap or a format change that landed during the awaits must survive.
     _invalidateDayCache();
     final latest = state;
-    if (latest is! CalendarPageLoaded) return;
-    emit(
-      latest.copyWith(
-        allEvents: service.events,
-        selectedDay: normalized.startDate,
-        focusedDay: normalized.startDate,
-        holdsPartnerEvents: _holdsPartner(service.events),
-      ),
-    );
+    if (latest is CalendarPageLoaded) {
+      emit(
+        latest.copyWith(
+          allEvents: service.events,
+          selectedDay: normalized.startDate,
+          focusedDay: normalized.startDate,
+          holdsPartnerEvents: _holdsPartner(service.events),
+          holdsSharedByMe: _holdsShared(service.events),
+        ),
+      );
+    }
+    await _writeShare(normalized.id, event.shared, event.shareOutcome);
   }
 
   /// A3's Undo. Not a create: `CalendarEventService.restoreCascade` writes the
@@ -1100,6 +1163,7 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
       latest.copyWith(
         allEvents: service.events,
         holdsPartnerEvents: _holdsPartner(service.events),
+        holdsSharedByMe: _holdsShared(service.events),
         selectedDay: restored.startDate,
         focusedDay: restored.startDate,
         membershipRevision: latest.membershipRevision + 1,
@@ -1114,13 +1178,16 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
     Emitter<CalendarPageState> emit,
   ) async {
     final current = state;
-    if (current is! CalendarPageLoaded) return;
     // The [DeleteCalendarEvent] guard, read the other way round:
     // `CalendarEventService.upsert` clears `is_deleted` under a fresh stamp,
     // so a save from a sheet that was still open when a pull tombstoned the
     // event would resurrect it on every device and the remote delete would
     // lose. An event the bloc no longer holds has nothing here to write.
-    if (!current.allEvents.any((e) => e.id == event.event.id)) return;
+    if (current is! CalendarPageLoaded ||
+        !current.allEvents.any((e) => e.id == event.event.id)) {
+      event.shareOutcome?.complete(ShareChange.none);
+      return;
+    }
     final normalized = event.event.copyWith(
       startDate: _dateOnly(event.event.startDate),
     );
@@ -1130,6 +1197,7 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
       await service.upsert(normalized);
     } catch (e) {
       debugPrint('[CalendarBloc] Update error: $e');
+      event.shareOutcome?.complete(ShareChange.none);
       return;
     }
     await _persistAlerts(normalized.id, event.alerts, event.knownAlertIds);
@@ -1145,13 +1213,16 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
     );
     _invalidateDayCache();
     final latest = state;
-    if (latest is! CalendarPageLoaded) return;
-    emit(
-      latest.copyWith(
-        allEvents: service.events,
-        holdsPartnerEvents: _holdsPartner(service.events),
-      ),
-    );
+    if (latest is CalendarPageLoaded) {
+      emit(
+        latest.copyWith(
+          allEvents: service.events,
+          holdsPartnerEvents: _holdsPartner(service.events),
+          holdsSharedByMe: _holdsShared(service.events),
+        ),
+      );
+    }
+    await _writeShare(normalized.id, event.shared, event.shareOutcome);
   }
 
   /// Persists an editor's alert set, between the event write and the reconcile.
@@ -1203,6 +1274,7 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
       latest.copyWith(
         allEvents: service.events,
         holdsPartnerEvents: _holdsPartner(service.events),
+        holdsSharedByMe: _holdsShared(service.events),
       ),
     );
   }
@@ -1552,10 +1624,44 @@ class CalendarBloc extends Bloc<CalendarPageEvent, CalendarPageState> {
         latest.copyWith(
           allEvents: service.events,
           holdsPartnerEvents: _holdsPartner(service.events),
+          holdsSharedByMe: _holdsShared(service.events),
         ),
       );
     }
     event.done.complete(copy);
+  }
+
+  /// Routes the share switch to the share service and hands back what it
+  /// wrote. Nothing is emitted here: the service announces the mark as an
+  /// external change with a current cache, and that reload is the emit.
+  Future<void> _onSetEventShared(
+    SetEventShared event,
+    Emitter<CalendarPageState> emit,
+  ) => _writeShare(event.eventId, event.shared, event.outcome);
+
+  /// Sets [eventId]'s own mark to [shared] — nothing when it is null — and
+  /// answers [outcome] with what was written or with the error. The create
+  /// and update handlers call it only once their row is stored, which is
+  /// the order a mark needs: written first, it found no row and did nothing.
+  Future<void> _writeShare(
+    String eventId,
+    bool? shared,
+    Completer<ShareChange>? outcome,
+  ) async {
+    if (shared == null) {
+      outcome?.complete(ShareChange.none);
+      return;
+    }
+    try {
+      final change = await (await _shareService()).setEventShared(
+        eventId,
+        shared,
+      );
+      outcome?.complete(change);
+    } catch (e, st) {
+      debugPrint('[CalendarBloc] Share write error: $e\n$st');
+      outcome?.completeError(e, st);
+    }
   }
 
   /// Re-renders what draws a category's alerts after the category editor

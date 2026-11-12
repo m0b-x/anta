@@ -54,6 +54,7 @@ class AppSyncApplyHooks implements SyncApplyHooks {
   final Future<void> Function() _reconcileAlerts;
   final Future<bool> Function() _reportDigestEnabled;
   final Future<void> Function() _reloadVocabularies;
+  final Future<void> Function() _refreshShareMarks;
   final Future<AppLocalizations> Function() _strings;
   final bool Function(String noteId) _editorClaimsFiling;
   final DateTime Function() _now;
@@ -92,6 +93,7 @@ class AppSyncApplyHooks implements SyncApplyHooks {
     Future<void> Function()? reconcileAlerts,
     Future<bool> Function()? reportDigestEnabled,
     Future<void> Function()? reloadVocabularies,
+    Future<void> Function()? refreshShareMarks,
     Future<AppLocalizations> Function()? strings,
     bool Function(String noteId)? editorClaimsFiling,
     DateTime Function()? now,
@@ -104,6 +106,7 @@ class AppSyncApplyHooks implements SyncApplyHooks {
        _reconcileAlerts = reconcileAlerts ?? _appReconcileAlerts,
        _reportDigestEnabled = reportDigestEnabled ?? _appReportDigestEnabled,
        _reloadVocabularies = reloadVocabularies ?? _appReloadVocabularies,
+       _refreshShareMarks = refreshShareMarks ?? _appRefreshShareMarks,
        _strings = strings ?? _appStrings,
        _editorClaimsFiling =
            editorClaimsFiling ?? OpenNoteRegistry.claimsConflictFiling,
@@ -235,6 +238,11 @@ class AppSyncApplyHooks implements SyncApplyHooks {
     }
     if (touched.contains(SyncInvalidation.folders)) {
       await _guard('folder cache', () async => _folders().invalidateAll());
+    }
+    // Before the calendar reload, whose signal tells the bloc the event
+    // cache is current: the reload patches only the rows the pages named.
+    if (touched.contains(SyncInvalidation.shareMarks)) {
+      await _guard('share marks', _refreshShareMarks);
     }
     if (touched.contains(SyncInvalidation.calendar)) {
       await _guard('calendar reload', () => _reloadCalendar(scope));
@@ -484,6 +492,14 @@ class AppSyncApplyHooks implements SyncApplyHooks {
 
   static Future<void> _appReloadVocabularies() async =>
       (await VocabularyService.getInstance()).reload();
+
+  /// The two caches that hold a share mark of the person's own rows; each
+  /// refreshes only a live instance, so a calendar nobody opened stays
+  /// unread.
+  static Future<void> _appRefreshShareMarks() => _reloadEach({
+    'category marks': CategoryService.refreshShareMarks,
+    'event marks': CalendarEventService.refreshShareMarks,
+  });
 
   /// The app's stored language, else the device's when it is one of ours,
   /// else English — the `alertGatewayStrings` shape, for a surface with no

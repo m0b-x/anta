@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -6,10 +7,12 @@ import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../bloc/pairing/pairing_bloc.dart';
+import '../bloc/share/share_bloc.dart';
 import '../bloc/sync/sync_bloc.dart';
 import '../constants/app_colors.dart';
 import '../constants/form_metrics.dart';
 import '../constants/semantics_ids.dart';
+import '../constants/sync_limits.dart';
 import '../core/di/injection.dart';
 import '../l10n/app_localizations.dart';
 import '../services/pairing_service.dart';
@@ -19,15 +22,18 @@ import '../utils/custom_snackbar.dart';
 import '../utils/data_notice.dart';
 import '../utils/pairing_error.dart';
 import '../utils/settings_search.dart';
+import '../utils/share_copy.dart';
 import '../utils/sync_moment_format.dart';
 import '../widgets/app_dialogs.dart';
 import '../widgets/form_rows.dart' show FormCaptionSlot;
 import '../widgets/pairing_sheet.dart';
 import '../widgets/settings_search_field.dart';
 import '../widgets/settings_section_list.dart';
+import '../widgets/share_events_sheets.dart';
 import '../widgets/sync_space_picker_sheet.dart';
 import '../widgets/unified_app_bars.dart';
 import '../widgets/user_avatar.dart';
+import 'sharing_page.dart';
 
 /// Cloud account settings. Phase 00 established the identity; Phase 01 links
 /// two accounts into a pair; Phase 02 syncs this database with the account's
@@ -44,6 +50,13 @@ class SyncSettingsPage extends StatelessWidget {
         ),
         BlocProvider<PairingBloc>(
           create: (_) => getIt<PairingBloc>()..add(const LoadPairing()),
+        ),
+        // Lazy, as every provider here: only a paired state reads it, so a
+        // page that never paired builds no share bloc and asks nothing of
+        // sharing. A load, not `ShareOpened`: the shared read belongs to
+        // the Sharing page's open (D22), never to this page's.
+        BlocProvider<ShareBloc>(
+          create: (_) => getIt<ShareBloc>()..add(const ShareLoadRequested()),
         ),
       ],
       child: const _SyncSettingsView(),
@@ -121,6 +134,11 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
   /// then a pause is the engine's stored one arriving, not one beginning
   /// (review RC2-4).
   bool _pauseBaseline = false;
+
+  /// Set from a Stop syncing tap until its confirmation is answered: the
+  /// tap may wait on the share read first, and a second tap meanwhile
+  /// would open a second dialog.
+  bool _stopAsking = false;
 
   @override
   void dispose() {
@@ -309,12 +327,18 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
           entries: [
             SettingsEntry(
               title: _pairingTitleFor(l10n, pairing),
-              description: _pairingDescriptionFor(l10n, pairing),
+              description: _pairingDescriptionFor(
+                l10n,
+                pairing,
+                pairedSummary: pairing is PairingPaired
+                    ? _shareSummaryOf(context, l10n)
+                    : null,
+              ),
               keywords: _keywords(l10n.sharingKeywords),
               identifier: switch (pairing) {
                 PairingUnpaired() ||
                 PairingInviting() => SemanticsIds.sharingPair,
-                PairingPaired() => SemanticsIds.sharingUnpair,
+                PairingPaired() => SemanticsIds.sharingPaired,
                 PairingEnded() => SemanticsIds.sharingClose,
                 _ => null,
               },
@@ -1635,24 +1659,67 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
   /// Not drawn as destructive: nothing is deleted — the cloud copy stays and
   /// the database can bind again (D6 A). Under [spaceDeleted] there is no
   /// copy left to stay, so the body says what stopping still does.
+  ///
+  /// While this database shares something it says what the partner keeps
+  /// (D25): the shared documents stay in the cloud with their grant.
   Future<void> _stopSyncing(
     BuildContext context,
     AppLocalizations l10n, {
     required bool spaceDeleted,
   }) async {
-    final bloc = context.read<SyncBloc>();
-    final confirmed = await AppDialogs.confirm(
-      context,
-      title: l10n.syncStopConfirmTitle,
-      content: spaceDeleted
+    if (_stopAsking) return;
+    _stopAsking = true;
+    try {
+      final bloc = context.read<SyncBloc>();
+      final body = spaceDeleted
           ? l10n.syncStopConfirmBodyDeleted
-          : l10n.syncStopConfirmBody,
-      confirmText: l10n.syncStopConfirmAction,
-      icon: Icons.sync_disabled_rounded,
-      confirmIdentifier: SemanticsIds.sharingSyncStopConfirm,
-    );
-    if (confirmed) bloc.add(const StopSyncingRequested());
+          : l10n.syncStopConfirmBody;
+      final asked = _sharingWith(context, l10n);
+      final sharingWith = asked is Future<String?> ? await asked : asked;
+      if (!context.mounted) return;
+      final confirmed = await AppDialogs.confirm(
+        context,
+        title: l10n.syncStopConfirmTitle,
+        content: sharingWith == null
+            ? body
+            : '$body ${ShareCopy.sentence(l10n.syncStopSharingLine(sharingWith))}',
+        confirmText: l10n.syncStopConfirmAction,
+        icon: Icons.sync_disabled_rounded,
+        confirmIdentifier: SemanticsIds.sharingSyncStopConfirm,
+      );
+      if (confirmed) bloc.add(const StopSyncingRequested());
+    } finally {
+      _stopAsking = false;
+    }
   }
+
+  /// The partner's name while this database shares something, else null.
+  /// An unpaired database shares nothing and answers at once, building
+  /// nothing; a paired page whose first read has not landed asks for one
+  /// and waits for it, bounded by [SyncLimits.stopConfirmShareRead] —
+  /// never the state of a read that may not have happened (review 15).
+  FutureOr<String?> _sharingWith(BuildContext context, AppLocalizations l10n) {
+    if (context.read<PairingBloc>().state is! PairingPaired) return null;
+    final share = context.read<ShareBloc>();
+    final state = share.state;
+    if (state is ShareLoaded) return _partnerKeeping(l10n, state);
+    if (share.isClosed) return null;
+    final loaded = share.stream.firstWhere((next) => next is ShareLoaded);
+    share.add(const ShareLoadRequested());
+    return loaded
+        .timeout(SyncLimits.stopConfirmShareRead)
+        .then<String?>(
+          (next) => _partnerKeeping(l10n, next as ShareLoaded),
+          // A read that never lands, or a bloc closed under it: the
+          // confirmation asks without the sentence.
+          onError: (Object _) => null,
+        );
+  }
+
+  String? _partnerKeeping(AppLocalizations l10n, ShareLoaded share) =>
+      share.overview.sharesAnything
+      ? ShareCopy.partnerName(l10n, share.availability.audience?.displayName)
+      : null;
 
   /// A destructive row of the page — "Delete cloud copy"
   /// (cloud-multi-user-roadmap §5) and "Delete account" (§6.1). While
@@ -1954,7 +2021,19 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
     _ => null,
   };
 
-  String? _pairingDescriptionFor(AppLocalizations l10n, PairingState state) {
+  /// What this database shares, read while paired. Blank until the first
+  /// read, so the row never says "Nothing is shared yet" for a moment.
+  String _shareSummaryOf(BuildContext context, AppLocalizations l10n) {
+    final share = context.watch<ShareBloc>().state;
+    return share is ShareLoaded ? shareSummary(l10n, share.overview) : '';
+  }
+
+  /// [pairedSummary] is what a paired row says (share surfaces §6.2).
+  String? _pairingDescriptionFor(
+    AppLocalizations l10n,
+    PairingState state, {
+    String? pairedSummary,
+  }) {
     final failure = _failureOf(state);
     if (failure != null) {
       return PairingErrorMessages.of(l10n).resolve(failure.error);
@@ -1966,9 +2045,9 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
         partnerName == null
             ? l10n.pairingEndedByPartner
             : l10n.pairingEndedBy(partnerName),
-      // Says what pairing does today. Nothing syncs until Phase 02, and a bare
-      // "Paired with X" invites the assumption that content is already moving.
-      PairingPaired() => l10n.pairingPairedDesc,
+      // What is shared, so a bare "Paired with X" never reads as everything
+      // moving.
+      PairingPaired() => pairedSummary,
       PairingUnpaired() => l10n.pairingNotPairedDesc,
       _ => null,
     };
@@ -2023,9 +2102,11 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
               context.read<PairingBloc>().add(const EndedNoticeDismissed()),
         );
 
-      case PairingPaired(:final partner, :final busy):
-        return _actionRow(
-          context,
+      // A page's row now: Unpair moved onto the Sharing page it opens, so
+      // no action word yields under the description.
+      case PairingPaired(:final partner, :final busy, :final failure):
+        return ListTile(
+          enabled: !busy,
           leading: busy
               ? const SizedBox(
                   width: 24,
@@ -2036,10 +2117,16 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
               ? Icon(Icons.link_rounded, color: colorScheme.primary)
               : UserAvatar(user: partner.toUser()),
           title: title,
-          subtitle: description,
-          action: l10n.unpair,
-          onTap: () => _unpair(context, l10n, state),
-          enabled: !busy,
+          // A failure's reason is the one description left free to wrap,
+          // as it was before the summary.
+          subtitle: failure == null && description != null
+              ? _FixedLinesSlot(
+                  templates: shareSummaryTemplates(l10n),
+                  child: description,
+                )
+              : description,
+          trailing: const Icon(Icons.chevron_right_rounded),
+          onTap: () => _openSharing(context),
         );
 
       case PairingUnpaired(:final busy):
@@ -2059,24 +2146,22 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
     }
   }
 
-  Future<void> _unpair(
-    BuildContext context,
-    AppLocalizations l10n,
-    PairingPaired state,
-  ) async {
-    final bloc = context.read<PairingBloc>();
-    final confirmed = await AppDialogs.confirm(
-      context,
-      title: l10n.unpair,
-      content: l10n.pairingUnpairConfirm(
-        state.partner?.displayName ?? l10n.pairingPartnerUnknown,
+  /// The Sharing page writes through a bloc of its own, so the summary is
+  /// read again as it closes.
+  Future<void> _openSharing(BuildContext context) async {
+    final share = context.read<ShareBloc>();
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => SharingPage(
+          pairingBloc: context.read<PairingBloc>(),
+          onOpenEvents: (context) => MySharedEventsSheet.show(
+            context,
+            bloc: context.read<ShareBloc>(),
+          ),
+        ),
       ),
-      confirmText: l10n.unpair,
-      isDestructive: true,
-      icon: Icons.link_off_rounded,
-      confirmIdentifier: SemanticsIds.sharingUnpairConfirm,
     );
-    if (confirmed) bloc.add(const UnpairRequested());
+    if (!share.isClosed) share.add(const ShareLoadRequested());
   }
 
   /// The whole account row signs out, so a stray tap must not: it always

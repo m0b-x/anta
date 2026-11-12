@@ -22,7 +22,7 @@
 # The partner's guest is left as the pass leaves its own: fresh, signed
 # out, nothing armed.
 -d emulator-5558 relaunch --fresh
-expect id:sharing-pair --absent id:sharing-unpair --timeout 15
+expect id:sharing-pair --absent id:sharing-paired --timeout 15
 tap id:sharing-sync-now
 expect id:sharing-sync-status "Up to date" --timeout 60
 errors

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:drift/drift.dart' show QueryExecutor, QueryInterceptor;
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:anta/database/daos/sync_dao.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/models/calendar_event.dart';
 import 'package:anta/models/recurrence_rule.dart';
@@ -222,6 +223,40 @@ void main() {
     expect(identical(a, b), isTrue, reason: 'the old caller gets the new one');
     expect(identical(await CalendarEventService.forTesting(other), b), isTrue);
     expect([for (final e in b.events) e.id], ['new']);
+  });
+
+  // Share surfaces, review C14: what the calendar asks before it walks its
+  // events for sharing, noted where the rows are mapped.
+  test('a database that shares nothing notes nothing; a partner\'s row and '
+      'a marked one are noted, and a whole read starts over', () async {
+    await service.upsert(eventOf('mine', DateTime.utc(2026, 9, 20)));
+    await service.upsert(eventOf('theirs', DateTime.utc(2026, 9, 21)));
+    await service.reload();
+    expect(service.mayHoldPartnerEvents, isFalse);
+    expect(service.mayHoldOwnMarks, isFalse);
+
+    await service.setShared('mine', 'pair-1');
+    expect(service.mayHoldOwnMarks, isTrue, reason: 'a mark set in place');
+
+    await db.customStatement(
+      "UPDATE calendar_events SET owner_id = 'partner' WHERE id = 'theirs'",
+    );
+    await db.syncDao.setValue(SyncDao.keySharedOwner, 'partner');
+    await service.reload();
+    expect(service.mayHoldPartnerEvents, isTrue);
+    expect(service.mayHoldOwnMarks, isTrue);
+
+    await service.setShared('mine', null);
+    // The share ends, as a pull would leave it, past the fences.
+    await db.sharedRowDao.writing(
+      () => db.customStatement(
+        "UPDATE calendar_events SET owner_id = NULL WHERE id = 'theirs'",
+      ),
+    );
+    await db.syncDao.deleteValue(SyncDao.keySharedOwner);
+    await service.reload();
+    expect(service.mayHoldPartnerEvents, isFalse);
+    expect(service.mayHoldOwnMarks, isFalse);
   });
 }
 

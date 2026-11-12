@@ -14,12 +14,17 @@ class CategoryDeleteImpact extends Equatable {
   /// Templates that move with the events.
   final int templates;
 
+  /// Of [events], those shared by a mark of their own: the move changes
+  /// nothing of what the partner sees of them.
+  final int markedEvents;
+
   const CategoryDeleteImpact({
     required this.events,
     required this.alerts,
     required this.templates,
+    this.markedEvents = 0,
   });
 
   @override
-  List<Object?> get props => [events, alerts, templates];
+  List<Object?> get props => [events, alerts, templates, markedEvents];
 }
