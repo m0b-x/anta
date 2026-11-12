@@ -12,6 +12,7 @@ import 'package:anta/services/event_occurrence_service.dart';
 import 'package:anta/services/event_skip_service.dart';
 import 'package:anta/services/sync/sync_engine.dart';
 import 'package:anta/services/sync/sync_gateway.dart';
+import 'package:anta/services/sync/sync_status.dart';
 import 'package:anta/services/sync/sync_table_binding.dart';
 import 'package:anta/services/sync/tables/calendar_events_binding.dart';
 import 'package:anta/services/sync/tables/notes_binding.dart';
@@ -1185,6 +1186,44 @@ void main() {
       );
     });
 
+    test('a note over a shared note\'s id that cannot land yet — its text '
+        'is not in the person\'s own space — does not leave a hole: the '
+        'screens are told the shared note went, and the same run reads it '
+        'back', () async {
+      // A later shared note, so the reader's cursor stands well past the
+      // first: nothing but a read from the start comes back to it.
+      pair.gateway.elapse(const Duration(minutes: 1));
+      await writeNote(
+        owner(),
+        folderId: shelf.id,
+        title: 'Later',
+        body: 'Written a minute on',
+      );
+      await pair.syncBoth();
+      pair.gateway.elapse(const Duration(minutes: 1));
+      final mine = await partner().db.folderDao.createFolder(name: 'Mine');
+      final note = pair.gateway.rowsOf(pair.ownerSpace, 'notes')[top.id]!;
+      plantOwn(asOwn(note, over: {'folderId': mine.id}));
+      partner().hooks.clear();
+
+      final report = await partner().sync();
+
+      expect(report.failure, isNull);
+      final here = (await noteOn(partner(), top.id))!;
+      expect(here.ownerId, ownerUid, reason: 'the shared note is back');
+      expect(
+        await partner().db.contentChunkDao.loadContent(top.id),
+        'Text on the shelf',
+      );
+      final told = [
+        for (final (table, rows) in partner().hooks.pages)
+          for (final row in rows)
+            if (table == 'notes' && row.rowKey == top.id)
+              row.gone ? 'gone' : row.result.name,
+      ];
+      expect(told, ['gone', 'inserted']);
+    });
+
     test('a note that names a folder held here as shared is held back — not '
         'stored under it, and not counted and passed over as it used to be: '
         'it lands once the folder of the person\'s own arrives and takes the '
@@ -1206,6 +1245,16 @@ void main() {
       expect((await folderOn(partner(), shelf.id))!.ownerId, ownerUid);
       expect((await noteOn(partner(), top.id))!.ownerId, ownerUid);
       expect(await heldBack(), [contains('own-note')]);
+      expect(
+        [
+          for (final (_, value) in await partner().db.syncDao.valuesByPrefix(
+            SyncDao.pullParkedPrefix,
+          ))
+            value,
+        ],
+        [contains(SyncHeldReason.sharedParent.name)],
+        reason: 'said as what it is, not as a document that cannot be read',
+      );
 
       final folder = pair.gateway.rowsOf(pair.ownerSpace, 'folders')[shelf.id]!;
       plantOwn(asOwn(folder));
@@ -1256,7 +1305,8 @@ void main() {
     });
 
     test('tells the screens what gave way: each removed row as gone, with '
-        'where it stood', () async {
+        'where it stood — and before the row of the person\'s own under '
+        'the same key is announced, so "created" is the last word', () async {
       final folder = pair.gateway.rowsOf(pair.ownerSpace, 'folders')[shelf.id]!;
       plantOwn(asOwn(folder));
       partner().hooks.clear();
@@ -1268,7 +1318,16 @@ void main() {
           for (final row in rows)
             if (row.gone) '$table/${row.rowKey}': row.previousParent,
       };
-      expect(gone, {'notes/${top.id}': shelf.id});
+      expect(gone, {'folders/${shelf.id}': null, 'notes/${top.id}': shelf.id});
+      expect(
+        [
+          for (final (table, rows) in partner().hooks.pages)
+            for (final row in rows)
+              if (table == 'folders' && row.rowKey == shelf.id)
+                row.gone ? 'gone' : row.result.name,
+        ],
+        ['gone', 'inserted'],
+      );
       expect((await folderOn(partner(), shelf.id))!.ownerId, partnerUid);
     });
   });

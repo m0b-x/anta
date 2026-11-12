@@ -278,6 +278,11 @@ class DatabaseMigrations {
       toVersion: DatabaseSchema.v54SharedRowFences,
       migrate: _migrateV53ToV54,
     ),
+    Migration(
+      fromVersion: DatabaseSchema.v54SharedRowFences,
+      toVersion: DatabaseSchema.v55FencesAgain,
+      migrate: _migrateV54ToV55,
+    ),
   ];
 
   Future<void> runMigrations(Migrator m, int from, int to) async {
@@ -2351,6 +2356,29 @@ class DatabaseMigrations {
   /// trigger is one lookup of a key that is not there. Local-only: the wire
   /// stays 47. Idempotent: every one is `IF NOT EXISTS`.
   Future<void> _migrateV53ToV54(Migrator m, GeneratedDatabase db) async {
+    await DatabaseIndexes(_db).createSharedRowFences();
+  }
+
+  /// v54→v55: the fences again, as they stand now. A fence is created `IF
+  /// NOT EXISTS`, so one whose body changed after a database first got it —
+  /// the chunk-update fence, which came to look at both ends — would keep
+  /// its first body for good on that database, and a fresh install and an
+  /// upgraded one would differ. Every fence a database holds is dropped by
+  /// name and the current set created. **This is the step to copy whenever
+  /// a fence's body changes**: bump the version, drop, create. Schema
+  /// objects only; no row is read or written.
+  Future<void> _migrateV54ToV55(Migrator m, GeneratedDatabase db) async {
+    final held = await _db
+        .customSelect(
+          "SELECT name FROM sqlite_master WHERE type = 'trigger' "
+          "AND name LIKE 'shared\\_fence\\_%' ESCAPE '\\'",
+        )
+        .get();
+    for (final row in held) {
+      await _db.customStatement(
+        'DROP TRIGGER IF EXISTS "${row.read<String>('name')}"',
+      );
+    }
     await DatabaseIndexes(_db).createSharedRowFences();
   }
 }

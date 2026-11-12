@@ -301,6 +301,14 @@ class PairingService {
       throw const PairingException(PairingError.ownCode);
     }
     if (invite.isRedeemed) {
+      // Claimed by this very account: an earlier try whose write landed
+      // and whose answer did not, with the link too far gone to ask the
+      // server then. The pair exists — it is asked for now, rather than the
+      // person being told their own redeemed code is not valid.
+      if (invite.redeemedBy == user.uid) {
+        await reconcile();
+        if (_pairedWith(invite.creatorUid)) return status;
+      }
       throw const PairingException(PairingError.codeInvalid);
     }
 
@@ -315,11 +323,15 @@ class PairingService {
       );
     } on PairingException catch (e) {
       if (e.error == PairingError.codeInvalid) rethrow;
-      // An invite that ran out between the read above and the write is
-      // refused by the rules as its read is: the same wrong code, not a
-      // matter of permission.
       if (e.error == PairingError.permissionDenied) {
-        throw const PairingException(PairingError.codeInvalid);
+        // An invite that ran out between the read above and the write is
+        // refused by the rules as its read is: the same wrong code, not a
+        // matter of permission. Anything else the rules refuse stays what
+        // it is.
+        if (await _inviteSpent(code)) {
+          throw const PairingException(PairingError.codeInvalid);
+        }
+        rethrow;
       }
       // The write may have landed although its answer did not — the reply
       // lost, the read-back failed: the pair then exists and the invite is
@@ -330,13 +342,34 @@ class PairingService {
       } on PairingException {
         throw e;
       }
-      if (_cached.pairId == null) rethrow;
-      _attachListeners();
+      // Only the pair this redemption was for. Reconciliation adopts
+      // whatever active pair the server shows — one made meanwhile from a
+      // code of this account's own is real and stays, but it is no answer
+      // to this call, whose code is still unspent.
+      if (!_pairedWith(invite.creatorUid)) rethrow;
       return status;
     }
 
     await _adopt(pair, user);
     return status;
+  }
+
+  /// Whether this database is paired, and with [uid].
+  bool _pairedWith(String uid) =>
+      _cached.pairId != null && status.partner?.uid == uid;
+
+  /// Whether [code] can no longer be redeemed: gone, claimed or run out —
+  /// and a run-out invite refuses its read, which is how the rules say so.
+  /// False when that cannot be told.
+  Future<bool> _inviteSpent(String code) async {
+    try {
+      final invite = await _gateway.readInvite(code);
+      return invite == null ||
+          invite.isRedeemed ||
+          invite.isExpiredAt(DateTime.now().toUtc());
+    } on PairingException catch (e) {
+      return e.error == PairingError.permissionDenied;
+    }
   }
 
   Future<PairingStatus> unpair() async {

@@ -225,19 +225,24 @@ class _Puller {
           for (final envelope in page.envelopes) envelope.rowKey,
           ...page.skipped,
         };
-        await _apply(
-          bound,
-          table,
-          page,
-          floor: floor,
-          touched: touched,
-          tally: tally,
-          held: await _makeRoom(bound, table, page.envelopes, touched),
-          gone: [
-            for (final key in keys)
-              if (!answered.contains(key)) key,
-          ],
-        );
+        final room = await _makeRoom(bound, table, page.envelopes, touched);
+        try {
+          await _apply(
+            bound,
+            table,
+            page,
+            floor: floor,
+            touched: touched,
+            tally: tally,
+            held: room.held,
+            gone: [
+              for (final key in keys)
+                if (!answered.contains(key)) key,
+            ],
+          );
+        } finally {
+          await _restoreUnlanded(table.table, room.evicted);
+        }
       }
       if (everything) {
         await _e._db.syncDao.setValue(SyncDao.keyPullParkedBuild, build);
@@ -521,98 +526,107 @@ class _Puller {
     // The page a fetch over [SyncEngine.chunkFetchBudget] halved to, for
     // the next pull of the same page alone.
     int? fitted;
-    while (true) {
-      await _e._checkHalt(bound);
-      if (!_e._foreground) return false;
-      final SyncPullPage page;
-      try {
-        page = await _e._gateway.pullPage(
-          _e._spaceOf(bound),
-          name,
-          after: cursor,
-          limit: fitted ?? _takeOf(table),
-          resumed: resumed,
-          scan: scan,
-        );
-      } on SyncGatewayException catch (error) {
-        // The run still ends on it, retried on the back-off: an abandoned
-        // native call may still be using the link.
-        if (error.timedOut) _shrinkTake(table);
-        rethrow;
-      }
-      _timeoutsInARow.remove(name);
-      await _e._reached(tally);
-      tally.pages++;
-      final held = await _makeRoom(bound, table, page.envelopes, touched);
-      final missing = table is NotesBinding
-          ? await NotesBinding.missingChunks(db, page.envelopes, floor: floor)
-          : null;
-      if (missing != null &&
-          missing.length * ContentChunker.maxCodeUnits >
-              SyncEngine.chunkFetchBudget &&
-          page.envelopes.length > 1) {
-        // The bodies this page would read before it merges outgrow the
-        // budget: the same page again, halved, from the same cursor and
-        // scan — nothing of this one was stored. For this page only: a big
-        // note does not last the way a slow link does.
-        fitted = page.envelopes.length ~/ 2;
-        continue;
-      }
-      fitted = null;
-      final nextScan = page.scan;
-      resumed = nextScan != null;
-      if (page.envelopes.isEmpty) {
-        // The gateway skipped every document of the page and advanced the
-        // cursor over them. Storing it here is the only store outside
-        // `_apply`'s transaction, and what keeps one page of documents this
-        // build cannot read from pinning the table's pull for good: a
-        // cursor left behind re-reads the same window every run, and no row
-        // past it ever arrives (A2 review R44).
-        // A re-read's skipped page moves only the scan, which is not stored.
-        // The documents skipped are parked with the cursor that passed them,
-        // as `_apply` parks its own (scalability record S8).
-        final next = page.next;
-        final moved = next != null && next.value != cursor?.value;
-        final unread = page.skipped.any(
-          (key) => !parked.containsKey((name, key)),
-        );
-        if (moved || unread) {
-          await db.transaction(() async {
-            await _checkStillBound(bound);
-            if (moved) {
-              await db.syncDao.setValue(
-                SyncDao.keyPullCursor(name),
-                next.value,
-              );
-            }
-            for (final key in page.skipped) {
-              await _parkUnreadable(name, key);
-            }
-          });
-          if (moved) cursor = next;
+    // The shared rows this pull took out for rows of the person's own
+    // ([_makeRoom]), looked at again when the pull ends, however it ends.
+    final gaveWay = <String>[];
+    try {
+      while (true) {
+        await _e._checkHalt(bound);
+        if (!_e._foreground) return false;
+        final SyncPullPage page;
+        try {
+          page = await _e._gateway.pullPage(
+            _e._spaceOf(bound),
+            name,
+            after: cursor,
+            limit: fitted ?? _takeOf(table),
+            resumed: resumed,
+            scan: scan,
+          );
+        } on SyncGatewayException catch (error) {
+          // The run still ends on it, retried on the back-off: an abandoned
+          // native call may still be using the link.
+          if (error.timedOut) _shrinkTake(table);
+          rethrow;
         }
-        if (!moved && nextScan?.value == scan?.value) break;
+        _timeoutsInARow.remove(name);
+        await _e._reached(tally);
+        tally.pages++;
+        final room = await _makeRoom(bound, table, page.envelopes, touched);
+        final held = room.held;
+        gaveWay.addAll(room.evicted);
+        final missing = table is NotesBinding
+            ? await NotesBinding.missingChunks(db, page.envelopes, floor: floor)
+            : null;
+        if (missing != null &&
+            missing.length * ContentChunker.maxCodeUnits >
+                SyncEngine.chunkFetchBudget &&
+            page.envelopes.length > 1) {
+          // The bodies this page would read before it merges outgrow the
+          // budget: the same page again, halved, from the same cursor and
+          // scan — nothing of this one was stored. For this page only: a big
+          // note does not last the way a slow link does.
+          fitted = page.envelopes.length ~/ 2;
+          continue;
+        }
+        fitted = null;
+        final nextScan = page.scan;
+        resumed = nextScan != null;
+        if (page.envelopes.isEmpty) {
+          // The gateway skipped every document of the page and advanced the
+          // cursor over them. Storing it here is the only store outside
+          // `_apply`'s transaction, and what keeps one page of documents this
+          // build cannot read from pinning the table's pull for good: a
+          // cursor left behind re-reads the same window every run, and no row
+          // past it ever arrives (A2 review R44).
+          // A re-read's skipped page moves only the scan, which is not stored.
+          // The documents skipped are parked with the cursor that passed them,
+          // as `_apply` parks its own (scalability record S8).
+          final next = page.next;
+          final moved = next != null && next.value != cursor?.value;
+          final unread = page.skipped.any(
+            (key) => !parked.containsKey((name, key)),
+          );
+          if (moved || unread) {
+            await db.transaction(() async {
+              await _checkStillBound(bound);
+              if (moved) {
+                await db.syncDao.setValue(
+                  SyncDao.keyPullCursor(name),
+                  next.value,
+                );
+              }
+              for (final key in page.skipped) {
+                await _parkUnreadable(name, key);
+              }
+            });
+            if (moved) cursor = next;
+          }
+          if (!moved && nextScan?.value == scan?.value) break;
+          scan = nextScan;
+          if (!page.hasMore) break;
+          continue;
+        }
+        await _apply(
+          bound,
+          table,
+          page,
+          floor: floor,
+          touched: touched,
+          tally: tally,
+          missing: missing,
+          held: held,
+          // The bind's download counts every row; the wire cutover's re-read
+          // the notes it says it re-syncs.
+          counts: initial || (_e._updating && table is NotesBinding),
+        );
+        _e._emit();
+        cursor = page.next ?? cursor;
         scan = nextScan;
         if (!page.hasMore) break;
-        continue;
       }
-      await _apply(
-        bound,
-        table,
-        page,
-        floor: floor,
-        touched: touched,
-        tally: tally,
-        missing: missing,
-        held: held,
-        // The bind's download counts every row; the wire cutover's re-read
-        // the notes it says it re-syncs.
-        counts: initial || (_e._updating && table is NotesBinding),
-      );
-      _e._emit();
-      cursor = page.next ?? cursor;
-      scan = nextScan;
-      if (!page.hasMore) break;
+    } finally {
+      await _restoreUnlanded(name, gaveWay);
     }
     if (seenUpTo != null) {
       // A max: a snapshot read before this pull may show an older `touched`
@@ -837,18 +851,19 @@ class _Puller {
   /// it, and every later run met the same page.
   ///
   /// One statement for a database that holds no shared row.
-  Future<Set<String>> _makeRoom(
+  Future<_Room> _makeRoom(
     SyncBinding bound,
     SyncTableBinding<Object> table,
     List<SyncEnvelope> envelopes,
     Set<SyncInvalidation> touched,
   ) async {
+    const none = (held: <String>{}, evicted: <String>[]);
     final name = table.table;
-    if (envelopes.isEmpty || !sharedTables.contains(name)) return const {};
+    if (envelopes.isEmpty || !sharedTables.contains(name)) return none;
     final db = _e._db;
-    if (await db.sharedRowDao.owner() == null) return const {};
+    if (await db.sharedRowDao.owner() == null) return none;
     final above = _sharedParents[name];
-    final (evicted, merging, held) = await db.transaction(() async {
+    final (evicted, held) = await db.transaction(() async {
       await _checkStillBound(bound);
       var held = above == null
           ? <String>{}
@@ -856,21 +871,19 @@ class _Puller {
               ...{for (final envelope in envelopes) ?_parentOf(name, envelope)},
             ])).toSet();
       final evicted = <SharedRemovals>[];
-      final merging = <String>{};
       final waiting = [...envelopes];
       // A row that is held back keeps the shared row under its key: it is
       // not stored now, so nothing has to give way for it. In rounds, since
       // a page of folders can carry a folder and the folders inside it: the
       // outer one's eviction frees the inner ones.
       while (true) {
-        final free = [
+        final free = {
           for (final envelope in waiting)
             if (!held.contains(_parentOf(name, envelope))) envelope.rowKey,
-        ];
+        };
         if (free.isEmpty) break;
         waiting.removeWhere((envelope) => free.contains(envelope.rowKey));
-        merging.addAll(free);
-        final removed = await db.sharedRowDao.evict(name, free);
+        final removed = await db.sharedRowDao.evict(name, free.toList());
         evicted.add(removed);
         final freed = name == above?.table
             ? held.intersection(removed.keysOf(name).toSet())
@@ -878,17 +891,43 @@ class _Puller {
         if (freed.isEmpty) break;
         held = held.difference(freed);
       }
-      return (evicted, merging, held);
+      return (evicted, held);
     });
+    // Before the page, whose own announcement of the row it stores under an
+    // evicted key then follows as "created": a screen holding the shared
+    // row — an editor above all, whose next save would write the partner's
+    // text into the person's own note — has to hear that it is gone.
     for (final removed in evicted) {
-      await _e._shared.announce(
-        removed,
-        touched,
-        mergedTable: name,
-        mergedKeys: merging,
+      await _e._shared.announce(removed, touched);
+    }
+    return (
+      held: held,
+      evicted: [for (final removed in evicted) ...removed.keysOf(name)],
+    );
+  }
+
+  /// After a page that made room ([_makeRoom]): a shared row that gave way
+  /// under one of [evicted] for a row of the person's own that did not land
+  /// after all — it was held back, or the page failed — is neither here nor
+  /// on its way. The share is then read again from this table's start, in
+  /// this very run: the shared copy comes back for as long as no row of the
+  /// person's own holds its key.
+  ///
+  /// Best effort: what it cannot do now, the daily read from the start
+  /// does.
+  Future<void> _restoreUnlanded(String table, List<String> evicted) async {
+    if (evicted.isEmpty) return;
+    try {
+      final db = _e._db;
+      if ((await db.sharedRowDao.absentAmong(table, evicted)).isEmpty) return;
+      await db.syncDao.deleteValue(SyncDao.keySharedCursor(table));
+      await db.syncDao.deleteValue(SyncDao.keySharedReadAt);
+    } catch (error, stack) {
+      _warn(
+        'a shared $table row that gave way was not asked for again: '
+        '$error\n$stack',
       );
     }
-    return held;
   }
 
   /// The id [envelope]'s row names as its parent, null for none — a
@@ -1255,7 +1294,7 @@ class _Puller {
     final row = '${envelope.table}/${envelope.rowKey}';
     if (error is ArgumentError) {
       _warn('parked $row on an ArgumentError, probably a bug: $error');
-    } else if (_isEnvelopeFault(error)) {
+    } else if (error is SharedParentHeld || _isEnvelopeFault(error)) {
       debugPrint('[SyncEngine] parked $row: $error');
     } else {
       _warn('parked $row on ${error.runtimeType}: $error');
@@ -1266,14 +1305,11 @@ class _Puller {
     } on FormatException {
       stamp = '';
     }
-    await _setParked(
-      envelope.table,
-      envelope.rowKey,
-      stamp,
-      error is ChunksMissing
-          ? SyncHeldReason.awaitingText
-          : SyncHeldReason.unreadable,
-    );
+    await _setParked(envelope.table, envelope.rowKey, stamp, switch (error) {
+      ChunksMissing() => SyncHeldReason.awaitingText,
+      SharedParentHeld() => SyncHeldReason.sharedParent,
+      _ => SyncHeldReason.unreadable,
+    });
   }
 
   /// Parks a document of [table] the gateway skipped as unreadable, with no
@@ -1367,6 +1403,10 @@ String _parkValue(int order, String stamp, SyncHeldReason reason) =>
 
 /// A stored park as [_readParks] reads it back; [reason] is null for a park
 /// stored before the reason was.
+/// What [_Puller._makeRoom] did for a page: the parents its rows name that
+/// are held here as shared, and the keys under which a shared row gave way.
+typedef _Room = ({Set<String> held, List<String> evicted});
+
 typedef _StoredPark = ({
   int order,
   (String, String) key,

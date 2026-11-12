@@ -184,6 +184,28 @@ class SharedRowDao extends DatabaseAccessor<AppDatabase>
     return taken;
   }
 
+  /// The keys among [keys] under which [table] holds no row at all,
+  /// whoever's: asked after a page for which shared rows gave way, to see
+  /// which of the person's own rows did not land in their place.
+  Future<List<String>> absentAmong(String table, List<String> keys) async {
+    if (keys.isEmpty) return const [];
+    final synced = _shared(table);
+    final present = (await CrdtMerge.loadInChunks(keys, (chunk) async {
+      final rows = await customSelect(
+        'SELECT ${synced.rowKeySql} AS k FROM ${synced.name} '
+        'WHERE ${synced.rowKeySql} IN '
+        '(${List.filled(chunk.length, '?').join(', ')})',
+        variables: [for (final key in chunk) Variable<String>(key)],
+        readsFrom: {_tableOf(table)},
+      ).get();
+      return [for (final row in rows) row.read<String>('k')];
+    })).toSet();
+    return [
+      for (final key in keys)
+        if (!present.contains(key)) key,
+    ];
+  }
+
   /// Removes the shared rows of [table] under [keys]: a row of this
   /// account's own is about to take the same id — it arrived from the
   /// account's space, or an import carries it — and the person's own data

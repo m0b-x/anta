@@ -195,29 +195,28 @@ class _SharedReader {
   /// stood: nothing is left to read it back from, and an open list would
   /// otherwise go on showing it until the app is started again.
   ///
-  /// [mergedKeys] of [mergedTable] are left out: the page that evicted them
-  /// stored a row of the person's own under the same key and announces that
-  /// itself, and "gone" after it would take the new row off the screen.
+  /// Every one of them, a row that gave way to one of the person's own
+  /// under the same key included: the own pull calls this before its page,
+  /// so the page's "created" for the own row follows "gone" — and an editor
+  /// open on the shared note learns it is gone before a save could write
+  /// the partner's text into the person's own note.
   ///
   /// Each table is announced as a page of its own, so a calendar table
   /// reaches the scope the run's reload reads.
   Future<void> announce(
     SharedRemovals removals,
-    Set<SyncInvalidation> touched, {
-    String? mergedTable,
-    Set<String> mergedKeys = const {},
-  }) async {
+    Set<SyncInvalidation> touched,
+  ) async {
     for (final MapEntry(key: table, value: gone) in removals.gone.entries) {
       final rows = [
         for (final row in gone)
-          if (table != mergedTable || !mergedKeys.contains(row.key))
-            SyncAppliedRow(
-              rowKey: row.key,
-              result: MergeResult.applied,
-              tombstone: true,
-              gone: true,
-              previousParent: row.parent,
-            ),
+          SyncAppliedRow(
+            rowKey: row.key,
+            result: MergeResult.applied,
+            tombstone: true,
+            gone: true,
+            previousParent: row.parent,
+          ),
       ];
       if (rows.isEmpty) continue;
       final binding = _e._bindingFor(table);

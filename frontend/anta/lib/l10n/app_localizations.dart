@@ -8098,6 +8098,12 @@ abstract class AppLocalizations {
   /// **'Waiting for its text'**
   String get syncHeldBackAwaitingText;
 
+  /// Why a row in the Sync page's held-back list was not applied yet: the folder or calendar event it belongs to has not arrived from the person's own cloud copy, and a row their partner shares holds that place for now
+  ///
+  /// In en, this message translates to:
+  /// **'Waiting for its folder or event'**
+  String get syncHeldBackSharedParent;
+
   /// Why a row in the Sync page's held-back list was not applied: its cloud copy could not be read by this app
   ///
   /// In en, this message translates to:

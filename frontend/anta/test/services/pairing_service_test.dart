@@ -268,6 +268,110 @@ void main() {
       expect(gateway.pairs, hasLength(1));
     });
 
+    test('and when the server cannot be asked either, the next try of the '
+        'same code finds it claimed by this very account and is paired — '
+        'not told that its own redeemed code is not valid', () async {
+      final gateway = FakePairingGateway();
+      addTearDown(gateway.dispose);
+      final creator = await _boot(
+        gateway: gateway,
+        auth: FakeAuthService(user: userA),
+      );
+      final code = (await creator.service.generateInvite()).pendingCode!;
+      final redeemer = await _boot(
+        gateway: gateway,
+        auth: FakeAuthService(user: userB),
+      );
+      gateway.loseCreatePairAnswer = PairingError.offline;
+      // The link is down for the check that follows the lost answer too.
+      gateway.beforeCreatePair = () {
+        gateway.beforeCreatePair = null;
+        gateway.failNext = PairingError.offline;
+      };
+
+      await expectLater(
+        redeemer.service.redeem(code),
+        throwsA(
+          isA<PairingException>().having(
+            (e) => e.error,
+            'error',
+            PairingError.offline,
+          ),
+        ),
+      );
+      expect(gateway.pairs, hasLength(1));
+
+      final status = await redeemer.service.redeem(code);
+
+      expect(status.isPaired, isTrue);
+      expect(status.partner?.uid, userA.uid);
+      expect(gateway.pairs, hasLength(1));
+    });
+
+    test('a redemption that failed does not answer "paired" for a pair it '
+        'did not make: one another account made from this account\'s own '
+        'code is adopted, and the failure still told', () async {
+      final gateway = FakePairingGateway();
+      addTearDown(gateway.dispose);
+      final creator = await _boot(
+        gateway: gateway,
+        auth: FakeAuthService(user: userA),
+      );
+      final code = (await creator.service.generateInvite()).pendingCode!;
+      final redeemer = await _boot(
+        gateway: gateway,
+        auth: FakeAuthService(user: userB),
+      );
+      gateway.beforeCreatePair = () {
+        gateway.beforeCreatePair = null;
+        gateway.seedPair([userB.uid, 'uid-c']);
+        throw const PairingException(PairingError.unknown);
+      };
+
+      await expectLater(
+        redeemer.service.redeem(code),
+        throwsA(
+          isA<PairingException>().having(
+            (e) => e.error,
+            'error',
+            PairingError.unknown,
+          ),
+        ),
+      );
+      expect(gateway.invites[code]!.isRedeemed, isFalse);
+      expect(redeemer.service.status.partner?.uid, 'uid-c');
+    });
+
+    test('a refusal by the rules that is not about the invite stays a '
+        'refusal: only a code found spent is "not valid"', () async {
+      final gateway = FakePairingGateway();
+      addTearDown(gateway.dispose);
+      final creator = await _boot(
+        gateway: gateway,
+        auth: FakeAuthService(user: userA),
+      );
+      final code = (await creator.service.generateInvite()).pendingCode!;
+      final redeemer = await _boot(
+        gateway: gateway,
+        auth: FakeAuthService(user: userB),
+      );
+      gateway.beforeCreatePair = () {
+        gateway.beforeCreatePair = null;
+        throw const PairingException(PairingError.permissionDenied);
+      };
+
+      await expectLater(
+        redeemer.service.redeem(code),
+        throwsA(
+          isA<PairingException>().having(
+            (e) => e.error,
+            'error',
+            PairingError.permissionDenied,
+          ),
+        ),
+      );
+    });
+
     test('a redemption that failed before anything was written still '
         'fails as it did: nothing to adopt', () async {
       final gateway = FakePairingGateway();

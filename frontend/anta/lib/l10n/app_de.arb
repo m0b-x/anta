@@ -2563,6 +2563,7 @@
   "syncHeldBackRefused": "Von der Cloud-Kopie abgelehnt",
   "syncHeldBackUnencodable": "Konnte nicht zum Senden vorbereitet werden",
   "syncHeldBackAwaitingText": "Wartet auf den Text",
+  "syncHeldBackSharedParent": "Wartet auf Ordner oder Termin",
   "syncHeldBackUnreadable": "Aus der Cloud-Kopie nicht lesbar",
   "syncHeldBackDeleted": "{kind, select, other{Gelöscht}} · {reason}",
   "syncHeldBackKind": "{kind, select, note{Eine Notiz} folder{Ein Ordner} event{Ein Termin} category{Eine Kalenderkategorie} counter{Ein Zähler} template{Eine Terminvorlage} view{Eine gespeicherte Ansicht} filter{Ein gespeicherter Filter} digest{Eine Zusammenfassung} vocabulary{Eine Begriffsliste} other{Ein Eintrag}}",

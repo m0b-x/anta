@@ -785,6 +785,7 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
       SyncHeldReason.unencodable => l10n.syncHeldBackUnencodable,
       SyncHeldReason.awaitingText => l10n.syncHeldBackAwaitingText,
       SyncHeldReason.unreadable => l10n.syncHeldBackUnreadable,
+      SyncHeldReason.sharedParent => l10n.syncHeldBackSharedParent,
     };
     return item.deleted
         ? l10n.syncHeldBackDeleted(item.kind.name, reason)

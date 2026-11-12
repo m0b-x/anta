@@ -5,8 +5,10 @@ FIXED the same day (§12: two privacy holes closed, the mark given its own
 stamp); F2 BUILT (the reader — §5, §6) and REVIEWED; F3 BUILT with that
 review's fixes (the fences — §7, §8; a pair and the claim of its invite
 made one write — §4), REVIEWED and FIXED; F4 DONE — the two-guest device
-suite `qa pass share` green twice (§12). Every part of the foundations is
-built; what is left is the owner's (§11, and the roadmap's status). The owner's scope (2026-11-11): everything under the "Share with
+suite `qa pass share` green, 7/7 (§12); the fix pass itself reviewed once
+more and its findings fixed (§12, last section). Schema 55, wire 47. Every
+part of the foundations is built; what is left is the owner's (§11, and
+the roadmap's status). The owner's scope (2026-11-11): everything under the "Share with
 partner" switch, for events and for notes — schema, wire, rules, the
 engine reading a partner's shared rows, read-only protection, backups,
 two app versions — proven by tests and the rules emulator; no switch, no
@@ -608,7 +610,9 @@ Three layers keep such a row the owner's, each catching what the one
 before lets through:
 
 1. **The database refuses** (`SharedRowFences`, v54: twenty-four
-   `BEFORE` triggers, the same on a fresh install and an upgraded one).
+   `BEFORE` triggers, the same on a fresh install and an upgraded one —
+   v55 drops and creates them again, which is what a change of a fence's
+   body takes, since a fence is created only when absent).
    Planned as a check in each service; built in the database because the
    writers are many and some are sets — a reorder of a folder's notes,
    "delete all", a label taken off every row that wears it, whatever a
@@ -1151,3 +1155,31 @@ deletes its account after the pair ended; the deletion's row runs to
 "Account deleted", the page is signed out, and the owner's side is
 untouched. 7/7 in 160.6 s. This is the first device pass of the roadmap's
 D2; an account deleted while its pair is still active is not walked yet.
+
+### The closing review of the fix pass (2026-11-12)
+
+A third review on Fable, of `232bbc52` alone, asked one question first:
+what did the fixes break in the sync of an account that shares nothing?
+Its answer was nothing — one `shared_owner` lookup per page of a
+shareable table, no change of outcome — and then twelve findings, five
+reproduced. Fixed:
+
+| # | Found | Fixed by |
+| --- | --- | --- |
+| 1 | The chunk-update fence had been changed in place: a database that got its fences from the build before kept the old body for good | v55 — every fence dropped by name and created again, and the step to copy whenever a fence's body changes (§7) |
+| 2 | An own row that displaced a shared one and then could not land left a hole: the shared row removed at every start, no screen told, nothing reading it back | the removal is announced, and the share is read again from that table's start in the same run (`_Puller._restoreUnlanded`) |
+| 3 | An editor open on a shared note was not told when a note of the person's own took its id; its next save would have written the partner's text into the person's note | every eviction is announced as gone *before* the page — the exclusion that kept the same-key row out rested on the opposite order |
+| 4 | A redemption whose write landed, whose answer was lost and whose check with the server failed as well still met "code not valid" on the next try | a code found claimed by this very account is reconciled, not refused |
+| 5 | A failed redemption could answer "paired" with a pair it had not made | only a pair with the invite's creator is that redemption's answer |
+| 6 | A held-back row was stored and shown as "Couldn't be read from the cloud copy" | `SyncHeldReason.sharedParent`, "Waiting for its folder or event" in the three languages |
+| 8 | Every refusal of the redemption by the rules read as a mistyped code | only when the invite is found spent |
+
+Accepted: 7 — a save of a row that carries an owner (one from before the
+bind, or pulled) reads `shared_owner` once, a primary-key lookup; 9 — a
+held note's text is still fetched and thrown away at each retry; 10 — a
+shared folder placed at the top level is announced as moved without the
+parent it left.
+
+Gate: `dart analyze lib test tool test_driver` clean; the whole suite
+`+16034 ~17`; `qa pass share` 7/7 in 157.4 s on the build with these
+fixes. Schema 55, wire 47 as before.

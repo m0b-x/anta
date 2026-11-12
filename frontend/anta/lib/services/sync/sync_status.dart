@@ -105,6 +105,12 @@ enum SyncHeldReason {
   /// The row could not be encoded for the push: too large, a chunk that no
   /// longer matches its hash, a chunk its manifest needs parked.
   unencodable,
+
+  /// A pulled row of the person's own names a folder or an event that is
+  /// held here as one another account shares: it waits for its own parent
+  /// (`SharedParentHeld`). Last, so a park an earlier build stored still
+  /// reads by name, and one this build stores reads there as unreadable.
+  sharedParent,
 }
 
 /// What a held-back row is, by its table: the page names notes and folders

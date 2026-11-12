@@ -1434,6 +1434,7 @@
   "syncHeldBackRefused": "Copia din cloud a refuzat modificarea",
   "syncHeldBackUnencodable": "Nu s-a putut pregăti pentru trimitere",
   "syncHeldBackAwaitingText": "Se așteaptă textul",
+  "syncHeldBackSharedParent": "Se așteaptă dosarul sau evenimentul",
   "syncHeldBackUnreadable": "Nu s-a putut citi din copia din cloud",
   "syncHeldBackDeleted": "{kind, select, note{Ștearsă} category{Ștearsă} view{Ștearsă} vocabulary{Ștearsă} other{Șters}} · {reason}",
   "syncHeldBackKind": "{kind, select, note{O notiță} folder{Un dosar} event{Un eveniment din calendar} category{O categorie din calendar} counter{Un contor} template{Un șablon de eveniment} view{O vizualizare salvată} filter{Un filtru salvat} digest{Un rezumat} vocabulary{O listă de termeni} other{Un element}}",

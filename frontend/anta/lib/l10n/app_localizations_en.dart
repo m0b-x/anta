@@ -4823,6 +4823,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get syncHeldBackAwaitingText => 'Waiting for its text';
 
   @override
+  String get syncHeldBackSharedParent => 'Waiting for its folder or event';
+
+  @override
   String get syncHeldBackUnreadable => 'Couldn\'t be read from the cloud copy';
 
   @override

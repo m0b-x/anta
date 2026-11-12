@@ -5,6 +5,9 @@ import 'package:anta/constants/event_presence.dart';
 import 'package:anta/database/daos/shared_row_dao.dart';
 import 'package:anta/database/daos/sync_dao.dart';
 import 'package:anta/database/database.dart';
+import 'package:anta/database/migrations/database_indexes.dart';
+import 'package:anta/database/migrations/database_migrations.dart';
+import 'package:anta/database/migrations/database_schema.dart';
 import 'package:anta/database/migrations/shared_row_fences.dart';
 import 'package:anta/models/item_label.dart';
 
@@ -629,6 +632,47 @@ void main() {
         );
       },
     );
+  });
+
+  test('a database that got its fences from an earlier build takes the '
+      'current ones in the next step: a fence is created only when absent, '
+      'so one whose body changed would otherwise keep its first body for '
+      'good', () async {
+    Future<Map<String, String>> fences() async => {
+      for (final row
+          in await db
+              .customSelect(
+                "SELECT name, sql FROM sqlite_master WHERE type = 'trigger'",
+              )
+              .get())
+        row.read<String>('name'): row.read<String>('sql'),
+    };
+    final current = await fences();
+    // As the v54 build left it: the chunk-update fence looking at the old
+    // note only — and a fence a later build no longer has.
+    await db.customStatement('DROP TRIGGER shared_fence_chunks_update');
+    await db.customStatement(
+      'CREATE TRIGGER shared_fence_chunks_update BEFORE UPDATE ON '
+      'content_chunks WHEN 0 BEGIN SELECT RAISE(IGNORE); END',
+    );
+    await db.customStatement(
+      'CREATE TRIGGER shared_fence_retired BEFORE DELETE ON content_chunks '
+      'WHEN 0 BEGIN SELECT RAISE(IGNORE); END',
+    );
+    await DatabaseIndexes(db).createSharedRowFences();
+    expect(
+      (await fences())['shared_fence_chunks_update'],
+      isNot(current['shared_fence_chunks_update']),
+      reason: 'creating again leaves an existing fence as it is',
+    );
+
+    await DatabaseMigrations(db).runMigrations(
+      db.createMigrator(),
+      DatabaseSchema.v54SharedRowFences,
+      DatabaseSchema.v55FencesAgain,
+    );
+
+    expect(await fences(), current);
   });
 
   test('every fence is created by name on a fresh database, one statement '

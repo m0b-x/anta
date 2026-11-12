@@ -1,7 +1,7 @@
 import 'package:drift/drift.dart';
 
 abstract class DatabaseSchema {
-  static const int currentVersion = 54;
+  static const int currentVersion = 55;
 
   /// The version the sync space carries and every engine compares against:
   /// a space written by a higher one pauses this build as outdated. Bumped
@@ -80,6 +80,7 @@ abstract class DatabaseSchema {
   static const int v52SharedPair = 52;
   static const int v53ShareStamp = 53;
   static const int v54SharedRowFences = 54;
+  static const int v55FencesAgain = 55;
 }
 
 typedef MigrationStep = Future<void> Function(Migrator m, GeneratedDatabase db);
