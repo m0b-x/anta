@@ -21,6 +21,7 @@ import '../models/partner_look.dart';
 import '../models/upcoming_agenda_filters.dart';
 import '../services/agenda_search_text.dart';
 import '../utils/calendar_filter_summary.dart';
+import '../utils/category_allowlist.dart';
 import '../utils/event_agenda.dart';
 import '../utils/event_search_query.dart';
 import '../utils/fuzzy_rank.dart';
@@ -1183,7 +1184,7 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
       );
     }
 
-    if (filters.categoryIds.isNotEmpty) {
+    if (!CategoryAllowlist.filtersNothing(filters.categoryIds)) {
       chips.add(
         _SummaryChip(
           icon: CalendarFilterSummary.categoryIcon,

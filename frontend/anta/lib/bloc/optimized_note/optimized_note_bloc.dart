@@ -30,6 +30,7 @@ class OptimizedNoteBloc extends Bloc<OptimizedNoteEvent, OptimizedNoteState> {
   int _currentPage = 1;
   int _currentPageSize = NoteStorageService.defaultPageSize;
   NotesSortOrder _currentSortOrder = NotesSortOrder.updatedDesc;
+  bool _currentOwnOnly = false;
   PaginatedNotes? _lastPaginatedNotes;
   StreamSubscription<NoteChange>? _changesSubscription;
 
@@ -117,11 +118,13 @@ class OptimizedNoteBloc extends Bloc<OptimizedNoteEvent, OptimizedNoteState> {
           _currentPage > 1 &&
           _currentFolderId == event.folderId &&
           _currentPageSize == event.pageSize &&
-          _currentSortOrder == event.sortOrder;
+          _currentSortOrder == event.sortOrder &&
+          _currentOwnOnly == event.ownOnly;
 
       _currentFolderId = event.folderId;
       _currentPageSize = event.pageSize;
       _currentSortOrder = event.sortOrder;
+      _currentOwnOnly = event.ownOnly;
       if (!continuesCurrentList) _currentPage = event.page;
 
       final paginatedNotes = continuesCurrentList
@@ -134,6 +137,7 @@ class OptimizedNoteBloc extends Bloc<OptimizedNoteEvent, OptimizedNoteState> {
               page: event.page,
               pageSize: event.pageSize,
               sortOrder: event.sortOrder,
+              ownOnly: event.ownOnly,
             );
 
       _lastPaginatedNotes = paginatedNotes;
@@ -187,6 +191,7 @@ class OptimizedNoteBloc extends Bloc<OptimizedNoteEvent, OptimizedNoteState> {
         page: nextPage,
         pageSize: _currentPageSize,
         sortOrder: _currentSortOrder,
+        ownOnly: _currentOwnOnly,
       );
 
       // Something else owns the list now, and it re-read every page this one
@@ -232,7 +237,13 @@ class OptimizedNoteBloc extends Bloc<OptimizedNoteEvent, OptimizedNoteState> {
       final lazyNote = await _storageService.loadNoteWithContent(event.noteId);
 
       if (lazyNote == null) {
-        emit(const OptimizedNoteError('Note not found'));
+        emit(
+          OptimizedNoteError(
+            'Note not found',
+            errorType: NoteErrorType.notFound,
+            noteId: event.noteId,
+          ),
+        );
         return;
       }
 
@@ -288,6 +299,7 @@ class OptimizedNoteBloc extends Bloc<OptimizedNoteEvent, OptimizedNoteState> {
         noteId: event.noteId,
         title: event.title,
         content: event.content,
+        current: event.current,
       );
       // No index update here: the storage change stream marks the note stale
       // and the search index re-reads it at the next search, not on every
@@ -440,6 +452,7 @@ class OptimizedNoteBloc extends Bloc<OptimizedNoteEvent, OptimizedNoteState> {
       page: 1,
       pageSize: _currentPageSize * loaded,
       sortOrder: _currentSortOrder,
+      ownOnly: _currentOwnOnly && folderId == _currentFolderId,
     );
     return result.copyWith(currentPage: loaded);
   }

@@ -33,6 +33,12 @@ class MovableItemRef {
   int get hashCode => Object.hash(kind, id);
 }
 
+/// What a move did to whether a row is shared with the partner, for the
+/// move's snackbar to end with (`docs/cloud-share-surfaces-roadmap.md`
+/// §6.11): it came to lie under a folder the person shares, or left the
+/// last one.
+enum MoveShareChange { nowShared, noLongerShared }
+
 /// What one set-based move did with each id it was given, so the caller can
 /// keep reporting per item. An id in none of the three sets was not moved
 /// for another reason: it is gone, the target is gone, or the target sits
@@ -42,6 +48,7 @@ class BulkMoveResult {
     this.moved = const {},
     this.duplicates = const {},
     this.unchanged = const {},
+    this.shareChanges = const {},
   });
 
   /// The ids written under the target, each mapped to the parent it left,
@@ -55,9 +62,39 @@ class BulkMoveResult {
   /// Ids already under the target: nothing to write.
   final Set<String> unchanged;
 
+  /// The moved ids whose sharing the move changed; an id moved and absent
+  /// here is shared as it was, or private as it was.
+  final Map<String, MoveShareChange> shareChanges;
+
+  /// The one change every moved row underwent, or null when none did or
+  /// they differ — what a single snackbar for the whole move can say.
+  MoveShareChange? get shareChange {
+    if (moved.isEmpty || shareChanges.length != moved.length) return null;
+    final first = shareChanges.values.first;
+    return shareChanges.values.every((change) => change == first)
+        ? first
+        : null;
+  }
+
+  BulkMoveResult withShareChanges(Map<String, MoveShareChange> changes) =>
+      BulkMoveResult(
+        moved: moved,
+        duplicates: duplicates,
+        unchanged: unchanged,
+        shareChanges: changes,
+      );
+
   /// The result of a move that wrote nothing: an empty selection, or a
   /// target that is gone.
   static const empty = BulkMoveResult();
+}
+
+/// What moving a row from a place shared into [before] to one shared into
+/// [after] (null for private) did to its sharing.
+MoveShareChange? moveShareChange(String? before, String? after) {
+  if (before == null && after != null) return MoveShareChange.nowShared;
+  if (before != null && after == null) return MoveShareChange.noLongerShared;
+  return null;
 }
 
 /// One candidate of a bulk move as its row stands: [parentId] where it is,

@@ -306,9 +306,11 @@ class CounterPerNoteBloc
 
       final noteIds = rows.map((r) => r.noteId).toList();
       final notes = await _noteRepository.getNotesByIds(noteIds);
+      // Flagged, as every door into the editor is: a row here opens it.
+      final shares = await _noteRepository.shareCensus.read();
       final noteMap = <String, NoteMetadata>{};
       for (final note in notes) {
-        noteMap[note.id] = _noteRepository.noteToMetadata(note);
+        noteMap[note.id] = _noteRepository.noteToMetadata(note, shares);
       }
 
       final entries = <NoteValueEntry>[];

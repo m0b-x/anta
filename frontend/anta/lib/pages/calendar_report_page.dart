@@ -13,7 +13,6 @@ import '../bloc/import_export/import_export_state.dart';
 import '../constants/analytics_metrics.dart';
 import '../constants/app_bar_metrics.dart';
 import '../constants/app_colors.dart';
-import '../constants/calendar_categories.dart';
 import '../constants/category_kinds.dart';
 import '../constants/event_alerts.dart';
 import '../constants/report_metrics.dart';
@@ -37,6 +36,7 @@ import '../services/app_navigator.dart';
 import '../services/calendar_report_service.dart';
 import '../services/overview_view_service.dart';
 import '../services/settings_service.dart';
+import '../utils/category_allowlist.dart';
 import '../utils/event_agenda.dart';
 import '../utils/markdown_color_syntax.dart';
 import '../utils/report_labels.dart';
@@ -340,16 +340,16 @@ class _ReportViewState extends State<_ReportView>
     try {
       _blur();
       final current = state.categoryIds;
-      final offered = {
-        for (final category in CalendarCategories.visiblePlus(current))
-          category.id,
-      };
+      // No partner's group: the report never counts their time (D15), so
+      // what it stores stays a plain list of mine.
       final picked = await CategoryPickerSheet.pickMulti(
         context,
-        selected: current.isEmpty ? offered : current,
+        selected: CategoryAllowlist.ticked(current, partnerListed: false),
       );
       if (picked == null || !mounted) return;
-      final next = picked.containsAll(offered) ? const <String>{} : picked;
+      final next = CategoryAllowlist.forReport(
+        CategoryAllowlist.fromPicker(current, picked, partnerListed: false),
+      );
       if (setEquals(next, current)) return;
       bloc.add(ReportCategoriesPicked(next));
     } finally {
@@ -685,7 +685,10 @@ class _ReportViewState extends State<_ReportView>
     bool hasEvents,
   ) {
     final ids = shown?.categoryIds ?? const <String>{};
-    final narrowed = ids.isNotEmpty;
+    final narrowed = !CategoryAllowlist.filtersNothing(
+      ids,
+      partnerListed: false,
+    );
     return AppBar(
       titleSpacing: CalendarViewMenu.titleSpacing,
       excludeHeaderSemantics: true,
@@ -716,7 +719,10 @@ class _ReportViewState extends State<_ReportView>
             // (the ui-language badge rule): the tooltip stays what is read.
             icon: ExcludeSemantics(
               child: Badge.count(
-                count: ids.length,
+                count: CategoryAllowlist.tickedListed(
+                  ids,
+                  partnerListed: false,
+                ).length,
                 isLabelVisible: narrowed,
                 child: Icon(
                   narrowed

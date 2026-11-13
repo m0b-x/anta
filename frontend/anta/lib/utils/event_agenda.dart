@@ -10,6 +10,7 @@ import '../models/fasting_appearance.dart';
 import '../models/recurrence_rule.dart';
 import '../models/upcoming_agenda_filters.dart';
 import '../services/event_window_index.dart';
+import 'category_allowlist.dart';
 import 'event_query_matcher.dart';
 import 'event_search_query.dart';
 import 'within_day_order.dart';
@@ -405,13 +406,14 @@ abstract final class EventAgenda {
   /// looked at — the one definition, so the year bounds a surface pages
   /// between are computed over exactly the events its scans would return.
   ///
-  /// Both category sets match the category the event draws under
-  /// ([CalendarCategories.drawnIdOf]), as the grid's denylist does — with
-  /// one exception: an event of mine on an id no category holds meets the
-  /// allowlist by its stored id, the report's scope (D32 of
-  /// `docs/calendar-report-roadmap.md`), so the overview still lists what
-  /// its report counts. Such an event is a moment (a sync race, a
-  /// categories-only restore); a partner's drawn as Other is for good.
+  /// The denylist matches the category the event draws under
+  /// ([CalendarCategories.drawnIdOf]), as the grid's does; the allowlist is
+  /// [CategoryAllowlist.admits]'s — its entries for a whole group, and an
+  /// event of mine on an id no category holds met by its stored id, the
+  /// report's scope (D32 of `docs/calendar-report-roadmap.md`), so the
+  /// overview still lists what its report counts. Such an event is a moment
+  /// (a sync race, a categories-only restore); a partner's drawn as Other is
+  /// for good.
   static bool passesEventFilters(
     CalendarEvent event, {
     Set<String> hiddenCategoryIds = const {},
@@ -426,14 +428,13 @@ abstract final class EventAgenda {
     if (priorities.isNotEmpty && !priorities.contains(event.priority)) {
       return false;
     }
-    if (hiddenCategoryIds.isEmpty && categoryIds.isEmpty) return true;
-    final drawn = CalendarCategories.drawnIdOf(event.categoryId);
-    if (hiddenCategoryIds.contains(drawn)) return false;
-    if (categoryIds.isNotEmpty &&
-        !categoryIds.contains(event.fromPartner ? drawn : event.categoryId)) {
+    if (hiddenCategoryIds.isNotEmpty &&
+        hiddenCategoryIds.contains(
+          CalendarCategories.drawnIdOf(event.categoryId),
+        )) {
       return false;
     }
-    return true;
+    return CategoryAllowlist.admits(event, categoryIds);
   }
 
   /// The years a surface paging year by year can find something in: from the

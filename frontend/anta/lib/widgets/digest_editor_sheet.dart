@@ -14,12 +14,15 @@ import '../constants/row_metrics.dart';
 import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
 import '../models/calendar_appearance.dart';
+import '../models/calendar_category.dart';
 import '../models/calendar_event.dart';
 import '../models/event_digest.dart';
+import '../models/partner_look.dart';
 import '../models/share_settings.dart';
 import '../services/event_time_formatter.dart';
 import '../utils/alert_labels.dart';
 import '../utils/calendar_week_start.dart';
+import '../utils/category_allowlist.dart';
 import '../utils/digest_labels.dart';
 import '../utils/digest_planner.dart';
 import 'app_dialogs.dart';
@@ -75,12 +78,17 @@ class DigestEditorSheet extends StatefulWidget {
   /// fire it expects instead of reading the wall clock it races.
   final DateTime Function() now;
 
+  /// How the picker's "From {name}" group wears the partner's categories
+  /// (D34) — the hub's, read with its settings.
+  final PartnerLook partnerLook;
+
   const DigestEditorSheet({
     super.key,
     this.initial,
     this.events = const [],
     this.weekStart = CalendarWeekStart.monday,
     this.now = DateTime.now,
+    this.partnerLook = const PartnerLook(),
   });
 
   static Future<DigestEditorResult?> show(
@@ -89,6 +97,7 @@ class DigestEditorSheet extends StatefulWidget {
     List<CalendarEvent> events = const [],
     CalendarWeekStart weekStart = CalendarWeekStart.monday,
     DateTime Function() now = DateTime.now,
+    PartnerLook partnerLook = const PartnerLook(),
   }) {
     return showModalBottomSheet<DigestEditorResult>(
       context: context,
@@ -108,6 +117,7 @@ class DigestEditorSheet extends StatefulWidget {
             events: events,
             weekStart: weekStart,
             now: now,
+            partnerLook: partnerLook,
           ),
         ),
       ),
@@ -356,6 +366,11 @@ class _DigestEditorSheetState extends State<DigestEditorSheet> {
 
   // --- Pickers ------------------------------------------------------------
 
+  /// Whether the draft lists the partner's categories: under the published
+  /// setting and never for a report (D15, D34) — the label reads the same.
+  bool get _partnerListed =>
+      digestListsPartner(_cadence, EventAlerts.shareAlerts);
+
   /// Before every picker: a name field left focused takes the focus back when
   /// the picker closes, and the keyboard comes up over a form the user had
   /// finished typing in.
@@ -365,23 +380,37 @@ class _DigestEditorSheetState extends State<DigestEditorSheet> {
   /// allowlist means every category, so it opens with every offered row
   /// ticked, and a result that ticks every offered row — or none — is every
   /// category again rather than today's catalog frozen into a list.
+  ///
+  /// The partner's shown categories are offered in their own group only
+  /// while their events can reach this digest (D34, [_partnerListed]); a
+  /// whole group is then stored as the group, and where they are not
+  /// offered the partner's part of the list is carried as it stood
+  /// ([CategoryAllowlist.fromPicker]).
   Future<void> _pickCategories() async {
     if (_pickerOpen) return;
     _pickerOpen = true;
     _blur();
     try {
-      final offered = {
-        for (final category in CalendarCategories.visiblePlus(_categoryIds))
-          category.id,
-      };
+      final partnerListed = _partnerListed;
       final picked = await CategoryPickerSheet.pickMulti(
         context,
-        selected: _categoryIds.isEmpty ? offered : _categoryIds,
+        selected: CategoryAllowlist.ticked(
+          _categoryIds,
+          partnerListed: partnerListed,
+        ),
+        partner: partnerListed
+            ? CalendarCategories.partnerShown
+            : const <CalendarCategory>[],
+        partnerLook: widget.partnerLook,
       );
       if (picked == null || !mounted) return;
-      final next = picked.containsAll(offered)
-          ? const <String>{}
-          : Set<String>.unmodifiable(picked);
+      final next = Set<String>.unmodifiable(
+        CategoryAllowlist.fromPicker(
+          _categoryIds,
+          picked,
+          partnerListed: partnerListed,
+        ),
+      );
       if (setEquals(next, _categoryIds)) return;
       _update(() => _categoryIds = next);
     } finally {
@@ -591,6 +620,7 @@ class _DigestEditorSheetState extends State<DigestEditorSheet> {
           _categoryIds,
           l10n,
           categoryLabel: (id) => _categoryLabel(id, l10n),
+          partnerListed: _partnerListed,
         ),
         onTap: _pickCategories,
       ),
@@ -778,6 +808,7 @@ class _DigestEditorSheetState extends State<DigestEditorSheet> {
                             _categoryIds,
                             l10n,
                             categoryLabel: (id) => _categoryLabel(id, l10n),
+                            partnerListed: _partnerListed,
                           ),
                           maxLength: _nameMaxLength,
                           counterFrom: _nameCounterFrom,

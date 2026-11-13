@@ -288,6 +288,7 @@ Future<void> _seedPair(
   List<String> members = const [uidA, uidB],
   String status = 'active',
   Map<String, Object?>? permissions,
+  Map<String, Object?> extra = const {},
 }) async {
   final result = await _commit([
     {
@@ -298,6 +299,7 @@ Future<void> _seedPair(
             members: members,
             status: status,
             permissions: permissions,
+            extra: extra,
           ),
           'createdAt': _ts(DateTime.now().toUtc()),
         },
@@ -306,6 +308,44 @@ Future<void> _seedPair(
   ], admin: true);
   expect(result, 200, reason: 'admin seed of pair $id failed');
 }
+
+// The pair's `push` field (docs/cloud-shared-freshness.md §7).
+
+/// A device entry as the registry writes one; [at] a client time instead of
+/// the server's, [extra] fields beside the three.
+Map<String, Object?> _device({
+  String id = 'fid-1',
+  String kind = 'fid',
+  DateTime? at,
+  Map<String, Object?> extra = const {},
+}) => _map({
+  'id': _s(id),
+  'kind': _s(kind),
+  'at': _ts(at ?? DateTime.now().toUtc().subtract(const Duration(minutes: 1))),
+  ...extra,
+});
+
+/// `push.<owner>` as one masked write of [devices] by [owner]'s map — null
+/// deletes it — the way a field-path update lands; [extraFields] are written
+/// beside it in the same mask.
+Map<String, Object?> _writePush(
+  String id,
+  String owner,
+  Map<String, Object?>? devices, {
+  Map<String, Object?> extraFields = const {},
+}) => {
+  'update': {
+    'name': '$_docRoot/pairs/$id',
+    'fields': {
+      if (devices != null) 'push': _map({owner: _map(devices)}),
+      ...extraFields,
+    },
+  },
+  'updateMask': {
+    'fieldPaths': ['push.`$owner`', ...extraFields.keys],
+  },
+  'currentDocument': {'exists': true},
+};
 
 // Phase 02 — one account's own spaces (`users/{owner}/spaces`, §3.7).
 
@@ -1176,6 +1216,361 @@ void main() {
         200,
       );
       expect(await _commit([_delete('pairs/p1')], uid: uidA), 200);
+    });
+  });
+
+  group('the pair\'s push addresses', () {
+    test('a member writes their own device, at a past or the server time', () async {
+      await _seedPair('p1');
+      expect(
+        await _commit([
+          _writePush('p1', uidA, {'d1': _device()}),
+        ], uid: uidA),
+        200,
+      );
+      expect(
+        await _commit([
+          {
+            ..._writePush('p1', uidA, {
+              'd1': _device(),
+              'd2': _device(id: 'fid-2'),
+            }),
+            'updateTransforms': [
+              _serverTime('push.`$uidA`.d2.at'),
+            ],
+          },
+        ], uid: uidA),
+        200,
+      );
+    });
+
+    test('nobody writes under the other member\'s uid', () async {
+      await _seedPair('p1');
+      expect(
+        await _commit([
+          _writePush('p1', uidB, {'d1': _device()}),
+        ], uid: uidA),
+        403,
+        reason: 'one member must never name the devices the relay wakes for '
+            'the other',
+      );
+    });
+
+    test('five devices are allowed, a sixth is refused', () async {
+      await _seedPair('p1');
+      Map<String, Object?> devices(int count) => {
+        for (var i = 0; i < count; i++) 'd$i': _device(id: 'fid-$i'),
+      };
+      expect(
+        await _commit([_writePush('p1', uidA, devices(5))], uid: uidA),
+        200,
+      );
+      expect(
+        await _commit([_writePush('p1', uidA, devices(6))], uid: uidA),
+        403,
+      );
+    });
+
+    test('a kind other than fid or token is refused', () async {
+      await _seedPair('p1');
+      expect(
+        await _commit([
+          _writePush('p1', uidA, {'d1': _device(kind: 'token')}),
+        ], uid: uidA),
+        200,
+      );
+      expect(
+        await _commit([
+          _writePush('p1', uidA, {'d1': _device(kind: 'apns')}),
+        ], uid: uidA),
+        403,
+      );
+    });
+
+    test('an id is a non-empty string of at most 4096', () async {
+      await _seedPair('p1');
+      expect(
+        await _commit([
+          _writePush('p1', uidA, {'d1': _device(id: 'f' * 4096)}),
+        ], uid: uidA),
+        200,
+      );
+      expect(
+        await _commit([
+          _writePush('p1', uidA, {'d1': _device(id: 'f' * 4097)}),
+        ], uid: uidA),
+        403,
+      );
+      expect(
+        await _commit([
+          _writePush('p1', uidA, {'d1': _device(id: '')}),
+        ], uid: uidA),
+        403,
+      );
+    });
+
+    test('an entry dated in the future, missing a key or carrying another '
+        'is refused', () async {
+      await _seedPair('p1');
+      expect(
+        await _commit([
+          _writePush('p1', uidA, {
+            'd1': _device(
+              at: DateTime.now().toUtc().add(const Duration(hours: 1)),
+            ),
+          }),
+        ], uid: uidA),
+        403,
+      );
+      expect(
+        await _commit([
+          _writePush('p1', uidA, {
+            'd1': _map({'id': _s('fid-1'), 'kind': _s('fid')}),
+          }),
+        ], uid: uidA),
+        403,
+      );
+      expect(
+        await _commit([
+          _writePush('p1', uidA, {
+            'd1': _device(extra: {'name': _s('Pixel')}),
+          }),
+        ], uid: uidA),
+        403,
+      );
+    });
+
+    test('another field changed in the same write is refused', () async {
+      await _seedPair('p1');
+      expect(
+        await _commit([
+          _writePush(
+            'p1',
+            uidA,
+            {'d1': _device()},
+            extraFields: {
+              'profiles': _map({
+                uidA: _profile(name: 'Alex'),
+                uidB: _profile(),
+              }),
+            },
+          ),
+        ], uid: uidA),
+        403,
+      );
+    });
+
+    test('a pair cannot be created carrying push', () async {
+      await _seedInvite(code, creatorUid: uidB);
+      expect(
+        await _commit(
+          _redeem(
+            'p1',
+            _pairFields(
+              extra: {
+                'push': _map({
+                  uidA: _map({'d1': _device()}),
+                }),
+              },
+            ),
+            by: uidA,
+          ),
+          uid: uidA,
+        ),
+        403,
+      );
+    });
+
+    test('an ended pair refuses an added or changed device and lets one '
+        'leave', () async {
+      // One instant for every entry: a device left as it was must read as
+      // unchanged, which two stamps across a second's boundary would not.
+      final at = DateTime.now().toUtc().subtract(const Duration(minutes: 1));
+      await _seedPair(
+        'p1',
+        status: 'ended',
+        extra: {
+          'push': _map({
+            uidA: _map({
+              'd1': _device(id: 'fid-1', at: at),
+              'd2': _device(id: 'fid-2', at: at),
+            }),
+          }),
+        },
+      );
+      expect(
+        await _commit([
+          _writePush('p1', uidA, {
+            'd1': _device(id: 'fid-1', at: at),
+            'd2': _device(id: 'fid-2', at: at),
+            'd3': _device(id: 'fid-3', at: at),
+          }),
+        ], uid: uidA),
+        403,
+        reason: 'an address must not be made reachable through an ended pair',
+      );
+      expect(
+        await _commit([
+          _writePush('p1', uidA, {'d1': _device(id: 'fid-9', at: at)}),
+        ], uid: uidA),
+        403,
+      );
+      expect(
+        await _commit([
+          _writePush('p1', uidA, {'d1': _device(id: 'fid-1', at: at)}),
+        ], uid: uidA),
+        200,
+      );
+      expect(await _commit([_writePush('p1', uidA, null)], uid: uidA), 200);
+    });
+
+    test('a stranger, or nobody signed in, writes no device', () async {
+      await _seedPair('p1');
+      expect(
+        await _commit([
+          _writePush('p1', uidC, {'d1': _device()}),
+        ], uid: uidC),
+        403,
+      );
+      expect(
+        await _commit([_writePush('p1', uidA, {'d1': _device()})]),
+        403,
+      );
+    });
+
+    test('a bad entry beside good ones is refused at each of the five '
+        'places', () async {
+      await _seedPair('p1');
+      for (var bad = 0; bad < 5; bad++) {
+        expect(
+          await _commit([
+            _writePush('p1', uidA, {
+              for (var i = 0; i < 5; i++)
+                'd$i': i == bad ? _device(kind: 'apns') : _device(id: 'f$i'),
+            }),
+          ], uid: uidA),
+          403,
+          reason: 'the bad entry at place $bad',
+        );
+      }
+    });
+
+    /// A masked write of [field] — the whole of it — as [value]; null
+    /// deletes it.
+    Map<String, Object?> writeField(String field, Map<String, Object?>? value) =>
+        {
+          'update': {
+            'name': '$_docRoot/pairs/p1',
+            'fields': {field: ?value},
+          },
+          'updateMask': {
+            'fieldPaths': [field],
+          },
+          'currentDocument': {'exists': true},
+        };
+
+    test('the partner\'s devices cannot be deleted, alone or with the whole '
+        'map', () async {
+      await _seedPair(
+        'p1',
+        extra: {
+          'push': _map({
+            uidA: _map({'d1': _device()}),
+            uidB: _map({'d1': _device(id: 'fid-b')}),
+          }),
+        },
+      );
+      expect(
+        await _commit([_writePush('p1', uidB, null)], uid: uidA),
+        403,
+      );
+      expect(await _commit([writeField('push', null)], uid: uidA), 403);
+    });
+
+    test('a key that is not a member, a push that is not a map, and devices '
+        'that are not a map are refused', () async {
+      await _seedPair('p1');
+      expect(
+        await _commit([
+          writeField(
+            'push',
+            _map({
+              uidA: _map({'d1': _device()}),
+              uidC: _map({'d1': _device()}),
+            }),
+          ),
+        ], uid: uidA),
+        403,
+      );
+      expect(
+        await _commit([
+          {
+            'update': {
+              'name': '$_docRoot/pairs/p1',
+              'fields': {'push': _s('nothing')},
+            },
+            'updateMask': {
+              'fieldPaths': ['push'],
+            },
+          },
+        ], uid: uidA),
+        403,
+      );
+      expect(
+        await _commit([
+          {
+            'update': {
+              'name': '$_docRoot/pairs/p1',
+              'fields': {
+                'push': _map({uidA: _s('nothing')}),
+              },
+            },
+            'updateMask': {
+              'fieldPaths': ['push.`$uidA`'],
+            },
+          },
+        ], uid: uidA),
+        403,
+      );
+    });
+
+    test('config/push: a signed-in get; no list, no write, nothing signed '
+        'out', () async {
+      expect(await _get('config/push', uid: uidA), 404);
+      expect(
+        await _commit([
+          {
+            'update': {
+              'name': '$_docRoot/config/push',
+              'fields': {'relay': _s('https://relay.example')},
+            },
+          },
+        ], admin: true),
+        200,
+      );
+      expect(await _get('config/push', uid: uidA), 200);
+      expect(await _get('config/push'), 403);
+      expect(
+        await _get('config/other', uid: uidA),
+        403,
+        reason: 'the one document alone is open',
+      );
+      expect(
+        (await _call('GET', '$_base/config', uid: uidA)).status,
+        403,
+        reason: 'a listing of config is never answered',
+      );
+      expect(
+        await _commit([
+          {
+            'update': {
+              'name': '$_docRoot/config/push',
+              'fields': {'relay': _s('https://evil.example')},
+            },
+          },
+        ], uid: uidA),
+        403,
+      );
     });
   });
 

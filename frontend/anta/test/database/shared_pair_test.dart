@@ -9,6 +9,7 @@ import 'package:anta/database/crdt/merge_outcome.dart';
 import 'package:anta/database/daos/folder_dao.dart';
 import 'package:anta/database/daos/sync_dao.dart';
 import 'package:anta/database/database.dart';
+import 'package:anta/models/movable_item.dart';
 
 import 'support/db_test_support.dart';
 
@@ -322,6 +323,31 @@ void main() {
       });
       expect(await db.folderDao.sharedPairsOf([shelf, box]), isEmpty);
     });
+
+    test('names, before it is set, the live inner marks of its pair it will '
+        'cover — never a deleted one, another pair\'s or its own', () async {
+      final shelf = await folder('Shelf');
+      final box = await folder('Box', under: shelf);
+      final tin = await folder('Tin', under: box);
+      final gone = await folder('Gone', under: shelf);
+      final other = await folder('Other', under: shelf);
+      for (final id in [tin, gone]) {
+        await db.folderDao.setSharedPair(id, 'pair-1');
+      }
+      await db.folderDao.softDeleteFolder(gone);
+      // Marks under a mark arrive only from another device's merge: this
+      // device's writer sets none under another.
+      await db.customStatement(
+        "UPDATE folders SET shared_pair = 'pair-1' WHERE id = '$shelf'",
+      );
+      await db.customStatement(
+        "UPDATE folders SET shared_pair = 'pair-0' WHERE id = '$other'",
+      );
+
+      expect(await db.folderDao.markedUnder(shelf, 'pair-1'), [
+        (id: tin, name: 'Tin'),
+      ]);
+    });
   });
 
   group('what a row is shared into', () {
@@ -441,6 +467,233 @@ void main() {
     });
 
     Set<String> subtree() => {'folders/$deep', 'notes/$inBox'};
+
+    group('a move changes no mark; un-sharing a folder leaves nothing shared '
+        'under it (share surfaces §6.11, F4)', () {
+      /// The box shared by its own mark, and a folder inside it by one of
+      /// its own too. The inner mark is set directly: the writer refuses a
+      /// mark under a mark, and a merge from another device is what leaves
+      /// one standing.
+      Future<void> markBoxAndDeep() async {
+        await db.folderDao.setSharedPair(box, 'pair-1');
+        await db.customStatement(
+          "UPDATE folders SET shared_pair = 'pair-1', "
+          'shared_stamp = hlc_timestamp WHERE id = ?',
+          [deep],
+        );
+        await settle();
+      }
+
+      /// The box moved under the shelf kept every mark it had: covered by
+      /// the shelf's while it lies there, and only the move itself queued —
+      /// it was shared into the pair before and after.
+      Future<void> expectMarksKept() async {
+        expect((await folderRow(box)).sharedPair, 'pair-1');
+        expect((await folderRow(deep)).sharedPair, 'pair-1');
+        expect(await queued(), {'folders/$box'});
+        expect(await db.folderDao.sharedPairsOf([box, deep]), {
+          box: 'pair-1',
+          deep: 'pair-1',
+        });
+      }
+
+      test('a marked folder moved into a shared one keeps its mark', () async {
+        await markBoxAndDeep();
+
+        await db.folderDao.moveFolder(id: box, targetParentId: shelf);
+
+        await expectMarksKept();
+      });
+
+      test('by a rename-and-move too', () async {
+        await markBoxAndDeep();
+
+        await db.folderDao.updateFolder(
+          id: box,
+          name: 'Moved box',
+          parentId: shelf,
+          updateParent: true,
+        );
+
+        await expectMarksKept();
+      });
+
+      test('and as one of a selection', () async {
+        await markBoxAndDeep();
+
+        final moved = await db.folderDao.moveFolders([box], shelf);
+
+        await expectMarksKept();
+        expect(moved.shareChanges, isEmpty, reason: 'shared before and after');
+      });
+
+      test('moved back out — an Undo — it is shared by its own mark as '
+          'before, said by nothing because nothing changed', () async {
+        await markBoxAndDeep();
+        await db.folderDao.moveFolders([box], shelf);
+        await settle();
+
+        final back = await db.folderDao.moveFolders([box], null);
+
+        expect(back.shareChanges, isEmpty);
+        expect((await folderRow(box)).sharedPair, 'pair-1');
+        expect((await db.folderDao.sharedPairsOf([deep]))[deep], 'pair-1');
+      });
+
+      test('un-sharing a folder clears every mark under it, live and deleted, '
+          'under its own stamp, each queued with its subtree', () async {
+        await markBoxAndDeep();
+        final gone = await folder('Gone', under: box);
+        await db.customStatement(
+          "UPDATE folders SET shared_pair = 'pair-1', is_deleted = 1 "
+          'WHERE id = ?',
+          [gone],
+        );
+        final before = {
+          for (final id in [deep, gone]) id: (await folderRow(id)).version,
+        };
+        await settle();
+
+        expect(await db.folderDao.setSharedPair(box, null), isTrue);
+
+        final outer = await folderRow(box);
+        for (final id in [deep, gone]) {
+          final row = await folderRow(id);
+          expect(row.sharedPair, isNull, reason: 'nothing shared under it');
+          expect(row.sharedStamp, outer.sharedStamp, reason: 'one stamp');
+          expect(row.version, before[id]! + 1);
+        }
+        expect(await queued(), containsAll({
+          'folders/$box',
+          'folders/$deep',
+          'folders/$gone',
+          'notes/$inBox',
+        }));
+        expect(await db.folderDao.sharedPairsOf([box, deep, gone]), isEmpty);
+      });
+
+      test('un-sharing the shelf after the box moved in leaves nothing shared '
+          'under it — private wins', () async {
+        await markBoxAndDeep();
+        await db.folderDao.moveFolder(id: box, targetParentId: shelf);
+
+        await db.folderDao.setSharedPair(shelf, null);
+
+        expect(await db.folderDao.sharedPairsOf([shelf, box, deep]), isEmpty);
+      });
+    });
+
+    group('what a row is shared into: a live row only through live folders, '
+        'a tombstone through anything (the census, the overview and the '
+        'encode agree)', () {
+      late String liveMarked;
+      late String liveUnderLive;
+      late String tombUnderLive;
+      late String tombMarked;
+      late String liveUnderTomb;
+      late String tombUnderTomb;
+      late String markedUnderTomb;
+
+      setUp(() async {
+        liveMarked = await folder('Live marked');
+        liveUnderLive = await folder('Live under live', under: liveMarked);
+        tombUnderLive = await folder('Tomb under live', under: liveMarked);
+        tombMarked = await folder('Tomb marked');
+        liveUnderTomb = await folder('Live under tomb', under: tombMarked);
+        tombUnderTomb = await folder('Tomb under tomb', under: tombMarked);
+        markedUnderTomb = await folder('Marked under tomb', under: tombMarked);
+        await db.folderDao.setSharedPair(liveMarked, 'pair-1');
+        await db.folderDao.setSharedPair(tombMarked, 'pair-1');
+        // A delete the folder repair has not reached the live child of yet.
+        for (final id in [tombUnderLive, tombMarked, tombUnderTomb]) {
+          await db.folderDao.softDeleteFolder(id);
+        }
+        await settle();
+      });
+
+      test('the encode', () async {
+        expect(
+          await db.folderDao.sharedPairsOf([
+            liveUnderLive,
+            tombUnderLive,
+            liveUnderTomb,
+            tombUnderTomb,
+          ]),
+          {
+            liveUnderLive: 'pair-1',
+            tombUnderLive: 'pair-1',
+            tombUnderTomb: 'pair-1',
+          },
+          reason: 'a live folder under a deleted marked one is private',
+        );
+        final liveNote = await note('Live', liveUnderTomb);
+        final tombNote = await note('Gone', tombUnderTomb);
+        await db.noteDao.softDeleteNote(tombNote);
+        final keptNote = await note('Kept', liveUnderLive);
+        expect(
+          await db.folderDao.sharedPairsOfNotes([
+            (id: liveNote, folderId: liveUnderTomb, isDeleted: false),
+            (id: tombNote, folderId: tombUnderTomb, isDeleted: true),
+            (id: keptNote, folderId: liveUnderLive, isDeleted: false),
+          ]),
+          {tombNote: 'pair-1', keptNote: 'pair-1'},
+        );
+      });
+
+      test('the census and the overview say the same of the live rows, and a '
+          'live folder under the deleted mark can be shared on its own',
+          () async {
+        final census = await db.folderDao.shareCensus();
+        expect(census.outermost[liveUnderLive], liveMarked);
+        expect(census.outermost.containsKey(liveUnderTomb), isFalse);
+
+        expect(
+          await db.folderDao.setSharedPair(markedUnderTomb, 'pair-1'),
+          isTrue,
+          reason: 'no live mark covers it',
+        );
+        expect(
+          (await db.folderDao.shareCensus()).outermost[markedUnderTomb],
+          markedUnderTomb,
+        );
+        expect(
+          [for (final f in await db.folderDao.mySharedFolders()) f.id],
+          unorderedEquals([shelf, liveMarked, markedUnderTomb]),
+          reason: 'a deleted marked folder neither lists nor covers',
+        );
+        expect(
+          (await db.folderDao.sharedPairsOf([markedUnderTomb]))[markedUnderTomb],
+          'pair-1',
+        );
+      });
+    });
+
+    test('as a selection says what the move did to each one\'s sharing',
+        () async {
+      final plain = await folder('Plain');
+      final apart = await folder('Apart');
+      final marked = await folder('Marked');
+      await db.folderDao.setSharedPair(marked, 'pair-1');
+      await settle();
+
+      final into = await db.folderDao.moveFolders([box, plain], shelf);
+      expect(into.shareChanges, {
+        box: MoveShareChange.nowShared,
+        plain: MoveShareChange.nowShared,
+      });
+      expect(into.shareChange, MoveShareChange.nowShared);
+
+      final out = await db.folderDao.moveFolders([box], null);
+      expect(out.shareChanges, {box: MoveShareChange.noLongerShared});
+
+      final kept = await db.folderDao.moveFolders([marked], apart);
+      expect(
+        kept.shareChanges,
+        isEmpty,
+        reason: 'its own mark goes with it: shared before and after',
+      );
+      expect(kept.shareChange, isNull);
+    });
 
     test('under a shared folder queues its subtree again, and out of it '
         'too', () async {

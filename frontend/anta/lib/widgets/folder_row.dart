@@ -15,15 +15,19 @@ import '../l10n/app_localizations.dart';
 import '../models/folder.dart';
 import '../models/label_style.dart';
 import '../models/movable_item.dart';
+import '../models/partner_look.dart';
 import '../services/app_navigator.dart';
 import '../services/folder_storage_service.dart';
 import '../services/move_coordinator.dart';
 import '../services/settings_service.dart';
 import '../utils/custom_snackbar.dart';
+import '../utils/share_copy.dart';
 import 'app_dialogs.dart';
 import 'content_rows.dart';
+import 'folder_overflow_menu.dart' show FolderShareEntry;
 import 'label_dot.dart';
 import 'label_swatch_strip.dart';
+import 'row_share_mark.dart';
 
 /// One folder in the browser's list.
 ///
@@ -51,6 +55,20 @@ class FolderRow extends StatelessWidget {
   final Future<void> Function(Folder target, Set<MovableItemRef> dropped)?
   onAcceptDrop;
 
+  /// How the page draws whose a row is ([RowShareMark]), read once by the
+  /// page; null — an account that shares nothing — draws the row as it
+  /// always was.
+  final PartnerLook? partnerLook;
+
+  /// The sheet's share entry for a folder of mine, as the page resolves it
+  /// when the sheet opens; null leaves it out (`FolderShareEntry`).
+  final FolderShareEntry? Function()? partnerShare;
+
+  /// Run before the sheet opens while the page does not yet know whether
+  /// the database is paired, so the sheet opens with its entry in place.
+  final Future<void> Function()? beforeActions;
+  final VoidCallback? onPartnerShare;
+
   const FolderRow({
     super.key,
     required this.folder,
@@ -65,6 +83,10 @@ class FolderRow extends StatelessWidget {
     this.onLongPressItem,
     this.onTapInSelection,
     this.onAcceptDrop,
+    this.partnerLook,
+    this.partnerShare,
+    this.onPartnerShare,
+    this.beforeActions,
   });
 
   MovableItemRef get _ref => MovableItemRef(
@@ -92,6 +114,11 @@ class FolderRow extends StatelessWidget {
     final isSelecting = selection != null && selection!.isActive;
     final isSelected = selection != null && selection!.contains(_ref);
     final colorScheme = Theme.of(context).colorScheme;
+    final look = partnerLook;
+    final mark = look == null
+        ? null
+        : RowShareMark.forFolder(folder, look, AppLocalizations.of(context)!);
+    Widget labelled(Widget content) => mark?.labelled(content) ?? content;
 
     Widget buildRow({bool isDropTarget = false}) => ContentRowShell(
       position: groupPosition,
@@ -108,6 +135,7 @@ class FolderRow extends StatelessWidget {
                   context,
                   folderId: folder.id,
                   title: folder.name,
+                  fromPartner: folder.fromPartner,
                 ).then((_) {
                   if (context.mounted) onReturn();
                 });
@@ -119,41 +147,43 @@ class FolderRow extends StatelessWidget {
             _showActionSheet(context);
           }
         },
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(
-            minHeight: RowMetrics.singleLineMinHeight,
-          ),
-          child: Padding(
-            padding: RowMetrics.singleLinePadding,
-            child: Row(
-              children: [
-                isSelected
-                    ? Icon(
-                        Icons.check_circle,
-                        size: RowMetrics.glyphSize,
-                        color: colorScheme.primary,
-                      )
-                    : Icon(
-                        Icons.folder_outlined,
-                        size: RowMetrics.glyphSize,
-                        color: AppColors.folderIcon(context),
+        child: labelled(
+          ConstrainedBox(
+            constraints: const BoxConstraints(
+              minHeight: RowMetrics.singleLineMinHeight,
+            ),
+            child: Padding(
+              padding: RowMetrics.singleLinePadding,
+              child: Row(
+                children: [
+                  isSelected
+                      ? Icon(
+                          Icons.check_circle,
+                          size: RowMetrics.glyphSize,
+                          color: colorScheme.primary,
+                        )
+                      : Icon(
+                          Icons.folder_outlined,
+                          size: RowMetrics.glyphSize,
+                          color: AppColors.folderIcon(context),
+                        ),
+                  const SizedBox(width: RowMetrics.gap),
+                  Expanded(
+                    child: Text(
+                      folder.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: RowMetrics.titleFontSize,
+                        fontWeight: FontWeight.w400,
+                        color: colorScheme.onSurface,
                       ),
-                const SizedBox(width: RowMetrics.gap),
-                Expanded(
-                  child: Text(
-                    folder.name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: RowMetrics.titleFontSize,
-                      fontWeight: FontWeight.w400,
-                      color: colorScheme.onSurface,
                     ),
                   ),
-                ),
-                const SizedBox(width: RowMetrics.gap),
-                _buildTrailing(context, decoration),
-              ],
+                  const SizedBox(width: RowMetrics.gap),
+                  _buildTrailing(context, decoration, mark),
+                ],
+              ),
             ),
           ),
         ),
@@ -210,8 +240,14 @@ class FolderRow extends StatelessWidget {
     );
   }
 
-  Widget _buildTrailing(BuildContext context, LabelRowDecoration decoration) {
-    final trailing = isReorderMode
+  /// The count — or the drag handle — after [mark]'s sign or face, which
+  /// stands before it as one more fact of the row (§16.8).
+  Widget _buildTrailing(
+    BuildContext context,
+    LabelRowDecoration decoration,
+    RowShareMark? mark,
+  ) {
+    final count = isReorderMode
         ? Semantics(
             container: true,
             identifier: SemanticsIds.browserDragHandle(index ?? 0),
@@ -225,6 +261,17 @@ class FolderRow extends StatelessWidget {
             ),
           )
         : RowCountChevron(count: noteCount);
+    final sign = mark?.trailing(context);
+    final trailing = sign == null
+        ? count
+        : Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              sign,
+              const SizedBox(width: RowMetrics.shareMarkGap),
+              count,
+            ],
+          );
 
     if (!decoration.showsDot) return trailing;
 
@@ -241,47 +288,79 @@ class FolderRow extends StatelessWidget {
   /// The rename / move / share / delete sheet a long-press raises, with
   /// *Select* at the top where the page offers a selection mode — the row's
   /// own menu button is gone, so this is the only way into either.
-  void _showActionSheet(BuildContext context) {
+  /// The partner's folder raises the same sheet with every write disabled —
+  /// Select too, which leads only to writes — and the reason said once at
+  /// its top in place of the colour strip, a label being a write (§16.8).
+  Future<void> _showActionSheet(BuildContext context) async {
+    final ask = beforeActions;
+    if (ask != null) {
+      await ask();
+      if (!context.mounted) return;
+    }
     final l10n = AppLocalizations.of(context)!;
     final enterSelection = onLongPressItem;
-    showRowActionSheet(
+    final theirs = folder.fromPartner;
+    final share = partnerShare?.call();
+    await showRowActionSheet(
       context,
       title: folder.name,
-      headerBuilder: (sheetContext) => LabelSwatchStrip(
-        value: folder.label,
-        onChanged: (label) {
-          Navigator.of(sheetContext).pop();
-          if (label == folder.label) return;
-          context.read<OptimizedFolderBloc>().add(
-            SetOptimizedFolderLabel(folderId: folder.id, label: label),
-          );
-        },
-      ),
+      headerBuilder: (sheetContext) => theirs
+          ? SharedReadOnlyLine(
+              partner: partnerLook?.partner,
+              text: l10n.shareOnlyPartnerChanges(
+                ShareCopy.partnerName(l10n, partnerLook?.name),
+              ),
+              banded: false,
+            )
+          : LabelSwatchStrip(
+              value: folder.label,
+              onChanged: (label) {
+                Navigator.of(sheetContext).pop();
+                if (label == folder.label) return;
+                context.read<OptimizedFolderBloc>().add(
+                  SetOptimizedFolderLabel(folderId: folder.id, label: label),
+                );
+              },
+            ),
       actions: [
-        if (enterSelection != null)
+        if (enterSelection != null || theirs)
           RowAction(
             icon: Icons.check_circle_outline,
             label: l10n.select,
             identifier: SemanticsIds.rowActionSelect,
-            onSelected: () => enterSelection(_ref),
+            enabled: !theirs,
+            onSelected: () => enterSelection?.call(_ref),
           ),
         RowAction(
           icon: Icons.edit_rounded,
           label: l10n.rename,
+          enabled: !theirs,
           onSelected: () => _showRenameDialog(context),
         ),
         RowAction(
           icon: Icons.drive_file_move_outlined,
           label: l10n.moveToFolder,
+          enabled: !theirs,
           onSelected: () => MoveCoordinator.moveFolder(
             context,
             folder: folder,
             currentParentId: parentId,
           ),
         ),
+        if (share != null && !theirs)
+          RowAction(
+            icon: Icons.group_rounded,
+            label: share.label,
+            identifier: SemanticsIds.rowActionShare,
+            enabled: share.enabled,
+            caption: share.caption,
+            checked: share.checked,
+            onSelected: () => onPartnerShare?.call(),
+          ),
         RowAction(
           icon: Icons.share_rounded,
           label: l10n.shareFolder,
+          enabled: !theirs,
           onSelected: () => context.read<ImportExportBloc>().add(
             ExportFolderRequested(folderId: folder.id, share: true),
           ),
@@ -290,6 +369,7 @@ class FolderRow extends StatelessWidget {
           icon: Icons.delete_rounded,
           label: l10n.delete,
           isDestructive: true,
+          enabled: !theirs,
           onSelected: () => _confirmDelete(context),
         ),
       ],

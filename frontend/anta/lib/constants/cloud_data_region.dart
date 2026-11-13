@@ -15,6 +15,7 @@ enum CloudDataRegion {
   /// The multi-region `eur3`.
   europeanUnion;
 
-  /// The live database's location.
-  static const CloudDataRegion current = CloudDataRegion.unitedStates;
+  /// The live database's location: `eur3` since the move of 2026-11-13,
+  /// read back before this changed.
+  static const CloudDataRegion current = CloudDataRegion.europeanUnion;
 }

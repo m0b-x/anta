@@ -37,6 +37,7 @@ import '../services/permission_service.dart';
 import '../services/settings_service.dart';
 import '../services/share_service.dart';
 import '../utils/alert_labels.dart';
+import '../utils/category_allowlist.dart';
 import '../utils/custom_snackbar.dart';
 import '../utils/digest_labels.dart';
 import '../utils/digest_planner.dart';
@@ -408,6 +409,7 @@ class _AlertsPageState extends State<AlertsPage> {
             ? state.allEvents
             : const <CalendarEvent>[],
         weekStart: _weekStart,
+        partnerLook: _partnerLook,
       );
     } finally {
       _digestSheetOpen = false;
@@ -439,6 +441,7 @@ class _AlertsPageState extends State<AlertsPage> {
         digest,
         l10n,
         categoryLabel: (id) => _categoryLabel(id, l10n),
+        shareAlerts: EventAlerts.shareAlerts,
       );
 
   String _digestDescribe(EventDigest digest, AppLocalizations l10n) =>
@@ -1211,13 +1214,17 @@ class _DigestFireRow extends StatelessWidget {
 }
 
 /// The glyph and tint a digest's day and history rows lead with: what it
-/// lists — one category's own icon in its colour, else the digest glyph.
+/// lists — the one listed category it ticks, in its icon and colour, as its
+/// title names it; else the digest glyph.
 ({IconData icon, Color color}) _digestLook(
   EventDigest digest,
   ColorScheme colorScheme,
 ) {
-  if (digest.categoryIds.length == 1) {
-    final category = CalendarCategories.resolve(digest.categoryIds.single);
+  final sole = CategoryAllowlist.soleTicked(
+    digest.categoryIds,
+    partnerListed: digestListsPartner(digest.cadence, EventAlerts.shareAlerts),
+  );
+  if (sole case final category?) {
     return (
       icon: CalendarIcons.forKey(category.iconKey) ?? Icons.summarize_rounded,
       color: category.color,

@@ -22,7 +22,8 @@
 #   pass leaves both accounts' spaces in it.
 # - The partner's guest signs in as its own account through `qa set
 #   account=…`, held in memory: the prelude sets it after that guest's
-#   fresh relaunch, and nothing relaunches it until the last flow's end.
+#   fresh relaunch, and a flow that starts that guest's process again
+#   (04k, 04l) sets it again, or 06 re-authenticates as the build's account.
 # - The flows run in order on one seed, each starting where the last one
 #   left both guests — on Sync & sharing — so the suite is never sharded
 #   and a red flow reddens the ones after it.

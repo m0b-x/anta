@@ -123,6 +123,10 @@ class CalendarEventDao extends DatabaseAccessor<AppDatabase>
         ]);
         if (grants[existing.category] != grants[category.value]) {
           await _requeueDayRows([id]);
+          await db.syncDao.oweSharePokes([
+            grants[existing.category],
+            grants[category.value],
+          ], urgent: true);
         }
       }
     });
@@ -429,7 +433,13 @@ class CalendarEventDao extends DatabaseAccessor<AppDatabase>
       ];
       if (inheriting.isNotEmpty) {
         final grants = await _categoryGrants([fromId, toId]);
-        if (grants[fromId] != grants[toId]) await _requeueDayRows(inheriting);
+        if (grants[fromId] != grants[toId]) {
+          await _requeueDayRows(inheriting);
+          await db.syncDao.oweSharePokes([
+            grants[fromId],
+            grants[toId],
+          ], urgent: true);
+        }
       }
       return moved.length;
     });
@@ -536,17 +546,25 @@ class CalendarEventDao extends DatabaseAccessor<AppDatabase>
           ? remote.category
           : local.category;
       final bool regranted;
+      // The pairs the event was and is shared into, when they differ: each
+      // is owed a poke for what this device re-sends.
+      var grantPairs = const <String?>[];
       if (local == null) {
         regranted = kept.pair != null || remoteGrant != null;
+        grantPairs = [kept.pair, remoteGrant];
       } else if (local.sharedPair != kept.pair || local.category != category) {
         final grants = await _categoryGrants([local.category, category]);
-        regranted =
-            (local.sharedPair ?? grants[local.category]) !=
-            (kept.pair ?? grants[category]);
+        final before = local.sharedPair ?? grants[local.category];
+        final after = kept.pair ?? grants[category];
+        regranted = before != after;
+        grantPairs = [before, after];
       } else {
         regranted = false;
       }
-      if (regranted) await _requeueDayRows([remote.id]);
+      if (regranted) {
+        await _requeueDayRows([remote.id]);
+        await db.syncDao.oweSharePokes(grantPairs, urgent: true);
+      }
       return outcome;
     });
   }
@@ -707,6 +725,10 @@ class CalendarEventDao extends DatabaseAccessor<AppDatabase>
         ),
       );
       await _requeueDayRows([id]);
+      await db.syncDao.oweSharePokes([
+        pairId,
+        existing.sharedPair,
+      ], urgent: true);
       return true;
     });
   }
@@ -720,6 +742,14 @@ class CalendarEventDao extends DatabaseAccessor<AppDatabase>
   /// their documents would go on naming a pair this database no longer
   /// shares into. Returns how many it cleared.
   Future<int> clearOtherPairs(String? pairId, CrdtStamp stamp) async {
+    // The pairs the marks named, read before they go: each is owed a poke.
+    final pairs = await customSelect(
+      'SELECT DISTINCT shared_pair AS pair FROM calendar_events '
+      'WHERE shared_pair IS NOT NULL AND shared_pair IS NOT ?1',
+      variables: [Variable<String>(pairId)],
+      readsFrom: {calendarEvents},
+    ).map((row) => row.read<String>('pair')).get();
+    if (pairs.isEmpty) return 0;
     final cleared = await customWriteReturning(
       'UPDATE calendar_events SET shared_pair = NULL, shared_stamp = ?1, '
       'hlc_timestamp = ?1, device_id = ?2, version = version + 1 '
@@ -734,6 +764,7 @@ class CalendarEventDao extends DatabaseAccessor<AppDatabase>
       updateKind: UpdateKind.update,
     );
     if (cleared.isEmpty) return 0;
+    await db.syncDao.oweSharePokes(pairs, urgent: true);
     for (final deleted in const [false, true]) {
       await db.enqueueMany(
         calendarEvents,

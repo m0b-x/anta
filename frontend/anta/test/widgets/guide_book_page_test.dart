@@ -17,6 +17,7 @@ import 'package:anta/models/notes_guide_content.dart';
 import 'package:anta/pages/guide_book_page.dart';
 import 'package:anta/pages/guide_topic_page.dart';
 import 'package:anta/services/settings_service.dart';
+import 'package:anta/services/shared_refresh/shared_refresh_scheduler.dart';
 import 'package:anta/utils/markdown_color_syntax.dart';
 import 'package:anta/utils/money_display_config.dart';
 import 'package:anta/utils/settings_search.dart';
@@ -335,6 +336,7 @@ void main() {
       'sharing-pair',
       'sharing-category',
       'sharing-event',
+      'sharing-folder',
       'sharing-readonly',
       'sharing-theirs',
       'sharing-alerts',
@@ -343,7 +345,7 @@ void main() {
     ];
 
     for (final locale in const [Locale('en'), Locale('de'), Locale('ro')]) {
-      testWidgets('${locale.languageCode}: its lead, then its eight rows in '
+      testWidgets('${locale.languageCode}: its lead, then its nine rows in '
           'order, every placeholder filled', (tester) async {
         final l10n = lookupAppLocalizations(locale);
         await tester.pumpWidget(
@@ -378,6 +380,32 @@ void main() {
           previous = top;
         }
         expect(tester.takeException(), isNull);
+      });
+
+      test('${locale.languageCode}: the alerts row closes on what is true on '
+          'the device — changes followed while ANTA is closed, or what the '
+          'phone last received (D32)', () {
+        addTearDown(() => SharedRefreshAvailability.debugSupported = null);
+        final l10n = lookupAppLocalizations(locale);
+        String alertsBody() => _readRows(
+          AppGuideTopic.sharing,
+          l10n,
+        ).singleWhere((row) => row.slug == 'sharing-alerts').body;
+        final shared = l10n.appGuideSharingAlertsBody(
+          l10n.shareAlerts,
+          l10n.shareAlertsOff,
+          l10n.shareAlertsCategory,
+        );
+
+        SharedRefreshAvailability.debugSupported = true;
+        expect(alertsBody(), '$shared ${l10n.appGuideSharingAlertsFresh}');
+        expect(l10n.appGuideSharingAlertsFresh, contains('ANTA'));
+
+        SharedRefreshAvailability.debugSupported = false;
+        expect(
+          alertsBody(),
+          '$shared ${l10n.appGuideSharingAlertsLastReceived}',
+        );
       });
     }
   });
@@ -913,6 +941,9 @@ void main() {
               ('sharing-category', l10n.calendarCategories),
               ('sharing-category', sharingPage(l10n)),
               ('sharing-event', shareWith(l10n)),
+              ('sharing-folder', shareWith(l10n)),
+              ('sharing-folder', l10n.shareAddFolder),
+              ('sharing-folder', sharingPage(l10n)),
               ('sharing-readonly', l10n.sharedEventCopy),
               ('sharing-theirs', sharingPage(l10n)),
               ('sharing-alerts', l10n.shareAlerts),

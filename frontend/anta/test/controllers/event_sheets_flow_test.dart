@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -10,6 +11,14 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:anta/bloc/calendar/calendar_bloc.dart';
+import 'package:anta/bloc/counter/counter_bloc.dart';
+import 'package:anta/bloc/optimized_note/optimized_note_bloc.dart';
+import 'package:anta/models/note_metadata.dart';
+import 'package:anta/pages/optimized_note_editor_page.dart';
+import 'package:anta/repositories/folder_repository.dart';
+import 'package:anta/services/counter_service.dart';
+import 'package:anta/services/folder_storage_service.dart';
+import 'package:anta/services/note_storage_service.dart';
 import 'package:anta/bloc/markdown_bar/markdown_bar_bloc.dart';
 import 'package:anta/constants/calendar_categories.dart';
 import 'package:anta/constants/event_presence.dart';
@@ -467,15 +476,17 @@ void main() {
 
     Future<void> open(
       WidgetTester tester,
-      Future<void> Function(EventSheetsFlow flow, BuildContext context) door,
-    ) async {
+      Future<void> Function(EventSheetsFlow flow, BuildContext context) door, {
+      CalendarEvent? event,
+      List<BlocProvider> editorBlocs = const [],
+    }) async {
       addTearDown(tester.view.reset);
       tester.view.devicePixelRatio = 1.0;
       tester.view.physicalSize = const Size(412, 915);
       await tester.runAsync(() async {
         db = await AppDatabase.getInstance();
         service = await CalendarEventService.getInstance();
-        await service.upsert(theirs);
+        await service.upsert(event ?? theirs);
         await db.customStatement(
           "UPDATE calendar_events SET owner_id = 'partner' WHERE id = 'theirs'",
         );
@@ -508,6 +519,7 @@ void main() {
           providers: [
             BlocProvider<CalendarBloc>.value(value: bloc),
             BlocProvider<MarkdownBarBloc>.value(value: barBloc),
+            ...editorBlocs,
           ],
           child: MaterialApp(
             localizationsDelegates: AppLocalizations.localizationsDelegates,
@@ -656,6 +668,224 @@ void main() {
       expect(held().title, 'Night shift', reason: "the partner's is untouched");
       await closeSheets(tester);
     });
+
+    group("the partner's note it links (§6.9 item 2, §6.13)", () {
+      late NoteStorageService notes;
+      late OptimizedNoteBloc noteBloc;
+      late CounterBloc counterBloc;
+      late NoteMetadata linked;
+
+      /// A note in a folder the partner shares, as the shared reader stores
+      /// it — or, with [partners] off, a note of mine.
+      Future<void> seedNote(WidgetTester tester, {bool partners = true}) async {
+        await tester.runAsync(() async {
+          final db = await AppDatabase.getInstance();
+          final repository = GetIt.I<NoteRepository>();
+          notes = NoteStorageService(repository: repository);
+          GetIt.I.registerSingleton<NoteStorageService>(notes);
+          GetIt.I.registerSingleton<FolderStorageService>(
+            FolderStorageService(repository: FolderRepository(database: db)),
+          );
+          noteBloc = OptimizedNoteBloc(storageService: notes);
+          counterBloc = CounterBloc(
+            counterService: await CounterService.getInstance(),
+          );
+          final folder = await db.folderDao.createFolder(name: 'Shift notes');
+          linked = await notes.createNote(
+            folderId: folder.id,
+            title: 'Handover',
+            content: 'keys under the mat',
+          );
+          if (partners) {
+            await db.customStatement(
+              "UPDATE notes SET owner_id = 'partner' WHERE id = ?",
+              [linked.id],
+            );
+          }
+          repository.shareCensus.forget();
+          addTearDown(() async {
+            await noteBloc.close();
+            await counterBloc.close();
+            await db.sharedRowDao.writing(
+              () => db.customStatement(
+                'UPDATE notes SET owner_id = NULL WHERE id = ?',
+                [linked.id],
+              ),
+            );
+            await db.noteDao.hardDeleteNote(linked.id);
+            await db.folderDao.hardDeleteFolder(folder.id);
+            repository.shareCensus.forget();
+            await GetIt.I.unregister<NoteStorageService>();
+            await GetIt.I.unregister<FolderStorageService>();
+          });
+        });
+      }
+
+      List<BlocProvider> editorBlocs() => [
+        BlocProvider<OptimizedNoteBloc>.value(value: noteBloc),
+        BlocProvider<CounterBloc>.value(value: counterBloc),
+      ];
+
+      Future<void> settleEditor(WidgetTester tester) async {
+        for (
+          var i = 0;
+          i < 100 && find.byType(OptimizedNoteEditorPage).evaluate().isEmpty;
+          i++
+        ) {
+          await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 20)),
+          );
+          await tester.pump();
+        }
+        await tester.pumpAndSettle();
+      }
+
+      Future<void> leaveEditor(WidgetTester tester) async {
+        await closeSheets(tester);
+        await tester.pumpWidget(const SizedBox.shrink());
+        await tester.pump();
+      }
+
+      testWidgets('the Linked note row opens it read-only in the editor', (
+        tester,
+      ) async {
+        await seedNote(tester);
+        await open(
+          tester,
+          (flow, context) => flow.openDetail(context, held(), day),
+          event: theirs.copyWith(noteId: linked.id),
+          editorBlocs: editorBlocs(),
+        );
+
+        final row = find.bySemanticsIdentifier(SemanticsIds.sharedEventNote);
+        // The row waits for the lookup, which drift answers on its isolate.
+        for (var i = 0; i < 100 && row.evaluate().isEmpty; i++) {
+          await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 20)),
+          );
+          await tester.pump();
+        }
+        expect(row, findsOneWidget);
+        expect(find.text('Handover'), findsOneWidget);
+        await tester.tap(row);
+        await settleEditor(tester);
+
+        expect(find.byType(SharedEventSheet), findsNothing);
+        final page = tester.widget<OptimizedNoteEditorPage>(
+          find.byType(OptimizedNoteEditorPage),
+        );
+        expect(page.noteId, linked.id);
+        expect(page.metadata!.fromPartner, isTrue);
+        await leaveEditor(tester);
+      });
+
+      testWidgets('my event\'s linked note that is the partner\'s opens '
+          'read-only too', (tester) async {
+        await seedNote(tester);
+        await open(
+          tester,
+          (flow, context) =>
+              flow.openLinkedNote(context, edited.copyWith(noteId: linked.id)),
+          editorBlocs: editorBlocs(),
+        );
+        await settleEditor(tester);
+
+        final page = tester.widget<OptimizedNoteEditorPage>(
+          find.byType(OptimizedNoteEditorPage),
+        );
+        expect(page.metadata!.fromPartner, isTrue);
+        await leaveEditor(tester);
+      });
+
+      testWidgets('a link to a note of mine shows no Linked note row', (
+        tester,
+      ) async {
+        await seedNote(tester, partners: false);
+        await open(
+          tester,
+          (flow, context) => flow.openDetail(context, held(), day),
+          event: theirs.copyWith(noteId: linked.id),
+        );
+
+        // Long enough for the lookup to have answered.
+        for (var i = 0; i < 20; i++) {
+          await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 20)),
+          );
+          await tester.pump();
+        }
+        expectReadSheetOnly();
+        expect(
+          find.bySemanticsIdentifier(SemanticsIds.sharedEventNote),
+          findsNothing,
+        );
+        await closeSheets(tester);
+      });
+
+      testWidgets("a wiki link in the partner's event opens her note, never "
+          'my namesake', (tester) async {
+        await seedNote(tester);
+        late NoteMetadata mine;
+        await tester.runAsync(() async {
+          mine = await notes.createNote(
+            folderId:
+                (await (await AppDatabase.getInstance()).folderDao.createFolder(
+                  name: 'Mine',
+                )).id,
+            title: 'Handover',
+            content: 'my own',
+          );
+          // Mine the newer, so recency alone would pick it.
+          final db = await AppDatabase.getInstance();
+          for (final (id, year) in [(mine.id, 2030), (linked.id, 2020)]) {
+            await db.sharedRowDao.writing(
+              () => db.customStatement(
+                'UPDATE notes SET updated_at = ? WHERE id = ?',
+                [DateTime.utc(year).millisecondsSinceEpoch ~/ 1000, id],
+              ),
+            );
+          }
+          GetIt.I<NoteRepository>().invalidateAll();
+        });
+        addTearDown(() async {
+          final db = await AppDatabase.getInstance();
+          await db.noteDao.hardDeleteNote(mine.id);
+          await db.folderDao.hardDeleteFolder(mine.folderId);
+        });
+        await open(
+          tester,
+          (flow, context) => flow.openDetail(context, held(), day),
+          event: theirs.copyWith(description: 'see [[Handover]] now'),
+          editorBlocs: editorBlocs(),
+        );
+
+        final rich = tester.widget<RichText>(
+          find.descendant(
+            of: find.byType(SharedEventSheet),
+            matching: find.byWidgetPredicate(
+              (w) => w is RichText && w.text.toPlainText().contains('Handover'),
+            ),
+          ),
+        );
+        // The door armed the shared owner after my note was made; the
+        // census read then is stale, as a pull would leave it until forgot.
+        GetIt.I<NoteRepository>().shareCensus.forget();
+        TextSpan? link;
+        rich.text.visitChildren((span) {
+          if (span is TextSpan && span.text == 'Handover') link = span;
+          return link == null;
+        });
+        (link!.recognizer! as TapGestureRecognizer).onTap!();
+        await settleEditor(tester);
+
+        final page = tester.widget<OptimizedNoteEditorPage>(
+          find.byType(OptimizedNoteEditorPage),
+        );
+        expect(page.noteId, linked.id);
+        expect(page.metadata!.fromPartner, isTrue);
+        await leaveEditor(tester);
+      });
+    });
   });
 
   // Share surfaces §9: someone who never paired awaits nothing new before
@@ -694,7 +924,6 @@ void main() {
             return pairing(paired: false);
           },
           sync: _SyncingSource(),
-          markFolder: (_, _) async => false,
           foldersChanged: () {},
           requestRun: () async {},
           requestSharedRead: () async {},
@@ -725,7 +954,8 @@ void main() {
             home: Scaffold(
               body: Builder(
                 builder: (context) => TextButton(
-                  onPressed: () => flow.openEditor(context, initialEvent: edited),
+                  onPressed: () =>
+                      flow.openEditor(context, initialEvent: edited),
                   child: const Text('open'),
                 ),
               ),

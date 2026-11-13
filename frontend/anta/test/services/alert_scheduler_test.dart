@@ -1,7 +1,15 @@
+import 'dart:async' show Completer, unawaited;
 import 'dart:io';
 import 'dart:ui' show Locale;
 
-import 'package:drift/drift.dart' show Value;
+import 'package:drift/drift.dart'
+    show
+        ApplyInterceptor,
+        QueryExecutor,
+        QueryExecutorUser,
+        QueryInterceptor,
+        Value;
+import 'package:drift/native.dart' show NativeDatabase;
 import 'package:fake_async/fake_async.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -24,6 +32,7 @@ import 'package:anta/models/alert_hub_entry.dart';
 import 'package:anta/models/alert_payload.dart';
 import 'package:anta/models/alert_sound.dart';
 import 'package:anta/models/calendar_appearance.dart';
+import 'package:anta/models/calendar_category.dart';
 import 'package:anta/models/calendar_event.dart';
 import 'package:anta/models/calendar_report.dart';
 import 'package:anta/models/category_profile.dart';
@@ -42,6 +51,8 @@ import 'package:anta/services/event_skip_service.dart';
 import 'package:anta/services/pending_navigation.dart';
 import 'package:anta/services/public_holiday_service.dart';
 import 'package:anta/services/settings_service.dart';
+import 'package:anta/services/shared_refresh/shared_refresh.dart';
+import 'package:anta/services/shared_refresh/shared_refresh_plan.dart';
 import 'package:anta/services/sync/sync_binding_service.dart';
 import 'package:anta/services/sync/tables/calendar_category_alerts_binding.dart';
 import 'package:anta/constants/event_digests.dart';
@@ -51,10 +62,12 @@ import 'package:anta/services/event_digest_service.dart';
 import 'package:anta/utils/alert_labels.dart';
 import 'package:anta/utils/alert_os_id.dart';
 import 'package:anta/utils/alert_planner.dart';
+import 'package:anta/utils/category_allowlist.dart';
 import 'package:anta/utils/digest_planner.dart';
 import 'package:anta/utils/report_labels.dart';
 
 import '../database/support/db_test_support.dart';
+import '../support/fake_shared_refresh_scheduler.dart';
 
 /// English whose report counts throw, as words a bad locale breaks would:
 /// every other string, and every date, is the fixed labels' own.
@@ -4206,6 +4219,429 @@ void main() {
         expect(mine.partnerName, isNull);
       });
     });
+
+    group('what the shared check is planned from (freshness §4)', () {
+      late List<SharedRefreshNeed> needs;
+
+      setUp(() => needs = []);
+
+      AlertScheduler reporting({SharedRefreshSink? to}) =>
+          AlertScheduler.forTesting(
+            db: db,
+            gateway: gateway,
+            databaseName: 'gym_notes',
+            clock: () => now,
+            sharedRefresh: to ?? needs.add,
+          );
+
+      // `eventOf`'s start with `alertOf`'s offset, and `gymCategoryAlert`'s
+      // thirty minutes before it.
+      final ring = DateTime(2026, 9, 20, 18);
+      final reminder = DateTime(2026, 9, 20, 17, 30);
+
+      /// How often the record of the built-ins the partner shares was read.
+      int builtInReads() => counter.captured
+          .where(
+            (statement) =>
+                statement.sql.contains(SyncDao.sharedBuiltInPrefix) ||
+                statement.args.any(
+                  (arg) => '$arg'.contains(SyncDao.sharedBuiltInPrefix),
+                ),
+          )
+          .length;
+
+      /// What the shared reader records for a built-in the partner shares.
+      Future<void> partnerSharesGym() => db.sharedRowDao.noteRefused(
+        'calendar_categories',
+        'gym',
+        live: true,
+        builtIn: true,
+      );
+
+      Future<void> categoryAlertsToo() =>
+          SettingsService.forTesting(db).setShareAlerts(ShareAlerts.category);
+
+      /// The partner's own category `p1` held here, with nothing in it yet.
+      Future<void> theirEmptyCategory() async {
+        await db.calendarCategoryDao.insertCategory(
+          CalendarCategoriesCompanion.insert(
+            id: 'p1',
+            name: 'Night shift',
+            colorValue: 0xFF336699,
+            iconKey: 'event',
+            isBuiltIn: const Value(false),
+            createdAt: now,
+            updatedAt: now,
+          ),
+        );
+        await db.customStatement(
+          "UPDATE calendar_categories SET owner_id = 'partner' WHERE id = 'p1'",
+        );
+        await db.syncDao.setValue(SyncDao.keySharedOwner, 'partner');
+        await (await CategoryService.getInstance()).reload();
+      }
+
+      test('an account that never paired: every pass reports no sharing, '
+          'runs the statements it ran before, and the platform is asked '
+          'nothing', () async {
+        await seed();
+        await gymCategoryAlert();
+        final platform = FakeSharedRefreshScheduler();
+        var sharesAsked = 0;
+        final refresh = SharedRefresh(
+          scheduler: platform,
+          shares: () async {
+            sharesAsked++;
+            return true;
+          },
+          clock: () => now,
+        );
+        await schedulerOf().reconcileAll(AlertReconcileReason.launch);
+        expect(await registrations(), isNotEmpty);
+
+        counter.reset();
+        var scheduler = schedulerOf();
+        await scheduler.reconcileAll(AlertReconcileReason.launch);
+        await scheduler.reconcileEvent('e1', AlertReconcileReason.eventChanged);
+        final before = [...counter.statements];
+
+        counter.reset();
+        scheduler = reporting(
+          to: (need) {
+            needs.add(need);
+            refresh.afterAlertPass(need).ignore();
+          },
+        );
+        await scheduler.reconcileAll(AlertReconcileReason.launch);
+        await scheduler.reconcileEvent('e1', AlertReconcileReason.eventChanged);
+        await refresh.settled();
+
+        expect(counter.statements, before);
+        expect(needs, [SharedRefreshNeed.none, SharedRefreshNeed.none]);
+        expect(platform.calls, isEmpty);
+        expect(sharesAsked, 0);
+      });
+
+      test('nothing can arm: the skipped pass reports no sharing and reads '
+          'nothing more for it', () async {
+        await events.upsert(eventOf());
+        CalendarEventService.reset();
+        counter.reset();
+
+        await reporting().reconcileAll(AlertReconcileReason.launch);
+
+        expect(needs, [SharedRefreshNeed.none]);
+        expect(counter.count, 4);
+      });
+
+      test('under "own", the fire time of my alert armed on the partner\'s '
+          'event is reported, and none of my own events\'', () async {
+        await seedBoth();
+
+        await reporting().reconcileAll(AlertReconcileReason.launch);
+
+        expect(needs, [
+          SharedRefreshNeed(
+            fireTimes: [ring],
+            alertDefined: true,
+            alertAhead: true,
+          ),
+        ]);
+        expect(builtInReads(), 0);
+      });
+
+      test('an alert of mine on a partner\'s event past the horizon arms '
+          'nothing and is reported as defined all the same: the event may '
+          'be moved nearer while the app is closed', () async {
+        await storeAsPartners(
+          eventOf(id: 'theirs', startDate: DateTime.utc(2026, 12, 24)),
+        );
+        await alerts.replaceForEvent('theirs', [
+          alertOf(id: 't1', eventId: 'theirs'),
+        ]);
+        counter.reset();
+
+        await reporting().reconcileAll(AlertReconcileReason.launch);
+
+        expect(await registrations(), isEmpty);
+        expect(needs, const [
+          SharedRefreshNeed(alertDefined: true, alertAhead: true),
+        ]);
+        expect(needs.single.checkWorthy, isTrue);
+        expect(builtInReads(), 0);
+      });
+
+      test('an alert of mine on a partner\'s one-off that is past is worth a '
+          'read when they send word — they may have moved it ahead — and '
+          'never the phone\'s own check', () async {
+        await storeAsPartners(
+          eventOf(id: 'theirs', startDate: DateTime.utc(2026, 9, 1)),
+        );
+        await alerts.replaceForEvent('theirs', [
+          alertOf(id: 't1', eventId: 'theirs'),
+        ]);
+
+        await reporting().reconcileAll(AlertReconcileReason.eventChanged);
+
+        expect(await registrations(), isEmpty);
+        expect(needs, const [SharedRefreshNeed(alertDefined: true)]);
+        expect(needs.single.checkWorthy, isFalse);
+        expect(needs.single.pokeWorthy, isTrue);
+      });
+
+      test('…and so is one on a repeating event of theirs that has '
+          'ended', () async {
+        await storeAsPartners(
+          eventOf(
+            id: 'ended',
+            rule: const DailyRecurrence(),
+            startDate: DateTime.utc(2026, 8, 1),
+          ).copyWith(endDate: DateTime.utc(2026, 8, 31)),
+        );
+        await alerts.replaceForEvent('ended', [
+          alertOf(id: 'x1', eventId: 'ended'),
+        ]);
+
+        await reporting().reconcileAll(AlertReconcileReason.eventChanged);
+        expect(needs.single.alertDefined, isTrue);
+        expect(needs.single.checkWorthy, isFalse);
+        expect(needs.single.pokeWorthy, isTrue);
+      });
+
+      test('a repeating event of theirs with no end keeps the check, however '
+          'long ago it began', () async {
+        await storeAsPartners(
+          eventOf(
+            id: 'running',
+            rule: const DailyRecurrence(),
+            startDate: DateTime.utc(2026, 8, 1),
+          ),
+        );
+        await alerts.replaceForEvent('running', [
+          alertOf(id: 'r1', eventId: 'running'),
+        ]);
+
+        await reporting().reconcileAll(AlertReconcileReason.eventChanged);
+        expect(needs.single.alertAhead, isTrue);
+        expect(needs.single.checkWorthy, isTrue);
+      });
+
+      test(
+        'an alert of mine switched off on it is none that can ring',
+        () async {
+          await storeAsPartners(eventOf(id: 'theirs'));
+          await alerts.replaceForEvent('theirs', [
+            alertOf(id: 't1', eventId: 'theirs').copyWith(enabled: false),
+          ]);
+
+          await reporting().reconcileAll(AlertReconcileReason.eventChanged);
+
+          expect(needs, const [SharedRefreshNeed()]);
+        },
+      );
+
+      test('a pass that arms nothing new reports what stands armed all the '
+          'same', () async {
+        await seedBoth();
+        final scheduler = reporting();
+        await scheduler.reconcileAll(AlertReconcileReason.launch);
+        gateway.resetCalls();
+
+        await scheduler.reconcileAll(AlertReconcileReason.resumed);
+        await scheduler.reconcileEvent(
+          'mine',
+          AlertReconcileReason.eventChanged,
+        );
+
+        expect(gateway.scheduled.map((fire) => fire.eventId), ['mine', 'mine']);
+        expect(needs, hasLength(3));
+        expect(needs.toSet(), {
+          SharedRefreshNeed(
+            fireTimes: [ring],
+            alertDefined: true,
+            alertAhead: true,
+          ),
+        });
+      });
+
+      test('an entry the platform refused is reported with no fire time: '
+          'nothing rings for it yet, and the alert stands defined', () async {
+        await seedBoth();
+        gateway.accepts = false;
+
+        await reporting().reconcileAll(AlertReconcileReason.launch);
+
+        expect(needs, const [
+          SharedRefreshNeed(alertDefined: true, alertAhead: true),
+        ]);
+      });
+
+      test('a partner\'s event with no alert of mine: sharing, and nothing '
+          'depending on it', () async {
+        await storeAsPartners(eventOf(id: 'theirs'));
+        await seed(event: eventOf(id: 'mine'));
+
+        await reporting().reconcileAll(AlertReconcileReason.launch);
+
+        expect(needs, const [SharedRefreshNeed()]);
+        expect(needs.single.pokeWorthy, isFalse);
+        expect(needs.single.sharing, isTrue);
+      });
+
+      test('under "off" my alert on it stays stored and unarmed, and nothing '
+          'is reported to ring', () async {
+        await seedBoth();
+        await SettingsService.forTesting(db).setShareAlerts(ShareAlerts.off);
+
+        await reporting().reconcileAll(AlertReconcileReason.launch);
+
+        expect(needs, const [SharedRefreshNeed()]);
+      });
+
+      test('under "category", the inherited fire is reported with my own, '
+          'and the category counts once the partner shares it', () async {
+        await seedBoth();
+        await categoryAlertsToo();
+
+        await reporting().reconcileAll(AlertReconcileReason.launch);
+        await partnerSharesGym();
+        await reporting().reconcileAll(AlertReconcileReason.resumed);
+
+        expect(needs.first.fireTimes, unorderedEquals([ring, reminder]));
+        expect(needs.first.categoryAlerts, isFalse);
+        expect(needs.first.alertDefined, isTrue);
+        expect(needs.last.fireTimes, unorderedEquals([ring, reminder]));
+        expect(needs.last.categoryAlerts, isTrue);
+      });
+
+      test('B6: a built-in the partner shares and has put nothing in yet, '
+          'with a category alert of mine on it, is wanted under "category" '
+          '— told by the shared rows\' record, read once', () async {
+        await seed(event: eventOf(id: 'mine'));
+        await gymCategoryAlert();
+        await partnerSharesGym();
+        await categoryAlertsToo();
+        counter.reset();
+
+        await reporting().reconcileAll(AlertReconcileReason.launch);
+
+        expect(needs, const [SharedRefreshNeed(categoryAlerts: true)]);
+        expect(builtInReads(), 1);
+      });
+
+      test('…and not under "own", where nothing is read for it', () async {
+        await seed(event: eventOf(id: 'mine'));
+        await gymCategoryAlert();
+        await partnerSharesGym();
+        counter.reset();
+
+        await reporting().reconcileAll(AlertReconcileReason.launch);
+
+        expect(needs, [SharedRefreshNeed.none]);
+        expect(builtInReads(), 0);
+      });
+
+      test(
+        'a built-in of mine the partner does not share is not wanted',
+        () async {
+          await seed(event: eventOf(id: 'mine'));
+          await gymCategoryAlert();
+          await categoryAlertsToo();
+
+          await reporting().reconcileAll(AlertReconcileReason.launch);
+
+          expect(needs, const [SharedRefreshNeed()]);
+        },
+      );
+
+      test('a shared built-in hidden on this phone is not wanted', () async {
+        await seed(event: eventOf(id: 'mine'));
+        await gymCategoryAlert();
+        await partnerSharesGym();
+        await categoryAlertsToo();
+        await SettingsService.forTesting(db).setShareHiddenCategories({'gym'});
+
+        await reporting().reconcileAll(AlertReconcileReason.launch);
+
+        expect(needs, const [SharedRefreshNeed()]);
+      });
+
+      test(
+        'a category alert switched off wants nothing and reads nothing',
+        () async {
+          await seed(event: eventOf(id: 'mine'));
+          await alerts.replaceForCategory('gym', [
+            const CategoryAlert(
+              id: 'ca1',
+              categoryId: 'gym',
+              mode: AlertMode.notify,
+              offsetMinutes: 30,
+              enabled: false,
+            ),
+          ]);
+          await partnerSharesGym();
+          await categoryAlertsToo();
+          counter.reset();
+
+          await reporting().reconcileAll(AlertReconcileReason.launch);
+
+          expect(needs, const [SharedRefreshNeed()]);
+          expect(builtInReads(), 0);
+        },
+      );
+
+      test('the partner\'s own category with an alert of mine is wanted '
+          'under "category" from the catalogue alone', () async {
+        await seed(event: eventOf(id: 'mine'));
+        await theirEmptyCategory();
+        await alerts.replaceForCategory('p1', [
+          const CategoryAlert(
+            id: 'pc1',
+            categoryId: 'p1',
+            mode: AlertMode.notify,
+            offsetMinutes: 30,
+          ),
+        ]);
+        await categoryAlertsToo();
+        counter.reset();
+
+        await reporting().reconcileAll(AlertReconcileReason.launch);
+
+        expect(needs, const [SharedRefreshNeed(categoryAlerts: true)]);
+        expect(builtInReads(), 0);
+      });
+
+      test('…and not once it is hidden on this phone', () async {
+        await seed(event: eventOf(id: 'mine'));
+        await theirEmptyCategory();
+        await alerts.replaceForCategory('p1', [
+          const CategoryAlert(
+            id: 'pc1',
+            categoryId: 'p1',
+            mode: AlertMode.notify,
+            offsetMinutes: 30,
+          ),
+        ]);
+        await categoryAlertsToo();
+        await SettingsService.forTesting(db).setShareHiddenCategories({'p1'});
+        await (await CategoryService.getInstance()).reload();
+
+        await reporting().reconcileAll(AlertReconcileReason.launch);
+
+        expect(needs, const [SharedRefreshNeed()]);
+      });
+
+      test('a scheduler nothing listens to works none of it out', () async {
+        await seedBoth();
+        await partnerSharesGym();
+        await categoryAlertsToo();
+        counter.reset();
+
+        await schedulerOf().reconcileAll(AlertReconcileReason.launch);
+
+        expect(builtInReads(), 0);
+      });
+    });
   });
 
   group('digests (v42)', () {
@@ -5050,6 +5486,116 @@ void main() {
         expect((await schedulerOf().digestEntries()).single.count, 3);
       });
 
+      /// H1 fix pass, finding 5: a digest's payload wears the one listed
+      /// category its title names — tint, glyph and category — and none
+      /// where the title names none.
+      group('the one listed category it ticks', () {
+        const night = CalendarCategory(
+          id: 'p-night',
+          name: 'Night shift',
+          colorValue: 0xFF8E24AA,
+          iconKey: 'work',
+          sortOrder: 0,
+          isBuiltIn: false,
+          fromPartner: true,
+        );
+
+        Future<AlertPayload> firstPayload() async {
+          // Published as the shared reader publishes a category of theirs.
+          CalendarCategories.updateCache([
+            for (final c in CalendarCategories.all)
+              if (c.id != night.id) c,
+            night,
+          ]);
+          await schedulerOf().reconcileAll(AlertReconcileReason.launch);
+          final rows = await registrations();
+          return gateway.platform[rows.first.osId]!;
+        }
+
+        setUp(() async {
+          await octoberWithTheirs();
+        });
+
+        test('their group with one category shown is that category', () async {
+          await digestOf(
+            categoryIds: const {CategoryAllowlist.partnerEntry},
+            includeEmpty: true,
+          );
+          await SettingsService.forTesting(
+            db,
+          ).setShareAlerts(ShareAlerts.category);
+
+          final payload = await firstPayload();
+          expect(payload.title, 'Night shift');
+          expect(payload.categoryId, 'p-night');
+          expect(payload.tintValue, night.colorValue);
+          expect(payload.glyphKey, 'work');
+        });
+
+        test('all of mine is a group: no category worn', () async {
+          await digestOf(categoryIds: const {CategoryAllowlist.mineEntry});
+          await SettingsService.forTesting(
+            db,
+          ).setShareAlerts(ShareAlerts.category);
+
+          final payload = await firstPayload();
+          expect(payload.title, isNot('Events'));
+          expect(payload.categoryId, '');
+          expect(payload.tintValue, isNull);
+          expect(payload.glyphKey, isNull);
+        });
+
+        test(
+          'a plain id of theirs under "own" names and wears nothing',
+          () async {
+            await digestOf(categoryIds: const {'p-night'}, includeEmpty: true);
+            await SettingsService.forTesting(
+              db,
+            ).setShareAlerts(ShareAlerts.own);
+
+            final payload = await firstPayload();
+            expect(payload.title, 'No categories');
+            expect(payload.categoryId, '');
+            expect(payload.tintValue, isNull);
+            expect(payload.glyphKey, isNull);
+          },
+        );
+      });
+
+      /// H1 fix pass, finding 3(b): the hub's rows decide an allowlist by
+      /// the catalogue, so they wait for it. Before it is published every
+      /// partner's event sits on their side, and theirs in my built-in Gym
+      /// would drop out of "all of mine".
+      test(
+        'the hub waits for the catalogue before it plans "all of mine"',
+        () async {
+          await octoberWithTheirs();
+          await digestOf(categoryIds: const {CategoryAllowlist.mineEntry});
+          await SettingsService.forTesting(
+            db,
+          ).setShareAlerts(ShareAlerts.category);
+          // A first open: the catalogue's database is still opening when
+          // the hub asks, and opens only after the hub had every other read.
+          final held = _HeldOpen();
+          final catalogue = AppDatabase.forTesting(
+            NativeDatabase.memory().interceptWith(held),
+          );
+          addTearDown(catalogue.close);
+          CategoryService.reset();
+          unawaited(CategoryService.forTesting(catalogue));
+          final entries = schedulerOf().digestEntries();
+          // A hub that does not wait plans on its own; one that waits is
+          // still waiting when the database opens.
+          await Future.any<Object?>([
+            entries,
+            Future<void>.delayed(const Duration(seconds: 2)),
+          ]);
+          held.open.complete();
+
+          expect((await entries).single.count, 3);
+        },
+      );
+
       test('under "category", one in a category this phone does not hold is '
           'never listed by a digest filtered to Other', () async {
         await octoberWithTheirs();
@@ -5452,4 +5998,19 @@ void main() {
       expect(gateway.armContextReads, 1, reason: 'the next launch is fast');
     });
   });
+}
+
+/// Holds a database's open until [open] completes — a catalogue still
+/// loading when a reader asks for it.
+class _HeldOpen extends QueryInterceptor {
+  final Completer<void> open = Completer<void>();
+
+  @override
+  Future<bool> ensureOpen(
+    QueryExecutor executor,
+    QueryExecutorUser user,
+  ) async {
+    await open.future;
+    return executor.ensureOpen(user);
+  }
 }

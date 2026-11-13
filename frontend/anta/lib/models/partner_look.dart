@@ -13,6 +13,11 @@ import 'share_settings.dart';
 class PartnerLook extends Equatable {
   final ShareEventLook look;
 
+  /// How a partner's folders and notes are drawn (`shareNoteLook`): the
+  /// browser builds this from its page state as the calendar does from its
+  /// own, and the calendar leaves it at the shipped value.
+  final ShareNoteLook noteLook;
+
   /// The partner the Avatar look's badge draws; null while the audience is
   /// unread, and the badge then draws the person glyph.
   final AppUser? partner;
@@ -32,6 +37,7 @@ class PartnerLook extends Equatable {
 
   const PartnerLook({
     this.look = ShareEventLook.outlined,
+    this.noteLook = ShareNoteLook.avatar,
     this.partner,
     this.name,
     this.markMine = true,
@@ -44,6 +50,9 @@ class PartnerLook extends Equatable {
   /// Whether a partner's event wears the partner's face.
   bool get avatar => look == ShareEventLook.avatar;
 
+  /// Whether a partner's folder or note wears the partner's face.
+  bool get noteAvatar => noteLook == ShareNoteLook.avatar;
+
   /// "From {name}": read first on a partner's row in every look, the plain
   /// one included, since nothing else on that row says whose it is.
   String label(AppLocalizations l10n) =>
@@ -55,5 +64,12 @@ class PartnerLook extends Equatable {
       l10n.shareMarkMineLabel(ShareCopy.partnerName(l10n, name));
 
   @override
-  List<Object?> get props => [look, partner, name, markMine, unpaired];
+  List<Object?> get props => [
+    look,
+    noteLook,
+    partner,
+    name,
+    markMine,
+    unpaired,
+  ];
 }

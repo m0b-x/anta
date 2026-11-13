@@ -2,10 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get_it/get_it.dart';
 
+import 'package:anta/database/daos/sync_dao.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/database/database_lifecycle.dart';
 import 'package:anta/models/nav_destination.dart';
 import 'package:anta/pages/all_notes_page.dart';
+import 'package:anta/pages/optimized_note_editor_page.dart';
 import 'package:anta/models/restore_location_mode.dart';
 import 'package:anta/repositories/folder_repository.dart';
 import 'package:anta/repositories/note_repository.dart';
@@ -221,6 +223,39 @@ void main() {
       NavDestination.folder(folderId: training.id, title: 'Training'),
       NavDestination.note(noteId: note.id, folderId: recipes.id),
     ]);
+
+    await teardownApp(tester);
+  });
+
+  testWidgets("a restored partner's note hands the editor flagged metadata, "
+      'so it opens read-only (§6.13)', (tester) async {
+    final theirs = await folders.createFolder(name: 'Theirs');
+    final note = await notes.createNote(
+      folderId: theirs.id,
+      title: 'Their plan',
+      content: 'plan',
+    );
+    await settings.saveLastLocationStack([
+      NavDestination.note(noteId: note.id, folderId: theirs.id),
+    ]);
+    await db.customStatement(
+      "UPDATE notes SET owner_id = 'partner' WHERE id = ?",
+      [note.id],
+    );
+    await db.syncDao.setValue(SyncDao.keySharedOwner, 'partner');
+    noteRepository.shareCensus.forget();
+
+    await pumpApp(tester);
+    observer.clear();
+
+    await restore(tester);
+
+    final page = pageOf(
+      observer.pushed.single,
+      AppNavigator.navigatorKey.currentContext!,
+    );
+    expect(page, isA<OptimizedNoteEditorPage>());
+    expect((page as OptimizedNoteEditorPage).metadata!.fromPartner, isTrue);
 
     await teardownApp(tester);
   });

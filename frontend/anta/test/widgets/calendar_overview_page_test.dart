@@ -54,6 +54,7 @@ import 'package:anta/services/note_storage_service.dart';
 import 'package:anta/services/overview_view_service.dart';
 import 'package:anta/services/settings_service.dart';
 import 'package:anta/utils/agenda_month_store.dart';
+import 'package:anta/utils/category_allowlist.dart';
 import 'package:anta/utils/date_span_label.dart';
 import 'package:anta/utils/event_agenda.dart';
 import 'package:anta/widgets/agenda_list_view.dart';
@@ -4378,6 +4379,42 @@ void main() {
       await robot.selectMode(AgendaDayListMode.list);
       await robot.setMissedOnly(true);
       expect(robot.optionsBadge, '2');
+    });
+
+    /// R18 (H1 fix pass): "all of mine" filters only while a category of the
+    /// partner's is listed — the pair ended, it reads off; listed again, it
+    /// is "only mine" again.
+    testWidgets('R18: the badge counts all of mine only while a partner\'s '
+        'category is listed', (tester) async {
+      final settings = await SettingsService.getInstance();
+      await settings.setCalendarOverviewCategories({
+        CategoryAllowlist.mineEntry,
+      });
+      final mine = CalendarCategories.all;
+      addTearDown(() => CalendarCategories.updateCache(mine));
+      const night = CalendarCategory(
+        id: 'p-night',
+        name: 'Night shift',
+        colorValue: 0xFF8E24AA,
+        iconKey: 'work',
+        sortOrder: 0,
+        isBuiltIn: false,
+        fromPartner: true,
+      );
+
+      // The pair ended: nothing of theirs is listed.
+      var robot = OverviewRobot(tester);
+      await openList(robot);
+      expect(robot.optionsBadge, isNull);
+      expect(robot.shows('Leg day'), isTrue);
+      await tester.pumpWidget(const SizedBox.shrink());
+
+      // Paired again: one of theirs is listed, and the list is mine only.
+      CalendarCategories.updateCache([...mine, night]);
+      robot = OverviewRobot(tester);
+      await openList(robot);
+      expect(robot.optionsBadge, '1');
+      expect(robot.optionsSelected, isTrue);
     });
 
     /// The badge rides the glyph, not the button: around the button Material

@@ -2,6 +2,7 @@ import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/l10n/app_localizations_de.dart';
 import 'package:anta/l10n/app_localizations_en.dart';
 import 'package:anta/l10n/app_localizations_ro.dart';
+import 'package:anta/models/share_overview.dart';
 import 'package:anta/utils/share_copy.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -62,5 +63,47 @@ void main() {
     test('an empty string stays empty', () {
       expect(ShareCopy.sentence(''), '');
     });
+  });
+
+  group('folderAct', () {
+    const trips = ShareFolderRef(id: 'trips', name: 'Trips');
+    const lisbon = ShareFolderRef(id: 'lisbon', name: 'Lisbon');
+    const porto = ShareFolderRef(id: 'porto', name: 'Porto');
+    final en = AppLocalizationsEn();
+
+    String? stopped(List<ShareFolderRef> inner, [AppLocalizations? l10n]) =>
+        ShareCopy.folderAct(
+          l10n ?? en,
+          ShareChange(
+            unsharedFolders: const [trips],
+            clearedInnerFolders: inner,
+          ),
+          partnerName: 'Maria',
+        );
+
+    test('an un-share alone says the folder', () {
+      expect(stopped(const []), 'No longer shared: Trips');
+    });
+
+    test('an un-share that also cleared inner folders counts them', () {
+      expect(
+        stopped(const [lisbon]),
+        'No longer shared: Trips and 1 folder inside it',
+      );
+      expect(
+        stopped(const [lisbon, porto]),
+        'No longer shared: Trips and 2 folders inside it',
+      );
+    });
+
+    for (final MapEntry(key: code, value: l10n) in catalogues.entries) {
+      test('$code: every plural form fills its placeholders', () {
+        for (var count = 1; count <= 25; count++) {
+          final text = stopped([for (var i = 0; i < count; i++) lisbon], l10n)!;
+          expect(text, contains('Trips'), reason: '$code $count');
+          expect(text, isNot(contains('{')), reason: '$code $count');
+        }
+      });
+    }
   });
 }

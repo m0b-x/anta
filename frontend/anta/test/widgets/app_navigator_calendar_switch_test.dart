@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:anta/models/nav_destination.dart';
+import 'package:anta/pages/sync_settings_page.dart';
 import 'package:anta/services/app_navigator.dart';
 
 /// The calendar and the overview are two views of one feature, so the view
@@ -343,6 +344,84 @@ void main() {
       expect(observer.pushed, isEmpty);
       expect(calendarRoute.isCurrent, isTrue);
       expect(AppNavigator.pendingCalendarOccurrence.value?.eventId, 'e1');
+    });
+
+    // A partner's event tapped in its list on the Sharing page: the tap
+    // comes from the events sheet, still open over the page.
+    group('from the Sharing page\'s events sheet (share surfaces D33)', () {
+      const sync = NavDestination(NavDestinationKind.syncSettings);
+      Route<void> sharingRoute() => MaterialPageRoute<void>(
+        builder: (_) => const Scaffold(body: Text('sharing')),
+        settings: const RouteSettings(name: AppNavigator.sharingRouteName),
+      );
+
+      /// The door the Sync & sharing page hands the Sharing page.
+      Future<void> tap() => SyncSettingsPage.openOccurrence(
+        day: DateTime.utc(2026, 11, 20),
+        eventId: 'e-run',
+      );
+
+      Future<Route<dynamic>> openSheet(WidgetTester tester) async {
+        unawaited(
+          showModalBottomSheet<void>(
+            context: AppNavigator.navigatorKey.currentContext!,
+            builder: (_) => const SizedBox(height: 300, child: Text('events')),
+          ),
+        );
+        await tester.pumpAndSettle();
+        return observer.pushed.last;
+      }
+
+      testWidgets('with no calendar beneath, the sheet closes and one '
+          'calendar is pushed over the Sharing page, which Back returns to', (
+        tester,
+      ) async {
+        addTearDown(() => AppNavigator.pendingCalendarOccurrence.value = null);
+        await pumpAlertApp(tester);
+        await pushAlert(tester, pageRoute('sync', destination: sync));
+        final sharing = sharingRoute();
+        await pushAlert(tester, sharing);
+        final sheet = await openSheet(tester);
+        observer.clear();
+
+        unawaited(tap());
+        final pushed = observer.pushed.single;
+        expect(
+          (pushed.settings.arguments as NavDestination?)?.kind,
+          NavDestinationKind.calendar,
+        );
+        expect(sheet.isActive, isFalse);
+        expect(sharing.isActive, isTrue);
+        AppNavigator.navigatorKey.currentState!.removeRoute(pushed);
+        await tester.pumpAndSettle();
+        expect(sharing.isCurrent, isTrue);
+      });
+
+      testWidgets('with a calendar under Sync & sharing, everything over it '
+          'closes and it serves the event: never a second calendar', (
+        tester,
+      ) async {
+        addTearDown(() => AppNavigator.pendingCalendarOccurrence.value = null);
+        await pumpAlertApp(tester);
+        final calendarRoute = pageRoute('calendar', destination: calendar);
+        await pushAlert(tester, calendarRoute);
+        final syncRoute = pageRoute('sync', destination: sync);
+        await pushAlert(tester, syncRoute);
+        final sharing = sharingRoute();
+        await pushAlert(tester, sharing);
+        final sheet = await openSheet(tester);
+        observer.clear();
+
+        unawaited(tap());
+        await tester.pumpAndSettle();
+
+        expect(observer.pushed, isEmpty);
+        expect(calendarRoute.isCurrent, isTrue);
+        expect(sheet.isActive, isFalse);
+        expect(sharing.isActive, isFalse);
+        expect(syncRoute.isActive, isFalse);
+        expect(AppNavigator.pendingCalendarOccurrence.value?.eventId, 'e-run');
+      });
     });
   });
 }

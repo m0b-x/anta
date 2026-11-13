@@ -413,6 +413,44 @@ void main() {
       expect(find.text(en.shareChangeFailed).hitTestable(), findsOneWidget);
     });
 
+    testWidgets('a ✕ whose write fails after the sheet was dismissed says '
+        'shareChangeFailed on the app\'s messenger, once', (tester) async {
+      await openMine(tester);
+      final hold = service.hold = Completer<void>();
+      await tester.tap(unshare('dinner'));
+      await settle(tester);
+      await tester.tap(sheetClose());
+      await tester.pumpAndSettle();
+
+      hold.completeError(StateError('disk'));
+      await settle(tester);
+
+      expect(find.byType(MySharedEventsSheet), findsNothing);
+      expect(
+        find.widgetWithText(SnackBar, en.shareChangeFailed),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('a ✕ refused after the sheet was dismissed says why on the '
+        'app\'s messenger', (tester) async {
+      await openMine(tester);
+      final hold = service.hold = Completer<void>();
+      await tester.tap(unshare('dinner'));
+      await settle(tester);
+      await tester.tap(unshare('lunch'));
+      await settle(tester);
+      await tester.tap(sheetClose());
+      await tester.pumpAndSettle();
+
+      service.emit(const ShareNotSyncing(audience));
+      hold.complete();
+      await settle(tester);
+
+      expect(service.eventShares, [('dinner', false)]);
+      expect(find.widgetWithText(SnackBar, en.shareNeedsSync), findsOneWidget);
+    });
+
     testWidgets('a ✕ on a sheet whose bloc has closed acts on nothing', (
       tester,
     ) async {

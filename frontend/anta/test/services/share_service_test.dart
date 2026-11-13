@@ -11,6 +11,7 @@ import 'package:anta/database/database.dart';
 import 'package:anta/database/database_lifecycle.dart';
 import 'package:anta/models/app_user.dart';
 import 'package:anta/models/calendar_event.dart';
+import 'package:anta/models/share_notice.dart';
 import 'package:anta/models/share_overview.dart';
 import 'package:anta/models/share_settings.dart';
 import 'package:anta/services/calendar_event_service.dart';
@@ -91,6 +92,9 @@ void main() {
   /// The category write, counted from one, that throws instead of writing.
   int? failingCategoryWrite;
 
+  /// The folder write, counted from one, that throws once it has written.
+  int? failingFolderWrite;
+
   /// When set, the shared read the service asks for lasts until it
   /// completes.
   Completer<void>? sharedReadGate;
@@ -138,7 +142,13 @@ void main() {
       },
       markFolder: (id, pairId) async {
         folderMarks.add((id, pairId));
-        return true;
+        final wrote = await db.folderDao.setSharedPair(id, pairId);
+        // After its own write, so only the act's transaction can take it
+        // back.
+        if (folderMarks.length == failingFolderWrite) {
+          throw StateError('the disk is full');
+        }
+        return wrote;
       },
       foldersChanged: () => foldersChanged++,
       requestRun: () async => runs++,
@@ -194,6 +204,7 @@ void main() {
     reconciles = 0;
     foldersChanged = 0;
     failingCategoryWrite = null;
+    failingFolderWrite = null;
     sharedReadGate = null;
   });
 
@@ -404,10 +415,12 @@ void main() {
     test('a folder takes the same path', () async {
       await pairWith();
       final share = await open();
+      final f1 = (await db.folderDao.createFolder(name: 'Trips')).id;
 
-      expect(await share.setFolderShared('f1', true), isTrue);
+      final change = await share.setFolderShared(f1, true);
 
-      expect(folderMarks, [('f1', 'pair-1')]);
+      expect(change.sharedFolders, [ShareFolderRef(id: f1, name: 'Trips')]);
+      expect(folderMarks, [(f1, 'pair-1')]);
       await pumpEventQueue();
       expect(runs, 1);
     });
@@ -824,6 +837,334 @@ void main() {
     });
   });
 
+  group('a folder (slice F0)', () {
+    /// `Trips` at the root with `Lisbon` and `Porto` in it, `Work` with
+    /// `Reports` in it: each id by name.
+    Future<Map<String, String>> tree() async {
+      final dao = db.folderDao;
+      final trips = (await dao.createFolder(name: 'Trips')).id;
+      final work = (await dao.createFolder(name: 'Work')).id;
+      return {
+        'Trips': trips,
+        'Lisbon': (await dao.createFolder(name: 'Lisbon', parentId: trips)).id,
+        'Porto': (await dao.createFolder(name: 'Porto', parentId: trips)).id,
+        'Work': work,
+        'Reports': (await dao.createFolder(name: 'Reports', parentId: work)).id,
+      };
+    }
+
+    Future<void> notes(String folderId, int count) async {
+      for (var i = 0; i < count; i++) {
+        await db.noteDao.createNote(folderId: folderId, title: 'n$i');
+      }
+    }
+
+    test('sharing one is an act: named as it stood, queued, sent, and the '
+        'folder cache told', () async {
+      await pairWith();
+      final share = await open();
+      final ids = await tree();
+      final trips = ShareFolderRef(id: ids['Trips']!, name: 'Trips');
+      foldersChanged = 0;
+
+      final on = await share.setFolderShared(trips.id, true);
+
+      expect(on, ShareChange(sharedFolders: [trips]));
+      expect(await marks(), {'folders/${trips.id}'});
+      expect(await queued(), contains('folders/${trips.id}'));
+      expect(await db.syncDao.getValue(SyncDao.keyShareSending), '1');
+      expect(foldersChanged, greaterThan(0));
+      await pumpEventQueue();
+      expect(runs, 1);
+
+      final off = await share.setFolderShared(trips.id, false);
+      expect(off, ShareChange(unsharedFolders: [trips]));
+      expect(await marks(), isEmpty);
+      expect(await share.setFolderShared(trips.id, false), ShareChange.none);
+      await pumpEventQueue();
+      expect(runs, 2);
+    });
+
+    test('sharing an outer folder names the inner marks it now covers, and '
+        'Undo puts back exactly the state before', () async {
+      await pairWith();
+      final share = await open();
+      final ids = await tree();
+      final trips = ShareFolderRef(id: ids['Trips']!, name: 'Trips');
+      final lisbon = ShareFolderRef(id: ids['Lisbon']!, name: 'Lisbon');
+      final reports = ids['Reports']!;
+      await share.setFolderShared(lisbon.id, true);
+      await share.setFolderShared(reports, true);
+
+      final change = await share.setFolderShared(trips.id, true);
+
+      expect(change.sharedFolders, [trips]);
+      expect(change.coveredFolders, [lisbon]);
+      expect(await marks(), {'folders/${trips.id}', 'folders/$reports'});
+
+      final undone = await share.undo(change);
+
+      expect(await marks(), {'folders/${lisbon.id}', 'folders/$reports'});
+      expect(undone.unsharedFolders, [trips]);
+      expect(undone.sharedFolders, [lisbon]);
+      expect(undone.coveredFolders, isEmpty);
+
+      // The bar of the Undo offers its own Undo: Trips again, over Lisbon.
+      final again = await share.undo(undone);
+      expect(again.sharedFolders, [trips]);
+      expect(await marks(), {'folders/${trips.id}', 'folders/$reports'});
+    });
+
+    test('un-sharing a folder leaves nothing shared under it: a mark a merge '
+        'left inside is cleared and named, and Undo marks the outer folder '
+        'alone, which covers it again', () async {
+      await pairWith();
+      final share = await open();
+      final ids = await tree();
+      final trips = ShareFolderRef(id: ids['Trips']!, name: 'Trips');
+      final lisbon = ShareFolderRef(id: ids['Lisbon']!, name: 'Lisbon');
+      await share.setFolderShared(trips.id, true);
+      // What a merge from another device of mine can leave: a mark under it.
+      await db.customStatement(
+        "UPDATE folders SET shared_pair = 'pair-1', "
+        'shared_stamp = hlc_timestamp WHERE id = ?',
+        [lisbon.id],
+      );
+
+      final off = await share.setFolderShared(trips.id, false);
+
+      expect(off.unsharedFolders, [trips]);
+      expect(off.clearedInnerFolders, [lisbon]);
+      expect(await marks(), isEmpty, reason: 'after un-sharing Trips');
+
+      final undone = await share.undo(off);
+
+      expect(undone.sharedFolders, [trips]);
+      expect(await marks(), {'folders/${trips.id}'});
+      expect(
+        (await db.folderDao.sharedPairsOf([lisbon.id]))[lisbon.id],
+        'pair-1',
+        reason: 'shared again, through Trips: the state the person had',
+      );
+    });
+
+    test('a folder already shared — by its own mark or through an outer one '
+        '— writes nothing: no mark is set under another', () async {
+      await pairWith();
+      final share = await open();
+      final ids = await tree();
+      final trips = ids['Trips']!;
+      final lisbon = ids['Lisbon']!;
+      await share.setFolderShared(trips, true);
+      await pumpEventQueue();
+      final ran = runs;
+      final before = (await db.folderDao.getFolderById(lisbon))!;
+
+      expect(await share.setFolderShared(trips, true), ShareChange.none);
+      expect(await share.setFolderShared(lisbon, true), ShareChange.none);
+
+      expect(await marks(), {'folders/$trips'});
+      final after = (await db.folderDao.getFolderById(lisbon))!;
+      expect(after.version, before.version);
+      await pumpEventQueue();
+      expect(runs, ran);
+      // Un-sharing the outer folder un-shares everything under it.
+      await share.setFolderShared(trips, false);
+      expect(await marks(), isEmpty);
+    });
+
+    test('a write that throws leaves nothing behind — the act\'s, and an '
+        'Undo\'s that fails halfway', () async {
+      await pairWith();
+      final share = await open();
+      final ids = await tree();
+      final trips = ids['Trips']!;
+      final lisbon = ids['Lisbon']!;
+      await share.setFolderShared(lisbon, true);
+
+      failingFolderWrite = 2;
+      await expectLater(
+        share.setFolderShared(trips, true),
+        throwsA(isA<StateError>()),
+      );
+      expect(await marks(), {'folders/$lisbon'});
+
+      failingFolderWrite = null;
+      final change = await share.setFolderShared(trips, true);
+      // The Undo's second write — Lisbon marked again — throws.
+      failingFolderWrite = 5;
+      await expectLater(share.undo(change), throwsA(isA<StateError>()));
+      expect(await marks(), {'folders/$trips'});
+    });
+
+    test('refused unless ready; a folder of the partner\'s, or one that is '
+        'gone, writes nothing', () async {
+      await pairWith();
+      sync.bound = false;
+      final share = await open();
+      final mine = (await db.folderDao.createFolder(name: 'Trips')).id;
+      final theirs = (await db.folderDao.createFolder(
+        name: 'Their trips',
+        ownerId: 'partner',
+      )).id;
+      await db.syncDao.setValue(SyncDao.keySharedOwner, 'partner');
+
+      await expectLater(
+        share.setFolderShared(mine, true),
+        throwsA(isA<ShareRefused>()),
+      );
+      expect(folderMarks, isEmpty);
+      sync.bound = true;
+      expect(await share.setFolderShared(theirs, true), ShareChange.none);
+      expect(await share.setFolderShared('missing', true), ShareChange.none);
+
+      expect(await marks(), isEmpty);
+      await pumpEventQueue();
+      expect(runs, 0);
+    });
+
+    group('the overview', () {
+      /// The partner's `Their recipes` at the top with `Soups` in it, two
+      /// notes there; a mark of theirs left on it, which is no share of
+      /// mine. Made before the owner is named, as the reader would.
+      Future<String> theirs() async {
+        final dao = db.folderDao;
+        final recipes = (await dao.createFolder(
+          name: 'Their recipes',
+          ownerId: 'partner',
+        )).id;
+        final soups = (await dao.createFolder(
+          name: 'Soups',
+          parentId: recipes,
+          ownerId: 'partner',
+        )).id;
+        for (final title in ['Leek', 'Pea']) {
+          await db.noteDao.createNote(
+            folderId: soups,
+            title: title,
+            ownerId: 'partner',
+          );
+        }
+        await db.customStatement(
+          "UPDATE folders SET shared_pair = 'pair-9' WHERE id = '$recipes'",
+        );
+        await db.syncDao.setValue(SyncDao.keySharedOwner, 'partner');
+        return recipes;
+      }
+
+      test('lists my folders no mark above covers — where each lies, the '
+          'notes under it — and the partner\'s top folders', () async {
+        await pairWith();
+        final share = await open();
+        final ids = await tree();
+        await notes(ids['Trips']!, 1);
+        await notes(ids['Lisbon']!, 2);
+        await notes(ids['Porto']!, 1);
+        await notes(ids['Reports']!, 1);
+        final gone = await db.noteDao.createNote(
+          folderId: ids['Lisbon']!,
+          title: 'gone',
+        );
+        await db.noteDao.softDeleteNote(gone.id);
+        await share.setFolderShared(ids['Trips']!, true);
+        await share.setFolderShared(ids['Reports']!, true);
+        // A mark under Trips, as a merge can leave one: covered, not listed.
+        await db.customStatement(
+          "UPDATE folders SET shared_pair = 'pair-1' "
+          "WHERE id = '${ids['Lisbon']}'",
+        );
+        final recipes = await theirs();
+
+        final overview = await share.overview(withCounts: true);
+
+        expect(overview.folders, [
+          MySharedFolder(
+            id: ids['Reports']!,
+            name: 'Reports',
+            parentName: 'Work',
+            noteCount: 1,
+          ),
+          MySharedFolder(
+            id: ids['Trips']!,
+            name: 'Trips',
+            parentName: null,
+            noteCount: 4,
+          ),
+        ]);
+        expect(overview.folderCount, 2);
+        expect(overview.partnerFolders, [
+          PartnerSharedFolder(id: recipes, name: 'Their recipes', noteCount: 2),
+        ]);
+      });
+
+      test('a summary reads how many folders I share, never the '
+          'lists', () async {
+        await pairWith();
+        final share = await open();
+        final ids = await tree();
+        await share.setFolderShared(ids['Trips']!, true);
+        await share.setFolderShared(ids['Reports']!, true);
+        await theirs();
+        counter.reset();
+
+        final summary = await share.overview();
+
+        expect(summary.folderCount, 2);
+        expect(summary.folders, isEmpty);
+        expect(summary.partnerFolders, isEmpty);
+        expect(counter.matching('GROUP BY'), isEmpty);
+      });
+
+      test(
+        'a summary knows a folder of the partner\'s is held, in the '
+        'statement it already runs (D30: "Stop syncing" says it leaves)',
+        () async {
+          await pairWith();
+          final share = await open();
+          await tree();
+          expect((await share.overview()).holdsPartnerRows, isFalse);
+
+          await theirs();
+          counter.reset();
+          final summary = await share.overview();
+
+          expect(summary.partnerFolders, isEmpty);
+          expect(summary.partnerSharesFolders, isTrue);
+          expect(summary.holdsPartnerRows, isTrue);
+          expect(counter.matching('FROM folders'), hasLength(1));
+        },
+      );
+
+      test('nothing is read for folders where no folder is shared either '
+          'way; two statements at most where both are', () async {
+        await pairWith();
+        final share = await open();
+        final ids = await tree();
+        counter.reset();
+
+        final none = await share.overview(withCounts: true);
+
+        expect(none.folders, isEmpty);
+        expect(none.partnerFolders, isEmpty);
+        // The one statement that asks whether any mark stands answers for
+        // the folders too.
+        expect(counter.matching('FROM folders'), hasLength(1));
+        expect(counter.matching('FROM roots'), isEmpty);
+
+        await share.setFolderShared(ids['Trips']!, true);
+        await theirs();
+        counter.reset();
+        await share.overview(withCounts: true);
+        expect(counter.matching('FROM roots'), hasLength(2));
+        expect(counter.matching('FROM folders'), hasLength(3));
+
+        counter.reset();
+        await share.overview();
+        expect(counter.matching('FROM roots'), hasLength(1));
+      });
+    });
+  });
+
   group('the overview', () {
     test('lists mine, the partner\'s and what the page says, from local '
         'reads', () async {
@@ -908,21 +1249,24 @@ void main() {
       expect(overview.eventCounts, {work: 1, 'general': 1});
     });
 
-    test('a summary\'s overview — the Pairing row\'s — reads no counts: the '
-        'grouped count over every event is the Sharing page\'s alone', () async {
-      await pairWith();
-      final share = await open();
-      await event('e1');
-      counter.reset();
+    test(
+      'a summary\'s overview — the Pairing row\'s — reads no counts: the '
+      'grouped count over every event is the Sharing page\'s alone',
+      () async {
+        await pairWith();
+        final share = await open();
+        await event('e1');
+        counter.reset();
 
-      final summary = await share.overview();
+        final summary = await share.overview();
 
-      expect(summary.eventCounts, isEmpty);
-      expect(counter.matching('GROUP BY'), isEmpty);
-      expect((await share.overview(withCounts: true)).eventCounts, {
-        'general': 1,
-      });
-    });
+        expect(summary.eventCounts, isEmpty);
+        expect(counter.matching('GROUP BY'), isEmpty);
+        expect((await share.overview(withCounts: true)).eventCounts, {
+          'general': 1,
+        });
+      },
+    );
 
     test('says "Could not check" only after a failure newer than the last '
         'completed read — never for an install that wrote only the old '
@@ -992,6 +1336,53 @@ void main() {
       // The pair ended: the marker goes with the reader's keys.
       await db.sharedRowDao.removeAll();
       expect(await db.syncDao.getValue(SyncDao.keyShareSending), isNull);
+    });
+
+    test('an act whose every entry the push set aside is waiting, not '
+        'sending: a park at or above the entry holds it, a later edit or '
+        'another entry is in flight again', () async {
+      await pairWith();
+      final share = await open();
+      await event('e1');
+      await event('e2');
+      Future<String> hlcOf(String key) async =>
+          (await db
+                  .customSelect(
+                    'SELECT hlc FROM sync_outbox WHERE row_key = ?',
+                    variables: [Variable<String>(key)],
+                  )
+                  .getSingle())
+              .read<String>('hlc');
+      Future<void> park(String key, String stamp) => db.syncDao.setValue(
+        SyncDao.keyPushParked('calendar_events', key),
+        '0000000001|$stamp|refused',
+      );
+      await db.syncOutboxDao.clear();
+
+      await share.setEventShared('e1', true);
+      var overview = await share.overview();
+      expect((overview.sending, overview.sendingParked), (true, false));
+
+      await park('e1', await hlcOf('e1'));
+      overview = await share.overview();
+      expect((overview.sending, overview.sendingParked), (true, true));
+
+      await events.upsert(cached('e1').copyWith(title: 'Renamed'));
+      overview = await share.overview();
+      expect(
+        (overview.sending, overview.sendingParked),
+        (true, false),
+        reason: 'an edit since the park is a new write, and goes',
+      );
+
+      await park('e1', await hlcOf('e1'));
+      await events.upsert(cached('e2').copyWith(title: 'Renamed'));
+      overview = await share.overview();
+      expect((overview.sending, overview.sendingParked), (true, false));
+
+      await db.syncOutboxDao.clear();
+      overview = await share.overview();
+      expect((overview.sending, overview.sendingParked), (false, false));
     });
 
     test('shares anything is the database\'s answer: a shared folder alone '
@@ -1100,6 +1491,43 @@ void main() {
       expect(await share.hiddenCategories(), isEmpty);
     });
 
+    test('the published look is only ever one that was read: a write over '
+        'nothing publishes nothing, a write after a read lands on it', () async {
+      final share = await open();
+      ShareService.publishLookForTesting(null);
+
+      await share.setEventLook(ShareEventLook.avatar);
+      await share.setNoteLook(ShareNoteLook.plain);
+      await share.setMarkMine(false);
+      expect(await share.noteLook(), ShareNoteLook.plain);
+      expect(ShareService.publishedLook, isNull);
+
+      expect(await share.markMine(), isFalse);
+      expect(
+        ShareService.publishedLook,
+        const ShareLook(
+          eventLook: ShareEventLook.avatar,
+          noteLook: ShareNoteLook.plain,
+          markMine: false,
+        ),
+      );
+      await share.setMarkMine(true);
+      expect(ShareService.publishedLook!.markMine, isTrue);
+      expect(ShareService.publishedLook!.noteLook, ShareNoteLook.plain);
+    });
+
+    test('a read that ends after the database switched publishes nothing '
+        'into the new one', () async {
+      final share = await open();
+      ShareService.publishLookForTesting(null);
+
+      final reading = share.markMine();
+      DatabaseLifecycle.notifyDatabaseSwitching();
+      await reading;
+
+      expect(ShareService.publishedLook, isNull);
+    });
+
     test('each round-trips, and the page settings carry the looks', () async {
       final share = await open();
 
@@ -1129,6 +1557,47 @@ void main() {
 
       await share.setHiddenCategories(const {});
       expect(await share.hiddenCategories(), isEmpty);
+    });
+
+    test('the notes look is Avatar until set, is stored under its own key, '
+        'and comes with the other looks while paired', () async {
+      await pairWith();
+      final share = await open();
+      expect(await share.noteLook(), ShareNoteLook.avatar);
+      expect((await share.looks()).noteLook, ShareNoteLook.avatar);
+
+      await share.setNoteLook(ShareNoteLook.plain);
+      await share.setEventLook(ShareEventLook.avatar);
+
+      expect(await share.noteLook(), ShareNoteLook.plain);
+      expect(
+        await db.userSettingsDao.getValue(SettingsKeys.shareNoteLook),
+        'plain',
+      );
+      counter.reset();
+      expect(
+        await share.looks(),
+        const ShareLook(
+          eventLook: ShareEventLook.avatar,
+          noteLook: ShareNoteLook.plain,
+        ),
+      );
+      expect(counter.count, 1, reason: 'every look in one statement');
+    });
+
+    test('an account that never paired reads the looks with the statement it '
+        'always ran: the notes look is not asked for', () async {
+      final share = await open();
+      await share.setNoteLook(ShareNoteLook.plain);
+      counter.reset();
+
+      await share.looks();
+
+      expect(counter.count, 1);
+      expect(
+        counter.captured.single.args,
+        isNot(contains(SettingsKeys.shareNoteLook)),
+      );
     });
 
     test('a change of what may ring runs the alert pass', () async {
@@ -1268,6 +1737,177 @@ void main() {
         reason: 'counted while hidden too',
       );
       expect(overview.partnerEvents.map((e) => e.id), ['t3']);
+    });
+
+    /// A registration armed for [eventId], as the alert pass records one —
+    /// an hour ahead unless [fireAt] says when.
+    Future<void> armOn(
+      String eventId,
+      int osId, {
+      String state = 'pending',
+      DateTime? fireAt,
+    }) => db.alertRegistrationDao.put(
+          AlertRegistrationsCompanion.insert(
+            osId: Value(osId),
+            alertId: 'a$osId',
+            eventId: eventId,
+            day: 0,
+            fireAt: (fireAt ?? DateTime.now().add(const Duration(hours: 1)))
+                .millisecondsSinceEpoch,
+            state: Value(state),
+            backend: 'fake',
+            createdAt: day,
+            updatedAt: day,
+          ),
+        );
+
+    group('what is armed on theirs (D30)', () {
+      test('counts their events holding an armed alert of mine, never mine, '
+          'never one no longer pending, an event once for two', () async {
+        final share = await seedPartner();
+        await armOn('t1', 1);
+        await armOn('t1', 2);
+        await armOn('t2', 3);
+        await armOn('t3', 4, state: 'fired');
+        await armOn('m2', 5);
+
+        expect(await share.armedOnPartner(), 2);
+        expect(await share.armedOnPartner(categoryId: 'p1'), 1);
+        expect(await share.armedOnPartner(categoryId: 'cardio'), 1);
+        expect(await share.armedOnPartner(categoryId: 'work'), 0);
+      });
+
+      group('the hide\'s notice, posted once written (A13)', () {
+        late List<ShareNotice> notices;
+
+        setUp(() {
+          notices = [];
+          final listening = ShareService.notices.listen(notices.add);
+          addTearDown(listening.cancel);
+        });
+
+        test('one notice names the category whose alerts went off', () async {
+          final share = await seedPartner();
+          await armOn('t1', 1);
+
+          await share.setCategoryShown('p1', false);
+          await pumpEventQueue();
+
+          expect(notices, [
+            const ShareHiddenWithAlerts(categoryId: 'p1', name: 'Their trips'),
+          ]);
+        });
+
+        test('nothing when nothing was armed, and nothing on showing it '
+            'again', () async {
+          final share = await seedPartner();
+          await armOn('t2', 1);
+
+          await share.setCategoryShown('p1', false);
+          await armOn('t1', 2);
+          await share.setCategoryShown('p1', true);
+          await pumpEventQueue();
+
+          expect(notices, isEmpty);
+        });
+
+        test('nothing when the hide could not be written', () async {
+          final share = await seedPartner();
+          await armOn('t1', 1);
+          counter.onStatement = (sql, args) =>
+              !sql.startsWith('SELECT') &&
+                  args.contains(SettingsKeys.shareHiddenCategories)
+              ? Future<void>.error(StateError('disk full'))
+              : null;
+          addTearDown(() => counter.onStatement = null);
+
+          await expectLater(
+            share.setCategoryShown('p1', false),
+            throwsA(isA<StateError>()),
+          );
+          await pumpEventQueue();
+
+          expect(notices, isEmpty);
+        });
+
+        test('nothing when the database switched between the ask and the '
+            'write: the hide was abandoned there', () async {
+          final share = await seedPartner();
+          await armOn('t1', 1);
+          counter.onStatement = (sql, args) {
+            if (!sql.startsWith('SELECT') &&
+                args.contains(SettingsKeys.shareHiddenCategories)) {
+              DatabaseLifecycle.notifyDatabaseSwitching();
+            }
+            return null;
+          };
+          addTearDown(() => counter.onStatement = null);
+
+          await share.setCategoryShown('p1', false);
+          await pumpEventQueue();
+
+          expect(notices, isEmpty);
+        });
+      });
+
+      test('a registration whose time has passed, not swept yet, is armed '
+          'no more', () async {
+        final share = await seedPartner();
+        await armOn(
+          't1',
+          1,
+          fireAt: DateTime.now().subtract(const Duration(minutes: 5)),
+        );
+
+        expect(await share.armedOnPartner(), 0);
+      });
+
+      test('reads nothing while the calendar holds none of theirs, one '
+          'statement otherwise', () async {
+        await pairWith();
+        final share = await open();
+        await event('m1');
+        await armOn('m1', 1);
+        await events.reload();
+        counter.reset();
+
+        expect(await share.armedOnPartner(), 0);
+        expect(counter.captured, isEmpty);
+      });
+
+      test('a summary holds the partner\'s rows through their categories and '
+          'a single event, a hidden category included', () async {
+        final share = await seedPartner();
+        expect((await share.overview()).holdsPartnerRows, isTrue);
+
+        await share.setHiddenCategories({'p1', 'cardio'});
+        final summary = await share.overview();
+        expect(summary.partnerEvents.map((e) => e.id), ['t3']);
+        expect(summary.holdsPartnerRows, isTrue);
+      });
+
+      test('one statement when the calendar holds theirs', () async {
+        final share = await seedPartner();
+        await armOn('t1', 1);
+        counter.reset();
+
+        expect(await share.armedOnPartner(), 1);
+        expect(counter.captured, hasLength(1));
+      });
+
+      test(
+        'hiding the category answers what its events held armed, read '
+        'before the pass; hiding it again, or showing it, answers 0',
+        () async {
+          final share = await seedPartner();
+          await armOn('t1', 1);
+
+          expect(await share.setCategoryShown('p1', false), 1);
+          expect(await share.setCategoryShown('p1', false), 0);
+          expect(await share.setCategoryShown('p1', true), 0);
+          expect(await share.setCategoryShown('cardio', false), 0);
+        },
+      );
     });
 
     test('showing it again brings its events back with one local reload, no '
@@ -1482,8 +2122,9 @@ void main() {
       });
 
       /// What `SharedRowDao.isShared` asks of the events.
-      int sharedAsks() =>
-          counter.matching('SELECT EXISTS(SELECT 1 FROM calendar_events').length;
+      int sharedAsks() => counter
+          .matching('SELECT EXISTS(SELECT 1 FROM calendar_events')
+          .length;
 
       Future<void> writeAndDeleteUncached() async {
         await events.upsert(
@@ -1509,19 +2150,21 @@ void main() {
         expect(sharedAsks(), 0);
       });
 
-      test('nor one that did, nothing hidden — or hidden and shown again',
-          () async {
-        final share = await seedPartner();
-        counter.reset();
-        await writeAndDeleteUncached();
-        expect(sharedAsks(), 0);
+      test(
+        'nor one that did, nothing hidden — or hidden and shown again',
+        () async {
+          final share = await seedPartner();
+          counter.reset();
+          await writeAndDeleteUncached();
+          expect(sharedAsks(), 0);
 
-        await share.setCategoryShown('p1', false);
-        await share.setCategoryShown('p1', true);
-        counter.reset();
-        await writeAndDeleteUncached();
-        expect(sharedAsks(), 0);
-      });
+          await share.setCategoryShown('p1', false);
+          await share.setCategoryShown('p1', true);
+          counter.reset();
+          await writeAndDeleteUncached();
+          expect(sharedAsks(), 0);
+        },
+      );
 
       test('while one is hidden, one keyed read per id the cache does not '
           'hold', () async {

@@ -151,6 +151,7 @@ class _FakeNoteStorage extends NoteStorageService {
   List<NoteMetadata> recents = const [];
   int pageSizeAsked = 0;
   NotesSortOrder? sortOrderAsked;
+  bool? ownOnlyAsked;
   Object? failure;
 
   /// What the next [labelsInUse] answers, and every scope it was asked for —
@@ -169,9 +170,11 @@ class _FakeNoteStorage extends NoteStorageService {
     int page = 1,
     int pageSize = NoteStorageService.defaultPageSize,
     NotesSortOrder sortOrder = NotesSortOrder.updatedDesc,
+    bool ownOnly = false,
   }) async {
     pageSizeAsked = pageSize;
     sortOrderAsked = sortOrder;
+    ownOnlyAsked = ownOnly;
     if (recentsGate != null) await recentsGate!.future;
     if (failure != null) throw failure!;
     return PaginatedNotes(
@@ -318,6 +321,11 @@ void main() {
 
       expect(noteStorage.pageSizeAsked, SearchBloc.recentsPageSize);
       expect(noteStorage.sortOrderAsked, NotesSortOrder.updatedDesc);
+      expect(
+        noteStorage.ownOnlyAsked,
+        isTrue,
+        reason: 'recents never list the partner\'s notes (share surfaces D17)',
+      );
       expect(
         noteStorage.labelsInUseCalls,
         hasLength(1),

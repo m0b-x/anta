@@ -23,6 +23,13 @@ abstract final class AgentOps {
   /// its title ([AgentKeys.name]) and kind ([AgentKeys.kind]).
   static const String share = 'share';
 
+  /// Moves a timed event of this database, named by its title
+  /// ([AgentKeys.name]), [AgentKeys.minutes] later in its day through the
+  /// save the event editor makes: what the other account's phone has to
+  /// follow while its app is closed. An older driver build answers
+  /// "unknown op".
+  static const String moveEvent = 'move-event';
+
   /// Scrolls the semantics node [AgentNodeKeys.semanticsId] names into view
   /// with `SemanticsAction.showOnScreen`, the action TalkBack uses, so a row
   /// a sheet has scrolled past is reached without a flow-authored swipe.
@@ -54,6 +61,10 @@ abstract final class AgentKeys {
   static const String on = 'on';
   static const String pair = 'pair';
   static const String rowId = 'rowId';
+
+  /// `move-event`: how far to move the start, and in the answer the minute
+  /// of the day it starts at now.
+  static const String minutes = 'minutes';
   static const String x2 = 'x2';
   static const String y2 = 'y2';
   static const String ms = 'ms';

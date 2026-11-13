@@ -17,10 +17,12 @@ import '../bloc/optimized_note/optimized_note_event.dart';
 import '../bloc/optimized_note/optimized_note_state.dart';
 import '../bloc/search/search_bloc.dart';
 import '../constants/app_colors.dart';
+import '../constants/form_metrics.dart';
 import '../constants/row_metrics.dart';
 import '../constants/semantics_ids.dart';
 import '../constants/settings_keys.dart';
 import '../controllers/in_place_search_controller.dart';
+import '../controllers/partner_look_reader.dart';
 import '../controllers/selection_controller.dart';
 import '../models/content_item.dart';
 import '../models/export_format.dart';
@@ -30,6 +32,7 @@ import '../models/item_label.dart';
 import '../models/movable_item.dart';
 import '../models/note_metadata.dart';
 import '../models/search_scope.dart';
+import '../models/share_overview.dart' show ShareChange;
 import '../repositories/note_repository.dart';
 import '../services/folder_search_service.dart';
 import '../services/folder_storage_service.dart';
@@ -39,6 +42,7 @@ import '../services/move_coordinator.dart';
 import '../services/move_history_service.dart';
 import '../services/note_storage_service.dart';
 import '../services/settings_service.dart';
+import '../services/share_service.dart';
 import '../widgets/infinite_scroll_list.dart';
 import '../widgets/app_drawer.dart';
 import '../widgets/automation_id.dart';
@@ -50,10 +54,13 @@ import '../widgets/label_swatch_strip.dart';
 import '../widgets/note_row.dart';
 import '../widgets/search_field_app_bar.dart';
 import '../widgets/search_surface.dart';
+import '../widgets/share_list_frame.dart' show undoSharePastBloc;
 import '../widgets/selection_action_bar.dart';
 import '../widgets/selection_app_bar.dart';
 import '../utils/bloc_helpers.dart';
 import '../utils/custom_snackbar.dart';
+import '../utils/share_copy.dart';
+import '../utils/share_leave_voice.dart';
 import '../widgets/app_dialogs.dart';
 import '../services/app_navigator.dart';
 import '../widgets/move_history_sheet.dart';
@@ -69,13 +76,26 @@ sealed class _RowEntry {
 
 class _SectionEntry extends _RowEntry {
   final String label;
-  const _SectionEntry(this.label);
+
+  /// The header's `SemanticsIds` value, for one whose words a flow cannot
+  /// spell — the root's "From {name}".
+  final String? identifier;
+  const _SectionEntry(this.label, {this.identifier});
 }
 
 class _ItemEntry extends _RowEntry {
   final ContentItem item;
   final RowGroupPosition position;
   const _ItemEntry(this.item, this.position);
+}
+
+/// One of the partner's folders in the root's "From {name}" group: a row
+/// apart from [_ItemEntry], so the reorder, which reads only those, can
+/// neither lift one nor land a row of mine among them.
+class _PartnerEntry extends _RowEntry {
+  final Folder folder;
+  final RowGroupPosition position;
+  const _PartnerEntry(this.folder, this.position);
 }
 
 /// Which bar is occupying the top of the page, and therefore how much scroll
@@ -168,10 +188,17 @@ class OptimizedFolderContentPage extends StatefulWidget {
   final String? folderId;
   final String title;
 
+  /// Whether the folder is the partner's, as the opener knew it — a row
+  /// does; null when it could not say (launch restore, a list of ids).
+  /// What makes the page read-only from its first frame, before its own
+  /// folder is read.
+  final bool? fromPartner;
+
   const OptimizedFolderContentPage({
     super.key,
     this.folderId,
     required this.title,
+    this.fromPartner,
   });
 
   @override
@@ -194,6 +221,20 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
   /// This page's own folder, for the overflow menu's rename/move/share/
   /// delete rows. Null on the root page, and until the first read answers.
   Folder? _folder;
+
+  /// Whose each row is, as this page draws it: read once the database is
+  /// known to hold something shared, never per row, and null — today's
+  /// rows — for an account that shares nothing.
+  late final PartnerLookReader _partnerLook = PartnerLookReader()
+    ..addListener(_onPartnerLook);
+
+  /// The root's folders the partner shares, drawn under "From {name}" after
+  /// the person's own: never part of [_localMixed], so no reorder, select
+  /// all or drop can reach one. Read whole, apart from the root's paged
+  /// folders, once the census says the database holds a shared row.
+  List<Folder> _partnerFolders = const [];
+  bool _partnerAsked = false;
+  int _partnerFoldersGeneration = 0;
 
   /// Root → direct parent, excluding this folder. Feeds both the eyebrow
   /// above the large title and the ancestor menu behind it. Null until the
@@ -301,6 +342,12 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
   static const _countDebounceDuration = Duration(milliseconds: 120);
   StreamSubscription<FolderChange>? _folderChangesSub;
   StreamSubscription<NoteChange>? _noteChangesSub;
+  StreamSubscription<void>? _shareFactsSub;
+  Timer? _shareRefreshDebounce;
+
+  /// Whether the census held a shared row or a mark when the list last
+  /// read it: the "before" of a share-facts change.
+  bool _heldShared = false;
 
   /// The rows as the list renders them: section labels and content items in
   /// one flat sequence, rebuilt whenever the displayed items change. The
@@ -365,19 +412,124 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
     _loadSettings();
     _loadSortPreferencesAndData();
     if (widget.folderId == null) _loadAllNotesCount();
+    if (_openedAsPartners) _partnerLook.start();
   }
 
   /// One subscription for the whole page, not one per row: any folder or note
   /// write can change a descendant-inclusive count, and the debounce collapses
   /// a burst into a single re-read of every visible folder.
   void _subscribeToContentChanges() {
-    _folderChangesSub = _folderStorageService.changes.listen(
-      (_) => _scheduleCountRefresh(),
-    );
+    _folderChangesSub = _folderStorageService.changes.listen((change) {
+      _leaveIfPartnerFolderGone(change);
+      _scheduleCountRefresh();
+    });
     _noteChangesSub = GetIt.I<NoteStorageService>().changes.listen(
       (_) => _scheduleCountRefresh(),
     );
+    _shareFactsSub = GetIt.I<NoteStorageService>().shareFactsChanged.listen(
+      (_) => _scheduleShareRefresh(),
+    );
   }
+
+  void _onPartnerLook() {
+    if (mounted) setState(() {});
+  }
+
+  /// The share facts changed under the page — an act from the Sharing page,
+  /// an Undo tapped after its page left, another device's merge, a shared
+  /// read — which no folder change announces: the signs on the rows and the
+  /// menu's entry are read again, once per burst. A database whose census
+  /// held nothing before and holds nothing after reloads nothing.
+  void _scheduleShareRefresh() {
+    if (!mounted) return;
+    _shareRefreshDebounce?.cancel();
+    _shareRefreshDebounce = Timer(_countDebounceDuration, () async {
+      final before = _heldShared;
+      final after = await _folderStorageService.holdsSharedRead();
+      if (!mounted || (!before && !after)) return;
+      _heldShared = after;
+      await _reloadShares(invalidate: false);
+    });
+  }
+
+  /// The root's "From {name}" group, in one read; again after a folder
+  /// change, as the counts are.
+  Future<void> _loadPartnerFolders() async {
+    final generation = ++_partnerFoldersGeneration;
+    try {
+      final folders = await _folderStorageService.loadPartnerTopFolders();
+      if (!mounted || generation != _partnerFoldersGeneration) return;
+      if (listEquals(folders, _partnerFolders)) return;
+      setState(() => _partnerFolders = folders);
+    } catch (e, stackTrace) {
+      debugPrint('[FolderPage] partner folders not read: $e\n$stackTrace');
+    }
+  }
+
+  /// The partner's folder this page shows stopped being shared while open
+  /// (share surfaces §6.12, case N6): the shared reader removed it and
+  /// announced it gone ([FolderRepository.announceRemoved]). The page closes
+  /// with the menus and sheets it opened above itself, and the bar says why
+  /// once however deep the visit went. Only this page's own routes: a page
+  /// of the partner's above it closes itself the same way, and one under it
+  /// — the root, the Sharing page it was opened from — is left alone.
+  void _leaveIfPartnerFolderGone(FolderChange change) {
+    if (change.type != FolderChangeType.deleted ||
+        !change.remote ||
+        change.folderId != widget.folderId ||
+        !(_folder?.fromPartner ?? false) ||
+        !mounted) {
+      return;
+    }
+    final route = ModalRoute.of(context);
+    if (route == null || !route.isActive || route.isFirst) return;
+    final navigator = Navigator.of(context);
+    final l10n = AppLocalizations.of(context)!;
+    final message = ShareCopy.sentence(
+      l10n.shareGoneFolder(
+        ShareCopy.partnerName(l10n, _partnerLook.value?.name),
+      ),
+    );
+    final pages = AppNavigator.routeObserver.pageRoutes
+        .where((page) => page.navigator == navigator && page.isActive)
+        .toList();
+    final at = pages.indexOf(route);
+    // One voice for the whole leave: the page in front speaks — this one
+    // when nothing is above it; else the line waits for a page of the same
+    // leave in front (her note's editor, a deeper folder) to speak first,
+    // and is said from the navigator, which outlives this page.
+    if (at == pages.length - 1) {
+      ShareLeaveVoice.claim(() => CustomSnackbar.show(context, message));
+    } else {
+      final host = navigator.context;
+      ShareLeaveVoice.offer(() {
+        if (host.mounted) CustomSnackbar.show(host, message);
+      });
+    }
+    if (at < 0) {
+      // Unrecorded, so what lies above is unknown: this route alone.
+      navigator.removeRoute(route);
+      return;
+    }
+    if (at < pages.length - 1) {
+      // A page above this one is still open — it is not this page's to
+      // close. What lies between the two is this page's own: a sheet or a
+      // dialog it opened, then the page that sheet pushed. Each goes from
+      // under that page, down to and with this one.
+      final above = pages[at + 1];
+      for (var guard = 0; route.isActive && guard < _ownRoutesLimit; guard++) {
+        navigator.removeRouteBelow(above);
+      }
+      return;
+    }
+    navigator.popUntil((above) => above == route);
+    navigator.pop();
+  }
+
+  /// A bound on the routes [_leaveIfPartnerFolderGone] removes from under
+  /// an upper page — a sheet, a dialog over it — so a stack it misreads
+  /// never loses more than a page's own.
+  static const int _ownRoutesLimit = 8;
 
   void _scheduleCountRefresh() {
     if (!mounted) return;
@@ -386,6 +538,7 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
       if (!mounted) return;
       _loadFolderCounts(_countedFolderIds, force: true);
       if (widget.folderId == null) _loadAllNotesCount();
+      if (_partnerAsked) unawaited(_loadPartnerFolders());
     });
   }
 
@@ -628,7 +781,8 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
   }
 
   /// The note-preview switch lives in the settings page the drawer opens over
-  /// this one, so the only moment it can have changed is the pop back.
+  /// this one, so the only moment it can have changed is the pop back — and
+  /// so do the notes look and the mark switch, on the Sharing page.
   ///
   /// Search is deliberately left standing: the page was never unmounted, so
   /// query, scope and scroll are still there. Only the hits are re-run, so a
@@ -636,6 +790,7 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
   @override
   void didPopNext() {
     _loadSettings();
+    unawaited(_partnerLook.refresh());
     if (_searching) _search.refresh();
   }
 
@@ -655,7 +810,10 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
     _selectionSub?.cancel();
     _folderChangesSub?.cancel();
     _noteChangesSub?.cancel();
+    _shareFactsSub?.cancel();
+    _shareRefreshDebounce?.cancel();
     _countDebounce?.cancel();
+    _partnerLook.dispose();
     _selection.dispose();
     _search.dispose();
     _scrollController.dispose();
@@ -1061,6 +1219,7 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
     final isRootPage = widget.folderId == null;
     final isSelecting = _selection.isActive;
     final colorScheme = Theme.of(context).colorScheme;
+    if (_holdsForLook) return ColoredBox(color: colorScheme.pageGround);
 
     final scaffold = Scaffold(
       key: _scaffoldKey,
@@ -1114,7 +1273,11 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
                       selectedLabels: searchState.labels,
                       onLeave: _exitSearch,
                     ),
-                    ...SearchSurface.resultSlivers(context, searchState),
+                    ...SearchSurface.resultSlivers(
+                      context,
+                      searchState,
+                      partnerLook: _partnerLook.value,
+                    ),
                   ]
                 : [
                     if (!isSelecting)
@@ -1165,10 +1328,26 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
                               onDeleteFolder: isRootPage
                                   ? null
                                   : _deleteCurrentFolder,
+                              readOnly: _readOnly,
+                              partnerShare: _folder == null
+                                  ? null
+                                  : _shareEntryFor(_folder!),
+                              onPartnerShare: () => _toggleShared(_folder!),
+                              beforeOpen: isRootPage || _readOnly
+                                  ? null
+                                  : _askPairing(),
                             ),
                           ),
                         ],
                       ),
+                    if (_readOnly && !isSelecting) ...[
+                      PinnedHeaderSliver(child: _buildPartnerLine(context)),
+                      // The air one group leaves the next, so the band does
+                      // not sit tight on the first section's label.
+                      const SliverToBoxAdapter(
+                        child: SizedBox(height: RowMetrics.groupGap),
+                      ),
+                    ],
                     ..._buildContentSlivers(isSelecting: isSelecting),
                     _buildEmptyStateSection(),
                   ],
@@ -1275,7 +1454,7 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
                       icon: Icons.create_new_folder_outlined,
                       tooltip: l10n.newFolder,
                       identifier: SemanticsIds.createFolder,
-                      onPressed: _showCreateFolderDialog,
+                      onPressed: _readOnly ? null : _showCreateFolderDialog,
                     ),
                     if (isRootPage)
                       _barButton(
@@ -1288,7 +1467,7 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
                         icon: Icons.note_add_outlined,
                         tooltip: l10n.newNote,
                         identifier: SemanticsIds.createNote,
-                        onPressed: _createNewNote,
+                        onPressed: _readOnly ? null : _createNewNote,
                       ),
                   ],
                 ),
@@ -1315,10 +1494,13 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
   /// One of the create bar's two buttons: a 54 dp target around a 28 dp
   /// glyph in the page's one accent, sized explicitly because the default
   /// [IconButton] target is taller than the 60 dp bar it sits in.
+  ///
+  /// Inside the partner's folder both stay, disabled, in their place: the
+  /// line under the bar says why (§16.8 fd).
   Widget _barButton({
     required IconData icon,
     required String tooltip,
-    required VoidCallback onPressed,
+    required VoidCallback? onPressed,
     String? identifier,
   }) {
     final button = IconButton(
@@ -1880,6 +2062,136 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
     );
   }
 
+  // ─── Sharing with the partner (share surfaces §6.11–§6.12) ──────────────
+
+  /// This page shows the partner's folder, at any depth: nothing on it
+  /// writes, and the line under the bar says so.
+  ///
+  /// Known before the folder is read — from the opener, else from the
+  /// warm caches ([_openedAsPartners]) — so neither the create bar nor the
+  /// line changes after the first frame; a folder of mine waits for nothing.
+  bool get _readOnly => _folder?.fromPartner ?? _openedAsPartners;
+
+  /// Whose the folder is as the page could tell at its first frame: the
+  /// opener's word, or the census and folder cache when they are warm.
+  late final bool _openedAsPartners =
+      widget.fromPartner ??
+      (widget.folderId == null
+          ? false
+          : _folderStorageService.knownFromPartner(widget.folderId!) ?? false);
+
+  /// A partner's page holds its first frame until the line's words — the
+  /// partner's name and face — are known, as the read-only note editor does:
+  /// with a long name the line would otherwise grow under the finger. A
+  /// folder of mine never holds.
+  bool get _holdsForLook =>
+      _readOnly && _partnerLook.value == null && _partnerLook.pending;
+
+  /// "From {name} · Read only", pinned under the bar (§16.8 fd).
+  Widget _buildPartnerLine(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final look = _partnerLook.value;
+    return SharedReadOnlyLine(
+      partner: look?.partner,
+      text: ShareCopy.sentence(
+        l10n.sharedNoteLine(ShareCopy.partnerName(l10n, look?.name)),
+      ),
+      identifier: SemanticsIds.browserPartnerLine,
+    );
+  }
+
+  /// What a folder menu or row sheet runs before it opens while nothing in
+  /// memory says whether this database is paired: the one ask of the
+  /// process ([PartnerLookReader.resolve]); null once something knows.
+  Future<void> Function()? _askPairing() =>
+      PartnerLookReader.pairingUnknown ? _partnerLook.resolve : null;
+
+  /// [folder]'s share entry, from what the page last heard of sharing; the
+  /// folder whose mark covers it is this page's own or one above it.
+  FolderShareEntry? _shareEntryFor(Folder folder) => FolderShareEntry.resolve(
+    AppLocalizations.of(context)!,
+    folder,
+    availability: _partnerLook.availability,
+    folderName: (id) => [
+      ?_folder,
+      ...?_ancestors,
+    ].where((ancestor) => ancestor.id == id).firstOrNull?.name,
+  );
+
+  /// Shares [folder], or stops its own mark, and says what that did in the
+  /// Sharing page's words, with an Undo that still works once this page is
+  /// gone — a failure of it is said on the app's messenger.
+  ///
+  /// Fenced by the database the tap was made under: an answer that lands
+  /// after a switch says nothing here. An act that wrote nothing says what
+  /// is true of what was asked — a share found it shared already; a stop
+  /// that found no mark (another device cleared it) says nothing.
+  Future<void> _toggleShared(Folder folder) async {
+    final l10n = AppLocalizations.of(context)!;
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    final name = _partnerLook.value?.name;
+    final generation = ShareService.databaseGeneration;
+    final on = !folder.share.isByMark;
+    final ShareChange change;
+    try {
+      final service = await PartnerLookReader.service();
+      change = await service.setFolderShared(folder.id, on);
+    } on ShareRefused {
+      if (mounted && ShareService.databaseGeneration == generation) {
+        CustomSnackbar.showError(context, l10n.shareNeedsSync);
+      }
+      return;
+    } catch (e, st) {
+      debugPrint('[FolderPage] share not written: $e\n$st');
+      if (mounted && ShareService.databaseGeneration == generation) {
+        CustomSnackbar.showError(context, l10n.shareChangeFailed);
+      }
+      return;
+    }
+    if (!mounted || ShareService.databaseGeneration != generation) return;
+    unawaited(_reloadShares());
+    final message = ShareCopy.folderAct(l10n, change, partnerName: name);
+    if (message == null) {
+      if (on) {
+        CustomSnackbar.show(context, l10n.shareFolderAlready(folder.name));
+      }
+      return;
+    }
+    CustomSnackbar.showWithAction(
+      context,
+      message: message,
+      actionLabel: l10n.undo,
+      actionIdentifier: SemanticsIds.snackbarUndo,
+      onAction: () async {
+        if (ShareService.databaseGeneration != generation) return;
+        await undoSharePastBloc(
+          change,
+          shareService: PartnerLookReader.service,
+          messenger: messenger,
+          l10n: l10n,
+        );
+        if (mounted) await _reloadShares();
+      },
+    );
+  }
+
+  /// The signs follow an act at once: the rows and this page's own folder
+  /// are read again, past the caches that held them unshared.
+  ///
+  /// [invalidate] is off when the census was forgotten already — a forget
+  /// is itself what [_scheduleShareRefresh] hears, and a second would loop.
+  Future<void> _reloadShares({bool invalidate = true}) async {
+    if (invalidate) _folderStorageService.invalidateCache();
+    _loadData();
+    if (_partnerAsked) unawaited(_loadPartnerFolders());
+    final folderId = widget.folderId;
+    if (folderId == null) return;
+    final folder = await _folderStorageService.getFolderById(folderId);
+    if (!mounted || folder == null) return;
+    setState(() => _folder = folder);
+    await _loadAncestors();
+  }
+
   /// Asks first unless "Confirm before delete" is off, as the folder row does
   /// (record D24a); off, the note count only the dialog shows is not looked
   /// up either.
@@ -2050,7 +2362,8 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
             if (!folderHasData || !noteHasData) {
               // No fresh data this build. If we have a previous render,
               // reuse it verbatim; otherwise show the cold-start spinner.
-              if (_localMixed != null && _localMixed!.isNotEmpty) {
+              if (_localMixed != null &&
+                  (_localMixed!.isNotEmpty || _partnerFolders.isNotEmpty)) {
                 return _buildMixedListFromDisplay(
                   display: _localMixed!,
                   isSelecting: isSelecting,
@@ -2066,10 +2379,23 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
               );
             }
 
+            final holdsShared = _folderStorageService.holdsShared;
+            if (_folderStorageService.censusKnown) _heldShared = holdsShared;
+            if (PartnerLookReader.mayShare(holdsShared: holdsShared)) {
+              _partnerLook.start();
+            }
+            if (widget.folderId == null && holdsShared && !_partnerAsked) {
+              _partnerAsked = true;
+              unawaited(_loadPartnerFolders());
+            }
+
             // Keep the SelectAll source-of-truth in sync with what's visible.
             _visibleFolders = folders;
             _visibleNotes = notes;
-            _loadFolderCounts([for (final f in folders) f.id]);
+            _loadFolderCounts([
+              for (final f in folders) f.id,
+              for (final f in _partnerFolders) f.id,
+            ]);
 
             // Kick off a small content preload for the first few notes so
             // tapping in feels instant. Was previously done by the notes
@@ -2078,7 +2404,7 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
               _preloadNoteContent(notes.take(3).map((n) => n.id).toList());
             }
 
-            if (folders.isEmpty && notes.isEmpty) {
+            if (folders.isEmpty && notes.isEmpty && _partnerFolders.isEmpty) {
               _localMixed = null;
               return const SliverToBoxAdapter(child: SizedBox.shrink());
             }
@@ -2149,6 +2475,25 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
     }
 
     addGroup(folders, l10n.folders);
+    final partner = _partnerFolders;
+    if (partner.isNotEmpty) {
+      entries.add(
+        _SectionEntry(
+          l10n.shareFromPartner(
+            ShareCopy.partnerName(l10n, _partnerLook.value?.name),
+          ),
+          identifier: SemanticsIds.browserSectionPartner,
+        ),
+      );
+      for (var i = 0; i < partner.length; i++) {
+        entries.add(
+          _PartnerEntry(
+            partner[i],
+            _positionIn(index: i, length: partner.length),
+          ),
+        );
+      }
+    }
     addGroup(notes, l10n.notes);
     return entries;
   }
@@ -2211,10 +2556,27 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
   /// (`isReorderMode`) — outside of selection the rows show their menu.
   Widget _buildEntry(_RowEntry entry, int index, {required bool isSelecting}) {
     switch (entry) {
-      case _SectionEntry(:final label):
+      case _SectionEntry(:final label, :final identifier):
         return KeyedSubtree(
           key: ValueKey('section:$label'),
-          child: ContentSectionHeader(label: label),
+          child: ContentSectionHeader(label: label, identifier: identifier),
+        );
+      case _PartnerEntry(:final folder, :final position):
+        final row = FolderRow(
+          key: isSelecting ? null : ValueKey('folder:${folder.id}'),
+          folder: folder,
+          noteCount: _folderNoteCounts[folder.id],
+          groupPosition: position,
+          onReturn: _loadData,
+          partnerLook: _partnerLook.value,
+        );
+        if (!isSelecting) return row;
+        // Drawn, so the root keeps its shape, but out of reach: the
+        // partner's folder takes part in no selection, drop or reorder.
+        return Opacity(
+          key: ValueKey('folder:${folder.id}'),
+          opacity: FormMetrics.disabledOpacity,
+          child: IgnorePointer(child: row),
         );
       case _ItemEntry(:final item, :final position):
         switch (item) {
@@ -2233,6 +2595,10 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
               onLongPressItem: _onCardLongPress,
               onTapInSelection: _onCardTapInSelection,
               onAcceptDrop: _onDropOnFolder,
+              partnerLook: _partnerLook.value,
+              partnerShare: () => _shareEntryFor(folder),
+              onPartnerShare: () => _toggleShared(folder),
+              beforeActions: _askPairing(),
             );
           case NoteItem(:final metadata):
             return NoteRow(
@@ -2248,6 +2614,7 @@ class _OptimizedFolderContentPageState extends State<OptimizedFolderContentPage>
               selection: _selection,
               onLongPressItem: _onCardLongPress,
               onTapInSelection: _onCardTapInSelection,
+              partnerLook: _partnerLook.value,
             );
         }
     }

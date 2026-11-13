@@ -2967,13 +2967,57 @@
   "@settingsResetFailed": {
     "description": "Error shown when App settings' Reset to defaults fails part-way"
   },
-  "shareNote": "Share note",
+  "shareNote": "Send a copy",
   "@shareNote": {
-    "description": "Share note option"
+    "description": "Note menu option that exports the note through the system share sheet; says 'copy' so it is never read as sharing with the paired partner"
   },
-  "shareFolder": "Share folder",
+  "shareFolder": "Send a copy",
   "@shareFolder": {
-    "description": "Share folder option (exports folder tree as zip archive)"
+    "description": "Folder menu option that exports the folder tree as a zip archive through the system share sheet; says 'copy' so it is never read as sharing with the paired partner"
+  },
+  "shareGoneFolder": "{name} no longer shares this folder.",
+  "@shareGoneFolder": {
+    "description": "Snackbar when the partner's folder that is open stops being shared; the page returns to the folder list",
+    "placeholders": {
+      "name": { "type": "String", "example": "Maria" }
+    }
+  },
+  "shareOnlyPartnerChanges": "Only {name} can change this.",
+  "@shareOnlyPartnerChanges": {
+    "description": "Line at the top of the long-press sheet of the partner's folder or note: why its actions are disabled",
+    "placeholders": {
+      "name": { "type": "String", "example": "Maria" }
+    }
+  },
+  "shareThroughFolder": "On for everything in {folder}",
+  "@shareThroughFolder": {
+    "description": "Caption under a disabled 'Shared with {name}' entry of a folder that a shared folder around it covers",
+    "placeholders": {
+      "folder": { "type": "String", "example": "Trips" }
+    }
+  },
+  "shareMovedIn": "{moved} · now shared with {name}",
+  "@shareMovedIn": {
+    "description": "Snackbar after a move into a shared folder; {moved} is the usual moved message ('Folder moved', '3 items moved')",
+    "placeholders": {
+      "moved": { "type": "String", "example": "Folder moved" },
+      "name": { "type": "String", "example": "Maria" }
+    }
+  },
+  "shareMovedOut": "{moved} · no longer shared",
+  "@shareMovedOut": {
+    "description": "Snackbar after a move out of a shared folder; {moved} is the usual moved message",
+    "placeholders": {
+      "moved": { "type": "String", "example": "Folder moved" }
+    }
+  },
+  "pickShareConfirm": "Share",
+  "@pickShareConfirm": {
+    "description": "Confirm button of the folder picker opened by 'Share a folder'; the title already says who it goes to. One short word: it must fit at text scale 2.0"
+  },
+  "pickCopyConfirm": "Copy here",
+  "@pickCopyConfirm": {
+    "description": "Confirm button of the folder picker opened by 'Copy to my notes'; the title already says what is copied. Short: it must fit at text scale 2.0"
   },
   "exportingFolder": "Exporting folder...",
   "@exportingFolder": {
@@ -3003,7 +3047,7 @@
       "notes": {"type": "int"}
     }
   },
-  "shareSelected": "Share",
+  "shareSelected": "Send a copy",
   "@shareSelected": {
     "description": "Selection action bar button to export the current selection as a zip"
   },
@@ -13858,7 +13902,7 @@
   "@dataNoticePartner": {
     "description": "Paragraph of the data notice: what a paired partner can see"
   },
-  "dataNoticeShared": "What you share with your partner can be read by their account from your cloud copy, and their phone keeps a read-only copy of it. That copy leaves their phone the next time it syncs after you stop sharing.",
+  "dataNoticeShared": "What you share with your partner — categories, events, and folders with their notes — can be read by their account from your cloud copy, and their phone keeps a read-only copy of it. That copy leaves their phone the next time it syncs after you stop sharing.",
   "@dataNoticeShared": {
     "description": "Paragraph of the data notice: what the paired partner can read of what this person shares, and when it leaves their phone"
   },
@@ -13950,7 +13994,7 @@
     }
   },
   "appGuideSharingPrivateTitle": "What is never shared",
-  "appGuideSharingPrivateBody": "Your notes, counters, alerts, attendance marks, templates and settings stay on your side whatever you share.",
+  "appGuideSharingPrivateBody": "Your counters, alerts, attendance marks, templates and settings stay on your side whatever you share.",
   "sharePartnerFallback": "your partner",
   "@sharePartnerFallback": {
     "description": "Stands in for {name} in every sharing string when the paired partner has no profile name. Lower case: the code capitalises a string that begins with it"
@@ -14001,6 +14045,72 @@
   "shareRowEvents": "Single events",
   "@shareRowEvents": {
     "description": "Sharing page entry and sheet title: events shared one by one, outside a shared category"
+  },
+  "shareRowFolders": "Folders",
+  "@shareRowFolders": {
+    "description": "Sharing page entry and sheet title: the shared folders, mine or the partner's"
+  },
+  "shareFoldersEmpty": "No folder is shared yet.",
+  "@shareFoldersEmpty": {
+    "description": "The one line of the sheet of my shared folders when none is shared, above the 'Share a folder' row"
+  },
+  "shareAddFolder": "Share a folder",
+  "@shareAddFolder": {
+    "description": "Row at the end of the sheet of my shared folders: opens the folder picker to share one"
+  },
+  "shareFolderNotes": "{count, plural, =1{1 note} other{{count} notes}}",
+  "@shareFolderNotes": {
+    "description": "Caption of a shared folder's row: the notes in it and in every folder under it. Keep the no-break space",
+    "placeholders": {
+      "count": { "type": "int", "example": "3" }
+    }
+  },
+  "shareNowThrough": "{inner} is now shared through {outer}",
+  "@shareNowThrough": {
+    "description": "Snackbar after sharing a folder that holds a folder shared on its own: the inner one is now shared through the outer one, with Undo",
+    "placeholders": {
+      "inner": { "type": "String", "example": "Lisbon" },
+      "outer": { "type": "String", "example": "Trips" }
+    }
+  },
+  "shareFolderAlready": "{folder} is already shared",
+  "@shareFolderAlready": {
+    "description": "Snackbar when the folder picked to share is shared already, on its own or through a folder it lies in",
+    "placeholders": {
+      "folder": { "type": "String", "example": "Lisbon" }
+    }
+  },
+  "shareStoppedWithInner": "{count, plural, =1{No longer shared: {folder} and 1 folder inside it} other{No longer shared: {folder} and {count} folders inside it}}",
+  "@shareStoppedWithInner": {
+    "description": "Snackbar after a folder stopped being shared that also took away the shares of folders inside it, with Undo",
+    "placeholders": {
+      "folder": { "type": "String", "example": "Trips" },
+      "count": { "type": "int", "example": "2" }
+    }
+  },
+  "shareSummaryFolders": "{count, plural, =1{1 folder} other{{count} folders}}",
+  "@shareSummaryFolders": {
+    "description": "Part of the Pairing row's summary: folders shared. Keep the no-break space",
+    "placeholders": {
+      "count": { "type": "int", "example": "1" }
+    }
+  },
+  "shareNoteLook": "Notes shared with you",
+  "@shareNoteLook": {
+    "description": "Sharing page choice row: how the partner's notes and folders are drawn (Avatar / Like mine)"
+  },
+  "appGuideSharingFolderTitle": "Share a folder",
+  "@appGuideSharingFolderTitle": {
+    "description": "Title of the app guide's row about sharing a folder"
+  },
+  "appGuideSharingFolderBody": "“{shareWith}” in a folder's ⋮ menu shares it; “{addFolder}” on “{sharingPage}” does the same. Your partner reads its notes and cannot change them; a note you add later is shared too.",
+  "@appGuideSharingFolderBody": {
+    "description": "Body of the app guide's row about sharing a folder; the placeholders are the folder menu's share entry, the Sharing page's 'Share a folder' row and the Sharing page's title",
+    "placeholders": {
+      "shareWith": { "type": "String" },
+      "addFolder": { "type": "String" },
+      "sharingPage": { "type": "String" }
+    }
   },
   "shareNone": "None",
   "@shareNone": {
@@ -14227,7 +14337,7 @@
       "name": { "type": "String", "example": "Maria" }
     }
   },
-  "shareStopAllConfirm": "Your categories and events leave their phone. What {name} shares with you stays.",
+  "shareStopAllConfirm": "Your categories, events and folders leave their phone. What {name} shares with you stays.",
   "@shareStopAllConfirm": {
     "description": "Body of the confirmation before every share is cleared, under shareStopAllConfirmTitle",
     "placeholders": {
@@ -14307,7 +14417,7 @@
   "@shareMarkMine": {
     "description": "Switch on the Sharing page: show a sign on what this person shares"
   },
-  "shareMarkMineDesc": "A sign on the categories and events you share",
+  "shareMarkMineDesc": "A sign on your shared categories, events and folders",
   "@shareMarkMineDesc": {
     "description": "Description of the 'Mark what you share' switch"
   },
@@ -14374,12 +14484,85 @@
       "name": { "type": "String", "example": "Maria" }
     }
   },
+  "sharedNoteLine": "From {name} · Read only",
+  "@sharedNoteLine": {
+    "description": "Line under the note editor's bar on a note the partner shares",
+    "placeholders": {
+      "name": { "type": "String", "example": "Maria" }
+    }
+  },
+  "sharedNoteCopy": "Copy to my notes",
+  "@sharedNoteCopy": {
+    "description": "Menu entry on the partner's note: makes a note of my own from it"
+  },
+  "sharedNoteReadOnly": "Read only. Only {name} can change this note.",
+  "@sharedNoteReadOnly": {
+    "description": "Snackbar, once per visit, when a task box is tapped in the partner's note",
+    "placeholders": {
+      "name": { "type": "String", "example": "Maria" }
+    }
+  },
+  "sharedNoteCopied": "Copied. Later changes by {name} do not reach your copy.",
+  "@sharedNoteCopied": {
+    "description": "Snackbar after copying the partner's note into my notes",
+    "placeholders": {
+      "name": { "type": "String", "example": "Maria" }
+    }
+  },
+  "sharedNoteCopyFolderGone": "That folder is gone. Nothing was copied.",
+  "@sharedNoteCopyFolderGone": {
+    "description": "Snackbar when the folder picked for Copy to my notes was deleted before the copy was made"
+  },
+  "shareGoneNote": "{name} no longer shares this note",
+  "@shareGoneNote": {
+    "description": "Snackbar when the partner's note open in the editor stops being shared",
+    "placeholders": {
+      "name": { "type": "String", "example": "Maria" }
+    }
+  },
+  "sharedNoteTaskDone": "Task, done",
+  "@sharedNoteTaskDone": {
+    "description": "Screen reader label of a ticked task box in a read-only note: says what it is, offers no toggle"
+  },
+  "sharedNoteTaskDoneNamed": "Task, done: {task}",
+  "@sharedNoteTaskDoneNamed": {
+    "description": "Screen reader label of a ticked task box in a read-only note, with the task's text",
+    "placeholders": {
+      "task": { "type": "String", "example": "Buy eggs" }
+    }
+  },
+  "sharedNoteTaskOpen": "Task, not done",
+  "@sharedNoteTaskOpen": {
+    "description": "Screen reader label of an open task box in a read-only note: says what it is, offers no toggle"
+  },
+  "sharedNoteTaskOpenNamed": "Task, not done: {task}",
+  "@sharedNoteTaskOpenNamed": {
+    "description": "Screen reader label of an open task box in a read-only note, with the task's text",
+    "placeholders": {
+      "task": { "type": "String", "example": "Buy eggs" }
+    }
+  },
   "sharedEventCaption": "Only {name} can change this event. Your alerts follow what this phone last received.",
   "@sharedEventCaption": {
     "description": "Caption at the end of the partner's event sheet",
     "placeholders": {
       "name": { "type": "String", "example": "Maria" }
     }
+  },
+  "sharedEventCaptionFresh": "Only {name} can change this event. Your alerts follow its changes, even while ANTA is closed.",
+  "@sharedEventCaptionFresh": {
+    "description": "Caption at the end of the partner's event sheet on Android, where the phone keeps what the partner shares fresh while the app is closed; sharedEventCaption is the sentence everywhere else",
+    "placeholders": {
+      "name": { "type": "String", "example": "Maria" }
+    }
+  },
+  "appGuideSharingAlertsFresh": "An alert of yours follows your partner's changes to the event, even while ANTA is closed.",
+  "@appGuideSharingAlertsFresh": {
+    "description": "Sentence closing the app guide's row about alerts on shared events, on Android"
+  },
+  "appGuideSharingAlertsLastReceived": "An alert of yours follows what this phone last received.",
+  "@appGuideSharingAlertsLastReceived": {
+    "description": "Sentence closing the app guide's row about alerts on shared events, where the app cannot check while it is closed"
   },
   "shareNewFromPartner": "{name} shares {what} with you",
   "@shareNewFromPartner": {
@@ -14421,6 +14604,27 @@
     "description": "Snackbar when several of the partner's events left in one read and took armed alerts of this person's with them",
     "placeholders": {
       "count": { "type": "int", "example": "3" },
+      "name": { "type": "String", "example": "Maria" }
+    }
+  },
+  "shareHiddenAlertsOff": "{category} is hidden. Your alerts on it are off until you show it again.",
+  "@shareHiddenAlertsOff": {
+    "description": "Snackbar when this person hides a partner's category whose events held armed alerts of theirs",
+    "placeholders": {
+      "category": { "type": "String", "example": "Night shifts" }
+    }
+  },
+  "shareAlertsTurnOffLine": "Your alerts on what {name} shares turn off.",
+  "@shareAlertsTurnOffLine": {
+    "description": "Sentence added to a confirmation (stop syncing, unpair, delete) while an alert of this person's is armed on something the partner shares",
+    "placeholders": {
+      "name": { "type": "String", "example": "Maria" }
+    }
+  },
+  "syncStopReceivedLine": "What {name} shares with you leaves this phone.",
+  "@syncStopReceivedLine": {
+    "description": "Sentence added to the stop-syncing confirmation while this phone holds something the partner shares",
+    "placeholders": {
       "name": { "type": "String", "example": "Maria" }
     }
   },

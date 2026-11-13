@@ -2,6 +2,7 @@ import 'package:drift/drift.dart' hide isNull;
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:anta/constants/app_constants.dart';
+import 'package:anta/database/daos/sync_dao.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/repositories/note_repository.dart';
 import 'package:anta/services/note_storage_service.dart';
@@ -279,6 +280,54 @@ void main() {
       final expected = a.id.compareTo(b.id) < 0 ? a.id : b.id;
       expect((await service.resolveNoteByTitle('Leg Day'))?.id, expected);
       expect((await service.resolveNoteByTitle('Leg Day'))?.id, expected);
+    });
+  });
+
+  group('a link resolves on its own side (share surfaces §6.13)', () {
+    late Note mine;
+    late Note theirs;
+
+    setUp(() async {
+      final training = await seedFolder('Training');
+      final shared = await seedFolder('Theirs');
+      mine = await seedNote(training, 'Leg Day');
+      theirs = await seedNote(shared, 'Leg Day');
+      await seedNote(shared, 'Their plan');
+      // Hers is the newer and lies in the preferred folder: neither may win
+      // a link of mine.
+      await setUpdatedAt(mine, DateTime.utc(2026, 1, 1));
+      await setUpdatedAt(theirs, DateTime.utc(2026, 6, 1));
+      await db.customStatement(
+        "UPDATE notes SET owner_id = 'partner' WHERE folder_id = ?",
+        [shared],
+      );
+      await db.syncDao.setValue(SyncDao.keySharedOwner, 'partner');
+    });
+
+    test('a link of mine opens my note, never hers', () async {
+      final resolved = await service.resolveNoteByTitle(
+        'Leg Day',
+        preferFolderId: theirs.folderId,
+      );
+      expect(resolved?.id, mine.id);
+      expect(resolved?.fromPartner, isFalse);
+      expect(await service.resolveNoteByTitle('Their plan'), isNull);
+    });
+
+    test("a link in the partner's note opens hers, and one to a note she "
+        'did not give leads nowhere', () async {
+      final resolved = await service.resolveNoteByTitle(
+        'Leg Day',
+        fromPartner: true,
+      );
+      expect(resolved?.id, theirs.id);
+      expect(resolved?.fromPartner, isTrue);
+
+      await seedNote(mine.folderId, 'Only mine');
+      expect(
+        await service.resolveNoteByTitle('Only mine', fromPartner: true),
+        isNull,
+      );
     });
   });
 }

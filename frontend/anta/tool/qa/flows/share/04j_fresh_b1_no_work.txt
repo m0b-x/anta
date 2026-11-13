@@ -1,0 +1,9 @@
+# Freshness B1 (docs/cloud-shared-freshness.md §10): nothing of the owner's
+# can ring on the partner's phone — 04i took everything back — so the
+# partner holds no scheduled work at all, and nothing armed. The work that
+# 04i's alert scheduled was cancelled by the alert pass after the read in
+# which the event left.
+-d emulator-5558 work --expect none
+-d emulator-5558 armed --expect none
+-d emulator-5558 errors
+errors

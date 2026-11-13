@@ -42,6 +42,10 @@ class FakeSyncGateway implements SyncGateway {
   /// out of [calls] so the suites' exact call lists stay as they are.
   int readSpaceCalls = 0;
 
+  /// How many times [watchSpace] was asked for a signal — an attachment
+  /// each, whatever the stream then carried.
+  int watchSpaceCalls = 0;
+
   /// The `limit` of every [deleteRows] call past a scripted failure, in
   /// order, null when none was passed.
   final List<int?> deleteLimits = [];
@@ -302,6 +306,10 @@ class FakeSyncGateway implements SyncGateway {
   @override
   int maxBatch = 500;
 
+  /// When set, this many more pushes land and every one after them fails
+  /// offline — a run cut between two batches.
+  int? landPushes;
+
   @override
   Future<void> pushBatch(
     SyncSpaceRef space,
@@ -312,6 +320,16 @@ class FakeSyncGateway implements SyncGateway {
   }) async {
     _ensureOwner(space.ownerUid);
     _throwIfScripted();
+    final landing = landPushes;
+    if (landing != null) {
+      if (landing <= 0) {
+        throw const SyncGatewayException(
+          SyncGatewayFailure.offline,
+          'cut between batches',
+        );
+      }
+      landPushes = landing - 1;
+    }
     calls.add('push:$pushedBy');
     if (batch.length > maxBatch) {
       throw ArgumentError.value(batch.length, 'batch', 'over the batch limit');
@@ -785,6 +803,7 @@ class FakeSyncGateway implements SyncGateway {
 
   @override
   Stream<SyncSpaceSignal> watchSpace(SyncSpaceRef space) {
+    watchSpaceCalls++;
     try {
       _ensureOwner(space.ownerUid);
       _throwIfScripted();

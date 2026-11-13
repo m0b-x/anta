@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:anta/constants/calendar_categories.dart';
+import 'package:anta/models/share_notice.dart';
 import 'package:anta/models/share_overview.dart';
 import 'package:anta/models/share_settings.dart';
 import 'package:anta/services/share_service.dart';
@@ -27,6 +29,7 @@ class FakeShareService implements ShareService {
   final Set<String> partnerRows = {};
 
   ShareEventLook look = ShareEventLook.outlined;
+  ShareNoteLook notes = ShareNoteLook.avatar;
   bool mine = true;
   ShareAlerts shareAlerts = ShareAlerts.own;
   Set<String> hidden = const {};
@@ -129,10 +132,10 @@ class FakeShareService implements ShareService {
   }
 
   @override
-  Future<bool> setFolderShared(String id, bool on) async {
+  Future<ShareChange> setFolderShared(String id, bool on) async {
     _ready();
     folderShares.add((id, on));
-    return true;
+    return _answer();
   }
 
   @override
@@ -185,12 +188,44 @@ class FakeShareService implements ShareService {
   }
 
   @override
-  Future<void> setCategoryShown(String id, bool shown) async {
+  Future<int> setCategoryShown(String id, bool shown) async {
     await _settingsHeld();
     final failure = settingsFailure;
     if (failure != null) throw failure;
     shownSets.add((id, shown));
+    final wasHidden = hidden.contains(id);
     hidden = shown ? (Set.of(hidden)..remove(id)) : {...hidden, id};
+    final armed = shown || wasHidden ? 0 : armedByCategory[id] ?? 0;
+    // The service's own contract: a hide that took alerts off is said once
+    // it is written.
+    if (armed > 0) {
+      ShareService.notify(
+        ShareHiddenWithAlerts(
+          categoryId: id,
+          name: CalendarCategories.byId(id)?.name ?? id,
+        ),
+      );
+    }
+    return armed;
+  }
+
+  /// The partner's events holding an armed alert of mine, by the category
+  /// they draw under: what [armedOnPartner] counts and a hide reports.
+  Map<String, int> armedByCategory = {};
+
+  /// Calls of [armedOnPartner], by the category asked for (null: all).
+  final List<String?> armedReads = [];
+
+  /// When set, [armedOnPartner] waits on it before it answers.
+  Completer<void>? armedHold;
+
+  @override
+  Future<int> armedOnPartner({String? categoryId}) async {
+    armedReads.add(categoryId);
+    final parked = armedHold;
+    if (parked != null) await parked.future;
+    if (categoryId != null) return armedByCategory[categoryId] ?? 0;
+    return armedByCategory.values.fold<int>(0, (sum, n) => sum + n);
   }
 
   /// Reads of [looks] and [alerts].
@@ -199,7 +234,7 @@ class FakeShareService implements ShareService {
   @override
   Future<ShareLook> looks() async {
     settingsReads++;
-    return ShareLook(eventLook: look, markMine: mine);
+    return ShareLook(eventLook: look, noteLook: notes, markMine: mine);
   }
 
   @override
@@ -211,6 +246,17 @@ class FakeShareService implements ShareService {
     final failure = settingsFailure;
     if (failure != null) throw failure;
     look = value;
+  }
+
+  @override
+  Future<ShareNoteLook> noteLook() async => notes;
+
+  @override
+  Future<void> setNoteLook(ShareNoteLook value) async {
+    await _settingsHeld();
+    final failure = settingsFailure;
+    if (failure != null) throw failure;
+    notes = value;
   }
 
   @override

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:ui' show Tristate;
 
 import 'package:flutter/material.dart';
@@ -13,11 +14,14 @@ import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/models/calendar_category.dart';
 import 'package:anta/models/partner_look.dart';
 import 'package:anta/models/share_overview.dart';
+import 'package:anta/services/app_navigator.dart';
 import 'package:anta/services/share_service.dart';
+import 'package:anta/utils/share_copy.dart';
 import 'package:anta/widgets/event_avatar.dart';
 import 'package:anta/widgets/form_rows.dart';
 import 'package:anta/widgets/shared_categories_sheet.dart';
 import 'package:anta/widgets/shared_category_sheet.dart';
+import 'package:anta/widgets/share_notice_listener.dart';
 
 import '../goldens/support/golden_fonts.dart';
 import '../support/fake_share_service.dart';
@@ -122,6 +126,7 @@ void main() {
     String name = 'Maria',
     Size surface = const Size(360, 780),
     bool settled = true,
+    bool noticed = false,
   }) async {
     tester.view.devicePixelRatio = 1.0;
     tester.view.physicalSize = surface;
@@ -137,6 +142,15 @@ void main() {
     );
     await tester.pumpWidget(
       MaterialApp(
+        // [noticed]: the app's notice listener above it, as `main.dart`
+        // mounts it, which says what the service tells of.
+        navigatorKey: noticed ? AppNavigator.navigatorKey : null,
+        navigatorObservers: [
+          if (noticed) ...[
+            AppNavigator.routeObserver,
+            ShareNoticeListener.routes,
+          ],
+        ],
         theme: AppTheme.light(),
         darkTheme: AppTheme.dark(),
         themeMode: dark ? ThemeMode.dark : ThemeMode.light,
@@ -147,7 +161,13 @@ void main() {
           data: MediaQuery.of(
             context,
           ).copyWith(textScaler: TextScaler.linear(scale)),
-          child: child!,
+          child: noticed
+              ? ShareNoticeListener(
+                  shareService: () async => service,
+                  loadCategories: () async => null,
+                  child: child!,
+                )
+              : child!,
         ),
         home: Scaffold(
           body: Builder(
@@ -262,7 +282,7 @@ void main() {
     );
     expect(
       tester.widget<FormPickerSwitchRow>(rowOf('Gym')).caption,
-      '9 events · joins your Gym',
+      '9 events · joins your Gym',
     );
     expect(find.byType(FormSearchRow), findsNothing);
   });
@@ -292,6 +312,123 @@ void main() {
       for (final e in rows.evaluate())
         tester.getTopLeft(find.byWidget(e.widget)),
     ], tops);
+  });
+
+  // Said by the app's notice listener from the service's notice, so no
+  // sheet and no bloc needs to be alive when the write lands (D30, A13).
+  group('a hide that takes alerts of mine off (D30, A13)', () {
+    const said =
+        'Night shift is hidden. Your alerts on it are off until you show it '
+        'again.';
+
+    setUp(() {
+      CalendarCategories.updateCache([
+        mine('gym', order: 0),
+        mine('birthday', order: 1),
+        theirs('p-night', 'Night shift', 1),
+        theirs('p-family', 'Family', 0),
+      ]);
+    });
+
+    Future<void> flip(WidgetTester tester, String id) async {
+      await tester.tap(
+        find.bySemanticsIdentifier(SemanticsIds.sharedCategoryShow(id)),
+      );
+      await settle(tester);
+    }
+
+    testWidgets('one bar says so, over the list', (tester) async {
+      service.armedByCategory = {'p-night': 2};
+      await open(tester, noticed: true);
+
+      service.shareOverview = overview(hidden: {'p-night'});
+      await flip(tester, 'p-night');
+
+      expect(find.text(said).hitTestable(), findsOneWidget);
+      expect(
+        find.bySemanticsIdentifier(SemanticsIds.sharedCategoriesSheet),
+        findsOneWidget,
+      );
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('over the category\'s own sheet, said once', (tester) async {
+      service.armedByCategory = {'p-night': 1};
+      await open(tester, noticed: true);
+      await tester.tap(
+        find.bySemanticsIdentifier(SemanticsIds.sharedCategoryRow('p-night')),
+      );
+      await tester.pumpAndSettle();
+
+      service.shareOverview = overview(hidden: {'p-night'});
+      await tester.tap(
+        find.bySemanticsIdentifier(SemanticsIds.sharedCategorySheetShow),
+      );
+      await settle(tester);
+
+      expect(find.text(said).hitTestable(), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('the sheet closed before the write landed: said all the '
+        'same', (tester) async {
+      service.armedByCategory = {'p-night': 2};
+      await open(tester, noticed: true);
+      final write = service.settingsHold = Completer<void>();
+
+      await tester.tap(
+        find.bySemanticsIdentifier(SemanticsIds.sharedCategoryShow('p-night')),
+      );
+      await tester.pump();
+      Navigator.of(
+        tester.element(
+          find.bySemanticsIdentifier(SemanticsIds.sharedCategoriesSheet),
+        ),
+      ).pop();
+      await tester.pumpAndSettle();
+      expect(
+        find.bySemanticsIdentifier(SemanticsIds.sharedCategoriesSheet),
+        findsNothing,
+      );
+      expect(find.text(said), findsNothing);
+
+      write.complete();
+      await settle(tester);
+
+      expect(find.text(said), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('nothing is said when nothing was armed, nor on showing it '
+        'again', (tester) async {
+      service.armedByCategory = {'p-family': 1};
+      await open(tester, noticed: true);
+
+      service.shareOverview = overview(hidden: {'p-night'});
+      await flip(tester, 'p-night');
+      expect(find.textContaining('is hidden'), findsNothing);
+
+      service.shareOverview = overview();
+      await flip(tester, 'p-night');
+      expect(find.textContaining('is hidden'), findsNothing);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('a hide whose write fails says nothing', (tester) async {
+      service.armedByCategory = {'p-night': 2};
+      await open(tester, noticed: true);
+      service.settingsFailure = StateError('disk full');
+
+      await flip(tester, 'p-night');
+
+      expect(find.textContaining('is hidden'), findsNothing);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
   });
 
   testWidgets('a row shows what the bloc holds, never a value of its own', (
@@ -338,7 +475,7 @@ void main() {
         )
         .getSemanticsData();
     expect(node.label, contains('Gym'));
-    expect(node.label, contains('9 events · joins your Gym'));
+    expect(node.label, contains('9 events · joins your Gym'));
     expect(node.flagsCollection.isToggled, Tristate.isTrue);
 
     await tester.tap(find.text('Gym'));
@@ -517,9 +654,9 @@ void main() {
 
   group('large text and long names', () {
     for (final (locale, joins) in const [
-      (Locale('en'), '9 events · joins your Gym'),
-      (Locale('de'), '9 Ereignisse · in deiner Kategorie Training'),
-      (Locale('ro'), '9 evenimente · intră în categoria ta Sală'),
+      (Locale('en'), '9 events · joins your Gym'),
+      (Locale('de'), '9 Ereignisse · in deiner Kategorie Training'),
+      (Locale('ro'), '9 evenimente · intră în categoria ta Sală'),
     ]) {
       testWidgets('${locale.languageCode} at 2.0 overflows nothing and cuts '
           'no built-in caption', (tester) async {
@@ -551,7 +688,7 @@ void main() {
                     (w) =>
                         w is FormPickerSwitchRow &&
                         w.onTap == null &&
-                        w.caption.startsWith('9 '),
+                        w.caption.startsWith('9 '),
                   )
                   .first,
             )
@@ -585,12 +722,105 @@ void main() {
     final caption = tester.widget<FormPickerSwitchRow>(rowOf('Gym')).caption;
     expect(
       caption,
-      [
+      ShareCopy.caption([
         l10n.categoryEventCount(9),
         l10n.shareJoinsYours('Gym'),
-      ].join(AppConstants.captionSeparator),
+      ]),
     );
+    expect(caption, contains(AppConstants.captionSeparator));
     expect(caption, isNot(contains(' ·')));
+  });
+
+  for (final scale in const [1.0, 1.3]) {
+    for (final locale in const [Locale('en'), Locale('de')]) {
+      testWidgets('at $scale in ${locale.languageCode} a two-digit count\'s '
+          'caption wraps as it did with the count bound to its noun', (
+        tester,
+      ) async {
+        service.shareOverview = ShareOverview(
+          partnerCategories: [builtIn('gym', count: 12)],
+        );
+        await open(tester, locale: locale, scale: scale);
+        final row = find.byWidgetPredicate(
+          (w) => w is FormPickerSwitchRow && w.onTap == null,
+        );
+        final paragraph = tester
+            .renderObjectList<RenderParagraph>(
+              find.descendant(of: row, matching: find.byType(RichText)),
+            )
+            .firstWhere((p) => p.text.toPlainText().contains('·'));
+        final caption = paragraph.text.toPlainText();
+        expect(caption, startsWith('12 '));
+        // The same text with the count's glue as the strings spell it.
+        final bound = caption.replaceFirst(' ', ' ');
+        List<double> lines(String text) {
+          final painter = TextPainter(
+            text: TextSpan(text: text, style: paragraph.text.style),
+            textDirection: TextDirection.ltr,
+            textScaler: paragraph.textScaler,
+          )..layout(maxWidth: paragraph.constraints.maxWidth);
+          addTearDown(painter.dispose);
+          return [for (final line in painter.computeLineMetrics()) line.width];
+        }
+
+        expect(lines(caption), lines(bound));
+      });
+    }
+  }
+
+  testWidgets('a built-in\'s caption wrapped at 2.0 in German at 360 dp '
+      'never starts a line with the dot', (tester) async {
+    // A count as wide as this makes "123 Ereignisse ·" wider than the
+    // column: bound whole, the line breaker cut it just before the dot.
+    service.shareOverview = ShareOverview(
+      partnerCategories: [builtIn('gym', count: 123)],
+    );
+    await open(tester, locale: const Locale('de'), scale: 2.0);
+    await tester.drag(
+      find
+          .descendant(
+            of: find.byType(SharedCategoriesSheet),
+            matching: find.byType(Scrollable),
+          )
+          .first,
+      const Offset(0, -2000),
+    );
+    await tester.pumpAndSettle();
+    // The built-in's row is the one with no sheet of its own to open.
+    final row = find.byWidgetPredicate(
+      (w) => w is FormPickerSwitchRow && w.onTap == null,
+    );
+
+    final captions = [
+      for (final paragraph in tester.renderObjectList<RenderParagraph>(
+        find.descendant(of: row, matching: find.byType(RichText)),
+      ))
+        if (paragraph.text.toPlainText().contains('·')) paragraph,
+    ];
+    expect(captions, isNotEmpty);
+    for (final paragraph in captions) {
+      final text = paragraph.text.toPlainText();
+      final firstLine = paragraph
+          .getBoxesForSelection(
+            const TextSelection(baseOffset: 0, extentOffset: 1),
+          )
+          .single;
+      expect(
+        paragraph.size.height,
+        greaterThan(firstLine.bottom - firstLine.top),
+        reason: 'the caption wraps, or the case proves nothing',
+      );
+      // The dot shares its line with the space before it.
+      double lineOf(int offset) => paragraph
+          .getOffsetForCaret(TextPosition(offset: offset), Rect.zero)
+          .dy;
+      final dot = text.indexOf('·');
+      expect(
+        lineOf(dot),
+        lineOf(dot - 1),
+        reason: '"$text" starts a line with its dot',
+      );
+    }
   });
 
   group('accessibility guidelines', () {

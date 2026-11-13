@@ -35,12 +35,37 @@ final class ShareArrived extends ShareNotice {
 
 /// The partner's events that left this phone — un-shared, deleted, their
 /// category un-shared, the pair ended — while an alert of this person's was
-/// armed on them: the alert is off now, and the person is told (D23).
+/// armed on them: the alert is off now, and the person is told (D23). Only
+/// for the partner's act: what left by an act of the person's own — their
+/// Unpair, Stop syncing, a restore — was said by its confirmation (D30).
 final class ShareLeftWithAlert extends ShareNotice {
   final List<ShareNoticeEvent> events;
 
-  const ShareLeftWithAlert(this.events);
+  /// The partner's name as it stood while the pair did, kept before the
+  /// pair was forgotten (D35); null for an account with no name, and when
+  /// it could not be read — the surface then says "your partner".
+  final String? partnerName;
+
+  const ShareLeftWithAlert(this.events, {this.partnerName});
 
   @override
-  List<Object?> get props => [events];
+  List<Object?> get props => [events, partnerName];
+}
+
+/// The person hid a partner's category on this phone while an alert of
+/// theirs was armed on its events: those alerts are off until it shows
+/// again (D30). Posted once the hide is written, whatever surface asked for
+/// it is still up — the answer to the person's own tap, so said at once.
+final class ShareHiddenWithAlerts extends ShareNotice {
+  final String categoryId;
+
+  /// The category's name as the catalogue held it at the tap, said when
+  /// the surface cannot resolve [categoryId] any more; a built-in is said
+  /// by the person's own label for it.
+  final String name;
+
+  const ShareHiddenWithAlerts({required this.categoryId, required this.name});
+
+  @override
+  List<Object?> get props => [categoryId, name];
 }

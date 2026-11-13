@@ -43,6 +43,16 @@ class _SharedReader {
   final List<SharedEventArrival> _newEvents = [];
   final Map<String, String> _left = {};
 
+  /// The pair whose share this [read] forgot whole, read before it went:
+  /// who ended it decides whether its leaves are told ([SharedReadChanges
+  /// .endedPair]).
+  String? _endedPair;
+
+  /// Whether a read may go on: the app is in front, or the run was asked to
+  /// read while it is away ([SyncEngine.readSharedWhileAway]) — a leave cuts
+  /// every other read before its next page.
+  bool get _inReach => _e._foreground || _e._awayRead;
+
   /// Reads what the partner of [bound]'s account shares with it — when
   /// there may be anything to read or to remove, and a read is due.
   ///
@@ -64,7 +74,7 @@ class _SharedReader {
   /// interval says.
   Future<void> read(SyncBinding bound, {required bool asked}) async {
     final source = _e._partners;
-    if (source == null || !_e._foreground) return;
+    if (source == null || !_inReach) return;
     final db = _e._db;
     final touched = <SyncInvalidation>{};
     var stamps = false;
@@ -83,9 +93,11 @@ class _SharedReader {
       if (holder == null &&
           !await db.syncDao.anyShareMark() &&
           !await source.pairedLocally(uid)) {
+        _e._sharedReadPaired = false;
         return;
       }
       paired = true;
+      _e._sharedReadPaired = true;
       if (!asked && !await _due(SyncDao.keySharedReadAt, _interval)) return;
       stamps = true;
       final partner = await source.activePartner(uid);
@@ -178,10 +190,13 @@ class _SharedReader {
   /// event that arrived and left within the one read never was here for
   /// the person.
   SharedReadChanges _changes() {
+    final endedPair = _endedPair;
+    _endedPair = null;
     if (_newCategories.isEmpty && _newEvents.isEmpty && _left.isEmpty) {
       return SharedReadChanges.none;
     }
     final changes = SharedReadChanges(
+      endedPair: endedPair,
       categoryIds: List.unmodifiable(_newCategories),
       events: List.unmodifiable([
         for (final event in _newEvents)
@@ -296,6 +311,7 @@ class _SharedReader {
 
   /// Removes every shared row this database holds and tells the caches.
   Future<void> _forget(Set<SyncInvalidation> touched) async {
+    _endedPair = await _e._db.syncDao.getValue(SyncDao.keySharedPair);
     final removed = await _e._db.sharedRowDao.removeAll();
     _waiting = const {};
     _left.addAll(removed.eventTitles);
@@ -324,6 +340,8 @@ class _SharedReader {
     // The catalogue and the events re-read the set that went.
     if (removals.hiddenCleared) touched.add(SyncInvalidation.calendar);
     for (final MapEntry(key: table, value: gone) in removals.gone.entries) {
+      // A row of the person's own held back under one of these may land now.
+      if (gone.isNotEmpty) _e._puller._sharedRemoved = true;
       final rows = [
         for (final row in gone)
           SyncAppliedRow(
@@ -451,7 +469,7 @@ class _SharedReader {
     SyncCursor? scan;
     while (true) {
       await _e._checkHalt(bound);
-      if (!_e._foreground) return false;
+      if (!_inReach) return false;
       final page = await _e._gateway.sharedPage(
         name,
         pair: partner.pairId,

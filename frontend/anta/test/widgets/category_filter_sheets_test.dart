@@ -15,6 +15,7 @@ import 'package:anta/models/partner_look.dart';
 import 'package:anta/models/upcoming_agenda_filters.dart';
 import 'package:anta/services/filter_preset_service.dart';
 import 'package:anta/utils/calendar_filter_summary.dart';
+import 'package:anta/utils/category_allowlist.dart';
 import 'package:anta/utils/event_agenda.dart';
 import 'package:anta/widgets/agenda_filters_sheet.dart';
 import 'package:anta/widgets/calendar_filter_sheet.dart';
@@ -1649,7 +1650,7 @@ void main() {
       });
 
       testWidgets('an empty allowlist opens both groups ticked and lists '
-          'every partner\'s event; un-ticking theirs keeps mine explicit', (
+          'every partner\'s event; un-ticking theirs stores my group', (
         tester,
       ) async {
         seedWithPartner(3);
@@ -1684,8 +1685,9 @@ void main() {
 
         await tapAndSettle(tester, find.text('Apply'));
 
-        expect(applied.value?.categoryIds, {'c0', 'c1', 'c2'});
+        expect(applied.value?.categoryIds, {CategoryAllowlist.mineEntry});
         expect(lists(applied.value, partnerEvent('p-night')), isFalse);
+        expect(lists(applied.value, myEvent('c2')), isTrue);
       });
 
       testWidgets('ticking both groups whole collapses to the empty '
@@ -1707,6 +1709,178 @@ void main() {
         await tapAndSettle(tester, find.text('Apply'));
 
         expect(applied.value?.categoryIds, isEmpty);
+      });
+
+      /// Adds [extra] to the published catalogue, as a category made on this
+      /// phone or one the partner shares later arrives.
+      void publish(CalendarCategory extra) =>
+          CalendarCategories.updateCache([...CalendarCategories.all, extra]);
+
+      testWidgets('R15: filtered to all of mine, a category made afterwards '
+          'is in without reopening the filter', (tester) async {
+        seedWithPartner(3);
+        final applied = await openAgenda(tester, const UpcomingAgendaFilters());
+
+        await openPicker(tester);
+        for (final label in ['Choir', 'Night shift', 'Pilates']) {
+          await tapAndSettle(tester, pickerRow(label));
+        }
+        await tapAndSettle(tester, pickerApply());
+        await tapAndSettle(tester, find.text('Apply'));
+
+        publish(
+          const CalendarCategory(
+            id: 'c-new',
+            name: 'Made later',
+            colorValue: 0xFF1E88E5,
+            iconKey: 'event',
+            sortOrder: 9,
+            isBuiltIn: false,
+          ),
+        );
+        expect(lists(applied.value, myEvent('c-new')), isTrue);
+        expect(lists(applied.value, partnerEvent('p-night')), isFalse);
+      });
+
+      /// H1 fix pass, finding 2: the store reads the catalogue after the
+      /// picker returns, the partner's group listed beside mine.
+      Future<void> createInside(WidgetTester tester) async {
+        publish(
+          const CalendarCategory(
+            id: 'c-new',
+            name: 'Made here',
+            colorValue: 0xFF1E88E5,
+            iconKey: 'event',
+            sortOrder: 9,
+            isBuiltIn: false,
+          ),
+        );
+        // What Create category does through the facade; a toggle back and
+        // forth rebuilds the list.
+        await tapAndSettle(tester, pickerRow('Cat0'));
+        await tapAndSettle(tester, pickerRow('Cat0'));
+        expect(pickerRow('Made here'), findsOneWidget);
+      }
+
+      testWidgets('a category created inside the picker and left un-ticked '
+          'keeps my part a list beside their group', (tester) async {
+        seedWithPartner(3);
+        final applied = await openAgenda(tester, const UpcomingAgendaFilters());
+
+        await openPicker(tester);
+        await createInside(tester);
+        await tapAndSettle(tester, pickerApply());
+        await tapAndSettle(tester, find.text('Apply'));
+
+        expect(applied.value?.categoryIds, {
+          'c0',
+          'c1',
+          'c2',
+          CategoryAllowlist.partnerEntry,
+        });
+      });
+
+      testWidgets('a category created inside the picker, ticked, with an old '
+          'one un-ticked, is kept', (tester) async {
+        seedWithPartner(3);
+        final applied = await openAgenda(tester, const UpcomingAgendaFilters());
+
+        await openPicker(tester);
+        await createInside(tester);
+        await tapAndSettle(tester, pickerRow('Made here'));
+        await tapAndSettle(tester, pickerRow('Cat2'));
+        await tapAndSettle(tester, pickerApply());
+        await tapAndSettle(tester, find.text('Apply'));
+
+        expect(applied.value?.categoryIds, {
+          'c0',
+          'c1',
+          'c-new',
+          CategoryAllowlist.partnerEntry,
+        });
+      });
+
+      testWidgets('R16: filtered to all of theirs, a category they share '
+          'later is in', (tester) async {
+        seedWithPartner(3);
+        final applied = await openAgenda(tester, const UpcomingAgendaFilters());
+
+        await openPicker(tester);
+        for (final label in ['Cat0', 'Cat1', 'Cat2']) {
+          await tapAndSettle(tester, pickerRow(label));
+        }
+        await tapAndSettle(tester, pickerApply());
+        await tapAndSettle(tester, find.text('Apply'));
+
+        expect(applied.value?.categoryIds, {CategoryAllowlist.partnerEntry});
+        publish(
+          const CalendarCategory(
+            id: 'p-new',
+            name: 'Shared later',
+            colorValue: 0xFF8E24AA,
+            iconKey: 'work',
+            sortOrder: 0,
+            isBuiltIn: false,
+            fromPartner: true,
+          ),
+        );
+        expect(lists(applied.value, partnerEvent('p-new')), isTrue);
+        expect(lists(applied.value, myEvent('c0')), isFalse);
+      });
+
+      testWidgets('R17: two of my five stay a list; a sixth made later stays '
+          'out', (tester) async {
+        seedWithPartner(5);
+        final applied = await openAgenda(tester, const UpcomingAgendaFilters());
+
+        await openPicker(tester);
+        await tapAndSettle(tester, find.text('Select none'));
+        await tapAndSettle(tester, pickerRow('Cat0'));
+        await tapAndSettle(tester, pickerRow('Cat1'));
+        await tapAndSettle(tester, pickerApply());
+        await tapAndSettle(tester, find.text('Apply'));
+
+        expect(applied.value?.categoryIds, {'c0', 'c1'});
+        publish(
+          const CalendarCategory(
+            id: 'c5',
+            name: 'Cat5',
+            colorValue: 0xFF1E88E5,
+            iconKey: 'event',
+            sortOrder: 5,
+            isBuiltIn: false,
+          ),
+        );
+        expect(lists(applied.value, myEvent('c1')), isTrue);
+        expect(lists(applied.value, myEvent('c5')), isFalse);
+      });
+
+      testWidgets('my group reopens with every row of mine ticked and none '
+          'of theirs', (tester) async {
+        seedWithPartner(2);
+        await openAgenda(
+          tester,
+          const UpcomingAgendaFilters(
+            categoryIds: {CategoryAllowlist.mineEntry},
+          ),
+        );
+        expect(categoriesValue(tester), 'Cat0, Cat1');
+
+        await openPicker(tester);
+        bool ticked(String label) => tester
+            .widget<FormCheckRow>(
+              find.ancestor(
+                of: pickerRow(label),
+                matching: find.byType(FormCheckRow),
+              ),
+            )
+            .checked;
+        for (final label in ['Cat0', 'Cat1']) {
+          expect(ticked(label), isTrue, reason: label);
+        }
+        for (final label in ['Choir', 'Night shift', 'Pilates']) {
+          expect(ticked(label), isFalse, reason: label);
+        }
       });
 
       testWidgets('a partner\'s event in a shared built-in follows my '
@@ -1790,6 +1964,24 @@ void main() {
           {'p-choir', 'deleted'},
           'No categories',
           'No categories',
+        ),
+        (
+          'my group',
+          {CategoryAllowlist.mineEntry},
+          'Cat0, Cat1 +1 more',
+          'Categories (3)',
+        ),
+        (
+          'their group',
+          {CategoryAllowlist.partnerEntry},
+          'Night shift, Pilates',
+          'Categories (2)',
+        ),
+        (
+          'my group and one of theirs',
+          {CategoryAllowlist.mineEntry, 'p-night'},
+          'Cat0, Cat1 +2 more',
+          'Categories (4)',
         ),
       ]) {
         testWidgets('$name: the chip counts what the row names', (

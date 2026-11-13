@@ -369,12 +369,12 @@ class _SharedCategorySheetState extends State<SharedCategorySheet> {
           label: alert
               .toEventAlert('')
               .describe(l10n, allDay, formatMinute: formatMinute),
-          caption: [
+          caption: ShareCopy.caption([
             l10n.categoryAlertTimedCaption(
               alert.toEventAlert('').describe(l10n, timed),
             ),
             alert.isAlarm ? l10n.eventAlertModeRing : l10n.eventAlertModeNotify,
-          ].join(' · '),
+          ]),
           identifier: SemanticsIds.sharedCategoryAlert(index),
           switchIdentifier: SemanticsIds.sharedCategoryAlertSwitch(index),
           value: alert.enabled,

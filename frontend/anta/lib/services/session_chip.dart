@@ -70,7 +70,7 @@ Future<LinkedSessionNote?> linkedSessionNote(
   return (
     folderId: note.folderId,
     noteId: note.id,
-    metadata: notes.noteToMetadata(note),
+    metadata: await notes.flaggedMetadata(note),
   );
 }
 

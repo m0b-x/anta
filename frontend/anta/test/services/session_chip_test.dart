@@ -1,6 +1,7 @@
 import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:anta/database/daos/sync_dao.dart';
 import 'package:anta/models/alert_payload.dart';
 import 'package:anta/models/calendar_event.dart';
 import 'package:anta/models/event_alert.dart';
@@ -175,6 +176,34 @@ void main() {
         ),
         isNull,
       );
+    });
+
+    test("hands the editor flagged metadata: my event's note that is the "
+        "partner's opens read-only (§6.13)", () async {
+      final db = await openTestDatabase();
+      addTearDown(db.close);
+      final notes = NoteRepository(database: db);
+      final note = await notes.createNote(
+        folderId: 'f1',
+        title: 'Their plan',
+        content: 'plan',
+        preview: 'plan',
+        contentLength: 4,
+        chunkCount: 1,
+        isCompressed: false,
+      );
+      await db.customStatement(
+        "UPDATE notes SET owner_id = 'partner' WHERE id = ?",
+        [note.id],
+      );
+      await db.syncDao.setValue(SyncDao.keySharedOwner, 'partner');
+      notes.shareCensus.forget();
+
+      final linked = await linkedSessionNote(
+        eventOf().copyWith(noteId: note.id),
+        notes,
+      );
+      expect(linked?.metadata.fromPartner, isTrue);
     });
   });
 

@@ -9,9 +9,12 @@ import 'package:anta/constants/settings_keys.dart';
 import 'package:anta/database/crdt/hlc.dart';
 import 'package:anta/database/daos/sync_dao.dart';
 import 'package:anta/database/database.dart';
+import 'package:anta/models/app_user.dart';
 import 'package:anta/services/calendar_event_service.dart';
 import 'package:anta/services/category_service.dart';
+import 'package:anta/services/event_alert_service.dart';
 import 'package:anta/services/event_occurrence_service.dart';
+import 'package:anta/services/event_presence_service.dart';
 import 'package:anta/services/event_skip_service.dart';
 import 'package:anta/services/settings_service.dart';
 import 'package:anta/services/sync/share_partner_source.dart';
@@ -20,6 +23,7 @@ import 'package:anta/services/sync/sync_cadence.dart';
 import 'package:anta/services/sync/sync_engine.dart';
 import 'package:anta/services/sync/sync_gateway.dart';
 import 'package:anta/services/sync/sync_status.dart';
+import 'package:anta/services/sync/sync_suspension.dart';
 import 'package:anta/services/sync/sync_table_binding.dart';
 import 'package:anta/services/sync/tables/calendar_event_templates_binding.dart';
 import 'package:anta/services/sync/tables/calendar_events_binding.dart';
@@ -1253,8 +1257,7 @@ void main() {
         expect(await hidden(), isEmpty);
       });
 
-      test('another pair made, with another account, empties it too',
-          () async {
+      test('another pair made, with another account, empties it too', () async {
         await category(owner(), 'gym', builtIn: true);
         await owner().db.calendarCategoryDao.setSharedPair('gym', sharePairId);
         await pair.syncBoth();
@@ -2434,6 +2437,53 @@ void main() {
         expect(await categoryOf('calendar_event_templates', 'own-t'), 'climb');
         expect(await heldBack(), isEmpty);
       });
+
+      test('lands in the very read that ended the share — no restart and no '
+          '"Sync now" between', () async {
+        await partner().sync();
+        expect(await heldBack(), hasLength(2));
+
+        await owner().db.calendarCategoryDao.setSharedPair('climb', null);
+        await owner().sync();
+        await partner().engine.readSharedNow();
+        await partner().settle();
+
+        expect(await categoryOf('calendar_events', 'own-e'), 'climb');
+        expect(await categoryOf('calendar_event_templates', 'own-t'), 'climb');
+        expect(await heldBack(), isEmpty);
+      });
+
+      test('a read that removes nothing tries no held-back row again: not '
+          'one more read of the space', () async {
+        await partner().sync();
+        expect(await heldBack(), hasLength(2));
+        final reads = pair.gateway.rowReads.length;
+
+        await partner().engine.readSharedNow();
+        await partner().settle();
+
+        expect(pair.gateway.rowReads.skip(reads), isEmpty);
+        expect(await heldBack(), hasLength(2));
+      });
+    });
+
+    test('a note held back under a shared folder lands in the run whose pull '
+        'brought the person\'s own folder — one run, not a second', () async {
+      final note = pair.gateway.rowsOf(pair.ownerSpace, 'notes')[top.id]!;
+      plantOwn(asOwn(note, rowKey: 'own-note', over: {'id': 'own-note'}));
+      plantOwnChunks();
+      await partner().sync();
+      expect(await noteOn(partner(), 'own-note'), isNull);
+
+      final folder = pair.gateway.rowsOf(pair.ownerSpace, 'folders')[shelf.id]!;
+      plantOwn(asOwn(folder));
+      await partner().sync();
+
+      expect((await noteOn(partner(), 'own-note'))!.ownerId, partnerUid);
+      expect(
+        await partner().db.syncDao.valuesByPrefix(SyncDao.pullParkedPrefix),
+        isEmpty,
+      );
     });
 
     test('tells the screens what gave way: each removed row as gone, with '
@@ -2523,6 +2573,68 @@ void main() {
     expect([for (final row in skips) row['eventId']], ['own']);
     expect([for (final row in texts) row['eventId']], ['own']);
     expect(events.single.containsKey('sharedPair'), isFalse);
+  });
+
+  test('the person\'s own presence marks and alerts on a shared event are '
+      'left out of the export lists as the event is — and a database that '
+      'holds no shared row reads them in the one statement it always '
+      'did', () async {
+    addTearDown(() {
+      EventPresenceService.reset();
+      EventAlertService.reset();
+    });
+    await event(owner(), 'e1');
+    await owner().db.calendarEventDao.setSharedPair('e1', sharePairId);
+    await pair.syncBoth();
+    expect(await eventOn(partner(), 'e1'), isNotNull);
+    for (final device in [owner(), partner()]) {
+      final id = device == owner() ? 'e1' : 'own';
+      if (device == partner()) await event(device, id);
+      for (final on in {id, 'e1'}) {
+        await device.db.eventAbsenceDao.setStatus(
+          on,
+          day,
+          PresenceStatus.present,
+        );
+        await device.db.eventAlertDao.replaceForEvent(on, [
+          EventAlertsCompanion.insert(
+            id: '${device.id}-$on',
+            eventId: on,
+            hlcTimestamp: '0',
+            deviceId: device.id,
+            createdAt: day,
+            updatedAt: day,
+          ),
+        ]);
+      }
+    }
+
+    Future<(List<Object?>, List<Object?>, int)> exported(
+      SyncDevice device,
+    ) async {
+      final presence = await EventPresenceService.forTesting(device.db);
+      final alerts = await EventAlertService.forTesting(device.db);
+      device.statements.reset();
+      final marks = await presence.exportData();
+      final rings = await alerts.exportData();
+      final count = device.statements.count;
+      EventPresenceService.reset();
+      EventAlertService.reset();
+      return (
+        [for (final row in marks) row['eventId']],
+        [for (final row in rings) row['eventId']],
+        count,
+      );
+    }
+
+    final (theirMarks, theirAlerts, theirCount) = await exported(partner());
+    expect(theirMarks, ['own']);
+    expect(theirAlerts, ['own']);
+    expect(theirCount, 2);
+    final (marks, alerts, count) = await exported(owner());
+    expect(marks, ['e1']);
+    expect(alerts, ['e1']);
+    expect(count, 2, reason: 'one read per list, as before');
   });
 
   group('the push', () {
@@ -2790,7 +2902,7 @@ void main() {
     });
 
     test('the pair ended, everything shared is forgotten: each live event '
-        'reported as left', () async {
+        'reported as left, with the pair it was held under (D35)', () async {
       await eventIn('e1', 'general');
       await eventIn('e2', 'general');
       await shareEvent('e1');
@@ -2802,7 +2914,10 @@ void main() {
       pair.end();
 
       expect(await syncBoth(), [
-        const SharedReadChanges(left: [(id: 'e1', title: 'Event e1')]),
+        const SharedReadChanges(
+          left: [(id: 'e1', title: 'Event e1')],
+          endedPair: 'pair-1',
+        ),
       ]);
     });
 
@@ -2825,6 +2940,7 @@ void main() {
         const SharedReadChanges(
           events: [(id: 'e1', title: 'Event e1', category: 'general')],
           left: [(id: 'e2', title: 'Event e2')],
+          endedPair: 'pair-1',
         ),
       ]);
       expect((await eventOn(partner(), 'e1'))!.isDeleted, isFalse);
@@ -2846,6 +2962,7 @@ void main() {
         const SharedReadChanges(
           categoryIds: ['climb'],
           events: [(id: 'e1', title: 'Event e1', category: 'climb')],
+          endedPair: 'pair-1',
         ),
       ]);
     });
@@ -2911,6 +3028,179 @@ void main() {
         partner().statements.captured.where(readsTitles),
         hasLength(1),
         reason: 'one page of events, whatever it holds',
+      );
+    });
+  });
+
+  group('read while the app is away (freshness §5, §6)', () {
+    /// The calls of one shared read that found every table, and no other.
+    const sharedReadAlone = [
+      'shared:calendar_categories',
+      'count:calendar_categories',
+      'shared:calendar_events',
+      'count:calendar_events',
+      'shared:calendar_event_occurrences',
+      'count:calendar_event_occurrences',
+      'shared:calendar_event_skips',
+      'count:calendar_event_skips',
+      'shared:folders',
+      'count:folders',
+      'shared:notes',
+      'count:notes',
+    ];
+
+    // The bind's first merge, which every shared read waits for: a database
+    // a check can run on has long had it.
+    setUp(() async => partner().sync());
+
+    /// The owner shares `e1` and it is in the cloud; nothing of the
+    /// gateway's books is counted before this.
+    Future<void> ownerShares() async {
+      await event(owner(), 'e1');
+      await owner().db.calendarEventDao.setSharedPair('e1', sharePairId);
+      await owner().sync();
+      pair.gateway.calls.clear();
+      pair.gateway.readSpaceCalls = 0;
+      pair.gateway.watchSpaceCalls = 0;
+      pair.partners.asked.clear();
+    }
+
+    test('the app\'s own engine, not in front: the page\'s read still reads '
+        'nothing, the forwarded one reads the share alone — no pull, no '
+        'drain, no signal, no timer — and is no resume', () async {
+      await partner().engine.start();
+      await partner().settle();
+      await partner().engine.onAppBackgrounded();
+      await partner().settle();
+      await ownerShares();
+
+      await partner().engine.readSharedNow();
+      expect(pair.partners.asked, isEmpty);
+      expect(await eventOn(partner(), 'e1'), isNull);
+
+      final report = await partner().engine.readSharedWhileAway();
+      await partner().settle();
+
+      expect(report.skipped, isNull);
+      expect(report.pages, 0, reason: 'no table of the account\'s own');
+      expect((await eventOn(partner(), 'e1'))!.ownerId, ownerUid);
+      expect(pair.partners.asked, [partnerUid]);
+      expect(pair.gateway.calls, sharedReadAlone);
+      expect(pair.gateway.readSpaceCalls, 0);
+      expect(pair.gateway.watchSpaceCalls, 0);
+      expect(partner().scheduler.pending, isEmpty);
+
+      // Still away: the page's own read goes on reading nothing.
+      await partner().engine.readSharedNow();
+      expect(pair.partners.asked, [partnerUid]);
+    });
+
+    test('an engine that was never started, away from its first moment: '
+        'one shared read, what it changed handed to the hooks, nothing '
+        'pulled, sent, followed or left pending', () async {
+      await ownerShares();
+      await event(partner(), 'own');
+      // What `SyncEngine.awayFromApp` builds: never started, not in front.
+      await partner().engine.onAppBackgrounded();
+      partner().hooks.calls.clear();
+
+      final report = await partner().engine.readSharedWhileAway();
+      await partner().engine.whenIdle;
+
+      expect(report.skipped, isNull);
+      expect(report.failure, isNull);
+      expect((await eventOn(partner(), 'e1'))!.ownerId, ownerUid);
+      expect(pair.partners.asked, [partnerUid]);
+      expect(pair.gateway.calls, sharedReadAlone);
+      expect(pair.gateway.readSpaceCalls, 0);
+      expect(pair.gateway.watchSpaceCalls, 0);
+      expect(partner().scheduler.pending, isEmpty);
+      expect(partner().engine.isStarted, isFalse);
+      expect(await queuedOn(partner()), 1, reason: 'nothing was pushed');
+      expect(partner().hooks.runs.last, contains(SyncInvalidation.calendar));
+      expect(partner().hooks.shared.last.events.map((e) => e.id), ['e1']);
+    });
+
+    test('a restore that holds sync reads nothing', () async {
+      await ownerShares();
+      await partner().engine.onAppBackgrounded();
+
+      final report = await SyncSuspension.run(
+        () => partner().engine.readSharedWhileAway(),
+      );
+
+      expect(report.skipped, SyncRunSkip.suspended);
+      expect(pair.partners.asked, isEmpty);
+      expect(pair.gateway.calls, isEmpty);
+    });
+
+    test('a pause reads nothing and spends no recheck', () async {
+      await ownerShares();
+      pair.gateway.failNextWith(SyncGatewayFailure.permissionDenied);
+      await partner().sync();
+      expect(partner().engine.current.pause, SyncPause.noAccess);
+      await partner().engine.onAppBackgrounded();
+      pair.gateway.calls.clear();
+      pair.gateway.readSpaceCalls = 0;
+      pair.partners.asked.clear();
+
+      final report = await partner().engine.readSharedWhileAway();
+
+      expect(report.skipped, SyncRunSkip.noAccess);
+      expect(pair.partners.asked, isEmpty);
+      expect(pair.gateway.calls, isEmpty);
+      expect(pair.gateway.readSpaceCalls, 0);
+    });
+
+    test('nobody signed in, or another account than the bound one, reads '
+        'nothing', () async {
+      await ownerShares();
+      await partner().engine.onAppBackgrounded();
+
+      partner().user = null;
+      final signedOut = await partner().engine.readSharedWhileAway();
+      partner().user = const AppUser(uid: 'someone-else');
+      final mismatch = await partner().engine.readSharedWhileAway();
+
+      expect(signedOut.skipped, SyncRunSkip.signedOut);
+      expect(mismatch.skipped, SyncRunSkip.accountMismatch);
+      expect(pair.partners.asked, isEmpty);
+      expect(pair.gateway.calls, isEmpty);
+    });
+
+    test(
+      'a stop ends it before its next page, with nothing left pending',
+      () async {
+        await ownerShares();
+        await partner().engine.onAppBackgrounded();
+        partner().hooks.onBeforePage = (table) async {
+          if (table == 'calendar_events') unawaited(partner().engine.stop());
+        };
+
+        final report = await partner().engine.readSharedWhileAway();
+        await partner().engine.whenIdle;
+
+        expect(report.skipped, SyncRunSkip.stopped);
+        expect(pair.gateway.calls, isNot(contains('shared:notes')));
+        expect(partner().scheduler.pending, isEmpty);
+      },
+    );
+
+    test('a leave in the middle does not cut it', () async {
+      await ownerShares();
+      partner().hooks.onBeforePage = (table) async {
+        if (table == 'calendar_events') {
+          unawaited(partner().engine.onAppBackgrounded());
+        }
+      };
+
+      await partner().engine.readSharedWhileAway();
+      await partner().engine.whenIdle;
+
+      expect(pair.gateway.calls, sharedReadAlone);
+      expect(
+        await partner().db.syncDao.getValue(SyncDao.keySharedReadOkAt),
+        isNotNull,
       );
     });
   });

@@ -1,0 +1,121 @@
+# Freshness B4, B5 and B11 (docs/cloud-shared-freshness.md §10), both
+# tiers: the partner holds two alerts of its own on the owner's "Lifting
+# session" — the reminder 04i added (10 min before) and an alarm this flow
+# adds (30 min before). With the partner's app open but not in front the
+# scheduled work is run and the app's own isolate does the read (B11).
+# Then the partner's process is ended as the system ends one, the owner
+# moves the event an hour later, the work is run again — and both armed
+# instants have moved by an hour with the app never opened (B4). The owner
+# then makes the event private, the work runs, nothing is armed and no
+# work is left; the next open says the leave once, from what the run kept
+# with the database (B5, decision f).
+# - Evidence with no app to ask: `work` (dumpsys jobscheduler), `armed`
+#   (dumpsys alarm) and the line the check logs as it ends
+#   (`work --run --await read|forwarded`).
+# - The partner is taken to the folder root before its process is ended,
+#   so the cold start lands there whatever the launch restores.
+# - The owner's event is put back to 18:00 at the end.
+share event "Lifting session"
+tap id:sharing-sync-now --settle 3000
+expect id:sharing-sync-status "Up to date" --timeout 60
+-d emulator-5558 tap id:sharing-sync-now --settle 3000
+-d emulator-5558 expect id:sharing-sync-status "Up to date" --timeout 60
+# The partner adds an alarm of its own, from the read sheet (04i's road).
+-d emulator-5558 key back
+-d emulator-5558 wait id:create-folder
+-d emulator-5558 tap id:nav-menu
+-d emulator-5558 wait id:drawer-calendar
+-d emulator-5558 tap id:drawer-calendar
+-d emulator-5558 wait id:calendar-add-event
+-d emulator-5558 tap id:panel-mode-day --settle 1000
+-d emulator-5558 tap id:panel-mode-upcoming
+-d emulator-5558 wait id:agenda-filter-open
+-d emulator-5558 tap id:agenda-filter-open
+-d emulator-5558 wait id:agenda-filter-sheet
+-d emulator-5558 tap id:agenda-filter-events
+-d emulator-5558 wait id:agenda-filter-events-recurring
+-d emulator-5558 tap id:agenda-filter-events-recurring
+-d emulator-5558 wait id:agenda-filter-events-recurring --gone
+-d emulator-5558 tap id:agenda-filter-apply
+-d emulator-5558 wait id:agenda-filter-sheet --gone
+-d emulator-5558 wait id:agenda-card-days-category-cardio --timeout 15
+-d emulator-5558 tap id:agenda-card-days-category-cardio
+-d emulator-5558 wait id:day-list-close
+-d emulator-5558 tap "Lifting session" --nth 0
+-d emulator-5558 wait id:day-list-close --gone
+-d emulator-5558 tap id:panel-mode-day
+-d emulator-5558 wait id:event-row-qa-event-weekly-lift --timeout 10
+-d emulator-5558 tap id:event-row-qa-event-weekly-lift
+-d emulator-5558 wait id:shared-event-sheet
+-d emulator-5558 wait id:event-alert-remove-0
+-d emulator-5558 tap id:shared-event-add-alert
+-d emulator-5558 wait id:alert-sheet-save
+-d emulator-5558 tap id:alert-type-alarm
+-d emulator-5558 tap id:alert-when
+-d emulator-5558 wait id:alert-when-30
+-d emulator-5558 tap id:alert-when-30
+-d emulator-5558 wait id:alert-when-30 --gone
+-d emulator-5558 tap id:alert-sheet-save
+-d emulator-5558 wait id:alert-sheet-save --gone
+-d emulator-5558 wait id:event-alert-remove-1
+-d emulator-5558 shot two-alerts
+-d emulator-5558 key back
+-d emulator-5558 wait id:shared-event-sheet --gone
+-d emulator-5558 tap id:panel-mode-upcoming
+-d emulator-5558 wait id:agenda-filter-open
+-d emulator-5558 tap id:agenda-filter-open
+-d emulator-5558 wait id:agenda-filter-sheet
+-d emulator-5558 tap id:agenda-filter-events
+-d emulator-5558 wait id:agenda-filter-events-all
+-d emulator-5558 tap id:agenda-filter-events-all
+-d emulator-5558 wait id:agenda-filter-events-all --gone
+-d emulator-5558 tap id:agenda-filter-apply
+-d emulator-5558 wait id:agenda-filter-sheet --gone
+-d emulator-5558 wait id:calendar-add-event
+-d emulator-5558 key back
+-d emulator-5558 wait id:create-folder
+# Both tiers are armed and the check is scheduled.
+-d emulator-5558 armed --tier reminder --expect some --capture reminder
+-d emulator-5558 armed --tier alarm --expect some --capture alarm
+-d emulator-5558 work --expect scheduled
+# B11: open, not in front — the app's own isolate does the read.
+-d emulator-5558 key home --via native
+-d emulator-5558 work --run --await forwarded
+-d emulator-5558 work --expect scheduled
+-d emulator-5558 launch
+-d emulator-5558 wait id:create-folder --timeout 20
+# B4: the process is gone; the owner moves the event an hour later.
+-d emulator-5558 kill-app
+move-event "Lifting session" --minutes 60
+tap id:sharing-sync-now --settle 3000
+expect id:sharing-sync-status "Up to date" --timeout 60
+-d emulator-5558 work --run --await read
+-d emulator-5558 armed --tier reminder --expect shifted:reminder:3600
+-d emulator-5558 armed --tier alarm --expect shifted:alarm:3600
+-d emulator-5558 work --expect scheduled
+# B5: the owner makes it private; the run takes both alerts off and
+# leaves no work behind.
+share event "Lifting session" --off
+tap id:sharing-sync-now --settle 3000
+expect id:sharing-sync-status "Up to date" --timeout 60
+-d emulator-5558 work --run --await read
+-d emulator-5558 armed --expect none
+-d emulator-5558 work --expect none
+# The next open says it, once, and the app is its usual self.
+-d emulator-5558 launch
+-d emulator-5558 expect "no longer shares Lifting session. Your alert is off." --timeout 20
+-d emulator-5558 shot said-at-open
+-d emulator-5558 wait id:create-folder --timeout 20
+# The sign-in account is held in memory: the new process is told it again.
+-d emulator-5558 set account=qa2:qa2@example.com
+-d emulator-5558 tap id:nav-menu
+-d emulator-5558 wait id:drawer-account
+-d emulator-5558 tap id:drawer-account
+-d emulator-5558 wait id:settings-bar-sharing
+-d emulator-5558 tap id:sharing-sync-now --settle 3000
+-d emulator-5558 expect id:sharing-sync-status "Up to date" --timeout 60
+-d emulator-5558 errors
+move-event "Lifting session" --minutes -60
+tap id:sharing-sync-now --settle 3000
+expect id:sharing-sync-status "Up to date" --timeout 60
+errors

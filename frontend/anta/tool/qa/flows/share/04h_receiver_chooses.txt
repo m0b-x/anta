@@ -121,7 +121,7 @@
 -d emulator-5558 wait id:calendar-add-event
 # The calendar's filter: Stretching in a group of its own, after the
 # partner's own categories.
--d emulator-5558 tap id:calendar-filter-open
+-d emulator-5558 tap id:calendar-filter-open --settle 1000
 -d emulator-5558 wait id:filter-categories
 -d emulator-5558 tap id:filter-categories
 -d emulator-5558 wait id:category-pick-done

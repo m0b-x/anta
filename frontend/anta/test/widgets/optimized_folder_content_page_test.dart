@@ -23,6 +23,9 @@ import 'package:anta/constants/app_spacing.dart';
 import 'package:anta/constants/app_theme.dart';
 import 'package:anta/constants/row_metrics.dart';
 import 'package:anta/constants/semantics_ids.dart';
+import 'package:anta/controllers/partner_look_reader.dart';
+import 'package:anta/models/app_user.dart';
+import 'package:anta/services/share_service.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/l10n/app_localizations_en.dart';
@@ -60,8 +63,10 @@ import 'package:anta/widgets/note_row.dart';
 import 'package:anta/widgets/search_surface.dart';
 import 'package:anta/widgets/selection_action_bar.dart';
 import 'package:anta/widgets/selection_app_bar.dart';
+import 'package:anta/widgets/user_avatar.dart';
 
 import '../services/support/body_index_support.dart';
+import '../support/fake_share_service.dart';
 
 /// The first page-level test for the browser.
 ///
@@ -3810,6 +3815,116 @@ void main() {
       await flush(tester);
 
       expect(events.of<DeleteOptimizedNotes>(), hasLength(1));
+
+      await teardownPage(tester);
+    });
+  });
+
+  // Share surfaces §6.7: the look is read once a page holds something
+  // shared, so an account that shares nothing never asks for it.
+  testWidgets('an account that shares nothing reads no partner look, and '
+      'draws no mark', (tester) async {
+    var opened = 0;
+    final open = PartnerLookReader.openService;
+    PartnerLookReader.openService = () async {
+      opened++;
+      return FakeShareService();
+    };
+    addTearDown(() => PartnerLookReader.openService = open);
+
+    await pumpPage(tester);
+    await pushFolder(tester, child);
+
+    expect(opened, 0);
+    expect(find.byIcon(Icons.group_rounded), findsNothing);
+    expect(find.byType(UserAvatar), findsNothing);
+
+    await teardownPage(tester);
+  });
+
+  // Fix pass item 1: whether the database is paired is asked once, by the
+  // first folder ⋮ menu or row sheet of the process — local reads only —
+  // and the menu opens with its share entry already in place.
+  group('the share entry when the pairing is not known in memory', () {
+    late int opened;
+
+    void serve(FakeShareService service) {
+      opened = 0;
+      final open = PartnerLookReader.openService;
+      PartnerLookReader.openService = () async {
+        opened++;
+        return service;
+      };
+      PartnerLookReader.forgetAsked();
+      addTearDown(() {
+        PartnerLookReader.openService = open;
+        PartnerLookReader.forgetAsked();
+      });
+    }
+
+    Future<void> openMenuAsking(WidgetTester tester) async {
+      await tester.tap(find.byType(FolderOverflowMenu));
+      await settle(tester, rounds: 4);
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('paired, nothing shared yet: the first menu and the first row '
+        'sheet offer "Share with Maria"', (tester) async {
+      serve(
+        FakeShareService(
+          availability: const ShareReady(
+            ShareAudience(
+              id: 'pair-1',
+              displayName: 'Maria',
+              members: [AppUser(uid: 'maria')],
+            ),
+          ),
+        ),
+      );
+      await pumpPage(tester, folderId: folder.id, title: 'Training');
+      expect(opened, 0, reason: 'nothing on a list build');
+
+      await openMenuAsking(tester);
+      expect(
+        find.bySemanticsIdentifier(SemanticsIds.folderMenuShare),
+        findsOneWidget,
+      );
+      expect(find.text('Share with Maria'), findsOneWidget);
+      await dismissMenu(tester);
+
+      await tester.longPress(find.byType(FolderRow));
+      await settle(tester, rounds: 4);
+      await tester.pumpAndSettle();
+      expect(
+        find.bySemanticsIdentifier(SemanticsIds.rowActionShare),
+        findsOneWidget,
+      );
+
+      await teardownPage(tester);
+    });
+
+    testWidgets('never paired: nothing at launch or on a list build; the '
+        'first menu asks once, and no later menu or sheet asks again', (
+      tester,
+    ) async {
+      serve(FakeShareService());
+      await pumpPage(tester, folderId: folder.id, title: 'Training');
+      await pushFolder(tester, child);
+      expect(opened, 0);
+
+      await openMenuAsking(tester);
+      expect(opened, 1);
+      expect(
+        find.bySemanticsIdentifier(SemanticsIds.folderMenuShare),
+        findsNothing,
+      );
+      await dismissMenu(tester);
+      await openMenuAsking(tester);
+      await dismissMenu(tester);
+      await tester.longPress(find.byType(FolderRow).first);
+      await settle(tester, rounds: 4);
+      await tester.pumpAndSettle();
+      expect(opened, 1);
 
       await teardownPage(tester);
     });

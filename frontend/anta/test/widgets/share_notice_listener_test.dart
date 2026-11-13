@@ -66,6 +66,11 @@ void main() {
   var catalogueLoads = 0;
   var catalogue = const <CalendarCategory>[];
 
+  /// What a check kept with the database while the app was closed, handed
+  /// over once as the store hands it; and how often it was asked.
+  var kept = <ShareNotice>[];
+  var keptAsked = 0;
+
   /// What the app's builder handed the listener, to show it draws nothing
   /// of its own.
   Widget? shellChild;
@@ -108,6 +113,8 @@ void main() {
     catalogueLoads = 0;
     catalogue = const [gym, shifts, choir];
     shellChild = null;
+    kept = [];
+    keptAsked = 0;
     CalendarCategories.updateCache(catalogue);
     CustomSnackbar.forgetActionBar();
   });
@@ -150,6 +157,12 @@ void main() {
               return null;
             },
             alertInFront: () => alerting,
+            takeKept: () async {
+              keptAsked++;
+              final taken = kept;
+              kept = [];
+              return taken;
+            },
             child: shellChild = child!,
           ),
         ),
@@ -281,6 +294,20 @@ void main() {
       );
       expect(find.text(en.shareNewFromPartner('Ana', label)), findsOneWidget);
       expect(find.textContaining(gym.name), findsNothing);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('a leave names the partner as the pair did, though the pair '
+        'is gone (D35)', (tester) async {
+      share = FakeShareService(availability: const ShareNotPaired());
+      await pumpApp(tester);
+      await say(tester, const ShareLeftWithAlert([dinner], partnerName: 'Ana'));
+
+      expect(
+        find.text('Ana no longer shares Dinner. Your alert is off.'),
+        findsOneWidget,
+      );
 
       await tester.pumpWidget(const SizedBox.shrink());
     });
@@ -721,6 +748,103 @@ void main() {
     });
   });
 
+  // The answer to the person's own tap (D30, A13): at once, over whatever
+  // is in front, never held behind a resume or another bar.
+  group('a category I hid while my alerts were armed on it', () {
+    const hid = ShareHiddenWithAlerts(categoryId: 'c-shifts', name: 'Shifts');
+    final said = find.text(en.shareHiddenAlertsOff('Shifts'));
+
+    testWidgets('is said at once over a sheet, a form sheet and a dialog', (
+      tester,
+    ) async {
+      await pumpApp(tester);
+      for (final open in <Future<void> Function()>[
+        () => showModalBottomSheet<void>(
+          context: AppNavigator.navigatorKey.currentContext!,
+          builder: (_) => const SizedBox(height: 300, child: Text('sheet')),
+        ),
+        () => showModalBottomSheet<void>(
+          context: AppNavigator.navigatorKey.currentContext!,
+          builder: (_) => const PopScope(
+            canPop: false,
+            child: SizedBox(height: 300, child: Text('sheet')),
+          ),
+        ),
+        () => showDialog<void>(
+          context: AppNavigator.navigatorKey.currentContext!,
+          builder: (_) => const AlertDialog(content: Text('dialog')),
+        ),
+      ]) {
+        unawaited(open());
+        await settleBar(tester);
+        await say(tester, hid);
+
+        expect(said.hitTestable(), findsOneWidget);
+        await waitOutBar(tester);
+        AppNavigator.navigatorKey.currentState!.pop();
+        await settleBar(tester);
+      }
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('is said once, and a built-in by my own label', (
+      tester,
+    ) async {
+      await pumpApp(tester);
+      await say(tester, hid);
+      expect(said, findsOneWidget);
+      await waitOutBar(tester);
+      await settleBar(tester);
+      expect(said, findsNothing);
+
+      await say(
+        tester,
+        const ShareHiddenWithAlerts(categoryId: 'gym', name: 'stored'),
+      );
+      final label = CalendarCategories.builtInLabel(
+        CalendarEventCategory.gym,
+        en,
+      );
+      expect(find.text(en.shareHiddenAlertsOff(label)), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('is not queued behind an arrival\'s bar', (tester) async {
+      await pumpApp(tester);
+      await say(tester, const ShareArrived(categoryIds: ['c-choir']));
+      expect(view(), findsOneWidget);
+
+      await say(tester, hid);
+
+      expect(said, findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('waits while an alert is in front, and is said once it has '
+        'gone', (tester) async {
+      await pumpApp(tester);
+      alerting = true;
+      await say(tester, hid);
+      expect(said, findsNothing);
+
+      alerting = false;
+      unawaited(
+        showDialog<void>(
+          context: AppNavigator.navigatorKey.currentContext!,
+          builder: (_) => const AlertDialog(content: Text('dialog')),
+        ),
+      );
+      await settleBar(tester);
+
+      expect(said, findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+  });
+
   group('the bar on the app\'s grounds', () {
     setUpAll(loadGoldenFonts);
 
@@ -1052,6 +1176,83 @@ void main() {
       expect(find.text('sheet', skipOffstage: false), findsNothing);
       expect(pagesOf(SyncSettingsPage), 1);
       expect(find.byType(SharingPage), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+  });
+
+  group('what a check kept while the app was closed (freshness, decision '
+      'f)', () {
+    testWidgets('is said at the next open, the leave before the arrival, '
+        'with the name it was kept with — once', (tester) async {
+      // The name the run kept is the leave's; the service's is the
+      // arrival's.
+      kept = const [
+        ShareLeftWithAlert([dinner], partnerName: 'Mara'),
+        ShareArrived(events: [run]),
+      ];
+
+      await pumpApp(tester);
+      await settleBar(tester);
+
+      expect(keptAsked, 1);
+      expect(
+        find.text('Mara no longer shares Dinner. Your alert is off.'),
+        findsOneWidget,
+      );
+
+      await waitOutBar(tester);
+      await settleBar(tester);
+      expect(
+        find.text(en.shareNewFromPartner('Ana', 'Run')),
+        findsOneWidget,
+      );
+      expect(keptAsked, 1, reason: 'taken once; the store is empty after');
+      expect(kept, isEmpty);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('is asked for again on each return, and what a run kept '
+        'meanwhile is said then', (tester) async {
+      await pumpApp(tester);
+      await settleBar(tester);
+      expect(bar(), findsNothing);
+      addTearDown(
+        () => tester.binding.handleAppLifecycleStateChanged(
+          AppLifecycleState.resumed,
+        ),
+      );
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+      kept = const [
+        ShareLeftWithAlert([dinner], partnerName: 'Ana'),
+      ];
+
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await settleBar(tester);
+
+      expect(keptAsked, 2);
+      expect(
+        find.text('Ana no longer shares Dinner. Your alert is off.'),
+        findsOneWidget,
+      );
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('nothing kept: nothing is said and no service is opened', (
+      tester,
+    ) async {
+      await pumpApp(tester);
+      await settleBar(tester);
+
+      expect(keptAsked, 1);
+      expect(opens, 0);
+      expect(bar(), findsNothing);
 
       await tester.pumpWidget(const SizedBox.shrink());
     });

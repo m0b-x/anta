@@ -8,6 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:anta/bloc/calendar/calendar_bloc.dart';
 import 'package:anta/constants/app_colors.dart';
 import 'package:anta/constants/calendar_categories.dart';
+import 'package:anta/constants/calendar_icons.dart';
 import 'package:anta/constants/event_alerts.dart';
 import 'package:anta/constants/event_digests.dart';
 import 'package:anta/constants/form_metrics.dart';
@@ -1041,6 +1042,86 @@ void main() {
       // No name and every category: "Events", as an upcoming digest's.
       expect(inRow('r1', 'Events'), findsOneWidget);
       expect(inRow('r2', 'Events'), findsOneWidget);
+    });
+
+    /// H1 fix pass, finding 5: a digest's row wears the one listed category
+    /// its title names, and nothing where the title names none.
+    testWidgets('a row names and wears the one listed category it ticks', (
+      tester,
+    ) async {
+      tallSurface(tester);
+      CalendarCategories.updateCache([
+        const CalendarCategory(
+          id: 'gym',
+          name: 'Gym',
+          colorValue: 0xFF1E88E5,
+          iconKey: 'fitness_center',
+          sortOrder: 0,
+          isBuiltIn: false,
+        ),
+        const CalendarCategory(
+          id: 'p-night',
+          name: 'Night shift',
+          colorValue: 0xFF8E24AA,
+          iconKey: 'work',
+          sortOrder: 0,
+          isBuiltIn: false,
+          fromPartner: true,
+        ),
+      ]);
+      addTearDown(() {
+        CalendarCategories.updateCache(const []);
+        EventAlerts.configureShareAlerts(null);
+      });
+      const digests = [
+        EventDigest(id: 'theirs', categoryIds: {'*partner'}),
+        EventDigest(id: 'mine', categoryIds: {'*mine'}, sortOrder: 1),
+        EventDigest(id: 'one', categoryIds: {'p-night'}, sortOrder: 2),
+      ];
+      EventDigests.updateCache(List.unmodifiable(digests));
+      final at = DateTime(fireDay.year, fireDay.month, fireDay.day, 8);
+      Future<void> pump() => pumpHub(
+        tester,
+        () => const [],
+        loadDigests: () async => [
+          for (final digest in digests) fireOf(digest, at),
+        ],
+        use24HourFormat: true,
+      );
+      // The title in the Digests group; the look on the day's fire row.
+      Finder inRow(String id, Finder matching) => find.descendant(
+        of: find.byKey(ValueKey('digest-row|$id')),
+        matching: matching,
+      );
+      Finder onFire(String id, Finder matching) => find.descendant(
+        of: byId(SemanticsIds.alertsDigestFire(id, at)),
+        matching: matching,
+      );
+      final night = find.byIcon(CalendarIcons.forKey('work')!);
+
+      EventAlerts.configureShareAlerts(ShareAlerts.category);
+      await pump();
+      expect(inRow('theirs', find.text('Night shift')), findsOneWidget);
+      expect(onFire('theirs', night), findsOneWidget);
+      // All of mine is Gym alone here: named and worn as Gym.
+      expect(inRow('mine', find.text('Gym')), findsOneWidget);
+      expect(
+        onFire('mine', find.byIcon(CalendarIcons.forKey('fitness_center')!)),
+        findsOneWidget,
+      );
+      await tester.pumpWidget(const SizedBox.shrink());
+
+      // Under "Only alerts I add" none of theirs is listed: a plain id of
+      // theirs names nothing and wears nothing.
+      EventAlerts.configureShareAlerts(ShareAlerts.own);
+      await pump();
+      expect(inRow('one', find.text('No categories')), findsOneWidget);
+      expect(onFire('one', night), findsNothing);
+      expect(inRow('mine', find.text('Events')), findsOneWidget);
+      expect(
+        onFire('mine', find.byIcon(CalendarIcons.forKey('fitness_center')!)),
+        findsNothing,
+      );
     });
 
     testWidgets('a digest with no fire ahead reads how it fires alone', (

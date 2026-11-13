@@ -168,6 +168,53 @@ service cloud.firestore {
             && request.resource.data.permissions[uid()].allowPartnerEdit is bool;
       }
 
+      // One device's push address under `push.<uid>.<deviceId>`
+      // (docs/cloud-shared-freshness.md §7): the relay reads the other
+      // member's with the caller's own sign-in, so only a well-formed entry
+      // may stand, and `at` is the device's word for how fresh it is.
+      function validDevice(device) {
+        return device is map
+            && device.keys().hasAll(['id', 'kind', 'at'])
+            && device.keys().hasOnly(['id', 'kind', 'at'])
+            && device.id is string
+            && device.id.size() > 0
+            && device.id.size() <= 4096
+            && device.kind in ['fid', 'token']
+            && device.at is timestamp
+            && device.at <= request.time;
+      }
+
+      // Rules have no loops: at most five devices, each checked by its
+      // place among the map's values.
+      function validDevices(devices) {
+        let all = devices.values();
+        return devices is map
+            && all.size() <= 5
+            && (all.size() < 1 || validDevice(all[0]))
+            && (all.size() < 2 || validDevice(all[1]))
+            && (all.size() < 3 || validDevice(all[2]))
+            && (all.size() < 4 || validDevice(all[3]))
+            && (all.size() < 5 || validDevice(all[4]));
+      }
+
+      // A member writes their own devices and nothing else. Once the pair
+      // has ended a device may only leave: an address must not be kept
+      // reachable through a pair that no longer exists.
+      function rewritesOwnPush() {
+        let before = resource.data.get('push', {});
+        let after = request.resource.data.get('push', {});
+        let mine = after.get(uid(), {});
+        let held = before.get(uid(), {});
+        return changed().hasOnly(['push'])
+            && after is map
+            && after.diff(before).affectedKeys().hasOnly([uid()])
+            && (resource.data.status == 'active'
+                ? validDevices(mine)
+                : (mine is map
+                   && mine.diff(held).addedKeys().size() == 0
+                   && mine.diff(held).changedKeys().size() == 0));
+      }
+
       // A missing pair reads as "not found", never "denied" — the invites'
       // precedent below. Since a member deleting their account removes the
       // pair (the delete rule), the partner's device has to be able to tell
@@ -200,7 +247,8 @@ service cloud.firestore {
       allow update: if isMember()
         && request.resource.data.members == resource.data.members
         && request.resource.data.createdAt == resource.data.createdAt
-        && (tombstones() || rewritesOwnProfile() || rewritesOwnConsent());
+        && (tombstones() || rewritesOwnProfile() || rewritesOwnConsent()
+            || rewritesOwnPush());
 
       // Only an ended pair, and only by a member: what an account's deletion
       // does to every pair it is in, after ending the active one — the
@@ -281,6 +329,14 @@ service cloud.firestore {
             || resource.data.creatorUid == uid()
             || ('redeemedBy' in resource.data
                 && resource.data.redeemedBy == uid()));
+    }
+
+    // Where the push relay is (`config/push {relay}`), written in the
+    // console alone: any signed-in phone may read it, none may list or
+    // write it. That one document alone: anything else put under `config`
+    // later is closed until it says otherwise.
+    match /config/push {
+      allow get: if signedIn();
     }
 
     match /users/{owner}/spaces/{spaceId} {

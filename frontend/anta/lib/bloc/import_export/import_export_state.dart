@@ -70,8 +70,17 @@ final class ImportExportFailure extends ImportExportState {
   final ImportExportOperation operation;
   final String message;
 
-  const ImportExportFailure({required this.operation, required this.message});
+  /// The export named a row the partner shares and was refused before any
+  /// file was written (share surfaces D19) — a refusal the page words as
+  /// its plain failure, not a fault.
+  final bool refusedShared;
+
+  const ImportExportFailure({
+    required this.operation,
+    required this.message,
+    this.refusedShared = false,
+  });
 
   @override
-  List<Object?> get props => [operation, message];
+  List<Object?> get props => [operation, message, refusedShared];
 }

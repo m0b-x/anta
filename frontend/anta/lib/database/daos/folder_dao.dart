@@ -82,9 +82,12 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
     )..where((f) => f.id.isIn(ids) & f.isDeleted.equals(false))).get();
   }
 
+  /// [excludeOwner] leaves out the folders that account owns — the root's
+  /// count of the person's own, beside the partner's group read apart.
   Future<int> getFolderCount(
     String? parentId, {
     bool includeDeleted = false,
+    String? excludeOwner,
   }) async {
     final countExp = folders.id.count();
     final query = selectOnly(folders)..addColumns([countExp]);
@@ -98,17 +101,22 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
     if (!includeDeleted) {
       query.where(folders.isDeleted.equals(false));
     }
+    if (excludeOwner != null) {
+      query.where(_notOwnedBy(folders, excludeOwner));
+    }
 
     final result = await query.getSingle();
     return result.read(countExp) ?? 0;
   }
 
+  /// [excludeOwner] as [getFolderCount] takes it.
   Future<List<Folder>> getFoldersPaginated({
     String? parentId,
     required int limit,
     required int offset,
     required FolderSortField sortField,
     required bool ascending,
+    String? excludeOwner,
   }) {
     final query = select(folders);
 
@@ -118,6 +126,9 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
       query.where((f) => f.parentId.equals(parentId));
     }
     query.where((f) => f.isDeleted.equals(false));
+    if (excludeOwner != null) {
+      query.where((f) => _notOwnedBy(f, excludeOwner));
+    }
 
     final orderMode = ascending ? OrderingMode.asc : OrderingMode.desc;
 
@@ -163,6 +174,30 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
 
     query.limit(limit, offset: offset);
     return query.get();
+  }
+
+  /// A row of the person's own carries no owner or their own uid, so "not
+  /// [owner]'s" has to admit a null.
+  static Expression<bool> _notOwnedBy($FoldersTable f, String owner) =>
+      f.ownerId.isNull() | f.ownerId.equals(owner).not();
+
+  /// [owner]'s live top-level folders by name, whole rows: the browser
+  /// root's "From {name}" group (share surfaces §6.12), read apart from the
+  /// root's paginated folders. [partnerTopFolders] is its counted twin for
+  /// the Sharing page.
+  Future<List<Folder>> topFoldersOf(String owner) {
+    return (select(folders)
+          ..where(
+            (f) =>
+                f.parentId.isNull() &
+                f.isDeleted.equals(false) &
+                f.ownerId.equals(owner),
+          )
+          ..orderBy([
+            (f) => OrderingTerm(expression: f.name.collate(Collate.noCase)),
+            (f) => OrderingTerm(expression: f.id),
+          ]))
+        .get();
   }
 
   Future<Folder> insertFolder(FoldersCompanion folder) async {
@@ -406,7 +441,7 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
       final moves = updateParent && parentId != existing.parentId;
       if (!renames && !moves) return existing;
 
-      final shared = moves ? await _sharedPairOf(id) : null;
+      final landing = moves ? await _landing(id, parentId) : null;
       final now = DateTime.now();
       final stamp = await db.stampLocal(folders, id);
 
@@ -420,9 +455,43 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
       );
 
       await (update(folders)..where((f) => f.id.equals(id))).write(companion);
-      if (moves) await _requeueSubtreeIfShareChanged(id, shared);
+      if (landing != null) await _settleMoved(id, existing, landing);
       return getFolderById(id);
     });
+  }
+
+  /// Where the folder [id] stood and where it lands as to sharing, read
+  /// before a move to [target]: the pair it was shared into (its own mark or
+  /// one above it) and the pair [target] is shared into, null for private.
+  /// One read of the marks for both.
+  Future<({String? before, String? into})> _landing(
+    String id,
+    String? target,
+  ) async {
+    final pairs = await sharedPairsOf([id, ?target]);
+    return (before: pairs[id], into: target == null ? null : pairs[target]);
+  }
+
+  /// After a move of [existing] — its row as it stood — under a parent
+  /// [landing] describes. A move changes no mark ([setSharedPair]): a
+  /// marked folder that lands in a shared one keeps its mark, covered while
+  /// it lies there, and shares itself again once moved out. What it is
+  /// shared into is its own mark, else the new place's.
+  ///
+  /// The subtree is queued again when that pair changed: its documents say
+  /// who may read them only once pushed. Returns what the move did to the
+  /// folder's sharing.
+  Future<MoveShareChange?> _settleMoved(
+    String id,
+    Folder existing,
+    ({String? before, String? into}) landing,
+  ) async {
+    final after = existing.sharedPair ?? landing.into;
+    if (after != landing.before) {
+      await _requeueSubtree(id);
+      await db.syncDao.oweSharePokes([after, landing.before], urgent: false);
+    }
+    return moveShareChange(landing.before, after);
   }
 
   Future<Folder?> moveFolder({
@@ -443,7 +512,7 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
 
       if (existing.parentId == targetParentId) return existing;
 
-      final shared = await _sharedPairOf(id);
+      final landing = await _landing(id, targetParentId);
       final now = DateTime.now();
       final stamp = await db.stampLocal(folders, id);
 
@@ -468,7 +537,7 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
           version: Value(existing.version + 1),
         ),
       );
-      await _requeueSubtreeIfShareChanged(id, shared);
+      await _settleMoved(id, existing, landing);
       return getFolderById(id);
     });
   }
@@ -514,20 +583,26 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
       }
 
       final found = <String, BulkMoveCandidate>{};
+      final ownMarks = <String, String>{};
       for (final chunk in bulkMoveChunks(unique)) {
         final rows = await customSelect(
-          'SELECT id, parent_id, name, LOWER(TRIM(name)) AS sql_key '
+          'SELECT id, parent_id, name, LOWER(TRIM(name)) AS sql_key, '
+          'shared_pair '
           'FROM folders WHERE id IN '
           '(${List.filled(chunk.length, '?').join(', ')}) AND is_deleted = 0',
           variables: [for (final id in chunk) Variable<String>(id)],
           readsFrom: {folders},
         ).get();
         for (final row in rows) {
-          found[row.read<String>('id')] = (
+          final id = row.read<String>('id');
+          found[id] = (
             parentId: row.read<String?>('parent_id'),
             name: row.read<String>('name'),
             sqlKey: row.read<String>('sql_key'),
           );
+          if (row.read<String?>('shared_pair') case final pair?) {
+            ownMarks[id] = pair;
+          }
         }
       }
       // The movers' names folded in Dart and bound as the single-folder
@@ -561,7 +636,8 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
       final moved = plan.moved;
       if (moved.isEmpty) return plan;
 
-      final shared = await sharedPairsOf(moved.keys);
+      final shared = await sharedPairsOf([...moved.keys, ?targetParentId]);
+      final into = targetParentId == null ? null : shared[targetParentId];
       var last = await _maxLivePosition(targetParentId);
       final stamp = db.newStamp();
       await batch((b) {
@@ -581,13 +657,21 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
         }
       });
       await db.enqueueMany(folders, moved.keys, stamp.hlc);
-      // What each moved folder shares its subtree into follows the place it
-      // landed in: the rows under it say so only once they are pushed again.
-      final landed = await sharedPairsOf(moved.keys);
+      // What each moved folder shares its subtree into follows its own mark,
+      // else the place it landed in — a move changes no mark (see
+      // [_settleMoved]); the rows under it say so only once pushed again.
+      final changes = <String, MoveShareChange>{};
       for (final id in moved.keys) {
-        if (landed[id] != shared[id]) await _requeueSubtree(id);
+        final after = ownMarks[id] ?? into;
+        if (after != shared[id]) {
+          await _requeueSubtree(id);
+          await db.syncDao.oweSharePokes([after, shared[id]], urgent: false);
+        }
+        if (moveShareChange(shared[id], after) case final change?) {
+          changes[id] = change;
+        }
       }
-      return plan;
+      return changes.isEmpty ? plan : plan.withShareChanges(changes);
     });
   }
 
@@ -729,9 +813,13 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
     return transaction(() async {
       final direction = descending ? 'DESC' : 'ASC';
       final rows = await customSelect(
+        // The partner's folders are never part of a plan: at the root they
+        // stand beside the person's own, and the fences would skip their
+        // writes while the reorder answered done.
         'SELECT id, position FROM folders '
         'WHERE ${parentId == null ? 'parent_id IS NULL' : 'parent_id = ?'} '
-        'AND is_deleted = 0 ORDER BY position $direction, id',
+        'AND is_deleted = 0 AND ${SyncDao.mineSql} '
+        'ORDER BY position $direction, id',
         variables: [if (parentId != null) Variable<String>(parentId)],
         readsFrom: {folders},
       ).get();
@@ -1007,15 +1095,37 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
 
   /// The pair each folder among [ids] is shared into, by id: its own mark,
   /// else the mark of the nearest folder above it; a folder under no mark
-  /// has no entry (`docs/cloud-sharing-foundations.md` §3). Tombstones are
-  /// walked like any row, and keep their place in what is shared — the
-  /// partner has to hear of a delete.
+  /// has no entry (`docs/cloud-sharing-foundations.md` §3).
+  ///
+  /// Private wins: a **live** folder takes a grant only through a chain of
+  /// live folders up to a live marked one — a live folder left under a
+  /// deleted, marked one (the folder repair can leave that for a while) is
+  /// private, as every surface shows it. A **tombstone** walks through
+  /// tombstones too and keeps its place in what is shared: the partner has
+  /// to hear of a delete.
   ///
   /// One statement when nothing is shared, which is nearly always; else the
   /// table's ids and parents once, however many folders are asked for. The
   /// walk is bounded by [maxFolderDepth], as every folder walk here is.
-  Future<Map<String, String>> sharedPairsOf(Iterable<String> ids) async {
-    final wanted = ids.toSet();
+  Future<Map<String, String>> sharedPairsOf(Iterable<String> ids) =>
+      _derivePairs({for (final id in ids) id: (folder: id, live: null)});
+
+  /// The pair each note is shared into — the grant of the folder it lies
+  /// in, [sharedPairsOf]'s rule taken by the note's own liveness: a live
+  /// note only through live folders, a tombstone through anything. Keyed by
+  /// note id; the same one or two statements.
+  Future<Map<String, String>> sharedPairsOfNotes(
+    Iterable<({String id, String folderId, bool isDeleted})> notes,
+  ) => _derivePairs({
+    for (final note in notes)
+      note.id: (folder: note.folderId, live: !note.isDeleted),
+  });
+
+  /// The walk behind [sharedPairsOf] and [sharedPairsOfNotes]: from each
+  /// entry's folder upwards, by `live` (null: the starting folder's own).
+  Future<Map<String, String>> _derivePairs(
+    Map<String, ({String folder, bool? live})> wanted,
+  ) async {
     if (wanted.isEmpty) return const {};
     final marked = await customSelect(
       'SELECT id, shared_pair FROM folders WHERE shared_pair IS NOT NULL',
@@ -1026,26 +1136,72 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
       for (final row in marked)
         row.read<String>('id'): row.read<String>('shared_pair'),
     };
-    final parents = {
+    final rows = {
       for (final row in await customSelect(
-        'SELECT id, parent_id FROM folders',
+        'SELECT id, parent_id, is_deleted FROM folders',
         readsFrom: {folders},
       ).get())
-        row.read<String>('id'): row.read<String?>('parent_id'),
+        row.read<String>('id'): (
+          parent: row.read<String?>('parent_id'),
+          deleted: row.read<bool>('is_deleted'),
+        ),
     };
     final pairs = <String, String>{};
-    for (final id in wanted) {
-      String? at = id;
+    for (final MapEntry(key: key, value: (:folder, :live)) in wanted.entries) {
+      final onlyLive = live ?? !(rows[folder]?.deleted ?? false);
+      String? at = folder;
       for (var depth = 0; at != null && depth <= maxFolderDepth; depth++) {
+        final row = rows[at];
+        if (onlyLive && (row == null || row.deleted)) break;
         final pair = marks[at];
         if (pair != null) {
-          pairs[id] = pair;
+          pairs[key] = pair;
           break;
         }
-        at = parents[at];
+        at = row?.parent;
       }
     }
     return pairs;
+  }
+
+  /// Who shares what, read whole in one statement for `ShareCensus`: the
+  /// account whose shared rows this database holds (null for none), and for
+  /// every live folder of the person's own that a mark shares, the folder
+  /// carrying the outermost mark at or above it — itself for a marked
+  /// folder under no other. A folder under two marks, which only a merge
+  /// leaves, is the outer one's. Partner's rows are never among them.
+  Future<({String? owner, Map<String, String> outermost})> shareCensus() async {
+    final rows = await customSelect(
+      'SELECT NULL AS id, NULL AS root, -1 AS depth, '
+      '(SELECT value FROM sync_metadata WHERE key = ?1) AS owner '
+      'UNION ALL SELECT id, root, depth, NULL FROM ('
+      'WITH RECURSIVE s(id, root, depth) AS ('
+      '  SELECT id, id, 0 FROM folders WHERE shared_pair IS NOT NULL '
+      '  AND is_deleted = 0 AND ${SyncDao.mineSql} '
+      '  UNION ALL '
+      '  SELECT f.id, s.root, s.depth + 1 FROM folders f '
+      '  JOIN s ON f.parent_id = s.id '
+      '  WHERE f.is_deleted = 0 AND s.depth < $maxFolderDepth'
+      ') SELECT id, root, depth FROM s)',
+      variables: [Variable<String>(SyncDao.keySharedOwner)],
+      readsFrom: {folders, db.syncMetadata},
+    ).get();
+    String? owner;
+    final outermost = <String, String>{};
+    final depths = <String, int>{};
+    for (final row in rows) {
+      final id = row.read<String?>('id');
+      if (id == null) {
+        owner = row.read<String?>('owner');
+        continue;
+      }
+      final depth = row.read<int>('depth');
+      if (depth >= (depths[id] ?? -1)) {
+        depths[id] = depth;
+        outermost[id] = row.read<String>('root');
+      }
+    }
+    return (owner: owner, outermost: outermost);
   }
 
   /// The newest stamp among each folder of [ids] and the folders above it,
@@ -1097,25 +1253,154 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
     return row.read<String?>('pair');
   }
 
+  /// The live folders under [id] that carry their own mark — into [pairId],
+  /// or into any pair when null — by name: what sharing [id] into that pair
+  /// clears ([setSharedPair]) and an Undo of that share marks again, and
+  /// what un-sharing [id] clears with it. Read inside the act's
+  /// transaction, before its write. A tombstone's mark is cleared too but
+  /// not named: no writer marks a deleted folder, and nothing the person
+  /// can see is shared through it.
+  Future<List<({String id, String name})>> markedUnder(
+    String id, [
+    String? pairId,
+  ]) async => [
+    for (final row in await customSelect(
+      'SELECT id, name FROM folders WHERE '
+      '${pairId == null ? 'shared_pair IS NOT NULL' : 'shared_pair = ?2'} '
+      'AND is_deleted = 0 AND id IN (${_descendantsOf('?1')}) '
+      'ORDER BY name COLLATE NOCASE, id',
+      variables: [
+        Variable<String>(id),
+        if (pairId != null) Variable<String>(pairId),
+      ],
+      readsFrom: {folders},
+    ).get())
+      (id: row.read<String>('id'), name: row.read<String>('name')),
+  ];
+
+  /// The person's live folders that carry a mark no mark above them covers
+  /// — the folders the Sharing page lists as shared, each once however many
+  /// marks lie under it — as `roots(id)`, for a statement to read on from.
+  /// A mark covers only through live folders ([sharedPairsOf]): the walk
+  /// up stops at a tombstone, and a deleted marked folder covers nothing.
+  static String get _uncoveredMarksSql =>
+      'WITH RECURSIVE marked(id) AS ('
+      '  SELECT id FROM folders m WHERE m.shared_pair IS NOT NULL '
+      '  AND m.is_deleted = 0 AND ${SyncDao.mineSqlOf('m')}'
+      '), up(start, at, depth) AS ('
+      '  SELECT f.id, f.parent_id, 0 FROM marked k '
+      '  JOIN folders f ON f.id = k.id WHERE f.parent_id IS NOT NULL '
+      '  UNION ALL '
+      '  SELECT up.start, f.parent_id, up.depth + 1 FROM up '
+      '  JOIN folders f ON f.id = up.at '
+      '  WHERE f.is_deleted = 0 AND f.parent_id IS NOT NULL '
+      '  AND up.depth < $maxFolderDepth'
+      '), roots(id) AS ('
+      '  SELECT id FROM marked WHERE id NOT IN ('
+      '    SELECT up.start FROM up JOIN folders a ON a.id = up.at '
+      '    WHERE a.shared_pair IS NOT NULL AND a.is_deleted = 0'
+      '  )'
+      ')';
+
+  /// The live notes in each folder of `roots(id)` and every live folder
+  /// under it, as `counts(root, n)` — a root with none has no row. Follows
+  /// a `WITH` that defines `roots`.
+  static String get _subtreeNotesSql =>
+      ', down(root, id, depth) AS ('
+      '  SELECT id, id, 0 FROM roots '
+      '  UNION ALL '
+      '  SELECT down.root, f.id, down.depth + 1 FROM down '
+      '  JOIN folders f ON f.parent_id = down.id '
+      '  WHERE f.is_deleted = 0 AND down.depth < $maxFolderDepth'
+      '), counts(root, n) AS ('
+      '  SELECT down.root, COUNT(*) FROM down '
+      '  JOIN notes n ON n.folder_id = down.id AND n.is_deleted = 0 '
+      '  GROUP BY down.root'
+      ')';
+
+  /// The person's shared folders as the Sharing page lists them (§6.2): each
+  /// live folder of theirs with a mark no mark above it covers, by name,
+  /// with the name of the folder it lies in (null at the root) and the live
+  /// notes of its whole subtree. One statement.
+  Future<List<({String id, String name, String? parentName, int noteCount})>>
+  mySharedFolders() async => [
+    for (final row in await customSelect(
+      '$_uncoveredMarksSql$_subtreeNotesSql '
+      'SELECT f.id AS id, f.name AS name, p.name AS parent_name, '
+      'COALESCE(c.n, 0) AS notes FROM roots r '
+      'JOIN folders f ON f.id = r.id '
+      'LEFT JOIN folders p ON p.id = f.parent_id '
+      'LEFT JOIN counts c ON c.root = r.id '
+      'ORDER BY f.name COLLATE NOCASE, f.id',
+      readsFrom: {folders, db.notes},
+    ).get())
+      (
+        id: row.read<String>('id'),
+        name: row.read<String>('name'),
+        parentName: row.read<String?>('parent_name'),
+        noteCount: row.read<int>('notes'),
+      ),
+  ];
+
+  /// How many folders [mySharedFolders] lists, without the names or the
+  /// counts: what a summary says. One statement.
+  Future<int> countMySharedFolders() async {
+    final row = await customSelect(
+      '$_uncoveredMarksSql SELECT COUNT(*) AS c FROM roots',
+      readsFrom: {folders},
+    ).getSingle();
+    return row.read<int>('c');
+  }
+
+  /// The partner's live top-level folders by name — top-level as the shared
+  /// reader placed them (`SharedRowDao.placeFolders`) — with the live notes
+  /// of each one's subtree. One statement; nothing when this database holds
+  /// no shared rows.
+  Future<List<({String id, String name, int noteCount})>>
+  partnerTopFolders() async => [
+    for (final row in await customSelect(
+      'WITH RECURSIVE roots(id) AS ('
+      '  SELECT id FROM folders WHERE parent_id IS NULL AND is_deleted = 0 '
+      '  AND owner_id = (SELECT value FROM sync_metadata WHERE key = ?1)'
+      ')$_subtreeNotesSql '
+      'SELECT f.id AS id, f.name AS name, COALESCE(c.n, 0) AS notes '
+      'FROM roots r JOIN folders f ON f.id = r.id '
+      'LEFT JOIN counts c ON c.root = r.id '
+      'ORDER BY f.name COLLATE NOCASE, f.id',
+      variables: [Variable<String>(SyncDao.keySharedOwner)],
+      readsFrom: {folders, db.notes, db.syncMetadata},
+    ).get())
+      (
+        id: row.read<String>('id'),
+        name: row.read<String>('name'),
+        noteCount: row.read<int>('notes'),
+      ),
+  ];
+
   /// Shares the live folder [id] and everything under it into [pairId], or
   /// takes its mark away when null — the one writer of `shared_pair` on
   /// this table (`docs/cloud-sharing-foundations.md` §3). A stamped write
   /// of the one column, so the owner's other devices merge the mark like
   /// any edit; `updated_at` is left alone, as a label's write leaves it.
   ///
-  /// Setting a mark clears, in the same transaction and under the same
-  /// stamp, every mark inside the folder's own subtree — the outer one now
-  /// covers them — and every mark of another pair, here, on
-  /// `calendar_events` and on `calendar_categories`: a database shares into
-  /// one pair.
+  /// **Un-sharing a folder leaves nothing shared under it; a move changes no
+  /// mark.** So setting or clearing a mark clears, in the same transaction
+  /// and under the same stamp, every mark inside the folder's own subtree,
+  /// live and deleted, each row stamped, a version on and queued: on a set
+  /// the outer mark now covers them, and on a clear a mark a merge left
+  /// under this one must not go on sharing what the person just stopped
+  /// sharing. Setting a mark also clears every mark of another pair, here,
+  /// on `calendar_events` and on `calendar_categories`: a database shares
+  /// into one pair.
   ///
   /// The folders and notes under it are queued again at the stamps they
   /// carry ([_requeueSubtree]): their documents say who may read them from
   /// this mark, and only a push writes that.
   ///
   /// A missing or tombstoned folder writes nothing, and neither does a mark
-  /// the folder already carries — though the marks of other pairs are
-  /// cleared even then. Returns whether the folder's mark was written.
+  /// the folder already carries or a folder above it covers — though the
+  /// marks of other pairs are cleared even then. Returns whether the
+  /// folder's mark was written.
   Future<bool> setSharedPair(String id, String? pairId) {
     return transaction(() async {
       final existing = await getFolderById(id);
@@ -1130,14 +1415,17 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
         await db.calendarCategoryDao.clearOtherPairs(pairId, stamp);
       }
       if (existing.sharedPair == pairId) return false;
-      if (pairId != null) {
-        await _clearMarks(
-          stamp,
-          where: 'shared_pair IS NOT NULL AND id IN (${_descendantsOf('?3')})',
-          variables: [Variable<String>(id)],
-          requeue: false,
-        );
-      }
+      // A mark under a mark would outlive the outer one's un-share: stopping
+      // the outer folder must stop everything under it. Read after the
+      // other pairs' marks are gone, so only this pair's can cover it — and
+      // an Undo that clears the outer mark first marks the inner one again.
+      if (pairId != null && await _sharedPairOf(id) != null) return false;
+      await _clearMarks(
+        stamp,
+        where: 'shared_pair IS NOT NULL AND id IN (${_descendantsOf('?3')})',
+        variables: [Variable<String>(id)],
+        requeue: false,
+      );
       await db.enqueue(folders, id, stamp.hlc);
       await (update(folders)..where((f) => f.id.equals(id))).write(
         FoldersCompanion(
@@ -1149,6 +1437,10 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
         ),
       );
       await _requeueSubtree(id);
+      await db.syncDao.oweSharePokes([
+        pairId,
+        existing.sharedPair,
+      ], urgent: false);
       return true;
     });
   }
@@ -1203,19 +1495,28 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
     required List<Variable<Object>> variables,
     required bool requeue,
   }) async {
+    final bound = [
+      Variable<String>(stamp.hlc),
+      Variable<String>(stamp.deviceId),
+      ...variables,
+    ];
+    // The pairs the marks named, read before they go: each is owed a poke.
+    final pairs = await customSelect(
+      'SELECT DISTINCT shared_pair AS pair FROM folders WHERE $where',
+      variables: bound,
+      readsFrom: {folders},
+    ).map((row) => row.read<String?>('pair')).get();
+    if (pairs.isEmpty) return 0;
     final cleared = await customWriteReturning(
       'UPDATE folders SET shared_pair = NULL, shared_stamp = ?1, '
       'hlc_timestamp = ?1, device_id = ?2, version = version + 1 '
       'WHERE $where RETURNING id, is_deleted',
-      variables: [
-        Variable<String>(stamp.hlc),
-        Variable<String>(stamp.deviceId),
-        ...variables,
-      ],
+      variables: bound,
       updates: {folders},
       updateKind: UpdateKind.update,
     );
     if (cleared.isEmpty) return 0;
+    await db.syncDao.oweSharePokes(pairs, urgent: false);
     for (final deleted in const [false, true]) {
       await db.enqueueMany(
         folders,
@@ -1276,9 +1577,13 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
       (await sharedPairsOf([id]))[id];
 
   /// Queues the subtree of [id] again when the pair it is shared into is no
-  /// longer [before], the one it had ahead of a move or a merge.
+  /// longer [before], the one it had ahead of a move or a merge — and owes
+  /// both pairs a poke: what this device re-sends changes what each reads.
   Future<void> _requeueSubtreeIfShareChanged(String id, String? before) async {
-    if (await _sharedPairOf(id) != before) await _requeueSubtree(id);
+    final after = await _sharedPairOf(id);
+    if (after == before) return;
+    await _requeueSubtree(id);
+    await db.syncDao.oweSharePokes([after, before], urgent: false);
   }
 
   /// The rows under [ids], tombstones included: the sync push sends the

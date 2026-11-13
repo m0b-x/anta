@@ -737,6 +737,15 @@ better; its link to a note the partner was not given is inert.
   stops syncing — a copy opened beside its original is unbound at once
   (`_healClaim`) — or when its reader next finds the grant gone. It
   cannot expire them without a run (§6's limit).
+  **Since 2026-11-13 this holds only for a copy that stays on the phone**
+  (a second local database, the copy a restore keeps). A copy that is
+  handed out — "Share database", a backup file — is stripped of every row
+  another account owns before it leaves, with their text chunks, search
+  rows and the reader's own metadata, and compacted so no freed page
+  keeps their text (`DatabaseManager._stripShared`; the share record's
+  §15, "The review of the data layer"). And the export lists of presence
+  marks and alerts leave out a row of mine that names a partner's event,
+  as they leave out the event.
 - A restore already unbinds, which removes what was shared (§6); the
   next bind lets the space win what it holds (D15), and the marks come
   back from there, never from a file.

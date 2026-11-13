@@ -514,8 +514,12 @@ class EventAlertService {
   /// Live alerts only, without CRDT identity. Backups are not a sync channel:
   /// identity is regenerated on restore, exactly as it is for notes, folders
   /// and skips.
+  ///
+  /// Never an alert on an event another account shares with this one: the
+  /// event is not exported, and the alert would name nothing in the archive
+  /// (`docs/cloud-sharing-foundations.md` §8).
   Future<List<Map<String, dynamic>>> exportData() async {
-    final rows = await _dao.getAllActive();
+    final rows = await _dao.getAllActiveForExport();
     return [
       for (final row in rows)
         {

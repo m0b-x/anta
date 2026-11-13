@@ -123,8 +123,17 @@ class QaBootstrap {
   /// that is comes out of preferences.
   static Future<void> beforeDependencies() async {
     if (!QaMode.enabled) return;
-    SharedPreferences.setPrefix(QaMode.preferencesPrefix);
+    namespacePreferences();
     await (await _forApp()).applyResetMarker();
+  }
+
+  /// [beforeDependencies]'s first half alone, for an isolate that starts
+  /// with no app — the check that runs with the app closed: it must read
+  /// the QA build's own preferences, and with them its own database, and
+  /// must leave the markers to the launch they were dropped for.
+  static void namespacePreferences() {
+    if (!QaMode.enabled) return;
+    SharedPreferences.setPrefix(QaMode.preferencesPrefix);
   }
 
   /// The reset's sign-out, the seed marker and the onboarding skip. Runs

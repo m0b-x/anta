@@ -2,12 +2,15 @@ import 'package:flutter/foundation.dart' show visibleForTesting;
 
 import '../constants/alert_constants.dart';
 import '../constants/analytics_metrics.dart';
+import '../constants/calendar_categories.dart';
 import '../l10n/app_localizations.dart';
 import '../models/calendar_appearance.dart';
 import '../models/calendar_report.dart';
 import '../models/event_digest.dart';
+import '../models/share_settings.dart';
 import '../services/recurrence_formatter.dart';
 import 'alert_labels.dart';
+import 'category_allowlist.dart';
 import 'digest_planner.dart';
 import 'event_agenda.dart';
 import 'report_insight_filter.dart';
@@ -61,7 +64,8 @@ class DigestNotificationContent {
 /// [partnerName] is the stored pairing's name, read by the caller — never
 /// fetched, since a digest is worded with no network. A partner's event the
 /// planner listed (D20) ends its line "From {name}", the stand-in standing
-/// for a missing name.
+/// for a missing name. [shareAlerts] is the value the pass read: whether
+/// the title may name a category of the partner's ([digestListsPartner]).
 DigestNotificationContent digestNotificationContent(
   PlannedDigest fire,
   AppLocalizations strings,
@@ -72,6 +76,7 @@ DigestNotificationContent digestNotificationContent(
   String currencySymbol = '',
   bool currencySuffix = false,
   String? partnerName,
+  ShareAlerts shareAlerts = ShareAlerts.off,
 }) {
   if (fire.digest.cadence.isReport) {
     return _reportContent(
@@ -88,6 +93,7 @@ DigestNotificationContent digestNotificationContent(
     fire.digest,
     strings,
     categoryLabel: categoryLabel,
+    shareAlerts: shareAlerts,
   );
 
   final entries = fire.entries;
@@ -165,7 +171,12 @@ DigestNotificationContent _reportContent(
       report,
       words,
       // Every category is the facts alone: "Events — 12 events" read twice.
-      categories: digest.categoryIds.isEmpty
+      // A report lists none of the partner's (D15), whatever the setting.
+      categories:
+          CategoryAllowlist.filtersNothing(
+            digest.categoryIds,
+            partnerListed: false,
+          )
           ? null
           : digestCategoriesLabel(
               digest.categoryIds,
@@ -381,6 +392,7 @@ String digestTitleOf(
   EventDigest digest,
   AppLocalizations strings, {
   required String Function(String categoryId) categoryLabel,
+  ShareAlerts shareAlerts = ShareAlerts.off,
 }) {
   final name = digest.name.trim();
   if (name.isNotEmpty) return name;
@@ -388,20 +400,55 @@ String digestTitleOf(
     digest.categoryIds,
     strings,
     categoryLabel: categoryLabel,
+    partnerListed: digestListsPartner(digest.cadence, shareAlerts),
   );
 }
 
-/// What an allowlist lists, in [digestTitleOf]'s words: one category's
-/// label, "Events" for every category (an empty allowlist), else the count.
+/// What an allowlist lists, in [digestTitleOf]'s words, from the listed
+/// categories it ticks ([CategoryAllowlist.tickedListed]): "Events" for a
+/// list that filters nothing, one category's label, the count, or "No
+/// categories" when it ticks none. [partnerListed] is
+/// [digestListsPartner]'s answer for the digest.
 String digestCategoriesLabel(
   Set<String> categoryIds,
   AppLocalizations strings, {
   required String Function(String categoryId) categoryLabel,
+  bool partnerListed = false,
 }) {
-  if (categoryIds.isEmpty) return strings.digestAllCategories;
-  if (categoryIds.length == 1) return categoryLabel(categoryIds.single);
-  return strings.digestCategoriesCount(categoryIds.length);
+  if (CategoryAllowlist.filtersNothing(
+    categoryIds,
+    partnerListed: partnerListed,
+  )) {
+    return strings.digestAllCategories;
+  }
+  // With no catalogue published nothing is listed, and the list's own ids
+  // are all a label can know.
+  final named = CalendarCategories.all.isEmpty
+      ? [
+          for (final id in categoryIds)
+            if (!CategoryAllowlist.isEntry(id)) id,
+        ]
+      : [
+          for (final category in CategoryAllowlist.tickedListed(
+            categoryIds,
+            partnerListed: partnerListed,
+          ))
+            category.id,
+        ];
+  return switch (named.length) {
+    0 => strings.calendarFilterNoCategories,
+    1 => categoryLabel(named.single),
+    final count => strings.digestCategoriesCount(count),
+  };
 }
+
+/// Whether a digest of [cadence] lists the partner's categories (D34): only
+/// while their events reach a digest at all — [shareAlerts] is
+/// `ShareAlerts.category`, the planner's `includePartner` (D20) — and never
+/// for a report, which counts none of their time (D15). Where it lists none,
+/// a stored partner's part is carried, admits nothing and is named nowhere.
+bool digestListsPartner(DigestCadence cadence, ShareAlerts shareAlerts) =>
+    shareAlerts == ShareAlerts.category && !cadence.isReport;
 
 /// "Sat 4 Oct · Ana", and its count where the event counts its occurrences
 /// ("· Year 30") — the one count formatter, so the line reads as the

@@ -536,6 +536,7 @@ class SearchBloc extends Bloc<SearchEvent, SearchState> {
         _noteService.loadNotesPaginated(
           pageSize: recentsPageSize,
           sortOrder: NotesSortOrder.updatedDesc,
+          ownOnly: true,
         ),
         reloadLabels
             ? _folderIdsFor(

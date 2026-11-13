@@ -238,6 +238,25 @@ void main() {
       expect(await ownerOf(folder.id), isNull);
     });
 
+    test('Stop syncing tells the push registry which account left, once '
+        'committed, and drops every poke owed with the outbox', () async {
+      final left = <String>[];
+      SyncBindingService.onUnbound = left.add;
+      addTearDown(() => SyncBindingService.onUnbound = null);
+      await service.bind(space: space, accountUid: 'account-1');
+      await db.syncDao.oweSharePoke(pairId: 'pair-1', urgent: true);
+
+      await service.unbind();
+
+      expect(left, ['account-1']);
+      expect(
+        await db.syncDao.valuesByPrefix(SyncDao.sharePokeOwedPrefix),
+        isEmpty,
+      );
+      await service.unbind();
+      expect(left, ['account-1'], reason: 'nothing was bound the second time');
+    });
+
     test('unbound already, nothing is released: a partner\'s rows and an '
         'earlier account\'s alike stay as they are', () async {
       final folder = await db.folderDao.createFolder(name: 'Old');

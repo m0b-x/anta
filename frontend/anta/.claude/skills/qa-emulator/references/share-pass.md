@@ -54,6 +54,9 @@ a step that names it.
 | `04g_share_from_surfaces` | no seam: the owner makes Stretching shared from its editor's switch (`category-editor-share`), shares Gym from its row's ⋮ (`category-menu-gym`, `category-menu-share`), makes "Hip openers" in Stretching (its `event-share` reads "On for everything in Stretching", disabled) and shares "Lifting session" from its editor's switch; the Sharing page reads "Gym, Stretching" and "1 event"; the tick sheet (`share-categories-sheet`) takes Gym back ("No longer shared: Gym"); the Single events sheet's ✕ (`share-event-unshare-qa-event-weekly-lift`) stops the event and Undo (`snackbar-undo`) brings it back. The partner, after its sync: "… shares Stretching with you", whose View (`share-notice-view`) opens the Sharing page — Stretching and "1 event" under what it is shared — and its day panel draws "Hip openers" as "From qa1@example.com" |
 | `04h_receiver_chooses` | the partner switches Stretching off in "Categories from …" (`shared-categories-sheet`): "Hip openers" leaves its day panel with no sync, and comes back when switched on; under "Category alerts too" (`sharing-alerts-category`) the category's sheet (`shared-category-sheet`) takes an alert (`shared-category-add-alert` → `shared-category-alert-0`); the Categories page lists Stretching under `category-section-partner-header` with "Alerts on"; the calendar filter's picker lists it after `category-pick-create` under "From …"; the look row's Avatar and Outlined each shot on the day panel; ends on "Only alerts I add" and Outlined |
 | `04i_stop_everything` | the partner adds "10 min before" to "Lifting session" from its read sheet (`shared-event-add-alert`); the owner's "Stop sharing everything" (`sharing-stop-all`, then `sheet-confirm`) leaves both "You share" entries "None"; after a sync each side the partner reads "… no longer shares Lifting session. Your alert is off.", its "shares with you" entries read "None", and its day panel and grid hold nothing of the owner's |
+| `04j_fresh_b1_no_work` | freshness B1 (`docs/cloud-shared-freshness.md` §10): with nothing shared the partner holds no scheduled work and nothing armed (`work --expect none`, `armed --expect none`) — the work 04i's alert scheduled was cancelled when the event left |
+| `04k_fresh_b4_b5_closed_app` | freshness B11, B4, B5, both tiers: the event shared again, the partner adds an alarm (30 min before) beside 04i's reminder; app open but sent home, the work is run and the check ends `forwarded`; the partner's process is ended (`kill-app`), the owner moves the event an hour later (`move-event`), the work is run and ends `read`, and both tiers' armed instants have moved by 3600 s with the app never opened; the owner makes the event private, the work runs, nothing is armed and no work is left; the next `launch` says "… no longer shares Lifting session. Your alert is off." from what the run kept with the database |
+| `04l_fresh_b10_launch_during_run` | freshness B10: shared again, process ended, the event moved, the work started and the app launched at once — the launch succeeds and both tiers end an hour later, whichever of the two read the change |
 | `05_pair_ended` | the event shared again and seen; the owner unpairs on the Sharing page its Pairing row opens (`sharing-paired`, then `sharing-unpair` and `sharing-unpair-confirm`); the partner's Sync & sharing opens on the "Sharing ended" notice (`sharing-ended-close`), and after its next sync the event is gone |
 | `06_delete_account` | the partner deletes its account (`sharing-delete-account`, `sharing-delete-account-confirm`): the deletion's row ends as "Account deleted" (never "Finish deleting account"), the page is signed out; the owner's side is still bound, up to date and ready to pair; the partner's guest is relaunched fresh at the end — the first device pass of the roadmap's D2 |
 
@@ -213,3 +216,24 @@ the pair ended); anything on the real project.
   incremental caches … different roots". Build with
   `GRADLE_OPTS=-Dorg.gradle.project.kotlin.incremental=false`, after
   removing the `build/<plugin>/kotlin` folders a failed build left.
+- **The freshness flows (04j–04l) end the partner's process**, and three
+  things follow (2026-11-13):
+  - `kill-app` ends it with `run-as … kill -9`, never `am kill`: WorkManager
+    reads an exit "requested by the user" as a force-stop ("Application
+    was force-stopped, rescheduling" in logcat) and a forced job is then
+    not run. The verb warns when it had to fall back.
+  - The partner's sign-in account (`set account=…`) is held in memory, so
+    each flow sets it again after its `launch`; without that 06's
+    re-authentication offers the build's account and the page says "That
+    is another account — nothing was deleted".
+  - `key home` needs `--via native`: the agent has no Home.
+- `work` reads `dumpsys jobscheduler`. On API 36 WorkManager's job has a
+  namespace (`JOB androidx.work.systemjobscheduler:u0a217/7: … @androidx.
+  work.systemjobscheduler@com.alexzamfir.anta/…SystemJobService`), and
+  `work --run` must name it (`cmd jobscheduler run -f -n <namespace>`);
+  `work --raw` prints the text the verb parsed when a job seems missing.
+- The check's work sits in one of two slots (`shared-refresh`,
+  `shared-refresh-2`); each run schedules its successor into the other, so
+  the job id `work` prints changes after every run.
+- 04h opens the filter sheet with `--settle 1000`: its next tap landed on
+  the row under the sliding sheet once (`filter-categories` → "Priority").

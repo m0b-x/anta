@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-This repo contains a single Flutter app, **ANTA** — an offline-first personal tracker (folders, markdown notes, a money ledger, counters, calendar). There is no backend; the `frontend/` nesting exists to leave room for one.
+This repo contains a single Flutter app, **ANTA** — an offline-first personal tracker (folders, markdown notes, a money ledger, counters, calendar). The app holds its own data; the one server-side piece is [backend/push-relay/](backend/push-relay/) — a Cloudflare Worker that turns "something a pair shares has changed" into a data message for the partner's phone. It stores nothing and reads no user data; its contract, tests and deploy steps are in `frontend/anta/docs/cloud-shared-freshness.md` §7–§9 (`node --test` from that directory).
 
 The Dart package is named `anta`; the app id is `com.alexzamfir.anta`. The on-disk database directory is still `gym_notes` — a load-bearing runtime path, not branding. Never rename it: it is where every existing install's databases and `device_id` live.
 

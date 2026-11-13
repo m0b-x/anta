@@ -19,6 +19,7 @@ import '../models/label_style.dart';
 import '../models/nav_destination.dart';
 import '../models/overview_list_options.dart';
 import '../models/overview_period.dart';
+import '../models/partner_folder_sort.dart';
 import '../models/report_cards.dart';
 import '../models/restore_location_mode.dart';
 import '../models/share_settings.dart';
@@ -2423,6 +2424,7 @@ class SettingsService {
     eventLook: ShareEventLook.fromName(
       values[SettingsKeys.shareEventLook] ?? SettingsKeys.defaultShareEventLook,
     ),
+    noteLook: _decodeShareNoteLook(values[SettingsKeys.shareNoteLook]),
     markMine: _decodeBool(
       values[SettingsKeys.shareMarkMine],
       SettingsKeys.defaultShareMarkMine,
@@ -2432,16 +2434,37 @@ class SettingsService {
   static ShareAlerts _decodeShareAlerts(String? raw) =>
       ShareAlerts.fromName(raw ?? SettingsKeys.defaultShareAlerts);
 
-  /// How shared rows are drawn, in one statement.
-  Future<ShareLook> getShareLook() async => _decodeShareLook(
-    await _db.userSettingsDao.getValuesFor(const [
-      SettingsKeys.shareEventLook,
-      SettingsKeys.shareMarkMine,
-    ]),
-  );
+  static ShareNoteLook _decodeShareNoteLook(String? raw) =>
+      ShareNoteLook.fromName(raw ?? SettingsKeys.defaultShareNoteLook);
+
+  /// How shared rows are drawn, in one statement. [withNotes] reads the
+  /// notes look too; without it the statement is the one every calendar
+  /// surface and an account that never paired have always run, and the
+  /// notes look is the shipped value.
+  Future<ShareLook> getShareLook({bool withNotes = false}) async =>
+      _decodeShareLook(
+        await _db.userSettingsDao.getValuesFor(
+          withNotes
+              ? const [
+                  SettingsKeys.shareEventLook,
+                  SettingsKeys.shareMarkMine,
+                  SettingsKeys.shareNoteLook,
+                ]
+              : const [SettingsKeys.shareEventLook, SettingsKeys.shareMarkMine],
+        ),
+      );
 
   Future<void> setShareEventLook(ShareEventLook look) =>
       _db.userSettingsDao.setValue(SettingsKeys.shareEventLook, look.name);
+
+  /// How a partner's folders and notes are drawn, alone: what the browser
+  /// reads with its page state.
+  Future<ShareNoteLook> getShareNoteLook() async => _decodeShareNoteLook(
+    await _db.userSettingsDao.getValue(SettingsKeys.shareNoteLook),
+  );
+
+  Future<void> setShareNoteLook(ShareNoteLook look) =>
+      _db.userSettingsDao.setValue(SettingsKeys.shareNoteLook, look.name);
 
   Future<void> setShareMarkMine(bool value) =>
       _setBool(SettingsKeys.shareMarkMine, value);
@@ -2507,43 +2530,69 @@ class SettingsService {
     );
   }
 
+  /// My own sort of each of the partner's folders, by folder id, in one
+  /// statement over [db] itself: what `FolderStorageService` lays over a
+  /// partner's folder as it maps it, and writes when the person sorts one.
+  static Future<Map<String, PartnerFolderSort>> partnerFolderSortsOf(
+    AppDatabase db,
+  ) async => PartnerFolderSort.decodeAll(
+    await db.userSettingsDao.getValue(SettingsKeys.shareFolderSorts),
+  );
+
+  /// Stores [sorts] over [db], deleting the row when none is left.
+  static Future<void> setPartnerFolderSortsOf(
+    AppDatabase db,
+    Map<String, PartnerFolderSort> sorts,
+  ) async {
+    final raw = PartnerFolderSort.encodeAll(sorts);
+    if (raw == null) {
+      await db.userSettingsDao.deleteValue(SettingsKeys.shareFolderSorts);
+      return;
+    }
+    await db.userSettingsDao.setValue(SettingsKeys.shareFolderSorts, raw);
+  }
+
   /// The cached pairing state for this database. A cache, not the truth: the
   /// server answers which active pair contains the signed-in uid, and
   /// `PairingService` reconciles this against it on sign-in and resume.
+  ///
+  /// One statement for every row: the pairing is read on each launch, for
+  /// an account that never paired too.
   Future<PairingSettings> getPairingSettings() async {
-    final expiresAt = await _db.userSettingsDao.getValue(
-      SettingsKeys.pairingPendingExpiresAt,
-    );
+    final values = await _db.userSettingsDao.getValuesFor(_pairingKeys);
+    final expiresAt = values[SettingsKeys.pairingPendingExpiresAt];
     return PairingSettings(
-      pairId: _nonEmpty(
-        await _db.userSettingsDao.getValue(SettingsKeys.pairingPairId),
-      ),
-      accountUid: _nonEmpty(
-        await _db.userSettingsDao.getValue(SettingsKeys.pairingAccountUid),
-      ),
-      partnerUid: _nonEmpty(
-        await _db.userSettingsDao.getValue(SettingsKeys.pairingPartnerUid),
-      ),
-      partnerName: _nonEmpty(
-        await _db.userSettingsDao.getValue(SettingsKeys.pairingPartnerName),
-      ),
-      pendingCode: _nonEmpty(
-        await _db.userSettingsDao.getValue(SettingsKeys.pairingPendingCode),
-      ),
+      pairId: _nonEmpty(values[SettingsKeys.pairingPairId]),
+      accountUid: _nonEmpty(values[SettingsKeys.pairingAccountUid]),
+      partnerUid: _nonEmpty(values[SettingsKeys.pairingPartnerUid]),
+      partnerName: _nonEmpty(values[SettingsKeys.pairingPartnerName]),
+      pendingCode: _nonEmpty(values[SettingsKeys.pairingPendingCode]),
       pendingExpiresAt: expiresAt == null
           ? null
           : DateTime.fromMillisecondsSinceEpoch(
               int.tryParse(expiresAt) ?? 0,
               isUtc: true,
             ),
-      endedNoticePending: await _getBool(
-        SettingsKeys.pairingEndedNotice,
+      endedNoticePending: _decodeBool(
+        values[SettingsKeys.pairingEndedNotice],
         false,
       ),
+      endedPairId: _nonEmpty(values[SettingsKeys.pairingEndedPair]),
     );
   }
 
-  /// Transactional on purpose: these seven rows are one value. A partial write
+  static const List<String> _pairingKeys = [
+    SettingsKeys.pairingPairId,
+    SettingsKeys.pairingAccountUid,
+    SettingsKeys.pairingPartnerUid,
+    SettingsKeys.pairingPartnerName,
+    SettingsKeys.pairingPendingCode,
+    SettingsKeys.pairingPendingExpiresAt,
+    SettingsKeys.pairingEndedNotice,
+    SettingsKeys.pairingEndedPair,
+  ];
+
+  /// Transactional on purpose: these rows are one value. A partial write
   /// (a `pairId` without the account it belongs to) is exactly the state
   /// [PairingSettings] exists to make unrepresentable.
   Future<void> setPairingSettings(PairingSettings settings) {
@@ -2561,6 +2610,7 @@ class SettingsService {
         SettingsKeys.pairingEndedNotice,
         settings.endedNoticePending,
       );
+      await _write(SettingsKeys.pairingEndedPair, settings.endedPairId);
     });
   }
 
@@ -2639,6 +2689,10 @@ class PairingSettings extends Equatable {
   final DateTime? pendingExpiresAt;
   final bool endedNoticePending;
 
+  /// The pair the partner ended while its leave notice may still be told
+  /// ([SettingsKeys.pairingEndedPair]); it outlives [endedNoticePending].
+  final String? endedPairId;
+
   const PairingSettings({
     this.pairId,
     this.accountUid,
@@ -2647,6 +2701,7 @@ class PairingSettings extends Equatable {
     this.pendingCode,
     this.pendingExpiresAt,
     this.endedNoticePending = false,
+    this.endedPairId,
   });
 
   static const PairingSettings empty = PairingSettings();
@@ -2674,6 +2729,7 @@ class PairingSettings extends Equatable {
     pendingCode: pendingCode ?? this.pendingCode,
     pendingExpiresAt: pendingExpiresAt ?? this.pendingExpiresAt,
     endedNoticePending: endedNoticePending ?? this.endedNoticePending,
+    endedPairId: endedPairId,
   );
 
   PairingSettings clearPendingInvite() => PairingSettings(
@@ -2682,6 +2738,7 @@ class PairingSettings extends Equatable {
     partnerUid: partnerUid,
     partnerName: partnerName,
     endedNoticePending: endedNoticePending,
+    endedPairId: endedPairId,
   );
 
   @override
@@ -2693,5 +2750,6 @@ class PairingSettings extends Equatable {
     pendingCode,
     pendingExpiresAt,
     endedNoticePending,
+    endedPairId,
   ];
 }

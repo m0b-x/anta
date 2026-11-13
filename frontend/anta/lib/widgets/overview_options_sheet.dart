@@ -9,10 +9,10 @@ import '../constants/row_metrics.dart';
 import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
 import '../models/agenda_day_list_mode.dart';
-import '../models/calendar_category.dart';
 import '../models/overview_list_options.dart';
 import '../models/partner_look.dart';
 import '../utils/calendar_filter_summary.dart';
+import '../utils/category_allowlist.dart';
 import 'category_picker_sheet.dart';
 import 'form_rows.dart';
 
@@ -128,30 +128,18 @@ class _OverviewOptionsSheetState extends State<OverviewOptionsSheet> {
   /// "All" for the empty allowlist, else the chosen categories read back in
   /// catalog order — two names, then "+N more", on the value's two lines —
   /// or "No categories" when nothing chosen still lists. Counted over the
-  /// offered catalog, a partner's shown ones included, as the agenda's row
-  /// is.
-  String _categoriesValue(
-    AppLocalizations l10n,
-    List<CalendarCategory> offered,
-  ) {
-    if (_categoryIds.isEmpty) return l10n.calendarFilterCategoriesAll;
+  /// offered catalog, a partner's shown ones included — the overview's rows
+  /// draw a partner's events — as the agenda's row is.
+  String _categoriesValue(AppLocalizations l10n) {
+    if (CategoryAllowlist.filtersNothing(_categoryIds)) {
+      return l10n.calendarFilterCategoriesAll;
+    }
     final names = [
-      for (final category in offered)
-        if (_categoryIds.contains(category.id))
-          CalendarCategories.labelOf(category, l10n),
+      for (final category in CategoryAllowlist.tickedListed(_categoryIds))
+        CalendarCategories.labelOf(category, l10n),
     ];
     if (names.isEmpty) return l10n.calendarFilterNoCategories;
     return CalendarFilterSummary.namesReadBack(names, l10n);
-  }
-
-  /// This person's categories (an archived one while the allowlist holds
-  /// it), then a partner's shown ones: the overview's rows draw a partner's
-  /// events, so an allowlist that could not name their categories would
-  /// drop those events for good once anything was chosen.
-  List<CalendarCategory> get _offered {
-    final mine = CalendarCategories.visiblePlus(_categoryIds);
-    final partner = CalendarCategories.partnerShown;
-    return partner.isEmpty ? mine : [...mine, ...partner];
   }
 
   /// The multi picker over the allowlist. An empty allowlist means every
@@ -161,33 +149,23 @@ class _OverviewOptionsSheetState extends State<OverviewOptionsSheet> {
   /// later.
   ///
   /// A partner's shown categories are on offer in their own group (share
-  /// surfaces §6.10), so "every offered row" counts them: ticking only mine
-  /// is a real narrowing. A partner's id that has since left the list stays
-  /// in the set as a deleted category's does — it matches no event and no
-  /// row names it.
-  ///
-  /// "Every offered row" is read again after the picker returns, never from
-  /// before it opened: a category created inside the picker is offered now,
-  /// and an answer that leaves it un-ticked must not collapse to "all". The
-  /// partner's are the ones the picker was handed, as in the grid's sheet.
+  /// surfaces §6.10), so a whole group is stored as the group
+  /// ([CategoryAllowlist.fromPicker], D29): "only mine" stays true of a
+  /// category made later. The store reads the catalogue after the picker
+  /// returns: a category created inside it is offered now, and an answer
+  /// that leaves it un-ticked must not collapse to "all".
   Future<void> _pickCategories() async {
     if (_pickerOpen) return;
     _pickerOpen = true;
     try {
-      final partner = CalendarCategories.partnerShown;
-      Set<String> offered() => {
-        for (final category in CalendarCategories.visiblePlus(_categoryIds))
-          category.id,
-        for (final category in partner) category.id,
-      };
       final picked = await CategoryPickerSheet.pickMulti(
         context,
-        selected: _categoryIds.isEmpty ? offered() : _categoryIds,
-        partner: partner,
+        selected: CategoryAllowlist.ticked(_categoryIds),
+        partner: CalendarCategories.partnerShown,
         partnerLook: widget.partnerLook,
       );
       if (picked == null || !mounted) return;
-      final next = picked.containsAll(offered()) ? const <String>{} : picked;
+      final next = CategoryAllowlist.fromPicker(_categoryIds, picked);
       if (setEquals(next, _categoryIds)) return;
       setState(() => _categoryIds = next);
       widget.onCategoriesChanged(next);
@@ -251,7 +229,7 @@ class _OverviewOptionsSheetState extends State<OverviewOptionsSheet> {
                   FormPickerRow(
                     glyph: Icons.category_rounded,
                     label: l10n.overviewCategories,
-                    value: _categoriesValue(l10n, _offered),
+                    value: _categoriesValue(l10n),
                     identifier: SemanticsIds.overviewCategories,
                     onTap: _pickCategories,
                   ),

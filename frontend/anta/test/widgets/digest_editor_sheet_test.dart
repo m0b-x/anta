@@ -9,6 +9,7 @@ import 'package:intl/intl.dart' show DateFormat;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:anta/constants/calendar_categories.dart';
+import 'package:anta/constants/event_alerts.dart';
 import 'package:anta/constants/event_digests.dart';
 import 'package:anta/constants/form_metrics.dart';
 import 'package:anta/constants/semantics_ids.dart';
@@ -18,8 +19,11 @@ import 'package:anta/models/calendar_appearance.dart';
 import 'package:anta/models/calendar_category.dart';
 import 'package:anta/models/calendar_event.dart';
 import 'package:anta/models/event_digest.dart';
+import 'package:anta/models/partner_look.dart';
 import 'package:anta/models/recurrence_rule.dart';
+import 'package:anta/models/share_settings.dart';
 import 'package:anta/services/settings_service.dart';
+import 'package:anta/utils/category_allowlist.dart';
 import 'package:anta/utils/digest_planner.dart';
 import 'package:anta/widgets/digest_editor_sheet.dart';
 
@@ -115,6 +119,7 @@ void main() {
     Size size = surface,
     // The sheet's own default; a caption case passes a fixed clock.
     DateTime Function() now = DateTime.now,
+    PartnerLook partnerLook = const PartnerLook(),
   }) async {
     tester.view.devicePixelRatio = 1;
     tester.view.physicalSize = size;
@@ -139,6 +144,7 @@ void main() {
                   events: events,
                   weekStart: weekStart,
                   now: now,
+                  partnerLook: partnerLook,
                 );
                 outcome.returned = true;
               },
@@ -713,6 +719,257 @@ void main() {
 
       await robot.save();
       expect(savedFrom(outcome).categoryIds, {'birthday', 'work'});
+    });
+
+    /// D34: under "Category alerts too" a partner's events reach a digest, so
+    /// its picker lists their shown categories as every allowlist does, and
+    /// a whole group is stored as the group (D29).
+    group('a partner\'s categories (D34)', () {
+      Finder pickRow(String id) =>
+          find.bySemanticsIdentifier(SemanticsIds.categoryPickRow(id));
+
+      setUp(() {
+        CalendarCategories.updateCache([
+          ...CalendarCategories.all,
+          const CalendarCategory(
+            id: 'p-night',
+            name: 'Night shift',
+            colorValue: 0xFF8E24AA,
+            iconKey: 'work',
+            sortOrder: 0,
+            isBuiltIn: false,
+            fromPartner: true,
+          ),
+        ]);
+      });
+
+      tearDown(() => EventAlerts.configureShareAlerts(null));
+
+      testWidgets('under category alerts the From group is listed and all of '
+          'mine is stored as my group', (tester) async {
+        EventAlerts.configureShareAlerts(ShareAlerts.category);
+        final outcome = await open(
+          tester,
+          partnerLook: const PartnerLook(name: 'Maria'),
+        );
+        final robot = DigestSheetRobot(tester);
+
+        await robot.pickCategories(ticked: const {'birthday', 'gym', 'work'});
+        expect(robot.categoriesValue, '3 categories');
+
+        await robot.save();
+        expect(savedFrom(outcome).categoryIds, {CategoryAllowlist.mineEntry});
+      });
+
+      testWidgets('under category alerts all of theirs is their group, named '
+          'by its one category', (tester) async {
+        EventAlerts.configureShareAlerts(ShareAlerts.category);
+        final outcome = await open(
+          tester,
+          partnerLook: const PartnerLook(name: 'Maria'),
+        );
+        final robot = DigestSheetRobot(tester);
+
+        await robot.pickCategories(ticked: const {'p-night'});
+        expect(robot.categoriesValue, 'Night shift');
+
+        await robot.save();
+        expect(savedFrom(outcome).categoryIds, {
+          CategoryAllowlist.partnerEntry,
+        });
+      });
+
+      testWidgets('the From group is listed with its name', (tester) async {
+        EventAlerts.configureShareAlerts(ShareAlerts.category);
+        await open(tester, partnerLook: const PartnerLook(name: 'Maria'));
+        await tester.tap(
+          find.bySemanticsIdentifier(SemanticsIds.digestCategories),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.text('FROM MARIA'), findsOneWidget);
+        await tester.ensureVisible(pickRow('p-night'));
+        expect(pickRow('p-night'), findsOneWidget);
+      });
+
+      Future<void> openPicker(WidgetTester tester) async {
+        await tester.tap(
+          find.bySemanticsIdentifier(SemanticsIds.digestCategories),
+        );
+        await tester.pumpAndSettle();
+      }
+
+      Future<void> tapRow(WidgetTester tester, String id) async {
+        await tester.ensureVisible(pickRow(id));
+        await tester.pumpAndSettle();
+        await tester.tap(pickRow(id));
+        await tester.pumpAndSettle();
+      }
+
+      Future<void> done(WidgetTester tester) async {
+        await tester.tap(
+          find.bySemanticsIdentifier(SemanticsIds.categoryPickDone),
+        );
+        await tester.pumpAndSettle();
+      }
+
+      /// Fix pass, finding 1: a picker changes only the part it showed.
+      testWidgets('their group, opened where their categories are not '
+          'listed, reads No categories and survives a no-op Done', (
+        tester,
+      ) async {
+        EventAlerts.configureShareAlerts(ShareAlerts.own);
+        final outcome = await open(
+          tester,
+          initial: const EventDigest(
+            id: '',
+            categoryIds: {CategoryAllowlist.partnerEntry},
+          ),
+        );
+        final robot = DigestSheetRobot(tester);
+        expect(robot.categoriesValue, 'No categories');
+
+        await openPicker(tester);
+        await done(tester);
+        await robot.save();
+        expect(savedFrom(outcome).categoryIds, {
+          CategoryAllowlist.partnerEntry,
+        });
+      });
+
+      testWidgets('their group, not listed, is carried beside a part of '
+          'mine', (tester) async {
+        EventAlerts.configureShareAlerts(ShareAlerts.own);
+        final outcome = await open(
+          tester,
+          initial: const EventDigest(
+            id: '',
+            categoryIds: {CategoryAllowlist.partnerEntry},
+          ),
+        );
+        final robot = DigestSheetRobot(tester);
+
+        await robot.pickCategories(ticked: const {'birthday', 'gym'});
+        await robot.save();
+        expect(savedFrom(outcome).categoryIds, {
+          'birthday',
+          'gym',
+          CategoryAllowlist.partnerEntry,
+        });
+      });
+
+      testWidgets('a report never lists their group', (tester) async {
+        EventAlerts.configureShareAlerts(ShareAlerts.category);
+        await open(
+          tester,
+          initial: const EventDigest(
+            id: '',
+            cadence: DigestCadence.weeklyReport,
+          ),
+          partnerLook: const PartnerLook(name: 'Maria'),
+        );
+        await openPicker(tester);
+        expect(pickRow('p-night'), findsNothing);
+        expect(find.text('FROM MARIA'), findsNothing);
+      });
+
+      /// Fix pass, finding 2: the store reads the catalogue after the
+      /// picker returns, so a category created inside it is listed.
+      Future<void> createInside(WidgetTester tester) async {
+        CalendarCategories.updateCache([
+          ...CalendarCategories.all,
+          const CalendarCategory(
+            id: 'c-new',
+            name: 'Made here',
+            colorValue: 0xFFD81B60,
+            iconKey: 'event',
+            sortOrder: 9,
+            isBuiltIn: false,
+          ),
+        ]);
+        // What Create category does through the facade; a toggle back and
+        // forth rebuilds the list.
+        await tapRow(tester, 'gym');
+        await tapRow(tester, 'gym');
+        expect(pickRow('c-new'), findsOneWidget);
+      }
+
+      testWidgets('a category created inside the picker and left un-ticked '
+          'keeps my part a list', (tester) async {
+        EventAlerts.configureShareAlerts(ShareAlerts.category);
+        final outcome = await open(
+          tester,
+          partnerLook: const PartnerLook(name: 'Maria'),
+        );
+        final robot = DigestSheetRobot(tester);
+
+        await openPicker(tester);
+        await createInside(tester);
+        await done(tester);
+        await robot.save();
+        expect(savedFrom(outcome).categoryIds, {
+          'birthday',
+          'gym',
+          'work',
+          CategoryAllowlist.partnerEntry,
+        });
+      });
+
+      testWidgets('a category created inside the picker, ticked, with an old '
+          'one un-ticked, is kept', (tester) async {
+        EventAlerts.configureShareAlerts(ShareAlerts.category);
+        final outcome = await open(
+          tester,
+          partnerLook: const PartnerLook(name: 'Maria'),
+        );
+        final robot = DigestSheetRobot(tester);
+
+        await openPicker(tester);
+        await createInside(tester);
+        await tapRow(tester, 'c-new');
+        await tapRow(tester, 'work');
+        await done(tester);
+        await robot.save();
+        expect(savedFrom(outcome).categoryIds, {
+          'birthday',
+          'gym',
+          'c-new',
+          CategoryAllowlist.partnerEntry,
+        });
+      });
+
+      for (final mode in [ShareAlerts.own, ShareAlerts.off]) {
+        testWidgets('under ${mode.name} it lists mine only and carries '
+            'their part', (tester) async {
+          EventAlerts.configureShareAlerts(mode);
+          final outcome = await open(
+            tester,
+            partnerLook: const PartnerLook(name: 'Maria'),
+          );
+          final robot = DigestSheetRobot(tester);
+
+          await tester.tap(
+            find.bySemanticsIdentifier(SemanticsIds.digestCategories),
+          );
+          await tester.pumpAndSettle();
+          expect(pickRow('p-night'), findsNothing);
+          expect(find.text('FROM MARIA'), findsNothing);
+          await tester.tap(
+            find.bySemanticsIdentifier(SemanticsIds.categoryPickDone),
+          );
+          await tester.pumpAndSettle();
+
+          // An empty list held all of theirs; the picker did not list them,
+          // so that part is carried as it stood.
+          await robot.pickCategories(ticked: const {'birthday', 'gym'});
+          await robot.save();
+          expect(savedFrom(outcome).categoryIds, {
+            'birthday',
+            'gym',
+            CategoryAllowlist.partnerEntry,
+          });
+        });
+      }
     });
   });
 

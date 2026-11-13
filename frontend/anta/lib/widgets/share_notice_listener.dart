@@ -9,6 +9,7 @@ import '../l10n/app_localizations.dart';
 import '../models/share_notice.dart';
 import '../services/app_navigator.dart';
 import '../services/category_service.dart';
+import '../services/kept_share_notices.dart';
 import '../services/share_service.dart';
 import '../utils/custom_snackbar.dart';
 import '../utils/share_copy.dart';
@@ -41,6 +42,11 @@ class ShareNoticeListener extends StatefulWidget {
   /// rule for its permission prompt.
   final bool Function() alertInFront;
 
+  /// Takes what a check kept while no app ran to say it
+  /// (`KeptShareNotices`): asked at the start and on each return, and what
+  /// it hands over is held and said like any notice. A seam for tests.
+  final Future<List<ShareNotice>> Function() takeKept;
+
   /// What is in front on the app's navigator, in `main.dart`'s
   /// `navigatorObservers`.
   static final ShareNoticeRoutes routes = ShareNoticeRoutes();
@@ -51,6 +57,7 @@ class ShareNoticeListener extends StatefulWidget {
     this.shareService = ShareService.getInstance,
     this.loadCategories = CategoryService.getInstance,
     this.alertInFront = _noAlert,
+    this.takeKept = KeptShareNotices.takeForActiveDatabase,
   });
 
   static bool _noAlert() => false;
@@ -69,6 +76,10 @@ class _ShareNoticeListenerState extends State<ShareNoticeListener>
   final Set<String> _arrivedCategories = {};
   final Map<String, String> _arrivedEvents = {};
   final Map<String, String> _left = {};
+
+  /// The name the leaves were told with, as it stood while the pair did
+  /// (D35): once the partner ends it the service names nobody.
+  String? _leftName;
 
   /// The opening of the database what waits arrived under
   /// ([ShareService.databaseGeneration]): it tells of that database's
@@ -95,6 +106,21 @@ class _ShareNoticeListenerState extends State<ShareNoticeListener>
     WidgetsBinding.instance.addObserver(this);
     ShareNoticeListener.routes._onChanged = _onRoutesChanged;
     _notices = ShareService.notices.listen(_hold);
+    unawaited(_takeKept());
+  }
+
+  /// Holds what a check kept with the database while the app was closed
+  /// (`docs/cloud-shared-freshness.md`, decision f). Costs a database that
+  /// kept nothing no read at all.
+  Future<void> _takeKept() async {
+    try {
+      for (final notice in await widget.takeKept()) {
+        if (!mounted) return;
+        _hold(notice);
+      }
+    } catch (e, st) {
+      debugPrint('[ShareNoticeListener] kept notices not taken: $e\n$st');
+    }
   }
 
   @override
@@ -110,15 +136,20 @@ class _ShareNoticeListenerState extends State<ShareNoticeListener>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) unawaited(_sayNext());
+    if (state == AppLifecycleState.resumed) {
+      unawaited(_sayNext());
+      unawaited(_takeKept());
+    }
   }
 
   /// What is in front changed: a notice that waited for a dialog, a sheet
   /// or an alert to go may be said, once the change is laid out.
   void _onRoutesChanged() {
-    if (_nothingWaits) return;
+    if (_nothingWaits && _hidden == null) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) unawaited(_sayNext());
+      if (!mounted) return;
+      _sayHidden();
+      unawaited(_sayNext());
     });
     WidgetsBinding.instance.ensureVisualUpdate();
   }
@@ -130,6 +161,39 @@ class _ShareNoticeListenerState extends State<ShareNoticeListener>
     _arrivedCategories.clear();
     _arrivedEvents.clear();
     _left.clear();
+    _leftName = null;
+    _hidden = null;
+  }
+
+  /// A hide of mine that took my alerts off, waiting only while an alert
+  /// is in front or before a page is up (D30, A13): the latest, since each
+  /// bar would take the one before it down.
+  ShareHiddenWithAlerts? _hidden;
+
+  /// Says [_hidden] at once, over whatever is in front — a sheet, a form
+  /// sheet, a dialog — on the overlay road: it answers the person's own
+  /// tap, so it is neither held for a resume nor queued behind another bar,
+  /// and the next notice waits its time out. The surface whose switch asked
+  /// for the hide may have closed since; nothing here needs it.
+  void _sayHidden() {
+    final hidden = _hidden;
+    if (hidden == null || widget.alertInFront()) return;
+    final page = _pageInFront();
+    if (page == null) return;
+    _hidden = null;
+    final l10n = AppLocalizations.of(page)!;
+    final category = CalendarCategories.byId(hidden.categoryId);
+    final label = category == null
+        ? hidden.name
+        : CalendarCategories.labelOf(category, l10n);
+    CustomSnackbar.show(
+      page,
+      ShareCopy.sentence(l10n.shareHiddenAlertsOff(label)),
+      duration: AppConstants.shareNoticeDuration,
+      overSheet: true,
+    );
+    _barUp?.cancel();
+    _holdBarTime();
   }
 
   void _hold(ShareNotice notice) {
@@ -138,8 +202,13 @@ class _ShareNoticeListenerState extends State<ShareNoticeListener>
       case ShareArrived(:final categoryIds, :final events):
         _arrivedCategories.addAll(categoryIds);
         _arrivedEvents.addAll({for (final e in events) e.id: e.title});
-      case ShareLeftWithAlert(:final events):
+      case ShareLeftWithAlert(:final events, :final partnerName):
         _left.addAll({for (final e in events) e.id: e.title});
+        _leftName = partnerName ?? _leftName;
+      case ShareHiddenWithAlerts():
+        _hidden = notice;
+        _sayHidden();
+        return;
     }
     unawaited(_sayNext());
   }
@@ -232,7 +301,9 @@ class _ShareNoticeListenerState extends State<ShareNoticeListener>
     final name = ShareCopy.partnerName(l10n, partner);
     final overSheet = road == _Road.overSheet;
     if (_left.isNotEmpty) {
-      _sayLeft(page, l10n, name, overSheet: overSheet);
+      final leftName = ShareCopy.partnerName(l10n, _leftName ?? partner);
+      _leftName = null;
+      _sayLeft(page, l10n, leftName, overSheet: overSheet);
     } else {
       _sayArrived(page, l10n, name, overSheet: overSheet);
     }

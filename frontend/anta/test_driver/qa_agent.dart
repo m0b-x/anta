@@ -13,6 +13,7 @@ import 'package:anta/services/app_navigator.dart';
 import 'package:anta/services/auth_service.dart';
 import 'package:anta/constants/calendar_categories.dart';
 import 'package:anta/l10n/app_localizations.dart';
+import 'package:anta/models/calendar_event.dart';
 import 'package:anta/services/calendar_event_service.dart';
 import 'package:anta/services/category_service.dart';
 import 'package:anta/services/folder_storage_service.dart';
@@ -183,6 +184,11 @@ class QaAgent {
           name: _string(request, AgentKeys.name),
           on: request[AgentKeys.on] != false,
         );
+      case AgentOps.moveEvent:
+        return _moveEvent(
+          title: _string(request, AgentKeys.name),
+          minutes: _int(request, AgentKeys.minutes, 0),
+        );
       case AgentOps.reveal:
         return _reveal(_int(request, AgentNodeKeys.semanticsId, -1));
     }
@@ -338,6 +344,44 @@ class QaAgent {
       AgentKeys.themeMode: state?.themeMode.name,
       AgentKeys.account: QaIdentity.account,
     };
+  }
+
+  /// Moves the start of this account's event titled [title] by [minutes]
+  /// within its day, through `CalendarEventService.upsert` — the write the
+  /// event editor's Save makes, stamped and queued like it. A device pass
+  /// uses it for the one edit that matters to the other account's alerts:
+  /// the event's time. The event is one of the person's own, timed, the
+  /// only one of its title, and stays inside its day.
+  Future<Map<String, Object?>> _moveEvent({
+    required String title,
+    required int minutes,
+  }) async {
+    Never refuse(String message) =>
+        throw QaAgentException(message, kind: AgentErrorKinds.target);
+    final service = await CalendarEventService.getInstance();
+    final matches = [
+      for (final event in service.events)
+        if (event.title == title && !event.fromPartner) event,
+    ];
+    if (matches.length != 1) {
+      refuse('${matches.length} events of this account are titled "$title"');
+    }
+    final event = matches.single;
+    final time = event.time;
+    if (time == null) refuse('"$title" is an all-day event');
+    final start = time.startMinute + minutes;
+    if (start < EventTime.minStartMinute || start >= EventTime.minutesPerDay) {
+      refuse('"$title" would leave its day (start minute $start)');
+    }
+    await service.upsert(
+      event.copyWith(
+        time: EventTime(
+          startMinute: start,
+          durationMinutes: time.durationMinutes,
+        ),
+      ),
+    );
+    return {AgentKeys.rowId: event.id, AgentKeys.minutes: start};
   }
 
   /// Shares the event titled [name], or the folder or the calendar category

@@ -4,7 +4,11 @@ import '../l10n/app_localizations.dart';
 import '../models/event_digest.dart';
 
 export 'digest_notification_content.dart'
-    show digestCategoriesLabel, digestPeriodOf, digestTitleOf;
+    show
+        digestCategoriesLabel,
+        digestListsPartner,
+        digestPeriodOf,
+        digestTitleOf;
 
 /// "Monthly on the 1st, 09:00" — how [digest] fires, the line the hub's row
 /// and the digest sheet read it back with (the `EventAlert.describe` rule:

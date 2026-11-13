@@ -13,6 +13,7 @@ import '../constants/app_colors.dart';
 import '../constants/app_constants.dart';
 import '../constants/settings_keys.dart';
 import '../controllers/in_place_search_controller.dart';
+import '../controllers/partner_look_reader.dart';
 import '../l10n/app_localizations.dart';
 import '../models/note_change.dart';
 import '../models/note_metadata.dart';
@@ -113,6 +114,12 @@ class _AllNotesPageState extends State<AllNotesPage> with RouteAware {
   /// Guards against a slow ancestor walk landing on top of a newer one.
   int _pathGeneration = 0;
 
+  /// Whose each row is, as this page draws it: read once the database is
+  /// known to hold something shared, and null — today's rows — for an
+  /// account that shares nothing.
+  late final PartnerLookReader _partnerLook = PartnerLookReader()
+    ..addListener(_onPartnerLook);
+
   StreamSubscription<NoteChange>? _noteChangesSub;
   Timer? _reloadDebounce;
   static const _reloadDebounceDuration = Duration(milliseconds: 120);
@@ -143,12 +150,14 @@ class _AllNotesPageState extends State<AllNotesPage> with RouteAware {
   }
 
   /// The note-preview switch lives in a settings page the drawer opens over
-  /// this one. Search is deliberately left standing — the page was never
-  /// unmounted — and only its hits are re-run, so a note edited through a
-  /// result comes back with a fresh snippet.
+  /// this one, and the notes look on the Sharing page past it. Search is
+  /// deliberately left standing — the page was never unmounted — and only
+  /// its hits are re-run, so a note edited through a result comes back with
+  /// a fresh snippet.
   @override
   void didPopNext() {
     _loadSettings();
+    unawaited(_partnerLook.refresh());
     _loadData();
     if (_searching) _search.refresh();
   }
@@ -163,6 +172,7 @@ class _AllNotesPageState extends State<AllNotesPage> with RouteAware {
     AppNavigator.routeObserver.unsubscribe(this);
     _noteChangesSub?.cancel();
     _reloadDebounce?.cancel();
+    _partnerLook.dispose();
     _search.dispose();
     _scrollController.dispose();
     super.dispose();
@@ -191,6 +201,10 @@ class _AllNotesPageState extends State<AllNotesPage> with RouteAware {
     });
   }
 
+  void _onPartnerLook() {
+    if (mounted) setState(() {});
+  }
+
   /// A note written anywhere changes this list, and the shared bloc's own
   /// refresh reloads at its default page size rather than at this page's, so
   /// the reload is dispatched here instead of relied on.
@@ -208,6 +222,7 @@ class _AllNotesPageState extends State<AllNotesPage> with RouteAware {
         folderId: null,
         pageSize: _pageSize,
         sortOrder: _sortOrder,
+        ownOnly: widget.mode == AllNotesMode.recent,
       ),
     );
   }
@@ -357,7 +372,11 @@ class _AllNotesPageState extends State<AllNotesPage> with RouteAware {
                       selectedLabels: searchState.labels,
                       onLeave: _exitSearch,
                     ),
-                    ...SearchSurface.resultSlivers(context, searchState),
+                    ...SearchSurface.resultSlivers(
+                      context,
+                      searchState,
+                      partnerLook: _partnerLook.value,
+                    ),
                   ]
                 : [
                     FolderSliverAppBar(
@@ -437,6 +456,11 @@ class _AllNotesPageState extends State<AllNotesPage> with RouteAware {
             : fresh;
         _lastNotes = notes;
         unawaited(_loadPaths(notes));
+        if (PartnerLookReader.mayShare(
+          holdsShared: GetIt.I<FolderStorageService>().holdsShared,
+        )) {
+          _partnerLook.start();
+        }
 
         if (notes.isEmpty) return _buildEmptyState(context);
 
@@ -472,6 +496,7 @@ class _AllNotesPageState extends State<AllNotesPage> with RouteAware {
         showPreview: _showNotePreview,
         pathLabel: _pathLabelFor(metadata),
         onReturn: _loadData,
+        partnerLook: _partnerLook.value,
       ),
     );
   }

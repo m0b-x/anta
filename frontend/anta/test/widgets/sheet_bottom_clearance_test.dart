@@ -88,6 +88,7 @@ import 'package:anta/bloc/share/share_bloc.dart';
 import 'package:anta/models/share_overview.dart';
 import 'package:anta/services/share_service.dart';
 import 'package:anta/widgets/share_events_sheets.dart';
+import 'package:anta/widgets/share_folders_sheets.dart';
 import 'package:anta/widgets/shared_categories_sheet.dart';
 import 'package:anta/widgets/shared_category_sheet.dart';
 
@@ -396,6 +397,77 @@ void main() {
       scrollBottomPadding(tester),
       greaterThanOrEqualTo(navBar),
       reason: 'the last of the partner\'s events ends the list',
+    );
+  });
+
+  /// The Sharing page's bloc over a fake, listing one folder of each side.
+  Future<ShareBloc> shareBlocWithFolders(WidgetTester tester) async {
+    final service =
+        FakeShareService(
+            availability: const ShareReady(
+              ShareAudience(id: 'pair-1', displayName: 'Maria', members: []),
+            ),
+          )
+          ..shareOverview = const ShareOverview(
+            folders: [
+              MySharedFolder(
+                id: 'f1',
+                name: 'Trips',
+                parentName: null,
+                noteCount: 3,
+              ),
+            ],
+            partnerFolders: [
+              PartnerSharedFolder(id: 'p1', name: 'Recipes', noteCount: 40),
+            ],
+          );
+    final bloc = ShareBloc(
+      service: () async => service,
+      calendarChanges: const Stream.empty(),
+    );
+    addTearDown(bloc.close);
+    bloc.add(const ShareOpened());
+    await tester.runAsync(
+      () => bloc.stream.firstWhere((state) => state is ShareLoaded),
+    );
+    return bloc;
+  }
+
+  testWidgets('my Folders sheet clears the navigation bar', (tester) async {
+    sizeSurfaceWithNavBar(tester);
+    final bloc = await shareBlocWithFolders(tester);
+    await openFrom(
+      tester,
+      (context) => MySharedFoldersSheet.show(context, bloc: bloc),
+    );
+
+    expect(find.text('Trips'), findsOneWidget);
+    expect(
+      scrollBottomPadding(tester),
+      greaterThanOrEqualTo(navBar),
+      reason: '"Share a folder" ends the list',
+    );
+  });
+
+  testWidgets('the partner\'s Folders sheet clears the navigation bar', (
+    tester,
+  ) async {
+    sizeSurfaceWithNavBar(tester);
+    final bloc = await shareBlocWithFolders(tester);
+    await openFrom(
+      tester,
+      (context) => PartnerSharedFoldersSheet.show(
+        context,
+        bloc: bloc,
+        partnerName: 'Maria',
+      ),
+    );
+
+    expect(find.text('Recipes'), findsOneWidget);
+    expect(
+      scrollBottomPadding(tester),
+      greaterThanOrEqualTo(navBar),
+      reason: 'the last of the partner\'s folders ends the list',
     );
   });
 

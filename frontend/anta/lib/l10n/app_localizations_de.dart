@@ -2444,10 +2444,41 @@ class AppLocalizationsDe extends AppLocalizations {
       'Die Einstellungen konnten nicht zurückgesetzt werden';
 
   @override
-  String get shareNote => 'Notiz teilen';
+  String get shareNote => 'Kopie senden';
 
   @override
-  String get shareFolder => 'Ordner teilen';
+  String get shareFolder => 'Kopie senden';
+
+  @override
+  String shareGoneFolder(String name) {
+    return '$name teilt diesen Ordner nicht mehr.';
+  }
+
+  @override
+  String shareOnlyPartnerChanges(String name) {
+    return 'Nur $name kann das ändern.';
+  }
+
+  @override
+  String shareThroughFolder(String folder) {
+    return 'An für alles in $folder';
+  }
+
+  @override
+  String shareMovedIn(String moved, String name) {
+    return '$moved · jetzt mit $name geteilt';
+  }
+
+  @override
+  String shareMovedOut(String moved) {
+    return '$moved · nicht mehr geteilt';
+  }
+
+  @override
+  String get pickShareConfirm => 'Teilen';
+
+  @override
+  String get pickCopyConfirm => 'Hierher kopieren';
 
   @override
   String get exportingFolder => 'Ordner wird exportiert...';
@@ -2482,7 +2513,7 @@ class AppLocalizationsDe extends AppLocalizations {
   }
 
   @override
-  String get shareSelected => 'Teilen';
+  String get shareSelected => 'Kopie senden';
 
   @override
   String get exportingSelection => 'Auswahl wird exportiert...';
@@ -11112,7 +11143,7 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get dataNoticeShared =>
-      'Was du mit deinem Partner teilst, kann sein Konto aus deiner Cloud-Kopie lesen, und sein Telefon behält davon eine nur lesbare Kopie. Diese Kopie verschwindet beim nächsten Sync von seinem Telefon, nachdem du das Teilen beendet hast.';
+      'Was du mit deinem Partner teilst – Kategorien, Ereignisse und Ordner mit ihren Notizen –, kann sein Konto aus deiner Cloud-Kopie lesen, und sein Telefon behält davon eine nur lesbare Kopie. Diese Kopie verschwindet beim nächsten Sync von seinem Telefon, nachdem du das Teilen beendet hast.';
 
   @override
   String dataNoticeRemove(String deleteCopy, String deleteAccount) {
@@ -11208,7 +11239,7 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get appGuideSharingPrivateBody =>
-      'Deine Notizen, Zähler, Erinnerungen, Anwesenheitsmarken, Vorlagen und Einstellungen bleiben bei dir, egal was du teilst.';
+      'Deine Zähler, Erinnerungen, Anwesenheitsmarken, Vorlagen und Einstellungen bleiben bei dir, egal was du teilst.';
 
   @override
   String get sharePartnerFallback => 'Partner';
@@ -11246,6 +11277,73 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get shareRowEvents => 'Einzelne Ereignisse';
+
+  @override
+  String get shareRowFolders => 'Ordner';
+
+  @override
+  String get shareFoldersEmpty => 'Noch kein Ordner geteilt.';
+
+  @override
+  String get shareAddFolder => 'Einen Ordner teilen';
+
+  @override
+  String shareFolderNotes(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count Notizen',
+      one: '1 Notiz',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String shareNowThrough(String inner, String outer) {
+    return '$inner ist jetzt über $outer geteilt';
+  }
+
+  @override
+  String shareFolderAlready(String folder) {
+    return '$folder ist schon geteilt';
+  }
+
+  @override
+  String shareStoppedWithInner(String folder, int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Nicht mehr geteilt: $folder und $count Ordner darin',
+      one: 'Nicht mehr geteilt: $folder und 1 Ordner darin',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String shareSummaryFolders(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count Ordner',
+      one: '1 Ordner',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get shareNoteLook => 'Mit dir geteilte Notizen';
+
+  @override
+  String get appGuideSharingFolderTitle => 'Einen Ordner teilen';
+
+  @override
+  String appGuideSharingFolderBody(
+    String shareWith,
+    String addFolder,
+    String sharingPage,
+  ) {
+    return '„$shareWith“ im ⋮-Menü eines Ordners teilt ihn; „$addFolder“ auf „$sharingPage“ tut dasselbe. Dein Partner liest seine Notizen und kann sie nicht ändern; eine Notiz, die du später hinzufügst, wird mitgeteilt.';
+  }
 
   @override
   String get shareNone => 'Keine';
@@ -11441,7 +11539,7 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String shareStopAllConfirm(String name) {
-    return 'Deine Kategorien und Ereignisse verschwinden vom anderen Telefon. Was $name mit dir teilt, bleibt.';
+    return 'Deine Kategorien, Ereignisse und Ordner verschwinden vom anderen Telefon. Was $name mit dir teilt, bleibt.';
   }
 
   @override
@@ -11513,7 +11611,7 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get shareMarkMineDesc =>
-      'Ein Zeichen an Kategorien und Ereignissen, die du teilst';
+      'Ein Zeichen an geteilten Kategorien, Ereignissen und Ordnern';
 
   @override
   String get shareAlertsSection => 'Erinnerungen';
@@ -11565,9 +11663,65 @@ class AppLocalizationsDe extends AppLocalizations {
   }
 
   @override
+  String sharedNoteLine(String name) {
+    return 'Von $name · Schreibgeschützt';
+  }
+
+  @override
+  String get sharedNoteCopy => 'In meine Notizen kopieren';
+
+  @override
+  String sharedNoteReadOnly(String name) {
+    return 'Schreibgeschützt. Nur $name kann diese Notiz ändern.';
+  }
+
+  @override
+  String sharedNoteCopied(String name) {
+    return 'Kopiert. Spätere Änderungen von $name erreichen deine Kopie nicht.';
+  }
+
+  @override
+  String get sharedNoteCopyFolderGone =>
+      'Diesen Ordner gibt es nicht mehr. Nichts wurde kopiert.';
+
+  @override
+  String shareGoneNote(String name) {
+    return '$name teilt diese Notiz nicht mehr';
+  }
+
+  @override
+  String get sharedNoteTaskDone => 'Aufgabe, erledigt';
+
+  @override
+  String sharedNoteTaskDoneNamed(String task) {
+    return 'Aufgabe, erledigt: $task';
+  }
+
+  @override
+  String get sharedNoteTaskOpen => 'Aufgabe, offen';
+
+  @override
+  String sharedNoteTaskOpenNamed(String task) {
+    return 'Aufgabe, offen: $task';
+  }
+
+  @override
   String sharedEventCaption(String name) {
     return 'Nur $name kann dieses Ereignis ändern. Deine Erinnerungen folgen dem Stand, den dieses Telefon zuletzt empfangen hat.';
   }
+
+  @override
+  String sharedEventCaptionFresh(String name) {
+    return 'Nur $name kann dieses Ereignis ändern. Deine Erinnerungen folgen seinen Änderungen, auch wenn ANTA geschlossen ist.';
+  }
+
+  @override
+  String get appGuideSharingAlertsFresh =>
+      'Deine Erinnerung folgt den Änderungen deines Partners am Ereignis, auch wenn ANTA geschlossen ist.';
+
+  @override
+  String get appGuideSharingAlertsLastReceived =>
+      'Deine Erinnerung folgt dem Stand, den dieses Telefon zuletzt empfangen hat.';
 
   @override
   String shareNewFromPartner(String name, String what) {
@@ -11608,6 +11762,21 @@ class AppLocalizationsDe extends AppLocalizations {
       one: '$name teilt 1 Ereignis nicht mehr. Deine Erinnerung dafür ist aus.',
     );
     return '$_temp0';
+  }
+
+  @override
+  String shareHiddenAlertsOff(String category) {
+    return '$category ist ausgeblendet. Deine Erinnerungen dafür bleiben aus, bis die Kategorie wieder eingeblendet ist.';
+  }
+
+  @override
+  String shareAlertsTurnOffLine(String name) {
+    return 'Deine Erinnerungen für das, was $name teilt, gehen aus.';
+  }
+
+  @override
+  String syncStopReceivedLine(String name) {
+    return 'Was $name mit dir teilt, verschwindet von diesem Telefon.';
   }
 
   @override

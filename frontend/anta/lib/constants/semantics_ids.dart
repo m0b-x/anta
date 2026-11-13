@@ -31,6 +31,20 @@ abstract final class SemanticsIds {
   static String browserDragHandle(int position) =>
       'browser-drag-handle-$position';
 
+  /// The root's "From {name}" header over the partner's folders: its words
+  /// are a translated name, so a flow orders rows against this instead.
+  static const String browserSectionPartner = 'browser-section-partner';
+
+  /// "From {name} · Read only" under the bar of a partner's folder page.
+  static const String browserPartnerLine = 'browser-partner-line';
+
+  /// The share entry of a folder: its ⋮ menu's and its row sheet's.
+  static const String folderMenuShare = 'folder-menu-share';
+  static const String rowActionShare = 'row-action-share';
+
+  /// "Copy to my notes" in the sheet of the partner's note row.
+  static const String rowActionCopyToMine = 'row-action-copy-to-mine';
+
   /// Select in a browser row's long-press sheet — the way into selection,
   /// and so into the drag handles.
   static const String rowActionSelect = 'row-action-select';
@@ -256,6 +270,15 @@ abstract final class SemanticsIds {
   static const String sharingPageList = 'sharing-page-list';
   static const String sharingMineCategories = 'sharing-mine-categories';
   static const String sharingMineEvents = 'sharing-mine-events';
+
+  /// The Folders entry of what this person shares (the slice F spec F7),
+  /// and the sheet it opens (F8): each row's ✕ keyed by the folder's id,
+  /// and the "Share a folder" row that ends the list.
+  static const String sharingMineFolders = 'sharing-mine-folders';
+  static const String shareFoldersSheet = 'share-folders-sheet';
+  static String shareFolderUnshare(String folderId) =>
+      'share-folder-unshare-$folderId';
+  static const String shareFoldersAdd = 'share-folders-add';
   static const String sharingStopAll = 'sharing-stop-all';
   static const String sharingUnpair = 'sharing-unpair';
 
@@ -904,6 +927,13 @@ abstract final class SemanticsIds {
   /// so a flow can tell it from the detail sheet whose rows it reuses, and
   /// its two actions, whose labels change with the locale.
   static const String sharedEventSheet = 'shared-event-sheet';
+
+  /// A partner's note in the editor (share surfaces §6.13): the line under
+  /// the bar that says whose it is, the menu's "Copy to my notes", and the
+  /// Linked note row on a partner's event that opens it.
+  static const String sharedNoteLine = 'shared-note-line';
+  static const String sharedNoteCopy = 'shared-note-copy';
+  static const String sharedEventNote = 'shared-event-note';
   static const String sharedEventAddAlert = 'shared-event-add-alert';
   static const String sharedEventCopy = 'shared-event-copy';
 
@@ -957,9 +987,22 @@ abstract final class SemanticsIds {
   /// entry with its menu's three items.
   static const String sharingTheirsCategories = 'sharing-theirs-categories';
   static const String sharingTheirsEvents = 'sharing-theirs-events';
+
+  /// The partner's Folders entry (the slice F spec F7) and its read-only
+  /// sheet (F8), each row keyed by the folder's id, which it opens.
+  static const String sharingTheirsFolders = 'sharing-theirs-folders';
+  static const String sharedFoldersSheet = 'shared-folders-sheet';
+  static String sharedFolderOpen(String folderId) =>
+      'shared-folder-open-$folderId';
   static const String sharingLookEvents = 'sharing-look-events';
   static String sharingLookEventsChoice(String look) =>
       'sharing-look-events-$look';
+
+  /// The notes' look (the slice F spec F7), a segment per look keyed by
+  /// its name.
+  static const String sharingLookNotes = 'sharing-look-notes';
+  static String sharingLookNotesChoice(String look) =>
+      'sharing-look-notes-$look';
   static const String sharingMarkMine = 'sharing-mark-mine';
   static const String sharingAlerts = 'sharing-alerts';
   static const String sharingAlertsOff = 'sharing-alerts-off';

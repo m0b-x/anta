@@ -16,9 +16,11 @@ import 'package:anta/models/calendar_category.dart';
 import 'package:anta/models/calendar_event.dart';
 import 'package:anta/models/category_alert.dart';
 import 'package:anta/models/event_alert.dart';
+import 'package:anta/models/note_metadata.dart';
 import 'package:anta/models/partner_look.dart';
 import 'package:anta/models/recurrence_rule.dart';
 import 'package:anta/models/share_settings.dart';
+import 'package:anta/services/shared_refresh/shared_refresh_scheduler.dart';
 import 'package:anta/widgets/alert_editor_sheet.dart';
 import 'package:anta/widgets/event_detail_sheet.dart';
 import 'package:anta/widgets/event_editor_sheet.dart';
@@ -134,6 +136,7 @@ void main() {
     String name = 'Maria',
     Stream<CalendarEvent?>? changes,
     Future<CalendarEvent?> Function()? onCopy,
+    Future<NoteMetadata?> Function(String noteId)? resolveNote,
     bool dark = false,
   }) async {
     addTearDown(tester.view.reset);
@@ -171,6 +174,7 @@ void main() {
                       (alerts, {required knownIds, required added}) =>
                           outcome.writes.add((alerts, knownIds, added)),
                   onCopy: onCopy,
+                  resolveNote: resolveNote,
                 );
                 outcome.closed = true;
               },
@@ -203,6 +207,55 @@ void main() {
       tester.widget<IconButton>(
         find.descendant(of: scope, matching: find.byType(IconButton)),
       );
+
+  group('the caption says what is true on the device (D32)', () {
+    tearDown(() => SharedRefreshAvailability.debugSupported = null);
+
+    for (final (locale, closed, lastReceived) in const [
+      (
+        Locale('en'),
+        'Only Maria can change this event. Your alerts follow its changes, '
+            'even while ANTA is closed.',
+        'Only Maria can change this event. Your alerts follow what this '
+            'phone last received.',
+      ),
+      (
+        Locale('de'),
+        'Nur Maria kann dieses Ereignis ändern. Deine Erinnerungen folgen '
+            'seinen Änderungen, auch wenn ANTA geschlossen ist.',
+        'Nur Maria kann dieses Ereignis ändern. Deine Erinnerungen folgen '
+            'dem Stand, den dieses Telefon zuletzt empfangen hat.',
+      ),
+      (
+        Locale('ro'),
+        'Doar Maria poate modifica acest eveniment. Alertele tale îi urmează '
+            'modificările, chiar și când ANTA este închisă.',
+        'Doar Maria poate modifica acest eveniment. Alertele tale urmează ce '
+            'a primit ultima dată acest telefon.',
+      ),
+    ]) {
+      testWidgets('${locale.languageCode}: where the phone checks while the '
+          'app is closed, alerts follow the event\'s changes', (tester) async {
+        SharedRefreshAvailability.debugSupported = true;
+
+        await open(tester, event: timedOneOff(), locale: locale);
+
+        expect(find.text(closed), findsOneWidget);
+        expect(find.text(lastReceived), findsNothing);
+        expect(tester.takeException(), isNull);
+      });
+
+      testWidgets('${locale.languageCode}: elsewhere, they follow what the '
+          'phone last received', (tester) async {
+        SharedRefreshAvailability.debugSupported = false;
+
+        await open(tester, event: timedOneOff(), locale: locale);
+
+        expect(find.text(lastReceived), findsOneWidget);
+        expect(find.text(closed), findsNothing);
+      });
+    }
+  });
 
   group('measured at 360 × 780 (spec §8)', () {
     testWidgets('a timed one-off with nothing of mine on it is 497 tall', (
@@ -436,6 +489,91 @@ void main() {
 
     expect(sheet, findsOneWidget);
     expect(outcome.closed, isFalse);
+  });
+
+  group('the Linked note row (§6.9 item 2, C12)', () {
+    final handover = NoteMetadata(
+      id: 'n1',
+      folderId: 'f1',
+      title: 'Handover',
+      preview: '',
+      contentLength: 0,
+      chunkCount: 1,
+      isCompressed: false,
+      createdAt: DateTime(2027, 11, 1),
+      updatedAt: DateTime(2027, 11, 1),
+      fromPartner: true,
+    );
+    Finder row() => find.bySemanticsIdentifier(SemanticsIds.sharedEventNote);
+    CalendarEvent linked() => timedOneOff().copyWith(noteId: 'n1');
+
+    testWidgets("shown under DETAILS for the partner's note on this phone; "
+        'a tap closes the sheet for the caller to open it', (tester) async {
+      final asked = <String>[];
+      final outcome = await open(
+        tester,
+        event: linked(),
+        resolveNote: (id) async {
+          asked.add(id);
+          return handover;
+        },
+      );
+
+      expect(asked, ['n1']);
+      expect(row(), findsOneWidget);
+      expect(find.text('DETAILS'), findsOneWidget);
+      expect(find.text('Linked note'), findsOneWidget);
+      expect(find.text('Handover'), findsOneWidget);
+
+      await tester.tap(row());
+      await tester.pumpAndSettle();
+      expect(sheet, findsNothing);
+      expect(outcome.exit, isA<SharedEventOpenNote>());
+      expect((outcome.exit! as SharedEventOpenNote).note, handover);
+    });
+
+    testWidgets('absent — never "Not found" — for a note of mine or one not '
+        'on this phone', (tester) async {
+      await open(tester, event: linked(), resolveNote: (_) async => null);
+
+      expect(row(), findsNothing);
+      expect(find.text('DETAILS'), findsNothing);
+      expect(find.text('Not found'), findsNothing);
+    });
+
+    testWidgets('a note that left the phone while the sheet was open: the tap '
+        'finds it gone, the row goes, and nothing opens', (tester) async {
+      var onPhone = true;
+      final outcome = await open(
+        tester,
+        event: linked(),
+        resolveNote: (_) async => onPhone ? handover : null,
+      );
+      expect(row(), findsOneWidget);
+
+      onPhone = false;
+      await tester.tap(row());
+      await tester.pumpAndSettle();
+
+      expect(sheet, findsOneWidget);
+      expect(outcome.closed, isFalse);
+      expect(row(), findsNothing);
+    });
+
+    testWidgets('no link, nothing asked', (tester) async {
+      final asked = <String>[];
+      await open(
+        tester,
+        event: timedOneOff(),
+        resolveNote: (id) async {
+          asked.add(id);
+          return handover;
+        },
+      );
+
+      expect(asked, isEmpty);
+      expect(row(), findsNothing);
+    });
   });
 
   group('while open it follows the event', () {

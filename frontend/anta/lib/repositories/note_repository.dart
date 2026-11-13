@@ -10,8 +10,10 @@ import '../models/note_change.dart';
 import '../utils/compression_utils.dart';
 import '../utils/lru_cache.dart';
 import '../utils/restartable_stream.dart';
+import 'share_census.dart';
 
 export '../models/note_change.dart';
+export 'share_census.dart';
 
 class NoteRepository {
   AppDatabase _db;
@@ -60,6 +62,37 @@ class NoteRepository {
 
   NoteDao get _noteDao => _db.noteDao;
   ContentChunkDao get _chunkDao => _db.contentChunkDao;
+
+  /// The share facts the notes are flagged against, the folders' own
+  /// (`FolderRepository.shareCensus`): one census per database.
+  ShareCensus get shareCensus => ShareCensus.of(_db);
+
+  /// The ids among [ids] of notes [owner] — the partner — shares with this
+  /// account.
+  Future<List<String>> partnersAmong(List<String> ids, String owner) =>
+      _db.sharedRowDao.sharedAmongOf('notes', owner, ids);
+
+  /// The ids among [ids] of folders [owner] shares — a note's target.
+  Future<List<String>> partnersAmongFolders(List<String> ids, String owner) =>
+      _db.sharedRowDao.sharedAmongOf('folders', owner, ids);
+
+  /// Whether [folderId] names a live folder.
+  Future<bool> isLiveFolder(String folderId) async {
+    final folder = await _db.folderDao.getFolderById(folderId);
+    return folder != null && !folder.isDeleted;
+  }
+
+  /// The live note [id]'s title and whole text, read in one transaction and
+  /// cached nowhere — for a copy, which must not take the title of one
+  /// version and the text of another, nor keep an empty body for a note
+  /// removed between the two. Null for a note that is gone or deleted.
+  Future<({String title, String content})?> readWhole(String id) {
+    return _db.transaction(() async {
+      final note = await _noteDao.getNoteById(id);
+      if (note == null || note.isDeleted) return null;
+      return (title: note.title, content: await _chunkDao.loadContent(id));
+    });
+  }
 
   /// Points this repository at the database a switch opened and drops the
   /// caches, which belonged to the one that closed.
@@ -118,10 +151,16 @@ class NoteRepository {
     return notes;
   }
 
+  /// [notOwnedBy] leaves that account's notes out, uncached: only Recent
+  /// asks it, and the cache is keyed by folder alone.
   Future<int> getNoteCount(
     String? folderId, {
     bool forceRefresh = false,
+    String? notOwnedBy,
   }) async {
+    if (notOwnedBy != null) {
+      return _noteDao.getNoteCount(folderId, notOwnedBy: notOwnedBy);
+    }
     if (!forceRefresh && _countCache.containsKey(folderId)) {
       return _countCache[folderId]!;
     }
@@ -137,6 +176,7 @@ class NoteRepository {
     required int offset,
     required NoteSortField sortField,
     required bool ascending,
+    String? notOwnedBy,
   }) async {
     final notes = await _noteDao.getNotesPaginated(
       folderId: folderId,
@@ -144,6 +184,7 @@ class NoteRepository {
       offset: offset,
       sortField: sortField,
       ascending: ascending,
+      notOwnedBy: notOwnedBy,
     );
 
     for (final note in notes) {
@@ -542,6 +583,12 @@ class NoteRepository {
     return result;
   }
 
+  /// Owes the partner's phone a poke for each pair [folderIds] are marked
+  /// shared into (`SyncDao.oweSharePokesForFolders`): a move the share
+  /// census says changed a note's sharing.
+  Future<void> oweSharePokesForFolders(Iterable<String> folderIds) =>
+      _db.syncDao.oweSharePokesForFolders(folderIds);
+
   /// Writes the custom order a drag left in [folderId] through
   /// [NoteDao.applyOrder] and announces only the notes whose position
   /// changed, read back in one statement, for the reason [moveNotes] gives.
@@ -788,7 +835,15 @@ class NoteRepository {
     }
   }
 
-  NoteMetadata noteToMetadata(Note note) {
+  /// [note] as the surfaces read it, flagged against [shares] — whether it
+  /// is the partner's, and which folder's mark shares it when it is the
+  /// person's own. Every door into the editor hands it flagged metadata: the
+  /// page decides read-only from it before its first frame (§6.13).
+  NoteMetadata noteToMetadata(
+    Note note, [
+    ShareSnapshot shares = ShareSnapshot.nothing,
+  ]) {
+    final fromPartner = shares.isPartner(note.ownerId);
     return NoteMetadata(
       id: note.id,
       folderId: note.folderId,
@@ -801,8 +856,17 @@ class NoteRepository {
       updatedAt: note.updatedAt,
       position: note.position,
       label: ItemLabel.fromStorage(note.label),
+      fromPartner: fromPartner,
+      sharedThroughFolderId: fromPartner
+          ? null
+          : shares.sharedThrough(note.folderId),
     );
   }
+
+  /// [noteToMetadata] against the census of this database, read once when
+  /// none is held.
+  Future<NoteMetadata> flaggedMetadata(Note note) async =>
+      noteToMetadata(note, await shareCensus.read());
 
   /// Dispose resources
   void dispose() {

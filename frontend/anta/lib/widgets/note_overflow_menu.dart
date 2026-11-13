@@ -12,6 +12,7 @@ enum _NoteMenuAction {
   move,
   label,
   share,
+  copyToMine,
   delete,
   settings,
 }
@@ -32,6 +33,8 @@ class NoteOverflowMenu extends StatelessWidget {
     required this.onShare,
     required this.onDelete,
     required this.onSettings,
+    this.fromPartner = false,
+    this.onCopyToMine,
   });
 
   /// The folder's name, or the generic "Folders" label until the read that
@@ -51,6 +54,16 @@ class NoteOverflowMenu extends StatelessWidget {
   final VoidCallback onShare;
   final VoidCallback onDelete;
   final VoidCallback onSettings;
+
+  /// A note the partner shares (share surfaces §6.13, D19): the entries that
+  /// would write it or send it out — Edit title, Move, Label, Send a copy,
+  /// Delete — stay in place disabled, and "Copy to my notes" follows Send a
+  /// copy. False keeps today's menu.
+  final bool fromPartner;
+
+  /// "Copy to my notes", read only while [fromPartner]; null draws the
+  /// entry disabled.
+  final VoidCallback? onCopyToMine;
 
   @override
   Widget build(BuildContext context) {
@@ -83,62 +96,81 @@ class NoteOverflowMenu extends StatelessWidget {
             onLabel?.call();
           case _NoteMenuAction.share:
             onShare();
+          case _NoteMenuAction.copyToMine:
+            onCopyToMine?.call();
           case _NoteMenuAction.delete:
             onDelete();
           case _NoteMenuAction.settings:
             onSettings();
         }
       },
-      itemBuilder: (context) => [
-        _row(
-          colorScheme,
-          value: _NoteMenuAction.openFolder,
-          icon: Icons.folder_outlined,
-          label: folderName,
-          trailing: l10n.openFolder,
-        ),
-        const PopupMenuDivider(height: AppTheme.menuDividerHeight),
-        _row(
-          colorScheme,
-          value: _NoteMenuAction.editTitle,
-          icon: Icons.edit,
-          label: l10n.editTitle,
-        ),
-        _row(
-          colorScheme,
-          value: _NoteMenuAction.move,
-          icon: Icons.drive_file_move_outlined,
-          label: l10n.moveToFolder,
-        ),
-        _row(
-          colorScheme,
-          value: _NoteMenuAction.label,
-          icon: Icons.label_outline,
-          label: l10n.labelAction,
-          enabled: onLabel != null,
-        ),
-        _row(
-          colorScheme,
-          value: _NoteMenuAction.share,
-          icon: Icons.share_rounded,
-          label: l10n.shareNote,
-        ),
-        const PopupMenuDivider(height: AppTheme.menuDividerHeight),
-        _row(
-          colorScheme,
-          value: _NoteMenuAction.delete,
-          icon: Icons.delete,
-          label: l10n.deleteNote,
-          color: colorScheme.error,
-        ),
-        const PopupMenuDivider(height: AppTheme.menuDividerHeight),
-        _row(
-          colorScheme,
-          value: _NoteMenuAction.settings,
-          icon: Icons.settings_outlined,
-          label: l10n.settings,
-        ),
-      ],
+      itemBuilder: (context) {
+        final writable = !fromPartner;
+        return [
+          _row(
+            colorScheme,
+            value: _NoteMenuAction.openFolder,
+            icon: Icons.folder_outlined,
+            label: folderName,
+            trailing: l10n.openFolder,
+          ),
+          const PopupMenuDivider(height: AppTheme.menuDividerHeight),
+          _row(
+            colorScheme,
+            value: _NoteMenuAction.editTitle,
+            icon: Icons.edit,
+            label: l10n.editTitle,
+            enabled: writable,
+          ),
+          _row(
+            colorScheme,
+            value: _NoteMenuAction.move,
+            icon: Icons.drive_file_move_outlined,
+            label: l10n.moveToFolder,
+            enabled: writable,
+          ),
+          _row(
+            colorScheme,
+            value: _NoteMenuAction.label,
+            icon: Icons.label_outline,
+            label: l10n.labelAction,
+            enabled: writable && onLabel != null,
+          ),
+          _row(
+            colorScheme,
+            value: _NoteMenuAction.share,
+            icon: Icons.share_rounded,
+            label: l10n.shareNote,
+            enabled: writable,
+          ),
+          if (!writable)
+            _row(
+              colorScheme,
+              value: _NoteMenuAction.copyToMine,
+              icon: Icons.content_copy_rounded,
+              label: l10n.sharedNoteCopy,
+              identifier: SemanticsIds.sharedNoteCopy,
+              enabled: onCopyToMine != null,
+            ),
+          const PopupMenuDivider(height: AppTheme.menuDividerHeight),
+          // Disabled, it draws as every off row does: red would read as live.
+          _row(
+            colorScheme,
+            value: _NoteMenuAction.delete,
+            icon: Icons.delete,
+            label: l10n.deleteNote,
+            color: writable ? colorScheme.error : null,
+            enabled: writable,
+          ),
+          const PopupMenuDivider(height: AppTheme.menuDividerHeight),
+          _row(
+            colorScheme,
+            value: _NoteMenuAction.settings,
+            icon: Icons.settings_outlined,
+            label: l10n.settings,
+          ),
+        ];
+      },
     );
   }
 
@@ -150,42 +182,56 @@ class NoteOverflowMenu extends StatelessWidget {
     String? trailing,
     Color? color,
     bool enabled = true,
+    String? identifier,
   }) {
+    final row = Row(
+      children: [
+        Icon(
+          icon,
+          size: AppTheme.menuIconSize,
+          // A disabled row's glyph dims with its label.
+          color: (color ?? colorScheme.onSurfaceVariant).withValues(
+            alpha: enabled ? 1 : FormMetrics.disabledOpacity,
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Text(
+            label,
+            // The menu's label style has no disabled state of its own: an
+            // off row's words dim with its glyph, or a write reads as live.
+            style: !enabled
+                ? TextStyle(
+                    color: colorScheme.onSurface.withValues(
+                      alpha: FormMetrics.disabledOpacity,
+                    ),
+                  )
+                : color == null
+                ? null
+                : TextStyle(color: color),
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+        if (trailing != null) ...[
+          const SizedBox(width: 12),
+          Text(
+            trailing,
+            textAlign: TextAlign.end,
+            style: TextStyle(
+              fontSize: AppTheme.menuTrailingSize,
+              color: colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ],
+      ],
+    );
     return PopupMenuItem<_NoteMenuAction>(
       value: value,
       enabled: enabled,
       height: AppTheme.menuItemHeight,
-      child: Row(
-        children: [
-          Icon(
-            icon,
-            size: AppTheme.menuIconSize,
-            // A disabled row's glyph dims with its label.
-            color: (color ?? colorScheme.onSurfaceVariant).withValues(
-              alpha: enabled ? 1 : FormMetrics.disabledOpacity,
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(
-              label,
-              style: color == null ? null : TextStyle(color: color),
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-          if (trailing != null) ...[
-            const SizedBox(width: 12),
-            Text(
-              trailing,
-              textAlign: TextAlign.end,
-              style: TextStyle(
-                fontSize: AppTheme.menuTrailingSize,
-                color: colorScheme.onSurfaceVariant,
-              ),
-            ),
-          ],
-        ],
-      ),
+      child: identifier == null
+          ? row
+          : Semantics(identifier: identifier, child: row),
     );
   }
 }

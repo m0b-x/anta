@@ -60,9 +60,64 @@ class PartnerSharedCategory extends Equatable {
   List<Object?> get props => [category, joinsMine, shown, eventCount];
 }
 
+/// A folder a share act wrote the mark of, by its name as it stood: what a
+/// snackbar words and `ShareService.undo` writes back.
+class ShareFolderRef extends Equatable {
+  final String id;
+  final String name;
+
+  const ShareFolderRef({required this.id, required this.name});
+
+  @override
+  List<Object?> get props => [id, name];
+}
+
+/// One of this person's folders shared with the partner by its own mark, no
+/// mark above it covering it — a folder shared through an outer one is not
+/// listed apart (§6.2, D37).
+class MySharedFolder extends Equatable {
+  final String id;
+  final String name;
+
+  /// The name of the folder it lies in; null at the root.
+  final String? parentName;
+
+  /// The live notes in it and in every folder under it.
+  final int noteCount;
+
+  const MySharedFolder({
+    required this.id,
+    required this.name,
+    required this.parentName,
+    required this.noteCount,
+  });
+
+  @override
+  List<Object?> get props => [id, name, parentName, noteCount];
+}
+
+/// One of the partner's folders at the top of what they share, as the
+/// shared reader placed it: a folder whose parent they keep private stands
+/// at the top here (`SharedRowDao.placeFolders`).
+class PartnerSharedFolder extends Equatable {
+  final String id;
+  final String name;
+
+  /// The live notes in it and in every folder under it.
+  final int noteCount;
+
+  const PartnerSharedFolder({
+    required this.id,
+    required this.name,
+    required this.noteCount,
+  });
+
+  @override
+  List<Object?> get props => [id, name, noteCount];
+}
+
 /// What the Sharing page lists and says (`docs/cloud-share-surfaces-roadmap.md`
-/// §6.1, §6.2), read at one moment by `ShareService.overview`. The calendar
-/// side only: folders join when their surfaces do.
+/// §6.1, §6.2), read at one moment by `ShareService.overview`.
 class ShareOverview extends Equatable {
   /// This person's shared categories, in the catalogue's order, archived
   /// ones included.
@@ -79,6 +134,23 @@ class ShareOverview extends Equatable {
   /// singly from a category they keep private.
   final List<CalendarEvent> partnerEvents;
 
+  /// This person's shared folders by name, read for the Sharing page alone;
+  /// empty in a summary's overview, which reads [folderCount] only.
+  final List<MySharedFolder> folders;
+
+  /// How many folders [folders] lists, read in a summary too — "1 folder" on
+  /// the Pairing row.
+  final int folderCount;
+
+  /// The partner's top-level shared folders by name, read for the Sharing
+  /// page alone.
+  final List<PartnerSharedFolder> partnerFolders;
+
+  /// Whether the partner shares a live folder here, read in a summary too
+  /// (the statement [anyMark] comes from), where [partnerFolders] stays
+  /// empty.
+  final bool partnerSharesFolders;
+
   /// When the last shared read that read every table to its end finished;
   /// null before the first.
   final DateTime? readAt;
@@ -90,6 +162,12 @@ class ShareOverview extends Equatable {
   /// A share act's writes still wait in the outbox ("Sending…"); an
   /// ordinary edit queued alone says nothing.
   final bool sending;
+
+  /// While [sending]: every share entry still queued is one the push set
+  /// aside, which the Sync page lists as held back and no run sends until a
+  /// start or "Sync now" — "Waiting to send", as offline, never "Sending…"
+  /// for ever.
+  final bool sendingParked;
 
   /// The engine's last call found no network ("Waiting to send").
   final bool offline;
@@ -118,9 +196,14 @@ class ShareOverview extends Equatable {
     this.events = const [],
     this.partnerCategories = const [],
     this.partnerEvents = const [],
+    this.folders = const [],
+    this.folderCount = 0,
+    this.partnerFolders = const [],
+    this.partnerSharesFolders = false,
     this.readAt,
     this.readFailed = false,
     this.sending = false,
+    this.sendingParked = false,
     this.offline = false,
     this.partnerNewerWire = false,
     this.refusedCount = 0,
@@ -149,6 +232,15 @@ class ShareOverview extends Equatable {
   bool get sharesAnything =>
       anyMark || categories.isNotEmpty || events.isNotEmpty;
 
+  /// Whether this phone holds anything the partner shares — a category,
+  /// an event shared singly, a folder — in a summary as on the Sharing
+  /// page: what "Stop syncing" says leaves the phone (D30).
+  bool get holdsPartnerRows =>
+      partnerCategories.isNotEmpty ||
+      partnerEvents.isNotEmpty ||
+      partnerFolders.isNotEmpty ||
+      partnerSharesFolders;
+
   /// This overview with the partner's category [id] shown or hidden and
   /// every other field as it stands: what the bloc shows from a switch's
   /// tap until that write's own read lands, so the switch never waits on
@@ -161,9 +253,14 @@ class ShareOverview extends Equatable {
         shared.category.id == id ? shared.copyWith(shown: shown) : shared,
     ],
     partnerEvents: partnerEvents,
+    folders: folders,
+    folderCount: folderCount,
+    partnerFolders: partnerFolders,
+    partnerSharesFolders: partnerSharesFolders,
     readAt: readAt,
     readFailed: readFailed,
     sending: sending,
+    sendingParked: sendingParked,
     offline: offline,
     partnerNewerWire: partnerNewerWire,
     refusedCount: refusedCount,
@@ -177,9 +274,14 @@ class ShareOverview extends Equatable {
     events,
     partnerCategories,
     partnerEvents,
+    folders,
+    folderCount,
+    partnerFolders,
+    partnerSharesFolders,
     readAt,
     readFailed,
     sending,
+    sendingParked,
     offline,
     partnerNewerWire,
     refusedCount,
@@ -197,6 +299,21 @@ class ShareChange extends Equatable {
   final List<CalendarCategory> unsharedCategories;
   final List<CalendarEvent> sharedEvents;
   final List<CalendarEvent> unsharedEvents;
+  final List<ShareFolderRef> sharedFolders;
+  final List<ShareFolderRef> unsharedFolders;
+
+  /// Folders inside one of [sharedFolders] whose own mark the act cleared,
+  /// since the outer mark now covers them (`FolderDao.setSharedPair`): still
+  /// shared, through it — "Lisbon is now shared through Trips". Undo marks
+  /// each again.
+  final List<ShareFolderRef> coveredFolders;
+
+  /// Folders inside one of [unsharedFolders] whose own mark the act cleared
+  /// with it — a mark under a mark only a merge from another device leaves:
+  /// un-sharing a folder leaves nothing shared under it
+  /// (`FolderDao.setSharedPair`). Undo marks the outer folder alone, which
+  /// covers these again: the state the person had.
+  final List<ShareFolderRef> clearedInnerFolders;
 
   /// Events in [unsharedCategories] that stay shared on their own mark
   /// (case C10): "2 events stay shared on their own".
@@ -207,6 +324,10 @@ class ShareChange extends Equatable {
     this.unsharedCategories = const [],
     this.sharedEvents = const [],
     this.unsharedEvents = const [],
+    this.sharedFolders = const [],
+    this.unsharedFolders = const [],
+    this.coveredFolders = const [],
+    this.clearedInnerFolders = const [],
     this.keptOnTheirOwn = 0,
   });
 
@@ -217,7 +338,9 @@ class ShareChange extends Equatable {
       sharedCategories.isEmpty &&
       unsharedCategories.isEmpty &&
       sharedEvents.isEmpty &&
-      unsharedEvents.isEmpty;
+      unsharedEvents.isEmpty &&
+      sharedFolders.isEmpty &&
+      unsharedFolders.isEmpty;
 
   @override
   List<Object?> get props => [
@@ -225,6 +348,10 @@ class ShareChange extends Equatable {
     unsharedCategories,
     sharedEvents,
     unsharedEvents,
+    sharedFolders,
+    unsharedFolders,
+    coveredFolders,
+    clearedInnerFolders,
     keptOnTheirOwn,
   ];
 }

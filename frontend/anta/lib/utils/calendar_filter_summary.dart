@@ -7,6 +7,7 @@ import '../models/calendar_category.dart';
 import '../models/calendar_event.dart';
 import '../models/calendar_grid_filters.dart';
 import '../models/upcoming_agenda_filters.dart';
+import 'category_allowlist.dart';
 
 /// One active filter axis, named once for every surface that has to say what
 /// the calendar is currently narrowed to.
@@ -319,12 +320,10 @@ abstract final class CalendarFilterSummary {
   /// shown categories included — so the chip counts the set the sheet's
   /// Categories row names, and an id that no longer lists (a deleted
   /// category, one a partner stopped sharing) is never counted; with none
-  /// left to count the chip says so, as the row does.
+  /// left to count the chip says so, as the row does. An entry counts every
+  /// listed category of its group ([CategoryAllowlist.tickedListed]).
   static String allowlistLabel(Set<String> categoryIds, AppLocalizations l10n) {
-    var allowed = 0;
-    for (final category in _offered(categoryIds)) {
-      if (categoryIds.contains(category.id)) allowed++;
-    }
+    final allowed = CategoryAllowlist.tickedListed(categoryIds).length;
     return allowed == 0
         ? l10n.calendarFilterNoCategories
         : '${l10n.calendarCategories} ($allowed)';

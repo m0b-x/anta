@@ -25,6 +25,29 @@ class PairProfile extends Equatable {
   List<Object?> get props => [uid, displayName, photoUrl];
 }
 
+/// One device's push address in a pair's document, `push.<uid>.<deviceId>`
+/// (`docs/cloud-shared-freshness.md` §7): what the relay wakes when the
+/// other member's phone pokes it.
+class PairPushDevice extends Equatable {
+  /// The address itself — a Firebase Installation ID for [kindFid].
+  final String id;
+
+  /// Which kind of address [id] is, so the relay knows how to send to it.
+  final String kind;
+
+  /// When its device last wrote it: the relay skips one sixty days old, and
+  /// the owner's next device drops it.
+  final DateTime at;
+
+  const PairPushDevice({required this.id, required this.kind, required this.at});
+
+  static const String kindFid = 'fid';
+  static const String kindToken = 'token';
+
+  @override
+  List<Object?> get props => [id, kind, at];
+}
+
 /// A link between two accounts. Never reused: unpairing flips [isActive] to
 /// false and leaves [members] intact, so the partner keeps read access and
 /// can still find out who ended it. Only a member deleting their account
@@ -42,6 +65,10 @@ class PairRecord extends Equatable {
   final DateTime? endedAt;
   final Map<String, PairProfile> profiles;
 
+  /// Each member's devices by device id, as far as they read: an older
+  /// document, or a malformed entry, reads as none.
+  final Map<String, Map<String, PairPushDevice>> push;
+
   const PairRecord({
     required this.pairId,
     required this.members,
@@ -50,7 +77,11 @@ class PairRecord extends Equatable {
     this.endedBy,
     this.endedAt,
     this.profiles = const {},
+    this.push = const {},
   });
+
+  /// The devices [uid] has registered in this pair.
+  Map<String, PairPushDevice> devicesOf(String uid) => push[uid] ?? const {};
 
   String? partnerUidOf(String uid) {
     for (final member in members) {
@@ -75,6 +106,7 @@ class PairRecord extends Equatable {
     endedBy,
     endedAt,
     profiles,
+    push,
   ];
 }
 

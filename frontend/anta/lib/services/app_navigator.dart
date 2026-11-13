@@ -185,14 +185,22 @@ abstract final class AppNavigator {
 
   // --- Page-specific navigation ---
 
+  /// [fromPartner] is what the opener knows of whose the folder is — a row
+  /// does — so the partner's folder page is read-only from its first frame;
+  /// null when the opener cannot say.
   static Future<void> toFolder(
     BuildContext context, {
     required String folderId,
     required String title,
+    bool? fromPartner,
   }) {
     return push(
       context,
-      OptimizedFolderContentPage(folderId: folderId, title: title),
+      OptimizedFolderContentPage(
+        folderId: folderId,
+        title: title,
+        fromPartner: fromPartner,
+      ),
       destination: NavDestination.folder(folderId: folderId, title: title),
     );
   }
@@ -657,6 +665,37 @@ abstract final class AppNavigator {
       CalendarPage(initialDay: day, initialEventId: eventId),
       destination: const NavDestination(NavDestinationKind.calendar),
     );
+  }
+
+  /// [toCalendarOccurrence] for a tap on a list inside the app — a
+  /// partner's event on the Sharing page (share surfaces D33) — which
+  /// closes what the tap came from first: [toCalendarOccurrence] counts
+  /// pages, and a sheet left on top would be the one route it pops. With a
+  /// calendar beneath — or an overview or report above one — everything over
+  /// it goes, the pages the tap came from with it, and the occurrence is
+  /// served there, so no second calendar is stacked; with none, only the
+  /// sheets go and the calendar opens over the page, which Back returns to.
+  static Future<void> toCalendarOccurrenceFromList({
+    required DateTime day,
+    required String? eventId,
+  }) {
+    final navigator = navigatorKey.currentState;
+    if (navigator != null) {
+      final routes = _livePageRoutes(navigator);
+      final index = routes.lastIndexWhere(
+        (route) =>
+            _isCalendar(route) ||
+            _isStamped(route, NavDestinationKind.calendarOverview) ||
+            _isStamped(route, NavDestinationKind.calendarReport),
+      );
+      if (index >= 0) {
+        final target = routes[index];
+        navigator.popUntil((route) => identical(route, target));
+      } else {
+        navigator.popUntil((route) => route is PageRoute);
+      }
+    }
+    return toCalendarOccurrence(day: day, eventId: eventId);
   }
 
   /// The quick-alarm sheet, asked for by the platform with no `BuildContext`
@@ -1445,7 +1484,7 @@ abstract final class AppNavigator {
     final repository = GetIt.I<NoteRepository>();
     final notes = await repository.getNotesByIds([noteId]);
     if (notes.isEmpty) return null;
-    return repository.noteToMetadata(notes.first);
+    return repository.flaggedMetadata(notes.first);
   }
 
   /// Builds the page for a resolved entry.

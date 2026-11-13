@@ -9,6 +9,7 @@ import 'src/adb.dart';
 import 'src/agent_client.dart';
 import 'src/apk_build.dart';
 import 'src/app_ids.dart';
+import 'src/app_work.dart';
 import 'src/boot_lock.dart';
 import 'src/cancel.dart';
 import 'src/device.dart';
@@ -187,6 +188,10 @@ class QaCommandRunner extends CommandRunner<int> {
     addCommand(AgentCommand());
     addCommand(SetCommand());
     addCommand(ShareCommand());
+    addCommand(MoveEventCommand());
+    addCommand(KillAppCommand());
+    addCommand(WorkCommand());
+    addCommand(ArmedCommand());
     addCommand(BuildExeCommand());
   }
 
@@ -7817,6 +7822,281 @@ class ShareCommand extends QaCommand {
       '${pair == null ? 'private' : 'shared into $pair'}  '
       'id=${result[AgentKeys.rowId]}',
     );
+    return 0;
+  }
+}
+
+class MoveEventCommand extends QaCommand {
+  MoveEventCommand() {
+    argParser.addOption(
+      'minutes',
+      help: 'How far to move its start, in minutes; negative is earlier.',
+    );
+  }
+
+  @override
+  String get name => 'move-event';
+
+  @override
+  String get description =>
+      'Move a timed event of the QA database (by title) later or earlier in '
+      'its day, through the save the event editor makes — what a partner '
+      'does to a shared event while the other guest\'s app is closed.';
+
+  @override
+  String get invocation => 'qa move-event "<title>" --minutes <n>';
+
+  @override
+  Future<int> run() async {
+    final title = argResults!.rest.join(' ').trim();
+    final minutes = intOption('minutes');
+    if (title.isEmpty || minutes == null) {
+      throw UsageFailure('move-event takes a title and --minutes: $invocation');
+    }
+    final agent = await context.agent();
+    final result = await agent.op(AgentOps.moveEvent, {
+      AgentKeys.name: title,
+      AgentKeys.minutes: minutes,
+    });
+    out(
+      'move-event  "$title"  ${minutes >= 0 ? '+' : ''}$minutes min  '
+      'starts at minute ${result[AgentKeys.minutes]}  '
+      'id=${result[AgentKeys.rowId]}',
+    );
+    return 0;
+  }
+}
+
+class KillAppCommand extends QaCommand {
+  @override
+  String get name => 'kill-app';
+
+  @override
+  String get description =>
+      'Android: end the app\'s process the way the system does when it '
+      'reclaims it — sent home, then killed by signal — never a force-stop, '
+      'which would cancel its alarms and its scheduled work.';
+
+  @override
+  Future<int> run() async {
+    final device = await context.android();
+    final pid = await device.appPid();
+    if (pid == null) {
+      out('kill-app: not running');
+      return 0;
+    }
+    await device.key('KEYCODE_HOME');
+    await Future<void>.delayed(const Duration(seconds: 2));
+    // By signal, as the low-memory killer ends a process: the platform
+    // records it as signalled. `am kill` is not a stand-in — it records
+    // "requested by the user", which WorkManager reads at its next start as
+    // a force-stop: it stops the job it was started for and schedules its
+    // work again (seen on API 36, 2026-11-13).
+    await device.adb.shellLenient([
+      'run-as',
+      device.packageId,
+      'kill',
+      '-9',
+      '$pid',
+    ]);
+    var how = 'kill -9';
+    if (!await _gone(device)) {
+      // Not a debuggable build: the one kill left, with its catch.
+      await device.adb.shellLenient(['am', 'kill', device.packageId]);
+      how = 'am kill — WorkManager will take it for a force-stop';
+      if (!await _gone(device)) {
+        warn('kill-app: process $pid is still alive');
+        return 3;
+      }
+    }
+    out('kill-app: process $pid ended ($how); alarms and work kept');
+    return 0;
+  }
+
+  static Future<bool> _gone(AndroidDevice device) async {
+    for (var i = 0; i < 10; i++) {
+      if (await device.appPid() == null) return true;
+      await Future<void>.delayed(const Duration(milliseconds: 500));
+    }
+    return false;
+  }
+}
+
+class WorkCommand extends QaCommand {
+  WorkCommand() {
+    argParser
+      ..addFlag(
+        'run',
+        negatable: false,
+        help: 'Run the scheduled work now (`cmd jobscheduler run -f`).',
+      )
+      ..addFlag(
+        'raw',
+        negatable: false,
+        help:
+            'Print what `dumpsys jobscheduler` says of the package, '
+            'unparsed: each of its job blocks whole, and every other line '
+            'that names it.',
+      )
+      ..addOption(
+        'expect',
+        allowed: ['none', 'scheduled'],
+        help: 'Fail (exit 2) unless the app has no work, or some.',
+      )
+      ..addOption(
+        'await',
+        help:
+            'With --run: wait for the shared check to log how it ended and '
+            'fail unless it is this ending (read, forwarded, notWanted, …).',
+      )
+      ..addOption(
+        'timeout',
+        defaultsTo: '120',
+        help: 'Seconds --await waits for the ending.',
+      );
+  }
+
+  @override
+  String get name => 'work';
+
+  @override
+  String get description =>
+      'Android: the work scheduled for the app (`dumpsys jobscheduler`: the '
+      'job, its earliest run time, its constraints), and with --run, run it '
+      'now — a closed app\'s WorkManager job, started as the system would.';
+
+  @override
+  Future<int> run() async {
+    final device = await context.android();
+    final adb = device.adb;
+    final dumpsys = await adb.shell([
+      'dumpsys',
+      'jobscheduler',
+      device.packageId,
+    ]);
+    if (argResults!['raw'] as bool) {
+      out(rawAppJobLines(dumpsys, device.packageId).join('\n'));
+    }
+    final jobs = parseAppJobs(dumpsys, device.packageId);
+    out(describeAppJobs(jobs));
+    final expected = argResults!['expect'] as String?;
+    if (expected != null && (expected == 'none') != jobs.isEmpty) {
+      warn('work: expected $expected');
+      return 2;
+    }
+    if (!(argResults!['run'] as bool)) return 0;
+    if (jobs.isEmpty) {
+      warn('work: nothing scheduled to run');
+      return 2;
+    }
+    final stamp = (await adb.shell([
+      'date',
+      "'+%m-%d %H:%M:%S.000'",
+    ])).trim();
+    final job = jobs.first;
+    final ran = await adb.shellLenient([
+      'cmd',
+      'jobscheduler',
+      'run',
+      '-f',
+      if (job.namespace case final namespace?) ...['-n', namespace],
+      device.packageId,
+      '${job.id}',
+    ]);
+    out('work: ran #${job.id}  ${ran.trim()}');
+    final awaited = argResults!['await'] as String?;
+    if (awaited == null) return 0;
+    final deadline = DateTime.now().add(
+      Duration(seconds: intOption('timeout') ?? 120),
+    );
+    String? ending;
+    while (ending == null && DateTime.now().isBefore(deadline)) {
+      await Future<void>.delayed(const Duration(seconds: 2));
+      final log = await adb.raw([
+        'logcat',
+        '-d',
+        '-v',
+        'time',
+        '-T',
+        stamp,
+        '-s',
+        'flutter:V',
+      ], timeout: const Duration(seconds: 60));
+      ending = lastSharedRefreshEnding(log.combined);
+    }
+    if (ending == null) {
+      warn('work: the check logged no ending within the timeout');
+      return 2;
+    }
+    out('work: the check ended: $ending');
+    if (ending != awaited) {
+      warn('work: expected it to end: $awaited');
+      return 2;
+    }
+    return 0;
+  }
+}
+
+class ArmedCommand extends QaCommand {
+  ArmedCommand() {
+    argParser
+      ..addOption(
+        'tier',
+        allowed: ['reminder', 'alarm'],
+        help: 'Only this tier\'s instants; both when absent.',
+      )
+      ..addOption(
+        'capture',
+        help: 'Remember the instants under this name for a later --expect.',
+      )
+      ..addOption(
+        'expect',
+        help:
+            'Fail (exit 2) unless: none | some | same:<name> | '
+            'shifted:<name>:<seconds> — against what --capture remembered.',
+      );
+  }
+
+  @override
+  String get name => 'armed';
+
+  @override
+  String get description =>
+      'Android: the instants the app\'s reminders and alarms are armed for '
+      '(`dumpsys alarm`, read-only) — what stands on the platform whether '
+      'or not the app runs.';
+
+  @override
+  Future<int> run() async {
+    final ctx = context;
+    final device = await ctx.android();
+    final alarms = parseArmedAlarms(
+      await device.adb.shell(['dumpsys', 'alarm']),
+      device.packageId,
+    );
+    out(describeArmed(alarms));
+    final tier = switch (argResults!['tier'] as String?) {
+      'reminder' => ArmedTier.reminder,
+      'alarm' => ArmedTier.alarm,
+      _ => null,
+    };
+    final instants = armedInstants(alarms, tier);
+    final expectation = argResults!['expect'] as String?;
+    if (expectation != null) {
+      final failure = armedExpectationFailure(
+        expectation,
+        instants,
+        (runner! as QaCommandRunner).captures,
+      );
+      if (failure != null) {
+        warn('armed: $failure');
+        return 2;
+      }
+    }
+    final capture = argResults!['capture'] as String?;
+    if (capture != null) {
+      (runner! as QaCommandRunner).captures[capture] = encodeInstants(instants);
+    }
     return 0;
   }
 }

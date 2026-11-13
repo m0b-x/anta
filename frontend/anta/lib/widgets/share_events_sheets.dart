@@ -1,16 +1,12 @@
 import 'dart:async';
-import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
 
 import '../bloc/share/share_bloc.dart';
-import '../constants/app_colors.dart';
 import '../constants/app_constants.dart';
-import '../constants/app_spacing.dart';
 import '../constants/calendar_categories.dart';
-import '../constants/row_metrics.dart';
 import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
 import '../models/calendar_event.dart';
@@ -26,6 +22,7 @@ import 'agenda_list_view.dart';
 import 'event_avatar.dart';
 import 'form_rows.dart';
 import 'overlay_snackbar.dart';
+import 'share_list_frame.dart';
 
 /// Opens an event's sheets from a row — `EventSheetsFlow.openDetail`, whose
 /// door sends my own event to its detail sheet and a partner's to its read
@@ -68,7 +65,10 @@ class MySharedEventsSheet extends StatefulWidget {
     BuildContext context, {
     required ShareBloc bloc,
     ShareEventOpener? onOpen,
-  }) => _showFiller(context, MySharedEventsSheet(bloc: bloc, onOpen: onOpen));
+  }) => showShareListSheet(
+    context,
+    MySharedEventsSheet(bloc: bloc, onOpen: onOpen),
+  );
 
   @override
   State<MySharedEventsSheet> createState() => _MySharedEventsSheetState();
@@ -88,11 +88,45 @@ class _MySharedEventsSheetState extends State<MySharedEventsSheet> {
   /// The last outcome this sheet has seen, so a failure is answered once.
   int? _seenOutcome;
 
+  /// The acts this sheet asked for whose outcome it has not seen: if it is
+  /// dismissed first, their failures are said past it.
+  int _pending = 0;
+
+  /// The app's messenger and words, read while the sheet stands, for what
+  /// is said once it has gone.
+  ScaffoldMessengerState? _messenger;
+  AppLocalizations? _l10n;
+
+  static const Set<ShareAct> _acts = {ShareAct.eventUnshared, ShareAct.undo};
+
   @override
   void initState() {
     super.initState();
     final state = widget.bloc.state;
     if (state is ShareLoaded) _seenOutcome = state.outcome?.sequence;
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _messenger = ScaffoldMessenger.maybeOf(context);
+    _l10n = AppLocalizations.of(context);
+  }
+
+  @override
+  void dispose() {
+    final l10n = _l10n;
+    if (l10n != null) {
+      sayShareFailuresPastSheet(
+        bloc: widget.bloc,
+        acts: _acts,
+        pending: _pending,
+        seen: _seenOutcome,
+        messenger: _messenger,
+        l10n: l10n,
+      );
+    }
+    super.dispose();
   }
 
   void _unshare(MySharedEvent shared) {
@@ -107,6 +141,7 @@ class _MySharedEventsSheetState extends State<MySharedEventsSheet> {
     final generation = ShareService.databaseGeneration;
     final event = shared.event;
     setState(() => _leaving.add(event.id));
+    _pending++;
     bloc.add(ShareEventUnshared(event.id));
     // Said at the tap, as every share switch says it (D6): the reload that
     // drops the row may land after the finger has moved on.
@@ -154,19 +189,21 @@ class _MySharedEventsSheetState extends State<MySharedEventsSheet> {
   }) {
     if (ShareService.databaseGeneration != generation) return;
     final change = ShareChange(unsharedEvents: [event]);
+    Future<void> pastBloc(ShareChange change) => undoSharePastBloc(
+      change,
+      shareService: shareService,
+      messenger: messenger,
+      l10n: l10n,
+    );
     if (!bloc.isClosed) {
-      if (mounted) _undoing.add(event.id);
-      bloc.add(ShareUndoRequested(change));
+      if (mounted) {
+        _undoing.add(event.id);
+        _pending++;
+      }
+      bloc.add(ShareUndoRequested(change, pastBloc: pastBloc));
       return;
     }
-    unawaited(
-      undoSharePastBloc(
-        change,
-        shareService: shareService,
-        messenger: messenger,
-        l10n: l10n,
-      ),
-    );
+    unawaited(pastBloc(change));
   }
 
   /// A ✕ the service refused or failed brings its rows back and says why;
@@ -178,6 +215,7 @@ class _MySharedEventsSheetState extends State<MySharedEventsSheet> {
     final outcome = state.outcome;
     if (outcome == null || outcome.sequence == _seenOutcome) return;
     _seenOutcome = outcome.sequence;
+    if (_acts.contains(outcome.act) && _pending > 0) _pending--;
     final failure = outcome.failure;
     switch (outcome.act) {
       case ShareAct.eventUnshared:
@@ -190,7 +228,10 @@ class _MySharedEventsSheetState extends State<MySharedEventsSheet> {
           setState(() => _leaving.remove(id));
           return;
         }
-      case ShareAct.categoriesSet || ShareAct.stopAll:
+      case ShareAct.categoriesSet ||
+          ShareAct.stopAll ||
+          ShareAct.folderShared ||
+          ShareAct.folderUnshared:
         return;
     }
     final l10n = AppLocalizations.of(context)!;
@@ -217,7 +258,7 @@ class _MySharedEventsSheetState extends State<MySharedEventsSheet> {
             for (final shared in state.overview.events)
               if (!_leaving.contains(shared.event.id)) shared,
         ];
-        return _FillerFrame(
+        return ShareListFrame(
           identifier: SemanticsIds.shareEventsSheet,
           title: l10n.shareRowEvents,
           empty: l10n.shareEventsEmpty,
@@ -268,11 +309,11 @@ class _MySharedEventsSheetState extends State<MySharedEventsSheet> {
 
 /// The partner's events that came without a category of theirs, from the
 /// Sharing page's "{name} shares with you" section: [MySharedEventsSheet]'s
-/// shape, read-only — rows in the partner's look, no ✕. Where the host has
-/// event sheets ([onOpen]) a tap opens the event's read sheet; where it has
-/// none — Sync & sharing, which holds no calendar — the rows take no tap,
-/// as [MySharedEventsSheet]'s do there: a row that looked tappable and did
-/// nothing would be a dead end.
+/// shape, read-only — rows in the partner's look, no ✕. With [onOpen] a tap
+/// opens the event's read sheet — from Sync & sharing, through the
+/// calendar's door for an event opened from outside it (D33); without it
+/// the rows take no tap: a row that looked tappable and did nothing would
+/// be a dead end.
 class PartnerSharedEventsSheet extends StatelessWidget {
   final ShareBloc bloc;
   final PartnerLook partner;
@@ -292,7 +333,7 @@ class PartnerSharedEventsSheet extends StatelessWidget {
     required ShareBloc bloc,
     required PartnerLook partner,
     ShareEventOpener? onOpen,
-  }) => _showFiller(
+  }) => showShareListSheet(
     context,
     PartnerSharedEventsSheet(bloc: bloc, partner: partner, onOpen: onOpen),
   );
@@ -308,7 +349,7 @@ class PartnerSharedEventsSheet extends StatelessWidget {
         final events = state is ShareLoaded
             ? state.overview.partnerEvents
             : const <CalendarEvent>[];
-        return _FillerFrame(
+        return ShareListFrame(
           identifier: SemanticsIds.sharedEventsSheet,
           title: l10n.shareRowEvents,
           // The name goes under the title, never into it: a long one cut
@@ -338,69 +379,6 @@ class PartnerSharedEventsSheet extends StatelessWidget {
       },
     );
   }
-}
-
-/// An Undo tapped once the surface that offered it has gone with its bloc —
-/// the events sheet's or the Sharing page's: it writes through
-/// [ShareService.undo] itself, the one place a sharing surface acts past
-/// its bloc, since nothing is left to act through. A failure is said on
-/// [messenger], the app's own captured when the bar was shown, as a plain
-/// floating bar: no context that has gone is read and no host Scaffold is
-/// looked for, which over a bottom route that does not resize would reach
-/// for an overlay from above it.
-Future<void> undoSharePastBloc(
-  ShareChange change, {
-  required Future<ShareService> Function() shareService,
-  required ScaffoldMessengerState? messenger,
-  required AppLocalizations l10n,
-}) async {
-  String? failure;
-  try {
-    await (await shareService()).undo(change);
-  } on ShareRefused {
-    failure = l10n.shareNeedsSync;
-  } catch (e, st) {
-    debugPrint('[undoSharePastBloc] undo failed: $e\n$st');
-    failure = l10n.shareChangeFailed;
-  }
-  if (failure == null) return;
-  messenger
-    ?..hideCurrentSnackBar()
-    ..showSnackBar(
-      SnackBar(
-        content: Text(failure),
-        behavior: SnackBarBehavior.floating,
-        margin: AppSpacing.snackbarMargin(),
-        duration: AppConstants.snackbarErrorDuration,
-        showCloseIcon: true,
-      ),
-    );
-}
-
-/// The filler box both lists open in: the editor's fixed height, the
-/// route's own drag, nothing to guard — every ✕ writes at once.
-Future<void> _showFiller(BuildContext context, Widget sheet) {
-  final colorScheme = Theme.of(context).colorScheme;
-  return showModalBottomSheet<void>(
-    context: context,
-    isScrollControlled: true,
-    useSafeArea: true,
-    showDragHandle: false,
-    backgroundColor: colorScheme.pageGround,
-    shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(
-        top: Radius.circular(FormMetrics.sheetRadius),
-      ),
-    ),
-    // A row opens its event above the list, and may do so while the list is
-    // still sliding in: its nodes are read again once that sheet has gone.
-    builder: (_) => FormSheetSemanticsRefresh(
-      child: FractionallySizedBox(
-        heightFactor: FormMetrics.sheetHeightFactor,
-        child: sheet,
-      ),
-    ),
-  );
 }
 
 DateTime _today() {
@@ -468,80 +446,3 @@ EventAvatar _avatar(
   partner: partner,
   l10n: l10n,
 );
-
-/// The two lists' one frame: handle, a header with ✕ and no action — a list
-/// that writes at once has nothing to confirm — the optional caption pinned
-/// under it, and the rows, or the one line that says there are none.
-class _FillerFrame extends StatelessWidget {
-  final String identifier;
-  final String title;
-  final String? caption;
-  final String empty;
-  final List<Widget> rows;
-
-  const _FillerFrame({
-    required this.identifier,
-    required this.title,
-    required this.empty,
-    required this.rows,
-    this.caption,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
-    final clearance = math.max(
-      MediaQuery.viewInsetsOf(context).bottom,
-      MediaQuery.viewPaddingOf(context).bottom,
-    );
-    final caption = this.caption;
-    return Semantics(
-      container: true,
-      identifier: identifier,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          const FormSheetHandle(),
-          FormSheetHeader(
-            leadingIcon: Icons.close_rounded,
-            leadingTooltip: l10n.close,
-            onLeading: () => Navigator.of(context).pop(),
-            title: title,
-            // A heading, as the read sheet's: a screen reader's headings
-            // list then holds every share sheet by its name.
-            titleIsHeading: true,
-            trailingInset: FormMetrics.headerActionInset,
-            trailing: const SizedBox.shrink(),
-            stackTitleAtLargeText: true,
-          ),
-          if (caption != null)
-            FormCaption(
-              text: caption,
-              padding: const EdgeInsets.fromLTRB(
-                RowMetrics.groupInset,
-                0,
-                RowMetrics.groupInset,
-                FormMetrics.headerCaptionBottomPadding,
-              ),
-            ),
-          Expanded(
-            child: SingleChildScrollView(
-              padding: EdgeInsets.fromLTRB(
-                RowMetrics.groupInset,
-                FormMetrics.bodyTop,
-                RowMetrics.groupInset,
-                FormMetrics.bodyBottom + clearance,
-              ),
-              child: rows.isEmpty
-                  ? FormCaption(
-                      text: empty,
-                      padding: FormMetrics.groupCaptionPadding,
-                    )
-                  : FormRowGroup(trailingGap: false, children: rows),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}

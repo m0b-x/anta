@@ -252,8 +252,8 @@ void main() {
     expect(
       tester.widgetList<FormPickerSwitchRow>(alertRows).map((r) => r.caption),
       [
-        'Timed events: 10 min before · Reminder',
-        'Timed events: 10 min before · Alarm',
+        'Timed events: 10 min before · Reminder',
+        'Timed events: 10 min before · Alarm',
       ],
     );
     expect(addAlert, findsOneWidget);

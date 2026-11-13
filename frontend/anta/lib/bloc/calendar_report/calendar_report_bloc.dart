@@ -20,6 +20,7 @@ import '../../services/calendar_report_service.dart';
 import '../../services/note_money_ledger_service.dart';
 import '../../services/overview_view_service.dart';
 import '../../services/settings_service.dart';
+import '../../utils/category_allowlist.dart';
 import '../../utils/event_agenda.dart';
 import '../../utils/markdown_color_syntax.dart';
 import '../calendar/calendar_bloc.dart';
@@ -167,13 +168,12 @@ class CalendarReportBloc extends Bloc<ReportEvent, ReportState> {
           await _persist((s) => s.setCalendarReportCategories(categoryIds));
         }
       case ReportLookArrived(:final look):
-        final categoriesChanged = !setEquals(look.categoryIds, _categoryIds);
+        final categoryIds = CategoryAllowlist.forReport(look.categoryIds);
+        final categoriesChanged = !setEquals(categoryIds, _categoryIds);
         _period = _home = _clamped(_reportable(look.period));
-        _categoryIds = look.categoryIds;
+        _categoryIds = categoryIds;
         if (await _fold(emit) && categoriesChanged) {
-          await _persist(
-            (s) => s.setCalendarReportCategories(look.categoryIds),
-          );
+          await _persist((s) => s.setCalendarReportCategories(categoryIds));
         }
       case ReportComparePicked(:final compare, :final view):
         // Only a view is looked up in the service: one still resolving, or
@@ -215,12 +215,16 @@ class CalendarReportBloc extends Bloc<ReportEvent, ReportState> {
     if (look != null) {
       final period = _clamped(_reportable(look.period));
       _period = _home = period;
-      _categoryIds = look.categoryIds;
+      // The report's door: a list handed from the overview or a digest's tap
+      // keeps only the part the report can hold.
+      final categoryIds = _categoryIds = CategoryAllowlist.forReport(
+        look.categoryIds,
+      );
       // A look is for this visit; only a kept kind of period outlives it.
       if (period.encode(today: _today) != null) {
         await _persist((s) => s.setCalendarReportPeriod(period, today: _today));
       }
-      await _persist((s) => s.setCalendarReportCategories(look.categoryIds));
+      await _persist((s) => s.setCalendarReportCategories(categoryIds));
     }
     _settingsLoaded = true;
     final current = _calendarBloc.state;

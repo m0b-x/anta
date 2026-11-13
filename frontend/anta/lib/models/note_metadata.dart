@@ -23,6 +23,17 @@ class NoteMetadata extends Equatable {
   /// browser row. [ItemLabel.none] — the default — draws nothing.
   final ItemLabel label;
 
+  /// The note is one the partner shares with this account: the editor opens
+  /// it read-only, Recent leaves it out, and it never leaves by file.
+  /// Transient — set where `NoteStorageService` maps its rows, never stored
+  /// and never in [toJson].
+  final bool fromPartner;
+
+  /// The folder whose mark shares this note of the person's own — its own
+  /// folder or one above it — or null while the note is private. Transient,
+  /// as [fromPartner] is.
+  final String? sharedThroughFolderId;
+
   const NoteMetadata({
     required this.id,
     required this.folderId,
@@ -35,7 +46,12 @@ class NoteMetadata extends Equatable {
     required this.updatedAt,
     this.position = 0,
     this.label = ItemLabel.none,
+    this.fromPartner = false,
+    this.sharedThroughFolderId,
   });
+
+  /// Whether the note lies in a folder the person shares (§6.7's sign).
+  bool get inSharedFolder => sharedThroughFolderId != null;
 
   NoteMetadata copyWith({
     String? id,
@@ -49,6 +65,9 @@ class NoteMetadata extends Equatable {
     DateTime? updatedAt,
     int? position,
     ItemLabel? label,
+    bool? fromPartner,
+    String? sharedThroughFolderId,
+    bool clearSharedThroughFolderId = false,
   }) {
     return NoteMetadata(
       id: id ?? this.id,
@@ -62,6 +81,10 @@ class NoteMetadata extends Equatable {
       updatedAt: updatedAt ?? this.updatedAt,
       position: position ?? this.position,
       label: label ?? this.label,
+      fromPartner: fromPartner ?? this.fromPartner,
+      sharedThroughFolderId: clearSharedThroughFolderId
+          ? null
+          : sharedThroughFolderId ?? this.sharedThroughFolderId,
     );
   }
 
@@ -120,6 +143,8 @@ class NoteMetadata extends Equatable {
     updatedAt,
     position,
     label,
+    fromPartner,
+    sharedThroughFolderId,
   ];
 }
 

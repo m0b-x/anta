@@ -9,6 +9,7 @@ import 'package:shared_preferences_platform_interface/shared_preferences_platfor
 import 'package:sqlite3/sqlite3.dart';
 
 import 'package:anta/constants/settings_keys.dart';
+import 'package:anta/database/daos/sync_dao.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/services/database_manager.dart';
 import 'package:anta/services/sync/sync_gateway.dart';
@@ -457,6 +458,149 @@ void main() {
       expect(walHasContent(path), isTrue);
       expect(identical(await AppDatabase.getInstance(), db), isTrue);
       await db.folderDao.createFolder(name: 'After');
+    });
+
+    test('a copy that leaves the phone holds only my rows: the partner\'s, '
+        'their text and the shared reader\'s records are stripped, mine kept '
+        '(share surfaces D19)', () async {
+      const partner = 'partner-uid';
+      final db = await AppDatabase.getInstance();
+      final name = manager.getActiveDatabaseName();
+      final mine = await db.folderDao.createFolder(name: 'Mine to send');
+      await db.noteDao.createNote(
+        folderId: mine.id,
+        title: 'My note',
+        content: 'my text',
+      );
+      final theirs = await db.folderDao.createFolder(name: 'Theirs');
+      final theirNote = await db.noteDao.createNote(
+        folderId: theirs.id,
+        title: 'Their note',
+        content: 'their secret text',
+      );
+      await db.calendarEventDao.upsert(
+        CalendarEventsCompanion.insert(
+          id: 'their-event',
+          title: 'Their event',
+          category: 'general',
+          startDate: DateTime.utc(2026, 6, 1),
+          ruleKind: 'weekly',
+          createdAt: DateTime.utc(2026, 6, 1),
+          updatedAt: DateTime.utc(2026, 6, 1),
+        ),
+      );
+      for (final (table, id) in [
+        ('folders', theirs.id),
+        ('notes', theirNote.id),
+        ('calendar_events', 'their-event'),
+      ]) {
+        await db.customStatement(
+          "UPDATE $table SET owner_id = '$partner' WHERE id = ?",
+          [id],
+        );
+      }
+      await db.syncDao.setValue(SyncDao.keySharedOwner, partner);
+      await db.syncDao.setValue(SyncDao.keySharedCursor('notes'), 'cursor');
+      await db.customStatement(
+        'INSERT INTO user_settings (key, value, updated_at) VALUES (?, ?, 0)',
+        [SettingsKeys.shareHiddenCategories, '["theirs"]'],
+      );
+      await db.customStatement(
+        'INSERT INTO user_settings (key, value, updated_at) VALUES (?, ?, 0)',
+        [SettingsKeys.shareFolderSorts, '{"their-folder":"name"}'],
+      );
+      await db.syncDao.oweSharePoke(pairId: 'pair-1', urgent: true);
+      addTearDown(() async {
+        await db.sharedRowDao.removeAll();
+      });
+
+      final snapshot = await manager.snapshotForShare(name);
+
+      final copy = sqlite3.open(snapshot, mode: OpenMode.readOnly);
+      try {
+        for (final table in ['folders', 'notes', 'calendar_events']) {
+          expect(
+            count(copy, "SELECT count(*) FROM $table WHERE owner_id = '$partner'"),
+            0,
+            reason: '$table of the partner\'s',
+          );
+        }
+        expect(
+          count(
+            copy,
+            "SELECT count(*) FROM content_chunks WHERE note_id = '${theirNote.id}'",
+          ),
+          0,
+          reason: 'their text goes with their note',
+        );
+        expect(
+          count(
+            copy,
+            "SELECT count(*) FROM sync_metadata WHERE key LIKE 'shared%'",
+          ),
+          0,
+        );
+        expect(
+          count(
+            copy,
+            'SELECT count(*) FROM user_settings WHERE key IN '
+            "('${SettingsKeys.shareHiddenCategories}', "
+            "'${SettingsKeys.shareFolderSorts}')",
+          ),
+          0,
+        );
+        expect(
+          count(
+            copy,
+            'SELECT count(*) FROM sync_metadata WHERE key LIKE '
+            "'${SyncDao.sharePokeOwedPrefix}%'",
+          ),
+          0,
+          reason: 'what this phone owes its partner stays on it',
+        );
+        expect(
+          count(copy, "SELECT count(*) FROM folders WHERE id = '${mine.id}'"),
+          1,
+        );
+        expect(
+          count(
+            copy,
+            'SELECT count(*) FROM content_chunks c JOIN notes n '
+            "ON n.id = c.note_id WHERE n.folder_id = '${mine.id}'",
+          ),
+          greaterThan(0),
+          reason: 'my text stays',
+        );
+      } finally {
+        copy.close();
+      }
+      expect(
+        await db.sharedRowDao.isShared('notes', theirNote.id),
+        isTrue,
+        reason: 'the live database is untouched',
+      );
+    });
+
+    test('a database with no shared owner is copied exactly as before: no '
+        'write reaches the copy', () async {
+      final db = await AppDatabase.getInstance();
+      final name = manager.getActiveDatabaseName();
+      await db.folderDao.createFolder(name: 'Plain');
+      final source = await manager.getDatabasePath(name);
+
+      final snapshot = await manager.snapshotForShare(name);
+
+      final plain = p.join(p.dirname(snapshot), 'plain.db');
+      final connection = sqlite3.open(source, mode: OpenMode.readWrite);
+      try {
+        connection.execute('VACUUM INTO ?', [plain]);
+      } finally {
+        connection.close();
+      }
+      expect(
+        File(snapshot).readAsBytesSync(),
+        File(plain).readAsBytesSync(),
+      );
     });
 
     test('a copy of the open database that fails takes its folder with it and '

@@ -40,6 +40,16 @@ class ModernEditorWrapper extends StatefulWidget {
   /// keyboard, and re-tapping the same box re-toggles.
   final bool checkboxTapToggle;
 
+  /// A note the partner shares (share surfaces §6.13): the editor takes no
+  /// edit and raises no keyboard, while selection and Copy stay. Every
+  /// opener still opens; a task box's tap goes to [onReadOnlyTaskTap]
+  /// instead of toggling it.
+  final bool readOnly;
+
+  /// A task box tapped while [readOnly], so the host can say why it did
+  /// not change.
+  final VoidCallback? onReadOnlyTaskTap;
+
   /// Opens the url of a tapped `[text](url)` link (live markdown
   /// rendering). Null disables link tap-to-open.
   final ValueChanged<String>? onOpenLink;
@@ -146,6 +156,8 @@ class ModernEditorWrapper extends StatefulWidget {
     this.wordWrap = true,
     this.showCursorLine = false,
     this.checkboxTapToggle = false,
+    this.readOnly = false,
+    this.onReadOnlyTaskTap,
     this.onOpenLink,
     this.onMoneyTap,
     this.onOpenTag,
@@ -398,6 +410,7 @@ class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
       oldWidget.searchController.clearFindController();
     }
     if (oldWidget.checkboxTapToggle != widget.checkboxTapToggle ||
+        oldWidget.readOnly != widget.readOnly ||
         (oldWidget.onOpenLink == null) != (widget.onOpenLink == null) ||
         (oldWidget.onMoneyTap == null) != (widget.onMoneyTap == null) ||
         (oldWidget.onOpenTag == null) != (widget.onOpenTag == null) ||
@@ -518,6 +531,8 @@ class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
   }) {
     final isCollapsed = controller.selection.isCollapsed;
     final l10n = AppLocalizations.of(context);
+    // A read-only note offers what reads it — Copy and Select all.
+    final writes = !widget.readOnly;
 
     // Build button items based on selection state
     final buttonItems = <ContextMenuButtonItem>[
@@ -525,14 +540,15 @@ class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
       if (!isCollapsed) ...[
         // Cut and Copy fill the clipboard themselves, so the next show
         // offers Paste without waiting on the platform.
-        ContextMenuButtonItem(
-          label: MaterialLocalizations.of(context).cutButtonLabel,
-          onPressed: () {
-            controller.cut();
-            _clipboardHasStrings.value = true;
-            onDismiss();
-          },
-        ),
+        if (writes)
+          ContextMenuButtonItem(
+            label: MaterialLocalizations.of(context).cutButtonLabel,
+            onPressed: () {
+              controller.cut();
+              _clipboardHasStrings.value = true;
+              onDismiss();
+            },
+          ),
         ContextMenuButtonItem(
           label: MaterialLocalizations.of(context).copyButtonLabel,
           onPressed: () {
@@ -542,7 +558,7 @@ class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
           },
         ),
       ],
-      if (canPaste)
+      if (canPaste && writes)
         ContextMenuButtonItem(
           label: MaterialLocalizations.of(context).pasteButtonLabel,
           onPressed: () {
@@ -563,7 +579,7 @@ class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
       // own items so a narrow phone's overflow takes the formats, never
       // Paste or Select all; a host without the app's localizations (a
       // bare test harness) gets the platform items alone.
-      if (!isCollapsed && l10n != null)
+      if (!isCollapsed && writes && l10n != null)
         for (final (label, marker) in [
           (l10n.bold, _boldMarker),
           (l10n.italic, _italicMarker),
@@ -718,6 +734,32 @@ class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
         : <CodeEditorSemanticsZone>[
             for (final zone in zones)
               switch (zone.action) {
+                // Read-only, the box is named by its state and carries no
+                // checked state, so no reader offers it as a toggle.
+                EditorToggleTaskAction() when widget.readOnly =>
+                  CodeEditorSemanticsZone(
+                    start: zone.start,
+                    end: zone.end,
+                    label: zone.checked == true
+                        ? _named(
+                            _zonePlainText(
+                              lineText,
+                              zone.nameStart,
+                              zone.nameEnd,
+                            ),
+                            l10n.sharedNoteTaskDone,
+                            l10n.sharedNoteTaskDoneNamed,
+                          )
+                        : _named(
+                            _zonePlainText(
+                              lineText,
+                              zone.nameStart,
+                              zone.nameEnd,
+                            ),
+                            l10n.sharedNoteTaskOpen,
+                            l10n.sharedNoteTaskOpenNamed,
+                          ),
+                  ),
                 EditorToggleTaskAction() => CodeEditorSemanticsZone(
                   start: zone.start,
                   end: zone.end,
@@ -830,9 +872,10 @@ class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
     // the keyboard intentionally don't react.
     return switch (action) {
       null => null,
-      EditorToggleTaskAction(:final lineIndex) => () => _toggleTaskLine(
-        lineIndex,
-      ),
+      EditorToggleTaskAction(:final lineIndex) =>
+        widget.readOnly
+            ? () => widget.onReadOnlyTaskTap?.call()
+            : () => _toggleTaskLine(lineIndex),
       EditorOpenLinkAction(:final url) => () {
         _openerHaptic();
         onOpenLink?.call(url);
@@ -1088,7 +1131,7 @@ class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
               ),
       ),
       wordWrap: widget.wordWrap,
-      readOnly: false,
+      readOnly: widget.readOnly,
       autofocus: false,
       tapInterceptor:
           (widget.checkboxTapToggle ||
@@ -1130,7 +1173,7 @@ class _ModernEditorWrapperState extends State<ModernEditorWrapper> {
         return const _HiddenFindPanel();
       },
     );
-    final formatShortcuts = _formatShortcuts;
+    final formatShortcuts = widget.readOnly ? null : _formatShortcuts;
 
     return ScrollConfiguration(
       behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),

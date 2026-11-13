@@ -24,6 +24,7 @@ class _FakeNoteStorage extends NoteStorageService {
 
   List<NoteMetadata> all = const [];
   final List<({int page, int pageSize})> loads = [];
+  final List<bool> ownOnlyAsked = [];
   final List<List<String>> bulkDeletes = [];
   final List<List<String>> preloads = [];
   final List<({String id, ItemLabel label})> labels = [];
@@ -48,8 +49,10 @@ class _FakeNoteStorage extends NoteStorageService {
     int page = 1,
     int pageSize = NoteStorageService.defaultPageSize,
     NotesSortOrder sortOrder = NotesSortOrder.updatedDesc,
+    bool ownOnly = false,
   }) async {
     loads.add((page: page, pageSize: pageSize));
+    ownOnlyAsked.add(ownOnly);
     if (failNextLoads > 0) {
       failNextLoads--;
       throw StateError('storage unavailable');
@@ -291,6 +294,32 @@ void main() {
       await pumpEventQueue();
 
       expect(storage.loads, [(page: 1, pageSize: 40)]);
+      await bloc.close();
+    });
+  });
+
+  group('a list of the person\'s own (Recent, share surfaces D17)', () {
+    test('asks its load-more and its refresh for her own notes too, and a '
+        'list of everything stops asking', () async {
+      final bloc = buildBloc();
+      bloc.add(
+        const LoadNotesPaginated(folderId: null, pageSize: 20, ownOnly: true),
+      );
+      await pumpEventQueue();
+      bloc.add(const LoadMoreNotes());
+      await pumpEventQueue();
+      bloc.add(const RefreshNotes());
+      await pumpEventQueue();
+      expect(storage.ownOnlyAsked, [true, true, true]);
+
+      storage.ownOnlyAsked.clear();
+      bloc.add(const LoadNotesPaginated(folderId: null, pageSize: 20));
+      await pumpEventQueue();
+      expect(
+        storage.ownOnlyAsked,
+        [false],
+        reason: 'All notes after Recent is a new list, not the same one',
+      );
       await bloc.close();
     });
   });

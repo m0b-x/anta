@@ -15,6 +15,7 @@ import 'package:anta/models/recurrence_rule.dart';
 import 'package:anta/services/recurrence_formatter.dart';
 import 'package:anta/utils/alert_labels.dart';
 import 'package:anta/utils/calendar_report_builder.dart';
+import 'package:anta/utils/category_allowlist.dart';
 import 'package:anta/utils/digest_notification_content.dart';
 import 'package:anta/utils/digest_planner.dart';
 import 'package:anta/utils/event_agenda.dart';
@@ -654,6 +655,39 @@ void main() {
         '2 categories — $facts',
       );
       expect(reportContent(reportFire(), report: report).text, facts);
+    });
+
+    /// H1 fix pass: a report lists none of the partner's (D15), so all of
+    /// mine is every category and their part is named nowhere.
+    test('a list with entries: all of mine reads as every category, their '
+        'part names nothing', () {
+      final report = reportOf(
+        [gym, ana, mihai],
+        missed: {gym.id: DateTime.utc(2026, 10, 23)},
+      );
+      const facts = '2 of 3 attended${sep}2.5 h${sep}1 missed';
+      const mine = {CategoryAllowlist.mineEntry};
+      const gymAndTheirs = {'gym', CategoryAllowlist.partnerEntry};
+
+      expect(
+        reportContent(reportFire(categoryIds: mine)).title,
+        'Weekly report${sep}Events',
+      );
+      expect(
+        reportContent(reportFire(categoryIds: mine), report: report).text,
+        facts,
+      );
+      expect(
+        reportContent(reportFire(categoryIds: gymAndTheirs)).title,
+        'Weekly report${sep}Gym',
+      );
+      expect(
+        reportContent(
+          reportFire(categoryIds: gymAndTheirs),
+          report: report,
+        ).text,
+        'Gym — $facts',
+      );
     });
 
     test("the report's counts group their digits (D45)", () {

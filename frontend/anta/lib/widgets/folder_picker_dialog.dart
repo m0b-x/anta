@@ -4,22 +4,45 @@ import 'package:flutter/material.dart';
 import 'package:get_it/get_it.dart';
 
 import '../constants/app_colors.dart';
+import '../constants/row_metrics.dart';
 import '../l10n/app_localizations.dart';
 import '../models/folder.dart';
 import '../services/app_navigator.dart';
 import '../services/folder_name_index.dart';
 import '../services/folder_storage_service.dart';
 import '../services/recent_destinations_service.dart';
+import '../services/share_service.dart' show ShareAudience, ShareService;
+import '../utils/share_copy.dart';
+
+/// What a pick is for: its title, its button's glyph and words, and — to
+/// share — which folders it can confirm.
+enum FolderPickPurpose {
+  /// "Move to…", the button naming the destination.
+  move,
+
+  /// The Sharing page's "Share a folder": a folder already shared, by its
+  /// own mark or a mark above it, is no destination.
+  share,
+
+  /// "Copy to my notes" for one of the partner's notes.
+  copy,
+}
 
 /// Show the folder picker dialog and return:
 ///   - `null` if the user cancels;
 ///   - `''` (empty string) for the root folder;
 ///   - the folder id of the chosen folder otherwise.
+///
+/// The partner's folders are never listed, whatever the [purpose]: the
+/// list answers "where can I put this", and nothing goes into theirs.
+/// [partnerName] is the name the share button says.
 Future<String?> showFolderPickerDialog(
   BuildContext context, {
   required String currentFolderId,
   Set<String>? excludeFolderIds,
   bool allowRoot = true,
+  FolderPickPurpose purpose = FolderPickPurpose.move,
+  String? partnerName,
 }) {
   return showDialog<String>(
     context: context,
@@ -27,6 +50,8 @@ Future<String?> showFolderPickerDialog(
       currentFolderId: currentFolderId,
       excludeFolderIds: excludeFolderIds ?? const {},
       allowRoot: allowRoot,
+      purpose: purpose,
+      partnerName: partnerName,
     ),
   );
 }
@@ -35,11 +60,15 @@ class _FolderPickerDialog extends StatefulWidget {
   final String currentFolderId;
   final Set<String> excludeFolderIds;
   final bool allowRoot;
+  final FolderPickPurpose purpose;
+  final String? partnerName;
 
   const _FolderPickerDialog({
     required this.currentFolderId,
     required this.excludeFolderIds,
     required this.allowRoot,
+    required this.purpose,
+    this.partnerName,
   });
 
   @override
@@ -68,6 +97,24 @@ class _FolderPickerDialogState extends State<_FolderPickerDialog> {
 
   String? get _currentParentId =>
       _breadcrumbs.isEmpty ? null : _breadcrumbs.last.id;
+
+  /// Every folder the picker has read, by id: what the crumbs' current
+  /// folder is shared as, which the share pick asks.
+  final Map<String, Folder> _seen = {};
+
+  /// The partner, from memory — a picker asks nothing of sharing: null
+  /// while there is none, and no folder then wears the sign.
+  final ShareAudience? _audience = ShareService.knownAvailability?.audience;
+  final bool _markMine = ShareService.publishedLook?.markMine ?? true;
+
+  /// The partner's folders are no destination for any pick.
+  List<Folder> _destinations(Iterable<Folder> folders) => [
+    for (final folder in folders)
+      if (!folder.fromPartner) folder,
+  ];
+
+  bool _alreadyShared(String? id) =>
+      id != null && (_seen[id]?.share.isShared ?? false);
 
   @override
   void initState() {
@@ -102,6 +149,9 @@ class _FolderPickerDialogState extends State<_FolderPickerDialog> {
         : await _folderService.getAncestors(liveId, stopAtDeleted: true);
     if (!mounted) return;
     setState(() {
+      for (final folder in [...ancestors, ?current]) {
+        _seen[folder.id] = folder;
+      }
       _breadcrumbs
         ..clear()
         ..addAll(
@@ -151,7 +201,7 @@ class _FolderPickerDialogState extends State<_FolderPickerDialog> {
     );
     if (!mounted || _searchController.text.trim() != query) return;
     setState(() {
-      _searchResults = results;
+      _searchResults = _destinations(results);
       _isSearching = false;
     });
   }
@@ -161,20 +211,26 @@ class _FolderPickerDialogState extends State<_FolderPickerDialog> {
     final allFolders = await _folderService.loadAllFoldersForParent(
       _currentParentId,
     );
-    final folders = widget.excludeFolderIds.isEmpty
-        ? allFolders
-        : allFolders
-              .where((f) => !widget.excludeFolderIds.contains(f.id))
-              .toList();
+    final folders = _destinations(
+      allFolders.where((f) => !widget.excludeFolderIds.contains(f.id)),
+    );
     if (!mounted) return;
     setState(() {
+      for (final folder in folders) {
+        _seen[folder.id] = folder;
+      }
       _folders = folders;
       _isLoading = false;
     });
   }
 
+  /// The recent destinations are a move's history: a move and a copy offer
+  /// them, a share none — a chip would confirm a folder in one tap, already
+  /// shared or not, past the rule that refuses one.
   Future<void> _resolveRecents() async {
-    final ids = _recentsService.recents;
+    final ids = widget.purpose == FolderPickPurpose.share
+        ? const <String?>[]
+        : _recentsService.recents;
     if (ids.isEmpty) {
       if (mounted) setState(() => _recentEntries = const []);
       return;
@@ -194,8 +250,8 @@ class _FolderPickerDialogState extends State<_FolderPickerDialog> {
         id,
         includeDeleted: false,
       );
-      if (folder != null) {
-        entries.add(_RecentEntry(id: id, name: folder.name));
+      if (folder != null && !folder.fromPartner) {
+        entries.add(_RecentEntry(id: id, name: folder.name, folder: folder));
       }
     }
     if (!mounted) return;
@@ -204,6 +260,7 @@ class _FolderPickerDialogState extends State<_FolderPickerDialog> {
 
   void _navigateInto(Folder folder) {
     setState(() {
+      _seen[folder.id] = folder;
       _breadcrumbs.add(_BreadcrumbEntry(id: folder.id, name: folder.name));
     });
     _loadFolders();
@@ -230,7 +287,46 @@ class _FolderPickerDialogState extends State<_FolderPickerDialog> {
     final currentId = _currentParentId ?? '';
     if (currentId == widget.currentFolderId) return false;
     if (currentId.isEmpty && !widget.allowRoot) return false;
+    if (_sharedAlready) return false;
     return true;
+  }
+
+  /// A share pick on a folder already shared: no destination, and the one
+  /// caption line says why.
+  bool get _sharedAlready =>
+      widget.purpose == FolderPickPurpose.share &&
+      _alreadyShared(_currentParentId);
+
+  /// A shared folder of mine wears the sign (spec F5) and says "Shared with
+  /// {name}" after its name, the sign or not.
+  Widget _shareMarked(Folder folder, Widget tile) {
+    if (!_paired || !folder.share.isShared) return tile;
+    final l10n = AppLocalizations.of(context)!;
+    return Semantics(
+      label: l10n.shareMarkMineLabel(
+        ShareCopy.partnerName(
+          l10n,
+          widget.partnerName ?? _audience?.displayName,
+        ),
+      ),
+      child: tile,
+    );
+  }
+
+  /// A partner to name: known to the share service, or named by the caller
+  /// — the Sharing page, which shares with them.
+  bool get _paired => _audience != null || widget.partnerName != null;
+
+  /// The sign, or null when the folder wears none.
+  Widget? _sign(Folder folder) {
+    if (!_paired || !_markMine || !folder.share.isShared) return null;
+    return ExcludeSemantics(
+      child: Icon(
+        Icons.group_rounded,
+        size: RowMetrics.shareMarkSize,
+        color: Theme.of(context).colorScheme.onSurfaceVariant,
+      ),
+    );
   }
 
   void _confirmSelection(String? id) {
@@ -246,8 +342,33 @@ class _FolderPickerDialogState extends State<_FolderPickerDialog> {
         ? l10n.rootFolder
         : _breadcrumbs.last.name;
 
+    // The share and copy buttons are short words of their own: the title
+    // says what the pick is for, and a name or a phrase on the button left
+    // no folder row visible at German 2.0.
+    final (title, glyph, confirm) = switch (widget.purpose) {
+      // Dynamic label — names the actual destination so the user is never
+      // in doubt about WHERE the move will land. This is the single biggest
+      // disambiguation in the redesign: even if the address bar is somehow
+      // misread, the action button restates the target by name.
+      FolderPickPurpose.move => (
+        l10n.moveToTitle,
+        Icons.drive_file_move_outlined,
+        l10n.moveToDestination(destinationName),
+      ),
+      FolderPickPurpose.share => (
+        l10n.shareAddFolder,
+        Icons.group_rounded,
+        l10n.pickShareConfirm,
+      ),
+      FolderPickPurpose.copy => (
+        l10n.sharedNoteCopy,
+        Icons.content_copy_rounded,
+        l10n.pickCopyConfirm,
+      ),
+    };
+
     return AlertDialog(
-      title: Text(l10n.moveToTitle),
+      title: Text(title),
       contentPadding: const EdgeInsets.only(top: 12, bottom: 0),
       content: SizedBox(
         width: double.maxFinite,
@@ -262,6 +383,26 @@ class _FolderPickerDialogState extends State<_FolderPickerDialog> {
                   ? _buildSearchResults(l10n, colorScheme)
                   : _buildBrowseView(l10n, colorScheme),
             ),
+            // Why the button is off, in full. In the share pick its slot is
+            // there from the start: entering and leaving a shared folder
+            // changes the text, never where the list ends.
+            if (widget.purpose == FolderPickPurpose.share &&
+                _searchQuery.isEmpty)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(24, 8, 24, 0),
+                child: Visibility(
+                  visible: _sharedAlready,
+                  maintainSize: true,
+                  maintainAnimation: true,
+                  maintainState: true,
+                  child: Text(
+                    l10n.shareFolderAlready(destinationName),
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ),
+              ),
           ],
         ),
       ),
@@ -271,16 +412,13 @@ class _FolderPickerDialogState extends State<_FolderPickerDialog> {
           child: Text(l10n.cancel),
         ),
         FilledButton.icon(
-          icon: const Icon(Icons.drive_file_move_outlined, size: 18),
+          icon: Icon(glyph, size: 18),
           onPressed: _canSelectCurrent
               ? () => _confirmSelection(_currentParentId)
               : null,
-          // Dynamic label — names the actual destination so the user
-          // is never in doubt about WHERE the move will land. This is
-          // the single biggest disambiguation in the redesign: even if
-          // the address bar is somehow misread, the action button
-          // restates the target by name.
-          label: Text(l10n.moveToDestination(destinationName)),
+          // Two lines at most: a long destination name must not eat the
+          // list at large text.
+          label: Text(confirm, maxLines: 2, overflow: TextOverflow.ellipsis),
         ),
       ],
     );
@@ -300,6 +438,7 @@ class _FolderPickerDialogState extends State<_FolderPickerDialog> {
               ? null
               : IconButton(
                   icon: const Icon(Icons.close, size: 18),
+                  tooltip: l10n.clearSearch,
                   onPressed: () {
                     _searchController.clear();
                     _onSearchChanged();
@@ -331,15 +470,33 @@ class _FolderPickerDialogState extends State<_FolderPickerDialog> {
       itemCount: _searchResults.length,
       itemBuilder: (context, index) {
         final folder = _searchResults[index];
-        return ListTile(
-          leading: Icon(Icons.folder, color: AppColors.folderIcon(context)),
-          title: Text(folder.name),
-          dense: true,
-          // Tapping the source's current parent is allowed; the move
-          // coordinator surfaces an "already in this folder" snackbar
-          // instead of greying the row out (which made the row look
-          // un-navigable even though drill-in still worked).
-          onTap: () => _confirmSelection(folder.id),
+        // A share pick cannot land on a folder already shared: the row
+        // stays, disabled, and says why.
+        final refused =
+            widget.purpose == FolderPickPurpose.share && folder.share.isShared;
+        return _shareMarked(
+          folder,
+          ListTile(
+            leading: Icon(Icons.folder, color: AppColors.folderIcon(context)),
+            // The reason under it names the folder: read once, there.
+            title: refused
+                ? ExcludeSemantics(child: Text(folder.name))
+                : Text(folder.name),
+            subtitle: refused
+                ? Text(
+                    l10n.shareFolderAlready(folder.name),
+                    style: TextStyle(color: colorScheme.onSurfaceVariant),
+                  )
+                : null,
+            trailing: _sign(folder),
+            dense: true,
+            enabled: !refused,
+            // Tapping the source's current parent is allowed; the move
+            // coordinator surfaces an "already in this folder" snackbar
+            // instead of greying the row out (which made the row look
+            // un-navigable even though drill-in still worked).
+            onTap: () => _confirmSelection(folder.id),
+          ),
         );
       },
     );
@@ -374,11 +531,23 @@ class _FolderPickerDialogState extends State<_FolderPickerDialog> {
               itemBuilder: (context, index) {
                 final entry = _recentEntries[index];
                 final label = entry.name ?? l10n.rootFolder;
-                return ActionChip(
+                final folder = entry.folder;
+                final sign = folder == null ? null : _sign(folder);
+                final chip = ActionChip(
                   avatar: const Icon(Icons.history, size: 16),
-                  label: Text(label),
+                  label: sign == null
+                      ? Text(label)
+                      : Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(label),
+                            const SizedBox(width: RowMetrics.shareMarkGap),
+                            sign,
+                          ],
+                        ),
                   onPressed: () => _confirmSelection(entry.id),
                 );
+                return folder == null ? chip : _shareMarked(folder, chip);
               },
             ),
           ),
@@ -449,16 +618,30 @@ class _FolderPickerDialogState extends State<_FolderPickerDialog> {
         // parent folder. The MoveCoordinator surfaces an "already in this
         // folder" snackbar if the user confirms it from the bottom action,
         // and the user can still drill INTO the folder from here.
-        return ListTile(
-          leading: Icon(Icons.folder, color: AppColors.folderIcon(context)),
-          title: Text(folder.name),
-          trailing: Icon(
-            Icons.chevron_right,
-            size: 22,
-            color: colorScheme.onSurfaceVariant,
+        final chevron = Icon(
+          Icons.chevron_right,
+          size: 22,
+          color: colorScheme.onSurfaceVariant,
+        );
+        final sign = _sign(folder);
+        return _shareMarked(
+          folder,
+          ListTile(
+            leading: Icon(Icons.folder, color: AppColors.folderIcon(context)),
+            title: Text(folder.name),
+            trailing: sign == null
+                ? chevron
+                : Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      sign,
+                      const SizedBox(width: RowMetrics.shareMarkGap),
+                      chevron,
+                    ],
+                  ),
+            dense: true,
+            onTap: () => _navigateInto(folder),
           ),
-          dense: true,
-          onTap: () => _navigateInto(folder),
         );
       },
     );
@@ -752,5 +935,8 @@ class _RecentEntry {
   final String? id;
   final String? name;
 
-  const _RecentEntry({required this.id, required this.name});
+  /// The folder as read, for its share sign; null for the root.
+  final Folder? folder;
+
+  const _RecentEntry({required this.id, required this.name, this.folder});
 }

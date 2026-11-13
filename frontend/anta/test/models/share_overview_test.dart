@@ -61,9 +61,18 @@ void main() {
       ),
     ],
     partnerEvents: [event('theirs')],
+    folders: const [
+      MySharedFolder(id: 'f1', name: 'Trips', parentName: null, noteCount: 3),
+    ],
+    folderCount: 1,
+    partnerFolders: const [
+      PartnerSharedFolder(id: 'p-f1', name: 'Recipes', noteCount: 2),
+    ],
+    partnerSharesFolders: true,
     readAt: DateTime(2026, 11, 12, 9),
     readFailed: true,
     sending: true,
+    sendingParked: true,
     offline: true,
     partnerNewerWire: true,
     refusedCount: 3,
@@ -113,8 +122,7 @@ void main() {
     expect(overview.withPartnerShown('gone', false), overview);
   });
 
-  group('PartnerSharedCategory.copyWith — the copy withPartnerShown makes',
-      () {
+  group('PartnerSharedCategory.copyWith — the copy withPartnerShown makes', () {
     const row = PartnerSharedCategory(
       category: shifts,
       joinsMine: true,

@@ -414,6 +414,12 @@ class SettingsKeys {
   /// moment available to tell them.
   static const String pairingEndedNotice = 'pairing_ended_notice_pending';
 
+  /// The pair the partner ended, kept with [pairingPartnerName] past the
+  /// notice's dismissal while the leave of what it shared may still be told
+  /// (share surfaces D35); cleared by a new pair and once that leave is
+  /// told.
+  static const String pairingEndedPair = 'pairing_ended_pair';
+
   // What a partner shares with this database, as the receiver decides to see
   // it (`docs/cloud-share-surfaces-roadmap.md` §6.4, §6.7, §6.8). Preferences
   // of this phone's, not part of the grant: the partner never reads them.
@@ -422,6 +428,10 @@ class SettingsKeys {
   /// How a partner's event is drawn (a `ShareEventLook` name).
   static const String shareEventLook = 'share_event_look';
   static const String defaultShareEventLook = 'outlined';
+
+  /// How a partner's folders and notes are drawn (a `ShareNoteLook` name).
+  static const String shareNoteLook = 'share_note_look';
+  static const String defaultShareNoteLook = 'avatar';
 
   /// Whether my own shared rows carry the small "shared" mark.
   static const String shareMarkMine = 'share_mark_mine';
@@ -434,6 +444,11 @@ class SettingsKeys {
   /// The partner's categories this phone does not show, as a JSON list of
   /// ids; absent is none hidden.
   static const String shareHiddenCategories = 'share_hidden_categories';
+
+  /// My own sort of each of the partner's folders, as a JSON map by folder
+  /// id (`PartnerFolderSort`); absent is none set. The folder's own sort
+  /// columns are the partner's row, which this database never writes.
+  static const String shareFolderSorts = 'share_folder_sorts';
 
   // Cloud sync binding (readiness R6): the space this database syncs with.
   // Per database by construction, like the pairing rows — one database is
@@ -483,6 +498,41 @@ class SettingsKeys {
   /// account at most: another one signing in drops it. Never in a backup.
   static const String syncPendingAccountDeletion =
       'sync_pending_account_deletion';
+
+  /// Install-wide like [syncBoundSpaces]: where the push relay is, as
+  /// `config/push` last named it (`docs/cloud-shared-freshness.md` §7) — one
+  /// relay per project, whichever database is open — and when that was read,
+  /// as epoch milliseconds. Never in a backup.
+  static const String pushRelayUrl = 'push_relay_url';
+  static const String pushRelayReadAt = 'push_relay_read_at';
+
+  /// Install-wide: `'1'` while this install has registered a push address
+  /// it has not given up — the address is the installation's, not a
+  /// database's. Without it nothing is given up, so an install that never
+  /// registered asks the platform nothing. Never in a backup.
+  static const String pushAddressHeld = 'push_address_held';
+
+  /// Install-wide: `'1'` while the installation an ended address belonged
+  /// to is still to be deleted — a delete that failed. Paid before the next
+  /// registration and at a launch, so an ended address never comes back
+  /// (decision n). Never in a backup.
+  static const String pushDeleteOwed = 'push_delete_owed';
+
+  /// Install-wide: `<pair>|<address>|<epoch ms>` — the entry this install
+  /// last wrote and when, by this phone's own clock: whether to write it
+  /// again is never decided against a server stamp.
+  static const String pushWritten = 'push_written';
+
+  /// Install-wide like [pushAddressHeld]: `'1'` while this phone runs an
+  /// expedited work without a notification (`kExpeditedWorkMinSdk`), so a
+  /// relay message's work is expedited — read by the messaging plugin's
+  /// isolate, which cannot ask the activity. Rewritten by the app at every
+  /// hand-over of the background handler, so an Android update is picked up
+  /// by the next run and a value restored onto an older phone is replaced
+  /// before a message can reach it. Absent, unreadable or failed reads as
+  /// not expedited — the direction that never costs a notification. Never
+  /// in a backup, never per database.
+  static const String pushExpeditedWork = 'push_expedited_work';
 
   /// The prefixes a restore never writes back, whatever the archive's
   /// settings map carries: a hand-edited or foreign backup must not pair or

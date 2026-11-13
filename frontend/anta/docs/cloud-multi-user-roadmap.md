@@ -23,14 +23,17 @@ DONE with the foundations: the two-guest saved suite `qa pass
 share`, green on two fleet guests against the emulator suite (pair, share
 an event and a folder, a later change, un-share, end the pair, delete the
 partner's account) — an account deleted while its pair is still active is
-not walked yet. Decided 2026-11-11 on the owner's word: the region is
-the European Union (R1, the owner runs the move, whose last step now
-flips the notice's place); a second account on one phone is accepted (R4,
-not built). Left to the owner: the rules and indexes deploy (now carrying
-D2's pair and invite rules, the sharing rules and their five indexes, and
-the one-write redemption — after it only this build can pair), the build
-on every device, the phone checks (§5.8,
-§6.1), the region move (R1). Every other slice is PLAN: one row of §3,
+not walked yet. R1 DONE 2026-11-13, run by the owner (§9): the database
+is in the European Union (`eur3`), the rules and indexes of `b1046f23`
+are live in it, and the notice's place is flipped in the tree
+(`CloudDataRegion.current`) — it reaches a phone with the next build. A
+second account on one phone is accepted (R4, not built). Left to the
+owner: the build on every device (it carries the notice's new place and,
+since after the deploy of `b1046f23`'s rules only a build of that wire
+can pair, is what pairing needs too), the phone checks (§5.8, §6.1), and
+a second deploy once the rules of the share pass's finishing work are
+committed (the pair's `push` field and `config/push`,
+`cloud-shared-freshness.md` §9). Every other slice is PLAN: one row of §3,
 with its own design section or record when it starts. The target is the
 owner's (§1).** Written from the
 investigation of 2026-11-10 at `14a1dc58`: two code sweeps, the cloud
@@ -1355,8 +1358,19 @@ the read-only editor; PLAN, 2026-11-12).
 
 ## 9. Group R — the rest of the findings
 
-- **R1 — Region. Decided 2026-11-10: `eur3` (§11 O2). The runbook, run by
-  the owner with the phone in hand, from `frontend/anta`:**
+- **R1 — Region. DONE 2026-11-13, run by the owner: the `(default)`
+  database of `alexs-note-tracking-app` was deleted and created again in
+  `eur3` (created 08:54 UTC); the phone uploaded again and reads "Up to
+  date".** The rules and indexes live in it are the committed ones of
+  `b1046f23` (seven composite indexes, nineteen exemptions) — the pair's
+  `push` rule and `config/push` of the freshness record are not deployed,
+  and `config/push` does not exist in the new database. No TTL policy
+  stands on `invites.expiresAt`: there was none before the move, a TTL
+  delete needs billing and the project is on the free plan, and the owner
+  chose to leave it so. Step 8 — the notice's place — is in the tree
+  (`CloudDataRegion.current` is `europeanUnion`) and reaches a phone with
+  the next build. Decided 2026-11-10: `eur3` (§11 O2). The runbook, as it
+  was run, from `frontend/anta`:
   1. Every device runs the D1 build. A fresh export of the phone
      (Settings → Backup), kept as a file: between steps 3 and 6 the phone
      is the only copy.

@@ -73,6 +73,10 @@ wait id:sheet-confirm
 expect "Stop sharing everything with qa2@example.com?"
 tap id:sheet-confirm --settle 2000
 wait id:sheet-confirm --gone
+# The page has grown a Folders row in each group: scrolled to its last row,
+# the "You share" entries are out of the list's reach until it is scrolled
+# back.
+scroll-to id:sharing-mine-categories --in id:sharing-page-list --up
 text id:sharing-mine-categories --match "None"
 text id:sharing-mine-events --match "None"
 shot stopped-everything

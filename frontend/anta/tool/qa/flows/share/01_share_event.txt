@@ -3,7 +3,7 @@
 # that was not shared. Its category is one the partner's database does not
 # have, so it draws under the fallback.
 share event "Lifting session"
-tap id:sharing-sync-now
+tap id:sharing-sync-now --settle 3000
 expect id:sharing-sync-status "Up to date" --timeout 60
 -d emulator-5558 tap id:sharing-sync-now
 -d emulator-5558 expect id:sharing-sync-status "Up to date" --timeout 60

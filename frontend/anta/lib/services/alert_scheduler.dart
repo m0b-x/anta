@@ -26,6 +26,7 @@ import '../models/share_settings.dart';
 import '../utils/alert_excerpt.dart';
 import '../utils/alert_os_id.dart';
 import '../utils/alert_planner.dart';
+import '../utils/category_allowlist.dart';
 import '../utils/digest_notification_content.dart';
 import '../utils/digest_planner.dart';
 import '../utils/quick_alarm.dart';
@@ -41,6 +42,8 @@ import 'event_presence_service.dart';
 import 'event_skip_service.dart';
 import 'public_holiday_service.dart';
 import 'settings_service.dart';
+import 'shared_refresh/shared_refresh.dart';
+import 'shared_refresh/shared_refresh_plan.dart';
 
 /// Why a reconcile is running. The pass is the same whatever provoked it — a
 /// reason that changed the work would be a second definition of "what the OS
@@ -225,6 +228,13 @@ class AlertScheduler {
   /// digest its numbers, never the pass.
   late final CalendarReportService Function() _reportService;
 
+  /// Told, as each pass ends, what of the partner's it left able to ring:
+  /// the check that keeps those rows fresh while the app is closed is
+  /// planned from the pass that already walked the events
+  /// (`docs/cloud-shared-freshness.md` §4). Null where nothing takes it, and
+  /// the pass then works none of it out.
+  late final SharedRefreshSink? _sharedRefresh;
+
   /// The partner's name as the pairing last stored it, read by the turn of
   /// the chain that is about to write a partner's event's entry (D21) — from
   /// settings, never fetched: a pass runs with no network and no UI. Null
@@ -288,7 +298,17 @@ class AlertScheduler {
       databaseName: manager.getActiveDatabaseName(),
       clock: DateTime.now,
       horizon: kAlertHorizon,
+      sharedRefresh: _registeredSharedRefresh(),
     );
+  }
+
+  /// The registered [SharedRefresh] as a pass reports to it, or null in a
+  /// build or a suite that binds none. Never awaited: the platform's answer
+  /// is no part of the pass, and the chain must not wait on it.
+  static SharedRefreshSink? _registeredSharedRefresh() {
+    if (!GetIt.I.isRegistered<SharedRefresh>()) return null;
+    final refresh = GetIt.I<SharedRefresh>();
+    return (need) => unawaited(refresh.afterAlertPass(need));
   }
 
   /// Binds the singleton to an explicit database, gateway, clock and horizon.
@@ -305,6 +325,7 @@ class AlertScheduler {
     DateTime Function()? clock,
     AlertHorizon horizon = kAlertHorizon,
     CalendarReportService Function()? reportService,
+    SharedRefreshSink? sharedRefresh,
   }) {
     return _create(
       dao: db.alertRegistrationDao,
@@ -313,6 +334,7 @@ class AlertScheduler {
       clock: clock ?? DateTime.now,
       horizon: horizon,
       reportService: reportService ?? CalendarReportService.new,
+      sharedRefresh: sharedRefresh,
     );
   }
 
@@ -323,6 +345,7 @@ class AlertScheduler {
     required DateTime Function() clock,
     required AlertHorizon horizon,
     CalendarReportService Function() reportService = CalendarReportService.new,
+    SharedRefreshSink? sharedRefresh,
   }) {
     final scheduler = AlertScheduler._();
     scheduler._dao = dao;
@@ -331,6 +354,7 @@ class AlertScheduler {
     scheduler._clock = clock;
     scheduler._horizon = horizon;
     scheduler._reportService = reportService;
+    scheduler._sharedRefresh = sharedRefresh;
     _instance = scheduler;
     DatabaseLifecycle.registerResetHandler(reset);
     return scheduler;
@@ -414,6 +438,10 @@ class AlertScheduler {
             '[AlertScheduler] reconcile(${reason.name}) skipped: '
             'nothing can arm',
           );
+          // Nothing armed, so nothing of the partner's can ring: a check
+          // this process scheduled earlier is taken off, and nothing else
+          // is asked.
+          _sharedRefresh?.call(SharedRefreshNeed.none);
           return;
         }
         await _reconcile(reason);
@@ -876,6 +904,9 @@ class AlertScheduler {
     await _resolveQuietly(EventSkipService.getInstance(), 'skips');
     await _resolveQuietly(PublicHolidayService.getInstance(), 'holidays');
     await _resolveQuietly(EventDigestService.getInstance(), 'digests');
+    // An allowlist decides by the catalogue: with none published, every
+    // partner's event would sit on their side of `*mine` and `*partner`.
+    await _resolveQuietly(CategoryService.getInstance(), 'categories');
     final CalendarEventService eventService;
     try {
       eventService = await CalendarEventService.getInstance();
@@ -1308,11 +1339,26 @@ class AlertScheduler {
     // what [ShareAlerts.inheritsOn] lets through and nothing else (D13); an
     // entry armed before it left that reach is cancelled by the diff below.
     final alertsByEvent = <String, List<EventAlert>>{};
+    // Whether an enabled alert of mine is defined on a partner's event,
+    // armed or not, and whether on one that can still occur — noted in this
+    // walk for the shared check: a message from the partner is worth a read
+    // for the first, and the phone's own check goes on only for the second,
+    // while it waits past the horizon for its event to come near.
+    var partnerAlertDefined = false;
+    var partnerAlertAhead = false;
+    final today = DateTime.utc(now.year, now.month, now.day);
     for (final event in events) {
       final inherit = shareAlerts.inheritsOn(event);
       if (inherit == null) continue;
       final alerts = EventAlerts.effectiveFor(event, inherit: inherit);
-      if (alerts.isNotEmpty) alertsByEvent[event.id] = alerts;
+      if (alerts.isEmpty) continue;
+      alertsByEvent[event.id] = alerts;
+      if (event.fromPartner &&
+          !partnerAlertAhead &&
+          alerts.any((alert) => alert.enabled)) {
+        partnerAlertDefined = true;
+        partnerAlertAhead = _canStillOccur(event, today);
+      }
     }
 
     final settled = await _settlePastFires(
@@ -1378,6 +1424,15 @@ class AlertScheduler {
     );
     var scheduled = 0;
     var cancelled = 0;
+    // When each entry this pass leaves armed on a partner's event fires —
+    // noted as the entries are walked, so the shared check is planned with
+    // no second walk. Null until there is one.
+    List<DateTime>? partnerFires;
+    void noteArmed(PlannedEntry planned) {
+      if (planned is PlannedFire && planned.event.fromPartner) {
+        (partnerFires ??= []).add(planned.fireAt);
+      }
+    }
 
     for (final entry in desired.entries) {
       final osId = entry.key;
@@ -1424,6 +1479,7 @@ class AlertScheduler {
             osId,
             weekStart,
             currency: currency,
+            shareAlerts: shareAlerts,
             partnerName: partnerName,
             report: planned.digest.cadence.isReport
                 ? _closedReport(
@@ -1449,6 +1505,7 @@ class AlertScheduler {
           existing.osId == osId &&
           existing.fireAt == planned.fireAt.millisecondsSinceEpoch &&
           existing.backend == signature) {
+        noteArmed(planned);
         continue;
       }
       // In flight, and so not this pass's to arm again. The clock above was
@@ -1497,6 +1554,7 @@ class AlertScheduler {
           source: Value(planned.source.name),
         ),
       );
+      noteArmed(planned);
       scheduled++;
     }
 
@@ -1578,6 +1636,19 @@ class AlertScheduler {
     // the platform is cancelled.
     if (straysMarker != null) await _dao.clearStraysMarker(straysMarker);
 
+    final sharedRefresh = _sharedRefresh;
+    if (sharedRefresh != null) {
+      sharedRefresh(
+        await _sharedNeed(
+          partnerFires: partnerFires,
+          alertDefined: partnerAlertDefined,
+          alertAhead: partnerAlertAhead,
+          shareAlerts: shareAlerts,
+          mayHoldPartner: eventService.mayHoldPartnerEvents,
+        ),
+      );
+    }
+
     debugPrint(
       '[AlertScheduler] reconcile(${reason.name}'
       '${eventId == null ? '' : ', $eventId'}) '
@@ -1585,6 +1656,83 @@ class AlertScheduler {
       'digests=${digestPlan.length} '
       'scheduled=$scheduled cancelled=$cancelled',
     );
+  }
+
+  /// What of the partner's the pass that just ended left able to ring
+  /// (`docs/cloud-shared-freshness.md` §4, decision b): [partnerFires],
+  /// whether an alert of mine is defined on one of their events at all
+  /// ([alertDefined]) and on one that can still occur ([alertAhead]), and
+  /// whether an event the partner adds would arm under "Category alerts
+  /// too".
+  ///
+  /// [SharedRefreshNeed.none], and nothing read, for a database that shows
+  /// no sign of sharing — no partner's event held and the setting never
+  /// moved to "Category alerts too", which only the Sharing page of a
+  /// paired account offers: an account that never paired pays for none of
+  /// this.
+  Future<SharedRefreshNeed> _sharedNeed({
+    required List<DateTime>? partnerFires,
+    required bool alertDefined,
+    required bool alertAhead,
+    required ShareAlerts shareAlerts,
+    required bool mayHoldPartner,
+  }) async {
+    final category = shareAlerts == ShareAlerts.category;
+    if (partnerFires == null && !category && !mayHoldPartner) {
+      return SharedRefreshNeed.none;
+    }
+    return SharedRefreshNeed(
+      fireTimes: partnerFires ?? const [],
+      categoryAlerts: category && await _partnerCategoryRings(),
+      alertDefined: alertDefined,
+      alertAhead: alertAhead,
+    );
+  }
+
+  /// Whether [event] may yet have an occurrence on or after [today]: a
+  /// one-off not past its day, a repeating one with no end or one still
+  /// ahead. A cheap test on the event's own dates, never a walk of its
+  /// rule: an occurrence a skip or a holiday takes out keeps a check alive
+  /// that a walk would have dropped, which costs a wake-up and no alert.
+  static bool _canStillOccur(CalendarEvent event, DateTime today) {
+    final last =
+        event.endDateUtc ??
+        (event.rule is OneTimeRecurrence ? event.startDateUtc : null);
+    return last == null || !last.isBefore(today);
+  }
+
+  /// Whether a category the partner shares, and this phone shows, holds an
+  /// enabled alert of mine — asked only under "Category alerts too".
+  ///
+  /// The partner's own categories answer from the catalogue. A built-in
+  /// they share is my own row there, and nothing in memory tells it from
+  /// one they do not share, nor says it is hidden while it is the only
+  /// thing of theirs held: the shared rows' records are read, and the
+  /// hidden set after them — only when a built-in of mine holds an enabled
+  /// alert, and the second only when the partner shares one of those. Not
+  /// gated on a partner's event being held: the category that matters most
+  /// here is the one they have put nothing in yet.
+  Future<bool> _partnerCategoryRings() async {
+    bool rings(String id) =>
+        EventAlerts.categoryAlertsFor(id).any((alert) => alert.enabled);
+    if (CalendarCategories.partnerShown.any((c) => rings(c.id))) return true;
+    final builtIns = [
+      for (final category in CalendarCategories.all)
+        if (category.isBuiltIn && !category.fromPartner && rings(category.id))
+          category.id,
+    ];
+    if (builtIns.isEmpty) return false;
+    try {
+      final db = _dao.attachedDatabase;
+      final shared = await db.sharedRowDao.sharedBuiltIns();
+      builtIns.retainWhere(shared.contains);
+      if (builtIns.isEmpty) return false;
+      final hidden = await SettingsService.shareHiddenCategoriesOf(db);
+      return builtIns.any((id) => !hidden.contains(id));
+    } catch (e, st) {
+      debugPrint('[AlertScheduler] shared built-ins read failed: $e\n$st');
+      return false;
+    }
   }
 
   /// Rewrites the row a native Snooze moved: same os id, the new instant,
@@ -2279,6 +2427,7 @@ class AlertScheduler {
     int osId,
     CalendarWeekStart weekStart, {
     required ({String symbol, bool suffix}) currency,
+    required ShareAlerts shareAlerts,
     String? partnerName,
     CalendarReport? report,
   }) {
@@ -2298,6 +2447,7 @@ class AlertScheduler {
           currencySymbol: currency.symbol,
           currencySuffix: currency.suffix,
           partnerName: partnerName,
+          shareAlerts: shareAlerts,
         );
     DigestNotificationContent content;
     try {
@@ -2308,9 +2458,11 @@ class AlertScheduler {
       content = wordsOf(null);
     }
     final categoryIds = fire.digest.categoryIds.toList()..sort();
-    final single = categoryIds.length == 1
-        ? CalendarCategories.resolve(categoryIds.single)
-        : null;
+    // The one listed category it ticks, as its title names it.
+    final single = CategoryAllowlist.soleTicked(
+      fire.digest.categoryIds,
+      partnerListed: digestListsPartner(fire.digest.cadence, shareAlerts),
+    );
     return AlertPayload(
       database: _databaseName,
       eventId: '',

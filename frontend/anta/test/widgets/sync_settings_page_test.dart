@@ -10,6 +10,7 @@ import 'package:anta/bloc/pairing/pairing_bloc.dart';
 import 'package:anta/bloc/share/share_bloc.dart';
 import 'package:anta/bloc/sync/sync_bloc.dart';
 import 'package:anta/constants/app_theme.dart';
+import 'package:anta/constants/cloud_data_region.dart';
 import 'package:anta/constants/semantics_ids.dart';
 import 'package:anta/constants/sync_limits.dart';
 import 'package:anta/database/database.dart';
@@ -447,6 +448,15 @@ void main() {
     share.emit(share.availability);
     await settle(tester, rounds: 4);
     expect(summaryOf(tester), l10n.shareSummaryEvents(1));
+    // A summary reads the folders' count alone, never their names.
+    share.shareOverview = const ShareOverview(
+      categories: [category, category, category],
+      folderCount: 1,
+    );
+    share.emit(share.availability);
+    await settle(tester, rounds: 4);
+    expect(summaryOf(tester), '3 categories, 1 folder');
+    expect(tester.getRect(paired), withSummary);
     share.shareOverview = ShareOverview.empty;
     share.emit(share.availability);
     await settle(tester, rounds: 4);
@@ -550,6 +560,73 @@ void main() {
     expect(syncBloc!.events.sublist(before), [const SignInRequested()]);
 
     await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  group('a partner\'s single event tapped on the Sharing page (D33)', () {
+    final run = CalendarEvent(
+      id: 'e-run',
+      title: 'Morning run',
+      categoryId: 'general',
+      startDate: DateTime.utc(2026, 11, 20),
+      fromPartner: true,
+    );
+    late List<({DateTime day, String? eventId})> opened;
+
+    setUp(() {
+      opened = [];
+      SyncSettingsPage.openOccurrence = ({required day, required eventId}) {
+        opened.add((day: day, eventId: eventId));
+        return Future<void>.value();
+      };
+    });
+
+    tearDown(
+      () => SyncSettingsPage.openOccurrence =
+          AppNavigator.toCalendarOccurrenceFromList,
+    );
+
+    Future<void> openList(WidgetTester tester) async {
+      await boot(
+        user: userA,
+        paired: true,
+        overview: ShareOverview(partnerEvents: [run]),
+      );
+      share.partnerRows.add('calendar_events/e-run');
+      await pumpPage(tester, openSharing: true);
+      await settle(tester, rounds: 4);
+      final entry = find.bySemanticsIdentifier(SemanticsIds.sharingTheirsEvents);
+      await tester.ensureVisible(entry);
+      await tester.tap(entry);
+      await settle(tester, rounds: 4);
+      expect(find.text('Morning run'), findsOneWidget);
+    }
+
+    testWidgets('opens it through the calendar\'s door for an event opened '
+        'from outside it, on its day', (tester) async {
+      await openList(tester);
+
+      await tester.tap(find.text('Morning run'));
+      await settle(tester, rounds: 4);
+
+      expect(opened, hasLength(1));
+      expect(opened.single.eventId, 'e-run');
+      expect(opened.single.day.isUtc, isTrue);
+      expect(find.byType(SharingPage), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('gone by the time of the tap, nothing opens', (tester) async {
+      await openList(tester);
+      share.partnerRows.clear();
+
+      await tester.tap(find.text('Morning run'));
+      await settle(tester, rounds: 4);
+
+      expect(opened, isEmpty);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
   });
 
   // A share notice's View (share surfaces §6.14): the Sharing page on top,
@@ -725,6 +802,197 @@ void main() {
     expect(pairingBloc!.events, events);
 
     await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  group('a confirmation says my alerts on what the partner shares turn off '
+      '(D30, A14)', () {
+    const bound = SyncStatus(
+      binding: SyncBinding(
+        spaceId: 'space-1',
+        ownerUid: 'uid-a',
+        accountUid: 'uid-a',
+      ),
+    );
+    final holding = ShareOverview(
+      partnerCategories: [
+        PartnerSharedCategory(
+          category: const CalendarCategory(
+            id: 'p-night',
+            name: 'Night shift',
+            colorValue: 0xFF3949AB,
+            iconKey: 'event',
+            sortOrder: 0,
+            isBuiltIn: false,
+            fromPartner: true,
+          ),
+          joinsMine: false,
+          shown: true,
+          eventCount: 3,
+        ),
+      ],
+    );
+    final alerts = l10n.shareAlertsTurnOffLine(userB.displayName!);
+    final received = l10n.syncStopReceivedLine(userB.displayName!);
+
+    // Each dialog: the row that asks, its confirm button, its body, and the
+    // sentences a paired database holding the partner's rows adds before
+    // the alerts' line.
+    final dialogs = [
+      (
+        what: 'Stop syncing',
+        row: SemanticsIds.sharingSyncStop,
+        confirm: SemanticsIds.sharingSyncStopConfirm,
+        body: l10n.syncStopConfirmBody,
+        held: ' $received',
+      ),
+      (
+        what: 'Delete cloud copy',
+        row: SemanticsIds.sharingSyncDelete,
+        confirm: SemanticsIds.sharingSyncDeleteConfirm,
+        body: l10n.syncDeleteCloudConfirmBody,
+        held: '',
+      ),
+      (
+        what: 'Delete account',
+        row: SemanticsIds.sharingDeleteAccount,
+        confirm: SemanticsIds.sharingDeleteAccountConfirm,
+        body: l10n.syncDeleteAccountConfirmBody,
+        held: '',
+      ),
+    ];
+
+    Future<void> tapRow(
+      WidgetTester tester,
+      String id, {
+      PairingState? before,
+    }) async {
+      await pumpPage(tester);
+      syncBloc!.show(const SyncSignedIn(userA, status: bound));
+      await settle(tester, rounds: 4);
+      if (before != null) {
+        pairingBloc!.show(before);
+        await settle(tester, rounds: 2);
+      }
+      final row = find.bySemanticsIdentifier(id);
+      await tester.ensureVisible(row);
+      await tester.pump();
+      await tester.tap(row);
+    }
+
+    // A tap before the pairing has answered: not paired is not yet known.
+    for (final dialog in dialogs) {
+      testWidgets('${dialog.what}: asked before the pairing has loaded, it '
+          'waits for it within the bound and says the sentence', (
+        tester,
+      ) async {
+        await boot(user: userA, paired: true, overview: holding);
+        share.armedByCategory = {'p-night': 2};
+        await tapRow(tester, dialog.row, before: const PairingLoading());
+        await tester.pump();
+        expect(find.bySemanticsIdentifier(dialog.confirm), findsNothing);
+
+        pairingBloc!.show(PairingPaired(partner: PairProfile.fromUser(userB)));
+        await settle(tester, rounds: 4);
+
+        expect(
+          find.text('${dialog.body}${dialog.held} $alerts'),
+          findsOneWidget,
+        );
+        await answerDialog(tester, SemanticsIds.sheetCancel);
+
+        await tester.pumpWidget(const SizedBox.shrink());
+      });
+    }
+
+    testWidgets('never paired, asked before the pairing has loaded: today\'s '
+        'dialog once it has, with nothing read', (tester) async {
+      await boot(user: userA);
+      await tapRow(
+        tester,
+        SemanticsIds.sharingSyncDelete,
+        before: const PairingLoading(),
+      );
+      await tester.pump();
+      pairingBloc!.show(const PairingUnpaired());
+      await settle(tester, rounds: 2);
+
+      expect(find.text(l10n.syncDeleteCloudConfirmBody), findsOneWidget);
+      expect(shareBlocs, 0);
+      await answerDialog(tester, SemanticsIds.sheetCancel);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    for (final dialog in dialogs) {
+      testWidgets('${dialog.what}: an alert armed, the sentence follows', (
+        tester,
+      ) async {
+        await boot(user: userA, paired: true, overview: holding);
+        share.armedByCategory = {'p-night': 2};
+        await tapRow(tester, dialog.row);
+        await settle(tester, rounds: 4);
+
+        expect(
+          find.text('${dialog.body}${dialog.held} $alerts'),
+          findsOneWidget,
+        );
+        expect(share.armedReads, [null]);
+        await answerDialog(tester, SemanticsIds.sheetCancel);
+
+        await tester.pumpWidget(const SizedBox.shrink());
+      });
+
+      testWidgets('${dialog.what}: nothing armed, no alerts sentence', (
+        tester,
+      ) async {
+        await boot(user: userA, paired: true, overview: holding);
+        await tapRow(tester, dialog.row);
+        await settle(tester, rounds: 4);
+
+        expect(find.text('${dialog.body}${dialog.held}'), findsOneWidget);
+        await answerDialog(tester, SemanticsIds.sheetCancel);
+
+        await tester.pumpWidget(const SizedBox.shrink());
+      });
+
+      testWidgets('${dialog.what}: never paired, today\'s dialog on the '
+          'tap\'s own frame, nothing read', (tester) async {
+        await boot(user: userA);
+        await tapRow(tester, dialog.row);
+        await tester.pump();
+
+        expect(find.text(dialog.body), findsOneWidget);
+        expect(shareBlocs, 0);
+        await settle(tester, rounds: 2);
+        expect(find.bySemanticsIdentifier(dialog.confirm), findsOneWidget);
+        await answerDialog(tester, SemanticsIds.sheetCancel);
+
+        await tester.pumpWidget(const SizedBox.shrink());
+      });
+
+      testWidgets('${dialog.what}: a read that never answers holds the tap '
+          'only so long, and the dialog opens without the sentence', (
+        tester,
+      ) async {
+        await boot(user: userA, paired: true, overview: holding);
+        share.armedByCategory = {'p-night': 2};
+        share.armedHold = Completer<void>();
+        await tapRow(tester, dialog.row);
+        await tester.pump();
+        await tester.tap(find.bySemanticsIdentifier(dialog.row));
+        await settle(tester, rounds: 2);
+        expect(find.bySemanticsIdentifier(dialog.confirm), findsNothing);
+
+        await tester.pump(SyncLimits.stopConfirmShareRead);
+        await settle(tester, rounds: 2);
+        expect(find.text('${dialog.body}${dialog.held}'), findsOneWidget);
+        expect(find.bySemanticsIdentifier(dialog.confirm), findsOneWidget);
+        await answerDialog(tester, SemanticsIds.sheetCancel);
+
+        share.armedHold!.complete();
+        await tester.pumpWidget(const SizedBox.shrink());
+      });
+    }
   });
 
   group('stop syncing while paired (D25)', () {
@@ -1173,7 +1441,15 @@ void main() {
         findsOneWidget,
       );
       final paragraphs = dataNoticeParagraphs(l10n);
-      expect(paragraphs, contains(l10n.dataNoticeCloudUs));
+      // Whichever place the build states: the page follows it, and both
+      // places' words are pinned in `test/utils/data_notice_test.dart`.
+      expect(
+        paragraphs,
+        contains(switch (CloudDataRegion.current) {
+          CloudDataRegion.unitedStates => l10n.dataNoticeCloudUs,
+          CloudDataRegion.europeanUnion => l10n.dataNoticeCloudEu,
+        }),
+      );
       expect(
         paragraphs.join('\n\n'),
         contains('${l10n.dataNoticePartner}\n\n${l10n.dataNoticeShared}'),

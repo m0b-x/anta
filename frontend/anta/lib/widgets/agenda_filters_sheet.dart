@@ -16,6 +16,7 @@ import '../models/calendar_event.dart';
 import '../models/partner_look.dart';
 import '../models/upcoming_agenda_filters.dart';
 import '../utils/calendar_filter_summary.dart';
+import '../utils/category_allowlist.dart';
 import '../utils/event_agenda.dart';
 import 'agenda_list_view.dart';
 import 'calendar_date_picker_sheet.dart';
@@ -235,40 +236,28 @@ class _AgendaFiltersSheetState extends State<AgendaFiltersSheet> {
   /// behind the sheet until Apply.
   ///
   /// A partner's shown categories are on offer beside this person's (share
-  /// surfaces §6.10), so "everything on offer" counts them: allowing only
-  /// mine is a real narrowing, and ticking both groups whole is "all". A
-  /// partner's id that has since left the list stays in the set as a
-  /// deleted category's does — it matches no event and no row names it.
-  ///
-  /// "Everything on offer" is read again after the picker returns, never from
-  /// the build that opened it: a category created inside the picker is on
-  /// offer now, and an answer that leaves it un-ticked must not collapse to
-  /// "all". The partner's are the ones the picker was handed, as in the
-  /// grid's sheet: one that arrived while it was open was never offered.
-  Future<void> _pickCategories(List<CalendarCategory> partner) =>
-      _guarded(() async {
-        final picked = await CategoryPickerSheet.pickMulti(
-          context,
-          selected: _draft.categoryIds.isEmpty
-              ? _offeredIds(partner)
-              : _draft.categoryIds,
-          partner: partner,
-          partnerLook: widget.partnerLook,
-        );
-        if (picked == null || !mounted) return;
-        final offered = _offeredIds(partner);
-        _update(
-          _draft.copyWith(
-            categoryIds: picked.containsAll(offered) ? const {} : picked,
-          ),
-        );
-      });
-
-  Set<String> _offeredIds(List<CalendarCategory> partner) => {
-    for (final category in CalendarCategories.visiblePlus(_draft.categoryIds))
-      category.id,
-    for (final category in partner) category.id,
-  };
+  /// surfaces §6.10), so a whole group is stored as the group
+  /// ([CategoryAllowlist.fromPicker], D29): "all of mine" still holds a
+  /// category made tomorrow, and ticking both groups whole is "all". The
+  /// store reads the catalogue after the picker returns, so a category
+  /// created inside it is on offer, and an answer that leaves it un-ticked
+  /// must not collapse to "all".
+  Future<void> _pickCategories(List<CalendarCategory> partner) => _guarded(
+    () async {
+      final picked = await CategoryPickerSheet.pickMulti(
+        context,
+        selected: CategoryAllowlist.ticked(_draft.categoryIds),
+        partner: partner,
+        partnerLook: widget.partnerLook,
+      );
+      if (picked == null || !mounted) return;
+      _update(
+        _draft.copyWith(
+          categoryIds: CategoryAllowlist.fromPicker(_draft.categoryIds, picked),
+        ),
+      );
+    },
+  );
 
   Future<void> _pickPriorities(AppLocalizations l10n) => _guarded(() async {
     final picked = await FilterCheckListSheet.show(
@@ -404,10 +393,13 @@ class _AgendaFiltersSheetState extends State<AgendaFiltersSheet> {
     AppLocalizations l10n,
     List<CalendarCategory> categories,
   ) {
-    if (_draft.categoryIds.isEmpty) return l10n.calendarFilterCategoriesAll;
+    final ids = _draft.categoryIds;
+    if (CategoryAllowlist.filtersNothing(ids)) {
+      return l10n.calendarFilterCategoriesAll;
+    }
     final names = [
       for (final c in categories)
-        if (_draft.categoryIds.contains(c.id))
+        if (CategoryAllowlist.ticks(ids, c))
           CalendarCategories.labelOf(c, l10n),
     ];
     if (names.isEmpty) return l10n.calendarFilterNoCategories;

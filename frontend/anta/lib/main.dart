@@ -3,11 +3,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:anta/l10n/app_localizations.dart';
-import 'package:firebase_core/firebase_core.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'dart:async';
-import 'firebase_options.dart';
-import 'services/sync_availability.dart';
 import 'bloc/app_settings/app_settings_bloc.dart';
 import 'bloc/calendar/calendar_bloc.dart';
 import 'bloc/optimized_folder/optimized_folder_bloc.dart';
@@ -40,6 +37,7 @@ import 'services/body_search_indexer.dart';
 import 'services/calendar_event_service.dart';
 import 'services/counter_service.dart';
 import 'services/database_manager.dart';
+import 'services/firebase_bootstrap.dart';
 import 'services/import_export_service.dart';
 import 'services/label_appearance_service.dart';
 import 'services/lock_screen_state.dart';
@@ -48,6 +46,7 @@ import 'services/pending_navigation.dart';
 import 'services/permission_service.dart';
 import 'services/session_chip.dart';
 import 'services/settings_service.dart';
+import 'services/shared_refresh/shared_refresh_app.dart';
 import 'services/window_insets_resync.dart';
 import 'widgets/app_bootstrap.dart';
 import 'widgets/app_system_bars.dart';
@@ -256,6 +255,11 @@ Future<void> openDatabaseForLaunch({
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // Before anything can open or reset a database: the app's isolate takes
+  // its name, and a check still running from before this launch is asked to
+  // close the database first. Nothing is awaited when none runs.
+  final refreshInFlight = SharedRefreshApp.beginLaunch();
+  if (refreshInFlight != null) await refreshInFlight;
   // Namespaces preferences and honours a reset marker before anything opens
   // preferences or a database. Compiled out unless `ANTA_QA` is defined.
   await QaBootstrap.beforeDependencies();
@@ -274,22 +278,8 @@ void main() async {
   // launch waits on and the only time it shows anything before the app.
   await openDatabaseForLaunch(open: AppDatabase.getInstance);
 
-  // Degrade to local-only rather than blocking launch: a checkout without
-  // `google-services.json` must still start, just without sync.
-  if (SyncAvailability.isSupported) {
-    try {
-      // The app's own project id on every path, a QA run included: the
-      // emulator suite is started under it (`--project
-      // alexs-note-tracking-app`), so its rules are the ones a pass proves,
-      // and nothing reaches the real backend while the app points at the
-      // emulator host (record §3.8, S5b).
-      await Firebase.initializeApp(
-        options: DefaultFirebaseOptions.currentPlatform,
-      );
-    } catch (e) {
-      debugPrint('[main] Firebase init failed, continuing offline: $e');
-    }
-  }
+  // Degrades to local-only rather than blocking launch.
+  await initializeFirebaseForSync();
 
   await configureDependencies();
   AppDatabase.onUpgradeStarting = null;
@@ -320,6 +310,8 @@ void main() async {
     debugPrint('[main] import sweep skipped: $e');
   }
 
+  // A check's read forwarded to this isolate waited for the app to be up.
+  SharedRefreshApp.launched();
   runApp(const MyApp());
 }
 
@@ -735,6 +727,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     // replanned. It is also what carries a holiday-profile change to the OS,
     // since the rules that read `PublicHolidays` are re-walked here.
     if (state == AppLifecycleState.resumed) {
+      SharedRefreshApp.reassert();
       unawaited(_settleLockScreen());
       _resumeReconcile?.cancel();
       _resumeReconcile = Timer(const Duration(seconds: 2), () {

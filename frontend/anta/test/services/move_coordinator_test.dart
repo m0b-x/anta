@@ -118,6 +118,55 @@ void main() {
     expect(find.text(l10n.itemsMoved(200)), findsOneWidget);
   });
 
+  // Share surfaces §6.11: the bar says what the move did to sharing when it
+  // did one thing to all it moved, and nothing when it did none or several.
+  testWidgets('a move into a shared folder ends its bar "· now shared", one '
+      'out of it "· no longer shared"; a mixed one says neither', (
+    tester,
+  ) async {
+    final context = await pumpHost(tester);
+    late Folder shared;
+    late Folder plain;
+    late List<Note> notes;
+    await tester.runAsync(() async {
+      shared = await db.folderDao.createFolder(name: 'Trips');
+      plain = await db.folderDao.createFolder(name: 'Plain');
+      await db.folderDao.setSharedPair(shared.id, 'pair-1');
+      notes = await seedNotes(plain.id, 2, 'Note');
+      await MoveCoordinator.moveItemsTo(
+        context,
+        items: [noteRef(notes.first)],
+        targetParentId: shared.id,
+      );
+    });
+    await tester.pump();
+    final into = l10n.shareMovedIn(l10n.noteMoved, l10n.sharePartnerFallback);
+    expect(find.text(into), findsOneWidget);
+
+    await tester.runAsync(
+      () async => MoveCoordinator.moveItemsTo(
+        context,
+        items: [noteRef(await noteRow(notes.first.id))],
+        targetParentId: plain.id,
+      ),
+    );
+    await tester.pump(const Duration(seconds: 1));
+    expect(find.text(l10n.shareMovedOut(l10n.noteMoved)), findsOneWidget);
+
+    // One already in the shared folder, one coming in: a mixed move.
+    await tester.runAsync(() async {
+      final inside = (await seedNotes(shared.id, 1, 'Inside')).single;
+      final other = await db.folderDao.createFolder(name: 'Other');
+      await MoveCoordinator.moveItemsTo(
+        context,
+        items: [noteRef(inside), noteRef(await noteRow(notes.last.id))],
+        targetParentId: other.id,
+      );
+    });
+    await tester.pump(const Duration(seconds: 1));
+    expect(find.text(l10n.itemsMoved(2)), findsOneWidget);
+  });
+
   testWidgets('a name clash is skipped and reported, the rest still move', (
     tester,
   ) async {

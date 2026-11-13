@@ -168,10 +168,15 @@ class ImportExportService {
   /// Write [metadata] (and its content) to a single file under
   /// [exportDirectoryName] in the system temp directory using [format] and
   /// return the resulting [ExportResult].
+  ///
+  /// Throws `SharedRowException`, writing no file, for a note the partner
+  /// shares: their rows never leave this phone by file (share surfaces
+  /// D19). "Copy to my notes" is the act that makes one the person's own.
   Future<ExportResult> exportNote({
     required NoteMetadata metadata,
     required ExportFormat format,
   }) async {
+    await _noteStorage.ensureOwn([metadata.id]);
     final content = await _noteRepository.loadContent(metadata.id);
     final body = _encodeNote(
       metadata: metadata,
@@ -225,10 +230,16 @@ class ImportExportService {
   /// archive. Defaults to [ExportFormat.json] (lossless, round-trippable);
   /// pass [ExportFormat.markdown] / [ExportFormat.text] to make the archive
   /// human-readable at the cost of dropping per-note metadata on import.
+  ///
+  /// Throws `SharedRowException`, writing no file, for a folder the partner
+  /// shares ([exportNote]'s reason). A folder of the person's own never
+  /// holds a row of the partner's — the fences keep one from being filed
+  /// there — so what it walks needs no filter.
   Future<ExportResult> exportFolder({
     required String folderId,
     ExportFormat noteFormat = ExportFormat.json,
   }) async {
+    await _folderStorage.ensureOwn([folderId]);
     final root = await _folderStorage.getFolderById(folderId);
     if (root == null) {
       throw ArgumentError('Folder $folderId not found');
@@ -275,6 +286,8 @@ class ImportExportService {
   ///   two siblings with the same title don't overwrite each other.
   /// - Missing ids are skipped silently (race with delete is not fatal);
   ///   if the entire selection resolves to nothing, throws [StateError].
+  /// - A partner's note or folder in the selection refuses the whole export
+  ///   with `SharedRowException` before any file is written ([exportNote]).
   Future<ExportResult> exportItems({
     required Set<String> noteIds,
     required Set<String> folderIds,
@@ -282,6 +295,10 @@ class ImportExportService {
   }) async {
     if (noteIds.isEmpty && folderIds.isEmpty) {
       throw ArgumentError('exportItems requires at least one id');
+    }
+    if (noteIds.isNotEmpty) await _noteStorage.ensureOwn(noteIds.toList());
+    if (folderIds.isNotEmpty) {
+      await _folderStorage.ensureOwn(folderIds.toList());
     }
 
     final counts = _Counts();

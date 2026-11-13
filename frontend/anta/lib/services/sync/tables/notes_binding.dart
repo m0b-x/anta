@@ -57,17 +57,14 @@ final class NotesBinding extends SyncTableBinding<Note> {
   String rowKeyOf(Note row) => row.id;
 
   /// A note is shared as the folder it lies in is: by that folder's mark or
-  /// the nearest one above it.
+  /// the nearest one above it — through live folders alone while the note
+  /// is live ([FolderDao.sharedPairsOfNotes]).
   @override
-  Future<Map<String, String>> sharedPairs(
-    AppDatabase db,
-    List<Note> rows,
-  ) async {
-    final folders = await db.folderDao.sharedPairsOf({
-      for (final row in rows) row.folderId,
-    });
-    return {for (final row in rows) row.id: ?folders[row.folderId]};
-  }
+  Future<Map<String, String>> sharedPairs(AppDatabase db, List<Note> rows) =>
+      db.folderDao.sharedPairsOfNotes([
+        for (final row in rows)
+          (id: row.id, folderId: row.folderId, isDeleted: row.isDeleted),
+      ]);
 
   @override
   Future<Map<String, String>> shareStamps(

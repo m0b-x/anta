@@ -24,10 +24,12 @@ import '../../database/database.dart';
 import '../../database/database_lifecycle.dart';
 import '../../database/migrations/database_schema.dart';
 import '../../models/app_user.dart';
+import '../../models/share_notice.dart';
 import '../../models/sync_binding.dart';
 import '../auth_service.dart';
 import '../permission_service.dart';
 import '../pairing_gateway.dart';
+import '../push/push_relay.dart';
 import '../settings_service.dart';
 import 'app_sync_apply_hooks.dart';
 import 'share_partner_source.dart';
@@ -327,6 +329,11 @@ class SyncEngine {
   /// nothing another account shares.
   final SharePartnerSource? _partners;
 
+  /// Whether the last shared read found this database paired, or holding
+  /// what a pair shared: what lets a run ask whether a poke is owed
+  /// (`_Pusher.pokeAfterDrain`) — a database never found so asks nothing.
+  bool _sharedReadPaired = false;
+
   final StreamController<SyncStatus> _statusController =
       StreamController<SyncStatus>.broadcast();
   SyncStatus _current = SyncStatus.empty;
@@ -559,23 +566,14 @@ class SyncEngine {
       if (mayRetry) return _build(mayRetry: false);
       throw StateError('the database switched while the engine was built');
     }
-    final engine = SyncEngine.detached(
+    final engine = _overAppServices(
       db: db,
       gateway: gateway,
       binding: binding,
       status: status,
-      hooks: AppSyncApplyHooks(),
-      deviceId: db.deviceId,
-      schema: DatabaseSchema.syncSchemaVersion,
-      currentUser: () => auth.currentUser,
+      auth: auth,
       authChanges: auth.authStateChanges,
       lifecycleState: () => WidgetsBinding.instance.lifecycleState,
-      partners: GetIt.I.isRegistered<PairingGateway>()
-          ? PairingSharePartnerSource(
-              gateway: GetIt.I<PairingGateway>(),
-              settings: SettingsService.getInstance,
-            )
-          : null,
     );
     _bridge = SyncLifecycleBridge(
       engine,
@@ -586,6 +584,63 @@ class SyncEngine {
     // Not awaited: the first run reaches the network, and neither the launch
     // nor a database switch waits on it.
     if (autoStart) unawaited(_startLogged(engine));
+    return engine;
+  }
+
+  /// An engine over the app's own services — its hooks, this build's schema,
+  /// the pairing behind the shared reader — as [getInstance] and
+  /// [awayFromApp] both build it, so the two can never read by different
+  /// rules.
+  static SyncEngine _overAppServices({
+    required AppDatabase db,
+    required SyncGateway gateway,
+    required SyncBindingService binding,
+    required SyncStatusService status,
+    required AuthService auth,
+    Stream<AppUser?>? authChanges,
+    AppLifecycleState? Function()? lifecycleState,
+    void Function(ShareNotice notice)? notify,
+  }) => SyncEngine.detached(
+    db: db,
+    gateway: gateway,
+    binding: binding,
+    status: status,
+    hooks: AppSyncApplyHooks(notify: notify),
+    deviceId: db.deviceId,
+    schema: DatabaseSchema.syncSchemaVersion,
+    currentUser: () => auth.currentUser,
+    authChanges: authChanges,
+    lifecycleState: lifecycleState,
+    partners: GetIt.I.isRegistered<PairingGateway>()
+        ? PairingSharePartnerSource(
+            gateway: GetIt.I<PairingGateway>(),
+            settings: SettingsService.getInstance,
+          )
+        : null,
+  );
+
+  /// An engine over the active database for the check that runs with the
+  /// app closed (`docs/cloud-shared-freshness.md` §6): outside the
+  /// singleton, never started — so it follows no signal, no account change
+  /// and no outbox, and arms no timer — and away from the front from its
+  /// first moment, which is the truth of an isolate with no app and what
+  /// keeps a failed read off the back-off. Its one use is
+  /// [readSharedWhileAway]; [stop] cuts that read before its next page.
+  ///
+  /// [notify] takes what the read would have told the person: with no app
+  /// there is no listener, so the caller keeps it for the next open.
+  static Future<SyncEngine> awayFromApp({
+    required void Function(ShareNotice notice) notify,
+  }) async {
+    final engine = _overAppServices(
+      db: await AppDatabase.getInstance(),
+      gateway: GetIt.I<SyncGateway>(),
+      binding: await SyncBindingService.getInstance(),
+      status: await SyncStatusService.getInstance(),
+      auth: GetIt.I<AuthService>(),
+      notify: notify,
+    );
+    engine._foreground = false;
     return engine;
   }
 
@@ -807,6 +862,24 @@ class SyncEngine {
   /// ([_SharedReader.read]).
   Future<SyncRunReport> readSharedNow() => _request(_RunMode.shared);
 
+  /// [readSharedNow] for the one caller that may read while the app is not
+  /// in front: the check that keeps an armed alert on a partner's event
+  /// true while the app is away or closed (`docs/cloud-shared-freshness.md`
+  /// §5, §6) — forwarded to the app's own engine, or asked of an engine
+  /// that was never started, in an isolate with no app.
+  ///
+  /// The same queue and gate as every run, and nothing but the read: no
+  /// signal is attached, no timer armed, nothing pulled or drained — an
+  /// engine away from the front does none of that for any run — and the
+  /// foreground is left as the lifecycle last reported it, so this is no
+  /// resume.
+  Future<SyncRunReport> readSharedWhileAway() =>
+      _request(_RunMode.shared, away: true);
+
+  /// Whether the run in flight carries a [readSharedWhileAway]: the shared
+  /// reader then reads past a leave ([_SharedReader.read]).
+  bool _awayRead = false;
+
   /// Set by [syncNow] and taken by the next run as it starts, never during
   /// one: a drain in flight reads the push's parks as it bisects.
   bool _retryEveryPark = false;
@@ -941,10 +1014,15 @@ class SyncEngine {
   /// merged into a request nobody asked for, it must not lift the pull and
   /// the drain past the manual cadence (review C-7) — the run then reads the
   /// share alone.
-  Future<SyncRunReport> _request(_RunMode mode, {bool asked = false}) {
+  Future<SyncRunReport> _request(
+    _RunMode mode, {
+    bool asked = false,
+    bool away = false,
+  }) {
     final request = _queued ??= _RunRequest();
     if (mode.index > request.mode.index) request.mode = mode;
     if (asked) request.asked = true;
+    if (away) request.away = true;
     // A drain it merges into still owes the read.
     if (mode == _RunMode.shared) request.readsShared = true;
     _pump();
@@ -1042,6 +1120,7 @@ class SyncEngine {
     }
 
     try {
+      _awayRead = request.away;
       _spaceReadByGate = false;
       _spaceShareRead = null;
       // A run that reads the share alone leaves the recheck a resume or
@@ -1080,6 +1159,12 @@ class SyncEngine {
           return report(skipped: SyncRunSkip.initialMergePending);
         }
         await _shared.read(binding, asked: true);
+        // Under the manual cadence a run nobody asked for reads nothing of
+        // the account's own space; the freed rows wait for the next run that
+        // does.
+        if (_autoRuns || request.asked) {
+          await _puller.retryFreed(binding, tally);
+        }
         return report();
       }
       if (_retryEveryPark && mode == _RunMode.full) {
@@ -1167,6 +1252,7 @@ class SyncEngine {
         _endUpdating();
       }
       final held = {...pulled.failedTables, ...await _heldForWire()};
+      var drained = false;
       try {
         if (!initial || pulled.reached) {
           // The drain takes every write queued so far; a write during it
@@ -1183,6 +1269,7 @@ class SyncEngine {
             _updatingSending = true;
           }
           await _pusher.drain(binding, tally, skipTables: held);
+          drained = true;
         }
       } finally {
         // A leave cut the pull: the drain the leave exists for went first,
@@ -1217,7 +1304,10 @@ class SyncEngine {
           binding,
           asked: request.asked || request.readsShared,
         );
+        await _puller.retryFreed(binding, tally);
       }
+      // After the shared read, which says whether this database is paired.
+      if (drained) await _pusher.pokeAfterDrain();
       return tableFault == null
           ? report()
           : report(failure: tableFault.failure);
@@ -1242,6 +1332,7 @@ class SyncEngine {
       await _failed(failure);
       return report(failure: failure.failure);
     } finally {
+      _awayRead = false;
       _drainAhead = false;
       if (_drainSwallowed) {
         _drainSwallowed = false;
@@ -2154,6 +2245,10 @@ class _RunRequest {
   /// read is asked for, while the pull and the drain keep [asked] as the
   /// other requests left it.
   bool readsShared = false;
+
+  /// Whether a [SyncEngine.readSharedWhileAway] was merged into it: the
+  /// shared read then runs although the app is not in front.
+  bool away = false;
   final Completer<SyncRunReport> done = Completer<SyncRunReport>();
 }
 

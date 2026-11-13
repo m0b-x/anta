@@ -245,6 +245,13 @@ class SyncDao extends DatabaseAccessor<AppDatabase> with _$SyncDaoMixin {
   /// above it reads every shared table again from the start.
   static const String keySharedNewerWire = 'shared_newer_wire';
 
+  /// What a shared read found while no app ran to say it — what arrived,
+  /// and what left with an alert of this person's on it — as
+  /// `KeptShareNotices` writes it, until the app next opens and says it
+  /// (`docs/cloud-shared-freshness.md`, decision f). With the database, so
+  /// it is said under no other.
+  static const String keyShareNoticesKept = 'share_notices_kept';
+
   /// The prefix every [keySharedRefused] shares.
   static const String sharedRefusedPrefix = 'shared_refused.';
 
@@ -296,6 +303,68 @@ class SyncDao extends DatabaseAccessor<AppDatabase> with _$SyncDaoMixin {
   /// shares: an ordinary edit queued in those tables says nothing without
   /// it. Device-local, never synced; deleted with the shared rows.
   static const String keyShareSending = 'share_sending';
+
+  /// The prefix every [keySharePokeOwed] shares, for [valuesByPrefix] and
+  /// [deleteByPrefix].
+  static const String sharePokeOwedPrefix = 'share_poke_owed.';
+
+  /// Present while the partner's phone in [pairId] is owed a poke
+  /// (`docs/cloud-shared-freshness.md` §7): set, in the transaction of the
+  /// write, by every write that changes what a row of mine is shared into —
+  /// a mark set or cleared, a row moved across a shared boundary, a merge
+  /// from my other device that does either — and by the push that lands a
+  /// row whose document names [pairId]; taken by the run that has drained
+  /// the shareable tables, which then pokes. A row that loses its grant
+  /// sends a document that names no pair, and a run can fail after a batch
+  /// landed, so what is owed is kept here, never in memory. `urgent` or
+  /// `normal`, raised and never lowered until taken. Device-local, never
+  /// synced, never in a copy that leaves the phone.
+  static String keySharePokeOwed(String pairId) =>
+      '$sharePokeOwedPrefix$pairId';
+
+  /// The value of [keySharePokeOwed] when the poke owed is urgent.
+  static const String sharePokeUrgent = 'urgent';
+
+  /// Owes the partner's phone in [pairId] a poke ([keySharePokeOwed]);
+  /// [urgent] when the change can ring there — the calendar's shared rows
+  /// and the pair's end, never a folder or a note. One statement, inside
+  /// its caller's transaction.
+  Future<void> oweSharePoke({required String pairId, required bool urgent}) =>
+      raiseValue(
+        keySharePokeOwed(pairId),
+        urgent ? sharePokeUrgent : 'normal',
+      );
+
+  /// A normal poke owed to the pair each of [folderIds] is marked shared
+  /// into, in one statement — for a move the share census already said
+  /// changed a note's sharing; a folder without a mark owes nothing, and a
+  /// poke already owed stays as it is (normal never raises one).
+  Future<void> oweSharePokesForFolders(Iterable<String> folderIds) async {
+    final ids = folderIds.toSet().toList(growable: false);
+    if (ids.isEmpty) return;
+    await customInsert(
+      'INSERT INTO sync_metadata (key, value, updated_at) '
+      "SELECT DISTINCT '$sharePokeOwedPrefix' || shared_pair, 'normal', ? "
+      'FROM folders WHERE shared_pair IS NOT NULL AND id IN '
+      '(${List.filled(ids.length, '?').join(', ')}) '
+      'ON CONFLICT (key) DO NOTHING',
+      variables: [
+        Variable<DateTime>(DateTime.now()),
+        for (final id in ids) Variable<String>(id),
+      ],
+      updates: {syncMetadata},
+    );
+  }
+
+  /// [oweSharePoke] for each of [pairs] that is one.
+  Future<void> oweSharePokes(
+    Iterable<String?> pairs, {
+    required bool urgent,
+  }) async {
+    for (final pairId in {...pairs.nonNulls}) {
+      await oweSharePoke(pairId: pairId, urgent: urgent);
+    }
+  }
 
   Future<String?> getValue(String key) async {
     final result = await (select(
@@ -444,6 +513,33 @@ class SyncDao extends DatabaseAccessor<AppDatabase> with _$SyncDaoMixin {
       'WHERE shared_pair IS NOT NULL AND is_deleted = 0) AS marked',
     ).getSingle();
     return row.read<bool>('marked');
+  }
+
+  /// [anyLiveShareMark], with what the Sharing page's folder lists are
+  /// asked for by, in its one statement: whether a live folder of the
+  /// person's carries a mark, and whether the partner shares a live folder.
+  /// An overview of a database with neither reads nothing more for folders.
+  Future<({bool anyMark, bool myFolders, bool partnerFolders})>
+  liveShareMarks() async {
+    final row = await customSelect(
+      'SELECT EXISTS(SELECT 1 FROM folders '
+      'WHERE shared_pair IS NOT NULL AND is_deleted = 0) '
+      'OR EXISTS(SELECT 1 FROM calendar_events '
+      'WHERE shared_pair IS NOT NULL AND is_deleted = 0) '
+      'OR EXISTS(SELECT 1 FROM calendar_categories '
+      'WHERE shared_pair IS NOT NULL AND is_deleted = 0) AS marked, '
+      'EXISTS(SELECT 1 FROM folders WHERE shared_pair IS NOT NULL '
+      'AND is_deleted = 0 AND $mineSql) AS my_folders, '
+      'EXISTS(SELECT 1 FROM folders WHERE parent_id IS NULL '
+      'AND is_deleted = 0 AND owner_id = '
+      "(SELECT value FROM sync_metadata WHERE key = '$keySharedOwner')) "
+      'AS partner_folders',
+    ).getSingle();
+    return (
+      anyMark: row.read<bool>('marked'),
+      myFolders: row.read<bool>('my_folders'),
+      partnerFolders: row.read<bool>('partner_folders'),
+    );
   }
 
   Future<String?> getLastSyncTimestamp() => getValue(keyLastSyncTimestamp);

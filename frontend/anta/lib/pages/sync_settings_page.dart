@@ -15,6 +15,7 @@ import '../constants/semantics_ids.dart';
 import '../constants/sync_limits.dart';
 import '../core/di/injection.dart';
 import '../l10n/app_localizations.dart';
+import '../models/calendar_event.dart';
 import '../services/app_navigator.dart';
 import '../services/pairing_service.dart';
 import '../services/sync/sync_cadence.dart';
@@ -30,6 +31,7 @@ import '../widgets/form_rows.dart' show FormCaptionSlot;
 import '../widgets/pairing_sheet.dart';
 import '../widgets/settings_search_field.dart';
 import '../widgets/settings_section_list.dart';
+import '../widgets/share_alerts_at_stake.dart';
 import '../widgets/share_events_sheets.dart';
 import '../widgets/sync_space_picker_sheet.dart';
 import '../widgets/unified_app_bars.dart';
@@ -45,6 +47,16 @@ class SyncSettingsPage extends StatelessWidget {
   final bool openSharing;
 
   const SyncSettingsPage({super.key, this.openSharing = false});
+
+  /// The calendar's own door for an event opened from outside it, which a
+  /// partner's event tapped on the Sharing page goes through (D33): a seam,
+  /// so a suite sees where the tap goes without building the calendar.
+  @visibleForTesting
+  static Future<void> Function({
+    required DateTime day,
+    required String? eventId,
+  })
+  openOccurrence = AppNavigator.toCalendarOccurrenceFromList;
 
   @override
   Widget build(BuildContext context) {
@@ -146,6 +158,10 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
   /// tap may wait on the share read first, and a second tap meanwhile
   /// would open a second dialog.
   bool _stopAsking = false;
+
+  /// [_stopAsking]'s twin for the two deletions, which wait on the read of
+  /// what is armed on the partner's (D30).
+  bool _deleteAsking = false;
 
   /// Whether the Sharing page is still to be opened, for
   /// [_SyncSettingsView.openSharing] or a View that asked this live page
@@ -1700,7 +1716,10 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
   /// copy left to stay, so the body says what stopping still does.
   ///
   /// While this database shares something it says what the partner keeps
-  /// (D25): the shared documents stay in the cloud with their grant.
+  /// (D25): the shared documents stay in the cloud with their grant. While
+  /// it holds something the partner shares, it says that leaves the phone,
+  /// and while an alert of mine is armed on it, that the alert goes off
+  /// (D30).
   ///
   /// A tap that waited on the share read is dropped when anything opened
   /// over the page meanwhile — the Sharing page, the ended notice: the
@@ -1717,22 +1736,37 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
       final body = spaceDeleted
           ? l10n.syncStopConfirmBodyDeleted
           : l10n.syncStopConfirmBody;
-      final asked = _sharingWith(context, l10n);
-      final String? sharingWith;
-      if (asked is Future<String?>) {
-        sharingWith = await asked;
+      final askedShare = _shareRead(context);
+      final askedArmed = alertsArmedOnPartner(context);
+      final ShareLoaded? share;
+      final bool armed;
+      if (askedShare is Future<ShareLoaded?> ||
+          askedArmed is Future<ArmedOnPartner>) {
+        share = await askedShare;
+        armed = (await askedArmed).armed;
         if (!context.mounted || !(ModalRoute.of(context)?.isCurrent ?? true)) {
           return;
         }
       } else {
-        sharingWith = asked;
+        share = askedShare;
+        armed = askedArmed.armed;
       }
+      final name = ShareCopy.partnerName(
+        l10n,
+        share?.availability.audience?.displayName,
+      );
+      final content = [
+        body,
+        if (share != null && share.overview.sharesAnything)
+          ShareCopy.sentence(l10n.syncStopSharingLine(name)),
+        if (share != null && share.overview.holdsPartnerRows)
+          ShareCopy.sentence(l10n.syncStopReceivedLine(name)),
+        if (armed) ShareCopy.sentence(l10n.shareAlertsTurnOffLine(name)),
+      ].join(' ');
       final confirmed = await AppDialogs.confirm(
         context,
         title: l10n.syncStopConfirmTitle,
-        content: sharingWith == null
-            ? body
-            : '$body ${ShareCopy.sentence(l10n.syncStopSharingLine(sharingWith))}',
+        content: content,
         confirmText: l10n.syncStopConfirmAction,
         icon: Icons.sync_disabled_rounded,
         confirmIdentifier: SemanticsIds.sharingSyncStopConfirm,
@@ -1743,28 +1777,48 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
     }
   }
 
-  /// The partner's name while this database shares something, else null.
-  /// An unpaired database shares nothing and answers at once, building
-  /// nothing; a paired page whose first read has not landed asks for one
-  /// and waits for it, bounded by [SyncLimits.stopConfirmShareRead] —
-  /// never the state of a read that may not have happened (review 15).
+  /// What this database shares and holds of the partner's, while paired,
+  /// else null. An unpaired database shares nothing and answers at once,
+  /// building nothing; a paired page whose first read has not landed asks
+  /// for one and waits for it, bounded by [SyncLimits.stopConfirmShareRead]
+  /// — never the state of a read that may not have happened (review 15).
   /// A failed load is an answer too: sharing could not be read, so the
-  /// confirmation asks without the sentence, at once.
-  FutureOr<String?> _sharingWith(BuildContext context, AppLocalizations l10n) {
-    if (context.read<PairingBloc>().state is! PairingPaired) return null;
+  /// confirmation asks without its sentences, at once. A tap before the
+  /// pairing has loaded waits for it first, within the same bound
+  /// (`alertsArmedOnPartner`'s rule).
+  FutureOr<ShareLoaded?> _shareRead(BuildContext context) {
+    final pairing = context.read<PairingBloc>();
+    final state = pairing.state;
+    if (state is PairingInitial || state is PairingLoading) {
+      return pairing.stream
+          .firstWhere(
+            (next) => next is! PairingInitial && next is! PairingLoading,
+          )
+          .then((loaded) {
+            if (loaded is! PairingPaired || !context.mounted) return null;
+            return _loadedShare(context);
+          })
+          .timeout(SyncLimits.stopConfirmShareRead, onTimeout: () => null)
+          .then((share) => share, onError: (Object _) => null);
+    }
+    if (state is! PairingPaired) return null;
+    return _loadedShare(context);
+  }
+
+  FutureOr<ShareLoaded?> _loadedShare(BuildContext context) {
     final share = context.read<ShareBloc>();
     final state = share.state;
-    if (state is ShareLoaded) return _partnerKeeping(l10n, state);
+    if (state is ShareLoaded) return state;
     if (state is ShareLoadFailed || share.isClosed) return null;
     // A read that never lands, or a bloc closed under it, answers null; the
     // subscription ends with the wait, however it ends.
-    final answer = Completer<String?>();
-    void answerWith(String? value) {
+    final answer = Completer<ShareLoaded?>();
+    void answerWith(ShareLoaded? value) {
       if (!answer.isCompleted) answer.complete(value);
     }
 
     final subscription = share.stream.listen((next) {
-      if (next is ShareLoaded) answerWith(_partnerKeeping(l10n, next));
+      if (next is ShareLoaded) answerWith(next);
       if (next is ShareLoadFailed) answerWith(null);
     }, onDone: () => answerWith(null));
     final patience = Timer(
@@ -1777,11 +1831,6 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
       subscription.cancel();
     });
   }
-
-  String? _partnerKeeping(AppLocalizations l10n, ShareLoaded share) =>
-      share.overview.sharesAnything
-      ? ShareCopy.partnerName(l10n, share.availability.audience?.displayName)
-      : null;
 
   /// A destructive row of the page — "Delete cloud copy"
   /// (cloud-multi-user-roadmap §5) and "Delete account" (§6.1). While
@@ -1832,23 +1881,26 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
   }
 
   /// Destructive, the page's one such dialog: the copy in the account is
-  /// gone for good, and the body says what stays.
+  /// gone for good, and the body says what stays — and, while an alert of
+  /// mine is armed on something the partner shares, that it goes off (D30).
   Future<void> _deleteCloudCopy(
     BuildContext context,
     AppLocalizations l10n,
-  ) async {
-    final bloc = context.read<SyncBloc>();
-    final confirmed = await AppDialogs.confirm(
+  ) => _askDeletion(
+    context,
+    l10n,
+    body: l10n.syncDeleteCloudConfirmBody,
+    ask: (content) => AppDialogs.confirm(
       context,
       title: l10n.syncDeleteCloudConfirmTitle,
-      content: l10n.syncDeleteCloudConfirmBody,
+      content: content,
       confirmText: l10n.syncDeleteCloudConfirmAction,
       icon: Icons.delete_forever_outlined,
       isDestructive: true,
       confirmIdentifier: SemanticsIds.sharingSyncDeleteConfirm,
-    );
-    if (confirmed && !bloc.isClosed) bloc.add(const DeleteCloudCopyRequested());
-  }
+    ),
+    request: const DeleteCloudCopyRequested(),
+  );
 
   /// Destructive, and asked every time — from the Account section's row
   /// and from "Finish deleting account" alike: finishing marks whatever
@@ -1857,18 +1909,44 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
   Future<void> _deleteAccount(
     BuildContext context,
     AppLocalizations l10n,
-  ) async {
-    final bloc = context.read<SyncBloc>();
-    final confirmed = await AppDialogs.confirm(
+  ) => _askDeletion(
+    context,
+    l10n,
+    body: l10n.syncDeleteAccountConfirmBody,
+    ask: (content) => AppDialogs.confirm(
       context,
       title: l10n.syncDeleteAccountConfirmTitle,
-      content: l10n.syncDeleteAccountConfirmBody,
+      content: content,
       confirmText: l10n.syncDeleteAccount,
       icon: Icons.person_remove_outlined,
       isDestructive: true,
       confirmIdentifier: SemanticsIds.sharingDeleteAccountConfirm,
-    );
-    if (confirmed && !bloc.isClosed) bloc.add(const DeleteAccountRequested());
+    ),
+    request: const DeleteAccountRequested(),
+  );
+
+  /// A deletion's confirmation, with the sentence D30 adds while an alert
+  /// of mine is armed on something the partner shares. A second tap while
+  /// the first waits on that read is dropped, as Stop syncing's is.
+  Future<void> _askDeletion(
+    BuildContext context,
+    AppLocalizations l10n, {
+    required String body,
+    required Future<bool> Function(String content) ask,
+    required SyncEvent request,
+  }) async {
+    if (_deleteAsking) return;
+    _deleteAsking = true;
+    try {
+      final bloc = context.read<SyncBloc>();
+      final asked = withAlertsTurnOffLine(context, l10n, body);
+      final content = asked is Future<String?> ? await asked : asked;
+      if (content == null || !context.mounted) return;
+      final confirmed = await ask(content);
+      if (confirmed && !bloc.isClosed) bloc.add(request);
+    } finally {
+      _deleteAsking = false;
+    }
   }
 
   /// A failure's snackbar is the moment; the bind row keeps the reason until
@@ -2222,10 +2300,40 @@ class _SyncSettingsViewState extends State<_SyncSettingsView> {
             context,
             bloc: context.read<ShareBloc>(),
           ),
+          onOpenPartnerEvent: (_, event, day) =>
+              _openPartnerEvent(share, event, day),
         ),
       ),
     );
     if (!share.isClosed) share.add(const ShareLoadRequested());
+  }
+
+  /// One of the partner's events shared singly, tapped in its list on the
+  /// Sharing page, opens its read sheet in the calendar, through the door
+  /// an alert's tap takes (D33), the list's sheet closed first: over the
+  /// Sharing page when no calendar is under Sync & sharing, so Back returns
+  /// to it; otherwise back on the calendar under it — the Sharing page and
+  /// Sync & sharing close — never a second one. Whether this phone still
+  /// holds it is asked first, in one keyed read: an event gone by the tap
+  /// opens nothing — its list redraws from the calendar's change that took
+  /// it. A read that fails or comes late, bounded by
+  /// [SyncLimits.stopConfirmShareRead], opens it all the same; the tap must
+  /// answer.
+  Future<void> _openPartnerEvent(
+    ShareBloc share,
+    CalendarEvent event,
+    DateTime day,
+  ) async {
+    if (!share.isClosed) {
+      final answer = Completer<bool>();
+      share.add(SharePartnerEventHeldRequested(event.id, answer));
+      final held = await answer.future.timeout(
+        SyncLimits.stopConfirmShareRead,
+        onTimeout: () => true,
+      );
+      if (!held) return;
+    }
+    await SyncSettingsPage.openOccurrence(day: day, eventId: event.id);
   }
 
   /// The whole account row signs out, so a stray tap must not: it always

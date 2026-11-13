@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:anta/bloc/counter_per_note/counter_per_note_bloc.dart';
 import 'package:anta/bloc/counter_per_note/counter_per_note_event.dart';
 import 'package:anta/bloc/counter_per_note/counter_per_note_state.dart';
+import 'package:anta/database/daos/sync_dao.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/models/counter.dart';
 import 'package:anta/repositories/note_repository.dart';
@@ -30,6 +31,31 @@ void main() {
     await bloc.close();
     await service.flush();
     await db.close();
+  });
+
+  test("a row opens the editor with flagged metadata: the partner's note "
+      'reads as theirs (§6.13)', () async {
+    final note = await db.noteDao.createNote(
+      folderId: 'f1',
+      title: 'Their log',
+    );
+    final laps = await service.addCounter(
+      name: 'Laps',
+      scope: CounterScope.perNote,
+    );
+    await service.setValueForNote(laps, 3, noteId: note.id);
+    await db.customStatement(
+      "UPDATE notes SET owner_id = 'partner' WHERE id = ?",
+      [note.id],
+    );
+    await db.syncDao.setValue(SyncDao.keySharedOwner, 'partner');
+    ShareCensus.of(db).forget();
+
+    bloc.add(CounterPerNoteOpened(counterId: laps));
+    await pumpEventQueue();
+
+    final entry = (bloc.state as CounterPerNoteLoaded).entries.single;
+    expect(entry.note.fromPartner, isTrue);
   });
 
   test('a reload beneath the service re-reads the entries in place', () async {

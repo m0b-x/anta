@@ -23,6 +23,26 @@ enum ShareEventLook {
   }
 }
 
+/// How a partner's folders and notes are drawn on this phone (§6.7, D12).
+/// The root's "From {name}" section stands in both: it is where their
+/// folders are, not how they look.
+enum ShareNoteLook {
+  /// The partner's avatar before a folder row's count and at a note row's
+  /// end.
+  avatar,
+
+  /// Drawn exactly as my own.
+  plain;
+
+  /// Forward-compatible parsing: unknown or null falls back to [avatar].
+  static ShareNoteLook fromName(String? name) {
+    for (final look in values) {
+      if (look.name == name) return look;
+    }
+    return avatar;
+  }
+}
+
 /// What may ring for an event a partner shares (§6.8, D13). Per device: the
 /// partner's alerts never reach this phone, so every alert on a shared event
 /// is a row of my own.
@@ -62,20 +82,38 @@ enum ShareAlerts {
   }
 }
 
-/// The two settings a calendar surface draws shared rows by, read with the
-/// rest of the page's settings and handed down like `CalendarAppearance` —
-/// never looked up per row.
+/// The settings a surface draws shared rows by, read with the rest of the
+/// page's settings and handed down like `CalendarAppearance` — never looked
+/// up per row.
 class ShareLook extends Equatable {
   final ShareEventLook eventLook;
+
+  /// How a partner's folders and notes are drawn. The calendar's settings
+  /// bundles do not read it — no calendar row draws a note — and carry the
+  /// shipped value; the Sharing page and the browser read it as stored.
+  final ShareNoteLook noteLook;
 
   /// Whether my own shared rows carry their mark.
   final bool markMine;
 
   const ShareLook({
     this.eventLook = ShareEventLook.outlined,
+    this.noteLook = ShareNoteLook.avatar,
     this.markMine = true,
   });
 
+  /// This look with the given fields replaced: a setting shown from its tap
+  /// keeps the others as they stand.
+  ShareLook copyWith({
+    ShareEventLook? eventLook,
+    ShareNoteLook? noteLook,
+    bool? markMine,
+  }) => ShareLook(
+    eventLook: eventLook ?? this.eventLook,
+    noteLook: noteLook ?? this.noteLook,
+    markMine: markMine ?? this.markMine,
+  );
+
   @override
-  List<Object?> get props => [eventLook, markMine];
+  List<Object?> get props => [eventLook, noteLook, markMine];
 }

@@ -6,6 +6,7 @@ import 'package:anta/models/calendar_appearance.dart';
 import 'package:anta/models/overview_list_options.dart';
 import 'package:anta/models/overview_period.dart';
 import 'package:anta/models/overview_view.dart';
+import 'package:anta/utils/category_allowlist.dart';
 
 void main() {
   final today = DateTime(2026, 10, 13);
@@ -51,6 +52,33 @@ void main() {
         categoryIds: {'work', 'gym'},
       );
       expect(roundTrip(view), view);
+    });
+
+    /// D29: a whole group is two more strings of the same sorted list — the
+    /// synced payload keeps its shape, and an old list reads as it did.
+    test('an allowlist holding a group\'s entry', () {
+      const view = OverviewView(
+        id: 'g',
+        name: 'Only mine',
+        period: OverviewYearPeriod(2026),
+        categoryIds: {
+          CategoryAllowlist.mineEntry,
+          'p-night',
+          CategoryAllowlist.partnerEntry,
+        },
+      );
+      expect(roundTrip(view), view);
+      expect(view.toJson(today: today)['categories'], [
+        CategoryAllowlist.mineEntry,
+        CategoryAllowlist.partnerEntry,
+        'p-night',
+      ]);
+      expect(
+        read({
+          'categories': ['gym', 'work'],
+        }).categoryIds,
+        {'gym', 'work'},
+      );
     });
 
     test('a custom span', () {

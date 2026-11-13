@@ -75,8 +75,16 @@ import '../controllers/note_editor_position_controller.dart';
 import '../controllers/note_editor_stats_tracker.dart';
 import '../controllers/note_save_coordinator.dart';
 import '../controllers/preview_scroll_controller.dart';
+import '../controllers/shared_note_copy.dart';
 import '../controllers/shortcut_applier.dart';
 import '../controllers/vocabulary_suggestion_controller.dart';
+import '../models/app_user.dart';
+import '../services/pairing_service.dart';
+import '../services/share_service.dart';
+import '../utils/share_copy.dart';
+import '../utils/share_leave_voice.dart';
+import '../widgets/content_rows.dart';
+import '../widgets/overlay_snackbar.dart';
 import '../services/vocabulary_service.dart';
 import '../constants/app_constants.dart';
 import '../constants/app_spacing.dart';
@@ -102,6 +110,17 @@ class OptimizedNoteEditorPage extends StatefulWidget {
     this.metadata,
     this.targetHeading,
   });
+
+  /// Where a page over a shared note reads the partner's name and face and
+  /// the `shareMarkMine` setting; a suite swaps in its fake.
+  @visibleForTesting
+  static Future<ShareService> Function() shareService =
+      ShareService.getInstance;
+
+  /// The auto-save a page's save coordinator is built over; null builds the
+  /// app's. A suite records what the coordinator asks of it.
+  @visibleForTesting
+  static AutoSaveFactory? autoSaveFactory;
 
   @override
   State<OptimizedNoteEditorPage> createState() =>
@@ -178,6 +197,10 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
   /// into this note ([_onStorageChange]).
   late final StreamSubscription<NoteChange> _storageChanges;
 
+  /// The census dropped — a share act, a merge, the shared reader — for the
+  /// sign on a note of mine ([_refreshSharedSign]).
+  late final StreamSubscription<void> _shareFactsChanges;
+
   /// Owns the markdown preview render pipeline (parse, chunk cache,
   /// scroll progress, search highlights). Created in [initState] and
   /// disposed in [dispose]. Provided to descendants via
@@ -251,6 +274,35 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
   /// only ever defensive.
   String? _folderName;
 
+  /// A note the partner shares (share surfaces §6.13): no keyboard, no bar,
+  /// no save of any kind — the database refuses a write of it. Decided from
+  /// the metadata the page is opened with, every door hands it flagged, so
+  /// the first frame is already the right one; the load sets it once more
+  /// should the row on screen have been stale. Never cleared: a page that
+  /// read the note as the partner's has turned its saves off for good.
+  late bool _readOnly = widget.metadata?.fromPartner ?? false;
+
+  /// The note is mine and lies in a folder I share: the bar's sign (§6.7).
+  late bool _inSharedFolder = widget.metadata?.inSharedFolder ?? false;
+
+  /// The partner's name and face, read once for a page that says either.
+  String? _partnerName;
+  AppUser? _partner;
+
+  /// Whether the partner's name has been read; a read-only page's body
+  /// waits for it, since its line is fixed for the visit.
+  late bool _shareFactsLoaded = !_readOnly;
+
+  /// Whether a pair holds and my shared rows wear their sign, as last read.
+  /// Seeded from what the services already hold for this database, so a
+  /// note of mine opens with its sign already right; for one never paired
+  /// the pairing cache answers false and nothing is read at all.
+  bool _paired = PairingService.pairedInMemory != false;
+  bool _markMine = ShareService.publishedLook?.markMine ?? true;
+
+  /// The read-only line has said once this visit why a box did not tick.
+  bool _toldReadOnly = false;
+
   double _previousKeyboardHeight = 0;
 
   /// Last keyboard-visibility decision taken by [build], mirrored so
@@ -281,7 +333,8 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
       !_editorSettings.loaded ||
       !_position.loaded ||
       !_renderConfigLoaded ||
-      !_barSettled;
+      !_barSettled ||
+      !_shareFactsLoaded;
 
   /// Convenience accessor for the current preview font size, sourced
   /// from [_previewBloc.state.fontSize]. Used by the toolbar build.
@@ -407,6 +460,12 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
       dispatch: context.read<OptimizedNoteBloc>().add,
       onDuplicateTitle: _showDuplicateTitleWarning,
       beforeWrite: _writesMayProceed,
+      // The metadata the page was opened with, while its share sign is still
+      // the page's: a move across a shared folder lets the save read once.
+      current: () => widget.metadata?.inSharedFolder == _inSharedFolder
+          ? widget.metadata
+          : null,
+      autoSaveFactory: OptimizedNoteEditorPage.autoSaveFactory,
     );
     _position = NoteEditorPositionController(
       noteId: widget.noteId,
@@ -427,6 +486,9 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     _storageChanges = GetIt.I<NoteStorageService>().changes.listen(
       _onStorageChange,
     );
+    _shareFactsChanges = GetIt.I<NoteStorageService>().shareFactsChanged.listen(
+      (_) => unawaited(_refreshSharedSign()),
+    );
 
     if (widget.noteId != null) {
       _loadNoteContent();
@@ -439,7 +501,12 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     ShortcutHandlerFactory.counterHandler.setActiveNoteId(widget.noteId);
     _counterBloc = context.read<CounterBloc>();
     _counterBloc.add(SetNoteContext(noteId: widget.noteId));
-    _saves.start();
+    if (_readOnly) {
+      _saves.disableSaves();
+    } else {
+      _saves.start();
+    }
+    if (_readOnly || _inSharedFolder) unawaited(_loadShareFacts());
     unawaited(_position.load().whenComplete(_onPositionLoaded));
     unawaited(_loadFolderName());
     // Last, so the settings listener can never fire against a
@@ -1068,6 +1135,9 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
   }) {
     _adoptions++;
     final previous = keepCaret ? _contentController.selection : null;
+    final selected = previous == null || previous.isCollapsed
+        ? null
+        : _contentController.selectedText;
     // The baseline is taken before the load notifies, so the load never
     // reads as a paste; the count runs after it, through the loaded lines,
     // so the per-line counts are cached for the first pause. Not at all
@@ -1085,15 +1155,27 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     if (_editorSettings.value.showStatsBar) _stats.resume();
     if (previous != null) {
       final lines = _contentController.codeLines;
-      final index = previous.baseIndex.clamp(0, lines.length - 1);
-      final offset = previous.baseOffset.clamp(0, lines[index].text.length);
-      // The fork folds a selection-only change into the current undo node,
-      // so re-placing the caret here does not give the reload something to
-      // undo.
-      _contentController.selection = CodeLineSelection.collapsed(
-        index: index,
-        offset: offset,
-      );
+      // A selection whose ends both still stand around the same text is
+      // kept — someone selecting to copy keeps it through a change that
+      // did not touch it; any other collapses to its base.
+      bool fits(int index, int offset) =>
+          index < lines.length && offset <= lines[index].text.length;
+      if (selected != null &&
+          fits(previous.baseIndex, previous.baseOffset) &&
+          fits(previous.extentIndex, previous.extentOffset)) {
+        _contentController.selection = previous;
+      }
+      if (selected == null || _contentController.selectedText != selected) {
+        final index = previous.baseIndex.clamp(0, lines.length - 1);
+        final offset = previous.baseOffset.clamp(0, lines[index].text.length);
+        // The fork folds a selection-only change into the current undo
+        // node, so re-placing the caret here does not give the reload
+        // something to undo.
+        _contentController.selection = CodeLineSelection.collapsed(
+          index: index,
+          offset: offset,
+        );
+      }
     }
     // The tracker never saw the assignment above — only the wrapper calls
     // `onTextChanged`, and on the first load it is not mounted yet — so its
@@ -1180,8 +1262,12 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
   /// The page's body differs from the text it last loaded or saved. The body
   /// alone, never the title: a pending title edit leaves nothing to defend,
   /// and [_adoptRemoteUpdate] reloads the arriving body in place (M6).
+  /// Never on a read-only page: it takes no edit, and its coordinator, off
+  /// for good, holds no baseline to compare against.
   bool get _bodyIsUnsaved =>
-      _contentLoaded && !_saves.isSavedContent(_contentController.text);
+      !_readOnly &&
+      _contentLoaded &&
+      !_saves.isSavedContent(_contentController.text);
 
   /// The engine's claim ([OpenNoteRegistry]): a pulled page files no conflict
   /// copy for a note whose body this page holds unsaved, because
@@ -1194,6 +1280,9 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
   /// make [_adoptRemoteUpdate] read the body clean and file nothing, and the
   /// local body the merge overwrote would be kept nowhere (A7 review R129).
   bool _claimsConflictFiling(String noteId) {
+    // A read-only page holds no text of its own — [_bodyIsUnsaved] says so
+    // too; this is the belt for a claim the partner's folder would refuse.
+    if (_readOnly) return false;
     if (noteId != (_saves.effectiveNoteId ?? widget.noteId)) return false;
     if (!_bodyIsUnsaved) return false;
     _owesConflictCopy = true;
@@ -1424,6 +1513,7 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
         _folderName = null;
       });
       unawaited(_loadFolderName());
+      unawaited(_refreshSharedSign());
     }
     // The claim this page made to the merge ([_claimsConflictFiling]),
     // consumed here: it files even when the save it was racing landed in the
@@ -1434,7 +1524,9 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
       final reloaded = await _reloadContentIfChanged();
       if (!mounted || reloaded == false) return;
       if (reloaded == true) {
-        if (_isCurrentRoute) {
+        // The partner's change simply shows: there is no edit of mine on
+        // the page for it to have overtaken.
+        if (_isCurrentRoute && !_readOnly) {
           CustomSnackbar.show(
             context,
             AppLocalizations.of(context)!.syncNoteUpdatedElsewhere,
@@ -1627,12 +1719,28 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     _deletedWhileCovered = null;
     _isExiting = true;
     _saves.disableSaves();
-    CustomSnackbar.show(
-      context,
-      AppLocalizations.of(context)!.syncNoteDeletedElsewhere,
-    );
+    final l10n = AppLocalizations.of(context)!;
+    // The partner's note leaves when it is un-shared, deleted or the pair
+    // ends; each reaches here as a removal, and all read as one thing —
+    // said once for the whole leave, her folder's pages under this one
+    // closing without a line of their own (ShareLeaveVoice).
+    if (_readOnly) {
+      final message = ShareCopy.sentence(
+        l10n.shareGoneNote(_partnerNameIn(l10n)),
+      );
+      ShareLeaveVoice.claim(() => CustomSnackbar.show(context, message));
+    } else {
+      CustomSnackbar.show(
+        context,
+        _goneAtLoad ? l10n.noteNotFound : l10n.syncNoteDeletedElsewhere,
+      );
+    }
     Navigator.of(context).pop();
   }
+
+  /// The note's own load answered that it is gone ([_leaveRemotelyDeleted]
+  /// says "Note not found" for a note of mine then, not "deleted elsewhere").
+  bool _goneAtLoad = false;
 
   /// Runs a delete [_leaveRemotelyDeleted] deferred, after the frame that
   /// made this page current again — never from inside the navigator's own
@@ -2002,6 +2110,8 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
       ResolveBarForNote(noteId: _saves.effectiveNoteId ?? widget.noteId),
     );
     unawaited(_reloadContentIfChanged());
+    // The page above may have been the Sharing page.
+    unawaited(_refreshSharedSign(returning: true));
     _leaveIfDeletedWhileCovered();
     _showFilingNoticeOwed();
   }
@@ -2018,6 +2128,7 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
   @override
   void dispose() {
     _storageChanges.cancel();
+    _shareFactsChanges.cancel();
     AppNavigator.routeObserver.unsubscribe(this);
     _counterBloc.add(const SetNoteContext());
     ShortcutHandlerFactory.counterHandler.setActiveNoteId(null);
@@ -2164,6 +2275,10 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
   }
 
   void _handleCheckboxToggle(CheckboxToggleInfo info) {
+    if (_readOnly) {
+      _sayReadOnlyOnce();
+      return;
+    }
     final text = _contentController.text;
     final startLine = TextPositionUtils.getLineFromOffset(text, info.start);
     final startCol = TextPositionUtils.getColumnFromOffset(text, info.start);
@@ -2275,8 +2390,13 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
       // shows is bounded (C10). It runs first, so a note whose own name
       // holds a `#` keeps resolving as it always has.
       final (note, byNote) = await target.resolve(
-        (lookup) =>
-            storage.resolveNoteByTitle(lookup, preferFolderId: _folderId),
+        // On this note's own side: a partner's note links to her notes, a
+        // note of mine to mine (§6.13).
+        (lookup) => storage.resolveNoteByTitle(
+          lookup,
+          preferFolderId: _folderId,
+          fromPartner: _readOnly,
+        ),
       );
       final heading = byNote ? target.wholeHeading : null;
       if (!mounted) return;
@@ -2543,7 +2663,23 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
                 if (state.note.id != widget.noteId) return;
                 if (!_awaitingContentLoad) return;
                 _awaitingContentLoad = false;
+                _adoptShareFlags(state.note.metadata);
                 unawaited(_adoptFirstLoad(state.note.content ?? ''));
+              } else if (state is OptimizedNoteError &&
+                  state.errorType == NoteErrorType.notFound) {
+                // The note was gone before it could load — un-shared under
+                // the door that opened it, deleted elsewhere. It used to
+                // leave the page blank for good; it leaves the page now.
+                if (state.noteId != widget.noteId) return;
+                if (!_awaitingContentLoad) return;
+                _awaitingContentLoad = false;
+                _goneAtLoad = true;
+                _leaveRemotelyDeleted(
+                  NoteChange(
+                    type: NoteChangeType.deleted,
+                    noteId: state.noteId!,
+                  ),
+                );
               }
             },
           ),
@@ -2619,10 +2755,18 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
                     : widget.noteId == null
                     ? AppLocalizations.of(context)!.newNote
                     : AppLocalizations.of(context)!.untitledNote,
-                hasChanges: hasChanges,
-                saveStatusNotifier: _saves.saveStatus,
+                // A read-only page has nothing to save and no title to edit,
+                // so it says neither.
+                hasChanges: !_readOnly && hasChanges,
+                saveStatusNotifier: _readOnly ? null : _saves.saveStatus,
                 onMenuPressed: () => _scaffoldKey.currentState?.openDrawer(),
-                onTitleTap: _editTitle,
+                onTitleTap: _readOnly ? null : _editTitle,
+                shared: _showsSharedSign,
+                sharedLabel: _showsSharedSign
+                    ? AppLocalizations.of(context)!.shareMarkMineLabel(
+                        _partnerNameIn(AppLocalizations.of(context)!),
+                      )
+                    : null,
                 actions: [
                   IconButton(
                     icon: const Icon(Icons.search),
@@ -2654,6 +2798,8 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
                     onShare: _showExportFormatDialog,
                     onDelete: _deleteNote,
                     onSettings: () => _scaffoldKey.currentState?.openDrawer(),
+                    fromPartner: _readOnly,
+                    onCopyToMine: _readOnly ? _copyToMine : null,
                   ),
                 ],
               ),
@@ -2680,6 +2826,7 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
                     : Column(
                         key: const ValueKey('note-body'),
                         children: [
+                          if (_readOnly) _buildSharedLine(),
                           // Search bar
                           if (_searchController.isSearching)
                             NoteSearchBar(
@@ -2687,7 +2834,7 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
                               searchController: _searchController,
                               onClose: () => setState(() {}),
                               onNavigateToMatch: _navigateToSearchMatch,
-                              showReplaceField: !showPreview,
+                              showReplaceField: !showPreview && !_readOnly,
                               onReplace: _handleSearchReplace,
                             ),
                           if (_editorSettings.value.showStatsBar)
@@ -2780,15 +2927,20 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
                           ),
                           // Always show toolbar — in preview mode it provides
                           // utility actions; in edit mode it appears with keyboard.
-                          RepaintBoundary(
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                _buildMarkdownBar(),
-                                SizedBox(height: bottomSpacing),
-                              ],
+                          // A read-only note has nothing for it to do, and
+                          // its body takes the room.
+                          if (_readOnly)
+                            SizedBox(height: bottomSpacing)
+                          else
+                            RepaintBoundary(
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  _buildMarkdownBar(),
+                                  SizedBox(height: bottomSpacing),
+                                ],
+                              ),
                             ),
-                          ),
                         ],
                       ),
               ),
@@ -2796,6 +2948,16 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
           ),
         ),
       ),
+    );
+  }
+
+  /// "From {name} · Read only", pinned between the bar and the body.
+  Widget _buildSharedLine() {
+    final l10n = AppLocalizations.of(context)!;
+    return SharedReadOnlyLine(
+      partner: _partner,
+      text: l10n.sharedNoteLine(_partnerNameIn(l10n)),
+      identifier: SemanticsIds.sharedNoteLine,
     );
   }
 
@@ -2966,6 +3128,8 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
           wordWrap: settings.wordWrap,
           showCursorLine: settings.showCursorLine,
           checkboxTapToggle: markdownRendering,
+          readOnly: _readOnly,
+          onReadOnlyTaskTap: _readOnly ? _sayReadOnlyOnce : null,
           // Editor link taps confirm via snackbar before the preview's
           // opener runs (scheme validation + localized errors); fence
           // lines render raw so taps there stay plain editing.
@@ -2983,7 +3147,7 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
           // line reveals for render and taps alike.
           revealWhenUnfocused: _findActive,
           onFormatShortcut: _toggleFormatShortcut,
-          hint: AppLocalizations.of(context)!.editorHint,
+          hint: _readOnly ? null : AppLocalizations.of(context)!.editorHint,
           followsTextScale: true,
           colorPalette: _render.palette,
           lineNumbersKey: _lineNumbersKey,
@@ -3082,6 +3246,82 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
     } catch (e) {
       debugPrint('[NoteEditor] folder name lookup failed: $e');
     }
+  }
+
+  /// The loaded row's share flags, adopted once, before the body shows: a
+  /// row drawn before the note became the partner's opened it as mine, and
+  /// the load is where that is caught — the saves go off before the editor
+  /// ever mounts. The other way round never happens, since the partner's
+  /// notes never become mine, so it is not undone here.
+  void _adoptShareFlags(NoteMetadata loaded) {
+    final readOnly = _readOnly || loaded.fromPartner;
+    final inShared = !readOnly && loaded.inSharedFolder;
+    if (readOnly == _readOnly && inShared == _inSharedFolder) return;
+    final startRead = !_readOnly && !_inSharedFolder;
+    setState(() {
+      if (readOnly && !_readOnly) {
+        _readOnly = true;
+        _shareFactsLoaded = false;
+        _saves.disableSaves();
+      }
+      _inSharedFolder = inShared;
+    });
+    if (startRead || !_shareFactsLoaded) unawaited(_loadShareFacts());
+  }
+
+  /// The partner's name and face, whether a pair holds, and whether my
+  /// shared rows wear their sign — read for a page that shows the line or
+  /// may show the sign, never for any other. A read that fails leaves the
+  /// localized stand-in for the name, and the body is let through anyway.
+  Future<void> _loadShareFacts() async {
+    try {
+      final share = await OptimizedNoteEditorPage.shareService();
+      final audience = share.availability.audience;
+      // The partner's note wears no sign, so it reads no mark.
+      final markMine = _readOnly ? _markMine : await share.markMine();
+      if (!mounted) return;
+      setState(() {
+        _partnerName = audience?.displayName;
+        _partner = audience?.members.firstOrNull;
+        _paired = audience != null;
+        _markMine = markMine;
+      });
+    } catch (e) {
+      debugPrint('[NoteEditor] share facts not read: $e');
+    } finally {
+      if (mounted && !_shareFactsLoaded) {
+        setState(() => _shareFactsLoaded = true);
+        _markEditorReady();
+      }
+    }
+  }
+
+  /// "{name}" as every sharing line says it.
+  String _partnerNameIn(AppLocalizations l10n) =>
+      ShareCopy.partnerName(l10n, _partnerName);
+
+  /// The bar's sign on a note of mine in a folder I share (spec F6a).
+  bool get _showsSharedSign =>
+      _inSharedFolder && !_readOnly && _paired && _markMine;
+
+  /// A task box tapped in the partner's note: nothing ticks, and the first
+  /// such tap of the visit says why.
+  void _sayReadOnlyOnce() {
+    if (_toldReadOnly || !mounted) return;
+    _toldReadOnly = true;
+    final l10n = AppLocalizations.of(context)!;
+    OverlaySnackbar.show(
+      context,
+      l10n.sharedNoteReadOnly(_partnerNameIn(l10n)),
+      duration: AppConstants.snackbarDuration,
+    );
+  }
+
+  /// "Copy to my notes" from the ⋮ menu of the partner's note.
+  Future<void> _copyToMine() async {
+    final metadata = await _currentNoteMetadata();
+    if (!mounted || metadata == null) return;
+    await copySharedNoteToMine(context, metadata, partnerName: _partnerName);
   }
 
   /// The note as it is stored right now.
@@ -3186,11 +3426,90 @@ class _OptimizedNoteEditorPageState extends State<OptimizedNoteEditorPage>
       metadata.id,
     );
     if (!mounted || moved == null || moved.folderId == _folderId) return;
+    final readFacts = moved.inSharedFolder && !_inSharedFolder;
     setState(() {
       _folderId = moved.folderId;
       _folderName = null;
+      _inSharedFolder = moved.inSharedFolder;
     });
     unawaited(_loadFolderName());
+    if (readFacts) unawaited(_loadShareFacts());
+  }
+
+  /// Whether a [_refreshSharedSign] is running, and whether another was
+  /// asked for meanwhile: a sync run forgets the census once per page, and
+  /// the sign needs one read after the last of them, not one per page.
+  bool _signRefreshing = false;
+  bool _signRefreshOwed = false;
+
+  /// The sign follows what changes while the page is open (case F3): the
+  /// note moved into or out of a folder I share, the folder shared or no
+  /// longer, "Mark what you share" switched, the pair ended. One read of the
+  /// note's row; the pair and the mark come from what the share service
+  /// holds in memory. Nothing at all for an account that never paired, and
+  /// nothing for the partner's note, which wears no sign.
+  ///
+  /// [returning] from a covering page re-evaluates from memory alone — the
+  /// published look and the known availability: what changed the note's
+  /// folder while it was covered forgot the census, which this page heard
+  /// and read the row for then. So a return runs no statement, paired,
+  /// never paired or not known.
+  Future<void> _refreshSharedSign({bool returning = false}) async {
+    if (_readOnly || PairingService.pairedInMemory == false) return;
+    if (returning) {
+      final known = ShareService.knownAvailability;
+      final audience = known?.audience;
+      setState(() {
+        if (known != null) {
+          _paired = audience != null;
+          _partnerName = audience?.displayName;
+          _partner = audience?.members.firstOrNull;
+        }
+        _markMine = ShareService.publishedLook?.markMine ?? _markMine;
+      });
+      return;
+    }
+    final noteId = _saves.effectiveNoteId ?? widget.noteId;
+    if (noteId == null) return;
+    if (_signRefreshing) {
+      _signRefreshOwed = true;
+      return;
+    }
+    _signRefreshing = true;
+    try {
+      final current = await GetIt.I<NoteStorageService>().getNoteMetadata(
+        noteId,
+      );
+      if (!mounted || current == null) return;
+      final inShared = current.inSharedFolder;
+      ShareService? share;
+      if (inShared) {
+        try {
+          share = await OptimizedNoteEditorPage.shareService();
+        } catch (e) {
+          debugPrint('[NoteEditor] share service not opened: $e');
+        }
+      }
+      if (!mounted) return;
+      final audience = share?.availability.audience;
+      setState(() {
+        _inSharedFolder = inShared;
+        if (share != null) {
+          _paired = audience != null;
+          _partnerName = audience?.displayName;
+          _partner = audience?.members.firstOrNull;
+        }
+        _markMine = ShareService.publishedLook?.markMine ?? _markMine;
+      });
+    } catch (e) {
+      debugPrint('[NoteEditor] share sign not read: $e');
+    } finally {
+      _signRefreshing = false;
+      if (_signRefreshOwed && mounted) {
+        _signRefreshOwed = false;
+        unawaited(_refreshSharedSign());
+      }
+    }
   }
 
   /// Assigns the note's colour label from the editor.

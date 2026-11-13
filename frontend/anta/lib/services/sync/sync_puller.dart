@@ -108,6 +108,7 @@ class _Puller {
     _retryDue = true;
     _retryAll = false;
     _storedBuild = null;
+    _sharedRemoved = false;
   }
 
   /// "Sync now": the next pull reads the parked documents again as a start
@@ -209,41 +210,14 @@ class _Puller {
     final due = everything
         ? parks.toList()
         : parks.take(SyncEngine.maxParkRetries).toList();
-    final byTable = <String, List<String>>{};
-    for (final (table, rowKey) in due) {
-      byTable.putIfAbsent(table, () => []).add(rowKey);
-    }
-    final space = _e._spaceOf(bound);
     try {
-      for (final table in _e._tables) {
-        final keys = byTable[table.table];
-        if (keys == null) continue;
-        await _e._checkHalt(bound);
-        final page = await _e._gateway.readRows(space, table.table, keys);
-        await _e._reached(tally);
-        final answered = {
-          for (final envelope in page.envelopes) envelope.rowKey,
-          ...page.skipped,
-        };
-        final room = await _makeRoom(bound, table, page.envelopes, touched);
-        try {
-          await _apply(
-            bound,
-            table,
-            page,
-            floor: floor,
-            touched: touched,
-            tally: tally,
-            held: room.held,
-            gone: [
-              for (final key in keys)
-                if (!answered.contains(key)) key,
-            ],
-          );
-        } finally {
-          await _restoreUnlanded(table.table, room.evicted);
-        }
-      }
+      await _readParked(
+        bound,
+        due,
+        floor: floor,
+        touched: touched,
+        tally: tally,
+      );
       if (everything) {
         await _e._db.syncDao.setValue(SyncDao.keyPullParkedBuild, build);
         _storedBuild = build;
@@ -254,6 +228,98 @@ class _Puller {
       _warn('retrying the parked documents failed: $error\n$stack');
     }
     _retryDue = false;
+  }
+
+  /// Reads the documents of the parks [due] names again and merges them, a
+  /// table at a time in the engine's order: one that merges now lets go of
+  /// its park, one that fails again is parked again, one no longer there
+  /// lets go too.
+  Future<void> _readParked(
+    SyncBinding bound,
+    List<(String, String)> due, {
+    required String? floor,
+    required Set<SyncInvalidation> touched,
+    required _RunTally tally,
+  }) async {
+    final byTable = <String, List<String>>{};
+    for (final (table, rowKey) in due) {
+      byTable.putIfAbsent(table, () => []).add(rowKey);
+    }
+    final space = _e._spaceOf(bound);
+    for (final table in _e._tables) {
+      final keys = byTable[table.table];
+      if (keys == null) continue;
+      await _e._checkHalt(bound);
+      final page = await _e._gateway.readRows(space, table.table, keys);
+      await _e._reached(tally);
+      final answered = {
+        for (final envelope in page.envelopes) envelope.rowKey,
+        ...page.skipped,
+      };
+      final room = await _makeRoom(bound, table, page.envelopes, touched);
+      try {
+        await _apply(
+          bound,
+          table,
+          page,
+          floor: floor,
+          touched: touched,
+          tally: tally,
+          held: room.held,
+          gone: [
+            for (final key in keys)
+              if (!answered.contains(key)) key,
+          ],
+        );
+      } finally {
+        await _restoreUnlanded(table.table, room.evicted);
+      }
+    }
+  }
+
+  /// Set when a shared row was removed here — by the shared read (a share
+  /// or a pair that ended) or by a pull making room for a row of the
+  /// person's own ([_makeRoom]) — and taken by [retryFreed]: only such a
+  /// removal can free a row held back under a shared parent, so a run that
+  /// removed nothing pays nothing for it.
+  bool _sharedRemoved = false;
+
+  /// The held-back rows of the person's own that named a shared row as
+  /// their parent ([SyncHeldReason.sharedParent]) are tried again in the run
+  /// whose removal may have freed them, rather than at the next start or
+  /// "Sync now" (foundations §7): the [SyncEngine.maxParkRetries] oldest,
+  /// as a start's retry is bounded.
+  ///
+  /// Called after a run's shared read, so both of the run's ways to free
+  /// such a row are behind it. Never while the app is away, where nothing is
+  /// pulled: the mark stays for the next run in front. Best effort, as
+  /// [_retryParks]: a failure is logged and the parks hold on.
+  Future<void> retryFreed(SyncBinding bound, _RunTally tally) async {
+    if (!_sharedRemoved || !_e._foreground) return;
+    _sharedRemoved = false;
+    await restoreParks();
+    final due = [
+      for (final park in parks)
+        if (park.reason == SyncHeldReason.sharedParent)
+          (park.table, park.rowKey),
+    ].take(SyncEngine.maxParkRetries).toList();
+    if (due.isEmpty) return;
+    final touched = <SyncInvalidation>{};
+    try {
+      await _readParked(
+        bound,
+        due,
+        floor: null,
+        touched: touched,
+        tally: tally,
+      );
+    } on _Halted {
+      rethrow;
+    } catch (error, stack) {
+      _warn('retrying the rows a shared removal freed failed: $error\n$stack');
+    } finally {
+      await notifyRun(touched);
+    }
   }
 
   /// The documents [table]'s next page asks for.
@@ -849,9 +915,10 @@ class _Puller {
   /// and the cursor passed it for good, and evicting the parent for it does
   /// not hold — the reader's next look brings the shared row back, with the
   /// person's row inside it. Held back like any row that could not be
-  /// merged, it is retried at the next start and at "Sync now", and lands
-  /// once its own parent arrived (which evicts the shared one by its key)
-  /// or the share ended.
+  /// merged, it is retried at the next start and at "Sync now", and in the
+  /// run that removed a shared row ([retryFreed]): it lands once its own
+  /// parent arrived (which evicts the shared one by its key) or the share
+  /// ended.
   ///
   /// A transaction of its own, committed before anything of the page is
   /// prepared: a notes page plans its bodies against the chunk rows it

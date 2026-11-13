@@ -59,6 +59,17 @@ import 'package:anta/widgets/note_editor_chrome.dart';
 import 'package:anta/widgets/note_overflow_menu.dart';
 import 'package:anta/widgets/note_search_bar.dart';
 import 'package:anta/widgets/unified_app_bars.dart';
+import 'package:anta/constants/row_metrics.dart';
+import 'package:anta/database/daos/sync_dao.dart';
+import 'package:anta/models/app_user.dart';
+import 'package:anta/models/share_settings.dart';
+import 'package:anta/services/folder_name_index.dart';
+import 'package:anta/services/recent_destinations_service.dart';
+import 'package:anta/services/share_service.dart';
+import 'package:anta/services/sync/open_note_registry.dart';
+import 'package:anta/widgets/content_rows.dart';
+
+import '../support/fake_share_service.dart';
 
 /// The first page-level test in the app.
 ///
@@ -5441,6 +5452,979 @@ void main() {
       await teardownPage(tester);
     });
   });
+
+  group("a partner's note, read only (share surfaces §6.13)", () {
+    const theirBody = '- [ ] eggs\nmilk\nbread';
+    const maria = AppUser(uid: 'maria', displayName: 'Maria');
+    final l10n = AppLocalizationsEn();
+    late Folder theirFolder;
+    late Folder mineFolder;
+    late NoteMetadata stored;
+    late NoteMetadata theirs;
+    late FakeShareService share;
+    late int shareAsks;
+
+    setUp(() async {
+      theirFolder = await db.folderDao.createFolder(name: 'Shopping lists');
+      mineFolder = await db.folderDao.createFolder(name: 'My lists');
+      stored = await storageService.createNote(
+        folderId: theirFolder.id,
+        title: 'Weekend',
+        content: theirBody,
+      );
+      theirs = stored.copyWith(fromPartner: true);
+      share = FakeShareService(
+        availability: const ShareReady(
+          ShareAudience(id: 'pair-1', displayName: 'Maria', members: [maria]),
+        ),
+      );
+      shareAsks = 0;
+      OptimizedNoteEditorPage.shareService = () async {
+        shareAsks++;
+        return share;
+      };
+    });
+
+    tearDown(() async {
+      OptimizedNoteEditorPage.shareService = ShareService.getInstance;
+      noteBloc.answerLoads = false;
+      // Disarms the fences before the rows go.
+      await db.syncDao.deleteValue(SyncDao.keySharedOwner);
+      noteRepository.shareCensus.forget();
+      final rows = await db.select(db.notes).get();
+      for (final row in rows.where(
+        (n) => n.folderId == theirFolder.id || n.folderId == mineFolder.id,
+      )) {
+        if (row.isDeleted) {
+          await db.customStatement('DELETE FROM notes WHERE id = ?', [row.id]);
+        } else {
+          await db.noteDao.hardDeleteNote(row.id);
+        }
+      }
+      await db.folderDao.hardDeleteFolder(theirFolder.id);
+      await db.folderDao.hardDeleteFolder(mineFolder.id);
+      folderService.invalidateCache();
+    });
+
+    /// The editor pushed over a page of its own, opened with [opened] (the
+    /// partner's note, flagged, unless a case says otherwise) and answered
+    /// with [loaded].
+    Future<void> openNote(
+      WidgetTester tester, {
+      NoteMetadata? opened,
+      NoteMetadata? loaded,
+      String body = theirBody,
+    }) async {
+      await tester.pumpWidget(
+        MultiBlocProvider(
+          providers: [
+            BlocProvider<OptimizedNoteBloc>.value(value: noteBloc),
+            BlocProvider<MarkdownBarBloc>.value(value: barBloc),
+            BlocProvider<CounterBloc>.value(value: counterBloc),
+            BlocProvider<ImportExportBloc>.value(value: exportBloc),
+          ],
+          child: MaterialApp(
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            navigatorObservers: [AppNavigator.routeObserver],
+            home: const Scaffold(body: Text('beneath')),
+          ),
+        ),
+      );
+      final note = opened ?? theirs;
+      tester
+          .state<NavigatorState>(find.byType(Navigator))
+          .push(
+            MaterialPageRoute<void>(
+              builder: (_) => OptimizedNoteEditorPage(
+                folderId: note.folderId,
+                noteId: note.id,
+                metadata: note,
+              ),
+            ),
+          );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+      noteBloc.emitContentLoaded(loaded ?? note, body);
+      await tester.pump();
+      await settleUntil(tester, () => editorFinder.evaluate().isNotEmpty);
+      await settle(tester);
+    }
+
+    /// What the shared reader does: the partner's rows carry their owner,
+    /// then the key that arms the fences.
+    Future<void> handToPartner(WidgetTester tester) async {
+      await tester.runAsync(() async {
+        for (final (table, id) in [
+          ('folders', theirFolder.id),
+          ('notes', stored.id),
+        ]) {
+          await db.customStatement(
+            "UPDATE $table SET owner_id = 'maria-uid' WHERE id = ?",
+            [id],
+          );
+        }
+        await db.syncDao.setValue(SyncDao.keySharedOwner, 'maria-uid');
+        noteRepository.shareCensus.forget();
+        // The rows changed beneath the repositories, as a shared read's do.
+        folderService.invalidateCache();
+      });
+    }
+
+    /// The partner's edit as a pull merges it, announced as remote.
+    Future<void> partnerEdits(WidgetTester tester, String text) async {
+      await tester.runAsync(() async {
+        final local = (await db.noteDao.getNoteById(stored.id))!;
+        await db.noteDao.mergeNoteDocument(
+          local.copyWith(
+            hlcTimestamp: HlcTimestamp(
+              wallTime: DateTime.now().millisecondsSinceEpoch + 60000,
+              logicalCounter: 0,
+              nodeId: 'maria-device',
+            ).toString(),
+            deviceId: 'maria-device',
+          ),
+          text,
+        );
+        await noteRepository.announceMerged(
+          [stored.id],
+          bodies: {stored.id: text},
+        );
+      });
+      await settle(tester);
+    }
+
+    Offset boxOnLine(WidgetTester tester, int line) {
+      final lineBox = CodeFieldRenderForTesting.of(
+        tester.renderObject(find.byType(CodeEditor)),
+      ).lineHeight;
+      return tester.getTopLeft(find.byType(CodeEditor)) +
+          Offset(AppSpacing.xl + 2, AppSpacing.lg + lineBox * (line + 0.5));
+    }
+
+    PopupMenuItem<Object?> menuItem(WidgetTester tester, String label) =>
+        tester.widget<PopupMenuItem<Object?>>(
+          find.ancestor(
+            of: find.text(label),
+            matching: find.byWidgetPredicate((w) => w is PopupMenuItem),
+          ),
+        );
+
+    Future<void> openMenu(WidgetTester tester) async {
+      await tester.tap(find.byIcon(Icons.more_vert));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('N2: it opens read-only — no bar, no keyboard, one line that '
+        'says whose it is', (tester) async {
+      await openNote(tester);
+
+      expect(editorOf(tester).readOnly, isTrue);
+      expect(tester.widget<CodeEditor>(find.byType(CodeEditor)).readOnly, true);
+      expect(find.byType(MarkdownBar), findsNothing);
+      final line = tester.widget<SharedReadOnlyLine>(
+        find.byType(SharedReadOnlyLine),
+      );
+      expect(line.text, 'From Maria · Read only');
+      expect(line.partner, maria);
+      expect(line.identifier, SemanticsIds.sharedNoteLine);
+      expect(
+        tester.getRect(find.byType(SharedReadOnlyLine)).bottom,
+        lessThanOrEqualTo(tester.getRect(find.byType(CodeEditor)).top),
+      );
+      final bar = appBar(tester);
+      expect(bar.onTitleTap, isNull);
+      expect(bar.saveStatusNotifier, isNull);
+      expect(bar.hasChanges, isFalse);
+      expect(bar.shared, isFalse);
+
+      await tester.tapAt(visiblePoint(tester, 1, 2));
+      await tester.pump();
+      expect(tester.testTextInput.isVisible, isFalse);
+      expect(editorOf(tester).controller.text, theirBody);
+
+      await teardownPage(tester);
+    });
+
+    testWidgets('nothing a visit does writes the note: scrolling, taps, a box, '
+        'the app backgrounded, a page above it, the way out', (tester) async {
+      await openNote(tester);
+
+      await tester.drag(find.byType(CodeEditor), const Offset(0, -200));
+      await tester.pump();
+      await tester.tapAt(visiblePoint(tester, 2, 1));
+      await tester.tapAt(boxOnLine(tester, 0));
+      await tester.pump();
+      for (final state in [
+        AppLifecycleState.inactive,
+        AppLifecycleState.hidden,
+        AppLifecycleState.paused,
+        AppLifecycleState.resumed,
+      ]) {
+        tester.binding.handleAppLifecycleStateChanged(state);
+        await tester.pump();
+      }
+      await settle(tester);
+      final navigator = tester.state<NavigatorState>(find.byType(Navigator));
+      navigator.push(
+        MaterialPageRoute<void>(builder: (_) => const Text('above')),
+      );
+      await tester.pumpAndSettle();
+      navigator.pop();
+      await tester.pumpAndSettle();
+      await settle(tester);
+      // Auto-save's interval, had anything armed it.
+      await tester.pump(const Duration(seconds: 40));
+      await settle(tester);
+
+      await tester.tap(find.byType(BackButtonIcon));
+      await tester.pumpAndSettle();
+      await settle(tester);
+
+      expect(find.text('beneath'), findsOneWidget);
+      expect(noteBloc.updates, isEmpty);
+      expect(noteBloc.dispatched.whereType<DeleteOptimizedNote>(), isEmpty);
+      expect(
+        await tester.runAsync(() => db.contentChunkDao.loadContent(stored.id)),
+        theirBody,
+      );
+      expect(find.text(l10n.saveStateError), findsNothing);
+
+      await teardownPage(tester);
+    });
+
+    testWidgets('N3: a box does not tick, and the first tap of a visit says '
+        'why — once', (tester) async {
+      await openNote(tester);
+      final said = l10n.sharedNoteReadOnly('Maria');
+
+      await tester.tapAt(boxOnLine(tester, 0));
+      await tester.pump();
+      expect(editorOf(tester).controller.codeLines[0].text, '- [ ] eggs');
+      expect(find.text(said), findsOneWidget);
+
+      await tester.pump(const Duration(seconds: 5));
+      await tester.pumpAndSettle();
+      expect(find.text(said), findsNothing);
+      await tester.tapAt(boxOnLine(tester, 0));
+      await tester.pump();
+      expect(editorOf(tester).controller.codeLines[0].text, '- [ ] eggs');
+      expect(find.text(said), findsNothing);
+      expect(noteBloc.updates, isEmpty);
+
+      await teardownPage(tester);
+    });
+
+    testWidgets('the menu: what would write it stays in place disabled, and '
+        'Copy to my notes follows Send a copy', (tester) async {
+      final semantics = tester.ensureSemantics();
+      await openNote(tester);
+      await openMenu(tester);
+
+      for (final label in [
+        l10n.editTitle,
+        l10n.moveToFolder,
+        l10n.labelAction,
+        l10n.shareNote,
+        l10n.deleteNote,
+      ]) {
+        expect(menuItem(tester, label).enabled, isFalse, reason: label);
+      }
+      expect(menuItem(tester, l10n.sharedNoteCopy).enabled, isTrue);
+      expect(menuItem(tester, l10n.settings).enabled, isTrue);
+      expect(
+        find.bySemanticsIdentifier(SemanticsIds.sharedNoteCopy),
+        findsOneWidget,
+      );
+      double top(String label) => tester.getTopLeft(find.text(label)).dy;
+      final copyTop = top(l10n.sharedNoteCopy);
+      expect(top(l10n.shareNote), lessThan(copyTop));
+      expect(copyTop, lessThan(top(l10n.deleteNote)));
+
+      await tester.tap(find.text(l10n.editTitle));
+      await tester.pumpAndSettle();
+      expect(find.byType(AlertDialog), findsNothing);
+
+      semantics.dispose();
+      await teardownPage(tester);
+    });
+
+    testWidgets('a note of mine, never paired: today\'s page — no line, no '
+        'sign, today\'s menu, and nothing asked of sharing', (tester) async {
+      await openNote(tester, opened: stored);
+
+      expect(shareAsks, 0);
+      expect(find.byType(SharedReadOnlyLine), findsNothing);
+      expect(find.byType(MarkdownBar), findsOneWidget);
+      expect(editorOf(tester).readOnly, isFalse);
+      final bar = appBar(tester);
+      expect(bar.shared, isFalse);
+      expect(bar.onTitleTap, isNotNull);
+      expect(bar.saveStatusNotifier, isNotNull);
+
+      await openMenu(tester);
+      expect(find.text(l10n.sharedNoteCopy), findsNothing);
+      for (final label in [
+        l10n.editTitle,
+        l10n.moveToFolder,
+        l10n.labelAction,
+        l10n.shareNote,
+        l10n.deleteNote,
+      ]) {
+        expect(menuItem(tester, label).enabled, isTrue, reason: label);
+      }
+      await tester.tapAt(const Offset(5, 5));
+      await tester.pumpAndSettle();
+
+      await teardownPage(tester);
+    });
+
+    testWidgets('opened from a row drawn before it was the partner\'s, the '
+        'load turns it read-only before the body shows', (tester) async {
+      await openNote(tester, opened: stored, loaded: theirs);
+
+      expect(editorOf(tester).readOnly, isTrue);
+      expect(find.byType(MarkdownBar), findsNothing);
+      expect(find.text('From Maria · Read only'), findsOneWidget);
+      expect(appBar(tester).saveStatusNotifier, isNull);
+
+      await tester.tapAt(boxOnLine(tester, 0));
+      await tester.pump(const Duration(seconds: 40));
+      await settle(tester);
+      expect(noteBloc.updates, isEmpty);
+
+      await teardownPage(tester);
+    });
+
+    testWidgets('N5: a change by the partner redraws in place — the scroll '
+        'kept, nothing said', (tester) async {
+      final long = [for (var i = 0; i < 120; i++) 'line $i'].join('\n');
+      await tester.runAsync(
+        () => storageService.updateNote(noteId: stored.id, content: long),
+      );
+      await openNote(tester, body: long);
+      final scroller = editorOf(tester).scrollController.verticalScroller;
+      scroller.jumpTo(600);
+      await tester.pump();
+
+      final edited = long.replaceFirst('line 0', 'line zero');
+      await partnerEdits(tester, edited);
+      await tester.pump();
+
+      expect(editorOf(tester).controller.text, edited);
+      expect(scroller.offset, 600);
+      expect(find.text(l10n.syncNoteUpdatedElsewhere), findsNothing);
+      expect(find.text(l10n.syncNoteConflictCopyFiled), findsNothing);
+      expect(noteBloc.updates, isEmpty);
+
+      await teardownPage(tester);
+    });
+
+    testWidgets('N6: when the note leaves, the page closes with one line', (
+      tester,
+    ) async {
+      await openNote(tester);
+
+      await tester.runAsync(
+        () async => noteRepository.announceRemoved({stored.id: theirFolder.id}),
+      );
+      await settle(tester);
+      await tester.pumpAndSettle();
+
+      expect(pages(), findsNothing);
+      expect(find.text('beneath'), findsOneWidget);
+      expect(find.text('Maria no longer shares this note'), findsOneWidget);
+
+      await teardownPage(tester);
+    });
+
+    testWidgets('a leave under a dialog waits, and never closes the dialog', (
+      tester,
+    ) async {
+      await openNote(tester);
+      unawaited(
+        showDialog<void>(
+          context: tester.element(editorFinder),
+          builder: (_) => const AlertDialog(content: Text('above')),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.runAsync(
+        () async => noteRepository.announceRemoved({stored.id: theirFolder.id}),
+      );
+      await settle(tester);
+      await tester.pumpAndSettle();
+      expect(find.text('above'), findsOneWidget);
+      expect(pages(), findsOneWidget);
+
+      tester.state<NavigatorState>(find.byType(Navigator)).pop();
+      await tester.pumpAndSettle();
+      await settle(tester);
+      await tester.pumpAndSettle();
+      expect(pages(), findsNothing);
+      expect(find.text('beneath'), findsOneWidget);
+
+      await teardownPage(tester);
+    });
+
+    testWidgets('F3: a note of mine in a folder I share wears the sign beside '
+        'its title from the first frame', (tester) async {
+      final inShared = stored.copyWith(sharedThroughFolderId: theirFolder.id);
+      await tester.pumpWidget(
+        MultiBlocProvider(
+          providers: [
+            BlocProvider<OptimizedNoteBloc>.value(value: noteBloc),
+            BlocProvider<MarkdownBarBloc>.value(value: barBloc),
+            BlocProvider<CounterBloc>.value(value: counterBloc),
+          ],
+          child: MaterialApp(
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            home: OptimizedNoteEditorPage(
+              folderId: inShared.folderId,
+              noteId: inShared.id,
+              metadata: inShared,
+            ),
+          ),
+        ),
+      );
+      // The very first frame, before any read has answered.
+      expect(appBar(tester).shared, isTrue);
+      expect(find.byIcon(Icons.group_rounded), findsOneWidget);
+
+      noteBloc.emitContentLoaded(inShared, theirBody);
+      await tester.pump();
+      await settleUntil(tester, () => editorFinder.evaluate().isNotEmpty);
+      await settle(tester);
+      expect(appBar(tester).shared, isTrue);
+      expect(appBar(tester).sharedLabel, 'Shared with Maria');
+      expect(editorOf(tester).readOnly, isFalse);
+      expect(find.byType(SharedReadOnlyLine), findsNothing);
+      final title = tester.getTopRight(find.text('Weekend'));
+      final sign = tester.getTopLeft(find.byIcon(Icons.group_rounded));
+      expect(sign.dx - title.dx, RowMetrics.shareMarkGap);
+
+      await teardownPage(tester);
+    });
+
+    testWidgets('F3: with the sign switched off, or no pair, the note of '
+        'mine wears none', (tester) async {
+      final inShared = stored.copyWith(sharedThroughFolderId: theirFolder.id);
+      share.mine = false;
+      await openNote(tester, opened: inShared);
+      expect(appBar(tester).shared, isFalse);
+      expect(find.byIcon(Icons.group_rounded), findsNothing);
+      await teardownPage(tester);
+
+      share.mine = true;
+      share.emit(const ShareNotPaired());
+      // An equal load answer is no change to the bloc's listeners.
+      noteBloc.reset();
+      await openNote(tester, opened: inShared);
+      expect(appBar(tester).shared, isFalse);
+      await teardownPage(tester);
+
+      // The pair back: the sign returns once the page has read it.
+      share.emit(
+        const ShareReady(
+          ShareAudience(id: 'pair-1', displayName: 'Maria', members: [maria]),
+        ),
+      );
+      noteBloc.reset();
+      await openNote(tester, opened: inShared);
+      expect(appBar(tester).shared, isTrue);
+      await teardownPage(tester);
+    });
+
+    testWidgets('F3: the sign switched off and already read, the first frame '
+        'draws none — no sign that shows and then goes', (tester) async {
+      ShareService.publishLookForTesting(const ShareLook(markMine: false));
+      addTearDown(() => ShareService.publishLookForTesting(null));
+      share.mine = false;
+      final inShared = stored.copyWith(sharedThroughFolderId: theirFolder.id);
+      await tester.pumpWidget(
+        MultiBlocProvider(
+          providers: [
+            BlocProvider<OptimizedNoteBloc>.value(value: noteBloc),
+            BlocProvider<MarkdownBarBloc>.value(value: barBloc),
+            BlocProvider<CounterBloc>.value(value: counterBloc),
+          ],
+          child: MaterialApp(
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            home: OptimizedNoteEditorPage(
+              folderId: inShared.folderId,
+              noteId: inShared.id,
+              metadata: inShared,
+            ),
+          ),
+        ),
+      );
+      expect(appBar(tester).shared, isFalse);
+      expect(find.byIcon(Icons.group_rounded), findsNothing);
+
+      noteBloc.emitContentLoaded(inShared, theirBody);
+      await tester.pump();
+      await settleUntil(tester, () => editorFinder.evaluate().isNotEmpty);
+      await settle(tester);
+      expect(appBar(tester).shared, isFalse);
+      await teardownPage(tester);
+    });
+
+    testWidgets("a wiki link resolves on its note's side: in the partner's "
+        'note to hers, in mine to mine', (tester) async {
+      late NoteMetadata myPlan;
+      late NoteMetadata herPlan;
+      await tester.runAsync(() async {
+        myPlan = await storageService.createNote(
+          folderId: mineFolder.id,
+          title: 'Plan',
+          content: 'mine',
+        );
+        herPlan = await storageService.createNote(
+          folderId: theirFolder.id,
+          title: 'Plan',
+          content: 'hers',
+        );
+      });
+      await handToPartner(tester);
+      await tester.runAsync(
+        () => db.sharedRowDao.writing(
+          () => db.customStatement(
+            "UPDATE notes SET owner_id = 'maria-uid' WHERE id = ?",
+            [herPlan.id],
+          ),
+        ),
+      );
+
+      OptimizedNoteEditorPage opened() =>
+          tester.widgetList<OptimizedNoteEditorPage>(pages()).last;
+
+      /// Makes [newer] the more recent namesake, so recency alone would pick
+      /// it; only the side may decide.
+      Future<void> newest(NoteMetadata newer, NoteMetadata older) =>
+          tester.runAsync(() async {
+            for (final (note, year) in [(newer, 2026), (older, 2025)]) {
+              await db.sharedRowDao.writing(
+                () => db.customStatement(
+                  'UPDATE notes SET updated_at = ? WHERE id = ?',
+                  [DateTime.utc(year).millisecondsSinceEpoch ~/ 1000, note.id],
+                ),
+              );
+            }
+            noteRepository.invalidateAll();
+          });
+
+      // Her note, opened where my namesake is the neighbour and the newer.
+      await newest(myPlan, herPlan);
+      await openNote(tester, opened: theirs.copyWith(folderId: mineFolder.id));
+      editorOf(tester).onOpenWikiLink!('Plan');
+      await settleUntil(tester, () => pages().evaluate().length == 2);
+      expect(opened().noteId, herPlan.id);
+      expect(opened().metadata!.fromPartner, isTrue);
+      await teardownPage(tester);
+
+      // My note, opened where her namesake is the neighbour and the newer.
+      await newest(herPlan, myPlan);
+      noteBloc.reset();
+      await openNote(
+        tester,
+        opened: stored.copyWith(folderId: theirFolder.id, fromPartner: false),
+      );
+      editorOf(tester).onOpenWikiLink!('Plan');
+      await settleUntil(tester, () => pages().evaluate().length == 2);
+      expect(opened().noteId, myPlan.id);
+      await teardownPage(tester);
+    });
+
+    testWidgets('a note gone before it could load closes the page with the '
+        'gone line, never a blank page', (tester) async {
+      noteBloc.answerLoads = true;
+      Future<void> openGone(NoteMetadata note) async {
+        await tester.pumpWidget(
+          MultiBlocProvider(
+            providers: [
+              BlocProvider<OptimizedNoteBloc>.value(value: noteBloc),
+              BlocProvider<MarkdownBarBloc>.value(value: barBloc),
+              BlocProvider<CounterBloc>.value(value: counterBloc),
+            ],
+            child: MaterialApp(
+              localizationsDelegates: AppLocalizations.localizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+              navigatorObservers: [AppNavigator.routeObserver],
+              home: const Scaffold(body: Text('beneath')),
+            ),
+          ),
+        );
+        tester
+            .state<NavigatorState>(find.byType(Navigator))
+            .push(
+              MaterialPageRoute<void>(
+                builder: (_) => OptimizedNoteEditorPage(
+                  folderId: note.folderId,
+                  noteId: note.id,
+                  metadata: note,
+                ),
+              ),
+            );
+        await tester.pump();
+        await settleUntil(tester, () => pages().evaluate().isEmpty);
+        await tester.pumpAndSettle();
+      }
+
+      await openGone(theirs.copyWith(id: 'gone-theirs'));
+      expect(find.text('beneath'), findsOneWidget);
+      expect(find.text('Maria no longer shares this note'), findsOneWidget);
+      await teardownPage(tester);
+
+      noteBloc.reset();
+      noteBloc.answerLoads = true;
+      await openGone(stored.copyWith(id: 'gone-mine'));
+      expect(find.text('beneath'), findsOneWidget);
+      expect(find.text(l10n.noteNotFound), findsOneWidget);
+      await teardownPage(tester);
+    });
+
+    testWidgets("a partner's change keeps my selection while the text under "
+        'it stands; one that touches it collapses it', (tester) async {
+      await openNote(tester);
+      final controller = editorOf(tester).controller;
+      const milk = CodeLineSelection(
+        baseIndex: 1,
+        baseOffset: 0,
+        extentIndex: 1,
+        extentOffset: 4,
+      );
+      controller.selection = milk;
+      await tester.pump();
+
+      await partnerEdits(tester, '- [ ] eggs\nmilk\nbread and butter');
+      await tester.pump();
+      expect(controller.text, '- [ ] eggs\nmilk\nbread and butter');
+      expect(controller.selection, milk);
+      expect(controller.selectedText, 'milk');
+
+      await partnerEdits(tester, '- [ ] eggs\noat milk\nbread and butter');
+      await tester.pump();
+      expect(
+        controller.selection,
+        const CodeLineSelection.collapsed(index: 1, offset: 0),
+      );
+
+      await teardownPage(tester);
+    });
+
+    testWidgets("the partner's note never starts the save machinery; a note "
+        'of mine does', (tester) async {
+      final tracked = <String>[];
+      OptimizedNoteEditorPage.autoSaveFactory =
+          ({required onSave, required onChangeDetected}) => _RecordingAutoSave(
+            onSave: onSave,
+            onChangeDetected: onChangeDetected,
+            tracked: tracked,
+          );
+      addTearDown(() => OptimizedNoteEditorPage.autoSaveFactory = null);
+
+      await openNote(tester);
+      for (final state in [
+        AppLifecycleState.inactive,
+        AppLifecycleState.paused,
+        AppLifecycleState.resumed,
+      ]) {
+        tester.binding.handleAppLifecycleStateChanged(state);
+        await tester.pump();
+      }
+      await settle(tester);
+      expect(tracked, isEmpty, reason: 'nothing tracked, nothing forced');
+      await teardownPage(tester);
+
+      noteBloc.reset();
+      await openNote(tester, opened: stored);
+      expect(tracked, contains('track'), reason: 'the control: mine is');
+      await teardownPage(tester);
+    });
+
+    testWidgets('a read-only page has nothing unsaved: it claims no conflict '
+        "filing, and the partner's change files no copy", (tester) async {
+      await openNote(tester);
+
+      expect(OpenNoteRegistry.claimsConflictFiling(stored.id), isFalse);
+      await partnerEdits(tester, 'milk\nbread\ncoffee');
+      await tester.pump();
+
+      expect(editorOf(tester).controller.text, 'milk\nbread\ncoffee');
+      final inFolder = (await tester.runAsync(
+        () => db.noteDao.getNotesByFolder(theirFolder.id),
+      ))!;
+      expect([for (final n in inFolder) n.title], ['Weekend']);
+
+      await teardownPage(tester);
+    });
+
+    /// Shares or un-shares the note's folder beneath the open page, as a
+    /// share act or a merge does: the mark, then the census dropped.
+    Future<void> markFolder(WidgetTester tester, String? pairId) async {
+      await tester.runAsync(() async {
+        await db.folderDao.setSharedPair(theirFolder.id, pairId);
+        noteRepository.shareCensus.forget();
+      });
+      await settle(tester);
+    }
+
+    testWidgets('F3: the sign follows the folder shared and un-shared while '
+        'the note is open', (tester) async {
+      await openNote(tester, opened: stored);
+      expect(appBar(tester).shared, isFalse);
+
+      await markFolder(tester, 'pair-1');
+      expect(appBar(tester).shared, isTrue);
+      expect(appBar(tester).sharedLabel, 'Shared with Maria');
+
+      await markFolder(tester, null);
+      expect(appBar(tester).shared, isFalse);
+      expect(noteBloc.updates, isEmpty);
+
+      await teardownPage(tester);
+    });
+
+    testWidgets('F3: the sign follows "Mark what you share" switched off '
+        'and back on above the page', (tester) async {
+      addTearDown(() => ShareService.publishLookForTesting(null));
+      await tester.runAsync(() async {
+        await db.folderDao.setSharedPair(theirFolder.id, 'pair-1');
+        noteRepository.shareCensus.forget();
+      });
+      await openNote(
+        tester,
+        opened: stored.copyWith(sharedThroughFolderId: theirFolder.id),
+      );
+      expect(appBar(tester).shared, isTrue);
+
+      Future<void> visitAbove(ShareLook look) async {
+        final navigator = tester.state<NavigatorState>(find.byType(Navigator));
+        navigator.push(
+          MaterialPageRoute<void>(builder: (_) => const Text('Sharing')),
+        );
+        await tester.pumpAndSettle();
+        ShareService.publishLookForTesting(look);
+        navigator.pop();
+        await tester.pumpAndSettle();
+        await settle(tester);
+      }
+
+      await visitAbove(const ShareLook(markMine: false));
+      expect(appBar(tester).shared, isFalse);
+      await visitAbove(const ShareLook(markMine: true));
+      expect(appBar(tester).shared, isTrue);
+
+      await teardownPage(tester);
+    });
+
+    group('Copy to my notes', () {
+      setUp(() {
+        GetIt.I.registerSingleton<FolderNameIndex>(
+          FolderNameIndex(folderService: folderService),
+        );
+        GetIt.I.registerSingleton<RecentDestinationsService>(
+          RecentDestinationsService(),
+        );
+      });
+
+      tearDown(() async {
+        await GetIt.I.unregister<FolderNameIndex>();
+        await GetIt.I.unregister<RecentDestinationsService>();
+      });
+
+      Future<void> copyInto(
+        WidgetTester tester,
+        String folderName, {
+        Future<void> Function()? beforeConfirm,
+      }) async {
+        await openMenu(tester);
+        await tester.tap(find.text(l10n.sharedNoteCopy));
+        await tester.pump();
+        await settleUntil(
+          tester,
+          () => find.text(folderName).evaluate().isNotEmpty,
+        );
+        await settle(tester);
+        await tester.pumpAndSettle();
+        expect(
+          find.text(theirFolder.name),
+          findsNothing,
+          reason: 'the partner\'s folders are no destination',
+        );
+        await tester.tap(find.text(folderName));
+        await settle(tester);
+        await tester.pumpAndSettle();
+        await beforeConfirm?.call();
+        // The picker's copy purpose: its button says the act, not "Move to".
+        await tester.tap(
+          find.descendant(
+            of: find.byType(FilledButton),
+            matching: find.text(l10n.pickCopyConfirm),
+          ),
+        );
+        await tester.pump();
+      }
+
+      testWidgets('the page gone while the copy is written: the copy still '
+          'opens, and the line is still said', (tester) async {
+        await handToPartner(tester);
+        noteBloc.answerLoads = true;
+        await openNote(tester);
+
+        await copyInto(tester, mineFolder.name);
+        // Back, before drift has answered the write.
+        tester.state<NavigatorState>(find.byType(Navigator)).pop();
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 500));
+        expect(pages(), findsNothing);
+
+        await settleUntil(tester, () => pages().evaluate().length == 1);
+        await settle(tester);
+        await tester.pump();
+        final copy = tester.widget<OptimizedNoteEditorPage>(pages());
+        expect(copy.metadata!.fromPartner, isFalse);
+        expect(copy.folderId, mineFolder.id);
+        // On the app's messenger, which draws it on the page in front.
+        expect(find.text(l10n.sharedNoteCopied('Maria')), findsOneWidget);
+
+        await tester.pump(const Duration(seconds: 4));
+        await teardownPage(tester);
+      });
+
+      testWidgets('the note leaving while the picker is open copies nothing '
+          "and says nothing: the page's own leave line is the one voice", (
+        tester,
+      ) async {
+        await handToPartner(tester);
+        await openNote(tester);
+
+        await copyInto(
+          tester,
+          mineFolder.name,
+          beforeConfirm: () async {
+            await tester.runAsync(() async {
+              await db.sharedRowDao.writing(
+                () => db.customStatement(
+                  'UPDATE notes SET is_deleted = 1 WHERE id = ?',
+                  [stored.id],
+                ),
+              );
+              noteRepository.announceRemoved({stored.id: theirFolder.id});
+            });
+            await settle(tester);
+          },
+        );
+        await settle(tester);
+        await tester.pumpAndSettle();
+        await settle(tester);
+        await tester.pumpAndSettle();
+
+        expect(find.text(l10n.noteNotFound), findsNothing);
+        expect(find.text('Maria no longer shares this note'), findsOneWidget);
+        expect(pages(), findsNothing);
+        final inMine = (await tester.runAsync(
+          () => db.noteDao.getNotesByFolder(mineFolder.id),
+        ))!;
+        expect(inMine, isEmpty);
+
+        await tester.pump(const Duration(seconds: 4));
+        await teardownPage(tester);
+      });
+
+      testWidgets('the folder deleted between the pick and the copy says so '
+          'plainly and copies nothing', (tester) async {
+        await handToPartner(tester);
+        await openNote(tester);
+
+        await copyInto(
+          tester,
+          mineFolder.name,
+          beforeConfirm: () =>
+              tester.runAsync(() => folderService.deleteFolder(mineFolder.id)),
+        );
+        await settle(tester);
+        await tester.pump();
+
+        expect(find.text(l10n.sharedNoteCopyFolderGone), findsOneWidget);
+        expect(find.textContaining('FolderGoneException'), findsNothing);
+        expect(pages(), findsOneWidget);
+
+        await tester.pump(const Duration(seconds: 4));
+        await teardownPage(tester);
+      });
+
+      testWidgets('N8: the copy is a note of mine in the folder I pick, open '
+          'on top, and one line says it no longer follows hers', (
+        tester,
+      ) async {
+        await handToPartner(tester);
+        noteBloc.answerLoads = true;
+        await openNote(tester);
+
+        await copyInto(tester, mineFolder.name);
+        await settleUntil(tester, () => pages().evaluate().length == 2);
+        await settle(tester);
+
+        final copies = (await tester.runAsync(
+          () => db.noteDao.getNotesByFolder(mineFolder.id),
+        ))!;
+        expect(copies.single.title, 'Weekend');
+        expect(
+          await tester.runAsync(
+            () => db.contentChunkDao.loadContent(copies.single.id),
+          ),
+          theirBody,
+        );
+        final top = tester.widgetList<OptimizedNoteEditorPage>(pages()).last;
+        expect(top.noteId, copies.single.id);
+        expect(top.metadata!.fromPartner, isFalse);
+        expect(
+          find.text(l10n.sharedNoteCopied('Maria'), skipOffstage: false),
+          findsOneWidget,
+        );
+        expect(noteBloc.updates.where((u) => u.noteId == stored.id), isEmpty);
+
+        await teardownPage(tester);
+      });
+
+      testWidgets('a title the folder already holds says so and copies '
+          'nothing', (tester) async {
+        await tester.runAsync(
+          () => storageService.createNote(
+            folderId: mineFolder.id,
+            title: 'Weekend',
+            content: 'mine',
+          ),
+        );
+        await handToPartner(tester);
+        await openNote(tester);
+
+        await copyInto(tester, mineFolder.name);
+        await settle(tester);
+        await tester.pump();
+
+        expect(find.text(l10n.noteTitleAlreadyExists('Weekend')), findsOne);
+        expect(pages(), findsOneWidget);
+        final inMine = (await tester.runAsync(
+          () => db.noteDao.getNotesByFolder(mineFolder.id),
+        ))!;
+        expect(inMine.single.title, 'Weekend');
+        expect(
+          await tester.runAsync(
+            () => db.contentChunkDao.loadContent(inMine.single.id),
+          ),
+          'mine',
+        );
+
+        await tester.pump(const Duration(seconds: 4));
+        await teardownPage(tester);
+      });
+    });
+  });
 }
 
 /// The real export service with only its last step stubbed: it still
@@ -5462,6 +6446,34 @@ class _TestExportService extends ImportExportService {
   }
 }
 
+/// The real auto-save, recording what the page's coordinator asks of it:
+/// `track` for a start of tracking, `force` for a forced write.
+class _RecordingAutoSave extends AutoSaveService {
+  _RecordingAutoSave({
+    required super.onSave,
+    required super.onChangeDetected,
+    required this.tracked,
+  });
+
+  final List<String> tracked;
+
+  @override
+  void startTracking(
+    String title,
+    String content, {
+    required String Function() contentProvider,
+  }) {
+    tracked.add('track');
+    super.startTracking(title, content, contentProvider: contentProvider);
+  }
+
+  @override
+  Future<void> forceSave({String? title, String? content}) {
+    tracked.add('force');
+    return super.forceSave(title: title, content: content);
+  }
+}
+
 /// A [NoteStorageService] whose wiki-link lookup always fails, for the case
 /// about the tap handler's own `try`. Everything else is the real service
 /// over the real database.
@@ -5472,6 +6484,7 @@ class _ThrowingStorage extends NoteStorageService {
   Future<NoteMetadata?> resolveNoteByTitle(
     String title, {
     String? preferFolderId,
+    bool fromPartner = false,
   }) async {
     throw StateError('resolveNoteByTitle failed');
   }

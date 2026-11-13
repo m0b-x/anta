@@ -1,6 +1,7 @@
 import 'dart:async';
 
-import 'package:drift/drift.dart' show driftRuntimeOptions;
+import 'package:drift/drift.dart'
+    show QueryExecutor, QueryInterceptor, driftRuntimeOptions;
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:anta/database/database.dart';
@@ -57,6 +58,29 @@ class _FailingReads extends FakePairingGateway {
       throw const PairingException(PairingError.permissionDenied);
 }
 
+/// Once [armed], every write to the database fails — a full disk.
+class _FailingWrites extends QueryInterceptor {
+  bool armed = false;
+
+  @override
+  Future<int> runInsert(
+    QueryExecutor executor,
+    String statement,
+    List<Object?> args,
+  ) => armed
+      ? Future.error(StateError('disk full'))
+      : super.runInsert(executor, statement, args);
+
+  @override
+  Future<int> runDelete(
+    QueryExecutor executor,
+    String statement,
+    List<Object?> args,
+  ) => armed
+      ? Future.error(StateError('disk full'))
+      : super.runDelete(executor, statement, args);
+}
+
 /// A gateway whose pair listener hears only what the test sends it — the
 /// snapshots a device really gets, one that reads as no document included —
 /// and that counts the queries a reconcile makes.
@@ -93,6 +117,18 @@ void main() {
     DatabaseLifecycle.notifyDatabaseSwitching();
     SettingsService.reset();
     PairingService.reset();
+  });
+
+  test('the pairing is read in one statement, for an account that never '
+      'paired too — seven before the leave notice kept its pair', () async {
+    final counter = StatementCounter();
+    final db = await openTestDatabase(interceptor: counter);
+    addTearDown(db.close);
+    final settings = SettingsService.forTesting(db);
+    counter.reset();
+
+    expect(await settings.getPairingSettings(), PairingSettings.empty);
+    expect(counter.captured, hasLength(1));
   });
 
   group('codes', () {
@@ -698,6 +734,162 @@ void main() {
       final status = await redeemer.service.load();
       expect(status.isPaired, isFalse);
       expect(status.endedNoticePending, isTrue);
+    });
+
+    group('who ended it, for the leave notice (D35)', () {
+      Future<({PairingService me, String pairId})> paired(
+        FakePairingGateway gateway, {
+        AppDatabase? database,
+      }) async {
+        final creator = await _boot(
+          gateway: gateway,
+          auth: FakeAuthService(user: userA),
+        );
+        final code = (await creator.service.generateInvite()).pendingCode!;
+        final redeemer = await _boot(
+          gateway: gateway,
+          auth: FakeAuthService(user: userB),
+          database: database,
+        );
+        final status = await redeemer.service.redeem(code);
+        return (me: redeemer.service, pairId: status.pairId!);
+      }
+
+      /// Alex — named on the pair — ends it, and I have heard.
+      Future<({PairingService me, String pairId})> endedByAlex(
+        FakePairingGateway gateway, {
+        AppDatabase? database,
+      }) async {
+        final pair = await paired(gateway, database: database);
+        await gateway.writeProfile(
+          pairId: pair.pairId,
+          profile: const PairProfile(uid: 'uid-a', displayName: 'Alex'),
+        );
+        await pair.me.load();
+        await gateway.endPair(pairId: pair.pairId, endedBy: userA.uid);
+        await pair.me.load();
+        return pair;
+      }
+
+      test('a new pair never inherits the name kept for one that ended', () async {
+        final gateway = FakePairingGateway();
+        addTearDown(gateway.dispose);
+        final pair = await endedByAlex(gateway);
+        await pair.me.dismissEndedNotice();
+        final me = pair.me;
+        final cara = await _boot(
+          gateway: gateway,
+          auth: FakeAuthService(
+            user: const AppUser(uid: 'uid-c', displayName: 'Cara'),
+          ),
+        );
+        final code = (await cara.service.generateInvite()).pendingCode!;
+
+        final next = await me.redeem(code);
+
+        expect((await me.endingOf(next.pairId)).name, isNot('Alex'));
+        expect((await me.endingOf(pair.pairId)).byPartner, isFalse);
+        await gateway.endPair(pairId: next.pairId!, endedBy: 'uid-c');
+        await me.load();
+        expect(me.status.endedPartnerName, isNot('Alex'));
+      });
+
+      test('an invite of mine forgets the kept ending and its name', () async {
+        final gateway = FakePairingGateway();
+        addTearDown(gateway.dispose);
+        final pair = await endedByAlex(gateway);
+        await pair.me.dismissEndedNotice();
+
+        await pair.me.generateInvite();
+
+        expect(await pair.me.endingOf(pair.pairId), (
+          byPartner: false,
+          name: null,
+        ));
+      });
+
+      test('the answer does not wait on clearing the record: a write that '
+          'fails still tells the partner\'s ending', () async {
+        final gateway = FakePairingGateway();
+        addTearDown(gateway.dispose);
+        final failing = _FailingWrites();
+        final db = await openTestDatabase(interceptor: failing);
+        final pair = await endedByAlex(gateway, database: db);
+        await pair.me.dismissEndedNotice();
+        failing.armed = true;
+
+        expect(await pair.me.endingOf(pair.pairId), (
+          byPartner: true,
+          name: 'Alex',
+        ));
+      });
+
+      test('the partner ended it: recorded or not yet heard, it is theirs, '
+          'with their name', () async {
+        final gateway = FakePairingGateway();
+        addTearDown(gateway.dispose);
+        final pair = await paired(gateway);
+        final name = pair.me.status.partner?.displayName;
+        await gateway.endPair(pairId: pair.pairId, endedBy: userA.uid);
+
+        expect(await pair.me.endingOf(pair.pairId), (
+          byPartner: true,
+          name: name,
+        ));
+        await pair.me.load();
+        expect(await pair.me.endingOf(pair.pairId), (
+          byPartner: true,
+          name: name,
+        ));
+      });
+
+      test('the ended notice dismissed before the read: the ending and the '
+          'name are kept until the leave is told, once', () async {
+        final gateway = FakePairingGateway();
+        addTearDown(gateway.dispose);
+        final pair = await paired(gateway);
+        await gateway.writeProfile(
+          pairId: pair.pairId,
+          profile: const PairProfile(uid: 'uid-a', displayName: 'Alex'),
+        );
+        await pair.me.load();
+        const name = 'Alex';
+        expect(pair.me.status.partner?.displayName, name);
+        await gateway.endPair(pairId: pair.pairId, endedBy: userA.uid);
+        await pair.me.load();
+
+        await pair.me.dismissEndedNotice();
+
+        expect(pair.me.status.endedNoticePending, isFalse);
+        expect(pair.me.status.endedPartnerName, isNull);
+        expect(await pair.me.endingOf(pair.pairId), (
+          byPartner: true,
+          name: name,
+        ));
+        expect(await pair.me.endingOf(pair.pairId), (
+          byPartner: false,
+          name: null,
+        ));
+      });
+
+      test('my Unpair is mine', () async {
+        final gateway = FakePairingGateway();
+        addTearDown(gateway.dispose);
+        final pair = await paired(gateway);
+
+        await pair.me.unpair();
+
+        expect((await pair.me.endingOf(pair.pairId)).byPartner, isFalse);
+      });
+
+      test('ended from another device of mine, not yet heard, is mine', () async {
+        final gateway = FakePairingGateway();
+        addTearDown(gateway.dispose);
+        final pair = await paired(gateway);
+        await gateway.endPair(pairId: pair.pairId, endedBy: userB.uid);
+
+        expect((await pair.me.endingOf(pair.pairId)).byPartner, isFalse);
+      });
     });
 
     test('a pair that could not be read says nothing: unpaired, with no '

@@ -1,6 +1,7 @@
 import 'package:drift/drift.dart';
 
 import '../../constants/settings_keys.dart';
+import '../../models/partner_folder_sort.dart';
 import '../crdt/crdt_merge.dart';
 import '../crdt/crdt_write.dart';
 import '../crdt/synced_tables.dart';
@@ -193,6 +194,14 @@ class SharedRowDao extends DatabaseAccessor<AppDatabase>
     if (owner == null) return const [];
     return _sharedOf(table, owner, keys);
   }
+
+  /// [sharedAmong] for a caller that holds the shared [owner] already (a
+  /// warm share census): one statement, not two.
+  Future<List<String>> sharedAmongOf(
+    String table,
+    String owner,
+    List<String> keys,
+  ) async => keys.isEmpty ? const [] : _sharedOf(table, owner, keys);
 
   Future<List<String>> _sharedOf(
     String table,
@@ -643,8 +652,9 @@ class SharedRowDao extends DatabaseAccessor<AppDatabase>
       await dao.deleteByPrefix(SyncDao.sharedBuiltInPrefix);
       await dao.deleteValue(SyncDao.keyShareSending);
       final hiddenCleared =
-          await (db.delete(db.userSettings)
-                ..where((s) => s.key.equals(SettingsKeys.shareHiddenCategories)))
+          await (db.delete(
+                db.userSettings,
+              )..where((s) => s.key.equals(SettingsKeys.shareHiddenCategories)))
               .go() >
           0;
       // Every shared folder went, so none was left to place.
@@ -782,7 +792,32 @@ class SharedRowDao extends DatabaseAccessor<AppDatabase>
         updateKind: UpdateKind.delete,
       );
     }
+    if (synced.name == 'folders' && gone.isNotEmpty) {
+      await _forgetFolderSorts({for (final row in gone) row.key});
+    }
     return gone;
+  }
+
+  /// Takes the person's own sorts of [ids] out of
+  /// `SettingsKeys.shareFolderSorts` (`PartnerFolderSort`): here, because
+  /// every way a partner's folder leaves this database — the reader's
+  /// removal, an unbind's [removeAll], an [evict] — passes through
+  /// [_remove]. One statement when no sort is stored.
+  Future<void> _forgetFolderSorts(Set<String> ids) async {
+    final settings = db.userSettingsDao;
+    final sorts = PartnerFolderSort.decodeAll(
+      await settings.getValue(SettingsKeys.shareFolderSorts),
+    );
+    if (!sorts.keys.any(ids.contains)) return;
+    final kept = PartnerFolderSort.encodeAll({
+      for (final MapEntry(:key, :value) in sorts.entries)
+        if (!ids.contains(key)) key: value,
+    });
+    if (kept == null) {
+      await settings.deleteValue(SettingsKeys.shareFolderSorts);
+    } else {
+      await settings.setValue(SettingsKeys.shareFolderSorts, kept);
+    }
   }
 
   /// [table] as a table that can be shared; anything else is a programming

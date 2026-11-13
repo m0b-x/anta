@@ -2468,10 +2468,41 @@ class AppLocalizationsRo extends AppLocalizations {
   String get settingsResetFailed => 'Setările nu au putut fi resetate';
 
   @override
-  String get shareNote => 'Partajează notița';
+  String get shareNote => 'Trimite o copie';
 
   @override
-  String get shareFolder => 'Partajează dosarul';
+  String get shareFolder => 'Trimite o copie';
+
+  @override
+  String shareGoneFolder(String name) {
+    return '$name nu mai partajează acest dosar.';
+  }
+
+  @override
+  String shareOnlyPartnerChanges(String name) {
+    return 'Doar $name poate modifica asta.';
+  }
+
+  @override
+  String shareThroughFolder(String folder) {
+    return 'Activ pentru tot ce este în $folder';
+  }
+
+  @override
+  String shareMovedIn(String moved, String name) {
+    return '$moved · acum se partajează cu $name';
+  }
+
+  @override
+  String shareMovedOut(String moved) {
+    return '$moved · nu se mai partajează';
+  }
+
+  @override
+  String get pickShareConfirm => 'Partajează';
+
+  @override
+  String get pickCopyConfirm => 'Copiază aici';
 
   @override
   String get exportingFolder => 'Se exportă folderul...';
@@ -2508,7 +2539,7 @@ class AppLocalizationsRo extends AppLocalizations {
   }
 
   @override
-  String get shareSelected => 'Distribuie';
+  String get shareSelected => 'Trimite o copie';
 
   @override
   String get exportingSelection => 'Se exportă selecția...';
@@ -11271,7 +11302,7 @@ class AppLocalizationsRo extends AppLocalizations {
 
   @override
   String get dataNoticeShared =>
-      'Ce partajezi cu partenerul tău poate fi citit de contul lui din copia ta din cloud, iar telefonul lui păstrează o copie doar pentru citire. Copia aceea dispare de pe telefonul lui la următoarea sincronizare după ce oprești partajarea.';
+      'Ce partajezi cu partenerul tău — categorii, evenimente și foldere cu notițele lor — poate fi citit de contul lui din copia ta din cloud, iar telefonul lui păstrează o copie doar pentru citire. Copia aceea dispare de pe telefonul lui la următoarea sincronizare după ce oprești partajarea.';
 
   @override
   String dataNoticeRemove(String deleteCopy, String deleteAccount) {
@@ -11367,7 +11398,7 @@ class AppLocalizationsRo extends AppLocalizations {
 
   @override
   String get appGuideSharingPrivateBody =>
-      'Notițele, contoarele, alertele, marcajele de prezență, șabloanele și setările tale rămân la tine, orice ai partaja.';
+      'Contoarele, alertele, marcajele de prezență, șabloanele și setările tale rămân la tine, orice ai partaja.';
 
   @override
   String get sharePartnerFallback => 'partenerul tău';
@@ -11405,6 +11436,76 @@ class AppLocalizationsRo extends AppLocalizations {
 
   @override
   String get shareRowEvents => 'Evenimente individuale';
+
+  @override
+  String get shareRowFolders => 'Foldere';
+
+  @override
+  String get shareFoldersEmpty => 'Niciun folder nu e partajat încă.';
+
+  @override
+  String get shareAddFolder => 'Partajează un folder';
+
+  @override
+  String shareFolderNotes(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count de notițe',
+      few: '$count notițe',
+      one: 'o notiță',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String shareNowThrough(String inner, String outer) {
+    return '$inner e acum partajat prin $outer';
+  }
+
+  @override
+  String shareFolderAlready(String folder) {
+    return '$folder e deja partajat';
+  }
+
+  @override
+  String shareStoppedWithInner(String folder, int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Nu se mai partajează: $folder și $count de foldere din el',
+      few: 'Nu se mai partajează: $folder și $count foldere din el',
+      one: 'Nu se mai partajează: $folder și un folder din el',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String shareSummaryFolders(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count de foldere',
+      few: '$count foldere',
+      one: 'un folder',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get shareNoteLook => 'Notițe partajate cu tine';
+
+  @override
+  String get appGuideSharingFolderTitle => 'Partajează un folder';
+
+  @override
+  String appGuideSharingFolderBody(
+    String shareWith,
+    String addFolder,
+    String sharingPage,
+  ) {
+    return '„$shareWith” din meniul ⋮ al unui folder îl partajează; „$addFolder” din „$sharingPage” face același lucru. Partenerul tău îi citește notițele și nu le poate modifica; o notiță pe care o adaugi mai târziu e partajată și ea.';
+  }
 
   @override
   String get shareNone => 'Nimic';
@@ -11606,7 +11707,7 @@ class AppLocalizationsRo extends AppLocalizations {
 
   @override
   String shareStopAllConfirm(String name) {
-    return 'Categoriile și evenimentele tale dispar de pe celălalt telefon. Ce partajează $name cu tine rămâne.';
+    return 'Categoriile, evenimentele și folderele tale dispar de pe celălalt telefon. Ce partajează $name cu tine rămâne.';
   }
 
   @override
@@ -11680,7 +11781,7 @@ class AppLocalizationsRo extends AppLocalizations {
 
   @override
   String get shareMarkMineDesc =>
-      'Un semn pe categoriile și evenimentele pe care le partajezi';
+      'Un semn pe categoriile, evenimentele și folderele pe care le partajezi';
 
   @override
   String get shareAlertsSection => 'Alerte';
@@ -11732,9 +11833,65 @@ class AppLocalizationsRo extends AppLocalizations {
   }
 
   @override
+  String sharedNoteLine(String name) {
+    return 'De la $name · Doar citire';
+  }
+
+  @override
+  String get sharedNoteCopy => 'Copiază în notițele mele';
+
+  @override
+  String sharedNoteReadOnly(String name) {
+    return 'Doar citire. Numai $name poate modifica această notiță.';
+  }
+
+  @override
+  String sharedNoteCopied(String name) {
+    return 'Copiat. Modificările ulterioare făcute de $name nu ajung în copia ta.';
+  }
+
+  @override
+  String get sharedNoteCopyFolderGone =>
+      'Folderul acesta nu mai există. Nu s-a copiat nimic.';
+
+  @override
+  String shareGoneNote(String name) {
+    return '$name nu mai partajează această notiță';
+  }
+
+  @override
+  String get sharedNoteTaskDone => 'Sarcină, făcută';
+
+  @override
+  String sharedNoteTaskDoneNamed(String task) {
+    return 'Sarcină, făcută: $task';
+  }
+
+  @override
+  String get sharedNoteTaskOpen => 'Sarcină, nefăcută';
+
+  @override
+  String sharedNoteTaskOpenNamed(String task) {
+    return 'Sarcină, nefăcută: $task';
+  }
+
+  @override
   String sharedEventCaption(String name) {
     return 'Doar $name poate modifica acest eveniment. Alertele tale urmează ce a primit ultima dată acest telefon.';
   }
+
+  @override
+  String sharedEventCaptionFresh(String name) {
+    return 'Doar $name poate modifica acest eveniment. Alertele tale îi urmează modificările, chiar și când ANTA este închisă.';
+  }
+
+  @override
+  String get appGuideSharingAlertsFresh =>
+      'Alerta ta urmează modificările pe care partenerul le face evenimentului, chiar și când ANTA este închisă.';
+
+  @override
+  String get appGuideSharingAlertsLastReceived =>
+      'Alerta ta urmează ce a primit ultima dată acest telefon.';
 
   @override
   String shareNewFromPartner(String name, String what) {
@@ -11779,6 +11936,21 @@ class AppLocalizationsRo extends AppLocalizations {
           '$name nu mai partajează un eveniment. Alerta ta pentru el este oprită.',
     );
     return '$_temp0';
+  }
+
+  @override
+  String shareHiddenAlertsOff(String category) {
+    return 'Categoria $category este ascunsă. Alertele tale pentru ea rămân oprite până când categoria este afișată din nou.';
+  }
+
+  @override
+  String shareAlertsTurnOffLine(String name) {
+    return 'Alertele tale pentru ce partajează $name se opresc.';
+  }
+
+  @override
+  String syncStopReceivedLine(String name) {
+    return 'Ce partajează $name cu tine dispare de pe acest telefon.';
   }
 
   @override

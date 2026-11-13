@@ -373,8 +373,10 @@ class SyncBindingService {
   /// otherwise outlive it until the next bind (review RA1-7).
   Future<void> _unbind({required bool raiseFloor, String? healedFrom}) async {
     var removed = false;
+    String? leftUid;
     await _db.transaction(() async {
       final bound = await read();
+      leftUid = bound?.accountUid;
       await _settings.setSyncBinding(null);
       // Before the release: an unbound database holds only this device's
       // own rows, and the next bind takes every row it finds for its
@@ -383,6 +385,8 @@ class SyncBindingService {
       removed = !(await _db.sharedRowDao.removeAll()).isEmpty;
       if (bound != null) await _releaseRows(bound);
       await _db.syncOutboxDao.clear();
+      // What was owed a poke went with the outbox: nothing of it is sent.
+      await _db.syncDao.deleteByPrefix(SyncDao.sharePokeOwedPrefix);
       await _deletePullState();
       if (raiseFloor) await writeBindFloor();
       // A healed copy keeps the database it was copied from tapping under
@@ -398,7 +402,19 @@ class SyncBindingService {
     });
     await _updateRegistry((registry, name) => registry.release(name));
     if (removed) await _tellSharedRowsRemoved();
+    // Not for the heal's unbind: that copy shares this install's address
+    // with the database it was copied from, which still syncs.
+    final uid = leftUid;
+    if (uid != null && healedFrom == null) onUnbound?.call(uid);
   }
+
+  /// Set by DI to take this device's push address out of the pair's
+  /// document once a database stops syncing (`PushRegistry.leave`): a
+  /// phone that no longer reads what the partner shares has nothing to be
+  /// woken for. Called after the unbind committed and never awaited, so
+  /// "Stop syncing" does not wait on the network. Null in a test, and before
+  /// DI ran.
+  static void Function(String accountUid)? onUnbound;
 
   /// Set by DI to refresh what the screens hold once an unbind removed the
   /// rows another account shared (`docs/cloud-sharing-foundations.md` §6):

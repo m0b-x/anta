@@ -321,6 +321,8 @@ class CalendarCategoryDao extends DatabaseAccessor<AppDatabase>
       await db.categoryAlertDao.tombstoneForCategory(id, stamp: stamp);
       await db.categoryProfileDao.tombstoneForCategory(id, stamp: stamp);
       await _tombstone(existing, stamp);
+      // A shared category's end can ring: its events leave the partner.
+      await db.syncDao.oweSharePokes([existing.sharedPair], urgent: true);
       return true;
     });
   }
@@ -397,6 +399,10 @@ class CalendarCategoryDao extends DatabaseAccessor<AppDatabase>
         ),
       );
       await db.calendarEventDao.requeueForCategories([id]);
+      await db.syncDao.oweSharePokes([
+        pairId,
+        existing.sharedPair,
+      ], urgent: true);
       return true;
     });
   }
@@ -412,6 +418,14 @@ class CalendarCategoryDao extends DatabaseAccessor<AppDatabase>
   /// go on naming a pair this database no longer shares into. Returns how
   /// many it cleared.
   Future<int> clearOtherPairs(String? pairId, CrdtStamp stamp) async {
+    // The pairs the marks named, read before they go: each is owed a poke.
+    final pairs = await customSelect(
+      'SELECT DISTINCT shared_pair AS pair FROM calendar_categories '
+      'WHERE shared_pair IS NOT NULL AND shared_pair IS NOT ?1',
+      variables: [Variable<String>(pairId)],
+      readsFrom: {calendarCategories},
+    ).map((row) => row.read<String>('pair')).get();
+    if (pairs.isEmpty) return 0;
     final cleared = await customWriteReturning(
       'UPDATE calendar_categories SET shared_pair = NULL, shared_stamp = ?1, '
       'hlc_timestamp = ?1, device_id = ?2, version = version + 1 '
@@ -426,6 +440,7 @@ class CalendarCategoryDao extends DatabaseAccessor<AppDatabase>
       updateKind: UpdateKind.update,
     );
     if (cleared.isEmpty) return 0;
+    await db.syncDao.oweSharePokes(pairs, urgent: true);
     for (final deleted in const [false, true]) {
       await db.enqueueMany(
         calendarCategories,
@@ -606,6 +621,7 @@ class CalendarCategoryDao extends DatabaseAccessor<AppDatabase>
       }
       if (before != after) {
         await db.calendarEventDao.requeueForCategories([remote.id]);
+        await db.syncDao.oweSharePokes([before, after], urgent: true);
       }
       return outcome;
     });

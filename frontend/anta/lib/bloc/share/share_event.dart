@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:equatable/equatable.dart';
 
 import '../../models/share_overview.dart';
@@ -50,6 +52,27 @@ final class ShareEventUnshared extends ShareActEvent {
   List<Object?> get props => [eventId];
 }
 
+/// "Share a folder" on the Folders sheet: the folder picked there shared,
+/// with everything under it.
+final class ShareFolderShared extends ShareActEvent {
+  final String folderId;
+
+  const ShareFolderShared(this.folderId);
+
+  @override
+  List<Object?> get props => [folderId];
+}
+
+/// A row's ✕ on the Folders sheet: the folder's mark taken away.
+final class ShareFolderUnshared extends ShareActEvent {
+  final String folderId;
+
+  const ShareFolderUnshared(this.folderId);
+
+  @override
+  List<Object?> get props => [folderId];
+}
+
 /// "Stop sharing everything", confirmed.
 final class ShareStopAllRequested extends ShareActEvent {
   const ShareStopAllRequested();
@@ -59,7 +82,13 @@ final class ShareStopAllRequested extends ShareActEvent {
 final class ShareUndoRequested extends ShareActEvent {
   final ShareChange change;
 
-  const ShareUndoRequested(this.change);
+  /// How the surface that offered the Undo writes it once its bloc has
+  /// gone (`undoSharePastBloc`, its failure said on the app's messenger):
+  /// an Undo still queued behind a running act when the bloc closes is
+  /// handed to it rather than lost. Null writes through the service alone.
+  final FutureOr<void> Function(ShareChange change)? pastBloc;
+
+  const ShareUndoRequested(this.change, {this.pastBloc});
 
   @override
   List<Object?> get props => [change];
@@ -78,11 +107,47 @@ final class ShareCategoryShownSet extends ShareEvent {
   List<Object?> get props => [categoryId, shown];
 }
 
+/// A confirmation about to be asked of an act that ends what this phone
+/// holds of the partner's (D30): [answer] completes with how many of their
+/// events hold an armed alert of mine, 0 when that cannot be read. Never
+/// added for an account that is not paired.
+final class ShareArmedCountRequested extends ShareEvent {
+  final Completer<int> answer;
+
+  const ShareArmedCountRequested(this.answer);
+
+  @override
+  List<Object?> get props => [answer];
+}
+
+/// A partner's event about to be opened from a list (D33): [answer]
+/// completes with whether this phone still holds [eventId] of theirs —
+/// true when that cannot be read, so the tap is never left unanswered.
+final class SharePartnerEventHeldRequested extends ShareEvent {
+  final String eventId;
+  final Completer<bool> answer;
+
+  const SharePartnerEventHeldRequested(this.eventId, this.answer);
+
+  @override
+  List<Object?> get props => [eventId, answer];
+}
+
 /// How a partner's events are drawn on this phone (§6.7).
 final class ShareEventLookSet extends ShareEvent {
   final ShareEventLook look;
 
   const ShareEventLookSet(this.look);
+
+  @override
+  List<Object?> get props => [look];
+}
+
+/// How a partner's folders and notes are drawn on this phone (§6.7, D12).
+final class ShareNoteLookSet extends ShareEvent {
+  final ShareNoteLook look;
+
+  const ShareNoteLookSet(this.look);
 
   @override
   List<Object?> get props => [look];

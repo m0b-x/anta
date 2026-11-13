@@ -40,6 +40,78 @@ class _Pusher {
 
   _Pusher(this._e);
 
+  /// The shareable tables whose change can ring on the partner's phone: an
+  /// alert follows their events (decision j).
+  static const Set<String> _ringingTables = {
+    'calendar_categories',
+    'calendar_events',
+    'calendar_event_occurrences',
+    'calendar_event_skips',
+  };
+
+  /// What the last drain would still try, for [_stillSending]; null before
+  /// any drain of this engine.
+  bool Function(SyncOutboxRow entry)? _lastEligible;
+
+  /// After a run whose drain ended well: pokes the partner's phone in each
+  /// pair a poke is owed to ([SyncDao.keySharePokeOwed]) — owed by a write
+  /// that changed a grant, or by a push that landed a granted row
+  /// (`docs/cloud-shared-freshness.md` §7). A database the shared read has
+  /// not found paired asks nothing — no statement; a paired one pays one
+  /// keyed read, and a transaction only when something is owed and nothing
+  /// of the shareable tables is still to be sent. Never waits on the relay;
+  /// a failure here is logged and changes nothing of the run.
+  Future<void> pokeAfterDrain() async {
+    try {
+      final relay = GetIt.I.isRegistered<PushRelay>()
+          ? GetIt.I<PushRelay>()
+          : null;
+      if (relay == null || relay.address == null || !_e._sharedReadPaired) {
+        return;
+      }
+      final db = _e._db;
+      const prefix = SyncDao.sharePokeOwedPrefix;
+      if ((await db.syncDao.valuesByPrefix(prefix)).isEmpty) return;
+      if (await _stillSending()) return;
+      final owed = await db.transaction(() async {
+        final owed = await db.syncDao.valuesByPrefix(prefix);
+        await db.syncDao.deleteByPrefix(prefix);
+        return owed;
+      });
+      for (final (key, value) in owed) {
+        relay.poke(
+          key.substring(prefix.length),
+          urgent: value == SyncDao.sharePokeUrgent,
+        );
+      }
+    } catch (e, st) {
+      debugPrint('[SyncEngine] no poke: $e\n$st');
+    }
+  }
+
+  /// Whether an entry of a shareable table is queued that the last drain
+  /// would still have tried — written since, or let through again: the
+  /// rows a poke is owed for have not all left. A parked or held entry
+  /// holds nothing back; it may never leave.
+  Future<bool> _stillSending() async {
+    final eligible = _lastEligible;
+    if (eligible == null) return false;
+    final outbox = _e._db.syncOutboxDao;
+    final page = _e._gateway.maxBatch;
+    SyncOutboxKey? after;
+    while (true) {
+      final queued = await outbox.pending(limit: page, after: after);
+      for (final entry in queued) {
+        if (sharedTables.contains(entry.syncedTable) && eligible(entry)) {
+          return true;
+        }
+      }
+      if (queued.length < page) return false;
+      final last = queued.last;
+      after = (hlc: last.hlc, table: last.syncedTable, rowKey: last.rowKey);
+    }
+  }
+
   /// At a start and at "Sync now": this session's parks are forgotten, so
   /// the drain tries them again, and the stored ones are read again by the
   /// next run, which drops the ones due a retry.
@@ -269,6 +341,8 @@ class _Pusher {
           (pushed[key] != entry.hlc || _regrantedKeys.contains(key)) &&
           !_e._puller.holdsBack(key, entry.hlc);
     }
+
+    _lastEligible = eligible;
 
     // When the last part cut by bytes went out.
     DateTime? cutPartAt;
@@ -995,6 +1069,20 @@ class _Pusher {
           queued.entry.rowKey,
           queued.ack,
         );
+      }
+      // What landed with a grant is owed a poke in the acknowledgement's own
+      // transaction: a run that fails after this batch still owes it. A
+      // batch of private rows writes nothing here.
+      final granted = <String, bool>{};
+      for (final queued in batch) {
+        if (queued.envelope.sharedPair case final pair?) {
+          granted[pair] =
+              (granted[pair] ?? false) ||
+              _ringingTables.contains(queued.entry.syncedTable);
+        }
+      }
+      for (final MapEntry(key: pair, value: rings) in granted.entries) {
+        await db.syncDao.oweSharePoke(pairId: pair, urgent: rings);
       }
     });
     await _release([

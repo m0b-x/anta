@@ -4186,17 +4186,59 @@ abstract class AppLocalizations {
   /// **'Couldn\'t reset the settings'**
   String get settingsResetFailed;
 
-  /// Share note option
+  /// Note menu option that exports the note through the system share sheet; says 'copy' so it is never read as sharing with the paired partner
   ///
   /// In en, this message translates to:
-  /// **'Share note'**
+  /// **'Send a copy'**
   String get shareNote;
 
-  /// Share folder option (exports folder tree as zip archive)
+  /// Folder menu option that exports the folder tree as a zip archive through the system share sheet; says 'copy' so it is never read as sharing with the paired partner
   ///
   /// In en, this message translates to:
-  /// **'Share folder'**
+  /// **'Send a copy'**
   String get shareFolder;
+
+  /// Snackbar when the partner's folder that is open stops being shared; the page returns to the folder list
+  ///
+  /// In en, this message translates to:
+  /// **'{name} no longer shares this folder.'**
+  String shareGoneFolder(String name);
+
+  /// Line at the top of the long-press sheet of the partner's folder or note: why its actions are disabled
+  ///
+  /// In en, this message translates to:
+  /// **'Only {name} can change this.'**
+  String shareOnlyPartnerChanges(String name);
+
+  /// Caption under a disabled 'Shared with {name}' entry of a folder that a shared folder around it covers
+  ///
+  /// In en, this message translates to:
+  /// **'On for everything in {folder}'**
+  String shareThroughFolder(String folder);
+
+  /// Snackbar after a move into a shared folder; {moved} is the usual moved message ('Folder moved', '3 items moved')
+  ///
+  /// In en, this message translates to:
+  /// **'{moved} · now shared with {name}'**
+  String shareMovedIn(String moved, String name);
+
+  /// Snackbar after a move out of a shared folder; {moved} is the usual moved message
+  ///
+  /// In en, this message translates to:
+  /// **'{moved} · no longer shared'**
+  String shareMovedOut(String moved);
+
+  /// Confirm button of the folder picker opened by 'Share a folder'; the title already says who it goes to. One short word: it must fit at text scale 2.0
+  ///
+  /// In en, this message translates to:
+  /// **'Share'**
+  String get pickShareConfirm;
+
+  /// Confirm button of the folder picker opened by 'Copy to my notes'; the title already says what is copied. Short: it must fit at text scale 2.0
+  ///
+  /// In en, this message translates to:
+  /// **'Copy here'**
+  String get pickCopyConfirm;
 
   /// Message shown while exporting a folder archive
   ///
@@ -4237,7 +4279,7 @@ abstract class AppLocalizations {
   /// Selection action bar button to export the current selection as a zip
   ///
   /// In en, this message translates to:
-  /// **'Share'**
+  /// **'Send a copy'**
   String get shareSelected;
 
   /// Loading message while building a multi-select archive
@@ -16627,7 +16669,7 @@ abstract class AppLocalizations {
   /// Paragraph of the data notice: what the paired partner can read of what this person shares, and when it leaves their phone
   ///
   /// In en, this message translates to:
-  /// **'What you share with your partner can be read by their account from your cloud copy, and their phone keeps a read-only copy of it. That copy leaves their phone the next time it syncs after you stop sharing.'**
+  /// **'What you share with your partner — categories, events, and folders with their notes — can be read by their account from your cloud copy, and their phone keeps a read-only copy of it. That copy leaves their phone the next time it syncs after you stop sharing.'**
   String get dataNoticeShared;
 
   /// Last paragraph of the data notice: the two rows that remove cloud data, named by their labels
@@ -16765,7 +16807,7 @@ abstract class AppLocalizations {
   /// No description provided for @appGuideSharingPrivateBody.
   ///
   /// In en, this message translates to:
-  /// **'Your notes, counters, alerts, attendance marks, templates and settings stay on your side whatever you share.'**
+  /// **'Your counters, alerts, attendance marks, templates and settings stay on your side whatever you share.'**
   String get appGuideSharingPrivateBody;
 
   /// Stands in for {name} in every sharing string when the paired partner has no profile name. Lower case: the code capitalises a string that begins with it
@@ -16821,6 +16863,76 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Single events'**
   String get shareRowEvents;
+
+  /// Sharing page entry and sheet title: the shared folders, mine or the partner's
+  ///
+  /// In en, this message translates to:
+  /// **'Folders'**
+  String get shareRowFolders;
+
+  /// The one line of the sheet of my shared folders when none is shared, above the 'Share a folder' row
+  ///
+  /// In en, this message translates to:
+  /// **'No folder is shared yet.'**
+  String get shareFoldersEmpty;
+
+  /// Row at the end of the sheet of my shared folders: opens the folder picker to share one
+  ///
+  /// In en, this message translates to:
+  /// **'Share a folder'**
+  String get shareAddFolder;
+
+  /// Caption of a shared folder's row: the notes in it and in every folder under it. Keep the no-break space
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 note} other{{count} notes}}'**
+  String shareFolderNotes(int count);
+
+  /// Snackbar after sharing a folder that holds a folder shared on its own: the inner one is now shared through the outer one, with Undo
+  ///
+  /// In en, this message translates to:
+  /// **'{inner} is now shared through {outer}'**
+  String shareNowThrough(String inner, String outer);
+
+  /// Snackbar when the folder picked to share is shared already, on its own or through a folder it lies in
+  ///
+  /// In en, this message translates to:
+  /// **'{folder} is already shared'**
+  String shareFolderAlready(String folder);
+
+  /// Snackbar after a folder stopped being shared that also took away the shares of folders inside it, with Undo
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{No longer shared: {folder} and 1 folder inside it} other{No longer shared: {folder} and {count} folders inside it}}'**
+  String shareStoppedWithInner(String folder, int count);
+
+  /// Part of the Pairing row's summary: folders shared. Keep the no-break space
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 folder} other{{count} folders}}'**
+  String shareSummaryFolders(int count);
+
+  /// Sharing page choice row: how the partner's notes and folders are drawn (Avatar / Like mine)
+  ///
+  /// In en, this message translates to:
+  /// **'Notes shared with you'**
+  String get shareNoteLook;
+
+  /// Title of the app guide's row about sharing a folder
+  ///
+  /// In en, this message translates to:
+  /// **'Share a folder'**
+  String get appGuideSharingFolderTitle;
+
+  /// Body of the app guide's row about sharing a folder; the placeholders are the folder menu's share entry, the Sharing page's 'Share a folder' row and the Sharing page's title
+  ///
+  /// In en, this message translates to:
+  /// **'“{shareWith}” in a folder\'s ⋮ menu shares it; “{addFolder}” on “{sharingPage}” does the same. Your partner reads its notes and cannot change them; a note you add later is shared too.'**
+  String appGuideSharingFolderBody(
+    String shareWith,
+    String addFolder,
+    String sharingPage,
+  );
 
   /// Description of a Sharing page entry with nothing in it, and the empty line of the partner's single-events list
   ///
@@ -17059,7 +17171,7 @@ abstract class AppLocalizations {
   /// Body of the confirmation before every share is cleared, under shareStopAllConfirmTitle
   ///
   /// In en, this message translates to:
-  /// **'Your categories and events leave their phone. What {name} shares with you stays.'**
+  /// **'Your categories, events and folders leave their phone. What {name} shares with you stays.'**
   String shareStopAllConfirm(String name);
 
   /// Description of the Unpair row on the Sharing page
@@ -17161,7 +17273,7 @@ abstract class AppLocalizations {
   /// Description of the 'Mark what you share' switch
   ///
   /// In en, this message translates to:
-  /// **'A sign on the categories and events you share'**
+  /// **'A sign on your shared categories, events and folders'**
   String get shareMarkMineDesc;
 
   /// Section label on the Sharing page over the alert setting for shared events
@@ -17248,11 +17360,89 @@ abstract class AppLocalizations {
   /// **'Copied. Later changes by {name} do not reach your copy.'**
   String sharedEventCopied(String name);
 
+  /// Line under the note editor's bar on a note the partner shares
+  ///
+  /// In en, this message translates to:
+  /// **'From {name} · Read only'**
+  String sharedNoteLine(String name);
+
+  /// Menu entry on the partner's note: makes a note of my own from it
+  ///
+  /// In en, this message translates to:
+  /// **'Copy to my notes'**
+  String get sharedNoteCopy;
+
+  /// Snackbar, once per visit, when a task box is tapped in the partner's note
+  ///
+  /// In en, this message translates to:
+  /// **'Read only. Only {name} can change this note.'**
+  String sharedNoteReadOnly(String name);
+
+  /// Snackbar after copying the partner's note into my notes
+  ///
+  /// In en, this message translates to:
+  /// **'Copied. Later changes by {name} do not reach your copy.'**
+  String sharedNoteCopied(String name);
+
+  /// Snackbar when the folder picked for Copy to my notes was deleted before the copy was made
+  ///
+  /// In en, this message translates to:
+  /// **'That folder is gone. Nothing was copied.'**
+  String get sharedNoteCopyFolderGone;
+
+  /// Snackbar when the partner's note open in the editor stops being shared
+  ///
+  /// In en, this message translates to:
+  /// **'{name} no longer shares this note'**
+  String shareGoneNote(String name);
+
+  /// Screen reader label of a ticked task box in a read-only note: says what it is, offers no toggle
+  ///
+  /// In en, this message translates to:
+  /// **'Task, done'**
+  String get sharedNoteTaskDone;
+
+  /// Screen reader label of a ticked task box in a read-only note, with the task's text
+  ///
+  /// In en, this message translates to:
+  /// **'Task, done: {task}'**
+  String sharedNoteTaskDoneNamed(String task);
+
+  /// Screen reader label of an open task box in a read-only note: says what it is, offers no toggle
+  ///
+  /// In en, this message translates to:
+  /// **'Task, not done'**
+  String get sharedNoteTaskOpen;
+
+  /// Screen reader label of an open task box in a read-only note, with the task's text
+  ///
+  /// In en, this message translates to:
+  /// **'Task, not done: {task}'**
+  String sharedNoteTaskOpenNamed(String task);
+
   /// Caption at the end of the partner's event sheet
   ///
   /// In en, this message translates to:
   /// **'Only {name} can change this event. Your alerts follow what this phone last received.'**
   String sharedEventCaption(String name);
+
+  /// Caption at the end of the partner's event sheet on Android, where the phone keeps what the partner shares fresh while the app is closed; sharedEventCaption is the sentence everywhere else
+  ///
+  /// In en, this message translates to:
+  /// **'Only {name} can change this event. Your alerts follow its changes, even while ANTA is closed.'**
+  String sharedEventCaptionFresh(String name);
+
+  /// Sentence closing the app guide's row about alerts on shared events, on Android
+  ///
+  /// In en, this message translates to:
+  /// **'An alert of yours follows your partner\'s changes to the event, even while ANTA is closed.'**
+  String get appGuideSharingAlertsFresh;
+
+  /// Sentence closing the app guide's row about alerts on shared events, where the app cannot check while it is closed
+  ///
+  /// In en, this message translates to:
+  /// **'An alert of yours follows what this phone last received.'**
+  String get appGuideSharingAlertsLastReceived;
 
   /// Snackbar when one new thing from the partner arrived, with a View action
   ///
@@ -17289,6 +17479,24 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'{count, plural, =1{{name} no longer shares 1 event. Your alert for it is off.} other{{name} no longer shares {count} events. Your alerts for them are off.}}'**
   String shareGoneWithAlerts(int count, String name);
+
+  /// Snackbar when this person hides a partner's category whose events held armed alerts of theirs
+  ///
+  /// In en, this message translates to:
+  /// **'{category} is hidden. Your alerts on it are off until you show it again.'**
+  String shareHiddenAlertsOff(String category);
+
+  /// Sentence added to a confirmation (stop syncing, unpair, delete) while an alert of this person's is armed on something the partner shares
+  ///
+  /// In en, this message translates to:
+  /// **'Your alerts on what {name} shares turn off.'**
+  String shareAlertsTurnOffLine(String name);
+
+  /// Sentence added to the stop-syncing confirmation while this phone holds something the partner shares
+  ///
+  /// In en, this message translates to:
+  /// **'What {name} shares with you leaves this phone.'**
+  String syncStopReceivedLine(String name);
 
   /// Screen-reader words for a row of something this person shares
   ///

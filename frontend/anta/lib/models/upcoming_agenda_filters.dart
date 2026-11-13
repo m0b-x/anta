@@ -1,5 +1,6 @@
 import 'package:equatable/equatable.dart';
 
+import '../utils/category_allowlist.dart';
 import 'calendar_event.dart';
 
 /// Which events the upcoming agenda lists — a single mutually-exclusive axis,
@@ -241,7 +242,7 @@ class UpcomingAgendaFilters extends Equatable {
     }
     if (eventType != AgendaEventType.all) count++;
     if (priorities.isNotEmpty) count++;
-    if (categoryIds.isNotEmpty) count++;
+    if (!CategoryAllowlist.filtersNothing(categoryIds)) count++;
     return count;
   }
 

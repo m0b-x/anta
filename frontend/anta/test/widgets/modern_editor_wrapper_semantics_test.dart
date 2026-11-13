@@ -1,3 +1,5 @@
+import 'dart:ui' show CheckedState;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -71,6 +73,8 @@ void main() {
     Locale locale = const Locale('en'),
     bool wikiLinks = true,
     String text = document,
+    bool readOnly = false,
+    VoidCallback? onReadOnlyTaskTap,
   }) async {
     final tags = <String>[];
     final links = <String>[];
@@ -100,6 +104,8 @@ void main() {
           onTextChanged: () {},
           wordWrap: false,
           checkboxTapToggle: true,
+          readOnly: readOnly,
+          onReadOnlyTaskTap: onReadOnlyTaskTap,
           onOpenLink: links.add,
           onMoneyTap: money.add,
           onOpenTag: tags.add,
@@ -190,6 +196,43 @@ void main() {
     );
     await tester.pump();
     expect(e.controller.codeLines[1].text, '> - [x] quoted task');
+
+    handle.dispose();
+    await teardownEditor(tester);
+  });
+
+  testWidgets('read-only, a box says what it is — a task, done or not — and '
+      'is no toggle; activating it ticks nothing', (tester) async {
+    final handle = tester.ensureSemantics();
+    var told = 0;
+    final e = await pumpEditor(
+      tester,
+      text: 'plain line\n- [ ] eggs\n- [x] milk',
+      readOnly: true,
+      onReadOnlyTaskTap: () => told++,
+    );
+    await parkCaret(tester, e.controller, 0);
+
+    expect(
+      find.semantics.byLabel(zone(l10n.editorZoneToggleTask)),
+      findsNothing,
+    );
+    final open = find.semantics.byLabel(l10n.sharedNoteTaskOpenNamed('eggs'));
+    final done = find.semantics.byLabel(l10n.sharedNoteTaskDoneNamed('milk'));
+    expect(open, findsOne);
+    expect(done, findsOne);
+    for (final node in [open, done]) {
+      expect(
+        node.evaluate().single.getSemanticsData().flagsCollection.isChecked,
+        CheckedState.none,
+        reason: 'a checked state is what a reader offers to toggle',
+      );
+    }
+
+    tester.semantics.tap(open);
+    await tester.pump();
+    expect(e.controller.codeLines[1].text, '- [ ] eggs');
+    expect(told, 1);
 
     handle.dispose();
     await teardownEditor(tester);

@@ -103,6 +103,30 @@ abstract class PairingGateway {
   /// [deleteInvite]. The rules answer for one's own only, so no code can be
   /// enumerated this way.
   Future<List<String>> findOwnInvites(String uid);
+
+  /// Writes [deviceId]'s push address under [uid] in [pairId], stamped with
+  /// the server's time, and removes [uid]'s devices [drop] in the same
+  /// update (`docs/cloud-shared-freshness.md` §7). Field paths alone, so two
+  /// devices of one account writing at once never overwrite each other.
+  Future<void> writePushDevice({
+    required String pairId,
+    required String uid,
+    required String deviceId,
+    required PairPushDevice device,
+    Iterable<String> drop = const [],
+  });
+
+  /// Removes [uid]'s devices [deviceIds] from [pairId]'s push addresses —
+  /// the rules let a member do so on an ended pair too.
+  Future<void> removePushDevices({
+    required String pairId,
+    required String uid,
+    required Iterable<String> deviceIds,
+  });
+
+  /// The relay's address as `config/push` names it; null when the document
+  /// or its `relay` is absent — no relay.
+  Future<String?> readPushRelay();
 }
 
 /// Bound wherever cloud sync is unavailable. Refuses every call rather than
@@ -172,6 +196,25 @@ class NoOpPairingGateway implements PairingGateway {
 
   @override
   Future<List<String>> findOwnInvites(String uid) async => _unavailable();
+
+  @override
+  Future<void> writePushDevice({
+    required String pairId,
+    required String uid,
+    required String deviceId,
+    required PairPushDevice device,
+    Iterable<String> drop = const [],
+  }) async => _unavailable();
+
+  @override
+  Future<void> removePushDevices({
+    required String pairId,
+    required String uid,
+    required Iterable<String> deviceIds,
+  }) async => _unavailable();
+
+  @override
+  Future<String?> readPushRelay() async => _unavailable();
 }
 
 class FirestorePairingGateway implements PairingGateway {
@@ -396,6 +439,50 @@ class FirestorePairingGateway implements PairingGateway {
     }.toList();
   });
 
+  @override
+  Future<void> writePushDevice({
+    required String pairId,
+    required String uid,
+    required String deviceId,
+    required PairPushDevice device,
+    Iterable<String> drop = const [],
+  }) => _guard(
+    () => _pairs.doc(pairId).update({
+      FieldPath(['push', uid, deviceId]): {
+        'id': device.id,
+        'kind': device.kind,
+        'at': FieldValue.serverTimestamp(),
+      },
+      for (final stale in drop)
+        if (stale != deviceId)
+          FieldPath(['push', uid, stale]): FieldValue.delete(),
+    }),
+  );
+
+  @override
+  Future<void> removePushDevices({
+    required String pairId,
+    required String uid,
+    required Iterable<String> deviceIds,
+  }) {
+    final paths = {
+      for (final deviceId in deviceIds)
+        FieldPath(['push', uid, deviceId]): FieldValue.delete(),
+    };
+    if (paths.isEmpty) return Future.value();
+    return _guard(() => _pairs.doc(pairId).update(paths));
+  }
+
+  @override
+  Future<String?> readPushRelay() => _guard(() async {
+    final snapshot = await _db
+        .collection('config')
+        .doc('push')
+        .get(const GetOptions(source: Source.server));
+    final relay = snapshot.data()?['relay'];
+    return relay is String ? relay : null;
+  });
+
   Map<String, dynamic> _profileData(PairProfile profile) => {
     'displayName': profile.displayName,
     'photoUrl': profile.photoUrl,
@@ -443,7 +530,33 @@ class FirestorePairingGateway implements PairingGateway {
       endedBy: endedBy is String ? endedBy : null,
       endedAt: _dateFrom(data['endedAt']),
       profiles: _profilesFrom(data['profiles']),
+      push: pushFrom(data['push']),
     );
+  }
+
+  /// The `push` map of a pair's document, read leniently: what an older
+  /// build or a malformed entry left there reads as no device, never as a
+  /// pair that cannot be read.
+  @visibleForTesting
+  static Map<String, Map<String, PairPushDevice>> pushFrom(Object? raw) {
+    if (raw is! Map) return const {};
+    final push = <String, Map<String, PairPushDevice>>{};
+    raw.forEach((uid, devices) {
+      if (uid is! String || devices is! Map) return;
+      final read = <String, PairPushDevice>{};
+      devices.forEach((deviceId, entry) {
+        if (deviceId is! String || entry is! Map) return;
+        final id = entry['id'];
+        final kind = entry['kind'];
+        final at = _dateFrom(entry['at']);
+        if (id is! String || id.isEmpty || kind is! String || at == null) {
+          return;
+        }
+        read[deviceId] = PairPushDevice(id: id, kind: kind, at: at);
+      });
+      if (read.isNotEmpty) push[uid] = read;
+    });
+    return push;
   }
 
   static Map<String, PairProfile> _profilesFrom(Object? raw) {

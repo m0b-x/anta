@@ -8,6 +8,7 @@ import 'package:anta/bloc/optimized_note/optimized_note_bloc.dart'
     show NoteWriteRefusedException;
 import 'package:anta/bloc/optimized_note/optimized_note_event.dart';
 import 'package:anta/controllers/note_save_coordinator.dart';
+import 'package:anta/models/note_metadata.dart';
 import 'package:anta/services/auto_save_service.dart';
 
 /// The editor's persistence contract, driven through a real
@@ -478,6 +479,36 @@ void main() {
           reason: 'an unchanged title is not resent',
         );
         expect(h.lookups, isEmpty);
+
+        h.dispose();
+      });
+    });
+
+    test('a save carries the metadata the page holds at that write, so the '
+        'storage keeps its share flags without a census read', () {
+      fakeAsync((async) {
+        final h = _Harness.existing()..coordinator.start();
+        final held = NoteMetadata(
+          id: 'note-1',
+          folderId: 'folder-1',
+          title: 'Original',
+          preview: '',
+          contentLength: 2,
+          chunkCount: 1,
+          isCompressed: false,
+          createdAt: DateTime(2026, 11, 13),
+          updatedAt: DateTime(2026, 11, 13),
+          sharedThroughFolderId: 'shelf',
+        );
+
+        h.type('v1');
+        async.elapse(_Harness.debounce);
+        expect(h.updates.single.current, isNull);
+
+        h.current = held;
+        h.type('v2');
+        async.elapse(_Harness.debounce);
+        expect(h.updates.last.current, same(held));
 
         h.dispose();
       });
@@ -1205,6 +1236,25 @@ void main() {
       });
     });
 
+    test('disabled from the start, a load, a create landing or a retarget '
+        'tracks nothing and schedules nothing — a read-only page', () {
+      fakeAsync((async) {
+        final h = _Harness.existing();
+        h.coordinator.disableSaves();
+        h.coordinator.start();
+        h.coordinator.contentLoaded();
+        h.coordinator.retarget('note-2', title: 'Kept', content: 'v0');
+        h.coordinator.noteCreated('note-3');
+        h.coordinator.adoptStoredContent('v1');
+
+        expect(async.periodicTimerCount, 0, reason: 'no interval armed');
+        async.elapse(_Harness.interval * 3);
+        expect(h.events, isEmpty);
+        expect(h.coordinator.hasChanges.value, isFalse);
+        h.dispose();
+      });
+    });
+
     test('a create already inside its title lookup is dropped', () {
       fakeAsync((async) {
         final h = _Harness()
@@ -1251,6 +1301,7 @@ class _Harness {
         if (custom != null) return custom(leaving);
         return mayWrite || leaving;
       },
+      current: () => current,
       autoSaveFactory: ({required onSave, required onChangeDetected}) =>
           autoSave = AutoSaveService(
             onSave: onSave,
@@ -1263,6 +1314,9 @@ class _Harness {
 
   /// The service the factory built, so a test can read what reached it.
   late final AutoSaveService autoSave;
+
+  /// What the page answers when a write asks for its metadata.
+  NoteMetadata? current;
 
   /// A note that already exists, opened with a stored title.
   factory _Harness.existing({String? originalTitle = 'Original'}) => _Harness(

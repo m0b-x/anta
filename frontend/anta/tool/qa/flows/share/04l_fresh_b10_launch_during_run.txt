@@ -1,0 +1,50 @@
+# Freshness B10 (docs/cloud-shared-freshness.md §10): the partner opens
+# the app while a run is in flight. The event is shared again — the
+# partner's two alerts of 04k arm with it — the partner's process is
+# ended, the owner moves the event an hour later, the work is started and
+# the app is launched at once: the launch succeeds, and whichever of the
+# two read the change — the run before it gave way, or the app's own
+# start after — both armed instants end an hour later.
+# - A flow cannot time the wait itself; it asserts the launch and the
+#   outcome.
+# - Ends as 05 expects: the pair standing, nothing shared, the owner's
+#   event back at 18:00, both guests on Sync & sharing.
+share event "Lifting session"
+tap id:sharing-sync-now --settle 3000
+expect id:sharing-sync-status "Up to date" --timeout 60
+-d emulator-5558 tap id:sharing-sync-now --settle 3000
+-d emulator-5558 expect id:sharing-sync-status "Up to date" --timeout 60
+-d emulator-5558 armed --tier reminder --expect some --capture reminder10
+-d emulator-5558 armed --tier alarm --expect some --capture alarm10
+-d emulator-5558 work --expect scheduled
+-d emulator-5558 key back
+-d emulator-5558 wait id:create-folder
+-d emulator-5558 kill-app
+move-event "Lifting session" --minutes 60
+tap id:sharing-sync-now --settle 3000
+expect id:sharing-sync-status "Up to date" --timeout 60
+-d emulator-5558 work --run
+-d emulator-5558 launch
+-d emulator-5558 wait id:create-folder --timeout 30
+# The partner's sign-in account is held in memory: the new process is told
+# it again, or 06's re-authentication would offer the build's account.
+-d emulator-5558 set account=qa2:qa2@example.com
+-d emulator-5558 tap id:nav-menu
+-d emulator-5558 wait id:drawer-account
+-d emulator-5558 tap id:drawer-account
+-d emulator-5558 wait id:settings-bar-sharing
+-d emulator-5558 tap id:sharing-sync-now --settle 3000
+-d emulator-5558 expect id:sharing-sync-status "Up to date" --timeout 60
+-d emulator-5558 armed --tier reminder --expect shifted:reminder10:3600
+-d emulator-5558 armed --tier alarm --expect shifted:alarm10:3600
+-d emulator-5558 errors
+# Back to what 05 expects.
+share event "Lifting session" --off
+move-event "Lifting session" --minutes -60
+tap id:sharing-sync-now --settle 3000
+expect id:sharing-sync-status "Up to date" --timeout 60
+-d emulator-5558 tap id:sharing-sync-now
+-d emulator-5558 expect "no longer shares Lifting session. Your alert is off." --timeout 60
+-d emulator-5558 armed --expect none
+-d emulator-5558 work --expect none
+errors

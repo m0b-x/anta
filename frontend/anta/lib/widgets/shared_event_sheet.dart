@@ -12,8 +12,10 @@ import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
 import '../models/calendar_event.dart';
 import '../models/event_alert.dart';
+import '../models/note_metadata.dart';
 import '../models/partner_look.dart';
 import '../models/share_settings.dart';
+import '../services/shared_refresh/shared_refresh_scheduler.dart';
 import '../utils/markdown_color_syntax.dart';
 import '../utils/share_copy.dart';
 import 'alert_editor_sheet.dart';
@@ -38,6 +40,14 @@ final class SharedEventCopied extends SharedEventExit {
 /// ended — and the sheet closed rather than go on describing it.
 final class SharedEventGone extends SharedEventExit {
   const SharedEventGone();
+}
+
+/// The Linked note row was tapped: [note], the partner's, flagged for the
+/// caller to open read-only in the editor (§6.13).
+final class SharedEventOpenNote extends SharedEventExit {
+  final NoteMetadata note;
+
+  const SharedEventOpenNote(this.note);
 }
 
 /// A partner's event, read (share surfaces §6.9, the spec's §8): the sibling
@@ -94,6 +104,12 @@ class SharedEventSheet extends StatefulWidget {
   /// after this sheet has closed.
   final ValueChanged<String>? onOpenWikiLink;
 
+  /// The note the event links, when it is on this phone — a note in a
+  /// folder the partner shares — or null. The Linked note row shows only
+  /// for an answer: a note the partner did not share is absent, never
+  /// "Not found" (§6.9 item 2, C12). Null asks nothing.
+  final Future<NoteMetadata?> Function(String noteId)? resolveNote;
+
   const SharedEventSheet({
     super.key,
     required this.event,
@@ -106,6 +122,7 @@ class SharedEventSheet extends StatefulWidget {
     this.onAlertsChanged,
     this.onCopy,
     this.onOpenWikiLink,
+    this.resolveNote,
   });
 
   /// The detail sheet's sub-sheet shape: content-tall, clamped at the
@@ -128,6 +145,7 @@ class SharedEventSheet extends StatefulWidget {
     onAlertsChanged,
     Future<CalendarEvent?> Function()? onCopy,
     ValueChanged<String>? onOpenWikiLink,
+    Future<NoteMetadata?> Function(String noteId)? resolveNote,
   }) {
     final colorScheme = Theme.of(context).colorScheme;
     return showModalBottomSheet<SharedEventExit>(
@@ -161,6 +179,7 @@ class SharedEventSheet extends StatefulWidget {
             onAlertsChanged: onAlertsChanged,
             onCopy: onCopy,
             onOpenWikiLink: onOpenWikiLink,
+            resolveNote: resolveNote,
           ),
         ),
       ),
@@ -201,11 +220,56 @@ class _SharedEventSheetState extends State<SharedEventSheet> {
   String _descriptionOf(CalendarEvent event) =>
       OccurrenceDescriptions.descriptionFor(event, widget.day)?.trim() ?? '';
 
+  /// The linked note as [SharedEventSheet.resolveNote] last answered.
+  NoteMetadata? _note;
+
+  /// Counts the lookups, so a late answer for a link the event no longer
+  /// holds is dropped.
+  int _noteLookups = 0;
+
   @override
   void initState() {
     super.initState();
     _bodyScroll.addListener(_onBodyScroll);
     _changes = widget.changes?.listen(_onChange);
+    unawaited(_resolveNote(_event.noteId));
+  }
+
+  Future<void> _resolveNote(String? noteId) async {
+    final lookup = ++_noteLookups;
+    final resolve = widget.resolveNote;
+    NoteMetadata? note;
+    if (noteId != null && resolve != null) {
+      try {
+        note = await resolve(noteId);
+      } catch (e) {
+        // A lookup that throws leaves the row out, as a note not shared does.
+        debugPrint('[SharedEventSheet] linked note not read: $e');
+      }
+    }
+    if (!mounted || lookup != _noteLookups || note == _note) return;
+    setState(() => _note = note);
+  }
+
+  /// Asked again at the tap: the note may have left the phone since the
+  /// row was drawn, and the editor must not open on nothing. Gone, the row
+  /// goes and nothing opens.
+  Future<void> _openNote(NoteMetadata shown) async {
+    final resolve = widget.resolveNote;
+    if (resolve == null || _popped) return;
+    NoteMetadata? current;
+    try {
+      current = await resolve(shown.id);
+    } catch (e) {
+      debugPrint('[SharedEventSheet] linked note not read: $e');
+    }
+    if (!mounted || _popped) return;
+    if (current == null) {
+      _noteLookups++;
+      setState(() => _note = null);
+      return;
+    }
+    _close(SharedEventOpenNote(current));
   }
 
   @override
@@ -236,11 +300,13 @@ class _SharedEventSheetState extends State<SharedEventSheet> {
       return;
     }
     if (event == _event) return;
+    final relinked = event.noteId != _event.noteId;
     setState(() {
       _event = event;
       _facts = EventReadFacts(event, widget.day);
       _description = _descriptionOf(event);
     });
+    if (relinked) unawaited(_resolveNote(event.noteId));
   }
 
   /// Pops this sheet's own route with [exit]. A leave can land while an
@@ -378,6 +444,7 @@ class _SharedEventSheetState extends State<SharedEventSheet> {
       MediaQuery.viewPaddingOf(context).bottom,
     );
     final priority = _facts.priorityRow(l10n);
+    final note = _note;
     return Semantics(
       container: true,
       identifier: SemanticsIds.sharedEventSheet,
@@ -445,14 +512,26 @@ class _SharedEventSheetState extends State<SharedEventSheet> {
                     // caption no bottom one: the gap a group would leave.
                     const SizedBox(height: RowMetrics.groupGap),
                   ],
-                  // The Linked note row belongs here only for a note in a
-                  // folder the partner shares, opened read-only — the
-                  // partner's notes arrive with slice F. Until then a
-                  // partner's event shows no note row, never "Not found",
-                  // and nothing opens the editor on a note of theirs.
-                  if (priority != null) ...[
+                  // The Linked note row only for a note in a folder the
+                  // partner shares, opened read-only; any other link shows
+                  // no row at all, never "Not found".
+                  if (priority != null || note != null) ...[
                     FormSectionLabel(text: l10n.eventSectionDetails),
-                    FormRowGroup(children: [priority]),
+                    FormRowGroup(
+                      children: [
+                        ?priority,
+                        if (note != null)
+                          FormPickerRow(
+                            glyph: Icons.sticky_note_2_outlined,
+                            identifier: SemanticsIds.sharedEventNote,
+                            label: l10n.eventLinkedNote,
+                            value: note.title.isEmpty
+                                ? l10n.untitledNote
+                                : note.title,
+                            onTap: () => _openNote(note),
+                          ),
+                      ],
+                    ),
                   ],
                   FormRowGroup(
                     trailingGap: false,
@@ -466,7 +545,9 @@ class _SharedEventSheetState extends State<SharedEventSheet> {
                     ],
                   ),
                   FormCaption(
-                    text: l10n.sharedEventCaption(name),
+                    text: SharedRefreshAvailability.isSupported
+                        ? l10n.sharedEventCaptionFresh(name)
+                        : l10n.sharedEventCaption(name),
                     padding: FormMetrics.groupCaptionPadding,
                   ),
                 ],

@@ -7,6 +7,7 @@ import '../bloc/optimized_note/optimized_note_bloc.dart'
     show NoteWriteRefusedException;
 import '../bloc/optimized_note/optimized_note_event.dart';
 import '../constants/settings_keys.dart';
+import '../models/note_metadata.dart';
 import '../services/auto_save_service.dart';
 
 /// Builds the [AutoSaveService] a [NoteSaveCoordinator] saves through.
@@ -42,6 +43,7 @@ class NoteSaveCoordinator {
     required void Function(OptimizedNoteEvent event) dispatch,
     required void Function(String title) onDuplicateTitle,
     FutureOr<bool> Function({required bool leaving})? beforeWrite,
+    NoteMetadata? Function()? current,
     AutoSaveFactory? autoSaveFactory,
   }) : _effectiveNoteId = noteId,
        _originalTitle = originalTitle,
@@ -50,7 +52,8 @@ class NoteSaveCoordinator {
        _titleExists = titleExists,
        _dispatch = dispatch,
        _onDuplicateTitle = onDuplicateTitle,
-       _beforeWrite = beforeWrite {
+       _beforeWrite = beforeWrite,
+       _current = current {
     _autoSave = (autoSaveFactory ?? _defaultAutoSave)(
       onSave: _save,
       onChangeDetected: _setHasChanges,
@@ -91,6 +94,13 @@ class NoteSaveCoordinator {
   /// to run meanwhile — so the page can decide which holds a last write may
   /// pass (record §3.9, M3).
   final FutureOr<bool> Function({required bool leaving})? _beforeWrite;
+
+  /// The metadata the page holds for the note, asked at each write and
+  /// carried by its [UpdateOptimizedNote]: the storage then keeps its share
+  /// flags rather than reading the share census, so a save after a share
+  /// act or a folder-touching sync run adds no await to the typing path.
+  /// Null when the page holds none it can vouch for.
+  final NoteMetadata? Function()? _current;
 
   /// Set from [saveBeforeExit] until the page is gone or [exitAborted] says
   /// it stayed: every write started meanwhile is the exit's own flush.
@@ -176,7 +186,7 @@ class NoteSaveCoordinator {
   /// note being rewritten verbatim five seconds after it was opened, with
   /// a fresh `updatedAt`, `version` and HLC behind it.
   void contentLoaded() {
-    if (_effectiveNoteId == null) return;
+    if (_effectiveNoteId == null || _savesDisabled) return;
     _track();
     _setHasChanges(false);
   }
@@ -201,6 +211,7 @@ class NoteSaveCoordinator {
   void noteCreated(String id) {
     _effectiveNoteId = id;
     _isCreatingNewNote = false;
+    if (_savesDisabled) return;
     final baselineTitle = _createdTitle ?? '';
     final baselineContent = _createdContent ?? '';
     _autoSave.startTracking(
@@ -238,6 +249,7 @@ class NoteSaveCoordinator {
   }) {
     _effectiveNoteId = noteId;
     _originalTitle = title;
+    if (_savesDisabled) return;
     _autoSave.startTracking(title, content, contentProvider: _content);
     if (_title() != title || _content() != content) {
       markChanged();
@@ -368,8 +380,10 @@ class NoteSaveCoordinator {
     _saveStatus.dispose();
   }
 
+  /// Off once [disableSaves] ran: tracking arms auto-save's interval and
+  /// hands it the editor's text, and either is a write waiting to happen.
   void _track() {
-    if (_effectiveNoteId == null) return;
+    if (_effectiveNoteId == null || _savesDisabled) return;
     _autoSave.startTracking(_title(), _content(), contentProvider: _content);
   }
 
@@ -425,6 +439,7 @@ class NoteSaveCoordinator {
         noteId: noteId,
         title: titleToSave,
         content: content,
+        current: _current?.call(),
         completer: completer,
       ),
     );

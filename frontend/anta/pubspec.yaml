@@ -79,9 +79,13 @@ dependencies:
   url_launcher: ^6.3.1
 
   # Cloud sync transport (Android/iOS only — gated by SyncAvailability)
-  firebase_core: ^4.13.0
-  firebase_auth: ^6.5.7
-  cloud_firestore: ^6.8.0
+  firebase_core: ^5.1.0
+  firebase_auth: ^7.0.1
+  cloud_firestore: ^7.1.0
+  firebase_messaging: ^17.0.1
+  # A push address dies with its pair: FCM's unregister keeps the installation,
+  # and only deleting it makes the next registration a new address
+  firebase_app_installations: ^0.5.1
   google_sign_in: ^7.2.0
   # Event alerts (Android/iOS only — gated by AlertAvailability)
   alarm:
@@ -91,6 +95,9 @@ dependencies:
   flutter_timezone: ^5.1.0
   # What the alarm fork reports through; listened to so its warnings are printed
   logging: ^1.3.0
+  # The check that keeps a partner's shared rows fresh while the app is
+  # closed (Android only — bound in injection.dart beside SyncAvailability)
+  workmanager: ^0.10.10
 
 dev_dependencies:
   flutter_test:

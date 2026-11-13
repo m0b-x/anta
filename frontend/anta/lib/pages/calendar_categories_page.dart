@@ -43,6 +43,7 @@ import '../widgets/form_menu_item.dart';
 import '../widgets/form_rows.dart';
 import '../widgets/settings_reorder.dart';
 import '../widgets/settings_search_field.dart';
+import '../widgets/share_list_frame.dart' show sayShareFailurePastSurface;
 import '../widgets/shared_category_sheet.dart';
 import '../widgets/unified_app_bars.dart';
 import '../widgets/value_change_highlight.dart';
@@ -118,6 +119,19 @@ class _CalendarCategoriesPageState extends State<CalendarCategoriesPage> {
   CalendarEventService? _eventService;
   ShareService? _shareService;
 
+  /// The app's messenger and words, read while the page stands: a share
+  /// written for a new category, or an Undo, may answer after the page has
+  /// gone, and its failure is still said ([sayShareFailurePastSurface]).
+  ScaffoldMessengerState? _messenger;
+  AppLocalizations? _l10n;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _messenger = ScaffoldMessenger.maybeOf(context);
+    _l10n = AppLocalizations.of(context);
+  }
+
   /// The local display order. While a drag is being persisted this leads the
   /// service's own list, which is the whole point of the optimistic update —
   /// and the reason an empty query renders it **directly** rather than through
@@ -159,6 +173,11 @@ class _CalendarCategoriesPageState extends State<CalendarCategoriesPage> {
   /// paired leaves every share word and control off the page (D7).
   ShareAvailability _share = const ShareNotPaired();
   StreamSubscription<ShareAvailability>? _shareChanges;
+
+  /// The pairing service's writes, followed only while the page opened as
+  /// not paired ([PairingService.pairedInMemory]) and no share service is
+  /// open: the first pair written opens sharing as [_load] would have.
+  StreamSubscription<PairingStatus>? _pairings;
 
   /// How a partner's category is drawn, and whether a shared category of
   /// mine wears the share sign (`shareMarkMine`; its caption says "Shared"
@@ -207,6 +226,7 @@ class _CalendarCategoriesPageState extends State<CalendarCategoriesPage> {
   void dispose() {
     _externalChanges?.cancel();
     _shareChanges?.cancel();
+    _pairings?.cancel();
     _shareBloc?.close();
     _searchController.dispose();
     _scrollController.dispose();
@@ -272,12 +292,11 @@ class _CalendarCategoriesPageState extends State<CalendarCategoriesPage> {
         }
         _isLoading = false;
       });
-      _shareChanges = _shareService?.changes.listen((next) {
-        if (!mounted || next == _share) return;
-        setState(() => _share = next);
-        // A pair that ends takes the section with it at once.
-        unawaited(_refreshPartner());
-      });
+      if (shareFuture == null) {
+        _pairings = PairingService.writtenInMemory?.listen(_onPairingWritten);
+      } else {
+        _followShare();
+      }
     } catch (e) {
       // Either `getInstance()` can throw — a database that failed to open
       // after a switch. Without this the spinner is the page for good and the
@@ -287,6 +306,35 @@ class _CalendarCategoriesPageState extends State<CalendarCategoriesPage> {
       if (!mounted) return;
       setState(() => _isLoading = false);
     }
+  }
+
+  /// Follows the open share service's availability while the page is open.
+  void _followShare() {
+    _shareChanges = _shareService?.changes.listen((next) {
+      if (!mounted || next == _share) return;
+      setState(() => _share = next);
+      // A pair that ends takes the section with it at once.
+      unawaited(_refreshPartner());
+    });
+  }
+
+  /// A pair written while the page is open, which opened as not paired:
+  /// sharing is opened as [_load] opens it, and from then on followed as
+  /// that service says.
+  Future<void> _onPairingWritten(PairingStatus status) async {
+    if (status.pairId == null || _shareService != null) return;
+    unawaited(_pairings?.cancel());
+    _pairings = null;
+    final share = await _openShare(CategoryService.getInstance());
+    if (share == null || !mounted) return;
+    setState(() {
+      _shareService = share.service;
+      _share = share.service.availability;
+      _look = share.look;
+      _shareAlerts = share.alerts;
+    });
+    _followShare();
+    await _refreshPartner();
   }
 
   /// The share service, the looks and the alerts setting, or null when
@@ -448,6 +496,9 @@ class _CalendarCategoriesPageState extends State<CalendarCategoriesPage> {
           context,
           failure?.call(l10n, e) ?? l10n.categoryChangeFailed,
         );
+      } else if (failure != null && _l10n != null) {
+        // A share act the page asked for and did not live to hear.
+        sayShareFailurePastSurface(_messenger, failure(_l10n!, e));
       }
       return false;
     } finally {
@@ -1199,7 +1250,7 @@ class _CalendarCategoriesPageState extends State<CalendarCategoriesPage> {
     final hasAlerts = EventAlerts.categoryAlertsFor(
       category.id,
     ).any((alert) => alert.enabled);
-    return [
+    return ShareCopy.caption([
       l10n.categoryEventCount(_counts[category.id] ?? 0),
       if (category.isBuiltIn) l10n.categoryCaptionBuiltIn,
       if (hasAlerts) l10n.categoryCaptionAlertsOn,
@@ -1210,7 +1261,7 @@ class _CalendarCategoriesPageState extends State<CalendarCategoriesPage> {
                 ShareCopy.partnerName(l10n, _share.audience?.displayName),
               )
             : l10n.categoryCaptionShared,
-    ].join(AppConstants.captionSeparator);
+    ]);
   }
 
   /// Whether [category] shows as shared: its own mark, while paired.
@@ -1257,10 +1308,10 @@ class _CalendarCategoriesPageState extends State<CalendarCategoriesPage> {
         EventAlerts.categoryAlertsFor(
           category.id,
         ).any((alert) => alert.enabled);
-    return [
+    return ShareCopy.caption([
       l10n.categoryEventCount(_partnerCounts[category.id] ?? 0),
       if (ringing) l10n.categoryCaptionAlertsOn,
-    ].join(AppConstants.captionSeparator);
+    ]);
   }
 
   /// The lifted row: one card of its own, whatever its place in its group,

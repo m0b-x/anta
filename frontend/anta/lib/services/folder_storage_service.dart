@@ -1,11 +1,14 @@
 import '../database/database.dart';
 import '../database/daos/folder_dao.dart';
+import '../database/daos/shared_row_dao.dart' show SharedRowException;
 import '../repositories/folder_repository.dart';
 import '../models/folder.dart' as model;
 import '../models/item_label.dart';
 import '../models/movable_item.dart';
+import '../models/partner_folder_sort.dart';
 import '../constants/app_constants.dart';
 import 'duplicate_name_exception.dart';
+import 'settings_service.dart';
 
 /// The orderings the browser offers for a folder's subfolders.
 ///
@@ -79,8 +82,17 @@ class FolderStorageService {
     FoldersSortOrder sortOrder = FoldersSortOrder.nameAsc,
   }) async {
     await initialize();
+    // The root pages the person's own folders alone: the partner's are the
+    // "From {name}" group's, read whole by [loadPartnerTopFolders] — paged
+    // together, a page boundary would split that group (§6.12).
+    final theirs = parentId == null
+        ? (await _repository.shareCensus.read()).owner
+        : null;
 
-    final totalCount = await _repository.getFolderCount(parentId);
+    final totalCount = await _repository.getFolderCount(
+      parentId,
+      excludeOwner: theirs,
+    );
     final totalPages = (totalCount / pageSize).ceil().clamp(
       1,
       double.maxFinite.toInt(),
@@ -95,9 +107,10 @@ class FolderStorageService {
       offset: offset,
       sortField: sortField,
       ascending: ascending,
+      excludeOwner: theirs,
     );
 
-    final modelFolders = folders.map(_folderToModel).toList();
+    final modelFolders = await _toModels(folders);
 
     return PaginatedFolders(
       folders: modelFolders,
@@ -108,10 +121,20 @@ class FolderStorageService {
     );
   }
 
+  /// The partner's top-level folders by name, in one statement: the
+  /// browser root's "From {name}" group, whole on its first frame. Nothing
+  /// is read for a database that holds no shared row — the census answers.
+  Future<List<model.Folder>> loadPartnerTopFolders() async {
+    await initialize();
+    final owner = (await _repository.shareCensus.read()).owner;
+    if (owner == null) return const [];
+    return _toModels(await _repository.topFoldersOf(owner));
+  }
+
   Future<List<model.Folder>> loadAllFoldersForParent(String? parentId) async {
     await initialize();
     final folders = await _repository.getFoldersByParent(parentId);
-    return folders.map(_folderToModel).toList();
+    return _toModels(folders);
   }
 
   /// Load every non-deleted folder (used by the folder-name index for
@@ -119,7 +142,7 @@ class FolderStorageService {
   Future<List<model.Folder>> loadAllFolders() async {
     await initialize();
     final folders = await _repository.getAllFolders();
-    return folders.map(_folderToModel).toList();
+    return _toModels(folders);
   }
 
   /// The live folder a note from [folderId] can be filed into: see
@@ -145,7 +168,7 @@ class FolderStorageService {
     final folder = await _repository.getFolderById(folderId);
     if (folder == null) return null;
     if (!includeDeleted && folder.isDeleted) return null;
-    return _folderToModel(folder);
+    return _toModel(folder);
   }
 
   Future<int> getSubfolderCount(String folderId) async {
@@ -183,7 +206,7 @@ class FolderStorageService {
       parentId: parentId,
       label: label,
     );
-    return _folderToModel(folder);
+    return _toModel(folder);
   }
 
   /// Service-level entry point for the import pipeline. Performs the same
@@ -214,15 +237,19 @@ class FolderStorageService {
       subfolderSortOrder: subfolderSortOrder,
       label: label,
     );
-    return _folderToModel(folder);
+    return _toModel(folder);
   }
 
+  /// Throws `SharedRowException` for a folder the partner shares, or into
+  /// one ([updateFolder]'s re-parent): the fences would turn the write into
+  /// nothing while this answered as if it were stored.
   Future<model.Folder?> updateFolder({
     required String folderId,
     String? name,
     String? parentId,
   }) async {
     await initialize();
+    await ensureOwn([folderId, ?parentId]);
     // Only run the uniqueness check when something that affects the
     // parent+name pair is actually changing. If neither name nor parent
     // is being touched there's nothing to validate.
@@ -256,15 +283,17 @@ class FolderStorageService {
       parentId: parentId,
       updateParent: parentId != null,
     );
-    return folder != null ? _folderToModel(folder) : null;
+    return folder != null ? _toModel(folder) : null;
   }
 
   /// Writes one folder's colour label. Returns the refreshed folder, or null
-  /// when it is gone or tombstoned.
+  /// when it is gone or tombstoned; throws `SharedRowException` for a
+  /// partner's.
   Future<model.Folder?> setFolderLabel(String folderId, ItemLabel label) async {
     await initialize();
+    await ensureOwn([folderId]);
     final folder = await _repository.setLabel(folderId: folderId, label: label);
-    return folder == null ? null : _folderToModel(folder);
+    return folder == null ? null : _toModel(folder);
   }
 
   /// Shares the folder [folderId] and everything under it with the partner
@@ -274,26 +303,31 @@ class FolderStorageService {
   /// under it following it. Returns whether the mark was written — false
   /// for a folder that is gone or carries it already.
   ///
-  /// `ShareService.setFolderShared` is its one caller in the app, so no
-  /// surface ever holds a pair id; tests and the QA seam reach it directly.
+  /// The app shares a folder through `ShareService.setFolderShared`, which
+  /// writes through the DAO inside its act's one transaction, so no surface
+  /// ever holds a pair id; this stays for the QA seam and the tests.
   Future<bool> setFolderShared(String folderId, String? pairId) async {
     await initialize();
     return _repository.setSharedPair(folderId: folderId, pairId: pairId);
   }
 
   /// Labels a whole selection as one unit — one statement, one reload —
-  /// rather than one write per picked row. Returns how many rows changed.
+  /// rather than one write per picked row. Returns how many rows changed;
+  /// throws `SharedRowException`, writing nothing, when one is a partner's.
   Future<int> setLabelForFolders(
     List<String> folderIds,
     ItemLabel label,
   ) async {
     if (folderIds.isEmpty) return 0;
     await initialize();
+    await ensureOwn(folderIds);
     return _repository.setLabelForMany(folderIds: folderIds, label: label);
   }
 
+  /// Throws `SharedRowException` for a partner's folder.
   Future<void> deleteFolder(String folderId) async {
     await initialize();
+    await ensureOwn([folderId]);
     await _repository.deleteFolder(folderId);
   }
 
@@ -301,20 +335,26 @@ class FolderStorageService {
   ///
   /// One call rather than one per picked row: the cascade is already per
   /// folder in the DAO, so what this saves is the reload cycle the page used
-  /// to pay for every item it deleted.
+  /// to pay for every item it deleted. Throws `SharedRowException`, deleting
+  /// nothing, when one is a partner's.
   Future<void> deleteFolders(List<String> folderIds) async {
     if (folderIds.isEmpty) return;
     await initialize();
+    await ensureOwn(folderIds);
     for (final folderId in folderIds) {
       await _repository.deleteFolder(folderId);
     }
   }
 
+  /// Throws `SharedRowException` for a partner's folder, or a partner's
+  /// [targetParentId]. The returned folder carries its [model.Folder.share]
+  /// as it landed; the move's own snackbar reads [moveFolders]' result.
   Future<model.Folder?> moveFolder({
     required String folderId,
     required String? targetParentId,
   }) async {
     await initialize();
+    await ensureOwn([folderId, ?targetParentId]);
     final existing = await getFolderById(folderId);
     if (existing != null && existing.parentId != targetParentId) {
       if (await folderNameExistsInParent(
@@ -333,17 +373,22 @@ class FolderStorageService {
       folderId: folderId,
       targetParentId: targetParentId,
     );
-    return folder != null ? _folderToModel(folder) : null;
+    return folder != null ? _toModel(folder) : null;
   }
 
   /// Moves a whole selection in one transaction. Unlike [moveFolder], a
   /// name clash is not thrown: it is one item's outcome among the others, in
-  /// [BulkMoveResult.duplicates].
+  /// [BulkMoveResult.duplicates]. [BulkMoveResult.shareChanges] says which
+  /// folders the move shared or made private (a folder landing in a shared
+  /// folder gives up its own mark, `FolderDao.moveFolder`). Throws
+  /// `SharedRowException`, moving nothing, when a folder or the target is a
+  /// partner's.
   Future<BulkMoveResult> moveFolders({
     required List<String> folderIds,
     required String? targetParentId,
   }) async {
     await initialize();
+    await ensureOwn([...folderIds, ?targetParentId]);
     return _repository.moveFolders(
       folderIds: folderIds,
       targetParentId: targetParentId,
@@ -398,7 +443,7 @@ class FolderStorageService {
     final start = stopAtDeleted
         ? rows.lastIndexWhere((folder) => folder.isDeleted) + 1
         : 0;
-    return [for (final row in rows.skip(start)) _folderToModel(row)];
+    return _toModels(rows.skip(start));
   }
 
   /// The rows behind [getAncestors], root first, tombstones included: the
@@ -462,6 +507,33 @@ class FolderStorageService {
     return paths;
   }
 
+  /// Whether the census held now says this database holds a shared row or
+  /// a mark of the person's own — from memory, false while none is held.
+  /// What a browser surface asks before it reads who the partner is
+  /// (`PartnerLookReader`): a database that shares nothing starts no read
+  /// for it, and the next load answers again after a write let it go.
+  bool get holdsShared => _repository.shareCensus.known?.isEmpty == false;
+
+  /// Whether the folder [id] is the partner's, from memory alone — the
+  /// census and the folder cache, both warm after the list that showed it
+  /// — or null when either is cold: what a page opened with no word from
+  /// its opener knows at its first frame.
+  bool? knownFromPartner(String id) {
+    final shares = _repository.shareCensus.known;
+    final row = _repository.cachedFolder(id);
+    if (shares == null || row == null) return null;
+    return shares.isPartner(row.ownerId);
+  }
+
+  /// Whether a census is held now, so [holdsShared] answers for this
+  /// database rather than for "not read yet".
+  bool get censusKnown => _repository.shareCensus.known != null;
+
+  /// [holdsShared], reading the census when none is held — one statement,
+  /// and none while one is.
+  Future<bool> holdsSharedRead() async =>
+      !(await _repository.shareCensus.read()).isEmpty;
+
   Stream<FolderChange> get changes => _repository.folderChanges;
 
   Stream<FolderChange> changesForParent(String? parentId) =>
@@ -473,7 +545,13 @@ class FolderStorageService {
     return _repository.getNoteCountForDeletion(folderId);
   }
 
-  /// Update sort preferences for a folder
+  /// Update sort preferences for a folder.
+  ///
+  /// A partner's folder keeps its sort in the person's own store instead
+  /// ([PartnerFolderSort]): its columns are the partner's row, which the
+  /// database refuses to write, and the sort is the person's choice
+  /// (share surfaces §6.12). A folder of the person's own asks nothing more
+  /// than the census the mapping reads anyway.
   Future<model.Folder?> updateFolderSortPreferences({
     required String folderId,
     String? noteSortOrder,
@@ -482,6 +560,20 @@ class FolderStorageService {
     bool clearSubfolderSortOrder = false,
   }) async {
     await initialize();
+    final shares = await _repository.shareCensus.read();
+    if (shares.owner != null) {
+      final row = await _repository.getFolderById(folderId);
+      if (row != null && shares.isPartner(row.ownerId)) {
+        return _setPartnerSort(
+          row,
+          shares,
+          noteSortOrder: noteSortOrder,
+          subfolderSortOrder: subfolderSortOrder,
+          clearNoteSortOrder: clearNoteSortOrder,
+          clearSubfolderSortOrder: clearSubfolderSortOrder,
+        );
+      }
+    }
     final folder = await _repository.updateFolderSortPreferences(
       id: folderId,
       noteSortOrder: noteSortOrder,
@@ -489,19 +581,95 @@ class FolderStorageService {
       clearNoteSortOrder: clearNoteSortOrder,
       clearSubfolderSortOrder: clearSubfolderSortOrder,
     );
-    return folder != null ? _folderToModel(folder) : null;
+    return folder != null ? _toModel(folder) : null;
   }
 
-  model.Folder _folderToModel(Folder folder) {
+  /// Throws [SharedRowException] when one of [ids] is a folder the partner
+  /// shares — before a write the fences would turn into nothing while this
+  /// service answered "done", and before an export (share surfaces D19: a
+  /// partner's rows never leave by file). Asks the shared rows only when
+  /// the database holds some ([ShareCensus]): a database that never read
+  /// one pays nothing past the census it already holds.
+  Future<void> ensureOwn(List<String> ids) async {
+    final owner = (await _repository.shareCensus.read()).owner;
+    if (owner == null) return;
+    final theirs = await _repository.partnersAmong(ids, owner);
+    if (theirs.isNotEmpty) throw SharedRowException('folders', theirs.first);
+  }
+
+  /// Writes the person's sort of the partner's [folder]; a column not given
+  /// keeps what the folder shows now, so the stored sort is whole from its
+  /// first write and the partner's later choice never shows through half
+  /// of it. Read and write are one transaction: two sorts tapped in a row
+  /// must not each write over the other's column.
+  Future<model.Folder> _setPartnerSort(
+    Folder folder,
+    ShareSnapshot shares, {
+    String? noteSortOrder,
+    String? subfolderSortOrder,
+    required bool clearNoteSortOrder,
+    required bool clearSubfolderSortOrder,
+  }) {
+    final db = _repository.database;
+    return db.transaction(() async {
+      final sorts = {...await SettingsService.partnerFolderSortsOf(db)};
+      final shown = _folderToModel(folder, shares, sorts);
+      sorts[folder.id] = PartnerFolderSort(
+        noteSortOrder: clearNoteSortOrder
+            ? null
+            : noteSortOrder ?? shown.noteSortOrder,
+        subfolderSortOrder: clearSubfolderSortOrder
+            ? null
+            : subfolderSortOrder ?? shown.subfolderSortOrder,
+      );
+      await SettingsService.setPartnerFolderSortsOf(db, sorts);
+      return _folderToModel(folder, shares, sorts);
+    });
+  }
+
+  Future<model.Folder> _toModel(Folder folder) =>
+      _toModels([folder]).then((models) => models.single);
+
+  /// [folders] as models, flagged against one read of the census for all —
+  /// and, when one of them is the partner's, one read of the person's sorts
+  /// of the partner's folders; a database that holds none reads nothing.
+  Future<List<model.Folder>> _toModels(Iterable<Folder> folders) async {
+    final shares = await _repository.shareCensus.read();
+    final sorts =
+        shares.owner != null &&
+            folders.any((folder) => shares.isPartner(folder.ownerId))
+        ? await SettingsService.partnerFolderSortsOf(_repository.database)
+        : const <String, PartnerFolderSort>{};
+    return [
+      for (final folder in folders) _folderToModel(folder, shares, sorts),
+    ];
+  }
+
+  /// [sorts] are the person's own sorts of the partner's folders: one set
+  /// for a partner's folder stands in for the folder's own columns, so no
+  /// page reads a sort order any differently.
+  model.Folder _folderToModel(
+    Folder folder,
+    ShareSnapshot shares,
+    Map<String, PartnerFolderSort> sorts,
+  ) {
+    final fromPartner = shares.isPartner(folder.ownerId);
+    final mine = fromPartner ? sorts[folder.id] : null;
     return model.Folder(
       id: folder.id,
       name: folder.name,
       parentId: folder.parentId,
       createdAt: folder.createdAt,
-      noteSortOrder: folder.noteSortOrder,
-      subfolderSortOrder: folder.subfolderSortOrder,
+      noteSortOrder: mine == null ? folder.noteSortOrder : mine.noteSortOrder,
+      subfolderSortOrder: mine == null
+          ? folder.subfolderSortOrder
+          : mine.subfolderSortOrder,
       position: folder.position,
       label: ItemLabel.fromStorage(folder.label),
+      fromPartner: fromPartner,
+      share: fromPartner
+          ? model.FolderShare.none
+          : shares.folderShare(folder.id),
     );
   }
 

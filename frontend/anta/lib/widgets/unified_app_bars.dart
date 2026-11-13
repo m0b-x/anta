@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../constants/app_bar_metrics.dart';
 import '../constants/app_colors.dart';
+import '../constants/row_metrics.dart';
 import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
 import '../services/auto_save_service.dart';
@@ -129,6 +130,12 @@ class NoteAppBar extends StatelessWidget implements PreferredSizeWidget {
   final VoidCallback? onMenuPressed;
   final VoidCallback? onTitleTap;
 
+  /// A note of mine in a folder I share wears the share sign hugging its
+  /// title (share surfaces §6.7, spec F6a); [sharedLabel] is what the sign
+  /// says to a screen reader, "Shared with {name}".
+  final bool shared;
+  final String? sharedLabel;
+
   const NoteAppBar({
     super.key,
     required this.title,
@@ -138,6 +145,8 @@ class NoteAppBar extends StatelessWidget implements PreferredSizeWidget {
     this.onBackPressed,
     this.onMenuPressed,
     this.onTitleTap,
+    this.shared = false,
+    this.sharedLabel,
   });
 
   @override
@@ -145,6 +154,14 @@ class NoteAppBar extends StatelessWidget implements PreferredSizeWidget {
 
   @override
   Widget build(BuildContext context) {
+    final titleText = Text(
+      title,
+      style: const TextStyle(
+        fontSize: AppBarMetrics.titleFontSize,
+        fontWeight: AppBarMetrics.titleFontWeight,
+      ),
+      overflow: TextOverflow.ellipsis,
+    );
     return UnifiedAppBar.main(
       automaticallyImplyLeading: false,
       toolbarHeight: AppBarMetrics.toolbarHeight,
@@ -167,14 +184,26 @@ class NoteAppBar extends StatelessWidget implements PreferredSizeWidget {
           child: Row(
             children: [
               Expanded(
-                child: Text(
-                  title,
-                  style: const TextStyle(
-                    fontSize: AppBarMetrics.titleFontSize,
-                    fontWeight: AppBarMetrics.titleFontWeight,
-                  ),
-                  overflow: TextOverflow.ellipsis,
-                ),
+                child: shared
+                    ? Row(
+                        children: [
+                          Flexible(child: titleText),
+                          const SizedBox(width: RowMetrics.shareMarkGap),
+                          Semantics(
+                            label: sharedLabel,
+                            child: ExcludeSemantics(
+                              child: Icon(
+                                Icons.group_rounded,
+                                size: RowMetrics.shareMarkSize,
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ),
+                        ],
+                      )
+                    : titleText,
               ),
               _SaveStatusIndicator(
                 hasChanges: hasChanges,

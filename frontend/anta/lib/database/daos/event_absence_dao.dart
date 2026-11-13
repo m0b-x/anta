@@ -31,6 +31,21 @@ class EventAbsenceDao extends DatabaseAccessor<AppDatabase>
     )..where((a) => a.isDeleted.equals(false))).get();
   }
 
+  /// [getActive] less the marks on an event another account shares with this
+  /// one — the export lists' read (`docs/cloud-sharing-foundations.md` §8):
+  /// such a mark is an inert orphan in an archive whose event is left out.
+  /// Still one statement, so a database that holds no shared row pays
+  /// nothing for it.
+  Future<List<EventAbsenceRow>> getActiveForExport() {
+    return (select(eventAbsences)..where(
+          (a) => CustomExpression<bool>(
+            'is_deleted = 0 AND NOT '
+            '${SyncDao.onSharedEventSql('calendar_event_absences.event_id')}',
+          ),
+        ))
+        .get();
+  }
+
   /// One event's live marks: the capture an event delete takes for its
   /// Undo, a primary-key prefix read instead of every live mark.
   Future<List<EventAbsenceRow>> getActiveForEvent(String eventId) {

@@ -172,10 +172,16 @@ class SharedReadChanges extends Equatable {
   /// [events].
   final List<SharedEventLeave> left;
 
+  /// The pair whose whole share this read forgot — it ended, or another
+  /// was made — when it did; every one of [left] went with it then. Null
+  /// when the read forgot nothing, and when the pair was never recorded.
+  final String? endedPair;
+
   const SharedReadChanges({
     this.categoryIds = const [],
     this.events = const [],
     this.left = const [],
+    this.endedPair,
   });
 
   static const SharedReadChanges none = SharedReadChanges();
@@ -183,5 +189,5 @@ class SharedReadChanges extends Equatable {
   bool get isEmpty => categoryIds.isEmpty && events.isEmpty && left.isEmpty;
 
   @override
-  List<Object?> get props => [categoryIds, events, left];
+  List<Object?> get props => [categoryIds, events, left, endedPair];
 }

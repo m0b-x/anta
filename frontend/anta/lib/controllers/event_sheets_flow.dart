@@ -17,6 +17,7 @@ import '../l10n/app_localizations.dart';
 import '../models/calendar_appearance.dart';
 import '../models/calendar_event.dart';
 import '../models/event_alert.dart';
+import '../models/note_metadata.dart';
 import '../models/partner_look.dart';
 import '../models/recurrence_rule.dart';
 import '../models/share_overview.dart';
@@ -205,12 +206,21 @@ class EventSheetsFlow {
         if (added) unawaited(AlertPermissionCheck.afterSave(context));
       },
       onCopy: () => _copyToMine(context, bloc, event, day),
-      onOpenWikiLink: (title) => _openWikiLink(context, title),
+      onOpenWikiLink: (title) =>
+          _openWikiLink(context, title, fromPartner: true),
+      resolveNote: _partnersNote,
     );
     if (!context.mounted) return;
     switch (exit) {
       case null:
         return;
+      case SharedEventOpenNote(:final note):
+        await AppNavigator.toNoteEditor(
+          context,
+          folderId: note.folderId,
+          noteId: note.id,
+          metadata: note,
+        );
       case SharedEventGone():
         OverlaySnackbar.show(
           context,
@@ -233,6 +243,14 @@ class EventSheetsFlow {
         );
         await editor;
     }
+  }
+
+  /// The note a partner's event links, flagged, when it lies here as the
+  /// partner's — the only note that event's sheet may open (§6.9 item 2).
+  /// A note of mine or one not on this phone answers null.
+  static Future<NoteMetadata?> _partnersNote(String noteId) async {
+    final note = await GetIt.I<NoteStorageService>().getNoteMetadata(noteId);
+    return note != null && note.fromPartner ? note : null;
   }
 
   /// The event [id] as [bloc] holds it after each change, or null once it
@@ -715,8 +733,7 @@ class EventSheetsFlow {
         // Only a flip writes: an edit that left the switch where it was
         // asks nothing of sharing, so it cannot fail on a database that
         // stopped syncing while the form was open.
-        final flipped =
-            result.shared != null && result.shared != storedMark;
+        final flipped = result.shared != null && result.shared != storedMark;
         final shared = flipped ? result.shared : null;
         final shareOutcome = flipped ? Completer<ShareChange>() : null;
         if (initialEvent == null) {
@@ -990,9 +1007,13 @@ class EventSheetsFlow {
     final l10n = AppLocalizations.of(context)!;
     final repository = GetIt.I<NoteRepository>();
     final notes = await repository.getNotesByIds([noteId]);
-    if (!context.mounted) return;
     final note = notes.isEmpty ? null : notes.first;
-    if (note == null) {
+    // Flagged: a note the partner shares opens read-only (§6.13).
+    final metadata = note == null
+        ? null
+        : await repository.flaggedMetadata(note);
+    if (!context.mounted) return;
+    if (note == null || metadata == null) {
       CustomSnackbar.showError(context, l10n.eventLinkedNoteMissing);
       return;
     }
@@ -1003,7 +1024,7 @@ class EventSheetsFlow {
       context,
       folderId: note.folderId,
       noteId: note.id,
-      metadata: repository.noteToMetadata(note),
+      metadata: metadata,
     );
   }
 
@@ -1034,14 +1055,24 @@ class EventSheetsFlow {
   /// typed names no note, `Note#heading`, `Note^block` and `Note.md` open
   /// `Note`. An event has no note of its own, so `[[#heading]]` names nothing
   /// here.
-  Future<void> _openWikiLink(BuildContext context, String rawTitle) async {
+  ///
+  /// [fromPartner]: the link is in a partner's event, and resolves among the
+  /// partner's notes only (§6.13).
+  Future<void> _openWikiLink(
+    BuildContext context,
+    String rawTitle, {
+    bool fromPartner = false,
+  }) async {
     final target = MarkdownWikiTarget.parse(rawTitle);
     final title = target.title;
     if (title.isEmpty) return;
     final l10n = AppLocalizations.of(context)!;
     try {
       final storage = GetIt.I<NoteStorageService>();
-      final (note, _) = await target.resolve(storage.resolveNoteByTitle);
+      final (note, _) = await target.resolve(
+        (lookup) =>
+            storage.resolveNoteByTitle(lookup, fromPartner: fromPartner),
+      );
       if (!context.mounted) return;
       if (note == null) {
         CustomSnackbar.show(

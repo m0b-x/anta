@@ -141,6 +141,20 @@ class RowMetrics {
   /// without an event avatar carries.
   static const double shareMarkSize = 14.0;
 
+  /// The air around a share mark — the sign on what I share, the partner's
+  /// face: from a row's mark to the count after it, where the mark reads as
+  /// one more fact of the row, and from the sign to the title it follows in
+  /// the note editor's bar.
+  static const double shareMarkGap = 8.0;
+
+  /// The partner's face at the start of a note row's or a search result's
+  /// second line: a 16 dp disc on a 13 sp line, never taller than the line
+  /// from text scale 1.3 up, so the row keeps the height of a note of mine.
+  static const double partnerFaceInlineRadius = 8.0;
+
+  /// From that inline face to the date after it.
+  static const double partnerFaceInlineGap = 4.0;
+
   /// The category glyph inside a partner's 20 dp outlined ring on the Alerts
   /// hub's rows: at [shareMarkSize] the glyph touched the 1.5 dp ring.
   static const double shareRingIconSize = 12.0;
@@ -148,6 +162,20 @@ class RowMetrics {
   /// The `rowGroup` ring that parts the share badge from the avatar under
   /// it; the badge's outer disc is `2 × (partnerAvatarRadius + this)`.
   static const double shareBadgeHalo = 2.0;
+
+  /// `SharedReadOnlyLine`: the group's side inset, and a vertical pad that
+  /// keeps the 20 dp face clear of the band's edges at one line.
+  static const EdgeInsets sharedLinePadding = EdgeInsets.symmetric(
+    horizontal: groupInset,
+    vertical: 6,
+  );
+
+  /// From the face to the text of `SharedReadOnlyLine`.
+  static const double sharedLineGap = 8.0;
+
+  /// A long name or an address wraps; past three lines it is cut, so the
+  /// line never takes the body's room at large text.
+  static const int sharedLineMaxLines = 3;
 
   /// The bare descendant count on a folder or smart row.
   static const double countFontSize = 14.0;

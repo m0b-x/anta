@@ -547,9 +547,10 @@ class FolderSearchService {
       labels: filter?.labels ?? const {},
     );
 
+    final shares = await _storageService.shareSnapshot();
     final eligible = <NoteMetadata>[
       for (final note in candidates)
-        if (_metadataOf(note) case final metadata
+        if (_storageService.metadataOf(note, shares) case final metadata
             when filter == null || filter.matches(metadata))
           metadata,
     ];
@@ -667,10 +668,11 @@ class FolderSearchService {
       _storageService.loadNotesPaginated(pageSize: _quickSearchPageSize),
     ).wait;
 
+    final shares = await _storageService.shareSnapshot();
     final candidates = <SearchResult>[];
     final seen = <String>{};
     for (final (:note, :score) in indexed.hits) {
-      final metadata = _metadataOf(note);
+      final metadata = _storageService.metadataOf(note, shares);
       seen.add(metadata.id);
       candidates.add(
         SearchResult(
@@ -932,20 +934,6 @@ class FolderSearchService {
     if (byDate != 0) return byDate;
     return a.metadata.id.compareTo(b.metadata.id);
   }
-
-  static NoteMetadata _metadataOf(Note note) => NoteMetadata(
-    id: note.id,
-    folderId: note.folderId,
-    title: note.title,
-    preview: note.preview,
-    contentLength: note.contentLength,
-    chunkCount: note.chunkCount,
-    isCompressed: note.isCompressed,
-    createdAt: note.createdAt,
-    updatedAt: note.updatedAt,
-    position: note.position,
-    label: ItemLabel.fromStorage(note.label),
-  );
 }
 
 const List<({Note note, double score})> _noQuickHits = [];

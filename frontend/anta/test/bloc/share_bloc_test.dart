@@ -232,6 +232,69 @@ void main() {
     expect(state.availability, const ShareNotSyncing(audience));
   });
 
+  test('an act\'s outcome is carried whatever the reload after it did: one '
+      'that cannot reach the service still carries it', () async {
+    var reachable = true;
+    final acting = ShareBloc(
+      service: () async =>
+          reachable ? share : throw StateError('the database switched'),
+      calendarChanges: const Stream.empty(),
+    );
+    addTearDown(acting.close);
+    acting.add(const ShareOpened());
+    await pumpEventQueue();
+    share.nextChange = change;
+    final hold = share.hold = Completer<void>();
+
+    acting.add(const ShareCategoriesSet({'travel'}));
+    await pumpEventQueue();
+    reachable = false;
+    hold.complete();
+    await pumpEventQueue();
+
+    final outcome = (acting.state as ShareLoaded).outcome;
+    expect(outcome?.act, ShareAct.categoriesSet);
+    expect(outcome?.change, change);
+  });
+
+  test('closing while a write is held completes before the write answers, '
+      'and the write still lands', () async {
+    bloc.add(const ShareOpened());
+    await settled();
+    final hold = share.hold = Completer<void>();
+    bloc.add(const ShareCategoriesSet({'travel'}));
+    await pumpEventQueue();
+
+    var closed = false;
+    unawaited(bloc.close().then((_) => closed = true));
+    await pumpEventQueue();
+
+    expect(closed, isTrue);
+    hold.complete();
+    await pumpEventQueue();
+    expect(share.categorySets, [
+      {'travel'},
+    ]);
+  });
+
+  test('an Undo still queued behind a running act when the bloc closes is '
+      'written through the road an Undo takes past its bloc', () async {
+    bloc.add(const ShareOpened());
+    await settled();
+    final hold = share.hold = Completer<void>();
+    bloc.add(const ShareCategoriesSet({'travel'}));
+    await pumpEventQueue();
+    final orphaned = <ShareChange>[];
+    bloc.add(ShareUndoRequested(change, pastBloc: orphaned.add));
+
+    await bloc.close();
+    hold.complete();
+    await pumpEventQueue();
+
+    expect(orphaned, [change]);
+    expect(share.undone, isEmpty, reason: 'written once, by that road');
+  });
+
   test('a change of availability and a change of the calendar each read '
       'the overview again, keeping the last outcome', () async {
     bloc.add(const ShareOpened());
@@ -477,6 +540,46 @@ void main() {
     });
   });
 
+  group('what my alerts lose (D30, D33)', () {
+    test('the armed count answers what the service counts, and 0 when it '
+        'cannot be read', () async {
+      share.armedByCategory = {'shifts': 2, 'gym': 1};
+      final counted = Completer<int>();
+      bloc.add(ShareArmedCountRequested(counted));
+      expect(await counted.future, 3);
+      expect(share.armedReads, [null]);
+
+      final failing = ShareBloc(
+        service: () async => throw StateError('closed'),
+        calendarChanges: const Stream.empty(),
+      );
+      addTearDown(failing.close);
+      final none = Completer<int>();
+      failing.add(ShareArmedCountRequested(none));
+      expect(await none.future, 0);
+    });
+
+    test('whether a partner\'s event is still held answers the service, and '
+        'yes when it cannot be read', () async {
+      share.partnerRows.add('calendar_events/e1');
+      final held = Completer<bool>();
+      bloc.add(SharePartnerEventHeldRequested('e1', held));
+      expect(await held.future, isTrue);
+      final gone = Completer<bool>();
+      bloc.add(SharePartnerEventHeldRequested('e2', gone));
+      expect(await gone.future, isFalse);
+
+      final failing = ShareBloc(
+        service: () async => throw StateError('closed'),
+        calendarChanges: const Stream.empty(),
+      );
+      addTearDown(failing.close);
+      final unknown = Completer<bool>();
+      failing.add(SharePartnerEventHeldRequested('e1', unknown));
+      expect(await unknown.future, isTrue);
+    });
+  });
+
   group('a setting shows from the tap, before its write has landed', () {
     const shifts = CalendarCategory(
       id: 'shifts',
@@ -689,6 +792,129 @@ void main() {
         const ShareLook(eventLook: ShareEventLook.avatar, markMine: false),
       );
       expect(landed.alerts, ShareAlerts.category);
+    });
+  });
+
+  group('folders (slice F0)', () {
+    const trips = ShareFolderRef(id: 'trips', name: 'Trips');
+    const lisbon = ShareFolderRef(id: 'lisbon', name: 'Lisbon');
+    const shared = ShareChange(
+      sharedFolders: [trips],
+      coveredFolders: [lisbon],
+    );
+    const unshared = ShareChange(unsharedFolders: [trips]);
+
+    test('a folder shared and one un-shared each reach the service, each '
+        'with an outcome of its own carrying what it wrote', () async {
+      bloc.add(const ShareOpened());
+      await settled();
+
+      share.nextChange = shared;
+      bloc.add(const ShareFolderShared('trips'));
+      final first = (await settled()).outcome!;
+      share.nextChange = unshared;
+      bloc.add(const ShareFolderUnshared('trips'));
+      final second = (await settled()).outcome!;
+
+      expect(share.folderShares, [('trips', true), ('trips', false)]);
+      expect(first.act, ShareAct.folderShared);
+      expect(first.change, shared);
+      expect(second.act, ShareAct.folderUnshared);
+      expect(second.change, unshared);
+      expect(second.sequence, isNot(first.sequence));
+    });
+
+    test('folder acts join the one ordered queue: one held act keeps the '
+        'next waiting, and the last outcome is the last act\'s', () async {
+      bloc.add(const ShareOpened());
+      await settled();
+      final gate = Completer<void>();
+      share
+        ..hold = gate
+        ..nextChange = shared;
+
+      bloc.add(const ShareFolderShared('trips'));
+      await pumpEventQueue();
+      share.nextChange = unshared;
+      bloc.add(const ShareFolderUnshared('trips'));
+      bloc.add(const ShareEventUnshared('e1'));
+      await pumpEventQueue();
+      expect(share.folderShares, [('trips', true)]);
+      expect(share.eventShares, isEmpty);
+
+      gate.complete();
+      final state = await settled();
+      expect(share.folderShares, [('trips', true), ('trips', false)]);
+      expect(share.eventShares, [('e1', false)]);
+      expect(state.outcome!.act, ShareAct.eventUnshared);
+    });
+
+    test('a folder act refused because sharing is no longer ready says so, '
+        'and writes nothing', () async {
+      bloc.add(const ShareOpened());
+      await settled();
+      share.emit(const ShareNotSyncing(audience));
+      await settled();
+
+      bloc.add(const ShareFolderShared('trips'));
+
+      final state = await settled();
+      expect(share.folderShares, isEmpty);
+      expect(state.outcome!.act, ShareAct.folderShared);
+      expect(state.outcome!.failure, ShareFailure.refused);
+    });
+
+    test('a load carries the notes look as stored', () async {
+      share.notes = ShareNoteLook.plain;
+
+      bloc.add(const ShareOpened());
+
+      expect((await settled()).look.noteLook, ShareNoteLook.plain);
+    });
+
+    test('the notes look shows from the tap, keeps the other looks, and '
+        'stands once written', () async {
+      bloc.add(const ShareOpened());
+      await settled();
+      final gate = Completer<void>();
+      share.settingsHold = gate;
+
+      bloc.add(const ShareNoteLookSet(ShareNoteLook.plain));
+      bloc.add(const ShareEventLookSet(ShareEventLook.avatar));
+      final early = await settled();
+
+      expect(share.notes, ShareNoteLook.avatar, reason: 'still held');
+      expect(
+        early.look,
+        const ShareLook(
+          eventLook: ShareEventLook.avatar,
+          noteLook: ShareNoteLook.plain,
+        ),
+      );
+
+      gate.complete();
+      final landed = await settled();
+      expect(share.notes, ShareNoteLook.plain);
+      expect(landed.look.noteLook, ShareNoteLook.plain);
+      expect(landed.look.eventLook, ShareEventLook.avatar);
+    });
+
+    test('a notes look whose write fails draws back to what is '
+        'stored', () async {
+      bloc.add(const ShareOpened());
+      await settled();
+      final gate = Completer<void>();
+      share
+        ..settingsHold = gate
+        ..settingsFailure = StateError('disk');
+
+      bloc.add(const ShareNoteLookSet(ShareNoteLook.plain));
+      expect((await settled()).look.noteLook, ShareNoteLook.plain);
+
+      gate.complete();
+      final state = await settled();
+      expect(state.look.noteLook, ShareNoteLook.avatar);
+      expect(state.outcome, isNull, reason: 'no snackbar for a setting');
     });
   });
 }

@@ -1,5 +1,6 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import '../../database/daos/shared_row_dao.dart' show SharedRowException;
 import '../../services/import_export_service.dart';
 import 'import_export_event.dart';
 import 'import_export_state.dart';
@@ -47,6 +48,7 @@ class ImportExportBloc extends Bloc<ImportExportEvent, ImportExportState> {
         ImportExportFailure(
           operation: ImportExportOperation.exportNote,
           message: e.toString(),
+          refusedShared: e is SharedRowException,
         ),
       );
     }
@@ -73,6 +75,7 @@ class ImportExportBloc extends Bloc<ImportExportEvent, ImportExportState> {
         ImportExportFailure(
           operation: ImportExportOperation.exportFolder,
           message: e.toString(),
+          refusedShared: e is SharedRowException,
         ),
       );
     }
@@ -103,6 +106,7 @@ class ImportExportBloc extends Bloc<ImportExportEvent, ImportExportState> {
         ImportExportFailure(
           operation: ImportExportOperation.exportItems,
           message: e.toString(),
+          refusedShared: e is SharedRowException,
         ),
       );
     }

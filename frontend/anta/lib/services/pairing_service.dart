@@ -52,6 +52,10 @@ class PairingStatus extends Equatable {
   ];
 }
 
+/// Who ended a pair, as far as this device can tell, and the partner's name
+/// as it stood ([PairingService.endingOf]).
+typedef PairEnding = ({bool byPartner, String? name});
+
 /// Owns the pairing workflow: minting invites, redeeming them, reconciling the
 /// cached `pairId` against the server, and tombstoning a link on unpair.
 ///
@@ -187,6 +191,12 @@ class PairingService {
     final service = _instance;
     return service == null ? null : service._cached.pairId != null;
   }
+
+  /// [written] of the built service, null while none is built: what a
+  /// surface that read [pairedInMemory] as "not paired" follows to learn of
+  /// a pairing made while it is open — a listener on memory, no read and no
+  /// build for an account that never pairs.
+  static Stream<PairingStatus>? get writtenInMemory => _instance?.written;
 
   /// Whether the stored pair is the signed-in account's — the rule
   /// `PairingSharePartnerSource.pairedLocally` reads by. Another account's
@@ -409,6 +419,55 @@ class PairingService {
     return status;
   }
 
+  /// Whether the partner ended [pairId] — the pair a partner's rows were
+  /// held under until a read forgot them — and their name as it stood (D35):
+  /// what the leave notice is said by, and in.
+  ///
+  /// Recorded as ended, it is the ended notice's own answer
+  /// ([_handleVanishedPair]): my Unpair, and my account's deletion, record
+  /// no notice, and a read that failed raised none. Still recorded as this
+  /// pair — the read came before its listener heard — its tombstone is read
+  /// the same way; one that cannot be read answers "not the partner", as
+  /// the listener does. Another pair recorded since was made by me.
+  ///
+  /// The read that forgot [pairId] asks once, and nothing of that pair can
+  /// leave again: its record ([PairingSettings.endedPairId]) and the name
+  /// kept for it past the ended notice's dismissal go with the answer.
+  Future<PairEnding> endingOf(String? pairId) async {
+    final name = _cached.partnerName;
+    final current = _cached.pairId;
+    if (current == null) {
+      final kept = pairId != null && _cached.endedPairId == pairId;
+      final PairEnding answer = (
+        byPartner: kept || _cached.endedNoticePending,
+        name: name,
+      );
+      // Answered from what is held: a record that could not be cleared costs
+      // a name kept a little longer, never the leave's notice.
+      if (kept) {
+        try {
+          await _write(_withoutEnding(_cached));
+        } catch (e, st) {
+          debugPrint('[PairingService] ended pair not cleared: $e\n$st');
+        }
+      }
+      return answer;
+    }
+    if (pairId == null || current != pairId) {
+      return (byPartner: false, name: name);
+    }
+    final uid = _auth.currentUser?.uid;
+    try {
+      final ended = await _gateway.readPair(pairId);
+      final byPartner =
+          ended == null ||
+          (!ended.isActive && ended.endedBy != null && ended.endedBy != uid);
+      return (byPartner: byPartner, name: name);
+    } on PairingException {
+      return (byPartner: false, name: name);
+    }
+  }
+
   /// Drops what this database remembers of a pairing, with no word to the
   /// server and no notice — for the account's own deletion, which ends and
   /// removes its pairs itself (cloud-multi-user-roadmap §6.1 g): a listener
@@ -423,10 +482,29 @@ class PairingService {
 
   Future<PairingStatus> dismissEndedNotice() async {
     // The notice only exists in an unpaired state, so acknowledging it leaves
-    // nothing but the account the settings belong to.
-    await _write(PairingSettings(accountUid: _cached.accountUid));
+    // the account the settings belong to — and the ended pair with the name,
+    // which a leave of what it shared is still told in (D35).
+    final ended = _cached.endedPairId;
+    await _write(
+      PairingSettings(
+        accountUid: _cached.accountUid,
+        partnerName: ended == null ? null : _cached.partnerName,
+        endedPairId: ended,
+      ),
+    );
     return status;
   }
+
+  /// [settings] once the leave of the pair the partner ended is told: the
+  /// name stays only while the ended notice still shows it.
+  static PairingSettings _withoutEnding(PairingSettings settings) =>
+      PairingSettings(
+        accountUid: settings.accountUid,
+        partnerName: settings.endedNoticePending ? settings.partnerName : null,
+        pendingCode: settings.pendingCode,
+        pendingExpiresAt: settings.pendingExpiresAt,
+        endedNoticePending: settings.endedNoticePending,
+      );
 
   /// Uppercases and drops everything outside [codeAlphabet], so a pasted
   /// `k7m2-p4xq` and a hand-typed `K7M2 P4XQ` resolve to the same code.
@@ -505,6 +583,7 @@ class PairingService {
         accountUid: uid,
         partnerName: _cached.partnerName,
         endedNoticePending: endedByPartner,
+        endedPairId: endedByPartner ? pairId : null,
       ),
     );
     _partner = null;
@@ -525,7 +604,11 @@ class PairingService {
         pairId: pair.pairId,
         accountUid: user.uid,
         partnerUid: pair.partnerUidOf(user.uid),
-        partnerName: partner?.displayName ?? _cached.partnerName,
+        // The cached name is this pair's only while the cache holds this
+        // pair: one kept for a pair that ended (D35) is another person's.
+        partnerName:
+            partner?.displayName ??
+            (_cached.pairId == pair.pairId ? _cached.partnerName : null),
       ),
     );
 

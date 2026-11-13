@@ -110,14 +110,19 @@ final class OptimizedNoteError extends OptimizedNoteState {
   final String? folderId;
   final NoteErrorType errorType;
 
+  /// The note a [NoteErrorType.notFound] load asked for, so the one editor
+  /// that asked can tell its answer from another's.
+  final String? noteId;
+
   const OptimizedNoteError(
     this.message, {
     this.folderId,
     this.errorType = NoteErrorType.unknown,
+    this.noteId,
   });
 
   @override
-  List<Object?> get props => [message, folderId, errorType];
+  List<Object?> get props => [message, folderId, errorType, noteId];
 }
 
 /// Types of errors that can occur in note operations

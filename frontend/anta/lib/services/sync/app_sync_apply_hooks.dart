@@ -10,6 +10,7 @@ import '../../models/share_notice.dart';
 import '../../repositories/folder_repository.dart';
 import '../../repositories/note_repository.dart';
 import '../alert_scheduler.dart';
+import '../auth_service.dart';
 import '../calendar_event_service.dart';
 import '../category_profile_service.dart';
 import '../category_service.dart';
@@ -23,6 +24,8 @@ import '../event_template_service.dart';
 import '../filter_preset_service.dart';
 import '../note_storage_service.dart';
 import '../overview_view_service.dart';
+import '../pairing_gateway.dart';
+import '../pairing_service.dart';
 import '../settings_service.dart';
 import '../share_service.dart';
 import '../vocabulary_service.dart';
@@ -60,6 +63,7 @@ class AppSyncApplyHooks implements SyncApplyHooks {
   final Future<void> Function() _refreshShareMarks;
   final Future<Set<String>> Function(Set<String> eventIds) _armedEvents;
   final Future<Set<String>> Function() _sharedCategories;
+  final Future<PairEnding> Function(String? endedPair) _pairEnding;
   final void Function(ShareNotice notice) _notify;
   final Future<AppLocalizations> Function() _strings;
   final bool Function(String noteId) _editorClaimsFiling;
@@ -102,6 +106,7 @@ class AppSyncApplyHooks implements SyncApplyHooks {
     Future<void> Function()? refreshShareMarks,
     Future<Set<String>> Function(Set<String> eventIds)? armedEvents,
     Future<Set<String>> Function()? sharedCategories,
+    Future<PairEnding> Function(String? endedPair)? pairEnding,
     void Function(ShareNotice notice)? notify,
     Future<AppLocalizations> Function()? strings,
     bool Function(String noteId)? editorClaimsFiling,
@@ -118,11 +123,27 @@ class AppSyncApplyHooks implements SyncApplyHooks {
        _refreshShareMarks = refreshShareMarks ?? _appRefreshShareMarks,
        _armedEvents = armedEvents ?? _appArmedEvents,
        _sharedCategories = sharedCategories ?? _appSharedCategories,
+       _pairEnding = pairEnding ?? _appPairEnding,
        _notify = notify ?? ShareService.notify,
        _strings = strings ?? _appStrings,
        _editorClaimsFiling =
            editorClaimsFiling ?? OpenNoteRegistry.claimsConflictFiling,
        _now = now ?? DateTime.now;
+
+  /// What an unbind that removed the rows another account shared runs
+  /// (`SyncBindingService.onSharedRowsRemoved`): the screens reload as after
+  /// a pull that removed them, and the alert pass that follows the calendar
+  /// reload takes what was armed on them off the platform at once — "Stop
+  /// syncing" leaves no later run to do it (share surfaces D31). No leave
+  /// notice: the act was the person's own, and its confirmation said so.
+  static Future<void> afterSharedRowsRemoved() => AppSyncApplyHooks().afterRun(
+    const {
+      SyncInvalidation.notes,
+      SyncInvalidation.folders,
+      SyncInvalidation.calendar,
+      SyncInvalidation.alerts,
+    },
+  );
 
   @override
   Future<void> beforePage(String table) async {
@@ -285,10 +306,13 @@ class AppSyncApplyHooks implements SyncApplyHooks {
     // Last, once the calendar holds what they name: a listener that opens
     // the Sharing page finds the rows.
     if (leftArmed.isNotEmpty) {
-      await _guard(
-        'share notice',
-        () async => _notify(ShareLeftWithAlert(leftArmed)),
-      );
+      await _guard('share notice', () async {
+        final ending = await _endingOf(shared.endedPair);
+        // A pair I ended took them: my own act, which its confirmation
+        // spoke for (D30).
+        if (shared.endedPair != null && !ending.byPartner) return;
+        _notify(ShareLeftWithAlert(leftArmed, partnerName: ending.name));
+      });
     }
     if (shared.categoryIds.isNotEmpty || shared.events.isNotEmpty) {
       await _guard('share notice', () async {
@@ -312,6 +336,19 @@ class AppSyncApplyHooks implements SyncApplyHooks {
     } catch (error, stack) {
       debugPrint('[AppSyncApplyHooks] armed alerts not read: $error\n$stack');
       return const [];
+    }
+  }
+
+  /// Who ended [endedPair] and the partner's name (D35). One that cannot
+  /// be told is nobody's: an ended pair's leaves go unsaid then, as the
+  /// pairing's own ended notice does, and an un-share's are said with
+  /// "your partner".
+  Future<PairEnding> _endingOf(String? endedPair) async {
+    try {
+      return await _pairEnding(endedPair);
+    } catch (error, stack) {
+      debugPrint('[AppSyncApplyHooks] pair ending not read: $error\n$stack');
+      return (byPartner: false, name: null);
     }
   }
 
@@ -585,6 +622,16 @@ class AppSyncApplyHooks implements SyncApplyHooks {
       for (final row in await db.alertRegistrationDao.pending())
         if (eventIds.contains(row.eventId)) row.eventId,
     };
+  }
+
+  /// [PairingService.endingOf] — the pairing of this database, resolved as
+  /// the account closer resolves it.
+  static Future<PairEnding> _appPairEnding(String? endedPair) async {
+    final pairing = await PairingService.getInstance(
+      GetIt.I<AuthService>(),
+      GetIt.I<PairingGateway>(),
+    );
+    return pairing.endingOf(endedPair);
   }
 
   /// Every category the partner shares with this database now: their own

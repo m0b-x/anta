@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../models/share_overview.dart';
+import '../one_at_a_time.dart';
 import '../../models/share_settings.dart';
 import '../../services/calendar_event_service.dart';
 import '../../services/share_service.dart';
@@ -66,19 +67,31 @@ class ShareBloc extends Bloc<ShareEvent, ShareState> {
           ShareAct.eventUnshared,
           (service) => service.setEventShared(eventId, false),
         ),
-        ShareUndoRequested(:final change) => _act(
+        ShareFolderShared(:final folderId) => _act(
           emit,
-          ShareAct.undo,
-          (service) => service.undo(change),
+          ShareAct.folderShared,
+          (service) => service.setFolderShared(folderId, true),
         ),
+        ShareFolderUnshared(:final folderId) => _act(
+          emit,
+          ShareAct.folderUnshared,
+          (service) => service.setFolderShared(folderId, false),
+        ),
+        // One the close handed over is written there, never twice.
+        ShareUndoRequested(:final change) =>
+          _queuedUndos.remove(event)
+              ? _act(emit, ShareAct.undo, (service) => service.undo(change))
+              : Future<void>.value(),
         ShareStopAllRequested() => _onStopAll(emit),
       },
-      transformer: _oneAtATime,
+      transformer: oneAtATime,
     );
     on<ShareCategoryShownSet>(
       (event, emit) => _set(
         emit,
         'category shown',
+        // A hide that takes my alerts off is said by the service's notice,
+        // which needs neither this bloc nor its sheet alive when it lands.
         (service) => service.setCategoryShown(event.categoryId, event.shown),
         shows: (state) => state.copyWith(
           overview: state.overview.withPartnerShown(
@@ -93,9 +106,17 @@ class ShareBloc extends Bloc<ShareEvent, ShareState> {
         emit,
         'look',
         (service) => service.setEventLook(event.look),
-        shows: (state) => state.copyWith(
-          look: ShareLook(eventLook: event.look, markMine: state.look.markMine),
-        ),
+        shows: (state) =>
+            state.copyWith(look: state.look.copyWith(eventLook: event.look)),
+      ),
+    );
+    on<ShareNoteLookSet>(
+      (event, emit) => _set(
+        emit,
+        'note look',
+        (service) => service.setNoteLook(event.look),
+        shows: (state) =>
+            state.copyWith(look: state.look.copyWith(noteLook: event.look)),
       ),
     );
     on<ShareMarkMineSet>(
@@ -103,12 +124,8 @@ class ShareBloc extends Bloc<ShareEvent, ShareState> {
         emit,
         'mark mine',
         (service) => service.setMarkMine(event.markMine),
-        shows: (state) => state.copyWith(
-          look: ShareLook(
-            eventLook: state.look.eventLook,
-            markMine: event.markMine,
-          ),
-        ),
+        shows: (state) =>
+            state.copyWith(look: state.look.copyWith(markMine: event.markMine)),
       ),
     );
     on<ShareAlertsSet>(
@@ -119,6 +136,37 @@ class ShareBloc extends Bloc<ShareEvent, ShareState> {
         shows: (state) => state.copyWith(alerts: event.alerts),
       ),
     );
+    on<ShareArmedCountRequested>(_onArmedCount);
+    on<SharePartnerEventHeldRequested>(_onEventHeld);
+  }
+
+  Future<void> _onEventHeld(
+    SharePartnerEventHeldRequested event,
+    Emitter<ShareState> emit,
+  ) async {
+    var held = true;
+    try {
+      held = await (await _resolve()).isFromPartner(
+        'calendar_events',
+        event.eventId,
+      );
+    } catch (e, st) {
+      debugPrint('[ShareBloc] partner event not looked up: $e\n$st');
+    }
+    if (!event.answer.isCompleted) event.answer.complete(held);
+  }
+
+  Future<void> _onArmedCount(
+    ShareArmedCountRequested event,
+    Emitter<ShareState> emit,
+  ) async {
+    var armed = 0;
+    try {
+      armed = await (await _resolve()).armedOnPartner();
+    } catch (e, st) {
+      debugPrint('[ShareBloc] armed alerts not counted: $e\n$st');
+    }
+    if (!event.answer.isCompleted) event.answer.complete(armed);
   }
 
   /// What the settings writes in flight will have stored, oldest first,
@@ -157,13 +205,6 @@ class ShareBloc extends Bloc<ShareEvent, ShareState> {
     }
     await _reload(emit);
   }
-
-  /// Runs one act to its end before the next starts, in the order they
-  /// were added (`CalendarBloc._oneAtATime`).
-  static Stream<E> _oneAtATime<E>(
-    Stream<E> events,
-    Stream<E> Function(E) mapper,
-  ) => events.asyncExpand(mapper);
 
   /// Marks set or cleared while a surface stays open — an act elsewhere, the
   /// reader clearing them — reach it through the calendar's changes, the
@@ -220,6 +261,7 @@ class ShareBloc extends Bloc<ShareEvent, ShareState> {
       );
     }
     await _reload(emit);
+    _carryOutcome(emit, sequence);
   }
 
   Future<void> _act(
@@ -246,6 +288,28 @@ class ShareBloc extends Bloc<ShareEvent, ShareState> {
       );
     }
     await _reload(emit);
+    _carryOutcome(emit, sequence);
+  }
+
+  /// The act [sequence] answered is said whatever the reload after it did:
+  /// one that could not reach the service, or failed its first read, emits
+  /// nothing new, and the bar — the act's Undo with it — would be lost. The
+  /// state on screen is shown again carrying it; a listener keyed on the
+  /// sequence says it once, whichever state brought it first.
+  void _carryOutcome(Emitter<ShareState> emit, int sequence) {
+    final shown = state;
+    final outcome = _outcome;
+    if (emit.isDone || outcome == null || outcome.sequence != sequence) return;
+    if (shown is! ShareLoaded || shown.outcome?.sequence == sequence) return;
+    emit(
+      ShareLoaded(
+        availability: shown.availability,
+        overview: shown.overview,
+        look: shown.look,
+        alerts: shown.alerts,
+        outcome: outcome,
+      ),
+    );
   }
 
   Future<void> _reload(Emitter<ShareState> emit) async {
@@ -328,11 +392,43 @@ class ShareBloc extends Bloc<ShareEvent, ShareState> {
     );
   }
 
+  /// The Undos added and not yet started, oldest first: the acts run one at
+  /// a time, and an Undo queued behind a running one would be dropped with
+  /// the queue when the bloc closes.
+  final List<ShareUndoRequested> _queuedUndos = [];
+
+  @override
+  void add(ShareEvent event) {
+    if (event is ShareUndoRequested && !isClosed) _queuedUndos.add(event);
+    super.add(event);
+  }
+
+  /// An Undo still queued is written the way an Undo tapped after its bloc
+  /// has gone is — through the surface's own road when it gave one, which
+  /// says a failure on the app's messenger, else through the service.
   @override
   Future<void> close() {
     _availabilitySubscription?.cancel();
     _calendarSubscription?.cancel();
     _runsSubscription?.cancel();
+    final orphaned = List.of(_queuedUndos);
+    _queuedUndos.clear();
+    for (final undo in orphaned) {
+      unawaited(_writeOrphaned(undo));
+    }
     return super.close();
+  }
+
+  Future<void> _writeOrphaned(ShareUndoRequested undo) async {
+    try {
+      final pastBloc = undo.pastBloc;
+      if (pastBloc != null) {
+        await pastBloc(undo.change);
+      } else {
+        await (await _resolveService()).undo(undo.change);
+      }
+    } catch (e, st) {
+      debugPrint('[ShareBloc] queued undo not written: $e\n$st');
+    }
   }
 }

@@ -26,7 +26,10 @@ import '../widgets/form_menu_item.dart';
 import '../widgets/form_rows.dart' show FormCaptionSlot;
 import '../widgets/settings_search_field.dart';
 import '../widgets/settings_section_list.dart';
+import '../widgets/share_alerts_at_stake.dart';
 import '../widgets/share_events_sheets.dart';
+import '../widgets/share_list_frame.dart' show undoSharePastBloc;
+import '../widgets/share_folders_sheets.dart';
 import '../widgets/shared_categories_sheet.dart';
 import '../widgets/unified_app_bars.dart';
 
@@ -89,15 +92,18 @@ class _HeldNotices {
   );
 }
 
-/// What this database shares, from plural parts — "3 categories, 2 events"
-/// — or "Nothing is shared yet": the Pairing row's description while
-/// paired.
+/// What this database shares, from plural parts — "3 categories, 2 events,
+/// 1 folder" — or "Nothing is shared yet": the Pairing row's description
+/// while paired. Folders by [ShareOverview.folderCount], which a summary
+/// reads without their names.
 String shareSummary(AppLocalizations l10n, ShareOverview overview) {
   final parts = [
     if (overview.categories.isNotEmpty)
       l10n.shareSummaryCategories(overview.categories.length),
     if (overview.events.isNotEmpty)
       l10n.shareSummaryEvents(overview.events.length),
+    if (overview.folderCount > 0)
+      l10n.shareSummaryFolders(overview.folderCount),
   ];
   return parts.isEmpty ? l10n.shareNothingYet : parts.join(_namesSeparator);
 }
@@ -115,6 +121,7 @@ List<String> shareSummaryTemplates(AppLocalizations l10n) => [
   [
     l10n.shareSummaryCategories(_summaryTemplateCount),
     l10n.shareSummaryEvents(_summaryTemplateCount),
+    l10n.shareSummaryFolders(_summaryTemplateCount),
   ].join(_namesSeparator),
 ];
 
@@ -134,9 +141,10 @@ class SharingPage extends StatelessWidget {
   /// Null leaves the entry in its place and height, its tap doing nothing.
   final Future<void> Function(BuildContext context)? onOpenEvents;
 
-  /// Opens one of the events the partner shares singly, from their list.
-  /// Null where no event sheets can open — Sync & sharing — and the list's
-  /// rows then take no tap at all.
+  /// Opens one of the events the partner shares singly, from their list —
+  /// from Sync & sharing through the calendar's own door for an event
+  /// opened from outside it (record D33). Null leaves the list's rows
+  /// without a tap.
   final ShareEventOpener? onOpenPartnerEvent;
 
   /// Where an Undo tapped after the page has left writes: the page's bloc
@@ -201,6 +209,9 @@ class _SharingViewState extends State<_SharingView> {
   /// failure twice (closing review finding 3).
   bool _eventsOpen = false;
 
+  /// While my Folders sheet is up, on [_eventsOpen]'s terms.
+  bool _foldersOpen = false;
+
   /// Whether the page is in its "pair another account made" shape, taken at
   /// the first loaded state and held for the visit: sharing turns "not
   /// paired" a moment before the pairing bloc says the pair has ended, and
@@ -237,15 +248,19 @@ class _SharingViewState extends State<_SharingView> {
     final l10n = AppLocalizations.of(context)!;
     return MultiBlocListener(
       listeners: [
-        // The page's own acts; an un-share from the events sheet, and an
-        // Undo while that sheet is up, are said from inside the sheet.
+        // The page's own acts; an un-share from the events sheet, a folder
+        // shared or un-shared from the folders sheet, and an Undo while
+        // either sheet is up, are said from inside the sheet.
         BlocListener<ShareBloc, ShareState>(
           listenWhen: (previous, current) {
             final outcome = _outcomeOf(current);
             return outcome != null &&
                 outcome.sequence != _outcomeOf(previous)?.sequence &&
                 outcome.act != ShareAct.eventUnshared &&
-                !(_eventsOpen && outcome.act == ShareAct.undo);
+                outcome.act != ShareAct.folderShared &&
+                outcome.act != ShareAct.folderUnshared &&
+                !((_eventsOpen || _foldersOpen) &&
+                    outcome.act == ShareAct.undo);
           },
           listener: (context, state) => _sayOutcome(
             context,
@@ -363,11 +378,20 @@ class _SharingViewState extends State<_SharingView> {
           ? l10n.shareNone
           : l10n.shareSummaryEvents(overview.events.length),
     );
+    final folders = described(
+      overview.folders.isEmpty
+          ? l10n.shareNone
+          : [
+              for (final folder in overview.folders) folder.name,
+            ].join(_namesSeparator),
+    );
     return SettingsSectionData(
       icon: Icons.group_rounded,
       title: l10n.shareYouShare,
       trailing: ready && overview.sending
-          ? (overview.offline ? l10n.shareWaitingToSend : l10n.shareSending)
+          ? (overview.offline || overview.sendingParked
+                ? l10n.shareWaitingToSend
+                : l10n.shareSending)
           : null,
       trailingTemplates: [l10n.shareSending, l10n.shareWaitingToSend],
       intro: Padding(
@@ -418,6 +442,23 @@ class _SharingViewState extends State<_SharingView> {
               final open? when ready => () => _openEvents(context, open),
               _ => null,
             },
+          ),
+        ),
+        SettingsEntry(
+          title: l10n.shareRowFolders,
+          description: folders,
+          descriptionMaxLines: 1,
+          identifier: SemanticsIds.sharingMineFolders,
+          builder: (context, title, description) => _entryTile(
+            context,
+            glyph: Icons.folder_rounded,
+            label: l10n.shareRowFolders,
+            title: title,
+            description: description,
+            descriptionText: folders,
+            needsSync: needsSync,
+            reason: l10n.shareNeedsSync,
+            onTap: ready ? () => _openFolders(context) : null,
           ),
         ),
       ],
@@ -479,9 +520,24 @@ class _SharingViewState extends State<_SharingView> {
     if (_eventsOpen) return;
     _eventsOpen = true;
     try {
-      await open(context);
+      await _opened(() => open(context));
     } finally {
       _eventsOpen = false;
+    }
+  }
+
+  /// Holds [_foldersOpen] for my Folders sheet's lifetime; a second tap
+  /// while it is up opens no second sheet.
+  Future<void> _openFolders(BuildContext context) async {
+    if (_foldersOpen) return;
+    _foldersOpen = true;
+    try {
+      await _opened(
+        () =>
+            MySharedFoldersSheet.show(context, bloc: context.read<ShareBloc>()),
+      );
+    } finally {
+      _foldersOpen = false;
     }
   }
 
@@ -527,6 +583,13 @@ class _SharingViewState extends State<_SharingView> {
       overview.partnerEvents.isEmpty
           ? l10n.shareNone
           : l10n.shareSummaryEvents(overview.partnerEvents.length),
+    );
+    final folders = described(
+      overview.partnerFolders.isEmpty
+          ? l10n.shareNone
+          : [
+              for (final folder in overview.partnerFolders) folder.name,
+            ].join(_namesSeparator),
     );
     return SettingsSectionData(
       icon: Icons.group_rounded,
@@ -595,10 +658,12 @@ class _SharingViewState extends State<_SharingView> {
             needsSync: needsSync,
             reason: l10n.shareNeedsSyncReceive,
             onTap: ready
-                ? () => SharedCategoriesSheet.show(
-                    context,
-                    bloc: context.read<ShareBloc>(),
-                    partner: _partnerLook(loaded!),
+                ? () => _opened(
+                    () => SharedCategoriesSheet.show(
+                      context,
+                      bloc: context.read<ShareBloc>(),
+                      partner: _partnerLook(loaded!),
+                    ),
                   )
                 : null,
           ),
@@ -618,11 +683,38 @@ class _SharingViewState extends State<_SharingView> {
             needsSync: needsSync,
             reason: l10n.shareNeedsSyncReceive,
             onTap: ready
-                ? () => PartnerSharedEventsSheet.show(
-                    context,
-                    bloc: context.read<ShareBloc>(),
-                    partner: _partnerLook(loaded!),
-                    onOpen: widget.onOpenPartnerEvent,
+                ? () => _opened(
+                    () => PartnerSharedEventsSheet.show(
+                      context,
+                      bloc: context.read<ShareBloc>(),
+                      partner: _partnerLook(loaded!),
+                      onOpen: widget.onOpenPartnerEvent,
+                    ),
+                  )
+                : null,
+          ),
+        ),
+        SettingsEntry(
+          title: l10n.shareRowFolders,
+          description: folders,
+          descriptionMaxLines: 1,
+          identifier: SemanticsIds.sharingTheirsFolders,
+          builder: (context, title, description) => _entryTile(
+            context,
+            glyph: Icons.folder_rounded,
+            label: l10n.shareRowFolders,
+            title: title,
+            description: description,
+            descriptionText: folders,
+            needsSync: needsSync,
+            reason: l10n.shareNeedsSyncReceive,
+            onTap: ready
+                ? () => _opened(
+                    () => PartnerSharedFoldersSheet.show(
+                      context,
+                      bloc: context.read<ShareBloc>(),
+                      partnerName: loaded!.availability.audience?.displayName,
+                    ),
                   )
                 : null,
           ),
@@ -692,6 +784,27 @@ class _SharingViewState extends State<_SharingView> {
           ),
         ),
         SettingsEntry(
+          title: l10n.shareNoteLook,
+          identifier: SemanticsIds.sharingLookNotes,
+          builder: (context, title, description) => untilLoaded(
+            settingsChoiceRow<ShareNoteLook>(
+              title: title,
+              description: description,
+              value: look.noteLook,
+              labels: {
+                ShareNoteLook.avatar: l10n.shareLookAvatar,
+                ShareNoteLook.plain: l10n.shareLookPlain,
+              },
+              identifiers: {
+                for (final value in ShareNoteLook.values)
+                  value: SemanticsIds.sharingLookNotesChoice(value.name),
+              },
+              onChanged: (value) =>
+                  context.read<ShareBloc>().add(ShareNoteLookSet(value)),
+            ),
+          ),
+        ),
+        SettingsEntry(
           title: l10n.shareMarkMine,
           description: l10n.shareMarkMineDesc,
           identifier: SemanticsIds.sharingMarkMine,
@@ -753,29 +866,31 @@ class _SharingViewState extends State<_SharingView> {
   ) async {
     FocusManager.instance.primaryFocus?.unfocus();
     final bloc = context.read<ShareBloc>();
-    final next = await showFormMenu<ShareAlerts>(
-      anchor,
-      items: [
-        for (final value in ShareAlerts.values)
-          FormMenuItem(
-            value: value,
-            label: _alertsLabel(l10n, value),
-            caption: switch (value) {
-              ShareAlerts.off => l10n.shareAlertsOffDesc,
-              ShareAlerts.own => l10n.shareAlertsOwnDesc,
-              ShareAlerts.category => l10n.shareAlertsCategoryDesc,
-            },
-            identifier: switch (value) {
-              ShareAlerts.off => SemanticsIds.sharingAlertsOff,
-              ShareAlerts.own => SemanticsIds.sharingAlertsOwn,
-              ShareAlerts.category => SemanticsIds.sharingAlertsCategory,
-            },
-          ),
-      ],
-      selected: current,
-      // Floor and cap at once: a caption of two lines reads as one choice
-      // at this width, and the menu never narrows with the language.
-      menuWidth: FormMetrics.menuMaxWidth,
+    final next = await _opened(
+      () => showFormMenu<ShareAlerts>(
+        anchor,
+        items: [
+          for (final value in ShareAlerts.values)
+            FormMenuItem(
+              value: value,
+              label: _alertsLabel(l10n, value),
+              caption: switch (value) {
+                ShareAlerts.off => l10n.shareAlertsOffDesc,
+                ShareAlerts.own => l10n.shareAlertsOwnDesc,
+                ShareAlerts.category => l10n.shareAlertsCategoryDesc,
+              },
+              identifier: switch (value) {
+                ShareAlerts.off => SemanticsIds.sharingAlertsOff,
+                ShareAlerts.own => SemanticsIds.sharingAlertsOwn,
+                ShareAlerts.category => SemanticsIds.sharingAlertsCategory,
+              },
+            ),
+        ],
+        selected: current,
+        // Floor and cap at once: a caption of two lines reads as one choice
+        // at this width, and the menu never narrows with the language.
+        menuWidth: FormMetrics.menuMaxWidth,
+      ),
     );
     if (next == null || next == current || !_stillHere(bloc)) return;
     bloc.add(ShareAlertsSet(next));
@@ -852,16 +967,18 @@ class _SharingViewState extends State<_SharingView> {
       final selected = {
         for (final category in overview.categories) category.id,
       };
-      final picked = await CategoryPickerSheet.pickMulti(
-        context,
-        selected: selected,
-        title: l10n.shareCategoriesTitle,
-        caption: ShareCopy.sentence(l10n.shareCategoriesCaption(name)),
-        counts: overview.eventCounts,
-        identifier: SemanticsIds.shareCategoriesSheet,
-        // Done shares what is ticked: a category made inside the sheet
-        // arrives un-ticked, so nobody shares one they only created (C9).
-        tickCreated: false,
+      final picked = await _opened(
+        () => CategoryPickerSheet.pickMulti(
+          context,
+          selected: selected,
+          title: l10n.shareCategoriesTitle,
+          caption: ShareCopy.sentence(l10n.shareCategoriesCaption(name)),
+          counts: overview.eventCounts,
+          identifier: SemanticsIds.shareCategoriesSheet,
+          // Done shares what is ticked: a category made inside the sheet
+          // arrives un-ticked, so nobody shares one they only created (C9).
+          tickCreated: false,
+        ),
       );
       if (!_stillHere(bloc)) return;
       if (picked == null || setEquals(picked, selected)) return;
@@ -879,12 +996,14 @@ class _SharingViewState extends State<_SharingView> {
   /// The one share act that asks first (D6): it has no Undo.
   Future<void> _stopAll(AppLocalizations l10n, String name) async {
     final bloc = context.read<ShareBloc>();
-    final confirmed = await AppDialogs.confirm(
-      context,
-      title: l10n.shareStopAllConfirmTitle(name),
-      content: l10n.shareStopAllConfirm(name),
-      confirmText: l10n.shareStopAll,
-      icon: Icons.group_off_rounded,
+    final confirmed = await _opened(
+      () => AppDialogs.confirm(
+        context,
+        title: l10n.shareStopAllConfirmTitle(name),
+        content: l10n.shareStopAllConfirm(name),
+        confirmText: l10n.shareStopAll,
+        icon: Icons.group_off_rounded,
+      ),
     );
     if (confirmed && _stillHere(bloc)) bloc.add(const ShareStopAllRequested());
   }
@@ -892,57 +1011,89 @@ class _SharingViewState extends State<_SharingView> {
   /// Moved here from the Pairing row, its dialog saying what a new pair
   /// starts from (S7). The page goes at once: Sync & sharing under it shows
   /// the unpair running and how it ended.
+  ///
+  /// While an alert of mine is armed on something the partner shares, the
+  /// dialog says it goes off with the pair (D30); a second tap while the
+  /// first waits on that read is dropped.
   Future<void> _unpair(AppLocalizations l10n) async {
+    if (_unpairAsking) return;
     final bloc = context.read<PairingBloc>();
     final state = bloc.state;
     if (state is! PairingPaired) return;
-    final confirmed = await AppDialogs.confirm(
-      context,
-      title: l10n.unpair,
-      content:
-          '${l10n.pairingUnpairConfirm(ShareCopy.partnerName(l10n, state.partner?.displayName))} '
-          '${l10n.pairingRepairHint}',
-      confirmText: l10n.unpair,
-      isDestructive: true,
-      icon: Icons.link_off_rounded,
-      confirmIdentifier: SemanticsIds.sharingUnpairConfirm,
-    );
-    if (!confirmed || !_stillHere(bloc)) return;
-    bloc.add(const UnpairRequested());
-    _leave();
+    _unpairAsking = true;
+    try {
+      final asked = withAlertsTurnOffLine(
+        context,
+        l10n,
+        '${l10n.pairingUnpairConfirm(ShareCopy.partnerName(l10n, state.partner?.displayName))} '
+        '${l10n.pairingRepairHint}',
+      );
+      final content = asked is Future<String?> ? await asked : asked;
+      if (content == null || !mounted || !_stillHere(bloc)) return;
+      final confirmed = await _opened(
+        () => AppDialogs.confirm(
+          context,
+          title: l10n.unpair,
+          content: content,
+          confirmText: l10n.unpair,
+          isDestructive: true,
+          icon: Icons.link_off_rounded,
+          confirmIdentifier: SemanticsIds.sharingUnpairConfirm,
+        ),
+      );
+      if (!confirmed || !_stillHere(bloc)) return;
+      bloc.add(const UnpairRequested());
+      _leave();
+    } finally {
+      _unpairAsking = false;
+    }
   }
 
-  /// Closes this page wherever it stands, and first whatever it opened
-  /// above itself: a sheet left over a page that has gone throws when it
-  /// is finished. As a pair ends Sync & sharing raises its ended notice
-  /// over everything before this page hears of it; that notice, on top,
-  /// stays, and what lies between it and this page goes with the page.
+  /// Set from an Unpair tap until its confirmation is answered.
+  bool _unpairAsking = false;
+
+  /// The routes this page opened above itself — its confirmations, its
+  /// menu, its sheets — by their own handles, while each is up.
+  final Set<Route<dynamic>> _ownRoutes = {};
+
+  /// Runs [open], which pushes a route synchronously, and keeps that route's
+  /// handle until it is answered: [_leave] closes what the page opened and
+  /// nothing else, so a route of another's above it — Sync & sharing's
+  /// "pair ended" notice — is never taken for one of the page's.
+  Future<T> _opened<T>(Future<T> Function() open) {
+    final future = open();
+    Route<dynamic>? top;
+    // A predicate that holds at once pops nothing: it names the top route.
+    Navigator.of(context).popUntil((above) {
+      top = above;
+      return true;
+    });
+    final pushed = top;
+    if (pushed == null || pushed == ModalRoute.of(context)) return future;
+    _ownRoutes.add(pushed);
+    return future.whenComplete(() => _ownRoutes.remove(pushed));
+  }
+
+  /// Closes this page wherever it stands, and first what it opened above
+  /// itself, by their handles: a sheet left over a page that has gone
+  /// throws when it is finished, and a confirmation left up would be
+  /// answered into a page that has left. Every other route stays — Sync &
+  /// sharing's "pair ended" notice, raised over everything, above all.
   void _leave() {
     if (_leaving || !mounted) return;
     final route = ModalRoute.of(context);
     if (route == null || !route.isActive) return;
     _leaving = true;
     final navigator = Navigator.of(context);
+    for (final own in List.of(_ownRoutes)) {
+      if (own.isActive) navigator.removeRoute(own);
+    }
+    _ownRoutes.clear();
     if (route.isCurrent) {
       navigator.pop();
-      return;
+    } else {
+      navigator.removeRoute(route);
     }
-    Route<dynamic>? top;
-    // A predicate that holds at once pops nothing: it names the top route.
-    navigator.popUntil((above) {
-      top = above;
-      return true;
-    });
-    final notice = top;
-    final ended = context.read<PairingBloc>().state is PairingEnded;
-    if (ended && notice is RawDialogRoute) {
-      while (route.isActive) {
-        navigator.removeRouteBelow(notice);
-      }
-      return;
-    }
-    navigator.popUntil((above) => above == route);
-    navigator.pop();
   }
 
   void _sayOutcome(
@@ -981,19 +1132,18 @@ class _SharingViewState extends State<_SharingView> {
         // category ids are the same in every database, so one tapped after
         // a switch would share in a database that never saw the act.
         if (ShareService.databaseGeneration != generation) return;
+        Future<void> pastBloc(ShareChange change) => undoSharePastBloc(
+          change,
+          shareService: resolve,
+          messenger: messenger,
+          l10n: l10n,
+        );
         if (!bloc.isClosed) {
-          bloc.add(ShareUndoRequested(change));
+          bloc.add(ShareUndoRequested(change, pastBloc: pastBloc));
           return;
         }
         // The page has left and its bloc with it.
-        unawaited(
-          undoSharePastBloc(
-            change,
-            shareService: resolve,
-            messenger: messenger,
-            l10n: l10n,
-          ),
-        );
+        unawaited(pastBloc(change));
       },
     );
   }

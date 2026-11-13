@@ -15,6 +15,7 @@ import 'package:anta/repositories/note_repository.dart';
 import 'package:anta/services/calendar_event_service.dart';
 import 'package:anta/services/counter_service.dart';
 import 'package:anta/services/note_storage_service.dart';
+import 'package:anta/services/pairing_service.dart';
 import 'package:anta/services/sync/app_sync_apply_hooks.dart';
 import 'package:anta/services/sync/sync_apply_hooks.dart';
 import 'package:anta/services/sync/sync_table_binding.dart';
@@ -535,6 +536,8 @@ void main() {
     Object? noticeFailure;
     Object? armedFailure;
     late AppSyncApplyHooks sharing;
+    late PairEnding Function(String? endedPair) ending;
+    late List<String?> endingsAsked;
 
     setUp(() {
       notices = [];
@@ -542,7 +545,13 @@ void main() {
       partnerCategories = {};
       noticeFailure = null;
       armedFailure = null;
+      ending = (_) => (byPartner: false, name: null);
+      endingsAsked = [];
       sharing = AppSyncApplyHooks(
+        pairEnding: (pair) async {
+          endingsAsked.add(pair);
+          return ending(pair);
+        },
         notes: () => notes,
         folders: () => folders,
         noteStorage: () => storage,
@@ -597,6 +606,63 @@ void main() {
             (id: 'e3', title: 'Lunch'),
           ]),
         ]);
+      });
+
+      test('an un-share names the partner as the pairing names them', () async {
+        armed = {'e1'};
+        ending = (_) => (byPartner: false, name: 'Maria');
+
+        await sharing.afterRun(calendar, shared: left);
+
+        expect(endingsAsked, [null]);
+        expect(notices, [
+          const ShareLeftWithAlert([
+            (id: 'e1', title: 'Night shift'),
+          ], partnerName: 'Maria'),
+        ]);
+      });
+
+      group('with the pair forgotten (D35)', () {
+        final forgotten = SharedReadChanges(
+          left: left.left,
+          endedPair: 'pair-1',
+        );
+
+        test('ended by the partner, or their account gone: told, with the '
+            'name kept from the pair', () async {
+          armed = {'e1'};
+          ending = (pair) => (byPartner: true, name: 'Maria');
+
+          await sharing.afterRun(calendar, shared: forgotten);
+
+          expect(endingsAsked, ['pair-1']);
+          expect(notices, [
+            const ShareLeftWithAlert([
+              (id: 'e1', title: 'Night shift'),
+            ], partnerName: 'Maria'),
+          ]);
+        });
+
+        test('ended by me — my Unpair — nothing is said, and the pass still '
+            'takes the alerts off', () async {
+          armed = {'e1'};
+          ending = (pair) => (byPartner: false, name: 'Maria');
+
+          await sharing.afterRun(calendar, shared: forgotten);
+
+          expect(endingsAsked, ['pair-1']);
+          expect(notices, isEmpty);
+          expect(calls, contains('reconcile'));
+        });
+
+        test('who ended it cannot be read: nothing is said', () async {
+          armed = {'e1'};
+          ending = (_) => throw StateError('no pairing');
+
+          await sharing.afterRun(calendar, shared: forgotten);
+
+          expect(notices, isEmpty);
+        });
       });
 
       test('with no alert armed on any, nothing is said', () async {

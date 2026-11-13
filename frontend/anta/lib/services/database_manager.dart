@@ -7,11 +7,12 @@ import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqlite3/sqlite3.dart'
-    show Database, OpenMode, SqliteException, sqlite3;
+    show Database, OpenMode, ResultSet, SqliteException, sqlite3;
 
 import '../constants/settings_keys.dart';
 import '../constants/temp_file_names.dart';
 import '../core/qa/qa_mode.dart';
+import '../database/crdt/synced_tables.dart' show sharedTables;
 import '../database/daos/sync_dao.dart';
 import '../database/database.dart';
 import '../database/migrations/database_schema.dart';
@@ -195,6 +196,34 @@ class DatabaseManager {
   Future<String> getDatabasePath(String name) async {
     final dbFolder = await getApplicationDocumentsDirectory();
     return p.join(dbFolder.path, 'gym_notes', '$name.db');
+  }
+
+  /// The schema version the database file at [path] was last written at,
+  /// read with SQLite alone and never through Drift, whose open would
+  /// create a missing file and migrate an older one: null when there is no
+  /// file, -1 when it cannot be read. For the one reader that must leave
+  /// both to the app — the check that runs with the app closed
+  /// (`docs/cloud-shared-freshness.md`, decision e). Through SQLite rather
+  /// than the header's bytes: a version a migration just wrote may still be
+  /// in the WAL.
+  static int? schemaVersionOfFile(String path) {
+    if (!File(path).existsSync()) return null;
+    final Database db;
+    try {
+      db = sqlite3.open(path, mode: OpenMode.readOnly);
+    } on SqliteException catch (e) {
+      debugPrint('[DatabaseManager] schema of $path not read: $e');
+      return -1;
+    }
+    try {
+      final version = db.select('PRAGMA user_version').single['user_version'];
+      return version is int ? version : -1;
+    } on SqliteException catch (e) {
+      debugPrint('[DatabaseManager] schema of $path not read: $e');
+      return -1;
+    } finally {
+      db.close();
+    }
   }
 
   /// Get the path to the gym_notes directory
@@ -833,6 +862,118 @@ class DatabaseManager {
     final connection = sqlite3.open(source, mode: OpenMode.readWrite);
     try {
       connection.execute('VACUUM INTO ?', [snapshot]);
+    } finally {
+      connection.close();
+    }
+    _stripShared(snapshot);
+  }
+
+  /// Takes out of [snapshot] — a copy about to leave the phone — every row
+  /// the partner shares and what the shared reader keeps of them: a file is
+  /// opened by whoever receives it, never as the person, and nothing would
+  /// ever run the reader there to take the rows away (share surfaces D19,
+  /// "a partner's rows never leave by file"). What `SharedRowDao.removeAll`
+  /// removes, on the copy's own connection: the owner's rows of every
+  /// shareable table, their notes' text and search index, and the reader's
+  /// records (the owner, its cursors and counts, the hidden categories).
+  /// The person's own rows, marks and alerts stay as a restore would read
+  /// them. Then the copy is compacted, so no freed page keeps their text.
+  ///
+  /// A copy holding no shared owner is left exactly as `VACUUM INTO` wrote
+  /// it: one read, no write.
+  static void _stripShared(String snapshot) {
+    final connection = sqlite3.open(snapshot, mode: OpenMode.readWrite);
+    try {
+      final ResultSet rows;
+      try {
+        rows = connection.select(
+          'SELECT value FROM sync_metadata WHERE key = ?',
+          [SyncDao.keySharedOwner],
+        );
+      } on SqliteException catch (_) {
+        // A database from before sync: it never held a shared row.
+        return;
+      }
+      if (rows.isEmpty) return;
+      final owner = rows.single['value'] as String;
+      connection.execute('BEGIN');
+      try {
+        // The fences' licence (`SharedRowDao.writing`): they stand down while
+        // this key is present, and it is gone again before the commit.
+        connection.execute(
+          'INSERT OR REPLACE INTO sync_metadata (key, value, updated_at) '
+          'VALUES (?, ?, 0)',
+          [SyncDao.keySharedWriting, '1'],
+        );
+        const theirNotes = 'SELECT rowid FROM notes WHERE owner_id = ?';
+        try {
+          connection.execute(
+            'DELETE FROM note_body_fts WHERE rowid IN ($theirNotes)',
+            [owner],
+          );
+        } on SqliteException catch (e) {
+          // A build without the body index has none to clear.
+          debugPrint('[DatabaseManager] no body index to strip: $e');
+        }
+        connection.execute(
+          'DELETE FROM note_search_ledger WHERE note_rowid IN ($theirNotes)',
+          [owner],
+        );
+        connection.execute(
+          'DELETE FROM content_chunks WHERE note_id IN '
+          '(SELECT id FROM notes WHERE owner_id = ?)',
+          [owner],
+        );
+        for (final table in sharedTables.reversed) {
+          connection.execute('DELETE FROM $table WHERE owner_id = ?', [owner]);
+        }
+        connection.execute(
+          'DELETE FROM sync_metadata WHERE key IN (?, ?, ?, ?, ?, ?, ?, ?)',
+          [
+            SyncDao.keySharedOwner,
+            SyncDao.keySharedPair,
+            SyncDao.keySharedReadAt,
+            SyncDao.keySharedReadOkAt,
+            SyncDao.keySharedReadFailedAt,
+            SyncDao.keySharedFullAt,
+            SyncDao.keySharedNewerWire,
+            SyncDao.keyShareSending,
+          ],
+        );
+        for (final prefix in const [
+          SyncDao.sharedCursorPrefix,
+          SyncDao.sharedWaitingPrefix,
+          SyncDao.sharedRootPrefix,
+          SyncDao.sharedRefusedPrefix,
+          SyncDao.sharedBuiltInPrefix,
+          SyncDao.sharePokeOwedPrefix,
+        ]) {
+          connection.execute(
+            "DELETE FROM sync_metadata WHERE substr(key, 1, ?) = ?",
+            [prefix.length, prefix],
+          );
+        }
+        // The receiver's choices about a partner's rows, keyed by her ids.
+        connection.execute('DELETE FROM user_settings WHERE key IN (?, ?)', [
+          SettingsKeys.shareHiddenCategories,
+          SettingsKeys.shareFolderSorts,
+        ]);
+        connection.execute('DELETE FROM sync_metadata WHERE key = ?', [
+          SyncDao.keySharedWriting,
+        ]);
+        connection.execute('COMMIT');
+      } catch (_) {
+        connection.execute('ROLLBACK');
+        rethrow;
+      }
+      try {
+        connection.execute(
+          "INSERT INTO note_body_fts(note_body_fts) VALUES ('optimize')",
+        );
+      } on SqliteException catch (_) {
+        // No body index: nothing kept a deleted entry.
+      }
+      connection.execute('VACUUM');
     } finally {
       connection.close();
     }

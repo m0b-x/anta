@@ -2431,10 +2431,41 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsResetFailed => 'Couldn\'t reset the settings';
 
   @override
-  String get shareNote => 'Share note';
+  String get shareNote => 'Send a copy';
 
   @override
-  String get shareFolder => 'Share folder';
+  String get shareFolder => 'Send a copy';
+
+  @override
+  String shareGoneFolder(String name) {
+    return '$name no longer shares this folder.';
+  }
+
+  @override
+  String shareOnlyPartnerChanges(String name) {
+    return 'Only $name can change this.';
+  }
+
+  @override
+  String shareThroughFolder(String folder) {
+    return 'On for everything in $folder';
+  }
+
+  @override
+  String shareMovedIn(String moved, String name) {
+    return '$moved · now shared with $name';
+  }
+
+  @override
+  String shareMovedOut(String moved) {
+    return '$moved · no longer shared';
+  }
+
+  @override
+  String get pickShareConfirm => 'Share';
+
+  @override
+  String get pickCopyConfirm => 'Copy here';
 
   @override
   String get exportingFolder => 'Exporting folder...';
@@ -2469,7 +2500,7 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
-  String get shareSelected => 'Share';
+  String get shareSelected => 'Send a copy';
 
   @override
   String get exportingSelection => 'Exporting selection...';
@@ -11027,7 +11058,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get dataNoticeShared =>
-      'What you share with your partner can be read by their account from your cloud copy, and their phone keeps a read-only copy of it. That copy leaves their phone the next time it syncs after you stop sharing.';
+      'What you share with your partner — categories, events, and folders with their notes — can be read by their account from your cloud copy, and their phone keeps a read-only copy of it. That copy leaves their phone the next time it syncs after you stop sharing.';
 
   @override
   String dataNoticeRemove(String deleteCopy, String deleteAccount) {
@@ -11123,7 +11154,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get appGuideSharingPrivateBody =>
-      'Your notes, counters, alerts, attendance marks, templates and settings stay on your side whatever you share.';
+      'Your counters, alerts, attendance marks, templates and settings stay on your side whatever you share.';
 
   @override
   String get sharePartnerFallback => 'your partner';
@@ -11161,6 +11192,73 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get shareRowEvents => 'Single events';
+
+  @override
+  String get shareRowFolders => 'Folders';
+
+  @override
+  String get shareFoldersEmpty => 'No folder is shared yet.';
+
+  @override
+  String get shareAddFolder => 'Share a folder';
+
+  @override
+  String shareFolderNotes(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count notes',
+      one: '1 note',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String shareNowThrough(String inner, String outer) {
+    return '$inner is now shared through $outer';
+  }
+
+  @override
+  String shareFolderAlready(String folder) {
+    return '$folder is already shared';
+  }
+
+  @override
+  String shareStoppedWithInner(String folder, int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'No longer shared: $folder and $count folders inside it',
+      one: 'No longer shared: $folder and 1 folder inside it',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String shareSummaryFolders(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count folders',
+      one: '1 folder',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get shareNoteLook => 'Notes shared with you';
+
+  @override
+  String get appGuideSharingFolderTitle => 'Share a folder';
+
+  @override
+  String appGuideSharingFolderBody(
+    String shareWith,
+    String addFolder,
+    String sharingPage,
+  ) {
+    return '“$shareWith” in a folder\'s ⋮ menu shares it; “$addFolder” on “$sharingPage” does the same. Your partner reads its notes and cannot change them; a note you add later is shared too.';
+  }
 
   @override
   String get shareNone => 'None';
@@ -11354,7 +11452,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String shareStopAllConfirm(String name) {
-    return 'Your categories and events leave their phone. What $name shares with you stays.';
+    return 'Your categories, events and folders leave their phone. What $name shares with you stays.';
   }
 
   @override
@@ -11426,7 +11524,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get shareMarkMineDesc =>
-      'A sign on the categories and events you share';
+      'A sign on your shared categories, events and folders';
 
   @override
   String get shareAlertsSection => 'Alerts';
@@ -11477,9 +11575,65 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String sharedNoteLine(String name) {
+    return 'From $name · Read only';
+  }
+
+  @override
+  String get sharedNoteCopy => 'Copy to my notes';
+
+  @override
+  String sharedNoteReadOnly(String name) {
+    return 'Read only. Only $name can change this note.';
+  }
+
+  @override
+  String sharedNoteCopied(String name) {
+    return 'Copied. Later changes by $name do not reach your copy.';
+  }
+
+  @override
+  String get sharedNoteCopyFolderGone =>
+      'That folder is gone. Nothing was copied.';
+
+  @override
+  String shareGoneNote(String name) {
+    return '$name no longer shares this note';
+  }
+
+  @override
+  String get sharedNoteTaskDone => 'Task, done';
+
+  @override
+  String sharedNoteTaskDoneNamed(String task) {
+    return 'Task, done: $task';
+  }
+
+  @override
+  String get sharedNoteTaskOpen => 'Task, not done';
+
+  @override
+  String sharedNoteTaskOpenNamed(String task) {
+    return 'Task, not done: $task';
+  }
+
+  @override
   String sharedEventCaption(String name) {
     return 'Only $name can change this event. Your alerts follow what this phone last received.';
   }
+
+  @override
+  String sharedEventCaptionFresh(String name) {
+    return 'Only $name can change this event. Your alerts follow its changes, even while ANTA is closed.';
+  }
+
+  @override
+  String get appGuideSharingAlertsFresh =>
+      'An alert of yours follows your partner\'s changes to the event, even while ANTA is closed.';
+
+  @override
+  String get appGuideSharingAlertsLastReceived =>
+      'An alert of yours follows what this phone last received.';
 
   @override
   String shareNewFromPartner(String name, String what) {
@@ -11520,6 +11674,21 @@ class AppLocalizationsEn extends AppLocalizations {
       one: '$name no longer shares 1 event. Your alert for it is off.',
     );
     return '$_temp0';
+  }
+
+  @override
+  String shareHiddenAlertsOff(String category) {
+    return '$category is hidden. Your alerts on it are off until you show it again.';
+  }
+
+  @override
+  String shareAlertsTurnOffLine(String name) {
+    return 'Your alerts on what $name shares turn off.';
+  }
+
+  @override
+  String syncStopReceivedLine(String name) {
+    return 'What $name shares with you leaves this phone.';
   }
 
   @override

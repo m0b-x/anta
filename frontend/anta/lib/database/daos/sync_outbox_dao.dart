@@ -3,6 +3,7 @@ import '../crdt/crdt_merge.dart';
 import '../crdt/synced_tables.dart';
 import '../database.dart';
 import '../tables/sync_outbox_table.dart';
+import 'sync_dao.dart';
 
 part 'sync_outbox_dao.g.dart';
 
@@ -86,6 +87,36 @@ class SyncOutboxDao extends DatabaseAccessor<AppDatabase>
       readsFrom: {syncOutbox},
     ).getSingle();
     return row.read<bool>('held');
+  }
+
+  /// [holdsAnyOf], and whether every entry of [tables] that is queued is one
+  /// the push set aside ([SyncDao.keyPushParked], a park whose stamp is at
+  /// or above the entry's): such an entry goes nowhere until a start or
+  /// "Sync now" tries it again, so the Sharing page says "Waiting to send"
+  /// rather than "Sending…" for ever. Still one statement.
+  Future<({bool queued, bool parked})> shareQueueOf(List<String> tables) async {
+    if (tables.isEmpty) return (queued: false, parked: false);
+    final names = List.filled(tables.length, '?').join(', ');
+    // The park's value is `<order>|<stamp>|<reason>`; its stamp is cut out
+    // whole, since a prefix comparison would take a later stamp of a longer
+    // device id for one at or below the park's.
+    const rest = "substr(m.value, instr(m.value, '|') + 1)";
+    final row = await customSelect(
+      'SELECT EXISTS(SELECT 1 FROM sync_outbox WHERE table_name IN ($names)) '
+      'AS queued, '
+      'NOT EXISTS(SELECT 1 FROM sync_outbox o WHERE o.table_name IN '
+      '($names) AND NOT EXISTS(SELECT 1 FROM sync_metadata m '
+      "WHERE m.key = '${SyncDao.pushParkedPrefix}' || o.table_name || '.' "
+      "|| o.row_key AND substr($rest, 1, instr($rest || '|', '|') - 1) "
+      '>= o.hlc)) AS parked',
+      variables: [
+        for (final table in tables) Variable<String>(table),
+        for (final table in tables) Variable<String>(table),
+      ],
+      readsFrom: {syncOutbox, attachedDatabase.syncMetadata},
+    ).getSingle();
+    final queued = row.read<bool>('queued');
+    return (queued: queued, parked: queued && row.read<bool>('parked'));
   }
 
   /// The queued entries of [table] among [rowKeys], by key — the chunk

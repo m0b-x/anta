@@ -7,11 +7,13 @@ import '../models/folder.dart' as model;
 import '../models/movable_item.dart';
 import '../models/note_metadata.dart';
 import '../utils/custom_snackbar.dart';
+import '../utils/share_copy.dart';
 import '../widgets/folder_picker_dialog.dart';
 import 'folder_storage_service.dart';
 import 'move_history_service.dart';
 import 'note_storage_service.dart';
 import 'recent_destinations_service.dart';
+import 'share_service.dart';
 
 /// Outcome of a single move attempt within a batch.
 class _MoveOutcome {
@@ -20,16 +22,21 @@ class _MoveOutcome {
   final String? entryId;
   final String? skipReason;
 
-  const _MoveOutcome.success(this.ref, this.entryId)
+  /// What the move did to the item's sharing, when it changed it.
+  final MoveShareChange? share;
+
+  const _MoveOutcome.success(this.ref, this.entryId, this.share)
     : success = true,
       skipReason = null;
   const _MoveOutcome.failure(this.ref)
     : success = false,
       entryId = null,
-      skipReason = 'failure';
+      skipReason = 'failure',
+      share = null;
   const _MoveOutcome.skipped(this.ref, this.skipReason)
     : success = false,
-      entryId = null;
+      entryId = null,
+      share = null;
 }
 
 /// Single entry point for every move flow in the app:
@@ -216,11 +223,28 @@ class MoveCoordinator {
     _recents.record(targetParentId);
 
     // Compose the snackbar message + undo action.
-    final message = successes.length == 1
+    final moved = successes.length == 1
         ? (successes.first.ref.kind == MovableItemKind.folder
               ? l10n.folderMoved
               : l10n.noteMoved)
         : l10n.itemsMoved(successes.length);
+    // Said only when every item moved underwent the one change (share
+    // surfaces §6.11); a mixed move, or one that changed nothing, says
+    // nothing of sharing.
+    final share = successes.first.share;
+    final message =
+        share == null || successes.any((outcome) => outcome.share != share)
+        ? moved
+        : switch (share) {
+            MoveShareChange.nowShared => l10n.shareMovedIn(
+              moved,
+              ShareCopy.partnerName(
+                l10n,
+                ShareService.knownAvailability?.audience?.displayName,
+              ),
+            ),
+            MoveShareChange.noLongerShared => l10n.shareMovedOut(moved),
+          };
 
     if (batchId != null) {
       CustomSnackbar.showWithAction(
@@ -332,7 +356,9 @@ class MoveCoordinator {
           sourceParentId: source,
           sourceParentName: sourceNames[source],
         ));
-        outcomes.add(_MoveOutcome.success(ref, null));
+        outcomes.add(
+          _MoveOutcome.success(ref, null, result.shareChanges[ref.id]),
+        );
       } else if (result.duplicates.contains(ref.id)) {
         outcomes.add(_MoveOutcome.skipped(ref, 'duplicate'));
       } else if (result.unchanged.contains(ref.id)) {
@@ -364,7 +390,9 @@ class MoveCoordinator {
     );
     return [
       for (final outcome in outcomes)
-        outcome.success ? _MoveOutcome.success(outcome.ref, entryId) : outcome,
+        outcome.success
+            ? _MoveOutcome.success(outcome.ref, entryId, outcome.share)
+            : outcome,
     ];
   }
 

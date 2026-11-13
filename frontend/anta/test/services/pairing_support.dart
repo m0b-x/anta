@@ -291,6 +291,7 @@ class FakePairingGateway implements PairingGateway {
       endedBy: endedBy,
       endedAt: _tick(),
       profiles: pair.profiles,
+      push: pair.push,
     );
     _emitPair(pairId);
   }
@@ -311,8 +312,103 @@ class FakePairingGateway implements PairingGateway {
       endedBy: pair.endedBy,
       endedAt: pair.endedAt,
       profiles: {...pair.profiles, profile.uid: profile},
+      push: pair.push,
     );
     _emitPair(pairId);
+  }
+
+  /// The relay `config/push` names; null for none.
+  String? pushRelay;
+  int readPushRelayCalls = 0;
+
+  /// Every push write, in order: `write <pair> <uid> <device> <id>` and
+  /// `remove <pair> <uid> <device>`.
+  final List<String> pushWrites = [];
+
+  /// The server time a written entry is stamped with.
+  DateTime pushClock = DateTime.utc(2026, 11, 13, 12);
+
+  /// Every push write fails with this until it is cleared; the rest of the
+  /// gateway answers.
+  PairingError? failAlwaysOnPush;
+
+  @override
+  Future<void> writePushDevice({
+    required String pairId,
+    required String uid,
+    required String deviceId,
+    required PairPushDevice device,
+    Iterable<String> drop = const [],
+  }) async {
+    _maybeFail();
+    if (failAlwaysOnPush case final error?) throw PairingException(error);
+    final pair = pairs[pairId];
+    if (pair == null) throw const PairingException(PairingError.unknown);
+    // The rules: only an active pair takes a new or changed device.
+    if (!pair.isActive) {
+      throw const PairingException(PairingError.permissionDenied);
+    }
+    pushWrites.add('write $pairId $uid $deviceId ${device.id}');
+    final mine = {...pair.devicesOf(uid)}
+      ..removeWhere((key, _) => drop.contains(key) && key != deviceId);
+    for (final stale in drop) {
+      if (stale != deviceId) pushWrites.add('remove $pairId $uid $stale');
+    }
+    mine[deviceId] = PairPushDevice(
+      id: device.id,
+      kind: device.kind,
+      at: pushClock,
+    );
+    _putPush(pair, uid, mine);
+  }
+
+  @override
+  Future<void> removePushDevices({
+    required String pairId,
+    required String uid,
+    required Iterable<String> deviceIds,
+  }) async {
+    _maybeFail();
+    final pair = pairs[pairId];
+    if (pair == null) return;
+    for (final deviceId in deviceIds) {
+      pushWrites.add('remove $pairId $uid $deviceId');
+    }
+    _putPush(
+      pair,
+      uid,
+      {...pair.devicesOf(uid)}
+        ..removeWhere((key, _) => deviceIds.contains(key)),
+    );
+  }
+
+  @override
+  Future<String?> readPushRelay() async {
+    _maybeFail();
+    readPushRelayCalls++;
+    return pushRelay;
+  }
+
+  /// Stands [devices] in for [uid]'s push addresses in [pair].
+  void seedPush(String pairId, String uid, Map<String, PairPushDevice> devices) =>
+      _putPush(pairs[pairId]!, uid, devices);
+
+  void _putPush(
+    PairRecord pair,
+    String uid,
+    Map<String, PairPushDevice> devices,
+  ) {
+    pairs[pair.pairId] = PairRecord(
+      pairId: pair.pairId,
+      members: pair.members,
+      isActive: pair.isActive,
+      createdAt: pair.createdAt,
+      endedBy: pair.endedBy,
+      endedAt: pair.endedAt,
+      profiles: pair.profiles,
+      push: {...pair.push, uid: devices},
+    );
+    _emitPair(pair.pairId);
   }
 
   @override

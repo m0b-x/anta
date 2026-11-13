@@ -52,6 +52,7 @@ import 'package:anta/services/import_export_service.dart';
 import 'package:anta/services/note_storage_service.dart';
 import 'package:anta/services/overview_view_service.dart';
 import 'package:anta/services/settings_service.dart';
+import 'package:anta/utils/category_allowlist.dart';
 import 'package:anta/utils/event_agenda.dart';
 import 'package:anta/utils/report_labels.dart';
 import 'package:anta/utils/report_markdown.dart';
@@ -345,6 +346,78 @@ void main() {
 
       robot = await open(tester);
       expect(robot.categoriesBadge.isLabelVisible, isFalse);
+    });
+
+    /// H1 fix pass, finding 7: a list with entries handed to the report keeps
+    /// only its own part — the badge, the narrowed glyph, the picker's ticks
+    /// and what a Done stores all read that part.
+    group('a list with entries', () {
+      setUp(() {
+        CalendarCategories.updateCache([
+          ...CalendarCategories.all,
+          const CalendarCategory(
+            id: 'p-night',
+            name: 'Night shift',
+            colorValue: 0xFF8E24AA,
+            iconKey: 'work',
+            sortOrder: 0,
+            isBuiltIn: false,
+            fromPartner: true,
+          ),
+        ]);
+      });
+
+      Finder pickRow(String id) =>
+          find.bySemanticsIdentifier(SemanticsIds.categoryPickRow(id));
+
+      for (final ids in const [
+        {CategoryAllowlist.mineEntry},
+        {CategoryAllowlist.partnerEntry},
+        {CategoryAllowlist.mineEntry, 'p-night'},
+      ]) {
+        testWidgets('$ids reads as every category', (tester) async {
+          final robot = await open(tester, categoryIds: ids);
+          expect(robot.categoriesBadge.isLabelVisible, isFalse);
+          expect((robot.state as ReportReady).categoryIds, isEmpty);
+        });
+      }
+
+      testWidgets('{gym, *partner} is gym alone: badged 1, ticked alone, '
+          'stored as a plain list', (tester) async {
+        final robot = await open(
+          tester,
+          categoryIds: const {'gym', CategoryAllowlist.partnerEntry},
+        );
+        expect(robot.categoriesBadge.isLabelVisible, isTrue);
+        expect((robot.categoriesBadge.label! as Text).data, '1');
+
+        await tester.tap(robot.byId(SemanticsIds.reportCategoriesOpen));
+        await tester.pumpAndSettle();
+        expect(pickRow('p-night'), findsNothing, reason: 'mine only (D15)');
+        final gym = tester.widget<FormCheckRow>(
+          find.ancestor(
+            of: pickRow('gym'),
+            matching: find.byType(FormCheckRow),
+          ),
+        );
+        expect(gym.checked, isTrue);
+        final rest = tester.widget<FormCheckRow>(
+          find.ancestor(
+            of: pickRow('cardio'),
+            matching: find.byType(FormCheckRow),
+          ),
+        );
+        expect(rest.checked, isFalse);
+
+        await tester.tap(pickRow('cardio'));
+        await tester.pumpAndSettle();
+        await tester.tap(
+          find.bySemanticsIdentifier(SemanticsIds.categoryPickDone),
+        );
+        await tester.pumpAndSettle();
+        expect((robot.state as ReportReady).categoryIds, {'gym', 'cardio'});
+        expect((robot.categoriesBadge.label! as Text).data, '2');
+      });
     });
   });
 

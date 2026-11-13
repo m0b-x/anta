@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:equatable/equatable.dart';
 import '../../models/item_label.dart';
+import '../../models/note_metadata.dart';
 import '../../services/note_storage_service.dart';
 
 abstract class OptimizedNoteEvent extends Equatable {
@@ -17,15 +18,20 @@ class LoadNotesPaginated extends OptimizedNoteEvent {
   final int pageSize;
   final NotesSortOrder sortOrder;
 
+  /// Leave out the notes the partner shares: Recent
+  /// (`NoteStorageService.loadNotesPaginated`).
+  final bool ownOnly;
+
   const LoadNotesPaginated({
     this.folderId,
     this.page = 1,
     this.pageSize = 20,
     this.sortOrder = NotesSortOrder.updatedDesc,
+    this.ownOnly = false,
   });
 
   @override
-  List<Object?> get props => [folderId, page, pageSize, sortOrder];
+  List<Object?> get props => [folderId, page, pageSize, sortOrder, ownOnly];
 }
 
 class LoadMoreNotes extends OptimizedNoteEvent {
@@ -65,6 +71,12 @@ class UpdateOptimizedNote extends OptimizedNoteEvent {
   final String noteId;
   final String? title;
   final String? content;
+
+  /// The metadata the editor holds for the note, handed to
+  /// `NoteStorageService.updateNote` so the save keeps its share flags and
+  /// never reads the share census on the typing path; null reads it when
+  /// it was dropped.
+  final NoteMetadata? current;
   final Completer<void>? completer;
 
   // ignore: prefer_const_constructors_in_immutables
@@ -72,6 +84,7 @@ class UpdateOptimizedNote extends OptimizedNoteEvent {
     required this.noteId,
     this.title,
     this.content,
+    this.current,
     this.completer,
   });
 

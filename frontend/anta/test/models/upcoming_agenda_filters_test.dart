@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:anta/models/upcoming_agenda_filters.dart';
+import 'package:anta/utils/category_allowlist.dart';
 import 'package:anta/utils/event_agenda.dart';
 
 /// The fasting presentation is persisted **by name**, so the axis that matters
@@ -196,6 +197,44 @@ void main() {
           0,
         );
       }
+    });
+  });
+
+  /// D29: a whole group rides the same sorted CSV as one more string, and a
+  /// list stored before it reads exactly as it did.
+  group('UpcomingAgendaFilters category CSV', () {
+    test('round-trips a group\'s entry beside ids', () {
+      final ids = {
+        CategoryAllowlist.mineEntry,
+        'p-night',
+        CategoryAllowlist.partnerEntry,
+      };
+      final csv = UpcomingAgendaFilters.encodeCategories(ids);
+      expect(csv, '*mine,*partner,p-night');
+      expect(UpcomingAgendaFilters.decodeCategories(csv), ids);
+    });
+
+    test('an old list reads as before', () {
+      expect(UpcomingAgendaFilters.decodeCategories('gym,work'), {
+        'gym',
+        'work',
+      });
+      expect(UpcomingAgendaFilters.decodeCategories(''), isEmpty);
+    });
+
+    test('my entry with no partner\'s category listed restricts nothing', () {
+      expect(
+        const UpcomingAgendaFilters(
+          categoryIds: {CategoryAllowlist.mineEntry},
+        ).restrictiveFilterCount,
+        0,
+      );
+      expect(
+        const UpcomingAgendaFilters(
+          categoryIds: {'gym'},
+        ).restrictiveFilterCount,
+        1,
+      );
     });
   });
 

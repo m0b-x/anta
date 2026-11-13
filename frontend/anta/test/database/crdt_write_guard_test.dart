@@ -194,7 +194,7 @@ void main() {
       r'\bsyncOutboxDao ?\. ?(ackThrough|ackUnpushedThrough|requeueRow'
       r'|requeueAll|requeueBodies'
       r'|clear|count|holdsAnyOf|maxHlc|pending|pendingForTable|pendingKeys'
-      r'|tombstonedKeys'
+      r'|shareQueueOf|tombstonedKeys'
       r'|watchQueued)'
       r' ?\('
       r'|\bfinal outbox = _e\._db\.syncOutboxDao;',

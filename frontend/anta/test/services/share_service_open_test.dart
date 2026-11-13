@@ -85,7 +85,6 @@ void main() {
           settings: await SettingsService.getInstance(),
         ),
         sync: sync,
-        markFolder: (_, _) async => false,
         foldersChanged: () {},
         requestRun: () async {},
         requestSharedRead: () async {},

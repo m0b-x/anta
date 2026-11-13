@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:get_it/get_it.dart';
@@ -11,20 +13,24 @@ import '../constants/label_appearance.dart';
 import '../constants/row_metrics.dart';
 import '../constants/semantics_ids.dart';
 import '../controllers/selection_controller.dart';
+import '../controllers/shared_note_copy.dart';
 import '../l10n/app_localizations.dart';
 import '../models/label_style.dart';
 import '../models/movable_item.dart';
 import '../models/note_metadata.dart';
+import '../models/partner_look.dart';
 import '../services/app_navigator.dart';
 import '../services/move_coordinator.dart';
 import '../services/note_storage_service.dart';
 import '../services/settings_service.dart';
 import '../utils/custom_snackbar.dart';
+import '../utils/share_copy.dart';
 import 'app_dialogs.dart';
 import 'content_rows.dart';
 import 'label_dot.dart';
 import 'label_swatch_strip.dart';
 import 'note_export_dialog.dart';
+import 'row_share_mark.dart';
 
 /// How a row says when a note was last touched.
 ///
@@ -77,6 +83,11 @@ class NoteRow extends StatelessWidget {
   final void Function(MovableItemRef ref)? onLongPressItem;
   final void Function(MovableItemRef ref)? onTapInSelection;
 
+  /// How the page draws whose a row is ([RowShareMark]); null draws the row
+  /// as it always was. Only the partner's note is marked: a note of mine in
+  /// a shared folder is not, its folder is.
+  final PartnerLook? partnerLook;
+
   const NoteRow({
     super.key,
     required this.metadata,
@@ -91,6 +102,7 @@ class NoteRow extends StatelessWidget {
     this.selection,
     this.onLongPressItem,
     this.onTapInSelection,
+    this.partnerLook,
   });
 
   MovableItemRef _refFor(BuildContext context) {
@@ -130,6 +142,8 @@ class NoteRow extends StatelessWidget {
     final isSelected = selection != null && selection!.contains(ref);
     final colorScheme = Theme.of(context).colorScheme;
     final path = pathLabel;
+    final mark = RowShareMark.forNote(metadata, partnerLook, l10n);
+    Widget labelled(Widget content) => mark?.labelled(content) ?? content;
 
     final row = ContentRowShell(
       position: groupPosition,
@@ -156,75 +170,77 @@ class NoteRow extends StatelessWidget {
             _showActionSheet(context);
           }
         },
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(
-            minHeight: RowMetrics.twoLineMinHeight,
-          ),
-          child: Padding(
-            padding: RowMetrics.twoLinePadding,
-            child: Row(
-              children: [
-                if (isSelected) ...[
-                  Icon(
-                    Icons.check_circle,
-                    size: RowMetrics.glyphSize,
-                    color: colorScheme.primary,
-                  ),
-                  const SizedBox(width: RowMetrics.gap),
-                ],
-                Expanded(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      if (path != null)
+        child: labelled(
+          ConstrainedBox(
+            constraints: const BoxConstraints(
+              minHeight: RowMetrics.twoLineMinHeight,
+            ),
+            child: Padding(
+              padding: RowMetrics.twoLinePadding,
+              child: Row(
+                children: [
+                  if (isSelected) ...[
+                    Icon(
+                      Icons.check_circle,
+                      size: RowMetrics.glyphSize,
+                      color: colorScheme.primary,
+                    ),
+                    const SizedBox(width: RowMetrics.gap),
+                  ],
+                  Expanded(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (path != null)
+                          Text(
+                            path.isEmpty ? ' ' : path,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: RowMetrics.pathLaneFontSize,
+                              color: colorScheme.onSurfaceVariant,
+                            ),
+                          ),
                         Text(
-                          path.isEmpty ? ' ' : path,
+                          metadata.title.isEmpty
+                              ? l10n.untitledNote
+                              : metadata.title,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
-                            fontSize: RowMetrics.pathLaneFontSize,
-                            color: colorScheme.onSurfaceVariant,
+                            fontSize: RowMetrics.titleFontSize,
+                            fontWeight: FontWeight.w500,
+                            color: colorScheme.onSurface,
                           ),
                         ),
-                      Text(
-                        metadata.title.isEmpty
-                            ? l10n.untitledNote
-                            : metadata.title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: RowMetrics.titleFontSize,
-                          fontWeight: FontWeight.w500,
-                          color: colorScheme.onSurface,
-                        ),
-                      ),
-                      const SizedBox(height: RowMetrics.lineGap),
-                      _buildSecondLine(context, l10n, colorScheme),
-                    ],
-                  ),
-                ),
-                if (decoration.showsDot) ...[
-                  const SizedBox(width: RowMetrics.gap),
-                  LabelDot(label: metadata.label),
-                ],
-                if (isReorderMode) ...[
-                  const SizedBox(width: RowMetrics.gap),
-                  Semantics(
-                    container: true,
-                    identifier: SemanticsIds.browserDragHandle(index ?? 0),
-                    child: ReorderableDragStartListener(
-                      index: index ?? 0,
-                      child: Icon(
-                        Icons.drag_handle,
-                        size: RowMetrics.glyphSize,
-                        color: colorScheme.onSurfaceVariant,
-                      ),
+                        const SizedBox(height: RowMetrics.lineGap),
+                        _buildSecondLine(context, l10n, colorScheme, mark),
+                      ],
                     ),
                   ),
+                  if (decoration.showsDot) ...[
+                    const SizedBox(width: RowMetrics.gap),
+                    LabelDot(label: metadata.label),
+                  ],
+                  if (isReorderMode) ...[
+                    const SizedBox(width: RowMetrics.gap),
+                    Semantics(
+                      container: true,
+                      identifier: SemanticsIds.browserDragHandle(index ?? 0),
+                      child: ReorderableDragStartListener(
+                        index: index ?? 0,
+                        child: Icon(
+                          Icons.drag_handle,
+                          size: RowMetrics.glyphSize,
+                          color: colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ),
+                  ],
                 ],
-              ],
+              ),
             ),
           ),
         ),
@@ -268,11 +284,13 @@ class NoteRow extends StatelessWidget {
   /// The date, then the preview it introduces. One [Text.rich] rather than
   /// two widgets so the pair shares a single line and a single ellipsis: the
   /// date is what the row always says, and the preview is what fills whatever
-  /// is left of the line.
+  /// is left of the line. The partner's face, when [mark] draws one, leads
+  /// it.
   Widget _buildSecondLine(
     BuildContext context,
     AppLocalizations l10n,
     ColorScheme colorScheme,
+    RowShareMark? mark,
   ) {
     final date = formatRowDate(
       date: metadata.updatedAt,
@@ -290,6 +308,7 @@ class NoteRow extends StatelessWidget {
     return Text.rich(
       TextSpan(
         children: [
+          ?mark?.inlineFace(),
           TextSpan(
             text: date,
             style: TextStyle(
@@ -312,39 +331,54 @@ class NoteRow extends StatelessWidget {
   /// The rename / move / share / delete sheet a long-press raises, with
   /// *Select* at the top where the page offers a selection mode — the row's
   /// own menu button is gone, so this is the only way into either.
+  /// The partner's note raises the same sheet with every write disabled and
+  /// the reason at its top in place of the colour strip (§16.8), and one
+  /// act of its own: "Copy to my notes" (ff).
   void _showActionSheet(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final enterSelection = onLongPressItem;
     final ref = _refFor(context);
+    final theirs = metadata.fromPartner;
     showRowActionSheet(
       context,
       title: metadata.title.isEmpty ? l10n.untitledNote : metadata.title,
-      headerBuilder: (sheetContext) => LabelSwatchStrip(
-        value: metadata.label,
-        onChanged: (label) {
-          Navigator.of(sheetContext).pop();
-          if (label == metadata.label) return;
-          context.read<OptimizedNoteBloc>().add(
-            SetOptimizedNoteLabel(noteId: metadata.id, label: label),
-          );
-        },
-      ),
+      headerBuilder: (sheetContext) => theirs
+          ? SharedReadOnlyLine(
+              partner: partnerLook?.partner,
+              text: l10n.shareOnlyPartnerChanges(
+                ShareCopy.partnerName(l10n, partnerLook?.name),
+              ),
+              banded: false,
+            )
+          : LabelSwatchStrip(
+              value: metadata.label,
+              onChanged: (label) {
+                Navigator.of(sheetContext).pop();
+                if (label == metadata.label) return;
+                context.read<OptimizedNoteBloc>().add(
+                  SetOptimizedNoteLabel(noteId: metadata.id, label: label),
+                );
+              },
+            ),
       actions: [
-        if (enterSelection != null)
+        if (enterSelection != null || theirs)
           RowAction(
             icon: Icons.check_circle_outline,
             label: l10n.select,
             identifier: SemanticsIds.rowActionSelect,
-            onSelected: () => enterSelection(ref),
+            enabled: !theirs,
+            onSelected: () => enterSelection?.call(ref),
           ),
         RowAction(
           icon: Icons.edit_rounded,
           label: l10n.rename,
+          enabled: !theirs,
           onSelected: () => _showRenameDialog(context),
         ),
         RowAction(
           icon: Icons.drive_file_move_outlined,
           label: l10n.moveToFolder,
+          enabled: !theirs,
           onSelected: () => MoveCoordinator.moveNote(
             context,
             metadata: metadata,
@@ -354,12 +388,27 @@ class NoteRow extends StatelessWidget {
         RowAction(
           icon: Icons.share_rounded,
           label: l10n.shareNote,
+          enabled: !theirs,
           onSelected: () => _showExportFormatDialog(context),
         ),
+        if (theirs)
+          RowAction(
+            icon: Icons.content_copy_rounded,
+            label: l10n.sharedNoteCopy,
+            identifier: SemanticsIds.rowActionCopyToMine,
+            onSelected: () => unawaited(
+              copySharedNoteToMine(
+                context,
+                metadata,
+                partnerName: partnerLook?.name,
+              ),
+            ),
+          ),
         RowAction(
           icon: Icons.delete_rounded,
           label: l10n.delete,
           isDestructive: true,
+          enabled: !theirs,
           onSelected: () => _confirmDelete(context),
         ),
       ],

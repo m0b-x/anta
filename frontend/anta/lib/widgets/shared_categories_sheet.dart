@@ -5,7 +5,6 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../bloc/share/share_bloc.dart';
 import '../constants/app_colors.dart';
-import '../constants/app_constants.dart';
 import '../constants/calendar_categories.dart';
 import '../constants/row_metrics.dart';
 import '../constants/semantics_ids.dart';
@@ -220,10 +219,7 @@ class SharedCategoriesSheet extends StatelessWidget {
         key: ValueKey(id),
         leading: avatar,
         label: label,
-        caption: [
-          count,
-          l10n.shareJoinsYours(label),
-        ].join(AppConstants.captionSeparator),
+        caption: ShareCopy.caption([count, l10n.shareJoinsYours(label)]),
         captionMaxLines: FormMetrics.receivedCaptionMaxLines,
         value: entry.shown,
         onTap: null,

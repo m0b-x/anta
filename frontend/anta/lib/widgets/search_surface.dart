@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:get_it/get_it.dart';
 
 import '../bloc/search/search_bloc.dart';
 import '../constants/app_colors.dart';
@@ -7,16 +8,20 @@ import '../constants/app_icon_sizes.dart';
 import '../constants/app_spacing.dart';
 import '../constants/label_appearance.dart';
 import '../constants/row_metrics.dart';
+import '../controllers/partner_look_reader.dart';
 import '../l10n/app_localizations.dart';
 import '../models/item_label.dart';
 import '../models/label_style.dart';
 import '../models/note_metadata.dart';
+import '../models/partner_look.dart';
 import '../models/search_scope.dart';
 import '../services/app_navigator.dart';
 import '../services/folder_search_service.dart';
+import '../services/folder_storage_service.dart';
 import 'content_rows.dart';
 import 'label_dot.dart';
 import 'note_row.dart';
+import 'row_share_mark.dart';
 
 const String _pathSeparator = ' › ';
 
@@ -35,7 +40,7 @@ const String _factSeparator = ' · ';
 /// app bar costs a different outer scroll view and nothing else. The chips
 /// are a widget of their own for the same reason: in place they belong beside
 /// the field, not at the top of the list.
-class SearchSurface extends StatelessWidget {
+class SearchSurface extends StatefulWidget {
   /// The folder half of the scope choice, or null for the two hosts that have
   /// no second scope to offer — the root, and a `#tag` tap, both of which are
   /// already searching everywhere. Held here rather than read off the state
@@ -45,36 +50,16 @@ class SearchSurface extends StatelessWidget {
   const SearchSurface({super.key, this.folderScope});
 
   @override
-  Widget build(BuildContext context) {
-    final folderScope = this.folderScope;
-    return BlocBuilder<SearchBloc, SearchState>(
-      builder: (context, state) {
-        return CustomScrollView(
-          keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.manual,
-          slivers: [
-            if (SearchScopeChips.shows(
-              folderScope: folderScope,
-              labelsInUse: state.labelsInUse,
-            ))
-              SliverToBoxAdapter(
-                child: SearchScopeChips(
-                  folderScope: folderScope,
-                  selected: state.scope,
-                  labelsInUse: state.labelsInUse,
-                  selectedLabels: state.labels,
-                ),
-              ),
-            ...resultSlivers(context, state),
-            const SliverToBoxAdapter(child: SizedBox(height: AppSpacing.lg)),
-          ],
-        );
-      },
-    );
-  }
+  State<SearchSurface> createState() => _SearchSurfaceState();
 
   /// The result region on its own, so a host that supplies its own app bar
-  /// sliver and chip placement can splice it into that scroll view.
-  static List<Widget> resultSlivers(BuildContext context, SearchState state) {
+  /// sliver and chip placement can splice it into that scroll view. The host
+  /// hands down the [partnerLook] it reads once for its page.
+  static List<Widget> resultSlivers(
+    BuildContext context,
+    SearchState state, {
+    PartnerLook? partnerLook,
+  }) {
     final l10n = AppLocalizations.of(context)!;
 
     // Before the "nothing found" check, so a pass that is still running never
@@ -104,6 +89,7 @@ class SearchSurface extends StatelessWidget {
             groupPosition: _positionFor(index, state.recents.length),
             path: state.folderPaths[state.recents[index].folderId],
             showDate: true,
+            partnerLook: partnerLook,
           ),
         ),
       ];
@@ -146,7 +132,12 @@ class SearchSurface extends StatelessWidget {
           child: ContentSectionHeader(label: l10n.titlesSection),
         ),
       if (state.titleHits.isNotEmpty)
-        _hitsSliver(state, state.titleHits, matchType: SearchMatchType.title),
+        _hitsSliver(
+          state,
+          state.titleHits,
+          matchType: SearchMatchType.title,
+          partnerLook: partnerLook,
+        ),
       if (showLabels && state.contentHits.isNotEmpty)
         SliverToBoxAdapter(
           child: ContentSectionHeader(label: l10n.inTextSection),
@@ -156,6 +147,7 @@ class SearchSurface extends StatelessWidget {
           state,
           state.contentHits,
           matchType: SearchMatchType.content,
+          partnerLook: partnerLook,
         ),
     ];
   }
@@ -174,6 +166,7 @@ class SearchSurface extends StatelessWidget {
     SearchState state,
     List<SearchResult> hits, {
     required SearchMatchType matchType,
+    required PartnerLook? partnerLook,
   }) {
     return _rowsSliver(hits.length, (index) {
       final hit = hits[index];
@@ -189,6 +182,7 @@ class SearchSurface extends StatelessWidget {
         // the reason stripped out: it says when each note was last touched,
         // exactly as the list it replaced does.
         showDate: state.isLabelOnly,
+        partnerLook: partnerLook,
       );
     });
   }
@@ -238,6 +232,61 @@ class SearchSurface extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// The standalone search page's surface reads the partner's look for its
+/// results itself; the in-place hosts hand theirs to
+/// [SearchSurface.resultSlivers].
+class _SearchSurfaceState extends State<SearchSurface> {
+  late final PartnerLookReader _partnerLook = PartnerLookReader()
+    ..addListener(_onPartnerLook);
+
+  void _onPartnerLook() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void dispose() {
+    _partnerLook.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final folderScope = widget.folderScope;
+    return BlocBuilder<SearchBloc, SearchState>(
+      builder: (context, state) {
+        if (PartnerLookReader.mayShare(
+          holdsShared: GetIt.I<FolderStorageService>().holdsShared,
+        )) {
+          _partnerLook.start();
+        }
+        return CustomScrollView(
+          keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.manual,
+          slivers: [
+            if (SearchScopeChips.shows(
+              folderScope: folderScope,
+              labelsInUse: state.labelsInUse,
+            ))
+              SliverToBoxAdapter(
+                child: SearchScopeChips(
+                  folderScope: folderScope,
+                  selected: state.scope,
+                  labelsInUse: state.labelsInUse,
+                  selectedLabels: state.labels,
+                ),
+              ),
+            ...SearchSurface.resultSlivers(
+              context,
+              state,
+              partnerLook: _partnerLook.value,
+            ),
+            const SliverToBoxAdapter(child: SizedBox(height: AppSpacing.lg)),
+          ],
+        );
+      },
     );
   }
 }
@@ -527,6 +576,10 @@ class SearchResultRow extends StatelessWidget {
   /// instead.
   final bool showDate;
 
+  /// How the host draws whose a result is ([RowShareMark]); null draws the
+  /// row as it always was.
+  final PartnerLook? partnerLook;
+
   const SearchResultRow({
     super.key,
     required this.metadata,
@@ -535,6 +588,7 @@ class SearchResultRow extends StatelessWidget {
     this.titleMatch,
     this.snippet,
     this.showDate = false,
+    this.partnerLook,
   });
 
   /// Every result subscribes, labelled or not, for the reason [NoteRow]
@@ -561,6 +615,8 @@ class SearchResultRow extends StatelessWidget {
     final pathLabel = path == null || path!.isEmpty
         ? null
         : path!.join(_pathSeparator);
+    final mark = RowShareMark.forNote(metadata, partnerLook, l10n);
+    Widget labelled(Widget content) => mark?.labelled(content) ?? content;
 
     final body = Column(
       mainAxisSize: MainAxisSize.min,
@@ -579,7 +635,7 @@ class SearchResultRow extends StatelessWidget {
           maxLines: 1,
         ),
         const SizedBox(height: RowMetrics.lineGap),
-        _buildPathLine(context, l10n, colorScheme, pathLabel),
+        _buildPathLine(context, l10n, colorScheme, pathLabel, mark),
         if (snippet != null)
           Padding(
             padding: const EdgeInsets.only(top: AppSpacing.xxs),
@@ -608,24 +664,26 @@ class SearchResultRow extends StatelessWidget {
           noteId: metadata.id,
           metadata: metadata,
         ),
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(
-            minHeight: RowMetrics.twoLineMinHeight,
-          ),
-          child: Padding(
-            padding: RowMetrics.twoLinePadding,
-            // The label dot sits at the trailing edge, the way it does on a
-            // note row, so a result and the browser row it stands for read the
-            // same. An unlabelled result keeps the bare Column it always had.
-            child: !decoration.showsDot
-                ? body
-                : Row(
-                    children: [
-                      Expanded(child: body),
-                      const SizedBox(width: RowMetrics.gap),
-                      LabelDot(label: metadata.label),
-                    ],
-                  ),
+        child: labelled(
+          ConstrainedBox(
+            constraints: const BoxConstraints(
+              minHeight: RowMetrics.twoLineMinHeight,
+            ),
+            child: Padding(
+              padding: RowMetrics.twoLinePadding,
+              // The label dot sits at the trailing edge, the way it does on a
+              // note row, so a result and the browser row it stands for read the
+              // same. An unlabelled result keeps the bare Column it always had.
+              child: !decoration.showsDot
+                  ? body
+                  : Row(
+                      children: [
+                        Expanded(child: body),
+                        const SizedBox(width: RowMetrics.gap),
+                        LabelDot(label: metadata.label),
+                      ],
+                    ),
+            ),
           ),
         ),
       ),
@@ -634,12 +692,14 @@ class SearchResultRow extends StatelessWidget {
 
   /// "Training › Winter block · Today" — where the note lives, then when it
   /// was last touched, the date in the weight [NoteRow] gives it so the two
-  /// lists read the same.
+  /// lists read the same. The partner's face, when [mark] draws one, leads
+  /// it, as on [NoteRow]'s second line.
   Widget _buildPathLine(
     BuildContext context,
     AppLocalizations l10n,
     ColorScheme colorScheme,
     String? pathLabel,
+    RowShareMark? mark,
   ) {
     final date = showDate
         ? formatRowDate(
@@ -651,9 +711,52 @@ class SearchResultRow extends StatelessWidget {
         : null;
     if (pathLabel == null && date == null) return const SizedBox.shrink();
 
+    final face = mark?.inlineFace();
+    final lineStyle = TextStyle(
+      fontSize: RowMetrics.secondLineFontSize,
+      color: colorScheme.onSurfaceVariant,
+    );
+    if (face != null && pathLabel != null && date != null) {
+      // The face costs the path, never the date: the path alone gives way.
+      return Row(
+        children: [
+          Flexible(
+            child: Text.rich(
+              TextSpan(
+                children: [
+                  face,
+                  TextSpan(text: pathLabel),
+                ],
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: lineStyle,
+            ),
+          ),
+          Text.rich(
+            TextSpan(
+              children: [
+                const TextSpan(text: _factSeparator),
+                TextSpan(
+                  text: date,
+                  style: TextStyle(
+                    fontWeight: FontWeight.w500,
+                    color: colorScheme.onSurface,
+                  ),
+                ),
+              ],
+            ),
+            maxLines: 1,
+            style: lineStyle,
+          ),
+        ],
+      );
+    }
+
     return Text.rich(
       TextSpan(
         children: [
+          ?mark?.inlineFace(),
           if (pathLabel != null) TextSpan(text: pathLabel),
           if (pathLabel != null && date != null)
             const TextSpan(text: _factSeparator),

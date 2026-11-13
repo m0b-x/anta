@@ -5,8 +5,11 @@ import 'package:anta/constants/calendar_categories.dart';
 import 'package:anta/constants/semantics_ids.dart';
 import 'package:anta/models/agenda_day_list_mode.dart';
 import 'package:anta/models/calendar_category.dart';
+import 'package:anta/models/calendar_event.dart';
 import 'package:anta/models/overview_list_options.dart';
 import 'package:anta/models/partner_look.dart';
+import 'package:anta/utils/category_allowlist.dart';
+import 'package:anta/utils/event_agenda.dart';
 import 'package:anta/widgets/form_rows.dart';
 
 import 'support/layout_errors.dart';
@@ -393,8 +396,63 @@ void main() {
 
       tearDown(() => CalendarCategories.updatePartnerHidden(const {}));
 
-      testWidgets('an empty allowlist opens both groups ticked; choosing one '
-          'of theirs is an allowlist of one', (tester) async {
+      /// H1 fix pass, finding 2: the store reads the catalogue after the
+      /// picker returns, the partner's group listed beside mine.
+      Future<void> createInside(OverviewOptionsRobot robot) async {
+        CalendarCategories.updateCache([
+          ...CalendarCategories.all,
+          const CalendarCategory(
+            id: 'c-new',
+            name: 'Made here',
+            colorValue: 0xFF1E88E5,
+            iconKey: 'event',
+            sortOrder: 9,
+            isBuiltIn: false,
+          ),
+        ]);
+        // What Create category does through the facade; a toggle back and
+        // forth rebuilds the list.
+        await robot.togglePickerRow('c0');
+        await robot.togglePickerRow('c0');
+        expect(robot.pickerRowTicked('c-new'), isFalse);
+      }
+
+      testWidgets('a category created inside the picker and left un-ticked '
+          'keeps my part a list beside their group', (tester) async {
+        final robot = OverviewOptionsRobot(tester);
+        await robot.show(
+          onChanged: writes.add,
+          onCategoriesChanged: picks.add,
+          partnerLook: maria,
+        );
+
+        await robot.openCategories();
+        await createInside(robot);
+        await robot.pickerDone();
+
+        expect(picks.last, {'c0', 'c1', CategoryAllowlist.partnerEntry});
+      });
+
+      testWidgets('a category created inside the picker, ticked, with an old '
+          'one un-ticked, is kept', (tester) async {
+        final robot = OverviewOptionsRobot(tester);
+        await robot.show(
+          onChanged: writes.add,
+          onCategoriesChanged: picks.add,
+          partnerLook: maria,
+        );
+
+        await robot.openCategories();
+        await createInside(robot);
+        await robot.togglePickerRow('c-new');
+        await robot.togglePickerRow('c1');
+        await robot.pickerDone();
+
+        expect(picks.last, {'c0', 'c-new', CategoryAllowlist.partnerEntry});
+      });
+
+      testWidgets('an empty allowlist opens both groups ticked; choosing '
+          'every one of theirs stores their group (D29)', (tester) async {
         final robot = OverviewOptionsRobot(tester);
         await robot.show(
           onChanged: writes.add,
@@ -413,13 +471,15 @@ void main() {
         await robot.pickerDone();
 
         expect(picks, [
-          {'p-night'},
+          {CategoryAllowlist.partnerEntry},
         ]);
         expect(robot.categoriesValue, 'Night shift');
       });
 
-      testWidgets('ticking only mine is a narrowing; ticking both groups '
-          'whole collapses to the empty allowlist', (tester) async {
+      testWidgets('ticking only mine is a narrowing stored as my group; '
+          'ticking both groups whole collapses to the empty allowlist', (
+        tester,
+      ) async {
         final robot = OverviewOptionsRobot(tester);
         await robot.show(
           onChanged: writes.add,
@@ -428,14 +488,80 @@ void main() {
         );
 
         await robot.pickCategories({'c0', 'c1'});
-        expect(picks.last, {'c0', 'c1'});
+        expect(picks.last, {CategoryAllowlist.mineEntry});
         expect(robot.categoriesValue, 'Cat0, Cat1');
+
+        await robot.pickCategories({'c0'});
+        expect(picks.last, {'c0'}, reason: 'a part of mine stays a list');
+        expect(robot.categoriesValue, 'Cat0');
 
         await robot.openCategories();
         await robot.pickerSelectAll();
         await robot.pickerDone();
         expect(picks.last, isEmpty);
         expect(robot.categoriesValue, robot.l10n.calendarFilterCategoriesAll);
+      });
+
+      testWidgets('R18: a saved view holding all of mine reads as off once '
+          'the pair ends, and as only mine again when it is back', (
+        tester,
+      ) async {
+        const ids = {CategoryAllowlist.mineEntry};
+        final partners = [
+          for (final c in CalendarCategories.all)
+            if (c.fromPartner) c,
+        ];
+        final myEvent = CalendarEvent(
+          id: 'm',
+          title: 'Mine',
+          categoryId: 'c1',
+          startDate: DateTime.utc(2027, 3, 4),
+        );
+        final theirEvent = CalendarEvent(
+          id: 'p',
+          title: 'Theirs',
+          categoryId: 'p-night',
+          startDate: DateTime.utc(2027, 3, 4),
+          fromPartner: true,
+        );
+
+        CalendarCategories.updateCache([
+          for (final c in CalendarCategories.all)
+            if (!c.fromPartner) c,
+        ]);
+        final robot = OverviewOptionsRobot(tester);
+        await robot.show(
+          onChanged: writes.add,
+          categoryIds: ids,
+          partnerLook: maria,
+        );
+        expect(CategoryAllowlist.filtersNothing(ids), isTrue);
+        expect(robot.categoriesValue, robot.l10n.calendarFilterCategoriesAll);
+        expect(
+          EventAgenda.passesEventFilters(myEvent, categoryIds: ids),
+          isTrue,
+        );
+        await robot.close();
+
+        CalendarCategories.updateCache([
+          ...CalendarCategories.all,
+          ...partners,
+        ]);
+        await robot.show(
+          onChanged: writes.add,
+          categoryIds: ids,
+          partnerLook: maria,
+        );
+        expect(CategoryAllowlist.filtersNothing(ids), isFalse);
+        expect(robot.categoriesValue, 'Cat0, Cat1');
+        expect(
+          EventAgenda.passesEventFilters(myEvent, categoryIds: ids),
+          isTrue,
+        );
+        expect(
+          EventAgenda.passesEventFilters(theirEvent, categoryIds: ids),
+          isFalse,
+        );
       });
 
       testWidgets('the row counts over both groups and never names a stale '

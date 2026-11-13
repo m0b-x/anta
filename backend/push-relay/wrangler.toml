@@ -1,0 +1,19 @@
+name = "anta-push-relay"
+main = "src/index.js"
+compatibility_date = "2026-11-01"
+
+# The service account's JSON key is a secret, never in this file:
+#   npx wrangler secret put FCM_SERVICE_ACCOUNT
+[vars]
+FIREBASE_PROJECT_ID = "alexs-note-tracking-app"
+
+# Six pokes a minute per caller, counted per Cloudflare location
+# (developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/).
+# namespace_id: any positive integer, unique within the account.
+[[ratelimits]]
+name = "POKE_LIMIT"
+namespace_id = "1001"
+
+  [ratelimits.simple]
+  limit = 6
+  period = 60

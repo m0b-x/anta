@@ -53,15 +53,21 @@ class NoteDao extends DatabaseAccessor<AppDatabase> with _$NoteDaoMixin {
     )..where((n) => n.id.isIn(ids) & n.isDeleted.equals(false))).get();
   }
 
+  /// [notOwnedBy] leaves out the rows of that account — the partner's, for
+  /// a list of the person's own.
   Future<int> getNoteCount(
     String? folderId, {
     bool includeDeleted = false,
+    String? notOwnedBy,
   }) async {
     final countExp = notes.id.count();
     final query = selectOnly(notes)..addColumns([countExp]);
 
     if (folderId != null) {
       query.where(notes.folderId.equals(folderId));
+    }
+    if (notOwnedBy != null) {
+      query.where(notes.ownerId.isNotValue(notOwnedBy));
     }
 
     if (!includeDeleted) {
@@ -92,17 +98,22 @@ class NoteDao extends DatabaseAccessor<AppDatabase> with _$NoteDaoMixin {
     return result.read(countExp) ?? 0;
   }
 
+  /// [notOwnedBy] as [getNoteCount] takes it.
   Future<List<Note>> getNotesPaginated({
     String? folderId,
     required int limit,
     required int offset,
     required NoteSortField sortField,
     required bool ascending,
+    String? notOwnedBy,
   }) {
     final query = select(notes);
 
     if (folderId != null) {
       query.where((n) => n.folderId.equals(folderId));
+    }
+    if (notOwnedBy != null) {
+      query.where((n) => n.ownerId.isNotValue(notOwnedBy));
     }
     query.where((n) => n.isDeleted.equals(false));
 
@@ -725,8 +736,10 @@ class NoteDao extends DatabaseAccessor<AppDatabase> with _$NoteDaoMixin {
     return transaction(() async {
       final direction = descending ? 'DESC' : 'ASC';
       final rows = await customSelect(
+        // The partner's notes are never part of a plan: the fences would
+        // skip their writes while the reorder answered done.
         'SELECT id, position FROM notes '
-        'WHERE folder_id = ? AND is_deleted = 0 '
+        'WHERE folder_id = ? AND is_deleted = 0 AND ${SyncDao.mineSql} '
         'ORDER BY position $direction, id',
         variables: [Variable<String>(folderId)],
         readsFrom: {notes},

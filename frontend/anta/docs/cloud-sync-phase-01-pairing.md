@@ -12,7 +12,12 @@ device:
    and without it every reconcile fails `failed-precondition` in release
    builds where nobody sees the console hint.
 2. A console-configured **TTL policy on `invites.expiresAt`**. Spark has no
-   Cloud Functions, so nothing else reaps abandoned invites.
+   Cloud Functions, so nothing else reaps abandoned invites. **Never set
+   (checked 2026-11-13, at the region move):** no policy stood on the old
+   database and none stands on the new one — a TTL delete needs billing,
+   which the free plan does not have, and the owner chose to leave it so.
+   An abandoned invite therefore stays as a document; the rules already
+   refuse an expired code, so it cannot be redeemed, only never reaped.
 3. **Firebase App Check.** Rules can authorise but cannot rate-limit, and
    Spark's 50k reads / 20k writes per day have no overflow: one signed-in
    account can otherwise exhaust the project's daily quota and take pairing

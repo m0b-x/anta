@@ -5,9 +5,11 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:anta/bloc/calendar/calendar_bloc.dart';
 import 'package:anta/bloc/calendar_report/calendar_report_bloc.dart';
+import 'package:anta/constants/calendar_categories.dart';
 import 'package:anta/constants/settings_keys.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/database/database_lifecycle.dart';
+import 'package:anta/models/calendar_category.dart';
 import 'package:anta/models/calendar_event.dart';
 import 'package:anta/models/calendar_report.dart';
 import 'package:anta/models/overview_list_options.dart';
@@ -21,6 +23,7 @@ import 'package:anta/services/calendar_event_service.dart';
 import 'package:anta/services/calendar_report_service.dart';
 import 'package:anta/services/overview_view_service.dart';
 import 'package:anta/services/settings_service.dart';
+import 'package:anta/utils/category_allowlist.dart';
 import 'package:anta/utils/markdown_color_syntax.dart';
 
 import '../database/support/db_test_support.dart';
@@ -642,6 +645,73 @@ void main() {
       expect(await stored(SettingsKeys.reportPeriod), 'preset:last90Days');
     },
   );
+
+  /// H1 fix pass, finding 7: the report counts none of the partner's time
+  /// (D15), so a list handed to it keeps only its own part — through the
+  /// overview's Report switch (a look at open) and a report digest's tap (a
+  /// look on an open report) alike.
+  group('a list with entries at the report\'s door', () {
+    setUp(() {
+      CalendarCategories.updateCache([
+        for (final (id, partner) in const [
+          ('gym', false),
+          ('birthday', false),
+          ('p-night', true),
+        ])
+          CalendarCategory(
+            id: id,
+            name: id,
+            colorValue: 0xFF1E88E5,
+            iconKey: 'event',
+            sortOrder: 0,
+            isBuiltIn: false,
+            fromPartner: partner,
+          ),
+      ]);
+    });
+
+    tearDown(() => CalendarCategories.updateCache(const []));
+
+    const mine = CategoryAllowlist.mineEntry;
+    const theirs = CategoryAllowlist.partnerEntry;
+    for (final (handed, kept) in const [
+      ({mine}, <String>{}),
+      ({theirs}, <String>{}),
+      ({mine, 'p-night'}, <String>{}),
+      ({'gym', theirs}, {'gym'}),
+    ]) {
+      test('$handed through the overview\'s switch is held as $kept', () async {
+        final service = _FakeReportService();
+        final bloc = build(service);
+        addTearDown(bloc.close);
+        await openReady(
+          bloc,
+          opened: ReportOpened(
+            look: (period: const OverviewYearPeriod(2026), categoryIds: handed),
+          ),
+        );
+        expect((bloc.state as ReportReady).categoryIds, kept);
+        expect(service.requests.single.categoryIds, kept);
+        expect(await stored(SettingsKeys.reportCategoryIds), kept.join(','));
+      });
+
+      test('$handed through a digest\'s tap is held as $kept', () async {
+        final service = _FakeReportService();
+        final bloc = build(service);
+        addTearDown(bloc.close);
+        await openReady(bloc);
+        bloc.add(
+          ReportLookArrived((
+            period: OverviewWeekPeriod(DateTime.utc(2026, 10, 19)),
+            categoryIds: handed,
+          )),
+        );
+        await pumpEventQueue();
+        expect((bloc.state as ReportReady).categoryIds, kept);
+        expect(service.requests.last.categoryIds, kept);
+      });
+    }
+  });
 
   test('a report digest\'s look on an open report sets the period, the home '
       'and the categories; the categories persist, the period never', () async {

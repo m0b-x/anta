@@ -5,7 +5,14 @@ import '../../models/share_settings.dart';
 import '../../services/share_service.dart';
 
 /// The page's act an outcome answers, so it words the snackbar.
-enum ShareAct { categoriesSet, eventUnshared, stopAll, undo }
+enum ShareAct {
+  categoriesSet,
+  eventUnshared,
+  folderShared,
+  folderUnshared,
+  stopAll,
+  undo,
+}
 
 /// Why an act wrote nothing.
 enum ShareFailure {
@@ -65,8 +72,10 @@ final class ShareLoaded extends ShareState {
   final ShareAvailability availability;
   final ShareOverview overview;
 
-  /// The receiver's two looks as stored, read with the overview while
-  /// paired; the shipped values otherwise, read from nowhere.
+  /// The receiver's looks — the events' ([ShareLook.eventLook]), the notes'
+  /// ([ShareLook.noteLook]) — and the mark switch as stored, read with the
+  /// overview while paired; the shipped values otherwise, read from
+  /// nowhere.
   final ShareLook look;
 
   /// What may ring for a partner's event, on the same terms as [look].

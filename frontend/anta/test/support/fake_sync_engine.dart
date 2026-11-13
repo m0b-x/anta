@@ -75,6 +75,12 @@ class FakeSyncEngine implements SyncEngine {
   }
 
   @override
+  Future<SyncRunReport> readSharedWhileAway() async {
+    calls.add('readSharedWhileAway');
+    return report;
+  }
+
+  @override
   SyncCadence cadence = SyncCadence.automatic;
 
   /// When set, [setCadence] throws it instead of storing — a closed

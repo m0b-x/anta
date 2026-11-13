@@ -40,6 +40,7 @@ import 'package:anta/services/pairing_service.dart';
 import 'package:anta/services/settings_service.dart';
 import 'package:anta/services/share_service.dart';
 import 'package:anta/utils/marker_contrast.dart';
+import 'package:anta/utils/share_copy.dart';
 import 'package:anta/widgets/category_delete_sheet.dart';
 import 'package:anta/widgets/category_picker_sheet.dart';
 import 'package:anta/widgets/content_rows.dart';
@@ -339,7 +340,7 @@ void main() {
   }
 
   String caption(AppLocalizations l10n, List<String> segments) =>
-      segments.join(' · ');
+      ShareCopy.caption(segments);
 
   /// Every stored row's slot, version and stamp, by id.
   Future<Map<String, (int, int, Object)>> stored(WidgetTester tester) async {
@@ -2300,6 +2301,39 @@ void main() {
       await letSnackbarGo(tester);
     });
 
+    testWidgets('an Undo that fails after the page has gone is said on the '
+        'app\'s messenger', (tester) async {
+      final share = paired();
+      await pumpPage(tester, share: share);
+      final l10n = l10nOf(tester);
+      share.nextChange = ShareChange(
+        sharedCategories: [CalendarCategories.byId('gym')!],
+      );
+      await pickRowItem(tester, 'gym', SemanticsIds.categoryMenuShare);
+      Navigator.of(
+        tester.element(find.byType(CalendarCategoriesPage)),
+      ).pushReplacement(
+        MaterialPageRoute<void>(
+          builder: (_) => const Scaffold(body: Text('elsewhere')),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byType(CalendarCategoriesPage), findsNothing);
+      final hold = share.hold = Completer<void>();
+
+      await tester.tap(find.text(l10n.undo));
+      await tester.pump();
+      hold.completeError(StateError('disk'));
+      await tester.pumpAndSettle();
+
+      expect(share.undone, hasLength(1));
+      expect(
+        find.widgetWithText(SnackBar, l10n.shareChangeFailed),
+        findsOneWidget,
+      );
+      await letSnackbarGo(tester);
+    });
+
     // Closing review 11b: a share write fails in the Sharing page's words.
     for (final (what, error) in [
       ('a write that fails', StateError('the write failed')),
@@ -2495,6 +2529,62 @@ void main() {
       CalendarEventService.notifyExternalChange(eventsMerged: true);
       await tester.pump();
       expect(statements.matching(_partnerCountSql), isEmpty);
+    });
+
+    testWidgets('a pairing made while the page is open brings the share '
+        'entry and the partner\'s section without leaving the page — and '
+        'until then the page waits on nothing that reads', (tester) async {
+      final theirs = await addTheirs(tester, {'Night shift': 3});
+      final gateway = FakePairingGateway();
+      final pairing = (await tester.runAsync(
+        () async => PairingService.forTesting(
+          auth: FakeAuthService(user: const AppUser(uid: 'me')),
+          gateway: gateway,
+          settings: await SettingsService.getInstance(),
+        ),
+      ))!;
+      addTearDown(PairingService.reset);
+      tester.view.physicalSize = const Size(400, 2000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      var opens = 0;
+      await tester.pumpWidget(
+        MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: CalendarCategoriesPage(
+            shareService: () async {
+              opens++;
+              return paired();
+            },
+          ),
+        ),
+      );
+      await tester.pump();
+      expect(byId(SemanticsIds.categoryRow('gym')), findsOneWidget);
+      expect(byId(SemanticsIds.categorySectionPartnerHeader), findsNothing);
+
+      statements.reset();
+      await tester.pump(const Duration(seconds: 1));
+      expect(statements.count, 0, reason: 'following the pairing reads none');
+      expect(opens, 0);
+
+      await tester.runAsync(() async {
+        await gateway.createInvite(
+          code: '23456789',
+          creatorUid: 'maria-uid',
+          lifetime: const Duration(minutes: 10),
+        );
+        await pairing.redeem('23456789');
+      });
+      await settleWrites(tester);
+
+      expect(opens, 1);
+      expect(byId(SemanticsIds.categorySectionPartnerHeader), findsOneWidget);
+      expect(
+        byId(SemanticsIds.categoryPartnerRow(theirs['Night shift']!)),
+        findsOneWidget,
+      );
     });
 
     // Review 9: the editor asks the page again when Sync & sharing returns.
@@ -3192,10 +3282,11 @@ class _ReceivingShareService extends FakeShareService {
     : super(availability: ShareReady(audience));
 
   @override
-  Future<void> setCategoryShown(String id, bool shown) async {
-    await super.setCategoryShown(id, shown);
+  Future<int> setCategoryShown(String id, bool shown) async {
+    final armed = await super.setCategoryShown(id, shown);
     CalendarCategories.updatePartnerHidden(hidden);
     CalendarEventService.notifyExternalChange(cacheCurrent: true);
+    return armed;
   }
 
   /// When set, every [overview] waits on it, as a slow load does.

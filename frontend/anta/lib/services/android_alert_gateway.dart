@@ -1100,6 +1100,14 @@ class AndroidAlertGateway extends AlertGateway {
     'com.alexzamfir.anta/alerts',
   );
 
+  /// The phone's Android API level as the activity answers it on this
+  /// channel ([kAlertSdkLevelMethod]); null when it gave none. Throws what
+  /// the channel throws. For a caller outside alerts that must know the
+  /// release — push decides by it whether a message's work is expedited —
+  /// so the one channel object answers both.
+  static Future<int?> sdkLevel() =>
+      _platform.invokeMethod<int>(kAlertSdkLevelMethod);
+
   @override
   String get backendName =>
       kAlarmTierUsesNotifications ? 'notification' : 'alarm';

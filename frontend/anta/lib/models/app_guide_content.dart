@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../l10n/app_localizations.dart';
+import '../services/shared_refresh/shared_refresh_scheduler.dart';
 import '../utils/share_copy.dart';
 import 'calendar_guide_content.dart';
 import 'guide_content.dart';
@@ -276,6 +277,16 @@ enum AppGuideTopic implements GuideTopic {
     final partner = ShareCopy.partnerName(l10n, null);
     final shareWith = l10n.shareWithPartner(partner);
     final sharingPage = l10n.sharingWithTitle(partner);
+    final alerts = l10n.appGuideSharingAlertsBody(
+      l10n.shareAlerts,
+      l10n.shareAlertsOff,
+      l10n.shareAlertsCategory,
+    );
+    // The alerts row closes on what is true on the device the guide is read
+    // on, as the read sheet's caption does.
+    final alertsFollow = SharedRefreshAvailability.isSupported
+        ? l10n.appGuideSharingAlertsFresh
+        : l10n.appGuideSharingAlertsLastReceived;
     return [
       CalendarGuideRow(
         'sharing-pair',
@@ -304,6 +315,16 @@ enum AppGuideTopic implements GuideTopic {
         l10n.appGuideSharingEventBody(shareWith),
       ),
       CalendarGuideRow(
+        'sharing-folder',
+        Icons.folder_rounded,
+        l10n.appGuideSharingFolderTitle,
+        l10n.appGuideSharingFolderBody(
+          shareWith,
+          l10n.shareAddFolder,
+          sharingPage,
+        ),
+      ),
+      CalendarGuideRow(
         'sharing-readonly',
         Icons.lock_outline_rounded,
         l10n.appGuideSharingReadOnlyTitle,
@@ -319,11 +340,7 @@ enum AppGuideTopic implements GuideTopic {
         'sharing-alerts',
         Icons.notifications_rounded,
         l10n.appGuideSharingAlertsTitle,
-        l10n.appGuideSharingAlertsBody(
-          l10n.shareAlerts,
-          l10n.shareAlertsOff,
-          l10n.shareAlertsCategory,
-        ),
+        '$alerts $alertsFollow',
       ),
       CalendarGuideRow(
         'sharing-stop',

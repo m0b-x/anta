@@ -115,8 +115,28 @@ class FirebaseAuthService implements AuthService {
     return GoogleAuthProvider.credential(idToken: token);
   }
 
+  /// Set by DI: what has to be written as this account before its session
+  /// ends — the push registry's leave, which only the account itself may
+  /// write (`docs/cloud-shared-freshness.md` §7). Bounded by its own
+  /// deadline; its failure never holds the sign-out.
+  static Future<void> Function(String uid)? beforeSignOut;
+
+  /// A Firebase ID token of the signed-in account, for a call that proves it
+  /// to a server of ours (the push relay); null while nobody is signed in.
+  static Future<String?> idToken() async =>
+      FirebaseAuth.instance.currentUser?.getIdToken();
+
   @override
   Future<void> signOut() async {
+    final uid = _auth.currentUser?.uid;
+    final leaving = beforeSignOut;
+    if (uid != null && leaving != null) {
+      try {
+        await leaving(uid);
+      } catch (e) {
+        debugPrint('[FirebaseAuthService] before sign-out: $e');
+      }
+    }
     // Best-effort on the Google side: whatever happens there, the Firebase
     // session must still end, or the user is stranded signed in.
     await _leaveGoogle('sign-out', () => GoogleSignIn.instance.signOut());

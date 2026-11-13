@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 
 import '../constants/app_colors.dart';
 import '../constants/row_metrics.dart';
+import '../models/app_user.dart';
+import 'user_avatar.dart';
 
 /// Where a row sits inside its rounded group, which is what decides its
 /// corner radii and whether it draws a trailing divider.
@@ -266,12 +268,26 @@ class RowAction {
   /// the only road into the browser's selection, and its word is translated.
   final String? identifier;
 
+  /// Off, the action is drawn dimmed and takes no tap — on the partner's
+  /// row, where it would write (share surfaces §6.12): disabled, never
+  /// hidden.
+  final bool enabled;
+
+  /// One line under the label that says why it is off, at full strength.
+  final String? caption;
+
+  /// A tick at the row's end — a folder shared by its own mark.
+  final bool checked;
+
   const RowAction({
     required this.icon,
     required this.label,
     required this.onSelected,
     this.isDestructive = false,
     this.identifier,
+    this.enabled = true,
+    this.caption,
+    this.checked = false,
   });
 }
 
@@ -340,21 +356,40 @@ Future<void> showRowActionSheet(
               Semantics(
                 container: action.identifier != null,
                 identifier: action.identifier,
+                // A tile with no tap drops its button flag: an off action
+                // still says it is a button, and that it is off.
+                button: action.enabled ? null : true,
+                enabled: action.enabled ? null : false,
                 child: ListTile(
+                  enabled: action.enabled,
                   leading: Icon(
                     action.icon,
-                    color: action.isDestructive ? colorScheme.error : null,
+                    // A disabled destructive row reads as off, not as red.
+                    color: action.isDestructive && action.enabled
+                        ? colorScheme.error
+                        : null,
                   ),
                   title: Text(
                     action.label,
-                    style: action.isDestructive
+                    style: action.isDestructive && action.enabled
                         ? TextStyle(color: colorScheme.error)
                         : null,
                   ),
-                  onTap: () {
-                    Navigator.of(sheetContext).pop();
-                    action.onSelected();
-                  },
+                  subtitle: action.caption == null
+                      ? null
+                      : Text(
+                          action.caption!,
+                          style: TextStyle(color: colorScheme.onSurfaceVariant),
+                        ),
+                  trailing: action.checked
+                      ? Icon(Icons.check_rounded, color: colorScheme.primary)
+                      : null,
+                  onTap: action.enabled
+                      ? () {
+                          Navigator.of(sheetContext).pop();
+                          action.onSelected();
+                        }
+                      : null,
                 ),
               ),
             const SizedBox(height: 8),
@@ -363,6 +398,78 @@ Future<void> showRowActionSheet(
       );
     },
   );
+}
+
+/// "From {name} · Read only": the one line that says a page or a sheet shows
+/// the partner's folder or note, and why nothing on it writes (share surfaces
+/// §6.13, decision fc). Pinned under the note editor's bar and a partner
+/// folder page's, and — [banded] off — in a partner row's long-press sheet.
+///
+/// Its text is known before the first frame, so its height is fixed for the
+/// visit; a long name or an address wraps, up to
+/// [RowMetrics.sharedLineMaxLines].
+class SharedReadOnlyLine extends StatelessWidget {
+  /// The partner the face draws; null draws the person glyph.
+  final AppUser? partner;
+
+  final String text;
+
+  /// The band behind the line, one tone off the page ground; off inside a
+  /// sheet, whose own ground already sets it apart.
+  final bool banded;
+
+  /// A `SemanticsIds` value for the line's one node.
+  final String? identifier;
+
+  const SharedReadOnlyLine({
+    super.key,
+    required this.partner,
+    required this.text,
+    this.banded = true,
+    this.identifier,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final band = colorScheme.brightness == Brightness.light
+        ? colorScheme.surfaceContainerHigh
+        : colorScheme.surfaceContainer;
+    return Semantics(
+      container: true,
+      identifier: identifier,
+      label: text,
+      child: ExcludeSemantics(
+        child: ColoredBox(
+          color: banded ? band : Colors.transparent,
+          child: Padding(
+            padding: RowMetrics.sharedLinePadding,
+            child: Row(
+              children: [
+                UserAvatar(
+                  user: partner ?? const AppUser(uid: ''),
+                  radius: RowMetrics.partnerAvatarRadius,
+                ),
+                const SizedBox(width: RowMetrics.sharedLineGap),
+                Expanded(
+                  child: Text(
+                    text,
+                    maxLines: RowMetrics.sharedLineMaxLines,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: RowMetrics.secondLineFontSize,
+                      fontWeight: FontWeight.w400,
+                      color: colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 /// Floating chip displayed under the user's finger while a selection batch

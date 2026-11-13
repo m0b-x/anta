@@ -43,6 +43,26 @@ class EventAlertDao extends DatabaseAccessor<AppDatabase>
         .get();
   }
 
+  /// [getAllActive] less the alerts on an event another account shares with
+  /// this one — the export lists' read (`docs/cloud-sharing-foundations.md`
+  /// §8): such an alert is an inert orphan in an archive whose event is left
+  /// out. Still one statement, so a database that holds no shared row pays
+  /// nothing for it.
+  Future<List<EventAlertRow>> getAllActiveForExport() {
+    return (select(eventAlerts)
+          ..where(
+            (a) => CustomExpression<bool>(
+              'is_deleted = 0 AND NOT '
+              '${SyncDao.onSharedEventSql('calendar_event_alerts.event_id')}',
+            ),
+          )
+          ..orderBy([
+            (a) => OrderingTerm.asc(a.eventId),
+            (a) => OrderingTerm.asc(a.createdAt),
+          ]))
+        .get();
+  }
+
   /// Whether any live alert is enabled, answered from the first such row —
   /// the reconcile's "nothing can arm" check (`AlertScheduler`), asked before
   /// the event store is loaded, so it never reads the table whole.

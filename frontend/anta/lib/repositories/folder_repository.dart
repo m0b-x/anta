@@ -6,8 +6,10 @@ import '../models/item_label.dart';
 import '../models/movable_item.dart';
 import '../constants/app_constants.dart';
 import '../utils/restartable_stream.dart';
+import 'share_census.dart';
 
 export '../models/folder_change.dart';
+export 'share_census.dart';
 
 class FolderRepository {
   AppDatabase _db;
@@ -49,6 +51,23 @@ class FolderRepository {
 
   FolderDao get _folderDao => _db.folderDao;
 
+  /// The share facts the services flag folders and notes against.
+  ShareCensus get shareCensus => ShareCensus.of(_db);
+
+  /// The database this repository reads now, for a setting kept per
+  /// database beside its folders (`SettingsService.partnerFolderSortsOf`),
+  /// which follows a [rebindDatabase] with it.
+  AppDatabase get database => _db;
+
+  /// [owner]'s live top-level folders by name (`FolderDao.topFoldersOf`).
+  Future<List<Folder>> topFoldersOf(String owner) =>
+      _folderDao.topFoldersOf(owner);
+
+  /// The ids among [ids] of folders [owner] — the partner — shares with
+  /// this account.
+  Future<List<String>> partnersAmong(List<String> ids, String owner) =>
+      _db.sharedRowDao.sharedAmongOf('folders', owner, ids);
+
   /// Points this repository at the database a switch opened and drops the
   /// caches, which belonged to the one that closed — the folder twin of
   /// `NoteRepository.rebindDatabase`, and for the same reason: the object is
@@ -61,6 +80,10 @@ class FolderRepository {
     invalidateAll();
     _rebinds.add(null);
   }
+
+  /// The folder [id] as cached now, or null: for a question that must be
+  /// answered without awaiting.
+  Folder? cachedFolder(String id) => _folderCache[id];
 
   Future<Folder?> getFolderById(String id, {bool forceRefresh = false}) async {
     _cleanCacheIfNeeded();
@@ -148,17 +171,22 @@ class FolderRepository {
     String? parentId, {
     bool includeDeleted = false,
     bool forceRefresh = false,
+    String? excludeOwner,
   }) async {
-    if (!forceRefresh && !includeDeleted && _countCache.containsKey(parentId)) {
+    // A count past an owner's folders is never the whole count the cache
+    // holds for the parent.
+    final cached = !includeDeleted && excludeOwner == null;
+    if (!forceRefresh && cached && _countCache.containsKey(parentId)) {
       return _countCache[parentId]!;
     }
 
     final count = await _folderDao.getFolderCount(
       parentId,
       includeDeleted: includeDeleted,
+      excludeOwner: excludeOwner,
     );
 
-    if (!includeDeleted) {
+    if (cached) {
       _countCache[parentId] = count;
     }
 
@@ -171,6 +199,7 @@ class FolderRepository {
     required int offset,
     required FolderSortField sortField,
     required bool ascending,
+    String? excludeOwner,
   }) async {
     final folders = await _folderDao.getFoldersPaginated(
       parentId: parentId,
@@ -178,6 +207,7 @@ class FolderRepository {
       offset: offset,
       sortField: sortField,
       ascending: ascending,
+      excludeOwner: excludeOwner,
     );
 
     for (final folder in folders) {
@@ -201,6 +231,7 @@ class FolderRepository {
 
     _folderCache[folder.id] = folder;
     _invalidateParentCache(parentId);
+    shareCensus.forgetIfShared();
 
     // Emit change event for reactive updates
     _folderChangesController.add(
@@ -238,6 +269,7 @@ class FolderRepository {
 
     _folderCache[folder.id] = folder;
     _invalidateParentCache(parentId);
+    shareCensus.forgetIfShared();
 
     _folderChangesController.add(
       FolderChange(
@@ -273,6 +305,7 @@ class FolderRepository {
       if (updateParent) {
         _invalidateParentCache(oldParentId);
         _invalidateParentCache(parentId);
+        shareCensus.forgetIfShared();
       } else {
         _invalidateParentCache(folder.parentId);
       }
@@ -369,6 +402,7 @@ class FolderRepository {
     await _folderDao.softDeleteFolderWithDescendants(id);
 
     _folderCache.remove(id);
+    shareCensus.forgetIfShared();
     if (folder != null) {
       _invalidateParentCache(folder.parentId);
 
@@ -404,6 +438,7 @@ class FolderRepository {
       _folderCache[folderId] = folder;
       _invalidateParentCache(sourceParentId);
       _invalidateParentCache(targetParentId);
+      shareCensus.forgetIfShared();
 
       _folderChangesController.add(
         FolderChange(
@@ -434,6 +469,7 @@ class FolderRepository {
   }) async {
     final result = await _folderDao.moveFolders(folderIds, targetParentId);
     if (result.moved.isEmpty) return result;
+    shareCensus.forgetIfShared();
 
     final moved = await _folderDao.getFoldersByIds(result.moved.keys.toList());
     _invalidateParentCache(targetParentId);
@@ -583,10 +619,14 @@ class FolderRepository {
     _countCache.remove(parentId);
   }
 
+  /// Drops every cached row and the share census: a mark written beside the
+  /// cache (a share act, a merge, the shared reader) changes what each row
+  /// is flagged with.
   void invalidateAll() {
     _folderCache.clear();
     _parentFoldersCache.clear();
     _countCache.clear();
+    shareCensus.forget();
   }
 
   /// Tells [folderChanges] about folders a sync pull merged beneath the
@@ -603,6 +643,7 @@ class FolderRepository {
     Map<String, String?> previousParents = const {},
   }) async {
     if (ids.isEmpty) return;
+    shareCensus.forget();
     final rows = await _folderDao.getByIdsIncludingDeleted(ids);
     for (final folder in rows) {
       final previous = _folderCache.remove(folder.id);
@@ -645,6 +686,7 @@ class FolderRepository {
   /// re-reads its rows, and of these nothing is left to read. Announced as a
   /// remote deletion, which is what a list showing one has to do with it.
   void announceRemoved(Map<String, String?> parents) {
+    if (parents.isNotEmpty) shareCensus.forget();
     for (final MapEntry(key: id, value: parent) in parents.entries) {
       _folderCache.remove(id);
       _invalidateParentCache(parent);

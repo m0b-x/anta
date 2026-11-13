@@ -43,6 +43,7 @@ import '../services/settings_service.dart';
 import '../services/share_service.dart';
 import '../utils/agenda_day_list_index.dart';
 import '../utils/agenda_month_store.dart';
+import '../utils/category_allowlist.dart';
 import '../utils/date_span_label.dart';
 import '../utils/event_agenda.dart';
 import '../utils/event_query_matcher.dart';
@@ -2573,8 +2574,8 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
   }
 
   Color _tileColor(ColorScheme colorScheme) {
-    if (_categoryIds.length == 1) {
-      return CalendarCategories.resolve(_categoryIds.single).color;
+    if (CategoryAllowlist.soleTicked(_categoryIds) case final category?) {
+      return category.color;
     }
     return _appearance.accentOr(colorScheme.primary);
   }
@@ -2739,7 +2740,7 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
     // narrows every mode, the tiles included.
     final restrictions =
         (_options.missedOnly && _mode != AgendaDayListMode.year ? 1 : 0) +
-        (_categoryIds.isNotEmpty ? 1 : 0);
+        (CategoryAllowlist.filtersNothing(_categoryIds) ? 0 : 1);
     return AutomationId(
       identifier: SemanticsIds.overviewOptionsOpen,
       child: IconButton(
