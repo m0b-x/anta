@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:drift/drift.dart' show driftRuntimeOptions;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show RenderParagraph;
@@ -19,13 +21,16 @@ import 'package:anta/models/calendar_category.dart';
 import 'package:anta/models/calendar_event.dart';
 import 'package:anta/models/pair_record.dart';
 import 'package:anta/models/share_overview.dart';
+import 'package:anta/models/share_settings.dart';
 import 'package:anta/pages/sharing_page.dart';
 import 'package:anta/pages/sync_settings_page.dart';
 import 'package:anta/services/calendar_event_service.dart';
 import 'package:anta/services/pairing_service.dart';
 import 'package:anta/services/settings_service.dart';
 import 'package:anta/services/share_service.dart';
+import 'package:anta/utils/sync_moment_format.dart';
 import 'package:anta/widgets/category_picker_sheet.dart';
+import 'package:anta/widgets/form_menu_item.dart';
 import 'package:anta/widgets/form_rows.dart';
 import 'package:anta/widgets/settings_section_list.dart';
 
@@ -69,18 +74,18 @@ class _UnreadableShareService extends FakeShareService {
   Future<ShareOverview> overview() async => throw StateError('the read failed');
 }
 
-/// Flutter's 4.5:1 text-contrast guideline but for the node of [reason]:
-/// its few short words at 13 px give the sampler more anti-aliasing step
+/// Flutter's 4.5:1 text-contrast guideline but for the nodes of [reasons]:
+/// their few short words at 13 px give the sampler more anti-aliasing step
 /// pixels than core ones (2.16:1 measured, light, on a token far above
-/// 4.5:1), so its colour token is pinned instead.
+/// 4.5:1), so their colour token is pinned instead.
 class _ContrastBesideTheReason extends MinimumTextContrastGuideline {
-  const _ContrastBesideTheReason(this.reason);
+  const _ContrastBesideTheReason(this.reasons);
 
-  final String reason;
+  final Set<String> reasons;
 
   @override
   bool shouldSkipNode(SemanticsData data) =>
-      super.shouldSkipNode(data) || data.label == reason;
+      super.shouldSkipNode(data) || reasons.contains(data.label);
 }
 
 /// Every route pushed and popped above the host, by its kind.
@@ -114,6 +119,27 @@ CalendarCategory _category(String id, String name, {bool hidden = false}) =>
       isHidden: hidden,
       sharedByMe: true,
     );
+
+/// One of the partner's own categories, as the reader stores it.
+CalendarCategory _theirs(String id, String name) => CalendarCategory(
+  id: id,
+  name: name,
+  colorValue: 0xFF3949AB,
+  iconKey: 'work',
+  sortOrder: 0,
+  isBuiltIn: false,
+  fromPartner: true,
+);
+
+/// A built-in of mine, which a partner's share of that id joins.
+CalendarCategory _builtIn(String id, {required int order}) => CalendarCategory(
+  id: id,
+  name: id,
+  colorValue: 0xFF43A047,
+  iconKey: 'fitness_center',
+  sortOrder: order,
+  isBuiltIn: true,
+);
 
 MySharedEvent _event(String id) => MySharedEvent(
   event: CalendarEvent(
@@ -210,10 +236,13 @@ void main() {
     }
   }
 
-  /// A host page that pushes the Sharing page, as the Pairing row does.
+  /// A host page that pushes the Sharing page, as the Pairing row does. The
+  /// default surface is a phone's width, tall enough that the list builds
+  /// all five sections at 1.0: the receiving half put the last group below
+  /// a real phone's fold.
   Future<void> open(
     WidgetTester tester, {
-    Size size = const Size(412, 915),
+    Size size = const Size(412, 1400),
     Locale locale = const Locale('en'),
     double textScale = 1.0,
     bool dark = false,
@@ -281,9 +310,35 @@ void main() {
     SemanticsIds.sharingUnpair,
   ];
 
-  List<Rect> rects(WidgetTester tester) => [
-    for (final id in entries) tester.getRect(byId(id)),
+  /// A 360 dp phone with the whole page on screen at 1.0, so the guidelines
+  /// and the rects see every section.
+  const wholePage = Size(360, 1400);
+
+  /// The five of sections 2–4, top to bottom.
+  const received = [
+    SemanticsIds.sharingTheirsCategories,
+    SemanticsIds.sharingTheirsEvents,
+    SemanticsIds.sharingLookEvents,
+    SemanticsIds.sharingMarkMine,
+    SemanticsIds.sharingAlerts,
   ];
+
+  /// Every entry of the page, top to bottom.
+  const everyEntry = [
+    SemanticsIds.sharingMineCategories,
+    SemanticsIds.sharingMineEvents,
+    ...received,
+    SemanticsIds.sharingStopAll,
+    SemanticsIds.sharingUnpair,
+  ];
+
+  List<Rect> rects(WidgetTester tester) => [
+    for (final id in everyEntry) tester.getRect(byId(id)),
+  ];
+
+  /// "None" in the entry [id], whichever half of the page it stands in.
+  Finder saysNone(String id) =>
+      find.descendant(of: byId(id), matching: find.text(l10n.shareNone));
 
   ListTile tileOf(WidgetTester tester, String id) => tester.widget<ListTile>(
     find.descendant(of: byId(id), matching: find.byType(ListTile)),
@@ -346,7 +401,8 @@ void main() {
     await boot();
     await open(tester);
 
-    expect(find.text(l10n.shareNone), findsNWidgets(2));
+    expect(saysNone(SemanticsIds.sharingMineCategories), findsOneWidget);
+    expect(saysNone(SemanticsIds.sharingMineEvents), findsOneWidget);
     expect(tileOf(tester, SemanticsIds.sharingStopAll).enabled, isFalse);
 
     await tester.tap(byId(SemanticsIds.sharingStopAll));
@@ -379,7 +435,7 @@ void main() {
   testWidgets('a long list of names stays one line, cut with an ellipsis, '
       'and the entry keeps its height', (tester) async {
     await boot(overview: ShareOverview(categories: [work]));
-    await open(tester, size: const Size(360, 780));
+    await open(tester, size: wholePage);
     final before = rects(tester);
 
     await show(
@@ -403,6 +459,10 @@ void main() {
     await close(tester);
   });
 
+  /// A 360 dp phone tall enough that the list builds every entry of the
+  /// page at German 2.0 (≈ 2800 dp, the slice C spec §13).
+  const everyEntryBuilt = Size(360, 3600);
+
   group('heights', () {
     // Measured with Roboto, as a phone lays the words out.
     setUpAll(loadGoldenFonts);
@@ -410,9 +470,8 @@ void main() {
     for (final scale in [1.0, 1.3, 2.0]) {
       testWidgets('at $scale every entry keeps its place and height through '
           'nothing shared, sending and waiting to send', (tester) async {
-        // Tall enough that the list builds every entry at 2.0.
         await boot(overview: sharing);
-        await open(tester, size: const Size(360, 1600), textScale: scale);
+        await open(tester, size: everyEntryBuilt, textScale: scale);
         final normal = rects(tester);
         // The header's slot lays every template out unseen, so a status that
         // shows is its template's text twice.
@@ -453,7 +512,7 @@ void main() {
           await boot(overview: sharing);
           await open(
             tester,
-            size: const Size(360, 1600),
+            size: everyEntryBuilt,
             locale: locale,
             textScale: scale,
           );
@@ -517,17 +576,35 @@ void main() {
       'title and the reason, and where it goes', (tester) async {
     final handle = tester.ensureSemantics();
     await boot(overview: sharing, availability: const ShareNotSyncing(maria));
-    await open(tester, size: const Size(360, 780));
+    await open(tester, size: wholePage);
 
-    for (final (id, title) in [
-      (SemanticsIds.sharingMineCategories, l10n.shareRowCategories),
-      (SemanticsIds.sharingMineEvents, l10n.shareRowEvents),
+    for (final (id, title, reason) in [
+      (
+        SemanticsIds.sharingMineCategories,
+        l10n.shareRowCategories,
+        l10n.shareNeedsSync,
+      ),
+      (
+        SemanticsIds.sharingMineEvents,
+        l10n.shareRowEvents,
+        l10n.shareNeedsSync,
+      ),
+      (
+        SemanticsIds.sharingTheirsCategories,
+        l10n.shareRowCategories,
+        l10n.shareNeedsSyncReceive,
+      ),
+      (
+        SemanticsIds.sharingTheirsEvents,
+        l10n.shareRowEvents,
+        l10n.shareNeedsSyncReceive,
+      ),
     ]) {
       expect(
         tester.getSemantics(byId(id)),
         matchesSemantics(
           identifier: id,
-          label: '$title\n${l10n.shareNeedsSync}',
+          label: '$title\n$reason',
           hint: l10n.shareOpensSyncHint,
           isButton: true,
           hasEnabledState: true,
@@ -790,6 +867,9 @@ void main() {
     expect(find.text(l10n.shareLoadFailed), findsOneWidget);
     expect(byId(SemanticsIds.sharingMineCategories), findsNothing);
     expect(byId(SemanticsIds.sharingMineEvents), findsNothing);
+    for (final id in received) {
+      expect(byId(id), findsNothing, reason: id);
+    }
     expect(tileOf(tester, SemanticsIds.sharingUnpair).enabled, isTrue);
     expect(tester.takeException(), isNull);
 
@@ -830,7 +910,8 @@ void main() {
       await settle(tester);
 
       expect(share.stops, 1);
-      expect(find.text(l10n.shareNone), findsNWidgets(2));
+      expect(saysNone(SemanticsIds.sharingMineCategories), findsOneWidget);
+      expect(saysNone(SemanticsIds.sharingMineEvents), findsOneWidget);
       expect(tileOf(tester, SemanticsIds.sharingStopAll).enabled, isFalse);
 
       await close(tester);
@@ -919,6 +1000,9 @@ void main() {
       );
       expect(byId(SemanticsIds.sharingMineCategories), findsNothing);
       expect(byId(SemanticsIds.sharingMineEvents), findsNothing);
+      for (final id in received) {
+        expect(byId(id), findsNothing, reason: id);
+      }
       expect(tileOf(tester, SemanticsIds.sharingStopAll).enabled, isFalse);
       expect(tileOf(tester, SemanticsIds.sharingUnpair).enabled, isTrue);
 
@@ -1028,6 +1112,445 @@ void main() {
     });
   });
 
+  group('the receiving half', () {
+    final night = _theirs('p-night', 'Night shift');
+    final family = _theirs('p-family', 'Family');
+    final birthday = _builtIn('birthday', order: 1);
+    final gymBuiltIn = _builtIn('gym', order: 0);
+    PartnerSharedCategory shared(CalendarCategory category) =>
+        PartnerSharedCategory(
+          category: category,
+          joinsMine: category.isBuiltIn,
+          shown: true,
+          eventCount: 1,
+        );
+
+    /// The intro's lines, in the record's order, as [count] says the last.
+    List<String> lines(int count) => [
+      l10n.shareMaybeStale,
+      l10n.shareUpdateApp('Maria'),
+      l10n.shareNotShown(count),
+    ];
+
+    testWidgets('sections 2–4 stand between YOU SHARE and the last group, in '
+        'the record\'s order', (tester) async {
+      await boot(overview: sharing);
+      await open(tester);
+
+      final headers = [
+        l10n.shareYouShare,
+        l10n.sharePartnerShares('Maria'),
+        l10n.shareLookSection,
+        l10n.shareAlertsSection,
+        l10n.pairingSection,
+      ];
+      final headerTops = [
+        for (final header in headers)
+          tester
+              .getTopLeft(find.text(header.toUpperCase(), findRichText: true))
+              .dy,
+      ];
+      final entryTops = [for (final rect in rects(tester)) rect.top];
+      for (final tops in [headerTops, entryTops]) {
+        for (var i = 1; i < tops.length; i++) {
+          expect(tops[i], greaterThan(tops[i - 1]), reason: '$i of $tops');
+        }
+      }
+      expect(tester.takeException(), isNull);
+
+      await close(tester);
+    });
+
+    testWidgets('the header says when the partner\'s things were last read, '
+        '"Could not check" after a failed read, nothing while not syncing or '
+        'never read — in one slot that never changes width', (tester) async {
+      final readAt = DateTime.now();
+      await boot(overview: ShareOverview(readAt: readAt));
+      await open(tester);
+      final updated = l10n.shareUpdated(
+        formatSyncMoment(
+          tester.element(byId(SemanticsIds.sharingPage)),
+          readAt,
+        ),
+      );
+      // The first of its texts is the template the slot is sized by.
+      Rect slot() => tester.getRect(
+        find
+            .ancestor(
+              of: find.text(l10n.shareCheckFailed).first,
+              matching: find.byType(Stack),
+            )
+            .first,
+      );
+      final width = slot().width;
+      final before = rects(tester);
+      expect(painted(tester, updated), 1);
+      expect(painted(tester, l10n.shareCheckFailed), 0);
+
+      await show(
+        tester,
+        overview: ShareOverview(readAt: readAt, readFailed: true),
+      );
+      expect(painted(tester, l10n.shareCheckFailed), 1);
+      expect(painted(tester, updated), 0);
+      expect(slot().width, width, reason: 'failed');
+      expect(rects(tester), before, reason: 'failed');
+
+      await show(tester, availability: const ShareNotSyncing(maria));
+      expect(painted(tester, l10n.shareCheckFailed), 0);
+      expect(painted(tester, updated), 0);
+      expect(slot().width, width, reason: 'not syncing');
+      expect(rects(tester), before, reason: 'not syncing');
+
+      await show(
+        tester,
+        overview: ShareOverview.empty,
+        availability: const ShareReady(maria),
+      );
+      expect(painted(tester, l10n.shareCheckFailed), 0);
+      expect(painted(tester, updated), 0);
+      expect(slot().width, width, reason: 'never read');
+      expect(rects(tester), before, reason: 'never read');
+
+      await close(tester);
+    });
+
+    testWidgets('not syncing: "Turn on sync to receive" stands where the '
+        'intro stood', (tester) async {
+      await boot(overview: sharing, availability: const ShareNotSyncing(maria));
+      await open(tester);
+
+      expect(painted(tester, l10n.shareNeedsSyncReceive), 1);
+      expect(painted(tester, l10n.sharePartnerSharesCaption('Maria')), 0);
+      expect(
+        tileOf(tester, SemanticsIds.sharingTheirsCategories).enabled,
+        isFalse,
+      );
+      expect(tileOf(tester, SemanticsIds.sharingTheirsEvents).enabled, isFalse);
+
+      await show(tester, availability: const ShareReady(maria));
+      expect(painted(tester, l10n.shareNeedsSyncReceive), 0);
+      expect(painted(tester, l10n.sharePartnerSharesCaption('Maria')), 1);
+      expect(
+        tileOf(tester, SemanticsIds.sharingTheirsCategories).enabled,
+        isTrue,
+      );
+
+      await close(tester);
+    });
+
+    testWidgets('the lines true at open stand under the intro in order and '
+        'are held for the visit: one that clears leaves its space blank', (
+      tester,
+    ) async {
+      final old = DateTime.now().subtract(const Duration(days: 8));
+      await boot(
+        overview: ShareOverview(
+          readAt: old,
+          partnerNewerWire: true,
+          refusedCount: 2,
+        ),
+      );
+      await open(tester);
+
+      for (final line in lines(2)) {
+        expect(painted(tester, line), 1, reason: line);
+      }
+      // The shown text lies over its template, so the last is the one drawn.
+      final tops = [
+        for (final line in lines(2)) tester.getTopLeft(find.text(line).last).dy,
+      ];
+      expect(tops[1], greaterThan(tops[0]));
+      expect(tops[2], greaterThan(tops[1]));
+      expect(
+        tops.first,
+        greaterThan(
+          tester
+              .getTopLeft(
+                find.text(l10n.sharePartnerSharesCaption('Maria')).last,
+              )
+              .dy,
+        ),
+      );
+      final before = rects(tester);
+
+      // Still true, with a new count: said as it stands now.
+      await show(
+        tester,
+        overview: ShareOverview(
+          readAt: old,
+          partnerNewerWire: true,
+          refusedCount: 3,
+        ),
+      );
+      expect(painted(tester, l10n.shareNotShown(3)), 1);
+      expect(rects(tester), before, reason: 'a new count');
+
+      await show(tester, overview: ShareOverview(readAt: DateTime.now()));
+      for (final line in lines(3)) {
+        expect(painted(tester, line), 0, reason: line);
+      }
+      expect(rects(tester), before, reason: 'every line cleared');
+      expect(tester.takeException(), isNull);
+
+      await close(tester);
+    });
+
+    testWidgets('a line that comes true mid-visit waits for the next visit, '
+        'and a failed read goes to the header', (tester) async {
+      await boot(overview: ShareOverview(readAt: DateTime.now()));
+      await open(tester);
+      final before = rects(tester);
+
+      final old = DateTime.now().subtract(const Duration(days: 8));
+      await show(
+        tester,
+        overview: ShareOverview(
+          readAt: old,
+          readFailed: true,
+          partnerNewerWire: true,
+          refusedCount: 2,
+        ),
+      );
+      for (final line in lines(2)) {
+        expect(painted(tester, line), 0, reason: line);
+      }
+      expect(painted(tester, l10n.shareCheckFailed), 1);
+      expect(rects(tester), before);
+
+      // The next visit opens on them.
+      Navigator.of(tester.element(byId(SemanticsIds.sharingPage))).pop();
+      await settle(tester);
+      await tester.tap(find.text('host'));
+      await settle(tester);
+      for (final line in lines(2)) {
+        expect(painted(tester, line), 1, reason: line);
+      }
+
+      await close(tester);
+    });
+
+    testWidgets('the entries name the partner\'s own categories by name, '
+        'then the built-ins in my order, on one line, and count the single '
+        'events', (tester) async {
+      CalendarCategories.updateCache([gymBuiltIn, birthday]);
+      await boot(
+        overview: ShareOverview(
+          partnerCategories: [
+            shared(night),
+            shared(family),
+            shared(birthday),
+            shared(gymBuiltIn),
+          ],
+          partnerEvents: [
+            for (final id in ['x', 'y', 'z']) _event(id).event,
+          ],
+        ),
+      );
+      await open(tester, size: wholePage);
+
+      expect(
+        find.descendant(
+          of: byId(SemanticsIds.sharingTheirsCategories),
+          matching: find.text('Family, Night shift, Gym, Birthday'),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: byId(SemanticsIds.sharingTheirsEvents),
+          matching: find.text(l10n.shareSummaryEvents(3)),
+        ),
+        findsOneWidget,
+      );
+      final before = rects(tester);
+
+      await show(
+        tester,
+        overview: ShareOverview(
+          partnerCategories: [
+            for (var i = 0; i < 12; i++)
+              shared(_theirs('p$i', 'Category number $i')),
+          ],
+        ),
+      );
+      final names = tester.renderObject<RenderParagraph>(
+        find.descendant(
+          of: byId(SemanticsIds.sharingTheirsCategories),
+          matching: find.textContaining('Category number 0'),
+        ),
+      );
+      expect(names.didExceedMaxLines, isTrue);
+      expect(rects(tester), before, reason: 'a long list');
+
+      await show(tester, overview: ShareOverview.empty);
+      expect(saysNone(SemanticsIds.sharingTheirsCategories), findsOneWidget);
+      expect(saysNone(SemanticsIds.sharingTheirsEvents), findsOneWidget);
+      expect(rects(tester), before, reason: 'nothing shared');
+
+      await close(tester);
+    });
+
+    testWidgets('Categories opens what the partner shares, Single events '
+        'their read-only list', (tester) async {
+      CalendarCategories.updateCache([gymBuiltIn, birthday]);
+      await boot(overview: ShareOverview(partnerCategories: [shared(night)]));
+      await open(tester);
+
+      await tester.tap(byId(SemanticsIds.sharingTheirsCategories));
+      await settle(tester);
+      expect(byId(SemanticsIds.sharedCategoriesSheet), findsOneWidget);
+      expect(
+        find.text(l10n.shareTheirCategoriesTitle('Maria')),
+        findsOneWidget,
+      );
+      Navigator.of(
+        tester.element(byId(SemanticsIds.sharedCategoriesSheet)),
+      ).pop();
+      await settle(tester);
+
+      await tester.tap(byId(SemanticsIds.sharingTheirsEvents));
+      await settle(tester);
+      expect(byId(SemanticsIds.sharedEventsSheet), findsOneWidget);
+      expect(tester.takeException(), isNull);
+
+      await close(tester);
+    });
+
+    testWidgets('not syncing, a dimmed entry goes back to the Sync & sharing '
+        'page beneath, opening no sheet', (tester) async {
+      await boot(overview: sharing, availability: const ShareNotSyncing(maria));
+      final log = _RouteLog();
+      await open(tester, observer: log);
+
+      final before = List.of(log.pushed);
+      await tester.tap(byId(SemanticsIds.sharingTheirsEvents));
+      await settle(tester);
+      expect(log.pushed, before);
+      expect(log.popped, ['page']);
+      expect(find.text('host'), findsOneWidget);
+      expect(find.byType(BottomSheet), findsNothing);
+
+      await close(tester);
+    });
+
+    testWidgets('the look row: three segments, the stored one selected; a '
+        'tap shows at once and then writes', (tester) async {
+      await boot(overview: sharing);
+      share.look = ShareEventLook.avatar;
+      await open(tester);
+      SegmentedButton<ShareEventLook> row() =>
+          tester.widget(find.byType(SegmentedButton<ShareEventLook>));
+
+      expect(row().segments.map((s) => s.value), ShareEventLook.values);
+      expect(row().selected, {ShareEventLook.avatar});
+      expect(row().direction, Axis.horizontal);
+      for (final (look, label) in [
+        (ShareEventLook.outlined, l10n.shareLookOutlined),
+        (ShareEventLook.avatar, l10n.shareLookAvatar),
+        (ShareEventLook.plain, l10n.shareLookPlain),
+      ]) {
+        expect(
+          find.descendant(
+            of: byId(SemanticsIds.sharingLookEventsChoice(look.name)),
+            matching: find.text(label),
+          ),
+          findsOneWidget,
+          reason: label,
+        );
+      }
+
+      final hold = share.settingsHold = Completer<void>();
+      await tester.tap(byId(SemanticsIds.sharingLookEventsChoice('plain')));
+      await settle(tester, rounds: 2);
+      expect(row().selected, {ShareEventLook.plain});
+      expect(share.look, ShareEventLook.avatar, reason: 'not written yet');
+
+      hold.complete();
+      await settle(tester, rounds: 4);
+      expect(share.look, ShareEventLook.plain);
+      expect(row().selected, {ShareEventLook.plain});
+
+      await close(tester);
+    });
+
+    testWidgets('the mark switch writes at once', (tester) async {
+      await boot(overview: sharing);
+      await open(tester);
+      SwitchListTile mark() => tester.widget<SwitchListTile>(
+        find.descendant(
+          of: byId(SemanticsIds.sharingMarkMine),
+          matching: find.byType(SwitchListTile),
+        ),
+      );
+
+      expect(mark().value, isTrue);
+      expect(find.text(l10n.shareMarkMineDesc), findsOneWidget);
+
+      await tester.tap(byId(SemanticsIds.sharingMarkMine));
+      await settle(tester, rounds: 4);
+      expect(share.mine, isFalse);
+      expect(mark().value, isFalse);
+
+      await close(tester);
+    });
+
+    testWidgets('the alerts entry says its value with no chevron; its menu '
+        'offers three choices with their lines, the current one ticked, and '
+        'a pick writes and shows', (tester) async {
+      await boot(overview: sharing);
+      await open(tester);
+      Finder inAlerts(Finder matching) => find.descendant(
+        of: byId(SemanticsIds.sharingAlerts),
+        matching: matching,
+      );
+
+      expect(inAlerts(find.text(l10n.shareAlertsOwn)), findsOneWidget);
+      expect(inAlerts(find.byIcon(Icons.chevron_right_rounded)), findsNothing);
+
+      await tester.tap(byId(SemanticsIds.sharingAlerts));
+      await settle(tester, rounds: 6);
+      FormMenuItemRow item(String id) => tester.widget<FormMenuItemRow>(
+        find.byWidgetPredicate(
+          (w) => w is FormMenuItemRow && w.identifier == id,
+        ),
+      );
+      for (final (id, label, caption, checked) in [
+        (
+          SemanticsIds.sharingAlertsOff,
+          l10n.shareAlertsOff,
+          l10n.shareAlertsOffDesc,
+          false,
+        ),
+        (
+          SemanticsIds.sharingAlertsOwn,
+          l10n.shareAlertsOwn,
+          l10n.shareAlertsOwnDesc,
+          true,
+        ),
+        (
+          SemanticsIds.sharingAlertsCategory,
+          l10n.shareAlertsCategory,
+          l10n.shareAlertsCategoryDesc,
+          false,
+        ),
+      ]) {
+        expect(item(id).label, label);
+        expect(item(id).caption, caption);
+        expect(item(id).checked, checked, reason: id);
+      }
+
+      await tester.tap(byId(SemanticsIds.sharingAlertsCategory));
+      await settle(tester, rounds: 6);
+      expect(share.shareAlerts, ShareAlerts.category);
+      expect(inAlerts(find.text(l10n.shareAlertsCategory)), findsOneWidget);
+      await tester.pumpAndSettle();
+      expect(find.byType(FormMenuItemRow), findsNothing);
+
+      await close(tester);
+    });
+  });
+
   group('large text and the guidelines', () {
     setUpAll(loadGoldenFonts);
 
@@ -1047,7 +1570,19 @@ void main() {
             _category('b', 'Geburtstage der Familie'),
           ],
           events: [_event('a')],
+          partnerCategories: [
+            PartnerSharedCategory(
+              category: _theirs('p-a', 'Nachtschichten im Krankenhaus'),
+              joinsMine: false,
+              shown: true,
+              eventCount: 3,
+            ),
+          ],
+          partnerEvents: [_event('b').event],
           sending: true,
+          readAt: DateTime.now().subtract(const Duration(days: 8)),
+          partnerNewerWire: true,
+          refusedCount: 12,
         ),
       );
       final errors = await layoutErrorsDuring(
@@ -1082,17 +1617,58 @@ void main() {
       await close(tester);
     });
 
-    testWidgets('every target is 48 dp and labelled', (tester) async {
-      final handle = tester.ensureSemantics();
-      await boot(overview: sharing);
-      await open(tester, size: const Size(360, 780));
+    testWidgets('German at 2.0 stacks the look\'s three choices, each whole, '
+        'and the whole page lays out with no overflow', (tester) async {
+      await boot(
+        availability: const ShareReady(
+          ShareAudience(
+            id: 'pair-1',
+            displayName: 'Maximilian-Alexander',
+            members: [],
+          ),
+        ),
+        overview: ShareOverview(
+          readAt: DateTime.now().subtract(const Duration(days: 8)),
+          partnerNewerWire: true,
+          refusedCount: 12,
+        ),
+      );
+      final errors = await layoutErrorsDuring(
+        () => open(
+          tester,
+          size: everyEntryBuilt,
+          locale: const Locale('de'),
+          textScale: 2.0,
+        ),
+      );
 
-      await expectLater(tester, meetsGuideline(androidTapTargetGuideline));
-      await expectLater(tester, meetsGuideline(labeledTapTargetGuideline));
+      expect(errors.map((e) => e.exceptionAsString()), isEmpty);
+      expect(tester.takeException(), isNull);
+      for (final id in everyEntry) {
+        expect(byId(id), findsOneWidget, reason: id);
+      }
+      final row = tester.widget<SegmentedButton<ShareEventLook>>(
+        find.byType(SegmentedButton<ShareEventLook>),
+      );
+      expect(row.direction, Axis.vertical);
 
       await close(tester);
-      handle.dispose();
     });
+
+    for (final dark in [false, true]) {
+      testWidgets('every target is 48 dp and labelled, '
+          '${dark ? 'dark' : 'light'}', (tester) async {
+        final handle = tester.ensureSemantics();
+        await boot(overview: sharing);
+        await open(tester, size: wholePage, dark: dark);
+
+        await expectLater(tester, meetsGuideline(androidTapTargetGuideline));
+        await expectLater(tester, meetsGuideline(labeledTapTargetGuideline));
+
+        await close(tester);
+        handle.dispose();
+      });
+    }
 
     for (final dark in [false, true]) {
       for (final availability in const [
@@ -1105,26 +1681,38 @@ void main() {
             '$syncing', (tester) async {
           final handle = tester.ensureSemantics();
           await boot(overview: sharing, availability: availability);
-          await open(tester, size: const Size(360, 780), dark: dark);
+          await open(tester, size: wholePage, dark: dark);
 
           await expectLater(
             tester,
-            meetsGuideline(_ContrastBesideTheReason(l10n.shareNeedsSync)),
+            meetsGuideline(
+              _ContrastBesideTheReason({
+                l10n.shareNeedsSync,
+                l10n.shareNeedsSyncReceive,
+              }),
+            ),
           );
           if (availability is ShareNotSyncing) {
-            // The reason's token, at full strength, where the sampler
+            // Each reason's token, at full strength, where the sampler
             // cannot judge it.
-            final reason = find
-                .text(l10n.shareNeedsSync)
-                .evaluate()
-                .singleWhere(
-                  (element) =>
-                      element.findAncestorWidgetOfExactType<Opacity>() == null,
-                );
-            expect(
-              (reason.renderObject! as RenderParagraph).text.style?.color,
-              Theme.of(reason).colorScheme.onSurfaceVariant,
-            );
+            for (final text in [
+              l10n.shareNeedsSync,
+              l10n.shareNeedsSyncReceive,
+            ]) {
+              final reason = find
+                  .text(text)
+                  .evaluate()
+                  .singleWhere(
+                    (element) =>
+                        element.findAncestorWidgetOfExactType<Opacity>() ==
+                        null,
+                  );
+              expect(
+                (reason.renderObject! as RenderParagraph).text.style?.color,
+                Theme.of(reason).colorScheme.onSurfaceVariant,
+                reason: text,
+              );
+            }
           }
 
           await close(tester);

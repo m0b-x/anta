@@ -43,6 +43,7 @@ import 'package:anta/services/pending_navigation.dart';
 import 'package:anta/services/public_holiday_service.dart';
 import 'package:anta/services/settings_service.dart';
 import 'package:anta/services/sync/sync_binding_service.dart';
+import 'package:anta/services/sync/tables/calendar_category_alerts_binding.dart';
 import 'package:anta/constants/event_digests.dart';
 import 'package:anta/models/category_alert.dart';
 import 'package:anta/models/event_digest.dart';
@@ -3839,6 +3840,188 @@ void main() {
         );
       },
     );
+
+    group('in a category hidden on this phone (slice D, §6.4)', () {
+      /// What `ShareService.setCategoryShown` does below the UI: the setting,
+      /// the event cache reloaded by it, then the pass.
+      Future<Map<String, Set<String>>> hide(Set<String> ids) async {
+        await SettingsService.forTesting(db).setShareHiddenCategories(ids);
+        await CalendarEventService.refreshHiddenCategories();
+        return armed();
+      }
+
+      /// The partner's own category `p1` held here, with their event in it
+      /// and their [more].
+      Future<void> seedTheirCategory({
+        List<CalendarEvent> more = const [],
+      }) async {
+        await db.calendarCategoryDao.insertCategory(
+          CalendarCategoriesCompanion.insert(
+            id: 'p1',
+            name: 'Night shift',
+            colorValue: 0xFF336699,
+            iconKey: 'event',
+            isBuiltIn: const Value(false),
+            createdAt: now,
+            updatedAt: now,
+          ),
+        );
+        final theirs = [eventOf(id: 'theirs'), ...more];
+        for (final event in theirs) {
+          await events.upsert(event.copyWith(categoryId: 'p1'));
+        }
+        // All at once, before the shared account is named: from then on the
+        // fences keep a row from changing hands outside the reader.
+        await db.customStatement(
+          "UPDATE calendar_events SET owner_id = 'partner' "
+          'WHERE id IN (${[for (final _ in theirs) '?'].join(', ')})',
+          [for (final event in theirs) event.id],
+        );
+        await db.customStatement(
+          "UPDATE calendar_categories SET owner_id = 'partner' WHERE id = 'p1'",
+        );
+        await db.syncDao.setValue(SyncDao.keySharedOwner, 'partner');
+        await (await CategoryService.getInstance()).reload();
+        await events.reload();
+      }
+
+      Future<void> myAlertOnTheirCategory() => alerts.replaceForCategory('p1', [
+        const CategoryAlert(
+          id: 'pc1',
+          categoryId: 'p1',
+          mode: AlertMode.notify,
+          offsetMinutes: 30,
+        ),
+      ]);
+
+      test('a shared built-in hidden arms nothing on the partner\'s events '
+          'in it, whatever the setting, and cancels what was armed; mine in '
+          'it arm as before; my alert rows stay', () async {
+        await seedBoth();
+        await SettingsService.forTesting(
+          db,
+        ).setShareAlerts(ShareAlerts.category);
+        expect((await armed())['theirs'], {'t1', 'ca1'});
+        final armedOnIt = [
+          for (final row in await registrations())
+            if (row.eventId == 'theirs') row.osId,
+        ];
+        gateway.resetCalls();
+
+        final byEvent = await hide({'gym'});
+
+        expect(byEvent.containsKey('theirs'), isFalse);
+        expect(byEvent['mine'], {'a1', 'ca1'});
+        expect(gateway.cancelled, unorderedEquals(armedOnIt));
+        expect(
+          (await db.eventAlertDao.getActiveForEvent('theirs')).map((a) => a.id),
+          ['t1'],
+        );
+        expect(
+          (await schedulerOf().hubEntries()).where(
+            (entry) => entry.event.id == 'theirs',
+          ),
+          isEmpty,
+        );
+      });
+
+      test('shown again, they arm again with no other step', () async {
+        await seedBoth();
+        await SettingsService.forTesting(
+          db,
+        ).setShareAlerts(ShareAlerts.category);
+        await hide({'gym'});
+
+        final byEvent = await hide(const {});
+
+        expect(byEvent['theirs'], {'t1', 'ca1'});
+      });
+
+      test('my category alert on the partner\'s own category is a row of my '
+          'own: armed only under "category" and only while the category '
+          'shows, stored and inert otherwise, and pushed in my own space, '
+          'never as shared', () async {
+        await seedTheirCategory();
+        await myAlertOnTheirCategory();
+        expect(
+          alerts.categoryAlertsFor('p1').map((a) => a.id),
+          ['pc1'],
+          reason: 'the sheet\'s read',
+        );
+
+        await SettingsService.forTesting(db).setShareAlerts(ShareAlerts.own);
+        expect((await armed()).containsKey('theirs'), isFalse);
+        await SettingsService.forTesting(db).setShareAlerts(ShareAlerts.off);
+        expect((await armed()).containsKey('theirs'), isFalse);
+        await SettingsService.forTesting(
+          db,
+        ).setShareAlerts(ShareAlerts.category);
+        expect((await armed())['theirs'], {'pc1'});
+
+        expect((await hide({'p1'})).containsKey('theirs'), isFalse);
+        expect(alerts.categoryAlertsFor('p1').map((a) => a.id), ['pc1']);
+
+        final row = (await db.categoryAlertDao.getByIdsIncludingDeleted([
+          'pc1',
+        ])).single;
+        const binding = CalendarCategoryAlertsBinding();
+        final envelope = await binding.encode(db, row, boundUid: 'me');
+        expect(envelope.ownerId, 'me');
+        expect(envelope.sharedPair, isNull);
+        expect(await binding.sharedPairs(db, [row]), isEmpty);
+      });
+
+      test('when the partner\'s category leaves, my alert on it stays stored '
+          'and arms nothing', () async {
+        await seedTheirCategory();
+        await myAlertOnTheirCategory();
+        await SettingsService.forTesting(
+          db,
+        ).setShareAlerts(ShareAlerts.category);
+        expect((await armed())['theirs'], {'pc1'});
+
+        await db.sharedRowDao.removeAll();
+        await (await CategoryService.getInstance()).reload();
+        await events.reload();
+
+        expect((await armed()).containsKey('theirs'), isFalse);
+        expect(
+          (await db.categoryAlertDao.getByIdsIncludingDeleted([
+            'pc1',
+          ])).single.isDeleted,
+          isFalse,
+        );
+      });
+
+      test('a digest under "category" lists the partner\'s events of a '
+          'shown category, and none of a hidden one', () async {
+        await seedTheirCategory(
+          more: [eventOf(id: 'october', startDate: DateTime.utc(2026, 10, 4))],
+        );
+        await (await EventDigestService.getInstance()).create(
+          const EventDigest(id: '', name: '', categoryIds: {'p1'}),
+        );
+        await SettingsService.forTesting(
+          db,
+        ).setShareAlerts(ShareAlerts.category);
+        await armed();
+        expect(gateway.scheduledDigests, hasLength(1));
+        gateway.resetCalls();
+
+        await hide({'p1'});
+
+        expect(events.events.map((event) => event.id), isEmpty);
+        expect(gateway.scheduledDigests, isEmpty);
+        expect(
+          (await registrations()).where(
+            (row) =>
+                row.kind == AlertKind.digest.name &&
+                row.state == AlertRegistrationState.pending.name,
+          ),
+          isEmpty,
+        );
+      });
+    });
 
     group('its entries (D21)', () {
       /// The partner's event, flagged "remove after it rings" by them, with

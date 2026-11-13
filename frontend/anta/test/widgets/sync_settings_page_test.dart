@@ -781,7 +781,20 @@ void main() {
 
       await tester.tap(find.bySemanticsIdentifier(SemanticsIds.sharingPaired));
       await settle(tester);
-      await tester.tap(find.bySemanticsIdentifier(SemanticsIds.sharingUnpair));
+      // Unpair is the Sharing page's last row, below a phone's fold.
+      final unpair = find.bySemanticsIdentifier(SemanticsIds.sharingUnpair);
+      await tester.scrollUntilVisible(
+        unpair,
+        200,
+        scrollable: find
+            .descendant(
+              of: find.bySemanticsIdentifier(SemanticsIds.sharingPageList),
+              matching: find.byType(Scrollable),
+            )
+            .first,
+      );
+      await tester.pump();
+      await tester.tap(unpair);
       await settle(tester);
       expect(
         find.text(

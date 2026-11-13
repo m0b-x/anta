@@ -9,7 +9,9 @@ import '../constants/row_metrics.dart';
 import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
 import '../models/agenda_day_list_mode.dart';
+import '../models/calendar_category.dart';
 import '../models/overview_list_options.dart';
+import '../models/partner_look.dart';
 import '../utils/calendar_filter_summary.dart';
 import 'category_picker_sheet.dart';
 import 'form_rows.dart';
@@ -37,6 +39,10 @@ class OverviewOptionsSheet extends StatefulWidget {
   /// collapsed to empty when it covers every offered category.
   final ValueChanged<Set<String>> onCategoriesChanged;
 
+  /// The page's look for a partner's events, handed to the category
+  /// picker's "From {name}" group so its avatars match the list's rows.
+  final PartnerLook partnerLook;
+
   const OverviewOptionsSheet({
     super.key,
     required this.initial,
@@ -44,6 +50,7 @@ class OverviewOptionsSheet extends StatefulWidget {
     required this.onChanged,
     required this.categoryIds,
     required this.onCategoriesChanged,
+    this.partnerLook = const PartnerLook(),
   });
 
   static Future<void> show(
@@ -53,6 +60,7 @@ class OverviewOptionsSheet extends StatefulWidget {
     required ValueChanged<OverviewListOptions> onChanged,
     required Set<String> categoryIds,
     required ValueChanged<Set<String>> onCategoriesChanged,
+    PartnerLook partnerLook = const PartnerLook(),
   }) {
     final colorScheme = Theme.of(context).colorScheme;
     return showModalBottomSheet<void>(
@@ -81,6 +89,7 @@ class OverviewOptionsSheet extends StatefulWidget {
             onChanged: onChanged,
             categoryIds: categoryIds,
             onCategoriesChanged: onCategoriesChanged,
+            partnerLook: partnerLook,
           ),
         ),
       ),
@@ -117,14 +126,32 @@ class _OverviewOptionsSheetState extends State<OverviewOptionsSheet> {
   }
 
   /// "All" for the empty allowlist, else the chosen categories read back in
-  /// catalog order — two names, then "+N more", on the value's two lines.
-  String _categoriesValue(AppLocalizations l10n) {
+  /// catalog order — two names, then "+N more", on the value's two lines —
+  /// or "No categories" when nothing chosen still lists. Counted over the
+  /// offered catalog, a partner's shown ones included, as the agenda's row
+  /// is.
+  String _categoriesValue(
+    AppLocalizations l10n,
+    List<CalendarCategory> offered,
+  ) {
     if (_categoryIds.isEmpty) return l10n.calendarFilterCategoriesAll;
-    return CalendarFilterSummary.namesReadBack([
-      for (final category in CalendarCategories.visiblePlus(_categoryIds))
+    final names = [
+      for (final category in offered)
         if (_categoryIds.contains(category.id))
           CalendarCategories.labelOf(category, l10n),
-    ], l10n);
+    ];
+    if (names.isEmpty) return l10n.calendarFilterNoCategories;
+    return CalendarFilterSummary.namesReadBack(names, l10n);
+  }
+
+  /// This person's categories (an archived one while the allowlist holds
+  /// it), then a partner's shown ones: the overview's rows draw a partner's
+  /// events, so an allowlist that could not name their categories would
+  /// drop those events for good once anything was chosen.
+  List<CalendarCategory> get _offered {
+    final mine = CalendarCategories.visiblePlus(_categoryIds);
+    final partner = CalendarCategories.partnerShown;
+    return partner.isEmpty ? mine : [...mine, ...partner];
   }
 
   /// The multi picker over the allowlist. An empty allowlist means every
@@ -132,17 +159,23 @@ class _OverviewOptionsSheetState extends State<OverviewOptionsSheet> {
   /// covers every offered row collapses back to empty rather than freezing
   /// today's catalog into a list that silently excludes categories created
   /// later.
+  ///
+  /// A partner's shown categories are on offer in their own group (share
+  /// surfaces §6.10), so "every offered row" counts them: ticking only mine
+  /// is a real narrowing. A partner's id that has since left the list stays
+  /// in the set as a deleted category's does — it matches no event and no
+  /// row names it.
   Future<void> _pickCategories() async {
     if (_pickerOpen) return;
     _pickerOpen = true;
     try {
-      final offered = {
-        for (final category in CalendarCategories.visiblePlus(_categoryIds))
-          category.id,
-      };
+      final partner = CalendarCategories.partnerShown;
+      final offered = {for (final category in _offered) category.id};
       final picked = await CategoryPickerSheet.pickMulti(
         context,
         selected: _categoryIds.isEmpty ? offered : _categoryIds,
+        partner: partner,
+        partnerLook: widget.partnerLook,
       );
       if (picked == null || !mounted) return;
       final next = picked.containsAll(offered) ? const <String>{} : picked;
@@ -209,7 +242,7 @@ class _OverviewOptionsSheetState extends State<OverviewOptionsSheet> {
                   FormPickerRow(
                     glyph: Icons.category_rounded,
                     label: l10n.overviewCategories,
-                    value: _categoriesValue(l10n),
+                    value: _categoriesValue(l10n, _offered),
                     identifier: SemanticsIds.overviewCategories,
                     onTap: _pickCategories,
                   ),

@@ -1,18 +1,24 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:anta/constants/app_theme.dart';
 import 'package:anta/constants/calendar_categories.dart';
 import 'package:anta/constants/semantics_ids.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/l10n/app_localizations.dart';
+import 'package:anta/models/app_user.dart';
 import 'package:anta/models/calendar_category.dart';
+import 'package:anta/models/partner_look.dart';
+import 'package:anta/models/share_settings.dart';
 import 'package:anta/services/calendar_palette_service.dart';
 import 'package:anta/services/category_service.dart';
 import 'package:anta/services/settings_service.dart';
 import 'package:anta/widgets/category_picker_sheet.dart';
+import 'package:anta/widgets/event_avatar.dart';
 import 'package:anta/widgets/form_rows.dart';
 
 import '../database/support/db_test_support.dart';
+import '../goldens/support/golden_fonts.dart';
 import 'support/category_editor_robot.dart';
 
 /// The picker serves two arities off one sheet, and the properties worth
@@ -690,4 +696,443 @@ void main() {
       );
     }
   });
+  // The partner's own categories, as `CalendarCategories.partnerShown` hands
+  // them to the two filter sheets (share surfaces §6.10, slice D spec §5).
+  const night = CalendarCategory(
+    id: 'p-night',
+    name: 'Night shift',
+    colorValue: 0xFF3949AB,
+    iconKey: 'work',
+    sortOrder: 0,
+    isBuiltIn: false,
+    fromPartner: true,
+  );
+  const pilates = CalendarCategory(
+    id: 'p-pilates',
+    name: 'Pilates',
+    colorValue: 0xFFAFB42B,
+    iconKey: 'self_improvement',
+    sortOrder: 0,
+    isBuiltIn: false,
+    fromPartner: true,
+  );
+  const choir = CalendarCategory(
+    id: 'p-choir',
+    name: 'Choir',
+    colorValue: 0xFF8E24AA,
+    iconKey: 'music_note',
+    sortOrder: 0,
+    isBuiltIn: false,
+    fromPartner: true,
+  );
+  const theirs = [night, pilates, choir];
+  const maria = PartnerLook(name: 'Maria');
+
+  /// The picker the filter sheets open, its answer kept once it pops.
+  Future<_Picked> openWithPartner(
+    WidgetTester tester, {
+    required Set<String> selected,
+    List<CalendarCategory> partner = theirs,
+    PartnerLook look = maria,
+    Size surface = const Size(360, 1200),
+    Locale locale = const Locale('en'),
+    double textScale = 1.0,
+    bool dark = false,
+  }) async {
+    addTearDown(tester.view.reset);
+    tester.view.devicePixelRatio = 1.0;
+    tester.view.physicalSize = surface;
+    final picked = _Picked();
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light(),
+        darkTheme: AppTheme.dark(),
+        themeMode: dark ? ThemeMode.dark : ThemeMode.light,
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        locale: locale,
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(
+            context,
+          ).copyWith(textScaler: TextScaler.linear(textScale)),
+          child: child!,
+        ),
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => TextButton(
+              onPressed: () async {
+                picked.value = await CategoryPickerSheet.pickMulti(
+                  context,
+                  selected: selected,
+                  partner: partner,
+                  partnerLook: look,
+                );
+              },
+              child: const Text('open'),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+    return picked;
+  }
+
+  Finder pickRow(String id) =>
+      find.bySemanticsIdentifier(SemanticsIds.categoryPickRow(id));
+
+  /// The avatar on the row an id sits on.
+  EventAvatar avatarOf(WidgetTester tester, String id) =>
+      tester.widget<EventAvatar>(
+        find.descendant(
+          of: find.ancestor(
+            of: pickRow(id),
+            matching: find.byType(FormCheckRow),
+          ),
+          matching: find.byType(EventAvatar),
+        ),
+      );
+
+  group('a partner\'s categories (share surfaces §6.10)', () {
+    final l10n = lookupAppLocalizations(const Locale('en'));
+
+    testWidgets('their group stands after mine under "From Maria", in the '
+        'order given, and the answer holds both kinds of ids', (tester) async {
+      seed(3);
+      final picked = await openWithPartner(
+        tester,
+        selected: const {'c0', 'c1', 'c2', 'p-night', 'p-choir'},
+      );
+
+      final label = find.text('FROM MARIA');
+      expect(label, findsOneWidget);
+      final createTop = tester.getRect(find.text(l10n.createCategory)).bottom;
+      final tops = [
+        tester.getRect(label).top,
+        for (final name in ['Night shift', 'Pilates', 'Choir'])
+          tester.getRect(find.text(name)).top,
+      ];
+      expect(tops.first, greaterThan(createTop));
+      for (var i = 1; i < tops.length; i++) {
+        expect(tops[i], greaterThan(tops[i - 1]), reason: 'row $i');
+      }
+      for (final category in theirs) {
+        expect(pickRow(category.id), findsOneWidget, reason: category.id);
+      }
+      // Two groups: mine, with the gap the label needs above it, then theirs.
+      final groups = tester
+          .widgetList<FormRowGroup>(find.byType(FormRowGroup))
+          .toList();
+      expect(groups, hasLength(2));
+      expect(groups.first.trailingGap, isTrue);
+      expect(groups.last.trailingGap, isFalse);
+      expect(rowNamed(tester, 'Pilates').checked, isFalse);
+      expect(rowNamed(tester, 'Night shift').caption, isNull);
+
+      await tester.tap(find.text('Pilates'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Cat1'));
+      await tester.pumpAndSettle();
+      await tester.tap(pickerApply());
+      await tester.pumpAndSettle();
+
+      expect(picked.value, {'c0', 'c2', 'p-night', 'p-pilates', 'p-choir'});
+    });
+
+    testWidgets('no name reads the stand-in', (tester) async {
+      seed(1);
+      await openWithPartner(
+        tester,
+        selected: const {},
+        look: const PartnerLook(),
+      );
+
+      expect(
+        find.text(
+          FormSectionLabel.capitals(
+            l10n.shareFromPartner(l10n.sharePartnerFallback),
+          ),
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('each look draws their avatars as the event rows do, with no '
+        'per-row "From" label; mine stay plain', (tester) async {
+      seed(1);
+      const face = AppUser(uid: 'maria', displayName: 'Maria');
+      for (final look in ShareEventLook.values) {
+        await openWithPartner(
+          tester,
+          selected: const {},
+          look: PartnerLook(look: look, partner: face, name: 'Maria'),
+        );
+
+        for (final category in theirs) {
+          final avatar = avatarOf(tester, category.id);
+          expect(
+            avatar.outlined,
+            look == ShareEventLook.outlined,
+            reason: '$look ${category.id}',
+          );
+          expect(
+            avatar.badge,
+            look == ShareEventLook.avatar
+                ? const EventAvatarBadge.partner(face)
+                : null,
+            reason: '$look ${category.id}',
+          );
+          expect(avatar.semanticsLabel, isNull, reason: '$look');
+          expect(avatar.color, category.color);
+        }
+        final mine = avatarOf(tester, 'c0');
+        expect(mine.outlined, isFalse);
+        expect(mine.badge, isNull);
+
+        await tester.tap(
+          find.bySemanticsIdentifier(SemanticsIds.categoryPickClose),
+        );
+        await tester.pumpAndSettle();
+      }
+    });
+
+    testWidgets('Select all and Select none act on both groups and are '
+        'disabled by the no-op rule over both', (tester) async {
+      seed(2);
+      final picked = await openWithPartner(
+        tester,
+        selected: const {'c0', 'c1'},
+        partner: const [night, pilates],
+      );
+
+      // Every one of mine ticked, theirs not: Select all still has work.
+      expect(
+        actionRow(tester, SemanticsIds.categoryPickSelectAll).onTap,
+        isNotNull,
+      );
+      await tester.tap(find.text(l10n.categoriesSelectAll));
+      await tester.pumpAndSettle();
+      for (final name in ['Cat0', 'Cat1', 'Night shift', 'Pilates']) {
+        expect(rowNamed(tester, name).checked, isTrue, reason: name);
+      }
+      expect(
+        actionRow(tester, SemanticsIds.categoryPickSelectAll).onTap,
+        isNull,
+      );
+
+      await tester.tap(find.text(l10n.categoriesSelectNone));
+      await tester.pumpAndSettle();
+      for (final name in ['Cat0', 'Cat1', 'Night shift', 'Pilates']) {
+        expect(rowNamed(tester, name).checked, isFalse, reason: name);
+      }
+      expect(
+        actionRow(tester, SemanticsIds.categoryPickSelectNone).onTap,
+        isNull,
+      );
+
+      // One of theirs ticked: Select none has work again.
+      await tester.tap(find.text('Pilates'));
+      await tester.pumpAndSettle();
+      expect(
+        actionRow(tester, SemanticsIds.categoryPickSelectNone).onTap,
+        isNotNull,
+      );
+
+      await tester.tap(pickerApply());
+      await tester.pumpAndSettle();
+      expect(picked.value, {'p-pilates'});
+    });
+
+    testWidgets('search counts both lists, filters both by one ranking, and '
+        'their group leaves when the query matches none of theirs', (
+      tester,
+    ) async {
+      // Twelve across both groups: no search row.
+      seed(9);
+      await openWithPartner(tester, selected: const {});
+      expect(find.byType(TextField), findsNothing);
+      await tester.tap(
+        find.bySemanticsIdentifier(SemanticsIds.categoryPickClose),
+      );
+      await tester.pumpAndSettle();
+
+      // Thirteen across both, ten of them mine: the field is there.
+      seed(10);
+      await openWithPartner(tester, selected: const {});
+      expect(find.byType(TextField), findsOneWidget);
+
+      await tester.enterText(find.byType(TextField), 'pil');
+      await tester.pumpAndSettle();
+      expect(find.text('FROM MARIA'), findsOneWidget);
+      expect(find.byType(FormCheckRow), findsOneWidget);
+      expect(find.text('Pilates'), findsOneWidget);
+      // A partner's row answered, so the typed name is no new category.
+      expect(find.text(l10n.createCategory), findsOneWidget);
+      // The bulk rows act on what is listed: Pilates alone.
+      await tester.tap(find.text(l10n.categoriesSelectAll));
+      await tester.pumpAndSettle();
+      expect(rowNamed(tester, 'Pilates').checked, isTrue);
+
+      await tester.enterText(find.byType(TextField), 'cat1');
+      await tester.pumpAndSettle();
+      expect(find.text('FROM MARIA'), findsNothing);
+      expect(find.byType(FormSectionLabel), findsNothing);
+      expect(find.text('Cat1'), findsOneWidget);
+      expect(rowNamed(tester, 'Cat1').checked, isFalse);
+
+      await tester.enterText(find.byType(TextField), 'zzz');
+      await tester.pumpAndSettle();
+      expect(find.byType(FormCheckRow), findsNothing);
+      expect(find.text(l10n.noCategoriesMatch), findsOneWidget);
+      expect(find.text(l10n.createCategoryNamed('zzz')), findsOneWidget);
+    });
+
+    testWidgets('an empty partner list is the picker every other caller '
+        'opens: one group, no label, today\'s rows', (tester) async {
+      seed(3);
+      await openWithPartner(tester, selected: const {'c1'}, partner: const []);
+
+      // The scroll body holds the one group and nothing after it.
+      final body =
+          tester
+                  .widget<SingleChildScrollView>(
+                    find.byType(SingleChildScrollView),
+                  )
+                  .child!
+              as Column;
+      expect(body.children, hasLength(1));
+      final group = body.children.single as FormRowGroup;
+      expect(group.trailingGap, isFalse);
+      expect(
+        [for (final row in group.children) row.runtimeType],
+        [
+          FormActionRow,
+          FormActionRow,
+          FormCheckRow,
+          FormCheckRow,
+          FormCheckRow,
+          FormActionRow,
+        ],
+      );
+      expect(
+        (group.children.last as FormActionRow).identifier,
+        SemanticsIds.categoryPickCreate,
+      );
+      expect(find.byType(FormSectionLabel), findsNothing);
+    });
+  });
+
+  // Last in the file: the real faces stay loaded for every test after them.
+  group('a partner\'s categories with the real fonts', () {
+    setUpAll(loadGoldenFonts);
+
+    for (final (locale, scale) in const [
+      (Locale('en'), 1.0),
+      (Locale('de'), 2.0),
+    ]) {
+      testWidgets('their rows are 56 dp at $locale $scale on 360 × 780', (
+        tester,
+      ) async {
+        seed(2);
+        await openWithPartner(
+          tester,
+          selected: const {'c0', 'p-night'},
+          surface: const Size(360, 780),
+          locale: locale,
+          textScale: scale,
+        );
+
+        expect(tester.takeException(), isNull);
+        for (final category in theirs) {
+          final row = find.ancestor(
+            of: pickRow(category.id),
+            matching: find.byType(FormCheckRow),
+          );
+          await tester.ensureVisible(row);
+          await tester.pumpAndSettle();
+          expect(
+            tester.getSize(row).height,
+            moreOrLessEquals(56, epsilon: 0.5),
+            reason: category.id,
+          );
+        }
+        expect(tester.takeException(), isNull);
+      });
+    }
+
+    for (final dark in const [false, true]) {
+      testWidgets('the picker with their group meets the tap-target, label '
+          'and contrast guidelines, ${dark ? 'dark' : 'light'}', (
+        tester,
+      ) async {
+        final handle = tester.ensureSemantics();
+        seed(2);
+        // A mixed selection, so neither bulk row is drawn disabled.
+        await openWithPartner(
+          tester,
+          selected: const {'c0', 'p-night'},
+          surface: const Size(360, 780),
+          dark: dark,
+        );
+
+        await expectLater(tester, meetsGuideline(androidTapTargetGuideline));
+        await expectLater(tester, meetsGuideline(labeledTapTargetGuideline));
+
+        // The sampler reads "Pilates" and "Choir" at 4.01:1 in light, ticked
+        // or not: at 15 px their anti-aliasing step (#7E7A80) outnumbers the
+        // full-strength `onSurface` pixels in the sampled rect — the
+        // text-contrast sampler trap, the same reading "Katholisch" gave. The
+        // contrast pass runs over a name that samples cleanly; every
+        // partner label's colour is pinned by token in the next case.
+        await tester.tap(
+          find.bySemanticsIdentifier(SemanticsIds.categoryPickClose),
+        );
+        await tester.pumpAndSettle();
+        await openWithPartner(
+          tester,
+          selected: const {'c0', 'p-night'},
+          partner: const [night],
+          surface: const Size(360, 780),
+          dark: dark,
+        );
+
+        await expectLater(tester, meetsGuideline(textContrastGuideline));
+        handle.dispose();
+      });
+    }
+
+    testWidgets('every partner row\'s label is drawn in onSurface, light and '
+        'dark', (tester) async {
+      seed(1);
+      for (final dark in const [false, true]) {
+        await openWithPartner(
+          tester,
+          selected: const {},
+          surface: const Size(360, 780),
+          dark: dark,
+        );
+        final onSurface = Theme.of(
+          tester.element(find.byType(CategoryPickerSheet)),
+        ).colorScheme.onSurface;
+        for (final category in theirs) {
+          final label = find.text(category.name);
+          final text = tester.widget<Text>(label);
+          final color = DefaultTextStyle.of(
+            tester.element(label),
+          ).style.merge(text.style).color;
+          expect(color, onSurface, reason: '${category.id} dark: $dark');
+        }
+        await tester.tap(
+          find.bySemanticsIdentifier(SemanticsIds.categoryPickClose),
+        );
+        await tester.pumpAndSettle();
+      }
+    });
+  });
+}
+
+/// The picker's answer, which arrives after the tap that closed it.
+class _Picked {
+  Set<String>? value;
 }

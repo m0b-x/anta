@@ -7,6 +7,7 @@ import 'package:flutter/semantics.dart' show CustomSemanticsAction;
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../bloc/calendar/calendar_bloc.dart';
+import '../bloc/share/share_bloc.dart';
 import '../constants/app_bar_metrics.dart';
 import '../constants/app_colors.dart';
 import '../constants/app_constants.dart';
@@ -18,7 +19,9 @@ import '../constants/row_metrics.dart';
 import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
 import '../models/calendar_category.dart';
+import '../models/partner_look.dart';
 import '../models/share_overview.dart';
+import '../models/share_settings.dart';
 import '../services/app_navigator.dart';
 import '../services/calendar_event_service.dart';
 import '../services/category_service.dart';
@@ -27,6 +30,7 @@ import '../services/pairing_service.dart';
 import '../services/share_service.dart';
 import '../utils/category_search.dart';
 import '../utils/custom_snackbar.dart';
+import '../utils/marker_contrast.dart';
 import '../utils/settings_search.dart';
 import '../utils/share_copy.dart';
 import '../widgets/app_dialogs.dart';
@@ -39,8 +43,13 @@ import '../widgets/form_menu_item.dart';
 import '../widgets/form_rows.dart';
 import '../widgets/settings_reorder.dart';
 import '../widgets/settings_search_field.dart';
+import '../widgets/shared_category_sheet.dart';
 import '../widgets/unified_app_bars.dart';
 import '../widgets/value_change_highlight.dart';
+
+/// A caption's segments joined as `_captionFor` joins mine: the space before
+/// the dot is a no-break one, so a wrapped line never starts with the dot.
+const String _captionSeparator = ' · ';
 
 /// One entry of the per-row "category options" menu.
 enum _CategoryAction { moveToTop, edit, share, archive, delete }
@@ -75,7 +84,9 @@ class _RowEntry extends _Entry {
 
 /// Management page for event categories: the browser's content rows in two
 /// sections, In use over Archived, where the user searches, reorders,
-/// archives, edits, creates and deletes them.
+/// archives, edits, creates and deletes them — and, while paired, a third,
+/// "From {name}", of the partner's own categories shown on this phone:
+/// read-only, each opening `SharedCategorySheet` for my alerts on it.
 ///
 /// Mutations go directly through [CategoryService] (the same service-direct
 /// pattern the holiday settings and the vocabularies page use); the in-memory
@@ -153,9 +164,27 @@ class _CalendarCategoriesPageState extends State<CalendarCategoriesPage> {
   ShareAvailability _share = const ShareNotPaired();
   StreamSubscription<ShareAvailability>? _shareChanges;
 
-  /// Whether a shared category's avatar wears the share sign
-  /// (`shareMarkMine`); its caption says "Shared" either way.
-  bool _markMine = true;
+  /// How a partner's category is drawn, and whether a shared category of
+  /// mine wears the share sign (`shareMarkMine`; its caption says "Shared"
+  /// either way) — both from one read of the settings.
+  ShareLook _look = const ShareLook();
+
+  /// Whether my alerts on a partner's category ring (`shareAlerts`), which
+  /// decides that row's "Alerts on".
+  ShareAlerts _shareAlerts = ShareAlerts.own;
+
+  /// The partner's own categories shown on this phone
+  /// ([CalendarCategories.partnerShown]) as the section last listed them,
+  /// and their events' counts — read only while one is listed, on the same
+  /// advisory terms as [_counts].
+  List<CalendarCategory> _partner = const [];
+  Map<String, int> _partnerCounts = const {};
+
+  /// What a partner row's sheet follows, built at the first tap: most who
+  /// pair never open one, and a page that never needs it reads nothing for
+  /// it.
+  ShareBloc? _shareBloc;
+  bool _partnerSheetOpening = false;
 
   bool get _isFiltering => _query.isNotEmpty;
 
@@ -173,7 +202,7 @@ class _CalendarCategoriesPageState extends State<CalendarCategoriesPage> {
     // the other half: it no-ops in the service, and the page would report a
     // delete that happened on another device.
     _externalChanges = CalendarEventService.externalChanges.listen(
-      (_) => _onExternalChange(),
+      _onExternalChange,
     );
   }
 
@@ -181,6 +210,7 @@ class _CalendarCategoriesPageState extends State<CalendarCategoriesPage> {
   void dispose() {
     _externalChanges?.cancel();
     _shareChanges?.cancel();
+    _shareBloc?.close();
     _searchController.dispose();
     _scrollController.dispose();
     super.dispose();
@@ -189,10 +219,18 @@ class _CalendarCategoriesPageState extends State<CalendarCategoriesPage> {
   /// Re-reads the catalogue and the counts when the store moved behind the
   /// page, guarded on the facade revision (the overview's shape) so the signal
   /// this page's own delete now fires costs nothing.
-  void _onExternalChange() {
-    if (!mounted || _categoryRevision == CalendarCategories.revision) return;
-    _refresh();
-    unawaited(_refreshCounts());
+  ///
+  /// The partner's section is followed apart from that guard: hiding one of
+  /// theirs narrows [CalendarCategories.partnerShown] without a revision,
+  /// and the signal is all that says so.
+  void _onExternalChange(CalendarExternalChange change) {
+    if (!mounted) return;
+    if (_categoryRevision != CalendarCategories.revision) {
+      _refresh();
+      unawaited(_refreshCounts());
+    }
+    _shareBloc?.add(const ShareLoadRequested());
+    unawaited(_refreshPartner(recount: change.eventsMerged));
   }
 
   Future<void> _load() async {
@@ -213,6 +251,14 @@ class _CalendarCategoriesPageState extends State<CalendarCategoriesPage> {
       final eventService = await eventFuture;
       final counts = await eventService.countByCategory();
       final share = shareFuture == null ? null : await shareFuture;
+      // The partner's rows wait on their counts as mine do, and only while
+      // paired with one of theirs to list.
+      final partner = share == null
+          ? const <CalendarCategory>[]
+          : _partnerOf(share.service.availability);
+      final partnerCounts = partner.isEmpty
+          ? const <String, int>{}
+          : await eventService.countPartnerByCategory();
       if (!mounted) return;
       setState(() {
         _service = service;
@@ -223,12 +269,18 @@ class _CalendarCategoriesPageState extends State<CalendarCategoriesPage> {
         if (share != null) {
           _shareService = share.service;
           _share = share.service.availability;
-          _markMine = share.markMine;
+          _look = share.look;
+          _shareAlerts = share.alerts;
+          _partner = partner;
+          _partnerCounts = partnerCounts;
         }
         _isLoading = false;
       });
       _shareChanges = _shareService?.changes.listen((next) {
-        if (mounted && next != _share) setState(() => _share = next);
+        if (!mounted || next == _share) return;
+        setState(() => _share = next);
+        // A pair that ends takes the section with it at once.
+        unawaited(_refreshPartner());
       });
     } catch (e) {
       // Either `getInstance()` can throw — a database that failed to open
@@ -241,12 +293,18 @@ class _CalendarCategoriesPageState extends State<CalendarCategoriesPage> {
     }
   }
 
-  /// The share service and the sign setting, or null when sharing cannot be
-  /// read — a database with none set up reads as never paired.
-  Future<({ShareService service, bool markMine})?> _openShare() async {
+  /// The share service, the looks and the alerts setting, or null when
+  /// sharing cannot be read — a database with none set up reads as never
+  /// paired.
+  Future<({ShareService service, ShareLook look, ShareAlerts alerts})?>
+  _openShare() async {
     try {
       final service = await widget.shareService();
-      return (service: service, markMine: await service.markMine());
+      return (
+        service: service,
+        look: await service.looks(),
+        alerts: await service.alerts(),
+      );
     } catch (e) {
       debugPrint('[CalendarCategoriesPage] Sharing not read: $e');
       return null;
@@ -266,19 +324,52 @@ class _CalendarCategoriesPageState extends State<CalendarCategoriesPage> {
     }
   }
 
-  /// Re-reads the sign setting, which the Sharing page — one tap away
-  /// through Sync & sharing from the editor — can change.
-  Future<void> _refreshMarkMine() async {
+  /// Re-reads the looks and the alerts setting, which the Sharing page —
+  /// one tap away through Sync & sharing from the editor — can change.
+  Future<void> _refreshLooks() async {
     final service = _shareService;
     if (service == null) return;
     try {
-      final markMine = await service.markMine();
-      if (mounted && markMine != _markMine) {
-        setState(() => _markMine = markMine);
+      final look = await service.looks();
+      final alerts = await service.alerts();
+      if (mounted && (look != _look || alerts != _shareAlerts)) {
+        setState(() {
+          _look = look;
+          _shareAlerts = alerts;
+        });
       }
     } catch (e) {
-      debugPrint('[CalendarCategoriesPage] Share sign not read: $e');
+      debugPrint('[CalendarCategoriesPage] Share settings not read: $e');
     }
+  }
+
+  /// The partner's categories the section lists under [availability]:
+  /// none unless paired.
+  static List<CalendarCategory> _partnerOf(ShareAvailability availability) =>
+      availability.audience == null
+      ? const []
+      : CalendarCategories.partnerShown;
+
+  /// Follows the section to what is shown now. A row that leaves goes at
+  /// once; a row that arrives, or [recount] (a pull merged events), waits
+  /// on one count read, so a caption never shows a count it then corrects.
+  /// Never paired, the page opened no share service and this reads nothing.
+  Future<void> _refreshPartner({bool recount = false}) async {
+    final eventService = _eventService;
+    if (_shareService == null || eventService == null) return;
+    final partner = _partnerOf(_share);
+    final held = {for (final category in _partner) category.id};
+    final arrived = partner.any((category) => !held.contains(category.id));
+    if (!arrived && !(recount && partner.isNotEmpty)) {
+      if (!listEquals(partner, _partner)) setState(() => _partner = partner);
+      return;
+    }
+    final counts = await eventService.countPartnerByCategory();
+    if (!mounted) return;
+    setState(() {
+      _partner = _partnerOf(_share);
+      _partnerCounts = counts;
+    });
   }
 
   void _refresh() {
@@ -437,14 +528,14 @@ class _CalendarCategoriesPageState extends State<CalendarCategoriesPage> {
   }
 
   /// Writes the share the editor's draft asked for, now that the category
-  /// is stored — with or without the page — and re-reads the sign setting
+  /// is stored — with or without the page — and re-reads the share settings
   /// the editor's way to Sync & sharing may have changed.
   Future<void> _afterEditor(CategoryEditorResult? result) async {
     final share = result?.share;
     if (result != null && share != null) {
       await _setShared(result.category, share);
     }
-    if (mounted) await _refreshMarkMine();
+    if (mounted) await _refreshLooks();
   }
 
   /// Shares [category] or stops sharing it at once, then offers Undo
@@ -515,6 +606,65 @@ class _CalendarCategoriesPageState extends State<CalendarCategoriesPage> {
     await _refreshCounts();
     if (!mounted) return;
     CustomSnackbar.showSuccess(context, l10n.categoryDeleted);
+  }
+
+  /// Opens the sheet of the partner's [category]. Its bloc loads without a
+  /// shared read — that ask belongs to the Sharing page's open alone — and
+  /// the first tap waits on that load, local reads only, so the sheet never
+  /// opens on nothing; later taps reuse it, and every change the page hears
+  /// reloads it.
+  ///
+  /// A bloc whose load failed is replaced, never asked again: a second
+  /// failure would emit a state equal to the first, which a bloc swallows,
+  /// and the wait would never end.
+  Future<void> _openPartner(CalendarCategory category) async {
+    if (_partnerSheetOpening) return;
+    _partnerSheetOpening = true;
+    ShareBloc? bloc = _shareBloc;
+    try {
+      if (bloc != null && bloc.state is ShareLoadFailed) {
+        unawaited(bloc.close());
+        bloc = null;
+      }
+      if (bloc == null) {
+        bloc = ShareBloc(
+          service: () async => _shareService ?? await widget.shareService(),
+        )..add(const ShareLoadRequested());
+        _shareBloc = bloc;
+      }
+      if (bloc.state is! ShareLoaded) {
+        await bloc.stream.firstWhere(
+          (state) => state is ShareLoaded || state is ShareLoadFailed,
+        );
+      }
+    } on StateError {
+      // Closed with the page while it loaded.
+      return;
+    } finally {
+      _partnerSheetOpening = false;
+    }
+    if (!mounted || bloc.state is! ShareLoaded) return;
+    FocusManager.instance.primaryFocus?.unfocus();
+    await SharedCategorySheet.show(
+      context,
+      bloc: bloc,
+      categoryId: category.id,
+      partner: _partnerLook,
+    );
+    // The sheet writes my alerts for the category; its "Alerts on" reads
+    // them from the facade.
+    if (mounted) setState(() {});
+  }
+
+  PartnerLook get _partnerLook {
+    final audience = _share.audience;
+    return PartnerLook(
+      look: _look.eventLook,
+      partner: audience?.members.firstOrNull,
+      name: audience?.displayName,
+      markMine: _look.markMine,
+      unpaired: audience == null,
+    );
   }
 
   // ── Order ────────────────────────────────────────────────────────────
@@ -844,6 +994,12 @@ class _CalendarCategoriesPageState extends State<CalendarCategoriesPage> {
         : _categories;
     final entries = _entriesFor(rows);
     _entries = entries;
+    final partner = _isFiltering
+        ? [
+            for (final ranked in rankCategories(_query, _partner, l10n))
+              ranked.category,
+          ]
+        : _partner;
 
     return Column(
       children: [
@@ -870,7 +1026,7 @@ class _CalendarCategoriesPageState extends State<CalendarCategoriesPage> {
               const SliverPadding(
                 padding: EdgeInsets.only(top: FormMetrics.bodyTop),
               ),
-              if (entries.isEmpty)
+              if (entries.isEmpty && partner.isEmpty)
                 SliverToBoxAdapter(
                   child: Padding(
                     padding: const EdgeInsets.symmetric(
@@ -899,6 +1055,10 @@ class _CalendarCategoriesPageState extends State<CalendarCategoriesPage> {
                   itemBuilder: (context, index) =>
                       _buildEntry(entries[index], dragIndex: index),
                 ),
+              // A sliver of its own after the reorderable one, so a drag can
+              // never drop into it and no order of mine ever holds its rows
+              // (decision di).
+              if (partner.isNotEmpty) _partnerSection(partner),
               // The FAB floats over the list's end: the last row scrolls
               // clear of it.
               const SliverPadding(
@@ -970,7 +1130,7 @@ class _CalendarCategoriesPageState extends State<CalendarCategoriesPage> {
       category: category,
       caption: _captionFor(category),
       spokenCaption: _captionFor(category, spoken: true),
-      shareSign: _markMine && _sharedShown(category),
+      shareSign: _look.markMine && _sharedShown(category),
       position: entry.position,
       dragIndex: dragIndex,
       reorderLocked: _isFiltering,
@@ -1024,6 +1184,52 @@ class _CalendarCategoriesPageState extends State<CalendarCategoriesPage> {
   /// Whether [category] shows as shared: its own mark, while paired.
   bool _sharedShown(CalendarCategory category) =>
       category.sharedByMe && _share.audience != null;
+
+  /// "From {name}": its header, then [rows] in the order given — the
+  /// catalogue's, or the query's ranking.
+  Widget _partnerSection(List<CalendarCategory> rows) {
+    final l10n = AppLocalizations.of(context)!;
+    final look = _partnerLook;
+    return SliverList.builder(
+      itemCount: rows.length + 1,
+      itemBuilder: (context, index) {
+        if (index == 0) {
+          return ContentSectionHeader(
+            label: l10n.shareFromPartner(
+              ShareCopy.partnerName(l10n, look.name),
+            ),
+            identifier: SemanticsIds.categorySectionPartnerHeader,
+          );
+        }
+        final category = rows[index - 1];
+        return _PartnerCategoryRow(
+          key: ValueKey(category.id),
+          category: category,
+          caption: _partnerCaptionFor(category),
+          look: look,
+          position: _positionIn(index - 1, rows.length),
+          onTap: () => _openPartner(category),
+        );
+      },
+    );
+  }
+
+  /// A partner row's second line: its events here, then "Alerts on" when
+  /// my alerts for it can ring — under "Category alerts too" and with one
+  /// of them enabled (decision dj). Read per build from the facade, as
+  /// [_captionFor] reads mine.
+  String _partnerCaptionFor(CalendarCategory category) {
+    final l10n = AppLocalizations.of(context)!;
+    final ringing =
+        _shareAlerts == ShareAlerts.category &&
+        EventAlerts.categoryAlertsFor(
+          category.id,
+        ).any((alert) => alert.enabled);
+    return [
+      l10n.categoryEventCount(_partnerCounts[category.id] ?? 0),
+      if (ringing) l10n.categoryCaptionAlertsOn,
+    ].join(_captionSeparator);
+  }
 
   /// The lifted row: one card of its own, whatever its place in its group,
   /// under the shared proxy (a hair of scale, a shadow). Inset and
@@ -1118,12 +1324,7 @@ class _CategoryRow extends StatelessWidget {
     final colorScheme = Theme.of(context).colorScheme;
     final name = CalendarCategories.labelOf(category, l10n);
     final archived = category.isHidden;
-    // Decided by the text scale, never by the names: the 18 dp the glyph
-    // frees is what keeps every built-in name whole at 2.0 on a small phone.
-    final scaler = MediaQuery.textScalerOf(context);
-    final compact =
-        scaler.scale(RowMetrics.titleFontSize) / RowMetrics.titleFontSize >=
-        RowMetrics.compactLeadingTextScale;
+    final compact = _compactLeading(context);
     final icon = CalendarIcons.forKey(category.iconKey) ?? Icons.event_rounded;
 
     // The handle sits inside the row's ink well: a short tap on it, meant as
@@ -1160,36 +1361,7 @@ class _CategoryRow extends StatelessWidget {
       leading = Opacity(opacity: FormMetrics.disabledOpacity, child: leading);
     }
 
-    final texts = Padding(
-      padding: EdgeInsets.symmetric(
-        vertical: RowMetrics.twoLinePadding.vertical / 2,
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            name,
-            style: TextStyle(
-              fontSize: RowMetrics.titleFontSize,
-              fontWeight: FontWeight.w400,
-              height: FormMetrics.labelLineHeight / RowMetrics.titleFontSize,
-              color: colorScheme.onSurface,
-            ),
-          ),
-          const SizedBox(height: RowMetrics.lineGap),
-          Text(
-            caption,
-            style: TextStyle(
-              fontSize: RowMetrics.secondLineFontSize,
-              height:
-                  FormMetrics.captionLineHeight / RowMetrics.secondLineFontSize,
-              color: colorScheme.onSurfaceVariant,
-            ),
-          ),
-        ],
-      ),
-    );
+    final texts = _RowTexts(name: name, caption: caption);
 
     Widget body = InkWell(
       onTap: onTap,
@@ -1281,6 +1453,140 @@ class _CategoryRow extends StatelessWidget {
           ? RowMetrics.reorderGlyphTextInset
           : RowMetrics.reorderAvatarTextInset,
       child: content,
+    );
+  }
+}
+
+/// Whether a row's leading is the bare glyph rather than the avatar.
+/// Decided by the text scale, never by the names: the 18 dp the glyph frees
+/// is what keeps every built-in name whole at 2.0 on a small phone.
+bool _compactLeading(BuildContext context) {
+  final scaler = MediaQuery.textScalerOf(context);
+  return scaler.scale(RowMetrics.titleFontSize) / RowMetrics.titleFontSize >=
+      RowMetrics.compactLeadingTextScale;
+}
+
+/// A category row's name over its caption — mine and the partner's alike,
+/// so the two sections' rows are one height at every scale.
+class _RowTexts extends StatelessWidget {
+  final String name;
+  final String caption;
+
+  const _RowTexts({required this.name, required this.caption});
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: EdgeInsets.symmetric(
+        vertical: RowMetrics.twoLinePadding.vertical / 2,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            name,
+            style: TextStyle(
+              fontSize: RowMetrics.titleFontSize,
+              fontWeight: FontWeight.w400,
+              height: FormMetrics.labelLineHeight / RowMetrics.titleFontSize,
+              color: colorScheme.onSurface,
+            ),
+          ),
+          const SizedBox(height: RowMetrics.lineGap),
+          Text(
+            caption,
+            style: TextStyle(
+              fontSize: RowMetrics.secondLineFontSize,
+              height:
+                  FormMetrics.captionLineHeight / RowMetrics.secondLineFontSize,
+              color: colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// One of the partner's categories on the browser's two-line content row:
+/// its avatar in the partner's look, its name over its caption. Read-only —
+/// no handle, no ⋮ — and inset at the group's own edge rather than at my
+/// rows' avatar column, the jog that says it is not mine to arrange
+/// (decision di).
+class _PartnerCategoryRow extends StatelessWidget {
+  final CalendarCategory category;
+  final String caption;
+  final PartnerLook look;
+  final RowGroupPosition position;
+  final VoidCallback onTap;
+
+  const _PartnerCategoryRow({
+    super.key,
+    required this.category,
+    required this.caption,
+    required this.look,
+    required this.position,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final colorScheme = Theme.of(context).colorScheme;
+    final name = CalendarCategories.labelOf(category, l10n);
+    final compact = _compactLeading(context);
+    // The bare glyph carries no ring, so under Outlined it takes the ring's
+    // contrast rule itself: a dark colour on the dark group read 2.11:1.
+    final leading = compact
+        ? Icon(
+            CalendarIcons.forKey(category.iconKey) ?? Icons.event_rounded,
+            size: RowMetrics.glyphSize,
+            color: look.outlined
+                ? MarkerContrast.atLeast(category.color, colorScheme.rowGroup)
+                : category.color,
+          )
+        : sharedCategoryAvatar(category, look);
+
+    // One node: the name and the caption. The header above says whose it
+    // is, so the row does not (decision dk); nothing here moves.
+    return ContentRowShell(
+      position: position,
+      dividerIndent: compact
+          ? RowMetrics.dividerIndentWithGlyph
+          : RowMetrics.avatarTextInset,
+      child: Semantics(
+        container: true,
+        identifier: SemanticsIds.categoryPartnerRow(category.id),
+        button: true,
+        excludeSemantics: true,
+        label: [name, caption].join('\n'),
+        onTap: onTap,
+        child: InkWell(
+          onTap: onTap,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(
+              minHeight: RowMetrics.twoLineMinHeight,
+            ),
+            child: Padding(
+              padding: const EdgeInsets.only(
+                left: RowMetrics.groupInset,
+                right: FormMetrics.rowEndPadding,
+              ),
+              child: Row(
+                children: [
+                  leading,
+                  const SizedBox(width: RowMetrics.gap),
+                  Expanded(
+                    child: _RowTexts(name: name, caption: caption),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

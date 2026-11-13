@@ -8,10 +8,14 @@ import 'package:anta/database/database.dart';
 import 'package:anta/database/database_lifecycle.dart';
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/models/calendar_category.dart';
+import 'package:anta/models/calendar_event.dart';
 import 'package:anta/models/calendar_grid_filters.dart';
 import 'package:anta/models/fasting_appearance.dart';
+import 'package:anta/models/partner_look.dart';
 import 'package:anta/models/upcoming_agenda_filters.dart';
 import 'package:anta/services/filter_preset_service.dart';
+import 'package:anta/utils/calendar_filter_summary.dart';
+import 'package:anta/utils/event_agenda.dart';
 import 'package:anta/widgets/agenda_filters_sheet.dart';
 import 'package:anta/widgets/calendar_filter_sheet.dart';
 import 'package:anta/widgets/category_picker_sheet.dart';
@@ -43,7 +47,75 @@ void main() {
     ]);
   }
 
-  tearDown(() => CalendarCategories.updateCache(const []));
+  /// [mine] categories of this person's, then three of the partner's own —
+  /// Choir, Night shift, Pilates, by name as the facade orders them — and
+  /// [partnerHidden] hidden on this phone (share surfaces §6.4), so out of
+  /// `partnerShown`. [builtIn] adds this person's Gym, the built-in a
+  /// partner's event can share.
+  void seedWithPartner(
+    int mine, {
+    Set<String> partnerHidden = const {},
+    bool builtIn = false,
+  }) {
+    CalendarCategories.updateCache([
+      if (builtIn)
+        const CalendarCategory(
+          id: 'gym',
+          name: 'Gym',
+          colorValue: 0xFF43A047,
+          iconKey: 'fitness_center',
+          sortOrder: -1,
+          isBuiltIn: true,
+        ),
+      for (var i = 0; i < mine; i++)
+        CalendarCategory(
+          id: 'c$i',
+          name: 'Cat$i',
+          colorValue: 0xFF1E88E5,
+          iconKey: 'event',
+          sortOrder: i,
+          isBuiltIn: false,
+        ),
+      for (final (id, name) in const [
+        ('p-night', 'Night shift'),
+        ('p-pilates', 'Pilates'),
+        ('p-choir', 'Choir'),
+      ])
+        CalendarCategory(
+          id: id,
+          name: name,
+          colorValue: 0xFF8E24AA,
+          iconKey: 'work',
+          sortOrder: 0,
+          isBuiltIn: false,
+          fromPartner: true,
+        ),
+    ]);
+    CalendarCategories.updatePartnerHidden(partnerHidden);
+  }
+
+  /// A partner's event, by the category id it was stored with.
+  CalendarEvent partnerEvent(String categoryId) => CalendarEvent(
+    id: 'pe-$categoryId',
+    title: 'Theirs',
+    categoryId: categoryId,
+    startDate: DateTime.utc(2027, 3, 4),
+    fromPartner: true,
+  );
+
+  CalendarEvent myEvent(String categoryId) => CalendarEvent(
+    id: 'me-$categoryId',
+    title: 'Mine',
+    categoryId: categoryId,
+    startDate: DateTime.utc(2027, 3, 4),
+  );
+
+  const maria = PartnerLook(name: 'Maria');
+
+  tearDown(() {
+    CalendarCategories.updatePartnerHidden(const {});
+    CalendarCategories.updateCache(const []);
+  });
 
   Future<void> pumpHost(
     WidgetTester tester,
@@ -146,6 +218,7 @@ void main() {
       WidgetTester tester,
       CalendarGridFilters filters, {
       bool sandbox = false,
+      PartnerLook partnerLook = const PartnerLook(),
     }) async {
       addTearDown(tester.view.reset);
       tester.view.devicePixelRatio = 1.0;
@@ -156,6 +229,7 @@ void main() {
           context,
           filters: filters,
           sandbox: sandbox,
+          partnerLook: partnerLook,
         );
         applied.returned = true;
       });
@@ -754,6 +828,250 @@ void main() {
       expect(applied.value, missedOnly);
     });
 
+    group('a partner\'s categories (share surfaces §6.10)', () {
+      final today = DateTime.utc(2027, 1, 1);
+
+      bool shows(CalendarGridFilters? filters, CalendarEvent event) =>
+          filters!.allows(event, todayUtc: today);
+
+      testWidgets('the picker lists their shown ones under "From Maria"; '
+          'denying one stores its id and hides exactly its events', (
+        tester,
+      ) async {
+        seedWithPartner(3, partnerHidden: {'p-choir'});
+        final applied = await open(
+          tester,
+          CalendarGridFilters.none,
+          partnerLook: maria,
+        );
+
+        expect(row(tester, SemanticsIds.filterCategories).value, 'All');
+
+        await tap(tester, id(SemanticsIds.filterCategories));
+        expect(find.text('FROM MARIA'), findsOneWidget);
+        expect(pickerRow('Night shift'), findsOneWidget);
+        // Hidden on the Sharing page: no events here to filter.
+        expect(pickerRow('Choir'), findsNothing);
+        await tap(tester, pickerRow('Pilates'));
+        await tap(tester, pickerApply());
+
+        // Counted over mine and theirs: four of five shown.
+        expect(
+          row(tester, SemanticsIds.filterCategories).value,
+          'Cat0, Cat1 +2 more',
+        );
+
+        await tap(tester, id(SemanticsIds.filterApply));
+
+        expect(applied.value?.hiddenCategoryIds, {'p-pilates'});
+        expect(shows(applied.value, partnerEvent('p-pilates')), isFalse);
+        expect(shows(applied.value, partnerEvent('p-night')), isTrue);
+        expect(shows(applied.value, myEvent('c0')), isTrue);
+      });
+
+      testWidgets('ticking every listed row of both groups empties the '
+          'denylist, a partner\'s denial included', (tester) async {
+        seedWithPartner(3);
+        final applied = await open(
+          tester,
+          const CalendarGridFilters(hiddenCategoryIds: {'p-night', 'c1'}),
+          partnerLook: maria,
+        );
+
+        // Shown: Cat0, Cat2, Choir, Pilates.
+        expect(
+          row(tester, SemanticsIds.filterCategories).value,
+          'Cat0, Cat2 +2 more',
+        );
+
+        await tap(tester, id(SemanticsIds.filterCategories));
+        await tap(tester, find.text('Select all'));
+        await tap(tester, pickerApply());
+
+        expect(row(tester, SemanticsIds.filterCategories).value, 'All');
+
+        await tap(tester, id(SemanticsIds.filterApply));
+
+        expect(applied.value?.hiddenCategoryIds, isEmpty);
+        expect(shows(applied.value, partnerEvent('p-night')), isTrue);
+      });
+
+      testWidgets('ticking only mine is a narrowing: theirs are denied', (
+        tester,
+      ) async {
+        seedWithPartner(3);
+        final applied = await open(
+          tester,
+          CalendarGridFilters.none,
+          partnerLook: maria,
+        );
+
+        await tap(tester, id(SemanticsIds.filterCategories));
+        await tap(tester, find.text('Select none'));
+        for (final label in ['Cat0', 'Cat1', 'Cat2']) {
+          await tap(tester, pickerRow(label));
+        }
+        await tap(tester, pickerApply());
+
+        expect(
+          row(tester, SemanticsIds.filterCategories).value,
+          'Cat0, Cat1 +1 more',
+        );
+
+        await tap(tester, id(SemanticsIds.filterApply));
+
+        expect(applied.value?.hiddenCategoryIds, {
+          'p-choir',
+          'p-night',
+          'p-pilates',
+        });
+      });
+
+      /// A shared built-in has no row of its own: the partner's events in it
+      /// follow this person's category of that id (§6.10, R8).
+      testWidgets('a partner\'s event in a shared built-in follows my '
+          'category of that id', (tester) async {
+        seedWithPartner(1, builtIn: true);
+        final gym = CalendarCategories.labelOf(
+          CalendarCategories.resolve('gym'),
+          lookupAppLocalizations(const Locale('en')),
+        );
+        final applied = await open(
+          tester,
+          CalendarGridFilters.none,
+          partnerLook: maria,
+        );
+
+        await tap(tester, id(SemanticsIds.filterCategories));
+        expect(
+          find.descendant(
+            of: find.byType(FormRowGroup).last,
+            matching: find.text(gym),
+          ),
+          findsNothing,
+          reason: 'never listed in the partner\'s group',
+        );
+        await tap(tester, pickerRow(gym));
+        await tap(tester, pickerApply());
+        await tap(tester, id(SemanticsIds.filterApply));
+
+        expect(applied.value?.hiddenCategoryIds, {'gym'});
+        expect(shows(applied.value, partnerEvent('gym')), isFalse);
+        expect(shows(applied.value, myEvent('gym')), isFalse);
+        expect(shows(applied.value, partnerEvent('p-night')), isTrue);
+      });
+
+      /// A denylist can hold a partner's id that has since left the list —
+      /// unshared, or hidden on the Sharing page — or the id of a category of
+      /// mine that was deleted. Neither is listed or counted, and the next
+      /// picker answer rebuilds the denylist without them.
+      testWidgets('a stale id, theirs or mine, is never counted or named and '
+          'drops out when the picker answers', (tester) async {
+        seedWithPartner(2, partnerHidden: {'p-choir'});
+        final applied = await open(
+          tester,
+          const CalendarGridFilters(
+            hiddenCategoryIds: {'p-choir', 'p-gone', 'deleted', 'c1'},
+          ),
+          partnerLook: maria,
+        );
+
+        // Shown: Cat0, Night shift, Pilates — never Choir.
+        final value = row(tester, SemanticsIds.filterCategories).value;
+        expect(value, 'Cat0, Night shift +1 more');
+
+        await tap(tester, id(SemanticsIds.filterCategories));
+        expect(pickerRow('Choir'), findsNothing);
+        await tap(tester, pickerApply());
+        await tap(tester, id(SemanticsIds.filterApply));
+
+        expect(applied.value?.hiddenCategoryIds, {'c1'});
+      });
+
+      testWidgets('ticking everything listed reads All over a stale id', (
+        tester,
+      ) async {
+        seedWithPartner(2, partnerHidden: {'p-choir'});
+        final applied = await open(
+          tester,
+          const CalendarGridFilters(
+            hiddenCategoryIds: {'p-choir', 'deleted', 'c1'},
+          ),
+          partnerLook: maria,
+        );
+
+        await tap(tester, id(SemanticsIds.filterCategories));
+        await tap(tester, pickerRow('Cat1'));
+        await tap(tester, pickerApply());
+
+        expect(row(tester, SemanticsIds.filterCategories).value, 'All');
+
+        await tap(tester, id(SemanticsIds.filterApply));
+
+        expect(applied.value?.hiddenCategoryIds, isEmpty);
+      });
+
+      /// The chip above the grid and a saved filter's subtitle
+      /// (`CalendarFilterSummary`) name the set the sheet's row names, over
+      /// mine and theirs: the subtitle reads it back word for word, the chip
+      /// names up to two and counts past them.
+      for (final (name, hidden, value, chip) in const [
+        (
+          'one of theirs denied',
+          {'p-pilates'},
+          'Cat0, Cat1 +2 more',
+          'Categories (4)',
+        ),
+        (
+          'all of mine denied, theirs shown',
+          {'c0', 'c1', 'c2'},
+          'Night shift, Pilates',
+          'Night shift, Pilates',
+        ),
+        (
+          'stale ids, theirs and mine',
+          {'p-choir', 'p-gone', 'deleted', 'c1'},
+          'Cat0, Cat2 +2 more',
+          'Categories (4)',
+        ),
+        (
+          'everything listed denied',
+          {'c0', 'c1', 'c2', 'p-night', 'p-pilates'},
+          'No categories',
+          'No categories',
+        ),
+      ]) {
+        testWidgets('$name: the chip and a preset\'s subtitle say what the '
+            'row says', (tester) async {
+          seedWithPartner(3, partnerHidden: {'p-choir'});
+          final filters = CalendarGridFilters(hiddenCategoryIds: hidden);
+          await open(tester, filters, partnerLook: maria);
+          final l10n = lookupAppLocalizations(const Locale('en'));
+
+          expect(row(tester, SemanticsIds.filterCategories).value, value);
+          expect(CalendarFilterSummary.describe(filters, l10n), value);
+          expect(
+            CalendarFilterSummary.facetsOf(filters, l10n).single.label,
+            chip,
+          );
+        });
+      }
+
+      testWidgets('a sandbox lists no partner group', (tester) async {
+        seedWithPartner(2);
+        await open(
+          tester,
+          CalendarGridFilters.none,
+          sandbox: true,
+          partnerLook: maria,
+        );
+
+        await tap(tester, id(SemanticsIds.filterCategories));
+        expect(find.text('FROM MARIA'), findsNothing);
+        expect(pickerRow('Pilates'), findsNothing);
+      });
+    });
+
     testWidgets('at text scale 2.0 in German on a 360 × 780 phone nothing '
         'overflows, the value drops under its label and every label is '
         'whole', (tester) async {
@@ -1114,7 +1432,229 @@ void main() {
 
       expect(applied?.categoryIds, isEmpty);
     });
+
+    group('a partner\'s categories (share surfaces §6.10)', () {
+      bool lists(UpcomingAgendaFilters? filters, CalendarEvent event) =>
+          EventAgenda.passesEventFilters(
+            event,
+            categoryIds: filters!.categoryIds,
+          );
+
+      /// Opens the sheet on a phone tall enough that both groups of the
+      /// picker sit above the fold.
+      Future<_AgendaApplied> openAgenda(
+        WidgetTester tester,
+        UpcomingAgendaFilters filters,
+      ) async {
+        addTearDown(tester.view.reset);
+        tester.view.devicePixelRatio = 1.0;
+        tester.view.physicalSize = const Size(800, 1400);
+        final applied = _AgendaApplied();
+        await pumpHost(tester, (context) async {
+          applied.value = await AgendaFiltersSheet.show(
+            context,
+            filters: filters,
+            partnerLook: maria,
+          );
+        });
+        return applied;
+      }
+
+      Future<void> tapAndSettle(WidgetTester tester, Finder finder) async {
+        await tester.tap(finder);
+        await tester.pumpAndSettle();
+      }
+
+      testWidgets('allowing only one of theirs is an allowlist of one, and '
+          'only its events are listed', (tester) async {
+        seedWithPartner(3, partnerHidden: {'p-choir'});
+        final applied = await openAgenda(tester, const UpcomingAgendaFilters());
+
+        expect(categoriesValue(tester), 'All');
+
+        await openPicker(tester);
+        expect(find.text('FROM MARIA'), findsOneWidget);
+        expect(pickerRow('Choir'), findsNothing);
+        await tapAndSettle(tester, find.text('Select none'));
+        await tapAndSettle(tester, pickerRow('Pilates'));
+        await tapAndSettle(tester, pickerApply());
+
+        expect(categoriesValue(tester), 'Pilates');
+
+        await tapAndSettle(tester, find.text('Apply'));
+
+        expect(applied.value?.categoryIds, {'p-pilates'});
+        expect(lists(applied.value, partnerEvent('p-pilates')), isTrue);
+        expect(lists(applied.value, partnerEvent('p-night')), isFalse);
+        expect(lists(applied.value, myEvent('c0')), isFalse);
+      });
+
+      testWidgets('an empty allowlist opens both groups ticked and lists '
+          'every partner\'s event; un-ticking theirs keeps mine explicit', (
+        tester,
+      ) async {
+        seedWithPartner(3);
+        final applied = await openAgenda(tester, const UpcomingAgendaFilters());
+
+        expect(
+          lists(const UpcomingAgendaFilters(), partnerEvent('p-night')),
+          isTrue,
+        );
+
+        await openPicker(tester);
+        for (final label in ['Cat0', 'Choir', 'Night shift', 'Pilates']) {
+          expect(
+            tester
+                .widget<FormCheckRow>(
+                  find.ancestor(
+                    of: pickerRow(label),
+                    matching: find.byType(FormCheckRow),
+                  ),
+                )
+                .checked,
+            isTrue,
+            reason: label,
+          );
+        }
+        for (final label in ['Choir', 'Night shift', 'Pilates']) {
+          await tapAndSettle(tester, pickerRow(label));
+        }
+        await tapAndSettle(tester, pickerApply());
+
+        expect(categoriesValue(tester), 'Cat0, Cat1 +1 more');
+
+        await tapAndSettle(tester, find.text('Apply'));
+
+        expect(applied.value?.categoryIds, {'c0', 'c1', 'c2'});
+        expect(lists(applied.value, partnerEvent('p-night')), isFalse);
+      });
+
+      testWidgets('ticking both groups whole collapses to the empty '
+          'allowlist', (tester) async {
+        seedWithPartner(3);
+        final applied = await openAgenda(
+          tester,
+          const UpcomingAgendaFilters(categoryIds: {'p-night'}),
+        );
+
+        expect(categoriesValue(tester), 'Night shift');
+
+        await openPicker(tester);
+        await tapAndSettle(tester, find.text('Select all'));
+        await tapAndSettle(tester, pickerApply());
+
+        expect(categoriesValue(tester), 'All');
+
+        await tapAndSettle(tester, find.text('Apply'));
+
+        expect(applied.value?.categoryIds, isEmpty);
+      });
+
+      testWidgets('a partner\'s event in a shared built-in follows my '
+          'category of that id', (tester) async {
+        seedWithPartner(1, builtIn: true);
+        final applied = await openAgenda(
+          tester,
+          const UpcomingAgendaFilters(categoryIds: {'gym'}),
+        );
+        await tapAndSettle(tester, find.text('Apply'));
+
+        expect(lists(applied.value, partnerEvent('gym')), isTrue);
+        expect(lists(applied.value, myEvent('gym')), isTrue);
+        expect(lists(applied.value, partnerEvent('p-night')), isFalse);
+      });
+
+      /// An allowlist can hold a partner's id that has since left the list,
+      /// or a deleted category's: the row never names or counts it, and
+      /// ticking everything listed is still "All".
+      testWidgets('a stale id, theirs or mine, is never counted or named, '
+          'and ticking everything listed reads All', (tester) async {
+        seedWithPartner(2, partnerHidden: {'p-choir'});
+        final applied = await openAgenda(
+          tester,
+          const UpcomingAgendaFilters(
+            categoryIds: {'p-choir', 'deleted', 'p-night'},
+          ),
+        );
+
+        expect(categoriesValue(tester), 'Night shift');
+
+        await openPicker(tester);
+        expect(pickerRow('Choir'), findsNothing);
+        await tapAndSettle(tester, find.text('Select all'));
+        await tapAndSettle(tester, pickerApply());
+
+        expect(categoriesValue(tester), 'All');
+
+        await tapAndSettle(tester, find.text('Apply'));
+
+        expect(applied.value?.categoryIds, isEmpty);
+      });
+
+      testWidgets('an allowlist of stale ids alone reads No categories', (
+        tester,
+      ) async {
+        seedWithPartner(2, partnerHidden: {'p-choir'});
+        await openAgenda(
+          tester,
+          const UpcomingAgendaFilters(categoryIds: {'p-choir', 'deleted'}),
+        );
+
+        expect(categoriesValue(tester), 'No categories');
+      });
+
+      /// The agenda's chip (`CalendarFilterSummary.allowlistLabel`) keeps
+      /// its own wording — a count — and counts the set the sheet's row
+      /// names, over mine and theirs, never a stale id.
+      for (final (name, ids, value, chip) in const [
+        ('one of theirs', {'p-pilates'}, 'Pilates', 'Categories (1)'),
+        (
+          'one of mine and one of theirs',
+          {'c0', 'p-night'},
+          'Cat0, Night shift',
+          'Categories (2)',
+        ),
+        (
+          'four over both groups',
+          {'c0', 'c1', 'c2', 'p-night'},
+          'Cat0, Cat1 +2 more',
+          'Categories (4)',
+        ),
+        (
+          'a stale id beside one of theirs',
+          {'p-choir', 'deleted', 'p-night'},
+          'Night shift',
+          'Categories (1)',
+        ),
+        (
+          'stale ids alone',
+          {'p-choir', 'deleted'},
+          'No categories',
+          'No categories',
+        ),
+      ]) {
+        testWidgets('$name: the chip counts what the row names', (
+          tester,
+        ) async {
+          seedWithPartner(3, partnerHidden: {'p-choir'});
+          await openAgenda(tester, UpcomingAgendaFilters(categoryIds: ids));
+
+          expect(categoriesValue(tester), value);
+          expect(
+            CalendarFilterSummary.allowlistLabel(
+              ids,
+              lookupAppLocalizations(const Locale('en')),
+            ),
+            chip,
+          );
+        });
+      }
+    });
   });
+}
+
+class _AgendaApplied {
+  UpcomingAgendaFilters? value;
 }
 
 /// Mutable holder for the filter sheet's result — the sheet is awaited inside

@@ -256,6 +256,10 @@ class ShareService {
   /// The evaluation [_availability] was taken from.
   int _landed = 0;
 
+  /// The hidden-set writes in order, each reading what the one before it
+  /// wrote: two switches flipped in a row must both hold.
+  Future<void> _hiddenWrites = Future.value();
+
   ShareService._({
     required PairingService pairing,
     required ShareSyncSource sync,
@@ -816,6 +820,10 @@ class ShareService {
   Future<bool> isFromPartner(String table, String id) =>
       _db.sharedRowDao.isShared(table, id);
 
+  /// Both looks in one statement — what the Sharing page draws its two
+  /// settings rows by.
+  Future<ShareLook> looks() => _settings.getShareLook();
+
   Future<ShareEventLook> eventLook() async =>
       (await _settings.getShareLook()).eventLook;
 
@@ -837,6 +845,47 @@ class ShareService {
   Future<Set<String>> hiddenCategories() =>
       _settings.getShareHiddenCategories();
 
-  Future<void> setHiddenCategories(Set<String> ids) =>
-      _settings.setShareHiddenCategories(ids);
+  /// [setCategoryShown] for a whole set: exactly [ids] hidden afterwards.
+  Future<void> setHiddenCategories(Set<String> ids) => _writeHidden((_) => ids);
+
+  /// Shows or hides on this phone the partner's category [id] — one of
+  /// their own, or a built-in they share, whose own events here are
+  /// untouched (§6.4, D11). Per device: a setting, never a synced row, so
+  /// the partner never learns of it. Takes effect at once: the catalogue's
+  /// [CalendarCategories.partnerShown], the events (one local reload, no
+  /// network — the rows stay stored and current while hidden), a calendar
+  /// already showing them, and the alert pass, so nothing stays armed on an
+  /// event that no longer exists here (§6.8). Nothing when it already
+  /// stood so.
+  ///
+  /// An id the partner stops sharing leaves the hidden set with that share
+  /// (the shared reader's prune), so sharing it again starts shown.
+  Future<void> setCategoryShown(String id, bool shown) => _writeHidden(
+    (hidden) => shown ? (Set.of(hidden)..remove(id)) : {...hidden, id},
+  );
+
+  Future<void> _writeHidden(Set<String> Function(Set<String>) next) {
+    final write = _hiddenWrites.then((_) async {
+      final hidden = await _settings.getShareHiddenCategories();
+      final wanted = Set<String>.unmodifiable(next(hidden));
+      if (wanted.length == hidden.length && wanted.containsAll(hidden)) {
+        return;
+      }
+      await _settings.setShareHiddenCategories(wanted);
+      CalendarCategories.updatePartnerHidden(wanted);
+      bool current;
+      try {
+        current = await CalendarEventService.refreshHiddenCategories();
+      } catch (e, st) {
+        // Written all the same; the next load drops by it.
+        debugPrint('[ShareService] events not reloaded: $e\n$st');
+        current = false;
+      }
+      CalendarEventService.notifyExternalChange(cacheCurrent: current);
+      await _reconcileAlerts();
+    });
+    // The chain outlives a failed write; the caller still hears of it.
+    _hiddenWrites = write.catchError((Object _) {});
+    return write;
+  }
 }

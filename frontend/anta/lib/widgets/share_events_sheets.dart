@@ -288,18 +288,21 @@ class _MySharedEventsSheetState extends State<MySharedEventsSheet> {
 
 /// The partner's events that came without a category of theirs, from the
 /// Sharing page's "{name} shares with you" section: [MySharedEventsSheet]'s
-/// shape, read-only — rows in the partner's look, no ✕, a tap opens the
-/// event's read sheet.
+/// shape, read-only — rows in the partner's look, no ✕. Where the host has
+/// event sheets ([onOpen]) a tap opens the event's read sheet; where it has
+/// none — Sync & sharing, which holds no calendar — the rows take no tap,
+/// as [MySharedEventsSheet]'s do there: a row that looked tappable and did
+/// nothing would be a dead end.
 class PartnerSharedEventsSheet extends StatelessWidget {
   final ShareBloc bloc;
   final PartnerLook partner;
-  final ShareEventOpener onOpen;
+  final ShareEventOpener? onOpen;
 
   const PartnerSharedEventsSheet({
     super.key,
     required this.bloc,
     required this.partner,
-    required this.onOpen,
+    this.onOpen,
   });
 
   /// [partner] is the page's look for a partner's event, and who the
@@ -308,7 +311,7 @@ class PartnerSharedEventsSheet extends StatelessWidget {
     BuildContext context, {
     required ShareBloc bloc,
     required PartnerLook partner,
-    required ShareEventOpener onOpen,
+    ShareEventOpener? onOpen,
   }) => _showFiller(
     context,
     PartnerSharedEventsSheet(bloc: bloc, partner: partner, onOpen: onOpen),
@@ -343,7 +346,10 @@ class PartnerSharedEventsSheet extends StatelessWidget {
                   caption: _whenOf(context, l10n, event, day, today),
                   captionWraps: true,
                   showChevron: false,
-                  onTap: () => onOpen(context, event, day),
+                  onTap: switch (onOpen) {
+                    final open? => () => open(context, event, day),
+                    null => null,
+                  },
                 );
               }(),
           ],

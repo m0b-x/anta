@@ -77,12 +77,17 @@ class _SharedReader {
       final partner = await source.activePartner(uid);
       await _e._checkHalt(bound);
       await _keepMarks(partner, touched);
-      if (holder != null &&
+      final forget =
+          holder != null &&
           (partner == null ||
               holder != partner.partnerUid ||
               await db.syncDao.getValue(SyncDao.keySharedPair) !=
-                  partner.pairId)) {
-        await _forget(touched);
+                  partner.pairId);
+      if (forget) await _forget(touched);
+      // Another pair's choices are not this one's: a built-in the new
+      // partner shares must not start hidden by the old one's.
+      if (forget || partner == null) {
+        await _keepHiddenShared(touched, shared: const {});
       }
       if (partner == null) {
         completed = true;
@@ -116,6 +121,7 @@ class _SharedReader {
           break;
         }
       }
+      await _keepHiddenShared(touched);
       if (whole && complete) {
         await db.syncDao.setValue(
           SyncDao.keySharedFullAt,
@@ -198,6 +204,38 @@ class _SharedReader {
       ..add(SyncInvalidation.folders)
       ..add(SyncInvalidation.calendar)
       ..add(SyncInvalidation.shareMarks);
+  }
+
+  /// Takes out of the person's hidden categories (`shareHiddenCategories`,
+  /// §6.4 of `docs/cloud-share-surfaces-roadmap.md`) every id the partner
+  /// no longer shares — [shared], else what this database holds as shared
+  /// now — so a category shared again starts shown (D11), and a partner's
+  /// event shared singly in a category that left is drawn again. Here,
+  /// after the read, because every way a share ends passes through it: a
+  /// category un-shared or deleted, a built-in's record gone, the pair
+  /// ended. One statement when nothing is hidden. A setting of this phone,
+  /// never a synced row.
+  Future<void> _keepHiddenShared(
+    Set<SyncInvalidation> touched, {
+    Set<String>? shared,
+  }) async {
+    final db = _e._db;
+    final hidden = await SettingsService.shareHiddenCategoriesOf(db);
+    if (hidden.isEmpty) return;
+    final Set<String> held;
+    if (shared != null) {
+      held = shared;
+    } else {
+      final owner = await db.sharedRowDao.owner();
+      held = owner == null
+          ? const {}
+          : await db.sharedRowDao.sharedCategoryIds(owner);
+    }
+    final kept = hidden.intersection(held);
+    if (kept.length == hidden.length) return;
+    await SettingsService.setShareHiddenCategoriesOf(db, kept);
+    // The calendar reload re-reads the catalogue and the events by it.
+    touched.add(SyncInvalidation.calendar);
   }
 
   /// Removes every shared row this database holds and tells the caches.

@@ -1,9 +1,10 @@
 import 'dart:async';
 
-import 'package:drift/drift.dart' show Value;
+import 'package:drift/drift.dart' show Value, Variable;
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:anta/constants/calendar_categories.dart';
+import 'package:anta/constants/settings_keys.dart';
 import 'package:anta/database/daos/sync_dao.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/database/database_lifecycle.dart';
@@ -1028,9 +1029,19 @@ void main() {
       expect(await share.markMine(), isFalse);
       expect(await share.alerts(), ShareAlerts.category);
       expect(await share.hiddenCategories(), {'a', 'b'});
+      // What the calendar and the overview re-read when they are returned
+      // to (`didPopNext`): a look changed on the Sharing page reaches both.
       expect(
         (await settings.getCalendarPageSettings()).share,
         const ShareLook(eventLook: ShareEventLook.avatar, markMine: false),
+      );
+      expect(
+        (await settings.getCalendarOverviewSettings()).share,
+        const ShareLook(eventLook: ShareEventLook.avatar, markMine: false),
+      );
+      expect(
+        await share.looks(),
+        (await settings.getCalendarPageSettings()).share,
       );
 
       await share.setHiddenCategories(const {});
@@ -1087,6 +1098,214 @@ void main() {
     expect(ended, 2);
     await subscription.cancel();
     await activity.close();
+  });
+
+  group('what shows on this phone (slice D, §6.4)', () {
+    /// The partner's own category `p1` with their `t1`; their `t2` in the
+    /// built-in Cardio they share, beside my own `m2` there; their `t3`
+    /// shared singly from a category they keep private.
+    Future<ShareService> seedPartner() async {
+      await pairWith();
+      final share = await open();
+      await db.calendarCategoryDao.insertCategory(
+        CalendarCategoriesCompanion.insert(
+          id: 'p1',
+          name: 'Their trips',
+          colorValue: 0xFF336699,
+          iconKey: 'event',
+          isBuiltIn: const Value(false),
+          createdAt: day,
+          updatedAt: day,
+        ),
+      );
+      await event('t1', category: 'p1');
+      await event('t2', category: 'cardio');
+      await event('m2', category: 'cardio');
+      await event('t3');
+      await db.customStatement(
+        "UPDATE calendar_categories SET owner_id = 'partner' WHERE id = 'p1'",
+      );
+      await db.customStatement(
+        "UPDATE calendar_events SET owner_id = 'partner' "
+        "WHERE id IN ('t1', 't2', 't3')",
+      );
+      await db.syncDao.setValue(SyncDao.keySharedOwner, 'partner');
+      await db.syncDao.setValue(SyncDao.keySharedBuiltIn('cardio'), '1');
+      await categories.reload();
+      await events.reload();
+      return share;
+    }
+
+    Set<String> cachedIds() => {for (final event in events.events) event.id};
+
+    Future<bool> stored(String id) async =>
+        (await db
+                .customSelect(
+                  'SELECT id FROM calendar_events WHERE id = ? '
+                  'AND is_deleted = 0',
+                  variables: [Variable<String>(id)],
+                )
+                .get())
+            .isNotEmpty;
+
+    PartnerSharedCategory partnerRow(ShareOverview overview, String id) =>
+        overview.partnerCategories.firstWhere((row) => row.category.id == id);
+
+    test('hiding one of theirs takes its events out of what every surface '
+        'reads, at once; the rows stay stored, nothing leaves the phone, and '
+        'the alert pass runs', () async {
+      final share = await seedPartner();
+      expect(CalendarCategories.partnerShown.map((c) => c.id), ['p1']);
+      final announced = <CalendarExternalChange>[];
+      final listening = CalendarEventService.externalChanges.listen(
+        announced.add,
+      );
+      addTearDown(listening.cancel);
+      final outbox = await queued();
+
+      await share.setCategoryShown('p1', false);
+
+      expect(cachedIds(), {'t2', 'm2', 't3'});
+      expect(await stored('t1'), isTrue);
+      expect(CalendarCategories.partnerShown, isEmpty);
+      expect(CalendarCategories.partner.map((c) => c.id), ['p1']);
+      expect(CalendarCategories.resolve('p1').name, 'Their trips');
+      expect(await settings.getShareHiddenCategories(), {'p1'});
+      expect(reconciles, 1);
+      await pumpEventQueue();
+      expect(announced.single.cacheCurrent, isTrue);
+      expect(await queued(), outbox, reason: 'a choice of this phone');
+      expect(runs, 0);
+      expect(sharedReads, 0);
+      final overview = await share.overview();
+      expect(partnerRow(overview, 'p1').shown, isFalse);
+      expect(
+        partnerRow(overview, 'p1').eventCount,
+        1,
+        reason: 'counted while hidden too',
+      );
+      expect(overview.partnerEvents.map((e) => e.id), ['t3']);
+    });
+
+    test('showing it again brings its events back with one local reload, no '
+        'read of the network', () async {
+      final share = await seedPartner();
+      await share.setCategoryShown('p1', false);
+      counter.reset();
+
+      await share.setCategoryShown('p1', true);
+
+      expect(cachedIds(), {'t1', 't2', 'm2', 't3'});
+      expect(CalendarCategories.partnerShown.map((c) => c.id), ['p1']);
+      expect(await settings.getShareHiddenCategories(), isEmpty);
+      expect(counter.matching('FROM "calendar_events"'), hasLength(1));
+      expect(runs, 0);
+      expect(sharedReads, 0);
+      expect(reconciles, 2);
+      expect(partnerRow(await share.overview(), 'p1').shown, isTrue);
+    });
+
+    test('a shared built-in hides the partner\'s half alone: my own events '
+        'in it stay, and it is never one of the partner\'s shown', () async {
+      final share = await seedPartner();
+
+      await share.setCategoryShown('cardio', false);
+
+      expect(cachedIds(), {'t1', 'm2', 't3'});
+      expect(CalendarCategories.partnerShown.map((c) => c.id), ['p1']);
+      final row = partnerRow(await share.overview(), 'cardio');
+      expect(row.joinsMine, isTrue);
+      expect(row.shown, isFalse);
+      expect(row.eventCount, 1);
+    });
+
+    test('a pull that changes a hidden event keeps it out of the cache, and '
+        'it comes back as it now stands', () async {
+      final share = await seedPartner();
+      await share.setCategoryShown('p1', false);
+      // As the shared reader writes: the one writer the fences let through.
+      await db.sharedRowDao.writing(
+        () => db.customStatement(
+          "UPDATE calendar_events SET title = 'Moved' WHERE id = 't1'",
+        ),
+      );
+
+      expect(await CalendarEventService.applyMerged({'t1'}), isTrue);
+      expect(cachedIds(), isNot(contains('t1')));
+
+      await share.setCategoryShown('p1', true);
+      expect(cached('t1').title, 'Moved');
+    });
+
+    test(
+      'asking for what already stands writes nothing and runs no pass',
+      () async {
+        final share = await seedPartner();
+
+        await share.setCategoryShown('p1', true);
+
+        expect(reconciles, 0);
+        expect(
+          await db.userSettingsDao.getValue(SettingsKeys.shareHiddenCategories),
+          isNull,
+        );
+      },
+    );
+
+    test('two switches flipped at once both hold', () async {
+      final share = await seedPartner();
+
+      await Future.wait([
+        share.setCategoryShown('p1', false),
+        share.setCategoryShown('cardio', false),
+      ]);
+
+      expect(await settings.getShareHiddenCategories(), {'p1', 'cardio'});
+      expect(cachedIds(), {'m2', 't3'});
+    });
+
+    group('what a load costs', () {
+      int hiddenReads() => [
+        for (final statement in counter.captured)
+          if (statement.args.contains(SettingsKeys.shareHiddenCategories))
+            statement,
+      ].length;
+
+      test('an account that never paired reads nothing new', () async {
+        await open();
+        await event('mine');
+        await settings.setShareHiddenCategories({'general'});
+        counter.reset();
+
+        await events.reload();
+        await categories.reload();
+
+        expect(hiddenReads(), 0);
+        expect(cachedIds(), {'mine'});
+      });
+
+      test('a paired one reads the hidden set once per load, and once per '
+          'catalogue load while it holds one of the partner\'s', () async {
+        await seedPartner();
+
+        counter.reset();
+        await events.reload();
+        expect(hiddenReads(), 1);
+
+        counter.reset();
+        await categories.reload();
+        expect(hiddenReads(), 1);
+
+        await db.sharedRowDao.writing(
+          () => db.customStatement(
+            "DELETE FROM calendar_categories WHERE id = 'p1'",
+          ),
+        );
+        counter.reset();
+        await categories.reload();
+        expect(hiddenReads(), 0);
+      });
+    });
   });
 
   test('the fake replays its current value to every new listener, as the '

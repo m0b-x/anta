@@ -241,6 +241,50 @@ void main() {
     );
   });
 
+  /// The allowlist narrows the overview's scan by the stored category id,
+  /// so a partner's own category the options sheet now offers keeps its
+  /// events listed, and one left out drops them, as one of mine would.
+  testWidgets('an allowlist holding one of a partner\'s own categories lists '
+      'its events and no other category\'s', (tester) async {
+    CalendarCategories.updateCache([
+      ...CalendarCategories.all,
+      for (final (id, name) in const [
+        ('p-night', 'Night shift'),
+        ('p-pilates', 'Pilates'),
+      ])
+        CalendarCategory(
+          id: id,
+          name: name,
+          colorValue: 0xFF8E24AA,
+          iconKey: 'work',
+          sortOrder: 0,
+          isBuiltIn: false,
+          fromPartner: true,
+        ),
+    ]);
+    emit([
+      mineShared,
+      once('p3', 'Ward round', 12, categoryId: 'p-night', fromPartner: true),
+      once('p4', 'Reformer', 14, categoryId: 'p-pilates', fromPartner: true),
+    ]);
+    final settings = await SettingsService.getInstance();
+    await settings.setCalendarOverviewCategories({'p-night'});
+
+    final robot = OverviewRobot(tester);
+    await robot.open(
+      bloc: bloc,
+      importExport: importExport,
+      mode: AgendaDayListMode.list,
+      period: OverviewPeriod.thisMonth(today: today),
+      surface: const Size(412, 915),
+    );
+    await robot.finishResolving();
+
+    expect(robot.shows('Ward round'), isTrue);
+    expect(robot.shows('Reformer'), isFalse);
+    expect(robot.shows('Leg day'), isFalse);
+  });
+
   testWidgets('Years mode for someone who never paired counts as before', (
     tester,
   ) async {

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../constants/calendar_categories.dart';
 import '../constants/event_priorities.dart';
 import '../l10n/app_localizations.dart';
+import '../models/calendar_category.dart';
 import '../models/calendar_event.dart';
 import '../models/calendar_grid_filters.dart';
 import '../models/upcoming_agenda_filters.dart';
@@ -311,6 +312,24 @@ abstract final class CalendarFilterSummary {
     return facets.length > 2 ? '$leading…' : leading;
   }
 
+  /// The agenda's allowlist chip: how many categories [categoryIds] allows,
+  /// in the wording that chip has always had — "Categories (2)".
+  ///
+  /// Counted over the catalog the agenda's filter sheet offers — a partner's
+  /// shown categories included — so the chip counts the set the sheet's
+  /// Categories row names, and an id that no longer lists (a deleted
+  /// category, one a partner stopped sharing) is never counted; with none
+  /// left to count the chip says so, as the row does.
+  static String allowlistLabel(Set<String> categoryIds, AppLocalizations l10n) {
+    var allowed = 0;
+    for (final category in _offered(categoryIds)) {
+      if (categoryIds.contains(category.id)) allowed++;
+    }
+    return allowed == 0
+        ? l10n.calendarFilterNoCategories
+        : '${l10n.calendarCategories} ($allowed)';
+  }
+
   /// Names the categories still showing while few enough to name, and counts
   /// them past that — or, [named], reads them all back ("Gym, Strength +3
   /// more").
@@ -324,12 +343,32 @@ abstract final class CalendarFilterSummary {
     AppLocalizations l10n, {
     bool named = false,
   }) {
-    final shown = [
-      for (final category in CalendarCategories.visiblePlus(
-        filters.hiddenCategoryIds,
-      ))
-        if (!filters.hiddenCategoryIds.contains(category.id)) category,
-    ];
+    final hidden = filters.hiddenCategoryIds;
+    return _shownLabel(
+      [
+        for (final category in _offered(hidden))
+          if (!hidden.contains(category.id)) category,
+      ],
+      l10n,
+      named: named,
+    );
+  }
+
+  /// What the filter sheets' Categories rows list: this person's categories
+  /// (an archived one only while [keep] holds it), then a partner's shown
+  /// ones (share surfaces §6.10). A partner's category whose events still
+  /// draw must be counted, or a chip reads "No categories" over them.
+  static List<CalendarCategory> _offered(Set<String> keep) {
+    final mine = CalendarCategories.visiblePlus(keep);
+    final partner = CalendarCategories.partnerShown;
+    return partner.isEmpty ? mine : [...mine, ...partner];
+  }
+
+  static String _shownLabel(
+    List<CalendarCategory> shown,
+    AppLocalizations l10n, {
+    bool named = false,
+  }) {
     if (shown.isEmpty) return l10n.calendarFilterNoCategories;
     if (named || shown.length <= namedLimit) {
       return namesReadBack([

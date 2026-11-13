@@ -19,6 +19,7 @@ import '../models/fasting_appearance.dart';
 import '../models/partner_look.dart';
 import '../models/upcoming_agenda_filters.dart';
 import '../services/agenda_search_text.dart';
+import '../utils/calendar_filter_summary.dart';
 import '../utils/event_agenda.dart';
 import '../utils/event_search_query.dart';
 import '../utils/fuzzy_rank.dart';
@@ -1071,6 +1072,7 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
       context,
       filters: widget.filters,
       appearance: widget.appearance,
+      partnerLook: widget.partnerLook,
     );
     if (result == null || !mounted) return;
     // The sheet never owns the query; carry the live one so a keystroke typed
@@ -1173,8 +1175,11 @@ class _UpcomingAgendaViewState extends State<UpcomingAgendaView> {
     if (filters.categoryIds.isNotEmpty) {
       chips.add(
         _SummaryChip(
-          icon: Icons.category_rounded,
-          label: '${l10n.calendarCategories} (${filters.categoryIds.length})',
+          icon: CalendarFilterSummary.categoryIcon,
+          label: CalendarFilterSummary.allowlistLabel(
+            filters.categoryIds,
+            l10n,
+          ),
           onDeleted: () =>
               widget.onFiltersChanged(filters.copyWith(categoryIds: const {})),
         ),

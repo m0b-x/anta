@@ -22,6 +22,7 @@ import 'event_alert_service.dart';
 import 'event_occurrence_service.dart';
 import 'event_presence_service.dart';
 import 'event_skip_service.dart';
+import 'settings_service.dart';
 import 'sync/sync_binding_service.dart';
 
 /// One [CalendarEventService.notifyExternalChange]: the
@@ -33,6 +34,13 @@ typedef CalendarExternalChange = ({
   bool cacheCurrent,
   bool eventsMerged,
 });
+
+/// What one read maps its rows by: the partner's account, null on a
+/// database that reads no shared rows, and the ids of the partner's
+/// categories hidden on this phone.
+typedef _Sharing = ({String? partner, Set<String> hidden});
+
+const _Sharing _notSharing = (partner: null, hidden: <String>{});
 
 /// Persists custom calendar events via Drift and exposes a synchronous
 /// in-memory cache so `CalendarBloc.eventsForDay` stays O(N) over a
@@ -222,6 +230,12 @@ class CalendarEventService {
   /// which rows merged; [applyMerged] when they do.
   static Future<bool> refreshAfterSync() => _reloadLive();
 
+  /// Re-reads a loaded cache after the person hid or showed one of the
+  /// partner's categories on this phone (`ShareService.setCategoryShown`),
+  /// on [refreshAfterSync]'s terms: the rows are all stored, so showing one
+  /// again is this local read and no network.
+  static Future<bool> refreshHiddenCategories() => _reloadLive();
+
   /// Patches the events a pull merged into a loaded cache by id: one keyed
   /// read of [ids] instead of the whole store, on [refreshAfterSync]'s terms.
   ///
@@ -302,6 +316,18 @@ class CalendarEventService {
     }
   }
 
+  /// [countByCategory] for the events the partner shares — the "18 events"
+  /// beside a category of theirs on the Categories page. One statement, on
+  /// the same advisory terms.
+  Future<Map<String, int>> countPartnerByCategory() async {
+    try {
+      return await _dao.countPartnerByCategory();
+    } catch (e) {
+      debugPrint('[CalendarEventService] Partner count error: $e');
+      return const {};
+    }
+  }
+
   /// Bumped by each single-event write once it has committed, so [_load] can
   /// tell that the rows it is holding predate one.
   int _writes = 0;
@@ -343,14 +369,15 @@ class CalendarEventService {
         final writes = _writes;
         try {
           final rows = await _dao.getAll();
-          final partner = await _partnerOf(rows);
+          final sharing = await _sharingOf(rows);
           // A whole read is the one place the notes can start over: the
           // mapping below takes them up again for what it holds.
           _mayHoldPartner = false;
           _mayHoldMarked = false;
-          _cache = List.unmodifiable(
-            rows.map((row) => _rowToEvent(row, partner)),
-          );
+          _cache = List.unmodifiable([
+            for (final row in rows)
+              if (_shown(row, sharing)) _rowToEvent(row, sharing.partner),
+          ]);
           _lastLoadFailed = false;
         } catch (e, st) {
           debugPrint('[CalendarEventService] Load error: $e\n$st');
@@ -367,11 +394,33 @@ class CalendarEventService {
 
   /// The partner's account when one of [rows] names an owner, else null
   /// without a statement: a database that was never bound holds no owned
-  /// row, and must pay nothing for sharing on every load and patch.
-  Future<String?> _partnerOf(List<CalendarEventRow> rows) async {
-    if (!rows.any((row) => row.ownerId != null)) return null;
-    return _db.sharedRowDao.owner();
+  /// row, and must pay nothing for sharing on every load and patch. With
+  /// it, the categories the person hid on this phone (§6.4 of
+  /// `docs/cloud-share-surfaces-roadmap.md`) — one settings read per load,
+  /// and only once one of [rows] is the partner's.
+  Future<_Sharing> _sharingOf(List<CalendarEventRow> rows) async {
+    if (!rows.any((row) => row.ownerId != null)) return _notSharing;
+    final partner = await _db.sharedRowDao.owner();
+    if (partner == null || !rows.any((row) => row.ownerId == partner)) {
+      return (partner: partner, hidden: const <String>{});
+    }
+    return (
+      partner: partner,
+      hidden: await SettingsService.shareHiddenCategoriesOf(_db),
+    );
   }
+
+  /// Whether [row] is in the cache at all. A partner's event in a category
+  /// hidden here is left out at this one place, so the grid, the lists, the
+  /// filters, the report and the alert scheduler — all reading [events] —
+  /// cannot disagree about what exists; its row stays stored and current,
+  /// and showing the category again is one local reload. A category's id
+  /// alone decides, a shared built-in's too: the person's own events in it
+  /// stay.
+  static bool _shown(CalendarEventRow row, _Sharing sharing) =>
+      sharing.hidden.isEmpty ||
+      row.ownerId != sharing.partner ||
+      !sharing.hidden.contains(row.category);
 
   Future<bool> _applyMerged(Set<String> ids) async {
     if (ids.isEmpty) return !_lastLoadFailed;
@@ -385,10 +434,12 @@ class CalendarEventService {
     final Map<String, CalendarEvent?> merged;
     try {
       final rows = await _dao.getByIdsIncludingDeleted(ids.toList());
-      final partner = await _partnerOf(rows);
+      final sharing = await _sharingOf(rows);
       merged = {
         for (final row in rows)
-          row.id: row.isDeleted ? null : _rowToEvent(row, partner),
+          row.id: row.isDeleted || !_shown(row, sharing)
+              ? null
+              : _rowToEvent(row, sharing.partner),
       };
     } catch (e, st) {
       debugPrint('[CalendarEventService] Merged rows error: $e\n$st');

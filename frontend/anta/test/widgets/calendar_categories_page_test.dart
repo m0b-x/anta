@@ -21,6 +21,7 @@ import 'package:anta/constants/event_alerts.dart';
 import 'package:anta/constants/form_metrics.dart';
 import 'package:anta/constants/row_metrics.dart';
 import 'package:anta/constants/semantics_ids.dart';
+import 'package:anta/database/daos/sync_dao.dart';
 import 'package:anta/database/database.dart';
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/models/app_user.dart';
@@ -28,6 +29,7 @@ import 'package:anta/models/calendar_category.dart';
 import 'package:anta/models/calendar_event.dart';
 import 'package:anta/models/category_alert.dart';
 import 'package:anta/models/share_overview.dart';
+import 'package:anta/models/share_settings.dart';
 import 'package:anta/pages/calendar_categories_page.dart';
 import 'package:anta/services/calendar_event_service.dart';
 import 'package:anta/services/calendar_palette_service.dart';
@@ -35,6 +37,7 @@ import 'package:anta/services/category_service.dart';
 import 'package:anta/services/pairing_service.dart';
 import 'package:anta/services/settings_service.dart';
 import 'package:anta/services/share_service.dart';
+import 'package:anta/utils/marker_contrast.dart';
 import 'package:anta/widgets/category_delete_sheet.dart';
 import 'package:anta/widgets/category_picker_sheet.dart';
 import 'package:anta/widgets/content_rows.dart';
@@ -70,6 +73,10 @@ void main() {
   late CategoryService service;
   late CalendarEventService events;
 
+  /// Every statement the page's database runs, for the cases that pin what
+  /// the page must not read.
+  late StatementCounter statements;
+
   /// Distinguishes successive pumps of the same page so a re-pump rebuilds
   /// from scratch. Without it the element tree reuses the existing `State` and
   /// `initState` — the only place the categories are read — never runs again.
@@ -80,7 +87,8 @@ void main() {
   setUp(() async {
     CategoryService.reset();
     CalendarEventService.reset();
-    db = await openTestDatabase();
+    statements = StatementCounter();
+    db = await openTestDatabase(interceptor: statements);
     service = await CategoryService.forTesting(db);
     // The page reads its usage counts from the event service, which owns
     // them; binding it here keeps `getInstance()` off `path_provider`.
@@ -215,6 +223,53 @@ void main() {
     }
   }
 
+  /// The partner's own categories as the shared reader stores them — rows
+  /// under their account, each holding that many events of theirs — with
+  /// [hidden] (by name) hidden on this phone, and the catalogue read again
+  /// as a shared read's reload does. The ids by name.
+  ///
+  /// On the real event loop, as any write of mine before it in the case
+  /// must be too: a fake-zone write that left the database busy held this
+  /// one until the runner was killed.
+  Future<Map<String, String>> addTheirs(
+    WidgetTester tester,
+    Map<String, int> categories, {
+    int colorValue = 0xFF3949AB,
+    Set<String> hidden = const {},
+  }) async {
+    final ids = <String, String>{};
+    await tester.runAsync(() async {
+      // The fences refuse to hand a row of mine to the shared account while
+      // one is named, so the rows change hands before it is named again.
+      await db.syncDao.deleteValue(SyncDao.keySharedOwner);
+      for (final MapEntry(key: name, value: count) in categories.entries) {
+        final category = await service.create(
+          name: name,
+          colorValue: colorValue,
+          iconKey: 'work',
+        );
+        ids[name] = category.id;
+        await addEvents(category.id, count);
+      }
+      for (final id in ids.values) {
+        await db.customStatement(
+          "UPDATE calendar_events SET owner_id = 'partner' "
+          "WHERE category = '$id'",
+        );
+        await db.customStatement(
+          "UPDATE calendar_categories SET owner_id = 'partner' "
+          "WHERE id = '$id'",
+        );
+      }
+      await db.syncDao.setValue(SyncDao.keySharedOwner, 'partner');
+      await SettingsService.setShareHiddenCategoriesOf(db, {
+        for (final name in hidden) ids[name]!,
+      });
+      await service.reload();
+    });
+    return ids;
+  }
+
   Future<void> openRowMenu(WidgetTester tester, String categoryId) async {
     await tester.tap(byId(SemanticsIds.categoryRowMenu(categoryId)));
     await tester.pumpAndSettle();
@@ -260,13 +315,15 @@ void main() {
     void visit(SemanticsNode node) {
       final id = node.getSemanticsData().identifier;
       if (id.startsWith('category-row-') ||
+          id.startsWith('category-partner-row-') ||
           id.startsWith('category-section-')) {
         ids.add(id);
       }
-      node.visitChildren((child) {
-        visit(child);
-        return true;
-      });
+      // The dump's own order: each sliver is a node of its own, and the
+      // viewport lists its slivers in paint order, the last one first.
+      node
+          .debugListChildrenInOrder(DebugSemanticsDumpOrder.traversalOrder)
+          .forEach(visit);
     }
 
     var root = tester.getSemantics(find.byType(CustomScrollView));
@@ -2054,7 +2111,11 @@ void main() {
   });
 
   group('sharing', () {
-    const maria = ShareAudience(id: 'pair-1', displayName: 'Maria', members: []);
+    const maria = ShareAudience(
+      id: 'pair-1',
+      displayName: 'Maria',
+      members: [],
+    );
 
     setUp(() {
       // The editor reads the palette through the settings.
@@ -2070,11 +2131,10 @@ void main() {
 
     FakeShareService paired({bool syncing = true, bool markMine = true}) =>
         FakeShareService(
-            availability: syncing
-                ? const ShareReady(maria)
-                : const ShareNotSyncing(maria),
-          )
-          ..mine = markMine;
+          availability: syncing
+              ? const ShareReady(maria)
+              : const ShareNotSyncing(maria),
+        )..mine = markMine;
 
     String captionOf(WidgetTester tester, String id) =>
         dataOf(tester, SemanticsIds.categoryRow(id)).label.split('\n')[1];
@@ -2188,13 +2248,16 @@ void main() {
       share.nextChange = ShareChange(sharedCategories: [gym]);
 
       await openRowMenu(tester, 'gym');
-      expect([for (final row in menuRows(tester)) row.identifier], [
-        SemanticsIds.categoryMenuMoveToTop,
-        SemanticsIds.categoryMenuEdit,
-        SemanticsIds.categoryMenuShare,
-        SemanticsIds.categoryMenuArchive,
-        SemanticsIds.categoryMenuDelete,
-      ]);
+      expect(
+        [for (final row in menuRows(tester)) row.identifier],
+        [
+          SemanticsIds.categoryMenuMoveToTop,
+          SemanticsIds.categoryMenuEdit,
+          SemanticsIds.categoryMenuShare,
+          SemanticsIds.categoryMenuArchive,
+          SemanticsIds.categoryMenuDelete,
+        ],
+      );
       final item = menuRows(tester)[2];
       expect(item.label, 'Share with Maria');
       expect(item.checked, isFalse);
@@ -2336,11 +2399,15 @@ void main() {
       ]);
     });
 
-    // Review 7: the in-memory "not paired" opens nothing for sharing.
+    // Review 7: the in-memory "not paired" opens nothing for sharing — and,
+    // with the partner's rows still held, no looks, no alerts setting and
+    // no count of theirs are read for the section it never shows.
     testWidgets('never paired, as the pairing service holds it: no share '
         'service is opened and the rows are up on the first pump', (
       tester,
     ) async {
+      final theirs = await addTheirs(tester, {'Night shift': 3});
+      statements.reset();
       await tester.runAsync(
         () async => PairingService.forTesting(
           auth: FakeAuthService(user: const AppUser(uid: 'me')),
@@ -2367,6 +2434,17 @@ void main() {
 
       expect(byId(SemanticsIds.categoryRow('gym')), findsOneWidget);
       expect(opens, 0);
+      expect(byId(SemanticsIds.categorySectionPartnerHeader), findsNothing);
+      expect(
+        byId(SemanticsIds.categoryPartnerRow(theirs['Night shift']!)),
+        findsNothing,
+      );
+      expect(statements.matching(_partnerCountSql), isEmpty);
+
+      // A change heard later reads nothing of theirs either.
+      CalendarEventService.notifyExternalChange(eventsMerged: true);
+      await tester.pump();
+      expect(statements.matching(_partnerCountSql), isEmpty);
     });
 
     // Review 9: the editor asks the page again when Sync & sharing returns.
@@ -2408,6 +2486,518 @@ void main() {
       handle.dispose();
     });
   });
+
+  // The slice D spec §4: the partner's own categories shown here, read-only,
+  // in a section of their own after Archived.
+  group('from the partner', () {
+    setUp(() {
+      CalendarPaletteService.reset();
+      SettingsService.reset();
+      SettingsService.forTesting(db);
+    });
+
+    tearDown(() {
+      CalendarPaletteService.reset();
+      SettingsService.reset();
+    });
+
+    _ReceivingShareService paired({
+      String name = 'Maria',
+      ShareEventLook look = ShareEventLook.outlined,
+      ShareAlerts alerts = ShareAlerts.own,
+    }) =>
+        _ReceivingShareService(
+            ShareAudience(id: 'pair-1', displayName: name, members: const []),
+          )
+          ..look = look
+          ..shareAlerts = alerts;
+
+    Finder rowOf(String id) => byId(SemanticsIds.categoryPartnerRow(id));
+
+    String labelOf(WidgetTester tester, String id) =>
+        dataOf(tester, SemanticsIds.categoryPartnerRow(id)).label;
+
+    Finder shellOfTheirs(String id) =>
+        find.ancestor(of: rowOf(id), matching: find.byType(ContentRowShell));
+
+    /// On the page itself, never on a sheet above it.
+    Finder onPage(String text) => find.descendant(
+      of: find.byType(CustomScrollView),
+      matching: find.text(text),
+    );
+
+    int slivers(WidgetTester tester) => tester
+        .widget<CustomScrollView>(find.byType(CustomScrollView))
+        .slivers
+        .length;
+
+    testWidgets('after Archived, under "From Maria": the shown categories by '
+        'name, one node each, no handle and no menu', (tester) async {
+      final handle = tester.ensureSemantics();
+      await tester.runAsync(() => service.setHidden('rest', true));
+      final ids = await addTheirs(
+        tester,
+        {'Night shift': 3, 'Choir': 2, 'Pilates': 1},
+        hidden: {'Pilates'},
+      );
+      await pumpPage(tester, share: paired());
+      final l10n = l10nOf(tester);
+      final night = ids['Night shift']!;
+      final choir = ids['Choir']!;
+
+      final listed = listedIds(tester);
+      expect(
+        listed.sublist(
+          listed.indexOf(SemanticsIds.categorySectionArchivedHeader),
+        ),
+        [
+          SemanticsIds.categorySectionArchivedHeader,
+          SemanticsIds.categoryRow('rest'),
+          SemanticsIds.categorySectionPartnerHeader,
+          SemanticsIds.categoryPartnerRow(choir),
+          SemanticsIds.categoryPartnerRow(night),
+        ],
+      );
+      final header = dataOf(tester, SemanticsIds.categorySectionPartnerHeader);
+      expect(header.label, l10n.shareFromPartner('Maria'));
+      expect(header.headingLevel, 2);
+      expect(find.text('FROM MARIA'), findsOneWidget);
+
+      final row = dataOf(tester, SemanticsIds.categoryPartnerRow(night));
+      expect(row.label, 'Night shift\n${l10n.categoryEventCount(3)}');
+      expect(row.flagsCollection.isButton, isTrue);
+      expect(row.hasAction(SemanticsAction.tap), isTrue);
+      expect(row.customSemanticsActionIds ?? const <int>[], isEmpty);
+      for (final part in [
+        find.byType(ReorderHandle),
+        find.byType(FormTrailingButton),
+        find.byIcon(Icons.chevron_right_rounded),
+      ]) {
+        expect(
+          find.descendant(of: shellOfTheirs(night), matching: part),
+          findsNothing,
+        );
+      }
+      expect(service.categories.map((c) => c.id), isNot(contains(night)));
+      handle.dispose();
+    });
+
+    for (final (what, pairedPage, shared, hidden) in const [
+      ('not paired', false, true, false),
+      ('nothing shared', true, false, false),
+      ('every one hidden', true, true, true),
+    ]) {
+      testWidgets('$what: no header, no gap, no count of theirs read', (
+        tester,
+      ) async {
+        if (shared) {
+          await addTheirs(
+            tester,
+            {'Night shift': 3},
+            hidden: {if (hidden) 'Night shift'},
+          );
+        }
+        statements.reset();
+        await pumpPage(
+          tester,
+          share: pairedPage ? paired() : FakeShareService(),
+        );
+
+        expect(byId(SemanticsIds.categorySectionPartnerHeader), findsNothing);
+        expect(
+          listedIds(tester).where((id) => id.contains('partner')),
+          isEmpty,
+        );
+        // The top padding, my list, the FAB's clearance: today's page.
+        expect(slivers(tester), 3);
+        expect(statements.matching(_partnerCountSql), isEmpty);
+      });
+    }
+
+    testWidgets('the section follows a shared read, a hide and the pair\'s '
+        'end, with no restart', (tester) async {
+      final share = paired();
+      final first = await addTheirs(tester, {'Night shift': 3});
+      await pumpPage(tester, share: share);
+      final l10n = l10nOf(tester);
+      final night = first['Night shift']!;
+
+      // A shared read lands with another category and its events.
+      final choir = (await addTheirs(tester, {'Choir': 2}))['Choir']!;
+      CalendarEventService.notifyExternalChange(eventsMerged: true);
+      await pumpUntil(tester, () => rowOf(choir).evaluate().isNotEmpty);
+      expect(labelOf(tester, choir), 'Choir\n${l10n.categoryEventCount(2)}');
+      expect(byId(SemanticsIds.categoryRow(choir)), findsNothing);
+
+      await tester.runAsync(() => share.setCategoryShown(night, false));
+      await tester.pump();
+      expect(rowOf(night), findsNothing);
+      expect(rowOf(choir), findsOneWidget);
+
+      share.emit(const ShareNotPaired());
+      await tester.pump();
+      expect(byId(SemanticsIds.categorySectionPartnerHeader), findsNothing);
+      expect(rowOf(choir), findsNothing);
+      expect(slivers(tester), 3);
+    });
+
+    for (final (scale, locale, height) in const [
+      (1.0, Locale('en'), 63.0),
+      (1.3, Locale('en'), 70.0),
+      (2.0, Locale('de'), 97.0),
+    ]) {
+      testWidgets('a row is ${height.toInt()} dp at $scale, '
+          '${locale.languageCode}: the height of mine', (tester) async {
+        // Counts of one digit on both sides: a zero count of mine wraps at
+        // 2.0, having no number to hold its noun to.
+        final pilates = (await tester.runAsync(() async {
+          final pilates = await custom('Pilates');
+          await addEvents(pilates.id, 3);
+          return pilates;
+        }))!;
+        final ids = await addTheirs(tester, {'Night shift': 3});
+        await pumpPage(
+          tester,
+          width: 360,
+          height: 4000,
+          textScale: scale,
+          locale: locale,
+          share: paired(),
+        );
+
+        final theirs = tester.getRect(rowOf(ids['Night shift']!)).height;
+        expect(theirs, closeTo(height, 1));
+        expect(
+          theirs,
+          tester.getRect(byId(SemanticsIds.categoryRow(pilates.id))).height,
+        );
+        expect(tester.takeException(), isNull);
+      });
+    }
+
+    for (final look in ShareEventLook.values) {
+      testWidgets('the avatar wears the ${look.name} look', (tester) async {
+        final ids = await addTheirs(tester, {'Night shift': 3});
+        await pumpPage(tester, share: paired(look: look));
+
+        final avatar = tester.widget<EventAvatar>(
+          find.descendant(
+            of: shellOfTheirs(ids['Night shift']!),
+            matching: find.byType(EventAvatar),
+          ),
+        );
+        expect(avatar.color, const Color(0xFF3949AB));
+        expect(avatar.outlined, look == ShareEventLook.outlined);
+        expect(
+          avatar.badge?.isMine,
+          look == ShareEventLook.avatar ? false : null,
+        );
+      });
+    }
+
+    for (final look in [ShareEventLook.outlined, ShareEventLook.plain]) {
+      testWidgets('from 1.6 the bare glyph, contrast-corrected under '
+          'Outlined only: ${look.name}, dark', (tester) async {
+        final ids = await addTheirs(tester, {'Night shift': 3});
+        await pumpPage(
+          tester,
+          width: 360,
+          height: 3000,
+          textScale: 2.0,
+          dark: true,
+          share: paired(look: look),
+        );
+
+        final shell = shellOfTheirs(ids['Night shift']!);
+        expect(
+          find.descendant(of: shell, matching: find.byType(EventAvatar)),
+          findsNothing,
+        );
+        final glyph = tester.widget<Icon>(
+          find.descendant(of: shell, matching: find.byType(Icon)),
+        );
+        const raw = Color(0xFF3949AB);
+        final ground = Theme.of(
+          tester.element(find.byType(CalendarCategoriesPage)),
+        ).colorScheme.rowGroup;
+        expect(glyph.size, RowMetrics.glyphSize);
+        if (look == ShareEventLook.outlined) {
+          expect(glyph.color, MarkerContrast.atLeast(raw, ground));
+          expect(glyph.color, isNot(raw), reason: 'indigo on the dark group');
+        } else {
+          expect(glyph.color, raw);
+        }
+      });
+    }
+
+    for (final setting in ShareAlerts.values) {
+      testWidgets('"Alerts on" only under ${setting.name}, and only for an '
+          'enabled alert of mine', (tester) async {
+        final ids = await addTheirs(tester, {'Night shift': 3, 'Choir': 2});
+        final night = ids['Night shift']!;
+        final choir = ids['Choir']!;
+        EventAlerts.updateCategoryCache(
+          byCategory: {
+            night: [CategoryAlert(id: 'a1', categoryId: night)],
+            choir: [CategoryAlert(id: 'a2', categoryId: choir, enabled: false)],
+          },
+        );
+        await pumpPage(tester, share: paired(alerts: setting));
+        final l10n = l10nOf(tester);
+
+        final ringing = caption(l10n, [
+          l10n.categoryEventCount(3),
+          l10n.categoryCaptionAlertsOn,
+        ]);
+        final expected = setting == ShareAlerts.category
+            ? ringing
+            : l10n.categoryEventCount(3);
+        expect(labelOf(tester, night), 'Night shift\n$expected');
+        expect(
+          find.descendant(
+            of: shellOfTheirs(night),
+            matching: find.text(expected),
+          ),
+          findsOneWidget,
+        );
+        expect(labelOf(tester, choir), 'Choir\n${l10n.categoryEventCount(2)}');
+      });
+    }
+
+    testWidgets('a query filters the section by the same ranking: theirs '
+        'alone, mine alone, or nothing', (tester) async {
+      await tester.runAsync(() => addCustoms(4));
+      final ids = await addTheirs(tester, {'Night shift': 3, 'Choir': 2});
+      await pumpPage(tester, share: paired());
+      final l10n = l10nOf(tester);
+      final choir = ids['Choir']!;
+
+      await tester.enterText(find.byType(TextField), 'choir');
+      await tester.pumpAndSettle();
+      expect(listedIds(tester), [
+        SemanticsIds.categorySectionPartnerHeader,
+        SemanticsIds.categoryPartnerRow(choir),
+      ]);
+      expect(find.text(l10n.noCategoriesMatch), findsNothing);
+
+      await tester.enterText(find.byType(TextField), 'gym');
+      await tester.pumpAndSettle();
+      expect(listedIds(tester), [
+        SemanticsIds.categorySectionInUseHeader,
+        SemanticsIds.categoryRow('gym'),
+      ]);
+
+      await tester.enterText(find.byType(TextField), 'zzzz');
+      await tester.pumpAndSettle();
+      expect(listedIds(tester), isEmpty);
+      expect(find.text(l10n.noCategoriesMatch), findsOneWidget);
+    });
+
+    testWidgets('a drag of mine never lands among theirs, and Sort A–Z '
+        'leaves them alone', (tester) async {
+      await tester.runAsync(() async {
+        await service.setHidden('rest', true);
+        await service.setHidden('other', true);
+      });
+      final ids = await addTheirs(tester, {'Night shift': 3, 'Choir': 2});
+      await pumpPage(tester, share: paired());
+      final night = ids['Night shift']!;
+      final choir = ids['Choir']!;
+      Future<Map<String, (int, int, Object)>> theirsStored() async => {
+        for (final entry in (await stored(tester)).entries)
+          if (ids.containsValue(entry.key)) entry.key: entry.value,
+      };
+      final before = await theirsStored();
+      final tail = [
+        SemanticsIds.categorySectionPartnerHeader,
+        SemanticsIds.categoryPartnerRow(choir),
+        SemanticsIds.categoryPartnerRow(night),
+      ];
+
+      final from = tester.getCenter(handleOf('rest'));
+      final to = Offset(from.dx, tester.getCenter(rowOf(choir)).dy);
+      await dragFromTo(tester, from, to);
+
+      final listed = listedIds(tester);
+      expect(
+        listed.sublist(
+          listed.indexOf(SemanticsIds.categorySectionArchivedHeader),
+        ),
+        [
+          SemanticsIds.categorySectionArchivedHeader,
+          SemanticsIds.categoryRow('other'),
+          SemanticsIds.categoryRow('rest'),
+          ...tail,
+        ],
+      );
+
+      await openBarMenu(tester);
+      await tester.tap(byId(SemanticsIds.categorySortAz));
+      await tester.pumpAndSettle();
+      await tester.tap(byId(SemanticsIds.sheetConfirm));
+      await settleWrites(tester);
+      // The dialog's route gone, or its leaving node still parts the page's
+      // from the direction their order is read by.
+      await tester.pumpAndSettle();
+
+      final sorted = listedIds(tester);
+      expect(sorted.sublist(sorted.length - tail.length), tail);
+      expect(await theirsStored(), before);
+    });
+
+    testWidgets('a tap opens the category\'s sheet over a bloc loaded with '
+        'no shared read; a hide there takes the row at once; the bloc '
+        'closes with the page', (tester) async {
+      final ids = await addTheirs(tester, {'Night shift': 3, 'Choir': 2});
+      final share = paired(alerts: ShareAlerts.category);
+      await pumpPage(tester, share: share);
+      final l10n = l10nOf(tester);
+      final night = ids['Night shift']!;
+      final choir = ids['Choir']!;
+      expect(share.overviews, 0, reason: 'nothing is loaded before a tap');
+
+      await tester.tap(rowOf(night));
+      await tester.pumpAndSettle();
+      expect(byId(SemanticsIds.sharedCategorySheet), findsOneWidget);
+      expect(share.overviews, greaterThan(0));
+      expect(share.sharedReads, 0);
+
+      await tester.tap(byId(SemanticsIds.sharedCategorySheetShow));
+      await tester.pumpAndSettle();
+      expect(share.shownSets, [(night, false)]);
+      expect(onPage('Night shift'), findsNothing);
+      expect(onPage('Choir'), findsOneWidget);
+      // The sheet stays over it: hidden, the category is still one the
+      // partner shares, and its alerts say why they cannot ring (dl).
+      expect(byId(SemanticsIds.sharedCategorySheet), findsOneWidget);
+
+      await tester.tap(find.byTooltip(l10n.close));
+      await tester.pumpAndSettle();
+      expect(rowOf(night), findsNothing);
+
+      await tester.tap(rowOf(choir));
+      await tester.pumpAndSettle();
+      expect(byId(SemanticsIds.sharedCategorySheet), findsOneWidget);
+      expect(share.sharedReads, 0);
+      await tester.tap(find.byTooltip(l10n.close));
+      await tester.pumpAndSettle();
+
+      expect(share.heard, isTrue);
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump();
+      expect(share.heard, isFalse, reason: 'the page and its bloc let go');
+    });
+
+    for (final dark in [false, true]) {
+      testWidgets('tap targets, labelled taps and contrast with the section, '
+          '${dark ? 'dark' : 'light'}', (tester) async {
+        final handle = tester.ensureSemantics();
+        await addTheirs(tester, {'Night shift': 3, 'Choir': 2});
+        await pumpPage(
+          tester,
+          width: 360,
+          height: 780,
+          dark: dark,
+          share: paired(),
+        );
+        final list = find.descendant(
+          of: find.byType(CustomScrollView),
+          matching: find.byType(Scrollable),
+        );
+        final position = tester.state<ScrollableState>(list).position;
+        position.jumpTo(position.maxScrollExtent);
+        await tester.pump();
+        expect(byId(SemanticsIds.categorySectionPartnerHeader), findsOneWidget);
+
+        await expectLater(tester, meetsGuideline(androidTapTargetGuideline));
+        await expectLater(tester, meetsGuideline(labeledTapTargetGuideline));
+        await expectLater(
+          tester,
+          meetsGuideline(const _HeadersAsideContrastGuideline()),
+        );
+        handle.dispose();
+      });
+    }
+
+    testWidgets('de at 2.0 on 360 × 780 with a long name and a long '
+        'category: nothing overflows, every word whole', (tester) async {
+      // Words that fit the column: a single word wider than it breaks
+      // inside itself whatever the row does (the spec's §8 risk).
+      const long = 'Schichtdienst am Wochenende im Krankenhaus';
+      final ids = await addTheirs(tester, {long: 18});
+      await pumpPage(
+        tester,
+        width: 360,
+        height: 780,
+        textScale: 2.0,
+        locale: const Locale('de'),
+        share: paired(name: 'Maximilian-Alexander'),
+      );
+      final l10n = l10nOf(tester);
+      final list = find.descendant(
+        of: find.byType(CustomScrollView),
+        matching: find.byType(Scrollable),
+      );
+      final position = tester.state<ScrollableState>(list).position;
+      position.jumpTo(position.maxScrollExtent);
+      await tester.pump();
+
+      expect(tester.takeException(), isNull);
+      expect(
+        dataOf(tester, SemanticsIds.categorySectionPartnerHeader).label,
+        l10n.shareFromPartner('Maximilian-Alexander'),
+      );
+      expect(
+        labelOf(tester, ids[long]!),
+        '$long\n${l10n.categoryEventCount(18)}',
+      );
+      for (final element
+          in find
+              .descendant(
+                of: shellOfTheirs(ids[long]!),
+                matching: find.byType(RichText),
+              )
+              .evaluate()) {
+        expectBreaksBetweenWords(element.renderObject! as RenderParagraph);
+      }
+    });
+  });
+}
+
+/// The partner's counts statement, by its owner condition.
+const _partnerCountSql =
+    'WHERE is_deleted = 0 AND owner_id = (SELECT value FROM sync_metadata';
+
+/// [FakeShareService] with the receiving side the page follows: a hide
+/// narrows the catalogue's shown list and tells the calendar, as
+/// `ShareService.setCategoryShown` does, and the overview lists the
+/// partner's categories the catalogue holds.
+class _ReceivingShareService extends FakeShareService {
+  _ReceivingShareService(ShareAudience audience)
+    : super(availability: ShareReady(audience));
+
+  @override
+  Future<void> setCategoryShown(String id, bool shown) async {
+    await super.setCategoryShown(id, shown);
+    CalendarCategories.updatePartnerHidden(hidden);
+    CalendarEventService.notifyExternalChange(cacheCurrent: true);
+  }
+
+  @override
+  Future<ShareOverview> overview() async {
+    await super.overview();
+    return ShareOverview(
+      partnerCategories: [
+        for (final category in CalendarCategories.partner)
+          PartnerSharedCategory(
+            category: category,
+            joinsMine: false,
+            shown: !hidden.contains(category.id),
+            eventCount: 0,
+          ),
+      ],
+    );
+  }
 }
 
 /// Android's text-contrast guideline with the section headers taken out by

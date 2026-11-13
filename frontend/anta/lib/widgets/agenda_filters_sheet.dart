@@ -13,6 +13,7 @@ import '../l10n/app_localizations.dart';
 import '../models/calendar_appearance.dart';
 import '../models/calendar_category.dart';
 import '../models/calendar_event.dart';
+import '../models/partner_look.dart';
 import '../models/upcoming_agenda_filters.dart';
 import '../utils/calendar_filter_summary.dart';
 import '../utils/event_agenda.dart';
@@ -52,10 +53,15 @@ class AgendaFiltersSheet extends StatefulWidget {
   /// (week start, accent, today style) rather than re-read in a leaf.
   final CalendarAppearance appearance;
 
+  /// The panel's look for a partner's events, handed to the category
+  /// picker's "From {name}" group so its avatars match the agenda's rows.
+  final PartnerLook partnerLook;
+
   const AgendaFiltersSheet({
     super.key,
     required this.initial,
     this.appearance = const CalendarAppearance(),
+    this.partnerLook = const PartnerLook(),
   });
 
   /// Names one period choice. Shared with the panel's summary chip so the
@@ -81,6 +87,7 @@ class AgendaFiltersSheet extends StatefulWidget {
     BuildContext context, {
     required UpcomingAgendaFilters filters,
     CalendarAppearance appearance = const CalendarAppearance(),
+    PartnerLook partnerLook = const PartnerLook(),
   }) {
     final colorScheme = Theme.of(context).colorScheme;
     return showModalBottomSheet<UpcomingAgendaFilters>(
@@ -99,7 +106,11 @@ class AgendaFiltersSheet extends StatefulWidget {
           maxHeight:
               MediaQuery.sizeOf(context).height * FormMetrics.sheetHeightFactor,
         ),
-        child: AgendaFiltersSheet(initial: filters, appearance: appearance),
+        child: AgendaFiltersSheet(
+          initial: filters,
+          appearance: appearance,
+          partnerLook: partnerLook,
+        ),
       ),
     );
   }
@@ -217,20 +228,33 @@ class _AgendaFiltersSheetState extends State<AgendaFiltersSheet> {
   ///
   /// It returns into the local draft, so nothing re-runs the agenda scan
   /// behind the sheet until Apply.
-  Future<void> _pickCategories(List<CalendarCategory> categories) =>
-      _guarded(() async {
-        final offered = {for (final category in categories) category.id};
-        final picked = await CategoryPickerSheet.pickMulti(
-          context,
-          selected: _draft.categoryIds.isEmpty ? offered : _draft.categoryIds,
-        );
-        if (picked == null || !mounted) return;
-        _update(
-          _draft.copyWith(
-            categoryIds: picked.containsAll(offered) ? const {} : picked,
-          ),
-        );
-      });
+  ///
+  /// A partner's shown categories are on offer beside this person's (share
+  /// surfaces §6.10), so "everything on offer" counts them: allowing only
+  /// mine is a real narrowing, and ticking both groups whole is "all". A
+  /// partner's id that has since left the list stays in the set as a
+  /// deleted category's does — it matches no event and no row names it.
+  Future<void> _pickCategories(
+    List<CalendarCategory> categories,
+    List<CalendarCategory> partner,
+  ) => _guarded(() async {
+    final offered = {
+      for (final category in categories) category.id,
+      for (final category in partner) category.id,
+    };
+    final picked = await CategoryPickerSheet.pickMulti(
+      context,
+      selected: _draft.categoryIds.isEmpty ? offered : _draft.categoryIds,
+      partner: partner,
+      partnerLook: widget.partnerLook,
+    );
+    if (picked == null || !mounted) return;
+    _update(
+      _draft.copyWith(
+        categoryIds: picked.containsAll(offered) ? const {} : picked,
+      ),
+    );
+  });
 
   Future<void> _pickPriorities(AppLocalizations l10n) => _guarded(() async {
     final picked = await FilterCheckListSheet.show(
@@ -359,8 +383,9 @@ class _AgendaFiltersSheetState extends State<AgendaFiltersSheet> {
   };
 
   /// "All", the allowed categories by name, or "No categories" — counted
-  /// over the offered catalog, so a stale id left by a deleted category
-  /// cannot make the row lie.
+  /// over the offered catalog, a partner's shown ones included, so a stale
+  /// id left by a deleted category or one a partner stopped sharing cannot
+  /// make the row lie.
   String _categoriesValue(
     AppLocalizations l10n,
     List<CalendarCategory> categories,
@@ -489,6 +514,8 @@ class _AgendaFiltersSheetState extends State<AgendaFiltersSheet> {
     // from every choosing surface, but an allowlist already holding a hidden
     // id must still show it or the user cannot un-select it.
     final categories = CalendarCategories.visiblePlus(_draft.categoryIds);
+    final partner = CalendarCategories.partnerShown;
+    final offered = partner.isEmpty ? categories : [...categories, ...partner];
     final eventsShown = _eventsShown;
     final fastingEnabled = FastingCalendar.isEnabled;
     return Column(
@@ -594,11 +621,11 @@ class _AgendaFiltersSheetState extends State<AgendaFiltersSheet> {
                       FormPickerRow(
                         glyph: Icons.category_rounded,
                         label: l10n.calendarCategories,
-                        value: _categoriesValue(l10n, categories),
+                        value: _categoriesValue(l10n, offered),
                         identifier: SemanticsIds.agendaFilterCategories,
                         enabled: eventsShown,
                         onTap: eventsShown
-                            ? () => _pickCategories(categories)
+                            ? () => _pickCategories(categories, partner)
                             : null,
                       ),
                       FormPickerRow(

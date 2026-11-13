@@ -120,10 +120,51 @@ class ShareOverview extends Equatable {
   /// nowhere.
   static const empty = ShareOverview();
 
+  /// How old the last completed read may grow before the Sharing page says
+  /// "May be out of date" (D22). Nothing is removed for age: the rows stay
+  /// readable on a long trip without a network.
+  static const Duration staleAfter = Duration(days: 7);
+
+  /// Whether the last completed read is [staleAfter] old or more at [now];
+  /// never before the first read, which is "not read yet", not "old".
+  bool isStale(DateTime now) {
+    final at = readAt;
+    return at != null && now.difference(at) >= staleAfter;
+  }
+
   /// Whether this person shares anything — what enables "Stop sharing
   /// everything", which clears folders too.
   bool get sharesAnything =>
       anyMark || categories.isNotEmpty || events.isNotEmpty;
+
+  /// This overview with the partner's category [id] shown or hidden and
+  /// every other field as it stands: what the bloc shows from a switch's
+  /// tap until that write's own read lands, so the switch never waits on
+  /// storage. A field added to this class is carried here too.
+  ShareOverview withPartnerShown(String id, bool shown) => ShareOverview(
+    categories: categories,
+    events: events,
+    partnerCategories: [
+      for (final shared in partnerCategories)
+        shared.category.id == id
+            ? PartnerSharedCategory(
+                category: shared.category,
+                joinsMine: shared.joinsMine,
+                shown: shown,
+                eventCount: shared.eventCount,
+              )
+            : shared,
+    ],
+    partnerEvents: partnerEvents,
+    readAt: readAt,
+    readFailed: readFailed,
+    sending: sending,
+    offline: offline,
+    partnerNewerWire: partnerNewerWire,
+    refusedCount: refusedCount,
+    anyMark: anyMark,
+    eventCounts: eventCounts,
+  );
 
   @override
   List<Object?> get props => [

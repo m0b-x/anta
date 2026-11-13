@@ -12,16 +12,22 @@ import '../constants/form_metrics.dart';
 import '../constants/semantics_ids.dart';
 import '../core/di/injection.dart';
 import '../l10n/app_localizations.dart';
+import '../models/partner_look.dart';
 import '../models/share_overview.dart';
+import '../models/share_settings.dart';
 import '../services/share_service.dart';
 import '../utils/custom_snackbar.dart';
 import '../utils/settings_search.dart';
 import '../utils/share_copy.dart';
+import '../utils/sync_moment_format.dart';
 import '../widgets/app_dialogs.dart';
 import '../widgets/category_picker_sheet.dart';
+import '../widgets/form_menu_item.dart';
 import '../widgets/form_rows.dart' show FormCaptionSlot;
 import '../widgets/settings_search_field.dart';
 import '../widgets/settings_section_list.dart';
+import '../widgets/share_events_sheets.dart';
+import '../widgets/shared_categories_sheet.dart';
 import '../widgets/unified_app_bars.dart';
 
 /// How a list of names reads in a row's description and a snackbar.
@@ -57,6 +63,30 @@ String shareChangeMessage(
             )
           : l10n.shareStopped(unshared.join(_namesSeparator)),
   ].join('\n');
+}
+
+/// A moment "Updated {when}" may say at its widest: a date in another year,
+/// which spells the year the time of day and this year's dates leave out.
+final DateTime _widestMoment = DateTime(2000, 9, 28);
+
+/// Which of the lines under what the partner shares were true as the page
+/// first loaded, and the count the third said then.
+class _HeldNotices {
+  final bool stale;
+  final bool newerWire;
+  final int notShown;
+
+  const _HeldNotices({
+    required this.stale,
+    required this.newerWire,
+    required this.notShown,
+  });
+
+  factory _HeldNotices.of(ShareOverview overview, DateTime now) => _HeldNotices(
+    stale: overview.isStale(now),
+    newerWire: overview.partnerNewerWire,
+    notShown: overview.refusedCount,
+  );
 }
 
 /// What this database shares, from plural parts — "3 categories, 2 events"
@@ -103,6 +133,11 @@ class SharingPage extends StatelessWidget {
   /// height, its tap doing nothing.
   final void Function(BuildContext context)? onOpenEvents;
 
+  /// Opens one of the events the partner shares singly, from their list.
+  /// Null where no event sheets can open — Sync & sharing — and the list's
+  /// rows then take no tap at all.
+  final ShareEventOpener? onOpenPartnerEvent;
+
   /// Where an Undo tapped after the page has left writes: the page's bloc
   /// has closed with it.
   final Future<ShareService> Function() shareService;
@@ -111,6 +146,7 @@ class SharingPage extends StatelessWidget {
     super.key,
     required this.pairingBloc,
     this.onOpenEvents,
+    this.onOpenPartnerEvent,
     this.shareService = ShareService.getInstance,
   });
 
@@ -125,6 +161,7 @@ class SharingPage extends StatelessWidget {
       ],
       child: _SharingView(
         onOpenEvents: onOpenEvents,
+        onOpenPartnerEvent: onOpenPartnerEvent,
         shareService: shareService,
       ),
     );
@@ -133,9 +170,14 @@ class SharingPage extends StatelessWidget {
 
 class _SharingView extends StatefulWidget {
   final void Function(BuildContext context)? onOpenEvents;
+  final ShareEventOpener? onOpenPartnerEvent;
   final Future<ShareService> Function() shareService;
 
-  const _SharingView({required this.onOpenEvents, required this.shareService});
+  const _SharingView({
+    required this.onOpenEvents,
+    required this.onOpenPartnerEvent,
+    required this.shareService,
+  });
 
   @override
   State<_SharingView> createState() => _SharingViewState();
@@ -152,6 +194,12 @@ class _SharingViewState extends State<_SharingView> {
   /// While the counts are read and the tick sheet is up, so a second tap
   /// opens no second sheet.
   bool _picking = false;
+
+  /// The lines under what the partner shares as the first loaded state
+  /// said them, held for the visit (the slice C spec, decision t): the
+  /// block is sized once, so the entries under it never move. A line that
+  /// clears leaves its space; one that comes true waits for the next visit.
+  _HeldNotices? _notices;
 
   @override
   void dispose() {
@@ -251,12 +299,12 @@ class _SharingViewState extends State<_SharingView> {
                           ),
                       ],
                       sections: [
-                        if (!failed && !foreign)
+                        if (!failed && !foreign) ...[
                           _youShareSection(context, l10n, loaded, name),
-                        // The record's sections 2–4 — what the partner
-                        // shares, how shared things look, their alerts —
-                        // stand here, between what this person gives and
-                        // the way out of it.
+                          _theirsSection(context, l10n, loaded, name),
+                          _lookSection(context, l10n, loaded),
+                          _alertsSection(context, l10n, loaded),
+                        ],
                         _pairingSection(context, l10n, loaded, name),
                       ],
                     ),
@@ -325,6 +373,7 @@ class _SharingViewState extends State<_SharingView> {
             title: title,
             description: description,
             needsSync: needsSync,
+            reason: l10n.shareNeedsSync,
             onTap: ready ? () => _pickCategories(l10n, overview, name) : null,
           ),
         ),
@@ -344,6 +393,7 @@ class _SharingViewState extends State<_SharingView> {
             title: title,
             description: description,
             needsSync: needsSync,
+            reason: l10n.shareNeedsSync,
             onTap: switch (widget.onOpenEvents) {
               final open? when ready => () => open(context),
               _ => null,
@@ -354,12 +404,13 @@ class _SharingViewState extends State<_SharingView> {
     );
   }
 
-  /// A YOU SHARE entry: a page's chevron row. While [needsSync] it is the
-  /// kit's disabled tile, in place, and a tap goes back to Sync & sharing,
-  /// where sync is turned on (D8) — the reason stands in the intro's slot
-  /// above it. Dimmed yet acting, it is one enabled button to a screen
-  /// reader, named with [label] and the reason and saying where it goes,
-  /// never a disabled tile that answers a tap (design review 2).
+  /// An entry of what is shared, either way: a page's chevron row. While
+  /// [needsSync] it is the kit's disabled tile, in place, and a tap goes
+  /// back to Sync & sharing, where sync is turned on (D8) — [reason] stands
+  /// in the intro's slot above it. Dimmed yet acting, it is one enabled
+  /// button to a screen reader, named with [label] and [reason] and saying
+  /// where it goes, never a disabled tile that answers a tap (design
+  /// review 2).
   Widget _entryTile(
     BuildContext context, {
     required IconData glyph,
@@ -367,6 +418,7 @@ class _SharingViewState extends State<_SharingView> {
     required Widget title,
     required Widget? description,
     required bool needsSync,
+    required String reason,
     required VoidCallback? onTap,
   }) {
     final tile = ListTile(
@@ -385,7 +437,7 @@ class _SharingViewState extends State<_SharingView> {
     return Semantics(
       button: true,
       enabled: true,
-      label: '$label\n${l10n.shareNeedsSync}',
+      label: '$label\n$reason',
       hint: l10n.shareOpensSyncHint,
       onTap: _backToSync,
       excludeSemantics: true,
@@ -399,6 +451,290 @@ class _SharingViewState extends State<_SharingView> {
     if (_leaving || !mounted) return;
     Navigator.of(context).pop();
   }
+
+  /// What the partner shares (§6.2 item 2): the same two entries as YOU
+  /// SHARE, opening the received-categories sheet and the read-only list.
+  /// "Could not check" goes in the header's slot, the one line that can
+  /// arrive after the page opens; the intro's lines are held from the open.
+  SettingsSectionData _theirsSection(
+    BuildContext context,
+    AppLocalizations l10n,
+    ShareLoaded? loaded,
+    String name,
+  ) {
+    final overview = loaded?.overview ?? ShareOverview.empty;
+    final availability = loaded?.availability;
+    final ready = availability is ShareReady;
+    final needsSync = availability is ShareNotSyncing;
+    final now = DateTime.now();
+    final notices = _notices ??= loaded == null
+        ? null
+        : _HeldNotices.of(overview, now);
+    String described(String text) => loaded == null ? '' : text;
+    final intro = ShareCopy.sentence(l10n.sharePartnerSharesCaption(name));
+    final names = [
+      for (final shared in orderSharedCategories(
+        overview.partnerCategories,
+        CalendarCategories.all,
+      ))
+        CalendarCategories.labelOf(shared.category, l10n),
+    ];
+    final readAt = overview.readAt;
+    return SettingsSectionData(
+      icon: Icons.group_rounded,
+      title: ShareCopy.sentence(l10n.sharePartnerShares(name)),
+      trailing: !ready
+          ? null
+          : overview.readFailed
+          ? l10n.shareCheckFailed
+          : readAt == null
+          ? null
+          : l10n.shareUpdated(formatSyncMoment(context, readAt)),
+      trailingTemplates: [
+        l10n.shareUpdated(formatSyncMoment(context, _widestMoment)),
+        l10n.shareCheckFailed,
+      ],
+      intro: Padding(
+        padding: FormMetrics.settingsRowPadding.copyWith(
+          bottom: FormMetrics.settingsRowVerticalPadding,
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Section 1's rule: the reason in the intro's place, in a slot
+            // as tall as the taller of the two from the first frame.
+            FormCaptionSlot(
+              candidates: [Text(intro), Text(l10n.shareNeedsSyncReceive)],
+              child: Text(needsSync ? l10n.shareNeedsSyncReceive : intro),
+            ),
+            if (notices != null) ...[
+              if (notices.stale)
+                _heldLine(
+                  l10n.shareMaybeStale,
+                  overview.isStale(now) ? l10n.shareMaybeStale : null,
+                ),
+              if (notices.newerWire)
+                _heldLine(
+                  ShareCopy.sentence(l10n.shareUpdateApp(name)),
+                  overview.partnerNewerWire
+                      ? ShareCopy.sentence(l10n.shareUpdateApp(name))
+                      : null,
+                ),
+              if (notices.notShown > 0)
+                _heldLine(
+                  l10n.shareNotShown(notices.notShown),
+                  overview.refusedCount > 0
+                      ? l10n.shareNotShown(overview.refusedCount)
+                      : null,
+                ),
+            ],
+          ],
+        ),
+      ),
+      entries: [
+        SettingsEntry(
+          title: l10n.shareRowCategories,
+          description: described(
+            names.isEmpty ? l10n.shareNone : names.join(_namesSeparator),
+          ),
+          descriptionMaxLines: 1,
+          identifier: SemanticsIds.sharingTheirsCategories,
+          builder: (context, title, description) => _entryTile(
+            context,
+            glyph: Icons.category_rounded,
+            label: l10n.shareRowCategories,
+            title: title,
+            description: description,
+            needsSync: needsSync,
+            reason: l10n.shareNeedsSyncReceive,
+            onTap: ready
+                ? () => SharedCategoriesSheet.show(
+                    context,
+                    bloc: context.read<ShareBloc>(),
+                    partner: _partnerLook(loaded!),
+                  )
+                : null,
+          ),
+        ),
+        SettingsEntry(
+          title: l10n.shareRowEvents,
+          description: described(
+            overview.partnerEvents.isEmpty
+                ? l10n.shareNone
+                : l10n.shareSummaryEvents(overview.partnerEvents.length),
+          ),
+          descriptionMaxLines: 1,
+          identifier: SemanticsIds.sharingTheirsEvents,
+          builder: (context, title, description) => _entryTile(
+            context,
+            glyph: Icons.event_rounded,
+            label: l10n.shareRowEvents,
+            title: title,
+            description: description,
+            needsSync: needsSync,
+            reason: l10n.shareNeedsSyncReceive,
+            onTap: ready
+                ? () => PartnerSharedEventsSheet.show(
+                    context,
+                    bloc: context.read<ShareBloc>(),
+                    partner: _partnerLook(loaded!),
+                    onOpen: widget.onOpenPartnerEvent,
+                  )
+                : null,
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// One held line of the intro: in a slot as tall as it was at the open,
+  /// showing [current] while it is still true and nothing once it clears.
+  static Widget _heldLine(String atOpen, String? current) => FormCaptionSlot(
+    candidates: [Text(atOpen)],
+    child: current == null ? const SizedBox.shrink() : Text(current),
+  );
+
+  /// How the sheets this page opens draw the partner's things, built as the
+  /// calendar builds it: the look this phone picked and who the partner is.
+  static PartnerLook _partnerLook(ShareLoaded loaded) {
+    final audience = loaded.availability.audience;
+    return PartnerLook(
+      look: loaded.look.eventLook,
+      partner: audience?.members.firstOrNull,
+      name: audience?.displayName,
+      markMine: loaded.look.markMine,
+      unpaired: audience == null,
+    );
+  }
+
+  /// How shared things look (§6.7): drawn from the bloc's state alone,
+  /// which shows a choice from the tap. Until the first read the shipped
+  /// values stand, as the bloc's own state does.
+  SettingsSectionData _lookSection(
+    BuildContext context,
+    AppLocalizations l10n,
+    ShareLoaded? loaded,
+  ) {
+    final look = loaded?.look ?? const ShareLook();
+    return SettingsSectionData(
+      icon: Icons.visibility_rounded,
+      title: l10n.shareLookSection,
+      entries: [
+        SettingsEntry(
+          title: l10n.shareEventLook,
+          identifier: SemanticsIds.sharingLookEvents,
+          builder: (context, title, description) =>
+              settingsChoiceRow<ShareEventLook>(
+                title: title,
+                description: description,
+                value: look.eventLook,
+                labels: {
+                  ShareEventLook.outlined: l10n.shareLookOutlined,
+                  ShareEventLook.avatar: l10n.shareLookAvatar,
+                  ShareEventLook.plain: l10n.shareLookPlain,
+                },
+                identifiers: {
+                  for (final value in ShareEventLook.values)
+                    value: SemanticsIds.sharingLookEventsChoice(value.name),
+                },
+                onChanged: (value) =>
+                    context.read<ShareBloc>().add(ShareEventLookSet(value)),
+              ),
+        ),
+        SettingsEntry(
+          title: l10n.shareMarkMine,
+          description: l10n.shareMarkMineDesc,
+          identifier: SemanticsIds.sharingMarkMine,
+          builder: (context, title, description) => SwitchListTile(
+            value: look.markMine,
+            title: title,
+            subtitle: description,
+            onChanged: (value) =>
+                context.read<ShareBloc>().add(ShareMarkMineSet(value)),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// What may ring for a partner's event (§6.8): an entry that opens a
+  /// menu rather than a page, so it has no chevron (decision v). Its value
+  /// is blank and its tap inert until the first read says what is stored.
+  SettingsSectionData _alertsSection(
+    BuildContext context,
+    AppLocalizations l10n,
+    ShareLoaded? loaded,
+  ) {
+    final alerts = loaded?.alerts;
+    final colorScheme = Theme.of(context).colorScheme;
+    return SettingsSectionData(
+      icon: Icons.notifications_rounded,
+      title: l10n.shareAlertsSection,
+      entries: [
+        SettingsEntry(
+          title: l10n.shareAlerts,
+          description: alerts == null ? '' : _alertsLabel(l10n, alerts),
+          identifier: SemanticsIds.sharingAlerts,
+          // A `Builder` so the menu hangs from the row's own box.
+          builder: (context, title, description) => Builder(
+            builder: (rowContext) => ListTile(
+              leading: Icon(
+                Icons.notifications_rounded,
+                color: colorScheme.primary,
+              ),
+              title: title,
+              subtitle: description,
+              onTap: alerts == null
+                  ? null
+                  : () => _pickAlerts(rowContext, l10n, alerts),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _pickAlerts(
+    BuildContext anchor,
+    AppLocalizations l10n,
+    ShareAlerts current,
+  ) async {
+    FocusManager.instance.primaryFocus?.unfocus();
+    final bloc = context.read<ShareBloc>();
+    final next = await showFormMenu<ShareAlerts>(
+      anchor,
+      items: [
+        for (final value in ShareAlerts.values)
+          FormMenuItem(
+            value: value,
+            label: _alertsLabel(l10n, value),
+            caption: switch (value) {
+              ShareAlerts.off => l10n.shareAlertsOffDesc,
+              ShareAlerts.own => l10n.shareAlertsOwnDesc,
+              ShareAlerts.category => l10n.shareAlertsCategoryDesc,
+            },
+            identifier: switch (value) {
+              ShareAlerts.off => SemanticsIds.sharingAlertsOff,
+              ShareAlerts.own => SemanticsIds.sharingAlertsOwn,
+              ShareAlerts.category => SemanticsIds.sharingAlertsCategory,
+            },
+          ),
+      ],
+      selected: current,
+      // Floor and cap at once: a caption of two lines reads as one choice
+      // at this width, and the menu never narrows with the language.
+      menuWidth: FormMetrics.menuMaxWidth,
+    );
+    if (next == null || next == current || !_stillHere(bloc)) return;
+    bloc.add(ShareAlertsSet(next));
+  }
+
+  static String _alertsLabel(AppLocalizations l10n, ShareAlerts value) =>
+      switch (value) {
+        ShareAlerts.off => l10n.shareAlertsOff,
+        ShareAlerts.own => l10n.shareAlertsOwn,
+        ShareAlerts.category => l10n.shareAlertsCategory,
+      };
 
   SettingsSectionData _pairingSection(
     BuildContext context,

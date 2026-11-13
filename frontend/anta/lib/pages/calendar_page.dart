@@ -1661,6 +1661,7 @@ class _CalendarViewState extends State<_CalendarView> with RouteAware {
     final filters = await CalendarFilterSheet.show(
       context,
       filters: state.filters,
+      partnerLook: _partnerLook,
     );
     if (filters == null || !context.mounted) return;
     _applyFilters(context, filters);

@@ -68,6 +68,8 @@ abstract final class CalendarCategories {
   static List<CalendarCategory> _ordered = const [];
   static List<CalendarCategory> _visible = const [];
   static List<CalendarCategory> _partner = const [];
+  static List<CalendarCategory> _partnerShown = const [];
+  static Set<String> _partnerHidden = const {};
   static int _revision = 0;
 
   /// Bumped on every [updateCache] call. There is no reset method to mirror
@@ -118,6 +120,7 @@ abstract final class CalendarCategories {
       for (final c in sorted)
         if (c.fromPartner) c,
     ]);
+    _partnerShown = _shownOf(_partner, _partnerHidden);
     _anySharedByMe = sorted.any((c) => c.sharedByMe && !c.fromPartner);
     _revision++;
   }
@@ -128,6 +131,27 @@ abstract final class CalendarCategories {
   /// catalogue is published, so a reader asking "is anything shared through
   /// a category?" walks no event list when nothing is.
   static bool get anySharedByMe => _anySharedByMe;
+
+  /// Takes the receiver's hidden set (`shareHiddenCategories`, §6.4 of
+  /// `docs/cloud-share-surfaces-roadmap.md`) — `CategoryService` with each
+  /// load, `ShareService` the moment it writes one — and narrows
+  /// [partnerShown] by it. [revision] stays: hiding changes which events
+  /// exist (the event service drops them), never what an id resolves to.
+  static void updatePartnerHidden(Set<String> ids) {
+    _partnerHidden = ids;
+    _partnerShown = _shownOf(_partner, ids);
+  }
+
+  static List<CalendarCategory> _shownOf(
+    List<CalendarCategory> partner,
+    Set<String> hidden,
+  ) {
+    if (hidden.isEmpty) return partner;
+    return List.unmodifiable([
+      for (final c in partner)
+        if (!hidden.contains(c.id)) c,
+    ]);
+  }
 
   /// The person's own by their order, then a partner's by name: the reader
   /// stores a partner's at order 0, which is not a place in this person's
@@ -156,6 +180,13 @@ abstract final class CalendarCategories {
   /// the surfaces that list them apart, under the partner's name, and
   /// read-only. Empty for an account that never paired.
   static List<CalendarCategory> get partner => _partner;
+
+  /// [partner] without the ones this person hid on this phone — what the
+  /// Categories page's "From {name}" section and the filter lists offer: a
+  /// hidden category has no events here to draw or to filter. [resolve]
+  /// still knows a hidden one. A shared built-in is never in it: it is the
+  /// person's own row ([visible]).
+  static List<CalendarCategory> get partnerShown => _partnerShown;
 
   /// [visible] plus any of [keep] that is hidden, in display order. A
   /// partner's category is never added back: it is no selection of this

@@ -18,6 +18,7 @@ import 'calendar_event_service.dart';
 import 'category_profile_service.dart';
 import 'event_alert_service.dart';
 import 'event_template_service.dart';
+import 'settings_service.dart';
 
 /// Loads and seeds the `calendar_categories` table and publishes a
 /// synchronous in-memory cache via [CalendarCategories.updateCache] so calendar
@@ -196,8 +197,12 @@ class CategoryService {
   ///
   /// The account is asked only when some row names an owner at all: a
   /// database that was never bound pays nothing for it, a bound one one
-  /// lookup of `sync_metadata`.
+  /// lookup of `sync_metadata`. The partner's categories hidden on this
+  /// phone are read only while one of the partner's is held — one more
+  /// statement — and published with the catalogue
+  /// ([CalendarCategories.partnerShown]).
   Future<void> _load() async {
+    var hidden = const <String>{};
     try {
       final rows = await _dao.getAll();
       final partner = rows.any((row) => row.ownerId != null)
@@ -210,11 +215,15 @@ class CategoryService {
             fromPartner: partner != null && row.ownerId == partner,
           ),
       ]);
+      if (_cache.any((c) => c.fromPartner)) {
+        hidden = await SettingsService.shareHiddenCategoriesOf(_db);
+      }
     } catch (e) {
       debugPrint('[CategoryService] Load error: $e');
       _cache = const [];
     }
     _own = List.unmodifiable(_cache.where((c) => !c.fromPartner));
+    CalendarCategories.updatePartnerHidden(hidden);
     CalendarCategories.updateCache(_cache);
   }
 

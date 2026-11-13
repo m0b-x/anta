@@ -919,6 +919,49 @@ abstract final class SemanticsIds {
       'share-event-unshare-$eventId';
   static const String sharedEventsSheet = 'shared-events-sheet';
 
+  /// What the partner shares, category by category (share surfaces §6.4,
+  /// the slice D spec §7): the list's root, an own category's row (which
+  /// opens its sheet) and every row's show switch, keyed by category id —
+  /// a shared built-in's row is one node under its switch id; then the one
+  /// category's sheet, its show switch and my own alert rows for it, keyed
+  /// by position as the category editor's are.
+  static const String sharedCategoriesSheet = 'shared-categories-sheet';
+  static String sharedCategoryRow(String categoryId) =>
+      'shared-category-row-$categoryId';
+  static String sharedCategoryShow(String categoryId) =>
+      'shared-category-show-$categoryId';
+  static const String sharedCategorySheet = 'shared-category-sheet';
+  static const String sharedCategorySheetShow = 'shared-category-sheet-show';
+  static String sharedCategoryAlert(int index) =>
+      'shared-category-alert-$index';
+  static String sharedCategoryAlertSwitch(int index) =>
+      'shared-category-alert-switch-$index';
+  static const String sharedCategoryAddAlert = 'shared-category-add-alert';
+
+  /// The Categories page's "From {name}" section (the slice D spec §4): its
+  /// header and the partner's rows, keyed by category id — a family apart
+  /// from `category-row-*`, so a flow that walks my rows never meets one
+  /// of theirs.
+  static const String categorySectionPartnerHeader =
+      'category-section-partner-header';
+  static String categoryPartnerRow(String categoryId) =>
+      'category-partner-row-$categoryId';
+
+  /// The Sharing page's receiving half (the slice C spec §1, sections 2–4):
+  /// the two entries of what the partner shares, the look's choice row with
+  /// a segment per look keyed by its name, the mark switch, and the alerts
+  /// entry with its menu's three items.
+  static const String sharingTheirsCategories = 'sharing-theirs-categories';
+  static const String sharingTheirsEvents = 'sharing-theirs-events';
+  static const String sharingLookEvents = 'sharing-look-events';
+  static String sharingLookEventsChoice(String look) =>
+      'sharing-look-events-$look';
+  static const String sharingMarkMine = 'sharing-mark-mine';
+  static const String sharingAlerts = 'sharing-alerts';
+  static const String sharingAlertsOff = 'sharing-alerts-off';
+  static const String sharingAlertsOwn = 'sharing-alerts-own';
+  static const String sharingAlertsCategory = 'sharing-alerts-category';
+
   /// A day-panel or agenda row standing for one event, keyed by the event's
   /// id — a title is ambiguous because every marked day cell's marker label
   /// carries it too, and a seeded event's id is stable (`qa-cal-lift`).

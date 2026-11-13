@@ -8,6 +8,7 @@ import 'package:anta/constants/semantics_ids.dart';
 import 'package:anta/l10n/app_localizations.dart';
 import 'package:anta/models/agenda_day_list_mode.dart';
 import 'package:anta/models/overview_list_options.dart';
+import 'package:anta/models/partner_look.dart';
 import 'package:anta/widgets/category_picker_sheet.dart';
 import 'package:anta/widgets/form_rows.dart';
 import 'package:anta/widgets/overview_options_sheet.dart';
@@ -66,6 +67,7 @@ class OverviewOptionsRobot {
     required ValueChanged<OverviewListOptions> onChanged,
     Set<String> categoryIds = const {},
     ValueChanged<Set<String>>? onCategoriesChanged,
+    PartnerLook partnerLook = const PartnerLook(),
     Locale locale = const Locale('en'),
     Size surface = defaultSurface,
     double? textScale,
@@ -96,6 +98,7 @@ class OverviewOptionsRobot {
                 onChanged: onChanged,
                 categoryIds: categoryIds,
                 onCategoriesChanged: onCategoriesChanged ?? (_) {},
+                partnerLook: partnerLook,
               ),
               child: const Text(_openLabel),
             ),
@@ -205,6 +208,27 @@ class OverviewOptionsRobot {
   Future<void> pickerDone() => _tap(_inPicker(SemanticsIds.categoryPickDone));
 
   Future<void> pickerClose() => _tap(_inPicker(SemanticsIds.categoryPickClose));
+
+  /// Whether the open picker lists the row of category [id].
+  bool pickerLists(String id) =>
+      _inPicker(SemanticsIds.categoryPickRow(id)).evaluate().isNotEmpty;
+
+  /// Whether the open picker's row of category [id] is ticked.
+  bool pickerRowTicked(String id) => tester
+      .widget<FormCheckRow>(
+        find.ancestor(
+          of: _inPicker(SemanticsIds.categoryPickRow(id)),
+          matching: find.byType(FormCheckRow),
+        ),
+      )
+      .checked;
+
+  /// Whether the open picker carries a section labelled [text] — the
+  /// partner's group's "From {name}", drawn uppercase.
+  bool pickerHasSection(String text) => find
+      .descendant(of: _picker, matching: find.text(text.toUpperCase()))
+      .evaluate()
+      .isNotEmpty;
 
   /// Narrows the allowlist to [ids] through the multi picker: none first,
   /// then each id ticked, then Done.

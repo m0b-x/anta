@@ -2466,8 +2466,20 @@ class SettingsService {
 
   /// The partner's categories this phone does not show; empty when none is
   /// hidden or the stored value cannot be read.
-  Future<Set<String>> getShareHiddenCategories() async {
-    final raw = await _db.userSettingsDao.getValue(
+  Future<Set<String>> getShareHiddenCategories() =>
+      shareHiddenCategoriesOf(_db);
+
+  /// Stores [ids], deleting the row when none is hidden so "never hidden"
+  /// and "hidden then shown again" leave the same absence.
+  Future<void> setShareHiddenCategories(Set<String> ids) =>
+      setShareHiddenCategoriesOf(_db, ids);
+
+  /// [getShareHiddenCategories] over [db] itself, in one statement: for the
+  /// event and category loads, which map the rows of the database they
+  /// hold — never the active one a switch may already have replaced — and
+  /// for the shared reader's prune.
+  static Future<Set<String>> shareHiddenCategoriesOf(AppDatabase db) async {
+    final raw = await db.userSettingsDao.getValue(
       SettingsKeys.shareHiddenCategories,
     );
     if (raw == null || raw.isEmpty) return const {};
@@ -2480,14 +2492,16 @@ class SettingsService {
     }
   }
 
-  /// Stores [ids], deleting the row when none is hidden so "never hidden"
-  /// and "hidden then shown again" leave the same absence.
-  Future<void> setShareHiddenCategories(Set<String> ids) async {
+  /// [setShareHiddenCategories] over [db] itself.
+  static Future<void> setShareHiddenCategoriesOf(
+    AppDatabase db,
+    Set<String> ids,
+  ) async {
     if (ids.isEmpty) {
-      await _db.userSettingsDao.deleteValue(SettingsKeys.shareHiddenCategories);
+      await db.userSettingsDao.deleteValue(SettingsKeys.shareHiddenCategories);
       return;
     }
-    await _db.userSettingsDao.setValue(
+    await db.userSettingsDao.setValue(
       SettingsKeys.shareHiddenCategories,
       jsonEncode(ids.toList()..sort()),
     );

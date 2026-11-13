@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 
 import '../constants/app_colors.dart';
 import '../constants/calendar_bounds.dart';
+import '../constants/calendar_categories.dart';
 import '../constants/row_metrics.dart';
 import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
@@ -533,6 +534,14 @@ class _AgendaDayListSheetState extends State<AgendaDayListSheet> {
 
   bool get _showsBack => _mode == AgendaDayListMode.month && _cameFromYear;
 
+  /// Whether the sheet stands for a partner's own category — the rule the
+  /// card it opened from applies; a shared built-in is mine.
+  bool get _ofPartner => switch (widget.list.source) {
+    AgendaDayListCategorySource(:final categoryId) =>
+      CalendarCategories.resolve(categoryId).fromPartner,
+    _ => false,
+  };
+
   static String _modeLabel(AppLocalizations l10n, AgendaDayListMode mode) {
     return switch (mode) {
       AgendaDayListMode.list => l10n.dayListModeList,
@@ -570,23 +579,34 @@ class _AgendaDayListSheetState extends State<AgendaDayListSheet> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
+    // The card's own line (D2), pinned under the header in every mode and
+    // free to wrap: it is what says which card the sheet stands for.
+    final caption = FormCaption(
+      text: widget.list.subtitle,
+      padding: const EdgeInsets.fromLTRB(
+        RowMetrics.groupInset,
+        0,
+        RowMetrics.groupInset,
+        FormMetrics.headerCaptionBottomPadding,
+      ),
+    );
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         const FormSheetHandle(),
         _buildHeader(l10n),
-        // The card's own line (D2), pinned under the header in every mode
-        // and free to wrap: it is what says which card the sheet stands for.
-        FormCaption(
-          text: widget.list.subtitle,
-          padding: const EdgeInsets.fromLTRB(
-            RowMetrics.groupInset,
-            0,
-            RowMetrics.groupInset,
-            FormMetrics.headerCaptionBottomPadding,
-          ),
-        ),
+        // A partner's category says whose it is first, as its card does;
+        // spoken only, since the rows below already draw their look.
+        if (_ofPartner)
+          Semantics(
+            container: true,
+            label: '${widget.partnerLook.label(l10n)}\n${widget.list.subtitle}',
+            excludeSemantics: true,
+            child: caption,
+          )
+        else
+          caption,
         FormChipRow(
           indented: false,
           chips: [

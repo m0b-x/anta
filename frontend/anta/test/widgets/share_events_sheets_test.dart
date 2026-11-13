@@ -187,13 +187,16 @@ void main() {
     double? scale,
     ThemeData? theme,
     String partner = 'Maria',
+    bool withOpener = true,
   }) => open(
     tester,
     (context) => PartnerSharedEventsSheet.show(
       context,
       bloc: bloc,
       partner: PartnerLook(name: partner),
-      onOpen: (_, event, day) async => opened.add((event, day)),
+      onOpen: withOpener
+          ? (_, event, day) async => opened.add((event, day))
+          : null,
     ),
     locale: locale ?? const Locale('en'),
     scale: scale ?? 1.0,
@@ -467,6 +470,20 @@ void main() {
 
       expect(opened.single.$1.id, 'shift');
       expect(opened.single.$1.fromPartner, isTrue);
+    });
+
+    testWidgets('where the host has no event sheets, a row takes no tap at '
+        'all — never one that does nothing', (tester) async {
+      await openTheirs(tester, withOpener: false);
+
+      expect(rowOf(tester, 'Night shift').onTap, isNull);
+      await tester.tap(find.text('Night shift'), warnIfMissed: false);
+      await tester.pumpAndSettle();
+      expect(opened, isEmpty);
+      expect(
+        find.bySemanticsIdentifier(SemanticsIds.sharedEventsSheet),
+        findsOneWidget,
+      );
     });
 
     testWidgets('empty, it says None', (tester) async {

@@ -2275,6 +2275,7 @@ class _CalendarOverviewPageState extends State<CalendarOverviewPage>
         onChanged: _setOptions,
         categoryIds: _categoryIds,
         onCategoriesChanged: _onCategoriesChanged,
+        partnerLook: _partnerLook,
       ),
     );
   }

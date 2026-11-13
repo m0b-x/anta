@@ -1,6 +1,7 @@
 import 'package:equatable/equatable.dart';
 
 import '../../models/share_overview.dart';
+import '../../models/share_settings.dart';
 
 sealed class ShareEvent extends Equatable {
   const ShareEvent();
@@ -62,6 +63,49 @@ final class ShareUndoRequested extends ShareActEvent {
 
   @override
   List<Object?> get props => [change];
+}
+
+/// A switch under "{name} shares with you": the partner's category
+/// [categoryId] — one of theirs, or a built-in they share — shown on this
+/// phone or hidden (§6.4).
+final class ShareCategoryShownSet extends ShareEvent {
+  final String categoryId;
+  final bool shown;
+
+  const ShareCategoryShownSet(this.categoryId, {required this.shown});
+
+  @override
+  List<Object?> get props => [categoryId, shown];
+}
+
+/// How a partner's events are drawn on this phone (§6.7).
+final class ShareEventLookSet extends ShareEvent {
+  final ShareEventLook look;
+
+  const ShareEventLookSet(this.look);
+
+  @override
+  List<Object?> get props => [look];
+}
+
+/// Whether what I share carries its mark (§6.7, D10).
+final class ShareMarkMineSet extends ShareEvent {
+  final bool markMine;
+
+  const ShareMarkMineSet(this.markMine);
+
+  @override
+  List<Object?> get props => [markMine];
+}
+
+/// What may ring for a partner's event (§6.8, D13).
+final class ShareAlertsSet extends ShareEvent {
+  final ShareAlerts alerts;
+
+  const ShareAlertsSet(this.alerts);
+
+  @override
+  List<Object?> get props => [alerts];
 }
 
 /// Fed by the service's availability, the calendar's changes and the end of

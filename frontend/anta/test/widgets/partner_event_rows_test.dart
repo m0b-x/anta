@@ -315,6 +315,123 @@ void main() {
     });
   });
 
+  /// Upcoming's category cards: a card of a partner's own category holds
+  /// their events alone and says whose they are as their rows do; a card of
+  /// a shared built-in folds theirs into mine and stays mine.
+  group('agenda category cards', () {
+    const health = CalendarCategory(
+      id: 'health',
+      name: 'Health',
+      colorValue: 0xFF00897B,
+      iconKey: 'local_hospital',
+      sortOrder: 0,
+      isBuiltIn: true,
+    );
+    const wards = CalendarCategory(
+      id: 'p-wards',
+      name: 'Wards',
+      colorValue: 0xFF00897B,
+      iconKey: 'local_hospital',
+      sortOrder: 0,
+      isBuiltIn: false,
+      fromPartner: true,
+    );
+    final l10n = lookupAppLocalizations(const Locale('en'));
+    final healthLabel = CalendarCategories.labelOf(health, l10n);
+
+    setUp(() => CalendarCategories.updateCache(const [health, wards]));
+    tearDown(() => CalendarCategories.updateCache(const []));
+
+    CalendarEvent inCategory(
+      String id,
+      String categoryId, {
+      bool fromPartner = true,
+    }) => CalendarEvent(
+      id: id,
+      title: title,
+      categoryId: categoryId,
+      startDate: day,
+      fromPartner: fromPartner,
+    );
+
+    /// The built-in's card (my event and theirs in Health), then the card of
+    /// the partner's own category.
+    Widget agenda(ShareEventLook look) {
+      final rows = buildAgendaRows(
+        occurrences: const [],
+        holidayDays: const [],
+        fastingDays: const [],
+        l10n: l10n,
+        showRecurrenceLabels: true,
+        missedDisplay: CalendarMissedDisplay.faded,
+        eventSummaries: EventAgenda.categorySummariesOf([
+          EventOccurrence(
+            event: inCategory('m', 'health', fromPartner: false),
+            day: day,
+          ),
+          EventOccurrence(event: inCategory('t', 'health'), day: day),
+          EventOccurrence(event: inCategory('w', 'p-wards'), day: day),
+        ]),
+      );
+      return SizedBox(
+        width: 360,
+        child: AgendaListView(
+          rows: rows,
+          onDaySelected: (_) {},
+          onEditEvent: (_, _) {},
+          onOpenNote: (_) {},
+          onShowDayList: (_) {},
+          emptyTitle: '',
+          emptyHint: '',
+          partnerLook: lookOf(look),
+        ),
+      );
+    }
+
+    Finder cardOf(String name) =>
+        find.ancestor(of: find.text(name), matching: find.byType(Card));
+
+    for (final look in ShareEventLook.values) {
+      testWidgets('${look.name}: the partner\'s category card carries the '
+          'look and says whose; the shared built-in\'s is mine', (
+        tester,
+      ) async {
+        final handle = tester.ensureSemantics();
+        await pump(tester, agenda(look));
+
+        expectLook(tester, cardOf('Wards'), look);
+        expectLook(tester, cardOf(healthLabel), null);
+        expect(
+          stripeIn(cardOf('Wards')),
+          look == ShareEventLook.outlined ? findsNothing : findsOneWidget,
+        );
+        expect(stripeIn(cardOf(healthLabel)), findsOneWidget);
+        expect(
+          find.bySemanticsLabel(RegExp('^From Maria\\nWards\\n')),
+          findsOneWidget,
+        );
+        expect(
+          find.bySemanticsLabel(RegExp('^From Maria\\n$healthLabel')),
+          findsNothing,
+        );
+        await expectLater(tester, meetsGuideline(textContrastGuideline));
+        handle.dispose();
+      });
+
+      for (final scale in scales) {
+        testWidgets('${look.name} at $scale: the partner\'s category card is '
+            'as tall as mine', (tester) async {
+          await pump(tester, agenda(look), scale: scale);
+
+          expect(
+            tester.getSize(cardOf('Wards')).height,
+            tester.getSize(cardOf(healthLabel)).height,
+          );
+        });
+      }
+    }
+  });
+
   group('overview rows', () {
     AgendaDayListEntry entryOf(CalendarEvent event) => AgendaDayListEntry(
       day: day,

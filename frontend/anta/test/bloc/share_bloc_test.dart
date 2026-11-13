@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:anta/bloc/share/share_bloc.dart';
 import 'package:anta/models/calendar_category.dart';
 import 'package:anta/models/share_overview.dart';
+import 'package:anta/models/share_settings.dart';
 import 'package:anta/services/share_service.dart';
 
 import '../support/fake_share_service.dart';
@@ -293,5 +294,266 @@ void main() {
     final state = await settled();
     expect(share.eventShares, [('a', false), ('b', false)]);
     expect(state.outcome!.change, second);
+  });
+
+  group('the receiver\'s settings (slice D)', () {
+    test('a load carries the looks and the alert setting as stored, so the '
+        'page draws them with no read of its own', () async {
+      share
+        ..look = ShareEventLook.avatar
+        ..mine = false
+        ..shareAlerts = ShareAlerts.category;
+
+      bloc.add(const ShareLoadRequested());
+
+      final state = await settled();
+      expect(
+        state.look,
+        const ShareLook(eventLook: ShareEventLook.avatar, markMine: false),
+      );
+      expect(state.alerts, ShareAlerts.category);
+    });
+
+    test('not paired: the shipped values, and no setting is read', () async {
+      share
+        ..emit(const ShareNotPaired())
+        ..look = ShareEventLook.plain;
+
+      bloc.add(const ShareLoadRequested());
+
+      final state = await settled();
+      expect(state.look, const ShareLook());
+      expect(state.alerts, ShareAlerts.own);
+      expect(share.settingsReads, 0);
+    });
+
+    test('hiding and showing a category each write at once and read the '
+        'overview again', () async {
+      bloc.add(const ShareOpened());
+      await settled();
+      final reads = share.overviews;
+
+      bloc.add(const ShareCategoryShownSet('shifts', shown: false));
+      await settled();
+      expect(share.hidden, {'shifts'});
+      bloc.add(const ShareCategoryShownSet('gym', shown: false));
+      await settled();
+      bloc.add(const ShareCategoryShownSet('shifts', shown: true));
+      final state = await settled();
+
+      expect(share.shownSets, [
+        ('shifts', false),
+        ('gym', false),
+        ('shifts', true),
+      ]);
+      expect(share.hidden, {'gym'});
+      expect(share.overviews, reads + 3);
+      expect(state.outcome, isNull, reason: 'no snackbar for a switch');
+    });
+
+    test('the look, the mark and the alert setting each write at once, and '
+        'the state shows what was written', () async {
+      bloc.add(const ShareOpened());
+      await settled();
+
+      bloc.add(const ShareEventLookSet(ShareEventLook.plain));
+      expect((await settled()).look.eventLook, ShareEventLook.plain);
+      bloc.add(const ShareMarkMineSet(false));
+      expect((await settled()).look.markMine, isFalse);
+      bloc.add(const ShareAlertsSet(ShareAlerts.off));
+      final state = await settled();
+
+      expect(state.alerts, ShareAlerts.off);
+      expect(share.look, ShareEventLook.plain);
+      expect(share.mine, isFalse);
+      expect(share.shareAlerts, ShareAlerts.off);
+    });
+
+    test('a write that fails leaves the state at what is stored', () async {
+      bloc.add(const ShareOpened());
+      await settled();
+      share.settingsFailure = StateError('disk');
+
+      bloc.add(const ShareEventLookSet(ShareEventLook.avatar));
+      bloc.add(const ShareCategoryShownSet('shifts', shown: false));
+      final state = await settled();
+
+      expect(state.look.eventLook, ShareEventLook.outlined);
+      expect(share.hidden, isEmpty);
+      expect(state.outcome, isNull);
+    });
+  });
+
+  group('a setting shows from the tap, before its write has landed', () {
+    const shifts = CalendarCategory(
+      id: 'shifts',
+      name: 'Night shift',
+      colorValue: 0xFF3949AB,
+      iconKey: 'event',
+      sortOrder: 0,
+      isBuiltIn: false,
+      fromPartner: true,
+    );
+    const gym = CalendarCategory(
+      id: 'gym',
+      name: 'Gym',
+      colorValue: 0xFF43A047,
+      iconKey: 'fitness_center',
+      sortOrder: 1,
+      isBuiltIn: true,
+    );
+
+    /// What storage holds at one moment: the fake answers it as its
+    /// overview, whatever the bloc has shown ahead of it.
+    ShareOverview stored({bool shiftsShown = true, bool gymShown = true}) =>
+        ShareOverview(
+          categories: const [work],
+          partnerCategories: [
+            PartnerSharedCategory(
+              category: shifts,
+              joinsMine: false,
+              shown: shiftsShown,
+              eventCount: 18,
+            ),
+            PartnerSharedCategory(
+              category: gym,
+              joinsMine: true,
+              shown: gymShown,
+              eventCount: 9,
+            ),
+          ],
+        );
+
+    bool shownOf(ShareLoaded state, String id) => state
+        .overview
+        .partnerCategories
+        .firstWhere((shared) => shared.category.id == id)
+        .shown;
+
+    test('a hidden category reads hidden while its write is still held, '
+        'and nothing else moves', () async {
+      share.shareOverview = stored();
+      bloc.add(const ShareOpened());
+      await settled();
+      final gate = Completer<void>();
+      share.settingsHold = gate;
+
+      bloc.add(const ShareCategoryShownSet('shifts', shown: false));
+      final early = await settled();
+
+      expect(share.shownSets, isEmpty, reason: 'the write is still held');
+      expect(shownOf(early, 'shifts'), isFalse);
+      expect(shownOf(early, 'gym'), isTrue);
+      expect(early.overview.categories, const [work]);
+
+      share.shareOverview = stored(shiftsShown: false);
+      gate.complete();
+      final landed = await settled();
+      expect(share.shownSets, [('shifts', false)]);
+      expect(shownOf(landed, 'shifts'), isFalse);
+    });
+
+    test(
+      'a write that fails draws the switch back to what is stored',
+      () async {
+        share.shareOverview = stored();
+        bloc.add(const ShareOpened());
+        await settled();
+        final gate = Completer<void>();
+        share
+          ..settingsHold = gate
+          ..settingsFailure = StateError('disk');
+
+        bloc.add(const ShareCategoryShownSet('shifts', shown: false));
+        expect(shownOf(await settled(), 'shifts'), isFalse);
+
+        gate.complete();
+        expect(shownOf(await settled(), 'shifts'), isTrue);
+      },
+    );
+
+    test('the read after an earlier write keeps a later switch whose own '
+        'write is still on its way', () async {
+      share.shareOverview = stored();
+      bloc.add(const ShareOpened());
+      await settled();
+      final first = Completer<void>();
+      final second = Completer<void>();
+
+      share.settingsHold = first;
+      bloc.add(const ShareCategoryShownSet('shifts', shown: false));
+      await pumpEventQueue();
+      share.settingsHold = second;
+      bloc.add(const ShareCategoryShownSet('gym', shown: false));
+      await pumpEventQueue();
+
+      // The first write lands: storage holds it, and not yet the second.
+      share.shareOverview = stored(shiftsShown: false);
+      first.complete();
+      final between = await settled();
+      expect(share.shownSets, [('shifts', false)]);
+      expect(shownOf(between, 'shifts'), isFalse);
+      expect(shownOf(between, 'gym'), isFalse, reason: 'still on its way');
+
+      share.shareOverview = stored(shiftsShown: false, gymShown: false);
+      second.complete();
+      final landed = await settled();
+      expect(share.shownSets, [('shifts', false), ('gym', false)]);
+      expect(shownOf(landed, 'gym'), isFalse);
+    });
+
+    test('one switch flipped off and on again ends on, whatever the first '
+        'write\'s read says in between', () async {
+      share.shareOverview = stored();
+      bloc.add(const ShareOpened());
+      await settled();
+      final first = Completer<void>();
+      final second = Completer<void>();
+
+      share.settingsHold = first;
+      bloc.add(const ShareCategoryShownSet('shifts', shown: false));
+      await pumpEventQueue();
+      share.settingsHold = second;
+      bloc.add(const ShareCategoryShownSet('shifts', shown: true));
+      expect(shownOf(await settled(), 'shifts'), isTrue);
+
+      share.shareOverview = stored(shiftsShown: false);
+      first.complete();
+      expect(shownOf(await settled(), 'shifts'), isTrue);
+
+      share.shareOverview = stored();
+      second.complete();
+      expect(shownOf(await settled(), 'shifts'), isTrue);
+      expect(share.shownSets, [('shifts', false), ('shifts', true)]);
+    });
+
+    test('the look, the mark and the alert setting show at once too, each '
+        'over the others', () async {
+      bloc.add(const ShareOpened());
+      await settled();
+      final gate = Completer<void>();
+      share.settingsHold = gate;
+
+      bloc.add(const ShareEventLookSet(ShareEventLook.avatar));
+      bloc.add(const ShareMarkMineSet(false));
+      bloc.add(const ShareAlertsSet(ShareAlerts.category));
+      final early = await settled();
+
+      expect(share.look, ShareEventLook.outlined, reason: 'still held');
+      expect(
+        early.look,
+        const ShareLook(eventLook: ShareEventLook.avatar, markMine: false),
+      );
+      expect(early.alerts, ShareAlerts.category);
+
+      gate.complete();
+      final landed = await settled();
+      expect(share.look, ShareEventLook.avatar);
+      expect(
+        landed.look,
+        const ShareLook(eventLook: ShareEventLook.avatar, markMine: false),
+      );
+      expect(landed.alerts, ShareAlerts.category);
+    });
   });
 }

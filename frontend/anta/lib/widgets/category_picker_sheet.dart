@@ -10,8 +10,10 @@ import '../constants/row_metrics.dart';
 import '../constants/semantics_ids.dart';
 import '../l10n/app_localizations.dart';
 import '../models/calendar_category.dart';
+import '../models/partner_look.dart';
 import '../utils/category_search.dart';
 import '../utils/settings_search.dart';
+import '../utils/share_copy.dart';
 import 'category_editor_sheet.dart';
 import 'event_avatar.dart';
 import 'form_rows.dart';
@@ -74,6 +76,17 @@ class CategoryPickerSheet extends StatefulWidget {
   /// tick shares — so Done never hands over a category nobody ticked.
   final bool tickCreated;
 
+  /// A partner's own categories, listed in a second group under "From
+  /// {name}" after this person's (share surfaces §6.10): only the filter
+  /// sheets pass them, since a partner's category filters a view but is
+  /// never one an event of this person's may take. Empty leaves the sheet as
+  /// every other caller opens it.
+  final List<CalendarCategory> partner;
+
+  /// How the partner's rows draw their avatars and whose name heads their
+  /// group — the look the page hands its event rows.
+  final PartnerLook partnerLook;
+
   const CategoryPickerSheet({
     super.key,
     required this.mode,
@@ -84,6 +97,8 @@ class CategoryPickerSheet extends StatefulWidget {
     this.caption,
     this.counts,
     this.tickCreated = true,
+    this.partner = const [],
+    this.partnerLook = const PartnerLook(),
   });
 
   /// Picks one category. Returns its id, or `null` when dismissed.
@@ -117,7 +132,10 @@ class CategoryPickerSheet extends StatefulWidget {
   ///
   /// [title], [caption] and [counts] are the Sharing page's tick sheet's
   /// (share surfaces §6.3), and so is [tickCreated] false (case C9);
-  /// [identifier] names the sheet's root for a flow.
+  /// [identifier] names the sheet's root for a flow. [partner] and
+  /// [partnerLook] are the filter sheets' (§6.10): the returned set then
+  /// holds both kinds of ids, and the caller's "every listed row" check
+  /// must count the partner's too.
   static Future<Set<String>?> pickMulti(
     BuildContext context, {
     required Set<String> selected,
@@ -127,6 +145,8 @@ class CategoryPickerSheet extends StatefulWidget {
     Map<String, int>? counts,
     String? identifier,
     bool tickCreated = true,
+    List<CalendarCategory> partner = const [],
+    PartnerLook partnerLook = const PartnerLook(),
   }) {
     return _show(
       context,
@@ -138,6 +158,8 @@ class CategoryPickerSheet extends StatefulWidget {
       counts: counts,
       identifier: identifier,
       tickCreated: tickCreated,
+      partner: partner,
+      partnerLook: partnerLook,
     );
   }
 
@@ -152,6 +174,8 @@ class CategoryPickerSheet extends StatefulWidget {
     Map<String, int>? counts,
     String? identifier,
     bool tickCreated = true,
+    List<CalendarCategory> partner = const [],
+    PartnerLook partnerLook = const PartnerLook(),
   }) {
     final colorScheme = Theme.of(context).colorScheme;
     return showModalBottomSheet<Set<String>>(
@@ -181,6 +205,8 @@ class CategoryPickerSheet extends StatefulWidget {
             caption: caption,
             counts: counts,
             tickCreated: tickCreated,
+            partner: partner,
+            partnerLook: partnerLook,
           ),
         );
         return identifier == null
@@ -300,6 +326,19 @@ class _CategoryPickerSheetState extends State<CategoryPickerSheet> {
     ].join(' · ');
   }
 
+  /// A partner's row wears the look their events wear, but stays silent:
+  /// the group's "From {name}" already says whose every row is, and a
+  /// screen reader would otherwise hear it once per row (spec decision dk).
+  Widget _partnerAvatar(CalendarCategory category) {
+    final look = widget.partnerLook;
+    return EventAvatar(
+      icon: CalendarIcons.forKey(category.iconKey) ?? Icons.event_rounded,
+      color: category.color,
+      outlined: look.outlined,
+      badge: look.avatar ? EventAvatarBadge.partner(look.partner) : null,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
@@ -329,18 +368,31 @@ class _CategoryPickerSheetState extends State<CategoryPickerSheet> {
               ranked.category,
           ]
         : categories;
+    // The partner's group answers a query by the same ranking, apart, so
+    // their rows never interleave with this person's.
+    final partner = widget.partner;
+    final partnerRows = _isFiltering && partner.isNotEmpty
+        ? [
+            for (final ranked in rankCategories(_query, partner, l10n))
+              ranked.category,
+          ]
+        : partner;
+    // Every row on screen, both groups: what Select all and Select none act
+    // on, since they stand above both.
+    final onScreen = partnerRows.isEmpty ? rows : [...rows, ...partnerRows];
     // Short lists carry no search chrome; the threshold trips on its own as
     // the set grows. `_isFiltering` holds the field open once it is in use,
     // the same rule the management page follows: a list that is filtered with
     // no field left to clear it is stranded, and the two searchable category
     // surfaces must not disagree about when the field is there.
     final showSearch =
-        _isFiltering || categories.length > AppConstants.listSearchThreshold;
+        _isFiltering ||
+        categories.length + partner.length > AppConstants.listSearchThreshold;
     // Nothing matched: the typed text is almost certainly the name the user
     // wants, so the one row left offers to create it rather than to start
-    // over.
+    // over. A partner's row that matched means the name exists already.
     final typed = _searchController.text.trim();
-    final createTyped = rows.isEmpty && typed.isNotEmpty;
+    final createTyped = onScreen.isEmpty && typed.isNotEmpty;
     // The larger of the keyboard inset and the system's bottom inset pads the
     // scroll view, never the whole body — the clearance rule every calendar
     // sheet follows (`sheet_bottom_clearance_test.dart`).
@@ -399,7 +451,8 @@ class _CategoryPickerSheetState extends State<CategoryPickerSheet> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 FormRowGroup(
-                  trailingGap: false,
+                  // The section label below carries no top space of its own.
+                  trailingGap: partnerRows.isNotEmpty,
                   children: [
                     if (showSearch)
                       FormSearchRow(
@@ -412,22 +465,22 @@ class _CategoryPickerSheetState extends State<CategoryPickerSheet> {
                     // Disabled where they would be no-ops, or the enabled
                     // tint promises a change that costs a tap to discover is
                     // absent. Over the rows currently listed — see [_setAll].
-                    if (_isMulti && rows.isNotEmpty) ...[
+                    if (_isMulti && onScreen.isNotEmpty) ...[
                       FormActionRow(
                         glyph: Icons.done_all_rounded,
                         label: l10n.categoriesSelectAll,
                         identifier: SemanticsIds.categoryPickSelectAll,
-                        onTap: rows.every((c) => _selected.contains(c.id))
+                        onTap: onScreen.every((c) => _selected.contains(c.id))
                             ? null
-                            : () => _setAll(rows, true),
+                            : () => _setAll(onScreen, true),
                       ),
                       FormActionRow(
                         glyph: Icons.remove_done_rounded,
                         label: l10n.categoriesSelectNone,
                         identifier: SemanticsIds.categoryPickSelectNone,
-                        onTap: rows.every((c) => !_selected.contains(c.id))
+                        onTap: onScreen.every((c) => !_selected.contains(c.id))
                             ? null
-                            : () => _setAll(rows, false),
+                            : () => _setAll(onScreen, false),
                       ),
                     ],
                     for (final category in rows)
@@ -461,7 +514,28 @@ class _CategoryPickerSheetState extends State<CategoryPickerSheet> {
                       ),
                   ],
                 ),
-                if (rows.isEmpty && _isFiltering)
+                if (partnerRows.isNotEmpty) ...[
+                  FormSectionLabel(
+                    text: l10n.shareFromPartner(
+                      ShareCopy.partnerName(l10n, widget.partnerLook.name),
+                    ),
+                  ),
+                  FormRowGroup(
+                    trailingGap: false,
+                    children: [
+                      for (final category in partnerRows)
+                        FormCheckRow(
+                          leading: _partnerAvatar(category),
+                          label: CalendarCategories.labelOf(category, l10n),
+                          checked: _selected.contains(category.id),
+                          exclusive: !_isMulti,
+                          identifier: SemanticsIds.categoryPickRow(category.id),
+                          onChanged: (_) => _onTapCategory(category),
+                        ),
+                    ],
+                  ),
+                ],
+                if (onScreen.isEmpty && _isFiltering)
                   FormCaption(
                     text: l10n.noCategoriesMatch,
                     padding: FormMetrics.groupCaptionPadding,

@@ -164,11 +164,50 @@ class FakeShareService implements ShareService {
   Future<bool> isFromPartner(String table, String id) async =>
       partnerRows.contains('$table/$id');
 
+  /// Every [setCategoryShown] as `(id, shown)`, in order.
+  final List<(String, bool)> shownSets = [];
+
+  /// When set, every settings write throws it.
+  Object? settingsFailure;
+
+  /// When set, the next settings write waits on it before it stores, as a
+  /// real one waits on the calendar's reload.
+  Completer<void>? settingsHold;
+
+  Future<void> _settingsHeld() async {
+    final parked = settingsHold;
+    settingsHold = null;
+    if (parked != null) await parked.future;
+  }
+
+  @override
+  Future<void> setCategoryShown(String id, bool shown) async {
+    await _settingsHeld();
+    final failure = settingsFailure;
+    if (failure != null) throw failure;
+    shownSets.add((id, shown));
+    hidden = shown ? (Set.of(hidden)..remove(id)) : {...hidden, id};
+  }
+
+  /// Reads of [looks] and [alerts].
+  int settingsReads = 0;
+
+  @override
+  Future<ShareLook> looks() async {
+    settingsReads++;
+    return ShareLook(eventLook: look, markMine: mine);
+  }
+
   @override
   Future<ShareEventLook> eventLook() async => look;
 
   @override
-  Future<void> setEventLook(ShareEventLook value) async => look = value;
+  Future<void> setEventLook(ShareEventLook value) async {
+    await _settingsHeld();
+    final failure = settingsFailure;
+    if (failure != null) throw failure;
+    look = value;
+  }
 
   @override
   Future<bool> markMine() async => mine;
@@ -177,7 +216,10 @@ class FakeShareService implements ShareService {
   Future<void> setMarkMine(bool value) async => mine = value;
 
   @override
-  Future<ShareAlerts> alerts() async => shareAlerts;
+  Future<ShareAlerts> alerts() async {
+    settingsReads++;
+    return shareAlerts;
+  }
 
   @override
   Future<void> setAlerts(ShareAlerts value) async => shareAlerts = value;

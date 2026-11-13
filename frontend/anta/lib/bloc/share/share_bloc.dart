@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../models/share_overview.dart';
+import '../../models/share_settings.dart';
 import '../../services/calendar_event_service.dart';
 import '../../services/share_service.dart';
 import 'share_event.dart';
@@ -66,6 +67,79 @@ class ShareBloc extends Bloc<ShareEvent, ShareState> {
       },
       transformer: _oneAtATime,
     );
+    on<ShareCategoryShownSet>(
+      (event, emit) => _set(
+        emit,
+        'category shown',
+        (service) => service.setCategoryShown(event.categoryId, event.shown),
+        shows: (state) => state.copyWith(
+          overview: state.overview.withPartnerShown(
+            event.categoryId,
+            event.shown,
+          ),
+        ),
+      ),
+    );
+    on<ShareEventLookSet>(
+      (event, emit) => _set(
+        emit,
+        'look',
+        (service) => service.setEventLook(event.look),
+        shows: (state) => state.copyWith(
+          look: ShareLook(eventLook: event.look, markMine: state.look.markMine),
+        ),
+      ),
+    );
+    on<ShareMarkMineSet>(
+      (event, emit) => _set(
+        emit,
+        'mark mine',
+        (service) => service.setMarkMine(event.markMine),
+        shows: (state) => state.copyWith(
+          look: ShareLook(
+            eventLook: state.look.eventLook,
+            markMine: event.markMine,
+          ),
+        ),
+      ),
+    );
+    on<ShareAlertsSet>(
+      (event, emit) => _set(
+        emit,
+        'alerts',
+        (service) => service.setAlerts(event.alerts),
+        shows: (state) => state.copyWith(alerts: event.alerts),
+      ),
+    );
+  }
+
+  /// What the settings writes in flight will have stored, oldest first,
+  /// laid over every state emitted until each has landed. A switch shows
+  /// its new value from the tap — hiding a category reloads the calendar's
+  /// events before the write answers — and the read that follows an earlier
+  /// write cannot draw a later, still unwritten one back for a frame.
+  final List<ShareLoaded Function(ShareLoaded state)> _pending = [];
+
+  /// A receiver's setting: shown at once ([shows]), written, then the state
+  /// read back from what is stored — so a write that failed shows the value
+  /// that stands. No outcome: nothing here has a snackbar or an undo.
+  Future<void> _set(
+    Emitter<ShareState> emit,
+    String what,
+    Future<void> Function(ShareService service) write, {
+    required ShareLoaded Function(ShareLoaded state) shows,
+  }) async {
+    _pending.add(shows);
+    final shown = state;
+    if (shown is ShareLoaded) emit(shows(shown));
+    try {
+      await write(await _resolve());
+    } catch (e, st) {
+      debugPrint('[ShareBloc] $what not written: $e\n$st');
+    } finally {
+      _pending.remove(shows);
+    }
+    await _reload(emit);
   }
 
   /// Runs one act to its end before the next starts, in the order they
@@ -173,14 +247,36 @@ class ShareBloc extends Bloc<ShareEvent, ShareState> {
         return;
       }
     }
+    final availability = service.availability;
+    var look = const ShareLook();
+    var alerts = ShareAlerts.own;
+    final shown = state;
+    if (shown is ShareLoaded) {
+      look = shown.look;
+      alerts = shown.alerts;
+    }
+    // Only while paired: Sync & sharing loads this for an account that
+    // never paired too, and it must read nothing more for it.
+    if (availability is! ShareNotPaired) {
+      try {
+        look = await service.looks();
+        alerts = await service.alerts();
+      } catch (e, st) {
+        debugPrint('[ShareBloc] settings not read: $e\n$st');
+      }
+    }
     if (load != _loads) return;
-    emit(
-      ShareLoaded(
-        availability: service.availability,
-        overview: overview,
-        outcome: _outcome,
-      ),
+    var next = ShareLoaded(
+      availability: availability,
+      overview: overview,
+      look: look,
+      alerts: alerts,
+      outcome: _outcome,
     );
+    for (final shows in _pending) {
+      next = shows(next);
+    }
+    emit(next);
   }
 
   /// Re-resolved every time, as `PairingBloc` does: a database switch

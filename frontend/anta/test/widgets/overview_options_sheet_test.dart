@@ -6,6 +6,7 @@ import 'package:anta/constants/semantics_ids.dart';
 import 'package:anta/models/agenda_day_list_mode.dart';
 import 'package:anta/models/calendar_category.dart';
 import 'package:anta/models/overview_list_options.dart';
+import 'package:anta/models/partner_look.dart';
 import 'package:anta/widgets/form_rows.dart';
 
 import 'support/layout_errors.dart';
@@ -321,6 +322,111 @@ void main() {
       await robot.show(onChanged: writes.add, categoryIds: {'c2', 'c0'});
 
       expect(robot.categoriesValue, 'Cat0, Cat2');
+    });
+
+    /// A partner's own categories are offered in a group of their own
+    /// (share surfaces §6.10), as the agenda's filter offers them: the
+    /// overview lists a partner's events, so an allowlist must be able to
+    /// keep them. A hidden one (Choir) has no events here and no row.
+    group('a partner\'s categories', () {
+      const maria = PartnerLook(name: 'Maria');
+
+      setUp(() {
+        CalendarCategories.updateCache([
+          for (var i = 0; i < 2; i++)
+            CalendarCategory(
+              id: 'c$i',
+              name: 'Cat$i',
+              colorValue: 0xFF1E88E5,
+              iconKey: 'event',
+              sortOrder: i,
+              isBuiltIn: false,
+            ),
+          for (final (id, name) in const [
+            ('p-night', 'Night shift'),
+            ('p-choir', 'Choir'),
+          ])
+            CalendarCategory(
+              id: id,
+              name: name,
+              colorValue: 0xFF8E24AA,
+              iconKey: 'work',
+              sortOrder: 0,
+              isBuiltIn: false,
+              fromPartner: true,
+            ),
+        ]);
+        CalendarCategories.updatePartnerHidden({'p-choir'});
+      });
+
+      tearDown(() => CalendarCategories.updatePartnerHidden(const {}));
+
+      testWidgets('an empty allowlist opens both groups ticked; choosing one '
+          'of theirs is an allowlist of one', (tester) async {
+        final robot = OverviewOptionsRobot(tester);
+        await robot.show(
+          onChanged: writes.add,
+          onCategoriesChanged: picks.add,
+          partnerLook: maria,
+        );
+
+        await robot.openCategories();
+        expect(robot.pickerHasSection('From Maria'), isTrue);
+        expect(robot.pickerLists('p-choir'), isFalse);
+        for (final id in ['c0', 'c1', 'p-night']) {
+          expect(robot.pickerRowTicked(id), isTrue, reason: id);
+        }
+        await robot.pickerSelectNone();
+        await robot.togglePickerRow('p-night');
+        await robot.pickerDone();
+
+        expect(picks, [
+          {'p-night'},
+        ]);
+        expect(robot.categoriesValue, 'Night shift');
+      });
+
+      testWidgets('ticking only mine is a narrowing; ticking both groups '
+          'whole collapses to the empty allowlist', (tester) async {
+        final robot = OverviewOptionsRobot(tester);
+        await robot.show(
+          onChanged: writes.add,
+          onCategoriesChanged: picks.add,
+          partnerLook: maria,
+        );
+
+        await robot.pickCategories({'c0', 'c1'});
+        expect(picks.last, {'c0', 'c1'});
+        expect(robot.categoriesValue, 'Cat0, Cat1');
+
+        await robot.openCategories();
+        await robot.pickerSelectAll();
+        await robot.pickerDone();
+        expect(picks.last, isEmpty);
+        expect(robot.categoriesValue, robot.l10n.calendarFilterCategoriesAll);
+      });
+
+      testWidgets('the row counts over both groups and never names a stale '
+          'id', (tester) async {
+        final robot = OverviewOptionsRobot(tester);
+        await robot.show(
+          onChanged: writes.add,
+          categoryIds: {'c0', 'c1', 'p-night', 'p-choir', 'deleted'},
+          partnerLook: maria,
+        );
+        expect(
+          robot.categoriesValue,
+          'Cat0, Cat1 ${robot.l10n.categoriesMore(1)}',
+        );
+        await robot.close();
+
+        await robot.show(
+          onChanged: writes.add,
+          categoryIds: {'p-choir', 'deleted'},
+          partnerLook: maria,
+        );
+        expect(robot.categoriesValue, robot.l10n.calendarFilterNoCategories);
+      });
     });
   });
 }

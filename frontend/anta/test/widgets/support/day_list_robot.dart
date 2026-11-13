@@ -308,6 +308,10 @@ class DayListRobot {
 
   bool get headerSubtitleWrapsFreely => _subtitleCaption.maxLines == null;
 
+  /// What a screen reader hears on the subtitle's line. Needs semantics on.
+  String get headerSubtitleSpoken =>
+      _nodeOf(find.byWidget(_subtitleCaption)).label;
+
   /// Whether the scrolling body carries its id, as one container node.
   bool get bodyNodeShown =>
       _shown(find.bySemanticsIdentifier(SemanticsIds.dayListBody));
@@ -474,6 +478,11 @@ class DayListRobot {
 
   /// How many times the sheet draws [text].
   int countOf(String text) => _drawing(text).evaluate().length;
+
+  /// The caption under the first entry titled [title] — its time or "All
+  /// day", its repeat pattern.
+  String? captionOf(String title) =>
+      tester.widget<FormPickerRow>(_entryRow(title)).caption;
 
   /// How many lines the one text [text] took.
   int textLines(String text) => _linesOf(_in(find.text(text)));

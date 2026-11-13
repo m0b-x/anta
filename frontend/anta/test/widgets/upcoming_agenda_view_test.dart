@@ -14,8 +14,10 @@ import 'package:anta/models/calendar_appearance.dart';
 import 'package:anta/models/calendar_category.dart';
 import 'package:anta/models/calendar_event.dart';
 import 'package:anta/models/fasting_appearance.dart';
+import 'package:anta/models/partner_look.dart';
 import 'package:anta/models/recurrence_rule.dart';
 import 'package:anta/models/upcoming_agenda_filters.dart';
+import 'package:anta/services/event_time_formatter.dart';
 import 'package:anta/utils/event_agenda.dart';
 import 'package:anta/widgets/agenda_list_view.dart';
 import 'package:anta/widgets/upcoming_agenda_view.dart';
@@ -72,6 +74,7 @@ void main() {
     void Function(String eventId, DateTime day)? onEditEvent,
     List<CalendarEvent>? events,
     CalendarMissedDisplay missedDisplay = CalendarMissedDisplay.faded,
+    PartnerLook partnerLook = const PartnerLook(),
   }) {
     return tester.pumpWidget(
       MaterialApp(
@@ -91,6 +94,7 @@ void main() {
             onOpenNote: (_) {},
             appearance: const CalendarAppearance(),
             missedDisplay: missedDisplay,
+            partnerLook: partnerLook,
           ),
         ),
       ),
@@ -1431,6 +1435,130 @@ void main() {
       // Nothing is left on the 14th, so the grid treats it as an empty day.
       expect(dayList.isDayFaded(14), isTrue);
       expect(dayList.isDayFaded(15), isFalse);
+    });
+  });
+
+  /// A partner's events in Upcoming's category cards
+  /// (`docs/cloud-share-surfaces-roadmap.md` §6.7, §6.10): the drill-down of
+  /// a partner's own category says whose it is, and a partner's timed event
+  /// reads its time on every row of the path, never "All day".
+  group('a partner\'s category card', () {
+    const maria = PartnerLook(name: 'Maria');
+    final anchor = DateTime.utc(2026, 8, 10);
+    const summary = UpcomingAgendaFilters(
+      rangeDays: 30,
+      eventDisplay: AgendaEventDisplay.summary,
+    );
+    const nightShift = EventTime(startMinute: 21 * 60, durationMinutes: 600);
+
+    final wardRound = CalendarEvent(
+      id: 'p1',
+      title: 'Ward round',
+      categoryId: 'p-wards',
+      startDate: anchor,
+      time: nightShift,
+      fromPartner: true,
+    );
+
+    setUp(() {
+      CalendarCategories.updateCache([
+        for (final (index, seed) in CalendarCategories.builtInSeeds.indexed)
+          CalendarCategory(
+            id: seed.id,
+            name: seed.kind.name,
+            colorValue: seed.colorValue,
+            iconKey: seed.iconKey,
+            sortOrder: index,
+            isBuiltIn: true,
+          ),
+        const CalendarCategory(
+          id: 'p-wards',
+          name: 'Wards',
+          colorValue: 0xFF8E24AA,
+          iconKey: 'work',
+          sortOrder: 0,
+          isBuiltIn: false,
+          fromPartner: true,
+        ),
+      ]);
+    });
+    tearDown(() => CalendarCategories.updateCache(const []));
+
+    testWidgets('its drill-down says "From Maria" first; a built-in\'s '
+        'holding mine and theirs says nothing new', (tester) async {
+      final handle = tester.ensureSemantics();
+      await pumpView(
+        tester,
+        anchorDay: anchor,
+        filters: summary,
+        events: [
+          daily,
+          wardRound,
+          CalendarEvent(
+            id: 'p2',
+            title: 'Their leg day',
+            categoryId: 'gym',
+            startDate: anchor,
+            fromPartner: true,
+          ),
+        ],
+        partnerLook: maria,
+      );
+
+      final dayList = DayListRobot(tester);
+      await dayList.openFromCard(key: 'category:p-wards');
+      expect(dayList.headerTitle, 'Wards');
+      expect(
+        dayList.headerSubtitleSpoken,
+        'From Maria\n${dayList.headerSubtitle}',
+      );
+      await dayList.close();
+
+      await dayList.openFromCard(key: 'category:gym');
+      expect(dayList.headerSubtitleSpoken, isNot(startsWith('From')));
+      handle.dispose();
+    });
+
+    testWidgets('the allowlist chip counts a partner\'s category, never an '
+        'id that no longer lists, in the wording it always had', (
+      tester,
+    ) async {
+      await pumpView(
+        tester,
+        anchorDay: anchor,
+        filters: summary.copyWith(categoryIds: {'p-wards', 'deleted'}),
+        events: [wardRound],
+        partnerLook: maria,
+      );
+
+      expect(find.widgetWithText(InputChip, 'Categories (1)'), findsOneWidget);
+    });
+
+    testWidgets('a partner\'s timed event reads its time on the card\'s '
+        'drill-down: its list, and its year\'s tile opened to the day', (
+      tester,
+    ) async {
+      await pumpView(
+        tester,
+        anchorDay: anchor,
+        filters: summary,
+        events: [wardRound],
+        partnerLook: maria,
+      );
+      final time = EventTimeFormatter.formatRange(
+        nightShift,
+        lookupAppLocalizations(const Locale('en')),
+      );
+
+      final dayList = DayListRobot(tester);
+      await dayList.openFromCard(key: 'category:p-wards');
+      expect(dayList.captionOf('Ward round'), time);
+
+      await dayList.pickMode(AgendaDayListMode.year);
+      await dayList.pickScope(AgendaDayListYearScope.calendarYear);
+      await dayList.tapTile(DateFormat.yMMM('en').format(anchor));
+      await dayList.scrollMonthBody();
+      expect(dayList.captionOf('Ward round'), time);
     });
   });
 }

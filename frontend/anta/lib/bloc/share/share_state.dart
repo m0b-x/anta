@@ -1,6 +1,7 @@
 import 'package:equatable/equatable.dart';
 
 import '../../models/share_overview.dart';
+import '../../models/share_settings.dart';
 import '../../services/share_service.dart';
 
 /// The page's act an outcome answers, so it words the snackbar.
@@ -64,15 +65,38 @@ final class ShareLoaded extends ShareState {
   final ShareAvailability availability;
   final ShareOverview overview;
 
+  /// The receiver's two looks as stored, read with the overview while
+  /// paired; the shipped values otherwise, read from nowhere.
+  final ShareLook look;
+
+  /// What may ring for a partner's event, on the same terms as [look].
+  final ShareAlerts alerts;
+
   /// The last act's, kept across the reloads after it.
   final ShareOutcome? outcome;
 
   const ShareLoaded({
     required this.availability,
     required this.overview,
+    this.look = const ShareLook(),
+    this.alerts = ShareAlerts.own,
     this.outcome,
   });
 
+  /// This state with what a receiver's setting write in flight will have
+  /// stored — the only fields such a write can change.
+  ShareLoaded copyWith({
+    ShareOverview? overview,
+    ShareLook? look,
+    ShareAlerts? alerts,
+  }) => ShareLoaded(
+    availability: availability,
+    overview: overview ?? this.overview,
+    look: look ?? this.look,
+    alerts: alerts ?? this.alerts,
+    outcome: outcome,
+  );
+
   @override
-  List<Object?> get props => [availability, overview, outcome];
+  List<Object?> get props => [availability, overview, look, alerts, outcome];
 }

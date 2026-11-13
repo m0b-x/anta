@@ -14,6 +14,7 @@ import '../l10n/app_localizations.dart';
 import '../models/calendar_category.dart';
 import '../models/calendar_event.dart';
 import '../models/calendar_grid_filters.dart';
+import '../models/partner_look.dart';
 import '../models/upcoming_agenda_filters.dart';
 import '../services/filter_preset_service.dart';
 import '../services/folder_search_service.dart' show normalizeForSearch;
@@ -55,10 +56,15 @@ class CalendarFilterSheet extends StatefulWidget {
   /// returns the draft.
   final bool sandbox;
 
+  /// The page's look for a partner's events, handed to the category
+  /// picker's "From {name}" group so its avatars match the grid's.
+  final PartnerLook partnerLook;
+
   const CalendarFilterSheet({
     super.key,
     required this.initialFilters,
     this.sandbox = false,
+    this.partnerLook = const PartnerLook(),
   });
 
   /// The sub-sheet shape: as tall as its content, clamped at the editor's
@@ -67,6 +73,7 @@ class CalendarFilterSheet extends StatefulWidget {
     BuildContext context, {
     required CalendarGridFilters filters,
     bool sandbox = false,
+    PartnerLook partnerLook = const PartnerLook(),
   }) {
     final colorScheme = Theme.of(context).colorScheme;
     return showModalBottomSheet<CalendarGridFilters>(
@@ -85,7 +92,11 @@ class CalendarFilterSheet extends StatefulWidget {
           maxHeight:
               MediaQuery.sizeOf(context).height * FormMetrics.sheetHeightFactor,
         ),
-        child: CalendarFilterSheet(initialFilters: filters, sandbox: sandbox),
+        child: CalendarFilterSheet(
+          initialFilters: filters,
+          sandbox: sandbox,
+          partnerLook: partnerLook,
+        ),
       ),
     );
   }
@@ -295,33 +306,55 @@ class _CalendarFilterSheetState extends State<CalendarFilterSheet> {
   ///
   /// An empty picker (every category archived) has no listed row to tick, so
   /// its Done is no such answer and the archived denials stay.
+  ///
+  /// A partner's shown categories are listed and denied like this person's
+  /// (share surfaces §6.10) — the ones the picker was **handed**, never a
+  /// re-read: a category that arrives while it is open was never offered,
+  /// and an answer that could not tick it must not deny it. A partner's id
+  /// that has since left the list (unshared, or hidden on the Sharing page)
+  /// drops out of the denylist the next time it is rebuilt, the path a
+  /// deleted category of this person's already takes.
   Future<void> _pickCategories() => _guarded(() async {
+    final partner = _partner;
     final picked = await CategoryPickerSheet.pickMulti(
       context,
       selected: {
-        for (final c in CalendarCategories.visiblePlus(_hidden))
+        for (final c in [
+          ...CalendarCategories.visiblePlus(_hidden),
+          ...partner,
+        ])
           if (!_hidden.contains(c.id)) c.id,
       },
       sandbox: widget.sandbox,
+      partner: partner,
+      partnerLook: widget.partnerLook,
     );
     if (picked == null || !mounted) return;
     // Read again after the picker returns, never from the build that opened
     // it: a category created inside the picker is visible now, and an answer
     // that omits it must deny it.
-    final visible = CalendarCategories.visible;
+    final listed = [...CalendarCategories.visible, ...partner];
     final everyListedRow =
-        visible.isNotEmpty && visible.every((c) => picked.contains(c.id));
+        listed.isNotEmpty && listed.every((c) => picked.contains(c.id));
     _update(
       _draft.copyWith(
         hiddenCategoryIds: everyListedRow
             ? const {}
             : {
-                for (final c in CalendarCategories.visiblePlus(_hidden))
+                for (final c in [
+                  ...CalendarCategories.visiblePlus(_hidden),
+                  ...partner,
+                ])
                   if (!picked.contains(c.id)) c.id,
               },
       ),
     );
   });
+
+  /// A partner's shown categories, offered after this person's; none in a
+  /// sandbox, whose demo events are never a partner's.
+  List<CalendarCategory> get _partner =>
+      widget.sandbox ? const [] : CalendarCategories.partnerShown;
 
   Future<void> _pickPriorities(AppLocalizations l10n) => _guarded(() async {
     final picked = await FilterCheckListSheet.show(
@@ -428,8 +461,9 @@ class _CalendarFilterSheetState extends State<CalendarFilterSheet> {
   ];
 
   /// "All", the shown categories by name, or "No categories" — counted over
-  /// the offered catalog, so a stale id left by a deleted category cannot
-  /// make the row lie.
+  /// the offered catalog, a partner's shown ones included, so a stale id
+  /// left by a deleted category or one a partner stopped sharing cannot make
+  /// the row lie.
   String _categoriesValue(
     AppLocalizations l10n,
     List<CalendarCategory> categories,
@@ -482,7 +516,9 @@ class _CalendarFilterSheetState extends State<CalendarFilterSheet> {
     // Hidden categories leave every choosing surface, but a denylist already
     // holding an archived id must still offer it or the user cannot un-hide
     // what they can no longer see.
-    final categories = CalendarCategories.visiblePlus(_hidden);
+    final mine = CalendarCategories.visiblePlus(_hidden);
+    final partner = _partner;
+    final categories = partner.isEmpty ? mine : [...mine, ...partner];
     final savedName = _savedName;
     return Column(
       mainAxisSize: MainAxisSize.min,

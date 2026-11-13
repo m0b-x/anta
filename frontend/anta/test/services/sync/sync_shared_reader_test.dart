@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:anta/constants/calendar_categories.dart';
 import 'package:anta/constants/event_presence.dart';
+import 'package:anta/constants/settings_keys.dart';
 import 'package:anta/database/crdt/hlc.dart';
 import 'package:anta/database/daos/sync_dao.dart';
 import 'package:anta/database/database.dart';
@@ -12,6 +13,7 @@ import 'package:anta/services/calendar_event_service.dart';
 import 'package:anta/services/category_service.dart';
 import 'package:anta/services/event_occurrence_service.dart';
 import 'package:anta/services/event_skip_service.dart';
+import 'package:anta/services/settings_service.dart';
 import 'package:anta/services/sync/sync_cadence.dart';
 import 'package:anta/services/sync/sync_engine.dart';
 import 'package:anta/services/sync/sync_gateway.dart';
@@ -106,12 +108,21 @@ void main() {
     pair.partners.local.clear();
     pair.partners.pairs.clear();
     await event(partner(), 'own');
+    partner().statements.reset();
 
     await partner().sync();
     await partner().sync();
 
     expect(pair.partners.asked, isEmpty);
     expect(sharedCalls(), isEmpty);
+    expect(
+      partner().statements.captured.where(
+        (statement) =>
+            statement.args.contains(SettingsKeys.shareHiddenCategories),
+      ),
+      isEmpty,
+      reason: 'no choice of what shows is read',
+    );
   });
 
   test('the Sharing page\'s read on an account that never paired asks '
@@ -1137,6 +1148,102 @@ void main() {
         ))?.id,
         'profile',
       );
+    });
+
+    group('hidden on this phone (share surfaces §6.4, D11)', () {
+      Future<Set<String>> hidden() =>
+          SettingsService.shareHiddenCategoriesOf(partner().db);
+      Future<void> hide(Set<String> ids) =>
+          SettingsService.setShareHiddenCategoriesOf(partner().db, ids);
+
+      test('stays hidden while it is shared, read after read', () async {
+        await pair.syncBoth();
+        await hide({'climb'});
+
+        await pair.syncBoth();
+        await pair.syncBoth();
+
+        expect(await hidden(), {'climb'});
+      });
+
+      test('made private, it leaves the hidden set with its share — the '
+          'calendar told — so sharing it again starts shown', () async {
+        await category(owner(), 'gym', builtIn: true);
+        await owner().db.calendarCategoryDao.setSharedPair('gym', sharePairId);
+        await pair.syncBoth();
+        await hide({'climb', 'gym'});
+
+        await owner().db.calendarCategoryDao.setSharedPair('climb', null);
+        partner().hooks.runs.clear();
+        await pair.syncBoth();
+
+        expect(await hidden(), {'gym'});
+        expect(partner().hooks.runs.last, contains(SyncInvalidation.calendar));
+
+        await owner().db.calendarCategoryDao.setSharedPair(
+          'climb',
+          sharePairId,
+        );
+        await pair.syncBoth();
+        expect((await categoryOn(partner(), 'climb'))!.ownerId, ownerUid);
+        expect(await hidden(), {'gym'});
+      });
+
+      test('a built-in the owner stops sharing leaves it too', () async {
+        await category(owner(), 'gym', builtIn: true);
+        await owner().db.calendarCategoryDao.setSharedPair('gym', sharePairId);
+        await pair.syncBoth();
+        await hide({'gym'});
+
+        await owner().db.calendarCategoryDao.setSharedPair('gym', null);
+        await pair.syncBoth();
+
+        expect(await hidden(), isEmpty);
+      });
+
+      test('deleted by its owner, it leaves it', () async {
+        await pair.syncBoth();
+        await hide({'climb'});
+
+        await owner().db.calendarCategoryDao.tombstoneCascade(
+          'climb',
+          reassignTo: 'general',
+        );
+        await pair.syncBoth();
+
+        expect(await hidden(), isEmpty);
+      });
+
+      test('the pair ended, or another pair made, empties it: another pair\'s '
+          'built-ins must not start hidden by this one\'s choices', () async {
+        await pair.syncBoth();
+        await hide({'climb', 'gym'});
+
+        pair.end();
+        await partner().sync();
+
+        expect(await hidden(), isEmpty);
+      });
+
+      test('a read with nothing hidden reads the setting once and nothing '
+          'more', () async {
+        await pair.syncBoth();
+        partner().statements.reset();
+
+        await partner().sync();
+
+        final reads = [
+          for (final statement in partner().statements.captured)
+            if (statement.args.contains(SettingsKeys.shareHiddenCategories))
+              statement,
+        ];
+        expect(reads, hasLength(1));
+        expect(
+          partner().statements.matching('WHERE owner_id = ? AND is_deleted'),
+          isEmpty,
+          reason: 'the shared categories are read only to prune',
+        );
+      });
     });
 
     test('deleted by its owner, arrives as a deletion, and its events, moved '

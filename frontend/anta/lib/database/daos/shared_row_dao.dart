@@ -488,6 +488,20 @@ class SharedRowDao extends DatabaseAccessor<AppDatabase>
         key.substring(SyncDao.sharedBuiltInPrefix.length),
   };
 
+  /// Every category [owner] shares with this database now, by id: their own
+  /// live rows held here, and [sharedBuiltIns] — what a choice to hide one
+  /// on this phone may still name.
+  Future<Set<String>> sharedCategoryIds(String owner) async => {
+    for (final row in await customSelect(
+      'SELECT id FROM calendar_categories '
+      'WHERE owner_id = ? AND is_deleted = 0',
+      variables: [Variable<String>(owner)],
+      readsFrom: {db.calendarCategories},
+    ).get())
+      row.read<String>('id'),
+    ...await sharedBuiltIns(),
+  };
+
   /// Removes the rows of [table] this database holds of [owner]'s whose key
   /// is not among [kept] — the keys a read of the whole share just returned
   /// — and says what it removed. A removed note's text goes with it; what

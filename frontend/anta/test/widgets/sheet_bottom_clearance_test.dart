@@ -88,6 +88,8 @@ import 'package:anta/bloc/share/share_bloc.dart';
 import 'package:anta/models/share_overview.dart';
 import 'package:anta/services/share_service.dart';
 import 'package:anta/widgets/share_events_sheets.dart';
+import 'package:anta/widgets/shared_categories_sheet.dart';
+import 'package:anta/widgets/shared_category_sheet.dart';
 
 import '../database/support/db_test_support.dart';
 import '../services/pairing_support.dart';
@@ -394,6 +396,90 @@ void main() {
       scrollBottomPadding(tester),
       greaterThanOrEqualTo(navBar),
       reason: 'the last of the partner\'s events ends the list',
+    );
+  });
+
+  /// The Sharing page's bloc over a fake, the partner sharing one category
+  /// of their own.
+  Future<ShareBloc> shareBlocWithCategory(WidgetTester tester) async {
+    final service =
+        FakeShareService(
+            availability: const ShareReady(
+              ShareAudience(id: 'pair-1', displayName: 'Maria', members: []),
+            ),
+          )
+          ..shareOverview = const ShareOverview(
+            partnerCategories: [
+              PartnerSharedCategory(
+                category: CalendarCategory(
+                  id: 'p-night',
+                  name: 'Night shift',
+                  colorValue: 0xFF3949AB,
+                  iconKey: 'work',
+                  sortOrder: 0,
+                  isBuiltIn: false,
+                  fromPartner: true,
+                ),
+                joinsMine: false,
+                shown: true,
+                eventCount: 18,
+              ),
+            ],
+          );
+    final bloc = ShareBloc(
+      service: () async => service,
+      calendarChanges: const Stream.empty(),
+    );
+    addTearDown(bloc.close);
+    bloc.add(const ShareOpened());
+    await tester.runAsync(
+      () => bloc.stream.firstWhere((state) => state is ShareLoaded),
+    );
+    return bloc;
+  }
+
+  testWidgets('the partner\'s categories sheet clears the navigation bar', (
+    tester,
+  ) async {
+    sizeSurfaceWithNavBar(tester);
+    final bloc = await shareBlocWithCategory(tester);
+    await openFrom(
+      tester,
+      (context) => SharedCategoriesSheet.show(
+        context,
+        bloc: bloc,
+        partner: const PartnerLook(name: 'Maria'),
+      ),
+    );
+
+    expect(find.text('Night shift'), findsOneWidget);
+    expect(
+      scrollBottomPadding(tester),
+      greaterThanOrEqualTo(navBar),
+      reason: 'the last shared category and its switch end the list',
+    );
+  });
+
+  testWidgets('one shared category\'s sheet clears the navigation bar', (
+    tester,
+  ) async {
+    sizeSurfaceWithNavBar(tester);
+    final bloc = await shareBlocWithCategory(tester);
+    await openFrom(
+      tester,
+      (context) => SharedCategorySheet.show(
+        context,
+        bloc: bloc,
+        categoryId: 'p-night',
+        partner: const PartnerLook(name: 'Maria'),
+      ),
+    );
+
+    expect(find.text('Night shift'), findsOneWidget);
+    expect(
+      scrollBottomPadding(tester),
+      greaterThanOrEqualTo(navBar),
+      reason: 'Add alert and the caption under it end the body',
     );
   });
 

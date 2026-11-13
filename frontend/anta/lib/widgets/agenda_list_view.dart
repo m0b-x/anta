@@ -984,6 +984,13 @@ class AgendaListView extends StatelessWidget {
               // could speak for it.
               priorityBadge: null,
               secondaryLine: rangeLabel,
+              // A partner's own category holds their events alone, so its
+              // card says whose they are as their rows do; a shared built-in
+              // folds theirs into mine and stays mine.
+              partner:
+                  CalendarCategories.resolve(summary.categoryId).fromPartner
+                  ? partnerLook
+                  : null,
               onTap: () => onDaySelected(summary.first),
               onShowAll: onShowDayList == null
                   ? null
@@ -1205,7 +1212,8 @@ class _AgendaCard extends StatelessWidget {
   /// Null for every row that is not a summary card.
   final String? secondaryLine;
 
-  /// The page's look when the card's event is a partner's; null for mine.
+  /// The page's look when the card's event — or, on a category card, its
+  /// category — is a partner's; null for mine.
   final PartnerLook? partner;
 
   /// The page's look when the card's event is one of mine that I share.
